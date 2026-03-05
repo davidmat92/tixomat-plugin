@@ -91,6 +91,80 @@
     font-size: 13px;
 }
 
+/* ── Vergleichszeitraum Controls ── */
+.tix-compare-controls {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid #f1f3f5;
+}
+.tix-compare-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    color: #334155;
+    cursor: pointer;
+    user-select: none;
+}
+.tix-compare-toggle input[type="checkbox"] {
+    width: 15px;
+    height: 15px;
+    accent-color: #6366f1;
+    cursor: pointer;
+}
+.tix-compare-options {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+.tix-compare-options select {
+    padding: 5px 8px;
+    border: 1px solid #dfe2e6;
+    border-radius: 8px;
+    font-size: 12px;
+    color: #0f172a;
+    background: #fff;
+}
+.tix-compare-options select:focus {
+    border-color: #6366f1;
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(99,102,241,0.15);
+}
+.tix-compare-custom-dates {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.tix-compare-custom-dates input[type="date"] {
+    padding: 5px 8px;
+    border: 1px solid #dfe2e6;
+    border-radius: 8px;
+    font-size: 12px;
+    color: #0f172a;
+    background: #fff;
+}
+.tix-compare-custom-dates input[type="date"]:focus {
+    border-color: #6366f1;
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(99,102,241,0.15);
+}
+.tix-compare-custom-dates span {
+    color: #94a3b8;
+    font-size: 13px;
+}
+.tix-compare-label {
+    font-size: 12px;
+    font-style: italic;
+    color: #94a3b8;
+    white-space: nowrap;
+}
+
 /* ── KPI Cards ── */
 .tix-stats-kpi {
     display: grid;
@@ -133,6 +207,23 @@
     display: block;
     font-weight: 550;
 }
+.tix-kpi-has-compare {
+    padding-bottom: 12px;
+}
+.tix-kpi-compare-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px dashed #e2e8f0;
+}
+.tix-kpi-compare-val {
+    font-size: 15px;
+    font-weight: 600;
+    color: #6b7280;
+}
 .tix-stats-kpi-trend {
     display: inline-block;
     font-size: 11px;
@@ -140,6 +231,9 @@
     margin-top: 4px;
     padding: 1px 7px;
     border-radius: 20px;
+}
+.tix-kpi-compare-row .tix-stats-kpi-trend {
+    margin-top: 0;
 }
 .tix-trend-up {
     color: #059669;
@@ -300,6 +394,19 @@
     .tix-stats-kpi-num {
         font-size: 18px;
     }
+    .tix-compare-controls {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+    }
+    .tix-compare-options {
+        flex-direction: column;
+        align-items: flex-start;
+        width: 100%;
+    }
+    .tix-compare-options select {
+        width: 100%;
+    }
 }
 @media (max-width: 480px) {
     .tix-stats-kpi {
@@ -307,5 +414,12 @@
     }
     .tix-stats-presets {
         flex-wrap: wrap;
+    }
+    .tix-compare-custom-dates {
+        flex-direction: column;
+        width: 100%;
+    }
+    .tix-compare-custom-dates input[type="date"] {
+        width: 100%;
     }
 }

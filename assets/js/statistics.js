@@ -24,11 +24,15 @@
 
     /* ── Filters ── */
     var filters = {
-        date_from: dateDaysAgo(30),
-        date_to:   dateToday(),
-        event_id:    '',
-        location_id: '',
-        category_id: ''
+        date_from:    dateDaysAgo(30),
+        date_to:      dateToday(),
+        event_id:     '',
+        location_id:  '',
+        category_id:  '',
+        compare_mode: false,
+        compare_type: 'previous',
+        compare_from: '',
+        compare_to:   ''
     };
 
     function dateToday() {
@@ -42,6 +46,50 @@
     function dateYearStart() {
         return new Date().getFullYear() + '-01-01';
     }
+    function formatDateDE(dateStr) {
+        if (!dateStr) return '';
+        var d = new Date(dateStr + 'T00:00:00');
+        return d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    }
+
+    /* ── Vergleichszeitraum berechnen ── */
+    function resolveComparisonDates() {
+        if (!filters.compare_mode) return;
+        if (filters.compare_type === 'custom') return; // manuelle Eingabe
+
+        var from = new Date(filters.date_from + 'T00:00:00');
+        var to   = new Date(filters.date_to + 'T00:00:00');
+
+        if (isNaN(from.getTime()) || isNaN(to.getTime())) return;
+
+        var days = Math.round((to - from) / 86400000);
+
+        if (filters.compare_type === 'previous') {
+            var prevTo   = new Date(from);
+            prevTo.setDate(prevTo.getDate() - 1);
+            var prevFrom = new Date(prevTo);
+            prevFrom.setDate(prevFrom.getDate() - days);
+            filters.compare_from = prevFrom.toISOString().slice(0, 10);
+            filters.compare_to   = prevTo.toISOString().slice(0, 10);
+        } else if (filters.compare_type === 'previous_year') {
+            var yearFrom = new Date(from);
+            yearFrom.setFullYear(yearFrom.getFullYear() - 1);
+            var yearTo = new Date(to);
+            yearTo.setFullYear(yearTo.getFullYear() - 1);
+            filters.compare_from = yearFrom.toISOString().slice(0, 10);
+            filters.compare_to   = yearTo.toISOString().slice(0, 10);
+        }
+    }
+
+    function updateCompareLabel() {
+        var $label = $('#tix-compare-label');
+        if (!$label.length) return;
+        if (!filters.compare_mode || !filters.compare_from || !filters.compare_to) {
+            $label.text('');
+            return;
+        }
+        $label.text('Vergleich: ' + formatDateDE(filters.compare_from) + ' – ' + formatDateDE(filters.compare_to));
+    }
 
     /* ── Init ── */
     $(function() {
@@ -49,6 +97,7 @@
         initFilterPresets();
         initFilterDates();
         initFilterSelects();
+        initCompare();
         initTabs();
         initExport();
         loadTabData('overview');
@@ -128,7 +177,32 @@
         });
     }
 
+    /* ── Vergleichszeitraum Controls ── */
+    function initCompare() {
+        $('#tix-compare-mode').on('change', function() {
+            filters.compare_mode = this.checked;
+            $('.tix-compare-options').toggle(filters.compare_mode);
+            invalidateAndReload();
+        });
+
+        $('#tix-compare-type').on('change', function() {
+            filters.compare_type = $(this).val();
+            $('.tix-compare-custom-dates').toggle(filters.compare_type === 'custom');
+            invalidateAndReload();
+        });
+
+        $('#tix-compare-from, #tix-compare-to').on('change', function() {
+            filters.compare_from = $('#tix-compare-from').val();
+            filters.compare_to   = $('#tix-compare-to').val();
+            if (filters.compare_from && filters.compare_to) {
+                invalidateAndReload();
+            }
+        });
+    }
+
     function invalidateAndReload() {
+        resolveComparisonDates();
+        updateCompareLabel();
         cache = {};
         loadedTabs = {};
         loadTabData(activeTab);
@@ -189,15 +263,24 @@
 
         showLoading(tab);
 
-        $.post(tixStats.ajaxurl, {
-            action:      'tix_stats_' + tab,
-            nonce:       tixStats.nonce,
-            date_from:   filters.date_from,
-            date_to:     filters.date_to,
-            event_id:    filters.event_id,
-            location_id: filters.location_id,
-            category_id: filters.category_id
-        }, function(response) {
+        var postData = {
+            action:       'tix_stats_' + tab,
+            nonce:        tixStats.nonce,
+            date_from:    filters.date_from,
+            date_to:      filters.date_to,
+            event_id:     filters.event_id,
+            location_id:  filters.location_id,
+            category_id:  filters.category_id
+        };
+
+        // Vergleichs-Parameter mitschicken
+        if (filters.compare_mode && filters.compare_from && filters.compare_to) {
+            postData.compare_mode = '1';
+            postData.compare_from = filters.compare_from;
+            postData.compare_to   = filters.compare_to;
+        }
+
+        $.post(tixStats.ajaxurl, postData, function(response) {
             if (response.success && response.data) {
                 cache[ck] = response.data;
                 renderTab(tab, response.data);
@@ -235,19 +318,33 @@
                     trendText  = '±0%';
                 }
             }
-            $c.append(
-                '<div class="tix-stats-kpi-card">' +
-                    '<span class="tix-stats-kpi-icon dashicons ' + kpi.icon + '"></span>' +
-                    '<span class="tix-stats-kpi-num">' + kpi.value + '</span>' +
-                    '<span class="tix-stats-kpi-lbl">' + kpi.label + '</span>' +
+
+            var hasCompare = kpi.compare !== null && kpi.compare !== undefined;
+
+            var html = '<div class="tix-stats-kpi-card' + (hasCompare ? ' tix-kpi-has-compare' : '') + '">' +
+                '<span class="tix-stats-kpi-icon dashicons ' + kpi.icon + '"></span>' +
+                '<span class="tix-stats-kpi-num">' + kpi.value + '</span>' +
+                '<span class="tix-stats-kpi-lbl">' + kpi.label + '</span>';
+
+            if (hasCompare) {
+                html += '<div class="tix-kpi-compare-row">' +
+                    '<span class="tix-kpi-compare-val">' + kpi.compare + '</span>' +
                     (trendText ? '<span class="tix-stats-kpi-trend ' + trendClass + '">' + trendText + '</span>' : '') +
-                '</div>'
-            );
+                '</div>';
+            } else if (trendText) {
+                html += '<span class="tix-stats-kpi-trend ' + trendClass + '">' + trendText + '</span>';
+            }
+
+            html += '</div>';
+            $c.append(html);
         });
     }
 
     function renderCharts(tab, chartConfigs) {
         $.each(chartConfigs, function(chartId, config) {
+            // Interne Felder überspringen
+            if (chartId.charAt(0) === '_') return;
+
             var canvasId = 'chart-' + tab + '-' + chartId;
             var canvas   = document.getElementById(canvasId);
             if (!canvas) return;

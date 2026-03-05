@@ -93,17 +93,99 @@ class TIX_Statistics {
     }
 
     private static function parse_filters() {
-        return [
-            'date_from'   => sanitize_text_field($_POST['date_from'] ?? ''),
-            'date_to'     => sanitize_text_field($_POST['date_to'] ?? ''),
-            'event_id'    => intval($_POST['event_id'] ?? 0),
-            'location_id' => intval($_POST['location_id'] ?? 0),
-            'category_id' => intval($_POST['category_id'] ?? 0),
+        $f = [
+            'date_from'    => sanitize_text_field($_POST['date_from'] ?? ''),
+            'date_to'      => sanitize_text_field($_POST['date_to'] ?? ''),
+            'event_id'     => intval($_POST['event_id'] ?? 0),
+            'location_id'  => intval($_POST['location_id'] ?? 0),
+            'category_id'  => intval($_POST['category_id'] ?? 0),
+            'compare_mode' => !empty($_POST['compare_mode']) && $_POST['compare_mode'] === '1',
+            'compare_from' => sanitize_text_field($_POST['compare_from'] ?? ''),
+            'compare_to'   => sanitize_text_field($_POST['compare_to'] ?? ''),
         ];
+        return $f;
     }
 
     private static function cache_key($tab, $filters) {
-        return 'tix_stats_' . $tab . '_' . md5(wp_json_encode($filters));
+        $key = 'tix_stats_' . $tab . '_' . md5(wp_json_encode($filters));
+        return $key;
+    }
+
+    /**
+     * Vergleichs-Helper: Führt eine Scalar-Query für aktuellen + Vergleichszeitraum aus.
+     * Gibt KPI-Array zurück mit compare + trend.
+     */
+    private static function compare_kpi($f, $eids, $kpi_key, $kpi_label, $kpi_icon, $current_val, $format = 'number') {
+        $kpi = [
+            'value' => $format === 'eur' ? self::format_eur($current_val) : ($format === 'pct' ? $current_val . '%' : $current_val),
+            'raw'   => floatval($current_val),
+            'label' => $kpi_label,
+            'icon'  => $kpi_icon,
+            'trend' => null,
+            'compare' => null,
+            'compare_raw' => null,
+        ];
+
+        // Vorperiode für Trend (immer berechnen wenn Datum gesetzt)
+        if ($f['date_from'] && $f['date_to']) {
+            list($pf, $pt) = self::prev_period($f['date_from'], $f['date_to']);
+        }
+
+        // Vergleichsmodus
+        if ($f['compare_mode'] && $f['compare_from'] && $f['compare_to']) {
+            $kpi['compare_from'] = $f['compare_from'];
+            $kpi['compare_to']   = $f['compare_to'];
+        }
+
+        return $kpi;
+    }
+
+    /**
+     * Injiziert Vergleichsdaten in Timeline-Chart-Config.
+     * Fügt ein gestricheltes Dataset für den Vergleichszeitraum hinzu.
+     */
+    private static function inject_compare_timeline(&$chart, $f, $eids, $query_fn, $value_key, $label, $color, $extra_args = []) {
+        if (!$f['compare_mode'] || !$f['compare_from'] || !$f['compare_to']) return;
+
+        $group = self::auto_group($f['date_from'], $f['date_to']);
+        $args = array_merge([$f['compare_from'], $f['compare_to'], $eids], $extra_args, [$group]);
+        $cmp_data = call_user_func_array([__CLASS__, $query_fn], $args);
+        $cmp_values = array_map(function($v) use ($value_key) { return $value_key === 'cnt' ? intval($v->$value_key) : floatval($v->$value_key); }, $cmp_data);
+        $cmp_labels = array_column($cmp_data, 'period');
+
+        // Auf gleiche Länge bringen
+        $len = count($chart['data']['datasets'][0]['data'] ?? []);
+        $cmp_values = array_pad(array_slice($cmp_values, 0, $len), $len, 0);
+        $cmp_labels = array_pad(array_slice($cmp_labels, 0, $len), $len, '');
+
+        $chart['data']['datasets'][] = [
+            'label' => $label . ' (Vergleich)',
+            'data' => $cmp_values,
+            'borderColor' => $color,
+            'backgroundColor' => 'transparent',
+            'borderWidth' => 2,
+            'borderDash' => [6, 4],
+            'fill' => false,
+            'tension' => 0.3,
+            'pointStyle' => 'rect',
+            'pointRadius' => 2,
+            'yAxisID' => $chart['data']['datasets'][0]['yAxisID'] ?? 'y',
+        ];
+        $chart['_compare_labels'] = $cmp_labels;
+    }
+
+    /**
+     * Injiziert Vergleichsdaten in Bar-Chart-Config.
+     */
+    private static function inject_compare_bar(&$chart, $cmp_values, $label, $color) {
+        $chart['data']['datasets'][] = [
+            'label' => $label . ' (Vergleich)',
+            'data' => $cmp_values,
+            'backgroundColor' => $color . '55',
+            'borderColor' => $color . '99',
+            'borderWidth' => 1,
+            'borderRadius' => isset($chart['data']['datasets'][0]['borderRadius']) ? $chart['data']['datasets'][0]['borderRadius'] : 0,
+        ];
     }
 
     private static function format_eur($val) {
@@ -409,18 +491,27 @@ class TIX_Statistics {
         $checkin_rate = ($tix->cnt > 0) ? round($tix_ci->cnt / $tix->cnt * 100, 1) : 0;
         $avg_order = ($rev->order_count > 0) ? $rev->revenue / $rev->order_count : 0;
 
-        // KPIs Vorperiode
-        list($pf, $pt) = self::prev_period($f['date_from'], $f['date_to']);
-        $prev_rev = self::query_revenue($pf, $pt, $eids);
-        $prev_tix = self::query_tickets($pf, $pt, $eids);
+        // KPIs: Vergleich oder Vorperiode für Trend
+        $cmp = $f['compare_mode'] && $f['compare_from'] && $f['compare_to'];
+        if ($cmp) {
+            $prev_rev = self::query_revenue($f['compare_from'], $f['compare_to'], $eids);
+            $prev_tix = self::query_tickets($f['compare_from'], $f['compare_to'], $eids);
+            $prev_tix_ci = self::query_tickets($f['compare_from'], $f['compare_to'], $eids, ['checked_in','redeemed']);
+            $prev_avg = ($prev_rev->order_count > 0) ? $prev_rev->revenue / $prev_rev->order_count : 0;
+            $prev_ci_rate = ($prev_tix->cnt > 0) ? round($prev_tix_ci->cnt / $prev_tix->cnt * 100, 1) : 0;
+        } else {
+            list($pf, $pt) = self::prev_period($f['date_from'], $f['date_to']);
+            $prev_rev = self::query_revenue($pf, $pt, $eids);
+            $prev_tix = self::query_tickets($pf, $pt, $eids);
+        }
 
         $kpis = [
-            'revenue'      => ['value' => self::format_eur($rev->revenue),     'label' => 'Gesamtumsatz',       'icon' => 'dashicons-money-alt',     'trend' => self::trend($rev->revenue, $prev_rev->revenue)],
-            'tickets'      => ['value' => intval($tix->cnt),                    'label' => 'Tickets verkauft',   'icon' => 'dashicons-tickets-alt',   'trend' => self::trend($tix->cnt, $prev_tix->cnt)],
-            'active'       => ['value' => intval($active_events),               'label' => 'Aktive Events',      'icon' => 'dashicons-calendar-alt',  'trend' => null],
-            'avg_order'    => ['value' => self::format_eur($avg_order),         'label' => 'Ø Bestellwert',      'icon' => 'dashicons-cart',          'trend' => null],
-            'utilization'  => ['value' => $utilization . '%',                   'label' => 'Auslastung',         'icon' => 'dashicons-performance',   'trend' => null],
-            'checkin_rate' => ['value' => $checkin_rate . '%',                  'label' => 'Check-in Rate',      'icon' => 'dashicons-groups',        'trend' => null],
+            'revenue'      => ['value' => self::format_eur($rev->revenue),     'label' => 'Gesamtumsatz',       'icon' => 'dashicons-money-alt',     'trend' => self::trend($rev->revenue, $prev_rev->revenue),  'compare' => $cmp ? self::format_eur($prev_rev->revenue) : null],
+            'tickets'      => ['value' => intval($tix->cnt),                    'label' => 'Tickets verkauft',   'icon' => 'dashicons-tickets-alt',   'trend' => self::trend($tix->cnt, $prev_tix->cnt),          'compare' => $cmp ? intval($prev_tix->cnt) : null],
+            'active'       => ['value' => intval($active_events),               'label' => 'Aktive Events',      'icon' => 'dashicons-calendar-alt',  'trend' => null, 'compare' => null],
+            'avg_order'    => ['value' => self::format_eur($avg_order),         'label' => 'Ø Bestellwert',      'icon' => 'dashicons-cart',          'trend' => $cmp ? self::trend($avg_order, $prev_avg ?? 0) : null, 'compare' => $cmp ? self::format_eur($prev_avg ?? 0) : null],
+            'utilization'  => ['value' => $utilization . '%',                   'label' => 'Auslastung',         'icon' => 'dashicons-performance',   'trend' => null, 'compare' => null],
+            'checkin_rate' => ['value' => $checkin_rate . '%',                  'label' => 'Check-in Rate',      'icon' => 'dashicons-groups',        'trend' => $cmp ? self::trend($checkin_rate, $prev_ci_rate ?? 0) : null, 'compare' => $cmp ? ($prev_ci_rate ?? 0) . '%' : null],
         ];
 
         // Charts
@@ -458,7 +549,46 @@ class TIX_Statistics {
             ],
         ];
 
-        $data = ['kpis' => $kpis, 'charts' => $charts];
+        // Vergleichsdaten in Timeline-Chart injizieren
+        self::inject_compare_timeline($charts['timeline'], $f, $eids, 'query_revenue_over_time', 'revenue', 'Umsatz (€)', '#6366f1');
+        if ($cmp) {
+            // Zweite Vergleichslinie für Tickets
+            $group = self::auto_group($f['date_from'], $f['date_to']);
+            $cmp_timeline = self::query_revenue_over_time($f['compare_from'], $f['compare_to'], $eids, $group);
+            $cmp_tix_vals = array_map('intval', array_column($cmp_timeline, 'tickets'));
+            $len = count($charts['timeline']['data']['datasets'][1]['data'] ?? []);
+            $cmp_tix_vals = array_pad(array_slice($cmp_tix_vals, 0, $len), $len, 0);
+            $charts['timeline']['data']['datasets'][] = [
+                'label' => 'Tickets (Vergleich)', 'data' => $cmp_tix_vals,
+                'yAxisID' => 'y1', 'borderColor' => '#10b981', 'backgroundColor' => 'transparent',
+                'borderWidth' => 2, 'borderDash' => [6, 4], 'fill' => false, 'tension' => 0.3,
+                'pointStyle' => 'rect', 'pointRadius' => 2,
+            ];
+
+            // Top Events Vergleich
+            $cmp_top5 = self::query_top_events($f['compare_from'], $f['compare_to'], $eids, 5);
+            $cmp_top_map = [];
+            foreach ($cmp_top5 as $ct) $cmp_top_map[$ct->event_title] = floatval($ct->revenue);
+            $cmp_top_vals = [];
+            foreach ($top5 as $t) $cmp_top_vals[] = $cmp_top_map[$t->event_title] ?? 0;
+            self::inject_compare_bar($charts['top_events'], $cmp_top_vals, 'Umsatz (€)', '#6366f1');
+
+            // Kategorien Vergleich
+            $cmp_cats = self::query_tickets_by_cat($f['compare_from'], $f['compare_to'], $eids);
+            $cmp_cat_map = [];
+            foreach ($cmp_cats as $cc) $cmp_cat_map[$cc->cat_name] = intval($cc->cnt);
+            $cmp_cat_vals = [];
+            foreach ($cats as $c) $cmp_cat_vals[] = $cmp_cat_map[$c->cat_name] ?? 0;
+            // Doughnut: Vergleich als Tooltip-Daten mitgeben
+            $charts['categories']['_compare_data'] = $cmp_cat_vals;
+        }
+
+        $data = [
+            'kpis' => $kpis,
+            'charts' => $charts,
+            'compare_mode' => $cmp,
+            'compare_label' => $cmp ? $f['compare_from'] . ' – ' . $f['compare_to'] : null,
+        ];
         set_transient($ck, $data, 600);
         wp_send_json_success($data);
     }
@@ -474,8 +604,13 @@ class TIX_Statistics {
 
         $eids = self::filtered_event_ids($f);
         $rev  = self::query_revenue($f['date_from'], $f['date_to'], $eids);
-        list($pf, $pt) = self::prev_period($f['date_from'], $f['date_to']);
-        $prev = self::query_revenue($pf, $pt, $eids);
+        $cmp = $f['compare_mode'] && $f['compare_from'] && $f['compare_to'];
+        if ($cmp) {
+            $prev = self::query_revenue($f['compare_from'], $f['compare_to'], $eids);
+        } else {
+            list($pf, $pt) = self::prev_period($f['date_from'], $f['date_to']);
+            $prev = self::query_revenue($pf, $pt, $eids);
+        }
         $tix  = self::query_tickets($f['date_from'], $f['date_to'], $eids);
         $top  = self::query_top_events($f['date_from'], $f['date_to'], $eids, 50);
         $avg_ticket = $tix->cnt > 0 ? $tix->revenue / $tix->cnt : 0;
@@ -483,13 +618,22 @@ class TIX_Statistics {
         $rev_per_event = count($top) > 0 ? $rev->revenue / count($top) : 0;
         $change = self::trend($rev->revenue, $prev->revenue);
 
+        $prev_avg_ticket = 0; $prev_avg_order = 0; $prev_rev_event = 0;
+        if ($cmp) {
+            $prev_tix = self::query_tickets($f['compare_from'], $f['compare_to'], $eids);
+            $prev_top = self::query_top_events($f['compare_from'], $f['compare_to'], $eids, 50);
+            $prev_avg_ticket = $prev_tix->cnt > 0 ? $prev_tix->revenue / $prev_tix->cnt : 0;
+            $prev_avg_order = $prev->order_count > 0 ? $prev->revenue / $prev->order_count : 0;
+            $prev_rev_event = count($prev_top) > 0 ? $prev->revenue / count($prev_top) : 0;
+        }
+
         $kpis = [
-            'revenue'      => ['value' => self::format_eur($rev->revenue),    'label' => 'Gesamtumsatz',       'icon' => 'dashicons-money-alt',   'trend' => $change],
-            'prev_revenue' => ['value' => self::format_eur($prev->revenue),   'label' => 'Vorperiode',         'icon' => 'dashicons-backup',      'trend' => null],
-            'change'       => ['value' => ($change !== null ? ($change > 0 ? '+' : '') . $change . '%' : '–'), 'label' => 'Änderung',     'icon' => 'dashicons-chart-line', 'trend' => $change],
-            'avg_ticket'   => ['value' => self::format_eur($avg_ticket),      'label' => 'Ø Ticketpreis',      'icon' => 'dashicons-tag',         'trend' => null],
-            'avg_order'    => ['value' => self::format_eur($avg_order),        'label' => 'Ø Bestellwert',      'icon' => 'dashicons-cart',        'trend' => null],
-            'rev_event'    => ['value' => self::format_eur($rev_per_event),    'label' => 'Umsatz / Event',     'icon' => 'dashicons-calendar-alt','trend' => null],
+            'revenue'      => ['value' => self::format_eur($rev->revenue),    'label' => 'Gesamtumsatz',       'icon' => 'dashicons-money-alt',   'trend' => $change, 'compare' => $cmp ? self::format_eur($prev->revenue) : null],
+            'prev_revenue' => ['value' => self::format_eur($prev->revenue),   'label' => $cmp ? 'Vergleichszeitraum' : 'Vorperiode', 'icon' => 'dashicons-backup', 'trend' => null, 'compare' => null],
+            'change'       => ['value' => ($change !== null ? ($change > 0 ? '+' : '') . $change . '%' : '–'), 'label' => 'Änderung', 'icon' => 'dashicons-chart-line', 'trend' => $change, 'compare' => null],
+            'avg_ticket'   => ['value' => self::format_eur($avg_ticket),      'label' => 'Ø Ticketpreis',      'icon' => 'dashicons-tag',         'trend' => $cmp ? self::trend($avg_ticket, $prev_avg_ticket) : null, 'compare' => $cmp ? self::format_eur($prev_avg_ticket) : null],
+            'avg_order'    => ['value' => self::format_eur($avg_order),        'label' => 'Ø Bestellwert',      'icon' => 'dashicons-cart',        'trend' => $cmp ? self::trend($avg_order, $prev_avg_order) : null, 'compare' => $cmp ? self::format_eur($prev_avg_order) : null],
+            'rev_event'    => ['value' => self::format_eur($rev_per_event),    'label' => 'Umsatz / Event',     'icon' => 'dashicons-calendar-alt','trend' => $cmp ? self::trend($rev_per_event, $prev_rev_event) : null, 'compare' => $cmp ? self::format_eur($prev_rev_event) : null],
         ];
 
         $group = self::auto_group($f['date_from'], $f['date_to']);
@@ -557,7 +701,12 @@ class TIX_Statistics {
             ];
         }
 
-        $data = ['kpis' => $kpis, 'charts' => $charts, 'table' => $table];
+        // Vergleichsdaten in Charts injizieren
+        if ($cmp) {
+            self::inject_compare_timeline($charts['timeline'], $f, $eids, 'query_revenue_over_time', 'revenue', 'Umsatz (€)', '#6366f1');
+        }
+
+        $data = ['kpis' => $kpis, 'charts' => $charts, 'table' => $table, 'compare_mode' => $cmp, 'compare_label' => $cmp ? $f['compare_from'] . ' – ' . $f['compare_to'] : null];
         set_transient($ck, $data, 600);
         wp_send_json_success($data);
     }
@@ -586,16 +735,22 @@ class TIX_Statistics {
         $sold_total_all = $wpdb->get_var("SELECT COALESCE(SUM(CAST(m.meta_value AS UNSIGNED)),0) FROM {$wpdb->postmeta} m INNER JOIN {$wpdb->posts} p ON m.post_id=p.ID WHERE $cap_where AND m.meta_key='_tix_sold_total'");
         $sell_through = $cap_total > 0 ? round($sold_total_all / $cap_total * 100, 1) : 0;
 
-        list($pf, $pt) = self::prev_period($f['date_from'], $f['date_to']);
-        $prev_sold = self::query_tickets($pf, $pt, $eids);
+        $cmp = $f['compare_mode'] && $f['compare_from'] && $f['compare_to'];
+        if ($cmp) {
+            $prev_sold = self::query_tickets($f['compare_from'], $f['compare_to'], $eids);
+            $prev_cancelled = self::query_tickets($f['compare_from'], $f['compare_to'], $eids, ['cancelled']);
+        } else {
+            list($pf, $pt) = self::prev_period($f['date_from'], $f['date_to']);
+            $prev_sold = self::query_tickets($pf, $pt, $eids);
+        }
 
         $kpis = [
-            'sold'         => ['value' => intval($sold->cnt),       'label' => 'Verkauft',          'icon' => 'dashicons-tickets-alt','trend' => self::trend($sold->cnt, $prev_sold->cnt)],
-            'cancelled'    => ['value' => intval($cancelled->cnt),  'label' => 'Storniert',         'icon' => 'dashicons-no-alt',    'trend' => null],
-            'transferred'  => ['value' => intval($transferred->cnt),'label' => 'Übertragen',        'icon' => 'dashicons-randomize', 'trend' => null],
-            'capacity'     => ['value' => intval($cap_total),       'label' => 'Gesamtkapazität',   'icon' => 'dashicons-admin-site','trend' => null],
-            'sell_through' => ['value' => $sell_through . '%',      'label' => 'Sell-Through',      'icon' => 'dashicons-performance','trend' => null],
-            'today'        => ['value' => intval($today->cnt),      'label' => 'Heute verkauft',    'icon' => 'dashicons-clock',     'trend' => null],
+            'sold'         => ['value' => intval($sold->cnt),       'label' => 'Verkauft',          'icon' => 'dashicons-tickets-alt','trend' => self::trend($sold->cnt, $prev_sold->cnt), 'compare' => $cmp ? intval($prev_sold->cnt) : null],
+            'cancelled'    => ['value' => intval($cancelled->cnt),  'label' => 'Storniert',         'icon' => 'dashicons-no-alt',    'trend' => $cmp ? self::trend($cancelled->cnt, $prev_cancelled->cnt ?? 0) : null, 'compare' => $cmp ? intval($prev_cancelled->cnt ?? 0) : null],
+            'transferred'  => ['value' => intval($transferred->cnt),'label' => 'Übertragen',        'icon' => 'dashicons-randomize', 'trend' => null, 'compare' => null],
+            'capacity'     => ['value' => intval($cap_total),       'label' => 'Gesamtkapazität',   'icon' => 'dashicons-admin-site','trend' => null, 'compare' => null],
+            'sell_through' => ['value' => $sell_through . '%',      'label' => 'Sell-Through',      'icon' => 'dashicons-performance','trend' => null, 'compare' => null],
+            'today'        => ['value' => intval($today->cnt),      'label' => 'Heute verkauft',    'icon' => 'dashicons-clock',     'trend' => null, 'compare' => null],
         ];
 
         $timeline = self::query_tickets_over_time($f['date_from'], $f['date_to'], $eids);
@@ -656,7 +811,12 @@ class TIX_Statistics {
             ];
         }
 
-        $data = ['kpis' => $kpis, 'charts' => $charts, 'table' => $table];
+        // Vergleichsdaten in Timeline injizieren
+        if ($cmp) {
+            self::inject_compare_timeline($charts['timeline'], $f, $eids, 'query_tickets_over_time', 'cnt', 'Tickets', '#6366f1');
+        }
+
+        $data = ['kpis' => $kpis, 'charts' => $charts, 'table' => $table, 'compare_mode' => $cmp, 'compare_label' => $cmp ? $f['compare_from'] . ' – ' . $f['compare_to'] : null];
         set_transient($ck, $data, 600);
         wp_send_json_success($data);
     }
@@ -778,7 +938,7 @@ class TIX_Statistics {
             ],
         ];
 
-        $data = ['kpis' => $kpis, 'charts' => $charts, 'table' => $table];
+        $data = ['kpis' => $kpis, 'charts' => $charts, 'table' => $table, 'compare_mode' => $f['compare_mode'], 'compare_label' => $f['compare_mode'] ? $f['compare_from'] . ' – ' . $f['compare_to'] : null];
         set_transient($ck, $data, 600);
         wp_send_json_success($data);
     }
@@ -874,7 +1034,7 @@ class TIX_Statistics {
             ],
         ];
 
-        $data = ['kpis' => $kpis, 'charts' => $charts];
+        $data = ['kpis' => $kpis, 'charts' => $charts, 'compare_mode' => $f['compare_mode'], 'compare_label' => $f['compare_mode'] ? $f['compare_from'] . ' – ' . $f['compare_to'] : null];
         set_transient($ck, $data, 600);
         wp_send_json_success($data);
     }
@@ -938,7 +1098,7 @@ class TIX_Statistics {
             ],
         ];
 
-        $data = ['kpis' => $kpis, 'charts' => $charts];
+        $data = ['kpis' => $kpis, 'charts' => $charts, 'compare_mode' => $f['compare_mode'], 'compare_label' => $f['compare_mode'] ? $f['compare_from'] . ' – ' . $f['compare_to'] : null];
         set_transient($ck, $data, 600);
         wp_send_json_success($data);
     }
@@ -1012,7 +1172,7 @@ class TIX_Statistics {
             ],
         ];
 
-        $data = ['kpis' => $kpis, 'charts' => $charts];
+        $data = ['kpis' => $kpis, 'charts' => $charts, 'compare_mode' => $f['compare_mode'], 'compare_label' => $f['compare_mode'] ? $f['compare_from'] . ' – ' . $f['compare_to'] : null];
         set_transient($ck, $data, 600);
         wp_send_json_success($data);
     }
@@ -1103,7 +1263,7 @@ class TIX_Statistics {
             ],
         ];
 
-        $data = ['kpis' => $kpis, 'charts' => $charts];
+        $data = ['kpis' => $kpis, 'charts' => $charts, 'compare_mode' => $f['compare_mode'], 'compare_label' => $f['compare_mode'] ? $f['compare_from'] . ' – ' . $f['compare_to'] : null];
         set_transient($ck, $data, 600);
         wp_send_json_success($data);
     }
@@ -1255,6 +1415,26 @@ class TIX_Statistics {
                     <div class="tix-stats-filter">
                         <label>Kategorie</label>
                         <select id="tix-stats-category"><option value="">Alle Kategorien</option></select>
+                    </div>
+                </div>
+                <!-- Vergleichszeitraum -->
+                <div class="tix-compare-controls">
+                    <label class="tix-compare-toggle">
+                        <input type="checkbox" id="tix-compare-mode">
+                        <span>Zeiträume vergleichen</span>
+                    </label>
+                    <div class="tix-compare-options" style="display:none;">
+                        <select id="tix-compare-type">
+                            <option value="previous">Vorheriger Zeitraum</option>
+                            <option value="previous_year">Vorjahr</option>
+                            <option value="custom">Benutzerdefiniert</option>
+                        </select>
+                        <div class="tix-compare-custom-dates" style="display:none;">
+                            <input type="date" id="tix-compare-from">
+                            <span>&ndash;</span>
+                            <input type="date" id="tix-compare-to">
+                        </div>
+                        <span class="tix-compare-label" id="tix-compare-label"></span>
                     </div>
                 </div>
             </div>
