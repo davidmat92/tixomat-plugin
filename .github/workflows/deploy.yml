@@ -11,13 +11,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1
+      - name: Deploy via rsync
+        uses: burnett01/rsync-deployments@7.0.1
         with:
-          host: 51.195.61.6
-          username: root
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: 22
-          script: |
-            cd /var/www/html/wp-content/plugins/tixomat
-            git pull origin main
+          switches: -avz --delete --exclude='.git' --exclude='.github'
+          path: ./
+          remote_path: /home/runcloud/webapps/demo-mdj-events/wp-content/plugins/tixomat/
+          remote_host: 51.195.61.6
+          remote_port: 22
+          remote_user: runcloud
+          remote_key: ${{ secrets.SSH_PRIVATE_KEY }}
