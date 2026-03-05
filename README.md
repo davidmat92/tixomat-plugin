@@ -255,3 +255,4 @@ Konfiguration: `.github/workflows/deploy.yml`
 - Prepared Statements via `$wpdb->prepare()`
 - Token-basierte Ticket-Downloads (64-Zeichen Hex statt vorhersehbarer URLs)
 - Gast-Zugangsschluessel fuer Support-Tickets
+
