@@ -1,0 +1,621 @@
+/**
+ * Tixomat – Saalplan Picker (Frontend)
+ * Sitzplatz-Auswahl für Kunden
+ * @since 1.22.0
+ */
+
+/* ── Wrapper ── */
+.tix-sp {
+    --sp-bg: var(--tix-bg, #111);
+    --sp-surface: var(--tix-surface, #1a1a1a);
+    --sp-border: var(--tix-border, #333);
+    --sp-text: var(--tix-text, #fff);
+    --sp-muted: var(--tix-muted, #888);
+    --sp-accent: var(--tix-accent, #6366f1);
+    --sp-ok: #10b981;
+    --sp-warn: #f59e0b;
+    --sp-err: #ef4444;
+
+    margin: 16px 0;
+    border-radius: var(--tix-radius, 8px);
+    overflow: hidden;
+}
+
+/* ── Stage ── */
+.tix-sp-stage {
+    text-align: center;
+    padding: 10px;
+    background: linear-gradient(135deg, #1e293b, #334155);
+    color: #94a3b8;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    border-radius: 4px 4px 20px 20px;
+    margin: 0 10% 12px;
+}
+
+/* ── Legend ── */
+.tix-sp-legend {
+    display: flex;
+    justify-content: center;
+    gap: 16px;
+    padding: 8px 0 12px;
+    flex-wrap: wrap;
+}
+.tix-sp-legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    color: var(--sp-muted);
+}
+.tix-sp-legend-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 4px;
+}
+.tix-sp-legend-dot.available { background: var(--sp-ok); }
+.tix-sp-legend-dot.selected  { background: var(--sp-accent); }
+.tix-sp-legend-dot.taken     { background: #475569; }
+.tix-sp-legend-dot.vip       { background: var(--sp-warn); }
+
+/* ── Sections ── */
+.tix-sp-sections {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 0 8px;
+}
+
+/* ── Section ── */
+.tix-sp-section {
+    border-radius: 10px;
+    overflow: hidden;
+}
+.tix-sp-section-header {
+    padding: 6px 12px;
+    background: var(--section-color, var(--sp-accent));
+    color: #fff;
+    font-size: 12px;
+    font-weight: 600;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.tix-sp-section-avail {
+    font-size: 11px;
+    opacity: 0.75;
+}
+
+/* ── Row ── */
+.tix-sp-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+}
+.tix-sp-row-label {
+    width: 24px;
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--sp-muted);
+    text-align: center;
+    flex-shrink: 0;
+}
+.tix-sp-row-seats {
+    display: flex;
+    gap: 3px;
+    flex-wrap: wrap;
+    flex: 1;
+    justify-content: center;
+}
+
+/* ── Seat ── */
+.tix-sp-seat {
+    width: 24px;
+    height: 24px;
+    border-radius: 5px 5px 6px 6px;
+    border: none;
+    cursor: pointer;
+    font-size: 8px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s ease;
+    padding: 0;
+    background: none;
+    color: #fff;
+}
+
+/* Available */
+.tix-sp-seat.available {
+    background: var(--sp-ok);
+    color: #fff;
+}
+.tix-sp-seat.available:hover {
+    transform: scale(1.2);
+    box-shadow: 0 0 8px rgba(16,185,129,0.4);
+    z-index: 2;
+}
+
+/* Selected */
+.tix-sp-seat.selected {
+    background: var(--sp-accent);
+    color: #fff;
+    box-shadow: 0 0 0 2px rgba(99,102,241,0.5);
+    transform: scale(1.1);
+}
+
+/* Taken */
+.tix-sp-seat.taken {
+    background: #334155;
+    color: #64748b;
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
+/* VIP */
+.tix-sp-seat.vip.available {
+    background: var(--sp-warn);
+}
+.tix-sp-seat.vip.available:hover {
+    box-shadow: 0 0 8px rgba(245,158,11,0.4);
+}
+.tix-sp-seat.vip.selected {
+    background: var(--sp-accent);
+}
+
+/* Wheelchair */
+.tix-sp-seat.wheelchair.available {
+    background: #3b82f6;
+}
+
+/* Blocked */
+.tix-sp-seat.blocked {
+    visibility: hidden;
+}
+
+/* ── Selection Info ── */
+.tix-sp-selection {
+    padding: 12px;
+    margin-top: 12px;
+    background: var(--sp-surface);
+    border: 1px solid var(--sp-border);
+    border-radius: var(--tix-radius, 8px);
+}
+.tix-sp-selection-header {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--sp-text);
+    margin-bottom: 8px;
+}
+.tix-sp-selected-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 10px;
+}
+.tix-sp-selected-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    background: rgba(99,102,241,0.15);
+    color: var(--sp-accent);
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 600;
+}
+.tix-sp-selected-tag .remove {
+    cursor: pointer;
+    opacity: 0.6;
+    font-size: 14px;
+    line-height: 1;
+}
+.tix-sp-selected-tag .remove:hover {
+    opacity: 1;
+}
+
+/* ── Timer ── */
+.tix-sp-timer {
+    font-size: 11px;
+    color: var(--sp-warn);
+    font-weight: 600;
+    text-align: center;
+    padding: 6px;
+    background: rgba(245,158,11,0.1);
+    border-radius: 6px;
+    margin-top: 8px;
+}
+
+/* ── Overview Map (Stadion-/Arena-Layout) ── */
+.tix-sp-overview {
+    display: grid;
+    grid-template-areas:
+        "tl  top  tr"
+        "left stage right"
+        "bl  bottom br";
+    grid-template-columns: 1fr 2fr 1fr;
+    grid-template-rows: auto minmax(80px, 1fr) auto;
+    gap: 4px;
+    padding: 12px;
+    margin-bottom: 16px;
+    border-radius: var(--tix-radius, 8px);
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--sp-border);
+}
+.tix-sp-ov-stage {
+    grid-area: stage;
+    background: linear-gradient(135deg, #1e293b, #334155);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 80px;
+    color: #94a3b8;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+}
+.tix-sp-ov-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-height: 32px;
+}
+.tix-sp-ov-cell:nth-child(1) { grid-area: tl; }
+.tix-sp-ov-cell:nth-child(2) { grid-area: top; }
+.tix-sp-ov-cell:nth-child(3) { grid-area: tr; }
+.tix-sp-ov-cell:nth-child(4) { grid-area: left; }
+/* stage is child 5 */
+.tix-sp-ov-cell:nth-child(6) { grid-area: right; }
+.tix-sp-ov-cell:nth-child(7) { grid-area: bl; }
+.tix-sp-ov-cell:nth-child(8) { grid-area: bottom; }
+.tix-sp-ov-cell:nth-child(9) { grid-area: br; }
+.tix-sp-ov-empty {
+    /* Nicht im Layout → unsichtbar */
+}
+.tix-sp-ov-unused {
+    border: 1px dashed rgba(255,255,255,0.1);
+    border-radius: 6px;
+}
+.tix-sp-ov-block {
+    padding: 8px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    text-align: center;
+    color: #fff;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.tix-sp-ov-block:hover {
+    transform: scale(1.04);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+}
+.tix-sp-ov-block.has-selection {
+    box-shadow: 0 0 0 2px var(--sp-accent), 0 4px 12px rgba(99,102,241,0.3);
+}
+.tix-sp-ov-label {
+    font-size: 10px;
+    font-weight: 700;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.tix-sp-ov-avail {
+    font-size: 9px;
+    opacity: 0.75;
+}
+.tix-sp-ov-selected {
+    font-size: 9px;
+    font-weight: 700;
+    color: #fff;
+    background: rgba(0,0,0,0.2);
+    border-radius: 10px;
+    padding: 1px 6px;
+    margin-top: 2px;
+    display: inline-block;
+}
+
+/* ── Section Highlight Animation ── */
+.tix-sp-highlight {
+    animation: tixSpHighlight 1.5s ease;
+}
+@keyframes tixSpHighlight {
+    0%   { box-shadow: 0 0 0 0 rgba(99,102,241,0.5); }
+    30%  { box-shadow: 0 0 0 6px rgba(99,102,241,0.3); }
+    100% { box-shadow: none; }
+}
+
+/* ── Loading ── */
+.tix-sp-loading {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--sp-muted);
+    font-size: 13px;
+}
+.tix-sp-loading::before {
+    content: '';
+    display: block;
+    width: 32px;
+    height: 32px;
+    border: 3px solid var(--sp-border);
+    border-top-color: var(--sp-accent);
+    border-radius: 50%;
+    margin: 0 auto 12px;
+    animation: tixSpSpin 0.8s linear infinite;
+}
+@keyframes tixSpSpin {
+    to { transform: rotate(360deg); }
+}
+
+/* ── Section Header erweitert (Preis + Dot) ── */
+.tix-sp-section-dot {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    margin-right: 6px;
+    flex-shrink: 0;
+}
+.tix-sp-section-name {
+    flex: 1;
+}
+.tix-sp-section-price {
+    font-weight: 700;
+    margin-left: 8px;
+}
+.tix-sp-legend-price {
+    font-weight: 600;
+    color: var(--sp-text, #fff);
+    margin-left: 2px;
+}
+
+/* ── Selected Tag mit Sektionsfarbe ── */
+.tix-sp-selected-tag {
+    background: rgba(99,102,241,0.15);
+    border-left: 3px solid var(--tag-color, var(--sp-accent));
+}
+
+/* ── Spinner ── */
+.tix-sp-spinner {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid var(--sp-border, #333);
+    border-top-color: var(--sp-accent, #6366f1);
+    border-radius: 50%;
+    animation: tixSpSpin 0.8s linear infinite;
+    vertical-align: middle;
+    margin-right: 6px;
+}
+
+/* ══════════════════════════════════════
+   SAALPLAN-MODAL
+   ══════════════════════════════════════ */
+.tix-sp-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.55);
+    z-index: 99999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+.tix-sp-modal {
+    background: #111;
+    border-radius: 16px;
+    width: 900px;
+    max-width: 100%;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 12px 48px rgba(0,0,0,0.4);
+    animation: tixSpModalIn 0.25s ease;
+    color: #fff;
+}
+@keyframes tixSpModalIn {
+    from { opacity: 0; transform: scale(0.95) translateY(-10px); }
+    to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+.tix-sp-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 24px;
+    border-bottom: 1px solid #222;
+}
+.tix-sp-modal-header h3 {
+    margin: 0;
+    font-size: 18px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #fff;
+}
+.tix-sp-modal-close {
+    background: none;
+    border: none;
+    font-size: 24px;
+    cursor: pointer;
+    color: #666;
+    padding: 4px 8px;
+    line-height: 1;
+    border-radius: 6px;
+    transition: all 0.15s;
+}
+.tix-sp-modal-close:hover {
+    color: #fff;
+    background: rgba(255,255,255,0.1);
+}
+.tix-sp-modal-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px 24px;
+}
+.tix-sp-modal-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 24px;
+    border-top: 1px solid #222;
+    background: #0a0a0a;
+    border-radius: 0 0 16px 16px;
+}
+.tix-sp-modal-summary {
+    display: flex;
+    gap: 16px;
+    font-size: 15px;
+    color: #ccc;
+}
+.tix-sp-modal-total {
+    font-weight: 700;
+    color: #fff;
+}
+.tix-sp-modal-confirm {
+    padding: 10px 24px;
+    background: var(--sp-accent, #6366f1);
+    color: #fff;
+    border: none;
+    border-radius: 10px;
+    font-weight: 600;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+.tix-sp-modal-confirm:hover:not(:disabled) {
+    background: #4f46e5;
+    transform: translateY(-1px);
+}
+.tix-sp-modal-confirm:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+/* ══════════════════════════════════════
+   TICKET-SELECTOR SAALPLAN-INTEGRATION
+   ══════════════════════════════════════ */
+.tix-sel-section-dot {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    margin-right: 6px;
+    flex-shrink: 0;
+}
+.tix-sel-seatmap-cat {
+    border-left: 4px solid var(--section-color, var(--tix-accent, #6366f1)) !important;
+}
+.tix-sel-seatmap-cat .tix-sel-qty-val {
+    font-size: 12px;
+    color: var(--tix-muted, #888);
+}
+.tix-sel-seatmap-actions {
+    display: flex;
+    gap: 10px;
+    padding: 16px 0;
+    flex-wrap: wrap;
+}
+.tix-sel-btn-seatmap,
+.tix-sel-btn-best-available {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 12px 20px;
+    border: 2px solid var(--tix-accent, #6366f1);
+    border-radius: 10px;
+    background: transparent;
+    color: var(--tix-accent, #6366f1);
+    font-weight: 600;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+.tix-sel-btn-seatmap:hover {
+    background: var(--tix-accent, #6366f1);
+    color: #fff;
+}
+.tix-sel-btn-best-available {
+    border-color: #f59e0b;
+    color: #f59e0b;
+}
+.tix-sel-btn-best-available:hover {
+    background: #f59e0b;
+    color: #000;
+}
+.tix-sel-btn-seatmap .dashicons,
+.tix-sel-btn-best-available .dashicons {
+    font-size: 16px;
+    width: 16px;
+    height: 16px;
+}
+
+/* ── Ausgewählte Plätze ── */
+.tix-sel-seatmap-selected {
+    padding: 12px 16px;
+    margin: 8px 0;
+    border-radius: var(--tix-radius, 8px);
+    background: var(--tix-surface, #1a1a1a);
+    border: 1px solid var(--tix-border, #333);
+}
+.tix-sel-seatmap-selected-header {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--tix-text, #fff);
+    margin-bottom: 8px;
+}
+.tix-sel-seatmap-selected-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+.tix-sel-seatmap-selected-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    background: rgba(99,102,241,0.15);
+    color: var(--tix-accent, #6366f1);
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 600;
+    border-left: 3px solid var(--tag-color, var(--tix-accent, #6366f1));
+}
+
+/* ── Responsive ── */
+@media (max-width: 768px) {
+    .tix-sp-modal-overlay { padding: 0; }
+    .tix-sp-modal {
+        max-width: 100vw;
+        max-height: 100vh;
+        height: 100vh;
+        border-radius: 0;
+    }
+    .tix-sp-modal-body { padding: 12px; }
+    .tix-sp-modal-footer {
+        flex-direction: column;
+        gap: 8px;
+        border-radius: 0;
+    }
+    .tix-sp-modal-confirm { width: 100%; }
+    .tix-sel-seatmap-actions {
+        flex-direction: column;
+    }
+    .tix-sel-btn-seatmap,
+    .tix-sel-btn-best-available {
+        width: 100%;
+        justify-content: center;
+    }
+}
+@media (max-width: 480px) {
+    .tix-sp-seat {
+        width: 20px;
+        height: 20px;
+        font-size: 7px;
+    }
+    .tix-sp-row-seats { gap: 2px; }
+    .tix-sp-row { padding: 2px 4px; }
+}

@@ -1,0 +1,2300 @@
+<?php
+if (!defined('ABSPATH')) exit;
+
+class TIX_Settings {
+
+    const OPTION_KEY = 'tix_settings';
+
+    /**
+     * Default-Werte
+     */
+    public static function defaults() {
+        return [
+            // ── Modus ──
+            'settings_mode'       => 'recommended', // recommended | manual
+            'theme_mode'          => 'light',
+
+            // ── Farben ──
+            'color_text'          => '',       // leer = inherit (Theme-Farbe)
+            'color_accent'        => '#c8ff00',
+            'color_accent_text'   => '#000000',
+            'color_accent_hover'      => '#b8e600',
+            'color_accent_hover_text' => '',       // Button-Hover-Textfarbe (leer = unverändert)
+            'color_border'        => '#333333',
+            'color_input_border'  => '#555555',
+            'color_focus'         => '#c8ff00',
+            'color_sale'          => '#ef5350',
+            'color_success'       => '#4caf50',
+            'save_badge_bg'       => '',       // Spar-Badge Hintergrund (leer = Sale-Farbe)
+            'save_badge_text'     => '',       // Spar-Badge Textfarbe (leer = weiß)
+            'color_card_bg'       => '',
+            'color_input_bg'      => '',
+            'shortcode_bg'        => '',       // Shortcode-Wrapper-Hintergrund (leer = transparent)
+
+            // ── Ecken & Rahmen ──
+            'radius_general'     => 8,
+            'radius_input'       => 6,
+            'radius_button'      => 8,
+            'radius_qty_btn'     => 50,  // % → 50 = rund
+            'border_width'       => 1,
+
+            // ── Größen ──
+            'qty_btn_size'       => 36,
+            'gap'                => 10,
+            'checkout_width'     => 640,
+
+            // ── Schrift ──
+            'font_price'         => '1.1',
+            'font_name'          => '1',
+            'font_total'         => '1.3',
+            'font_desc'          => '0.85',
+            'font_vat'           => '0.85',
+
+            // ── Event-Seite ──
+            'btn_text_buy'       => 'Weiter zur Kasse',
+            'vat_text_selector'  => 'inkl. MwSt.',
+
+            // ── FAQ ──
+            'faq_text_color'     => '',       // leer = inherit
+            'faq_bg'             => '',       // Frage-Hintergrund
+            'faq_list_bg'        => '',       // Gesamter Listen-Hintergrund
+            'faq_hover_bg'       => '',       // Hover-Hintergrund
+            'faq_hover_text'     => '',       // Hover-Textfarbe
+            'faq_active_bg'      => '',       // Aktive Frage Hintergrund
+            'faq_border_color'   => '',       // leer = globale Rahmenfarbe
+            'faq_divider_color'  => '',       // leer = gleich wie border
+            'faq_accent_color'   => '',       // leer = globaler Accent
+            'faq_icon_color'     => '',       // leer = currentColor
+            'faq_link_color'     => '',       // leer = inherit
+            'faq_radius'         => 8,        // gleich wie globaler Radius
+            'faq_border_width'   => 1,        // gleich wie globale Rahmenbreite
+            'faq_accent_width'   => 3,
+            'faq_icon_size'      => 24,
+            'faq_max_width'      => 720,
+            'faq_question_size'  => '1',
+            'faq_answer_size'    => '0.95',
+            'faq_answer_opacity' => '0.75',
+            'faq_title_size'     => '1.3',
+            'faq_padding_v'      => 14,       // vertikaler Padding
+            'faq_padding_h'      => 18,       // horizontaler Padding
+
+            // ── Ticket Selector ──
+            'sel_text_color'       => '',       // leer = inherit
+            'sel_bg'               => '',       // Kategorie-Hintergrund
+            'sel_border_color'     => '',       // leer = globale Rahmenfarbe
+            'sel_active_border'    => '',       // leer = globale Fokus-Farbe
+            'sel_active_bg'        => '',       // leer = leicht transparent
+            'sel_hover_text'       => '',       // Hover-Textfarbe
+            'sel_radius'           => 8,        // gleich wie globaler Radius
+            'sel_border_width'     => 1,
+            'sel_padding_v'        => 14,
+            'sel_padding_h'        => 16,
+            'sel_max_width'        => 0,        // 0 = kein Limit
+
+            // ── Kalender-Button ──
+            'cal_bg'               => '',       // leer = transparent
+            'cal_text_color'       => '',       // leer = inherit
+            'cal_border_color'     => '',       // leer = globale Rahmenfarbe
+            'cal_border_width'     => 1,
+            'cal_radius'           => 8,
+            'cal_hover_bg'         => '',       // leer = transparent
+            'cal_hover_border'     => '',       // leer = Akzentfarbe
+            'cal_hover_text'       => '',       // leer = unverändert
+
+            // ── Express-Checkout Modal ──
+            'ec_btn_bg'            => '',       // Trigger-Button Hintergrund (leer = Akzentfarbe)
+            'ec_btn_text'          => '',       // Trigger-Button Textfarbe (leer = Akzent-Text)
+            'ec_btn_hover_bg'      => '',       // Trigger Hover-Hintergrund
+            'ec_btn_hover_text'    => '',       // Trigger Hover-Textfarbe
+            'ec_btn_border_color'  => '',       // Trigger Rahmenfarbe (leer = keine)
+            'ec_btn_border_width'  => 0,        // Trigger Rahmenbreite
+            'ec_btn_radius'        => 8,        // Trigger Eckenradius
+            'ec_modal_bg'          => '',       // Modal-Hintergrund (leer = Karten-BG)
+            'ec_modal_text'        => '',       // Modal-Textfarbe (leer = inherit)
+            'ec_modal_border'      => '',       // Modal-Rahmenfarbe (leer = globale Rahmenfarbe)
+            'ec_modal_radius'      => 8,        // Modal-Eckenradius
+            'ec_modal_max_width'   => 520,      // Modal Max-Breite
+            'ec_cat_border'        => '',       // Kategorie-Rahmenfarbe (leer = globale Rahmenfarbe)
+            'ec_cat_active'        => '',       // Kategorie aktiver Rahmen (leer = Fokusfarbe)
+            'ec_cat_radius'        => 8,        // Kategorie-Eckenradius
+            'ec_buy_bg'            => '',       // Kauf-Button Hintergrund (leer = Akzentfarbe)
+            'ec_buy_text'          => '',       // Kauf-Button Textfarbe (leer = Akzent-Text)
+            'ec_buy_hover_bg'      => '',       // Kauf-Button Hover
+            'ec_buy_hover_text'    => '',       // Kauf-Button Hover-Textfarbe
+
+            // ── Checkout ──
+            'terms_url'          => '',
+            'privacy_url'        => '',
+            'revocation_url'     => '',
+            'btn_text_checkout'  => 'Jetzt kostenpflichtig bestellen',
+            'vat_text_checkout'  => 'inkl. MwSt.',
+            'empty_text'         => 'Dein Warenkorb ist leer.',
+            'empty_link_text'    => 'Zu den Events',
+            'shipping_text'      => 'Kostenloser Versand per E-Mail',
+
+            // ── Verhalten ──
+            'skip_cart'            => 1,
+            'force_email_shipping' => 1,
+            'show_company_field'   => 0,
+            'show_coupon_selector' => 1,
+            'checkout_steps'       => 0,
+            // ── Countdown ──
+            'checkout_countdown'         => 0,
+            'checkout_countdown_minutes' => 10,
+            // ── Upselling ──
+            'show_upsell'          => 1,
+            'upsell_count'         => 3,
+            'upsell_heading'       => 'Das könnte dich auch interessieren',
+            // ── Google Places ──
+            'google_api_key'     => '',
+            // ── Meine Tickets ──
+            'mt_bg'              => '#ffffff',
+            'mt_card_bg'         => '#ffffff',
+            'mt_text_color'      => '#1a1a1a',
+            'mt_border_color'    => '#e5e7eb',
+            'mt_ticket_bg'       => '#f8fdf0',
+            'mt_accent_color'    => '',  // leer = globaler Accent
+
+            // ── E-Mail ──
+            'email_logo_url'     => '',       // URL zum Logo-Bild
+            'email_brand_name'   => '',       // Firmenname (leer = Blogname)
+            'email_footer_text'  => '',       // Footer-Text (leer = Default)
+            'email_reminder'     => 1,        // Erinnerungsmail 24h vor Event
+            'email_followup'     => 1,        // Nachbefragungsmail 24h nach Event
+            'email_followup_url' => '',       // Feedback-Link URL
+            // ── Gemeinsam buchen ──
+            'group_booking'      => 1,
+            // ── Newsletter ──
+            'newsletter_enabled'  => 0,
+            'newsletter_type'     => 'email',    // 'email' oder 'whatsapp'
+            'newsletter_label'    => '',          // leer = Standardtext
+            'newsletter_webhook'  => '',          // URL für Webhook
+            'newsletter_legal'    => '',          // Rechtlicher Hinweis unter Checkbox
+            // ── Ticket-System ──
+            'ticket_system'         => 'tickera',  // tickera | standalone | both
+            // ── Abandoned Cart ──
+            'abandoned_cart_enabled' => 0,
+            'abandoned_cart_delay'   => 30,       // Minuten
+            'abandoned_cart_subject' => '',        // leer = Standard
+            // ── Express Checkout ──
+            'express_checkout_enabled' => 0,
+            // ── Ticket-Umschreibung ──
+            'ticket_transfer_enabled' => 0,
+            // ── Strichcode (Barcode) ──
+            'barcode_enabled' => 0,
+            // ── Charity / Soziales Projekt ──
+            'charity_enabled' => 0,
+            // ── Support-System ──
+            'support_enabled'    => 0,
+            'support_categories'  => '',
+            'support_chat_enabled' => 0,
+            // ── Geführter Modus ──
+            'wizard_enabled'     => 1,
+            // ── Theme-Modus (universell) ──
+            'theme_mode'         => 'light',   // 'light' oder 'dark'
+            // ── Check-in ──
+            'ci_bg'              => '#f8fafc',
+            'ci_surface'         => '#ffffff',
+            'ci_border'          => '#e2e8f0',
+            'ci_text'            => '#1e293b',
+            'ci_muted'           => '#64748b',
+            'ci_accent'          => '#1e293b',
+            'ci_accent_text'     => '#ffffff',
+            'ci_ok'              => '#22c55e',
+            'ci_warn'            => '#eab308',
+            'ci_err'             => '#ef4444',
+            'ci_popup_duration'  => 5,
+            // ── Daten-Sync ──
+            'ticket_db_enabled'  => 0,
+            'supabase_enabled'   => 0,
+            'supabase_url'       => '',
+            'supabase_api_key'   => '',
+            'supabase_table'     => 'tickets',
+            'airtable_enabled'   => 0,
+            'airtable_api_key'   => '',
+            'airtable_base_id'   => '',
+            'airtable_table'     => 'Tickets',
+            // ── Branding ──
+            'branding_enabled'  => 1,
+            'branding_url'      => 'https://mdj.events',
+            // ── Sponsor (Thank-You) ──
+            'sponsor_enabled'    => 0,
+            'sponsor_image_url'  => '',
+            'sponsor_logo_width' => 30,
+            // Ticket-Template
+            'ticket_template'    => '',
+        ];
+    }
+
+    /**
+     * Settings laden (mit Defaults gemergt)
+     */
+    public static function get($key = null) {
+        $settings = wp_parse_args(get_option(self::OPTION_KEY, []), self::defaults());
+        if ($key !== null) return $settings[$key] ?? null;
+        return $settings;
+    }
+
+    /**
+     * Init
+     */
+    public static function init() {
+        add_action('admin_menu', [__CLASS__, 'add_menu']);
+        add_action('admin_init', [__CLASS__, 'register_settings']);
+        add_action('admin_enqueue_scripts', [__CLASS__, 'enqueue_assets']);
+        add_action('wp_head',    [__CLASS__, 'output_css'], 99);
+    }
+
+    /**
+     * Admin-Assets auf der Settings-Seite laden
+     */
+    public static function enqueue_assets($hook) {
+        if ($hook !== 'tixomat_page_tix-settings') return;
+        wp_enqueue_style('dashicons');
+        wp_enqueue_style('tix-admin', TIXOMAT_URL . 'assets/css/admin.css', [], TIXOMAT_VERSION);
+
+        // Ticket-Template Editor
+        wp_enqueue_media();
+        wp_enqueue_style('tix-tte-editor', TIXOMAT_URL . 'assets/css/ticket-template-editor.css', [], TIXOMAT_VERSION);
+        wp_enqueue_script('tix-tte-editor', TIXOMAT_URL . 'assets/js/ticket-template-editor.js', ['jquery'], TIXOMAT_VERSION, true);
+    }
+
+    /**
+     * Menüeintrag
+     */
+    public static function add_menu() {
+        add_submenu_page(
+            'tixomat',
+            'Tixomat Einstellungen',
+            'Einstellungen',
+            'manage_options',
+            'tix-settings',
+            [__CLASS__, 'render_page']
+        );
+    }
+
+    /**
+     * Settings registrieren
+     */
+    public static function register_settings() {
+        register_setting('tix_settings_group', self::OPTION_KEY, [
+            'sanitize_callback' => [__CLASS__, 'sanitize'],
+        ]);
+    }
+
+    /**
+     * Sanitize
+     */
+    public static function sanitize($input) {
+        $defaults = self::defaults();
+        $clean = [];
+
+        // Farben (hex + rgba Support)
+        foreach (['color_accent', 'color_accent_text', 'color_accent_hover', 'color_accent_hover_text', 'color_border', 'color_input_border', 'color_focus', 'color_sale', 'color_success'] as $k) {
+            $clean[$k] = self::sanitize_color($input[$k] ?? '') ?: $defaults[$k];
+        }
+        $clean['color_text']     = self::sanitize_color($input['color_text'] ?? '') ?: '';
+        $clean['color_card_bg']  = self::sanitize_color($input['color_card_bg'] ?? '') ?: '';
+        $clean['color_input_bg'] = self::sanitize_color($input['color_input_bg'] ?? '') ?: '';
+        $clean['shortcode_bg']   = self::sanitize_color($input['shortcode_bg'] ?? '') ?: '';
+        foreach (['save_badge_bg', 'save_badge_text'] as $k) {
+            $clean[$k] = self::sanitize_color($input[$k] ?? '') ?: '';
+        }
+
+        // Zahlen
+        foreach (['radius_general', 'radius_input', 'radius_button', 'border_width', 'qty_btn_size', 'gap', 'checkout_width'] as $k) {
+            $clean[$k] = max(0, intval($input[$k] ?? $defaults[$k]));
+        }
+        $clean['radius_qty_btn'] = max(0, min(50, intval($input['radius_qty_btn'] ?? $defaults['radius_qty_btn'])));
+
+        // Schrift (Dezimal)
+        foreach (['font_price', 'font_name', 'font_total', 'font_desc', 'font_vat'] as $k) {
+            $v = floatval($input[$k] ?? $defaults[$k]);
+            $clean[$k] = max(0.5, min(3, $v));
+        }
+
+        // FAQ Farben (alle optional/leer möglich)
+        foreach (['faq_text_color', 'faq_bg', 'faq_list_bg', 'faq_hover_bg', 'faq_hover_text', 'faq_active_bg', 'faq_border_color', 'faq_divider_color', 'faq_accent_color', 'faq_icon_color', 'faq_link_color'] as $k) {
+            $clean[$k] = self::sanitize_color($input[$k] ?? '') ?: '';
+        }
+        // FAQ Zahlen (leer möglich = global fallback)
+        $clean['faq_radius']       = max(0, min(24, intval($input['faq_radius'] ?? 8)));
+        $clean['faq_border_width'] = max(0, min(4, intval($input['faq_border_width'] ?? 1)));
+        $clean['faq_accent_width'] = max(0, min(8, intval($input['faq_accent_width'] ?? 3)));
+        $clean['faq_icon_size']    = max(12, min(48, intval($input['faq_icon_size'] ?? 24)));
+        $clean['faq_max_width']    = max(300, min(1600, intval($input['faq_max_width'] ?? 720)));
+        $clean['faq_padding_v']    = max(4, min(32, intval($input['faq_padding_v'] ?? 14)));
+        $clean['faq_padding_h']    = max(8, min(40, intval($input['faq_padding_h'] ?? 18)));
+        // FAQ Schrift (Dezimal)
+        foreach (['faq_question_size', 'faq_answer_size', 'faq_title_size'] as $k) {
+            $v = floatval($input[$k] ?? $defaults[$k]);
+            $clean[$k] = max(0.6, min(2.5, $v));
+        }
+        $clean['faq_answer_opacity'] = max(0.3, min(1, floatval($input['faq_answer_opacity'] ?? 0.75)));
+
+        // Ticket Selector Farben
+        foreach (['sel_text_color', 'sel_bg', 'sel_border_color', 'sel_active_border', 'sel_active_bg', 'sel_hover_text'] as $k) {
+            $clean[$k] = self::sanitize_color($input[$k] ?? '') ?: '';
+        }
+        $clean['sel_radius']       = max(0, min(24, intval($input['sel_radius'] ?? 8)));
+        $clean['sel_border_width'] = max(0, min(4, intval($input['sel_border_width'] ?? 1)));
+        $clean['sel_padding_v']    = max(4, min(32, intval($input['sel_padding_v'] ?? 14)));
+        $clean['sel_padding_h']    = max(4, min(40, intval($input['sel_padding_h'] ?? 16)));
+        $clean['sel_max_width']    = max(0, min(1600, intval($input['sel_max_width'] ?? 0)));
+
+
+
+        // Kalender-Button Farben
+        foreach (['cal_bg', 'cal_text_color', 'cal_border_color', 'cal_hover_bg', 'cal_hover_border', 'cal_hover_text'] as $k) {
+            $clean[$k] = self::sanitize_color($input[$k] ?? '') ?: '';
+        }
+        $clean['cal_border_width'] = max(0, min(4, intval($input['cal_border_width'] ?? 1)));
+        $clean['cal_radius']       = max(0, min(24, intval($input['cal_radius'] ?? 8)));
+
+        // Settings-Modus
+        $clean['settings_mode'] = in_array($input['settings_mode'] ?? '', ['recommended', 'manual']) ? $input['settings_mode'] : 'recommended';
+
+        // Texte
+        foreach (['terms_url', 'privacy_url', 'revocation_url'] as $k) {
+            $clean[$k] = esc_url_raw($input[$k] ?? '');
+        }
+        foreach (['btn_text_buy', 'btn_text_checkout', 'empty_text', 'empty_link_text', 'shipping_text', 'vat_text_selector', 'vat_text_checkout'] as $k) {
+            $clean[$k] = sanitize_text_field($input[$k] ?? $defaults[$k]);
+        }
+
+        // Toggles
+        $clean['skip_cart']            = !empty($input['skip_cart']) ? 1 : 0;
+        $clean['force_email_shipping'] = !empty($input['force_email_shipping']) ? 1 : 0;
+        $clean['show_company_field']   = !empty($input['show_company_field']) ? 1 : 0;
+        $clean['show_coupon_selector'] = !empty($input['show_coupon_selector']) ? 1 : 0;
+        $clean['checkout_steps']       = !empty($input['checkout_steps']) ? 1 : 0;
+        $clean['checkout_countdown']         = !empty($input['checkout_countdown']) ? 1 : 0;
+        $clean['checkout_countdown_minutes'] = max(1, min(60, intval($input['checkout_countdown_minutes'] ?? 10)));
+        $clean['show_upsell']          = !empty($input['show_upsell']) ? 1 : 0;
+        $clean['upsell_count']         = max(1, min(6, intval($input['upsell_count'] ?? 3)));
+        $clean['upsell_heading']       = sanitize_text_field($input['upsell_heading'] ?? '');
+
+        // Google API Key
+        $clean['google_api_key'] = sanitize_text_field($input['google_api_key'] ?? '');
+
+        // Meine Tickets Farben
+        foreach (['mt_bg', 'mt_card_bg', 'mt_text_color', 'mt_border_color', 'mt_ticket_bg', 'mt_accent_color'] as $k) {
+            $clean[$k] = self::sanitize_color($input[$k] ?? '') ?: '';
+        }
+
+        // E-Mail
+        $clean['email_logo_url']     = esc_url_raw($input['email_logo_url'] ?? '');
+        $clean['email_brand_name']   = sanitize_text_field($input['email_brand_name'] ?? '');
+        $clean['email_footer_text']  = sanitize_text_field($input['email_footer_text'] ?? '');
+        $clean['email_reminder']     = !empty($input['email_reminder']) ? 1 : 0;
+        $clean['email_followup']     = !empty($input['email_followup']) ? 1 : 0;
+        $clean['email_followup_url'] = esc_url_raw($input['email_followup_url'] ?? '');
+
+        // Gemeinsam buchen
+        $clean['group_booking'] = !empty($input['group_booking']) ? 1 : 0;
+
+        // Newsletter
+        $clean['newsletter_enabled'] = !empty($input['newsletter_enabled']) ? 1 : 0;
+        $clean['newsletter_type']    = in_array($input['newsletter_type'] ?? '', ['email', 'whatsapp']) ? $input['newsletter_type'] : 'email';
+        $clean['newsletter_label']   = sanitize_text_field($input['newsletter_label'] ?? '');
+        $clean['newsletter_webhook'] = esc_url_raw($input['newsletter_webhook'] ?? '');
+        $clean['newsletter_legal']   = sanitize_textarea_field($input['newsletter_legal'] ?? '');
+
+        // Ticket-System
+        $ts_allowed = ['tickera', 'standalone', 'both'];
+        $clean['ticket_system'] = in_array($input['ticket_system'] ?? '', $ts_allowed, true)
+            ? $input['ticket_system'] : 'tickera';
+
+        // Abandoned Cart
+        $clean['abandoned_cart_enabled'] = !empty($input['abandoned_cart_enabled']) ? 1 : 0;
+        $clean['abandoned_cart_delay']   = max(5, min(1440, intval($input['abandoned_cart_delay'] ?? 30)));
+        $clean['abandoned_cart_subject'] = sanitize_text_field($input['abandoned_cart_subject'] ?? '');
+
+        // Express Checkout
+        $clean['express_checkout_enabled'] = !empty($input['express_checkout_enabled']) ? 1 : 0;
+
+        // Express-Checkout Modal Design
+        foreach (['ec_btn_bg', 'ec_btn_text', 'ec_btn_hover_bg', 'ec_btn_hover_text', 'ec_btn_border_color', 'ec_modal_bg', 'ec_modal_text', 'ec_modal_border', 'ec_cat_border', 'ec_cat_active', 'ec_buy_bg', 'ec_buy_text', 'ec_buy_hover_bg', 'ec_buy_hover_text'] as $k) {
+            $clean[$k] = self::sanitize_color($input[$k] ?? '') ?: '';
+        }
+        $clean['ec_btn_border_width'] = max(0, min(4, intval($input['ec_btn_border_width'] ?? 0)));
+        $clean['ec_btn_radius']       = max(0, min(24, intval($input['ec_btn_radius'] ?? 8)));
+        $clean['ec_modal_radius']     = max(0, min(24, intval($input['ec_modal_radius'] ?? 8)));
+        $clean['ec_modal_max_width']  = max(320, min(800, intval($input['ec_modal_max_width'] ?? 520)));
+        $clean['ec_cat_radius']       = max(0, min(24, intval($input['ec_cat_radius'] ?? 8)));
+
+        // Ticket-Umschreibung
+        $clean['ticket_transfer_enabled'] = !empty($input['ticket_transfer_enabled']) ? 1 : 0;
+
+        // Strichcode (Barcode)
+        $clean['barcode_enabled'] = !empty($input['barcode_enabled']) ? 1 : 0;
+
+        // Charity / Soziales Projekt
+        $clean['charity_enabled'] = !empty($input['charity_enabled']) ? 1 : 0;
+
+        // Support-System
+        $clean['support_enabled'] = !empty($input['support_enabled']) ? 1 : 0;
+        $clean['support_categories'] = sanitize_textarea_field($input['support_categories'] ?? '');
+        $clean['support_chat_enabled'] = !empty($input['support_chat_enabled']) ? 1 : 0;
+
+        // Geführter Modus
+        $clean['wizard_enabled'] = !empty($input['wizard_enabled']) ? 1 : 0;
+
+        // Theme-Modus (universell)
+        $clean['theme_mode'] = in_array($input['theme_mode'] ?? '', ['light', 'dark']) ? $input['theme_mode'] : 'light';
+
+        // Check-in
+        foreach (['ci_bg', 'ci_surface', 'ci_border', 'ci_text', 'ci_muted', 'ci_accent', 'ci_accent_text', 'ci_ok', 'ci_warn', 'ci_err'] as $k) {
+            $clean[$k] = self::sanitize_color($input[$k] ?? '') ?: $defaults[$k];
+        }
+        $clean['ci_popup_duration'] = max(1, min(30, intval($input['ci_popup_duration'] ?? 5)));
+
+        // Daten-Sync
+        $clean['ticket_db_enabled']  = !empty($input['ticket_db_enabled']) ? 1 : 0;
+        $clean['supabase_enabled']   = !empty($input['supabase_enabled']) ? 1 : 0;
+        $clean['supabase_url']       = esc_url_raw($input['supabase_url'] ?? '');
+        $clean['supabase_api_key']   = sanitize_text_field($input['supabase_api_key'] ?? '');
+        $clean['supabase_table']     = sanitize_text_field($input['supabase_table'] ?? 'tickets');
+        $clean['airtable_enabled']   = !empty($input['airtable_enabled']) ? 1 : 0;
+        $clean['airtable_api_key']   = sanitize_text_field($input['airtable_api_key'] ?? '');
+        $clean['airtable_base_id']   = sanitize_text_field($input['airtable_base_id'] ?? '');
+        $clean['airtable_table']     = sanitize_text_field($input['airtable_table'] ?? 'Tickets');
+
+        // DB-Tabelle erstellen wenn aktiviert
+        if ($clean['ticket_db_enabled'] && class_exists('TIX_Ticket_DB') && !TIX_Ticket_DB::table_exists()) {
+            TIX_Ticket_DB::create_table();
+        }
+
+        // Branding
+        $clean['branding_enabled'] = !empty($input['branding_enabled']) ? 1 : 0;
+        $clean['branding_url']     = esc_url_raw($input['branding_url'] ?? 'https://mdj.events');
+
+        // Sponsor (Thank-You)
+        $clean['sponsor_enabled']    = !empty($input['sponsor_enabled']) ? 1 : 0;
+        $clean['sponsor_image_url']  = esc_url_raw($input['sponsor_image_url'] ?? '');
+        $clean['sponsor_logo_width'] = max(10, min(80, intval($input['sponsor_logo_width'] ?? 30)));
+
+        // Ticket-Template
+        $raw_tt = $input['ticket_template'] ?? '';
+        if (!empty($raw_tt) && class_exists('TIX_Ticket_Template')) {
+            $tt_config = TIX_Ticket_Template::sanitize_config($raw_tt);
+            $clean['ticket_template'] = wp_json_encode($tt_config);
+        } else {
+            $clean['ticket_template'] = '';
+        }
+
+        return $clean;
+    }
+
+    /**
+     * CSS-Variablen ins Frontend ausgeben
+     */
+    public static function output_css() {
+        $s = self::get();
+        $d = self::defaults();
+
+        $vars = [];
+
+        // Nur geänderte Werte ausgeben
+        $map = [
+            'color_accent'        => ['--tix-buy-bg', null],
+            'color_accent_text'   => ['--tix-buy-color', null],
+            'color_accent_hover'      => ['--tix-buy-hover', null],
+            'color_accent_hover_text' => ['--tix-buy-hover-color', null],
+            'color_border'        => ['--tix-border', null],
+            'color_input_border'  => ['--tix-input-border', null],
+            'color_focus'         => ['--tix-input-focus', null],
+            'color_sale'          => ['--tix-sale-color', null],
+            'color_success'       => ['--tix-success-color', null],
+            'color_card_bg'       => ['--tix-cat-bg', null],
+            'color_input_bg'      => ['--tix-input-bg', null],
+        ];
+
+        foreach ($map as $key => list($var, $unit)) {
+            $val = $s[$key];
+            if ($val !== '' && $val !== ($d[$key] ?? '')) {
+                $vars[] = "$var: $val";
+            }
+        }
+
+        // Auch Accent = cat-border und cat-active-border synken
+        if ($s['color_border'] !== $d['color_border']) {
+            $vars[] = '--tix-cat-border: ' . $s['color_border'];
+        }
+        if ($s['color_focus'] !== $d['color_focus']) {
+            $vars[] = '--tix-cat-active-border: ' . $s['color_focus'];
+        }
+
+        // Spar-Badge
+        if (!empty($s['save_badge_bg']))   $vars[] = '--tix-save-bg: ' . $s['save_badge_bg'];
+        if (!empty($s['save_badge_text'])) $vars[] = '--tix-save-text: ' . $s['save_badge_text'];
+
+        $num_map = [
+            'radius_general' => ['--tix-radius', 'px'],
+            'radius_input'   => ['--tix-input-radius', 'px'],
+            'radius_button'  => ['--tix-buy-radius', 'px'],
+            'radius_qty_btn' => ['--tix-btn-radius', '%'],
+            'qty_btn_size'   => ['--tix-btn-size', 'px'],
+            'gap'            => ['--tix-gap', 'px'],
+        ];
+
+        foreach ($num_map as $key => list($var, $unit)) {
+            if ((string)$s[$key] !== (string)$d[$key]) {
+                $vars[] = "$var: {$s[$key]}{$unit}";
+            }
+        }
+
+        $font_map = [
+            'font_price' => '--tix-font-price',
+            'font_name'  => '--tix-font-name',
+            'font_total' => '--tix-font-total',
+            'font_desc'  => '--tix-font-desc',
+            'font_vat'   => '--tix-font-vat',
+        ];
+
+        foreach ($font_map as $key => $var) {
+            if ((string)$s[$key] !== (string)$d[$key]) {
+                $vars[] = "$var: {$s[$key]}rem";
+            }
+        }
+
+        // ── .tix-vat Regel (immer ausgeben, da Meta-Spans auch außerhalb von .tix-sel/.tix-co vorkommen) ──
+        $vat_size = floatval($s['font_vat'] ?: $d['font_vat']);
+        $vat_css  = ".tix-vat { font-size: {$vat_size}rem; font-weight: 400; }\n";
+
+        // ── Globale Textfarbe ──
+        $text_css = '';
+        if (!empty($s['color_text'])) {
+            $text_css = ".tix-sel, .tix-co, .tix-faq, .tix-up, .tix-mt { color: {$s['color_text']}; }\n";
+        }
+
+        if (empty($vars)) {
+            echo "<style id=\"tix-custom-vars\">\n{$vat_css}{$text_css}";
+        } else {
+            echo "<style id=\"tix-custom-vars\">\n.tix-sel, .tix-co, .tix-faq, .tix-up, .tix-mt {\n    " . implode(";\n    ", $vars) . ";\n}\n";
+            echo $vat_css;
+            echo $text_css;
+        }
+
+        // Border-Width Override (nicht als Variable, sondern als direkte Regel)
+        if ((int)$s['border_width'] !== (int)$d['border_width']) {
+            $bw = intval($s['border_width']);
+            // .tix-sel-cat nur inkludieren wenn sel_border_width NICHT separat gesetzt
+            $sel_has_own = (int)$s['sel_border_width'] !== 1;
+            $sel_el = $sel_has_own ? '' : '.tix-sel-cat, ';
+            echo "{$sel_el}.tix-co-item, .tix-co-gateway, .tix-co-shipping-info, .tix-co-legal, .tix-co-login-section { border-width: {$bw}px; }\n";
+            echo ".tix-co-input, .tix-co-select, .tix-co-textarea { border-width: {$bw}px; }\n";
+        }
+
+        // Checkout Max-Width
+        if ((int)$s['checkout_width'] !== (int)$d['checkout_width']) {
+            echo ".tix-co { max-width: {$s['checkout_width']}px; }\n";
+        }
+
+        // ── FAQ Styles ──
+        $faq_vars = [];
+        // Farben (leer = Fallback auf global oder CSS-Default)
+        if (!empty($s['faq_text_color']))    $faq_vars[] = '--tix-faq-text: ' . $s['faq_text_color'];
+        if (!empty($s['faq_bg']))            $faq_vars[] = '--tix-faq-bg: ' . $s['faq_bg'];
+        if (!empty($s['faq_list_bg']))       $faq_vars[] = '--tix-faq-list-bg: ' . $s['faq_list_bg'];
+        if (!empty($s['faq_hover_bg']))      $faq_vars[] = '--tix-faq-hover: ' . $s['faq_hover_bg'];
+        if (!empty($s['faq_hover_text']))    $faq_vars[] = '--tix-faq-hover-text: ' . $s['faq_hover_text'];
+        if (!empty($s['faq_active_bg']))     $faq_vars[] = '--tix-faq-active-bg: ' . $s['faq_active_bg'];
+        if (!empty($s['faq_icon_color']))    $faq_vars[] = '--tix-faq-icon-color: ' . $s['faq_icon_color'];
+        if (!empty($s['faq_link_color']))    $faq_vars[] = '--tix-faq-link-color: ' . $s['faq_link_color'];
+        // Border: eigene Farbe oder globale Rahmenfarbe
+        $faq_border = !empty($s['faq_border_color']) ? $s['faq_border_color'] : $s['color_border'];
+        if ($faq_border !== $d['color_border']) {
+            $faq_vars[] = '--tix-faq-border: ' . $faq_border;
+        }
+        // Divider: eigene oder gleich wie border
+        if (!empty($s['faq_divider_color'])) {
+            $faq_vars[] = '--tix-faq-divider: ' . $s['faq_divider_color'];
+        }
+        // Accent: eigene oder globale Akzentfarbe
+        $faq_accent = !empty($s['faq_accent_color']) ? $s['faq_accent_color'] : $s['color_accent'];
+        if ($faq_accent !== $d['color_accent']) {
+            $faq_vars[] = '--tix-faq-accent: ' . $faq_accent;
+        }
+        // Radius
+        if ((int)$s['faq_radius'] !== (int)$d['faq_radius']) {
+            $faq_vars[] = '--tix-faq-radius: ' . intval($s['faq_radius']) . 'px';
+        }
+        // Border-Width
+        if ((int)$s['faq_border_width'] !== (int)$d['faq_border_width']) {
+            $faq_vars[] = '--tix-faq-border-width: ' . intval($s['faq_border_width']) . 'px';
+        }
+        // Zahlen
+        if ((int)$s['faq_accent_width'] !== 3) $faq_vars[] = '--tix-faq-accent-width: ' . intval($s['faq_accent_width']) . 'px';
+        if ((int)$s['faq_icon_size'] !== 24)   $faq_vars[] = '--tix-faq-icon-size: ' . intval($s['faq_icon_size']) . 'px';
+        if ((int)$s['faq_max_width'] !== 720)  $faq_vars[] = '--tix-faq-max-width: ' . intval($s['faq_max_width']) . 'px';
+        // Padding
+        $pv = intval($s['faq_padding_v']);
+        $ph = intval($s['faq_padding_h']);
+        if ($pv !== 14 || $ph !== 18) {
+            $faq_vars[] = "--tix-faq-padding: {$pv}px {$ph}px";
+        }
+        if ($ph !== 18) {
+            $faq_vars[] = "--tix-faq-padding-h: {$ph}px";
+        }
+        // Schrift
+        if ((string)$s['faq_title_size'] !== '1.3')      $faq_vars[] = '--tix-faq-title-size: ' . $s['faq_title_size'] . 'rem';
+        if ((string)$s['faq_question_size'] !== '1')      $faq_vars[] = '--tix-faq-question-size: ' . $s['faq_question_size'] . 'rem';
+        if ((string)$s['faq_answer_size'] !== '0.95')     $faq_vars[] = '--tix-faq-answer-size: ' . $s['faq_answer_size'] . 'rem';
+        if ((string)$s['faq_answer_opacity'] !== '0.75')  $faq_vars[] = '--tix-faq-answer-opacity: ' . $s['faq_answer_opacity'];
+
+        if (!empty($faq_vars)) {
+            echo ".tix-faq {\n    " . implode(";\n    ", $faq_vars) . ";\n}\n";
+        }
+
+        // ── Ticket Selector Styles ──
+        $sel_vars = [];
+        if (!empty($s['sel_text_color']))    $sel_vars[] = '--tix-sel-text: ' . $s['sel_text_color'];
+        if (!empty($s['sel_bg']))            $sel_vars[] = '--tix-sel-cat-bg: ' . $s['sel_bg'];
+        if (!empty($s['sel_border_color'])) {
+            $sel_vars[] = '--tix-cat-border: ' . $s['sel_border_color'];
+        }
+        if (!empty($s['sel_active_border'])) $sel_vars[] = '--tix-sel-active-border: ' . $s['sel_active_border'];
+        if (!empty($s['sel_active_bg']))     $sel_vars[] = '--tix-sel-active-bg: ' . $s['sel_active_bg'];
+        if (!empty($s['sel_hover_text']))    $sel_vars[] = '--tix-sel-hover-text: ' . $s['sel_hover_text'];
+        if ((int)$s['sel_radius'] !== (int)$d['sel_radius']) {
+            $sel_vars[] = '--tix-sel-radius: ' . intval($s['sel_radius']) . 'px';
+        }
+        if ((int)$s['sel_border_width'] !== 1) {
+            $sel_vars[] = '--tix-sel-border-width: ' . intval($s['sel_border_width']) . 'px';
+        }
+        $spv = intval($s['sel_padding_v']);
+        $sph = intval($s['sel_padding_h']);
+        if ($spv !== 14 || $sph !== 16) {
+            $sel_vars[] = "--tix-sel-padding: {$spv}px {$sph}px";
+        }
+        if ((int)$s['sel_max_width'] > 0) {
+            $sel_vars[] = '--tix-sel-max-width: ' . intval($s['sel_max_width']) . 'px';
+        }
+        if (!empty($sel_vars)) {
+            echo ".tix-sel {\n    " . implode(";\n    ", $sel_vars) . ";\n}\n";
+        }
+        // ── Kalender-Button Styles ──
+        $cal_vars = [];
+        if (!empty($s['cal_bg']))            $cal_vars[] = '--tix-cal-bg: ' . $s['cal_bg'];
+        if (!empty($s['cal_text_color']))    $cal_vars[] = '--tix-cal-text: ' . $s['cal_text_color'];
+        $cal_border = !empty($s['cal_border_color']) ? $s['cal_border_color'] : $s['color_border'];
+        if ($cal_border !== $d['color_border']) {
+            $cal_vars[] = '--tix-cal-border: ' . $cal_border;
+        }
+        if ((int)$s['cal_border_width'] !== 1) $cal_vars[] = '--tix-cal-border-width: ' . intval($s['cal_border_width']) . 'px';
+        if ((int)$s['cal_radius'] !== 8)       $cal_vars[] = '--tix-cal-radius: ' . intval($s['cal_radius']) . 'px';
+        if (!empty($s['cal_hover_bg']))      $cal_vars[] = '--tix-cal-hover-bg: ' . $s['cal_hover_bg'];
+        if (!empty($s['cal_hover_text']))    $cal_vars[] = '--tix-cal-hover-text: ' . $s['cal_hover_text'];
+        $cal_hover_border = !empty($s['cal_hover_border']) ? $s['cal_hover_border'] : $s['color_accent'];
+        if ($cal_hover_border !== $d['color_accent']) {
+            $cal_vars[] = '--tix-cal-hover-border: ' . $cal_hover_border;
+        }
+        if (!empty($cal_vars)) {
+            echo ".tix-cal {\n    " . implode(";\n    ", $cal_vars) . ";\n}\n";
+        }
+
+        // ── Express-Checkout Modal Styles ──
+        $ec_vars = [];
+        // Trigger-Button
+        if (!empty($s['ec_btn_bg']))           $ec_vars[] = '--tix-ec-btn-bg: ' . $s['ec_btn_bg'];
+        if (!empty($s['ec_btn_text']))         $ec_vars[] = '--tix-ec-btn-text: ' . $s['ec_btn_text'];
+        if (!empty($s['ec_btn_hover_bg']))     $ec_vars[] = '--tix-ec-btn-hover-bg: ' . $s['ec_btn_hover_bg'];
+        if (!empty($s['ec_btn_hover_text']))   $ec_vars[] = '--tix-ec-btn-hover-text: ' . $s['ec_btn_hover_text'];
+        if (!empty($s['ec_btn_border_color'])) $ec_vars[] = '--tix-ec-btn-border: ' . $s['ec_btn_border_color'];
+        if ((int)$s['ec_btn_border_width'] !== 0) $ec_vars[] = '--tix-ec-btn-border-width: ' . intval($s['ec_btn_border_width']) . 'px';
+        if ((int)$s['ec_btn_radius'] !== 8)       $ec_vars[] = '--tix-ec-btn-radius: ' . intval($s['ec_btn_radius']) . 'px';
+        // Modal
+        if (!empty($s['ec_modal_bg']))         $ec_vars[] = '--tix-ec-modal-bg: ' . $s['ec_modal_bg'];
+        if (!empty($s['ec_modal_text']))       $ec_vars[] = '--tix-ec-modal-text: ' . $s['ec_modal_text'];
+        $ec_border = !empty($s['ec_modal_border']) ? $s['ec_modal_border'] : $s['color_border'];
+        if ($ec_border !== $d['color_border']) {
+            $ec_vars[] = '--tix-ec-modal-border: ' . $ec_border;
+        }
+        if ((int)$s['ec_modal_radius'] !== 8)     $ec_vars[] = '--tix-ec-modal-radius: ' . intval($s['ec_modal_radius']) . 'px';
+        if ((int)$s['ec_modal_max_width'] !== 520) $ec_vars[] = '--tix-ec-modal-max-width: ' . intval($s['ec_modal_max_width']) . 'px';
+        // Kategorien
+        $ec_cat_border = !empty($s['ec_cat_border']) ? $s['ec_cat_border'] : $s['color_border'];
+        if ($ec_cat_border !== $d['color_border']) {
+            $ec_vars[] = '--tix-ec-cat-border: ' . $ec_cat_border;
+        }
+        $ec_cat_active = !empty($s['ec_cat_active']) ? $s['ec_cat_active'] : $s['color_focus'];
+        if ($ec_cat_active !== $d['color_focus']) {
+            $ec_vars[] = '--tix-ec-cat-active: ' . $ec_cat_active;
+        }
+        if ((int)$s['ec_cat_radius'] !== 8) $ec_vars[] = '--tix-ec-cat-radius: ' . intval($s['ec_cat_radius']) . 'px';
+        // Kauf-Button
+        if (!empty($s['ec_buy_bg']))           $ec_vars[] = '--tix-ec-buy-bg: ' . $s['ec_buy_bg'];
+        if (!empty($s['ec_buy_text']))         $ec_vars[] = '--tix-ec-buy-text: ' . $s['ec_buy_text'];
+        if (!empty($s['ec_buy_hover_bg']))     $ec_vars[] = '--tix-ec-buy-hover: ' . $s['ec_buy_hover_bg'];
+        if (!empty($s['ec_buy_hover_text']))   $ec_vars[] = '--tix-ec-buy-hover-text: ' . $s['ec_buy_hover_text'];
+
+        if (!empty($ec_vars)) {
+            echo ".tix-ec-trigger, .tix-ec-overlay {\n    " . implode(";\n    ", $ec_vars) . ";\n}\n";
+        }
+
+        // ── Shortcode-Wrapper-Hintergrund ──
+        if (!empty($s['shortcode_bg'])) {
+            $sc_r = intval($s['radius_general'] ?: $d['radius_general']);
+            echo ".tix-sel, .tix-co, .tix-up, .tix-faq { background: {$s['shortcode_bg']}; padding: 20px; border-radius: {$sc_r}px; }\n";
+        }
+
+        // ── Meine Tickets Styles ──
+        $mt_vars = [];
+        if (!empty($s['mt_bg']) && $s['mt_bg'] !== $d['mt_bg']) {
+            $mt_vars[] = '--tix-mt-bg: ' . $s['mt_bg'];
+        }
+        if (!empty($s['mt_card_bg'])) {
+            $mt_vars[] = '--tix-mt-card-bg: ' . $s['mt_card_bg'];
+        }
+        if (!empty($s['mt_text_color'])) {
+            $mt_vars[] = '--tix-mt-text: ' . $s['mt_text_color'];
+            // Muted-Farbe ableiten (Textfarbe mit 45% Deckkraft)
+            $rgb = self::color_to_rgb($s['mt_text_color']);
+            if ($rgb) {
+                $mt_vars[] = "--tix-mt-muted: rgba({$rgb['r']},{$rgb['g']},{$rgb['b']},0.45)";
+            }
+        }
+        if (!empty($s['mt_border_color'])) {
+            $mt_vars[] = '--tix-mt-border: ' . $s['mt_border_color'];
+        }
+        if (!empty($s['mt_ticket_bg'])) {
+            $mt_vars[] = '--tix-mt-ticket-bg: ' . $s['mt_ticket_bg'];
+        }
+        $mt_accent = !empty($s['mt_accent_color']) ? $s['mt_accent_color'] : $s['color_accent'];
+        if ($mt_accent !== $d['color_accent']) {
+            $mt_vars[] = '--tix-mt-accent: ' . $mt_accent;
+        }
+        if (!empty($mt_vars)) {
+            echo ".tix-mt {\n    " . implode(";\n    ", $mt_vars) . ";\n}\n";
+        }
+        // Wrapper-Hintergrund für Meine Tickets
+        $mt_bg_val = !empty($s['mt_bg']) ? $s['mt_bg'] : (!empty($s['shortcode_bg']) ? $s['shortcode_bg'] : '');
+        if (!empty($mt_bg_val) && $mt_bg_val !== $d['mt_bg']) {
+            $mt_r = intval($s['radius_general'] ?: $d['radius_general']);
+            echo ".tix-mt { background: {$mt_bg_val}; padding: 20px; border-radius: {$mt_r}px; }\n";
+        }
+
+        // ── Check-in Styles ──
+        $ci_vars = [];
+        $ci_map = [
+            'ci_bg'          => '--ci-bg',
+            'ci_surface'     => '--ci-surface',
+            'ci_border'      => '--ci-border',
+            'ci_text'        => '--ci-text',
+            'ci_muted'       => '--ci-muted',
+            'ci_accent'      => '--ci-accent',
+            'ci_accent_text' => '--ci-accent-text',
+            'ci_ok'          => '--ci-ok',
+            'ci_warn'        => '--ci-warn',
+            'ci_err'         => '--ci-err',
+        ];
+        foreach ($ci_map as $key => $var) {
+            if (!empty($s[$key]) && $s[$key] !== $d[$key]) {
+                $ci_vars[] = "$var: {$s[$key]}";
+            }
+        }
+        if (!empty($ci_vars)) {
+            echo ".tix-ci {\n    " . implode(";\n    ", $ci_vars) . ";\n}\n";
+        }
+
+        echo "</style>\n";
+    }
+
+    /**
+     * Settings-Seite rendern
+     */
+    public static function render_page() {
+        $s  = self::get();
+        $ok = self::OPTION_KEY;
+        ?>
+        <div class="wrap tix-settings-wrap">
+            <h1>Tixomat – Einstellungen <span style="font-size:12px;font-weight:400;opacity:0.5;">v<?php echo TIXOMAT_VERSION; ?></span></h1>
+
+            <form method="post" action="options.php" id="tix-settings-form">
+                <?php settings_fields('tix_settings_group'); ?>
+
+                <div class="tix-settings-grid">
+
+                    <?php // ═════════════ LEFT: TABBED SETTINGS ═════════════ ?>
+                    <div class="tix-app tix-settings-app <?php echo $s['settings_mode'] === 'recommended' ? 'tix-mode-recommended' : 'tix-mode-manual'; ?>">
+
+                        <?php // ── SETTINGS MODE TOGGLE ── ?>
+                        <div class="tix-settings-mode-toggle">
+                            <button type="button" class="tix-mode-btn<?php echo $s['settings_mode'] === 'recommended' ? ' active' : ''; ?>" data-mode="recommended">Empfohlene Einstellungen</button>
+                            <button type="button" class="tix-mode-btn<?php echo $s['settings_mode'] === 'manual' ? ' active' : ''; ?>" data-mode="manual">Manuelle Einstellungen</button>
+                            <input type="hidden" name="<?php echo $ok; ?>[settings_mode]" id="tix-settings-mode" value="<?php echo esc_attr($s['settings_mode']); ?>">
+                        </div>
+
+                        <?php // ── TAB NAVIGATION ── ?>
+                        <nav class="tix-nav">
+                            <button type="button" class="tix-nav-tab active" data-tab="design">
+                                <span class="dashicons dashicons-art"></span>
+                                <span class="tix-nav-label">Design</span>
+                            </button>
+                            <button type="button" class="tix-nav-tab" data-tab="selector">
+                                <span class="dashicons dashicons-tickets-alt"></span>
+                                <span class="tix-nav-label">Ticket Selector</span>
+                            </button>
+                            <button type="button" class="tix-nav-tab" data-tab="faq">
+                                <span class="dashicons dashicons-editor-help"></span>
+                                <span class="tix-nav-label">FAQ</span>
+                            </button>
+                            <button type="button" class="tix-nav-tab" data-tab="checkout">
+                                <span class="dashicons dashicons-cart"></span>
+                                <span class="tix-nav-label">Checkout</span>
+                            </button>
+                            <button type="button" class="tix-nav-tab" data-tab="express">
+                                <span class="dashicons dashicons-performance"></span>
+                                <span class="tix-nav-label">Express Checkout</span>
+                            </button>
+                            <button type="button" class="tix-nav-tab" data-tab="my-tickets">
+                                <span class="dashicons dashicons-id"></span>
+                                <span class="tix-nav-label">Meine Tickets</span>
+                            </button>
+                            <button type="button" class="tix-nav-tab" data-tab="newsletter">
+                                <span class="dashicons dashicons-email-alt"></span>
+                                <span class="tix-nav-label">Newsletter</span>
+                            </button>
+                            <button type="button" class="tix-nav-tab" data-tab="checkin">
+                                <span class="dashicons dashicons-clipboard"></span>
+                                <span class="tix-nav-label">Check-in</span>
+                            </button>
+                            <button type="button" class="tix-nav-tab" data-tab="ticket-template">
+                                <span class="dashicons dashicons-media-document"></span>
+                                <span class="tix-nav-label">Ticket-Template</span>
+                            </button>
+                            <button type="button" class="tix-nav-tab" data-tab="data-sync">
+                                <span class="dashicons dashicons-cloud-saved"></span>
+                                <span class="tix-nav-label">Daten-Sync</span>
+                            </button>
+                            <button type="button" class="tix-nav-tab" data-tab="advanced">
+                                <span class="dashicons dashicons-admin-generic"></span>
+                                <span class="tix-nav-label">Erweitert</span>
+                            </button>
+                        </nav>
+
+                        <div class="tix-content">
+
+                            <?php // ═══ PANE: DESIGN ═══ ?>
+                            <div class="tix-pane active" data-pane="design">
+
+                                <?php // ── Card: Theme-Umschalter (universell) ── ?>
+                                <div class="tix-card tix-card-preset">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-image-rotate"></span>
+                                        <h3>Theme-Preset</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <p class="tix-settings-hint" style="margin-bottom:12px;">Schnellumschalter: setzt alle Farben des Plugins (Design, Selector, FAQ, Check-in, Meine Tickets) auf das gewählte Preset. Einzelne Farben können danach manuell angepasst werden.</p>
+                                        <div class="tix-ci-theme-toggle">
+                                            <input type="hidden" name="<?php echo $ok; ?>[theme_mode]" id="tix-theme-mode" value="<?php echo esc_attr($s['theme_mode'] ?: 'light'); ?>">
+                                            <button type="button" class="tix-ci-theme-btn<?php echo ($s['theme_mode'] ?? 'light') === 'light' ? ' active' : ''; ?>" data-theme="light">
+                                                <span class="dashicons dashicons-admin-appearance"></span> Light
+                                            </button>
+                                            <button type="button" class="tix-ci-theme-btn<?php echo ($s['theme_mode'] ?? 'light') === 'dark' ? ' active' : ''; ?>" data-theme="dark">
+                                                <span class="dashicons dashicons-welcome-view-site"></span> Dark
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Farben ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-admin-appearance"></span>
+                                        <h3>Farben</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <?php
+                                            self::color_row('color_text',          'Textfarbe', $s, true);
+                                            self::color_row('color_accent',        'Akzentfarbe / Button', $s);
+                                            self::color_row('color_accent_text',   'Button-Textfarbe', $s);
+                                            self::color_row('color_accent_hover',      'Button-Hover', $s);
+                                            self::color_row('color_accent_hover_text', 'Button-Hover-Textfarbe', $s, true);
+                                            self::color_row('color_border',        'Rahmenfarbe', $s);
+                                            self::color_row('color_input_border',  'Input-Rahmen', $s);
+                                            self::color_row('color_focus',         'Fokus- / Auswahlfarbe', $s);
+                                            self::color_row('color_sale',          'Sale-Preis', $s);
+                                            self::color_row('save_badge_bg',       'Spar-Badge Hintergrund', $s, true);
+                                            self::color_row('save_badge_text',     'Spar-Badge Textfarbe', $s, true);
+                                            self::color_row('color_success',       'Erfolgs-Farbe', $s);
+                                            self::color_row('color_card_bg',       'Karten-Hintergrund', $s, true);
+                                            self::color_row('color_input_bg',      'Input-Hintergrund', $s, true);
+                                            self::color_row('shortcode_bg',        'Shortcode-Hintergrund', $s, true);
+                                            ?>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Ecken & Rahmen ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-image-crop"></span>
+                                        <h3>Ecken &amp; Rahmen</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <?php
+                                            self::range_row('radius_general', 'Eckenradius allgemein', $s, 0, 24, 'px');
+                                            self::range_row('radius_input',   'Eckenradius Inputs', $s, 0, 20, 'px');
+                                            self::range_row('radius_button',  'Eckenradius Buttons', $s, 0, 24, 'px');
+                                            self::range_row('radius_qty_btn', '+/- Button Rundung', $s, 0, 50, '%');
+                                            self::range_row('border_width',   'Rahmenbreite', $s, 0, 4, 'px');
+                                            ?>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Größen ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-editor-expand"></span>
+                                        <h3>Gr&ouml;&szlig;en</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <?php
+                                            self::range_row('qty_btn_size',    '+/- Button Größe', $s, 24, 48, 'px');
+                                            self::range_row('gap',             'Abstand zwischen Elementen', $s, 4, 24, 'px');
+                                            self::range_row('checkout_width',  'Checkout Maximalbreite', $s, 400, 1200, 'px', 10);
+                                            ?>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Schriftgrößen ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-editor-textcolor"></span>
+                                        <h3>Schriftgr&ouml;&szlig;en</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <?php
+                                            self::range_row('font_price', 'Preis', $s, 0.7, 2, 'rem', 0.05, true);
+                                            self::range_row('font_name',  'Kategorie-Name', $s, 0.7, 2, 'rem', 0.05, true);
+                                            self::range_row('font_total', 'Gesamtpreis', $s, 0.8, 2.5, 'rem', 0.05, true);
+                                            self::range_row('font_desc',  'Beschreibung', $s, 0.6, 1.5, 'rem', 0.05, true);
+                                            self::range_row('font_vat',   'MwSt.-Hinweis', $s, 0.5, 1.5, 'rem', 0.05, true);
+                                            ?>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Kalender-Button ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-calendar"></span>
+                                        <h3>Kalender-Button</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <?php
+                                            self::color_row('cal_text_color',    'Textfarbe', $s, true);
+                                            self::color_row('cal_bg',            'Hintergrund', $s, true);
+                                            self::color_row('cal_border_color',  'Rahmenfarbe', $s, true);
+                                            self::range_row('cal_border_width',  'Rahmenbreite', $s, 0, 4, 'px');
+                                            self::range_row('cal_radius',        'Eckenradius', $s, 0, 24, 'px');
+                                            self::color_row('cal_hover_bg',      'Hover-Hintergrund', $s, true);
+                                            self::color_row('cal_hover_text',    'Hover-Textfarbe', $s, true);
+                                            self::color_row('cal_hover_border',  'Hover-Rahmenfarbe', $s, true);
+                                            ?>
+                                        </div>
+                                    </div>
+                                </div>
+
+                            </div>
+
+                            <?php // ═══ PANE: TICKET SELECTOR ═══ ?>
+                            <div class="tix-pane" data-pane="selector">
+
+                                <?php // ── Card: Texte & Optionen ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-edit"></span>
+                                        <h3>Texte &amp; Optionen</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <?php
+                                            self::text_row('btn_text_buy', 'Button-Text', $s);
+                                            self::text_row('vat_text_selector', 'MwSt.-Hinweis', $s, 'inkl. MwSt.');
+                                            ?>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('show_coupon_selector', 'Gutscheincode-Eingabe auf der Event-Seite anzeigen', $s); ?>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Farben ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-admin-appearance"></span>
+                                        <h3>Farben</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <?php
+                                            self::color_row('sel_text_color',    'Textfarbe', $s, true);
+                                            self::color_row('sel_bg',            'Kategorie-Hintergrund', $s, true);
+                                            self::color_row('sel_border_color',  'Rahmenfarbe', $s, true);
+                                            self::color_row('sel_active_border', 'Aktiver Rahmen', $s, true);
+                                            self::color_row('sel_active_bg',     'Aktiver Hintergrund', $s, true);
+                                            self::color_row('sel_hover_text',    'Hover-Textfarbe', $s, true);
+                                            ?>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Layout ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-layout"></span>
+                                        <h3>Layout</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <?php
+                                            self::range_row('sel_border_width', 'Rahmenbreite', $s, 0, 4, 'px');
+                                            self::range_row('sel_radius',       'Eckenradius', $s, 0, 24, 'px');
+                                            self::range_row('sel_padding_v',    'Padding vertikal', $s, 4, 32, 'px');
+                                            self::range_row('sel_padding_h',    'Padding horizontal', $s, 4, 40, 'px');
+                                            self::range_row('sel_max_width',    'Max. Breite (0 = keine)', $s, 0, 1200, 'px', 10);
+                                            ?>
+                                        </div>
+                                    </div>
+                                </div>
+
+                            </div>
+
+                            <?php // ═══ PANE: FAQ ═══ ?>
+                            <div class="tix-pane" data-pane="faq">
+
+                                <?php // ── Card: Farben ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-admin-appearance"></span>
+                                        <h3>Farben</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <?php
+                                            self::color_row('faq_text_color',    'Textfarbe', $s, true);
+                                            self::color_row('faq_bg',            'Frage-Hintergrund', $s, true);
+                                            self::color_row('faq_list_bg',       'Listen-Hintergrund', $s, true);
+                                            self::color_row('faq_hover_bg',      'Hover-Hintergrund', $s, true);
+                                            self::color_row('faq_hover_text',    'Hover-Textfarbe', $s, true);
+                                            self::color_row('faq_active_bg',     'Aktiver Eintrag', $s, true);
+                                            self::color_row('faq_border_color',  'Rahmenfarbe', $s, true);
+                                            self::color_row('faq_divider_color', 'Trennlinien-Farbe', $s, true);
+                                            self::color_row('faq_accent_color',  'Akzentlinie', $s, true);
+                                            self::color_row('faq_icon_color',    'Icon-Farbe', $s, true);
+                                            self::color_row('faq_link_color',    'Link-Farbe', $s, true);
+                                            ?>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Layout & Typografie ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-editor-textcolor"></span>
+                                        <h3>Layout &amp; Typografie</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <?php
+                                            self::range_row('faq_radius',         'Eckenradius', $s, 0, 24, 'px');
+                                            self::range_row('faq_border_width',   'Rahmenbreite', $s, 0, 4, 'px');
+                                            self::range_row('faq_accent_width',   'Akzentlinie Breite', $s, 0, 8, 'px');
+                                            self::range_row('faq_icon_size',      'Icon Größe', $s, 12, 48, 'px');
+                                            self::range_row('faq_max_width',      'Maximale Breite', $s, 300, 1600, 'px', 10);
+                                            self::range_row('faq_padding_v',      'Padding vertikal', $s, 4, 32, 'px');
+                                            self::range_row('faq_padding_h',      'Padding horizontal', $s, 8, 40, 'px');
+                                            self::range_row('faq_title_size',     'Titel-Schriftgröße', $s, 0.8, 2.5, 'rem', 0.05, true);
+                                            self::range_row('faq_question_size',  'Frage-Schriftgröße', $s, 0.7, 2, 'rem', 0.05, true);
+                                            self::range_row('faq_answer_size',    'Antwort-Schriftgröße', $s, 0.7, 1.5, 'rem', 0.05, true);
+                                            self::range_row('faq_answer_opacity', 'Antwort-Deckkraft', $s, 0.3, 1, '', 0.05, true);
+                                            ?>
+                                        </div>
+                                    </div>
+                                </div>
+
+                            </div>
+
+                            <?php // ═══ PANE: CHECKOUT ═══ ?>
+                            <div class="tix-pane" data-pane="checkout">
+
+                                <?php // ── Card: Texte ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-edit"></span>
+                                        <h3>Texte</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <?php
+                                            self::text_row('btn_text_checkout', 'Button-Text', $s);
+                                            self::text_row('vat_text_checkout', 'MwSt.-Hinweis', $s, 'inkl. MwSt.');
+                                            self::text_row('shipping_text',    'Versand-Hinweis', $s);
+                                            self::text_row('empty_text',       'Leerer Warenkorb: Text', $s);
+                                            self::text_row('empty_link_text',  'Leerer Warenkorb: Link', $s);
+                                            self::text_row('terms_url',       'Nutzungsbedingungen URL', $s, '/agb');
+                                            self::text_row('privacy_url',     'Datenschutz URL', $s, '/datenschutz');
+                                            self::text_row('revocation_url',  'Widerrufsbelehrung URL', $s, '/widerruf');
+                                            ?>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Verhalten ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-admin-settings"></span>
+                                        <h3>Verhalten</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('skip_cart', 'Nach Ticket-Auswahl direkt zum Checkout', $s); ?>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('force_email_shipping', 'Tickets per E-Mail versenden (kostenloser Versand)', $s, 'Wenn deaktiviert, greift das Standard-WooCommerce-Versandsystem.'); ?>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('show_company_field', 'Firma-Feld im Checkout anzeigen (optional aufklappbar)', $s); ?>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('checkout_steps', 'Checkout als 3-Schritte-Prozess', $s, '1) Ticket-Übersicht → 2) Rechnungsadresse → 3) Zahlung & Abschluss'); ?>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('checkout_countdown', 'Countdown-Timer im Checkout anzeigen', $s, 'Nach Ablauf wird der Warenkorb automatisch geleert.'); ?>
+                                            </div>
+                                            <?php self::range_row('checkout_countdown_minutes', 'Countdown-Zeit', $s, 1, 30, ' Min.'); ?>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('group_booking', '„Gemeinsam buchen" auf Event-Seiten anzeigen', $s, 'Ermöglicht Gruppenbestellungen: Organisator teilt Link, Freunde wählen eigene Tickets, eine Bestellung.'); ?>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                            </div>
+
+                            <?php // ═══ PANE: EXPRESS CHECKOUT ═══ ?>
+                            <div class="tix-pane" data-pane="express">
+
+                                <?php // ── Card: Trigger-Button ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-button"></span>
+                                        <h3>Trigger-Button</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <?php
+                                            self::color_row('ec_btn_bg',           'Hintergrund', $s, true);
+                                            self::color_row('ec_btn_text',         'Textfarbe', $s, true);
+                                            self::color_row('ec_btn_hover_bg',     'Hover-Hintergrund', $s, true);
+                                            self::color_row('ec_btn_hover_text',   'Hover-Textfarbe', $s, true);
+                                            self::color_row('ec_btn_border_color', 'Rahmenfarbe', $s, true);
+                                            self::range_row('ec_btn_border_width', 'Rahmenbreite', $s, 0, 4, 'px');
+                                            self::range_row('ec_btn_radius',       'Eckenradius', $s, 0, 24, 'px');
+                                            ?>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Modal ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-editor-expand"></span>
+                                        <h3>Modal</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <?php
+                                            self::color_row('ec_modal_bg',     'Hintergrund', $s, true);
+                                            self::color_row('ec_modal_text',   'Textfarbe', $s, true);
+                                            self::color_row('ec_modal_border', 'Rahmenfarbe', $s, true);
+                                            self::range_row('ec_modal_radius',    'Eckenradius', $s, 0, 24, 'px');
+                                            self::range_row('ec_modal_max_width', 'Max. Breite', $s, 320, 800, 'px', 10);
+                                            ?>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Ticket-Kategorien ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-tickets-alt"></span>
+                                        <h3>Ticket-Kategorien</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <?php
+                                            self::color_row('ec_cat_border',  'Rahmenfarbe', $s, true);
+                                            self::color_row('ec_cat_active',  'Aktiver Rahmen', $s, true);
+                                            self::range_row('ec_cat_radius',  'Eckenradius', $s, 0, 24, 'px');
+                                            ?>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Kauf-Button ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-cart"></span>
+                                        <h3>Kauf-Button</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <?php
+                                            self::color_row('ec_buy_bg',         'Hintergrund', $s, true);
+                                            self::color_row('ec_buy_text',       'Textfarbe', $s, true);
+                                            self::color_row('ec_buy_hover_bg',   'Hover-Hintergrund', $s, true);
+                                            self::color_row('ec_buy_hover_text', 'Hover-Textfarbe', $s, true);
+                                            ?>
+                                        </div>
+                                        <p class="tix-settings-hint" style="margin-top:12px;">Leere Felder &uuml;bernehmen die globalen Akzentfarben aus dem Design-Tab.</p>
+                                    </div>
+                                </div>
+
+                            </div>
+
+                            <?php // ═══ PANE: NEWSLETTER ═══ ?>
+                            <div class="tix-pane" data-pane="newsletter">
+
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-admin-settings"></span>
+                                        <h3>Einstellungen</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('newsletter_enabled', 'Newsletter-Anmeldung im Checkout anzeigen', $s, 'Zeigt eine Opt-in-Checkbox mit Kontaktfeld am Ende des Checkouts.'); ?>
+                                            </div>
+                                            <div class="tix-field">
+                                                <label class="tix-label">Typ</label>
+                                                <select name="<?php echo self::OPTION_KEY; ?>[newsletter_type]" class="tix-input">
+                                                    <option value="email" <?php selected($s['newsletter_type'], 'email'); ?>>E-Mail</option>
+                                                    <option value="whatsapp" <?php selected($s['newsletter_type'], 'whatsapp'); ?>>WhatsApp</option>
+                                                </select>
+                                            </div>
+                                            <div class="tix-field">
+                                                <label class="tix-label">Label (optional)</label>
+                                                <input type="text" name="<?php echo self::OPTION_KEY; ?>[newsletter_label]" value="<?php echo esc_attr($s['newsletter_label']); ?>" class="tix-input" placeholder="Ich möchte den Newsletter erhalten">
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <label class="tix-label">Webhook URL (optional)</label>
+                                                <input type="url" name="<?php echo self::OPTION_KEY; ?>[newsletter_webhook]" value="<?php echo esc_attr($s['newsletter_webhook']); ?>" class="tix-input" placeholder="https://hooks.example.com/newsletter">
+                                                <p class="description">Bei jeder Anmeldung wird ein POST-Request mit den Daten an diese URL gesendet.</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-media-text"></span>
+                                        <h3>Rechtlicher Hinweis</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <label class="tix-label">Text unter der Newsletter-Checkbox</label>
+                                                <textarea name="<?php echo self::OPTION_KEY; ?>[newsletter_legal]" class="tix-input" rows="4" placeholder="Mit der Anmeldung stimmst du zu, regelmäßig Informationen zu erhalten. Du kannst dich jederzeit abmelden."><?php echo esc_textarea($s['newsletter_legal'] ?? ''); ?></textarea>
+                                                <p class="description">Wird im Checkout unter der Newsletter-Checkbox als kleiner Hinweistext angezeigt. Leer = kein Hinweis.</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                            </div>
+
+                            <?php // ═══ PANE: MEINE TICKETS ═══ ?>
+                            <div class="tix-pane" data-pane="my-tickets">
+
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-admin-appearance"></span>
+                                        <h3>Farben</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <?php
+                                            self::color_row('mt_bg',           'Seitenhintergrund', $s);
+                                            self::color_row('mt_card_bg',      'Karten-Hintergrund', $s);
+                                            self::color_row('mt_text_color',   'Textfarbe', $s);
+                                            self::color_row('mt_border_color', 'Rahmenfarbe', $s);
+                                            self::color_row('mt_ticket_bg',    'Ticket-Karten Hintergrund', $s);
+                                            self::color_row('mt_accent_color', 'Akzentfarbe (leer = global)', $s, true);
+                                            ?>
+                                        </div>
+                                    </div>
+                                </div>
+
+                            </div>
+
+                            <?php // ═══ PANE: CHECK-IN ═══ ?>
+                            <div class="tix-pane" data-pane="checkin">
+
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-admin-appearance"></span>
+                                        <h3>Farben</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <?php
+                                            self::color_row('ci_bg',          'Hintergrund', $s);
+                                            self::color_row('ci_surface',     'Karten / Oberfläche', $s);
+                                            self::color_row('ci_border',      'Rahmenfarbe', $s);
+                                            self::color_row('ci_text',        'Textfarbe', $s);
+                                            self::color_row('ci_muted',       'Sekundärtext', $s);
+                                            self::color_row('ci_accent',      'Akzent / Buttons', $s);
+                                            self::color_row('ci_accent_text', 'Button-Textfarbe', $s);
+                                            self::color_row('ci_ok',          'Erfolg (Check-in OK)', $s);
+                                            self::color_row('ci_warn',        'Warnung (bereits eingecheckt)', $s);
+                                            self::color_row('ci_err',         'Fehler (nicht gefunden)', $s);
+                                            ?>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-clock"></span>
+                                        <h3>Scan-Feedback</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field-row">
+                                                <label class="tix-field-label">Erfolgsmeldung Anzeigedauer</label>
+                                                <div class="tix-field-input">
+                                                    <input type="number" name="<?php echo $ok; ?>[ci_popup_duration]" value="<?php echo esc_attr($s['ci_popup_duration']); ?>" min="1" max="30" step="1" style="width:70px;"> Sekunden
+                                                    <p class="tix-field-desc">Wie lange die Meldung nach einem Scan sichtbar bleibt (1–30 Sekunden).</p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-info-outline"></span>
+                                        <h3>Hinweis</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <p class="tix-settings-hint">
+                                            Diese Farben gelten für die Check-in-Seite (<code>[tix_checkin]</code> Shortcode) und die Gast-QR-Seite.<br>
+                                            Die Check-in-Seite ist für mobile Geräte optimiert (Türpersonal am Einlass).<br>
+                                            Der Check-in erkennt automatisch Gästelisten-Codes (<code>GL-*</code>) und Ticket-Codes (<code>TIX-*</code>).
+                                        </p>
+                                    </div>
+                                </div>
+
+                            </div>
+
+                            <?php // ═══ PANE: TICKET-TEMPLATE ═══ ?>
+                            <div class="tix-pane" data-pane="ticket-template">
+
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-media-document"></span>
+                                        <h3>Ticket-Vorlage</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <p class="tix-settings-hint" style="margin-bottom:12px;">Lade ein JPG/PNG-Bild als Ticket-Hintergrund hoch und positioniere die Felder per Drag &amp; Drop. Dieses Template wird als globaler Standard verwendet. Einzelne Events können ein eigenes Template verwenden.</p>
+                                        <?php
+                                        $gd_info = TIX_Ticket_Template::check_gd_support();
+                                        if (!$gd_info['gd']): ?>
+                                            <div class="tix-tte-gd-warning">
+                                                <strong>⚠ PHP GD-Extension nicht geladen.</strong> Das Template-System benötigt die GD-Extension mit FreeType-Support. Bitte aktiviere <code>extension=gd</code> in deiner php.ini.
+                                            </div>
+                                        <?php elseif (!$gd_info['freetype']): ?>
+                                            <div class="tix-tte-gd-warning">
+                                                <strong>⚠ FreeType nicht verfügbar.</strong> Textfelder werden mit einfacher Schrift gerendert. Für optimale Ergebnisse compiliere PHP mit <code>--with-freetype</code>.
+                                            </div>
+                                        <?php endif; ?>
+
+                                        <div id="tix-tte-settings-editor" class="tix-tte-wrap"></div>
+                                        <input type="hidden" name="<?php echo $ok; ?>[ticket_template]" id="tix-tte-settings-input" value="<?php echo esc_attr($s['ticket_template'] ?: ''); ?>">
+                                    </div>
+                                </div>
+
+                            </div>
+
+                            <?php // ═══ PANE: DATEN-SYNC ═══ ?>
+                            <div class="tix-pane" data-pane="data-sync">
+
+                                <?php // ── Card: Custom Datenbank ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-database"></span>
+                                        <h3>Custom Ticket-Datenbank</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field-row">
+                                                <label class="tix-field-label">Status</label>
+                                                <div class="tix-field-input">
+                                                    <label class="tix-toggle">
+                                                        <input type="checkbox" name="<?php echo $ok; ?>[ticket_db_enabled]" value="1" <?php checked($s['ticket_db_enabled']); ?>>
+                                                        <span>Aktivieren</span>
+                                                    </label>
+                                                    <p class="tix-field-desc">Alle Ticketdaten (inkl. Käuferdaten, Newsletter-Optin) in einer eigenen Datenbanktabelle speichern.</p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Supabase ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-cloud-upload"></span>
+                                        <h3>Supabase</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field-row">
+                                                <label class="tix-field-label">Status</label>
+                                                <div class="tix-field-input">
+                                                    <label class="tix-toggle">
+                                                        <input type="checkbox" name="<?php echo $ok; ?>[supabase_enabled]" value="1" <?php checked($s['supabase_enabled']); ?>>
+                                                        <span>Supabase-Sync aktivieren</span>
+                                                    </label>
+                                                </div>
+                                            </div>
+                                            <div class="tix-field-row">
+                                                <label class="tix-field-label">Project URL</label>
+                                                <div class="tix-field-input">
+                                                    <input type="url" name="<?php echo $ok; ?>[supabase_url]" value="<?php echo esc_attr($s['supabase_url']); ?>" class="regular-text" placeholder="https://xxxxx.supabase.co">
+                                                </div>
+                                            </div>
+                                            <div class="tix-field-row">
+                                                <label class="tix-field-label">API Key</label>
+                                                <div class="tix-field-input">
+                                                    <input type="password" name="<?php echo $ok; ?>[supabase_api_key]" value="<?php echo esc_attr($s['supabase_api_key']); ?>" class="regular-text" autocomplete="off">
+                                                    <p class="tix-field-desc">Supabase <code>anon</code> oder <code>service_role</code> Key.</p>
+                                                </div>
+                                            </div>
+                                            <div class="tix-field-row">
+                                                <label class="tix-field-label">Tabelle</label>
+                                                <div class="tix-field-input">
+                                                    <input type="text" name="<?php echo $ok; ?>[supabase_table]" value="<?php echo esc_attr($s['supabase_table']); ?>" class="regular-text" placeholder="tickets">
+                                                </div>
+                                            </div>
+                                            <div class="tix-field-row">
+                                                <label class="tix-field-label">&nbsp;</label>
+                                                <div class="tix-field-input">
+                                                    <button type="button" class="button tix-sync-test" data-service="supabase">Verbindung testen</button>
+                                                    <button type="button" class="button tix-sync-all" data-service="supabase">Alle jetzt synchronisieren</button>
+                                                    <span class="tix-sync-status" data-service="supabase"></span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Airtable ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-cloud-upload"></span>
+                                        <h3>Airtable</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field-row">
+                                                <label class="tix-field-label">Status</label>
+                                                <div class="tix-field-input">
+                                                    <label class="tix-toggle">
+                                                        <input type="checkbox" name="<?php echo $ok; ?>[airtable_enabled]" value="1" <?php checked($s['airtable_enabled']); ?>>
+                                                        <span>Airtable-Sync aktivieren</span>
+                                                    </label>
+                                                </div>
+                                            </div>
+                                            <div class="tix-field-row">
+                                                <label class="tix-field-label">API Key (PAT)</label>
+                                                <div class="tix-field-input">
+                                                    <input type="password" name="<?php echo $ok; ?>[airtable_api_key]" value="<?php echo esc_attr($s['airtable_api_key']); ?>" class="regular-text" autocomplete="off">
+                                                    <p class="tix-field-desc">Airtable Personal Access Token.</p>
+                                                </div>
+                                            </div>
+                                            <div class="tix-field-row">
+                                                <label class="tix-field-label">Base ID</label>
+                                                <div class="tix-field-input">
+                                                    <input type="text" name="<?php echo $ok; ?>[airtable_base_id]" value="<?php echo esc_attr($s['airtable_base_id']); ?>" class="regular-text" placeholder="appXXXXXXXXXXXXXX">
+                                                </div>
+                                            </div>
+                                            <div class="tix-field-row">
+                                                <label class="tix-field-label">Tabelle</label>
+                                                <div class="tix-field-input">
+                                                    <input type="text" name="<?php echo $ok; ?>[airtable_table]" value="<?php echo esc_attr($s['airtable_table']); ?>" class="regular-text" placeholder="Tickets">
+                                                </div>
+                                            </div>
+                                            <div class="tix-field-row">
+                                                <label class="tix-field-label">&nbsp;</label>
+                                                <div class="tix-field-input">
+                                                    <button type="button" class="button tix-sync-test" data-service="airtable">Verbindung testen</button>
+                                                    <button type="button" class="button tix-sync-all" data-service="airtable">Alle jetzt synchronisieren</button>
+                                                    <span class="tix-sync-status" data-service="airtable"></span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                            </div>
+
+                            <?php // ═══ PANE: ERWEITERT ═══ ?>
+                            <div class="tix-pane" data-pane="advanced">
+
+                                <?php // ── Card: Google Places ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-location"></span>
+                                        <h3>Google Places Autocomplete</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <?php self::text_row('google_api_key', 'Google API Key', $s, 'AIza…'); ?>
+                                            <div class="tix-field tix-field-full">
+                                                <p class="tix-settings-hint">
+                                                    Folgende APIs müssen in der <a href="https://console.cloud.google.com/apis/library" target="_blank">Google Cloud Console</a> aktiviert sein:<br>
+                                                    <strong>1.</strong> Places API (New) &nbsp; <strong>2.</strong> Maps JavaScript API &nbsp; <strong>3.</strong> Geocoding API<br>
+                                                    Der API-Key benötigt HTTP-Referrer-Beschr&auml;nkung auf deine Domain.
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Upselling ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-megaphone"></span>
+                                        <h3>Upselling</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('show_upsell', 'Verwandte Events auf der Danke-Seite anzeigen', $s); ?>
+                                            </div>
+                                            <?php self::range_row('upsell_count', 'Anzahl Events', $s, 1, 6, '', 1); ?>
+                                            <?php self::text_row('upsell_heading', 'Überschrift', $s, 'Das könnte dich auch interessieren'); ?>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: E-Mail ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-email-alt"></span>
+                                        <h3>E-Mail-Templates</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <?php self::text_row('email_logo_url', 'Logo-URL', $s, 'https://example.com/logo.png'); ?>
+                                            <?php self::text_row('email_brand_name', 'Firmenname', $s, get_bloginfo('name')); ?>
+                                            <?php self::text_row('email_footer_text', 'Footer-Text', $s, 'Du erhältst diese E-Mail, weil du eine Bestellung aufgegeben hast.'); ?>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('email_reminder', 'Erinnerungsmail 24h vor dem Event senden', $s); ?>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('email_followup', 'Nachbefragungsmail 24h nach dem Event senden', $s); ?>
+                                            </div>
+                                            <?php self::text_row('email_followup_url', 'Feedback-Link', $s, 'https://example.com/feedback'); ?>
+                                            <div class="tix-field tix-field-full">
+                                                <p class="tix-settings-hint">
+                                                    Alle WooCommerce-E-Mails werden automatisch im Tixomat Design versendet.<br>
+                                                    Die Farben (Akzent, Rahmen) werden aus dem Design-Tab übernommen.
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Ticket-System ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-tickets-alt"></span>
+                                        <h3>Ticket-System</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <p style="margin-bottom:12px;color:#666;">Bestimmt, wie Tickets bei Bestellabschluss erstellt und verwaltet werden.</p>
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <label style="display:block;margin-bottom:10px;cursor:pointer;">
+                                                    <input type="radio" name="tix_settings[ticket_system]" value="tickera" <?php checked($s['ticket_system'] ?? 'tickera', 'tickera'); ?>>
+                                                    <strong>Tickera (Standard)</strong>
+                                                    <span style="display:block;margin-left:22px;font-size:13px;color:#888;">Tickets werden von Tickera erstellt und verwaltet. Tickera-Plugin erforderlich.</span>
+                                                </label>
+                                                <label style="display:block;margin-bottom:10px;cursor:pointer;">
+                                                    <input type="radio" name="tix_settings[ticket_system]" value="standalone" <?php checked($s['ticket_system'] ?? 'tickera', 'standalone'); ?>>
+                                                    <strong>Tixomat Eigenst&auml;ndig</strong>
+                                                    <span style="display:block;margin-left:22px;font-size:13px;color:#888;">Tixomat erstellt und verwaltet Tickets selbst. Tickera wird nicht ben&ouml;tigt.</span>
+                                                </label>
+                                                <label style="display:block;cursor:pointer;">
+                                                    <input type="radio" name="tix_settings[ticket_system]" value="both" <?php checked($s['ticket_system'] ?? 'tickera', 'both'); ?>>
+                                                    <strong>Beide Systeme (&Uuml;bergang)</strong>
+                                                    <span style="display:block;margin-left:22px;font-size:13px;color:#888;">Tickera UND Tixomat erstellen Tickets parallel. F&uuml;r die &Uuml;bergangsphase bei der Migration.</span>
+                                                </label>
+                                            </div>
+                                        </div>
+                                        <p class="tix-settings-hint" style="margin-top:12px;">Im Modus &bdquo;Eigenst&auml;ndig&ldquo; oder &bdquo;Beide&ldquo; werden Tickets automatisch bei Bestellabschluss erstellt und als druckbare Tickets bereitgestellt.</p>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Abandoned Cart Recovery ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-cart"></span>
+                                        <h3>Verlassene Warenkörbe</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('abandoned_cart_enabled', 'Abandoned Cart Recovery aktivieren', $s, 'Sendet automatisch eine Erinnerungsmail, wenn ein Checkout nicht abgeschlossen wird. Muss zusätzlich pro Event aktiviert werden.'); ?>
+                                            </div>
+                                            <?php self::range_row('abandoned_cart_delay', 'Verzögerung', $s, 5, 120, ' Min.', 5); ?>
+                                            <?php self::text_row('abandoned_cart_subject', 'E-Mail-Betreff (optional)', $s, 'Du hast noch Tickets im Warenkorb'); ?>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Express Checkout ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-performance"></span>
+                                        <h3>Express Checkout</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('express_checkout_enabled', '1-Klick-Kauf für eingeloggte User aktivieren', $s, 'Zeigt einen "Sofort kaufen"-Button für Nutzer mit gespeicherten Zahlungsmethoden. Muss zusätzlich pro Event aktiviert werden.'); ?>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Ticket-Umschreibung ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-randomize"></span>
+                                        <h3>Ticket-Umschreibung</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('ticket_transfer_enabled', 'Ticket-Umschreibung global aktivieren', $s, 'Erlaubt K&auml;ufern, ihre Tickets auf eine andere Person umzuschreiben. Muss zus&auml;tzlich pro Event aktiviert werden. Shortcode: <code>[tix_ticket_transfer]</code>'); ?>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Strichcode (Barcode) ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-editor-code"></span>
+                                        <h3>Strichcode (Barcode)</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('barcode_enabled', 'Strichcode auf Tickets aktivieren', $s, 'F&uuml;gt ein Code128-Barcode-Feld zum Ticket-Template hinzu, das von Handscannern gelesen werden kann. Muss zus&auml;tzlich pro Event aktiviert werden.'); ?>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Soziales Projekt (Charity) ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-heart"></span>
+                                        <h3>Soziales Projekt</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('charity_enabled', 'Charity-Funktion global aktivieren', $s, 'Erm&ouml;glicht es, pro Event ein soziales Projekt anzugeben, das mit dem Ticketverkauf unterst&uuml;tzt wird. Wird auf der Event-Seite und der Danke-Seite angezeigt.'); ?>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Support-System ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-format-chat"></span>
+                                        <h3>Support-System</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('support_enabled', 'Support-System aktivieren', $s, 'Aktiviert das Admin-Dashboard f&uuml;r Kunden-Suche, Anfragen-Verwaltung und das Kunden-Portal. Verwende den Shortcode <code>[tix_support]</code> f&uuml;r das Frontend-Portal.'); ?>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('support_chat_enabled', 'Floating Chat-Button anzeigen', $s, 'Zeigt einen schwebenden Chat-Button auf allen Seiten an. Kunden k&ouml;nnen direkt darüber Anfragen stellen, ohne zur Support-Seite navigieren zu m&uuml;ssen.'); ?>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <label class="tix-label" for="tix-support-categories">Support-Kategorien</label>
+                                                <textarea id="tix-support-categories" name="tix_settings[support_categories]" class="tix-textarea" rows="5" placeholder="Ticket nicht erhalten&#10;Ticketinhaber &auml;ndern&#10;Stornierung / Erstattung&#10;Fragen zum Event&#10;Sonstiges"><?php echo esc_textarea($s['support_categories'] ?? ''); ?></textarea>
+                                                <p class="tix-hint">Eine Kategorie pro Zeile. Leer lassen f&uuml;r Standard-Kategorien.</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Geführter Modus ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-screenoptions"></span>
+                                        <h3>Gef&uuml;hrter Modus</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('wizard_enabled', 'Gef&uuml;hrten Modus im Event-Editor anzeigen', $s, 'Wenn deaktiviert, wird der Event-Editor immer im Experten-Modus ge&ouml;ffnet. Der Modus-Toggle (Gef&uuml;hrt / Experte) wird ausgeblendet.'); ?>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Branding ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-heart"></span>
+                                        <h3>Branding</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('branding_enabled', '&quot;mit ♥️ entwickelt von MDJ.events&quot; unter Shortcodes anzeigen', $s); ?>
+                                            </div>
+                                            <?php self::text_row('branding_url', 'Link-Ziel', $s, 'https://mdj.events'); ?>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Sponsor (Danke-Seite) ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-format-image"></span>
+                                        <h3>Sponsor (Danke-Seite)</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('sponsor_enabled', 'Sponsor-Bereich auf der Danke-Seite anzeigen', $s); ?>
+                                            </div>
+                                            <?php self::text_row('sponsor_image_url', 'Sponsor-Logo URL', $s, 'https://example.com/sponsor-logo.png'); ?>
+                                            <?php self::range_row('sponsor_logo_width', 'Logo-Breite', $s, 10, 80, '%'); ?>
+                                        </div>
+                                    </div>
+                                </div>
+
+                            </div>
+
+                        </div><?php // .tix-content ?>
+
+                        <div class="tix-settings-submit">
+                            <?php submit_button('Einstellungen speichern'); ?>
+                        </div>
+
+                    </div><?php // .tix-app ?>
+
+                </div>
+            </form>
+        </div>
+
+        <script>
+        (function() {
+            'use strict';
+
+            // ── Tab Navigation (Settings Page) ──
+            var app   = document.querySelector('.tix-settings-app');
+            if (!app) return;
+            var tabs  = app.querySelectorAll('.tix-nav-tab');
+            var panes = app.querySelectorAll('.tix-pane');
+
+            tabs.forEach(function(tab) {
+                tab.addEventListener('click', function() {
+                    var t = this.getAttribute('data-tab');
+                    tabs.forEach(function(x) { x.classList.remove('active'); });
+                    this.classList.add('active');
+                    panes.forEach(function(p) { p.classList.remove('active'); });
+                    var target = app.querySelector('[data-pane="' + t + '"]');
+                    if (target) target.classList.add('active');
+                    if (window.sessionStorage) sessionStorage.setItem('tix_settings_tab', t);
+                }.bind(tab));
+            });
+
+            // Restore saved tab
+            if (window.sessionStorage) {
+                var saved = sessionStorage.getItem('tix_settings_tab');
+                if (saved) {
+                    var btn = app.querySelector('.tix-nav-tab[data-tab="' + saved + '"]');
+                    if (btn) btn.click();
+                }
+            }
+
+            // ══════════════════════════════════════
+            // RGBA Color Picker Helpers
+            // ══════════════════════════════════════
+
+            function tixParseColor(val) {
+                if (!val) return null;
+                val = val.trim();
+                var m;
+                // rgba(r,g,b,a) / rgb(r,g,b)
+                if ((m = val.match(/^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*(?:,\s*([\d.]+))?\s*\)$/))) {
+                    var r = parseInt(m[1]), g = parseInt(m[2]), b = parseInt(m[3]);
+                    var a = m[4] !== undefined ? parseFloat(m[4]) : 1;
+                    return {hex:'#'+('0'+r.toString(16)).slice(-2)+('0'+g.toString(16)).slice(-2)+('0'+b.toString(16)).slice(-2), alpha:Math.round(a*100)};
+                }
+                // 8-digit hex
+                if (/^#[0-9a-fA-F]{8}$/.test(val)) {
+                    return {hex:val.substr(0,7), alpha:Math.round(parseInt(val.substr(7,2),16)/255*100)};
+                }
+                // 6-digit hex
+                if (/^#[0-9a-fA-F]{6}$/.test(val)) {
+                    return {hex:val, alpha:100};
+                }
+                return null;
+            }
+
+            function tixComposeColor(hex, alpha) {
+                if (alpha >= 100) return hex;
+                var r = parseInt(hex.substr(1,2),16);
+                var g = parseInt(hex.substr(3,2),16);
+                var b = parseInt(hex.substr(5,2),16);
+                var a = alpha / 100;
+                var aStr = a % 1 === 0 ? a.toString() : parseFloat(a.toFixed(2)).toString();
+                return 'rgba('+r+','+g+','+b+','+aStr+')';
+            }
+
+            function tixUpdateWrap(wrap) {
+                var hexInput = wrap.querySelector('.tix-color-hex');
+                var picker   = wrap.querySelector('input[type="color"]');
+                var fill     = wrap.querySelector('.tix-color-fill');
+                var slider   = wrap.querySelector('.tix-alpha-slider');
+                var alphaVal = wrap.querySelector('.tix-alpha-val');
+                if (!picker || !slider) return;
+                var composed = tixComposeColor(picker.value, parseInt(slider.value));
+                hexInput.value = composed;
+                if (fill) fill.style.background = composed;
+                if (alphaVal) alphaVal.textContent = slider.value + '%';
+            }
+
+            // ── Color Picker (RGB) changed ──
+            document.querySelectorAll('.tix-color-swatch input[type="color"]').forEach(function(picker) {
+                picker.addEventListener('input', function() {
+                    tixUpdateWrap(this.closest('.tix-color-wrap'));
+                });
+            });
+
+            // ── Alpha Slider changed ──
+            document.querySelectorAll('.tix-alpha-slider').forEach(function(slider) {
+                slider.addEventListener('input', function() {
+                    tixUpdateWrap(this.closest('.tix-color-wrap'));
+                });
+            });
+
+            // ── Text Input changed (supports hex, rgba, 8-digit hex) ──
+            document.querySelectorAll('.tix-color-hex').forEach(function(input) {
+                input.addEventListener('input', function() {
+                    var parsed = tixParseColor(this.value);
+                    if (!parsed) return;
+                    var wrap = this.closest('.tix-color-wrap');
+                    var picker   = wrap.querySelector('input[type="color"]');
+                    var fill     = wrap.querySelector('.tix-color-fill');
+                    var slider   = wrap.querySelector('.tix-alpha-slider');
+                    var alphaVal = wrap.querySelector('.tix-alpha-val');
+                    if (picker) picker.value = parsed.hex;
+                    if (slider) slider.value = parsed.alpha;
+                    if (alphaVal) alphaVal.textContent = parsed.alpha + '%';
+                    if (fill) fill.style.background = this.value;
+                });
+            });
+
+            // ── Reset Color ──
+            document.querySelectorAll('.tix-color-reset').forEach(function(link) {
+                link.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    var def = this.dataset.default;
+                    var wrap = this.closest('.tix-color-wrap');
+                    var parsed = tixParseColor(def) || {hex:'#000000', alpha:100};
+                    wrap.querySelector('.tix-color-hex').value = def;
+                    wrap.querySelector('input[type="color"]').value = parsed.hex;
+                    wrap.querySelector('.tix-alpha-slider').value = parsed.alpha;
+                    wrap.querySelector('.tix-alpha-val').textContent = parsed.alpha + '%';
+                    var fill = wrap.querySelector('.tix-color-fill');
+                    if (fill) fill.style.background = def || '#000000';
+                });
+            });
+
+            // ── Range Sync ──
+            document.querySelectorAll('.tix-range-wrap input[type="range"]').forEach(function(range) {
+                range.addEventListener('input', function() {
+                    this.closest('.tix-range-wrap').querySelector('.tix-range-val').textContent = this.value + (this.dataset.unit || '');
+                });
+            });
+
+            // ── Universal Theme Toggle ──
+            var themePresets = {
+                light: {
+                    color_text:'', color_accent:'#1e293b', color_accent_text:'#ffffff',
+                    color_accent_hover:'#334155', color_accent_hover_text:'',
+                    color_border:'#e2e8f0', color_input_border:'#cbd5e1',
+                    color_focus:'#3b82f6', color_sale:'#ef4444', save_badge_bg:'', save_badge_text:'',
+                    color_success:'#22c55e',
+                    color_card_bg:'#ffffff', color_input_bg:'#ffffff', shortcode_bg:'',
+                    sel_text_color:'', sel_bg:'#ffffff', sel_border_color:'#e2e8f0',
+                    sel_active_border:'#3b82f6', sel_active_bg:'#eff6ff', sel_hover_text:'',
+                    faq_text_color:'', faq_bg:'#ffffff', faq_list_bg:'',
+                    faq_hover_bg:'#f8fafc', faq_hover_text:'', faq_active_bg:'#f1f5f9',
+                    faq_border_color:'#e2e8f0', faq_divider_color:'#e2e8f0',
+                    faq_accent_color:'#1e293b', faq_icon_color:'', faq_link_color:'#3b82f6',
+                    cal_bg:'#ffffff', cal_text_color:'', cal_border_color:'#e2e8f0',
+                    cal_hover_bg:'#f8fafc', cal_hover_text:'', cal_hover_border:'#1e293b',
+                    ec_btn_bg:'#1e293b', ec_btn_text:'#ffffff', ec_btn_hover_bg:'#334155', ec_btn_hover_text:'',
+                    ec_btn_border_color:'', ec_modal_bg:'#ffffff', ec_modal_text:'#1e293b',
+                    ec_modal_border:'#e2e8f0', ec_cat_border:'#e2e8f0', ec_cat_active:'#3b82f6',
+                    ec_buy_bg:'#1e293b', ec_buy_text:'#ffffff', ec_buy_hover_bg:'#334155', ec_buy_hover_text:'',
+                    mt_bg:'#f8fafc', mt_card_bg:'#ffffff', mt_text_color:'#1e293b',
+                    mt_border_color:'#e2e8f0', mt_ticket_bg:'#f0fdf4', mt_accent_color:'#1e293b',
+                    ci_bg:'#f8fafc', ci_surface:'#ffffff', ci_border:'#e2e8f0',
+                    ci_text:'#1e293b', ci_muted:'#64748b', ci_accent:'#1e293b',
+                    ci_accent_text:'#ffffff', ci_ok:'#22c55e', ci_warn:'#eab308', ci_err:'#ef4444'
+                },
+                dark: {
+                    color_text:'#ffffff', color_accent:'#c8ff00', color_accent_text:'#000000',
+                    color_accent_hover:'#b8e600', color_accent_hover_text:'',
+                    color_border:'#333333', color_input_border:'#555555',
+                    color_focus:'#c8ff00', color_sale:'#ef5350', save_badge_bg:'', save_badge_text:'',
+                    color_success:'#4caf50',
+                    color_card_bg:'#1a1a1a', color_input_bg:'#111111', shortcode_bg:'#111111',
+                    sel_text_color:'#ffffff', sel_bg:'#1a1a1a', sel_border_color:'#333333',
+                    sel_active_border:'#c8ff00', sel_active_bg:'#1a2600', sel_hover_text:'',
+                    faq_text_color:'#ffffff', faq_bg:'#1a1a1a', faq_list_bg:'#111111',
+                    faq_hover_bg:'#222222', faq_hover_text:'', faq_active_bg:'#2a2a2a',
+                    faq_border_color:'#333333', faq_divider_color:'#333333',
+                    faq_accent_color:'#c8ff00', faq_icon_color:'#94a3b8', faq_link_color:'#c8ff00',
+                    cal_bg:'', cal_text_color:'', cal_border_color:'#333333',
+                    cal_hover_bg:'', cal_hover_text:'', cal_hover_border:'#c8ff00',
+                    ec_btn_bg:'#c8ff00', ec_btn_text:'#000000', ec_btn_hover_bg:'#b8e600', ec_btn_hover_text:'',
+                    ec_btn_border_color:'', ec_modal_bg:'#1a1a1a', ec_modal_text:'#ffffff',
+                    ec_modal_border:'#333333', ec_cat_border:'#333333', ec_cat_active:'#c8ff00',
+                    ec_buy_bg:'#c8ff00', ec_buy_text:'#000000', ec_buy_hover_bg:'#b8e600', ec_buy_hover_text:'',
+                    mt_bg:'#111111', mt_card_bg:'#1a1a1a', mt_text_color:'#ffffff',
+                    mt_border_color:'#333333', mt_ticket_bg:'#1a2600', mt_accent_color:'#c8ff00',
+                    ci_bg:'#111111', ci_surface:'#1a1a1a', ci_border:'#333333',
+                    ci_text:'#ffffff', ci_muted:'#94a3b8', ci_accent:'#ffffff',
+                    ci_accent_text:'#000000', ci_ok:'#22c55e', ci_warn:'#eab308', ci_err:'#ef4444'
+                }
+            };
+
+            function applyColorToField(key, value) {
+                var input = document.querySelector('[name="tix_settings[' + key + ']"]');
+                if (!input) return;
+                input.value = value;
+                var wrap = input.closest('.tix-color-wrap');
+                if (!wrap) return;
+                var parsed = tixParseColor(value) || {hex: value || '#000000', alpha: 100};
+                var fill = wrap.querySelector('.tix-color-fill');
+                if (fill) fill.style.background = value || '#ffffff';
+                var picker = wrap.querySelector('input[type="color"]');
+                if (picker) picker.value = parsed.hex;
+                var slider = wrap.querySelector('.tix-alpha-slider');
+                if (slider) slider.value = parsed.alpha;
+                var alphaVal = wrap.querySelector('.tix-alpha-val');
+                if (alphaVal) alphaVal.textContent = parsed.alpha + '%';
+            }
+
+            document.querySelectorAll('.tix-ci-theme-btn').forEach(function(btn) {
+                btn.addEventListener('click', function() {
+                    var theme = this.dataset.theme;
+                    var preset = themePresets[theme];
+                    if (!preset) return;
+                    document.getElementById('tix-theme-mode').value = theme;
+                    document.querySelectorAll('.tix-ci-theme-btn').forEach(function(b) { b.classList.remove('active'); });
+                    this.classList.add('active');
+                    for (var key in preset) {
+                        applyColorToField(key, preset[key]);
+                    }
+                });
+            });
+
+            // ── Settings Mode Toggle (Empfohlen / Manuell) ──
+            document.querySelectorAll('.tix-mode-btn').forEach(function(btn) {
+                btn.addEventListener('click', function() {
+                    var mode = this.dataset.mode;
+                    document.getElementById('tix-settings-mode').value = mode;
+                    document.querySelectorAll('.tix-mode-btn').forEach(function(b) { b.classList.remove('active'); });
+                    this.classList.add('active');
+                    app.classList.remove('tix-mode-recommended', 'tix-mode-manual');
+                    app.classList.add('tix-mode-' + mode);
+                    if (mode === 'recommended') {
+                        var designTab = app.querySelector('.tix-nav-tab[data-tab="design"]');
+                        if (designTab) designTab.click();
+                    }
+                });
+            });
+        })();
+        </script>
+
+        <?php // ── Ticket-Template-Editor Init ── ?>
+        <script>
+        jQuery(function($) {
+            // Preview-Daten für Placeholder
+            window.tixPreviewData = <?php echo wp_json_encode(TIX_Ticket_Template::preview_data()); ?>;
+
+            if (typeof TIX_TemplateEditor === 'undefined') return;
+            var $el = $('#tix-tte-settings-editor');
+            if (!$el.length) return;
+            new TIX_TemplateEditor($el[0], {
+                inputSelector: '#tix-tte-settings-input',
+                nonce: '<?php echo wp_create_nonce('tix_template_preview'); ?>',
+                ajaxUrl: '<?php echo admin_url('admin-ajax.php'); ?>',
+                fieldDefs: <?php echo wp_json_encode(array_map(function($d) { return ['label' => $d['label'], 'type' => $d['type']]; }, TIX_Ticket_Template::field_definitions())); ?>
+            });
+        });
+        </script>
+
+        <?php // ── Daten-Sync Buttons ── ?>
+        <script>
+        (function() {
+            'use strict';
+            var ajaxUrl = '<?php echo admin_url('admin-ajax.php'); ?>';
+            var nonce   = '<?php echo wp_create_nonce('tix_sync_nonce'); ?>';
+
+            document.querySelectorAll('.tix-sync-test').forEach(function(btn) {
+                btn.addEventListener('click', function() {
+                    var service = this.getAttribute('data-service');
+                    var status  = document.querySelector('.tix-sync-status[data-service="' + service + '"]');
+                    btn.disabled = true;
+                    btn.textContent = 'Teste…';
+                    if (status) status.textContent = '';
+
+                    fetch(ajaxUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body: 'action=tix_sync_test_connection&service=' + service + '&nonce=' + nonce
+                    })
+                    .then(function(r) { return r.json(); })
+                    .then(function(res) {
+                        btn.disabled = false;
+                        btn.textContent = 'Verbindung testen';
+                        if (status) {
+                            status.textContent = res.data && res.data.message ? res.data.message : (res.success ? '✓ OK' : '✕ Fehler');
+                            status.style.color = res.success ? '#22c55e' : '#ef4444';
+                        }
+                    })
+                    .catch(function() {
+                        btn.disabled = false;
+                        btn.textContent = 'Verbindung testen';
+                        if (status) { status.textContent = 'Netzwerkfehler'; status.style.color = '#ef4444'; }
+                    });
+                });
+            });
+
+            document.querySelectorAll('.tix-sync-all').forEach(function(btn) {
+                btn.addEventListener('click', function() {
+                    var service = this.getAttribute('data-service');
+                    var status  = document.querySelector('.tix-sync-status[data-service="' + service + '"]');
+                    btn.disabled = true;
+                    btn.textContent = 'Synchronisiere…';
+                    if (status) status.textContent = '';
+
+                    fetch(ajaxUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body: 'action=tix_sync_all&service=' + service + '&nonce=' + nonce
+                    })
+                    .then(function(r) { return r.json(); })
+                    .then(function(res) {
+                        btn.disabled = false;
+                        btn.textContent = 'Alle jetzt synchronisieren';
+                        if (status && res.data) {
+                            status.textContent = res.data.synced + ' gesynct, ' + res.data.failed + ' fehlgeschlagen' + (res.data.remaining > 0 ? ', ' + res.data.remaining + ' übrig' : '');
+                            status.style.color = res.data.failed > 0 ? '#eab308' : '#22c55e';
+                        }
+                    })
+                    .catch(function() {
+                        btn.disabled = false;
+                        btn.textContent = 'Alle jetzt synchronisieren';
+                        if (status) { status.textContent = 'Netzwerkfehler'; status.style.color = '#ef4444'; }
+                    });
+                });
+            });
+        })();
+        </script>
+        <?php
+    }
+
+    // ══════════════════════════════════════
+    // Farb-Helfer (RGBA-Support)
+    // ══════════════════════════════════════
+
+    /**
+     * Parse beliebigen Farbwert → {hex, alpha}
+     * Unterstützt: #rrggbb, #rrggbbaa, rgba(r,g,b,a), rgb(r,g,b)
+     */
+    private static function parse_color($val) {
+        $val = trim($val);
+        if (!$val) return ['hex' => '#000000', 'alpha' => 100];
+
+        // rgba(r,g,b,a) oder rgb(r,g,b)
+        if (preg_match('/^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*(?:,\s*([\d.]+))?\s*\)$/', $val, $m)) {
+            $r = min(255, (int)$m[1]);
+            $g = min(255, (int)$m[2]);
+            $b = min(255, (int)$m[3]);
+            $a = isset($m[4]) ? (float)$m[4] : 1;
+            return ['hex' => sprintf('#%02x%02x%02x', $r, $g, $b), 'alpha' => round($a * 100)];
+        }
+
+        // 8-stelliger Hex #rrggbbaa
+        if (preg_match('/^#([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})$/', $val, $m)) {
+            return ['hex' => '#' . $m[1] . $m[2] . $m[3], 'alpha' => round(hexdec($m[4]) / 255 * 100)];
+        }
+
+        // Standard Hex #rrggbb
+        if (preg_match('/^#[0-9a-fA-F]{6}$/', $val)) {
+            return ['hex' => $val, 'alpha' => 100];
+        }
+
+        return ['hex' => '#000000', 'alpha' => 100];
+    }
+
+    /**
+     * Farbwert sanitizen (hex, rgba, 8-digit hex)
+     * Gibt hex zurück wenn alpha=1, sonst rgba()
+     */
+    private static function sanitize_color($val) {
+        $val = trim($val);
+        if ($val === '') return '';
+
+        // Standard Hex #rrggbb
+        if (preg_match('/^#[0-9a-fA-F]{6}$/', $val)) return $val;
+
+        // 8-stelliger Hex → in rgba umwandeln wenn alpha < ff
+        if (preg_match('/^#([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})$/', $val, $m)) {
+            $a = hexdec($m[4]);
+            if ($a >= 255) return '#' . $m[1] . $m[2] . $m[3];
+            $r = hexdec($m[1]); $g = hexdec($m[2]); $b = hexdec($m[3]);
+            $af = round($a / 255, 2);
+            $as = rtrim(rtrim(number_format($af, 2), '0'), '.');
+            return "rgba({$r},{$g},{$b},{$as})";
+        }
+
+        // rgba(r,g,b,a) oder rgb(r,g,b)
+        if (preg_match('/^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*(?:,\s*([\d.]+))?\s*\)$/', $val, $m)) {
+            $r = max(0, min(255, (int)$m[1]));
+            $g = max(0, min(255, (int)$m[2]));
+            $b = max(0, min(255, (int)$m[3]));
+            $a = isset($m[4]) ? max(0, min(1, (float)$m[4])) : 1;
+            if ($a >= 1) return sprintf('#%02x%02x%02x', $r, $g, $b);
+            $as = rtrim(rtrim(number_format($a, 2), '0'), '.');
+            return "rgba({$r},{$g},{$b},{$as})";
+        }
+
+        // Fallback: WP sanitize_hex_color
+        return sanitize_hex_color($val) ?: '';
+    }
+
+    /**
+     * RGB-Komponenten aus beliebigem Farbwert extrahieren
+     */
+    private static function color_to_rgb($val) {
+        $parsed = self::parse_color($val);
+        $hex = ltrim($parsed['hex'], '#');
+        if (strlen($hex) !== 6) return null;
+        return [
+            'r' => hexdec(substr($hex, 0, 2)),
+            'g' => hexdec(substr($hex, 2, 2)),
+            'b' => hexdec(substr($hex, 4, 2)),
+            'a' => $parsed['alpha'] / 100,
+        ];
+    }
+
+    // ══════════════════════════════════════
+    // Feld-Helfer
+    // ══════════════════════════════════════
+
+    private static function color_row($key, $label, $s, $allow_empty = false) {
+        $val     = $s[$key] ?: '';
+        $default = self::defaults()[$key] ?: '#000000';
+        $display = $val ?: $default;
+        $name    = self::OPTION_KEY . "[$key]";
+        $parsed  = self::parse_color($display);
+        $rgb_hex = $parsed['hex'];
+        $alpha   = $parsed['alpha'];
+        ?>
+        <div class="tix-field">
+            <label class="tix-field-label"><?php echo esc_html($label); ?></label>
+            <div class="tix-color-wrap">
+                <div class="tix-color-swatch">
+                    <span class="tix-color-fill" style="background:<?php echo esc_attr($display); ?>"></span>
+                    <input type="color" value="<?php echo esc_attr($rgb_hex); ?>" tabindex="-1">
+                </div>
+                <input type="text" name="<?php echo esc_attr($name); ?>" value="<?php echo esc_attr($val); ?>"
+                       class="tix-color-hex" placeholder="<?php echo esc_attr($default); ?>" maxlength="30">
+                <input type="range" class="tix-alpha-slider" min="0" max="100" value="<?php echo $alpha; ?>">
+                <span class="tix-alpha-val"><?php echo $alpha; ?>%</span>
+                <?php if (!$allow_empty || $val): ?>
+                    <a href="#" class="tix-color-reset" data-default="<?php echo esc_attr($default); ?>">Reset</a>
+                <?php endif; ?>
+            </div>
+        </div>
+        <?php
+    }
+
+    private static function range_row($key, $label, $s, $min = 0, $max = 50, $unit = 'px', $step = 1, $is_float = false) {
+        $val  = $is_float ? floatval($s[$key]) : intval($s[$key]);
+        $name = self::OPTION_KEY . "[$key]";
+        ?>
+        <div class="tix-field">
+            <label class="tix-field-label"><?php echo esc_html($label); ?></label>
+            <div class="tix-range-wrap">
+                <input type="range" name="<?php echo esc_attr($name); ?>"
+                       value="<?php echo esc_attr($val); ?>"
+                       min="<?php echo $min; ?>" max="<?php echo $max; ?>"
+                       step="<?php echo $step; ?>"
+                       data-unit="<?php echo esc_attr($unit); ?>">
+                <span class="tix-range-val"><?php echo $val . $unit; ?></span>
+            </div>
+        </div>
+        <?php
+    }
+
+    private static function text_row($key, $label, $s, $placeholder = '') {
+        $val  = $s[$key] ?? '';
+        $name = self::OPTION_KEY . "[$key]";
+        ?>
+        <div class="tix-field">
+            <label class="tix-field-label"><?php echo esc_html($label); ?></label>
+            <input type="text" name="<?php echo esc_attr($name); ?>"
+                   value="<?php echo esc_attr($val); ?>"
+                   class="regular-text tix-text-input"
+                   placeholder="<?php echo esc_attr($placeholder); ?>">
+        </div>
+        <?php
+    }
+
+    private static function checkbox_row($key, $label, $s, $desc = '') {
+        $val = $s[$key] ?? 0;
+        ?>
+        <label class="tix-checkbox-label">
+            <input type="checkbox" name="<?php echo self::OPTION_KEY; ?>[<?php echo esc_attr($key); ?>]" value="1" <?php checked($val, 1); ?>>
+            <span><?php echo esc_html($label); ?></span>
+        </label>
+        <?php if ($desc): ?>
+            <p class="tix-settings-hint"><?php echo $desc; ?></p>
+        <?php endif;
+    }
+}
