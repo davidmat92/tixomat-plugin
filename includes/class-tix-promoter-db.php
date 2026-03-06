@@ -529,7 +529,7 @@ class TIX_Promoter_DB {
         $tc = self::table_commissions();
 
         return $wpdb->get_results(
-            "SELECT p.id, p.promoter_code, p.display_name, p.status, p.user_id, u.user_email,
+            "SELECT p.id, p.promoter_code, p.display_name, p.notes, p.status, p.user_id, u.user_email,
                     COALESCE(SUM(c.order_total), 0) AS total_sales,
                     COALESCE(SUM(c.commission_amount), 0) AS total_commission,
                     COALESCE(SUM(CASE WHEN c.status = 'pending' THEN c.commission_amount ELSE 0 END), 0) AS pending_commission,

@@ -7,12 +7,13 @@
     /* ── Init ── */
     $(function() {
         initTabs();
+        populateDropdowns();
         loadTab('promoters');
     });
 
     /* ── Tabs ── */
     function initTabs() {
-        $('.tix-promoter-wrap').on('click', '.tix-nav-tab', function() {
+        $(document).on('click', '.tix-nav-tab', function() {
             var tab = $(this).data('tab');
             $('.tix-nav-tab').removeClass('active');
             $(this).addClass('active');
@@ -33,37 +34,64 @@
         }
     }
 
+    /* ── Populate Filter & Form Dropdowns ── */
+    function populateDropdowns() {
+        var pOpts = '<option value="">Alle Promoter</option>';
+        var pOptsReq = '<option value="">Promoter w\u00e4hlen\u2026</option>';
+        if (tixPromoter.promoters) {
+            $.each(tixPromoter.promoters, function(i, p) {
+                var label = esc(p.name || p.code);
+                pOpts += '<option value="' + p.id + '">' + label + '</option>';
+                pOptsReq += '<option value="' + p.id + '">' + label + '</option>';
+            });
+        }
+        $('#tix-assign-filter-promoter, #tix-comm-filter-promoter, #tix-payout-filter-promoter').html(pOpts);
+        $('#tix-af-promoter, #tix-payf-promoter').html(pOptsReq);
+
+        var eOpts = '<option value="">Alle Events</option>';
+        var eOptsReq = '<option value="">Event w\u00e4hlen\u2026</option>';
+        if (tixPromoter.events) {
+            $.each(tixPromoter.events, function(i, e) {
+                var label = esc(e.title);
+                eOpts += '<option value="' + e.id + '">' + label + '</option>';
+                eOptsReq += '<option value="' + e.id + '">' + label + '</option>';
+            });
+        }
+        $('#tix-assign-filter-event, #tix-comm-filter-event').html(eOpts);
+        $('#tix-af-event').html(eOptsReq);
+    }
+
     /* ════════════════════════════════
        PROMOTER TAB
        ════════════════════════════════ */
 
     function loadPromoters() {
-        var $tbody = $('#tix-promo-promoters-body');
-        $tbody.html('<tr><td colspan="8" class="tix-promo-loading"><div class="tix-promo-spinner"></div></td></tr>');
+        var $tbody = $('#tix-promoter-table tbody');
+        $tbody.html('<tr><td colspan="8" class="tix-loading"><div class="tix-spinner"></div></td></tr>');
 
         $.post(tixPromoter.ajaxurl, {
             action: 'tix_promoter_list',
             nonce: tixPromoter.nonce
         }, function(r) {
             if (!r.success || !r.data.length) {
-                $tbody.html('<tr><td colspan="8" class="tix-promo-empty">Keine Promoter vorhanden</td></tr>');
+                $tbody.html('<tr><td colspan="8" class="tix-empty">Keine Promoter vorhanden</td></tr>');
                 return;
             }
             var html = '';
             $.each(r.data, function(i, p) {
                 html += '<tr>' +
-                    '<td><strong>' + esc(p.name) + '</strong></td>' +
-                    '<td><code>' + esc(p.code) + '</code></td>' +
-                    '<td>' + esc(p.email) + '</td>' +
-                    '<td>' + badge(p.status) + '</td>' +
-                    '<td>' + eur(p.total_sales) + '</td>' +
-                    '<td>' + eur(p.total_commission) + '</td>' +
-                    '<td>' + eur(p.pending_commission) + '</td>' +
-                    '<td class="tix-promo-actions">' +
-                        '<button class="tix-promo-btn tix-promo-btn-sm tix-promo-btn-outline tix-promo-edit" data-id="' + p.id + '" data-code="' + esc(p.code) + '" data-name="' + esc(p.display_name) + '" data-notes="' + esc(p.notes || '') + '">Bearbeiten</button> ' +
+                    '<td><strong>' + esc(p.display_name || p.promoter_code) + '</strong></td>' +
+                    '<td><code>' + esc(p.promoter_code) + '</code></td>' +
+                    '<td>' + esc(p.user_email) + '</td>' +
+                    '<td>' + p.status_badge + '</td>' +
+                    '<td>' + esc(p.total_sales) + '</td>' +
+                    '<td>' + esc(p.total_commission) + '</td>' +
+                    '<td>' + esc(p.pending_commission) + '</td>' +
+                    '<td class="tix-actions">' +
+                        '<button class="button button-small tix-promo-edit" data-id="' + p.id + '" data-code="' + esc(p.promoter_code) + '" data-name="' + esc(p.display_name) + '" data-notes="' + esc(p.notes || '') + '">Bearbeiten</button> ' +
                         (p.status === 'active' ?
-                            '<button class="tix-promo-btn tix-promo-btn-sm tix-promo-btn-danger tix-promo-deactivate" data-id="' + p.id + '">Deaktivieren</button>' :
-                            '<button class="tix-promo-btn tix-promo-btn-sm tix-promo-btn-success tix-promo-activate" data-id="' + p.id + '">Aktivieren</button>'
+                            '<button class="button button-small tix-promo-deactivate" data-id="' + p.id + '">Deaktivieren</button>' :
+                            '<button class="button button-small tix-promo-activate" data-id="' + p.id + '">Aktivieren</button>'
                         ) +
                     '</td></tr>';
             });
@@ -72,42 +100,54 @@
     }
 
     // Add Promoter Form Toggle
-    $(document).on('click', '#tix-promo-add-btn', function() {
-        $('#tix-promo-add-form').toggleClass('open');
-        $('#tix-promo-add-form input, #tix-promo-add-form textarea').val('');
-        $('#tix-promo-add-form [name="promoter_id"]').val('');
-        $('#tix-promo-add-form h3').text('Neuen Promoter hinzufügen');
+    $(document).on('click', '#tix-promoter-add-btn', function() {
+        var $f = $('#tix-promoter-form');
+        $f.toggle();
+        $('#tix-pf-id').val('0');
+        $('#tix-pf-user-search').val('');
+        $('#tix-pf-user-id').val('0');
+        $('#tix-pf-code').val('');
+        $('#tix-pf-display-name').val('');
+        $('#tix-pf-notes').val('');
+        $('#tix-pf-user-wrap').show();
+        $('#tix-promoter-form-title').text('Neuen Promoter erstellen');
+    });
+
+    // Cancel
+    $(document).on('click', '#tix-promoter-cancel-btn', function() {
+        $('#tix-promoter-form').hide();
     });
 
     // Edit Promoter
     $(document).on('click', '.tix-promo-edit', function() {
-        var $f = $('#tix-promo-add-form');
-        $f.addClass('open');
-        $f.find('h3').text('Promoter bearbeiten');
-        $f.find('[name="promoter_id"]').val($(this).data('id'));
-        $f.find('[name="promoter_code"]').val($(this).data('code'));
-        $f.find('[name="display_name"]').val($(this).data('name'));
-        $f.find('[name="notes"]').val($(this).data('notes'));
+        var $f = $('#tix-promoter-form');
+        $f.show();
+        $('#tix-promoter-form-title').text('Promoter bearbeiten');
+        $('#tix-pf-id').val($(this).data('id'));
+        $('#tix-pf-code').val($(this).data('code'));
+        $('#tix-pf-display-name').val($(this).data('name'));
+        $('#tix-pf-notes').val($(this).data('notes'));
+        $('#tix-pf-user-wrap').hide();
     });
 
     // Save Promoter
-    $(document).on('click', '#tix-promo-save', function() {
-        var $f = $('#tix-promo-add-form');
+    $(document).on('click', '#tix-promoter-save-btn', function() {
         var data = {
             action: 'tix_promoter_save',
             nonce: tixPromoter.nonce,
-            promoter_id: $f.find('[name="promoter_id"]').val(),
-            user_id: $f.find('[name="user_id"]').val(),
-            promoter_code: $f.find('[name="promoter_code"]').val(),
-            display_name: $f.find('[name="display_name"]').val(),
-            notes: $f.find('[name="notes"]').val()
+            promoter_id: $('#tix-pf-id').val(),
+            user_id: $('#tix-pf-user-id').val(),
+            promoter_code: $('#tix-pf-code').val(),
+            display_name: $('#tix-pf-display-name').val(),
+            notes: $('#tix-pf-notes').val()
         };
         $.post(tixPromoter.ajaxurl, data, function(r) {
             if (r.success) {
-                $f.removeClass('open');
+                $('#tix-promoter-form').hide();
                 loadPromoters();
+                refreshPromoterDropdowns();
             } else {
-                alert(r.data && r.data.message ? r.data.message : 'Fehler beim Speichern.');
+                alert(r.data || 'Fehler beim Speichern.');
             }
         });
     });
@@ -123,26 +163,29 @@
 
     // User Search
     var userSearchTimer;
-    $(document).on('input', '#tix-promo-user-search', function() {
+    $(document).on('input', '#tix-pf-user-search', function() {
         var q = $(this).val();
         clearTimeout(userSearchTimer);
-        if (q.length < 2) { $('#tix-promo-user-results').empty().hide(); return; }
+        if (q.length < 2) { $('#tix-pf-user-results').empty().hide(); return; }
         userSearchTimer = setTimeout(function() {
             $.post(tixPromoter.ajaxurl, { action: 'tix_promoter_search_users', nonce: tixPromoter.nonce, q: q }, function(r) {
-                if (!r.success || !r.data.length) { $('#tix-promo-user-results').html('<div class="tix-promo-user-item">Kein Benutzer gefunden</div>').show(); return; }
+                if (!r.success || !r.data.length) {
+                    $('#tix-pf-user-results').html('<div class="tix-autocomplete-item">Kein Benutzer gefunden</div>').show();
+                    return;
+                }
                 var html = '';
                 $.each(r.data, function(i, u) {
-                    html += '<div class="tix-promo-user-item" data-id="' + u.id + '" data-name="' + esc(u.name) + '">' + esc(u.name) + ' (' + esc(u.email) + ')</div>';
+                    html += '<div class="tix-autocomplete-item" data-id="' + u.id + '" data-name="' + esc(u.value) + '">' + esc(u.label) + '</div>';
                 });
-                $('#tix-promo-user-results').html(html).show();
+                $('#tix-pf-user-results').html(html).show();
             });
         }, 300);
     });
 
-    $(document).on('click', '.tix-promo-user-item[data-id]', function() {
-        $('#tix-promo-add-form [name="user_id"]').val($(this).data('id'));
-        $('#tix-promo-user-search').val($(this).data('name'));
-        $('#tix-promo-user-results').hide();
+    $(document).on('click', '.tix-autocomplete-item[data-id]', function() {
+        $('#tix-pf-user-id').val($(this).data('id'));
+        $('#tix-pf-user-search').val($(this).data('name'));
+        $('#tix-pf-user-results').hide();
     });
 
     /* ════════════════════════════════
@@ -150,38 +193,30 @@
        ════════════════════════════════ */
 
     function loadAssignments() {
-        var $tbody = $('#tix-promo-events-body');
-        $tbody.html('<tr><td colspan="8" class="tix-promo-loading"><div class="tix-promo-spinner"></div></td></tr>');
+        var $tbody = $('#tix-assign-table tbody');
+        $tbody.html('<tr><td colspan="7" class="tix-loading"><div class="tix-spinner"></div></td></tr>');
 
-        var filters = {
+        $.post(tixPromoter.ajaxurl, {
             action: 'tix_promoter_assignments',
             nonce: tixPromoter.nonce,
-            promoter_id: $('#tix-filter-promoter').val() || '',
-            event_id: $('#tix-filter-event').val() || ''
-        };
-
-        $.post(tixPromoter.ajaxurl, filters, function(r) {
+            promoter_id: $('#tix-assign-filter-promoter').val() || '',
+            event_id: $('#tix-assign-filter-event').val() || ''
+        }, function(r) {
             if (!r.success || !r.data.length) {
-                $tbody.html('<tr><td colspan="8" class="tix-promo-empty">Keine Zuordnungen vorhanden</td></tr>');
+                $tbody.html('<tr><td colspan="7" class="tix-empty">Keine Zuordnungen vorhanden</td></tr>');
                 return;
             }
             var html = '';
             $.each(r.data, function(i, a) {
-                var commLabel = a.commission_type === 'percent' ? a.commission_value + ' %' : eur(a.commission_value);
-                var discLabel = '';
-                if (a.discount_type === 'percent') discLabel = a.discount_value + ' %';
-                else if (a.discount_type === 'fixed') discLabel = eur(a.discount_value);
-                else discLabel = '–';
-
                 html += '<tr>' +
-                    '<td>' + esc(a.promoter_name || a.promoter_code) + '</td>' +
-                    '<td>' + esc(a.event_title || '#' + a.event_id) + '</td>' +
-                    '<td>' + commLabel + '</td>' +
-                    '<td>' + discLabel + '</td>' +
-                    '<td>' + (a.promo_code ? '<code>' + esc(a.promo_code) + '</code>' : '–') + '</td>' +
-                    '<td>' + badge(a.status) + '</td>' +
-                    '<td class="tix-promo-actions">' +
-                        '<button class="tix-promo-btn tix-promo-btn-sm tix-promo-btn-danger tix-promo-unassign" data-id="' + a.id + '" data-coupon="' + (a.coupon_id || 0) + '">Entfernen</button>' +
+                    '<td>' + esc(a.promoter_name) + '</td>' +
+                    '<td>' + esc(a.event_title) + '</td>' +
+                    '<td>' + esc(a.commission_display) + '</td>' +
+                    '<td>' + esc(a.discount_display) + '</td>' +
+                    '<td>' + (a.promo_code && a.promo_code !== '\u2013' ? '<code>' + esc(a.promo_code) + '</code>' : '\u2013') + '</td>' +
+                    '<td>' + a.status_badge + '</td>' +
+                    '<td class="tix-actions">' +
+                        '<button class="button button-small tix-promo-unassign" data-id="' + a.id + '">Entfernen</button>' +
                     '</td></tr>';
             });
             $tbody.html(html);
@@ -189,36 +224,30 @@
     }
 
     // Filter changes
-    $(document).on('change', '#tix-filter-promoter, #tix-filter-event', function() { loadAssignments(); });
+    $(document).on('change', '#tix-assign-filter-promoter, #tix-assign-filter-event', function() { loadAssignments(); });
 
     // Assignment Form Toggle
-    $(document).on('click', '#tix-promo-assign-btn', function() { $('#tix-promo-assign-form').toggleClass('open'); });
-
-    // Discount type toggle
-    $(document).on('change', '#tix-assign-discount-type', function() {
-        var show = $(this).val() !== '';
-        $('#tix-assign-discount-value-wrap').toggle(show);
-    });
+    $(document).on('click', '#tix-assign-add-btn', function() { $('#tix-assign-form').toggle(); });
+    $(document).on('click', '#tix-assign-cancel-btn', function() { $('#tix-assign-form').hide(); });
 
     // Save Assignment
-    $(document).on('click', '#tix-promo-assign-save', function() {
-        var $f = $('#tix-promo-assign-form');
+    $(document).on('click', '#tix-assign-save-btn', function() {
         $.post(tixPromoter.ajaxurl, {
             action: 'tix_promoter_assign',
             nonce: tixPromoter.nonce,
-            promoter_id: $f.find('[name="assign_promoter_id"]').val(),
-            event_id: $f.find('[name="assign_event_id"]').val(),
-            commission_type: $f.find('[name="commission_type"]').val(),
-            commission_value: $f.find('[name="commission_value"]').val(),
-            discount_type: $f.find('[name="discount_type"]').val(),
-            discount_value: $f.find('[name="discount_value"]').val(),
-            promo_code: $f.find('[name="promo_code"]').val()
+            promoter_id: $('#tix-af-promoter').val(),
+            event_id: $('#tix-af-event').val(),
+            commission_type: $('#tix-af-commission-type').val(),
+            commission_value: $('#tix-af-commission-value').val(),
+            discount_type: $('#tix-af-discount-type').val(),
+            discount_value: $('#tix-af-discount-value').val(),
+            promo_code: $('#tix-af-promo-code').val()
         }, function(r) {
             if (r.success) {
-                $f.removeClass('open');
+                $('#tix-assign-form').hide();
                 loadAssignments();
             } else {
-                alert(r.data && r.data.message ? r.data.message : 'Fehler.');
+                alert(r.data || 'Fehler.');
             }
         });
     });
@@ -229,8 +258,7 @@
         $.post(tixPromoter.ajaxurl, {
             action: 'tix_promoter_unassign',
             nonce: tixPromoter.nonce,
-            id: $(this).data('id'),
-            coupon_id: $(this).data('coupon')
+            id: $(this).data('id')
         }, function() { loadAssignments(); });
     });
 
@@ -239,101 +267,102 @@
        ════════════════════════════════ */
 
     function loadCommissions() {
-        var $tbody = $('#tix-promo-commissions-body');
-        $tbody.html('<tr><td colspan="8" class="tix-promo-loading"><div class="tix-promo-spinner"></div></td></tr>');
+        var $tbody = $('#tix-comm-table tbody');
+        $tbody.html('<tr><td colspan="8" class="tix-loading"><div class="tix-spinner"></div></td></tr>');
 
         $.post(tixPromoter.ajaxurl, {
             action: 'tix_promoter_commissions',
             nonce: tixPromoter.nonce,
-            promoter_id: $('#tix-comm-promoter').val() || '',
-            event_id: $('#tix-comm-event').val() || '',
-            date_from: $('#tix-comm-from').val() || '',
-            date_to: $('#tix-comm-to').val() || '',
-            status: $('#tix-comm-status').val() || ''
+            promoter_id: $('#tix-comm-filter-promoter').val() || '',
+            event_id: $('#tix-comm-filter-event').val() || '',
+            date_from: $('#tix-comm-filter-from').val() || '',
+            date_to: $('#tix-comm-filter-to').val() || '',
+            status: $('#tix-comm-filter-status').val() || ''
         }, function(r) {
             if (!r.success || !r.data.length) {
-                $tbody.html('<tr><td colspan="8" class="tix-promo-empty">Keine Provisionen vorhanden</td></tr>');
+                $tbody.html('<tr><td colspan="8" class="tix-empty">Keine Provisionen vorhanden</td></tr>');
                 return;
             }
             var html = '';
             $.each(r.data, function(i, c) {
                 html += '<tr>' +
-                    '<td>' + esc(c.date) + '</td>' +
-                    '<td>' + esc(c.promoter) + '</td>' +
-                    '<td>' + esc(c.event) + '</td>' +
-                    '<td>#' + c.order_id + '</td>' +
+                    '<td>' + esc(c.created_at) + '</td>' +
+                    '<td>' + esc(c.promoter_name) + '</td>' +
+                    '<td>' + esc(c.event_title) + '</td>' +
+                    '<td><a href="' + esc(c.order_link) + '">#' + c.order_id + '</a></td>' +
                     '<td>' + c.tickets_qty + '</td>' +
-                    '<td>' + eur(c.order_total) + '</td>' +
-                    '<td>' + eur(c.commission_amount) + '</td>' +
-                    '<td>' + badge(c.status) + '</td>' +
+                    '<td>' + esc(c.order_total) + '</td>' +
+                    '<td>' + esc(c.commission_amount) + '</td>' +
+                    '<td>' + c.status_badge + '</td>' +
                     '</tr>';
             });
             $tbody.html(html);
         });
     }
 
-    $(document).on('change', '#tix-comm-promoter, #tix-comm-event, #tix-comm-from, #tix-comm-to, #tix-comm-status', function() { loadCommissions(); });
+    $(document).on('click', '#tix-comm-filter-btn', function() { loadCommissions(); });
+    $(document).on('change', '#tix-comm-filter-promoter, #tix-comm-filter-event, #tix-comm-filter-status', function() { loadCommissions(); });
 
     /* ════════════════════════════════
        PAYOUTS TAB
        ════════════════════════════════ */
 
     function loadPayouts() {
-        var $tbody = $('#tix-promo-payouts-body');
-        $tbody.html('<tr><td colspan="8" class="tix-promo-loading"><div class="tix-promo-spinner"></div></td></tr>');
+        var $tbody = $('#tix-payout-table tbody');
+        $tbody.html('<tr><td colspan="8" class="tix-loading"><div class="tix-spinner"></div></td></tr>');
 
         $.post(tixPromoter.ajaxurl, {
             action: 'tix_promoter_payouts',
             nonce: tixPromoter.nonce,
-            promoter_id: $('#tix-payout-promoter').val() || '',
-            status: $('#tix-payout-status').val() || ''
+            promoter_id: $('#tix-payout-filter-promoter').val() || '',
+            status: $('#tix-payout-filter-status').val() || ''
         }, function(r) {
             if (!r.success || !r.data.length) {
-                $tbody.html('<tr><td colspan="8" class="tix-promo-empty">Keine Auszahlungen vorhanden</td></tr>');
+                $tbody.html('<tr><td colspan="8" class="tix-empty">Keine Auszahlungen vorhanden</td></tr>');
                 return;
             }
             var html = '';
             $.each(r.data, function(i, p) {
                 var actions = '';
                 if (p.status === 'pending') {
-                    actions = '<button class="tix-promo-btn tix-promo-btn-sm tix-promo-btn-success tix-promo-mark-paid" data-id="' + p.id + '">Bezahlt</button> ' +
-                              '<button class="tix-promo-btn tix-promo-btn-sm tix-promo-btn-danger tix-promo-cancel-payout" data-id="' + p.id + '">Stornieren</button>';
+                    actions = '<button class="button button-small tix-promo-mark-paid" data-id="' + p.id + '">Bezahlt</button> ' +
+                              '<button class="button button-small tix-promo-cancel-payout" data-id="' + p.id + '">Stornieren</button>';
                 }
                 html += '<tr>' +
                     '<td>' + esc(p.period) + '</td>' +
-                    '<td>' + esc(p.promoter) + '</td>' +
-                    '<td>' + eur(p.total_sales) + '</td>' +
-                    '<td>' + eur(p.total_commission) + '</td>' +
+                    '<td>' + esc(p.promoter_name) + '</td>' +
+                    '<td>' + esc(p.total_sales) + '</td>' +
+                    '<td>' + esc(p.total_commission) + '</td>' +
                     '<td>' + p.commission_count + '</td>' +
-                    '<td>' + badge(p.status) + '</td>' +
-                    '<td>' + (p.paid_date || '–') + '</td>' +
-                    '<td class="tix-promo-actions">' + actions + '</td>' +
+                    '<td>' + p.status_badge + '</td>' +
+                    '<td>' + esc(p.paid_date) + '</td>' +
+                    '<td class="tix-actions">' + actions + '</td>' +
                     '</tr>';
             });
             $tbody.html(html);
         });
     }
 
-    $(document).on('change', '#tix-payout-promoter, #tix-payout-status', function() { loadPayouts(); });
+    $(document).on('change', '#tix-payout-filter-promoter, #tix-payout-filter-status', function() { loadPayouts(); });
 
     // Payout Form Toggle
-    $(document).on('click', '#tix-promo-payout-btn', function() { $('#tix-promo-payout-form').toggleClass('open'); });
+    $(document).on('click', '#tix-payout-add-btn', function() { $('#tix-payout-form').toggle(); });
+    $(document).on('click', '#tix-payout-cancel-btn', function() { $('#tix-payout-form').hide(); });
 
     // Create Payout
-    $(document).on('click', '#tix-promo-payout-save', function() {
-        var $f = $('#tix-promo-payout-form');
+    $(document).on('click', '#tix-payout-save-btn', function() {
         $.post(tixPromoter.ajaxurl, {
             action: 'tix_promoter_create_payout',
             nonce: tixPromoter.nonce,
-            promoter_id: $f.find('[name="payout_promoter_id"]').val(),
-            period_from: $f.find('[name="period_from"]').val(),
-            period_to: $f.find('[name="period_to"]').val()
+            promoter_id: $('#tix-payf-promoter').val(),
+            period_from: $('#tix-payf-from').val(),
+            period_to: $('#tix-payf-to').val()
         }, function(r) {
             if (r.success) {
-                $f.removeClass('open');
+                $('#tix-payout-form').hide();
                 loadPayouts();
             } else {
-                alert(r.data && r.data.message ? r.data.message : 'Fehler.');
+                alert(r.data || 'Fehler.');
             }
         });
     });
@@ -351,14 +380,12 @@
     });
 
     // CSV Export
-    $(document).on('click', '#tix-promo-export-csv', function() {
-        var form = $('<form>', { method: 'POST', action: tixPromoter.ajaxurl.replace('admin-ajax.php', 'admin-post.php'), target: '_blank' });
-        form.append($('<input>', { type: 'hidden', name: 'action', value: 'tix_promoter_export_csv' }));
-        form.append($('<input>', { type: 'hidden', name: 'nonce', value: tixPromoter.nonce }));
-        form.append($('<input>', { type: 'hidden', name: 'promoter_id', value: $('#tix-payout-promoter').val() || '' }));
-        $('body').append(form);
-        form.submit();
-        form.remove();
+    $(document).on('click', '#tix-payout-csv-btn', function(e) {
+        e.preventDefault();
+        var url = tixPromoter.exporturl + '&nonce=' + tixPromoter.nonce;
+        var promoter = $('#tix-payout-filter-promoter').val();
+        if (promoter) url += '&promoter_id=' + promoter;
+        window.open(url, '_blank');
     });
 
     /* ════════════════════════════════
@@ -366,6 +393,8 @@
        ════════════════════════════════ */
 
     function loadStats() {
+        $('#tix-promo-stats-kpi').html('<div class="tix-loading"><div class="tix-spinner"></div></div>');
+
         $.post(tixPromoter.ajaxurl, {
             action: 'tix_promoter_stats',
             nonce: tixPromoter.nonce
@@ -374,41 +403,47 @@
             var d = r.data;
 
             // KPIs
-            $('#tix-promo-stat-sales').text(eur(d.total_sales));
-            $('#tix-promo-stat-commission').text(eur(d.total_commission));
-            $('#tix-promo-stat-pending').text(eur(d.pending_commission));
-            $('#tix-promo-stat-active').text(d.active_promoters);
-
-            // Top Promoter Chart
-            if (d.top_promoters && d.top_promoters.length && window.Chart) {
-                var labels = [], sales = [], commissions = [];
-                $.each(d.top_promoters, function(i, p) {
-                    labels.push(p.name || p.code);
-                    sales.push(parseFloat(p.sales));
-                    commissions.push(parseFloat(p.commission));
+            if (d.kpis) {
+                var kpiHtml = '';
+                $.each(d.kpis, function(key, kpi) {
+                    kpiHtml += '<div class="tix-kpi">' +
+                        '<span class="dashicons ' + esc(kpi.icon) + '"></span>' +
+                        '<span class="tix-kpi-num">' + esc(String(kpi.value)) + '</span>' +
+                        '<span class="tix-kpi-lbl">' + esc(kpi.label) + '</span>' +
+                        '</div>';
                 });
+                $('#tix-promo-stats-kpi').html('<div class="tix-kpi-grid">' + kpiHtml + '</div>');
+            }
 
+            // Chart from server config
+            if (d.chart && d.chart.data && window.Chart) {
                 if (charts['top-promoters']) charts['top-promoters'].destroy();
                 var ctx = document.getElementById('tix-promo-chart-top');
                 if (ctx) {
                     charts['top-promoters'] = new Chart(ctx.getContext('2d'), {
-                        type: 'bar',
-                        data: {
-                            labels: labels,
-                            datasets: [
-                                { label: 'Umsatz', data: sales, backgroundColor: 'rgba(99,102,241,0.7)' },
-                                { label: 'Provision', data: commissions, backgroundColor: 'rgba(16,185,129,0.7)' }
-                            ]
-                        },
-                        options: {
+                        type: d.chart.type || 'bar',
+                        data: d.chart.data,
+                        options: $.extend(true, {
                             responsive: true,
                             maintainAspectRatio: false,
-                            plugins: { legend: { position: 'bottom' } },
+                            plugins: { legend: { position: 'top' } },
                             scales: { y: { beginAtZero: true } }
-                        }
+                        }, d.chart.options || {})
                     });
                 }
             }
+        });
+    }
+
+    /* ── Refresh promoter dropdowns after save ── */
+    function refreshPromoterDropdowns() {
+        $.post(tixPromoter.ajaxurl, { action: 'tix_promoter_list', nonce: tixPromoter.nonce }, function(r) {
+            if (!r.success) return;
+            tixPromoter.promoters = [];
+            $.each(r.data, function(i, p) {
+                tixPromoter.promoters.push({ id: p.id, name: p.display_name || p.promoter_code, code: p.promoter_code });
+            });
+            populateDropdowns();
         });
     }
 
@@ -418,15 +453,11 @@
 
     function eur(v) {
         v = parseFloat(v) || 0;
-        return v.toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.') + ' €';
-    }
-
-    function badge(status) {
-        return '<span class="tix-promo-badge tix-promo-badge-' + status + '">' + esc(status) + '</span>';
+        return v.toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.') + ' \u20ac';
     }
 
     function esc(str) {
-        if (!str) return '';
+        if (!str && str !== 0) return '';
         var div = document.createElement('div');
         div.textContent = str;
         return div.innerHTML;

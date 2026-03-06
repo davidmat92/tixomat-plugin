@@ -151,31 +151,29 @@ class TIX_Promoter_Admin {
         if (!current_user_can('manage_options')) wp_send_json_error('Keine Berechtigung.');
         if (!class_exists('TIX_Promoter_DB'))   wp_send_json_error('Datenbank nicht verfuegbar.');
 
-        $id            = intval($_POST['id'] ?? 0);
+        $id            = intval($_POST['promoter_id'] ?? 0);
         $user_id       = intval($_POST['user_id'] ?? 0);
         $promoter_code = sanitize_text_field($_POST['promoter_code'] ?? '');
         $display_name  = sanitize_text_field($_POST['display_name'] ?? '');
         $notes         = sanitize_textarea_field($_POST['notes'] ?? '');
         $status        = in_array($_POST['status'] ?? '', ['active', 'inactive']) ? $_POST['status'] : 'active';
 
-        if (empty($promoter_code)) {
-            wp_send_json_error('Promoter-Code ist erforderlich.');
-        }
-
         if ($id > 0) {
-            // Update
-            $result = TIX_Promoter_DB::update_promoter($id, [
-                'promoter_code' => $promoter_code,
-                'display_name'  => $display_name,
-                'notes'         => $notes,
-                'status'        => $status,
-            ]);
+            // Update – nur gesetzte Felder aktualisieren
+            $update = ['status' => $status];
+            if (!empty($promoter_code)) $update['promoter_code'] = $promoter_code;
+            if (!empty($display_name))  $update['display_name']  = $display_name;
+            if (isset($_POST['notes'])) $update['notes']         = $notes;
+            $result = TIX_Promoter_DB::update_promoter($id, $update);
             if ($result === false) {
                 wp_send_json_error('Fehler beim Aktualisieren.');
             }
             wp_send_json_success(['id' => $id, 'message' => 'Promoter aktualisiert.']);
         } else {
             // Create
+            if (empty($promoter_code)) {
+                wp_send_json_error('Promoter-Code ist erforderlich.');
+            }
             if (!$user_id) {
                 wp_send_json_error('WordPress-Benutzer ist erforderlich.');
             }
@@ -232,9 +230,10 @@ class TIX_Promoter_Admin {
             $data[] = [
                 'id'                 => intval($r->id),
                 'promoter_code'      => $r->promoter_code,
-                'display_name'       => $r->display_name,
+                'display_name'       => $r->display_name ?: '',
                 'user_id'            => intval($r->user_id),
                 'user_email'         => $r->user_email ?? '',
+                'notes'              => $r->notes ?? '',
                 'status'             => $r->status,
                 'status_badge'       => self::status_badge($r->status),
                 'total_sales'        => self::format_eur($r->total_sales),
@@ -252,7 +251,7 @@ class TIX_Promoter_Admin {
         check_ajax_referer('tix_promoter_admin', 'nonce');
         if (!current_user_can('manage_options')) wp_send_json_error('Keine Berechtigung.');
 
-        $term = sanitize_text_field($_POST['term'] ?? '');
+        $term = sanitize_text_field($_POST['q'] ?? $_POST['term'] ?? '');
         if (strlen($term) < 2) wp_send_json_success([]);
 
         $users = get_users([

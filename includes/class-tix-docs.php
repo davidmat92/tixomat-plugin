@@ -54,6 +54,10 @@ class TIX_Docs {
                             <span class="dashicons dashicons-media-text"></span>
                             <span class="tix-nav-label">Ticket-Vorlagen</span>
                         </button>
+                        <button type="button" class="tix-nav-tab" data-tab="promoter">
+                            <span class="dashicons dashicons-businessman"></span>
+                            <span class="tix-nav-label">Promoter</span>
+                        </button>
                     </nav>
 
                     <div class="tix-content">
@@ -63,6 +67,7 @@ class TIX_Docs {
                         <?php self::render_functions_tab(); ?>
                         <?php self::render_ajax_tab(); ?>
                         <?php self::render_templates_tab(); ?>
+                        <?php self::render_promoter_tab(); ?>
 
                     </div>
                 </div>
@@ -1238,6 +1243,95 @@ class TIX_Docs {
             <tr><td>Eigener Text</td><td>Frei definierbarer Text</td></tr>
             </tbody>
             </table>
+
+        </div>
+        <?php
+    }
+
+    // ══════════════════════════════════════
+    // TAB 6: PROMOTER-SYSTEM
+    // ══════════════════════════════════════
+
+    private static function render_promoter_tab() {
+        ?>
+        <div class="tix-pane" data-pane="promoter">
+
+            <p class="description">
+                <strong>Promoter-System</strong> &ndash; Umfassendes Affiliate-/Promoter-Portal f&uuml;r Event-Verk&auml;ufe.
+                Promoter k&ouml;nnen pro Event zugewiesen werden, erhalten Provisionen und k&ouml;nnen K&auml;ufer-Rabatte weitergeben.
+                Das System umfasst Admin-Verwaltung, Frontend-Dashboard, Referral-Tracking und WooCommerce-Integration.
+            </p>
+
+            <?php
+            // ── Aktivierung ──
+            self::function_card('Aktivierung &amp; Einrichtung', 'dashicons-admin-plugins', [
+                'Unter <strong>Tixomat &rarr; Einstellungen &rarr; Features</strong> den Schalter <strong>&bdquo;Promoter-System&ldquo;</strong> aktivieren.',
+                'Das Plugin erstellt automatisch 4 Datenbank-Tabellen: <code>tixomat_promoters</code>, <code>tixomat_promoter_events</code>, <code>tixomat_promoter_commissions</code>, <code>tixomat_promoter_payouts</code>.',
+                'Neue WP-Rolle <code>tix_promoter</code> wird registriert (nur Lese-Rechte).',
+                'Falls die Tabellen nicht erstellt werden: Plugin deaktivieren und wieder aktivieren.',
+            ]);
+
+            // ── Admin-Backend ──
+            self::function_card('Admin-Backend <small>(Tixomat &rarr; Promoter)</small>', 'dashicons-admin-users', [
+                '<strong>Tab &bdquo;Promoter&ldquo;</strong> &ndash; Promoter anlegen, bearbeiten, deaktivieren. Jeder Promoter wird mit einem WordPress-Benutzer verkn&uuml;pft und erh&auml;lt einen eindeutigen Promoter-Code.',
+                '<strong>Tab &bdquo;Events&ldquo;</strong> &ndash; Promoter einem Event zuordnen mit individueller Provision (Prozent oder Festbetrag), optionalem K&auml;ufer-Rabatt und Promo-Code. Bei Promo-Code wird automatisch ein WooCommerce-Coupon erstellt.',
+                '<strong>Tab &bdquo;Provisionen&ldquo;</strong> &ndash; Alle berechneten Provisionen mit Filtern nach Promoter, Event, Zeitraum und Status (ausstehend, genehmigt, bezahlt, storniert).',
+                '<strong>Tab &bdquo;Auszahlungen&ldquo;</strong> &ndash; Abrechnungszeitr&auml;ume erstellen, als bezahlt markieren, stornieren. CSV-Export f&uuml;r Buchhaltung.',
+                '<strong>Tab &bdquo;Statistiken&ldquo;</strong> &ndash; KPIs (Gesamtumsatz, Provision, ausstehend, aktive Promoter) und Top-Promoter Chart.',
+                '<strong>Event-Metabox</strong> &ndash; Auf der Event-Bearbeitungsseite werden zugeordnete Promoter angezeigt (read-only).',
+            ]);
+
+            // ── Referral-Tracking ──
+            self::function_card('Referral-Tracking &amp; Attribution', 'dashicons-admin-links', [
+                '<strong>Referral-Link:</strong> <code>https://deine-seite.de/event/.../?ref=PROMOTER-CODE</code> &ndash; Setzt ein Cookie (30 Tage) + WC-Session.',
+                '<strong>Promo-Code:</strong> K&auml;ufer gibt den Code im Checkout ein &rarr; WC-Coupon wird erkannt &rarr; Attribution wird gesetzt.',
+                '<strong>Priorit&auml;t der Attribution:</strong> 1. Promo-Code (explizit, h&ouml;chste Priorit&auml;t), 2. Cookie (persistent, 30 Tage), 3. Session (aktueller Besuch).',
+                'Bei Referral-Link ohne Promo-Code: Rabatt wird automatisch als WC Cart Fee abgezogen (falls konfiguriert).',
+                'Attribution wird pro Cart-Item gespeichert via <code>woocommerce_add_cart_item_data</code>.',
+            ]);
+
+            // ── WooCommerce-Integration ──
+            self::function_card('WooCommerce-Integration', 'dashicons-cart', [
+                '<strong>Order-Meta (HPOS-kompatibel):</strong> <code>_tix_promoter_id</code>, <code>_tix_promoter_code</code>, <code>_tix_promoter_attribution</code> werden bei Checkout gespeichert.',
+                '<strong>Provisionsberechnung:</strong> Hook <code>woocommerce_order_status_completed</code> (Priorit&auml;t 15, nach Ticket-Erstellung). Pro Line-Item wird die Provision berechnet und in die Datenbank geschrieben.',
+                '<strong>Stornierung:</strong> Bei <code>woocommerce_order_status_cancelled</code> oder <code>woocommerce_order_status_refunded</code> werden die zugeh&ouml;rigen Provisionen auf <code>cancelled</code> gesetzt.',
+                '<strong>WC-Coupon:</strong> Bei Event-Zuordnung mit Promo-Code + Rabatt wird automatisch ein <code>shop_coupon</code>-Post erstellt (Produktbeschr&auml;nkung auf zugeh&ouml;rige WC-Produkte).',
+            ]);
+
+            // ── Frontend-Dashboard ──
+            self::function_card('Frontend-Dashboard <small>(Shortcode)</small>', 'dashicons-dashboard', [
+                '<strong>Shortcode:</strong> <code>[tix_promoter_dashboard]</code> &ndash; Auf einer beliebigen Seite einf&uuml;gen.',
+                'Login-Gate: Nicht eingeloggte Benutzer sehen ein Login-Formular. Benutzer ohne Promoter-Rolle sehen eine Fehlermeldung.',
+                '<strong>Tab &bdquo;&Uuml;bersicht&ldquo;</strong> &ndash; KPI-Cards (Gesamtumsatz, Provision, ausstehend, aktive Events) und Umsatz-Chart.',
+                '<strong>Tab &bdquo;Meine Events&ldquo;</strong> &ndash; Zugewiesene Events mit Referral-Links und Promo-Codes (Copy-to-Clipboard).',
+                '<strong>Tab &bdquo;Verk&auml;ufe&ldquo;</strong> &ndash; Letzte zugeordnete Bestellungen mit Datumsfilter.',
+                '<strong>Tab &bdquo;Provisionen&ldquo;</strong> &ndash; Provisionshistorie mit Status-Badges.',
+                '<strong>Tab &bdquo;Auszahlungen&ldquo;</strong> &ndash; Auszahlungshistorie.',
+            ]);
+
+            // ── Datenbank-Tabellen ──
+            self::function_card('Datenbank-Tabellen', 'dashicons-database', [
+                '<code>wp_tixomat_promoters</code> &ndash; Promoter-Stammdaten (user_id, promoter_code, display_name, status, notes).',
+                '<code>wp_tixomat_promoter_events</code> &ndash; Zuordnung Promoter &harr; Event (commission_type, commission_value, discount_type, discount_value, promo_code, coupon_id, status). UNIQUE KEY auf (promoter_id, event_id).',
+                '<code>wp_tixomat_promoter_commissions</code> &ndash; Berechnete Provisionen pro Order-Line-Item (promoter_id, event_id, order_id, attribution, tickets_qty, order_total, commission_amount, discount_amount, status, payout_id).',
+                '<code>wp_tixomat_promoter_payouts</code> &ndash; Abrechnungen (promoter_id, period_from, period_to, total_sales, total_commission, commission_count, status, paid_date, payment_note).',
+            ]);
+
+            // ── AJAX-Endpoints ──
+            self::function_card('AJAX-Endpoints', 'dashicons-rest-api', [
+                '<strong>Admin (manage_options):</strong> <code>tix_promoter_save</code>, <code>tix_promoter_delete</code>, <code>tix_promoter_list</code>, <code>tix_promoter_search_users</code>, <code>tix_promoter_assign</code>, <code>tix_promoter_unassign</code>, <code>tix_promoter_assignments</code>, <code>tix_promoter_commissions</code>, <code>tix_promoter_create_payout</code>, <code>tix_promoter_mark_paid</code>, <code>tix_promoter_cancel_payout</code>, <code>tix_promoter_payouts</code>, <code>tix_promoter_stats</code>.',
+                '<strong>Frontend (tix_promoter):</strong> <code>tix_pd_overview</code>, <code>tix_pd_events</code>, <code>tix_pd_sales</code>, <code>tix_pd_commissions</code>, <code>tix_pd_payouts</code>.',
+                '<strong>CSV-Export:</strong> <code>admin_post_tix_promoter_export_csv</code> (GET, mit Nonce).',
+            ]);
+
+            // ── Provisions-Modelle ──
+            self::function_card('Provisions-Modelle', 'dashicons-chart-pie', [
+                '<strong>Prozent:</strong> Provision = Bestellbetrag &times; Provisionssatz / 100. Beispiel: 10% von 50 &euro; = 5 &euro; Provision.',
+                '<strong>Festbetrag:</strong> Provision = Festbetrag &times; Ticket-Anzahl. Beispiel: 2,50 &euro; &times; 3 Tickets = 7,50 &euro; Provision.',
+                '<strong>K&auml;ufer-Rabatt:</strong> Optional pro Event-Zuordnung. Wird als WC-Coupon (bei Promo-Code) oder als Cart Fee (bei Referral-Link) angewendet.',
+                '<strong>Status-Flow:</strong> pending &rarr; approved &rarr; paid (oder cancelled bei Storno).',
+            ]);
+            ?>
 
         </div>
         <?php
