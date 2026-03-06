@@ -161,6 +161,26 @@
         $.post(tixPromoter.ajaxurl, { action: 'tix_promoter_save', nonce: tixPromoter.nonce, promoter_id: $(this).data('id'), status: 'active' }, function() { loadPromoters(); });
     });
 
+    // Auto-generate Code
+    $(document).on('click', '#tix-pf-code-generate', function() {
+        var $btn = $(this);
+        $btn.prop('disabled', true).find('.dashicons').removeClass('dashicons-randomize').addClass('dashicons-update');
+        $.post(tixPromoter.ajaxurl, {
+            action: 'tix_promoter_generate_code',
+            nonce: tixPromoter.nonce
+        }, function(r) {
+            $btn.prop('disabled', false).find('.dashicons').removeClass('dashicons-update').addClass('dashicons-randomize');
+            if (r.success) {
+                $('#tix-pf-code').val(r.data.code).focus();
+            } else {
+                alert(r.data || 'Code-Generierung fehlgeschlagen.');
+            }
+        }).fail(function() {
+            $btn.prop('disabled', false).find('.dashicons').removeClass('dashicons-update').addClass('dashicons-randomize');
+            alert('Verbindungsfehler.');
+        });
+    });
+
     // User Search
     var userSearchTimer;
     $(document).on('input', '#tix-pf-user-search', function() {

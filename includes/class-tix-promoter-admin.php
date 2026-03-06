@@ -34,6 +34,7 @@ class TIX_Promoter_Admin {
             'tix_promoter_cancel_payout',
             'tix_promoter_payouts',
             'tix_promoter_stats',
+            'tix_promoter_generate_code',
         ];
         foreach ($actions as $a) {
             add_action('wp_ajax_' . $a, [__CLASS__, 'ajax_' . str_replace('tix_promoter_', '', $a)]);
@@ -200,6 +201,38 @@ class TIX_Promoter_Admin {
 
             wp_send_json_success(['id' => $new_id, 'message' => 'Promoter erstellt.']);
         }
+    }
+
+    /* ──── Promoter-Code auto-generieren ──── */
+
+    public static function ajax_generate_code() {
+        check_ajax_referer('tix_promoter_admin', 'nonce');
+        if (!current_user_can('manage_options')) wp_send_json_error('Keine Berechtigung.');
+        if (!class_exists('TIX_Promoter_DB'))   wp_send_json_error('Datenbank nicht verfuegbar.');
+
+        $max_attempts = 20;
+        for ($i = 0; $i < $max_attempts; $i++) {
+            $code = self::random_code(5);
+            // Pruefen ob Code bereits existiert (aktiv oder inaktiv)
+            global $wpdb;
+            $table = TIX_Promoter_DB::table_promoters();
+            $exists = $wpdb->get_var($wpdb->prepare(
+                "SELECT COUNT(*) FROM {$table} WHERE promoter_code = %s", $code
+            ));
+            if (!$exists) {
+                wp_send_json_success(['code' => $code]);
+            }
+        }
+        wp_send_json_error('Code-Generierung fehlgeschlagen. Bitte manuell eingeben.');
+    }
+
+    private static function random_code(int $length = 5): string {
+        $chars = 'abcdefghijklmnopqrstuvwxyz';
+        $code = '';
+        for ($i = 0; $i < $length; $i++) {
+            $code .= $chars[random_int(0, 25)];
+        }
+        return $code;
     }
 
     /* ──── Promoter loeschen (soft-delete) ──── */
@@ -836,7 +869,12 @@ class TIX_Promoter_Admin {
                                             </div>
                                             <div class="tix-form-field">
                                                 <label>Promoter-Code</label>
-                                                <input type="text" id="tix-pf-code" placeholder="z.B. PROMO-MAX" maxlength="30">
+                                                <div class="tix-code-input-wrap">
+                                                    <input type="text" id="tix-pf-code" placeholder="z.B. max oder auto-generieren" maxlength="30">
+                                                    <button type="button" class="button button-small" id="tix-pf-code-generate" title="Zufälligen Code generieren (5 Kleinbuchstaben)">
+                                                        <span class="dashicons dashicons-randomize"></span> Generieren
+                                                    </button>
+                                                </div>
                                             </div>
                                             <div class="tix-form-field">
                                                 <label>Anzeigename</label>

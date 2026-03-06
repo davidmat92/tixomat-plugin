@@ -104,6 +104,21 @@
 .tix-promoter-event-table tbody tr:hover { background: #f8f9fb; }
 .tix-promoter-event-empty { text-align: center; padding: 24px; color: #94a3b8; }
 
+/* ── Code Input + Generieren Button ── */
+.tix-code-input-wrap {
+    display: flex; gap: 6px; align-items: center;
+}
+.tix-code-input-wrap input[type="text"] {
+    flex: 1; min-width: 0;
+}
+.tix-code-input-wrap .button {
+    white-space: nowrap; display: inline-flex; align-items: center; gap: 4px;
+    padding: 6px 12px !important; height: auto !important; line-height: 1.4 !important;
+}
+.tix-code-input-wrap .button .dashicons {
+    font-size: 14px; width: 14px; height: 14px; line-height: 1;
+}
+
 /* ── Status Badges ── */
 .tix-promo-badge {
     display: inline-block; padding: 2px 8px; border-radius: 20px;
