@@ -17,7 +17,6 @@ class TIX_Promoter_Admin {
         if (!wp_doing_ajax()) {
             add_action('admin_menu',            [__CLASS__, 'add_menu']);
             add_action('admin_enqueue_scripts', [__CLASS__, 'enqueue_assets']);
-            add_action('add_meta_boxes',        [__CLASS__, 'register_event_metabox']);
         }
 
         // AJAX endpoints
@@ -382,6 +381,12 @@ class TIX_Promoter_Admin {
                 $discount_display = "\xe2\x80\x93";
             }
 
+            // Referral-Link bauen
+            $permalink = get_permalink(intval($r->event_id));
+            $referral_link = $permalink
+                ? add_query_arg('ref', $r->promoter_code, $permalink)
+                : home_url('/?p=' . intval($r->event_id) . '&ref=' . $r->promoter_code);
+
             $data[] = [
                 'id'                 => intval($r->id),
                 'promoter_id'        => intval($r->promoter_id),
@@ -396,6 +401,7 @@ class TIX_Promoter_Admin {
                 'discount_value'     => floatval($r->discount_value),
                 'discount_display'   => $discount_display,
                 'promo_code'         => $r->promo_code ?: "\xe2\x80\x93",
+                'referral_link'      => $referral_link,
                 'status'             => $r->status,
                 'status_badge'       => self::status_badge($r->status),
             ];
@@ -673,50 +679,95 @@ class TIX_Promoter_Admin {
     }
 
     /* ══════════════════════════════════════════════════════════════════
-       EVENT METABOX
+       EVENT TAB (Metabox-Pane im Event-Editor)
        ══════════════════════════════════════════════════════════════════ */
 
-    public static function register_event_metabox() {
-        add_meta_box(
-            'tix_event_promoters',
-            'Promoter',
-            [__CLASS__, 'render_event_metabox'],
-            'event',
-            'side',
-            'default'
-        );
-    }
-
-    public static function render_event_metabox($post) {
+    public static function render_event_tab($post) {
         if (!class_exists('TIX_Promoter_DB') || !TIX_Promoter_DB::tables_exist()) {
-            echo '<p>Promoter-Modul nicht initialisiert.</p>';
+            echo '<p class="tix-promoter-event-empty">Promoter-Datenbank nicht initialisiert. Bitte das Plugin deaktivieren und wieder aktivieren.</p>';
             return;
         }
 
         $promoters = TIX_Promoter_DB::get_event_promoters($post->ID);
+        $manage_url = admin_url('admin.php?page=tix-promoters');
+
         if (empty($promoters)) {
-            echo '<p style="color:#94a3b8;">Keine Promoter zugeordnet.</p>';
-        } else {
-            echo '<ul style="margin:0;">';
-            foreach ($promoters as $p) {
-                $name = $p->display_name ?: $p->promoter_code;
-                $commission = $p->commission_type === 'percent'
-                    ? number_format($p->commission_value, 1, ',', '.') . '%'
-                    : number_format($p->commission_value, 2, ',', '.') . ' ' . "\xe2\x82\xac";
-                echo '<li style="padding:4px 0;border-bottom:1px solid #f1f3f5;">';
-                echo '<strong>' . esc_html($name) . '</strong>';
-                echo ' <span style="color:#94a3b8;">(' . esc_html($p->promoter_code) . ')</span>';
-                echo '<br><span style="font-size:12px;color:#64748b;">Provision: ' . esc_html($commission) . '</span>';
-                if ($p->promo_code) {
-                    echo ' &middot; <code style="font-size:11px;">' . esc_html($p->promo_code) . '</code>';
-                }
-                echo '</li>';
-            }
-            echo '</ul>';
+            echo '<div class="tix-promoter-event-empty">';
+            echo '<p style="margin:0 0 12px;"><span class="dashicons dashicons-businessman" style="font-size:32px;width:32px;height:32px;color:#cbd5e1;"></span></p>';
+            echo '<p style="margin:0 0 8px;">Keine Promoter f&uuml;r dieses Event zugeordnet.</p>';
+            echo '<a href="' . esc_url($manage_url) . '" class="button">Promoter zuordnen &rarr;</a>';
+            echo '</div>';
+            return;
         }
 
-        $url = admin_url('admin.php?page=tix-promoters');
-        echo '<p style="margin-top:10px;"><a href="' . esc_url($url) . '" class="button button-small">Promoter verwalten &rarr;</a></p>';
+        echo '<div style="overflow-x:auto;">';
+        echo '<table class="tix-promoter-event-table">';
+        echo '<thead><tr>';
+        echo '<th>Name</th><th>Code</th><th>Provision</th><th>Rabatt</th><th>Promo-Code</th><th>Referral-Link</th>';
+        echo '</tr></thead><tbody>';
+
+        foreach ($promoters as $p) {
+            $name = esc_html($p->display_name ?: $p->promoter_code);
+            $code = esc_html($p->promoter_code);
+
+            // Provision
+            $commission = $p->commission_type === 'percent'
+                ? number_format($p->commission_value, 1, ',', '.') . ' %'
+                : number_format($p->commission_value, 2, ',', '.') . ' &euro;';
+
+            // Rabatt
+            $discount = '&ndash;';
+            if (!empty($p->discount_type) && floatval($p->discount_value) > 0) {
+                $discount = $p->discount_type === 'percent'
+                    ? number_format($p->discount_value, 1, ',', '.') . ' %'
+                    : number_format($p->discount_value, 2, ',', '.') . ' &euro;';
+            }
+
+            // Promo-Code
+            $promo = $p->promo_code ? '<code>' . esc_html($p->promo_code) . '</code>' : '&ndash;';
+
+            // Referral-Link
+            $permalink = get_permalink($post->ID);
+            $ref_link = $permalink
+                ? add_query_arg('ref', $p->promoter_code, $permalink)
+                : home_url('/?p=' . $post->ID . '&ref=' . $p->promoter_code);
+
+            echo '<tr>';
+            echo '<td><strong>' . $name . '</strong></td>';
+            echo '<td><code style="font-size:11px;">' . $code . '</code></td>';
+            echo '<td>' . $commission . '</td>';
+            echo '<td>' . $discount . '</td>';
+            echo '<td>' . $promo . '</td>';
+            echo '<td class="tix-ref-link-cell">';
+            echo '<code class="tix-ref-link-code">' . esc_html($ref_link) . '</code>';
+            echo '<button type="button" class="button button-small tix-evt-copy" data-link="' . esc_attr($ref_link) . '" title="Link kopieren"><span class="dashicons dashicons-clipboard"></span></button>';
+            echo '</td>';
+            echo '</tr>';
+        }
+
+        echo '</tbody></table></div>';
+        echo '<p style="margin-top:12px;"><a href="' . esc_url($manage_url) . '" class="button button-small">Promoter verwalten &rarr;</a></p>';
+
+        // Inline Copy-JS (kein extra Script nötig)
+        ?>
+        <script>
+        (function(){
+            document.querySelectorAll('.tix-evt-copy').forEach(function(btn){
+                btn.addEventListener('click', function(e){
+                    e.preventDefault();
+                    var link = this.getAttribute('data-link');
+                    var icon = this.querySelector('.dashicons');
+                    if (navigator.clipboard) {
+                        navigator.clipboard.writeText(link).then(function(){
+                            icon.className = 'dashicons dashicons-yes';
+                            setTimeout(function(){ icon.className = 'dashicons dashicons-clipboard'; }, 1500);
+                        });
+                    }
+                });
+            });
+        })();
+        </script>
+        <?php
     }
 
     /* ══════════════════════════════════════════════════════════════════
@@ -920,12 +971,13 @@ class TIX_Promoter_Admin {
                                                 <th>Provision</th>
                                                 <th>Rabatt</th>
                                                 <th>Promo-Code</th>
+                                                <th>Referral-Link</th>
                                                 <th>Status</th>
                                                 <th>Aktionen</th>
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            <tr><td colspan="7" class="tix-loading"><div class="tix-spinner"></div></td></tr>
+                                            <tr><td colspan="8" class="tix-loading"><div class="tix-spinner"></div></td></tr>
                                         </tbody>
                                     </table>
                                 </div>

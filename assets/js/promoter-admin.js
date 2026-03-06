@@ -194,7 +194,7 @@
 
     function loadAssignments() {
         var $tbody = $('#tix-assign-table tbody');
-        $tbody.html('<tr><td colspan="7" class="tix-loading"><div class="tix-spinner"></div></td></tr>');
+        $tbody.html('<tr><td colspan="8" class="tix-loading"><div class="tix-spinner"></div></td></tr>');
 
         $.post(tixPromoter.ajaxurl, {
             action: 'tix_promoter_assignments',
@@ -203,7 +203,7 @@
             event_id: $('#tix-assign-filter-event').val() || ''
         }, function(r) {
             if (!r.success || !r.data.length) {
-                $tbody.html('<tr><td colspan="7" class="tix-empty">Keine Zuordnungen vorhanden</td></tr>');
+                $tbody.html('<tr><td colspan="8" class="tix-empty">Keine Zuordnungen vorhanden</td></tr>');
                 return;
             }
             var html = '';
@@ -214,6 +214,10 @@
                     '<td>' + esc(a.commission_display) + '</td>' +
                     '<td>' + esc(a.discount_display) + '</td>' +
                     '<td>' + (a.promo_code && a.promo_code !== '\u2013' ? '<code>' + esc(a.promo_code) + '</code>' : '\u2013') + '</td>' +
+                    '<td class="tix-ref-link-cell">' +
+                        '<code class="tix-ref-link-code">' + esc(a.referral_link) + '</code>' +
+                        '<button class="button button-small tix-copy-btn" data-copy="' + esc(a.referral_link) + '" title="Link kopieren"><span class="dashicons dashicons-clipboard"></span></button>' +
+                    '</td>' +
                     '<td>' + a.status_badge + '</td>' +
                     '<td class="tix-actions">' +
                         '<button class="button button-small tix-promo-unassign" data-id="' + a.id + '">Entfernen</button>' +
@@ -450,6 +454,25 @@
     /* ════════════════════════════════
        HELPERS
        ════════════════════════════════ */
+
+    // Copy to Clipboard
+    $(document).on('click', '.tix-copy-btn', function(e) {
+        e.preventDefault();
+        var text = $(this).data('copy');
+        var $btn = $(this);
+        if (navigator.clipboard) {
+            navigator.clipboard.writeText(text).then(function() {
+                $btn.find('.dashicons').removeClass('dashicons-clipboard').addClass('dashicons-yes');
+                setTimeout(function() { $btn.find('.dashicons').removeClass('dashicons-yes').addClass('dashicons-clipboard'); }, 1500);
+            });
+        } else {
+            var $tmp = $('<textarea>').val(text).appendTo('body').select();
+            document.execCommand('copy');
+            $tmp.remove();
+            $btn.find('.dashicons').removeClass('dashicons-clipboard').addClass('dashicons-yes');
+            setTimeout(function() { $btn.find('.dashicons').removeClass('dashicons-yes').addClass('dashicons-clipboard'); }, 1500);
+        }
+    });
 
     function eur(v) {
         v = parseFloat(v) || 0;

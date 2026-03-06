@@ -13,7 +13,14 @@ if (!defined('ABSPATH')) exit;
 class TIX_Promoter {
 
     const COOKIE_NAME = 'tix_promoter_ref';
-    const COOKIE_DAYS = 30;
+
+    private static function get_cookie_days() {
+        if (function_exists('tix_get_settings')) {
+            $days = intval(tix_get_settings('promoter_cookie_days'));
+            return $days > 0 ? $days : 30;
+        }
+        return 30;
+    }
 
     public static function init() {
         // Custom Role registrieren
@@ -70,8 +77,8 @@ class TIX_Promoter {
         $promoter = TIX_Promoter_DB::get_promoter_by_code($code);
         if (!$promoter) return;
 
-        // Cookie setzen (30 Tage)
-        $expire = time() + (self::COOKIE_DAYS * DAY_IN_SECONDS);
+        // Cookie setzen (konfigurierbare Laufzeit)
+        $expire = time() + (self::get_cookie_days() * DAY_IN_SECONDS);
         setcookie(self::COOKIE_NAME, $code, $expire, COOKIEPATH, COOKIE_DOMAIN, is_ssl(), true);
         $_COOKIE[self::COOKIE_NAME] = $code;
 

@@ -81,6 +81,29 @@
 .tix-promo-table .tix-promo-actions { white-space: nowrap; }
 .tix-promo-table .tix-promo-actions button { margin-left: 4px; }
 
+/* ── Referral Link Cell ── */
+.tix-ref-link-cell { max-width: 260px; }
+.tix-ref-link-code {
+    display: inline-block; max-width: 200px; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap; font-size: 11px; vertical-align: middle; padding: 2px 6px;
+    background: #f1f5f9; border-radius: 4px; color: #475569;
+}
+.tix-copy-btn {
+    vertical-align: middle !important; margin-left: 4px !important; padding: 0 4px !important;
+    min-height: 26px !important; line-height: 26px !important;
+}
+.tix-copy-btn .dashicons { font-size: 16px; width: 16px; height: 16px; line-height: 26px; }
+
+/* ── Promoter Event Tab (Metabox) ── */
+.tix-promoter-event-table { width: 100%; border-collapse: collapse; }
+.tix-promoter-event-table th {
+    text-align: left; padding: 8px 12px; font-size: 12px; font-weight: 600; color: #64748b;
+    border-bottom: 2px solid #e2e8f0; background: #f8fafc;
+}
+.tix-promoter-event-table td { padding: 8px 12px; border-bottom: 1px solid #f1f3f5; font-size: 13px; }
+.tix-promoter-event-table tbody tr:hover { background: #f8f9fb; }
+.tix-promoter-event-empty { text-align: center; padding: 24px; color: #94a3b8; }
+
 /* ── Status Badges ── */
 .tix-promo-badge {
     display: inline-block; padding: 2px 8px; border-radius: 20px;

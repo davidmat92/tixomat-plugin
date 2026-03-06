@@ -185,7 +185,8 @@ class TIX_Settings {
             // ── Charity / Soziales Projekt ──
             'charity_enabled' => 0,
             // ── Promoter-System ──
-            'promoter_enabled'   => 0,
+            'promoter_enabled'      => 0,
+            'promoter_cookie_days'  => 30,
             // ── Support-System ──
             'support_enabled'    => 0,
             'support_categories'  => '',
@@ -436,6 +437,7 @@ class TIX_Settings {
 
         // Promoter-System
         $clean['promoter_enabled'] = !empty($input['promoter_enabled']) ? 1 : 0;
+        $clean['promoter_cookie_days'] = max(1, intval($input['promoter_cookie_days'] ?? 30));
 
         // Support-System
         $clean['support_enabled'] = !empty($input['support_enabled']) ? 1 : 0;
@@ -1742,6 +1744,13 @@ class TIX_Settings {
                                         <div class="tix-field-grid">
                                             <div class="tix-field tix-field-full">
                                                 <?php self::checkbox_row('promoter_enabled', 'Promoter-Portal aktivieren', $s, 'Aktiviert das Promoter-Management im Admin-Backend und das Frontend-Dashboard. Promoter k&ouml;nnen per Referral-Link oder Promo-Code Tickets verkaufen und erhalten Provisionen. Verwende den Shortcode <code>[tix_promoter_dashboard]</code> f&uuml;r das Frontend-Portal.'); ?>
+                                            </div>
+                                            <div class="tix-field">
+                                                <label class="tix-field-label">Cookie-Laufzeit (Tage)</label>
+                                                <input type="number" name="<?php echo self::OPTION_KEY; ?>[promoter_cookie_days]"
+                                                       value="<?php echo intval($s['promoter_cookie_days'] ?? 30); ?>"
+                                                       class="small-text" min="1" max="365" step="1">
+                                                <p class="tix-settings-hint">Wie lange ein Referral-Cookie g&uuml;ltig ist. Standard: 30 Tage. Je l&auml;nger, desto sicherer die Zuordnung &ndash; auch wenn der K&auml;ufer erst sp&auml;ter kauft.</p>
                                             </div>
                                         </div>
                                     </div>

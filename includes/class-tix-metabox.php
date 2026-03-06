@@ -249,6 +249,12 @@ class TIX_Metabox {
                     <span class="dashicons dashicons-groups"></span>
                     <span class="tix-nav-label">Gästeliste</span>
                 </button>
+                <?php if (function_exists('tix_get_settings') && tix_get_settings('promoter_enabled') && class_exists('TIX_Promoter_Admin')): ?>
+                <button type="button" class="tix-nav-tab" data-tab="promoter">
+                    <span class="dashicons dashicons-businessman"></span>
+                    <span class="tix-nav-label">Promoter</span>
+                </button>
+                <?php endif; ?>
                 <?php if (function_exists('tix_get_settings') && (tix_get_settings('abandoned_cart_enabled') || tix_get_settings('express_checkout_enabled') || tix_get_settings('ticket_transfer_enabled') || tix_get_settings('barcode_enabled') || tix_get_settings('charity_enabled') || class_exists('TIX_Seatmap'))): ?>
                 <button type="button" class="tix-nav-tab" data-tab="advanced">
                     <span class="dashicons dashicons-admin-generic"></span>
@@ -284,6 +290,11 @@ class TIX_Metabox {
                 <div class="tix-pane" data-pane="guestlist">
                     <?php self::render_guestlist($post); ?>
                 </div>
+                <?php if (function_exists('tix_get_settings') && tix_get_settings('promoter_enabled') && class_exists('TIX_Promoter_Admin')): ?>
+                <div class="tix-pane" data-pane="promoter">
+                    <?php TIX_Promoter_Admin::render_event_tab($post); ?>
+                </div>
+                <?php endif; ?>
                 <?php if (function_exists('tix_get_settings') && (tix_get_settings('abandoned_cart_enabled') || tix_get_settings('express_checkout_enabled') || tix_get_settings('ticket_transfer_enabled') || tix_get_settings('barcode_enabled') || tix_get_settings('charity_enabled') || class_exists('TIX_Seatmap'))): ?>
                 <div class="tix-pane" data-pane="advanced">
                     <?php self::render_advanced($post); ?>
