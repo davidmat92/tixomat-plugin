@@ -1,0 +1,160 @@
+/* ═══════════════════════════════════════════════════
+   Tixomat – Promoter Admin CSS
+   ═══════════════════════════════════════════════════ */
+
+/* ── Tabs (nutzt gleiche Klassen wie Statistiken) ── */
+.tix-promoter-wrap .tix-nav { display: flex; gap: 0; border-bottom: 2px solid #e2e8f0; margin-bottom: 20px; }
+.tix-promoter-wrap .tix-nav-tab {
+    padding: 10px 18px; font-size: 13px; font-weight: 550; color: #64748b;
+    cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px;
+    transition: all 0.15s; background: none; border-top: none; border-left: none; border-right: none;
+    display: inline-flex; align-items: center; gap: 6px;
+}
+.tix-promoter-wrap .tix-nav-tab:hover { color: #334155; }
+.tix-promoter-wrap .tix-nav-tab.active { color: #6366f1; border-bottom-color: #6366f1; }
+.tix-promoter-wrap .tix-nav-tab .dashicons { font-size: 16px; width: 16px; height: 16px; }
+.tix-promoter-wrap .tix-pane { display: none; }
+.tix-promoter-wrap .tix-pane.active { display: block; }
+
+/* ── KPI Cards ── */
+.tix-promo-kpis {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px; margin-bottom: 24px;
+}
+.tix-promo-kpi-card {
+    background: #fff; border-radius: 12px; padding: 16px; text-align: center;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.04), 0 1px 3px rgba(0,0,0,0.03);
+    transition: box-shadow 0.2s;
+}
+.tix-promo-kpi-card:hover { box-shadow: 0 2px 4px rgba(0,0,0,0.04), 0 4px 12px rgba(0,0,0,0.03); }
+.tix-promo-kpi-icon { color: #6366f1; font-size: 20px; opacity: 0.65; display: block; margin-bottom: 6px; }
+.tix-promo-kpi-num { display: block; font-size: 22px; font-weight: 700; color: #0f172a; line-height: 1.2; }
+.tix-promo-kpi-lbl { font-size: 11px; text-transform: uppercase; color: #64748b; letter-spacing: 0.06em; margin-top: 4px; display: block; font-weight: 550; }
+
+/* ── Toolbar (Buttons + Filter) ── */
+.tix-promo-toolbar {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    margin-bottom: 16px; padding: 12px 16px; background: #fff;
+    border-radius: 12px; box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+}
+.tix-promo-toolbar select,
+.tix-promo-toolbar input[type="date"] {
+    padding: 6px 10px; border: 1px solid #dfe2e6; border-radius: 8px;
+    font-size: 13px; background: #fff; color: #0f172a;
+}
+.tix-promo-toolbar select:focus,
+.tix-promo-toolbar input:focus { border-color: #6366f1; outline: none; box-shadow: 0 0 0 2px rgba(99,102,241,0.15); }
+
+/* ── Primary Button ── */
+.tix-promo-btn {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 7px 16px; border: none; border-radius: 8px;
+    font-size: 13px; font-weight: 550; cursor: pointer; transition: all 0.15s;
+    background: #6366f1; color: #fff;
+}
+.tix-promo-btn:hover { background: #4f46e5; }
+.tix-promo-btn .dashicons { font-size: 14px; width: 14px; height: 14px; }
+.tix-promo-btn-sm { padding: 4px 10px; font-size: 12px; }
+.tix-promo-btn-outline {
+    background: #fff; color: #6366f1; border: 1px solid #6366f1;
+}
+.tix-promo-btn-outline:hover { background: rgba(99,102,241,0.06); }
+.tix-promo-btn-danger { background: #ef4444; }
+.tix-promo-btn-danger:hover { background: #dc2626; }
+.tix-promo-btn-success { background: #059669; }
+.tix-promo-btn-success:hover { background: #047857; }
+
+/* ── Tabellen ── */
+.tix-promo-table {
+    width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px;
+    background: #fff; border-radius: 12px; overflow: hidden;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.04), 0 1px 3px rgba(0,0,0,0.03);
+}
+.tix-promo-table th {
+    font-weight: 550; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;
+    color: #64748b; padding: 10px 14px; background: #fafbfc; border-bottom: 1px solid #f1f3f5;
+    text-align: left; white-space: nowrap;
+}
+.tix-promo-table td { padding: 10px 14px; border-bottom: 1px solid #f1f3f5; color: #334155; }
+.tix-promo-table tbody tr:hover { background: #f8f9fb; }
+.tix-promo-table tbody tr:last-child td { border-bottom: none; }
+.tix-promo-table .tix-promo-actions { white-space: nowrap; }
+.tix-promo-table .tix-promo-actions button { margin-left: 4px; }
+
+/* ── Status Badges ── */
+.tix-promo-badge {
+    display: inline-block; padding: 2px 8px; border-radius: 20px;
+    font-size: 11px; font-weight: 600; line-height: 1.4;
+}
+.tix-promo-badge-active,
+.tix-promo-badge-paid { color: #059669; background: rgba(16,185,129,0.1); }
+.tix-promo-badge-inactive,
+.tix-promo-badge-ended { color: #64748b; background: rgba(100,116,139,0.08); }
+.tix-promo-badge-pending { color: #d97706; background: rgba(245,158,11,0.1); }
+.tix-promo-badge-approved { color: #2563eb; background: rgba(37,99,235,0.1); }
+.tix-promo-badge-cancelled { color: #ef4444; background: rgba(239,68,68,0.08); }
+.tix-promo-badge-suspended { color: #9333ea; background: rgba(147,51,234,0.08); }
+
+/* ── Inline Form / Modal ── */
+.tix-promo-form {
+    display: none; background: #fff; border-radius: 12px; padding: 20px; margin-bottom: 16px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.04), 0 1px 3px rgba(0,0,0,0.03);
+    border: 1px solid #e2e8f0;
+}
+.tix-promo-form.open { display: block; }
+.tix-promo-form h3 { margin: 0 0 16px; font-size: 15px; color: #0f172a; }
+.tix-promo-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.tix-promo-form-grid .tix-promo-field-full { grid-column: 1 / -1; }
+.tix-promo-form label { display: block; font-size: 12px; font-weight: 550; color: #64748b; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.04em; }
+.tix-promo-form input[type="text"],
+.tix-promo-form input[type="number"],
+.tix-promo-form input[type="date"],
+.tix-promo-form select,
+.tix-promo-form textarea {
+    width: 100%; padding: 8px 12px; border: 1px solid #dfe2e6; border-radius: 8px;
+    font-size: 13px; color: #0f172a; background: #fff; box-sizing: border-box;
+}
+.tix-promo-form input:focus,
+.tix-promo-form select:focus,
+.tix-promo-form textarea:focus { border-color: #6366f1; outline: none; box-shadow: 0 0 0 2px rgba(99,102,241,0.15); }
+.tix-promo-form textarea { min-height: 60px; resize: vertical; }
+.tix-promo-form-actions { display: flex; gap: 8px; margin-top: 16px; }
+.tix-promo-form .tix-promo-hint { font-size: 11px; color: #94a3b8; margin-top: 2px; }
+
+/* ── Chart ── */
+.tix-promo-chart-wrap {
+    background: #fff; border-radius: 12px; padding: 16px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.04), 0 1px 3px rgba(0,0,0,0.03);
+    margin-bottom: 20px;
+}
+.tix-promo-chart-wrap h3 { margin: 0 0 12px; font-size: 14px; color: #0f172a; }
+.tix-promo-chart-wrap canvas { max-height: 320px; }
+
+/* ── Event Metabox ── */
+.tix-promo-metabox-list { margin: 0; padding: 0; list-style: none; }
+.tix-promo-metabox-list li { padding: 6px 0; border-bottom: 1px solid #f0f0f0; font-size: 13px; }
+.tix-promo-metabox-list li:last-child { border-bottom: none; }
+.tix-promo-metabox-code { font-family: monospace; background: #f1f3f5; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+.tix-promo-metabox-empty { color: #94a3b8; font-style: italic; font-size: 13px; }
+
+/* ── Loading / Empty ── */
+.tix-promo-loading { display: flex; align-items: center; justify-content: center; min-height: 100px; color: #94a3b8; }
+.tix-promo-spinner { width: 24px; height: 24px; border: 3px solid #e2e8f0; border-top-color: #6366f1; border-radius: 50%; animation: tixPromoSpin 0.7s linear infinite; }
+@keyframes tixPromoSpin { to { transform: rotate(360deg); } }
+.tix-promo-empty { text-align: center; padding: 32px 16px; color: #94a3b8; font-size: 13px; }
+
+/* ── Responsive ── */
+@media (max-width: 1024px) {
+    .tix-promo-form-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 782px) {
+    .tix-promo-kpis { grid-template-columns: repeat(2, 1fr); }
+    .tix-promoter-wrap .tix-nav { flex-wrap: wrap; }
+    .tix-promo-toolbar { flex-direction: column; align-items: stretch; }
+    .tix-promo-table { font-size: 12px; }
+    .tix-promo-table th, .tix-promo-table td { padding: 8px 10px; }
+}
+@media (max-width: 480px) {
+    .tix-promo-kpis { grid-template-columns: 1fr; }
+    .tix-promo-kpi-num { font-size: 18px; }
+}

@@ -184,6 +184,8 @@ class TIX_Settings {
             'barcode_enabled' => 0,
             // ── Charity / Soziales Projekt ──
             'charity_enabled' => 0,
+            // ── Promoter-System ──
+            'promoter_enabled'   => 0,
             // ── Support-System ──
             'support_enabled'    => 0,
             'support_categories'  => '',
@@ -431,6 +433,9 @@ class TIX_Settings {
 
         // Charity / Soziales Projekt
         $clean['charity_enabled'] = !empty($input['charity_enabled']) ? 1 : 0;
+
+        // Promoter-System
+        $clean['promoter_enabled'] = !empty($input['promoter_enabled']) ? 1 : 0;
 
         // Support-System
         $clean['support_enabled'] = !empty($input['support_enabled']) ? 1 : 0;
@@ -1722,6 +1727,21 @@ class TIX_Settings {
                                         <div class="tix-field-grid">
                                             <div class="tix-field tix-field-full">
                                                 <?php self::checkbox_row('charity_enabled', 'Charity-Funktion global aktivieren', $s, 'Erm&ouml;glicht es, pro Event ein soziales Projekt anzugeben, das mit dem Ticketverkauf unterst&uuml;tzt wird. Wird auf der Event-Seite und der Danke-Seite angezeigt.'); ?>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Promoter-System ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-groups"></span>
+                                        <h3>Promoter-System</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('promoter_enabled', 'Promoter-Portal aktivieren', $s, 'Aktiviert das Promoter-Management im Admin-Backend und das Frontend-Dashboard. Promoter k&ouml;nnen per Referral-Link oder Promo-Code Tickets verkaufen und erhalten Provisionen. Verwende den Shortcode <code>[tix_promoter_dashboard]</code> f&uuml;r das Frontend-Portal.'); ?>
                                             </div>
                                         </div>
                                     </div>

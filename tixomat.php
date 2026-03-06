@@ -2,14 +2,14 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem. Optional mit Tickera-Integration.
- * Version: 1.28.2
+ * Version: 1.28.3
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.28.2');
+define('TIXOMAT_VERSION', '1.28.3');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -97,6 +97,8 @@ function tix_get_settings($key = null) {
             'barcode_enabled'    => 0,
             // Charity / Soziales Projekt
             'charity_enabled'    => 0,
+            // Promoter-System
+            'promoter_enabled'   => 0,
             // Support-System
             'support_enabled'    => 0,
             'support_categories'  => '',
@@ -143,18 +145,32 @@ require_once TIXOMAT_PATH . 'includes/class-tix-ticket-db.php';
 require_once TIXOMAT_PATH . 'includes/class-tix-sync-supabase.php';
 require_once TIXOMAT_PATH . 'includes/class-tix-sync-airtable.php';
 
+// ── Promoter-System ──
+require_once TIXOMAT_PATH . 'includes/class-tix-promoter-db.php';
+require_once TIXOMAT_PATH . 'includes/class-tix-promoter.php';
+if (tix_get_settings('promoter_enabled')) {
+    TIX_Promoter::init();
+}
+
 // ── DB-Tabellen bei Aktivierung ──
 register_activation_hook(__FILE__, function() {
     TIX_Seatmap::create_table();
     if (class_exists('TIX_Settings') && TIX_Settings::get('ticket_db_enabled')) {
         TIX_Ticket_DB::create_table();
     }
+    TIX_Promoter_DB::create_tables();
 });
 
 // ── Statistiken (Admin + AJAX) ──
 if (is_admin()) {
     require_once TIXOMAT_PATH . 'includes/class-tix-statistics.php';
     TIX_Statistics::init();
+
+    // Promoter-Admin (Menü + AJAX)
+    if (tix_get_settings('promoter_enabled')) {
+        require_once TIXOMAT_PATH . 'includes/class-tix-promoter-admin.php';
+        TIX_Promoter_Admin::init();
+    }
 }
 
 // ── Nur Admin (nicht AJAX) ──
@@ -284,6 +300,12 @@ if (!is_admin() || wp_doing_ajax()) {
     add_action('init', ['TIX_Checkin', 'init']);
     add_action('init', ['TIX_Ticket_Transfer', 'init']);
 
+    // Promoter-Dashboard (Frontend-Shortcode)
+    if (tix_get_settings('promoter_enabled')) {
+        require_once TIXOMAT_PATH . 'includes/class-tix-promoter-dashboard.php';
+        TIX_Promoter_Dashboard::init();
+    }
+
     // Serien-Shortcode
     if (!class_exists('TIX_Series')) {
         require_once TIXOMAT_PATH . 'includes/class-tix-series.php';
@@ -403,7 +425,7 @@ if (!is_admin()) {
 
     // Defer für unsere Scripts (kein Render-Blocking)
     add_filter('script_loader_tag', function($tag, $handle) {
-        if (in_array($handle, ['tix-ticket-selector', 'tix-faq', 'tix-checkout', 'tix-calendar', 'tix-my-tickets', 'tix-qr', 'tix-ticket-img', 'tix-group-booking', 'tix-checkin', 'tix-jsqr', 'tix-support-front', 'tix-support-chat'])) {
+        if (in_array($handle, ['tix-ticket-selector', 'tix-faq', 'tix-checkout', 'tix-calendar', 'tix-my-tickets', 'tix-qr', 'tix-ticket-img', 'tix-group-booking', 'tix-checkin', 'tix-jsqr', 'tix-support-front', 'tix-support-chat', 'tix-promoter-dashboard'])) {
             if (strpos($tag, 'defer') === false) {
                 return str_replace(' src', ' defer src', $tag);
             }
@@ -583,6 +605,13 @@ add_action('admin_init', function() {
     // v1.28.0 Migration: flush rewrite rules für neuen CPT
     if (version_compare($stored, '1.28.0', '<')) {
         flush_rewrite_rules();
+    }
+
+    // v1.29.0: Promoter-Tabellen erstellen
+    if (version_compare($stored, '1.29.0', '<')) {
+        if (class_exists('TIX_Promoter_DB')) {
+            TIX_Promoter_DB::create_tables();
+        }
     }
 
     update_option('tix_db_version', TIXOMAT_VERSION);
