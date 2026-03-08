@@ -11,12 +11,23 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Deploy via rsync
+      - name: Deploy Plugin
         uses: burnett01/rsync-deployments@7.0.1
         with:
-          switches: -avz --delete --exclude='.git' --exclude='.github'
+          switches: -avz --delete --exclude='.git' --exclude='.github' --exclude='bot/' --exclude='mu-plugins/' --exclude='DP-CONNECT-BOT/' --exclude='.claude/'
           path: ./
-          remote_path: /home/runcloud/webapps/demo-mdj-events/wp-content/plugins/tixomat/
+          remote_path: /home/runcloud/webapps/Tixomat/wp-content/plugins/tixomat/
+          remote_host: 51.195.61.6
+          remote_port: 22
+          remote_user: runcloud
+          remote_key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Deploy mu-Plugins
+        uses: burnett01/rsync-deployments@7.0.1
+        with:
+          switches: -avz
+          path: ./mu-plugins/
+          remote_path: /home/runcloud/webapps/Tixomat/wp-content/mu-plugins/
           remote_host: 51.195.61.6
           remote_port: 22
           remote_user: runcloud
