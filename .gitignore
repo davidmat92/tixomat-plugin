@@ -3,3 +3,9 @@ __MACOSX/
 node_modules/
 *.zip
 .claude/
+DP-CONNECT-BOT/
+bot/.env
+bot/.env.deploy
+bot/__pycache__/
+bot/dp_connect_bot/__pycache__/
+bot/*.db
