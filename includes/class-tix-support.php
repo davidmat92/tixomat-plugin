@@ -33,10 +33,10 @@ class TIX_Support {
         // Frontend-Shortcode
         add_shortcode('tix_support', [__CLASS__, 'render_shortcode']);
 
-        // Floating Chat-Widget (alle Frontend-Seiten)
-        if (!is_admin() && tix_get_settings('support_chat_enabled')) {
-            add_action('wp_footer', [__CLASS__, 'render_chat_widget']);
-        }
+        // Floating Chat-Widget deaktiviert – ersetzt durch Tixomat Bot Chat-Widget
+        // if (!is_admin() && tix_get_settings('support_chat_enabled')) {
+        //     add_action('wp_footer', [__CLASS__, 'render_chat_widget']);
+        // }
 
         // ── Admin AJAX ──
         add_action('wp_ajax_tix_support_search',        [__CLASS__, 'ajax_search']);
