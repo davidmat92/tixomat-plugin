@@ -257,6 +257,10 @@ class TIX_Metabox {
                     <span class="dashicons dashicons-tickets"></span>
                     <span class="tix-nav-label">Gewinnspiel</span>
                 </button>
+                <button type="button" class="tix-nav-tab" data-tab="timetable">
+                    <span class="dashicons dashicons-schedule"></span>
+                    <span class="tix-nav-label">Programm</span>
+                </button>
                 <?php if (function_exists('tix_get_settings') && tix_get_settings('promoter_enabled') && class_exists('TIX_Promoter_Admin')): ?>
                 <button type="button" class="tix-nav-tab" data-tab="promoter">
                     <span class="dashicons dashicons-businessman"></span>
@@ -303,6 +307,9 @@ class TIX_Metabox {
                 </div>
                 <div class="tix-pane" data-pane="raffle">
                     <?php self::render_raffle($post); ?>
+                </div>
+                <div class="tix-pane" data-pane="timetable">
+                    <?php self::render_timetable($post); ?>
                 </div>
                 <?php if (function_exists('tix_get_settings') && tix_get_settings('promoter_enabled') && class_exists('TIX_Promoter_Admin')): ?>
                 <div class="tix-pane" data-pane="promoter">
@@ -2113,6 +2120,201 @@ class TIX_Metabox {
     }
 
     // ──────────────────────────────────────────
+    // Programm / Timetable
+    // ──────────────────────────────────────────
+    public static function render_timetable($post) {
+        $stages    = get_post_meta($post->ID, '_tix_stages', true);
+        $timetable = get_post_meta($post->ID, '_tix_timetable', true);
+        if (!is_array($stages)) $stages = [];
+        if (!is_array($timetable)) $timetable = [];
+
+        // Event-Datumsbereich für Tage
+        $date_start = get_post_meta($post->ID, '_tix_date_start', true);
+        $date_end   = get_post_meta($post->ID, '_tix_date_end', true);
+        if (!$date_end) $date_end = $date_start;
+
+        // Tage generieren
+        $days = [];
+        if ($date_start) {
+            $ds = date_create($date_start);
+            $de = date_create($date_end ?: $date_start);
+            if ($ds && $de) {
+                while ($ds <= $de) {
+                    $days[] = $ds->format('Y-m-d');
+                    $ds->modify('+1 day');
+                }
+            }
+        }
+        if (empty($days)) {
+            $days = array_keys($timetable);
+            if (empty($days)) $days = [date('Y-m-d')];
+            sort($days);
+        }
+        ?>
+        <p class="description" style="margin-bottom:14px;">
+            Erstelle das Veranstaltungsprogramm mit mehreren Bühnen/Räumen. Definiere zuerst die Bühnen, dann die einzelnen Programmslots pro Tag.
+        </p>
+
+        <?php // ── Bühnen ── ?>
+        <div style="margin-bottom:16px;">
+            <label class="tix-field-label" style="margin-bottom:6px;display:block;">Bühnen / Räume</label>
+            <div id="tix-tt-stages">
+                <?php if (!empty($stages)):
+                    foreach ($stages as $si => $stage): ?>
+                    <div class="tix-tt-stage-row" style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">
+                        <input type="text" name="tix_stages[<?php echo $si; ?>][name]" value="<?php echo esc_attr($stage['name'] ?? ''); ?>" placeholder="Bühnenname" style="width:200px;" class="regular-text">
+                        <input type="color" name="tix_stages[<?php echo $si; ?>][color]" value="<?php echo esc_attr($stage['color'] ?? '#6366f1'); ?>" style="width:40px;height:32px;padding:2px;cursor:pointer;">
+                        <button type="button" class="button tix-tt-stage-del" title="Entfernen">&times;</button>
+                    </div>
+                    <?php endforeach;
+                endif; ?>
+            </div>
+            <button type="button" class="button" id="tix-tt-stage-add">+ Bühne hinzufügen</button>
+        </div>
+
+        <?php // ── Tages-Tabs + Slots ── ?>
+        <div style="margin-bottom:8px;">
+            <label class="tix-field-label" style="margin-bottom:6px;display:block;">Programm-Slots</label>
+            <div id="tix-tt-day-tabs" style="display:flex;gap:4px;margin-bottom:8px;flex-wrap:wrap;">
+                <?php foreach ($days as $di => $day):
+                    $dt = date_create($day);
+                    $label = $dt ? $dt->format('D d.m.') : $day;
+                    $label = str_replace(['Mon','Tue','Wed','Thu','Fri','Sat','Sun'], ['Mo','Di','Mi','Do','Fr','Sa','So'], $label);
+                ?>
+                    <button type="button" class="button tix-tt-day-tab<?php echo $di === 0 ? ' button-primary' : ''; ?>" data-day="<?php echo esc_attr($day); ?>"><?php echo esc_html($label); ?></button>
+                <?php endforeach; ?>
+            </div>
+
+            <?php foreach ($days as $di => $day):
+                $day_slots = $timetable[$day] ?? [];
+            ?>
+            <div class="tix-tt-day-pane" data-day="<?php echo esc_attr($day); ?>" style="<?php echo $di !== 0 ? 'display:none;' : ''; ?>">
+                <table class="widefat tix-tbl" style="margin-bottom:8px;">
+                    <thead>
+                        <tr>
+                            <th style="width:12%">Start</th>
+                            <th style="width:12%">Ende</th>
+                            <th style="width:18%">Bühne</th>
+                            <th style="width:28%">Act / Titel</th>
+                            <th style="width:22%">Beschreibung</th>
+                            <th style="width:8%"></th>
+                        </tr>
+                    </thead>
+                    <tbody class="tix-tt-slots">
+                        <?php if (!empty($day_slots)):
+                            foreach ($day_slots as $si => $slot): ?>
+                            <tr class="tix-tt-slot-row">
+                                <td><input type="time" name="tix_timetable[<?php echo $day; ?>][<?php echo $si; ?>][time]" value="<?php echo esc_attr($slot['time'] ?? ''); ?>" style="width:100%"></td>
+                                <td><input type="time" name="tix_timetable[<?php echo $day; ?>][<?php echo $si; ?>][end]" value="<?php echo esc_attr($slot['end'] ?? ''); ?>" style="width:100%"></td>
+                                <td>
+                                    <select name="tix_timetable[<?php echo $day; ?>][<?php echo $si; ?>][stage]" style="width:100%" class="tix-tt-stage-select">
+                                        <?php foreach ($stages as $sti => $st): ?>
+                                            <option value="<?php echo $sti; ?>" <?php selected(intval($slot['stage'] ?? 0), $sti); ?>><?php echo esc_html($st['name'] ?? 'Bühne ' . ($sti + 1)); ?></option>
+                                        <?php endforeach; ?>
+                                        <?php if (empty($stages)): ?>
+                                            <option value="0">Standard</option>
+                                        <?php endif; ?>
+                                    </select>
+                                </td>
+                                <td><input type="text" name="tix_timetable[<?php echo $day; ?>][<?php echo $si; ?>][title]" value="<?php echo esc_attr($slot['title'] ?? ''); ?>" placeholder="z.B. DJ Name" style="width:100%"></td>
+                                <td><input type="text" name="tix_timetable[<?php echo $day; ?>][<?php echo $si; ?>][desc]" value="<?php echo esc_attr($slot['desc'] ?? ''); ?>" placeholder="Optional" style="width:100%"></td>
+                                <td><button type="button" class="button tix-tt-slot-del" title="Entfernen">&times;</button></td>
+                            </tr>
+                            <?php endforeach;
+                        else: ?>
+                            <tr class="tix-tt-slot-empty"><td colspan="6" style="text-align:center;color:#999;padding:12px;">Noch keine Einträge.</td></tr>
+                        <?php endif; ?>
+                    </tbody>
+                </table>
+                <button type="button" class="button tix-tt-slot-add" data-day="<?php echo esc_attr($day); ?>">+ Slot hinzufügen</button>
+            </div>
+            <?php endforeach; ?>
+        </div>
+
+        <script>
+        (function(){
+            /* ── Bühnen Repeater ── */
+            var stagesWrap = document.getElementById('tix-tt-stages');
+            var stageAdd = document.getElementById('tix-tt-stage-add');
+            if (stageAdd) {
+                stageAdd.addEventListener('click', function(){
+                    var idx = stagesWrap.querySelectorAll('.tix-tt-stage-row').length;
+                    var div = document.createElement('div');
+                    div.className = 'tix-tt-stage-row';
+                    div.style.cssText = 'display:flex;gap:8px;align-items:center;margin-bottom:6px;';
+                    div.innerHTML =
+                        '<input type="text" name="tix_stages['+idx+'][name]" placeholder="Bühnenname" style="width:200px;" class="regular-text">' +
+                        '<input type="color" name="tix_stages['+idx+'][color]" value="#6366f1" style="width:40px;height:32px;padding:2px;cursor:pointer;">' +
+                        '<button type="button" class="button tix-tt-stage-del" title="Entfernen">&times;</button>';
+                    stagesWrap.appendChild(div);
+                });
+                stagesWrap.addEventListener('click', function(e){
+                    if (e.target.classList.contains('tix-tt-stage-del')) {
+                        e.target.closest('.tix-tt-stage-row').remove();
+                    }
+                });
+            }
+
+            /* ── Tages-Tabs ── */
+            var dayTabs = document.getElementById('tix-tt-day-tabs');
+            if (dayTabs) {
+                dayTabs.querySelectorAll('.tix-tt-day-tab').forEach(function(btn){
+                    btn.addEventListener('click', function(){
+                        dayTabs.querySelectorAll('.tix-tt-day-tab').forEach(function(b){
+                            b.classList.remove('button-primary');
+                        });
+                        btn.classList.add('button-primary');
+                        var day = btn.dataset.day;
+                        document.querySelectorAll('.tix-tt-day-pane').forEach(function(p){
+                            p.style.display = p.dataset.day === day ? '' : 'none';
+                        });
+                    });
+                });
+            }
+
+            /* ── Slot Repeater ── */
+            document.querySelectorAll('.tix-tt-slot-add').forEach(function(btn){
+                btn.addEventListener('click', function(){
+                    var day = btn.dataset.day;
+                    var tbody = btn.previousElementSibling.querySelector('.tix-tt-slots');
+                    var empty = tbody.querySelector('.tix-tt-slot-empty');
+                    if (empty) empty.remove();
+                    var idx = tbody.querySelectorAll('.tix-tt-slot-row').length;
+                    var stageRows = stagesWrap.querySelectorAll('.tix-tt-stage-row');
+                    var options = '';
+                    if (stageRows.length > 0) {
+                        stageRows.forEach(function(sr, si){
+                            var name = sr.querySelector('input[type="text"]').value || 'Bühne '+(si+1);
+                            options += '<option value="'+si+'">'+name+'</option>';
+                        });
+                    } else {
+                        options = '<option value="0">Standard</option>';
+                    }
+                    var tr = document.createElement('tr');
+                    tr.className = 'tix-tt-slot-row';
+                    tr.innerHTML =
+                        '<td><input type="time" name="tix_timetable['+day+']['+idx+'][time]" style="width:100%"></td>' +
+                        '<td><input type="time" name="tix_timetable['+day+']['+idx+'][end]" style="width:100%"></td>' +
+                        '<td><select name="tix_timetable['+day+']['+idx+'][stage]" style="width:100%" class="tix-tt-stage-select">'+options+'</select></td>' +
+                        '<td><input type="text" name="tix_timetable['+day+']['+idx+'][title]" placeholder="z.B. DJ Name" style="width:100%"></td>' +
+                        '<td><input type="text" name="tix_timetable['+day+']['+idx+'][desc]" placeholder="Optional" style="width:100%"></td>' +
+                        '<td><button type="button" class="button tix-tt-slot-del" title="Entfernen">&times;</button></td>';
+                    tbody.appendChild(tr);
+                });
+            });
+
+            /* ── Slot löschen ── */
+            document.addEventListener('click', function(e){
+                if (e.target.classList.contains('tix-tt-slot-del')) {
+                    e.target.closest('tr').remove();
+                }
+            });
+        })();
+        </script>
+        <?php
+    }
+
+    // ──────────────────────────────────────────
     // Rabattcodes
     // ──────────────────────────────────────────
     public static function render_discounts($post) {
@@ -2875,6 +3077,52 @@ class TIX_Metabox {
                 }
             }
         }
+
+        // ── Timetable / Programm speichern ──
+        $raw_stages = $_POST['tix_stages'] ?? [];
+        $stages = [];
+        if (is_array($raw_stages)) {
+            foreach ($raw_stages as $st) {
+                $name  = sanitize_text_field($st['name'] ?? '');
+                $color = sanitize_hex_color($st['color'] ?? '') ?: '#6366f1';
+                if (empty($name)) continue;
+                $stages[] = ['name' => $name, 'color' => $color];
+            }
+        }
+        update_post_meta($post_id, '_tix_stages', $stages);
+
+        $raw_tt = $_POST['tix_timetable'] ?? [];
+        $timetable = [];
+        if (is_array($raw_tt)) {
+            foreach ($raw_tt as $day => $day_slots) {
+                $day = sanitize_text_field($day);
+                if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $day)) continue;
+                $slots = [];
+                if (is_array($day_slots)) {
+                    foreach ($day_slots as $slot) {
+                        $time  = sanitize_text_field($slot['time'] ?? '');
+                        $end   = sanitize_text_field($slot['end'] ?? '');
+                        $stage = intval($slot['stage'] ?? 0);
+                        $title = sanitize_text_field($slot['title'] ?? '');
+                        $desc  = sanitize_text_field($slot['desc'] ?? '');
+                        if (empty($time) && empty($title)) continue;
+                        $slots[] = [
+                            'time'  => $time,
+                            'end'   => $end,
+                            'stage' => $stage,
+                            'title' => $title,
+                            'desc'  => $desc,
+                        ];
+                    }
+                    // Nach Startzeit sortieren
+                    usort($slots, fn($a, $b) => strcmp($a['time'], $b['time']));
+                }
+                if (!empty($slots)) {
+                    $timetable[$day] = $slots;
+                }
+            }
+        }
+        update_post_meta($post_id, '_tix_timetable', $timetable);
 
         // ── Rabattcodes speichern ──
         $raw_discounts = $_POST['tix_discounts'] ?? [];

@@ -2,14 +2,14 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.28.22
+ * Version: 1.28.23
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.28.22');
+define('TIXOMAT_VERSION', '1.28.23');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -78,6 +78,8 @@ function tix_get_settings($key = null) {
             'abandoned_cart_enabled' => 0,
             'abandoned_cart_delay'   => 30,
             'abandoned_cart_subject' => '',
+            // Timetable
+            'ep_show_timetable'    => 1,
             // Ticket-System
             'ticket_system'            => 'standalone',
             // Express Checkout
@@ -154,6 +156,10 @@ TIX_Waitlist::init();
 // ── Post-Event Feedback ──
 require_once TIXOMAT_PATH . 'includes/class-tix-feedback.php';
 TIX_Feedback::init();
+
+// ── Timetable / Programm (Multi-Stage) ──
+require_once TIXOMAT_PATH . 'includes/class-tix-timetable.php';
+TIX_Timetable::init();
 
 // ── Promoter-System ──
 require_once TIXOMAT_PATH . 'includes/class-tix-promoter-db.php';

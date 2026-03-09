@@ -72,6 +72,7 @@ class TIX_Settings {
             'ep_show_phases'     => 1,
             'ep_show_raffle'     => 1,
             'ep_show_share'      => 1,
+            'ep_show_timetable'  => 1,
 
             // ── Warteliste / Presale-Benachrichtigungen ──
             'waitlist_enabled'   => 1,
@@ -389,7 +390,7 @@ class TIX_Settings {
         $clean['ep_gap']       = max(12, min(48, intval($input['ep_gap'] ?? 32)));
         $clean['ep_radius']    = max(0, min(24, intval($input['ep_radius'] ?? 12)));
         // Event-Seite Toggles
-        foreach (['ep_show_hero', 'ep_show_gallery', 'ep_show_video', 'ep_show_faq', 'ep_show_location', 'ep_show_organizer', 'ep_show_series', 'ep_show_charity', 'ep_show_upsell', 'ep_show_calendar', 'ep_show_phases', 'ep_show_raffle', 'ep_show_share'] as $k) {
+        foreach (['ep_show_hero', 'ep_show_gallery', 'ep_show_video', 'ep_show_faq', 'ep_show_location', 'ep_show_organizer', 'ep_show_series', 'ep_show_charity', 'ep_show_upsell', 'ep_show_calendar', 'ep_show_phases', 'ep_show_raffle', 'ep_show_share', 'ep_show_timetable'] as $k) {
             $clean[$k] = !empty($input[$k]) ? 1 : 0;
         }
 
@@ -1724,6 +1725,9 @@ class TIX_Settings {
                                             </div>
                                             <div class="tix-field tix-field-full">
                                                 <?php self::checkbox_row('ep_show_share', 'Share-Buttons', $s, 'Zeigt Social-Sharing-Buttons (WhatsApp, Facebook, X, E-Mail, Link kopieren) auf der Event-Seite an.'); ?>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('ep_show_timetable', 'Programm / Timetable', $s, 'Zeigt das mehrt&auml;gige Programm mit B&uuml;hnen-Grid auf der Event-Seite an (Shortcode: [tix_timetable]).'); ?>
                                             </div>
                                             <div class="tix-field tix-field-full">
                                                 <?php self::checkbox_row('waitlist_enabled', 'Warteliste / Presale-Benachrichtigung', $s, 'Erm&ouml;glicht E-Mail-Benachrichtigungen: Countdown vor Vorverkaufsstart + Warteliste bei ausverkauften Tickets.'); ?>

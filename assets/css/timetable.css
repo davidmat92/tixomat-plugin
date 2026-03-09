@@ -1,0 +1,220 @@
+/* ═══════════════════════════════════════════
+   Tixomat – Timetable (Multi-Stage)
+   ═══════════════════════════════════════════ */
+
+.tix-tt {
+    font-family: inherit;
+}
+
+/* ── Tages-Tabs ── */
+.tix-tt-days {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+}
+.tix-tt-day {
+    padding: 8px 18px;
+    border: 1px solid var(--ep-border, #e5e7eb);
+    border-radius: var(--ep-radius, 8px);
+    background: var(--ep-bg, #fff);
+    color: var(--ep-text, #1a1a1a);
+    font-size: .88rem;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+    transition: background .2s, border-color .2s;
+}
+.tix-tt-day:hover {
+    background: #f1f5f9;
+}
+.tix-tt-day.active {
+    background: #6366f1;
+    color: #fff;
+    border-color: #6366f1;
+}
+
+/* ── Bühnen-Filter (nur Mobile sichtbar) ── */
+.tix-tt-stage-filter {
+    display: none; /* Desktop: hidden */
+    gap: 6px;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+}
+.tix-tt-filter-btn {
+    padding: 6px 14px;
+    border: 1px solid var(--ep-border, #e5e7eb);
+    border-radius: 20px;
+    background: var(--ep-bg, #fff);
+    color: var(--ep-text, #1a1a1a);
+    font-size: .8rem;
+    font-weight: 500;
+    cursor: pointer;
+    font-family: inherit;
+    transition: all .2s;
+}
+.tix-tt-filter-btn.active {
+    background: var(--tt-stage-color, #6366f1);
+    color: #fff;
+    border-color: var(--tt-stage-color, #6366f1);
+}
+
+/* ── Inhalt (Tag) ── */
+.tix-tt-content {
+    display: none;
+}
+.tix-tt-content.active {
+    display: block;
+}
+
+/* ── Grid (Desktop) ── */
+.tix-tt-grid {
+    display: grid;
+    gap: 1px;
+    background: var(--ep-border, #e5e7eb);
+    border: 1px solid var(--ep-border, #e5e7eb);
+    border-radius: var(--ep-radius, 8px);
+    overflow: hidden;
+}
+.tix-tt-grid-header {
+    display: contents;
+}
+.tix-tt-grid-header > * {
+    background: #f8fafc;
+    padding: 10px 14px;
+    font-size: .8rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .03em;
+}
+.tix-tt-time-header {
+    background: #f8fafc;
+    min-width: 60px;
+}
+.tix-tt-stage-header {
+    background: #f8fafc;
+    color: var(--tt-stage-color, #6366f1);
+    border-bottom: 3px solid var(--tt-stage-color, #6366f1);
+}
+
+.tix-tt-grid-row {
+    display: contents;
+}
+.tix-tt-grid-row > * {
+    background: var(--ep-bg, #fff);
+    padding: 8px 14px;
+    min-height: 48px;
+}
+.tix-tt-time {
+    font-size: .82rem;
+    font-weight: 600;
+    color: var(--ep-muted, #64748b);
+    white-space: nowrap;
+    display: flex;
+    align-items: flex-start;
+    padding-top: 12px;
+}
+.tix-tt-cell {
+    position: relative;
+}
+
+/* Grid columns: auto based on stages */
+.tix-tt-grid,
+.tix-tt-grid-header {
+    grid-template-columns: 60px repeat(var(--tt-stages, 2), 1fr);
+}
+.tix-tt[data-stages="1"] .tix-tt-grid,
+.tix-tt[data-stages="1"] .tix-tt-grid-header { --tt-stages: 1; }
+.tix-tt[data-stages="2"] .tix-tt-grid,
+.tix-tt[data-stages="2"] .tix-tt-grid-header { --tt-stages: 2; }
+.tix-tt[data-stages="3"] .tix-tt-grid,
+.tix-tt[data-stages="3"] .tix-tt-grid-header { --tt-stages: 3; }
+.tix-tt[data-stages="4"] .tix-tt-grid,
+.tix-tt[data-stages="4"] .tix-tt-grid-header { --tt-stages: 4; }
+.tix-tt[data-stages="5"] .tix-tt-grid,
+.tix-tt[data-stages="5"] .tix-tt-grid-header { --tt-stages: 5; }
+
+/* ── Slot ── */
+.tix-tt-slot {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 8px 12px;
+    background: color-mix(in srgb, var(--tt-stage-color, #6366f1) 8%, transparent);
+    border-left: 3px solid var(--tt-stage-color, #6366f1);
+    border-radius: 4px;
+}
+.tix-tt-slot-time {
+    font-size: .75rem;
+    color: var(--tt-stage-color, #6366f1);
+    font-weight: 600;
+}
+.tix-tt-slot-title {
+    font-size: .9rem;
+    font-weight: 600;
+    color: var(--ep-text, #0f172a);
+}
+.tix-tt-slot-desc {
+    font-size: .8rem;
+    color: var(--ep-muted, #64748b);
+}
+
+/* ── Liste (Mobile) ── */
+.tix-tt-list {
+    display: none; /* Desktop: hidden */
+    flex-direction: column;
+    gap: 8px;
+}
+.tix-tt-list-item {
+    display: flex;
+    gap: 12px;
+    padding: 12px 14px;
+    border-left: 3px solid var(--tt-stage-color, #6366f1);
+    background: color-mix(in srgb, var(--tt-stage-color, #6366f1) 5%, var(--ep-bg, #fff));
+    border-radius: 0 var(--ep-radius, 8px) var(--ep-radius, 8px) 0;
+}
+.tix-tt-list-item[hidden] {
+    display: none;
+}
+.tix-tt-list-time {
+    font-size: .82rem;
+    font-weight: 700;
+    color: var(--tt-stage-color, #6366f1);
+    min-width: 80px;
+    white-space: nowrap;
+}
+.tix-tt-list-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+.tix-tt-list-title {
+    font-size: .92rem;
+    font-weight: 600;
+    color: var(--ep-text, #0f172a);
+}
+.tix-tt-list-desc {
+    font-size: .82rem;
+    color: var(--ep-muted, #64748b);
+}
+.tix-tt-list-stage {
+    font-size: .75rem;
+    font-weight: 600;
+    color: var(--tt-stage-color, #6366f1);
+    text-transform: uppercase;
+    letter-spacing: .03em;
+}
+
+/* ── Responsive: Mobile ── */
+@media (max-width: 768px) {
+    .tix-tt-grid {
+        display: none;
+    }
+    .tix-tt-list {
+        display: flex;
+    }
+    .tix-tt-stage-filter {
+        display: flex;
+    }
+}
