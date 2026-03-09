@@ -636,6 +636,7 @@ class TIX_Organizer_Dashboard {
         $data = [
             'id'          => $post->ID,
             'title'       => $post->post_title,
+            'excerpt'     => $post->post_excerpt,
             'post_status' => $post->post_status,
             // Details
             'date_start'  => get_post_meta($event_id, '_tix_date_start', true),
@@ -709,19 +710,21 @@ class TIX_Organizer_Dashboard {
                 wp_send_json_error(['message' => 'Keine Berechtigung.']);
                 return;
             }
-            // Titel updaten
+            // Titel + Textauszug updaten
             wp_update_post([
-                'ID'         => $event_id,
-                'post_title' => sanitize_text_field($_POST['title'] ?? get_the_title($event_id)),
+                'ID'           => $event_id,
+                'post_title'   => sanitize_text_field($_POST['title'] ?? get_the_title($event_id)),
+                'post_excerpt' => wp_kses_post($_POST['excerpt'] ?? ''),
             ]);
         } else {
             // Neues Event erstellen
             $auto_publish = tix_get_settings('organizer_auto_publish');
             $event_id = wp_insert_post([
-                'post_type'   => 'event',
-                'post_title'  => sanitize_text_field($_POST['title'] ?? 'Neues Event'),
-                'post_status' => $auto_publish ? 'publish' : 'draft',
-                'post_author' => get_current_user_id(),
+                'post_type'    => 'event',
+                'post_title'   => sanitize_text_field($_POST['title'] ?? 'Neues Event'),
+                'post_excerpt' => wp_kses_post($_POST['excerpt'] ?? ''),
+                'post_status'  => $auto_publish ? 'publish' : 'draft',
+                'post_author'  => get_current_user_id(),
             ]);
 
             if (is_wp_error($event_id)) {

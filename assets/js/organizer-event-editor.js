@@ -339,6 +339,7 @@
 
         return '<div class="tix-oe-pane active" data-oe-pane="basics">'
             + field('Titel', '<input type="text" class="tix-oe-input" id="tix-oe-title" value="' + escAttr(d.title) + '">')
+            + field('Textauszug', '<textarea class="tix-oe-textarea" id="tix-oe-excerpt" rows="2" placeholder="Kurzer Textauszug f\u00fcr Vorschau und SEO">' + escHtml(d.excerpt || '') + '</textarea>')
             + '<div class="tix-oe-grid-2">'
             + field('Startdatum', '<input type="date" class="tix-oe-input" id="tix-oe-date-start" value="' + (d.date_start || '') + '">')
             + field('Startzeit', '<input type="time" class="tix-oe-input" id="tix-oe-time-start" value="' + (d.time_start || '') + '">')
@@ -654,6 +655,7 @@
         var params = {
             event_id:          eventId,
             title:             $('#tix-oe-title').val(),
+            excerpt:           $('#tix-oe-excerpt').val(),
             date_start:        $('#tix-oe-date-start').val(),
             date_end:          $('#tix-oe-date-end').val(),
             time_start:        $('#tix-oe-time-start').val(),
