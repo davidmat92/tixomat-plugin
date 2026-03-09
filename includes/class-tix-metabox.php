@@ -249,6 +249,10 @@ class TIX_Metabox {
                     <span class="dashicons dashicons-groups"></span>
                     <span class="tix-nav-label">Gästeliste</span>
                 </button>
+                <button type="button" class="tix-nav-tab" data-tab="discounts">
+                    <span class="dashicons dashicons-tag"></span>
+                    <span class="tix-nav-label">Rabattcodes</span>
+                </button>
                 <button type="button" class="tix-nav-tab" data-tab="raffle">
                     <span class="dashicons dashicons-tickets"></span>
                     <span class="tix-nav-label">Gewinnspiel</span>
@@ -293,6 +297,9 @@ class TIX_Metabox {
                 </div>
                 <div class="tix-pane" data-pane="guestlist">
                     <?php self::render_guestlist($post); ?>
+                </div>
+                <div class="tix-pane" data-pane="discounts">
+                    <?php self::render_discounts($post); ?>
                 </div>
                 <div class="tix-pane" data-pane="raffle">
                     <?php self::render_raffle($post); ?>
@@ -2081,6 +2088,147 @@ class TIX_Metabox {
     }
 
     // ──────────────────────────────────────────
+    // Rabattcodes
+    // ──────────────────────────────────────────
+    public static function render_discounts($post) {
+        $codes = get_post_meta($post->ID, '_tix_discount_codes', true);
+        if (!is_array($codes)) $codes = [];
+
+        // Aktuelle Nutzungszahlen laden
+        foreach ($codes as &$c) {
+            if (!empty($c['coupon_id'])) {
+                $coupon = new \WC_Coupon($c['coupon_id']);
+                if ($coupon->get_id()) {
+                    $c['usage'] = $coupon->get_usage_count();
+                }
+            }
+            if (!isset($c['usage'])) $c['usage'] = 0;
+        }
+        unset($c);
+        ?>
+        <p class="description" style="margin-bottom:10px;">
+            Erstelle Event-spezifische Rabattcodes. Jeder Code wird als WooCommerce-Gutschein angelegt und gilt nur für Tickets dieses Events.
+        </p>
+
+        <table class="widefat tix-tbl" id="tix-discount-table">
+            <thead>
+                <tr>
+                    <th style="width:20%">Code</th>
+                    <th style="width:14%">Typ</th>
+                    <th style="width:10%">Wert</th>
+                    <th style="width:10%">Limit</th>
+                    <th style="width:16%">Ablaufdatum</th>
+                    <th style="width:10%">Genutzt</th>
+                    <th style="width:10%"></th>
+                </tr>
+            </thead>
+            <tbody id="tix-discount-rows">
+                <?php if (!empty($codes)):
+                    foreach ($codes as $i => $code): ?>
+                        <tr class="tix-discount-row">
+                            <td>
+                                <input type="text" name="tix_discounts[<?php echo $i; ?>][code]"
+                                       value="<?php echo esc_attr($code['code'] ?? ''); ?>"
+                                       placeholder="z.B. EARLY20" style="width:100%;text-transform:uppercase;" autocomplete="off">
+                                <input type="hidden" name="tix_discounts[<?php echo $i; ?>][coupon_id]"
+                                       value="<?php echo intval($code['coupon_id'] ?? 0); ?>">
+                            </td>
+                            <td>
+                                <select name="tix_discounts[<?php echo $i; ?>][type]" style="width:100%">
+                                    <option value="percent" <?php selected($code['type'] ?? '', 'percent'); ?>>Prozent (%)</option>
+                                    <option value="fixed_cart" <?php selected($code['type'] ?? '', 'fixed_cart'); ?>>Festbetrag (€)</option>
+                                </select>
+                            </td>
+                            <td>
+                                <input type="number" name="tix_discounts[<?php echo $i; ?>][amount]"
+                                       value="<?php echo esc_attr($code['amount'] ?? ''); ?>"
+                                       min="0" step="0.01" style="width:100%" placeholder="20">
+                            </td>
+                            <td>
+                                <input type="number" name="tix_discounts[<?php echo $i; ?>][limit]"
+                                       value="<?php echo esc_attr($code['limit'] ?? ''); ?>"
+                                       min="0" step="1" style="width:100%" placeholder="0=∞">
+                            </td>
+                            <td>
+                                <input type="date" name="tix_discounts[<?php echo $i; ?>][expiry]"
+                                       value="<?php echo esc_attr($code['expiry'] ?? ''); ?>"
+                                       style="width:100%">
+                            </td>
+                            <td style="text-align:center;">
+                                <span style="font-weight:600;<?php echo intval($code['usage'] ?? 0) > 0 ? 'color:#059669;' : 'color:#94a3b8;'; ?>">
+                                    <?php echo intval($code['usage'] ?? 0); ?><?php if (!empty($code['limit']) && intval($code['limit']) > 0): ?>/<?php echo intval($code['limit']); ?><?php endif; ?>
+                                </span>
+                            </td>
+                            <td>
+                                <button type="button" class="button tix-discount-del" title="Entfernen">&times;</button>
+                            </td>
+                        </tr>
+                    <?php endforeach;
+                else: ?>
+                    <tr class="tix-discount-empty"><td colspan="7" style="text-align:center;color:#999;padding:16px;">Noch keine Rabattcodes. Klicke unten auf „+ Code hinzufügen".</td></tr>
+                <?php endif; ?>
+            </tbody>
+        </table>
+        <p style="margin-top:10px;display:flex;gap:8px;">
+            <button type="button" class="button" id="tix-discount-add">+ Code hinzufügen</button>
+            <button type="button" class="button" id="tix-discount-generate">🎲 Zufallscode generieren</button>
+        </p>
+
+        <script>
+        (function(){
+            var tbody = document.getElementById('tix-discount-rows');
+            var addBtn = document.getElementById('tix-discount-add');
+            var genBtn = document.getElementById('tix-discount-generate');
+            if (!tbody || !addBtn) return;
+
+            function getNextIndex() {
+                var rows = tbody.querySelectorAll('.tix-discount-row');
+                return rows.length;
+            }
+
+            function addRow(code) {
+                var empty = tbody.querySelector('.tix-discount-empty');
+                if (empty) empty.remove();
+                var idx = getNextIndex();
+                var tr = document.createElement('tr');
+                tr.className = 'tix-discount-row';
+                tr.innerHTML =
+                    '<td><input type="text" name="tix_discounts['+idx+'][code]" value="'+(code||'')+'" placeholder="z.B. EARLY20" style="width:100%;text-transform:uppercase;" autocomplete="off"><input type="hidden" name="tix_discounts['+idx+'][coupon_id]" value="0"></td>' +
+                    '<td><select name="tix_discounts['+idx+'][type]" style="width:100%"><option value="percent">Prozent (%)</option><option value="fixed_cart">Festbetrag (€)</option></select></td>' +
+                    '<td><input type="number" name="tix_discounts['+idx+'][amount]" min="0" step="0.01" style="width:100%" placeholder="20"></td>' +
+                    '<td><input type="number" name="tix_discounts['+idx+'][limit]" min="0" step="1" style="width:100%" placeholder="0=∞"></td>' +
+                    '<td><input type="date" name="tix_discounts['+idx+'][expiry]" style="width:100%"></td>' +
+                    '<td style="text-align:center;"><span style="color:#94a3b8;">0</span></td>' +
+                    '<td><button type="button" class="button tix-discount-del" title="Entfernen">&times;</button></td>';
+                tbody.appendChild(tr);
+            }
+
+            addBtn.addEventListener('click', function(){ addRow(''); });
+
+            genBtn.addEventListener('click', function(){
+                var chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+                var code = '';
+                for (var i = 0; i < 8; i++) code += chars.charAt(Math.floor(Math.random() * chars.length));
+                addRow(code);
+            });
+
+            tbody.addEventListener('click', function(e){
+                if (e.target.classList.contains('tix-discount-del')) {
+                    e.target.closest('tr').remove();
+                    if (!tbody.querySelector('.tix-discount-row')) {
+                        var empty = document.createElement('tr');
+                        empty.className = 'tix-discount-empty';
+                        empty.innerHTML = '<td colspan="7" style="text-align:center;color:#999;padding:16px;">Noch keine Rabattcodes.</td>';
+                        tbody.appendChild(empty);
+                    }
+                }
+            });
+        })();
+        </script>
+        <?php
+    }
+
+    // ──────────────────────────────────────────
     // Gewinnspiel (Raffle)
     // ──────────────────────────────────────────
     public static function render_raffle($post) {
@@ -2700,6 +2848,84 @@ class TIX_Metabox {
                 if (empty($current_status)) {
                     update_post_meta($post_id, '_tix_raffle_status', 'open');
                 }
+            }
+        }
+
+        // ── Rabattcodes speichern ──
+        $raw_discounts = $_POST['tix_discounts'] ?? [];
+        $old_codes = get_post_meta($post_id, '_tix_discount_codes', true);
+        if (!is_array($old_codes)) $old_codes = [];
+        $old_coupon_ids = array_column($old_codes, 'coupon_id');
+
+        // Produkt-IDs für dieses Event sammeln (Coupon-Scope)
+        $event_cats = get_post_meta($post_id, '_tix_ticket_categories', true);
+        $event_product_ids = [];
+        if (is_array($event_cats)) {
+            foreach ($event_cats as $ec) {
+                $pid = intval($ec['product_id'] ?? 0);
+                if ($pid) $event_product_ids[] = $pid;
+            }
+        }
+
+        $discount_codes = [];
+        $new_coupon_ids = [];
+        if (is_array($raw_discounts)) {
+            foreach ($raw_discounts as $dc) {
+                $code   = strtoupper(sanitize_text_field($dc['code'] ?? ''));
+                $type   = in_array($dc['type'] ?? '', ['percent', 'fixed_cart']) ? $dc['type'] : 'percent';
+                $amount = floatval($dc['amount'] ?? 0);
+                $limit  = max(0, intval($dc['limit'] ?? 0));
+                $expiry = sanitize_text_field($dc['expiry'] ?? '');
+                $coupon_id = intval($dc['coupon_id'] ?? 0);
+
+                if (empty($code) && $amount <= 0) continue;
+                if (empty($code)) continue;
+
+                // WC_Coupon erstellen oder aktualisieren
+                $coupon = new \WC_Coupon($coupon_id ?: 0);
+
+                // Prüfe ob Coupon-ID gültig ist
+                if ($coupon_id && !$coupon->get_id()) {
+                    $coupon = new \WC_Coupon(0);
+                    $coupon_id = 0;
+                }
+
+                // Code setzen (nur bei neuem Coupon oder geändertem Code)
+                if (!$coupon_id || $coupon->get_code() !== strtolower($code)) {
+                    $coupon->set_code(strtolower($code));
+                }
+                $coupon->set_discount_type($type);
+                $coupon->set_amount($amount);
+                $coupon->set_usage_limit($limit ?: 0);
+                $coupon->set_date_expires($expiry ?: null);
+                if (!empty($event_product_ids)) {
+                    $coupon->set_product_ids($event_product_ids);
+                }
+                $coupon->set_individual_use(false);
+                $coupon->save();
+
+                $saved_id = $coupon->get_id();
+                if ($saved_id) {
+                    update_post_meta($saved_id, '_tix_event_coupon', $post_id);
+                    $new_coupon_ids[] = $saved_id;
+                }
+
+                $discount_codes[] = [
+                    'code'      => $code,
+                    'type'      => $type,
+                    'amount'    => $amount,
+                    'limit'     => $limit,
+                    'expiry'    => $expiry,
+                    'coupon_id' => $saved_id ?: 0,
+                ];
+            }
+        }
+        update_post_meta($post_id, '_tix_discount_codes', $discount_codes);
+
+        // Entfernte Coupons in den Papierkorb verschieben
+        foreach ($old_coupon_ids as $old_cid) {
+            if ($old_cid && !in_array($old_cid, $new_coupon_ids)) {
+                wp_trash_post($old_cid);
             }
         }
 
