@@ -47,28 +47,68 @@ class TIX_Event_Page {
         ob_start();
         ?>
         <div class="tix-ep">
-            <?php
-            self::render_hero($post_id);
-            self::render_header($post_id);
-            self::render_tickets($post_id);
-            self::render_info_section($post_id, 'description', 'Beschreibung');
-            self::render_info_section($post_id, 'lineup', 'Line-Up');
-            self::render_info_section($post_id, 'specials', 'Specials');
-            self::render_gallery($post_id);
-            self::render_video($post_id);
-            self::render_info_section($post_id, 'extra_info', 'Weitere Informationen');
-            self::render_charity($post_id);
-            self::render_faq($post_id);
-            self::render_location($post_id);
-            self::render_organizer($post_id);
-            self::render_calendar($post_id);
-            self::render_series($post_id);
-            self::render_upsell($post_id);
-            echo tix_branding_footer();
-            ?>
+
+            <?php // ── Hero: Volle Breite ── ?>
+            <?php self::render_hero($post_id); ?>
+
+            <?php // ── 2-Spalten Grid ── ?>
+            <div class="tix-ep-grid">
+
+                <?php // ── Titel: volle Breite über beide Spalten ── ?>
+                <?php self::render_title($post_id); ?>
+
+                <?php // ── LINKE SPALTE: Content ── ?>
+                <div class="tix-ep-main">
+                    <?php self::render_info_section($post_id, 'description', 'Beschreibung'); ?>
+                    <?php self::render_info_section($post_id, 'lineup', 'Line-Up'); ?>
+                    <?php self::render_info_section($post_id, 'specials', 'Specials'); ?>
+                    <?php self::render_gallery($post_id); ?>
+                    <?php self::render_video($post_id); ?>
+                    <?php self::render_info_section($post_id, 'extra_info', 'Weitere Informationen'); ?>
+                    <?php self::render_faq($post_id); ?>
+                    <?php self::render_series($post_id); ?>
+                </div>
+
+                <?php // ── RECHTE SPALTE: Sidebar (sticky) ── ?>
+                <aside class="tix-ep-sidebar">
+                    <div class="tix-ep-sidebar-inner">
+                        <?php self::render_header($post_id); ?>
+                        <?php self::render_tickets($post_id); ?>
+                        <?php self::render_calendar($post_id); ?>
+                        <?php self::render_charity($post_id); ?>
+                        <?php self::render_location($post_id); ?>
+                        <?php self::render_organizer($post_id); ?>
+                    </div>
+                </aside>
+
+            </div>
+
+            <?php // ── Volle Breite: Upsell + Footer ── ?>
+            <?php self::render_upsell($post_id); ?>
+            <?php echo tix_branding_footer(); ?>
+
         </div>
         <?php
         return ob_get_clean();
+    }
+
+    /* ── Titel (nur h1 + Status) ── */
+    private static function render_title($id) {
+        $title      = get_the_title($id);
+        $status     = get_post_meta($id, '_tix_status', true);
+        $status_lbl = get_post_meta($id, '_tix_status_label', true);
+        ?>
+        <div class="tix-ep-title-wrap">
+            <h1 class="tix-ep-title">
+                <?php echo esc_html($title); ?>
+                <?php if ($status && $status !== 'available' && $status_lbl): ?>
+                    <span class="tix-ep-status tix-ep-status--<?php echo esc_attr($status); ?>">
+                        <?php echo esc_html($status_lbl); ?>
+                    </span>
+                <?php endif; ?>
+            </h1>
+        </div>
+        <?php
     }
 
     /* ════════════════════════════════════
@@ -124,15 +164,6 @@ class TIX_Event_Page {
         $organizer  = get_post_meta($id, '_tix_organizer', true);
         ?>
         <div class="tix-ep-header">
-            <h1 class="tix-ep-title">
-                <?php echo esc_html($title); ?>
-                <?php if ($status && $status !== 'available' && $status_lbl): ?>
-                    <span class="tix-ep-status tix-ep-status--<?php echo esc_attr($status); ?>">
-                        <?php echo esc_html($status_lbl); ?>
-                    </span>
-                <?php endif; ?>
-            </h1>
-
             <div class="tix-ep-meta">
                 <?php if ($date_disp): ?>
                     <div class="tix-ep-meta-row">

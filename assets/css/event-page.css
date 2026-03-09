@@ -1,6 +1,6 @@
 /* ═══════════════════════════════════════════════
    Tixomat Event Page  –  [tix_event_page]
-   Inspiriert von rausgegangen.de
+   2-Spalten Layout: Main + Sticky Sidebar
    ═══════════════════════════════════════════════ */
 
 /* ── Variables ── */
@@ -13,7 +13,8 @@
     --ep-gap: 32px;
     --ep-accent: var(--tix-buy-bg, #c8ff00);
     --ep-accent-text: var(--tix-buy-color, #000);
-    --ep-max-w: 720px;
+    --ep-max-w: 1100px;
+    --ep-sidebar-w: 380px;
     --ep-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 
     font-family: var(--ep-font);
@@ -28,7 +29,50 @@
     box-sizing: border-box;
 }
 
-/* ── Hero ── */
+/* ══════════════════════════════════════════
+   2-SPALTEN GRID
+   ══════════════════════════════════════════ */
+
+.tix-ep-grid {
+    display: grid;
+    grid-template-columns: 1fr var(--ep-sidebar-w);
+    gap: 0 var(--ep-gap);
+    align-items: start;
+}
+
+/* Titel spannt volle Breite */
+.tix-ep-title-wrap {
+    grid-column: 1 / -1;
+    margin-bottom: 24px;
+}
+
+/* Linke Spalte */
+.tix-ep-main {
+    min-width: 0; /* Grid-Blowout verhindern */
+}
+
+/* Rechte Spalte */
+.tix-ep-sidebar {
+    min-width: 0;
+}
+
+.tix-ep-sidebar-inner {
+    position: sticky;
+    top: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+/* Sidebar-Kinder: kein eigener margin-bottom (Gap regelt Abstand) */
+.tix-ep-sidebar-inner > * {
+    margin-bottom: 0 !important;
+}
+
+/* ══════════════════════════════════════════
+   HERO (volle Breite, über Grid)
+   ══════════════════════════════════════════ */
+
 .tix-ep-hero {
     position: relative;
     margin: 0 -16px 24px;
@@ -61,15 +105,15 @@
 .tix-ep-hero-badge--postponed  { background: rgba(234,179,8,.85); color: #1a1a1a; }
 .tix-ep-hero-badge--few_tickets{ background: rgba(234,88,12,.85); }
 
-/* ── Header ── */
-.tix-ep-header {
-    margin-bottom: var(--ep-gap);
-}
+/* ══════════════════════════════════════════
+   TITEL (Grid-Kind, volle Breite)
+   ══════════════════════════════════════════ */
+
 .tix-ep-title {
-    font-size: 1.75rem;
+    font-size: 2rem;
     font-weight: 800;
     line-height: 1.2;
-    margin: 0 0 16px;
+    margin: 0;
     color: var(--ep-text);
 }
 .tix-ep-status {
@@ -90,24 +134,33 @@
 .tix-ep-status--few_tickets { background: #ea580c; }
 .tix-ep-status--past        { background: #9ca3af; }
 
-/* Meta-Zeilen */
+/* ══════════════════════════════════════════
+   SIDEBAR: HEADER-KARTE (Meta-Infos)
+   ══════════════════════════════════════════ */
+
+.tix-ep-header {
+    background: #f8fafc;
+    border: 1px solid var(--ep-border);
+    border-radius: var(--ep-radius);
+    padding: 20px;
+}
+
 .tix-ep-meta {
     display: flex;
     flex-direction: column;
-    gap: 10px;
-    margin-top: 16px;
+    gap: 12px;
 }
 .tix-ep-meta-row {
     display: flex;
     align-items: flex-start;
     gap: 10px;
-    font-size: 0.95rem;
+    font-size: 0.9rem;
     color: var(--ep-text);
 }
 .tix-ep-meta-icon {
     flex-shrink: 0;
-    width: 20px;
-    height: 20px;
+    width: 18px;
+    height: 18px;
     color: var(--ep-muted);
     margin-top: 2px;
 }
@@ -118,37 +171,41 @@
 }
 .tix-ep-meta-label {
     color: var(--ep-muted);
-    font-size: 0.8rem;
+    font-size: 0.75rem;
     display: block;
 }
 .tix-ep-meta-value {
     font-weight: 600;
+    font-size: 0.88rem;
 }
 .tix-ep-meta-sub {
     color: var(--ep-muted);
-    font-size: 0.85rem;
+    font-size: 0.8rem;
     font-weight: 400;
 }
 .tix-ep-price-badge {
     display: inline-block;
     background: var(--ep-accent);
     color: var(--ep-accent-text);
-    padding: 4px 12px;
+    padding: 3px 10px;
     border-radius: 6px;
     font-weight: 700;
-    font-size: 0.95rem;
+    font-size: 0.88rem;
 }
 .tix-ep-age-badge {
     display: inline-block;
     background: #f1f5f9;
     color: var(--ep-muted);
-    padding: 3px 10px;
+    padding: 3px 8px;
     border-radius: 4px;
-    font-size: 0.8rem;
+    font-size: 0.75rem;
     font-weight: 600;
 }
 
-/* ── Sections (generic) ── */
+/* ══════════════════════════════════════════
+   MAIN: SEKTIONEN (generisch)
+   ══════════════════════════════════════════ */
+
 .tix-ep-section {
     margin-bottom: var(--ep-gap);
 }
@@ -180,15 +237,23 @@
     color: #1d4ed8;
 }
 
-/* ── Ticket-Selektor Wrapper ── */
+/* ══════════════════════════════════════════
+   SIDEBAR: TICKET-SELEKTOR
+   ══════════════════════════════════════════ */
+
 .tix-ep-tickets {
-    margin-bottom: var(--ep-gap);
+    /* Innerhalb sidebar-inner, gap regelt Abstand */
 }
 
-/* ── Galerie ── */
-.tix-ep-gallery {
-    margin-bottom: var(--ep-gap);
+/* Ticket-Selektor in Sidebar: kompakter */
+.tix-ep-sidebar .tix-sel {
+    border-radius: var(--ep-radius);
 }
+
+/* ══════════════════════════════════════════
+   MAIN: GALERIE
+   ══════════════════════════════════════════ */
+
 .tix-ep-gallery-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -219,10 +284,10 @@
     aspect-ratio: 16 / 9;
 }
 
-/* ── Video ── */
-.tix-ep-video {
-    margin-bottom: var(--ep-gap);
-}
+/* ══════════════════════════════════════════
+   MAIN: VIDEO
+   ══════════════════════════════════════════ */
+
 .tix-ep-video-wrap {
     position: relative;
     padding-bottom: 56.25%;
@@ -241,15 +306,15 @@
     border: 0;
 }
 
-/* ── Location-Karte ── */
-.tix-ep-location {
-    margin-bottom: var(--ep-gap);
-}
+/* ══════════════════════════════════════════
+   SIDEBAR: LOCATION-KARTE
+   ══════════════════════════════════════════ */
+
 .tix-ep-location-card {
     display: flex;
     align-items: center;
-    gap: 16px;
-    padding: 16px;
+    gap: 12px;
+    padding: 14px;
     background: #f8fafc;
     border: 1px solid var(--ep-border);
     border-radius: var(--ep-radius);
@@ -263,18 +328,18 @@
 }
 .tix-ep-location-icon {
     flex-shrink: 0;
-    width: 48px;
-    height: 48px;
+    width: 40px;
+    height: 40px;
     background: var(--ep-accent);
     color: var(--ep-accent-text);
-    border-radius: 10px;
+    border-radius: 8px;
     display: flex;
     align-items: center;
     justify-content: center;
 }
 .tix-ep-location-icon svg {
-    width: 24px;
-    height: 24px;
+    width: 20px;
+    height: 20px;
 }
 .tix-ep-location-info {
     flex: 1;
@@ -282,12 +347,12 @@
 }
 .tix-ep-location-name {
     font-weight: 700;
-    font-size: 1rem;
-    margin: 0 0 2px;
+    font-size: 0.9rem;
+    margin: 0 0 1px;
 }
 .tix-ep-location-address {
     color: var(--ep-muted);
-    font-size: 0.85rem;
+    font-size: 0.8rem;
     margin: 0;
 }
 .tix-ep-location-arrow {
@@ -299,23 +364,30 @@
     color: var(--ep-muted);
 }
 
-/* ── Organizer-Karte ── */
-.tix-ep-organizer {
-    margin-bottom: var(--ep-gap);
+/* Sidebar-Kontext: Section-Titel kompakter */
+.tix-ep-sidebar .tix-ep-section-title {
+    font-size: 0.95rem;
+    margin-bottom: 10px;
+    padding-bottom: 8px;
 }
+
+/* ══════════════════════════════════════════
+   SIDEBAR: ORGANIZER-KARTE
+   ══════════════════════════════════════════ */
+
 .tix-ep-organizer-card {
     display: flex;
     align-items: center;
-    gap: 14px;
-    padding: 14px 16px;
+    gap: 12px;
+    padding: 14px;
     background: #f8fafc;
     border: 1px solid var(--ep-border);
     border-radius: var(--ep-radius);
 }
 .tix-ep-organizer-avatar {
     flex-shrink: 0;
-    width: 40px;
-    height: 40px;
+    width: 36px;
+    height: 36px;
     background: #e2e8f0;
     border-radius: 50%;
     display: flex;
@@ -329,23 +401,23 @@
     object-fit: cover;
 }
 .tix-ep-organizer-avatar svg {
-    width: 20px;
-    height: 20px;
+    width: 18px;
+    height: 18px;
     color: var(--ep-muted);
 }
 .tix-ep-organizer-name {
     font-weight: 600;
-    font-size: 0.95rem;
+    font-size: 0.9rem;
 }
 .tix-ep-organizer-label {
     color: var(--ep-muted);
-    font-size: 0.8rem;
+    font-size: 0.75rem;
 }
 
-/* ── Serientermine ── */
-.tix-ep-series {
-    margin-bottom: var(--ep-gap);
-}
+/* ══════════════════════════════════════════
+   MAIN: SERIENTERMINE
+   ══════════════════════════════════════════ */
+
 .tix-ep-series-list {
     display: flex;
     flex-direction: column;
@@ -376,7 +448,7 @@
 }
 .tix-ep-series-date {
     flex-shrink: 0;
-    width: 52px;
+    width: 48px;
     text-align: center;
     line-height: 1.2;
 }
@@ -421,37 +493,41 @@
 .tix-ep-series-status--cancelled   { background: #f3f4f6; color: #6b7280; }
 .tix-ep-series-status--postponed   { background: #fef9c3; color: #854d0e; }
 
-/* ── Upsell / FAQ Wrapper ── */
-.tix-ep-upsell,
-.tix-ep-faq {
-    margin-bottom: var(--ep-gap);
-}
+/* ══════════════════════════════════════════
+   SIDEBAR: CALENDAR / FAQ / UPSELL
+   ══════════════════════════════════════════ */
 
-/* ── Calendar Wrapper ── */
 .tix-ep-calendar {
-    margin-bottom: var(--ep-gap);
     display: flex;
     justify-content: center;
 }
 
-/* ── Charity ── */
-.tix-ep-charity {
-    margin-bottom: var(--ep-gap);
+.tix-ep-upsell,
+.tix-ep-faq {
+    /* Main-Content-Bereiche, normaler Margin */
 }
+.tix-ep-upsell {
+    margin-top: var(--ep-gap);
+}
+
+/* ══════════════════════════════════════════
+   SIDEBAR: CHARITY
+   ══════════════════════════════════════════ */
+
 .tix-ep-charity-card {
     display: flex;
     align-items: center;
-    gap: 16px;
-    padding: 16px;
+    gap: 12px;
+    padding: 14px;
     background: linear-gradient(135deg, #fdf2f8, #fce7f3);
     border: 1px solid #f9a8d4;
     border-radius: var(--ep-radius);
 }
 .tix-ep-charity-img {
     flex-shrink: 0;
-    width: 56px;
-    height: 56px;
-    border-radius: 10px;
+    width: 48px;
+    height: 48px;
+    border-radius: 8px;
     object-fit: cover;
 }
 .tix-ep-charity-info {
@@ -459,22 +535,25 @@
 }
 .tix-ep-charity-name {
     font-weight: 700;
-    font-size: 0.95rem;
-    margin: 0 0 4px;
+    font-size: 0.88rem;
+    margin: 0 0 2px;
 }
 .tix-ep-charity-desc {
-    font-size: 0.85rem;
+    font-size: 0.8rem;
     color: #9d174d;
     margin: 0;
 }
 .tix-ep-charity-percent {
     flex-shrink: 0;
-    font-size: 1.4rem;
+    font-size: 1.2rem;
     font-weight: 800;
     color: #be185d;
 }
 
-/* ── Lightbox ── */
+/* ══════════════════════════════════════════
+   LIGHTBOX
+   ══════════════════════════════════════════ */
+
 .tix-ep-lightbox {
     position: fixed;
     inset: 0;
@@ -551,27 +630,65 @@
     font-weight: 500;
 }
 
-/* ── Divider ── */
+/* ══════════════════════════════════════════
+   DIVIDER
+   ══════════════════════════════════════════ */
+
 .tix-ep-divider {
     border: none;
     border-top: 1px solid var(--ep-border);
     margin: var(--ep-gap) 0;
 }
 
-/* ═══ RESPONSIVE ═══ */
+/* ═══════════════════════════════════════════════
+   RESPONSIVE
+   ═══════════════════════════════════════════════ */
 
+/* ── Tablet: <= 900px ── */
+@media (max-width: 900px) {
+    .tix-ep {
+        --ep-sidebar-w: 320px;
+    }
+}
+
+/* ── Mobile: <= 768px → Einspaltig ── */
 @media (max-width: 768px) {
     .tix-ep {
         --ep-gap: 24px;
     }
-    .tix-ep-title {
-        font-size: 1.4rem;
+
+    .tix-ep-grid {
+        grid-template-columns: 1fr;
     }
+
+    /* Reihenfolge: Titel → Sidebar (Meta+Tickets) → Main (Content) */
+    .tix-ep-title-wrap {
+        grid-column: 1;
+        order: 1;
+    }
+    .tix-ep-sidebar {
+        order: 2;
+        margin-bottom: var(--ep-gap);
+    }
+    .tix-ep-main {
+        order: 3;
+    }
+
+    /* Sidebar nicht mehr sticky */
+    .tix-ep-sidebar-inner {
+        position: static;
+    }
+
+    .tix-ep-title {
+        font-size: 1.5rem;
+    }
+
     .tix-ep-gallery-grid {
         grid-template-columns: repeat(2, 1fr);
     }
 }
 
+/* ── Klein-Mobile: <= 480px ── */
 @media (max-width: 480px) {
     .tix-ep {
         --ep-gap: 20px;
@@ -585,7 +702,7 @@
         font-size: 1.25rem;
     }
     .tix-ep-meta-row {
-        font-size: 0.88rem;
+        font-size: 0.85rem;
     }
     .tix-ep-gallery-grid {
         grid-template-columns: repeat(2, 1fr);
@@ -599,6 +716,9 @@
     }
     .tix-ep-location-card {
         padding: 12px;
+    }
+    .tix-ep-header {
+        padding: 14px;
     }
     .tix-ep-lightbox-nav {
         width: 36px;

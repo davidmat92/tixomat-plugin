@@ -51,7 +51,7 @@ class TIX_Settings {
             'font_vat'           => '0.85',
 
             // ── Event-Seite ([tix_event_page]) ──
-            'ep_max_width'       => 720,
+            'ep_max_width'       => 1100,
             'ep_gap'             => 32,
             'ep_radius'          => 12,
             'ep_bg'              => '',       // leer = #fff
@@ -372,7 +372,7 @@ class TIX_Settings {
             $clean[$k] = self::sanitize_color($input[$k] ?? '') ?: '';
         }
         // Event-Seite Zahlen
-        $clean['ep_max_width'] = max(400, min(1200, intval($input['ep_max_width'] ?? 720)));
+        $clean['ep_max_width'] = max(400, min(1600, intval($input['ep_max_width'] ?? 1100)));
         $clean['ep_gap']       = max(12, min(48, intval($input['ep_gap'] ?? 32)));
         $clean['ep_radius']    = max(0, min(24, intval($input['ep_radius'] ?? 12)));
         // Event-Seite Toggles
@@ -779,7 +779,7 @@ class TIX_Settings {
 
         // ── Event-Seite Styles ──
         $ep_vars = [];
-        if ((int)$s['ep_max_width'] !== 720) $ep_vars[] = '--ep-max-w: ' . intval($s['ep_max_width']) . 'px';
+        if ((int)$s['ep_max_width'] !== 1100) $ep_vars[] = '--ep-max-w: ' . intval($s['ep_max_width']) . 'px';
         if ((int)$s['ep_gap'] !== 32)        $ep_vars[] = '--ep-gap: ' . intval($s['ep_gap']) . 'px';
         if ((int)$s['ep_radius'] !== 12)     $ep_vars[] = '--ep-radius: ' . intval($s['ep_radius']) . 'px';
         if (!empty($s['ep_bg']))             $ep_vars[] = '--ep-bg: ' . $s['ep_bg'];
@@ -1619,7 +1619,7 @@ class TIX_Settings {
                                     <div class="tix-card-body">
                                         <p class="tix-settings-hint" style="margin-bottom:12px;">Einstellungen f&uuml;r den <code>[tix_event_page]</code> Shortcode. Steuert Layout, Farben und sichtbare Sektionen der Event-Detailseite.</p>
                                         <div class="tix-field-grid">
-                                            <?php self::range_row('ep_max_width', 'Max. Breite', $s, 400, 1200, 'px', 10); ?>
+                                            <?php self::range_row('ep_max_width', 'Max. Breite', $s, 400, 1600, 'px', 10); ?>
                                             <?php self::range_row('ep_gap', 'Sektions-Abstand', $s, 12, 48, 'px'); ?>
                                             <?php self::range_row('ep_radius', 'Eckenradius', $s, 0, 24, 'px'); ?>
                                         </div>
