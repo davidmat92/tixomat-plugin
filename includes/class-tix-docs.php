@@ -300,6 +300,29 @@ class TIX_Docs {
                 ['_tix_raffle_drawn_at', 'Zeitpunkt der Auslosung', 'Datetime'],
             ]);
 
+            // ── Rabattcodes ──
+            self::meta_card('Rabattcodes', 'dashicons-tag', [
+                ['_tix_discount_codes', 'Rabattcodes (Array von {code, type, amount, limit, expiry, coupon_id})', 'Array'],
+            ]);
+
+            // ── Presale & Warteliste ──
+            self::meta_card('Presale &amp; Warteliste', 'dashicons-clock', [
+                ['_tix_presale_start', 'Vorverkaufsstart (datetime-local Format)', 'Datetime'],
+                ['_tix_waitlist_enabled', 'Warteliste f&uuml;r dieses Event aktiviert', 'Ja/Nein (1/&quot;&quot;)'],
+            ]);
+
+            // ── Feedback ──
+            self::meta_card('Post-Event Feedback', 'dashicons-star-filled', [
+                ['_tix_feedback_avg', 'Durchschnittliche Bewertung (1.0&ndash;5.0, gecacht)', 'Zahl'],
+                ['_tix_feedback_count', 'Anzahl Bewertungen (gecacht)', 'Zahl'],
+            ]);
+
+            // ── Timetable / Programm ──
+            self::meta_card('Programm / Timetable', 'dashicons-calendar-alt', [
+                ['_tix_stages', 'B&uuml;hnen/R&auml;ume (Array von {name, color})', 'Array'],
+                ['_tix_timetable', 'Programm-Slots pro Tag (verschachteltes Array: Datum =&gt; [{time, end, stage, title, desc}])', 'Array'],
+            ]);
+
             // ── Upsell ──
             self::meta_card('Zusatzprodukte', 'dashicons-megaphone', [
                 ['_tix_upsell_events', '&Auml;hnliche Events (IDs) f&uuml;r Zusatzprodukte', 'Array von IDs'],
@@ -694,6 +717,28 @@ class TIX_Docs {
                 ],
                 '[tix_raffle]',
                 '[tix_raffle id="123"]'
+            );
+
+            // ── tix_feedback ──
+            self::shortcode_card(
+                'tix_feedback',
+                'Zeigt das Feedback-Formular (Sterne-Bewertung + Kommentar) f&uuml;r ein Event an. Bei g&uuml;ltigem Token: Formular oder Danke-Nachricht. Ohne Token: &ouml;ffentliche Durchschnittsbewertung. Token wird &uuml;ber die Follow-Up E-Mail generiert.',
+                [
+                    ['id', 'Aktueller Post', 'Event-Post-ID. Muss nur angegeben werden, wenn der Shortcode au&szlig;erhalb der Event-Seite verwendet wird.'],
+                ],
+                '[tix_feedback]',
+                '[tix_feedback id="123"]'
+            );
+
+            // ── tix_timetable ──
+            self::shortcode_card(
+                'tix_timetable',
+                'Zeigt das mehrt&auml;gige Programm / Timetable mit B&uuml;hnen-Grid an. Desktop: CSS-Grid mit Spalten pro B&uuml;hne. Mobil: Listen-Ansicht mit B&uuml;hnen-Filter. Tages-Tabs zum Wechseln zwischen den Veranstaltungstagen. Wird automatisch auf der Event-Seite eingebettet.',
+                [
+                    ['id', 'Aktueller Post', 'Event-Post-ID. Muss nur angegeben werden, wenn der Shortcode au&szlig;erhalb der Event-Seite verwendet wird.'],
+                ],
+                '[tix_timetable]',
+                '[tix_timetable id="123"]'
             );
             ?>
 
@@ -1105,6 +1150,14 @@ class TIX_Docs {
                 ['tix_transfer_save', 'Ticket-Transfer ausf&uuml;hren', 'Frontend'],
                 ['tix_create_location', 'Neue Location per Modal erstellen (Name, Adresse, Beschreibung)', 'Admin'],
                 ['tix_create_organizer', 'Neuen Veranstalter per Modal erstellen (Name, Adresse, Beschreibung)', 'Admin'],
+                ['tix_raffle_enter', 'Gewinnspiel-Teilnahme (Name + E-Mail)', 'Frontend'],
+                ['tix_waitlist_join', 'Warteliste / Presale-Benachrichtigung beitreten', 'Frontend'],
+                ['tix_feedback_submit', 'Feedback absenden (Sterne + Kommentar, Token-validiert)', 'Frontend'],
+            ]);
+
+            // ── Gewinnspiel AJAX ──
+            self::meta_card('Gewinnspiel-AJAX <small>(wp_ajax_)</small>', 'dashicons-tickets', [
+                ['tix_raffle_draw', 'Gewinnspiel manuell auslosen (Admin)', 'Admin'],
             ]);
 
             // ── Ticket-Verwaltung AJAX Endpoints ──
