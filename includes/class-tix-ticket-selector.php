@@ -232,6 +232,13 @@ class TIX_Ticket_Selector {
                                 <span class="tix-sel-price-regular"><?php echo number_format($price, 2, ',', '.'); ?>&nbsp;€</span>
                             <?php endif; ?>
                             <span class="tix-sel-vat"><?php echo esc_html($vat_text); ?></span>
+                            <?php
+                            // ── Low-Stock-Badge ──
+                            $low_threshold = intval(tix_get_settings('low_stock_threshold') ?? 10);
+                            if (!$is_offline && $in_stock && $stock_qty !== null && $stock_qty > 0 && $low_threshold > 0 && $stock_qty <= $low_threshold):
+                            ?>
+                                <span class="tix-sel-low-stock">Nur noch <?php echo intval($stock_qty); ?> verfügbar!</span>
+                            <?php endif; ?>
                         </div>
 
                         <div class="tix-sel-cat-qty">

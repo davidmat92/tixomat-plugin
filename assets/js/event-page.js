@@ -82,13 +82,47 @@
     /* ── Init: Galerie-Items binden ── */
     function init() {
         var grid = document.querySelector('.tix-ep-gallery-grid');
-        if (!grid) return;
-        items = grid.querySelectorAll('.tix-ep-gallery-item');
-        len = items.length;
-        if (len === 0) return;
+        if (grid) {
+            items = grid.querySelectorAll('.tix-ep-gallery-item');
+            len = items.length;
+            if (len > 0) {
+                items.forEach(function (el, i) {
+                    el.addEventListener('click', function () { open(i); });
+                });
+            }
+        }
 
-        items.forEach(function (el, i) {
-            el.addEventListener('click', function () { open(i); });
+        /* ── Share: Link kopieren ── */
+        document.querySelectorAll('.tix-ep-share-copy').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                var url = btn.getAttribute('data-url');
+                if (!url) return;
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(url).then(function () {
+                        btn.classList.add('tix-ep-share-copied');
+                        btn.title = 'Kopiert!';
+                        setTimeout(function () {
+                            btn.classList.remove('tix-ep-share-copied');
+                            btn.title = 'Link kopieren';
+                        }, 2000);
+                    });
+                } else {
+                    /* Fallback: textarea copy */
+                    var ta = document.createElement('textarea');
+                    ta.value = url;
+                    ta.style.cssText = 'position:fixed;left:-9999px';
+                    document.body.appendChild(ta);
+                    ta.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(ta);
+                    btn.classList.add('tix-ep-share-copied');
+                    btn.title = 'Kopiert!';
+                    setTimeout(function () {
+                        btn.classList.remove('tix-ep-share-copied');
+                        btn.title = 'Link kopieren';
+                    }, 2000);
+                }
+            });
         });
     }
 

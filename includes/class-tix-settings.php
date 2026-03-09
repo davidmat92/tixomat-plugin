@@ -71,6 +71,10 @@ class TIX_Settings {
             'ep_show_calendar'   => 1,
             'ep_show_phases'     => 1,
             'ep_show_raffle'     => 1,
+            'ep_show_share'      => 1,
+
+            // ── Ticket-Selektor ──
+            'low_stock_threshold' => 10,  // "Nur noch X verfügbar!" (0=aus)
 
             // ── Ticket-Selektor Texte ──
             'btn_text_buy'       => 'Weiter zur Kasse',
@@ -380,9 +384,12 @@ class TIX_Settings {
         $clean['ep_gap']       = max(12, min(48, intval($input['ep_gap'] ?? 32)));
         $clean['ep_radius']    = max(0, min(24, intval($input['ep_radius'] ?? 12)));
         // Event-Seite Toggles
-        foreach (['ep_show_hero', 'ep_show_gallery', 'ep_show_video', 'ep_show_faq', 'ep_show_location', 'ep_show_organizer', 'ep_show_series', 'ep_show_charity', 'ep_show_upsell', 'ep_show_calendar', 'ep_show_phases', 'ep_show_raffle'] as $k) {
+        foreach (['ep_show_hero', 'ep_show_gallery', 'ep_show_video', 'ep_show_faq', 'ep_show_location', 'ep_show_organizer', 'ep_show_series', 'ep_show_charity', 'ep_show_upsell', 'ep_show_calendar', 'ep_show_phases', 'ep_show_raffle', 'ep_show_share'] as $k) {
             $clean[$k] = !empty($input[$k]) ? 1 : 0;
         }
+
+        // Low-Stock-Schwellenwert
+        $clean['low_stock_threshold'] = max(0, min(999, intval($input['low_stock_threshold'] ?? 10)));
 
         // Kalender-Button Farben
         foreach (['cal_bg', 'cal_text_color', 'cal_border_color', 'cal_hover_bg', 'cal_hover_border', 'cal_hover_text'] as $k) {
@@ -1703,6 +1710,18 @@ class TIX_Settings {
                                             </div>
                                             <div class="tix-field tix-field-full">
                                                 <?php self::checkbox_row('ep_show_raffle', 'Gewinnspiel', $s, 'Zeigt das Gewinnspiel-Formular auf der Event-Seite an, wenn f&uuml;r das Event ein Gewinnspiel aktiviert ist.'); ?>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('ep_show_share', 'Share-Buttons', $s, 'Zeigt Social-Sharing-Buttons (WhatsApp, Facebook, X, E-Mail, Link kopieren) auf der Event-Seite an.'); ?>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <label class="tix-label" for="tix_low_stock_threshold">&bdquo;Letzte X Tickets&ldquo;-Anzeige</label>
+                                                <div style="display:flex;align-items:center;gap:8px;">
+                                                    <input type="number" id="tix_low_stock_threshold" name="tix_settings[low_stock_threshold]"
+                                                           value="<?php echo intval($s['low_stock_threshold'] ?? 10); ?>"
+                                                           min="0" max="999" step="1" class="tix-input" style="width:80px;">
+                                                    <span class="tix-hint" style="margin:0;">Zeigt &bdquo;Nur noch X verf&uuml;gbar!&ldquo; wenn der Bestand unter diesen Wert f&auml;llt. 0 = deaktiviert.</span>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>

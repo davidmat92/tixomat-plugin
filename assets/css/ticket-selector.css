@@ -1089,3 +1089,19 @@
     color: var(--tix-text, inherit);
     opacity: 0.7;
 }
+
+/* ── Low Stock Badge ── */
+.tix-sel-low-stock {
+    display: inline-block;
+    background: #fef2f2;
+    color: #dc2626;
+    font-size: .75rem;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 4px;
+    margin-top: 2px;
+    animation: tix-pulse 2s ease-in-out infinite;
+}
+@keyframes tix-pulse {
+    50% { opacity: .7; }
+}
