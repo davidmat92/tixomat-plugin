@@ -1,63 +1,60 @@
 /* ═══════════════════════════════════════════════════
    Tixomat – Veranstalter Event-Editor (Frontend)
+   Inline-Editor (kein Modal/Overlay)
    ═══════════════════════════════════════════════════ */
 
-/* ── Overlay ── */
-.tix-oe-overlay {
-    position: fixed;
-    inset: 0;
-    background: rgba(15,23,42,0.5);
-    z-index: 9999;
-    display: flex;
-    align-items: flex-start;
-    justify-content: center;
-    padding: 24px;
-    overflow-y: auto;
-    animation: tixOEFadeIn 0.2s ease;
-}
-@keyframes tixOEFadeIn { from { opacity: 0; } to { opacity: 1; } }
-
+/* ── Editor Container (inline im Panel) ── */
 .tix-oe-editor {
     width: 100%;
-    max-width: 960px;
     background: #fff;
+    border: 1px solid #e2e8f0;
     border-radius: 16px;
-    box-shadow: 0 20px 60px rgba(0,0,0,0.15);
-    max-height: calc(100vh - 48px);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
     display: flex;
     flex-direction: column;
-    animation: tixOESlideIn 0.3s ease;
+    animation: tixOESlideIn 0.25s ease;
 }
 @keyframes tixOESlideIn {
-    from { opacity: 0; transform: translateY(16px); }
-    to { opacity: 1; transform: translateY(0); }
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
 }
 
 /* ── Editor Header ── */
 .tix-oe-header {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    gap: 12px;
     padding: 16px 24px;
     border-bottom: 1px solid #e2e8f0;
     flex-shrink: 0;
 }
+.tix-oe-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 12px;
+    border: 1px solid #dfe2e6;
+    border-radius: 8px;
+    background: #fff;
+    color: #64748b;
+    font-size: 13px;
+    font-weight: 550;
+    cursor: pointer;
+    transition: all 0.15s;
+    flex-shrink: 0;
+}
+.tix-oe-back:hover { border-color: #94a3b8; color: #0f172a; background: #f8fafc; }
 .tix-oe-header h3 {
     font-size: 18px;
     font-weight: 700;
     margin: 0;
     color: #0f172a;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
-.tix-oe-close {
-    background: none;
-    border: none;
-    font-size: 24px;
-    cursor: pointer;
-    color: #94a3b8;
-    padding: 4px;
-    line-height: 1;
-}
-.tix-oe-close:hover { color: #0f172a; }
 
 /* ── Editor Tabs ── */
 .tix-oe-tabs {
@@ -87,7 +84,6 @@
 /* ── Editor Body ── */
 .tix-oe-body {
     padding: 24px;
-    overflow-y: auto;
     flex: 1;
 }
 .tix-oe-pane { display: none; }
@@ -129,6 +125,7 @@
     color: #0f172a;
     background: #fff;
     transition: border-color 0.15s;
+    box-sizing: border-box;
 }
 .tix-oe-input:focus,
 .tix-oe-select:focus,
@@ -225,38 +222,6 @@
     display: inline-block;
 }
 
-/* ── Gallery Grid ── */
-.tix-oe-gallery {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
-    gap: 8px;
-    margin-top: 8px;
-}
-.tix-oe-gallery-item {
-    position: relative;
-    border-radius: 8px;
-    overflow: hidden;
-    aspect-ratio: 1;
-}
-.tix-oe-gallery-item img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-}
-.tix-oe-gallery-item .tix-oe-repeater-remove {
-    top: 4px;
-    right: 4px;
-    background: rgba(0,0,0,0.5);
-    color: #fff;
-    border-radius: 50%;
-    width: 24px;
-    height: 24px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 14px;
-}
-
 /* ── Section Divider ── */
 .tix-oe-section {
     font-size: 14px;
@@ -307,10 +272,13 @@
 }
 .tix-oe-wizard-step.done + .tix-oe-wizard-connector { background: #059669; }
 
+/* ── Wiz Panes ── */
+.tix-oe-wiz-pane { display: none; }
+.tix-oe-wiz-pane.active { display: block; }
+
 /* ── Responsive ── */
 @media (max-width: 768px) {
-    .tix-oe-overlay { padding: 12px; }
-    .tix-oe-editor { max-height: calc(100vh - 24px); }
+    .tix-oe-editor { border-radius: 12px; }
     .tix-oe-grid-2, .tix-oe-grid-3 { grid-template-columns: 1fr; }
     .tix-oe-tabs { padding: 0 12px; }
     .tix-oe-body { padding: 16px; }

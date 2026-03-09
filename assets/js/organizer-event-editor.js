@@ -1,38 +1,35 @@
 /**
  * Tixomat – Veranstalter Event-Editor (Frontend JS)
  *
- * Fullscreen-Editor mit Tabs, Repeatern, Media-Upload.
+ * Inline-Editor (kein Modal/Overlay). Wird direkt im Events-Panel
+ * gerendert und ersetzt die Event-Liste.
  */
 (function($) {
     'use strict';
 
     if (typeof tixOD === 'undefined') return;
 
-    var $dash = $('#tix-organizer-dashboard');
+    var $dash   = $('#tix-organizer-dashboard');
+    var $panel  = $('#tix-od-panel-events');
     var eventData = null;
-    var isNew = false;
 
     /* ══════════════════════════════════════════
-     * Editor oeffnen
+     * Editor oeffnen (inline)
      * ══════════════════════════════════════════ */
 
     window.tixOEOpen = function(eventId) {
-        isNew = !eventId;
-
-        if (isNew) {
-            // Wizard fuer neues Event
+        if (!eventId) {
             openWizard();
         } else {
-            // Event laden und Editor oeffnen
             loadEventAndOpen(eventId);
         }
     };
 
     // Hook in Dashboard-Buttons
-    $dash.off('click', '#tix-od-new-event').on('click', '#tix-od-new-event', function() {
+    $dash.off('click.tixoe', '#tix-od-new-event').on('click.tixoe', '#tix-od-new-event', function() {
         tixOEOpen(0);
     });
-    $dash.off('click', '.tix-od-edit-event').on('click', '.tix-od-edit-event', function() {
+    $dash.off('click.tixoe', '.tix-od-edit-event').on('click.tixoe', '.tix-od-edit-event', function() {
         tixOEOpen($(this).data('id'));
     });
 
@@ -41,6 +38,7 @@
      * ══════════════════════════════════════════ */
 
     function loadEventAndOpen(eventId) {
+        showEditorShell('Lade...');
         ajax('tix_od_event_detail', { event_id: eventId }, function(data) {
             eventData = data;
             openEditor(data);
@@ -48,18 +46,52 @@
     }
 
     /* ══════════════════════════════════════════
+     * Panel umschalten: Liste <-> Editor
+     * ══════════════════════════════════════════ */
+
+    function showEditorShell(title) {
+        // Event-Liste + Header ausblenden
+        $panel.find('.tix-od-panel-header, #tix-od-events-list').hide();
+
+        // Editor-Container (falls noch nicht vorhanden)
+        if (!$panel.find('#tix-oe-container').length) {
+            $panel.append('<div id="tix-oe-container"></div>');
+        }
+        var $c = $('#tix-oe-container');
+        $c.html('<div class="tix-oe-editor"><div class="tix-oe-header">'
+            + '<button type="button" class="tix-oe-back"><span class="dashicons dashicons-arrow-left-alt2"></span> Zur\u00fcck</button>'
+            + '<h3>' + escHtml(title) + '</h3></div>'
+            + '<div class="tix-oe-body"><div class="tix-od-loading"><div class="tix-od-spinner"></div></div></div></div>');
+        $c.show();
+
+        // Scroll nach oben
+        $panel[0].scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    function closeEditor() {
+        // Editor entfernen, Liste wieder zeigen
+        $('#tix-oe-container').remove();
+        $panel.find('.tix-od-panel-header, #tix-od-events-list').show();
+
+        // Event-Bindings aufraeumen
+        $(document).off('.tixoe');
+    }
+
+    /* ══════════════════════════════════════════
      * Wizard (3 Schritte fuer neue Events)
      * ══════════════════════════════════════════ */
 
     function openWizard() {
-        // Locations laden
-        ajax('tix_od_event_detail', { event_id: 0 }, function() {
-            // Leerer Aufruf schlaegt fehl, Locations separat holen
-        });
+        $panel.find('.tix-od-panel-header, #tix-od-events-list').hide();
 
-        var html = '<div class="tix-oe-overlay" id="tix-oe-overlay">'
-            + '<div class="tix-oe-editor">'
-            + '<div class="tix-oe-header"><h3>Neues Event erstellen</h3><button type="button" class="tix-oe-close">&times;</button></div>'
+        if (!$panel.find('#tix-oe-container').length) {
+            $panel.append('<div id="tix-oe-container"></div>');
+        }
+
+        var html = '<div class="tix-oe-editor">'
+            + '<div class="tix-oe-header">'
+            + '<button type="button" class="tix-oe-back"><span class="dashicons dashicons-arrow-left-alt2"></span> Zur\u00fcck</button>'
+            + '<h3>Neues Event erstellen</h3></div>'
 
             + '<div class="tix-oe-body">'
             + '<div class="tix-oe-wizard-steps">'
@@ -88,7 +120,7 @@
             + '<div class="tix-oe-wiz-pane" data-wiz-step="2">'
             + '<div class="tix-oe-section">Ticket-Kategorien</div>'
             + '<div id="tix-oe-wiz-tickets" class="tix-oe-repeater"></div>'
-            + '<button type="button" class="tix-oe-repeater-add" id="tix-oe-wiz-add-ticket"><span class="dashicons dashicons-plus-alt2"></span> Ticket hinzuf&uuml;gen</button>'
+            + '<button type="button" class="tix-oe-repeater-add" id="tix-oe-wiz-add-ticket"><span class="dashicons dashicons-plus-alt2"></span> Ticket hinzuf\u00fcgen</button>'
             + '</div>'
 
             // Step 3: Zusammenfassung
@@ -96,7 +128,7 @@
             + '<div style="text-align:center;padding:24px 0;">'
             + '<span style="font-size:48px;">&#127881;</span>'
             + '<h3 style="margin:12px 0 4px;">Fast fertig!</h3>'
-            + '<p style="color:#64748b;">Pr&uuml;fe die Daten und erstelle dein Event. Du kannst danach alles bearbeiten.</p>'
+            + '<p style="color:#64748b;">Pr\u00fcfe die Daten und erstelle dein Event. Du kannst danach alles bearbeiten.</p>'
             + '<div id="tix-oe-wiz-summary" style="text-align:left;max-width:400px;margin:16px auto;"></div>'
             + '</div>'
             + '</div>'
@@ -104,46 +136,48 @@
             + '</div>'
 
             + '<div class="tix-oe-footer">'
-            + '<button type="button" class="tix-od-btn tix-od-btn-secondary" id="tix-oe-wiz-prev" style="display:none">Zur&uuml;ck</button>'
+            + '<button type="button" class="tix-od-btn tix-od-btn-secondary" id="tix-oe-wiz-prev" style="display:none">Zur\u00fcck</button>'
             + '<button type="button" class="tix-od-btn tix-od-btn-primary" id="tix-oe-wiz-next">Weiter</button>'
             + '</div>'
-            + '</div></div>';
+            + '</div>';
 
-        $('body').append(html);
+        $('#tix-oe-container').html(html).show();
 
         // Ein erstes Ticket hinzufuegen
         addTicketRow('#tix-oe-wiz-tickets');
 
         bindWizardEvents();
+
+        $panel[0].scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
     function bindWizardEvents() {
         var currentStep = 1;
-        var totalSteps = 3;
+        var totalSteps  = 3;
+
+        // Back-Button
+        $(document).off('click.tixoe_back').on('click.tixoe_back', '.tix-oe-back', function() {
+            closeEditor();
+        });
 
         $(document).off('click.tixoe_wiz').on('click.tixoe_wiz', '#tix-oe-wiz-next', function() {
             if (currentStep === 1) {
-                // Validierung
                 var title = $('#tix-oe-wiz-title').val().trim();
                 var dateStart = $('#tix-oe-wiz-date-start').val();
                 var timeStart = $('#tix-oe-wiz-time-start').val();
-                if (!title) { showToast('Bitte gib einen Titel ein.', 'error'); return; }
+                if (!title)     { showToast('Bitte gib einen Titel ein.', 'error'); return; }
                 if (!dateStart) { showToast('Bitte w\u00e4hle ein Startdatum.', 'error'); return; }
                 if (!timeStart) { showToast('Bitte gib eine Startzeit ein.', 'error'); return; }
             }
             if (currentStep === 2) {
-                // Mindestens 1 Ticket
                 var hasTicket = false;
                 $('#tix-oe-wiz-tickets .tix-oe-repeater-item').each(function() {
                     if ($(this).find('.tix-oe-tk-name').val().trim()) hasTicket = true;
                 });
                 if (!hasTicket) { showToast('Bitte erstelle mindestens eine Ticket-Kategorie.', 'error'); return; }
-
-                // Zusammenfassung
                 buildWizSummary();
             }
             if (currentStep === totalSteps) {
-                // Event erstellen
                 createEventFromWizard();
                 return;
             }
@@ -155,19 +189,10 @@
             if (currentStep > 1) { currentStep--; updateWizSteps(currentStep); }
         });
 
-        // Ticket hinzufuegen
         $(document).off('click.tixoe_wiz_addtk').on('click.tixoe_wiz_addtk', '#tix-oe-wiz-add-ticket', function() {
             addTicketRow('#tix-oe-wiz-tickets');
         });
 
-        // Close
-        $(document).off('click.tixoe_close').on('click.tixoe_close', '.tix-oe-close, .tix-oe-overlay', function(e) {
-            if (e.target === this || $(e.target).hasClass('tix-oe-close')) {
-                closeEditor();
-            }
-        });
-
-        // Ticket entfernen
         $(document).off('click.tixoe_remtk').on('click.tixoe_remtk', '.tix-oe-repeater-remove', function() {
             $(this).closest('.tix-oe-repeater-item').remove();
         });
@@ -188,15 +213,15 @@
     }
 
     function buildWizSummary() {
-        var title = $('#tix-oe-wiz-title').val();
+        var title     = $('#tix-oe-wiz-title').val();
         var dateStart = $('#tix-oe-wiz-date-start').val();
         var timeStart = $('#tix-oe-wiz-time-start').val();
-        var tickets = [];
+        var tickets   = [];
         $('#tix-oe-wiz-tickets .tix-oe-repeater-item').each(function() {
             var n = $(this).find('.tix-oe-tk-name').val();
             var p = $(this).find('.tix-oe-tk-price').val();
             var q = $(this).find('.tix-oe-tk-qty').val();
-            if (n) tickets.push(n + ' – ' + p + ' € × ' + q);
+            if (n) tickets.push(n + ' \u2013 ' + p + ' \u20ac \u00d7 ' + q);
         });
 
         var html = '<div style="background:#f8fafc;padding:16px;border-radius:8px;border:1px solid #e2e8f0;">'
@@ -222,15 +247,14 @@
         });
 
         var params = {
-            title:       $('#tix-oe-wiz-title').val(),
-            date_start:  $('#tix-oe-wiz-date-start').val(),
-            date_end:    $('#tix-oe-wiz-date-end').val(),
-            time_start:  $('#tix-oe-wiz-time-start').val(),
-            time_end:    $('#tix-oe-wiz-time-end').val(),
-            time_doors:  $('#tix-oe-wiz-time-doors').val(),
+            title:      $('#tix-oe-wiz-title').val(),
+            date_start: $('#tix-oe-wiz-date-start').val(),
+            date_end:   $('#tix-oe-wiz-date-end').val(),
+            time_start: $('#tix-oe-wiz-time-start').val(),
+            time_end:   $('#tix-oe-wiz-time-end').val(),
+            time_doors: $('#tix-oe-wiz-time-doors').val(),
         };
 
-        // Tickets als Array serialisieren
         ticketCats.forEach(function(tc, i) {
             Object.keys(tc).forEach(function(k) {
                 params['ticket_categories[' + i + '][' + k + ']'] = tc[k];
@@ -240,26 +264,25 @@
         ajax('tix_od_save_event', params, function(data) {
             closeEditor();
             showToast('Event erstellt!', 'success');
-            // Events-Liste neu laden
             if (window.tixODReloadEvents) window.tixODReloadEvents();
         });
     }
 
     /* ══════════════════════════════════════════
-     * Vollständiger Editor (Bearbeiten)
+     * Vollstaendiger Editor (Bearbeiten) – inline
      * ══════════════════════════════════════════ */
 
     function openEditor(data) {
         var tabs = [
-            { key: 'basics', label: 'Grunddaten', icon: 'calendar-alt' },
-            { key: 'info', label: 'Info', icon: 'info' },
-            { key: 'tickets', label: 'Tickets', icon: 'tickets-alt' },
-            { key: 'media', label: 'Medien', icon: 'format-gallery' },
-            { key: 'faq', label: 'FAQ', icon: 'editor-help' },
-            { key: 'discounts', label: 'Rabattcodes', icon: 'tag' },
-            { key: 'raffle', label: 'Gewinnspiel', icon: 'tickets' },
-            { key: 'timetable', label: 'Programm', icon: 'schedule' },
-            { key: 'presale', label: 'Vorverkauf', icon: 'clock' },
+            { key: 'basics',    label: 'Grunddaten',   icon: 'calendar-alt' },
+            { key: 'info',      label: 'Info',         icon: 'info' },
+            { key: 'tickets',   label: 'Tickets',      icon: 'tickets-alt' },
+            { key: 'media',     label: 'Medien',       icon: 'format-gallery' },
+            { key: 'faq',       label: 'FAQ',          icon: 'editor-help' },
+            { key: 'discounts', label: 'Rabattcodes',  icon: 'tag' },
+            { key: 'raffle',    label: 'Gewinnspiel',  icon: 'tickets' },
+            { key: 'timetable', label: 'Programm',     icon: 'schedule' },
+            { key: 'presale',   label: 'Vorverkauf',   icon: 'clock' },
         ];
 
         var tabsHtml = '';
@@ -268,9 +291,10 @@
                 + '<span class="dashicons dashicons-' + t.icon + '"></span> ' + t.label + '</button>';
         });
 
-        var html = '<div class="tix-oe-overlay" id="tix-oe-overlay">'
-            + '<div class="tix-oe-editor">'
-            + '<div class="tix-oe-header"><h3>' + escHtml(data.title) + ' bearbeiten</h3><button type="button" class="tix-oe-close">&times;</button></div>'
+        var html = '<div class="tix-oe-editor">'
+            + '<div class="tix-oe-header">'
+            + '<button type="button" class="tix-oe-back"><span class="dashicons dashicons-arrow-left-alt2"></span> Zur\u00fcck</button>'
+            + '<h3>' + escHtml(data.title) + ' bearbeiten</h3></div>'
             + '<div class="tix-oe-tabs">' + tabsHtml + '</div>'
             + '<div class="tix-oe-body">'
             + buildBasicsPane(data)
@@ -284,19 +308,21 @@
             + buildPresalePane(data)
             + '</div>'
             + '<div class="tix-oe-footer">'
-            + '<button type="button" class="tix-od-btn tix-od-btn-secondary tix-oe-close">Abbrechen</button>'
+            + '<button type="button" class="tix-od-btn tix-od-btn-secondary tix-oe-back">Abbrechen</button>'
             + '<button type="button" class="tix-od-btn tix-od-btn-primary" id="tix-oe-save">Speichern</button>'
             + '</div>'
-            + '</div></div>';
+            + '</div>';
 
-        $('body').append(html);
+        $('#tix-oe-container').html(html).show();
         bindEditorEvents(data);
+
+        $panel[0].scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
     /* ── Tab-Pane Builders ── */
 
     function buildBasicsPane(d) {
-        var locOptions = '<option value="0">– Keine Location –</option>';
+        var locOptions = '<option value="0">\u2013 Keine Location \u2013</option>';
         if (d.locations) {
             d.locations.forEach(function(l) {
                 var sel = l.id === d.location_id ? ' selected' : '';
@@ -329,7 +355,7 @@
         return '<div class="tix-oe-pane" data-oe-pane="info">'
             + field('Kurzbeschreibung', '<textarea class="tix-oe-textarea" id="tix-oe-short-desc" rows="2">' + escHtml(d.short_description || '') + '</textarea>')
             + field('Beschreibung', '<textarea class="tix-oe-textarea" id="tix-oe-description" rows="6">' + escHtml(d.description || '') + '</textarea>')
-            + field('K&uuml;nstler / Artist', '<textarea class="tix-oe-textarea" id="tix-oe-artist" rows="3">' + escHtml(d.artist_description || '') + '</textarea>')
+            + field('K\u00fcnstler / Artist', '<textarea class="tix-oe-textarea" id="tix-oe-artist" rows="3">' + escHtml(d.artist_description || '') + '</textarea>')
             + '</div>';
     }
 
@@ -339,12 +365,12 @@
             + '<div class="tix-oe-section">Ticket-Kategorien</div>'
             + '<div id="tix-oe-tickets" class="tix-oe-repeater">';
 
-        cats.forEach(function(c, i) {
-            html += ticketRowHtml(c, i);
+        cats.forEach(function(c) {
+            html += ticketRowHtml(c);
         });
 
         html += '</div>'
-            + '<button type="button" class="tix-oe-repeater-add" id="tix-oe-add-ticket"><span class="dashicons dashicons-plus-alt2"></span> Ticket hinzuf&uuml;gen</button>'
+            + '<button type="button" class="tix-oe-repeater-add" id="tix-oe-add-ticket"><span class="dashicons dashicons-plus-alt2"></span> Ticket hinzuf\u00fcgen</button>'
             + '</div>';
         return html;
     }
@@ -369,9 +395,9 @@
     function buildFaqPane(d) {
         var faqs = d.faq || [];
         var html = '<div class="tix-oe-pane" data-oe-pane="faq">'
-            + '<div class="tix-oe-section">H&auml;ufig gestellte Fragen</div>'
+            + '<div class="tix-oe-section">H\u00e4ufig gestellte Fragen</div>'
             + '<div id="tix-oe-faq" class="tix-oe-repeater">';
-        faqs.forEach(function(f, i) {
+        faqs.forEach(function(f) {
             html += '<div class="tix-oe-repeater-item">'
                 + '<button type="button" class="tix-oe-repeater-remove">&times;</button>'
                 + field('Frage', '<input type="text" class="tix-oe-input tix-oe-faq-q" value="' + escAttr(f.q || '') + '">')
@@ -379,7 +405,7 @@
                 + '</div>';
         });
         html += '</div>'
-            + '<button type="button" class="tix-oe-repeater-add" id="tix-oe-add-faq"><span class="dashicons dashicons-plus-alt2"></span> FAQ hinzuf&uuml;gen</button>'
+            + '<button type="button" class="tix-oe-repeater-add" id="tix-oe-add-faq"><span class="dashicons dashicons-plus-alt2"></span> FAQ hinzuf\u00fcgen</button>'
             + '</div>';
         return html;
     }
@@ -393,7 +419,7 @@
             html += discountRowHtml(dc);
         });
         html += '</div>'
-            + '<button type="button" class="tix-oe-repeater-add" id="tix-oe-add-discount"><span class="dashicons dashicons-plus-alt2"></span> Rabattcode hinzuf&uuml;gen</button>'
+            + '<button type="button" class="tix-oe-repeater-add" id="tix-oe-add-discount"><span class="dashicons dashicons-plus-alt2"></span> Rabattcode hinzuf\u00fcgen</button>'
             + '</div>';
         return html;
     }
@@ -421,7 +447,7 @@
                 + '</div></div>';
         });
         html += '</div>'
-            + '<button type="button" class="tix-oe-repeater-add" id="tix-oe-add-prize"><span class="dashicons dashicons-plus-alt2"></span> Preis hinzuf&uuml;gen</button>'
+            + '<button type="button" class="tix-oe-repeater-add" id="tix-oe-add-prize"><span class="dashicons dashicons-plus-alt2"></span> Preis hinzuf\u00fcgen</button>'
             + '</div>'
             + '</div>';
         return html;
@@ -429,9 +455,8 @@
 
     function buildTimetablePane(d) {
         var stages = d.stages || [];
-        var tt = d.timetable || {};
         var html = '<div class="tix-oe-pane" data-oe-pane="timetable">'
-            + '<div class="tix-oe-section">B&uuml;hnen / R&auml;ume</div>'
+            + '<div class="tix-oe-section">B\u00fchnen / R\u00e4ume</div>'
             + '<div id="tix-oe-stages" class="tix-oe-repeater">';
         stages.forEach(function(s) {
             html += '<div class="tix-oe-repeater-item">'
@@ -442,16 +467,16 @@
                 + '</div></div>';
         });
         html += '</div>'
-            + '<button type="button" class="tix-oe-repeater-add" id="tix-oe-add-stage"><span class="dashicons dashicons-plus-alt2"></span> B&uuml;hne hinzuf&uuml;gen</button>'
+            + '<button type="button" class="tix-oe-repeater-add" id="tix-oe-add-stage"><span class="dashicons dashicons-plus-alt2"></span> B\u00fchne hinzuf\u00fcgen</button>'
             + '<div class="tix-oe-section" style="margin-top:24px">Programm-Slots</div>'
-            + '<p style="color:#94a3b8;font-size:13px;">Programm-Slots k&ouml;nnen aktuell &uuml;ber den Admin verwaltet werden. Frontend-Editor folgt in einem sp&auml;teren Update.</p>'
+            + '<p style="color:#94a3b8;font-size:13px;">Programm-Slots k\u00f6nnen aktuell \u00fcber den Admin verwaltet werden. Frontend-Editor folgt in einem sp\u00e4teren Update.</p>'
             + '</div>';
         return html;
     }
 
     function buildPresalePane(d) {
         var active = d.presale_active === '1' ? 'checked' : '';
-        var wl = d.waitlist_enabled === '1' ? 'checked' : '';
+        var wl     = d.waitlist_enabled === '1' ? 'checked' : '';
         return '<div class="tix-oe-pane" data-oe-pane="presale">'
             + '<div class="tix-oe-checkbox-row"><input type="checkbox" id="tix-oe-presale-active" ' + active + '> <label for="tix-oe-presale-active">Vorverkauf aktivieren</label></div>'
             + '<div id="tix-oe-presale-fields"' + (active ? '' : ' style="display:none"') + '>'
@@ -468,30 +493,30 @@
         return '<div class="tix-oe-row"><label class="tix-oe-label">' + label + '</label>' + inputHtml + '</div>';
     }
 
-    function ticketRowHtml(c, i) {
+    function ticketRowHtml(c) {
         c = c || {};
         return '<div class="tix-oe-repeater-item">'
             + '<button type="button" class="tix-oe-repeater-remove">&times;</button>'
             + '<div class="tix-oe-grid-3">'
             + field('Name', '<input type="text" class="tix-oe-input tix-oe-tk-name" value="' + escAttr(c.name || '') + '" placeholder="z.B. Standard">')
-            + field('Preis (&euro;)', '<input type="number" class="tix-oe-input tix-oe-tk-price" value="' + (c.price || '') + '" min="0" step="0.01">')
+            + field('Preis (\u20ac)', '<input type="number" class="tix-oe-input tix-oe-tk-price" value="' + (c.price || '') + '" min="0" step="0.01">')
             + field('Menge', '<input type="number" class="tix-oe-input tix-oe-tk-qty" value="' + (c.qty || '') + '" min="0">')
             + '</div>'
             + '<div class="tix-oe-grid-2">'
-            + field('Sale-Preis (&euro;)', '<input type="number" class="tix-oe-input tix-oe-tk-sale" value="' + (c.sale_price || '') + '" min="0" step="0.01">')
+            + field('Sale-Preis (\u20ac)', '<input type="number" class="tix-oe-input tix-oe-tk-sale" value="' + (c.sale_price || '') + '" min="0" step="0.01">')
             + field('Beschreibung', '<input type="text" class="tix-oe-input tix-oe-tk-desc" value="' + escAttr(c.desc || '') + '" placeholder="Optional">')
             + '</div>'
             + '</div>';
     }
 
     function addTicketRow(container) {
-        $(container).append(ticketRowHtml({}, 0));
+        $(container).append(ticketRowHtml({}));
     }
 
     function discountRowHtml(dc) {
         dc = dc || {};
         var typeOpts = '<option value="percent"' + (dc.type === 'percent' ? ' selected' : '') + '>Prozent (%)</option>'
-            + '<option value="fixed_cart"' + (dc.type === 'fixed_cart' ? ' selected' : '') + '>Festbetrag (&euro;)</option>';
+            + '<option value="fixed_cart"' + (dc.type === 'fixed_cart' ? ' selected' : '') + '>Festbetrag (\u20ac)</option>';
         return '<div class="tix-oe-repeater-item">'
             + '<button type="button" class="tix-oe-repeater-remove">&times;</button>'
             + '<input type="hidden" class="tix-oe-dc-coupon-id" value="' + (dc.coupon_id || 0) + '">'
@@ -521,13 +546,9 @@
             $('[data-oe-pane="' + tab + '"]').addClass('active');
         });
 
-        // Close
-        $(document).off('click.tixoe_close').on('click.tixoe_close', '.tix-oe-close', function(e) {
-            e.stopPropagation();
+        // Back / Close
+        $(document).off('click.tixoe_back').on('click.tixoe_back', '.tix-oe-back', function() {
             closeEditor();
-        });
-        $(document).off('click.tixoe_overlay').on('click.tixoe_overlay', '.tix-oe-overlay', function(e) {
-            if ($(e.target).hasClass('tix-oe-overlay')) closeEditor();
         });
 
         // Repeater: Add
@@ -621,11 +642,6 @@
         $(document).off('click.tixoe_save').on('click.tixoe_save', '#tix-oe-save', function() {
             saveEvent(data.id);
         });
-
-        // ESC
-        $(document).off('keydown.tixoe_esc').on('keydown.tixoe_esc', function(e) {
-            if (e.key === 'Escape') closeEditor();
-        });
     }
 
     /* ══════════════════════════════════════════
@@ -634,39 +650,39 @@
 
     function saveEvent(eventId) {
         var params = {
-            event_id:    eventId,
-            title:       $('#tix-oe-title').val(),
-            date_start:  $('#tix-oe-date-start').val(),
-            date_end:    $('#tix-oe-date-end').val(),
-            time_start:  $('#tix-oe-time-start').val(),
-            time_end:    $('#tix-oe-time-end').val(),
-            time_doors:  $('#tix-oe-time-doors').val(),
-            location_id: $('#tix-oe-location').val(),
-            event_status: $('#tix-oe-status').val(),
+            event_id:          eventId,
+            title:             $('#tix-oe-title').val(),
+            date_start:        $('#tix-oe-date-start').val(),
+            date_end:          $('#tix-oe-date-end').val(),
+            time_start:        $('#tix-oe-time-start').val(),
+            time_end:          $('#tix-oe-time-end').val(),
+            time_doors:        $('#tix-oe-time-doors').val(),
+            location_id:       $('#tix-oe-location').val(),
+            event_status:      $('#tix-oe-status').val(),
             short_description: $('#tix-oe-short-desc').val(),
-            description: $('#tix-oe-description').val(),
+            description:       $('#tix-oe-description').val(),
             artist_description: $('#tix-oe-artist').val(),
-            video_url:   $('#tix-oe-video-url').val(),
-            featured_image: $('#tix-oe-featured-upload').data('image-id') || 0,
-            presale_active: $('#tix-oe-presale-active').is(':checked') ? 1 : 0,
-            presale_start: $('#tix-oe-presale-start').val(),
-            waitlist_enabled: $('#tix-oe-waitlist').is(':checked') ? 1 : 0,
-            raffle_enabled: $('#tix-oe-raffle-enabled').is(':checked') ? 1 : 0,
-            raffle_title: $('#tix-oe-raffle-title').val(),
+            video_url:         $('#tix-oe-video-url').val(),
+            featured_image:    $('#tix-oe-featured-upload').data('image-id') || 0,
+            presale_active:    $('#tix-oe-presale-active').is(':checked') ? 1 : 0,
+            presale_start:     $('#tix-oe-presale-start').val(),
+            waitlist_enabled:  $('#tix-oe-waitlist').is(':checked') ? 1 : 0,
+            raffle_enabled:    $('#tix-oe-raffle-enabled').is(':checked') ? 1 : 0,
+            raffle_title:      $('#tix-oe-raffle-title').val(),
             raffle_description: $('#tix-oe-raffle-desc').val(),
-            raffle_end_date: $('#tix-oe-raffle-end').val(),
+            raffle_end_date:   $('#tix-oe-raffle-end').val(),
             raffle_max_entries: $('#tix-oe-raffle-max').val(),
         };
 
         // Ticket-Kategorien
         $('#tix-oe-tickets .tix-oe-repeater-item').each(function(i) {
             var $item = $(this);
-            params['ticket_categories[' + i + '][name]'] = $item.find('.tix-oe-tk-name').val();
-            params['ticket_categories[' + i + '][price]'] = $item.find('.tix-oe-tk-price').val();
-            params['ticket_categories[' + i + '][qty]'] = $item.find('.tix-oe-tk-qty').val();
+            params['ticket_categories[' + i + '][name]']       = $item.find('.tix-oe-tk-name').val();
+            params['ticket_categories[' + i + '][price]']      = $item.find('.tix-oe-tk-price').val();
+            params['ticket_categories[' + i + '][qty]']        = $item.find('.tix-oe-tk-qty').val();
             params['ticket_categories[' + i + '][sale_price]'] = $item.find('.tix-oe-tk-sale').val();
-            params['ticket_categories[' + i + '][desc]'] = $item.find('.tix-oe-tk-desc').val();
-            params['ticket_categories[' + i + '][online]'] = 1;
+            params['ticket_categories[' + i + '][desc]']       = $item.find('.tix-oe-tk-desc').val();
+            params['ticket_categories[' + i + '][online]']     = 1;
         });
 
         // FAQ
@@ -678,13 +694,13 @@
         // Raffle Prizes
         $('#tix-oe-raffle-prizes .tix-oe-repeater-item').each(function(i) {
             params['raffle_prizes[' + i + '][name]'] = $(this).find('.tix-oe-prize-name').val();
-            params['raffle_prizes[' + i + '][qty]'] = $(this).find('.tix-oe-prize-qty').val();
+            params['raffle_prizes[' + i + '][qty]']  = $(this).find('.tix-oe-prize-qty').val();
             params['raffle_prizes[' + i + '][type]'] = 'text';
         });
 
         // Stages
         $('#tix-oe-stages .tix-oe-repeater-item').each(function(i) {
-            params['stages[' + i + '][name]'] = $(this).find('.tix-oe-stage-name').val();
+            params['stages[' + i + '][name]']  = $(this).find('.tix-oe-stage-name').val();
             params['stages[' + i + '][color]'] = $(this).find('.tix-oe-stage-color').val();
         });
 
@@ -696,31 +712,15 @@
     }
 
     /* ══════════════════════════════════════════
-     * Editor schliessen
-     * ══════════════════════════════════════════ */
-
-    function closeEditor() {
-        $('#tix-oe-overlay').remove();
-        // Event-Bindings aufraumen
-        $(document).off('.tixoe_tab .tixoe_close .tixoe_overlay .tixoe_save .tixoe_esc');
-        $(document).off('.tixoe_addtk .tixoe_addfaq .tixoe_adddc .tixoe_addprize .tixoe_addstage .tixoe_rem');
-        $(document).off('.tixoe_raffle .tixoe_presale .tixoe_upload .tixoe_remimg');
-        $(document).off('.tixoe_wiz .tixoe_wiz_prev .tixoe_wiz_addtk .tixoe_remtk');
-    }
-
-    /* ══════════════════════════════════════════
      * Reload-Hook fuer Dashboard
      * ══════════════════════════════════════════ */
 
     window.tixODReloadEvents = function() {
-        // Cache invalidieren und Events neu laden
         var $tab = $dash.find('[data-tab="events"]').filter('.tix-od-tab');
         if ($tab.hasClass('active')) {
             var $list = $('#tix-od-events-list');
             $list.html('<div class="tix-od-loading"><div class="tix-od-spinner"></div></div>');
             ajax('tix_od_events', {}, function(data) {
-                // Reuse loadEvents logic from organizer-dashboard.js
-                // Trigger a custom event that organizer-dashboard.js listens for
                 $(document).trigger('tix-od-events-reload', [data]);
             });
         }
