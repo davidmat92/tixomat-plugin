@@ -40,8 +40,8 @@ $TIX_COLORS = [
 // ============================================================
 // WC AJAX
 // ============================================================
-add_action('wp_ajax_tix_get_cart', 'tix_ajax_get_cart');
-add_action('wp_ajax_nopriv_tix_get_cart', 'tix_ajax_get_cart');
+add_action('wp_ajax_tix_bot_get_cart', 'tix_ajax_get_cart');
+add_action('wp_ajax_nopriv_tix_bot_get_cart', 'tix_ajax_get_cart');
 function tix_ajax_get_cart() {
     if (!function_exists('WC') || !WC()->cart) wp_send_json(['ok'=>false]);
     $items = []; $total = 0;
@@ -60,8 +60,8 @@ function tix_ajax_get_cart() {
         'total'=>round($total,2),'cart_url'=>wc_get_cart_url(),'checkout_url'=>wc_get_checkout_url()]);
 }
 
-add_action('wp_ajax_tix_add_to_cart', 'tix_ajax_add_to_cart');
-add_action('wp_ajax_nopriv_tix_add_to_cart', 'tix_ajax_add_to_cart');
+add_action('wp_ajax_tix_bot_add_to_cart', 'tix_ajax_add_to_cart');
+add_action('wp_ajax_nopriv_tix_bot_add_to_cart', 'tix_ajax_add_to_cart');
 function tix_ajax_add_to_cart() {
     if (!function_exists('WC') || !WC()->cart) wp_send_json(['ok'=>false]);
     $pid = absint($_POST['product_id']??0);
@@ -73,8 +73,8 @@ function tix_ajax_add_to_cart() {
     if ($r) tix_ajax_get_cart(); else wp_send_json(['ok'=>false]);
 }
 
-add_action('wp_ajax_tix_add_batch', 'tix_ajax_add_batch');
-add_action('wp_ajax_nopriv_tix_add_batch', 'tix_ajax_add_batch');
+add_action('wp_ajax_tix_bot_add_batch', 'tix_ajax_add_batch');
+add_action('wp_ajax_nopriv_tix_bot_add_batch', 'tix_ajax_add_batch');
 function tix_ajax_add_batch() {
     if (!function_exists('WC') || !WC()->cart) wp_send_json(['ok'=>false]);
     $items = json_decode(stripslashes($_POST['items']??''),true);
@@ -88,8 +88,8 @@ function tix_ajax_add_batch() {
     tix_ajax_get_cart();
 }
 
-add_action('wp_ajax_tix_remove_from_cart', 'tix_ajax_remove_from_cart');
-add_action('wp_ajax_nopriv_tix_remove_from_cart', 'tix_ajax_remove_from_cart');
+add_action('wp_ajax_tix_bot_remove_from_cart', 'tix_ajax_remove_from_cart');
+add_action('wp_ajax_nopriv_tix_bot_remove_from_cart', 'tix_ajax_remove_from_cart');
 function tix_ajax_remove_from_cart() {
     if (!function_exists('WC') || !WC()->cart) wp_send_json(['ok'=>false]);
     $pid = absint($_POST['product_id']??0);
@@ -102,8 +102,8 @@ function tix_ajax_remove_from_cart() {
     tix_ajax_get_cart();
 }
 
-add_action('wp_ajax_tix_clear_cart', 'tix_ajax_clear_cart');
-add_action('wp_ajax_nopriv_tix_clear_cart', 'tix_ajax_clear_cart');
+add_action('wp_ajax_tix_bot_clear_cart', 'tix_ajax_clear_cart');
+add_action('wp_ajax_nopriv_tix_bot_clear_cart', 'tix_ajax_clear_cart');
 function tix_ajax_clear_cart() {
     if (!function_exists('WC') || !WC()->cart) wp_send_json(['ok'=>false]);
     WC()->cart->empty_cart();
@@ -243,7 +243,7 @@ function loadHistory(){
 }
 
 function pollWcCart(){
-  fetch(AJAX+"?action=tix_get_cart",{credentials:"same-origin"})
+  fetch(AJAX+"?action=tix_bot_get_cart",{credentials:"same-origin"})
     .then(r=>r.json()).then(d=>{if(d.ok)renderWcCart(d)}).catch(()=>{});
 }
 function renderWcCart(d){
@@ -255,15 +255,15 @@ function renderWcCart(d){
   }else bar.classList.remove("active");
 }
 function addToWcCart(pid,qty){
-  const fd=new FormData();fd.append("action","tix_add_to_cart");fd.append("product_id",pid);fd.append("quantity",qty);
+  const fd=new FormData();fd.append("action","tix_bot_add_to_cart");fd.append("product_id",pid);fd.append("quantity",qty);
   return fetch(AJAX,{method:"POST",body:fd,credentials:"same-origin"}).then(r=>r.json()).then(d=>{if(d.ok)renderWcCart(d);return d}).catch(()=>({ok:false}));
 }
 function removeFromWcCart(pid){
-  const fd=new FormData();fd.append("action","tix_remove_from_cart");fd.append("product_id",pid);
+  const fd=new FormData();fd.append("action","tix_bot_remove_from_cart");fd.append("product_id",pid);
   return fetch(AJAX,{method:"POST",body:fd,credentials:"same-origin"}).then(r=>r.json()).then(d=>{if(d.ok)renderWcCart(d);return d}).catch(()=>({ok:false}));
 }
 function clearWcCart(){
-  const fd=new FormData();fd.append("action","tix_clear_cart");
+  const fd=new FormData();fd.append("action","tix_bot_clear_cart");
   return fetch(AJAX,{method:"POST",body:fd,credentials:"same-origin"}).then(r=>r.json()).then(d=>{if(d.ok)renderWcCart(d);return d}).catch(()=>({ok:false}));
 }
 async function processWcActions(actions){

@@ -1150,11 +1150,11 @@ class TIX_Docs {
 
             // ── Bot Chat AJAX ──
             self::meta_card('Bot-Chat AJAX-Endpoints <small>(wp_ajax_ / wp_ajax_nopriv_)</small>', 'dashicons-cart', [
-                ['tix_get_cart', 'Aktuellen WC-Warenkorb abfragen (items, count, total, URLs)', 'GET'],
-                ['tix_add_to_cart', 'Produkt hinzuf&uuml;gen (product_id, quantity)', 'POST'],
-                ['tix_add_batch', 'Mehrere Produkte hinzuf&uuml;gen (items: JSON-Array)', 'POST'],
-                ['tix_remove_from_cart', 'Produkt entfernen (product_id)', 'POST'],
-                ['tix_clear_cart', 'Warenkorb leeren', 'POST'],
+                ['tix_bot_get_cart', 'Aktuellen WC-Warenkorb abfragen (items, count, total, URLs)', 'GET'],
+                ['tix_bot_add_to_cart', 'Produkt hinzuf&uuml;gen (product_id, quantity)', 'POST'],
+                ['tix_bot_add_batch', 'Mehrere Produkte hinzuf&uuml;gen (items: JSON-Array)', 'POST'],
+                ['tix_bot_remove_from_cart', 'Produkt entfernen (product_id)', 'POST'],
+                ['tix_bot_clear_cart', 'Warenkorb leeren', 'POST'],
             ]);
 
             // ── Bot Admin AJAX ──
@@ -1454,11 +1454,11 @@ class TIX_Docs {
 
             // ── AJAX Endpoints (WC-Warenkorb) ──
             self::meta_card('AJAX-Endpoints <small>(wp_ajax_ / wp_ajax_nopriv_)</small>', 'dashicons-cart', [
-                ['tix_get_cart', 'Aktuellen WooCommerce-Warenkorb abfragen (items, count, total, URLs)', 'GET'],
-                ['tix_add_to_cart', 'Einzelnes Produkt zum Warenkorb hinzuf&uuml;gen (product_id, quantity)', 'POST'],
-                ['tix_add_batch', 'Mehrere Produkte auf einmal hinzuf&uuml;gen (items als JSON-Array)', 'POST'],
-                ['tix_remove_from_cart', 'Produkt aus Warenkorb entfernen (product_id)', 'POST'],
-                ['tix_clear_cart', 'Gesamten Warenkorb leeren', 'POST'],
+                ['tix_bot_get_cart', 'Aktuellen WooCommerce-Warenkorb abfragen (items, count, total, URLs)', 'GET'],
+                ['tix_bot_add_to_cart', 'Einzelnes Produkt zum Warenkorb hinzuf&uuml;gen (product_id, quantity)', 'POST'],
+                ['tix_bot_add_batch', 'Mehrere Produkte auf einmal hinzuf&uuml;gen (items als JSON-Array)', 'POST'],
+                ['tix_bot_remove_from_cart', 'Produkt aus Warenkorb entfernen (product_id)', 'POST'],
+                ['tix_bot_clear_cart', 'Gesamten Warenkorb leeren', 'POST'],
             ]);
 
             // ── WordPress AJAX (Admin) ──
@@ -1552,7 +1552,7 @@ class TIX_Docs {
 
             // ── Warenkorb-Integration ──
             self::function_card('WooCommerce Warenkorb-Integration', 'dashicons-cart', [
-                'Warenkorb-Status wird alle <strong>15 Sekunden</strong> per AJAX (<code>tix_get_cart</code>) aktualisiert.',
+                'Warenkorb-Status wird alle <strong>15 Sekunden</strong> per AJAX (<code>tix_bot_get_cart</code>) aktualisiert.',
                 'Bot-Antworten k&ouml;nnen <code>wc_actions</code> enthalten &ndash; Array mit Aktionen: <code>add</code>, <code>remove</code>, <code>clear</code> (jeweils <code>product_id</code>, <code>quantity</code>).',
                 'Aktionen werden <strong>sequenziell</strong> &uuml;ber <code>processWcActions()</code> verarbeitet.',
                 'Die <strong>Warenkorb-Leiste</strong> im Chat zeigt Artikelanzahl, Gesamtsumme und &bdquo;Zur Kasse&ldquo;-Button.',
