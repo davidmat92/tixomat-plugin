@@ -143,6 +143,7 @@ class TIX_Ticket_Selector {
                     $has_bundle   = !$is_offline && $bundle_buy >= 2 && $bundle_pay >= 1 && $bundle_pay < $bundle_buy;
 
                     // ── Phase-aware Pricing ──
+                    $original_price = $price; // Hauptpreis sichern für Phase-Timeline
                     $active_phase = null;
                     if (class_exists('TIX_Metabox')) {
                         $active_phase = TIX_Metabox::get_active_phase($cat['phases'] ?? []);
@@ -188,6 +189,38 @@ class TIX_Ticket_Selector {
                             <?php endif; ?>
                             <?php if ($desc): ?>
                                 <div class="tix-sel-cat-desc"><?php echo $desc; ?></div>
+                            <?php endif; ?>
+                            <?php
+                            // ── Phasen-Timeline (alle Phasen + Hauptpreis) ──
+                            $all_phases = $cat['phases'] ?? [];
+                            $ep_s = tix_get_settings();
+                            if (!empty($all_phases) && is_array($all_phases) && !empty($ep_s['ep_show_phases'])):
+                                $now = current_time('Y-m-d');
+                            ?>
+                            <div class="tix-sel-phases-timeline">
+                                <?php foreach ($all_phases as $pi => $ph):
+                                    $ph_name  = $ph['name'] ?? ('Phase ' . ($pi + 1));
+                                    $ph_price = floatval($ph['price'] ?? 0);
+                                    $ph_until = $ph['until'] ?? '';
+                                    $is_active = ($active_phase && ($active_phase['name'] ?? '') === $ph_name && ($active_phase['until'] ?? '') === $ph_until);
+                                    $is_past   = ($ph_until && $now > $ph_until);
+                                    $state_class = $is_active ? 'tix-sel-phase--active' : ($is_past ? 'tix-sel-phase--past' : 'tix-sel-phase--future');
+                                ?>
+                                <div class="tix-sel-phase-item <?php echo $state_class; ?>">
+                                    <span class="tix-sel-phase-dot"></span>
+                                    <span class="tix-sel-phase-name"><?php echo esc_html($ph_name); ?></span>
+                                    <span class="tix-sel-phase-price"><?php echo number_format($ph_price, 2, ',', '.'); ?>&nbsp;&euro;</span>
+                                    <?php if ($ph_until): ?>
+                                        <span class="tix-sel-phase-until">bis <?php echo date_i18n('d.m.Y', strtotime($ph_until)); ?></span>
+                                    <?php endif; ?>
+                                </div>
+                                <?php endforeach; ?>
+                                <div class="tix-sel-phase-item tix-sel-phase--regular <?php echo (!$active_phase ? 'tix-sel-phase--active' : ''); ?>">
+                                    <span class="tix-sel-phase-dot"></span>
+                                    <span class="tix-sel-phase-name">Regul&auml;r</span>
+                                    <span class="tix-sel-phase-price"><?php echo number_format($original_price, 2, ',', '.'); ?>&nbsp;&euro;</span>
+                                </div>
+                            </div>
                             <?php endif; ?>
                         </div>
 

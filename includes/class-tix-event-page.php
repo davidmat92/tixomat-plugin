@@ -75,16 +75,19 @@ class TIX_Event_Page {
        SEKTIONEN
        ════════════════════════════════════ */
 
-    /* ── 1. Hero-Bild ── */
+    /* ── 1. Hero-Bild (immer 16:9) ── */
     private static function render_hero($id) {
+        $s = tix_get_settings();
+        if (empty($s['ep_show_hero'])) return;
+
         $img_url = '';
 
         if (has_post_thumbnail($id)) {
-            $img_url = get_the_post_thumbnail_url($id, 'large');
+            $img_url = get_the_post_thumbnail_url($id, 'full');
         } else {
             $gallery = get_post_meta($id, '_tix_gallery', true);
             if (!empty($gallery) && is_array($gallery)) {
-                $img_url = wp_get_attachment_image_url($gallery[0], 'large');
+                $img_url = wp_get_attachment_image_url($gallery[0], 'full');
             }
         }
 
@@ -220,6 +223,9 @@ class TIX_Event_Page {
 
     /* ── 7. Galerie ── */
     private static function render_gallery($id) {
+        $s = tix_get_settings();
+        if (empty($s['ep_show_gallery'])) return;
+
         $gallery_ids = get_post_meta($id, '_tix_gallery', true);
         if (empty($gallery_ids) || !is_array($gallery_ids)) return;
 
@@ -250,6 +256,9 @@ class TIX_Event_Page {
 
     /* ── 8. Video ── */
     private static function render_video($id) {
+        $s = tix_get_settings();
+        if (empty($s['ep_show_video'])) return;
+
         $url   = get_post_meta($id, '_tix_video_url', true);
         $embed = get_post_meta($id, '_tix_video_embed', true);
         if (empty($url)) return;
@@ -271,6 +280,9 @@ class TIX_Event_Page {
 
     /* ── 10. FAQ ── */
     private static function render_faq($id) {
+        $s = tix_get_settings();
+        if (empty($s['ep_show_faq'])) return;
+
         $faqs = get_post_meta($id, '_tix_faq', true);
         if (empty($faqs) || !is_array($faqs)) return;
 
@@ -292,6 +304,9 @@ class TIX_Event_Page {
 
     /* ── 11. Location ── */
     private static function render_location($id) {
+        $s = tix_get_settings();
+        if (empty($s['ep_show_location'])) return;
+
         $location = get_post_meta($id, '_tix_location', true);
         $address  = get_post_meta($id, '_tix_address', true);
         if (empty($location) && empty($address)) return;
@@ -333,6 +348,9 @@ class TIX_Event_Page {
 
     /* ── Organizer ── */
     private static function render_organizer($id) {
+        $s = tix_get_settings();
+        if (empty($s['ep_show_organizer'])) return;
+
         $organizer = get_post_meta($id, '_tix_organizer', true);
         if (empty($organizer)) return;
 
@@ -362,6 +380,9 @@ class TIX_Event_Page {
 
     /* ── Calendar ── */
     private static function render_calendar($id) {
+        $s = tix_get_settings();
+        if (empty($s['ep_show_calendar'])) return;
+
         $date = get_post_meta($id, '_tix_date_start', true);
         if (empty($date)) return;
 
@@ -376,6 +397,9 @@ class TIX_Event_Page {
 
     /* ── 12. Serientermine ── */
     private static function render_series($id) {
+        $s = tix_get_settings();
+        if (empty($s['ep_show_series'])) return;
+
         $parent_id   = get_post_meta($id, '_tix_series_parent', true);
         $children    = get_post_meta($id, '_tix_series_children', true);
         $is_master   = get_post_meta($id, '_tix_series_enabled', true) === '1';
@@ -443,6 +467,8 @@ class TIX_Event_Page {
 
     /* ── Charity ── */
     private static function render_charity($id) {
+        $s = tix_get_settings();
+        if (empty($s['ep_show_charity'])) return;
         if (get_post_meta($id, '_tix_charity_enabled', true) !== '1') return;
 
         $name    = get_post_meta($id, '_tix_charity_name', true);
@@ -477,6 +503,8 @@ class TIX_Event_Page {
 
     /* ── 13. Upsell ── */
     private static function render_upsell($id) {
+        $s = tix_get_settings();
+        if (empty($s['ep_show_upsell'])) return;
         if (get_post_meta($id, '_tix_upsell_disabled', true) === '1') return;
 
         $settings = tix_get_settings();

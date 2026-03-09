@@ -50,7 +50,27 @@ class TIX_Settings {
             'font_desc'          => '0.85',
             'font_vat'           => '0.85',
 
-            // ── Event-Seite ──
+            // ── Event-Seite ([tix_event_page]) ──
+            'ep_max_width'       => 720,
+            'ep_gap'             => 32,
+            'ep_radius'          => 12,
+            'ep_bg'              => '',       // leer = #fff
+            'ep_text'            => '',       // leer = #1a1a1a
+            'ep_muted'           => '',       // leer = #64748b
+            'ep_border'          => '',       // leer = #e5e7eb
+            'ep_show_hero'       => 1,
+            'ep_show_gallery'    => 1,
+            'ep_show_video'      => 1,
+            'ep_show_faq'        => 1,
+            'ep_show_location'   => 1,
+            'ep_show_organizer'  => 1,
+            'ep_show_series'     => 1,
+            'ep_show_charity'    => 1,
+            'ep_show_upsell'     => 1,
+            'ep_show_calendar'   => 1,
+            'ep_show_phases'     => 1,
+
+            // ── Ticket-Selektor Texte ──
             'btn_text_buy'       => 'Weiter zur Kasse',
             'vat_text_selector'  => 'inkl. MwSt.',
 
@@ -346,6 +366,19 @@ class TIX_Settings {
         $clean['sel_max_width']    = max(0, min(1600, intval($input['sel_max_width'] ?? 0)));
 
 
+
+        // Event-Seite Farben
+        foreach (['ep_bg', 'ep_text', 'ep_muted', 'ep_border'] as $k) {
+            $clean[$k] = self::sanitize_color($input[$k] ?? '') ?: '';
+        }
+        // Event-Seite Zahlen
+        $clean['ep_max_width'] = max(400, min(1200, intval($input['ep_max_width'] ?? 720)));
+        $clean['ep_gap']       = max(12, min(48, intval($input['ep_gap'] ?? 32)));
+        $clean['ep_radius']    = max(0, min(24, intval($input['ep_radius'] ?? 12)));
+        // Event-Seite Toggles
+        foreach (['ep_show_hero', 'ep_show_gallery', 'ep_show_video', 'ep_show_faq', 'ep_show_location', 'ep_show_organizer', 'ep_show_series', 'ep_show_charity', 'ep_show_upsell', 'ep_show_calendar', 'ep_show_phases'] as $k) {
+            $clean[$k] = !empty($input[$k]) ? 1 : 0;
+        }
 
         // Kalender-Button Farben
         foreach (['cal_bg', 'cal_text_color', 'cal_border_color', 'cal_hover_bg', 'cal_hover_border', 'cal_hover_text'] as $k) {
@@ -744,6 +777,19 @@ class TIX_Settings {
             echo ".tix-sel, .tix-co, .tix-up, .tix-faq { background: {$s['shortcode_bg']}; padding: 20px; border-radius: {$sc_r}px; }\n";
         }
 
+        // ── Event-Seite Styles ──
+        $ep_vars = [];
+        if ((int)$s['ep_max_width'] !== 720) $ep_vars[] = '--ep-max-w: ' . intval($s['ep_max_width']) . 'px';
+        if ((int)$s['ep_gap'] !== 32)        $ep_vars[] = '--ep-gap: ' . intval($s['ep_gap']) . 'px';
+        if ((int)$s['ep_radius'] !== 12)     $ep_vars[] = '--ep-radius: ' . intval($s['ep_radius']) . 'px';
+        if (!empty($s['ep_bg']))             $ep_vars[] = '--ep-bg: ' . $s['ep_bg'];
+        if (!empty($s['ep_text']))           $ep_vars[] = '--ep-text: ' . $s['ep_text'];
+        if (!empty($s['ep_muted']))          $ep_vars[] = '--ep-muted: ' . $s['ep_muted'];
+        if (!empty($s['ep_border']))         $ep_vars[] = '--ep-border: ' . $s['ep_border'];
+        if (!empty($ep_vars)) {
+            echo ".tix-ep {\n    " . implode(";\n    ", $ep_vars) . ";\n}\n";
+        }
+
         // ── Meine Tickets Styles ──
         $mt_vars = [];
         if (!empty($s['mt_bg']) && $s['mt_bg'] !== $d['mt_bg']) {
@@ -872,6 +918,10 @@ class TIX_Settings {
                             <button type="button" class="tix-nav-tab" data-tab="data-sync">
                                 <span class="dashicons dashicons-cloud-saved"></span>
                                 <span class="tix-nav-label">Daten-Sync</span>
+                            </button>
+                            <button type="button" class="tix-nav-tab" data-tab="event-page">
+                                <span class="dashicons dashicons-welcome-widgets-menus"></span>
+                                <span class="tix-nav-label">Event-Seite</span>
                             </button>
                             <button type="button" class="tix-nav-tab" data-tab="advanced">
                                 <span class="dashicons dashicons-admin-generic"></span>
@@ -1557,6 +1607,89 @@ class TIX_Settings {
                             </div>
 
                             <?php // ═══ PANE: ERWEITERT ═══ ?>
+                            <?php // ═══ PANE: EVENT-SEITE ═══ ?>
+                            <div class="tix-pane" data-pane="event-page">
+
+                                <?php // ── Card: Layout ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-align-wide"></span>
+                                        <h3>Layout</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <p class="tix-settings-hint" style="margin-bottom:12px;">Einstellungen f&uuml;r den <code>[tix_event_page]</code> Shortcode. Steuert Layout, Farben und sichtbare Sektionen der Event-Detailseite.</p>
+                                        <div class="tix-field-grid">
+                                            <?php self::range_row('ep_max_width', 'Max. Breite', $s, 400, 1200, 'px', 10); ?>
+                                            <?php self::range_row('ep_gap', 'Sektions-Abstand', $s, 12, 48, 'px'); ?>
+                                            <?php self::range_row('ep_radius', 'Eckenradius', $s, 0, 24, 'px'); ?>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Farben ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-admin-appearance"></span>
+                                        <h3>Farben</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <?php self::color_row('ep_bg', 'Hintergrund', $s, true); ?>
+                                            <?php self::color_row('ep_text', 'Textfarbe', $s, true); ?>
+                                            <?php self::color_row('ep_muted', 'Ged&auml;mpfte Farbe', $s, true); ?>
+                                            <?php self::color_row('ep_border', 'Rahmenfarbe', $s, true); ?>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Sektionen ein-/ausblenden ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-visibility"></span>
+                                        <h3>Sichtbare Sektionen</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <p class="tix-settings-hint" style="margin-bottom:12px;">W&auml;hle aus, welche Sektionen auf der Event-Seite angezeigt werden sollen. Sektionen ohne Daten werden automatisch ausgeblendet.</p>
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('ep_show_hero', 'Hero-Bild (Beitragsbild im 16:9 Format)', $s); ?>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('ep_show_gallery', 'Galerie', $s); ?>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('ep_show_video', 'Video', $s); ?>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('ep_show_faq', 'FAQ', $s); ?>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('ep_show_location', 'Veranstaltungsort', $s); ?>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('ep_show_organizer', 'Veranstalter', $s); ?>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('ep_show_series', 'Serientermine', $s); ?>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('ep_show_charity', 'Soziales Projekt', $s); ?>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('ep_show_upsell', '&Auml;hnliche Events (Upsell)', $s); ?>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('ep_show_calendar', 'Kalender-Button', $s); ?>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('ep_show_phases', 'Preisphasen im Ticket-Selektor anzeigen', $s, 'Zeigt alle Preisphasen (Early Bird, Regular, etc.) als Timeline unter jeder Ticket-Kategorie an, zusammen mit dem regul&auml;ren Hauptpreis.'); ?>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                            </div>
+
                             <div class="tix-pane" data-pane="advanced">
 
                                 <?php // ── Card: Google Places ── ?>
