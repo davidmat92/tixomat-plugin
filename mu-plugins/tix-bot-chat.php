@@ -10,7 +10,7 @@ if (!defined('ABSPATH')) exit;
 // CONFIG
 // ============================================================
 define('TIX_CHAT_API', 'https://tixomat-dpconnect.pythonanywhere.com');
-define('TIX_CHAT_LOGO', '/wp-content/uploads/tixomat-logo.webp');
+define('TIX_CHAT_LOGO', '/wp-content/uploads/2026/03/icon-tixomat-orange.png');
 define('TIX_CHAT_BETA', true);
 
 // ============================================================
