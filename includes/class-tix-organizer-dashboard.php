@@ -149,7 +149,7 @@ class TIX_Organizer_Dashboard {
         return get_posts([
             'post_type'      => 'event',
             'meta_key'       => '_tix_organizer_id',
-            'meta_value'     => intval($org_id),
+            'meta_value'     => strval(intval($org_id)),
             'post_status'    => ['publish', 'draft', 'pending'],
             'posts_per_page' => -1,
             'fields'         => 'ids',
@@ -560,12 +560,19 @@ class TIX_Organizer_Dashboard {
 
         $events = get_posts([
             'post_type'      => 'event',
-            'meta_key'       => '_tix_organizer_id',
-            'meta_value'     => $org->ID,
+            'meta_query'     => [
+                'organizer_clause' => [
+                    'key'   => '_tix_organizer_id',
+                    'value' => intval($org->ID),
+                ],
+                'date_clause' => [
+                    'key'     => '_tix_date_start',
+                    'compare' => 'EXISTS',
+                ],
+            ],
             'post_status'    => ['publish', 'draft', 'pending'],
             'posts_per_page' => -1,
-            'orderby'        => 'meta_value',
-            'meta_key'       => '_tix_date_start',
+            'orderby'        => 'date_clause',
             'order'          => 'DESC',
         ]);
 
