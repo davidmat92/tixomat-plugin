@@ -67,6 +67,7 @@ class TIX_Event_Page {
                         <?php self::render_video($post_id); ?>
                         <?php self::render_info_section($post_id, 'extra_info', 'Weitere Informationen'); ?>
                         <?php self::render_faq($post_id); ?>
+                        <?php self::render_raffle($post_id); ?>
                         <?php self::render_series($post_id); ?>
                     </div>
                     <aside class="tix-ep-sidebar">
@@ -94,6 +95,7 @@ class TIX_Event_Page {
                 <?php self::render_video($post_id); ?>
                 <?php self::render_info_section($post_id, 'extra_info', 'Weitere Informationen'); ?>
                 <?php self::render_faq($post_id); ?>
+                <?php self::render_raffle($post_id); ?>
                 <?php self::render_calendar($post_id); ?>
                 <?php self::render_charity($post_id); ?>
                 <?php self::render_location($post_id); ?>
@@ -350,6 +352,15 @@ class TIX_Event_Page {
             <?php echo do_shortcode('[tix_faq id="' . intval($id) . '" wide="1"]'); ?>
         </div>
         <?php
+    }
+
+    /* ── Gewinnspiel ── */
+    private static function render_raffle($id) {
+        $s = tix_get_settings();
+        if (empty($s['ep_show_raffle'])) return;
+        if (get_post_meta($id, '_tix_raffle_enabled', true) !== '1') return;
+
+        echo do_shortcode('[tix_raffle id="' . intval($id) . '"]');
     }
 
     /* ── 11. Location ── */

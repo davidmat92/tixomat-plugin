@@ -249,6 +249,10 @@ class TIX_Metabox {
                     <span class="dashicons dashicons-groups"></span>
                     <span class="tix-nav-label">Gästeliste</span>
                 </button>
+                <button type="button" class="tix-nav-tab" data-tab="raffle">
+                    <span class="dashicons dashicons-tickets"></span>
+                    <span class="tix-nav-label">Gewinnspiel</span>
+                </button>
                 <?php if (function_exists('tix_get_settings') && tix_get_settings('promoter_enabled') && class_exists('TIX_Promoter_Admin')): ?>
                 <button type="button" class="tix-nav-tab" data-tab="promoter">
                     <span class="dashicons dashicons-businessman"></span>
@@ -289,6 +293,9 @@ class TIX_Metabox {
                 </div>
                 <div class="tix-pane" data-pane="guestlist">
                     <?php self::render_guestlist($post); ?>
+                </div>
+                <div class="tix-pane" data-pane="raffle">
+                    <?php self::render_raffle($post); ?>
                 </div>
                 <?php if (function_exists('tix_get_settings') && tix_get_settings('promoter_enabled') && class_exists('TIX_Promoter_Admin')): ?>
                 <div class="tix-pane" data-pane="promoter">
@@ -2074,6 +2081,318 @@ class TIX_Metabox {
     }
 
     // ──────────────────────────────────────────
+    // Gewinnspiel (Raffle)
+    // ──────────────────────────────────────────
+    public static function render_raffle($post) {
+        $enabled     = get_post_meta($post->ID, '_tix_raffle_enabled', true);
+        $title       = get_post_meta($post->ID, '_tix_raffle_title', true) ?: '';
+        $description = get_post_meta($post->ID, '_tix_raffle_description', true) ?: '';
+        $end_date    = get_post_meta($post->ID, '_tix_raffle_end_date', true) ?: '';
+        $max_entries = get_post_meta($post->ID, '_tix_raffle_max_entries', true) ?: '';
+        $status      = get_post_meta($post->ID, '_tix_raffle_status', true) ?: 'open';
+        $prizes      = get_post_meta($post->ID, '_tix_raffle_prizes', true);
+        $winners     = get_post_meta($post->ID, '_tix_raffle_winners', true);
+        $drawn_at    = get_post_meta($post->ID, '_tix_raffle_drawn_at', true);
+
+        if (!is_array($prizes)) $prizes = [];
+
+        // Teilnehmer-Zahl
+        $entry_count = 0;
+        if ($enabled === '1' && class_exists('TIX_Raffle')) {
+            $entry_count = TIX_Raffle::count_entries($post->ID);
+        }
+
+        // Ticket-Kategorien für "Freikarte"-Typ
+        $categories = get_post_meta($post->ID, '_tix_ticket_categories', true);
+        if (!is_array($categories)) $categories = [];
+        ?>
+        <div class="tix-raffle-admin">
+
+            <?php // ── Aktivierung ── ?>
+            <p>
+                <label>
+                    <input type="checkbox" name="tix_raffle_enabled" value="1" <?php checked($enabled, '1'); ?> id="tix-raffle-toggle">
+                    <strong>Gewinnspiel für dieses Event aktivieren</strong>
+                </label>
+            </p>
+
+            <div id="tix-raffle-options" style="<?php echo $enabled !== '1' ? 'display:none;' : ''; ?>">
+
+                <?php // ── Status-Badge ── ?>
+                <div style="margin-bottom:16px;">
+                    <?php
+                    $status_labels = ['open' => 'Offen', 'closed' => 'Geschlossen', 'drawn' => 'Ausgelost'];
+                    $status_colors = ['open' => '#16a34a', 'closed' => '#d97706', 'drawn' => '#6366f1'];
+                    $s_color = $status_colors[$status] ?? '#64748b';
+                    $s_label = $status_labels[$status] ?? $status;
+                    ?>
+                    <span style="display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:6px;font-size:.85rem;font-weight:600;background:<?php echo $s_color; ?>15;color:<?php echo $s_color; ?>;border:1px solid <?php echo $s_color; ?>40;">
+                        ● <?php echo esc_html($s_label); ?>
+                    </span>
+                    <?php if ($entry_count > 0): ?>
+                        <span style="margin-left:12px;font-size:.9rem;color:#64748b;">
+                            <?php echo $entry_count; ?> Teilnehmer
+                        </span>
+                    <?php endif; ?>
+                    <?php if ($drawn_at): ?>
+                        <span style="margin-left:12px;font-size:.85rem;color:#64748b;">
+                            Ausgelost am <?php echo date_i18n('d.m.Y H:i', strtotime($drawn_at)); ?>
+                        </span>
+                    <?php endif; ?>
+                </div>
+
+                <?php // ── Titel ── ?>
+                <table class="form-table tix-form-table">
+                    <tr>
+                        <th><label for="tix-raffle-title">Titel</label></th>
+                        <td>
+                            <input type="text" id="tix-raffle-title" name="tix_raffle_title"
+                                   value="<?php echo esc_attr($title); ?>"
+                                   placeholder="Gewinnspiel" class="regular-text" style="width:100%;">
+                        </td>
+                    </tr>
+                    <tr>
+                        <th><label for="tix-raffle-desc">Beschreibung</label></th>
+                        <td>
+                            <textarea id="tix-raffle-desc" name="tix_raffle_description"
+                                      rows="3" class="large-text"
+                                      placeholder="Teilnahmebedingungen, Ablauf, etc."><?php echo esc_textarea($description); ?></textarea>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th><label for="tix-raffle-end">Teilnahmeschluss</label></th>
+                        <td>
+                            <input type="datetime-local" id="tix-raffle-end" name="tix_raffle_end_date"
+                                   value="<?php echo esc_attr($end_date); ?>" class="regular-text">
+                            <?php self::tip('Nach diesem Zeitpunkt wird die Teilnahme automatisch geschlossen und die Gewinner werden ausgelost.'); ?>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th><label for="tix-raffle-max">Max. Teilnehmer</label></th>
+                        <td>
+                            <input type="number" id="tix-raffle-max" name="tix_raffle_max_entries"
+                                   value="<?php echo esc_attr($max_entries); ?>"
+                                   min="0" step="1" class="small-text" placeholder="0">
+                            <span class="description">0 = unbegrenzt</span>
+                        </td>
+                    </tr>
+                </table>
+
+                <?php // ── Preise (Repeater) ── ?>
+                <h3 style="margin:24px 0 10px;font-size:.95rem;">Preise</h3>
+                <p class="description" style="margin-bottom:10px;">
+                    Definiere die Preise. Typ "Freikarte" erstellt automatisch ein Ticket für den Gewinner.
+                </p>
+                <table class="widefat tix-tbl" id="tix-raffle-prize-table">
+                    <thead>
+                        <tr>
+                            <th style="width:3%"></th>
+                            <th style="width:35%">Preis-Name</th>
+                            <th style="width:12%">Anzahl</th>
+                            <th style="width:18%">Typ</th>
+                            <th style="width:22%">Kategorie</th>
+                            <th style="width:10%"></th>
+                        </tr>
+                    </thead>
+                    <tbody id="tix-raffle-prize-rows">
+                        <?php if (!empty($prizes)):
+                            foreach ($prizes as $i => $p): ?>
+                                <tr class="tix-raffle-prize-row" draggable="true">
+                                    <td class="tix-faq-drag" title="Reihenfolge ändern">☰</td>
+                                    <td>
+                                        <input type="text" name="tix_raffle_prizes[<?php echo $i; ?>][name]"
+                                               value="<?php echo esc_attr($p['name'] ?? ''); ?>"
+                                               placeholder="z.B. VIP-Upgrade" style="width:100%">
+                                    </td>
+                                    <td>
+                                        <input type="number" name="tix_raffle_prizes[<?php echo $i; ?>][qty]"
+                                               value="<?php echo intval($p['qty'] ?? 1); ?>"
+                                               min="1" step="1" style="width:100%">
+                                    </td>
+                                    <td>
+                                        <select name="tix_raffle_prizes[<?php echo $i; ?>][type]" class="tix-raffle-type-select" style="width:100%">
+                                            <option value="text" <?php selected(($p['type'] ?? 'text'), 'text'); ?>>Freitext</option>
+                                            <option value="ticket" <?php selected(($p['type'] ?? 'text'), 'ticket'); ?>>Freikarte</option>
+                                        </select>
+                                    </td>
+                                    <td>
+                                        <select name="tix_raffle_prizes[<?php echo $i; ?>][cat_index]" class="tix-raffle-cat-select" style="width:100%;<?php echo ($p['type'] ?? 'text') !== 'ticket' ? 'display:none;' : ''; ?>">
+                                            <?php foreach ($categories as $ci => $c): ?>
+                                                <option value="<?php echo $ci; ?>" <?php selected(intval($p['cat_index'] ?? 0), $ci); ?>>
+                                                    <?php echo esc_html($c['name'] ?? "Kategorie {$ci}"); ?>
+                                                </option>
+                                            <?php endforeach; ?>
+                                            <?php if (empty($categories)): ?>
+                                                <option value="0">Keine Kategorien</option>
+                                            <?php endif; ?>
+                                        </select>
+                                    </td>
+                                    <td>
+                                        <button type="button" class="button tix-raffle-prize-del" title="Entfernen">&times;</button>
+                                    </td>
+                                </tr>
+                            <?php endforeach;
+                        else: ?>
+                            <tr class="tix-raffle-prize-empty"><td colspan="6" style="text-align:center;color:#999;padding:16px;">Noch keine Preise. Klicke unten auf „+ Preis hinzufügen".</td></tr>
+                        <?php endif; ?>
+                    </tbody>
+                </table>
+                <p style="margin-top:10px;">
+                    <button type="button" class="button" id="tix-raffle-prize-add">+ Preis hinzufügen</button>
+                </p>
+
+                <?php // ── Auslosen-Button + Status-Reset ── ?>
+                <div style="margin-top:24px;padding-top:16px;border-top:1px solid #e5e7eb;">
+                    <?php if ($status !== 'drawn' && $entry_count > 0): ?>
+                        <button type="button" class="button button-primary" id="tix-raffle-draw"
+                                data-event="<?php echo $post->ID; ?>">
+                            🎲 Jetzt auslosen (<?php echo $entry_count; ?> Teilnehmer)
+                        </button>
+                    <?php elseif ($status === 'drawn'): ?>
+                        <p style="color:#6366f1;font-weight:600;">✅ Gewinner wurden bereits ausgelost.</p>
+                        <button type="button" class="button" id="tix-raffle-reset"
+                                data-event="<?php echo $post->ID; ?>"
+                                style="margin-top:8px;">
+                            Status zurücksetzen (auf "offen")
+                        </button>
+                    <?php else: ?>
+                        <p style="color:#64748b;">Noch keine Teilnehmer vorhanden.</p>
+                    <?php endif; ?>
+                </div>
+
+                <?php // ── Gewinnerliste (nach Auslosung) ── ?>
+                <?php if ($status === 'drawn' && !empty($winners) && is_array($winners)): ?>
+                    <div style="margin-top:20px;">
+                        <h3 style="font-size:.95rem;margin:0 0 10px;">Gewinner</h3>
+                        <table class="widefat striped">
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>E-Mail</th>
+                                    <th>Preis</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($winners as $w): ?>
+                                    <tr>
+                                        <td><?php echo esc_html($w['name']); ?></td>
+                                        <td><a href="mailto:<?php echo esc_attr($w['email']); ?>"><?php echo esc_html($w['email']); ?></a></td>
+                                        <td><?php echo esc_html($w['prize_name'] ?? ''); ?></td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                <?php endif; ?>
+
+            </div>
+
+            <?php // ── Inline JS für den Raffle-Tab ── ?>
+            <script>
+            jQuery(function($) {
+                // Toggle
+                $('#tix-raffle-toggle').on('change', function() {
+                    $('#tix-raffle-options').toggle(this.checked);
+                });
+
+                // Preis hinzufügen
+                var prizeIdx = <?php echo max(count($prizes), 0); ?>;
+                $('#tix-raffle-prize-add').on('click', function() {
+                    var cats = <?php echo wp_json_encode(array_map(function($c) { return $c['name'] ?? ''; }, $categories)); ?>;
+                    var catOpts = '';
+                    for (var i = 0; i < cats.length; i++) {
+                        catOpts += '<option value="' + i + '">' + $('<span>').text(cats[i] || 'Kategorie ' + i).html() + '</option>';
+                    }
+                    if (!cats.length) catOpts = '<option value="0">Keine Kategorien</option>';
+
+                    var row = '<tr class="tix-raffle-prize-row" draggable="true">' +
+                        '<td class="tix-faq-drag" title="Reihenfolge ändern">☰</td>' +
+                        '<td><input type="text" name="tix_raffle_prizes[' + prizeIdx + '][name]" placeholder="z.B. VIP-Upgrade" style="width:100%"></td>' +
+                        '<td><input type="number" name="tix_raffle_prizes[' + prizeIdx + '][qty]" value="1" min="1" style="width:100%"></td>' +
+                        '<td><select name="tix_raffle_prizes[' + prizeIdx + '][type]" class="tix-raffle-type-select" style="width:100%"><option value="text">Freitext</option><option value="ticket">Freikarte</option></select></td>' +
+                        '<td><select name="tix_raffle_prizes[' + prizeIdx + '][cat_index]" class="tix-raffle-cat-select" style="width:100%;display:none;">' + catOpts + '</select></td>' +
+                        '<td><button type="button" class="button tix-raffle-prize-del" title="Entfernen">&times;</button></td>' +
+                        '</tr>';
+                    $('#tix-raffle-prize-rows .tix-raffle-prize-empty').remove();
+                    $('#tix-raffle-prize-rows').append(row);
+                    prizeIdx++;
+                });
+
+                // Preis entfernen
+                $(document).on('click', '.tix-raffle-prize-del', function() {
+                    $(this).closest('tr').remove();
+                    if (!$('#tix-raffle-prize-rows tr').length) {
+                        $('#tix-raffle-prize-rows').append('<tr class="tix-raffle-prize-empty"><td colspan="6" style="text-align:center;color:#999;padding:16px;">Noch keine Preise.</td></tr>');
+                    }
+                });
+
+                // Typ-Umschalter: Kategorie-Dropdown ein/ausblenden
+                $(document).on('change', '.tix-raffle-type-select', function() {
+                    var catSel = $(this).closest('tr').find('.tix-raffle-cat-select');
+                    catSel.toggle($(this).val() === 'ticket');
+                });
+
+                // Drag & Drop für Preise (Muster wie FAQ)
+                var prizeTable = document.getElementById('tix-raffle-prize-rows');
+                if (prizeTable) {
+                    var dragRow = null;
+                    prizeTable.addEventListener('dragstart', function(e) {
+                        dragRow = e.target.closest('tr');
+                        if (dragRow) e.dataTransfer.effectAllowed = 'move';
+                    });
+                    prizeTable.addEventListener('dragover', function(e) {
+                        e.preventDefault();
+                        var target = e.target.closest('tr');
+                        if (target && target !== dragRow && target.parentNode === prizeTable) {
+                            var rect = target.getBoundingClientRect();
+                            var mid = rect.top + rect.height / 2;
+                            if (e.clientY < mid) {
+                                prizeTable.insertBefore(dragRow, target);
+                            } else {
+                                prizeTable.insertBefore(dragRow, target.nextSibling);
+                            }
+                        }
+                    });
+                    prizeTable.addEventListener('dragend', function() { dragRow = null; });
+                }
+
+                // Auslosen (AJAX)
+                $('#tix-raffle-draw').on('click', function() {
+                    var btn = $(this);
+                    if (!confirm('Gewinner jetzt auslosen? Dies kann nicht rückgängig gemacht werden.')) return;
+                    btn.prop('disabled', true).text('Wird ausgelost…');
+                    $.post(tixAdmin.ajaxUrl, {
+                        action: 'tix_raffle_draw',
+                        event_id: btn.data('event'),
+                        nonce: '<?php echo wp_create_nonce('tix_raffle_admin'); ?>'
+                    }, function(res) {
+                        if (res.success) {
+                            alert(res.data.message);
+                            location.reload();
+                        } else {
+                            alert('Fehler: ' + (res.data.message || 'Unbekannter Fehler'));
+                            btn.prop('disabled', false).text('🎲 Jetzt auslosen');
+                        }
+                    }).fail(function() {
+                        alert('Verbindungsfehler.');
+                        btn.prop('disabled', false).text('🎲 Jetzt auslosen');
+                    });
+                });
+
+                // Status zurücksetzen
+                $('#tix-raffle-reset').on('click', function() {
+                    if (!confirm('Status wirklich auf "offen" zurücksetzen? Gewinner-Daten bleiben in der DB erhalten.')) return;
+                    // Hidden Field für Status-Reset beim Speichern
+                    $('<input>').attr({ type: 'hidden', name: 'tix_raffle_status_reset', value: '1' }).appendTo('#tix-raffle-options');
+                    alert('Status wird beim Speichern zurückgesetzt. Klicke "Aktualisieren".');
+                });
+            });
+            </script>
+        </div>
+        <?php
+    }
+
+    // ──────────────────────────────────────────
     // Erweitert (Per-Event-Toggles)
     // ──────────────────────────────────────────
     public static function render_advanced($post) {
@@ -2341,6 +2660,48 @@ class TIX_Metabox {
             $faqs[] = ['q' => $q, 'a' => $a];
         }
         update_post_meta($post_id, '_tix_faq', $faqs);
+
+        // ── Gewinnspiel (Raffle) speichern ──
+        $raffle_enabled = !empty($_POST['tix_raffle_enabled']) ? '1' : '';
+        update_post_meta($post_id, '_tix_raffle_enabled', $raffle_enabled);
+
+        if ($raffle_enabled) {
+            update_post_meta($post_id, '_tix_raffle_title', sanitize_text_field($_POST['tix_raffle_title'] ?? ''));
+            update_post_meta($post_id, '_tix_raffle_description', wp_kses_post($_POST['tix_raffle_description'] ?? ''));
+            update_post_meta($post_id, '_tix_raffle_end_date', sanitize_text_field($_POST['tix_raffle_end_date'] ?? ''));
+            update_post_meta($post_id, '_tix_raffle_max_entries', max(0, intval($_POST['tix_raffle_max_entries'] ?? 0)));
+
+            // Status-Reset
+            if (!empty($_POST['tix_raffle_status_reset'])) {
+                update_post_meta($post_id, '_tix_raffle_status', 'open');
+            }
+
+            // Preise
+            $raw_prizes = $_POST['tix_raffle_prizes'] ?? [];
+            $prizes = [];
+            if (is_array($raw_prizes)) {
+                foreach ($raw_prizes as $p) {
+                    $name = sanitize_text_field($p['name'] ?? '');
+                    $qty  = max(1, intval($p['qty'] ?? 1));
+                    $type = in_array($p['type'] ?? '', ['text', 'ticket']) ? $p['type'] : 'text';
+                    if (empty($name)) continue;
+                    $prize = ['name' => $name, 'qty' => $qty, 'type' => $type];
+                    if ($type === 'ticket') {
+                        $prize['cat_index'] = intval($p['cat_index'] ?? 0);
+                    }
+                    $prizes[] = $prize;
+                }
+            }
+            update_post_meta($post_id, '_tix_raffle_prizes', $prizes);
+
+            // Status initial setzen falls noch leer
+            $current_status = get_post_meta($post_id, '_tix_raffle_status', true);
+            if (empty($current_status) || empty($_POST['tix_raffle_status_reset'])) {
+                if (empty($current_status)) {
+                    update_post_meta($post_id, '_tix_raffle_status', 'open');
+                }
+            }
+        }
 
         // Upsell-Events speichern
         update_post_meta($post_id, '_tix_upsell_disabled', !empty($_POST['tix_upsell_disabled']) ? '1' : '');

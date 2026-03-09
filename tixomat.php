@@ -2,14 +2,14 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.28.17
+ * Version: 1.28.18
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.28.17');
+define('TIXOMAT_VERSION', '1.28.18');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -143,6 +143,10 @@ require_once TIXOMAT_PATH . 'includes/class-tix-ticket-db.php';
 require_once TIXOMAT_PATH . 'includes/class-tix-sync-supabase.php';
 require_once TIXOMAT_PATH . 'includes/class-tix-sync-airtable.php';
 
+// ── Gewinnspiel-System ──
+require_once TIXOMAT_PATH . 'includes/class-tix-raffle.php';
+TIX_Raffle::init();
+
 // ── Promoter-System ──
 require_once TIXOMAT_PATH . 'includes/class-tix-promoter-db.php';
 require_once TIXOMAT_PATH . 'includes/class-tix-promoter.php';
@@ -157,6 +161,7 @@ register_activation_hook(__FILE__, function() {
         TIX_Ticket_DB::create_table();
     }
     TIX_Promoter_DB::create_tables();
+    TIX_Raffle::create_table();
 });
 
 // ── Statistiken (Admin + AJAX) ──
@@ -237,6 +242,14 @@ if (is_admin() && !wp_doing_ajax()) {
         echo '</ul></div>';
     });
 }
+
+// ── Gewinnspiel AJAX (Frontend: eingeloggt + nicht-eingeloggt; Admin: Auslosung) ──
+add_action('wp_ajax_tix_raffle_enter',        ['TIX_Raffle', 'ajax_enter']);
+add_action('wp_ajax_nopriv_tix_raffle_enter', ['TIX_Raffle', 'ajax_enter']);
+add_action('wp_ajax_tix_raffle_draw',         ['TIX_Raffle', 'ajax_draw']);
+
+// ── Gewinnspiel Cron: Automatische Auslosung ──
+add_action('tix_raffle_auto_draw', ['TIX_Raffle', 'cron_auto_draw']);
 
 // ── Admin AJAX (Gästeliste Check-in, E-Mail) ──
 if (is_admin() && wp_doing_ajax()) {
@@ -482,6 +495,9 @@ add_filter('cron_schedules', function($schedules) {
 if (!wp_next_scheduled('tix_presale_check')) {
     wp_schedule_event(time(), 'tix_every_10min', 'tix_presale_check');
 }
+if (!wp_next_scheduled('tix_raffle_auto_draw')) {
+    wp_schedule_event(time(), 'tix_every_10min', 'tix_raffle_auto_draw');
+}
 
 add_action('tix_presale_check', function() {
     if (!class_exists('TIX_Frontend')) {
@@ -513,6 +529,8 @@ add_filter('login_display_language_dropdown', '__return_false');
 register_deactivation_hook(__FILE__, function() {
     $ts = wp_next_scheduled('tix_presale_check');
     if ($ts) wp_unschedule_event($ts, 'tix_presale_check');
+    $ts2 = wp_next_scheduled('tix_raffle_auto_draw');
+    if ($ts2) wp_unschedule_event($ts2, 'tix_raffle_auto_draw');
 });
 
 // ── Zeilenumbrüche in Info-Sektionen: wpautop-Fallback beim Lesen ──

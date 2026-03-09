@@ -1,0 +1,266 @@
+/* ═══════════════════════════════════════════
+   Tixomat – Gewinnspiel (Raffle)
+   ═══════════════════════════════════════════ */
+
+.tix-raffle {
+    background: #fff;
+    border: 1px solid var(--ep-border, #e5e7eb);
+    border-radius: var(--ep-radius, 12px);
+    overflow: hidden;
+    font-family: inherit;
+}
+
+/* ── Header ── */
+.tix-raffle-header {
+    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+    color: #fff;
+    padding: 24px 28px 20px;
+}
+.tix-raffle-title {
+    font-size: 1.35rem;
+    font-weight: 700;
+    margin: 0 0 6px;
+    color: #fff;
+    line-height: 1.3;
+}
+.tix-raffle-desc {
+    font-size: .92rem;
+    opacity: .9;
+    line-height: 1.5;
+}
+.tix-raffle-desc p {
+    margin: 0 0 6px;
+}
+.tix-raffle-desc p:last-child { margin-bottom: 0; }
+
+/* ── Preise ── */
+.tix-raffle-prizes {
+    padding: 20px 28px;
+    border-bottom: 1px solid var(--ep-border, #e5e7eb);
+}
+.tix-raffle-prizes-title {
+    font-size: 1rem;
+    font-weight: 600;
+    margin: 0 0 10px;
+    color: var(--ep-heading, #0f172a);
+}
+.tix-raffle-prizes-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.tix-raffle-prizes-list li {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: .92rem;
+    padding: 8px 12px;
+    background: #f8fafc;
+    border-radius: 8px;
+}
+.tix-raffle-prize-qty {
+    font-weight: 700;
+    color: #6366f1;
+    min-width: 28px;
+}
+.tix-raffle-prize-name {
+    flex: 1;
+    color: var(--ep-text, #334155);
+}
+.tix-raffle-prize-badge {
+    font-size: .75rem;
+    font-weight: 600;
+    background: #dbeafe;
+    color: #1d4ed8;
+    padding: 2px 8px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: .03em;
+}
+
+/* ── Countdown ── */
+.tix-raffle-countdown {
+    padding: 14px 28px;
+    background: #fefce8;
+    border-bottom: 1px solid var(--ep-border, #e5e7eb);
+    font-size: .9rem;
+    color: #854d0e;
+    text-align: center;
+}
+.tix-raffle-timer {
+    font-weight: 700;
+}
+
+/* ── Formular ── */
+.tix-raffle-form {
+    padding: 24px 28px;
+}
+.tix-raffle-form-fields {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+.tix-raffle-form input[type="text"],
+.tix-raffle-form input[type="email"] {
+    flex: 1;
+    padding: 12px 14px;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    font-size: .95rem;
+    font-family: inherit;
+    background: #fff;
+    transition: border-color .2s, box-shadow .2s;
+    outline: none;
+}
+.tix-raffle-form input:focus {
+    border-color: #6366f1;
+    box-shadow: 0 0 0 3px rgba(99,102,241,.12);
+}
+.tix-raffle-submit {
+    width: 100%;
+    padding: 13px 24px;
+    background: #6366f1;
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background .2s, opacity .2s;
+    font-family: inherit;
+}
+.tix-raffle-submit:hover {
+    background: #4f46e5;
+}
+.tix-raffle-submit:disabled {
+    opacity: .55;
+    cursor: not-allowed;
+}
+
+/* ── Nachrichten ── */
+.tix-raffle-msg {
+    margin-top: 12px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: .9rem;
+    line-height: 1.4;
+    text-align: center;
+}
+.tix-raffle-msg[hidden] { display: none; }
+.tix-raffle-msg.tix-raffle-msg--success {
+    background: #ecfdf5;
+    color: #065f46;
+    border: 1px solid #a7f3d0;
+}
+.tix-raffle-msg.tix-raffle-msg--error {
+    background: #fef2f2;
+    color: #991b1b;
+    border: 1px solid #fecaca;
+}
+
+/* ── Teilnehmerzähler ── */
+.tix-raffle-count {
+    padding: 12px 28px 16px;
+    font-size: .85rem;
+    color: var(--ep-muted, #64748b);
+    text-align: center;
+    margin: 0;
+}
+.tix-raffle-max {
+    opacity: .7;
+}
+
+/* ── Geschlossen ── */
+.tix-raffle-closed {
+    padding: 28px;
+    text-align: center;
+    color: var(--ep-muted, #64748b);
+}
+.tix-raffle-closed p {
+    margin: 0 0 8px;
+}
+
+/* ── Gewinner ── */
+.tix-raffle-winners {
+    padding: 20px 28px 24px;
+}
+.tix-raffle-winners-title {
+    font-size: 1rem;
+    font-weight: 600;
+    margin: 0 0 12px;
+    color: var(--ep-heading, #0f172a);
+}
+.tix-raffle-winners-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.tix-raffle-winner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 14px;
+    background: #f0fdf4;
+    border-radius: 8px;
+    border: 1px solid #bbf7d0;
+}
+.tix-raffle-winner-name {
+    font-weight: 600;
+    color: #166534;
+    font-size: .95rem;
+}
+.tix-raffle-winner-prize {
+    font-size: .85rem;
+    color: #15803d;
+    text-align: right;
+}
+
+/* ── Erfolgs-Bestätigung (ersetzt Formular nach Teilnahme) ── */
+.tix-raffle-success {
+    padding: 28px;
+    text-align: center;
+}
+.tix-raffle-success-icon {
+    font-size: 2.5rem;
+    margin-bottom: 8px;
+}
+.tix-raffle-success-title {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: #065f46;
+    margin: 0 0 6px;
+}
+.tix-raffle-success-text {
+    font-size: .9rem;
+    color: var(--ep-muted, #64748b);
+    margin: 0;
+}
+
+/* ── Responsive ── */
+@media (max-width: 600px) {
+    .tix-raffle-header {
+        padding: 20px;
+    }
+    .tix-raffle-prizes,
+    .tix-raffle-form,
+    .tix-raffle-winners,
+    .tix-raffle-closed,
+    .tix-raffle-success {
+        padding-left: 20px;
+        padding-right: 20px;
+    }
+    .tix-raffle-countdown {
+        padding-left: 20px;
+        padding-right: 20px;
+    }
+    .tix-raffle-form-fields {
+        flex-direction: column;
+    }
+    .tix-raffle-title {
+        font-size: 1.15rem;
+    }
+}

@@ -287,6 +287,19 @@ class TIX_Docs {
                 ['_tix_faq_{N}_answer_html', '<span class="tix-badge-bd">Breakdance</span> N-te FAQ-Antwort (mit wpautop)', 'HTML'],
             ]);
 
+            // ── Gewinnspiel ──
+            self::meta_card('Gewinnspiel (Raffle)', 'dashicons-tickets', [
+                ['_tix_raffle_enabled', 'Gewinnspiel f&uuml;r dieses Event aktiviert', 'Ja/Nein (1/&quot;&quot;)'],
+                ['_tix_raffle_title', 'Titel des Gewinnspiels', 'Text'],
+                ['_tix_raffle_description', 'Beschreibung / Teilnahmebedingungen', 'HTML'],
+                ['_tix_raffle_end_date', 'Teilnahmeschluss (Y-m-d H:i Format)', 'Datetime'],
+                ['_tix_raffle_max_entries', 'Max. Teilnehmer (0 = unbegrenzt)', 'Zahl'],
+                ['_tix_raffle_status', 'Status: open, closed, drawn', 'Text'],
+                ['_tix_raffle_prizes', 'Preise (Array von {name, qty, type, cat_index})', 'Array'],
+                ['_tix_raffle_winners', 'Gewinner nach Auslosung (Array von {name, email, prize_name, ...})', 'Array'],
+                ['_tix_raffle_drawn_at', 'Zeitpunkt der Auslosung', 'Datetime'],
+            ]);
+
             // ── Upsell ──
             self::meta_card('Zusatzprodukte', 'dashicons-megaphone', [
                 ['_tix_upsell_events', '&Auml;hnliche Events (IDs) f&uuml;r Zusatzprodukte', 'Array von IDs'],
@@ -670,6 +683,17 @@ class TIX_Docs {
                 [],
                 '[tix_chat_widget]',
                 null
+            );
+
+            // ── tix_raffle ──
+            self::shortcode_card(
+                'tix_raffle',
+                'Zeigt das Gewinnspiel-Formular f&uuml;r ein Event an. Besucher k&ouml;nnen mit Name und E-Mail teilnehmen. Zeigt je nach Status: Teilnahmeformular mit Countdown, geschlossene Meldung oder Gewinnerliste. Wird automatisch auf der Event-Seite eingebettet, kann aber auch separat verwendet werden.',
+                [
+                    ['id', 'Aktueller Post', 'Event-Post-ID. Muss nur angegeben werden, wenn der Shortcode au&szlig;erhalb der Event-Seite verwendet wird.'],
+                ],
+                '[tix_raffle]',
+                '[tix_raffle id="123"]'
             );
             ?>
 

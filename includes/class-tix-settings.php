@@ -70,6 +70,7 @@ class TIX_Settings {
             'ep_show_upsell'     => 1,
             'ep_show_calendar'   => 1,
             'ep_show_phases'     => 1,
+            'ep_show_raffle'     => 1,
 
             // ── Ticket-Selektor Texte ──
             'btn_text_buy'       => 'Weiter zur Kasse',
@@ -379,7 +380,7 @@ class TIX_Settings {
         $clean['ep_gap']       = max(12, min(48, intval($input['ep_gap'] ?? 32)));
         $clean['ep_radius']    = max(0, min(24, intval($input['ep_radius'] ?? 12)));
         // Event-Seite Toggles
-        foreach (['ep_show_hero', 'ep_show_gallery', 'ep_show_video', 'ep_show_faq', 'ep_show_location', 'ep_show_organizer', 'ep_show_series', 'ep_show_charity', 'ep_show_upsell', 'ep_show_calendar', 'ep_show_phases'] as $k) {
+        foreach (['ep_show_hero', 'ep_show_gallery', 'ep_show_video', 'ep_show_faq', 'ep_show_location', 'ep_show_organizer', 'ep_show_series', 'ep_show_charity', 'ep_show_upsell', 'ep_show_calendar', 'ep_show_phases', 'ep_show_raffle'] as $k) {
             $clean[$k] = !empty($input[$k]) ? 1 : 0;
         }
 
@@ -1699,6 +1700,9 @@ class TIX_Settings {
                                             </div>
                                             <div class="tix-field tix-field-full">
                                                 <?php self::checkbox_row('ep_show_phases', 'Preisphasen im Ticket-Selektor anzeigen', $s, 'Zeigt alle Preisphasen (Early Bird, Regular, etc.) als Timeline unter jeder Ticket-Kategorie an, zusammen mit dem regul&auml;ren Hauptpreis.'); ?>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('ep_show_raffle', 'Gewinnspiel', $s, 'Zeigt das Gewinnspiel-Formular auf der Event-Seite an, wenn f&uuml;r das Event ein Gewinnspiel aktiviert ist.'); ?>
                                             </div>
                                         </div>
                                     </div>
