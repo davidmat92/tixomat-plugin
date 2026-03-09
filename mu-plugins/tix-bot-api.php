@@ -410,16 +410,40 @@ function tixbot_format_event($post) {
             $product_id = absint($cat['product_id'] ?? 0);
             $qty_total  = absint($cat['qty'] ?? 0);
 
-            // Verkaufte Menge ermitteln
-            $qty_sold = 0;
+            // Verfuegbarkeit ermitteln
+            $qty_sold      = 0;
+            $qty_available = $qty_total;
+            $is_sold_out   = false;
+
             if ($product_id && function_exists('wc_get_product')) {
                 $product = wc_get_product($product_id);
-                if ($product && $product->managing_stock()) {
-                    $qty_sold = max(0, $qty_total - $product->get_stock_quantity());
+                if ($product) {
+                    if ($product->managing_stock()) {
+                        // Stock-Management aktiv → exakte Berechnung
+                        $stock = (int) $product->get_stock_quantity();
+                        if ($qty_total > 0) {
+                            $qty_sold      = max(0, $qty_total - $stock);
+                            $qty_available = max(0, $stock);
+                        } else {
+                            // Kein Kontingent gesetzt → Stock direkt verwenden
+                            $qty_available = max(0, $stock);
+                        }
+                        $is_sold_out = $qty_available <= 0;
+                    } else {
+                        // Kein Stock-Management → WC-Status entscheidet
+                        $is_sold_out = !$product->is_in_stock();
+                        if (!$is_sold_out) {
+                            // Produkt ist "vorrätig" ohne Mengenbegrenzung
+                            $qty_available = $qty_total > 0 ? $qty_total : 999;
+                        } else {
+                            $qty_available = 0;
+                        }
+                    }
                 }
+            } elseif ($qty_total === 0) {
+                // Kein Produkt verknüpft, kein Kontingent → verfuegbar
+                $qty_available = 999;
             }
-
-            $qty_available = max(0, $qty_total - $qty_sold);
 
             // Aktuellen Preis bestimmen (Phasen beruecksichtigen)
             $price = tixbot_current_price($cat);
@@ -434,7 +458,7 @@ function tixbot_format_event($post) {
                 'quantity_total'=> $qty_total,
                 'quantity_sold' => $qty_sold,
                 'quantity_available' => $qty_available,
-                'sold_out'      => $qty_available <= 0,
+                'sold_out'      => $is_sold_out,
                 'description'   => $cat['desc'] ?? '',
             ];
         }
