@@ -36,6 +36,100 @@ class TIX_Ticket_Selector {
             return '<div class="tix-sel"><p class="tix-sel-presale-ended">Der Vorverkauf für dieses Event ist beendet.</p></div>';
         }
 
+        // ── Presale-Start Countdown ──
+        $presale_start = get_post_meta($post_id, '_tix_presale_start', true);
+        if ($presale_start) {
+            $start_ts = strtotime(str_replace('T', ' ', $presale_start));
+            $now_ts   = current_time('timestamp');
+            if ($start_ts && $start_ts > $now_ts) {
+                $tix_s = tix_get_settings();
+                $wl_nonce = wp_create_nonce('tix_waitlist_' . $post_id);
+                self::enqueue();
+                ob_start();
+                ?>
+                <div class="tix-sel">
+                    <div class="tix-sel-presale-soon">
+                        <div class="tix-sel-presale-countdown" data-start="<?php echo esc_attr($presale_start); ?>">
+                            <span class="tix-sel-presale-label">Vorverkauf startet in</span>
+                            <span class="tix-sel-presale-timer"></span>
+                        </div>
+                        <?php if (!empty($tix_s['waitlist_enabled'])): ?>
+                        <form class="tix-sel-notify-form" data-event="<?php echo $post_id; ?>" data-type="presale" data-nonce="<?php echo $wl_nonce; ?>">
+                            <p class="tix-sel-notify-text">Lass dich benachrichtigen, wenn der Vorverkauf startet:</p>
+                            <div class="tix-sel-notify-fields">
+                                <input type="email" name="email" placeholder="Deine E-Mail-Adresse" required>
+                                <button type="submit" class="tix-sel-notify-btn">Erinnern</button>
+                            </div>
+                            <div class="tix-sel-notify-msg" hidden></div>
+                        </form>
+                        <?php endif; ?>
+                    </div>
+                </div>
+                <script>
+                (function(){
+                    /* Presale Countdown */
+                    var cd = document.querySelector('.tix-sel-presale-countdown');
+                    if (cd) {
+                        var startStr = cd.dataset.start;
+                        var startTime = new Date(startStr.replace(' ','T')).getTime();
+                        var timer = cd.querySelector('.tix-sel-presale-timer');
+                        function tick() {
+                            var diff = startTime - Date.now();
+                            if (diff <= 0) { location.reload(); return; }
+                            var d = Math.floor(diff/86400000);
+                            var h = Math.floor((diff%86400000)/3600000);
+                            var m = Math.floor((diff%3600000)/60000);
+                            var s = Math.floor((diff%60000)/1000);
+                            var p = [];
+                            if (d>0) p.push(d+(d===1?' Tag':' Tage'));
+                            if (h>0) p.push(h+' Std');
+                            p.push(m+' Min');
+                            if (d===0) p.push(s+' Sek');
+                            timer.textContent = p.join(', ');
+                            setTimeout(tick, 1000);
+                        }
+                        tick();
+                    }
+                    /* Notify forms */
+                    document.querySelectorAll('.tix-sel-notify-form').forEach(function(form){
+                        form.addEventListener('submit', function(e){
+                            e.preventDefault();
+                            var btn = form.querySelector('.tix-sel-notify-btn');
+                            var msg = form.querySelector('.tix-sel-notify-msg');
+                            var email = form.querySelector('input[name="email"]').value.trim();
+                            if (!email) return;
+                            btn.disabled = true; btn.textContent = '…';
+                            var fd = new FormData();
+                            fd.append('action','tix_waitlist_join');
+                            fd.append('event_id', form.dataset.event);
+                            fd.append('type', form.dataset.type);
+                            fd.append('nonce', form.dataset.nonce);
+                            fd.append('email', email);
+                            fetch('<?php echo admin_url('admin-ajax.php'); ?>', {method:'POST',body:fd})
+                                .then(function(r){return r.json();})
+                                .then(function(data){
+                                    if (data.success) {
+                                        form.innerHTML = '<p class="tix-sel-notify-success">✅ '+data.data.message+'</p>';
+                                    } else {
+                                        msg.textContent = data.data.message||'Fehler';
+                                        msg.hidden = false; msg.className = 'tix-sel-notify-msg tix-sel-notify-msg--error';
+                                        btn.disabled = false; btn.textContent = 'Erinnern';
+                                    }
+                                })
+                                .catch(function(){
+                                    msg.textContent = 'Verbindungsfehler.';
+                                    msg.hidden = false; msg.className = 'tix-sel-notify-msg tix-sel-notify-msg--error';
+                                    btn.disabled = false; btn.textContent = 'Erinnern';
+                                });
+                        });
+                    });
+                })();
+                </script>
+                <?php
+                return ob_get_clean();
+            }
+        }
+
         // ── Saalplan-Modus prüfen ──
         $seatmap_id   = intval(get_post_meta($post_id, '_tix_seatmap_id', true));
         $seatmap_mode = get_post_meta($post_id, '_tix_seatmap_mode', true) ?: 'manual';
@@ -101,6 +195,26 @@ class TIX_Ticket_Selector {
             ?>
 
             <div class="tix-sel-categories">
+                <?php
+                // Prüfe ob alle Online-Tickets ausverkauft (für Warteliste)
+                $all_online_soldout = true;
+                $has_any_online = false;
+                foreach ($categories as $_chk_cat) {
+                    $is_chk_offline = !empty($_chk_cat['offline_ticket']);
+                    if (!$is_chk_offline) {
+                        $has_any_online = true;
+                        $chk_pid = intval($_chk_cat['product_id'] ?? 0);
+                        if ($chk_pid) {
+                            $chk_p = wc_get_product($chk_pid);
+                            if ($chk_p && $chk_p->is_in_stock()) {
+                                $all_online_soldout = false;
+                                break;
+                            }
+                        }
+                    }
+                }
+                if (!$has_any_online) $all_online_soldout = false;
+                ?>
                 <?php
                 // Batch: Alle Produkt-IDs vorladen (1 Query statt N)
                 $product_ids = array_filter(array_map(function($c) {
@@ -493,6 +607,61 @@ class TIX_Ticket_Selector {
                 </div>
                 <div class="tix-sel-gd-badge" style="display:none;"></div>
             </div>
+            <?php endif; ?>
+
+            <?php // ── Warteliste (bei Ausverkauf) ── ?>
+            <?php
+            $wl_event_enabled = get_post_meta($post_id, '_tix_waitlist_enabled', true);
+            if ($all_online_soldout && !empty($tix_s['waitlist_enabled']) && $wl_event_enabled === '1'):
+                $wl_nonce = wp_create_nonce('tix_waitlist_' . $post_id);
+            ?>
+            <div class="tix-sel-waitlist">
+                <form class="tix-sel-notify-form" data-event="<?php echo $post_id; ?>" data-type="soldout" data-nonce="<?php echo $wl_nonce; ?>">
+                    <p class="tix-sel-notify-text">Auf die Warteliste setzen:</p>
+                    <div class="tix-sel-notify-fields">
+                        <input type="email" name="email" placeholder="Deine E-Mail-Adresse" required>
+                        <button type="submit" class="tix-sel-notify-btn">Benachrichtigen</button>
+                    </div>
+                    <div class="tix-sel-notify-msg" hidden></div>
+                </form>
+            </div>
+            <script>
+            (function(){
+                document.querySelectorAll('.tix-sel-notify-form').forEach(function(form){
+                    if (form._tixBound) return; form._tixBound = true;
+                    form.addEventListener('submit', function(e){
+                        e.preventDefault();
+                        var btn = form.querySelector('.tix-sel-notify-btn');
+                        var msg = form.querySelector('.tix-sel-notify-msg');
+                        var email = form.querySelector('input[name="email"]').value.trim();
+                        if (!email) return;
+                        btn.disabled = true; btn.textContent = '…';
+                        var fd = new FormData();
+                        fd.append('action','tix_waitlist_join');
+                        fd.append('event_id', form.dataset.event);
+                        fd.append('type', form.dataset.type);
+                        fd.append('nonce', form.dataset.nonce);
+                        fd.append('email', email);
+                        fetch(ehSel.ajaxUrl, {method:'POST',body:fd})
+                            .then(function(r){return r.json();})
+                            .then(function(data){
+                                if (data.success) {
+                                    form.innerHTML = '<p class="tix-sel-notify-success">✅ '+data.data.message+'</p>';
+                                } else {
+                                    msg.textContent = data.data.message||'Fehler';
+                                    msg.hidden = false; msg.className = 'tix-sel-notify-msg tix-sel-notify-msg--error';
+                                    btn.disabled = false; btn.textContent = 'Benachrichtigen';
+                                }
+                            })
+                            .catch(function(){
+                                msg.textContent = 'Verbindungsfehler.';
+                                msg.hidden = false; msg.className = 'tix-sel-notify-msg tix-sel-notify-msg--error';
+                                btn.disabled = false; btn.textContent = 'Benachrichtigen';
+                            });
+                    });
+                });
+            })();
+            </script>
             <?php endif; ?>
 
             <?php // ── Gutscheincode ── ?>

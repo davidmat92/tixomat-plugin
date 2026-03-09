@@ -73,6 +73,9 @@ class TIX_Settings {
             'ep_show_raffle'     => 1,
             'ep_show_share'      => 1,
 
+            // ── Warteliste / Presale-Benachrichtigungen ──
+            'waitlist_enabled'   => 1,
+
             // ── Ticket-Selektor ──
             'low_stock_threshold' => 10,  // "Nur noch X verfügbar!" (0=aus)
 
@@ -457,6 +460,9 @@ class TIX_Settings {
 
         // Express Checkout
         $clean['express_checkout_enabled'] = !empty($input['express_checkout_enabled']) ? 1 : 0;
+
+        // Warteliste
+        $clean['waitlist_enabled'] = !empty($input['waitlist_enabled']) ? 1 : 0;
 
         // Express-Checkout Modal Design
         foreach (['ec_btn_bg', 'ec_btn_text', 'ec_btn_hover_bg', 'ec_btn_hover_text', 'ec_btn_border_color', 'ec_modal_bg', 'ec_modal_text', 'ec_modal_border', 'ec_cat_border', 'ec_cat_active', 'ec_buy_bg', 'ec_buy_text', 'ec_buy_hover_bg', 'ec_buy_hover_text'] as $k) {
@@ -1713,6 +1719,9 @@ class TIX_Settings {
                                             </div>
                                             <div class="tix-field tix-field-full">
                                                 <?php self::checkbox_row('ep_show_share', 'Share-Buttons', $s, 'Zeigt Social-Sharing-Buttons (WhatsApp, Facebook, X, E-Mail, Link kopieren) auf der Event-Seite an.'); ?>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('waitlist_enabled', 'Warteliste / Presale-Benachrichtigung', $s, 'Erm&ouml;glicht E-Mail-Benachrichtigungen: Countdown vor Vorverkaufsstart + Warteliste bei ausverkauften Tickets.'); ?>
                                             </div>
                                             <div class="tix-field tix-field-full">
                                                 <label class="tix-label" for="tix_low_stock_threshold">&bdquo;Letzte X Tickets&ldquo;-Anzeige</label>

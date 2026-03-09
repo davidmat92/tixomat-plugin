@@ -1099,7 +1099,9 @@ class TIX_Metabox {
         $presale_end_mode = get_post_meta($post->ID, '_tix_presale_end_mode', true) ?: 'manual';
         $presale_end_offset = get_post_meta($post->ID, '_tix_presale_end_offset', true);
         if ($presale_end_offset === '') $presale_end_offset = '0';
-        $event_status   = get_post_meta($post->ID, '_tix_event_status', true) ?: '';
+        $event_status      = get_post_meta($post->ID, '_tix_event_status', true) ?: '';
+        $presale_start     = get_post_meta($post->ID, '_tix_presale_start', true);
+        $waitlist_enabled  = get_post_meta($post->ID, '_tix_waitlist_enabled', true);
 
         // Defaults für neue Events
         if ($presale === '') $presale = '1';
@@ -1174,6 +1176,29 @@ class TIX_Metabox {
                     <span id="tix-presale-end-fixed-wrap" style="<?php echo $presale_end_mode !== 'fixed' ? 'display:none;' : ''; ?>">
                         <input type="datetime-local" name="tix_presale_end" value="<?php echo esc_attr($presale_end); ?>" class="tix-input-sm">
                     </span>
+                </div>
+            </div>
+
+            <?php // ── Vorverkauf-Start (Countdown) ── ?>
+            <div class="tix-presale-end-wrap" style="margin-top:8px;">
+                <div class="tix-presale-end-row">
+                    <label class="tix-field-label">Vorverkauf startet am</label>
+                    <?php self::tip('Wenn gesetzt, wird vor diesem Zeitpunkt ein Countdown angezeigt und Besucher können sich per E-Mail benachrichtigen lassen.'); ?>
+                    <input type="datetime-local" name="tix_presale_start" value="<?php echo esc_attr($presale_start); ?>" class="tix-input-sm">
+                    <?php if ($presale_start): ?>
+                        <button type="button" class="button tix-btn-sm" onclick="this.previousElementSibling.value='';this.style.display='none';" title="Zurücksetzen" style="margin-left:4px;">✕</button>
+                    <?php endif; ?>
+                </div>
+            </div>
+
+            <?php // ── Warteliste ── ?>
+            <div class="tix-presale-end-wrap" style="margin-top:8px;">
+                <div class="tix-presale-end-row">
+                    <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+                        <input type="checkbox" name="tix_waitlist_enabled" value="1" <?php checked($waitlist_enabled, '1'); ?>>
+                        <span class="tix-field-label" style="margin:0;">Warteliste aktivieren</span>
+                    </label>
+                    <?php self::tip('Bei ausverkauften Tickets wird ein E-Mail-Formular angezeigt. Besucher werden automatisch benachrichtigt, wenn wieder Tickets verfügbar sind.'); ?>
                 </div>
             </div>
 
@@ -3004,6 +3029,14 @@ class TIX_Metabox {
 
         $presale = !empty($_POST['tix_presale_active']) ? '1' : '0';
         update_post_meta($post_id, '_tix_presale_active', $presale);
+
+        // Presale-Start (Countdown)
+        $presale_start = sanitize_text_field($_POST['tix_presale_start'] ?? '');
+        update_post_meta($post_id, '_tix_presale_start', $presale_start);
+
+        // Warteliste pro Event
+        $waitlist_enabled = !empty($_POST['tix_waitlist_enabled']) ? '1' : '';
+        update_post_meta($post_id, '_tix_waitlist_enabled', $waitlist_enabled);
 
         // Presale-End-Modus
         $presale_end_mode = sanitize_text_field($_POST['tix_presale_end_mode'] ?? 'manual');

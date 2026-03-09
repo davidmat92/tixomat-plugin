@@ -1090,6 +1090,101 @@
     opacity: 0.7;
 }
 
+/* ── Presale Countdown ── */
+.tix-sel-presale-soon {
+    text-align: center;
+    padding: 24px 16px;
+}
+.tix-sel-presale-countdown {
+    margin-bottom: 20px;
+}
+.tix-sel-presale-label {
+    display: block;
+    font-size: .9rem;
+    color: var(--tix-text, inherit);
+    opacity: .7;
+    margin-bottom: 6px;
+}
+.tix-sel-presale-timer {
+    display: block;
+    font-size: 1.3rem;
+    font-weight: 700;
+    color: var(--tix-text, inherit);
+}
+
+/* ── Notify / Waitlist Form ── */
+.tix-sel-waitlist {
+    padding: 16px 0;
+    border-top: 1px solid var(--tix-cat-border, #333);
+    margin-top: var(--tix-gap, 10px);
+}
+.tix-sel-notify-text {
+    font-size: .88rem;
+    color: var(--tix-text, inherit);
+    opacity: .8;
+    margin: 0 0 10px;
+    text-align: center;
+}
+.tix-sel-notify-fields {
+    display: flex;
+    gap: 8px;
+}
+.tix-sel-notify-fields input[type="email"] {
+    flex: 1;
+    padding: 10px 14px;
+    border: 1px solid var(--tix-cat-border, #333);
+    border-radius: var(--tix-radius, 8px);
+    font-size: .92rem;
+    font-family: inherit;
+    background: transparent;
+    color: inherit;
+    outline: none;
+    transition: border-color .2s;
+}
+.tix-sel-notify-fields input[type="email"]:focus {
+    border-color: var(--tix-buy-bg, #c8ff00);
+}
+.tix-sel-notify-btn {
+    padding: 10px 20px;
+    background: var(--tix-buy-bg, #c8ff00);
+    color: var(--tix-buy-color, #000);
+    border: none;
+    border-radius: var(--tix-radius, 8px);
+    font-size: .92rem;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+    white-space: nowrap;
+    transition: opacity .2s;
+}
+.tix-sel-notify-btn:hover { opacity: .85; }
+.tix-sel-notify-btn:disabled { opacity: .5; cursor: not-allowed; }
+.tix-sel-notify-msg {
+    margin-top: 10px;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: .85rem;
+    text-align: center;
+}
+.tix-sel-notify-msg[hidden] { display: none; }
+.tix-sel-notify-msg--error {
+    background: rgba(239, 68, 68, .1);
+    color: #ef4444;
+}
+.tix-sel-notify-success {
+    font-size: .92rem;
+    color: var(--tix-success, #4caf50);
+    text-align: center;
+    margin: 0;
+    padding: 8px 0;
+}
+
+@media (max-width: 480px) {
+    .tix-sel-notify-fields {
+        flex-direction: column;
+    }
+}
+
 /* ── Low Stock Badge ── */
 .tix-sel-low-stock {
     display: inline-block;

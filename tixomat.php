@@ -2,14 +2,14 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.28.20
+ * Version: 1.28.21
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.28.20');
+define('TIXOMAT_VERSION', '1.28.21');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -147,6 +147,10 @@ require_once TIXOMAT_PATH . 'includes/class-tix-sync-airtable.php';
 require_once TIXOMAT_PATH . 'includes/class-tix-raffle.php';
 TIX_Raffle::init();
 
+// ── Warteliste / Presale-Benachrichtigungen ──
+require_once TIXOMAT_PATH . 'includes/class-tix-waitlist.php';
+TIX_Waitlist::init();
+
 // ── Promoter-System ──
 require_once TIXOMAT_PATH . 'includes/class-tix-promoter-db.php';
 require_once TIXOMAT_PATH . 'includes/class-tix-promoter.php';
@@ -162,6 +166,12 @@ register_activation_hook(__FILE__, function() {
     }
     TIX_Promoter_DB::create_tables();
     TIX_Raffle::create_table();
+    TIX_Waitlist::create_table();
+
+    // Waitlist cron
+    if (!wp_next_scheduled('tix_waitlist_check')) {
+        wp_schedule_event(time(), 'tix_every_10min', 'tix_waitlist_check');
+    }
 });
 
 // ── Statistiken (Admin + AJAX) ──
@@ -248,8 +258,13 @@ add_action('wp_ajax_tix_raffle_enter',        ['TIX_Raffle', 'ajax_enter']);
 add_action('wp_ajax_nopriv_tix_raffle_enter', ['TIX_Raffle', 'ajax_enter']);
 add_action('wp_ajax_tix_raffle_draw',         ['TIX_Raffle', 'ajax_draw']);
 
+// ── Warteliste AJAX ──
+add_action('wp_ajax_tix_waitlist_join',        ['TIX_Waitlist', 'ajax_join']);
+add_action('wp_ajax_nopriv_tix_waitlist_join', ['TIX_Waitlist', 'ajax_join']);
+
 // ── Gewinnspiel Cron: Automatische Auslosung ──
 add_action('tix_raffle_auto_draw', ['TIX_Raffle', 'cron_auto_draw']);
+add_action('tix_waitlist_check',   ['TIX_Waitlist', 'cron_check']);
 
 // ── Admin AJAX (Gästeliste Check-in, E-Mail) ──
 if (is_admin() && wp_doing_ajax()) {
@@ -531,6 +546,8 @@ register_deactivation_hook(__FILE__, function() {
     if ($ts) wp_unschedule_event($ts, 'tix_presale_check');
     $ts2 = wp_next_scheduled('tix_raffle_auto_draw');
     if ($ts2) wp_unschedule_event($ts2, 'tix_raffle_auto_draw');
+    $ts3 = wp_next_scheduled('tix_waitlist_check');
+    if ($ts3) wp_unschedule_event($ts3, 'tix_waitlist_check');
 });
 
 // ── Zeilenumbrüche in Info-Sektionen: wpautop-Fallback beim Lesen ──
