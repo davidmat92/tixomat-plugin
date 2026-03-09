@@ -1,6 +1,6 @@
 # Tixomat -- Event & Ticket Management
 
-**Version:** 1.28.0
+**Version:** 1.28.24
 **Autor:** MDJ Veranstaltungs UG (haftungsbeschraenkt)
 **Text Domain:** `tixomat`
 **Abhaengigkeiten:** WordPress 6.x, WooCommerce 8.x (HPOS-kompatibel)
@@ -12,7 +12,7 @@
 
 | Konstante | Wert | Beschreibung |
 |---|---|---|
-| `TIXOMAT_VERSION` | `'1.28.0'` | Aktuelle Plugin-Version |
+| `TIXOMAT_VERSION` | `'1.28.24'` | Aktuelle Plugin-Version |
 | `TIXOMAT_PATH` | `plugin_dir_path(__FILE__)` | Absoluter Pfad zum Plugin-Verzeichnis |
 | `TIXOMAT_URL` | `plugin_dir_url(__FILE__)` | URL zum Plugin-Verzeichnis |
 
@@ -66,6 +66,16 @@
 44. [Sicherheit](#44-sicherheit)
 45. [Soziales Projekt (Charity)](#45-soziales-projekt-charity)
 46. [Support-System (CRM + Kunden-Portal)](#46-support-system-crm--kunden-portal)
+47. [Gewinnspiel (Raffle)](#47-gewinnspiel-raffle)
+48. [Event-Seite (tix_event_page)](#48-event-seite-tix_event_page)
+49. [Rabattcode-Generator](#49-rabattcode-generator)
+50. [Presale-Countdown & Warteliste](#50-presale-countdown--warteliste)
+51. [Post-Event Feedback](#51-post-event-feedback)
+52. [Timetable / Programm (Multi-Stage)](#52-timetable--programm-multi-stage)
+53. [Statistiken](#53-statistiken)
+54. [Saalplan (Seatmap)](#54-saalplan-seatmap)
+55. [Promoter-System](#55-promoter-system)
+56. [Daten-Synchronisierung](#56-daten-synchronisierung)
 
 ---
 
@@ -86,21 +96,21 @@ Tixomat automatisiert den gesamten Ticketing-Workflow fuer WordPress-basierte Ve
 
 ### Klassenuebersicht
 
-Tixomat besteht aus 27 Klassen:
+Tixomat besteht aus 38 Klassen:
 
 | Klasse | Datei | Verantwortung |
 |---|---|---|
 | `TIX_CPT` | `class-tix-cpt.php` | CPT-Registrierung, Admin-Menue, Admin-Bar, Location/Organizer Metaboxen |
-| `TIX_Metabox` | `class-tix-metabox.php` | Event-Metabox (9 Tabs + Wizard-Modus), AJAX-Endpoints |
+| `TIX_Metabox` | `class-tix-metabox.php` | Event-Metabox (12 Tabs + Wizard-Modus), AJAX-Endpoints |
 | `TIX_Sync` | `class-tix-sync.php` | WooCommerce-Produkt-Sync, Breakdance-Meta-Generierung |
 | `TIX_Settings` | `class-tix-settings.php` | Settings-Seite (11 Tabs), Design-Tokens, CSS-Ausgabe |
 | `TIX_Columns` | `class-tix-columns.php` | Admin-Spalten, Event-Duplizierung, CSV-Export |
 | `TIX_Frontend` | `class-tix-frontend.php` | Cron-Jobs, Open-Graph/JSON-LD, Dashboard-Widget |
 | `TIX_Checkout` | `class-tix-checkout.php` | Checkout-Shortcode, Warenkorb, Abandoned Cart |
-| `TIX_Ticket_Selector` | `class-tix-ticket-selector.php` | Ticket-Selector, Express-Modal, Countdown |
+| `TIX_Ticket_Selector` | `class-tix-ticket-selector.php` | Ticket-Selector, Express-Modal, Countdown, Low-Stock-Badge, Presale-Countdown |
 | `TIX_Calendar` | `class-tix-calendar.php` | Kalender-Shortcode, iCal- und Google-Calendar-Export |
 | `TIX_Checkin` | `class-tix-checkin.php` | QR-Scanner, Gaesteliste, Check-in-Seite |
-| `TIX_Emails` | `class-tix-emails.php` | White-Label E-Mails, Reminder, Followup, Abandoned Cart |
+| `TIX_Emails` | `class-tix-emails.php` | White-Label E-Mails, Reminder, Followup, Abandoned Cart, Feedback-Sterne |
 | `TIX_FAQ` | `class-tix-faq.php` | FAQ-Shortcode |
 | `TIX_My_Tickets` | `class-tix-my-tickets.php` | Meine-Tickets-Shortcode |
 | `TIX_Upsell` | `class-tix-upsell.php` | Zusatzprodukte-Shortcode |
@@ -116,6 +126,18 @@ Tixomat besteht aus 27 Klassen:
 | `TIX_Cleanup` | `class-tix-cleanup.php` | Loeschutz, Orphan-Cleanup |
 | `TIX_Support` | `class-tix-support.php` | Support-System (CRM + Kunden-Portal) |
 | `TIX_Docs` | `class-tix-docs.php` | Interaktive Dokumentation im Admin-Bereich |
+| `TIX_Event_Page` | `class-tix-event-page.php` | Dynamische Event-Detailseite (1col/2col Layout) |
+| `TIX_Seatmap` | `class-tix-seatmap.php` | Saalplan-System (Admin-Editor + Frontend-Auswahl) |
+| `TIX_Raffle` | `class-tix-raffle.php` | Gewinnspiel-System (Teilnahme, Auslosung, Gewinner) |
+| `TIX_Waitlist` | `class-tix-waitlist.php` | Warteliste + Presale-Benachrichtigungen |
+| `TIX_Feedback` | `class-tix-feedback.php` | Post-Event Feedback (Sterne-Bewertung + Kommentar) |
+| `TIX_Timetable` | `class-tix-timetable.php` | Timetable / Programm (Multi-Stage, Grid + Liste) |
+| `TIX_Statistics` | `class-tix-statistics.php` | Verkaufsstatistiken im Admin |
+| `TIX_Ticket_DB` | `class-tix-ticket-db.php` | Custom Ticket-Datenbank-Tabelle |
+| `TIX_Sync_Supabase` | `class-tix-sync-supabase.php` | Supabase-Synchronisierung |
+| `TIX_Sync_Airtable` | `class-tix-sync-airtable.php` | Airtable-Synchronisierung |
+| `TIX_Promoter` | `class-tix-promoter.php` | Promoter-System (Tracking + Provisionen) |
+| `TIX_Promoter_DB` | `class-tix-promoter-db.php` | Promoter-Datenbank-Tabellen |
 
 ---
 
@@ -123,37 +145,51 @@ Tixomat besteht aus 27 Klassen:
 
 ```
 tixomat/
-├── tixomat.php                        Hauptdatei (Plugin-Bootstrap)
+├── tixomat.php                           Hauptdatei (Plugin-Bootstrap)
 ├── includes/
-│   ├── class-tix-cpt.php              Custom Post Types & Taxonomien
-│   ├── class-tix-metabox.php          Event-Metabox mit 9 Tabs
-│   ├── class-tix-sync.php             WooCommerce-Sync
-│   ├── class-tix-settings.php         Einstellungen (11 Tabs)
-│   ├── class-tix-columns.php          Admin-Spalten & Export
-│   ├── class-tix-frontend.php         Cron, OG, JSON-LD, Dashboard
-│   ├── class-tix-checkout.php         Checkout-System
-│   ├── class-tix-ticket-selector.php  Ticket-Auswahl-Widget
-│   ├── class-tix-calendar.php         Kalender-Shortcode
-│   ├── class-tix-checkin.php          Check-in & QR-Scanner
-│   ├── class-tix-emails.php           E-Mail-System
-│   ├── class-tix-faq.php              FAQ-Shortcode
-│   ├── class-tix-my-tickets.php       Meine-Tickets-Seite
-│   ├── class-tix-upsell.php           Zusatzprodukte
-│   ├── class-tix-tickets.php          Eigenes Ticketsystem
-│   ├── class-tix-ticket-template.php  Ticket-Template-Editor
-│   ├── class-tix-ticket-template-cpt.php  Ticket-Vorlagen CPT
-│   ├── class-tix-ticket-transfer.php  Ticket-Transfer
-│   ├── class-tix-group-booking.php    Gruppenbuchung
-│   ├── class-tix-group-discount.php   Gruppenrabatte
-│   ├── class-tix-dynamic-pricing.php  Dynamische Preisphasen
-│   ├── class-tix-series.php           Serientermine
-│   ├── class-tix-embed.php            Embed-Widget
-│   ├── class-tix-cleanup.php          Loeschutz & Cleanup
-│   ├── class-tix-support.php          Support-System (CRM + Kunden-Portal)
-│   ├── class-tix-docs.php             Admin-Dokumentation
+│   ├── class-tix-cpt.php                 Custom Post Types & Taxonomien
+│   ├── class-tix-metabox.php             Event-Metabox mit 12 Tabs
+│   ├── class-tix-sync.php                WooCommerce-Sync
+│   ├── class-tix-settings.php            Einstellungen (11 Tabs)
+│   ├── class-tix-columns.php             Admin-Spalten & Export
+│   ├── class-tix-frontend.php            Cron, OG, JSON-LD, Dashboard
+│   ├── class-tix-checkout.php            Checkout-System
+│   ├── class-tix-ticket-selector.php     Ticket-Auswahl (Low-Stock, Presale-Countdown)
+│   ├── class-tix-calendar.php            Kalender-Shortcode
+│   ├── class-tix-checkin.php             Check-in & QR-Scanner
+│   ├── class-tix-emails.php              E-Mail-System (+ Feedback-Sterne)
+│   ├── class-tix-faq.php                 FAQ-Shortcode
+│   ├── class-tix-my-tickets.php          Meine-Tickets-Seite
+│   ├── class-tix-upsell.php              Zusatzprodukte
+│   ├── class-tix-tickets.php             Eigenes Ticketsystem
+│   ├── class-tix-ticket-template.php     Ticket-Template-Editor
+│   ├── class-tix-ticket-template-cpt.php Ticket-Vorlagen CPT
+│   ├── class-tix-ticket-transfer.php     Ticket-Transfer
+│   ├── class-tix-group-booking.php       Gruppenbuchung
+│   ├── class-tix-group-discount.php      Gruppenrabatte
+│   ├── class-tix-dynamic-pricing.php     Dynamische Preisphasen
+│   ├── class-tix-series.php              Serientermine
+│   ├── class-tix-embed.php               Embed-Widget
+│   ├── class-tix-cleanup.php             Loeschutz & Cleanup
+│   ├── class-tix-support.php             Support-System (CRM + Kunden-Portal)
+│   ├── class-tix-docs.php                Admin-Dokumentation
+│   ├── class-tix-event-page.php          Event-Detailseite (1col/2col + Share + Rating)
+│   ├── class-tix-seatmap.php             Saalplan-System
+│   ├── class-tix-raffle.php              Gewinnspiel (Teilnahme + Auslosung)
+│   ├── class-tix-waitlist.php            Warteliste + Presale-Benachrichtigungen
+│   ├── class-tix-feedback.php            Post-Event Feedback (Sterne + Kommentar)
+│   ├── class-tix-timetable.php           Timetable / Programm (Multi-Stage)
+│   ├── class-tix-statistics.php          Verkaufsstatistiken
+│   ├── class-tix-ticket-db.php           Custom Ticket-DB
+│   ├── class-tix-sync-supabase.php       Supabase-Sync
+│   ├── class-tix-sync-airtable.php       Airtable-Sync
+│   ├── class-tix-promoter.php            Promoter-System
+│   ├── class-tix-promoter-db.php         Promoter-Datenbank
+│   ├── class-tix-promoter-admin.php      Promoter-Admin (Menue + Verwaltung)
+│   ├── class-tix-promoter-dashboard.php  Promoter-Dashboard (Frontend)
 ├── assets/
-│   ├── css/                           13 CSS-Dateien + 13 minifizierte Versionen
-│   ├── js/                            14 JS-Dateien + 14 minifizierte Versionen + jsqr.min.js
+│   ├── css/                              CSS-Dateien (event-page, ticket-selector, feedback, timetable, ...)
+│   ├── js/                               JS-Dateien (event-page, feedback, timetable, ...)
 │   └── fonts/
 │       ├── OpenSans-Regular.ttf
 │       ├── OpenSans-Bold.ttf
@@ -737,7 +773,7 @@ Im manuellen Modus werden einzelne Termine explizit angegeben:
 
 ## 15. Shortcodes
 
-Tixomat stellt 11 Shortcodes zur Verfuegung:
+Tixomat stellt 16 Shortcodes zur Verfuegung:
 
 | Shortcode | Klasse | Parameter | Beschreibung |
 |---|---|---|---|
@@ -752,6 +788,11 @@ Tixomat stellt 11 Shortcodes zur Verfuegung:
 | `[tix_newsletter]` | `TIX_Emails` | `event_id`, `label` | Newsletter-Anmeldeformular |
 | `[tix_countdown]` | `TIX_Ticket_Selector` | `id` (Event-ID), `style` | Countdown bis zum Event |
 | `[tix_group_booking]` | `TIX_Group_Booking` | `id` (Event-ID) | Gruppenbuchungs-Formular |
+| `[tix_event_page]` | `TIX_Event_Page` | `id` (Event-ID) | Komplette Event-Detailseite (1col/2col Layout) |
+| `[tix_raffle]` | `TIX_Raffle` | `id` (Event-ID) | Gewinnspiel-Formular mit Countdown und Gewinnerliste |
+| `[tix_feedback]` | `TIX_Feedback` | `id` (Event-ID) | Feedback-Formular (Sterne + Kommentar) oder oeffentliche Bewertung |
+| `[tix_timetable]` | `TIX_Timetable` | `id` (Event-ID) | Mehrtaegiges Programm mit Buehnen-Grid |
+| `[tix_series_dates]` | `TIX_Series` | `id` (Event-ID) | Serientermin-Uebersicht |
 
 ---
 
@@ -784,6 +825,7 @@ Tixomat stellt 11 Shortcodes zur Verfuegung:
 | `tix_seatmap_load` | `TIX_Seatmap` | Saalplan-Daten laden |
 | `tix_sync_test_connection` | `TIX_Sync` | Verbindung zur externen Datenbank testen |
 | `tix_sync_all` | `TIX_Sync` | Vollstaendige Synchronisierung aller Events |
+| `tix_raffle_draw` | `TIX_Raffle` | Gewinnspiel manuell auslosen |
 
 ### Oeffentliche Endpoints (nopriv)
 
@@ -804,6 +846,9 @@ Tixomat stellt 11 Shortcodes zur Verfuegung:
 | `tix_calculate_price` | `TIX_Ticket_Selector` | Live-Preisberechnung (Mengenrabatt etc.) |
 | `tix_download_ticket` | `TIX_Tickets` | Ticket-PDF-Download |
 | `tix_export_ical` | `TIX_Calendar` | iCal-Export |
+| `tix_raffle_enter` | `TIX_Raffle` | Gewinnspiel-Teilnahme (Name + E-Mail) |
+| `tix_waitlist_join` | `TIX_Waitlist` | Warteliste / Presale-Benachrichtigung beitreten |
+| `tix_feedback_submit` | `TIX_Feedback` | Feedback absenden (Sterne + Kommentar, Token-validiert) |
 
 ---
 
@@ -1506,15 +1551,17 @@ Ueber den Button "CSV-Export" in der Event-Liste koennen alle Events (oder gefil
 
 ## 37. Cron-Jobs & Scheduled Actions
 
-Tixomat registriert 5 Cron-Jobs ueber die WordPress-Cron-API:
+Tixomat registriert 7 Cron-Jobs ueber die WordPress-Cron-API:
 
 | Cron-Hook | Intervall | Klasse | Beschreibung |
 |---|---|---|---|
-| `tix_presale_check` | Stuendlich | `TIX_Frontend` | Prueft Vorverkaufsende, Event-Status und Archivierung |
+| `tix_presale_check` | Alle 10 Min | `TIX_Frontend` | Prueft Vorverkaufsende, Event-Status, Preisphasen und Archivierung |
 | `tix_send_reminder_email` | Taeglich | `TIX_Emails` | Sendet Erinnerungs-E-Mails X Tage vor dem Event |
 | `tix_send_followup_email` | Taeglich | `TIX_Emails` | Sendet Nachfass-E-Mails X Tage nach dem Event |
 | `tix_send_abandoned_cart_email` | Halbstuendlich | `TIX_Emails` | Sendet Recovery-E-Mails fuer abgebrochene Warenkoerbe |
 | `tix_expire_abandoned_carts` | Taeglich | `TIX_Checkout` | Setzt abgelaufene Warenkoerbe auf Status `expired` |
+| `tix_raffle_auto_draw` | Alle 10 Min | `TIX_Raffle` | Automatische Gewinnspiel-Auslosung bei Teilnahmeschluss |
+| `tix_waitlist_check` | Alle 10 Min | `TIX_Waitlist` | Prueft Presale-Start und Stock-Rueckkehr, sendet Benachrichtigungen |
 
 ### `tix_presale_check` im Detail
 
@@ -1985,7 +2032,316 @@ Standard-Kategorien (konfigurierbar in Einstellungen → Erweitert):
 
 ---
 
+## 47. Gewinnspiel (Raffle)
+
+`TIX_Raffle` ermoeglicht Gewinnspiele pro Event mit automatischer Auslosung.
+
+### Aktivierung
+
+- Metabox-Tab "Gewinnspiel" im Event-Editor
+- `_tix_raffle_enabled` auf `1` setzen
+- Titel, Beschreibung, Teilnahmeschluss, max. Teilnehmer und Preise konfigurieren
+
+### Meta-Keys
+
+| Meta-Key | Typ | Beschreibung |
+|---|---|---|
+| `_tix_raffle_enabled` | `string` | Gewinnspiel aktiviert (`1` / leer) |
+| `_tix_raffle_title` | `string` | Titel des Gewinnspiels |
+| `_tix_raffle_description` | `string` | Beschreibung / Teilnahmebedingungen (HTML) |
+| `_tix_raffle_end_date` | `string` | Teilnahmeschluss (Y-m-d H:i) |
+| `_tix_raffle_max_entries` | `int` | Max. Teilnehmer (0 = unbegrenzt) |
+| `_tix_raffle_status` | `string` | Status: `open`, `closed`, `drawn` |
+| `_tix_raffle_prizes` | `array` | Preise (Array von {name, qty, type, cat_index}) |
+| `_tix_raffle_winners` | `array` | Gewinner nach Auslosung |
+| `_tix_raffle_drawn_at` | `string` | Zeitpunkt der Auslosung |
+
+### DB-Tabelle `{prefix}tix_raffle_entries`
+
+| Spalte | Typ | Beschreibung |
+|---|---|---|
+| `id` | `BIGINT` | Auto-Increment PK |
+| `event_id` | `BIGINT` | Event-Post-ID |
+| `name` | `VARCHAR(255)` | Teilnehmer-Name |
+| `email` | `VARCHAR(255)` | Teilnehmer-E-Mail |
+| `created_at` | `DATETIME` | Teilnahme-Zeitpunkt |
+
+### Funktionsweise
+
+1. **Teilnahme**: Besucher tragen Name + E-Mail ein (AJAX `tix_raffle_enter`)
+2. **Automatische Auslosung**: Cron `tix_raffle_auto_draw` prueft alle 10 Min ob Teilnahmeschluss erreicht
+3. **Manuelle Auslosung**: Admin kann via AJAX `tix_raffle_draw` jederzeit auslosen
+4. **Gewinner-Benachrichtigung**: E-Mail an Gewinner mit Preis-Details
+5. **Frontend**: Zeigt je nach Status Formular, Countdown oder Gewinnerliste
+
+---
+
+## 48. Event-Seite (tix_event_page)
+
+`TIX_Event_Page` rendert eine komplette Event-Detailseite mit dem Shortcode `[tix_event_page]`.
+
+### Layouts
+
+- **2col** (Standard): Hauptinhalt links, Sidebar rechts (Tickets, Kalender, Location)
+- **1col**: Alles untereinander
+
+### Sektionen (2col-Reihenfolge)
+
+**Main-Bereich:** Hero, Titel, Beschreibung, Line-Up, Specials, Galerie, Video, Extra-Info, FAQ, Timetable, Gewinnspiel, Serie
+**Sidebar:** Meta-Card (Datum, Ort, Veranstalter, Share), Tickets, Kalender, Charity, Location, Organizer
+
+### Steuerung
+
+Jede Sektion kann ueber Settings-Toggles ein-/ausgeschaltet werden:
+`ep_show_hero`, `ep_show_gallery`, `ep_show_video`, `ep_show_faq`, `ep_show_location`, `ep_show_organizer`, `ep_show_series`, `ep_show_charity`, `ep_show_upsell`, `ep_show_calendar`, `ep_show_phases`, `ep_show_raffle`, `ep_show_share`, `ep_show_timetable`
+
+### Social-Sharing
+
+Share-Buttons in der Meta-Card: WhatsApp, Facebook, X (Twitter), E-Mail, Link kopieren.
+Konfigurierbar ueber `ep_show_share` Setting.
+
+### Feedback-Badge
+
+Wenn Feedback aktiv (`feedback_enabled`) und Bewertungen vorhanden, wird ein Sterne-Badge im Titel angezeigt (z.B. "4.3 (12 Bewertungen)").
+
+---
+
+## 49. Rabattcode-Generator
+
+Event-spezifische Rabattcodes, die als echte WooCommerce-Coupons erstellt werden.
+
+### Metabox-Tab "Rabattcodes"
+
+Repeater-Tabelle mit folgenden Spalten:
+
+| Spalte | Typ | Beschreibung |
+|---|---|---|
+| Code | `text` | z.B. "EARLY20" (auto-generierbar per Button) |
+| Typ | `select` | `percent` (Prozent) oder `fixed_cart` (Festbetrag) |
+| Wert | `number` | Rabatt-Wert (z.B. 20 bei 20%) |
+| Limit | `number` | Max. Einloesungen (0 = unbegrenzt) |
+| Ablaufdatum | `date` | Optionales Ablaufdatum |
+| Genutzt | `readonly` | Aktuelle Nutzungszahl |
+
+### Meta-Key
+
+`_tix_discount_codes` -- Array von:
+```
+{code, type, amount, limit, expiry, coupon_id}
+```
+
+### WooCommerce-Integration
+
+- Jeder Code wird als `WC_Coupon` erstellt/aktualisiert
+- Coupon ist auf die Event-Produkte beschraenkt (`set_product_ids()`)
+- Markierung via `_tix_event_coupon` Meta am Coupon
+- Beim Loeschen wird der WC_Coupon in den Papierkorb verschoben
+
+---
+
+## 50. Presale-Countdown & Warteliste
+
+`TIX_Waitlist` sammelt E-Mail-Adressen fuer Presale-Benachrichtigungen und Wartelisten bei ausverkauften Events.
+
+### Meta-Keys (Event)
+
+| Meta-Key | Typ | Beschreibung |
+|---|---|---|
+| `_tix_presale_start` | `datetime-local` | Wann startet der Vorverkauf? |
+| `_tix_waitlist_enabled` | `string` | Warteliste fuer dieses Event aktiv (`1` / leer) |
+
+### DB-Tabelle `{prefix}tix_waitlist`
+
+| Spalte | Typ | Beschreibung |
+|---|---|---|
+| `id` | `BIGINT` | Auto-Increment PK |
+| `event_id` | `BIGINT` | Event-Post-ID |
+| `email` | `VARCHAR(255)` | E-Mail-Adresse |
+| `name` | `VARCHAR(255)` | Name (optional) |
+| `type` | `ENUM` | `presale` oder `soldout` |
+| `notified` | `TINYINT` | Bereits benachrichtigt? |
+| `created_at` | `DATETIME` | Eintragszeitpunkt |
+
+UNIQUE KEY auf `(event_id, email, type)`.
+
+### Ticket-Selektor-Integration
+
+1. **Presale noch nicht gestartet**: Countdown + "Benachrichtige mich"-Formular
+2. **Alle Online-Tickets ausverkauft**: Warteliste-Formular
+3. **AJAX**: `tix_waitlist_join` fuegt Eintrag hinzu
+
+### Cron
+
+`tix_waitlist_check` (alle 10 Min):
+- Prueft ob Presale gerade gestartet hat → benachrichtigt `type=presale` Eintraege
+- Prueft ob Stock zurueckgekehrt ist → benachrichtigt `type=soldout` Eintraege
+
+### Settings
+
+- `waitlist_enabled` (global Toggle, default: 1)
+
+---
+
+## 51. Post-Event Feedback
+
+`TIX_Feedback` ermoeglicht Sterne-Bewertungen (1-5) und Kommentare nach dem Event.
+
+### DB-Tabelle `{prefix}tix_feedback`
+
+| Spalte | Typ | Beschreibung |
+|---|---|---|
+| `id` | `BIGINT` | Auto-Increment PK |
+| `event_id` | `BIGINT` | Event-Post-ID |
+| `order_id` | `BIGINT` | WooCommerce-Bestell-ID |
+| `email` | `VARCHAR(255)` | E-Mail des Bewerters |
+| `name` | `VARCHAR(255)` | Name |
+| `rating` | `TINYINT` | Sterne (1-5) |
+| `comment` | `TEXT` | Freitext-Kommentar |
+| `token` | `VARCHAR(64)` | Sicherheits-Token |
+| `created_at` | `DATETIME` | Bewertungszeitpunkt |
+
+UNIQUE KEY auf `(event_id, email)`.
+
+### Token-System
+
+```
+token = hash('sha256', order_id + '|' + event_id + '|' + email + '|' + wp_salt())
+```
+
+Nur echte Ticket-Kaeufer koennen bewerten (Token in Follow-Up-E-Mail).
+
+### Shortcode `[tix_feedback]`
+
+| Zustand | Anzeige |
+|---|---|
+| Token gueltig, kein Feedback | Sterne-Formular + Textarea |
+| Token gueltig, bereits bewertet | "Danke fuer dein Feedback!" |
+| Kein Token (oeffentlich) | Durchschnittsbewertung |
+
+### Follow-Up-E-Mail
+
+In `TIX_Emails::send_followup()` werden klickbare Sterne-Links eingefuegt.
+Klick oeffnet die Feedback-Seite mit vorausgefuelltem Rating.
+
+### Caching
+
+Durchschnitt und Anzahl werden als Post-Meta gecacht:
+- `_tix_feedback_avg` -- Durchschnittsbewertung (1.0-5.0)
+- `_tix_feedback_count` -- Anzahl Bewertungen
+
+### Settings
+
+- `feedback_enabled` (global Toggle, default: 1)
+
+---
+
+## 52. Timetable / Programm (Multi-Stage)
+
+`TIX_Timetable` zeigt ein mehrtaegiges Programm mit mehreren Buehnen/Raeumen.
+
+### Meta-Keys
+
+| Meta-Key | Typ | Beschreibung |
+|---|---|---|
+| `_tix_stages` | `array` | Buehnen: `[{name: 'Hauptbuehne', color: '#6366f1'}, ...]` |
+| `_tix_timetable` | `array` | Slots pro Tag: `{'2026-06-15': [{time, end, stage, title, desc}, ...]}` |
+
+### Metabox-Tab "Programm"
+
+1. **Buehnen-Repeater**: Name + Farbpicker pro Buehne
+2. **Tages-Tabs**: Automatisch aus Event-Datumsspanne generiert
+3. **Slot-Tabelle pro Tag**: Startzeit, Endzeit, Buehne (Dropdown), Titel, Beschreibung
+
+### Frontend-Ansichten
+
+**Desktop (>768px):** CSS-Grid mit Spalten pro Buehne
+- `grid-template-columns: 60px repeat(var(--tt-stages), 1fr)`
+- Buehnen-Header mit farbigen Akzenten
+- Slot-Cards mit `color-mix()` Hintergruenden
+
+**Mobil (<=768px):** Listenansicht
+- Alle Slots chronologisch sortiert
+- Buehnen-Filter-Buttons zum Filtern nach Buehne
+- Stage-Badge mit Buehnen-Farbe
+
+### Tages-Tabs
+
+Buttons zum Wechseln zwischen Veranstaltungstagen. JS schaltet aktive Day-Panes um.
+
+### Shortcode
+
+`[tix_timetable]` oder `[tix_timetable id="123"]`
+
+### Event-Seite
+
+Position: Nach FAQ, vor Gewinnspiel (in beiden Layouts).
+Steuerbar ueber `ep_show_timetable` Setting.
+
+---
+
+## 53. Statistiken
+
+`TIX_Statistics` zeigt Verkaufsstatistiken im Admin-Bereich.
+
+---
+
+## 54. Saalplan (Seatmap)
+
+`TIX_Seatmap` ermoeglicht die Erstellung und Verwaltung von Saalplaenen mit Sektionen, Plaetzen und Preiskategorien.
+
+### DB-Tabelle
+
+Eigene Tabelle fuer Saalplan-Daten (Sektionen, Reihen, Plaetze).
+
+---
+
+## 55. Promoter-System
+
+`TIX_Promoter` ermoeglicht Affiliate-/Promoter-Tracking mit individuellen Links und Provisionsberechnung.
+
+### Klassen
+
+- `TIX_Promoter` -- Tracking-Logik (Cookie, Zuordnung)
+- `TIX_Promoter_DB` -- Datenbank-Tabellen (Promoter, Clicks, Sales)
+- `TIX_Promoter_Admin` -- Admin-Menue + Verwaltung
+- `TIX_Promoter_Dashboard` -- Frontend-Dashboard fuer Promoter
+
+### Settings
+
+- `promoter_enabled` (global Toggle, default: 0)
+
+---
+
+## 56. Daten-Synchronisierung
+
+### Supabase (`TIX_Sync_Supabase`)
+
+Synchronisiert Ticket-Daten in eine Supabase-Datenbank (PostgreSQL).
+
+### Airtable (`TIX_Sync_Airtable`)
+
+Synchronisiert Ticket-Daten in eine Airtable-Base.
+
+### Custom Ticket-DB (`TIX_Ticket_DB`)
+
+Optionale lokale Datenbank-Tabelle fuer schnelle Ticket-Abfragen (parallel zum CPT).
+
+---
+
 ## Changelog
+
+### v1.28.19 -- v1.28.24
+- **Low-Stock-Badge**: "Nur noch X verfuegbar!" im Ticket-Selektor (konfigurierbarer Schwellenwert)
+- **Social-Sharing-Buttons**: WhatsApp, Facebook, X, E-Mail, Link kopieren auf Event-Seite
+- **Rabattcode-Generator**: Event-spezifische Codes als echte WC_Coupons (Metabox-Tab)
+- **Presale-Countdown**: Countdown + E-Mail-Benachrichtigung vor Vorverkaufsstart
+- **Warteliste**: E-Mail-Sammlung bei ausverkauften Tickets mit Auto-Benachrichtigung
+- **Post-Event Feedback**: Sterne-Bewertung (1-5) + Kommentar, Token-basiert, in Follow-Up E-Mail
+- **Timetable (Multi-Stage)**: Mehrtaegiges Programm mit Buehnen-Grid (Desktop) und Listenansicht (Mobil)
+- **Docs-Update**: Alle neuen Shortcodes, Meta-Keys und AJAX-Endpoints dokumentiert
+
+### v1.28.18
+- **Gewinnspiel (Raffle)**: Teilnahme-Formular, automatische/manuelle Auslosung, Gewinner-Benachrichtigung, Cron
 
 ### v1.28.0
 - **Ticket-Vorlagen CPT**: Ticket-Vorlagen als eigener Post-Type (tix_ticket_tpl) mit visuellem Editor
@@ -2005,4 +2361,4 @@ Standard-Kategorien (konfigurierbar in Einstellungen → Erweitert):
 
 ---
 
-*Tixomat v1.28.0 -- MDJ Veranstaltungs UG (haftungsbeschraenkt)*
+*Tixomat v1.28.24 -- MDJ Veranstaltungs UG (haftungsbeschraenkt)*
