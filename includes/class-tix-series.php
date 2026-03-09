@@ -227,7 +227,7 @@ class TIX_Series {
         add_action('save_post_event', ['TIX_Metabox', 'save'], 10, 2);
         add_action('save_post_event', ['TIX_Sync', 'sync'], 20, 2);
 
-        // Sync für alle Kinder auslösen (Breakdance-Meta + WC/Tickera)
+        // Sync für alle Kinder auslösen (Breakdance-Meta + WC)
         // Jetzt haben alle Kinder korrekte Meta-Daten gesetzt.
         foreach ($new_children as $child_id) {
             $child_post = get_post($child_id);
@@ -320,7 +320,7 @@ class TIX_Series {
             }
         }
 
-        // Ticket-Kategorien als Template (ohne product_id/tc_event_id/sku)
+        // Ticket-Kategorien als Template (ohne product_id/sku)
         $cats = get_post_meta($master_id, '_tix_ticket_categories', true);
         if (is_array($cats)) {
             $existing_cats = get_post_meta($child_id, '_tix_ticket_categories', true);
@@ -331,11 +331,9 @@ class TIX_Series {
                 // Bestehende Produkt-IDs des Kindes beibehalten
                 if (is_array($existing_cats) && isset($existing_cats[$i])) {
                     $child_cat['product_id']  = $existing_cats[$i]['product_id'] ?? '';
-                    $child_cat['tc_event_id'] = $existing_cats[$i]['tc_event_id'] ?? '';
                     $child_cat['sku']         = $existing_cats[$i]['sku'] ?? '';
                 } else {
                     $child_cat['product_id']  = '';
-                    $child_cat['tc_event_id'] = '';
                     $child_cat['sku']         = '';
                 }
                 $template_cats[] = $child_cat;
@@ -402,28 +400,19 @@ class TIX_Series {
     }
 
     // ──────────────────────────────────────────
-    // WC-Produkte + Tickera-Events eines Kindes löschen
+    // WC-Produkte eines Kindes löschen
     // ──────────────────────────────────────────
     private static function delete_child_products($child_id) {
         $cats = get_post_meta($child_id, '_tix_ticket_categories', true);
         if (!is_array($cats)) return;
 
         foreach ($cats as $cat) {
-            if (!empty($cat['tc_event_id']) && get_post($cat['tc_event_id'])) {
-                wp_delete_post(intval($cat['tc_event_id']), true);
-            }
             if (!empty($cat['product_id'])) {
                 if (function_exists('wc_get_product')) {
                     $product = wc_get_product(intval($cat['product_id']));
                     if ($product) $product->delete(true);
                 }
             }
-        }
-
-        // API-Key des Events löschen
-        $api_key_id = get_post_meta($child_id, '_tix_api_key_id', true);
-        if ($api_key_id) {
-            wp_delete_post(intval($api_key_id), true);
         }
     }
 

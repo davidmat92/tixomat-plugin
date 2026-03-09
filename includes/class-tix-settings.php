@@ -171,7 +171,7 @@ class TIX_Settings {
             'newsletter_webhook'  => '',          // URL für Webhook
             'newsletter_legal'    => '',          // Rechtlicher Hinweis unter Checkbox
             // ── Ticket-System ──
-            'ticket_system'         => 'tickera',  // tickera | standalone | both
+            'ticket_system'         => 'standalone',
             // ── Abandoned Cart ──
             'abandoned_cart_enabled' => 0,
             'abandoned_cart_delay'   => 30,       // Minuten
@@ -403,10 +403,8 @@ class TIX_Settings {
         $clean['newsletter_webhook'] = esc_url_raw($input['newsletter_webhook'] ?? '');
         $clean['newsletter_legal']   = sanitize_textarea_field($input['newsletter_legal'] ?? '');
 
-        // Ticket-System
-        $ts_allowed = ['tickera', 'standalone', 'both'];
-        $clean['ticket_system'] = in_array($input['ticket_system'] ?? '', $ts_allowed, true)
-            ? $input['ticket_system'] : 'tickera';
+        // Ticket-System (nur eigenes System)
+        $clean['ticket_system'] = 'standalone';
 
         // Abandoned Cart
         $clean['abandoned_cart_enabled'] = !empty($input['abandoned_cart_enabled']) ? 1 : 0;
@@ -1623,37 +1621,6 @@ class TIX_Settings {
                                                 </p>
                                             </div>
                                         </div>
-                                    </div>
-                                </div>
-
-                                <?php // ── Card: Ticket-System ── ?>
-                                <div class="tix-card">
-                                    <div class="tix-card-header">
-                                        <span class="dashicons dashicons-tickets-alt"></span>
-                                        <h3>Ticket-System</h3>
-                                    </div>
-                                    <div class="tix-card-body">
-                                        <p style="margin-bottom:12px;color:#666;">Bestimmt, wie Tickets bei Bestellabschluss erstellt und verwaltet werden.</p>
-                                        <div class="tix-field-grid">
-                                            <div class="tix-field tix-field-full">
-                                                <label style="display:block;margin-bottom:10px;cursor:pointer;">
-                                                    <input type="radio" name="tix_settings[ticket_system]" value="tickera" <?php checked($s['ticket_system'] ?? 'tickera', 'tickera'); ?>>
-                                                    <strong>Tickera (Standard)</strong>
-                                                    <span style="display:block;margin-left:22px;font-size:13px;color:#888;">Tickets werden von Tickera erstellt und verwaltet. Tickera-Plugin erforderlich.</span>
-                                                </label>
-                                                <label style="display:block;margin-bottom:10px;cursor:pointer;">
-                                                    <input type="radio" name="tix_settings[ticket_system]" value="standalone" <?php checked($s['ticket_system'] ?? 'tickera', 'standalone'); ?>>
-                                                    <strong>Tixomat Eigenst&auml;ndig</strong>
-                                                    <span style="display:block;margin-left:22px;font-size:13px;color:#888;">Tixomat erstellt und verwaltet Tickets selbst. Tickera wird nicht ben&ouml;tigt.</span>
-                                                </label>
-                                                <label style="display:block;cursor:pointer;">
-                                                    <input type="radio" name="tix_settings[ticket_system]" value="both" <?php checked($s['ticket_system'] ?? 'tickera', 'both'); ?>>
-                                                    <strong>Beide Systeme (&Uuml;bergang)</strong>
-                                                    <span style="display:block;margin-left:22px;font-size:13px;color:#888;">Tickera UND Tixomat erstellen Tickets parallel. F&uuml;r die &Uuml;bergangsphase bei der Migration.</span>
-                                                </label>
-                                            </div>
-                                        </div>
-                                        <p class="tix-settings-hint" style="margin-top:12px;">Im Modus &bdquo;Eigenst&auml;ndig&ldquo; oder &bdquo;Beide&ldquo; werden Tickets automatisch bei Bestellabschluss erstellt und als druckbare Tickets bereitgestellt.</p>
                                     </div>
                                 </div>
 

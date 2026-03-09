@@ -300,7 +300,7 @@ class TIX_Ticket_Transfer {
         $result = [];
 
         // TIX-eigene Tickets
-        if (function_exists('tix_use_own_tickets') && tix_use_own_tickets() && post_type_exists('tix_ticket')) {
+        if (post_type_exists('tix_ticket')) {
             $tix_tickets = get_posts([
                 'post_type'      => 'tix_ticket',
                 'posts_per_page' => -1,
@@ -328,98 +328,6 @@ class TIX_Ticket_Transfer {
                     'transferred_to' => ($status === 'transferred') ? ($transferred_to ?: '') : '',
                     'source'         => 'eh',
                 ];
-            }
-        }
-
-        // Tickera-Tickets
-        if (function_exists('tix_use_tickera') && tix_use_tickera() && post_type_exists('tc_tickets_instances')) {
-            $ticket_posts = get_posts([
-                'post_type'      => 'tc_tickets_instances',
-                'posts_per_page' => -1,
-                'post_parent'    => $order_id,
-                'post_status'    => 'any',
-            ]);
-
-            // Fallback: order_id Meta
-            if (empty($ticket_posts)) {
-                $ticket_posts = get_posts([
-                    'post_type'      => 'tc_tickets_instances',
-                    'posts_per_page' => -1,
-                    'meta_query'     => [['key' => 'order_id', 'value' => (string) $order_id]],
-                    'post_status'    => 'any',
-                ]);
-            }
-
-            // Fallback: TC-Order Kette
-            if (empty($ticket_posts) && post_type_exists('tc_orders')) {
-                $tc_orders = get_posts([
-                    'post_type'      => 'tc_orders',
-                    'posts_per_page' => -1,
-                    'meta_query'     => [['key' => 'order_id', 'value' => (string) $order_id]],
-                    'post_status'    => 'any',
-                ]);
-                foreach ($tc_orders as $tco) {
-                    $children = get_posts([
-                        'post_type'      => 'tc_tickets_instances',
-                        'posts_per_page' => -1,
-                        'post_parent'    => $tco->ID,
-                        'post_status'    => 'any',
-                    ]);
-                    $ticket_posts = array_merge($ticket_posts, $children);
-                }
-            }
-
-            foreach ($ticket_posts as $tp) {
-                $tc_event_id = get_post_meta($tp->ID, 'event_id', true);
-
-                if ($event_id) {
-                    $parent_event = 0;
-                    if ($tc_event_id) {
-                        $parent_event = intval(get_post_meta(intval($tc_event_id), '_tix_parent_event_id', true));
-                    }
-                    if ($parent_event !== $event_id) continue;
-                }
-
-                $ticket_code    = get_post_meta($tp->ID, 'ticket_code', true);
-                $ticket_type_id = get_post_meta($tp->ID, 'ticket_type_id', true);
-                $type_name      = $ticket_type_id ? get_the_title($ticket_type_id) : 'Ticket';
-                $transferred_to = get_post_meta($tp->ID, '_tix_transfer_name', true);
-
-                $result[] = [
-                    'ticket_id'      => $tp->ID,
-                    'ticket_code'    => $ticket_code ?: $tp->post_title,
-                    'type_name'      => $type_name,
-                    'transferred_to' => $transferred_to ?: '',
-                    'source'         => 'tc',
-                ];
-            }
-        }
-
-        // Fallback: Wenn keine Helper-Funktionen existieren, altes TC-Verhalten
-        if (!function_exists('tix_use_tickera') && !function_exists('tix_use_own_tickets')) {
-            if (post_type_exists('tc_tickets_instances')) {
-                $ticket_posts = get_posts([
-                    'post_type'      => 'tc_tickets_instances',
-                    'posts_per_page' => -1,
-                    'post_parent'    => $order_id,
-                    'post_status'    => 'any',
-                ]);
-                foreach ($ticket_posts as $tp) {
-                    $tc_event_id = get_post_meta($tp->ID, 'event_id', true);
-                    if ($event_id) {
-                        $parent_event = $tc_event_id ? intval(get_post_meta(intval($tc_event_id), '_tix_parent_event_id', true)) : 0;
-                        if ($parent_event !== $event_id) continue;
-                    }
-                    $ticket_code    = get_post_meta($tp->ID, 'ticket_code', true);
-                    $ticket_type_id = get_post_meta($tp->ID, 'ticket_type_id', true);
-                    $result[] = [
-                        'ticket_id'      => $tp->ID,
-                        'ticket_code'    => $ticket_code ?: $tp->post_title,
-                        'type_name'      => $ticket_type_id ? get_the_title($ticket_type_id) : 'Ticket',
-                        'transferred_to' => get_post_meta($tp->ID, '_tix_transfer_name', true) ?: '',
-                        'source'         => 'tc',
-                    ];
-                }
             }
         }
 
@@ -499,42 +407,22 @@ class TIX_Ticket_Transfer {
             $tix_event_id = 0;
             $ticket_code = '';
 
-            if ($ticket->post_type === 'tix_ticket') {
-                // ── TIX-Ticket: eigene Meta-Felder ──
-                update_post_meta($ticket_id, '_tix_ticket_status', 'transferred');
-                update_post_meta($ticket_id, '_tix_ticket_owner_name', $full_name);
-                update_post_meta($ticket_id, '_tix_ticket_owner_email', $new_email);
-                update_post_meta($ticket_id, '_tix_ticket_transfer_to', $new_user_id);
-                update_post_meta($ticket_id, '_tix_ticket_transfer_date', current_time('c'));
-                update_post_meta($ticket_id, '_tix_ticket_transfer_name', $full_name);
-
-                $tix_event_id = intval(get_post_meta($ticket_id, '_tix_ticket_event_id', true));
-                $ticket_code = get_post_meta($ticket_id, '_tix_ticket_code', true);
-
-            } elseif ($ticket->post_type === 'tc_tickets_instances') {
-                // ── TC-Ticket: Transfer-Metadaten ──
-                update_post_meta($ticket_id, '_tix_transfer_name', $full_name);
-                update_post_meta($ticket_id, '_tix_transfer_email', $new_email);
-                update_post_meta($ticket_id, '_tix_transfer_first_name', $first_name);
-                update_post_meta($ticket_id, '_tix_transfer_last_name', $last_name);
-                update_post_meta($ticket_id, '_tix_transfer_date', current_time('c'));
-                update_post_meta($ticket_id, '_tix_transfer_user_id', $new_user_id);
-
-                // Tickera-eigene Felder
-                update_post_meta($ticket_id, 'first_name', $first_name);
-                update_post_meta($ticket_id, 'last_name', $last_name);
-
-                $tc_event_id = get_post_meta($ticket_id, 'event_id', true);
-                if ($tc_event_id) {
-                    $tix_event_id = intval(get_post_meta(intval($tc_event_id), '_tix_parent_event_id', true));
-                }
-                $ticket_code = get_post_meta($ticket_id, 'ticket_code', true);
-
-            } else {
+            if ($ticket->post_type !== 'tix_ticket') {
                 continue;
             }
 
-            // Gästeliste aktualisieren (für beide Ticket-Typen)
+            // ── TIX-Ticket: eigene Meta-Felder ──
+            update_post_meta($ticket_id, '_tix_ticket_status', 'transferred');
+            update_post_meta($ticket_id, '_tix_ticket_owner_name', $full_name);
+            update_post_meta($ticket_id, '_tix_ticket_owner_email', $new_email);
+            update_post_meta($ticket_id, '_tix_ticket_transfer_to', $new_user_id);
+            update_post_meta($ticket_id, '_tix_ticket_transfer_date', current_time('c'));
+            update_post_meta($ticket_id, '_tix_ticket_transfer_name', $full_name);
+
+            $tix_event_id = intval(get_post_meta($ticket_id, '_tix_ticket_event_id', true));
+            $ticket_code = get_post_meta($ticket_id, '_tix_ticket_code', true);
+
+            // Gästeliste aktualisieren
             if ($tix_event_id && $ticket_code) {
                 $guests = get_post_meta($tix_event_id, '_tix_guest_list', true);
                 if (is_array($guests)) {

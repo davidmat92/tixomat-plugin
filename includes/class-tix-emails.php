@@ -6,7 +6,7 @@ if (!defined('ABSPATH')) exit;
  *
  * Ersetzt alle WooCommerce-E-Mails durch eigenes Design.
  * Nutzt die Tixomat-Design-Tokens (Accent, Border, Radius) aus den Settings.
- * Hängt Tickera-Ticket-Download-Links an.
+ * Hängt Ticket-Download-Links an.
  * Plant Erinnerungs- und Nachbefragungsmails via Action Scheduler.
  */
 class TIX_Emails {
@@ -911,7 +911,7 @@ class TIX_Emails {
     }
 
     /**
-     * Tickera-Tickets mit Download-Links
+     * Tickets mit Download-Links
      */
     private static function render_tickets_html($order, $accent, $accent_text, $text_color, $muted, $radius) {
         $tickets = self::get_ticket_data($order);
@@ -1032,11 +1032,11 @@ class TIX_Emails {
     }
 
     // ══════════════════════════════════════
-    // Tickera Ticket Helper
+    // Ticket Helper
     // ══════════════════════════════════════
 
     /**
-     * Tickera-Tickets für eine Bestellung laden
+     * Tickets für eine Bestellung laden
      * (Identische Logik wie class-tix-checkout.php render_thankyou)
      */
     private static function get_ticket_data($order) {

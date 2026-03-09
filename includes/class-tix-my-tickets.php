@@ -6,7 +6,7 @@ if (!defined('ABSPATH')) exit;
  *
  * Shortcode: [tix_my_tickets]
  * Zeigt dem eingeloggten Kunden seine Bestellungen
- * mit Tickera-Tickets, Download-Links und Event-Infos.
+ * mit Ticket-Downloads, Download-Links und Event-Infos.
  */
 class TIX_My_Tickets {
 
@@ -125,70 +125,30 @@ class TIX_My_Tickets {
         $transferred_to_me = [];
 
         // TIX-Tickets: Transfers über _tix_ticket_transfer_to
-        if (tix_use_own_tickets()) {
-            $tix_transferred = get_posts([
-                'post_type'      => 'tix_ticket',
-                'posts_per_page' => -1,
-                'meta_query'     => [
-                    ['key' => '_tix_ticket_transfer_to', 'value' => (string) $user_id],
-                    ['key' => '_tix_ticket_status', 'value' => 'transferred'],
-                ],
-                'post_status' => 'publish',
-            ]);
-            foreach ($tix_transferred as $et) {
-                $transferred_to_me[] = [
-                    'id'           => $et->ID,
-                    'code'         => get_post_meta($et->ID, '_tix_ticket_code', true) ?: $et->post_title,
-                    'type_name'    => '',
-                    'event_id'     => intval(get_post_meta($et->ID, '_tix_ticket_event_id', true)),
-                    'download_url' => class_exists('TIX_Tickets') ? TIX_Tickets::get_download_url($et->ID) : '',
-                    'source'       => 'eh',
-                ];
-                // Kategorie-Name ermitteln
-                $eid = intval(get_post_meta($et->ID, '_tix_ticket_event_id', true));
-                $ci  = intval(get_post_meta($et->ID, '_tix_ticket_cat_index', true));
-                $cats = get_post_meta($eid, '_tix_ticket_categories', true);
-                if (is_array($cats) && isset($cats[$ci])) {
-                    $transferred_to_me[count($transferred_to_me) - 1]['type_name'] = $cats[$ci]['name'] ?? 'Ticket';
-                }
-            }
-        }
-
-        // TC-Tickets: Transfers über _tix_transfer_user_id
-        if (tix_use_tickera() && post_type_exists('tc_tickets_instances')) {
-            $tc_transferred = get_posts([
-                'post_type'      => 'tc_tickets_instances',
-                'posts_per_page' => -1,
-                'meta_query'     => [
-                    ['key' => '_tix_transfer_user_id', 'value' => (string) $user_id],
-                ],
-                'post_status' => 'any',
-            ]);
-            foreach ($tc_transferred as $tp) {
-                $ticket_code    = get_post_meta($tp->ID, 'ticket_code', true);
-                $ticket_type_id = get_post_meta($tp->ID, 'ticket_type_id', true);
-                $tc_event_id    = get_post_meta($tp->ID, 'event_id', true);
-                $tix_event_id    = $tc_event_id ? intval(get_post_meta(intval($tc_event_id), '_tix_parent_event_id', true)) : 0;
-
-                $download_url = '';
-                $tc_order_post = get_post($tp->post_parent);
-                if ($tc_order_post) {
-                    $tc_order_key = strtotime($tc_order_post->post_date);
-                    $download_url = add_query_arg([
-                        'download_ticket' => $tp->ID,
-                        'order_key'       => $tc_order_key,
-                        'nonce'           => wp_hash($tp->ID . $tc_order_key),
-                    ], site_url('/'));
-                }
-
-                $transferred_to_me[] = [
-                    'id'           => $tp->ID,
-                    'code'         => $ticket_code ?: $tp->post_title,
-                    'type_name'    => $ticket_type_id ? get_the_title($ticket_type_id) : 'Ticket',
-                    'event_id'     => $tix_event_id,
-                    'download_url' => $download_url,
-                    'source'       => 'tc',
-                ];
+        $tix_transferred = get_posts([
+            'post_type'      => 'tix_ticket',
+            'posts_per_page' => -1,
+            'meta_query'     => [
+                ['key' => '_tix_ticket_transfer_to', 'value' => (string) $user_id],
+                ['key' => '_tix_ticket_status', 'value' => 'transferred'],
+            ],
+            'post_status' => 'publish',
+        ]);
+        foreach ($tix_transferred as $et) {
+            $transferred_to_me[] = [
+                'id'           => $et->ID,
+                'code'         => get_post_meta($et->ID, '_tix_ticket_code', true) ?: $et->post_title,
+                'type_name'    => '',
+                'event_id'     => intval(get_post_meta($et->ID, '_tix_ticket_event_id', true)),
+                'download_url' => class_exists('TIX_Tickets') ? TIX_Tickets::get_download_url($et->ID) : '',
+                'source'       => 'eh',
+            ];
+            // Kategorie-Name ermitteln
+            $eid = intval(get_post_meta($et->ID, '_tix_ticket_event_id', true));
+            $ci  = intval(get_post_meta($et->ID, '_tix_ticket_cat_index', true));
+            $cats = get_post_meta($eid, '_tix_ticket_categories', true);
+            if (is_array($cats) && isset($cats[$ci])) {
+                $transferred_to_me[count($transferred_to_me) - 1]['type_name'] = $cats[$ci]['name'] ?? 'Ticket';
             }
         }
 
@@ -404,8 +364,8 @@ class TIX_My_Tickets {
             'pending'    => 'Ausstehend',
         ];
 
-        // Tickets laden (Unified Interface: EH + Tickera je nach Modus)
-        $tickera_tickets = [];
+        // Tickets laden (Unified Interface)
+        $all_tickets = [];
         $debug = isset($_GET['tix_debug']);
 
         if (class_exists('TIX_Tickets')) {
@@ -422,7 +382,7 @@ class TIX_My_Tickets {
                     $tc_event_id = get_post_meta($ut['id'], 'event_id', true);
                 }
 
-                $tickera_tickets[] = [
+                $all_tickets[] = [
                     'id'           => $ut['id'],
                     'code'         => $ut['code'],
                     'type_name'    => $ut['cat_name'],
@@ -434,12 +394,12 @@ class TIX_My_Tickets {
             }
 
             if ($debug) {
-                $dbg_codes = array_map(fn($t) => $t['code'], $tickera_tickets);
+                $dbg_codes = array_map(fn($t) => $t['code'], $all_tickets);
                 echo '<!-- TIX_DEBUG order=' . esc_html($order_id)
-                   . ' found=' . count($tickera_tickets)
+                   . ' found=' . count($all_tickets)
                    . ' via=unified_interface'
                    . ' codes=[' . implode(',', $dbg_codes) . ']'
-                   . ' mode=' . (tix_get_settings('ticket_system') ?: 'tickera')
+                   . ' mode=' . (tix_get_settings('ticket_system') ?: 'standalone')
                    . ' -->';
             }
         }
@@ -455,6 +415,7 @@ class TIX_My_Tickets {
             if (!$product) continue;
 
             // Nur Ticket-Produkte
+            // Legacy: _tc_is_ticket check retained for backward compatibility with older products
             $is_ticket = get_post_meta($product_id, '_tc_is_ticket', true) === 'yes'
                       || get_post_meta($product_id, '_tix_is_ticket', true) === 'yes';
             if (!$is_ticket) continue;
@@ -487,8 +448,8 @@ class TIX_My_Tickets {
             // Event-Daten
             $ev_data = self::get_event_display_data($event_id);
 
-            // Tickera-Tickets für dieses Item finden
-            $matching_tickets = self::match_tickets($tickera_tickets, $event_id, $product_id, $product_name, $type_name, $tc_event_id_of_product);
+            // Tickets für dieses Item finden
+            $matching_tickets = self::match_tickets($all_tickets, $event_id, $product_id, $product_name, $type_name, $tc_event_id_of_product);
 
             // Kombi-Erkennung
             $combo_meta = $item->get_meta('_tix_combo');
@@ -556,7 +517,7 @@ class TIX_My_Tickets {
         foreach ($combos as $cg) {
             foreach ($cg['all_tickets'] as $t) $assigned_ids[] = $t['id'];
         }
-        $unassigned = array_filter($tickera_tickets, fn($tt) => !in_array($tt['id'], $assigned_ids));
+        $unassigned = array_filter($all_tickets, fn($tt) => !in_array($tt['id'], $assigned_ids));
         if (!empty($unassigned)) {
             if (!empty($events)) {
                 // Erstem regulären Event anhängen
@@ -632,11 +593,11 @@ class TIX_My_Tickets {
     }
 
     /**
-     * Tickera-Tickets einem Item zuordnen
+     * Tickets einem Item zuordnen
      */
-    private static function match_tickets(&$tickera_tickets, $event_id, $product_id, $product_name, $type_name, $tc_event_id_of_product = '') {
+    private static function match_tickets(&$all_tickets, $event_id, $product_id, $product_name, $type_name, $tc_event_id_of_product = '') {
         $matched = [];
-        foreach ($tickera_tickets as $k => $tt) {
+        foreach ($all_tickets as $k => $tt) {
             $is_match = false;
 
             // 1. TC Event-ID (präziseste Zuordnung: jede Kategorie hat eigenes TC-Event)
@@ -644,12 +605,12 @@ class TIX_My_Tickets {
                 $is_match = true;
             }
 
-            // 2. Produkt-ID (Tickera Bridge setzt ticket_type_id = WC Product)
+            // 2. Produkt-ID
             if (!$is_match && $product_id && !empty($tt['product_id']) && (string) $tt['product_id'] === (string) $product_id) {
                 $is_match = true;
             }
 
-            // 3. Tixomat Event-ID (über Tickera _tix_parent_event_id)
+            // 3. Tixomat Event-ID
             if (!$is_match && $event_id && !empty($tt['tix_event_id']) && (string) $tt['tix_event_id'] === (string) $event_id) {
                 $is_match = true;
             }
@@ -661,7 +622,7 @@ class TIX_My_Tickets {
 
             if ($is_match) {
                 $matched[] = $tt;
-                unset($tickera_tickets[$k]); // Verhindern, dass ein Ticket doppelt zugeordnet wird
+                unset($all_tickets[$k]); // Verhindern, dass ein Ticket doppelt zugeordnet wird
             }
         }
         return $matched;

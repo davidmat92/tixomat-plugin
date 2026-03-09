@@ -60,7 +60,6 @@ class TIX_Sync {
         foreach ($categories as $i => &$cat) {
 
             $full_name   = "{$event_title} – {$cat['name']}";
-            $tc_event_id = !empty($cat['tc_event_id']) ? intval($cat['tc_event_id']) : 0;
             $product_id  = !empty($cat['product_id'])  ? intval($cat['product_id'])  : 0;
             $cat_image   = !empty($cat['image_id'])    ? intval($cat['image_id'])    : 0;
             $image_id    = $cat_image ?: $event_thumb_id;
@@ -74,10 +73,6 @@ class TIX_Sync {
 
             if ($is_offline_ticket) {
                 // Falls vorher online → deaktivieren (nicht löschen)
-                if (tix_use_tickera() && $tc_event_id && get_post_status($tc_event_id) !== false) {
-                    wp_update_post(['ID' => $tc_event_id, 'post_status' => 'draft']);
-                    $log[] = "⏸️ TC #{$tc_event_id} deaktiviert (Offline-Ticket)";
-                }
                 if ($product_id && get_post_status($product_id) !== false) {
                     $product = wc_get_product($product_id);
                     if ($product) {
@@ -92,10 +87,6 @@ class TIX_Sync {
 
             // ── Online AUS (nicht Offline-Ticket) → deaktivieren ──
             if (!$is_online) {
-                if (tix_use_tickera() && $tc_event_id && get_post_status($tc_event_id) !== false) {
-                    wp_update_post(['ID' => $tc_event_id, 'post_status' => 'draft']);
-                    $log[] = "⏸️ TC #{$tc_event_id} deaktiviert";
-                }
                 if ($product_id && get_post_status($product_id) !== false) {
                     $product = wc_get_product($product_id);
                     if ($product) {
@@ -112,47 +103,6 @@ class TIX_Sync {
             if (empty($cat['sku'])) {
                 $cat['sku'] = self::generate_sku($post_id, $cat['name'], $i);
             }
-
-            // ━━ TICKERA EVENT ━━━━━━━━━━━━━━━━━━━━━━
-            if (tix_use_tickera()) {
-                if ($tc_event_id && get_post_status($tc_event_id) !== false) {
-                    wp_update_post(['ID' => $tc_event_id, 'post_title' => $full_name, 'post_status' => 'publish']);
-                    $log[] = "✏️ TC #{$tc_event_id}";
-                } else {
-                    $tc_event_id = wp_insert_post([
-                        'post_title'  => $full_name,
-                        'post_type'   => 'tc_events',
-                        'post_status' => 'publish',
-                    ]);
-                    $log[] = "✅ TC #{$tc_event_id}";
-                }
-
-                if ($tc_event_id && !is_wp_error($tc_event_id)) {
-                    update_post_meta($tc_event_id, 'event_date_time',             $start_datetime);
-                    update_post_meta($tc_event_id, 'event_end_date_time',         $end_datetime);
-                    update_post_meta($tc_event_id, 'event_location',              $location);
-                    update_post_meta($tc_event_id, 'event_presentation_page',     $tc_event_id);
-                    update_post_meta($tc_event_id, 'show_tickets_automatically',  '0');
-                    update_post_meta($tc_event_id, 'event_terms',                 '');
-                    update_post_meta($tc_event_id, 'event_logo_file_url',         '');
-                    update_post_meta($tc_event_id, 'sponsors_logo_file_url',      '');
-                    update_post_meta($tc_event_id, 'limit_level',                 '0');
-                    update_post_meta($tc_event_id, 'hide_event_after_expiration', '0');
-                    update_post_meta($tc_event_id, '_tix_parent_event_id',         $post_id);
-                    if ($time_doors) {
-                        update_post_meta($tc_event_id, 'event_doors_time', "{$date_start} {$time_doors}");
-                    }
-
-                    if ($image_id) {
-                        set_post_thumbnail($tc_event_id, $image_id);
-                        $img_url = wp_get_attachment_url($image_id);
-                        if ($img_url) update_post_meta($tc_event_id, 'event_logo_file_url', $img_url);
-                    } else {
-                        delete_post_thumbnail($tc_event_id);
-                        update_post_meta($tc_event_id, 'event_logo_file_url', '');
-                    }
-                }
-            } // end tix_use_tickera()
 
             // ━━ WOOCOMMERCE PRODUKT ━━━━━━━━━━━━━━━━
             $product = null;
@@ -219,9 +169,6 @@ class TIX_Sync {
                 }
 
                 $product->save();
-                if (tix_use_tickera() && $tc_event_id) {
-                    update_post_meta($product_id, '_event_name', $tc_event_id);
-                }
                 $log[] = "✏️ WC #{$product_id}";
 
             } else {
@@ -278,33 +225,12 @@ class TIX_Sync {
                 }
             }
 
-            // Bridge-Meta: Tickera
-            if ($product_id && $tc_event_id && tix_use_tickera()) {
-                update_post_meta($product_id, '_tc_is_ticket',                  'yes');
-                update_post_meta($product_id, '_event_name',                    $tc_event_id);
-                $tpl = defined('TIX_TICKET_TEMPLATE_ID') ? TIX_TICKET_TEMPLATE_ID : '25';
-                $tpl = apply_filters('tix_ticket_template_id', $tpl, $cat, $post_id);
-                update_post_meta($product_id, '_ticket_template',               $tpl);
-                update_post_meta($product_id, '_available_checkins_per_ticket',  '');
-                update_post_meta($product_id, '_checkins_time_basis',            'no');
-                update_post_meta($product_id, '_ticket_checkin_availability',    'open_ended');
-                update_post_meta($product_id, '_allow_ticket_checkout',          'no');
-                update_post_meta($product_id, '_ticket_availability',            'open_ended');
-                update_post_meta($product_id, '_tix_parent_event_id',             $post_id);
-            }
-
             // Bridge-Meta: Tixomat eigenes System
             if ($product_id) {
-                if (tix_use_own_tickets()) {
-                    update_post_meta($product_id, '_tix_is_ticket',      'yes');
-                }
-                // _tix_source_event immer setzen (nützlich für Upsell + Lookup)
+                update_post_meta($product_id, '_tix_is_ticket', 'yes');
                 update_post_meta($product_id, '_tix_source_event', $post_id);
             }
 
-            if (tix_use_tickera()) {
-                $cat['tc_event_id'] = $tc_event_id;
-            }
             $cat['product_id']  = $product_id;
         }
         unset($cat);
@@ -319,11 +245,6 @@ class TIX_Sync {
         // Dynamischen Preis-Cache leeren (Phase-Preise könnten sich geändert haben)
         if (class_exists('TIX_Dynamic_Pricing')) {
             TIX_Dynamic_Pricing::clear_cache();
-        }
-
-        // ━━ TICKERA API-KEY BÜNDELN ━━━━━━━━━━━━━━━━
-        if (tix_use_tickera()) {
-            self::sync_api_key($post_id, $event_title, $categories);
         }
 
         add_action('save_post_event', [__CLASS__, 'sync'], 20, 2);
@@ -844,63 +765,5 @@ class TIX_Sync {
                 update_post_meta($post_id, '_tix_price_range', 'ab ' . self::fmt_price($min));
             }
         }
-    }
-
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // TICKERA API-KEY: Alle TC-Events eines TIX-Events bündeln
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-    private static function sync_api_key($post_id, $event_title, $categories) {
-        // CPT tc_api_keys muss existieren
-        if (!post_type_exists('tc_api_keys')) return;
-
-        // Alle tc_event_ids dieses Events sammeln
-        $tc_event_ids = [];
-        foreach ($categories as $cat) {
-            $tc_id = intval($cat['tc_event_id'] ?? 0);
-            if ($tc_id > 0) $tc_event_ids[] = $tc_id;
-        }
-        if (empty($tc_event_ids)) return;
-
-        // Bestehenden API-Key für dieses Event suchen
-        $existing = get_posts([
-            'post_type'   => 'tc_api_keys',
-            'post_status' => 'any',
-            'meta_query'  => [
-                ['key' => '_tix_parent_event_id', 'value' => $post_id],
-            ],
-            'numberposts' => 1,
-        ]);
-
-        if (!empty($existing)) {
-            $api_post_id = $existing[0]->ID;
-            // Titel aktualisieren
-            wp_update_post([
-                'ID'         => $api_post_id,
-                'post_title' => $event_title,
-            ]);
-        } else {
-            // Neuen API-Key erstellen
-            $api_key = strtoupper(substr(md5(uniqid(wp_rand(), true)), 0, 8));
-            $api_post_id = wp_insert_post([
-                'post_type'   => 'tc_api_keys',
-                'post_title'  => $event_title,
-                'post_status' => 'publish',
-            ]);
-            if (!$api_post_id || is_wp_error($api_post_id)) return;
-
-            update_post_meta($api_post_id, 'api_key', $api_key);
-            update_post_meta($api_post_id, '_tix_parent_event_id', $post_id);
-        }
-
-        // event_name im Tickera-Format: ['all' => ['123', '456', ...]]
-        $event_ids_strings = array_map('strval', $tc_event_ids);
-        update_post_meta($api_post_id, 'event_name', ['all' => $event_ids_strings]);
-        update_post_meta($api_post_id, 'api_key_name', $event_title);
-
-        // API-Key-ID + Key-String im Event speichern (für Metabox-Anzeige)
-        $api_key_string = get_post_meta($api_post_id, 'api_key', true);
-        update_post_meta($post_id, '_tix_api_key_id', $api_post_id);
-        update_post_meta($post_id, '_tix_api_key', $api_key_string);
     }
 }

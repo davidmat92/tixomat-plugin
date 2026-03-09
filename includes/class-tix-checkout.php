@@ -73,6 +73,7 @@ class TIX_Checkout {
     public static function force_free_shipping($rates, $package) {
         $only_tickets = true;
         foreach (WC()->cart->get_cart() as $item) {
+            // Legacy: _tc_is_ticket retained for backward compatibility with older products
             $is_ticket = get_post_meta($item['product_id'], '_tc_is_ticket', true) === 'yes'
                      || get_post_meta($item['product_id'], '_tix_is_ticket', true) === 'yes';
             if (!$is_ticket) {
@@ -830,7 +831,7 @@ class TIX_Checkout {
             </div>
 
             <?php
-            // WooCommerce/Tickera Danke-Hooks ausführen (Payment-Bestätigungen)
+            // WooCommerce Danke-Hooks ausführen (Payment-Bestätigungen)
             // Aber WC-Standard-Bestelldetails unterdrücken (bereits oben dargestellt)
             remove_action('woocommerce_thankyou', 'woocommerce_order_details_table', 10);
 

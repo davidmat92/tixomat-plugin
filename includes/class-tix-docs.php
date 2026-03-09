@@ -58,6 +58,10 @@ class TIX_Docs {
                             <span class="dashicons dashicons-businessman"></span>
                             <span class="tix-nav-label">Promoter</span>
                         </button>
+                        <button type="button" class="tix-nav-tab" data-tab="bot">
+                            <span class="dashicons dashicons-format-chat"></span>
+                            <span class="tix-nav-label">Ticket-Bot</span>
+                        </button>
                     </nav>
 
                     <div class="tix-content">
@@ -68,6 +72,7 @@ class TIX_Docs {
                         <?php self::render_ajax_tab(); ?>
                         <?php self::render_templates_tab(); ?>
                         <?php self::render_promoter_tab(); ?>
+                        <?php self::render_bot_tab(); ?>
 
                     </div>
                 </div>
@@ -190,7 +195,7 @@ class TIX_Docs {
             // ── Tickets & Preise ──
             self::meta_card('Tickets &amp; Preise', 'dashicons-tickets-alt', [
                 ['_tix_tickets_enabled', 'Sind Tickets f&uuml;r dieses Event aktiviert?', 'Ja/Nein (1/0)'],
-                ['_tix_ticket_categories', 'Alle Ticket-Kategorien (Array mit name, price, sale_price, qty, desc, image_id, online, offline_ticket, phases[], product_id, tc_event_id, sku)', 'Array'],
+                ['_tix_ticket_categories', 'Alle Ticket-Kategorien (Array mit name, price, sale_price, qty, desc, image_id, online, offline_ticket, phases[], product_id, sku)', 'Array'],
                 ['_tix_ticket_count', 'Anzahl Online-Ticket-Kategorien', 'Zahl'],
                 ['_tix_offline_count', 'Anzahl Offline-Ticket-Kategorien (nicht im Shop)', 'Zahl'],
                 ['_tix_combo_deals', 'Konfigurierte Kombi-Ticket-Angebote', 'Array'],
@@ -209,7 +214,6 @@ class TIX_Docs {
                 ['_tix_ticket_{N}_qty', '<span class="tix-badge-bd">Breakdance</span> Kapazit&auml;t / Verf&uuml;gbar', 'Zahl'],
                 ['_tix_ticket_{N}_desc', '<span class="tix-badge-bd">Breakdance</span> Beschreibung der Kategorie', 'Text'],
                 ['_tix_ticket_{N}_product_id', '<span class="tix-badge-bd">Breakdance</span> WooCommerce-Produkt-ID', 'Zahl'],
-                ['_tix_ticket_{N}_tc_event_id', '<span class="tix-badge-bd">Breakdance</span> Tickera-Event-ID', 'Zahl'],
                 ['_tix_ticket_{N}_image_url', '<span class="tix-badge-bd">Breakdance</span> Produktbild-URL', 'URL'],
                 ['_tix_ticket_{N}_add_to_cart_url', '<span class="tix-badge-bd">Breakdance</span> In-den-Warenkorb-URL', 'URL'],
             ]);
@@ -344,8 +348,6 @@ class TIX_Docs {
 
             // ── Sync & API ──
             self::meta_card('Synchronisierung &amp; API', 'dashicons-update', [
-                ['_tix_api_key', 'Tickera API-Key f&uuml;r den Einlass', 'Text (8 Zeichen)'],
-                ['_tix_api_key_id', 'ID des API-Key-Eintrags in Tickera', 'Zahl'],
                 ['_tix_last_sync_time', 'Zeitpunkt der letzten Synchronisierung', 'Zeitstempel'],
                 ['_tix_last_sync_log', 'Protokoll der letzten Synchronisierung', 'Array'],
                 ['_tix_synced_at', 'Sync-Zeitstempel', 'Zeitstempel'],
@@ -362,30 +364,7 @@ class TIX_Docs {
             self::meta_card('WooCommerce-Produkt-Meta <small>(auf von EH erstellten Produkten)</small>', 'dashicons-cart', [
                 ['_tix_parent_event_id', 'Referenz zum Eltern-Tixomat-Event', 'Zahl'],
                 ['_tix_category_index', 'Index der Ticket-Kategorie im Event', 'Zahl'],
-                ['_tc_is_ticket', 'Tickera-Marker (Wert: &bdquo;yes&ldquo;)', 'Text'],
-                ['_event_name', 'Tickera-Event-ID', 'Zahl'],
-                ['_ticket_template', 'Tickera-Template-ID (Standard: 25)', 'Zahl'],
                 ['_available_checkins_per_ticket', 'Erlaubte Check-ins pro Ticket', 'Zahl'],
-            ]);
-
-            // ── Tickera Meta ──
-            self::meta_card('Tickera-Event-Meta <small>(auf tc_events Posts)</small>', 'dashicons-tickets', [
-                ['event_date_time', 'Start-Datum+Uhrzeit (JJJJ-MM-TT HH:MM)', 'Datum+Uhrzeit'],
-                ['event_end_date_time', 'End-Datum+Uhrzeit', 'Datum+Uhrzeit'],
-                ['event_location', 'Location-Text', 'Text'],
-                ['event_presentation_page', 'Presentation-Page-ID (= Event-ID)', 'Zahl'],
-                ['event_doors_time', 'Einlass-Datum+Uhrzeit', 'Datum+Uhrzeit'],
-                ['_tix_parent_event_id', 'Referenz zum Eltern-Tixomat-Event', 'Zahl'],
-            ]);
-
-            // ── Ticket-Umschreibung ──
-            self::meta_card('Ticket-Umschreibung <small>(auf tc_tickets_instances)</small>', 'dashicons-randomize', [
-                ['_tix_transfer_name', 'Neuer Ticket-Inhaber (Vor- und Nachname)', 'Text'],
-                ['_tix_transfer_first_name', 'Vorname des neuen Inhabers', 'Text'],
-                ['_tix_transfer_last_name', 'Nachname des neuen Inhabers', 'Text'],
-                ['_tix_transfer_email', 'E-Mail-Adresse des neuen Inhabers', 'E-Mail'],
-                ['_tix_transfer_date', 'Zeitpunkt der Umschreibung', 'Datum (ISO 8601)'],
-                ['_tix_transfer_user_id', 'WordPress-User-ID des neuen Inhabers', 'Zahl'],
             ]);
 
             // ── Newsletter-Abonnenten ──
@@ -652,6 +631,35 @@ class TIX_Docs {
                 '[tix_support]',
                 null
             );
+
+            // ── tix_promoter_dashboard ──
+            self::shortcode_card(
+                'tix_promoter_dashboard',
+                'Zeigt das Promoter-Dashboard im Frontend an. Promoter k&ouml;nnen hier ihre zugewiesenen Events, Verk&auml;ufe, Provisionen und Auszahlungen einsehen. Erfordert eingeloggten Benutzer mit Promoter-Status.',
+                [],
+                '[tix_promoter_dashboard]',
+                null
+            );
+
+            // ── tix_chat ──
+            self::shortcode_card(
+                'tix_chat',
+                'Bettet den KI-Chatbot als eingebettetes Element auf der Seite ein. Ideal f&uuml;r eine dedizierte Chat-/Support-Seite. Unterst&uuml;tzt WooCommerce-Warenkorb-Integration, Ticket-Suche und Kundenservice.',
+                [
+                    ['height', '700px', 'CSS-H&ouml;he des Chat-Containers.'],
+                ],
+                '[tix_chat]',
+                '[tix_chat height="500px"]'
+            );
+
+            // ── tix_chat_widget ──
+            self::shortcode_card(
+                'tix_chat_widget',
+                'Zeigt ein schwebendes Chat-Widget (Blase) unten rechts an. Klick &ouml;ffnet ein Popup-Chat-Fenster mit voller Bot-Funktionalit&auml;t. Kann &uuml;ber die Bot-Einstellungen auch automatisch auf allen Seiten eingebunden werden (<code>Auto-Widget</code>).',
+                [],
+                '[tix_chat_widget]',
+                null
+            );
             ?>
 
         </div>
@@ -730,11 +738,10 @@ class TIX_Docs {
 
             // ── Synchronisierung ──
             self::function_card('Automatische Synchronisierung', 'dashicons-update', [
-                'Wenn du ein Event speicherst, erstellt das Plugin automatisch die passenden <strong>Tickera-Events</strong> und <strong>WooCommerce-Produkte</strong>.',
+                'Wenn du ein Event speicherst, erstellt das Plugin automatisch die passenden <strong>WooCommerce-Produkte</strong>.',
                 'F&uuml;r jede Ticket-Kategorie (z.B. &bdquo;Stehplatz&ldquo;, &bdquo;VIP&ldquo;) wird ein eigenes WooCommerce-Produkt mit Preis und Lagerbestand angelegt.',
-                'Alle Tickera-Events eines Tixomat-Events werden automatisch in <strong>einem API-Key geb&uuml;ndelt</strong>, der f&uuml;r den Einlass genutzt werden kann.',
-                '&Auml;nderst du Preise, Kapazit&auml;ten oder Kategorien, werden die zugeh&ouml;rigen Produkte und Tickera-Events automatisch aktualisiert.',
-                'Gel&ouml;schte Kategorien entfernen auch die zugeh&ouml;rigen Produkte und Tickera-Events.',
+                '&Auml;nderst du Preise, Kapazit&auml;ten oder Kategorien, werden die zugeh&ouml;rigen Produkte automatisch aktualisiert.',
+                'Gel&ouml;schte Kategorien entfernen auch die zugeh&ouml;rigen Produkte.',
                 'Beim Sync werden automatisch &uuml;ber <strong>80 Breakdance-Meta-Felder</strong> generiert (Formatierte Daten, Preise, Ticket-Details, FAQ usw.).',
                 '<strong>Serien-Master-Events</strong> werden NICHT synchronisiert &ndash; nur Kind-Events erhalten eigene Produkte.',
             ]);
@@ -745,7 +752,7 @@ class TIX_Docs {
                 'Ein <strong>Master-Event</strong> speichert das Serienmuster und dient als Vorlage. Das System generiert <strong>Kind-Event-Posts</strong> f&uuml;r jeden Termin.',
                 '<strong>Periodischer Modus:</strong> W&ouml;chentlich, Alle 2 Wochen, Monatlich (z.B. &bdquo;jeden 1. Samstag&ldquo;), Am X. des Monats.',
                 '<strong>Manueller Modus:</strong> Beliebige Daten per Datumseingabe.',
-                'Jedes Kind ist ein vollwertiges Event mit <strong>eigenen WC-Produkten, Tickera-Events und Stock</strong>.',
+                'Jedes Kind ist ein vollwertiges Event mit <strong>eigenen WC-Produkten und Stock</strong>.',
                 'Bei &Auml;nderungen am Master werden alle nicht-abgetrennten Kinder automatisch aktualisiert (Titel, Location, Tickets, Info, FAQ, Medien).',
                 'Kinder mit Verk&auml;ufen werden <strong>nie gel&ouml;scht</strong> &ndash; nur vom Master getrennt.',
                 'In der Admin-Liste werden Serien-Kinder standardm&auml;&szlig;ig <strong>ausgeblendet</strong>. Filter: Alle / Einzeltermine / Master / Serientermine.',
@@ -883,21 +890,20 @@ class TIX_Docs {
             self::function_card('Event-Duplizierung', 'dashicons-admin-page', [
                 '&Uuml;ber die <strong>Row-Action &bdquo;Duplizieren&ldquo;</strong> in der Event-Liste kann ein Event komplett kopiert werden.',
                 'Kopiert werden: Titel, alle Meta-Felder, Taxonomien und Beitragsbild.',
-                '<strong>NICHT kopiert</strong> werden: Sync-IDs (product_id, tc_event_id, sku, api_key), Serien-Links, Breakdance-Meta.',
-                'Das Duplikat wird als <strong>Entwurf</strong> erstellt &ndash; beim Ver&ouml;ffentlichen werden WC/TC-Produkte neu erstellt.',
+                '<strong>NICHT kopiert</strong> werden: Sync-IDs (product_id, sku), Serien-Links, Breakdance-Meta.',
+                'Das Duplikat wird als <strong>Entwurf</strong> erstellt &ndash; beim Ver&ouml;ffentlichen werden WC-Produkte neu erstellt.',
             ]);
 
             // ── Force Delete & Cleanup ──
             self::function_card('Force Delete &amp; Orphan-Bereinigung', 'dashicons-trash', [
                 '<strong>Force Delete:</strong> &Uuml;ber die Row-Action &bdquo;Unwiderruflich l&ouml;schen&ldquo; wird ein Event sofort und permanent gel&ouml;scht.',
                 'Dabei werden <strong>alle Hooks deaktiviert</strong> (Cleanup, Series, Sync, Metabox) f&uuml;r volle Kontrolle.',
-                'Bei Serien-Mastern: Alle Kinder + deren Produkte/TC-Events/API-Keys werden mit gel&ouml;scht.',
+                'Bei Serien-Mastern: Alle Kinder + deren Produkte werden mit gel&ouml;scht.',
                 'Bei Serien-Kindern: Das Kind wird aus dem <code>_tix_series_children</code>-Array des Masters entfernt.',
-                '<strong>Orphan-Bereinigung:</strong> &Uuml;ber &bdquo;Verwaiste Daten bereinigen&ldquo; werden 4 Typen aufger&auml;umt:',
+                '<strong>Orphan-Bereinigung:</strong> &Uuml;ber &bdquo;Verwaiste Daten bereinigen&ldquo; werden 3 Typen aufger&auml;umt:',
                 '1. <strong>Event-Kinder</strong> &ndash; Serien-Kinder deren Master nicht mehr existiert',
                 '2. <strong>WC-Produkte</strong> &ndash; Produkte deren Eltern-Event nicht mehr existiert',
-                '3. <strong>TC-Events</strong> &ndash; Tickera-Events deren Eltern-Event nicht mehr existiert',
-                '4. <strong>API-Keys</strong> &ndash; API-Keys deren Eltern-Event nicht mehr existiert',
+                '3. <strong>API-Keys</strong> &ndash; API-Keys deren Eltern-Event nicht mehr existiert',
             ]);
 
             // ── Dynamischer Prefix ──
@@ -1073,15 +1079,16 @@ class TIX_Docs {
                 ['tix_ticket_toggle_status', 'Ticket-Status umschalten (valid &harr; cancelled)', 'Admin'],
                 ['tix_template_preview', 'Template-Vorschau generieren (PDF-Preview)', 'Admin'],
                 ['tix_checkin_combined_list', 'Kombinierte G&auml;ste- und Ticket-Liste f&uuml;r Check-in laden', 'Frontend'],
+                ['tix_ticket_toggle_checkin', 'Check-in-Status eines gekauften Tickets umschalten', 'Frontend'],
             ]);
 
             // ── Saalplan AJAX Endpoints ──
             self::meta_card('Saalplan-AJAX-Endpoints <small>(wp_ajax_ / wp_ajax_nopriv_)</small>', 'dashicons-layout', [
-                ['tix_save_seatmap', 'Saalplan speichern + WC-Produkte pro Sektion synchronisieren', 'Admin'],
+                ['tix_seatmap_save', 'Saalplan speichern + WC-Produkte pro Sektion synchronisieren', 'Admin'],
                 ['tix_seatmap_load', 'Saalplan-Daten laden', 'Admin'],
-                ['tix_seatmap_availability', 'Sitzplatz-Verf&uuml;gbarkeit f&uuml;r Event/Saalplan abfragen (inkl. Sektions-Preise)', 'Frontend'],
-                ['tix_reserve_seat', 'Sitzplatz reservieren (15-Min-Session-Reservierung)', 'Frontend'],
-                ['tix_release_seat', 'Sitzplatz-Reservierung freigeben', 'Frontend'],
+                ['tix_seat_availability', 'Sitzplatz-Verf&uuml;gbarkeit f&uuml;r Event/Saalplan abfragen (inkl. Sektions-Preise)', 'Frontend'],
+                ['tix_reserve_seats', 'Sitzpl&auml;tze reservieren (15-Min-Session-Reservierung)', 'Frontend'],
+                ['tix_release_seats', 'Sitzplatz-Reservierungen freigeben', 'Frontend'],
                 ['tix_best_available', 'Bester verf&uuml;gbarer Platz (Parameter: event_id, seatmap_id, section_id, qty)', 'Frontend'],
             ]);
 
@@ -1121,12 +1128,37 @@ class TIX_Docs {
                 ['tix_sync_all', 'Vollst&auml;ndige Synchronisierung aller Events ausl&ouml;sen', 'Admin'],
             ]);
 
+            // ── Bot REST API ──
+            self::meta_card('Bot REST API <small>(wp-json/tix-bot/v1)</small>', 'dashicons-format-chat', [
+                ['GET /events', 'Alle kommenden Events mit Kategorien, Preisen, Verf&uuml;gbarkeit (max. 50)', 'X-Bot-Secret'],
+                ['GET /event/{id}', 'Einzelnes Event nach Post-ID', 'X-Bot-Secret'],
+                ['POST /tickets/lookup', 'Ticket-Suche: E-Mail + Verifizierung (order_id/last_name). Rate-Limit: 5/15 Min', 'X-Bot-Secret'],
+                ['POST /cart/checkout-url', 'Checkout-URL generieren (items: [{product_id, quantity}])', 'X-Bot-Secret'],
+                ['GET /customer/exists', 'Kundenexistenz pr&uuml;fen (?email=)', 'X-Bot-Secret'],
+            ]);
+
+            // ── Bot Chat AJAX ──
+            self::meta_card('Bot-Chat AJAX-Endpoints <small>(wp_ajax_ / wp_ajax_nopriv_)</small>', 'dashicons-cart', [
+                ['tix_get_cart', 'Aktuellen WC-Warenkorb abfragen (items, count, total, URLs)', 'GET'],
+                ['tix_add_to_cart', 'Produkt hinzuf&uuml;gen (product_id, quantity)', 'POST'],
+                ['tix_add_batch', 'Mehrere Produkte hinzuf&uuml;gen (items: JSON-Array)', 'POST'],
+                ['tix_remove_from_cart', 'Produkt entfernen (product_id)', 'POST'],
+                ['tix_clear_cart', 'Warenkorb leeren', 'POST'],
+            ]);
+
+            // ── Bot Admin AJAX ──
+            self::meta_card('Bot-Admin AJAX-Endpoints <small>(wp_ajax_)</small>', 'dashicons-admin-network', [
+                ['txba_proxy', 'Proxy: Leitet Admin-Anfragen an Bot-Backend weiter (CORS-frei, API-Key serverseitig)', 'manage_woocommerce'],
+                ['txba_save_settings', 'Bot-Einstellungen speichern (auto_widget) + Sync mit Backend', 'manage_woocommerce'],
+            ]);
+
             // ── Admin Post Actions ──
             self::meta_card('Admin-Post-Actions <small>(admin_post_)</small>', 'dashicons-admin-links', [
                 ['tix_duplicate_event', 'Event komplett duplizieren (als Entwurf)', 'Admin'],
                 ['tix_force_delete_event', 'Event permanent l&ouml;schen inkl. aller Abh&auml;ngigkeiten', 'Admin'],
-                ['tix_cleanup_orphans', 'Verwaiste Daten bereinigen (WC, TC, API-Keys, Kinder)', 'Admin'],
+                ['tix_cleanup_orphans', 'Verwaiste Daten bereinigen (WC-Produkte, Kind-Events)', 'Admin'],
                 ['tix_export_subscribers', 'Newsletter-Abonnenten als CSV exportieren', 'Admin'],
+                ['tix_export_tickets_csv', 'Ticket-Daten als CSV exportieren', 'Admin'],
             ]);
 
             // ── Cron Hooks ──
@@ -1134,6 +1166,8 @@ class TIX_Docs {
                 ['tix_presale_check', 'Alle 10 Min: VVK-Ablauf, vergangene Events, Preisphasen pr&uuml;fen', 'Wiederkehrend'],
                 ['tix_send_reminder_email', 'Erinnerungs-E-Mail vor dem Event versenden', 'Einzeln/Bestellung'],
                 ['tix_send_followup_email', 'Follow-up-E-Mail nach dem Event versenden', 'Einzeln/Bestellung'],
+                ['tix_cleanup_expired_seats', 'Alle 5 Min: Abgelaufene Sitzplatz-Reservierungen bereinigen', 'Wiederkehrend'],
+                ['tix_send_abandoned_cart_email', 'Verlassene-Warenkorb E-Mail versenden (Action Scheduler)', 'Einzeln/Warenkorb'],
             ]);
 
             // ── Transients ──
@@ -1147,6 +1181,7 @@ class TIX_Docs {
                 ['tix_cart_transfer_{TOKEN}', 'Warenkorb-Wiederherstellungsdaten (15 Min.)', 'Cart Recovery'],
                 ['tix_group_{TOKEN}', 'Gruppenbuchung-Session (48 Std.)', 'Group Booking'],
                 ['tix_stats_{TAB}_{HASH}', 'Statistik-Daten pro Tab + Filter (10 Min.)', 'Statistik-Cache'],
+                ['tixbot_rl_{MD5(EMAIL)}', 'Bot Ticket-Lookup Rate-Limit (5 Versuche / 15 Min.)', 'Bot Rate-Limit'],
             ]);
 
             // ── Save-Post Hooks ──
@@ -1319,7 +1354,7 @@ class TIX_Docs {
 
             // ── AJAX-Endpoints ──
             self::function_card('AJAX-Endpoints', 'dashicons-rest-api', [
-                '<strong>Admin (manage_options):</strong> <code>tix_promoter_save</code>, <code>tix_promoter_delete</code>, <code>tix_promoter_list</code>, <code>tix_promoter_search_users</code>, <code>tix_promoter_assign</code>, <code>tix_promoter_unassign</code>, <code>tix_promoter_assignments</code>, <code>tix_promoter_commissions</code>, <code>tix_promoter_create_payout</code>, <code>tix_promoter_mark_paid</code>, <code>tix_promoter_cancel_payout</code>, <code>tix_promoter_payouts</code>, <code>tix_promoter_stats</code>.',
+                '<strong>Admin (manage_options):</strong> <code>tix_promoter_save</code>, <code>tix_promoter_delete</code>, <code>tix_promoter_list</code>, <code>tix_promoter_search_users</code>, <code>tix_promoter_assign</code>, <code>tix_promoter_unassign</code>, <code>tix_promoter_assignments</code>, <code>tix_promoter_commissions</code>, <code>tix_promoter_create_payout</code>, <code>tix_promoter_mark_paid</code>, <code>tix_promoter_cancel_payout</code>, <code>tix_promoter_payouts</code>, <code>tix_promoter_stats</code>, <code>tix_promoter_generate_code</code>.',
                 '<strong>Frontend (tix_promoter):</strong> <code>tix_pd_overview</code>, <code>tix_pd_events</code>, <code>tix_pd_sales</code>, <code>tix_pd_commissions</code>, <code>tix_pd_payouts</code>.',
                 '<strong>CSV-Export:</strong> <code>admin_post_tix_promoter_export_csv</code> (GET, mit Nonce).',
             ]);
@@ -1330,6 +1365,186 @@ class TIX_Docs {
                 '<strong>Festbetrag:</strong> Provision = Festbetrag &times; Ticket-Anzahl. Beispiel: 2,50 &euro; &times; 3 Tickets = 7,50 &euro; Provision.',
                 '<strong>K&auml;ufer-Rabatt:</strong> Optional pro Event-Zuordnung. Wird als WC-Coupon (bei Promo-Code) oder als Cart Fee (bei Referral-Link) angewendet.',
                 '<strong>Status-Flow:</strong> pending &rarr; approved &rarr; paid (oder cancelled bei Storno).',
+            ]);
+            ?>
+
+        </div>
+        <?php
+    }
+
+    // ══════════════════════════════════════
+    // TAB 7: TICKET-BOT
+    // ══════════════════════════════════════
+
+    private static function render_bot_tab() {
+        ?>
+        <div class="tix-pane" data-pane="bot">
+
+            <p class="description">
+                Der <strong>Ticket-Bot</strong> ist ein KI-gest&uuml;tzter Chatbot (Claude AI), der &uuml;ber drei Kan&auml;le erreichbar ist:
+                <strong>Webchat</strong> (auf der Website), <strong>Telegram</strong> und <strong>WhatsApp</strong>.
+                Er besteht aus drei MU-Plugins (WordPress-Seite) und einem Python-Backend (PythonAnywhere).
+            </p>
+
+            <?php
+            // ── Architektur ──
+            self::function_card('Architektur &amp; Komponenten', 'dashicons-networking', [
+                '<strong>MU-Plugin:</strong> <code>mu-plugins/tix-bot-api.php</code> &ndash; WordPress REST API f&uuml;r das Bot-Backend (Event-Daten, Ticket-Lookup, Checkout-URLs).',
+                '<strong>MU-Plugin:</strong> <code>mu-plugins/tix-bot-chat.php</code> &ndash; Frontend Chat-Widget &amp; Embedded Chat (Shortcodes, AJAX f&uuml;r WC-Warenkorb).',
+                '<strong>MU-Plugin:</strong> <code>mu-plugins/tix-bot-admin.php</code> &ndash; Admin-Dashboard (Live-Gespr&auml;che, Statistiken, Suche, Einstellungen).',
+                '<strong>Python-Backend:</strong> Flask-App auf PythonAnywhere &ndash; Anthropic Claude AI, Session-Management (SQLite), Multi-Channel-Routing.',
+            ]);
+
+            // ── Kanäle ──
+            self::function_card('Unterst&uuml;tzte Kan&auml;le', 'dashicons-share', [
+                '<strong>Webchat:</strong> Chat-ID-Prefix <code>web_</code> &ndash; Kommunikation &uuml;ber REST API (<code>/chat/init</code>, <code>/chat/send</code>, <code>/chat/action</code>). WooCommerce-Warenkorb-Integration.',
+                '<strong>Telegram:</strong> Chat-ID-Prefix <code>tg_</code> &ndash; Webhook-basiert. Unterst&uuml;tzt Text, Inline-Keyboards und Sprachnachrichten (Whisper-Transkription).',
+                '<strong>WhatsApp:</strong> Chat-ID-Prefix <code>wa_</code> &ndash; Webhook-basiert (Meta Business API). Unterst&uuml;tzt Text, Interactive Buttons/Lists und Sprachnachrichten.',
+                'Alle Kan&auml;le nutzen denselben <strong>Unified Handler</strong> &ndash; konsistentes Bot-Verhalten &uuml;ber alle Plattformen.',
+            ]);
+
+            // ── Shortcodes ──
+            self::function_card('Shortcodes', 'dashicons-shortcode', [
+                '<code>[tix_chat]</code> &ndash; Eingebetteter Chat (Parameter: <code>height</code>, Standard <code>700px</code>). Ideal f&uuml;r dedizierte Chat-Seiten.',
+                '<code>[tix_chat_widget]</code> &ndash; Schwebendes Chat-Widget (unten rechts). Klick &ouml;ffnet Popup-Fenster.',
+                '<strong>Auto-Widget:</strong> Wenn in den Bot-Einstellungen aktiviert (<code>tix_auto_widget</code>), wird <code>[tix_chat_widget]</code> automatisch auf allen Frontend-Seiten eingebunden.',
+            ]);
+
+            // ── WordPress REST API (tix-bot/v1) ──
+            self::meta_card('WordPress REST API <small>(tix-bot/v1)</small>', 'dashicons-rest-api', [
+                ['GET /events', 'Alle kommenden Events mit Ticket-Kategorien, Preisen, Verf&uuml;gbarkeit', 'Auth: X-Bot-Secret'],
+                ['GET /event/{id}', 'Einzelnes Event nach Post-ID', 'Auth: X-Bot-Secret'],
+                ['POST /tickets/lookup', 'Ticket-Suche per E-Mail + Verifizierung (order_id oder last_name). Rate-Limit: 5 Versuche / 15 Min', 'Auth: X-Bot-Secret'],
+                ['POST /cart/checkout-url', 'Checkout-URL generieren aus Produkt-IDs + Mengen', 'Auth: X-Bot-Secret'],
+                ['GET /customer/exists', 'Pr&uuml;fen ob ein Kunde existiert (per E-Mail)', 'Auth: X-Bot-Secret'],
+            ]);
+
+            // ── Bot-Backend API ──
+            self::meta_card('Bot-Backend API <small>(Python/Flask)</small>', 'dashicons-cloud', [
+                ['POST /chat/init', 'Chat-Session initialisieren (visitor_id, optional WP-User-Daten)', 'Webchat'],
+                ['POST /chat/send', 'Nachricht senden (chat_id, message, optional wc_cart)', 'Webchat'],
+                ['POST /chat/action', 'Button-Callback verarbeiten (chat_id, callback)', 'Webchat'],
+                ['POST /webhook', 'Telegram-Webhook (Text, Sprachnachrichten, Inline-Keyboard-Callbacks)', 'Telegram'],
+                ['GET+POST /whatsapp', 'WhatsApp-Webhook (Verification + Nachrichten)', 'WhatsApp'],
+                ['GET /health', 'Bot-Status, aktive Sessions, Event-Count, Cache-Alter', '&Ouml;ffentlich'],
+            ]);
+
+            // ── Admin API ──
+            self::meta_card('Admin-Backend API <small>(via AJAX-Proxy)</small>', 'dashicons-admin-network', [
+                ['GET /admin/sessions', 'Aktive Sessions auflisten (Filter: ?channel=web|telegram|whatsapp)', 'Admin'],
+                ['GET /admin/conversation/{id}', 'Gespr&auml;chsverlauf einer aktiven Session laden', 'Admin'],
+                ['GET /admin/history/{id}', 'Archiviertes Gespr&auml;ch laden', 'Admin'],
+                ['POST /admin/reply', 'Admin-Antwort an Kunden senden (alle Kan&auml;le). Parameter: message, human_mode', 'Admin'],
+                ['GET /admin/stats', 'Statistiken (KPIs, Charts, Top-Suchanfragen, Top-Events). Parameter: ?days=N', 'Admin'],
+                ['GET /admin/search', 'Volltextsuche &uuml;ber alle Sessions + Archiv. Parameter: ?q=term', 'Admin'],
+                ['GET /admin/notifications', 'Neue Nachrichten seit Zeitstempel. Parameter: ?since=ISO', 'Admin'],
+                ['GET+POST /admin/config', 'Bot-Konfiguration lesen/aktualisieren', 'Admin'],
+            ]);
+
+            // ── AJAX Endpoints (WC-Warenkorb) ──
+            self::meta_card('AJAX-Endpoints <small>(wp_ajax_ / wp_ajax_nopriv_)</small>', 'dashicons-cart', [
+                ['tix_get_cart', 'Aktuellen WooCommerce-Warenkorb abfragen (items, count, total, URLs)', 'GET'],
+                ['tix_add_to_cart', 'Einzelnes Produkt zum Warenkorb hinzuf&uuml;gen (product_id, quantity)', 'POST'],
+                ['tix_add_batch', 'Mehrere Produkte auf einmal hinzuf&uuml;gen (items als JSON-Array)', 'POST'],
+                ['tix_remove_from_cart', 'Produkt aus Warenkorb entfernen (product_id)', 'POST'],
+                ['tix_clear_cart', 'Gesamten Warenkorb leeren', 'POST'],
+            ]);
+
+            // ── WordPress AJAX (Admin) ──
+            self::meta_card('Admin-AJAX-Endpoints <small>(wp_ajax_)</small>', 'dashicons-admin-tools', [
+                ['txba_proxy', 'Proxy-Endpunkt: Leitet Admin-Anfragen an das Bot-Backend weiter (vermeidet CORS, h&auml;lt API-Key serverseitig)', 'Admin (manage_woocommerce)'],
+                ['txba_save_settings', 'Bot-Einstellungen speichern (auto_widget). Synchronisiert mit Bot-Backend', 'Admin (manage_woocommerce)'],
+            ]);
+
+            // ── Admin-Seiten ──
+            self::function_card('Admin-Dashboard <small>(Men&uuml;: Ticket-Bot)</small>', 'dashicons-admin-generic', [
+                '<strong>Live:</strong> Echtzeit-Gespr&auml;chsansicht mit Zwei-Panel-Layout. Links: Session-Liste (Filter nach Kanal, Auto-Refresh 15s). Rechts: Gespr&auml;chsverlauf mit Admin-Antwortfeld.',
+                '<strong>Admin-Antworten:</strong> Direkte Antwort an Kunden &uuml;ber alle Kan&auml;le. <em>Human-Mode</em> Toggle schaltet den Bot f&uuml;r eine Konversation aus.',
+                '<strong>Statistiken:</strong> KPI-Cards (aktive Sessions, Nachrichten, Conversion-Rate, Drop-off-Rate), Charts (Nachrichten/Tag, Kanal-Verteilung), Top-Suchanfragen, No-Result-Suchen, Top-Events.',
+                '<strong>Suche:</strong> Volltextsuche &uuml;ber alle aktiven und archivierten Gespr&auml;che (Name, E-Mail, Inhalt, Warenkorb).',
+                '<strong>Einstellungen:</strong> Bot Health-Check, Kanal-Status, Auto-Widget Toggle, Shortcode-Referenz.',
+            ]);
+
+            // ── Session-Tags ──
+            self::function_card('Session-Tags &amp; Status', 'dashicons-tag', [
+                '<span style="background:#e67e22;color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;">HUMAN</span> &ndash; Bot ist deaktiviert, Admin antwortet manuell.',
+                '<span style="background:#95a5a6;color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;">ARCHIV</span> &ndash; Session ist abgelaufen (nach 24 Stunden Inaktivit&auml;t).',
+                '<span style="background:#e74c3c;color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;">TICKET</span> &ndash; Kunde hat ein Support-Ticket erstellt.',
+                '<span style="background:#3498db;color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;">web</span> <span style="background:#27ae60;color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;">telegram</span> <span style="background:#25d366;color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;">whatsapp</span> &ndash; Kanal-Badges.',
+            ]);
+
+            // ── Authentifizierung ──
+            self::meta_card('Authentifizierung', 'dashicons-lock', [
+                ['X-Bot-Secret', 'Shared Secret zwischen WordPress und Bot-Backend (definiert in wp-config.php als TIX_BOT_API_SECRET)', 'REST API (tix-bot/v1)'],
+                ['X-Admin-Key', 'Admin-API-Key f&uuml;r das Bot-Backend (in tix-bot-admin.php definiert)', 'Admin API'],
+                ['WordPress Nonce/Cookie', 'Standard-WordPress-Authentifizierung f&uuml;r AJAX', 'WC-Cart AJAX + Admin AJAX'],
+                ['Telegram Bot Token', 'Token in Webhook-URL registriert', 'Telegram'],
+                ['WhatsApp Verify Token', 'Meta Business API Webhook-Verifizierung', 'WhatsApp'],
+            ]);
+
+            // ── Datenbanken (Bot-Backend) ──
+            self::function_card('Datenbanken <small>(Bot-Backend, SQLite)</small>', 'dashicons-database', [
+                '<code>sessions.db</code> &ndash; Aktive Chat-Sessions (chat_id, Gespr&auml;chsverlauf, Warenkorb, Status, Kundendaten). WAL-Modus f&uuml;r Thread-Sicherheit. Auto-Cleanup nach 24h &rarr; Archivierung.',
+                '<code>bot_history.db</code> &ndash; Archiv mit 4 Tabellen:',
+                '&nbsp;&nbsp;&bull; <code>conversations</code> &ndash; Archivierte Sessions (Kanal, Name, Verlauf, Warenkorb, Nachrichten-Anzahl)',
+                '&nbsp;&nbsp;&bull; <code>daily_stats</code> &ndash; T&auml;gliche Aggregate (Sessions, Nachrichten, Kanal-Aufteilung, Warenkörbe)',
+                '&nbsp;&nbsp;&bull; <code>search_queries</code> &ndash; Suchanfragen-Tracking (Query, Ergebnis-Anzahl, Kanal)',
+                '&nbsp;&nbsp;&bull; <code>events</code> &ndash; Event-Tracking (Typ, Kanal, Daten)',
+            ]);
+
+            // ── WordPress Optionen & Transients ──
+            self::meta_card('WordPress-Optionen &amp; Transients', 'dashicons-admin-settings', [
+                ['tix_auto_widget', 'Chat-Widget automatisch auf allen Seiten einbinden', 'Option (boolean)'],
+                ['tixbot_rl_{md5(email)}', 'Rate-Limit f&uuml;r Ticket-Lookup (max. 5 Versuche / 15 Min)', 'Transient (900s TTL)'],
+            ]);
+
+            // ── Konstanten ──
+            self::meta_card('Konstanten &amp; Konfiguration', 'dashicons-admin-settings', [
+                ['TIX_BOT_SECRET', 'Shared Secret (aus wp-config.php: TIX_BOT_API_SECRET)', 'tix-bot-api.php'],
+                ['TIX_BOT_RATE_LIMIT_MAX', '5 Versuche pro E-Mail', 'tix-bot-api.php'],
+                ['TIX_BOT_RATE_LIMIT_WINDOW', '900 Sekunden (15 Min)', 'tix-bot-api.php'],
+                ['TIX_CHAT_API', 'Bot-Backend URL (PythonAnywhere)', 'tix-bot-chat.php'],
+                ['TIX_CHAT_LOGO', 'Logo-Pfad f&uuml;r Chat-Widget', 'tix-bot-chat.php'],
+                ['TIX_CHAT_BETA', 'Beta-Badge im Widget anzeigen', 'tix-bot-chat.php'],
+                ['TXBA_API', 'Bot-Backend URL f&uuml;r Admin', 'tix-bot-admin.php'],
+                ['TXBA_KEY', 'Admin-API-Key f&uuml;r Bot-Backend', 'tix-bot-admin.php'],
+            ]);
+
+            // ── localStorage ──
+            self::meta_card('Browser-Speicher <small>(localStorage)</small>', 'dashicons-portfolio', [
+                ['tix_history_{hostname}', 'Chat-Verlauf (bis zu 100 Nachrichten + chatId) &ndash; pro Domain', 'Frontend Chat'],
+                ['tix_visitor', 'Persistente Besucher-ID (einmalig generiert)', 'Frontend Chat'],
+                ['txba_n', 'Benachrichtigungs-Toggle (ein/aus)', 'Admin Dashboard'],
+            ]);
+
+            // ── Bot-Backend Konfiguration ──
+            self::function_card('Bot-Backend Konfiguration <small>(Umgebungsvariablen)</small>', 'dashicons-admin-settings', [
+                '<code>TELEGRAM_TOKEN</code> &ndash; Telegram Bot API Token',
+                '<code>ANTHROPIC_API_KEY</code> &ndash; Claude AI API-Schl&uuml;ssel',
+                '<code>WOOCOMMERCE_URL</code> &ndash; WooCommerce-Site URL (Standard: https://tixomat.de)',
+                '<code>WC_CONSUMER_KEY</code> / <code>WC_CONSUMER_SECRET</code> &ndash; WooCommerce REST API Zugangsdaten',
+                '<code>WP_BOT_SECRET</code> &ndash; Secret f&uuml;r tix-bot/v1 API',
+                '<code>TIX_BOT_API_URL</code> &ndash; WordPress Bot-API Basis-URL',
+                '<code>WHATSAPP_TOKEN</code> / <code>WHATSAPP_PHONE_ID</code> &ndash; WhatsApp Business API Zugangsdaten',
+                '<code>WEBCHAT_SECRET</code> &ndash; Webchat Authentifizierungs-Secret',
+                '<code>ADMIN_API_KEY</code> &ndash; Admin-Dashboard API-Schl&uuml;ssel',
+                '<code>OPENAI_API_KEY</code> &ndash; OpenAI-Schl&uuml;ssel f&uuml;r Whisper Spracherkennung',
+            ]);
+
+            // ── Benachrichtigungen ──
+            self::function_card('Benachrichtigungssystem <small>(Admin)</small>', 'dashicons-bell', [
+                'Polling alle <strong>12 Sekunden</strong> auf <code>/admin/notifications</code> f&uuml;r neue Kundennachrichten.',
+                'Nutzt die <strong>Browser Notification API</strong> (fragt Berechtigung an).',
+                'Zus&auml;tzlich <strong>In-Page Toast-Notifications</strong> (auto-dismiss nach 8 Sekunden).',
+                'Klick auf Toast &ouml;ffnet die betreffende Konversation.',
+            ]);
+
+            // ── Warenkorb-Integration ──
+            self::function_card('WooCommerce Warenkorb-Integration', 'dashicons-cart', [
+                'Warenkorb-Status wird alle <strong>15 Sekunden</strong> per AJAX (<code>tix_get_cart</code>) aktualisiert.',
+                'Bot-Antworten k&ouml;nnen <code>wc_actions</code> enthalten &ndash; Array mit Aktionen: <code>add</code>, <code>remove</code>, <code>clear</code> (jeweils <code>product_id</code>, <code>quantity</code>).',
+                'Aktionen werden <strong>sequenziell</strong> &uuml;ber <code>processWcActions()</code> verarbeitet.',
+                'Die <strong>Warenkorb-Leiste</strong> im Chat zeigt Artikelanzahl, Gesamtsumme und &bdquo;Zur Kasse&ldquo;-Button.',
             ]);
             ?>
 

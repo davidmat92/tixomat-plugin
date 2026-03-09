@@ -2878,7 +2878,7 @@ class TIX_Metabox {
         $ticket_codes_by_order = [];
 
         // TIX-eigene Tickets
-        if (function_exists('tix_use_own_tickets') && tix_use_own_tickets() && post_type_exists('tix_ticket')) {
+        if (post_type_exists('tix_ticket')) {
             $tix_tickets = get_posts([
                 'post_type'      => 'tix_ticket',
                 'posts_per_page' => -1,
@@ -2890,29 +2890,6 @@ class TIX_Metabox {
                 $order_id = get_post_meta($et->ID, '_tix_ticket_order_id', true);
                 if ($code && $order_id) {
                     $ticket_codes_by_order[intval($order_id)][] = $code;
-                }
-            }
-        }
-
-        // Tickera Tickets
-        if ((!function_exists('tix_use_tickera') || tix_use_tickera()) && post_type_exists('tc_tickets_instances')) {
-            $tc_event_ids = array_filter(array_map('intval', array_column($cats, 'tc_event_id')));
-            if (!empty($tc_event_ids)) {
-                foreach ($tc_event_ids as $tc_eid) {
-                    $tc_tickets = get_posts([
-                        'post_type'      => 'tc_tickets_instances',
-                        'posts_per_page' => -1,
-                        'post_status'    => 'any',
-                        'meta_query'     => [['key' => 'event_id', 'value' => (string) $tc_eid]],
-                    ]);
-                    foreach ($tc_tickets as $tkt) {
-                        $code     = get_post_meta($tkt->ID, 'ticket_code', true);
-                        $order_id = get_post_meta($tkt->ID, 'order_id', true);
-                        if (!$order_id) $order_id = $tkt->post_parent;
-                        if ($code && $order_id) {
-                            $ticket_codes_by_order[intval($order_id)][] = $code;
-                        }
-                    }
                 }
             }
         }

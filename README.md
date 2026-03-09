@@ -5,8 +5,6 @@ Zentrales Event-Management mit integriertem Ticketing-System, Saalplan-Editor, S
 **Version:** 1.28.0
 **Autor:** MDJ Veranstaltungs UG (haftungsbeschraenkt)
 **Voraussetzungen:** WordPress 6.x, WooCommerce 8.x (HPOS-kompatibel)
-**Optional:** Tickera (externes Ticketing)
-
 ---
 
 ## Features
@@ -22,8 +20,6 @@ Zentrales Event-Management mit integriertem Ticketing-System, Saalplan-Editor, S
 
 ### Ticketing (Dual-Mode)
 - **Standalone:** Eigenes Ticket-System mit 12-stelligen alphanumerischen Codes
-- **Tickera:** Integration mit externem Tickera-Plugin
-- **Beides:** Parallele Ticket-Generierung ueber beide Systeme
 - QR-Code Generierung und Scanning (Format: `GL-{EVENT_ID}-{CODE}`)
 - PDF-Tickets mit visuellem Template-Editor (14 positionierbare Felder)
 - Kryptische Download-URLs mit 64-Zeichen Hex-Token
@@ -144,7 +140,6 @@ Zentrales Event-Management mit integriertem Ticketing-System, Saalplan-Editor, S
 | System | Beschreibung |
 |--------|-------------|
 | **WooCommerce** | Automatische Produkt-Synchronisation mit Varianten |
-| **Tickera** | Optionale Event- & Ticket-Typ-Erstellung |
 | **Airtable** | REST API Sync fuer Ticketdaten |
 | **Supabase** | PostgreSQL REST API Sync |
 | **Breakdance** | Alle Meta-Felder als Dynamic Data verfuegbar |
@@ -180,7 +175,7 @@ tixomat/
 ├── includes/                                32 PHP-Klassen
 │   ├── class-tix-cpt.php                   CPTs + Taxonomien + Admin UI
 │   ├── class-tix-metabox.php               Event-Editor (9 Tabs + Wizard)
-│   ├── class-tix-sync.php                  WooCommerce & Tickera Sync
+│   ├── class-tix-sync.php                  WooCommerce Sync
 │   ├── class-tix-settings.php              Einstellungen (11 Tabs)
 │   ├── class-tix-columns.php               Admin-Spalten, CSV-Export
 │   ├── class-tix-frontend.php              Cron, OG/JSON-LD, Dashboard
@@ -209,7 +204,6 @@ tixomat/
 │   ├── class-tix-statistics.php            Admin-Statistiken
 │   ├── class-tix-sync-airtable.php         Airtable-Integration
 │   ├── class-tix-sync-supabase.php         Supabase-Integration
-│   └── debug-tickera-meta.php              Debug-Utility
 ├── assets/
 │   ├── css/                                 13 Stylesheets + Minified
 │   ├── js/                                  15 JavaScript-Dateien + Minified

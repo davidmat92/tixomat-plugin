@@ -390,7 +390,7 @@ class TIX_Promoter_Dashboard {
                 ? add_query_arg('ref', $promoter->promoter_code, $permalink)
                 : home_url('/?p=' . $event_id . '&ref=' . $promoter->promoter_code);
 
-            // Event-Datum (aus Tickera/Custom Meta)
+            // Event-Datum (aus Event Meta)
             $event_date = '';
             $date_raw = get_post_meta($event_id, '_EventStartDate', true)
                         ?: get_post_meta($event_id, '_tix_event_date', true)

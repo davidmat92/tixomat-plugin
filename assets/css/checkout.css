@@ -830,7 +830,7 @@
     text-align: center; margin-top: 24px; padding-bottom: 8px;
 }
 
-/* Hook-Output (Tickera, Payment-Gateways etc.) */
+/* Hook-Output (Payment-Gateways etc.) */
 .tix-co-ty-hook-output { font-size: 0.88rem; }
 .tix-co-ty-hook-output table { width: 100%; border-collapse: collapse; }
 .tix-co-ty-hook-output td, .tix-co-ty-hook-output th {

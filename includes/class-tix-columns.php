@@ -464,10 +464,9 @@ class TIX_Columns {
                 'tix_force_delete_' . $post->ID
             );
             $is_master = get_post_meta($post->ID, '_tix_series_enabled', true) === '1';
-            $tc_hint = (function_exists('tix_use_tickera') && tix_use_tickera()) ? ' und Tickera-Events' : '';
             $confirm_msg = $is_master
-                ? 'Serien-Master und ALLE Serientermine endgültig löschen? Inkl. aller WC-Produkte' . $tc_hint . '. Dies kann nicht rückgängig gemacht werden.'
-                : 'Event endgültig löschen inkl. aller WC-Produkte' . $tc_hint . '? Dies kann nicht rückgängig gemacht werden.';
+                ? 'Serien-Master und ALLE Serientermine endgültig löschen? Inkl. aller WC-Produkte. Dies kann nicht rückgängig gemacht werden.'
+                : 'Event endgültig löschen inkl. aller WC-Produkte? Dies kann nicht rückgängig gemacht werden.';
             $actions['tix_force_delete'] = '<a href="' . esc_url($delete_url) . '" onclick="return confirm(\'' . esc_js($confirm_msg) . '\')" style="color:#b32d2e;">✕ Endgültig löschen</a>';
         }
 
@@ -500,7 +499,6 @@ class TIX_Columns {
 
         $deleted_children = 0;
         $deleted_products = 0;
-        $deleted_tc       = 0;
 
         // Serien-Master: alle Kinder zuerst löschen
         $children = get_post_meta($post_id, '_tix_series_children', true);
@@ -508,7 +506,6 @@ class TIX_Columns {
             foreach ($children as $child_id) {
                 $d = self::delete_event_artifacts(intval($child_id));
                 $deleted_products += $d['products'];
-                $deleted_tc       += $d['tc'];
                 wp_delete_post(intval($child_id), true);
                 $deleted_children++;
             }
@@ -527,7 +524,6 @@ class TIX_Columns {
         // Dieses Event: Artefakte löschen
         $d = self::delete_event_artifacts($post_id);
         $deleted_products += $d['products'];
-        $deleted_tc       += $d['tc'];
 
         // Event endgültig löschen
         wp_delete_post($post_id, true);
@@ -539,9 +535,7 @@ class TIX_Columns {
         set_transient('tix_force_delete_result_' . get_current_user_id(), [
             'children' => $deleted_children,
             'products' => $deleted_products + ($orphans['products'] ?? 0),
-            'tc'       => $deleted_tc + ($orphans['tc'] ?? 0),
             'orphan_events' => $orphans['events'] ?? 0,
-            'orphan_api'    => $orphans['api'] ?? 0,
         ], 30);
 
         wp_safe_redirect(admin_url('edit.php?post_type=event&tix_force_deleted=1'));
@@ -549,19 +543,14 @@ class TIX_Columns {
     }
 
     /**
-     * Alle WC-Produkte, Tickera-Events und API-Keys eines Events löschen
+     * Alle WC-Produkte eines Events löschen
      */
     private static function delete_event_artifacts($event_id) {
         $deleted_products = 0;
-        $deleted_tc       = 0;
 
         $cats = get_post_meta($event_id, '_tix_ticket_categories', true);
         if (is_array($cats)) {
             foreach ($cats as $cat) {
-                if (!empty($cat['tc_event_id'])) {
-                    wp_delete_post(intval($cat['tc_event_id']), true);
-                    $deleted_tc++;
-                }
                 if (!empty($cat['product_id']) && function_exists('wc_get_product')) {
                     $product = wc_get_product(intval($cat['product_id']));
                     if ($product) {
@@ -572,13 +561,7 @@ class TIX_Columns {
             }
         }
 
-        // API-Key
-        $api_key_id = get_post_meta($event_id, '_tix_api_key_id', true);
-        if ($api_key_id) {
-            wp_delete_post(intval($api_key_id), true);
-        }
-
-        return ['products' => $deleted_products, 'tc' => $deleted_tc];
+        return ['products' => $deleted_products];
     }
 
     /**
@@ -594,9 +577,7 @@ class TIX_Columns {
         $parts = [];
         if (($data['children'] ?? 0) > 0)      $parts[] = $data['children'] . ' Serientermine';
         if (($data['products'] ?? 0) > 0)       $parts[] = $data['products'] . ' WC-Produkte';
-        if (($data['tc'] ?? 0) > 0)             $parts[] = $data['tc'] . ' Tickera-Events';
         if (($data['orphan_events'] ?? 0) > 0)  $parts[] = $data['orphan_events'] . ' verwaiste Events';
-        if (($data['orphan_api'] ?? 0) > 0)     $parts[] = $data['orphan_api'] . ' verwaiste API-Keys';
 
         $msg = 'Event endgültig gelöscht.';
         if (!empty($parts)) $msg .= ' Mitgelöscht: ' . implode(', ', $parts) . '.';

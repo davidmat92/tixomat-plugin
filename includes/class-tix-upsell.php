@@ -346,46 +346,8 @@ class TIX_Upsell {
                 }
             }
 
-            // Fallback: Tickera-Bridge (_event_name → tc_events → tix_event)
-            $tc_event_id = get_post_meta($product_id, '_event_name', true);
-            if ($tc_event_id) {
-                $event_post = self::find_event_by_tickera_id($tc_event_id);
-                if ($event_post) {
-                    $event_ids[$event_post] = $event_post;
-                }
-            }
         }
         return array_values($event_ids);
     }
 
-    /**
-     * Event-Post-ID anhand der Tickera-Event-ID finden
-     */
-    private static function find_event_by_tickera_id($tc_event_id) {
-        // Tickera-Event-Post prüfen → dessen _tix_event_id oder post_parent
-        $tc_post = get_post($tc_event_id);
-        if (!$tc_post) return null;
-
-        // Wenn es direkt ein Event-Post ist
-        if ($tc_post->post_type === 'event') return $tc_post->ID;
-
-        // Tickera-Event-Post hat unsere Event-ID als Meta
-        $tix_event_id = get_post_meta($tc_event_id, '_tix_source_event', true);
-        if ($tix_event_id) return intval($tix_event_id);
-
-        // Fallback: Event suchen, das dieses Tickera-Event referenziert
-        $events = get_posts([
-            'post_type'      => 'event',
-            'posts_per_page' => 1,
-            'meta_query'     => [
-                [
-                    'key'     => '_tix_tc_event_id',
-                    'value'   => $tc_event_id,
-                    'compare' => '=',
-                ],
-            ],
-        ]);
-
-        return !empty($events) ? $events[0]->ID : null;
-    }
 }

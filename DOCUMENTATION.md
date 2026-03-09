@@ -3,7 +3,7 @@
 **Version:** 1.28.0
 **Autor:** MDJ Veranstaltungs UG (haftungsbeschraenkt)
 **Text Domain:** `tixomat`
-**Abhaengigkeiten:** WordPress 6.x, WooCommerce 8.x (HPOS-kompatibel), optional Tickera
+**Abhaengigkeiten:** WordPress 6.x, WooCommerce 8.x (HPOS-kompatibel)
 **Page Builder:** Breakdance (alle Meta-Felder als Dynamic Data verfuegbar)
 
 ---
@@ -74,10 +74,10 @@
 Tixomat automatisiert den gesamten Ticketing-Workflow fuer WordPress-basierte Veranstaltungswebseiten. Der Ablauf gliedert sich in folgende Schritte:
 
 1. **Event erstellen** -- Der Administrator erstellt ein Event (Custom Post Type `event`) mit Ticket-Kategorien, Preisen und allen relevanten Meta-Daten.
-2. **Sync** -- Beim Speichern erstellt `TIX_Sync` automatisch WooCommerce-Produkte (je eine Variante pro Ticket-Kategorie) und optional Tickera-Events/-Ticket-Typen.
+2. **Sync** -- Beim Speichern erstellt `TIX_Sync` automatisch WooCommerce-Produkte (je eine Variante pro Ticket-Kategorie).
 3. **Ticket-Selector** -- Auf der Event-Seite zeigt `TIX_Ticket_Selector` die verfuegbaren Tickets mit Live-Preisberechnung, Countdown und optionalem Express-Modal.
 4. **Checkout** -- `TIX_Checkout` ersetzt den WooCommerce-Standard-Checkout komplett durch einen eigenen, mehrstufigen Checkout-Prozess.
-5. **Eigenes Ticketsystem** -- `TIX_Tickets` generiert Tickets mit QR-Code als Alternative oder Ergaenzung zu Tickera.
+5. **Eigenes Ticketsystem** -- `TIX_Tickets` generiert Tickets mit QR-Code.
 6. **Ticket-Templates** -- `TIX_Ticket_Template` ermoeglicht die visuelle Ticket-Gestaltung mit Hintergrundbildern, Drag & Drop und GD-Rendering.
 7. **Cron** -- `TIX_Frontend` ueberwacht per WP-Cron Vorverkaufsende, Preisphasen und Archivierung.
 8. **Breakdance-Meta** -- Alle Event-Daten stehen als Dynamic Data im Breakdance Page Builder zur Verfuegung.
@@ -92,7 +92,7 @@ Tixomat besteht aus 27 Klassen:
 |---|---|---|
 | `TIX_CPT` | `class-tix-cpt.php` | CPT-Registrierung, Admin-Menue, Admin-Bar, Location/Organizer Metaboxen |
 | `TIX_Metabox` | `class-tix-metabox.php` | Event-Metabox (9 Tabs + Wizard-Modus), AJAX-Endpoints |
-| `TIX_Sync` | `class-tix-sync.php` | WooCommerce-Produkt- und Tickera-Sync, Breakdance-Meta-Generierung |
+| `TIX_Sync` | `class-tix-sync.php` | WooCommerce-Produkt-Sync, Breakdance-Meta-Generierung |
 | `TIX_Settings` | `class-tix-settings.php` | Settings-Seite (11 Tabs), Design-Tokens, CSS-Ausgabe |
 | `TIX_Columns` | `class-tix-columns.php` | Admin-Spalten, Event-Duplizierung, CSV-Export |
 | `TIX_Frontend` | `class-tix-frontend.php` | Cron-Jobs, Open-Graph/JSON-LD, Dashboard-Widget |
@@ -127,7 +127,7 @@ tixomat/
 ├── includes/
 │   ├── class-tix-cpt.php              Custom Post Types & Taxonomien
 │   ├── class-tix-metabox.php          Event-Metabox mit 9 Tabs
-│   ├── class-tix-sync.php             WooCommerce- & Tickera-Sync
+│   ├── class-tix-sync.php             WooCommerce-Sync
 │   ├── class-tix-settings.php         Einstellungen (11 Tabs)
 │   ├── class-tix-columns.php          Admin-Spalten & Export
 │   ├── class-tix-frontend.php         Cron, OG, JSON-LD, Dashboard
@@ -151,7 +151,6 @@ tixomat/
 │   ├── class-tix-cleanup.php          Loeschutz & Cleanup
 │   ├── class-tix-support.php          Support-System (CRM + Kunden-Portal)
 │   ├── class-tix-docs.php             Admin-Dokumentation
-│   └── debug-tickera-meta.php         Debug-Hilfsdatei fuer Tickera-Meta
 ├── assets/
 │   ├── css/                           13 CSS-Dateien + 13 minifizierte Versionen
 │   ├── js/                            14 JS-Dateien + 14 minifizierte Versionen + jsqr.min.js
@@ -209,9 +208,7 @@ Tixomat bietet ein flexibles Dual-Mode-Ticketsystem, das ueber die Einstellung `
 
 | Modus | Wert | Beschreibung |
 |---|---|---|
-| Tickera | `tickera` | Nutzt ausschliesslich Tickera fuer Ticket-Generierung und -Verwaltung |
 | Standalone | `standalone` | Nutzt ausschliesslich das eigene Tixomat-Ticketsystem |
-| Beide | `both` | Verwendet sowohl Tickera als auch das eigene System parallel |
 
 ### Eigenes Ticketsystem (`TIX_Tickets`)
 
@@ -237,7 +234,6 @@ Tickets werden automatisch nach erfolgreichem WooCommerce-Checkout erstellt:
 
 ```php
 tix_use_own_tickets()  // Gibt true zurueck wenn standalone oder both aktiv
-tix_use_tickera()      // Gibt true zurueck wenn tickera oder both aktiv
 ```
 
 ---
@@ -456,7 +452,6 @@ Jede Ticket-Kategorie im Array enthaelt:
 | `desc` | `string` | Beschreibung der Kategorie |
 | `sort` | `int` | Sortierung |
 | `wc_variation_id` | `int` | Zugehoerige WooCommerce-Variations-ID |
-| `tickera_ticket_type_id` | `int` | Zugehoerige Tickera-Ticket-Typ-ID |
 
 ### Info & Beschreibung
 
@@ -494,7 +489,6 @@ Jede Ticket-Kategorie im Array enthaelt:
 | Meta-Key | Typ | Beschreibung |
 |---|---|---|
 | `_tix_wc_product_id` | `int` | Zugehoerige WooCommerce-Produkt-ID |
-| `_tix_tickera_event_id` | `int` | Zugehoerige Tickera-Event-ID |
 
 ### Serientermine
 
@@ -774,7 +768,7 @@ Tixomat stellt 11 Shortcodes zur Verfuegung:
 | `tix_add_faq_item` | `TIX_Metabox` | Fuegt einen FAQ-Eintrag hinzu |
 | `tix_remove_faq_item` | `TIX_Metabox` | Entfernt einen FAQ-Eintrag |
 | `tix_save_settings` | `TIX_Settings` | Speichert Plugin-Einstellungen |
-| `tix_sync_event` | `TIX_Sync` | Manueller Sync eines Events mit WooCommerce/Tickera |
+| `tix_sync_event` | `TIX_Sync` | Manueller Sync eines Events mit WooCommerce |
 | `tix_checkin_ticket` | `TIX_Checkin` | Fuehrt einen Ticket-Check-in durch |
 | `tix_guestlist_add` | `TIX_Checkin` | Fuegt einen Gaestelisten-Eintrag hinzu |
 | `tix_guestlist_remove` | `TIX_Checkin` | Entfernt einen Gaestelisten-Eintrag |
@@ -819,10 +813,10 @@ Die folgenden Aktionen werden ueber `admin_post_*` registriert und erfordern Adm
 
 | Action | Klasse | Beschreibung |
 |---|---|---|
-| `tix_cleanup_orphans` | `TIX_Cleanup` | Bereinigt verwaiste WooCommerce-Produkte und Tickera-Eintraege ohne zugehoeriges Event |
+| `tix_cleanup_orphans` | `TIX_Cleanup` | Bereinigt verwaiste WooCommerce-Produkte ohne zugehoeriges Event |
 | `tix_export_subscribers` | `TIX_Columns` | Exportiert Newsletter-Abonnenten als CSV-Datei |
 | `tix_duplicate_event` | `TIX_Columns` | Dupliziert ein Event mit allen Meta-Daten (ohne Kind-Events) |
-| `tix_force_delete_event` | `TIX_Cleanup` | Loescht ein Event inklusive aller zugehoerigen Daten (WC-Produkt, Tickera, Tickets) |
+| `tix_force_delete_event` | `TIX_Cleanup` | Loescht ein Event inklusive aller zugehoerigen Daten (WC-Produkt, Tickets) |
 
 ---
 
@@ -1307,7 +1301,7 @@ Pro Event ueber `_tix_embed_enabled` aktivierbar.
 
 | Einstellung | Key | Typ | Beschreibung |
 |---|---|---|---|
-| Ticket-System | `tix_ticket_system` | `string` | `tickera`, `standalone`, `both` |
+| Ticket-System | `tix_ticket_system` | `string` | `standalone` |
 | Loeschutz aktiv | `tix_delete_protection` | `string` (0/1) | Verhindert versehentliches Loeschen |
 | Debug-Modus | `tix_debug_mode` | `string` (0/1) | Erweiterte Logging-Ausgabe |
 | Archivierungs-Tage | `tix_archive_days` | `int` | Tage nach Event bis zur Archivierung |
@@ -1444,16 +1438,14 @@ Die Action `tix_force_delete_event` loescht:
 
 1. Das Event selbst.
 2. Das zugehoerige WooCommerce-Produkt (inklusive Varianten).
-3. Den zugehoerigen Tickera-Event (falls vorhanden).
-4. Alle zugehoerigen `tix_ticket`-Posts (eigenes Ticketsystem).
-5. Breakdance-Meta-Daten.
+3. Alle zugehoerigen `tix_ticket`-Posts (eigenes Ticketsystem).
+4. Breakdance-Meta-Daten.
 
 ### Orphan-Cleanup
 
 Die Action `tix_cleanup_orphans` bereinigt:
 
 - WooCommerce-Produkte ohne zugehoeriges Event.
-- Tickera-Events ohne zugehoeriges Tixomat-Event.
 - Verwaiste `tix_ticket`-Posts.
 - Verwaiste Meta-Daten.
 
@@ -1474,7 +1466,6 @@ Die Admin-Post-Action `tix_duplicate_event` (Klasse `TIX_Columns`) erstellt eine
 ### Nicht kopierte Daten
 
 - WooCommerce-Produkt-ID (wird beim Speichern neu erstellt).
-- Tickera-Event-ID (wird beim Speichern neu erstellt).
 - Verkaufszahlen (`sold` in Ticket-Kategorien wird auf 0 gesetzt).
 - Serientermin-Verknuepfungen (Kind-Events werden nicht kopiert).
 - Bestehende Tickets (`tix_ticket`).
@@ -1633,14 +1624,6 @@ function tix_use_own_tickets(): bool
 
 Gibt `true` zurueck, wenn das eigene Ticketsystem aktiv ist (`tix_ticket_system` ist `standalone` oder `both`).
 
-### `tix_use_tickera()`
-
-```php
-function tix_use_tickera(): bool
-```
-
-Gibt `true` zurueck, wenn Tickera als Ticketsystem genutzt wird (`tix_ticket_system` ist `tickera` oder `both`).
-
 ### `tix_get_settings()`
 
 ```php
@@ -1678,7 +1661,7 @@ Gibt den Branding-Footer fuer E-Mails und den Embed-Modus zurueck. Enthaelt das 
 | Hook | Klasse | Beschreibung |
 |---|---|---|
 | `tix_after_event_save` | `TIX_Metabox` | Wird nach dem Speichern eines Events ausgeloest |
-| `tix_after_sync` | `TIX_Sync` | Wird nach dem WooCommerce/Tickera-Sync ausgeloest |
+| `tix_after_sync` | `TIX_Sync` | Wird nach dem WooCommerce-Sync ausgeloest |
 | `tix_before_checkout` | `TIX_Checkout` | Wird vor der Checkout-Verarbeitung ausgeloest |
 | `tix_after_checkout` | `TIX_Checkout` | Wird nach erfolgreichem Checkout ausgeloest |
 | `tix_ticket_created` | `TIX_Tickets` | Wird nach der Erstellung eines Tickets ausgeloest |

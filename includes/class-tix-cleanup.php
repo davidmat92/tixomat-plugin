@@ -8,7 +8,7 @@ class TIX_Cleanup {
         add_action('wp_trash_post',      [__CLASS__, 'delete_generated']);
         add_action('before_delete_post', [__CLASS__, 'delete_generated']);
 
-        // ── Löschschutz: WC-Produkte mit Tickera-Link nicht löschbar machen ──
+        // ── Löschschutz: WC-Produkte nicht direkt löschbar ──
         add_action('wp_trash_post',      [__CLASS__, 'protect_product']);
         add_action('before_delete_post',  [__CLASS__, 'protect_product']);
 
@@ -132,8 +132,6 @@ class TIX_Cleanup {
     public static function run_cleanup() {
         $deleted_events   = 0;
         $deleted_products = 0;
-        $deleted_tc       = 0;
-        $deleted_api      = 0;
 
         // ALLE Hooks deaktivieren
         remove_action('wp_trash_post',      [__CLASS__, 'delete_generated']);
@@ -164,10 +162,6 @@ class TIX_Cleanup {
                 $cats = get_post_meta($event_id, '_tix_ticket_categories', true);
                 if (is_array($cats)) {
                     foreach ($cats as $cat) {
-                        if (!empty($cat['tc_event_id'])) {
-                            wp_delete_post(intval($cat['tc_event_id']), true);
-                            $deleted_tc++;
-                        }
                         if (!empty($cat['product_id']) && function_exists('wc_get_product')) {
                             $product = wc_get_product(intval($cat['product_id']));
                             if ($product) {
@@ -176,12 +170,6 @@ class TIX_Cleanup {
                             }
                         }
                     }
-                }
-                // API-Key
-                $api_key_id = get_post_meta($event_id, '_tix_api_key_id', true);
-                if ($api_key_id) {
-                    wp_delete_post(intval($api_key_id), true);
-                    $deleted_api++;
                 }
                 // Event selbst löschen
                 wp_delete_post($event_id, true);
@@ -213,49 +201,7 @@ class TIX_Cleanup {
             }
         }
 
-        // ── 3. Verwaiste TC-Events (Parent-Event fehlt) ──
-        if (post_type_exists('tc_events')) {
-            $tc_events = get_posts([
-                'post_type'      => 'tc_events',
-                'post_status'    => 'any',
-                'posts_per_page' => -1,
-                'meta_key'       => '_tix_parent_event_id',
-                'fields'         => 'ids',
-            ]);
-
-            foreach ($tc_events as $tc_id) {
-                $parent_id = get_post_meta($tc_id, '_tix_parent_event_id', true);
-                if (!$parent_id) continue;
-                $parent_status = get_post_status(intval($parent_id));
-                if ($parent_status === false || $parent_status === 'trash') {
-                    wp_delete_post($tc_id, true);
-                    $deleted_tc++;
-                }
-            }
-        }
-
-        // ── 4. Verwaiste API-Keys (Parent-Event fehlt) ──
-        if (post_type_exists('tc_api_keys')) {
-            $api_keys = get_posts([
-                'post_type'      => 'tc_api_keys',
-                'post_status'    => 'any',
-                'posts_per_page' => -1,
-                'meta_key'       => '_tix_parent_event_id',
-                'fields'         => 'ids',
-            ]);
-
-            foreach ($api_keys as $api_id) {
-                $parent_id = get_post_meta($api_id, '_tix_parent_event_id', true);
-                if (!$parent_id) continue;
-                $parent_status = get_post_status(intval($parent_id));
-                if ($parent_status === false || $parent_status === 'trash') {
-                    wp_delete_post($api_id, true);
-                    $deleted_api++;
-                }
-            }
-        }
-
-        // ── 5. Verwaiste TIX-Tickets (Event fehlt) ──
+        // ── 3. Verwaiste TIX-Tickets (Event fehlt) ──
         $deleted_tix_tickets = 0;
         if (post_type_exists('tix_ticket')) {
             $tix_tickets = get_posts([
@@ -291,8 +237,6 @@ class TIX_Cleanup {
         return [
             'events'     => $deleted_events,
             'products'   => $deleted_products,
-            'tc'         => $deleted_tc,
-            'api'        => $deleted_api,
             'tix_tickets' => $deleted_tix_tickets,
         ];
     }
@@ -310,8 +254,6 @@ class TIX_Cleanup {
         $parts = [];
         if (($data['events'] ?? 0) > 0)   $parts[] = intval($data['events']) . ' Event-Kinder';
         if (($data['products'] ?? 0) > 0)  $parts[] = intval($data['products']) . ' WC-Produkte';
-        if (($data['tc'] ?? 0) > 0)        $parts[] = intval($data['tc']) . ' Tickera-Events';
-        if (($data['api'] ?? 0) > 0)        $parts[] = intval($data['api']) . ' API-Keys';
         if (($data['tix_tickets'] ?? 0) > 0) $parts[] = intval($data['tix_tickets']) . ' TIX-Tickets';
 
         if (empty($parts)) {

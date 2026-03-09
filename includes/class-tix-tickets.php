@@ -2,7 +2,7 @@
 /**
  * Tixomat – Eigenes Ticket-System
  *
- * Erstellt und verwaltet tix_ticket-Posts als Alternative/Ergänzung zu Tickera.
+ * Erstellt und verwaltet tix_ticket-Posts.
  * Aktivierung über Einstellung: Tixomat → Einstellungen → Features → Ticket-System.
  *
  * @since 1.19.0
@@ -19,12 +19,9 @@ class TIX_Tickets {
         // CPT immer registrieren (damit bestehende Posts lesbar bleiben)
         add_action('init', [__CLASS__, 'register_post_type']);
 
-        // Download-Endpoint IMMER registrieren (für beide Ticket-Typen: tix_ticket + tc_tickets_instances)
+        // Download-Endpoint registrieren
         add_action('init', [__CLASS__, 'register_download_endpoint']);
         add_action('template_redirect', [__CLASS__, 'handle_download']);
-
-        // Ticket-Erstellung nur wenn eigenes System aktiv
-        if (!tix_use_own_tickets()) return;
 
         // Ticket-Erstellung bei Order-Status-Änderung
         add_action('woocommerce_order_status_completed',  [__CLASS__, 'on_order_completed']);
@@ -157,42 +154,7 @@ class TIX_Tickets {
                 exit;
             }
 
-            // tc_tickets_instances → Tickera-Download oder Fallback
-            if ($post->post_type === 'tc_tickets_instances') {
-                $tc_order_id = get_post_meta($ticket_id, 'order_id', true) ?: $post->post_parent;
-                $order = wc_get_order($tc_order_id);
-                if (!$order || $order->get_order_key() !== $order_key) {
-                    wp_die('Ungültiger Zugangsschlüssel.', 'Fehler', ['response' => 403]);
-                }
-
-                // Tickera-Download wenn verfügbar
-                if (function_exists('tc_get_ticket_download_url')) {
-                    $tc_url = tc_get_ticket_download_url($ticket_id);
-                    if ($tc_url) {
-                        wp_redirect($tc_url);
-                        exit;
-                    }
-                }
-
-                // Fallback: Ticket-Daten für Legacy-Rendering sammeln
-                $event_id = 0;
-                $tc_event_id = get_post_meta($ticket_id, 'event_id', true);
-                if ($tc_event_id) {
-                    $event_id = intval(get_post_meta(intval($tc_event_id), '_tix_parent_event_id', true));
-                }
-
-                // Wenn wir ein tix_ticket für den gleichen Code haben → das rendern
-                $tc_code = get_post_meta($ticket_id, 'ticket_code', true);
-                if ($tc_code) {
-                    $own_ticket = self::get_ticket_by_code($tc_code);
-                    if ($own_ticket) {
-                        self::render_pdf($own_ticket->ID);
-                        exit;
-                    }
-                }
-
-                wp_die('Ticket-Download steht noch nicht bereit. Bitte versuche es später erneut.', 'Ticket', ['response' => 200]);
-            }
+            wp_die('Ticket nicht gefunden.', 'Fehler', ['response' => 404]);
         }
     }
 
@@ -201,7 +163,6 @@ class TIX_Tickets {
     // ══════════════════════════════════════════════
 
     public static function on_order_completed($order_id) {
-        if (!tix_use_own_tickets()) return;
         if (!function_exists('wc_get_order')) return;
 
         try {
@@ -221,13 +182,14 @@ class TIX_Tickets {
 
                 // Prüfen ob dieses Produkt ein Event-Ticket ist
                 $is_tix_ticket = get_post_meta($product_id, '_tix_is_ticket', true) === 'yes';
+                // Legacy: _tc_is_ticket retained for backward compatibility with older products
                 $is_tc_ticket = get_post_meta($product_id, '_tc_is_ticket', true) === 'yes';
                 if (!$is_tix_ticket && !$is_tc_ticket) continue;
 
                 // Event-ID ermitteln
                 $event_id = intval(get_post_meta($product_id, '_tix_source_event', true));
                 if (!$event_id) {
-                    // Fallback: über _event_name (Tickera-Bridge) → tc_event → _tix_parent_event_id
+                    // Fallback: über _event_name → _tix_parent_event_id (Legacy)
                     $tc_event_id = get_post_meta($product_id, '_event_name', true);
                     if ($tc_event_id) {
                         $event_id = intval(get_post_meta(intval($tc_event_id), '_tix_parent_event_id', true));
@@ -401,8 +363,7 @@ class TIX_Tickets {
     // ══════════════════════════════════════════════
 
     /**
-     * Gibt normalisierte Ticket-Daten zurück, je nach Modus.
-     * Arbeitet mit beiden Quellen (tix_ticket + tc_tickets_instances).
+     * Gibt normalisierte Ticket-Daten zurück.
      *
      * @param int $order_id
      * @return array [{code, event_id, event_name, order_id, product_id, cat_name,
@@ -412,44 +373,9 @@ class TIX_Tickets {
         $tickets = [];
 
         // ── Eigene Tickets ──
-        if (tix_use_own_tickets()) {
-            $tix_tickets = self::get_tickets_by_order($order_id);
-            foreach ($tix_tickets as $t) {
-                $tickets[] = self::normalize_tix_ticket($t);
-            }
-        }
-
-        // ── Tickera-Tickets ──
-        if (tix_use_tickera() && post_type_exists('tc_tickets_instances')) {
-            $tc_tickets = get_posts([
-                'post_type'      => 'tc_tickets_instances',
-                'post_status'    => 'any',
-                'posts_per_page' => -1,
-                'post_parent'    => $order_id,
-            ]);
-
-            // Fallback: meta_query wenn post_parent nicht gesetzt
-            if (empty($tc_tickets)) {
-                $tc_tickets = get_posts([
-                    'post_type'      => 'tc_tickets_instances',
-                    'post_status'    => 'any',
-                    'posts_per_page' => -1,
-                    'meta_query'     => [
-                        ['key' => 'order_id', 'value' => (string) $order_id],
-                    ],
-                ]);
-            }
-
-            foreach ($tc_tickets as $t) {
-                $normalized = self::normalize_tc_ticket($t);
-                if ($normalized) $tickets[] = $normalized;
-            }
-        }
-
-        // ── Deduplizierung im Both-Modus ──
-        $mode = tix_get_settings('ticket_system') ?: 'tickera';
-        if ($mode === 'both' && !empty($tickets)) {
-            $tickets = self::deduplicate_tickets($tickets);
+        $tix_tickets = self::get_tickets_by_order($order_id);
+        foreach ($tix_tickets as $t) {
+            $tickets[] = self::normalize_tix_ticket($t);
         }
 
         return $tickets;

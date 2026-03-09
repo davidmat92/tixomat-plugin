@@ -1,15 +1,15 @@
 <?php
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
- * Description: Zentrales Event-Management mit eigenem Ticketsystem. Optional mit Tickera-Integration.
- * Version: 1.28.9
+ * Description: Zentrales Event-Management mit eigenem Ticketsystem.
+ * Version: 1.28.10
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.28.9');
+define('TIXOMAT_VERSION', '1.28.10');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -19,20 +19,18 @@ add_action('init', ['TIX_CPT', 'register']);
 
 /**
  * Ticket-System Modus-Helper.
- * Prüft ob Tixomat eigene Tickets erstellen soll.
+ * Tixomat verwendet ausschließlich das eigene Ticketsystem.
  */
 function tix_use_own_tickets() {
-    $mode = tix_get_settings('ticket_system') ?: 'tickera';
-    return in_array($mode, ['standalone', 'both'], true);
+    return true;
 }
 
 /**
- * Ticket-System Modus-Helper.
- * Prüft ob Tickera-Integration aktiv sein soll.
+ * Legacy-Helper. Tickera-Integration wurde entfernt.
+ * Gibt immer false zurück.
  */
 function tix_use_tickera() {
-    $mode = tix_get_settings('ticket_system') ?: 'tickera';
-    return in_array($mode, ['tickera', 'both'], true);
+    return false;
 }
 
 /**
@@ -81,7 +79,7 @@ function tix_get_settings($key = null) {
             'abandoned_cart_delay'   => 30,
             'abandoned_cart_subject' => '',
             // Ticket-System
-            'ticket_system'            => 'tickera', // tickera | standalone | both
+            'ticket_system'            => 'standalone',
             // Express Checkout
             'express_checkout_enabled' => 0,
             // Branding
