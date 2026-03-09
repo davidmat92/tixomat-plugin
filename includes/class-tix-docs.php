@@ -481,6 +481,17 @@ class TIX_Docs {
             </p>
 
             <?php
+            // ── tix_event_page ──
+            self::shortcode_card(
+                'tix_event_page',
+                'Zeigt eine komplette Event-Detailseite an &ndash; mit Hero-Bild, Datum/Ort/Preis, Ticket-Selektor, Beschreibung, Line-Up, Galerie (mit Lightbox), Video, FAQ, Location-Karte, Serientermine und &auml;hnliche Events. <strong>Zeigt nur Sektionen an, die auch Daten enthalten.</strong> Bettet automatisch <code>[tix_ticket_selector]</code>, <code>[tix_faq]</code>, <code>[tix_calendar]</code> und <code>[tix_upsell]</code> ein.',
+                [
+                    ['id', '(aktuelle Seite)', 'Event-ID. Wenn leer, wird automatisch das Event der aktuellen Seite verwendet.'],
+                ],
+                '[tix_event_page]',
+                '[tix_event_page id="123"]'
+            );
+
             // ── tix_ticket_selector ──
             self::shortcode_card(
                 'tix_ticket_selector',

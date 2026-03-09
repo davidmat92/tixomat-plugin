@@ -1,0 +1,609 @@
+/* ═══════════════════════════════════════════════
+   Tixomat Event Page  –  [tix_event_page]
+   Inspiriert von rausgegangen.de
+   ═══════════════════════════════════════════════ */
+
+/* ── Variables ── */
+.tix-ep {
+    --ep-bg: #fff;
+    --ep-text: #1a1a1a;
+    --ep-muted: #64748b;
+    --ep-border: #e5e7eb;
+    --ep-radius: 12px;
+    --ep-gap: 32px;
+    --ep-accent: var(--tix-buy-bg, #c8ff00);
+    --ep-accent-text: var(--tix-buy-color, #000);
+    --ep-max-w: 720px;
+    --ep-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+
+    font-family: var(--ep-font);
+    color: var(--ep-text);
+    max-width: var(--ep-max-w);
+    margin: 0 auto;
+    padding: 0 16px;
+    line-height: 1.6;
+}
+
+.tix-ep *, .tix-ep *::before, .tix-ep *::after {
+    box-sizing: border-box;
+}
+
+/* ── Hero ── */
+.tix-ep-hero {
+    position: relative;
+    margin: 0 -16px 24px;
+    border-radius: var(--ep-radius);
+    overflow: hidden;
+}
+.tix-ep-hero img {
+    display: block;
+    width: 100%;
+    height: auto;
+    aspect-ratio: 16 / 9;
+    object-fit: cover;
+}
+.tix-ep-hero-badge {
+    position: absolute;
+    top: 16px;
+    left: 16px;
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #fff;
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+}
+.tix-ep-hero-badge--sold_out   { background: rgba(220,38,38,.85); }
+.tix-ep-hero-badge--cancelled  { background: rgba(107,114,128,.85); }
+.tix-ep-hero-badge--postponed  { background: rgba(234,179,8,.85); color: #1a1a1a; }
+.tix-ep-hero-badge--few_tickets{ background: rgba(234,88,12,.85); }
+
+/* ── Header ── */
+.tix-ep-header {
+    margin-bottom: var(--ep-gap);
+}
+.tix-ep-title {
+    font-size: 1.75rem;
+    font-weight: 800;
+    line-height: 1.2;
+    margin: 0 0 16px;
+    color: var(--ep-text);
+}
+.tix-ep-status {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-left: 8px;
+    vertical-align: middle;
+    color: #fff;
+}
+.tix-ep-status--sold_out    { background: #dc2626; }
+.tix-ep-status--cancelled   { background: #6b7280; }
+.tix-ep-status--postponed   { background: #eab308; color: #1a1a1a; }
+.tix-ep-status--few_tickets { background: #ea580c; }
+.tix-ep-status--past        { background: #9ca3af; }
+
+/* Meta-Zeilen */
+.tix-ep-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 16px;
+}
+.tix-ep-meta-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    font-size: 0.95rem;
+    color: var(--ep-text);
+}
+.tix-ep-meta-icon {
+    flex-shrink: 0;
+    width: 20px;
+    height: 20px;
+    color: var(--ep-muted);
+    margin-top: 2px;
+}
+.tix-ep-meta-icon svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+.tix-ep-meta-label {
+    color: var(--ep-muted);
+    font-size: 0.8rem;
+    display: block;
+}
+.tix-ep-meta-value {
+    font-weight: 600;
+}
+.tix-ep-meta-sub {
+    color: var(--ep-muted);
+    font-size: 0.85rem;
+    font-weight: 400;
+}
+.tix-ep-price-badge {
+    display: inline-block;
+    background: var(--ep-accent);
+    color: var(--ep-accent-text);
+    padding: 4px 12px;
+    border-radius: 6px;
+    font-weight: 700;
+    font-size: 0.95rem;
+}
+.tix-ep-age-badge {
+    display: inline-block;
+    background: #f1f5f9;
+    color: var(--ep-muted);
+    padding: 3px 10px;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
+/* ── Sections (generic) ── */
+.tix-ep-section {
+    margin-bottom: var(--ep-gap);
+}
+.tix-ep-section-title {
+    font-size: 1.15rem;
+    font-weight: 700;
+    margin: 0 0 14px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid var(--ep-border);
+    color: var(--ep-text);
+}
+.tix-ep-section-body {
+    font-size: 0.95rem;
+    line-height: 1.7;
+    color: #374151;
+}
+.tix-ep-section-body p {
+    margin: 0 0 12px;
+}
+.tix-ep-section-body p:last-child {
+    margin-bottom: 0;
+}
+.tix-ep-section-body a {
+    color: #2563eb;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+.tix-ep-section-body a:hover {
+    color: #1d4ed8;
+}
+
+/* ── Ticket-Selektor Wrapper ── */
+.tix-ep-tickets {
+    margin-bottom: var(--ep-gap);
+}
+
+/* ── Galerie ── */
+.tix-ep-gallery {
+    margin-bottom: var(--ep-gap);
+}
+.tix-ep-gallery-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    border-radius: var(--ep-radius);
+    overflow: hidden;
+}
+.tix-ep-gallery-item {
+    position: relative;
+    cursor: pointer;
+    overflow: hidden;
+    aspect-ratio: 1;
+    background: #f1f5f9;
+}
+.tix-ep-gallery-item img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transition: transform 0.3s ease;
+}
+.tix-ep-gallery-item:hover img {
+    transform: scale(1.05);
+}
+/* Erstes Bild groß bei > 3 Bildern */
+.tix-ep-gallery-grid--hero .tix-ep-gallery-item:first-child {
+    grid-column: 1 / -1;
+    aspect-ratio: 16 / 9;
+}
+
+/* ── Video ── */
+.tix-ep-video {
+    margin-bottom: var(--ep-gap);
+}
+.tix-ep-video-wrap {
+    position: relative;
+    padding-bottom: 56.25%;
+    height: 0;
+    overflow: hidden;
+    border-radius: var(--ep-radius);
+    background: #000;
+}
+.tix-ep-video-wrap iframe,
+.tix-ep-video-wrap video {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    border: 0;
+}
+
+/* ── Location-Karte ── */
+.tix-ep-location {
+    margin-bottom: var(--ep-gap);
+}
+.tix-ep-location-card {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 16px;
+    background: #f8fafc;
+    border: 1px solid var(--ep-border);
+    border-radius: var(--ep-radius);
+    text-decoration: none;
+    color: inherit;
+    transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+.tix-ep-location-card:hover {
+    border-color: #cbd5e1;
+    box-shadow: 0 2px 8px rgba(0,0,0,.06);
+}
+.tix-ep-location-icon {
+    flex-shrink: 0;
+    width: 48px;
+    height: 48px;
+    background: var(--ep-accent);
+    color: var(--ep-accent-text);
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.tix-ep-location-icon svg {
+    width: 24px;
+    height: 24px;
+}
+.tix-ep-location-info {
+    flex: 1;
+    min-width: 0;
+}
+.tix-ep-location-name {
+    font-weight: 700;
+    font-size: 1rem;
+    margin: 0 0 2px;
+}
+.tix-ep-location-address {
+    color: var(--ep-muted);
+    font-size: 0.85rem;
+    margin: 0;
+}
+.tix-ep-location-arrow {
+    flex-shrink: 0;
+    color: #cbd5e1;
+    transition: color 0.2s;
+}
+.tix-ep-location-card:hover .tix-ep-location-arrow {
+    color: var(--ep-muted);
+}
+
+/* ── Organizer-Karte ── */
+.tix-ep-organizer {
+    margin-bottom: var(--ep-gap);
+}
+.tix-ep-organizer-card {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 16px;
+    background: #f8fafc;
+    border: 1px solid var(--ep-border);
+    border-radius: var(--ep-radius);
+}
+.tix-ep-organizer-avatar {
+    flex-shrink: 0;
+    width: 40px;
+    height: 40px;
+    background: #e2e8f0;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+}
+.tix-ep-organizer-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+.tix-ep-organizer-avatar svg {
+    width: 20px;
+    height: 20px;
+    color: var(--ep-muted);
+}
+.tix-ep-organizer-name {
+    font-weight: 600;
+    font-size: 0.95rem;
+}
+.tix-ep-organizer-label {
+    color: var(--ep-muted);
+    font-size: 0.8rem;
+}
+
+/* ── Serientermine ── */
+.tix-ep-series {
+    margin-bottom: var(--ep-gap);
+}
+.tix-ep-series-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.tix-ep-series-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    background: #f8fafc;
+    border: 1px solid var(--ep-border);
+    border-radius: 8px;
+    text-decoration: none;
+    color: inherit;
+    transition: border-color 0.2s, background 0.2s;
+}
+.tix-ep-series-item:hover {
+    border-color: #cbd5e1;
+    background: #f1f5f9;
+}
+.tix-ep-series-item--current {
+    border-color: var(--ep-accent);
+    background: rgba(200, 255, 0, .06);
+}
+.tix-ep-series-item--current:hover {
+    background: rgba(200, 255, 0, .1);
+}
+.tix-ep-series-date {
+    flex-shrink: 0;
+    width: 52px;
+    text-align: center;
+    line-height: 1.2;
+}
+.tix-ep-series-day {
+    font-size: 1.3rem;
+    font-weight: 800;
+    display: block;
+}
+.tix-ep-series-month {
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: var(--ep-muted);
+    display: block;
+}
+.tix-ep-series-info {
+    flex: 1;
+    min-width: 0;
+}
+.tix-ep-series-title {
+    font-weight: 600;
+    font-size: 0.9rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.tix-ep-series-time {
+    color: var(--ep-muted);
+    font-size: 0.8rem;
+}
+.tix-ep-series-status {
+    flex-shrink: 0;
+    padding: 3px 10px;
+    border-radius: 4px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+.tix-ep-series-status--available   { background: #dcfce7; color: #166534; }
+.tix-ep-series-status--few_tickets { background: #fff7ed; color: #9a3412; }
+.tix-ep-series-status--sold_out    { background: #fee2e2; color: #991b1b; }
+.tix-ep-series-status--cancelled   { background: #f3f4f6; color: #6b7280; }
+.tix-ep-series-status--postponed   { background: #fef9c3; color: #854d0e; }
+
+/* ── Upsell / FAQ Wrapper ── */
+.tix-ep-upsell,
+.tix-ep-faq {
+    margin-bottom: var(--ep-gap);
+}
+
+/* ── Calendar Wrapper ── */
+.tix-ep-calendar {
+    margin-bottom: var(--ep-gap);
+    display: flex;
+    justify-content: center;
+}
+
+/* ── Charity ── */
+.tix-ep-charity {
+    margin-bottom: var(--ep-gap);
+}
+.tix-ep-charity-card {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 16px;
+    background: linear-gradient(135deg, #fdf2f8, #fce7f3);
+    border: 1px solid #f9a8d4;
+    border-radius: var(--ep-radius);
+}
+.tix-ep-charity-img {
+    flex-shrink: 0;
+    width: 56px;
+    height: 56px;
+    border-radius: 10px;
+    object-fit: cover;
+}
+.tix-ep-charity-info {
+    flex: 1;
+}
+.tix-ep-charity-name {
+    font-weight: 700;
+    font-size: 0.95rem;
+    margin: 0 0 4px;
+}
+.tix-ep-charity-desc {
+    font-size: 0.85rem;
+    color: #9d174d;
+    margin: 0;
+}
+.tix-ep-charity-percent {
+    flex-shrink: 0;
+    font-size: 1.4rem;
+    font-weight: 800;
+    color: #be185d;
+}
+
+/* ── Lightbox ── */
+.tix-ep-lightbox {
+    position: fixed;
+    inset: 0;
+    z-index: 999999;
+    background: rgba(0,0,0,.92);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity .25s ease, visibility .25s ease;
+}
+.tix-ep-lightbox--open {
+    opacity: 1;
+    visibility: visible;
+}
+.tix-ep-lightbox img {
+    max-width: 90vw;
+    max-height: 90vh;
+    object-fit: contain;
+    border-radius: 4px;
+    user-select: none;
+}
+.tix-ep-lightbox-close {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    width: 40px;
+    height: 40px;
+    background: rgba(255,255,255,.15);
+    border: none;
+    border-radius: 50%;
+    color: #fff;
+    font-size: 1.4rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background .2s;
+    line-height: 1;
+}
+.tix-ep-lightbox-close:hover {
+    background: rgba(255,255,255,.3);
+}
+.tix-ep-lightbox-nav {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 44px;
+    height: 44px;
+    background: rgba(255,255,255,.15);
+    border: none;
+    border-radius: 50%;
+    color: #fff;
+    font-size: 1.2rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background .2s;
+}
+.tix-ep-lightbox-nav:hover {
+    background: rgba(255,255,255,.3);
+}
+.tix-ep-lightbox-prev { left: 16px; }
+.tix-ep-lightbox-next { right: 16px; }
+.tix-ep-lightbox-counter {
+    position: absolute;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: rgba(255,255,255,.7);
+    font-size: 0.85rem;
+    font-weight: 500;
+}
+
+/* ── Divider ── */
+.tix-ep-divider {
+    border: none;
+    border-top: 1px solid var(--ep-border);
+    margin: var(--ep-gap) 0;
+}
+
+/* ═══ RESPONSIVE ═══ */
+
+@media (max-width: 768px) {
+    .tix-ep {
+        --ep-gap: 24px;
+    }
+    .tix-ep-title {
+        font-size: 1.4rem;
+    }
+    .tix-ep-gallery-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 480px) {
+    .tix-ep {
+        --ep-gap: 20px;
+        padding: 0 12px;
+    }
+    .tix-ep-hero {
+        margin: 0 -12px 16px;
+        border-radius: 0;
+    }
+    .tix-ep-title {
+        font-size: 1.25rem;
+    }
+    .tix-ep-meta-row {
+        font-size: 0.88rem;
+    }
+    .tix-ep-gallery-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 4px;
+    }
+    .tix-ep-gallery-grid--hero .tix-ep-gallery-item:first-child {
+        grid-column: 1 / -1;
+    }
+    .tix-ep-series-item {
+        padding: 10px 12px;
+    }
+    .tix-ep-location-card {
+        padding: 12px;
+    }
+    .tix-ep-lightbox-nav {
+        width: 36px;
+        height: 36px;
+    }
+    .tix-ep-lightbox-prev { left: 8px; }
+    .tix-ep-lightbox-next { right: 8px; }
+}
