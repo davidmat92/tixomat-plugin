@@ -560,19 +560,11 @@ class TIX_Organizer_Dashboard {
 
         $events = get_posts([
             'post_type'      => 'event',
-            'meta_query'     => [
-                'organizer_clause' => [
-                    'key'   => '_tix_organizer_id',
-                    'value' => intval($org->ID),
-                ],
-                'date_clause' => [
-                    'key'     => '_tix_date_start',
-                    'compare' => 'EXISTS',
-                ],
-            ],
+            'meta_key'       => '_tix_organizer_id',
+            'meta_value'     => strval($org->ID),
             'post_status'    => ['publish', 'draft', 'pending'],
             'posts_per_page' => -1,
-            'orderby'        => 'date_clause',
+            'orderby'        => 'date',
             'order'          => 'DESC',
         ]);
 
@@ -602,7 +594,28 @@ class TIX_Organizer_Dashboard {
             ];
         }
 
-        wp_send_json_success(['events' => $rows]);
+        // Debug-Info (temporaer)
+        global $wpdb;
+        $all_events_with_org = $wpdb->get_results($wpdb->prepare(
+            "SELECT p.ID, p.post_title, p.post_status, pm.meta_value as org_id
+             FROM {$wpdb->posts} p
+             INNER JOIN {$wpdb->postmeta} pm ON p.ID = pm.post_id AND pm.meta_key = '_tix_organizer_id'
+             WHERE p.post_type = 'event'
+             AND pm.meta_value = %s
+             LIMIT 20",
+            strval($org->ID)
+        ));
+
+        wp_send_json_success([
+            'events' => $rows,
+            '_debug' => [
+                'org_id'          => $org->ID,
+                'org_title'       => $org->post_title,
+                'user_id'         => get_current_user_id(),
+                'events_found'    => count($events),
+                'raw_db_events'   => $all_events_with_org,
+            ],
+        ]);
     }
 
     /* ══════════════════════════════════════════

@@ -125,6 +125,11 @@
         $list.html('<div class="tix-od-loading"><div class="tix-od-spinner"></div></div>');
 
         ajax('tix_od_events', {}, function(data) {
+            // Debug (temporaer)
+            if (data._debug) {
+                console.log('[TIX-OD Debug] ajax_events response:', data._debug);
+            }
+
             if (!data.events || data.events.length === 0) {
                 $list.html('<div class="tix-od-empty">Noch keine Events vorhanden. Erstelle jetzt dein erstes Event!</div>');
                 return;
