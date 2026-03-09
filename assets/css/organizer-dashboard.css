@@ -1,9 +1,10 @@
 /* ═══════════════════════════════════════════════════
    Tixomat – Veranstalter Dashboard (Frontend)
+   Sidebar-Layout
    ═══════════════════════════════════════════════════ */
 
 .tix-od {
-    max-width: 1080px;
+    max-width: 1200px;
     margin: 0 auto;
     font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
     color: #0f172a;
@@ -15,7 +16,7 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 24px;
+    margin-bottom: 20px;
     flex-wrap: wrap;
     gap: 8px;
 }
@@ -30,33 +31,64 @@
     font-size: 14px;
 }
 
-/* ── Tabs ── */
-.tix-od-tabs {
+/* ── Layout: Sidebar + Content ── */
+.tix-od-layout {
     display: flex;
     gap: 0;
-    border-bottom: 2px solid #e2e8f0;
-    margin-bottom: 24px;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
+    min-height: 500px;
+    border: 1px solid #e2e8f0;
+    border-radius: 16px;
+    overflow: hidden;
+    background: #fff;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+}
+
+/* ── Sidebar ── */
+.tix-od-sidebar {
+    width: 210px;
+    flex-shrink: 0;
+    background: #f8fafc;
+    border-right: 1px solid #e2e8f0;
+    padding: 12px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
 }
 .tix-od-tab {
+    display: flex;
+    align-items: center;
+    gap: 10px;
     padding: 10px 18px;
     font-size: 14px;
-    font-weight: 550;
+    font-weight: 500;
     color: #64748b;
     cursor: pointer;
     border: none;
-    border-bottom: 2px solid transparent;
-    margin-bottom: -2px;
     background: none;
     transition: all 0.15s;
-    white-space: nowrap;
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
+    text-align: left;
+    width: 100%;
+    border-left: 3px solid transparent;
 }
-.tix-od-tab:hover { color: #334155; }
-.tix-od-tab.active { color: #6366f1; border-bottom-color: #6366f1; }
+.tix-od-tab:hover { color: #334155; background: rgba(99,102,241,0.04); }
+.tix-od-tab.active {
+    color: #6366f1;
+    background: rgba(99,102,241,0.06);
+    font-weight: 600;
+    border-left-color: #6366f1;
+}
+.tix-od-tab-icon .dashicons {
+    font-size: 18px;
+    width: 18px;
+    height: 18px;
+}
+
+/* ── Content Area ── */
+.tix-od-content {
+    flex: 1;
+    min-width: 0;
+    padding: 24px;
+}
 
 /* ── Panels ── */
 .tix-od-panel { display: none; }
@@ -84,13 +116,12 @@
     margin-bottom: 24px;
 }
 .tix-od-kpi {
-    background: #fff;
+    background: #f8fafc;
     border-radius: 12px;
     padding: 18px;
     display: flex;
     align-items: center;
     gap: 14px;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
     border: 1px solid #f1f3f5;
 }
 .tix-od-kpi-icon {
@@ -126,11 +157,10 @@
 
 /* ── Charts ── */
 .tix-od-chart-wrap {
-    background: #fff;
+    background: #f8fafc;
     border-radius: 12px;
     border: 1px solid #f1f3f5;
     padding: 20px;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
     margin-bottom: 20px;
 }
 .tix-od-chart-wrap canvas { max-height: 260px; }
@@ -168,15 +198,14 @@
 /* ── Events Grid ── */
 .tix-od-events-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
     gap: 16px;
 }
 .tix-od-event-card {
     background: #fff;
     border-radius: 12px;
-    border: 1px solid #f1f3f5;
+    border: 1px solid #e2e8f0;
     overflow: hidden;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
     transition: box-shadow 0.15s;
 }
 .tix-od-event-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
@@ -197,9 +226,7 @@
     color: #94a3b8;
     font-size: 32px;
 }
-.tix-od-event-body {
-    padding: 16px;
-}
+.tix-od-event-body { padding: 16px; }
 .tix-od-event-title {
     font-size: 16px;
     font-weight: 650;
@@ -236,8 +263,6 @@
 .tix-od-badge-sold_out { color: #dc2626; background: rgba(220,38,38,0.08); }
 .tix-od-badge-cancelled { color: #6b7280; background: rgba(107,114,128,0.1); }
 .tix-od-badge-postponed { color: #7c3aed; background: rgba(124,58,237,0.1); }
-
-/* WC Order Status */
 .tix-od-badge-processing { color: #059669; background: rgba(16,185,129,0.1); }
 .tix-od-badge-completed { color: #2563eb; background: rgba(37,99,235,0.1); }
 .tix-od-badge-on-hold { color: #d97706; background: rgba(245,158,11,0.1); }
@@ -246,9 +271,8 @@
 .tix-od-table-wrap {
     background: #fff;
     border-radius: 12px;
-    border: 1px solid #f1f3f5;
+    border: 1px solid #e2e8f0;
     overflow-x: auto;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
 }
 .tix-od-table {
     width: 100%;
@@ -439,14 +463,37 @@
     to { opacity: 1; transform: translateY(0); }
 }
 
-/* ── Responsive ── */
+/* ── Responsive: Sidebar -> Top on mobile ── */
 @media (max-width: 768px) {
-    .tix-od { padding: 0 12px; }
-    .tix-od-kpis { grid-template-columns: repeat(2, 1fr); }
-    .tix-od-tabs { gap: 0; }
-    .tix-od-tab { padding: 8px 12px; font-size: 13px; }
+    .tix-od { padding: 0 8px; }
+    .tix-od-layout {
+        flex-direction: column;
+        border-radius: 12px;
+    }
+    .tix-od-sidebar {
+        width: 100%;
+        flex-direction: row;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        border-right: none;
+        border-bottom: 1px solid #e2e8f0;
+        padding: 0;
+        gap: 0;
+    }
+    .tix-od-tab {
+        border-left: none;
+        border-bottom: 2px solid transparent;
+        padding: 10px 14px;
+        white-space: nowrap;
+        flex-shrink: 0;
+    }
+    .tix-od-tab.active {
+        border-left-color: transparent;
+        border-bottom-color: #6366f1;
+    }
     .tix-od-tab-label { display: none; }
-    .tix-od-tab-icon { margin: 0; }
+    .tix-od-content { padding: 16px; }
+    .tix-od-kpis { grid-template-columns: repeat(2, 1fr); }
     .tix-od-events-grid { grid-template-columns: 1fr; }
     .tix-od-table { font-size: 13px; }
     .tix-od-table th, .tix-od-table td { padding: 10px 10px; }

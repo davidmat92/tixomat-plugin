@@ -295,6 +295,7 @@
             + '<div class="tix-oe-header">'
             + '<button type="button" class="tix-oe-back"><span class="dashicons dashicons-arrow-left-alt2"></span> Zur\u00fcck</button>'
             + '<h3>' + escHtml(data.title) + ' bearbeiten</h3></div>'
+            + '<div class="tix-oe-layout">'
             + '<div class="tix-oe-tabs">' + tabsHtml + '</div>'
             + '<div class="tix-oe-body">'
             + buildBasicsPane(data)
@@ -306,6 +307,7 @@
             + buildRafflePane(data)
             + buildTimetablePane(data)
             + buildPresalePane(data)
+            + '</div>'
             + '</div>'
             + '<div class="tix-oe-footer">'
             + '<button type="button" class="tix-od-btn tix-od-btn-secondary tix-oe-back">Abbrechen</button>'

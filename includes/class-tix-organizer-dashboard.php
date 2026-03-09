@@ -189,42 +189,45 @@ class TIX_Organizer_Dashboard {
                 <span class="tix-od-welcome">Hallo, <?php echo esc_html(wp_get_current_user()->display_name); ?>!</span>
             </div>
 
-            <!-- Tab-Navigation -->
-            <nav class="tix-od-tabs" role="tablist">
-                <button class="tix-od-tab active" data-tab="overview" role="tab" aria-selected="true"
-                        aria-controls="tix-od-panel-overview">
-                    <span class="tix-od-tab-icon dashicons dashicons-dashboard"></span>
-                    <span class="tix-od-tab-label">&#220;bersicht</span>
-                </button>
-                <button class="tix-od-tab" data-tab="events" role="tab" aria-selected="false"
-                        aria-controls="tix-od-panel-events">
-                    <span class="tix-od-tab-icon dashicons dashicons-calendar-alt"></span>
-                    <span class="tix-od-tab-label">Meine Events</span>
-                </button>
-                <button class="tix-od-tab" data-tab="orders" role="tab" aria-selected="false"
-                        aria-controls="tix-od-panel-orders">
-                    <span class="tix-od-tab-icon dashicons dashicons-cart"></span>
-                    <span class="tix-od-tab-label">Bestellungen</span>
-                </button>
-                <button class="tix-od-tab" data-tab="guestlist" role="tab" aria-selected="false"
-                        aria-controls="tix-od-panel-guestlist">
-                    <span class="tix-od-tab-icon dashicons dashicons-groups"></span>
-                    <span class="tix-od-tab-label">G&#228;steliste</span>
-                </button>
-                <button class="tix-od-tab" data-tab="stats" role="tab" aria-selected="false"
-                        aria-controls="tix-od-panel-stats">
-                    <span class="tix-od-tab-icon dashicons dashicons-chart-area"></span>
-                    <span class="tix-od-tab-label">Statistiken</span>
-                </button>
-                <button class="tix-od-tab" data-tab="settings" role="tab" aria-selected="false"
-                        aria-controls="tix-od-panel-settings">
-                    <span class="tix-od-tab-icon dashicons dashicons-admin-generic"></span>
-                    <span class="tix-od-tab-label">Einstellungen</span>
-                </button>
-            </nav>
+            <!-- Layout: Sidebar + Content -->
+            <div class="tix-od-layout">
 
-            <!-- Tab-Panels -->
-            <div class="tix-od-panels">
+                <!-- Sidebar Navigation -->
+                <aside class="tix-od-sidebar" role="tablist">
+                    <button class="tix-od-tab active" data-tab="overview" role="tab" aria-selected="true"
+                            aria-controls="tix-od-panel-overview">
+                        <span class="tix-od-tab-icon dashicons dashicons-dashboard"></span>
+                        <span class="tix-od-tab-label">&#220;bersicht</span>
+                    </button>
+                    <button class="tix-od-tab" data-tab="events" role="tab" aria-selected="false"
+                            aria-controls="tix-od-panel-events">
+                        <span class="tix-od-tab-icon dashicons dashicons-calendar-alt"></span>
+                        <span class="tix-od-tab-label">Meine Events</span>
+                    </button>
+                    <button class="tix-od-tab" data-tab="orders" role="tab" aria-selected="false"
+                            aria-controls="tix-od-panel-orders">
+                        <span class="tix-od-tab-icon dashicons dashicons-cart"></span>
+                        <span class="tix-od-tab-label">Bestellungen</span>
+                    </button>
+                    <button class="tix-od-tab" data-tab="guestlist" role="tab" aria-selected="false"
+                            aria-controls="tix-od-panel-guestlist">
+                        <span class="tix-od-tab-icon dashicons dashicons-groups"></span>
+                        <span class="tix-od-tab-label">G&#228;steliste</span>
+                    </button>
+                    <button class="tix-od-tab" data-tab="stats" role="tab" aria-selected="false"
+                            aria-controls="tix-od-panel-stats">
+                        <span class="tix-od-tab-icon dashicons dashicons-chart-area"></span>
+                        <span class="tix-od-tab-label">Statistiken</span>
+                    </button>
+                    <button class="tix-od-tab" data-tab="settings" role="tab" aria-selected="false"
+                            aria-controls="tix-od-panel-settings">
+                        <span class="tix-od-tab-icon dashicons dashicons-admin-generic"></span>
+                        <span class="tix-od-tab-label">Einstellungen</span>
+                    </button>
+                </aside>
+
+                <!-- Content Area -->
+                <div class="tix-od-content">
 
                 <!-- Uebersicht -->
                 <div class="tix-od-panel active" id="tix-od-panel-overview" role="tabpanel" data-tab="overview">
@@ -358,7 +361,8 @@ class TIX_Organizer_Dashboard {
                     </div>
                 </div>
 
-            </div><!-- /.tix-od-panels -->
+                </div><!-- /.tix-od-content -->
+            </div><!-- /.tix-od-layout -->
         </div><!-- /#tix-organizer-dashboard -->
         <?php
         return ob_get_clean();
@@ -594,27 +598,8 @@ class TIX_Organizer_Dashboard {
             ];
         }
 
-        // Debug-Info (temporaer)
-        global $wpdb;
-        $all_events_with_org = $wpdb->get_results($wpdb->prepare(
-            "SELECT p.ID, p.post_title, p.post_status, pm.meta_value as org_id
-             FROM {$wpdb->posts} p
-             INNER JOIN {$wpdb->postmeta} pm ON p.ID = pm.post_id AND pm.meta_key = '_tix_organizer_id'
-             WHERE p.post_type = 'event'
-             AND pm.meta_value = %s
-             LIMIT 20",
-            strval($org->ID)
-        ));
-
         wp_send_json_success([
             'events' => $rows,
-            '_debug' => [
-                'org_id'          => $org->ID,
-                'org_title'       => $org->post_title,
-                'user_id'         => get_current_user_id(),
-                'events_found'    => count($events),
-                'raw_db_events'   => $all_events_with_org,
-            ],
         ]);
     }
 

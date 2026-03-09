@@ -13,6 +13,7 @@
     display: flex;
     flex-direction: column;
     animation: tixOESlideIn 0.25s ease;
+    overflow: hidden;
 }
 @keyframes tixOESlideIn {
     from { opacity: 0; transform: translateY(8px); }
@@ -56,35 +57,60 @@
     white-space: nowrap;
 }
 
-/* ── Editor Tabs ── */
+/* ── Editor Layout: Sidebar + Body ── */
+.tix-oe-layout {
+    display: flex;
+    flex: 1;
+    min-height: 400px;
+}
+
+/* ── Editor Sidebar (Tab-Navigation) ── */
 .tix-oe-tabs {
     display: flex;
-    border-bottom: 1px solid #e2e8f0;
-    overflow-x: auto;
-    padding: 0 24px;
+    flex-direction: column;
+    width: 180px;
     flex-shrink: 0;
-    gap: 0;
+    background: #f8fafc;
+    border-right: 1px solid #e2e8f0;
+    padding: 8px 0;
+    gap: 2px;
 }
 .tix-oe-tab {
-    padding: 10px 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 16px;
     font-size: 13px;
     font-weight: 550;
     color: #64748b;
     cursor: pointer;
     border: none;
-    border-bottom: 2px solid transparent;
-    margin-bottom: -1px;
+    border-left: 3px solid transparent;
     background: none;
     transition: all 0.15s;
     white-space: nowrap;
+    text-align: left;
+    width: 100%;
 }
-.tix-oe-tab:hover { color: #334155; }
-.tix-oe-tab.active { color: #6366f1; border-bottom-color: #6366f1; }
+.tix-oe-tab:hover { color: #334155; background: rgba(99,102,241,0.04); }
+.tix-oe-tab.active {
+    color: #6366f1;
+    background: rgba(99,102,241,0.06);
+    font-weight: 600;
+    border-left-color: #6366f1;
+}
+.tix-oe-tab .dashicons {
+    font-size: 16px;
+    width: 16px;
+    height: 16px;
+}
 
 /* ── Editor Body ── */
 .tix-oe-body {
     padding: 24px;
     flex: 1;
+    min-width: 0;
+    overflow-y: auto;
 }
 .tix-oe-pane { display: none; }
 .tix-oe-pane.active { display: block; }
@@ -280,7 +306,29 @@
 @media (max-width: 768px) {
     .tix-oe-editor { border-radius: 12px; }
     .tix-oe-grid-2, .tix-oe-grid-3 { grid-template-columns: 1fr; }
-    .tix-oe-tabs { padding: 0 12px; }
+    .tix-oe-layout { flex-direction: column; }
+    .tix-oe-tabs {
+        width: 100%;
+        flex-direction: row;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        border-right: none;
+        border-bottom: 1px solid #e2e8f0;
+        padding: 0;
+        gap: 0;
+    }
+    .tix-oe-tab {
+        border-left: none;
+        border-bottom: 2px solid transparent;
+        padding: 8px 12px;
+        flex-shrink: 0;
+        font-size: 12px;
+    }
+    .tix-oe-tab.active {
+        border-left-color: transparent;
+        border-bottom-color: #6366f1;
+    }
+    .tix-oe-tab .dashicons { display: none; }
     .tix-oe-body { padding: 16px; }
     .tix-oe-header { padding: 12px 16px; }
     .tix-oe-footer { padding: 12px 16px; }
