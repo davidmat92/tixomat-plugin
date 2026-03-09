@@ -285,13 +285,17 @@ class TIX_Ticket_Template {
         $location   = get_post_meta($event_id, '_tix_location', true);
         $address    = get_post_meta($event_id, '_tix_address', true);
 
-        // Kategorie-Name + Preis
+        // Kategorie-Name + tatsächlich bezahlter Preis
         $cats     = get_post_meta($event_id, '_tix_ticket_categories', true);
         $cat_name = '';
         $price    = '';
         if (is_array($cats) && isset($cats[$cat_index])) {
             $cat_name = $cats[$cat_index]['name'] ?? '';
-            $p = floatval($cats[$cat_index]['price'] ?? 0);
+        }
+        // Bezahlten Preis vom Ticket-Post holen (nicht Kategoriepreis)
+        $paid = get_post_meta($ticket_id, '_tix_ticket_price', true);
+        if ($paid !== '' && $paid !== false) {
+            $p = floatval($paid);
             if ($p > 0) $price = number_format($p, 2, ',', '.') . ' €';
         }
 

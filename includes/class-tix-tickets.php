@@ -602,13 +602,17 @@ class TIX_Tickets {
         $location   = get_post_meta($event_id, '_tix_location', true);
         $address    = get_post_meta($event_id, '_tix_address', true);
 
-        // Kategorie-Name + Preis
+        // Kategorie-Name + tatsächlich bezahlter Preis
         $cats     = get_post_meta($event_id, '_tix_ticket_categories', true);
         $cat_name = '';
         $price    = '';
         if (is_array($cats) && isset($cats[$cat_index])) {
             $cat_name = $cats[$cat_index]['name'] ?? '';
-            $p = floatval($cats[$cat_index]['price'] ?? 0);
+        }
+        // Bezahlten Preis vom Ticket-Post holen (nicht Kategoriepreis)
+        $paid = get_post_meta($ticket_id, '_tix_ticket_price', true);
+        if ($paid !== '' && $paid !== false) {
+            $p = floatval($paid);
             if ($p > 0) $price = number_format($p, 2, ',', '.') . ' €';
         }
 
@@ -641,7 +645,7 @@ class TIX_Tickets {
         .ticket-body { padding: 30px; display: flex; gap: 24px; }
         .ticket-info { flex: 1; }
         .ticket-qr { flex: 0 0 160px; text-align: center; }
-        .ticket-qr img { width: 160px; height: 160px; border: 1px solid #ddd; border-radius: 8px; }
+        .ticket-qr img { width: 160px; height: 160px; }
         .ticket-qr .code { font-family: monospace; font-size: 16px; font-weight: bold; margin-top: 8px; letter-spacing: 2px; }
         .info-row { margin-bottom: 14px; }
         .info-row .label { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: #888; margin-bottom: 2px; }

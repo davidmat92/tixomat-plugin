@@ -43,45 +43,64 @@ class TIX_Event_Page {
             return '<p style="color:#991b1b;">Event nicht gefunden.</p>';
         }
 
+        $s = tix_get_settings();
+        $layout = ($s['ep_layout'] ?? '2col') === '1col' ? '1col' : '2col';
+
         self::enqueue();
         ob_start();
         ?>
-        <div class="tix-ep">
+        <div class="tix-ep tix-ep--<?php echo $layout; ?>">
 
             <?php // ── Hero: Volle Breite ── ?>
             <?php self::render_hero($post_id); ?>
 
-            <?php // ── 2-Spalten Grid ── ?>
-            <div class="tix-ep-grid">
+            <?php if ($layout === '2col'): ?>
 
-                <?php // ── Titel: volle Breite über beide Spalten ── ?>
-                <?php self::render_title($post_id); ?>
-
-                <?php // ── LINKE SPALTE: Content ── ?>
-                <div class="tix-ep-main">
-                    <?php self::render_info_section($post_id, 'description', 'Beschreibung'); ?>
-                    <?php self::render_info_section($post_id, 'lineup', 'Line-Up'); ?>
-                    <?php self::render_info_section($post_id, 'specials', 'Specials'); ?>
-                    <?php self::render_gallery($post_id); ?>
-                    <?php self::render_video($post_id); ?>
-                    <?php self::render_info_section($post_id, 'extra_info', 'Weitere Informationen'); ?>
-                    <?php self::render_faq($post_id); ?>
-                    <?php self::render_series($post_id); ?>
+                <?php // ── 2-Spalten Grid ── ?>
+                <div class="tix-ep-grid">
+                    <?php self::render_title($post_id); ?>
+                    <div class="tix-ep-main">
+                        <?php self::render_info_section($post_id, 'description', 'Beschreibung'); ?>
+                        <?php self::render_info_section($post_id, 'lineup', 'Line-Up'); ?>
+                        <?php self::render_info_section($post_id, 'specials', 'Specials'); ?>
+                        <?php self::render_gallery($post_id); ?>
+                        <?php self::render_video($post_id); ?>
+                        <?php self::render_info_section($post_id, 'extra_info', 'Weitere Informationen'); ?>
+                        <?php self::render_faq($post_id); ?>
+                        <?php self::render_series($post_id); ?>
+                    </div>
+                    <aside class="tix-ep-sidebar">
+                        <div class="tix-ep-sidebar-inner">
+                            <?php self::render_header($post_id); ?>
+                            <?php self::render_tickets($post_id); ?>
+                            <?php self::render_calendar($post_id); ?>
+                            <?php self::render_charity($post_id); ?>
+                            <?php self::render_location($post_id); ?>
+                            <?php self::render_organizer($post_id); ?>
+                        </div>
+                    </aside>
                 </div>
 
-                <?php // ── RECHTE SPALTE: Sidebar (sticky) ── ?>
-                <aside class="tix-ep-sidebar">
-                    <div class="tix-ep-sidebar-inner">
-                        <?php self::render_header($post_id); ?>
-                        <?php self::render_tickets($post_id); ?>
-                        <?php self::render_calendar($post_id); ?>
-                        <?php self::render_charity($post_id); ?>
-                        <?php self::render_location($post_id); ?>
-                        <?php self::render_organizer($post_id); ?>
-                    </div>
-                </aside>
+            <?php else: ?>
 
-            </div>
+                <?php // ── 1-Spalten Layout ── ?>
+                <?php self::render_title($post_id); ?>
+                <?php self::render_header($post_id); ?>
+                <?php self::render_tickets($post_id); ?>
+                <?php self::render_info_section($post_id, 'description', 'Beschreibung'); ?>
+                <?php self::render_info_section($post_id, 'lineup', 'Line-Up'); ?>
+                <?php self::render_info_section($post_id, 'specials', 'Specials'); ?>
+                <?php self::render_gallery($post_id); ?>
+                <?php self::render_video($post_id); ?>
+                <?php self::render_info_section($post_id, 'extra_info', 'Weitere Informationen'); ?>
+                <?php self::render_faq($post_id); ?>
+                <?php self::render_calendar($post_id); ?>
+                <?php self::render_charity($post_id); ?>
+                <?php self::render_location($post_id); ?>
+                <?php self::render_organizer($post_id); ?>
+                <?php self::render_series($post_id); ?>
+
+            <?php endif; ?>
 
             <?php // ── Volle Breite: Upsell + Footer ── ?>
             <?php self::render_upsell($post_id); ?>

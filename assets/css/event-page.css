@@ -640,6 +640,33 @@
     margin: var(--ep-gap) 0;
 }
 
+/* ══════════════════════════════════════════
+   1-SPALTEN LAYOUT MODUS
+   ══════════════════════════════════════════ */
+
+.tix-ep--1col {
+    --ep-max-w: 720px;
+}
+
+/* Im 1col-Modus: Header-Card mit vollem Margin */
+.tix-ep--1col .tix-ep-header {
+    margin-bottom: var(--ep-gap);
+}
+
+/* Im 1col-Modus: Sektionen mit Standard-Margin */
+.tix-ep--1col .tix-ep-tickets,
+.tix-ep--1col .tix-ep-calendar,
+.tix-ep--1col .tix-ep-charity,
+.tix-ep--1col .tix-ep-location,
+.tix-ep--1col .tix-ep-organizer {
+    margin-bottom: var(--ep-gap);
+}
+
+/* Im 1col-Modus: Title-Wrap normaler Margin */
+.tix-ep--1col .tix-ep-title-wrap {
+    margin-bottom: 16px;
+}
+
 /* ═══════════════════════════════════════════════
    RESPONSIVE
    ═══════════════════════════════════════════════ */

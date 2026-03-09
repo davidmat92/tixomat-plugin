@@ -131,9 +131,6 @@ function renderTicket(d, qrCanvas, eventImg, btn) {
     var qrX = (W - qrSize) / 2;
 
     if (qrCanvas && qrCanvas.width > 0) {
-        ctx.strokeStyle = '#eeeeee';
-        ctx.lineWidth = 1.5;
-        roundRect(ctx, qrX - 20, y - 20, qrSize + 40, qrSize + 40, 16, false, true);
         ctx.drawImage(qrCanvas, qrX, y, qrSize, qrSize);
     }
 
@@ -259,8 +256,6 @@ function renderAndShare(d, qrCanvas, eventImg, btn) {
     y += 24; dashedLine(ctx, pad, y, W - pad, y);
     y += 36; var qrSize = 380, qrX = (W - qrSize) / 2;
     if (qrCanvas && qrCanvas.width > 0) {
-        ctx.strokeStyle = '#eeeeee'; ctx.lineWidth = 1.5;
-        roundRect(ctx, qrX - 20, y - 20, qrSize + 40, qrSize + 40, 16, false, true);
         ctx.drawImage(qrCanvas, qrX, y, qrSize, qrSize);
     }
     y += qrSize + 42; ctx.fillStyle = '#999999'; ctx.font = '700 22px ' + mono;

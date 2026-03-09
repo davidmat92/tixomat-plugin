@@ -51,6 +51,7 @@ class TIX_Settings {
             'font_vat'           => '0.85',
 
             // ── Event-Seite ([tix_event_page]) ──
+            'ep_layout'          => '2col',   // '1col' oder '2col'
             'ep_max_width'       => 1100,
             'ep_gap'             => 32,
             'ep_radius'          => 12,
@@ -371,6 +372,8 @@ class TIX_Settings {
         foreach (['ep_bg', 'ep_text', 'ep_muted', 'ep_border'] as $k) {
             $clean[$k] = self::sanitize_color($input[$k] ?? '') ?: '';
         }
+        // Event-Seite Layout
+        $clean['ep_layout'] = in_array($input['ep_layout'] ?? '', ['1col', '2col']) ? $input['ep_layout'] : '2col';
         // Event-Seite Zahlen
         $clean['ep_max_width'] = max(400, min(1600, intval($input['ep_max_width'] ?? 1100)));
         $clean['ep_gap']       = max(12, min(48, intval($input['ep_gap'] ?? 32)));
@@ -1619,6 +1622,19 @@ class TIX_Settings {
                                     <div class="tix-card-body">
                                         <p class="tix-settings-hint" style="margin-bottom:12px;">Einstellungen f&uuml;r den <code>[tix_event_page]</code> Shortcode. Steuert Layout, Farben und sichtbare Sektionen der Event-Detailseite.</p>
                                         <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <label class="tix-field-label">Layout-Modus</label>
+                                                <div style="display:flex;gap:12px;margin-top:6px;">
+                                                    <label style="display:flex;align-items:center;gap:6px;cursor:pointer;padding:8px 16px;border:2px solid <?php echo $s['ep_layout'] === '2col' ? 'var(--tix-admin-accent,#6366f1)' : '#e5e7eb'; ?>;border-radius:8px;background:<?php echo $s['ep_layout'] === '2col' ? 'rgba(99,102,241,.06)' : '#fff'; ?>;">
+                                                        <input type="radio" name="tix_settings[ep_layout]" value="2col" <?php checked($s['ep_layout'], '2col'); ?> style="margin:0;">
+                                                        <span><strong>2 Spalten</strong><br><small style="color:#64748b;">Content links, Sidebar rechts (sticky)</small></span>
+                                                    </label>
+                                                    <label style="display:flex;align-items:center;gap:6px;cursor:pointer;padding:8px 16px;border:2px solid <?php echo $s['ep_layout'] === '1col' ? 'var(--tix-admin-accent,#6366f1)' : '#e5e7eb'; ?>;border-radius:8px;background:<?php echo $s['ep_layout'] === '1col' ? 'rgba(99,102,241,.06)' : '#fff'; ?>;">
+                                                        <input type="radio" name="tix_settings[ep_layout]" value="1col" <?php checked($s['ep_layout'], '1col'); ?> style="margin:0;">
+                                                        <span><strong>1 Spalte</strong><br><small style="color:#64748b;">Alles untereinander, zentriert</small></span>
+                                                    </label>
+                                                </div>
+                                            </div>
                                             <?php self::range_row('ep_max_width', 'Max. Breite', $s, 400, 1600, 'px', 10); ?>
                                             <?php self::range_row('ep_gap', 'Sektions-Abstand', $s, 12, 48, 'px'); ?>
                                             <?php self::range_row('ep_radius', 'Eckenradius', $s, 0, 24, 'px'); ?>
