@@ -2,14 +2,14 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.28.21
+ * Version: 1.28.22
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.28.21');
+define('TIXOMAT_VERSION', '1.28.22');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -151,6 +151,10 @@ TIX_Raffle::init();
 require_once TIXOMAT_PATH . 'includes/class-tix-waitlist.php';
 TIX_Waitlist::init();
 
+// ── Post-Event Feedback ──
+require_once TIXOMAT_PATH . 'includes/class-tix-feedback.php';
+TIX_Feedback::init();
+
 // ── Promoter-System ──
 require_once TIXOMAT_PATH . 'includes/class-tix-promoter-db.php';
 require_once TIXOMAT_PATH . 'includes/class-tix-promoter.php';
@@ -167,6 +171,7 @@ register_activation_hook(__FILE__, function() {
     TIX_Promoter_DB::create_tables();
     TIX_Raffle::create_table();
     TIX_Waitlist::create_table();
+    TIX_Feedback::create_table();
 
     // Waitlist cron
     if (!wp_next_scheduled('tix_waitlist_check')) {
@@ -261,6 +266,10 @@ add_action('wp_ajax_tix_raffle_draw',         ['TIX_Raffle', 'ajax_draw']);
 // ── Warteliste AJAX ──
 add_action('wp_ajax_tix_waitlist_join',        ['TIX_Waitlist', 'ajax_join']);
 add_action('wp_ajax_nopriv_tix_waitlist_join', ['TIX_Waitlist', 'ajax_join']);
+
+// ── Feedback AJAX ──
+add_action('wp_ajax_tix_feedback_submit',        ['TIX_Feedback', 'ajax_submit']);
+add_action('wp_ajax_nopriv_tix_feedback_submit', ['TIX_Feedback', 'ajax_submit']);
 
 // ── Gewinnspiel Cron: Automatische Auslosung ──
 add_action('tix_raffle_auto_draw', ['TIX_Raffle', 'cron_auto_draw']);

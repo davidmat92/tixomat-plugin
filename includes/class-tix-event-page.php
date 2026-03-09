@@ -128,6 +128,13 @@ class TIX_Event_Page {
                     </span>
                 <?php endif; ?>
             </h1>
+            <?php
+            // Feedback-Rating Badge
+            $fb_s = tix_get_settings();
+            if (!empty($fb_s['feedback_enabled']) && class_exists('TIX_Feedback')) {
+                echo TIX_Feedback::get_rating_badge_html($id);
+            }
+            ?>
         </div>
         <?php
     }

@@ -1,0 +1,171 @@
+/* ═══════════════════════════════════════════
+   Tixomat – Post-Event Feedback
+   ═══════════════════════════════════════════ */
+
+.tix-fb {
+    font-family: inherit;
+}
+
+/* ── Header ── */
+.tix-fb-header {
+    text-align: center;
+    margin-bottom: 20px;
+}
+.tix-fb-title {
+    font-size: 1.25rem;
+    font-weight: 700;
+    margin: 0 0 4px;
+    color: var(--ep-text, #0f172a);
+}
+.tix-fb-subtitle {
+    font-size: .9rem;
+    color: var(--ep-muted, #64748b);
+    margin: 0;
+}
+
+/* ── Star Rating ── */
+.tix-fb-stars {
+    display: flex;
+    justify-content: center;
+    gap: 6px;
+    margin-bottom: 16px;
+}
+.tix-fb-star {
+    background: none;
+    border: none;
+    font-size: 2.2rem;
+    color: #d1d5db;
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+    transition: color .15s, transform .15s;
+}
+.tix-fb-star:hover,
+.tix-fb-star.active {
+    color: #fbbf24;
+}
+.tix-fb-star:hover {
+    transform: scale(1.15);
+}
+
+/* ── Comment ── */
+.tix-fb-comment {
+    width: 100%;
+    padding: 12px 14px;
+    border: 1px solid var(--ep-border, #e5e7eb);
+    border-radius: var(--ep-radius, 8px);
+    font-size: .92rem;
+    font-family: inherit;
+    resize: vertical;
+    min-height: 80px;
+    background: #fff;
+    color: var(--ep-text, #1a1a1a);
+    outline: none;
+    transition: border-color .2s;
+    margin-bottom: 12px;
+}
+.tix-fb-comment:focus {
+    border-color: #6366f1;
+    box-shadow: 0 0 0 3px rgba(99,102,241,.12);
+}
+
+/* ── Submit Button ── */
+.tix-fb-submit {
+    width: 100%;
+    padding: 13px 24px;
+    background: #6366f1;
+    color: #fff;
+    border: none;
+    border-radius: var(--ep-radius, 8px);
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+    transition: background .2s, opacity .2s;
+}
+.tix-fb-submit:hover {
+    background: #4f46e5;
+}
+.tix-fb-submit:disabled {
+    opacity: .5;
+    cursor: not-allowed;
+}
+
+/* ── Message ── */
+.tix-fb-msg {
+    margin-top: 12px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: .9rem;
+    text-align: center;
+}
+.tix-fb-msg[hidden] { display: none; }
+.tix-fb-msg--error {
+    background: #fef2f2;
+    color: #991b1b;
+    border: 1px solid #fecaca;
+}
+
+/* ── Thanks ── */
+.tix-fb-thanks {
+    text-align: center;
+    padding: 20px 0;
+}
+.tix-fb-thanks-icon {
+    font-size: 2.5rem;
+    margin-bottom: 8px;
+}
+.tix-fb-thanks-title {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: #065f46;
+    margin: 0 0 6px;
+}
+.tix-fb-thanks-text {
+    font-size: .9rem;
+    color: var(--ep-muted, #64748b);
+    margin: 0;
+}
+
+/* ── Public Average ── */
+.tix-fb-public {
+    text-align: center;
+}
+.tix-fb-avg {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+.tix-fb-avg-star {
+    font-size: 1.1rem;
+    color: #d1d5db;
+}
+.tix-fb-avg-star.filled {
+    color: #fbbf24;
+}
+.tix-fb-avg-value {
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--ep-text, #0f172a);
+}
+.tix-fb-avg-count {
+    font-size: .85rem;
+    color: var(--ep-muted, #64748b);
+}
+
+/* ── Event Page Rating Badge ── */
+.tix-ep-rating {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: .85rem;
+    font-weight: 600;
+    color: #fbbf24;
+    background: rgba(251, 191, 36, .1);
+    padding: 3px 10px;
+    border-radius: 6px;
+}
+.tix-ep-rating-count {
+    color: var(--ep-muted, #64748b);
+    font-weight: 400;
+}

@@ -1217,6 +1217,12 @@ class TIX_Emails {
             </table>';
         }
 
+        // ── Feedback-Sterne (wenn Feedback-System aktiviert) ──
+        if (!empty($s['feedback_enabled']) && class_exists('TIX_Feedback')) {
+            $fb_email = $order->get_billing_email();
+            $extra .= TIX_Feedback::get_email_stars_html($order_id, $event_id, $fb_email);
+        }
+
         $html = self::build_email_html('followup', $order, 'Danke für deinen Besuch!', $extra);
 
         $to      = $order->get_billing_email();

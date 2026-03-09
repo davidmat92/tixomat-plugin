@@ -75,6 +75,8 @@ class TIX_Settings {
 
             // ── Warteliste / Presale-Benachrichtigungen ──
             'waitlist_enabled'   => 1,
+            // ── Post-Event Feedback ──
+            'feedback_enabled'   => 1,
 
             // ── Ticket-Selektor ──
             'low_stock_threshold' => 10,  // "Nur noch X verfügbar!" (0=aus)
@@ -463,6 +465,9 @@ class TIX_Settings {
 
         // Warteliste
         $clean['waitlist_enabled'] = !empty($input['waitlist_enabled']) ? 1 : 0;
+
+        // Feedback
+        $clean['feedback_enabled'] = !empty($input['feedback_enabled']) ? 1 : 0;
 
         // Express-Checkout Modal Design
         foreach (['ec_btn_bg', 'ec_btn_text', 'ec_btn_hover_bg', 'ec_btn_hover_text', 'ec_btn_border_color', 'ec_modal_bg', 'ec_modal_text', 'ec_modal_border', 'ec_cat_border', 'ec_cat_active', 'ec_buy_bg', 'ec_buy_text', 'ec_buy_hover_bg', 'ec_buy_hover_text'] as $k) {
@@ -1722,6 +1727,9 @@ class TIX_Settings {
                                             </div>
                                             <div class="tix-field tix-field-full">
                                                 <?php self::checkbox_row('waitlist_enabled', 'Warteliste / Presale-Benachrichtigung', $s, 'Erm&ouml;glicht E-Mail-Benachrichtigungen: Countdown vor Vorverkaufsstart + Warteliste bei ausverkauften Tickets.'); ?>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('feedback_enabled', 'Post-Event Feedback', $s, 'Sterne-Bewertung + Kommentar nach dem Event. Wird in der Follow-Up E-Mail eingebettet und als Shortcode [tix_feedback] verf&uuml;gbar.'); ?>
                                             </div>
                                             <div class="tix-field tix-field-full">
                                                 <label class="tix-label" for="tix_low_stock_threshold">&bdquo;Letzte X Tickets&ldquo;-Anzeige</label>
