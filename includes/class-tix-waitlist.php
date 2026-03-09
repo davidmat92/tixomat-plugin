@@ -220,12 +220,12 @@ class TIX_Waitlist {
             $subject = 'Der Vorverkauf für ' . $event_title . ' hat begonnen!';
             $body    = '<h2 style="margin:0 0 16px;">🎉 Der Vorverkauf ist gestartet!</h2>'
                      . '<p>Der Ticketverkauf für <strong>' . esc_html($event_title) . '</strong> hat begonnen.</p>'
-                     . '<p style="margin:24px 0;"><a href="' . esc_url($event_url) . '" style="display:inline-block;padding:12px 28px;background:#6366f1;color:#fff;text-decoration:none;border-radius:8px;font-weight:600;">Jetzt Tickets sichern</a></p>';
+                     . '<p style="margin:24px 0;"><a href="' . esc_url($event_url) . '" style="display:inline-block;padding:12px 28px;background:#FF5500;color:#fff;text-decoration:none;border-radius:8px;font-weight:600;">Jetzt Tickets sichern</a></p>';
         } else {
             $subject = 'Tickets für ' . $event_title . ' wieder verfügbar!';
             $body    = '<h2 style="margin:0 0 16px;">🎫 Tickets wieder verfügbar!</h2>'
                      . '<p>Gute Nachrichten! Für <strong>' . esc_html($event_title) . '</strong> sind wieder Tickets verfügbar.</p>'
-                     . '<p style="margin:24px 0;"><a href="' . esc_url($event_url) . '" style="display:inline-block;padding:12px 28px;background:#6366f1;color:#fff;text-decoration:none;border-radius:8px;font-weight:600;">Jetzt Tickets sichern</a></p>';
+                     . '<p style="margin:24px 0;"><a href="' . esc_url($event_url) . '" style="display:inline-block;padding:12px 28px;background:#FF5500;color:#fff;text-decoration:none;border-radius:8px;font-weight:600;">Jetzt Tickets sichern</a></p>';
         }
 
         // Use TIX_Emails template if available

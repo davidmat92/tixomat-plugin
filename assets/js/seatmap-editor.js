@@ -11,7 +11,7 @@
     var sections = [];
     var selectedSeat = null;
     var nextSectionIndex = 0;
-    var sectionColors = ['#6366f1','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#ec4899','#14b8a6'];
+    var sectionColors = ['#FF5500','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#ec4899','#14b8a6'];
 
     // Layout & Stage state
     var currentLayout = 'theater';
@@ -158,7 +158,7 @@
                     (s.rows || []).forEach(function(r) {
                         (r.seats || []).forEach(function(seat) { if (seat.type !== 'blocked') seatCount++; });
                     });
-                    html += '<div class="tix-sm-ov-block" data-section-id="' + s.id + '" style="background:' + (s.color || '#6366f1') + '">' +
+                    html += '<div class="tix-sm-ov-block" data-section-id="' + s.id + '" style="background:' + (s.color || '#FF5500') + '">' +
                         '<div class="tix-sm-ov-label">' + escHtml(s.label || s.id) + '</div>' +
                         '<div class="tix-sm-ov-seats">' + seatCount + ' Sitze</div>' +
                         '</div>';

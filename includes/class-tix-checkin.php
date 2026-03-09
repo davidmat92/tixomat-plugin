@@ -140,7 +140,7 @@ class TIX_Checkin {
     private static function enqueue() {
         wp_enqueue_script('tix-jsqr', TIXOMAT_URL . 'assets/js/jsqr.min.js', [], '1.4.0', true);
         wp_enqueue_script('tix-checkin', TIXOMAT_URL . 'assets/js/checkin.js', ['tix-jsqr'], TIXOMAT_VERSION, true);
-        wp_enqueue_style('tix-checkin', TIXOMAT_URL . 'assets/css/checkin.css', [], TIXOMAT_VERSION);
+        wp_enqueue_style('tix-checkin', TIXOMAT_URL . 'assets/css/checkin.css', ['tix-google-fonts'], TIXOMAT_VERSION);
 
         $popup_sec = class_exists('TIX_Settings') ? intval(TIX_Settings::get('ci_popup_duration')) : 5;
         if ($popup_sec < 1) $popup_sec = 5;

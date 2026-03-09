@@ -104,7 +104,7 @@ class TIX_Ticket_Template_CPT {
         $base_url = TIXOMAT_URL;
         $version  = TIXOMAT_VERSION;
 
-        wp_enqueue_style('tix-template-editor', $base_url . 'assets/css/ticket-template-editor.css', [], $version);
+        wp_enqueue_style('tix-template-editor', $base_url . 'assets/css/ticket-template-editor.css', ['tix-google-fonts'], $version);
         wp_enqueue_script('tix-template-editor', $base_url . 'assets/js/ticket-template-editor.js', ['jquery'], $version, true);
 
         // Field definitions from template class

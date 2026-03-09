@@ -29,9 +29,9 @@
     background: #f1f5f9;
 }
 .tix-tt-day.active {
-    background: #6366f1;
+    background: #FF5500;
     color: #fff;
-    border-color: #6366f1;
+    border-color: #FF5500;
 }
 
 /* ── Bühnen-Filter (nur Mobile sichtbar) ── */
@@ -54,9 +54,9 @@
     transition: all .2s;
 }
 .tix-tt-filter-btn.active {
-    background: var(--tt-stage-color, #6366f1);
+    background: var(--tt-stage-color, #FF5500);
     color: #fff;
-    border-color: var(--tt-stage-color, #6366f1);
+    border-color: var(--tt-stage-color, #FF5500);
 }
 
 /* ── Inhalt (Tag) ── */
@@ -80,7 +80,7 @@
     display: contents;
 }
 .tix-tt-grid-header > * {
-    background: #f8fafc;
+    background: #FAF8F4;
     padding: 10px 14px;
     font-size: .8rem;
     font-weight: 700;
@@ -88,13 +88,13 @@
     letter-spacing: .03em;
 }
 .tix-tt-time-header {
-    background: #f8fafc;
+    background: #FAF8F4;
     min-width: 60px;
 }
 .tix-tt-stage-header {
-    background: #f8fafc;
-    color: var(--tt-stage-color, #6366f1);
-    border-bottom: 3px solid var(--tt-stage-color, #6366f1);
+    background: #FAF8F4;
+    color: var(--tt-stage-color, #FF5500);
+    border-bottom: 3px solid var(--tt-stage-color, #FF5500);
 }
 
 .tix-tt-grid-row {
@@ -140,19 +140,19 @@
     flex-direction: column;
     gap: 2px;
     padding: 8px 12px;
-    background: color-mix(in srgb, var(--tt-stage-color, #6366f1) 8%, transparent);
-    border-left: 3px solid var(--tt-stage-color, #6366f1);
+    background: color-mix(in srgb, var(--tt-stage-color, #FF5500) 8%, transparent);
+    border-left: 3px solid var(--tt-stage-color, #FF5500);
     border-radius: 4px;
 }
 .tix-tt-slot-time {
     font-size: .75rem;
-    color: var(--tt-stage-color, #6366f1);
+    color: var(--tt-stage-color, #FF5500);
     font-weight: 600;
 }
 .tix-tt-slot-title {
     font-size: .9rem;
     font-weight: 600;
-    color: var(--ep-text, #0f172a);
+    color: var(--ep-text, #0D0B09);
 }
 .tix-tt-slot-desc {
     font-size: .8rem;
@@ -169,8 +169,8 @@
     display: flex;
     gap: 12px;
     padding: 12px 14px;
-    border-left: 3px solid var(--tt-stage-color, #6366f1);
-    background: color-mix(in srgb, var(--tt-stage-color, #6366f1) 5%, var(--ep-bg, #fff));
+    border-left: 3px solid var(--tt-stage-color, #FF5500);
+    background: color-mix(in srgb, var(--tt-stage-color, #FF5500) 5%, var(--ep-bg, #fff));
     border-radius: 0 var(--ep-radius, 8px) var(--ep-radius, 8px) 0;
 }
 .tix-tt-list-item[hidden] {
@@ -179,7 +179,7 @@
 .tix-tt-list-time {
     font-size: .82rem;
     font-weight: 700;
-    color: var(--tt-stage-color, #6366f1);
+    color: var(--tt-stage-color, #FF5500);
     min-width: 80px;
     white-space: nowrap;
 }
@@ -192,7 +192,7 @@
 .tix-tt-list-title {
     font-size: .92rem;
     font-weight: 600;
-    color: var(--ep-text, #0f172a);
+    color: var(--ep-text, #0D0B09);
 }
 .tix-tt-list-desc {
     font-size: .82rem;
@@ -201,7 +201,7 @@
 .tix-tt-list-stage {
     font-size: .75rem;
     font-weight: 600;
-    color: var(--tt-stage-color, #6366f1);
+    color: var(--tt-stage-color, #FF5500);
     text-transform: uppercase;
     letter-spacing: .03em;
 }

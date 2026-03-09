@@ -83,7 +83,7 @@
                                 {
                                     label: 'Tickets',
                                     data: tickets,
-                                    backgroundColor: 'rgba(99,102,241,0.7)',
+                                    backgroundColor: 'rgba(255,85,0,0.7)',
                                     borderRadius: 4,
                                     yAxisID: 'y',
                                 },

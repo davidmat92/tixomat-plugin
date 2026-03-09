@@ -39,7 +39,7 @@ class TIX_Statistics {
     public static function enqueue_assets($hook) {
         if ($hook !== 'tixomat_page_tix-statistics') return;
         wp_enqueue_style('dashicons');
-        wp_enqueue_style('tix-admin', TIXOMAT_URL . 'assets/css/admin.css', [], TIXOMAT_VERSION);
+        wp_enqueue_style('tix-admin', TIXOMAT_URL . 'assets/css/admin.css', ['tix-google-fonts'], TIXOMAT_VERSION);
         $min = defined('SCRIPT_DEBUG') && SCRIPT_DEBUG ? '' : '.min';
         wp_enqueue_style('tix-statistics', TIXOMAT_URL . 'assets/css/statistics' . $min . '.css', ['tix-admin'], TIXOMAT_VERSION);
 
@@ -526,7 +526,7 @@ class TIX_Statistics {
                 'data' => [
                     'labels' => array_column($timeline, 'period'),
                     'datasets' => [
-                        ['label' => 'Umsatz (€)', 'data' => array_map('floatval', array_column($timeline, 'revenue')), 'yAxisID' => 'y', 'borderColor' => '#6366f1', 'backgroundColor' => 'rgba(99,102,241,0.08)', 'fill' => true, 'tension' => 0.3],
+                        ['label' => 'Umsatz (€)', 'data' => array_map('floatval', array_column($timeline, 'revenue')), 'yAxisID' => 'y', 'borderColor' => '#FF5500', 'backgroundColor' => 'rgba(255,85,0,0.08)', 'fill' => true, 'tension' => 0.3],
                         ['label' => 'Tickets', 'data' => array_map('intval', array_column($timeline, 'tickets')), 'yAxisID' => 'y1', 'borderColor' => '#10b981', 'backgroundColor' => 'transparent', 'tension' => 0.3],
                     ],
                 ],
@@ -536,7 +536,7 @@ class TIX_Statistics {
                 'type' => 'bar',
                 'data' => [
                     'labels' => array_column($top5, 'event_title'),
-                    'datasets' => [['label' => 'Umsatz (€)', 'data' => array_map('floatval', array_column($top5, 'revenue')), 'backgroundColor' => '#6366f1']],
+                    'datasets' => [['label' => 'Umsatz (€)', 'data' => array_map('floatval', array_column($top5, 'revenue')), 'backgroundColor' => '#FF5500']],
                 ],
                 'options' => ['indexAxis' => 'y'],
             ],
@@ -544,13 +544,13 @@ class TIX_Statistics {
                 'type' => 'doughnut',
                 'data' => [
                     'labels' => array_column($cats, 'cat_name'),
-                    'datasets' => [['data' => array_map('intval', array_column($cats, 'cnt')), 'backgroundColor' => ['#6366f1','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#ec4899','#84cc16']]],
+                    'datasets' => [['data' => array_map('intval', array_column($cats, 'cnt')), 'backgroundColor' => ['#FF5500','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#ec4899','#84cc16']]],
                 ],
             ],
         ];
 
         // Vergleichsdaten in Timeline-Chart injizieren
-        self::inject_compare_timeline($charts['timeline'], $f, $eids, 'query_revenue_over_time', 'revenue', 'Umsatz (€)', '#6366f1');
+        self::inject_compare_timeline($charts['timeline'], $f, $eids, 'query_revenue_over_time', 'revenue', 'Umsatz (€)', '#FF5500');
         if ($cmp) {
             // Zweite Vergleichslinie für Tickets
             $group = self::auto_group($f['date_from'], $f['date_to']);
@@ -571,7 +571,7 @@ class TIX_Statistics {
             foreach ($cmp_top5 as $ct) $cmp_top_map[$ct->event_title] = floatval($ct->revenue);
             $cmp_top_vals = [];
             foreach ($top5 as $t) $cmp_top_vals[] = $cmp_top_map[$t->event_title] ?? 0;
-            self::inject_compare_bar($charts['top_events'], $cmp_top_vals, 'Umsatz (€)', '#6366f1');
+            self::inject_compare_bar($charts['top_events'], $cmp_top_vals, 'Umsatz (€)', '#FF5500');
 
             // Kategorien Vergleich
             $cmp_cats = self::query_tickets_by_cat($f['compare_from'], $f['compare_to'], $eids);
@@ -642,21 +642,21 @@ class TIX_Statistics {
         $payment  = self::query_revenue_by_payment($f['date_from'], $f['date_to']);
         $weekday  = self::query_revenue_by_weekday($f['date_from'], $f['date_to'], $eids);
 
-        $colors = ['#6366f1','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#ec4899','#84cc16'];
+        $colors = ['#FF5500','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#ec4899','#84cc16'];
 
         $charts = [
             'timeline' => [
                 'type' => 'line',
                 'data' => [
                     'labels' => array_column($timeline, 'period'),
-                    'datasets' => [['label' => 'Umsatz (€)', 'data' => array_map('floatval', array_column($timeline, 'revenue')), 'borderColor' => '#6366f1', 'backgroundColor' => 'rgba(99,102,241,0.08)', 'fill' => true, 'tension' => 0.3]],
+                    'datasets' => [['label' => 'Umsatz (€)', 'data' => array_map('floatval', array_column($timeline, 'revenue')), 'borderColor' => '#FF5500', 'backgroundColor' => 'rgba(255,85,0,0.08)', 'fill' => true, 'tension' => 0.3]],
                 ],
             ],
             'by_event' => [
                 'type' => 'bar',
                 'data' => [
                     'labels' => array_column($top, 'event_title'),
-                    'datasets' => [['label' => 'Umsatz (€)', 'data' => array_map('floatval', array_column($top, 'revenue')), 'backgroundColor' => '#6366f1']],
+                    'datasets' => [['label' => 'Umsatz (€)', 'data' => array_map('floatval', array_column($top, 'revenue')), 'backgroundColor' => '#FF5500']],
                 ],
             ],
             'by_category' => [
@@ -677,7 +677,7 @@ class TIX_Statistics {
                 'type' => 'bar',
                 'data' => [
                     'labels' => array_map(function($r) { return self::dow_label($r->dow); }, $weekday),
-                    'datasets' => [['label' => 'Umsatz (€)', 'data' => array_map('floatval', array_column($weekday, 'revenue')), 'backgroundColor' => '#6366f1']],
+                    'datasets' => [['label' => 'Umsatz (€)', 'data' => array_map('floatval', array_column($weekday, 'revenue')), 'backgroundColor' => '#FF5500']],
                 ],
             ],
         ];
@@ -703,7 +703,7 @@ class TIX_Statistics {
 
         // Vergleichsdaten in Charts injizieren
         if ($cmp) {
-            self::inject_compare_timeline($charts['timeline'], $f, $eids, 'query_revenue_over_time', 'revenue', 'Umsatz (€)', '#6366f1');
+            self::inject_compare_timeline($charts['timeline'], $f, $eids, 'query_revenue_over_time', 'revenue', 'Umsatz (€)', '#FF5500');
         }
 
         $data = ['kpis' => $kpis, 'charts' => $charts, 'table' => $table, 'compare_mode' => $cmp, 'compare_label' => $cmp ? $f['compare_from'] . ' – ' . $f['compare_to'] : null];
@@ -757,14 +757,14 @@ class TIX_Statistics {
         $cats     = self::query_tickets_by_cat($f['date_from'], $f['date_to'], $eids);
         $top      = self::query_top_events($f['date_from'], $f['date_to'], $eids, 20);
 
-        $colors = ['#6366f1','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#ec4899','#84cc16'];
+        $colors = ['#FF5500','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#ec4899','#84cc16'];
 
         $charts = [
             'timeline' => [
                 'type' => 'line',
                 'data' => [
                     'labels' => array_column($timeline, 'period'),
-                    'datasets' => [['label' => 'Tickets', 'data' => array_map('intval', array_column($timeline, 'cnt')), 'borderColor' => '#6366f1', 'backgroundColor' => 'rgba(99,102,241,0.08)', 'fill' => true, 'tension' => 0.3]],
+                    'datasets' => [['label' => 'Tickets', 'data' => array_map('intval', array_column($timeline, 'cnt')), 'borderColor' => '#FF5500', 'backgroundColor' => 'rgba(255,85,0,0.08)', 'fill' => true, 'tension' => 0.3]],
                 ],
             ],
             'by_category' => [
@@ -786,7 +786,7 @@ class TIX_Statistics {
                         $cap = intval(get_post_meta(intval($r->event_id), '_tix_capacity_total', true));
                         $sold = intval(get_post_meta(intval($r->event_id), '_tix_sold_total', true));
                         return $cap > 0 ? round($sold / $cap * 100, 1) : 0;
-                    }, $top), 'backgroundColor' => '#6366f1']],
+                    }, $top), 'backgroundColor' => '#FF5500']],
                 ],
                 'options' => ['indexAxis' => 'y'],
             ],
@@ -813,7 +813,7 @@ class TIX_Statistics {
 
         // Vergleichsdaten in Timeline injizieren
         if ($cmp) {
-            self::inject_compare_timeline($charts['timeline'], $f, $eids, 'query_tickets_over_time', 'cnt', 'Tickets', '#6366f1');
+            self::inject_compare_timeline($charts['timeline'], $f, $eids, 'query_tickets_over_time', 'cnt', 'Tickets', '#FF5500');
         }
 
         $data = ['kpis' => $kpis, 'charts' => $charts, 'table' => $table, 'compare_mode' => $cmp, 'compare_label' => $cmp ? $f['compare_from'] . ' – ' . $f['compare_to'] : null];
@@ -926,7 +926,7 @@ class TIX_Statistics {
                 'type' => 'bar',
                 'data' => [
                     'labels' => array_keys($loc_counts),
-                    'datasets' => [['label' => 'Events', 'data' => array_values($loc_counts), 'backgroundColor' => '#6366f1']],
+                    'datasets' => [['label' => 'Events', 'data' => array_values($loc_counts), 'backgroundColor' => '#FF5500']],
                 ],
             ],
             'by_month' => [
@@ -1030,7 +1030,7 @@ class TIX_Statistics {
             'type' => 'bar',
             'data' => [
                 'labels' => array_column($cat_ci, 'name'),
-                'datasets' => [['label' => 'Tickets', 'data' => array_column($cat_ci, 'total'), 'backgroundColor' => '#6366f1']],
+                'datasets' => [['label' => 'Tickets', 'data' => array_column($cat_ci, 'total'), 'backgroundColor' => '#FF5500']],
             ],
         ];
 
@@ -1081,7 +1081,7 @@ class TIX_Statistics {
                 'type' => 'bar',
                 'data' => [
                     'labels' => ['Gesamt', 'E-Mail gesendet', 'Wiederhergestellt'],
-                    'datasets' => [['data' => [$ac_total, $emails_sent, $status_counts['recovered']], 'backgroundColor' => ['#6366f1', '#f59e0b', '#10b981']]],
+                    'datasets' => [['data' => [$ac_total, $emails_sent, $status_counts['recovered']], 'backgroundColor' => ['#FF5500', '#f59e0b', '#10b981']]],
                 ],
             ],
         ];
@@ -1153,14 +1153,14 @@ class TIX_Statistics {
             ? "SELECT DATE_FORMAT(p.post_date, '%Y-%m') as period, COUNT(*) as cnt FROM {$wpdb->posts} p WHERE $where GROUP BY period ORDER BY period"
             : $wpdb->prepare("SELECT DATE_FORMAT(p.post_date, '%Y-%m') as period, COUNT(*) as cnt FROM {$wpdb->posts} p WHERE $where GROUP BY period ORDER BY period", ...$params));
 
-        $colors = ['#6366f1','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4'];
+        $colors = ['#FF5500','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4'];
 
         $charts = [
             'timeline' => [
                 'type' => 'bar',
                 'data' => [
                     'labels' => array_column($over_time, 'period'),
-                    'datasets' => [['label' => 'Neue Abonnenten', 'data' => array_map('intval', array_column($over_time, 'cnt')), 'backgroundColor' => '#6366f1']],
+                    'datasets' => [['label' => 'Neue Abonnenten', 'data' => array_map('intval', array_column($over_time, 'cnt')), 'backgroundColor' => '#FF5500']],
                 ],
             ],
             'by_source' => [
@@ -1234,7 +1234,7 @@ class TIX_Statistics {
             'combo'   => ['value' => self::format_eur($type_map['combo']),  'label' => 'Kombi-Rabatte',      'icon' => 'dashicons-tickets-alt', 'trend' => null],
         ];
 
-        $colors = ['#6366f1','#10b981','#f59e0b','#ef4444'];
+        $colors = ['#FF5500','#10b981','#f59e0b','#ef4444'];
         $type_labels = ['bundle' => 'Bundle-Deal', 'combo' => 'Kombi-Ticket', 'group' => 'Gruppenrabatt', 'other' => 'Sonstige'];
         $filtered_types = array_filter($type_map);
 

@@ -17,23 +17,23 @@ define('TIX_CHAT_BETA', true);
 // FARBEN
 // ============================================================
 $TIX_COLORS = [
-    'bg'            => '#F2F2F2',
+    'bg'            => '#FAF8F4',
     'bg_header'     => '#ffffff',
     'bg_input'      => '#ffffff',
     'bg_card'       => '#ffffff',
-    'bg_input_field'=> '#F7F7F7',
-    'accent'        => '#6366F1',
-    'accent_hover'  => '#4F46E5',
-    'accent_bg'     => 'rgba(99,102,241,.08)',
-    'accent_shadow' => 'rgba(99,102,241,.25)',
-    'text'          => '#1E1E1E',
-    'text_muted'    => '#888888',
-    'text_light'    => '#AAAAAA',
-    'border'        => '#E5E5E5',
-    'border_hover'  => '#6366F1',
-    'user_bubble'   => '#6366F1',
+    'bg_input_field'=> '#F3F0EA',
+    'accent'        => '#FF5500',
+    'accent_hover'  => '#CC4400',
+    'accent_bg'     => 'rgba(255,85,0,.08)',
+    'accent_shadow' => 'rgba(255,85,0,.25)',
+    'text'          => '#0D0B09',
+    'text_muted'    => 'rgba(13,11,9,.50)',
+    'text_light'    => 'rgba(13,11,9,.35)',
+    'border'        => '#EDE9E0',
+    'border_hover'  => '#FF5500',
+    'user_bubble'   => '#FF5500',
     'user_text'     => '#ffffff',
-    'cart_accent'   => '#6366F1',
+    'cart_accent'   => '#FF5500',
 ];
 
 

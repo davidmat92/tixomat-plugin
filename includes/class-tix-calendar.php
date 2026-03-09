@@ -26,7 +26,7 @@ class TIX_Calendar {
         $extra_class = $atts['class'] ? ' ' . esc_attr($atts['class']) : '';
 
         // Enqueue
-        wp_enqueue_style('tix-calendar', TIXOMAT_URL . 'assets/css/calendar.css', [], TIXOMAT_VERSION);
+        wp_enqueue_style('tix-calendar', TIXOMAT_URL . 'assets/css/calendar.css', ['tix-google-fonts'], TIXOMAT_VERSION);
         wp_enqueue_script('tix-calendar', TIXOMAT_URL . 'assets/js/calendar.js', [], TIXOMAT_VERSION, true);
 
         ob_start();

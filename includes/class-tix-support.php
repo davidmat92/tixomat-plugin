@@ -192,7 +192,7 @@ class TIX_Support {
         $ver = defined('TIXOMAT_VERSION') ? TIXOMAT_VERSION : '1.23.0';
         $url = TIXOMAT_URL;
 
-        wp_enqueue_style('tix-support', $url . 'assets/css/support.css', [], $ver);
+        wp_enqueue_style('tix-support', $url . 'assets/css/support.css', ['tix-google-fonts'], $ver);
         wp_enqueue_script('tix-support', $url . 'assets/js/support.js', ['jquery'], $ver, true);
 
         wp_localize_script('tix-support', 'tixSupport', [
@@ -313,7 +313,7 @@ class TIX_Support {
                                 <div class="tix-sp-stat-label">Heute gelöst</div>
                             </div>
                             <div class="tix-sp-stat-card">
-                                <div class="tix-sp-stat-icon" style="background:rgba(99,102,241,0.1);color:#6366f1;">
+                                <div class="tix-sp-stat-icon" style="background:rgba(255,85,0,0.1);color:#FF5500;">
                                     <span class="dashicons dashicons-performance"></span>
                                 </div>
                                 <div class="tix-sp-stat-value" id="tix-sp-stat-avg-time">–</div>
@@ -762,7 +762,7 @@ class TIX_Support {
         $download_url = home_url('/ticket-download/?code=' . $code);
 
         $body = '<p>Hier ist dein Ticket-Download-Link:</p>';
-        $body .= '<p><a href="' . esc_url($download_url) . '" style="display:inline-block;padding:12px 24px;background:#6366f1;color:#fff;text-decoration:none;border-radius:8px;font-weight:700;">Ticket herunterladen</a></p>';
+        $body .= '<p><a href="' . esc_url($download_url) . '" style="display:inline-block;padding:12px 24px;background:#FF5500;color:#fff;text-decoration:none;border-radius:8px;font-weight:700;">Ticket herunterladen</a></p>';
         $body .= '<p>Dein Ticket-Code: <strong>' . esc_html($code) . '</strong></p>';
 
         $html = TIX_Emails::build_generic_email_html('Dein Ticket', $body, 'Ticket erneut gesendet');
@@ -1253,7 +1253,7 @@ class TIX_Support {
         $body = '<p>Neue Support-Anfrage von <strong>' . esc_html($customer_name ?: $customer_email) . '</strong></p>';
         $body .= '<p><strong>Betreff:</strong> ' . esc_html($subject) . '</p>';
         $body .= '<p><strong>Anfrage-Nr:</strong> #' . $ticket_id . '</p>';
-        $body .= '<p><a href="' . esc_url(admin_url('admin.php?page=tix-support&ticket=' . $ticket_id)) . '" style="display:inline-block;padding:12px 24px;background:#6366f1;color:#fff;text-decoration:none;border-radius:8px;font-weight:700;">Anfrage öffnen</a></p>';
+        $body .= '<p><a href="' . esc_url(admin_url('admin.php?page=tix-support&ticket=' . $ticket_id)) . '" style="display:inline-block;padding:12px 24px;background:#FF5500;color:#fff;text-decoration:none;border-radius:8px;font-weight:700;">Anfrage öffnen</a></p>';
 
         $html = TIX_Emails::build_generic_email_html(
             'Neue Support-Anfrage',
@@ -1290,7 +1290,7 @@ class TIX_Support {
         $name = get_post_meta($ticket_id, '_tix_sp_name', true);
         $body = '<p>Hallo ' . esc_html($name ?: 'Kunde') . ',</p>';
         $body .= '<p>du hast eine neue Antwort zu deiner Anfrage <strong>#' . $ticket_id . '</strong> erhalten:</p>';
-        $body .= '<div style="background:#f8fafc;border-left:4px solid #6366f1;padding:16px;border-radius:8px;margin:16px 0;">';
+        $body .= '<div style="background:#FAF8F4;border-left:4px solid #FF5500;padding:16px;border-radius:8px;margin:16px 0;">';
         $body .= nl2br(esc_html($reply_content));
         $body .= '</div>';
 
@@ -1310,10 +1310,10 @@ class TIX_Support {
         $admin_email = get_option('admin_email');
         $name = get_post_meta($ticket_id, '_tix_sp_name', true);
         $body = '<p>Neue Antwort von <strong>' . esc_html($name ?: $customer_email) . '</strong> zu Anfrage <strong>#' . $ticket_id . '</strong>:</p>';
-        $body .= '<div style="background:#f8fafc;border-left:4px solid #3b82f6;padding:16px;border-radius:8px;margin:16px 0;">';
+        $body .= '<div style="background:#FAF8F4;border-left:4px solid #3b82f6;padding:16px;border-radius:8px;margin:16px 0;">';
         $body .= nl2br(esc_html($reply_content));
         $body .= '</div>';
-        $body .= '<p><a href="' . esc_url(admin_url('admin.php?page=tix-support&ticket=' . $ticket_id)) . '" style="display:inline-block;padding:12px 24px;background:#6366f1;color:#fff;text-decoration:none;border-radius:8px;font-weight:700;">Anfrage öffnen</a></p>';
+        $body .= '<p><a href="' . esc_url(admin_url('admin.php?page=tix-support&ticket=' . $ticket_id)) . '" style="display:inline-block;padding:12px 24px;background:#FF5500;color:#fff;text-decoration:none;border-radius:8px;font-weight:700;">Anfrage öffnen</a></p>';
 
         $html = TIX_Emails::build_generic_email_html(
             'Neue Kunden-Antwort',
@@ -1443,7 +1443,7 @@ class TIX_Support {
         $statuses   = self::get_statuses();
 
         $ver = defined('TIXOMAT_VERSION') ? TIXOMAT_VERSION : '1.23.0';
-        wp_enqueue_style('tix-support-front', TIXOMAT_URL . 'assets/css/support.css', [], $ver);
+        wp_enqueue_style('tix-support-front', TIXOMAT_URL . 'assets/css/support.css', ['tix-google-fonts'], $ver);
         wp_enqueue_script('tix-support-front', TIXOMAT_URL . 'assets/js/support.js', ['jquery'], $ver, true);
 
         wp_localize_script('tix-support-front', 'tixSupport', [
@@ -1528,7 +1528,7 @@ class TIX_Support {
         $statuses   = self::get_statuses();
         $ver = defined('TIXOMAT_VERSION') ? TIXOMAT_VERSION : '1.23.0';
 
-        wp_enqueue_style('tix-support-chat', TIXOMAT_URL . 'assets/css/support.css', [], $ver);
+        wp_enqueue_style('tix-support-chat', TIXOMAT_URL . 'assets/css/support.css', ['tix-google-fonts'], $ver);
         wp_enqueue_script('tix-support-chat', TIXOMAT_URL . 'assets/js/support.js', ['jquery'], $ver, true);
 
         wp_localize_script('tix-support-chat', 'tixSupport', [

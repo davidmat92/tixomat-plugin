@@ -41,7 +41,7 @@ class TIX_Metabox {
         // List-CSS für ALLE Tixomat Post-Types laden
         $tix_types = ['event', 'tix_location', 'tix_organizer', 'tix_subscriber', 'tix_abandoned_cart', 'tix_ticket'];
         if (in_array($post_type, $tix_types) && $hook === 'edit.php') {
-            wp_enqueue_style('tix-admin', TIXOMAT_URL . 'assets/css/admin.css', [], TIXOMAT_VERSION);
+            wp_enqueue_style('tix-admin', TIXOMAT_URL . 'assets/css/admin.css', ['tix-google-fonts'], TIXOMAT_VERSION);
             // Ticket-Liste: eigenes JS laden
             if ($post_type === 'tix_ticket') {
                 wp_enqueue_script('tix-admin-tickets', TIXOMAT_URL . 'assets/js/admin-tickets.js', ['jquery'], TIXOMAT_VERSION, true);
@@ -58,7 +58,7 @@ class TIX_Metabox {
         if ($hook === 'edit-tags.php' || $hook === 'term.php') {
             $tax = $_GET['taxonomy'] ?? '';
             if ($tax === 'event_category') {
-                wp_enqueue_style('tix-admin', TIXOMAT_URL . 'assets/css/admin.css', [], TIXOMAT_VERSION);
+                wp_enqueue_style('tix-admin', TIXOMAT_URL . 'assets/css/admin.css', ['tix-google-fonts'], TIXOMAT_VERSION);
             }
             return;
         }
@@ -73,7 +73,7 @@ class TIX_Metabox {
         if ($post) { wp_enqueue_media(['post' => $post->ID]); } else { wp_enqueue_media(); }
 
         wp_enqueue_style('dashicons');
-        wp_enqueue_style('tix-admin',  TIXOMAT_URL . 'assets/css/admin.css', [], TIXOMAT_VERSION);
+        wp_enqueue_style('tix-admin',  TIXOMAT_URL . 'assets/css/admin.css', ['tix-google-fonts'], TIXOMAT_VERSION);
         wp_enqueue_script('tix-qr', TIXOMAT_URL . 'assets/js/tix-qr.js', [], TIXOMAT_VERSION, true);
 
         // Google Places API VOR admin.js laden (damit google global bei Modal-Init verfügbar ist)
@@ -128,7 +128,7 @@ class TIX_Metabox {
         ]);
 
         // Ticket-Template Editor (für Metabox)
-        wp_enqueue_style('tix-tte-editor', TIXOMAT_URL . 'assets/css/ticket-template-editor.css', [], TIXOMAT_VERSION);
+        wp_enqueue_style('tix-tte-editor', TIXOMAT_URL . 'assets/css/ticket-template-editor.css', ['tix-google-fonts'], TIXOMAT_VERSION);
         wp_enqueue_script('tix-tte-editor', TIXOMAT_URL . 'assets/js/ticket-template-editor.js', ['jquery'], TIXOMAT_VERSION, true);
     }
 
@@ -2163,7 +2163,7 @@ class TIX_Metabox {
                     foreach ($stages as $si => $stage): ?>
                     <div class="tix-tt-stage-row" style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">
                         <input type="text" name="tix_stages[<?php echo $si; ?>][name]" value="<?php echo esc_attr($stage['name'] ?? ''); ?>" placeholder="Bühnenname" style="width:200px;" class="regular-text">
-                        <input type="color" name="tix_stages[<?php echo $si; ?>][color]" value="<?php echo esc_attr($stage['color'] ?? '#6366f1'); ?>" style="width:40px;height:32px;padding:2px;cursor:pointer;">
+                        <input type="color" name="tix_stages[<?php echo $si; ?>][color]" value="<?php echo esc_attr($stage['color'] ?? '#FF5500'); ?>" style="width:40px;height:32px;padding:2px;cursor:pointer;">
                         <button type="button" class="button tix-tt-stage-del" title="Entfernen">&times;</button>
                     </div>
                     <?php endforeach;
@@ -2244,7 +2244,7 @@ class TIX_Metabox {
                     div.style.cssText = 'display:flex;gap:8px;align-items:center;margin-bottom:6px;';
                     div.innerHTML =
                         '<input type="text" name="tix_stages['+idx+'][name]" placeholder="Bühnenname" style="width:200px;" class="regular-text">' +
-                        '<input type="color" name="tix_stages['+idx+'][color]" value="#6366f1" style="width:40px;height:32px;padding:2px;cursor:pointer;">' +
+                        '<input type="color" name="tix_stages['+idx+'][color]" value="#FF5500" style="width:40px;height:32px;padding:2px;cursor:pointer;">' +
                         '<button type="button" class="button tix-tt-stage-del" title="Entfernen">&times;</button>';
                     stagesWrap.appendChild(div);
                 });
@@ -2497,7 +2497,7 @@ class TIX_Metabox {
                 <div style="margin-bottom:16px;">
                     <?php
                     $status_labels = ['open' => 'Offen', 'closed' => 'Geschlossen', 'drawn' => 'Ausgelost'];
-                    $status_colors = ['open' => '#16a34a', 'closed' => '#d97706', 'drawn' => '#6366f1'];
+                    $status_colors = ['open' => '#16a34a', 'closed' => '#d97706', 'drawn' => '#FF5500'];
                     $s_color = $status_colors[$status] ?? '#64748b';
                     $s_label = $status_labels[$status] ?? $status;
                     ?>
@@ -2624,7 +2624,7 @@ class TIX_Metabox {
                             🎲 Jetzt auslosen (<?php echo $entry_count; ?> Teilnehmer)
                         </button>
                     <?php elseif ($status === 'drawn'): ?>
-                        <p style="color:#6366f1;font-weight:600;">✅ Gewinner wurden bereits ausgelost.</p>
+                        <p style="color:#FF5500;font-weight:600;">✅ Gewinner wurden bereits ausgelost.</p>
                         <button type="button" class="button" id="tix-raffle-reset"
                                 data-event="<?php echo $post->ID; ?>"
                                 style="margin-top:8px;">
@@ -3084,7 +3084,7 @@ class TIX_Metabox {
         if (is_array($raw_stages)) {
             foreach ($raw_stages as $st) {
                 $name  = sanitize_text_field($st['name'] ?? '');
-                $color = sanitize_hex_color($st['color'] ?? '') ?: '#6366f1';
+                $color = sanitize_hex_color($st['color'] ?? '') ?: '#FF5500';
                 if (empty($name)) continue;
                 $stages[] = ['name' => $name, 'color' => $color];
             }

@@ -18,7 +18,7 @@
     justify-content: space-between;
     gap: 16px;
     padding: 12px 16px;
-    background: #fafbfc;
+    background: #FAF8F4;
     border-radius: 12px;
     box-shadow: 0 1px 2px rgba(0,0,0,0.04), 0 1px 3px rgba(0,0,0,0.03);
     flex-wrap: wrap;
@@ -46,7 +46,7 @@
 .tix-sm-tool-label input {
     width: 60px;
     padding: 5px 8px;
-    border: 1px solid #dfe2e6;
+    border: 1px solid #EDE9E0;
     border-radius: 8px;
     font-size: 12.5px;
     text-align: center;
@@ -54,19 +54,19 @@
 }
 .tix-sm-tool-label input:focus {
     outline: none;
-    border-color: #6366f1;
-    box-shadow: 0 0 0 3px rgba(99,102,241,0.15);
+    border-color: #FF5500;
+    box-shadow: 0 0 0 3px rgba(255,85,0,0.15);
 }
 .tix-sm-stats {
     font-size: 12.5px;
     color: #64748b;
     font-weight: 600;
-    background: rgba(99,102,241,0.08);
+    background: rgba(255,85,0,0.08);
     padding: 4px 12px;
     border-radius: 20px;
 }
 .tix-sm-stats span {
-    color: #6366f1;
+    color: #FF5500;
     font-weight: 700;
 }
 
@@ -135,7 +135,7 @@
     align-items: center;
     justify-content: space-between;
     padding: 10px 16px;
-    background: var(--section-color, #6366f1);
+    background: var(--section-color, #FF5500);
     color: #fff;
     gap: 12px;
 }
@@ -257,7 +257,7 @@
 }
 .tix-sm-row-actions button:hover {
     background: #e8eaed;
-    color: #0f172a;
+    color: #0D0B09;
 }
 .tix-sm-row-actions button.tix-sm-btn-delete-row:hover {
     background: rgba(239,68,68,0.1);
@@ -286,9 +286,9 @@
     z-index: 2;
 }
 .tix-sm-seat.selected {
-    border-color: #6366f1;
-    background: rgba(99,102,241,0.15);
-    box-shadow: 0 0 0 2px rgba(99,102,241,0.3);
+    border-color: #FF5500;
+    background: rgba(255,85,0,0.15);
+    box-shadow: 0 0 0 2px rgba(255,85,0,0.3);
 }
 
 /* Seat Types */
@@ -327,14 +327,14 @@
     transition: all 0.15s ease;
 }
 .tix-sm-btn-add-row:hover {
-    border-color: #6366f1;
-    color: #6366f1;
-    background: rgba(99,102,241,0.04);
+    border-color: #FF5500;
+    color: #FF5500;
+    background: rgba(255,85,0,0.04);
 }
 
 /* ── Properties Panel ── */
 .tix-sm-props {
-    background: #fafbfc;
+    background: #FAF8F4;
     border-radius: 16px;
     padding: 16px 20px;
     box-shadow: 0 1px 2px rgba(0,0,0,0.04), 0 1px 3px rgba(0,0,0,0.03);
@@ -343,7 +343,7 @@
     margin: 0 0 12px;
     font-size: 11.5px;
     font-weight: 650;
-    color: #0f172a;
+    color: #0D0B09;
     text-transform: uppercase;
     letter-spacing: 0.06em;
 }
@@ -368,7 +368,7 @@
 .tix-sm-prop-field select {
     padding: 6px 10px;
     font-size: 12.5px;
-    border: 1px solid #dfe2e6;
+    border: 1px solid #EDE9E0;
     border-radius: 8px;
     background: #fff;
     transition: border-color 0.15s ease, box-shadow 0.15s ease;
@@ -376,8 +376,8 @@
 .tix-sm-prop-field input:focus,
 .tix-sm-prop-field select:focus {
     outline: none;
-    border-color: #6366f1;
-    box-shadow: 0 0 0 3px rgba(99,102,241,0.15);
+    border-color: #FF5500;
+    box-shadow: 0 0 0 3px rgba(255,85,0,0.15);
 }
 
 /* ── Toast / Notification ── */
@@ -386,7 +386,7 @@
     bottom: 24px;
     right: 24px;
     padding: 12px 20px;
-    background: #0f172a;
+    background: #0D0B09;
     color: #fff;
     border-radius: 10px;
     font-size: 13px;
@@ -406,7 +406,7 @@
 /* ── Layout Select ── */
 .tix-sm-select {
     padding: 5px 10px;
-    border: 1px solid #dfe2e6;
+    border: 1px solid #EDE9E0;
     border-radius: 8px;
     font-size: 12.5px;
     background: #fff;
@@ -414,8 +414,8 @@
 }
 .tix-sm-select:focus {
     outline: none;
-    border-color: #6366f1;
-    box-shadow: 0 0 0 3px rgba(99,102,241,0.15);
+    border-color: #FF5500;
+    box-shadow: 0 0 0 3px rgba(255,85,0,0.15);
 }
 
 /* ── Section Position Dropdown ── */
@@ -434,7 +434,7 @@
     background: rgba(255,255,255,0.3);
 }
 .tix-sm-section-position option {
-    color: #0f172a;
+    color: #0D0B09;
     background: #fff;
 }
 
@@ -529,8 +529,8 @@
     animation: tixSmHighlight 1.5s ease;
 }
 @keyframes tixSmHighlight {
-    0%   { box-shadow: 0 0 0 0 rgba(99,102,241,0.5); }
-    30%  { box-shadow: 0 0 0 6px rgba(99,102,241,0.3); }
+    0%   { box-shadow: 0 0 0 0 rgba(255,85,0,0.5); }
+    30%  { box-shadow: 0 0 0 6px rgba(255,85,0,0.3); }
     100% { box-shadow: 0 1px 2px rgba(0,0,0,0.04), 0 1px 3px rgba(0,0,0,0.03); }
 }
 

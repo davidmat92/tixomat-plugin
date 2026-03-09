@@ -3,7 +3,7 @@
    ═══════════════════════════════════════════════════ */
 
 /* ── Tabs (nutzt gleiche Klassen wie Statistiken) ── */
-.tix-promoter-wrap .tix-nav { display: flex; gap: 0; border-bottom: 2px solid #e2e8f0; margin-bottom: 20px; }
+.tix-promoter-wrap .tix-nav { display: flex; gap: 0; border-bottom: 2px solid #EDE9E0; margin-bottom: 20px; }
 .tix-promoter-wrap .tix-nav-tab {
     padding: 10px 18px; font-size: 13px; font-weight: 550; color: #64748b;
     cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px;
@@ -11,7 +11,7 @@
     display: inline-flex; align-items: center; gap: 6px;
 }
 .tix-promoter-wrap .tix-nav-tab:hover { color: #334155; }
-.tix-promoter-wrap .tix-nav-tab.active { color: #6366f1; border-bottom-color: #6366f1; }
+.tix-promoter-wrap .tix-nav-tab.active { color: #FF5500; border-bottom-color: #FF5500; }
 .tix-promoter-wrap .tix-nav-tab .dashicons { font-size: 16px; width: 16px; height: 16px; }
 .tix-promoter-wrap .tix-pane { display: none; }
 .tix-promoter-wrap .tix-pane.active { display: block; }
@@ -27,8 +27,8 @@
     transition: box-shadow 0.2s;
 }
 .tix-promo-kpi-card:hover { box-shadow: 0 2px 4px rgba(0,0,0,0.04), 0 4px 12px rgba(0,0,0,0.03); }
-.tix-promo-kpi-icon { color: #6366f1; font-size: 20px; opacity: 0.65; display: block; margin-bottom: 6px; }
-.tix-promo-kpi-num { display: block; font-size: 22px; font-weight: 700; color: #0f172a; line-height: 1.2; }
+.tix-promo-kpi-icon { color: #FF5500; font-size: 20px; opacity: 0.65; display: block; margin-bottom: 6px; }
+.tix-promo-kpi-num { display: block; font-size: 22px; font-weight: 700; color: #0D0B09; line-height: 1.2; }
 .tix-promo-kpi-lbl { font-size: 11px; text-transform: uppercase; color: #64748b; letter-spacing: 0.06em; margin-top: 4px; display: block; font-weight: 550; }
 
 /* ── Toolbar (Buttons + Filter) ── */
@@ -39,26 +39,26 @@
 }
 .tix-promo-toolbar select,
 .tix-promo-toolbar input[type="date"] {
-    padding: 6px 10px; border: 1px solid #dfe2e6; border-radius: 8px;
-    font-size: 13px; background: #fff; color: #0f172a;
+    padding: 6px 10px; border: 1px solid #EDE9E0; border-radius: 8px;
+    font-size: 13px; background: #fff; color: #0D0B09;
 }
 .tix-promo-toolbar select:focus,
-.tix-promo-toolbar input:focus { border-color: #6366f1; outline: none; box-shadow: 0 0 0 2px rgba(99,102,241,0.15); }
+.tix-promo-toolbar input:focus { border-color: #FF5500; outline: none; box-shadow: 0 0 0 2px rgba(255,85,0,0.15); }
 
 /* ── Primary Button ── */
 .tix-promo-btn {
     display: inline-flex; align-items: center; gap: 5px;
     padding: 7px 16px; border: none; border-radius: 8px;
     font-size: 13px; font-weight: 550; cursor: pointer; transition: all 0.15s;
-    background: #6366f1; color: #fff;
+    background: #FF5500; color: #fff;
 }
-.tix-promo-btn:hover { background: #4f46e5; }
+.tix-promo-btn:hover { background: #CC4400; }
 .tix-promo-btn .dashicons { font-size: 14px; width: 14px; height: 14px; }
 .tix-promo-btn-sm { padding: 4px 10px; font-size: 12px; }
 .tix-promo-btn-outline {
-    background: #fff; color: #6366f1; border: 1px solid #6366f1;
+    background: #fff; color: #FF5500; border: 1px solid #FF5500;
 }
-.tix-promo-btn-outline:hover { background: rgba(99,102,241,0.06); }
+.tix-promo-btn-outline:hover { background: rgba(255,85,0,0.06); }
 .tix-promo-btn-danger { background: #ef4444; }
 .tix-promo-btn-danger:hover { background: #dc2626; }
 .tix-promo-btn-success { background: #059669; }
@@ -72,10 +72,10 @@
 }
 .tix-promo-table th {
     font-weight: 550; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;
-    color: #64748b; padding: 10px 14px; background: #fafbfc; border-bottom: 1px solid #f1f3f5;
+    color: #64748b; padding: 10px 14px; background: #FAF8F4; border-bottom: 1px solid #F3F0EA;
     text-align: left; white-space: nowrap;
 }
-.tix-promo-table td { padding: 10px 14px; border-bottom: 1px solid #f1f3f5; color: #334155; }
+.tix-promo-table td { padding: 10px 14px; border-bottom: 1px solid #F3F0EA; color: #334155; }
 .tix-promo-table tbody tr:hover { background: #f8f9fb; }
 .tix-promo-table tbody tr:last-child td { border-bottom: none; }
 .tix-promo-table .tix-promo-actions { white-space: nowrap; }
@@ -98,9 +98,9 @@
 .tix-promoter-event-table { width: 100%; border-collapse: collapse; }
 .tix-promoter-event-table th {
     text-align: left; padding: 8px 12px; font-size: 12px; font-weight: 600; color: #64748b;
-    border-bottom: 2px solid #e2e8f0; background: #f8fafc;
+    border-bottom: 2px solid #EDE9E0; background: #FAF8F4;
 }
-.tix-promoter-event-table td { padding: 8px 12px; border-bottom: 1px solid #f1f3f5; font-size: 13px; }
+.tix-promoter-event-table td { padding: 8px 12px; border-bottom: 1px solid #F3F0EA; font-size: 13px; }
 .tix-promoter-event-table tbody tr:hover { background: #f8f9fb; }
 .tix-promoter-event-empty { text-align: center; padding: 24px; color: #94a3b8; }
 
@@ -137,10 +137,10 @@
 .tix-promo-form {
     display: none; background: #fff; border-radius: 12px; padding: 20px; margin-bottom: 16px;
     box-shadow: 0 1px 2px rgba(0,0,0,0.04), 0 1px 3px rgba(0,0,0,0.03);
-    border: 1px solid #e2e8f0;
+    border: 1px solid #EDE9E0;
 }
 .tix-promo-form.open { display: block; }
-.tix-promo-form h3 { margin: 0 0 16px; font-size: 15px; color: #0f172a; }
+.tix-promo-form h3 { margin: 0 0 16px; font-size: 15px; color: #0D0B09; }
 .tix-promo-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .tix-promo-form-grid .tix-promo-field-full { grid-column: 1 / -1; }
 .tix-promo-form label { display: block; font-size: 12px; font-weight: 550; color: #64748b; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.04em; }
@@ -149,12 +149,12 @@
 .tix-promo-form input[type="date"],
 .tix-promo-form select,
 .tix-promo-form textarea {
-    width: 100%; padding: 8px 12px; border: 1px solid #dfe2e6; border-radius: 8px;
-    font-size: 13px; color: #0f172a; background: #fff; box-sizing: border-box;
+    width: 100%; padding: 8px 12px; border: 1px solid #EDE9E0; border-radius: 8px;
+    font-size: 13px; color: #0D0B09; background: #fff; box-sizing: border-box;
 }
 .tix-promo-form input:focus,
 .tix-promo-form select:focus,
-.tix-promo-form textarea:focus { border-color: #6366f1; outline: none; box-shadow: 0 0 0 2px rgba(99,102,241,0.15); }
+.tix-promo-form textarea:focus { border-color: #FF5500; outline: none; box-shadow: 0 0 0 2px rgba(255,85,0,0.15); }
 .tix-promo-form textarea { min-height: 60px; resize: vertical; }
 .tix-promo-form-actions { display: flex; gap: 8px; margin-top: 16px; }
 .tix-promo-form .tix-promo-hint { font-size: 11px; color: #94a3b8; margin-top: 2px; }
@@ -165,19 +165,19 @@
     box-shadow: 0 1px 2px rgba(0,0,0,0.04), 0 1px 3px rgba(0,0,0,0.03);
     margin-bottom: 20px;
 }
-.tix-promo-chart-wrap h3 { margin: 0 0 12px; font-size: 14px; color: #0f172a; }
+.tix-promo-chart-wrap h3 { margin: 0 0 12px; font-size: 14px; color: #0D0B09; }
 .tix-promo-chart-wrap canvas { max-height: 320px; }
 
 /* ── Event Metabox ── */
 .tix-promo-metabox-list { margin: 0; padding: 0; list-style: none; }
 .tix-promo-metabox-list li { padding: 6px 0; border-bottom: 1px solid #f0f0f0; font-size: 13px; }
 .tix-promo-metabox-list li:last-child { border-bottom: none; }
-.tix-promo-metabox-code { font-family: monospace; background: #f1f3f5; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+.tix-promo-metabox-code { font-family: monospace; background: #F3F0EA; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
 .tix-promo-metabox-empty { color: #94a3b8; font-style: italic; font-size: 13px; }
 
 /* ── Loading / Empty ── */
 .tix-promo-loading { display: flex; align-items: center; justify-content: center; min-height: 100px; color: #94a3b8; }
-.tix-promo-spinner { width: 24px; height: 24px; border: 3px solid #e2e8f0; border-top-color: #6366f1; border-radius: 50%; animation: tixPromoSpin 0.7s linear infinite; }
+.tix-promo-spinner { width: 24px; height: 24px; border: 3px solid #EDE9E0; border-top-color: #FF5500; border-radius: 50%; animation: tixPromoSpin 0.7s linear infinite; }
 @keyframes tixPromoSpin { to { transform: rotate(360deg); } }
 .tix-promo-empty { text-align: center; padding: 32px 16px; color: #94a3b8; font-size: 13px; }
 

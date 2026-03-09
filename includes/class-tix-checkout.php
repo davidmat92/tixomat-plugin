@@ -107,7 +107,7 @@ class TIX_Checkout {
             $order_key = isset($_GET['key']) ? sanitize_text_field($_GET['key']) : '';
             $order = wc_get_order($order_id);
             if ($order && $order->get_order_key() === $order_key) {
-                wp_enqueue_style('tix-checkout', TIXOMAT_URL . 'assets/css/checkout.css', [], TIXOMAT_VERSION);
+                wp_enqueue_style('tix-checkout', TIXOMAT_URL . 'assets/css/checkout.css', ['tix-google-fonts'], TIXOMAT_VERSION);
                 return self::render_thankyou($order);
             }
         }
@@ -1183,7 +1183,7 @@ class TIX_Checkout {
     private static function enqueue() {
         if (wp_script_is('tix-checkout', 'enqueued')) return;
         add_filter('woocommerce_is_checkout', '__return_true');
-        wp_enqueue_style('tix-checkout', TIXOMAT_URL . 'assets/css/checkout.css', [], TIXOMAT_VERSION);
+        wp_enqueue_style('tix-checkout', TIXOMAT_URL . 'assets/css/checkout.css', ['tix-google-fonts'], TIXOMAT_VERSION);
         wp_enqueue_script('tix-checkout', TIXOMAT_URL . 'assets/js/checkout.js', ['jquery'], TIXOMAT_VERSION, true);
         // Abandoned Cart: Event-ID aus dem Warenkorb ermitteln
         $ac_event_id = 0;

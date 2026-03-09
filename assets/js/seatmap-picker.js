@@ -77,7 +77,7 @@
                     sectionLookup[s.id] = {
                         id:    s.id,
                         label: s.category_name || s.label,
-                        color: s.color || '#6366f1',
+                        color: s.color || '#FF5500',
                         price: s.price || 0
                     };
                 });
@@ -114,7 +114,7 @@
 
                 var info = sectionLookup[section.id] || {};
                 var price = info.price || section.price || 0;
-                var color = section.color || '#6366f1';
+                var color = section.color || '#FF5500';
                 var label = info.label || section.category_name || section.label || section.id;
 
                 html += '<span class="tix-sp-legend-item">' +
@@ -135,7 +135,7 @@
                 // Filter: nur gewünschte Sektion zeigen (wenn angegeben)
                 if (sectionId && section.id !== sectionId) return;
 
-                var color = section.color || '#6366f1';
+                var color = section.color || '#FF5500';
                 var info  = sectionLookup[section.id] || {};
                 var label = info.label || section.category_name || section.label || section.id;
                 var price = info.price || section.price || 0;
@@ -209,7 +209,7 @@
                 state.selected.forEach(function(id) {
                     var secId = getSectionForSeat(id);
                     var sec   = sectionLookup[secId] || {};
-                    var color = sec.color || '#6366f1';
+                    var color = sec.color || '#FF5500';
                     html += '<span class="tix-sp-selected-tag" style="--tag-color:' + color + '">' +
                         esc(formatSeatId(id)) +
                         ' <span class="remove" data-seat-id="' + esc(id) + '">✕</span></span>';
@@ -323,7 +323,7 @@
                             });
                         });
                         var blockCls = 'tix-sp-ov-block' + (selectedCount > 0 ? ' has-selection' : '');
-                        html += '<div class="' + blockCls + '" data-section-id="' + s.id + '" style="background:' + (s.color || '#6366f1') + '">' +
+                        html += '<div class="' + blockCls + '" data-section-id="' + s.id + '" style="background:' + (s.color || '#FF5500') + '">' +
                             '<div class="tix-sp-ov-label">' + esc(s.label || s.id) + '</div>' +
                             '<div class="tix-sp-ov-avail">' + avail + ' frei</div>' +
                             (selectedCount > 0 ? '<div class="tix-sp-ov-selected">' + selectedCount + ' gewählt</div>' : '') +

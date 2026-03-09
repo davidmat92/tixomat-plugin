@@ -7,7 +7,7 @@
     var activeTab = 'overview';
     var loadedTabs = {};
 
-    var TIX_COLORS = ['#6366f1','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#ec4899','#84cc16'];
+    var TIX_COLORS = ['#FF5500','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#ec4899','#84cc16'];
 
     /* ── Chart.js Defaults ── */
     if (window.Chart) {

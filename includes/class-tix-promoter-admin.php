@@ -63,7 +63,7 @@ class TIX_Promoter_Admin {
         if ($hook !== 'tixomat_page_tix-promoters') return;
 
         wp_enqueue_style('dashicons');
-        wp_enqueue_style('tix-admin', TIXOMAT_URL . 'assets/css/admin.css', [], TIXOMAT_VERSION);
+        wp_enqueue_style('tix-admin', TIXOMAT_URL . 'assets/css/admin.css', ['tix-google-fonts'], TIXOMAT_VERSION);
 
         $min = defined('SCRIPT_DEBUG') && SCRIPT_DEBUG ? '' : '.min';
         wp_enqueue_style('tix-promoter-admin', TIXOMAT_URL . 'assets/css/promoter-admin' . $min . '.css', ['tix-admin'], TIXOMAT_VERSION);
@@ -622,7 +622,7 @@ class TIX_Promoter_Admin {
                     [
                         'label'           => 'Umsatz (' . "\xe2\x82\xac" . ')',
                         'data'            => $chart_sales,
-                        'backgroundColor' => '#6366f1',
+                        'backgroundColor' => '#FF5500',
                         'borderRadius'    => 4,
                     ],
                     [

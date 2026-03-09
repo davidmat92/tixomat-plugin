@@ -73,7 +73,7 @@ class TIX_Timetable {
                 <button type="button" class="tix-tt-filter-btn active" data-stage="all">Alle</button>
                 <?php foreach ($stages as $si => $stage): ?>
                     <button type="button" class="tix-tt-filter-btn" data-stage="<?php echo $si; ?>"
-                            style="--tt-stage-color: <?php echo esc_attr($stage['color'] ?? '#6366f1'); ?>">
+                            style="--tt-stage-color: <?php echo esc_attr($stage['color'] ?? '#FF5500'); ?>">
                         <?php echo esc_html($stage['name']); ?>
                     </button>
                 <?php endforeach; ?>
@@ -94,7 +94,7 @@ class TIX_Timetable {
                     <div class="tix-tt-grid-header">
                         <div class="tix-tt-time-header"></div>
                         <?php foreach ($stages as $si => $stage): ?>
-                            <div class="tix-tt-stage-header" style="--tt-stage-color: <?php echo esc_attr($stage['color'] ?? '#6366f1'); ?>">
+                            <div class="tix-tt-stage-header" style="--tt-stage-color: <?php echo esc_attr($stage['color'] ?? '#FF5500'); ?>">
                                 <?php echo esc_html($stage['name']); ?>
                             </div>
                         <?php endforeach; ?>
@@ -123,7 +123,7 @@ class TIX_Timetable {
                                 }
                             }
                         ?>
-                            <div class="tix-tt-cell" style="--tt-stage-color: <?php echo esc_attr($stage['color'] ?? '#6366f1'); ?>">
+                            <div class="tix-tt-cell" style="--tt-stage-color: <?php echo esc_attr($stage['color'] ?? '#FF5500'); ?>">
                                 <?php if ($match): ?>
                                     <div class="tix-tt-slot">
                                         <span class="tix-tt-slot-time"><?php echo esc_html($match['time']); ?><?php if (!empty($match['end'])): ?> – <?php echo esc_html($match['end']); ?><?php endif; ?></span>
@@ -143,7 +143,7 @@ class TIX_Timetable {
                 <div class="tix-tt-list">
                     <?php foreach ($slots as $slot):
                         $s_idx = intval($slot['stage'] ?? 0);
-                        $s_color = $stages[$s_idx]['color'] ?? '#6366f1';
+                        $s_color = $stages[$s_idx]['color'] ?? '#FF5500';
                         $s_name  = $stages[$s_idx]['name'] ?? '';
                     ?>
                         <div class="tix-tt-list-item" data-stage="<?php echo $s_idx; ?>" style="--tt-stage-color: <?php echo esc_attr($s_color); ?>">
@@ -169,7 +169,7 @@ class TIX_Timetable {
 
     /* ══ Assets ══ */
     private static function enqueue() {
-        wp_enqueue_style('tix-timetable', TIXOMAT_URL . 'assets/css/timetable.css', [], TIXOMAT_VERSION);
+        wp_enqueue_style('tix-timetable', TIXOMAT_URL . 'assets/css/timetable.css', ['tix-google-fonts'], TIXOMAT_VERSION);
         wp_enqueue_script('tix-timetable', TIXOMAT_URL . 'assets/js/timetable.js', [], TIXOMAT_VERSION, true);
     }
 }

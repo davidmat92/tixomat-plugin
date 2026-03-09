@@ -534,7 +534,7 @@ class TIX_Seatmap {
             $s = [
                 'id'       => sanitize_key($section['id'] ?? ''),
                 'label'    => sanitize_text_field($section['label'] ?? ''),
-                'color'         => sanitize_hex_color($section['color'] ?? '#6366f1') ?: '#6366f1',
+                'color'         => sanitize_hex_color($section['color'] ?? '#FF5500') ?: '#FF5500',
                 'position'      => in_array($section['position'] ?? '', $positions) ? $section['position'] : 'center',
                 'price'         => floatval($section['price'] ?? 0),
                 'category_name' => sanitize_text_field($section['category_name'] ?? ''),
@@ -743,7 +743,7 @@ class TIX_Seatmap {
             $result[] = [
                 'id'         => $s['id'],
                 'label'      => !empty($s['category_name']) ? $s['category_name'] : $s['label'],
-                'color'      => $s['color'] ?? '#6366f1',
+                'color'      => $s['color'] ?? '#FF5500',
                 'price'      => floatval($s['price'] ?? 0),
                 'product_id' => $products[$s['id']] ?? 0,
                 'total'      => $total,
@@ -759,7 +759,7 @@ class TIX_Seatmap {
     public static function enqueue_picker_assets() {
         if (wp_script_is('tix-seatmap-picker', 'enqueued')) return;
         wp_enqueue_script('tix-seatmap-picker', TIXOMAT_URL . 'assets/js/seatmap-picker.js', [], TIXOMAT_VERSION, true);
-        wp_enqueue_style('tix-seatmap-picker', TIXOMAT_URL . 'assets/css/seatmap-picker.css', [], TIXOMAT_VERSION);
+        wp_enqueue_style('tix-seatmap-picker', TIXOMAT_URL . 'assets/css/seatmap-picker.css', ['tix-google-fonts'], TIXOMAT_VERSION);
     }
 
     // ──────────────────────────────────────────

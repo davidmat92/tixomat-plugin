@@ -105,8 +105,8 @@
                             {
                                 label: 'Umsatz',
                                 data: d.chart.sales,
-                                borderColor: '#6366f1',
-                                backgroundColor: 'rgba(99,102,241,0.08)',
+                                borderColor: '#FF5500',
+                                backgroundColor: 'rgba(255,85,0,0.08)',
                                 fill: true,
                                 tension: 0.3
                             },

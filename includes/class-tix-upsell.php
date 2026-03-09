@@ -46,7 +46,7 @@ class TIX_Upsell {
         if (empty($events)) return '';
 
         // Enqueue
-        wp_enqueue_style('tix-upsell', TIXOMAT_URL . 'assets/css/upsell.css', [], TIXOMAT_VERSION);
+        wp_enqueue_style('tix-upsell', TIXOMAT_URL . 'assets/css/upsell.css', ['tix-google-fonts'], TIXOMAT_VERSION);
 
         $extra_class = $atts['class'] ? ' ' . esc_attr($atts['class']) : '';
 
@@ -128,7 +128,7 @@ class TIX_Upsell {
         if (empty($events)) return '';
 
         // Enqueue
-        wp_enqueue_style('tix-upsell', TIXOMAT_URL . 'assets/css/upsell.css', [], TIXOMAT_VERSION);
+        wp_enqueue_style('tix-upsell', TIXOMAT_URL . 'assets/css/upsell.css', ['tix-google-fonts'], TIXOMAT_VERSION);
 
         ob_start();
         ?>

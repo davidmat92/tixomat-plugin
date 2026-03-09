@@ -2,20 +2,32 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.28.31
+ * Version: 1.28.32
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.28.31');
+define('TIXOMAT_VERSION', '1.28.32');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
 // ── Immer laden (CPT, leichtgewichtig) ──
 require_once TIXOMAT_PATH . 'includes/class-tix-cpt.php';
 add_action('init', ['TIX_CPT', 'register']);
+
+// ── Google Fonts: Outfit (Display) + Inter (Body) – Tixomat CI ──
+add_action('wp_enqueue_scripts', function() {
+    wp_register_style('tix-google-fonts',
+        'https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Inter:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap',
+        [], null);
+}, 5);
+add_action('admin_enqueue_scripts', function() {
+    wp_register_style('tix-google-fonts',
+        'https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Inter:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap',
+        [], null);
+}, 5);
 
 /**
  * Ticket-System Modus-Helper.

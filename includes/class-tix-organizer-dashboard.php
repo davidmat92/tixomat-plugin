@@ -67,10 +67,19 @@ class TIX_Organizer_Dashboard {
 
     private static function enqueue() {
         wp_enqueue_style('dashicons');
+
+        // Google Fonts: Outfit (Display) + Inter (Body/UI) – Tixomat CI
+        wp_enqueue_style(
+            'tix-google-fonts',
+            'https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Inter:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap',
+            [],
+            null
+        );
+
         wp_enqueue_style(
             'tix-organizer-dashboard',
             TIXOMAT_URL . 'assets/css/organizer-dashboard.css',
-            [],
+            ['tix-google-fonts'],
             TIXOMAT_VERSION
         );
 
@@ -872,7 +881,7 @@ class TIX_Organizer_Dashboard {
                     if (empty($name)) continue;
                     $stages[] = [
                         'name'  => $name,
-                        'color' => sanitize_hex_color($st['color'] ?? '') ?: '#6366f1',
+                        'color' => sanitize_hex_color($st['color'] ?? '') ?: '#FF5500',
                     ];
                 }
             }

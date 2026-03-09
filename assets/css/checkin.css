@@ -7,12 +7,12 @@
     --ci-bg: #f7f8fa;
     --ci-surface: #ffffff;
     --ci-border: #e8eaed;
-    --ci-text: #0f172a;
+    --ci-text: #0D0B09;
     --ci-muted: #64748b;
     --ci-ok: #10b981;
     --ci-warn: #f59e0b;
     --ci-err: #ef4444;
-    --ci-accent: #6366f1;
+    --ci-accent: #FF5500;
     --ci-accent-text: #ffffff;
 
     max-width: 480px;
@@ -20,7 +20,7 @@
     padding: 20px;
     background: var(--ci-bg);
     color: var(--ci-text);
-    font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
     min-height: 100vh;
     -webkit-font-smoothing: antialiased;
 }
@@ -56,7 +56,7 @@
 .tix-ci-select:focus {
     outline: none;
     border-color: var(--ci-accent);
-    box-shadow: 0 0 0 3px rgba(99,102,241,0.15);
+    box-shadow: 0 0 0 3px rgba(255,85,0,0.15);
 }
 
 /* ── Auth ── */
@@ -83,7 +83,7 @@
 }
 .tix-ci-input:focus {
     border-color: var(--ci-accent);
-    box-shadow: 0 0 0 3px rgba(99,102,241,0.15);
+    box-shadow: 0 0 0 3px rgba(255,85,0,0.15);
 }
 .tix-ci-input::placeholder { color: #cbd5e1; }
 
@@ -101,7 +101,7 @@
     box-shadow: 0 1px 2px rgba(0,0,0,0.04), 0 1px 3px rgba(0,0,0,0.03);
 }
 .tix-ci-btn:hover {
-    background: #4f46e5;
+    background: #CC4400;
 }
 .tix-ci-btn:active {
     transform: scale(0.97);
@@ -112,7 +112,7 @@
     position: relative;
     width: 100%;
     aspect-ratio: 4 / 3;
-    background: #0f172a;
+    background: #0D0B09;
     border-radius: 16px;
     overflow: hidden;
     margin-bottom: 16px;
@@ -134,7 +134,7 @@
 .tix-ci-crosshair {
     width: 200px;
     height: 200px;
-    border: 2px solid rgba(99,102,241,0.6);
+    border: 2px solid rgba(255,85,0,0.6);
     border-radius: 16px;
     box-shadow: 0 0 0 9999px rgba(0,0,0,0.35);
 }
@@ -224,8 +224,8 @@
 .tix-ci-guest-name { font-weight: 600; font-size: 0.95rem; }
 .tix-ci-guest-plus {
     display: inline-block;
-    background: rgba(99,102,241,0.1);
-    color: #6366f1;
+    background: rgba(255,85,0,0.1);
+    color: #FF5500;
     font-size: 0.7rem;
     font-weight: 700;
     padding: 2px 8px;
@@ -264,7 +264,7 @@
     transition: background 0.15s ease, transform 0.15s ease;
 }
 .tix-ci-guest-checkin:hover {
-    background: #4f46e5;
+    background: #CC4400;
 }
 .tix-ci-guest-checkin:active {
     transform: scale(0.95);
@@ -326,7 +326,7 @@
 }
 .tix-ci-counter-btn:hover {
     border-color: var(--ci-accent);
-    background: rgba(99,102,241,0.06);
+    background: rgba(255,85,0,0.06);
 }
 .tix-ci-counter-btn:active {
     transform: scale(0.92);
@@ -388,8 +388,8 @@
     line-height: 1.6;
 }
 .tix-ci-badge-ticket {
-    background: rgba(99,102,241,0.1);
-    color: #6366f1;
+    background: rgba(255,85,0,0.1);
+    color: #FF5500;
 }
 .tix-ci-badge-guest {
     background: rgba(16,185,129,0.1);
@@ -409,7 +409,7 @@
     flex-shrink: 0;
     transition: background 0.15s ease, transform 0.15s ease;
 }
-.tix-ci-ticket-checkin:hover { background: #4f46e5; }
+.tix-ci-ticket-checkin:hover { background: #CC4400; }
 .tix-ci-ticket-checkin:active { transform: scale(0.95); }
 .tix-ci-ticket-checkin:disabled { opacity: 0.35; cursor: default; }
 

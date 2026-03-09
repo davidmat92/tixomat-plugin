@@ -41,7 +41,7 @@ class TIX_Promoter_Dashboard {
         wp_enqueue_style(
             'tix-promoter-dashboard',
             TIXOMAT_URL . 'assets/css/promoter-dashboard.css',
-            [],
+            ['tix-google-fonts'],
             TIXOMAT_VERSION
         );
 

@@ -11,7 +11,7 @@ class TIX_Docs {
     public static function enqueue_assets($hook) {
         if ($hook !== 'tixomat_page_tix-docs') return;
         wp_enqueue_style('dashicons');
-        wp_enqueue_style('tix-admin', TIXOMAT_URL . 'assets/css/admin.css', [], TIXOMAT_VERSION);
+        wp_enqueue_style('tix-admin', TIXOMAT_URL . 'assets/css/admin.css', ['tix-google-fonts'], TIXOMAT_VERSION);
     }
 
     public static function add_menu() {

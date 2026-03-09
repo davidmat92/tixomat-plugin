@@ -231,9 +231,9 @@ class TIX_Settings {
             // ── Theme-Modus (universell) ──
             'theme_mode'         => 'light',   // 'light' oder 'dark'
             // ── Check-in ──
-            'ci_bg'              => '#f8fafc',
+            'ci_bg'              => '#FAF8F4',
             'ci_surface'         => '#ffffff',
-            'ci_border'          => '#e2e8f0',
+            'ci_border'          => '#EDE9E0',
             'ci_text'            => '#1e293b',
             'ci_muted'           => '#64748b',
             'ci_accent'          => '#1e293b',
@@ -289,11 +289,11 @@ class TIX_Settings {
     public static function enqueue_assets($hook) {
         if ($hook !== 'tixomat_page_tix-settings') return;
         wp_enqueue_style('dashicons');
-        wp_enqueue_style('tix-admin', TIXOMAT_URL . 'assets/css/admin.css', [], TIXOMAT_VERSION);
+        wp_enqueue_style('tix-admin', TIXOMAT_URL . 'assets/css/admin.css', ['tix-google-fonts'], TIXOMAT_VERSION);
 
         // Ticket-Template Editor
         wp_enqueue_media();
-        wp_enqueue_style('tix-tte-editor', TIXOMAT_URL . 'assets/css/ticket-template-editor.css', [], TIXOMAT_VERSION);
+        wp_enqueue_style('tix-tte-editor', TIXOMAT_URL . 'assets/css/ticket-template-editor.css', ['tix-google-fonts'], TIXOMAT_VERSION);
         wp_enqueue_script('tix-tte-editor', TIXOMAT_URL . 'assets/js/ticket-template-editor.js', ['jquery'], TIXOMAT_VERSION, true);
     }
 
@@ -1652,11 +1652,11 @@ class TIX_Settings {
                                             <div class="tix-field tix-field-full">
                                                 <label class="tix-field-label">Layout-Modus</label>
                                                 <div style="display:flex;gap:12px;margin-top:6px;">
-                                                    <label style="display:flex;align-items:center;gap:6px;cursor:pointer;padding:8px 16px;border:2px solid <?php echo $s['ep_layout'] === '2col' ? 'var(--tix-admin-accent,#6366f1)' : '#e5e7eb'; ?>;border-radius:8px;background:<?php echo $s['ep_layout'] === '2col' ? 'rgba(99,102,241,.06)' : '#fff'; ?>;">
+                                                    <label style="display:flex;align-items:center;gap:6px;cursor:pointer;padding:8px 16px;border:2px solid <?php echo $s['ep_layout'] === '2col' ? 'var(--tix-admin-accent,#FF5500)' : '#e5e7eb'; ?>;border-radius:8px;background:<?php echo $s['ep_layout'] === '2col' ? 'rgba(255,85,0,.06)' : '#fff'; ?>;">
                                                         <input type="radio" name="tix_settings[ep_layout]" value="2col" <?php checked($s['ep_layout'], '2col'); ?> style="margin:0;">
                                                         <span><strong>2 Spalten</strong><br><small style="color:#64748b;">Content links, Sidebar rechts (sticky)</small></span>
                                                     </label>
-                                                    <label style="display:flex;align-items:center;gap:6px;cursor:pointer;padding:8px 16px;border:2px solid <?php echo $s['ep_layout'] === '1col' ? 'var(--tix-admin-accent,#6366f1)' : '#e5e7eb'; ?>;border-radius:8px;background:<?php echo $s['ep_layout'] === '1col' ? 'rgba(99,102,241,.06)' : '#fff'; ?>;">
+                                                    <label style="display:flex;align-items:center;gap:6px;cursor:pointer;padding:8px 16px;border:2px solid <?php echo $s['ep_layout'] === '1col' ? 'var(--tix-admin-accent,#FF5500)' : '#e5e7eb'; ?>;border-radius:8px;background:<?php echo $s['ep_layout'] === '1col' ? 'rgba(255,85,0,.06)' : '#fff'; ?>;">
                                                         <input type="radio" name="tix_settings[ep_layout]" value="1col" <?php checked($s['ep_layout'], '1col'); ?> style="margin:0;">
                                                         <span><strong>1 Spalte</strong><br><small style="color:#64748b;">Alles untereinander, zentriert</small></span>
                                                     </label>
@@ -2164,25 +2164,25 @@ class TIX_Settings {
                 light: {
                     color_text:'', color_accent:'#1e293b', color_accent_text:'#ffffff',
                     color_accent_hover:'#334155', color_accent_hover_text:'',
-                    color_border:'#e2e8f0', color_input_border:'#cbd5e1',
+                    color_border:'#EDE9E0', color_input_border:'#cbd5e1',
                     color_focus:'#3b82f6', color_sale:'#ef4444', save_badge_bg:'', save_badge_text:'',
                     color_success:'#22c55e',
                     color_card_bg:'#ffffff', color_input_bg:'#ffffff', shortcode_bg:'',
-                    sel_text_color:'', sel_bg:'#ffffff', sel_border_color:'#e2e8f0',
+                    sel_text_color:'', sel_bg:'#ffffff', sel_border_color:'#EDE9E0',
                     sel_active_border:'#3b82f6', sel_active_bg:'#eff6ff', sel_hover_text:'',
                     faq_text_color:'', faq_bg:'#ffffff', faq_list_bg:'',
-                    faq_hover_bg:'#f8fafc', faq_hover_text:'', faq_active_bg:'#f1f5f9',
-                    faq_border_color:'#e2e8f0', faq_divider_color:'#e2e8f0',
+                    faq_hover_bg:'#FAF8F4', faq_hover_text:'', faq_active_bg:'#f1f5f9',
+                    faq_border_color:'#EDE9E0', faq_divider_color:'#EDE9E0',
                     faq_accent_color:'#1e293b', faq_icon_color:'', faq_link_color:'#3b82f6',
-                    cal_bg:'#ffffff', cal_text_color:'', cal_border_color:'#e2e8f0',
-                    cal_hover_bg:'#f8fafc', cal_hover_text:'', cal_hover_border:'#1e293b',
+                    cal_bg:'#ffffff', cal_text_color:'', cal_border_color:'#EDE9E0',
+                    cal_hover_bg:'#FAF8F4', cal_hover_text:'', cal_hover_border:'#1e293b',
                     ec_btn_bg:'#1e293b', ec_btn_text:'#ffffff', ec_btn_hover_bg:'#334155', ec_btn_hover_text:'',
                     ec_btn_border_color:'', ec_modal_bg:'#ffffff', ec_modal_text:'#1e293b',
-                    ec_modal_border:'#e2e8f0', ec_cat_border:'#e2e8f0', ec_cat_active:'#3b82f6',
+                    ec_modal_border:'#EDE9E0', ec_cat_border:'#EDE9E0', ec_cat_active:'#3b82f6',
                     ec_buy_bg:'#1e293b', ec_buy_text:'#ffffff', ec_buy_hover_bg:'#334155', ec_buy_hover_text:'',
-                    mt_bg:'#f8fafc', mt_card_bg:'#ffffff', mt_text_color:'#1e293b',
-                    mt_border_color:'#e2e8f0', mt_ticket_bg:'#f0fdf4', mt_accent_color:'#1e293b',
-                    ci_bg:'#f8fafc', ci_surface:'#ffffff', ci_border:'#e2e8f0',
+                    mt_bg:'#FAF8F4', mt_card_bg:'#ffffff', mt_text_color:'#1e293b',
+                    mt_border_color:'#EDE9E0', mt_ticket_bg:'#f0fdf4', mt_accent_color:'#1e293b',
+                    ci_bg:'#FAF8F4', ci_surface:'#ffffff', ci_border:'#EDE9E0',
                     ci_text:'#1e293b', ci_muted:'#64748b', ci_accent:'#1e293b',
                     ci_accent_text:'#ffffff', ci_ok:'#22c55e', ci_warn:'#eab308', ci_err:'#ef4444'
                 },

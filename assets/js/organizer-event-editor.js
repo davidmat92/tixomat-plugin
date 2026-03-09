@@ -224,7 +224,7 @@
             if (n) tickets.push(n + ' \u2013 ' + p + ' \u20ac \u00d7 ' + q);
         });
 
-        var html = '<div style="background:#f8fafc;padding:16px;border-radius:8px;border:1px solid #e2e8f0;">'
+        var html = '<div style="background:#FAF8F4;padding:16px;border-radius:8px;border:1px solid #EDE9E0;">'
             + '<p><strong>Titel:</strong> ' + escHtml(title) + '</p>'
             + '<p><strong>Datum:</strong> ' + dateStart + ' ' + timeStart + '</p>'
             + '<p><strong>Tickets:</strong></p><ul>';
@@ -465,7 +465,7 @@
                 + '<button type="button" class="tix-oe-repeater-remove">&times;</button>'
                 + '<div class="tix-oe-grid-2">'
                 + field('Name', '<input type="text" class="tix-oe-input tix-oe-stage-name" value="' + escAttr(s.name || '') + '">')
-                + field('Farbe', '<input type="color" class="tix-oe-stage-color" value="' + (s.color || '#6366f1') + '" style="width:50px;height:36px;padding:2px;border:1px solid #dfe2e6;border-radius:6px">')
+                + field('Farbe', '<input type="color" class="tix-oe-stage-color" value="' + (s.color || '#FF5500') + '" style="width:50px;height:36px;padding:2px;border:1px solid #dfe2e6;border-radius:6px">')
                 + '</div></div>';
         });
         html += '</div>'
@@ -530,7 +530,7 @@
             + '<div class="tix-oe-grid-3">'
             + field('Limit', '<input type="number" class="tix-oe-input tix-oe-dc-limit" value="' + (dc.limit || '') + '" min="0" placeholder="0 = unbegrenzt">')
             + field('Ablaufdatum', '<input type="date" class="tix-oe-input tix-oe-dc-expiry" value="' + (dc.expiry || '') + '">')
-            + field('Genutzt', '<input type="text" class="tix-oe-input" value="' + (dc.usage || 0) + '" readonly style="background:#f8fafc">')
+            + field('Genutzt', '<input type="text" class="tix-oe-input" value="' + (dc.usage || 0) + '" readonly style="background:#FAF8F4">')
             + '</div></div>';
     }
 
@@ -582,7 +582,7 @@
                 '<div class="tix-oe-repeater-item"><button type="button" class="tix-oe-repeater-remove">&times;</button>'
                 + '<div class="tix-oe-grid-2">'
                 + field('Name', '<input type="text" class="tix-oe-input tix-oe-stage-name">')
-                + field('Farbe', '<input type="color" class="tix-oe-stage-color" value="#6366f1" style="width:50px;height:36px;padding:2px;border:1px solid #dfe2e6;border-radius:6px">')
+                + field('Farbe', '<input type="color" class="tix-oe-stage-color" value="#FF5500" style="width:50px;height:36px;padding:2px;border:1px solid #dfe2e6;border-radius:6px">')
                 + '</div></div>'
             );
         });

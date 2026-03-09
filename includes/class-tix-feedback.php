@@ -307,7 +307,7 @@ class TIX_Feedback {
 
     /* ══ Assets ══ */
     private static function enqueue() {
-        wp_enqueue_style('tix-feedback', TIXOMAT_URL . 'assets/css/feedback.css', [], TIXOMAT_VERSION);
+        wp_enqueue_style('tix-feedback', TIXOMAT_URL . 'assets/css/feedback.css', ['tix-google-fonts'], TIXOMAT_VERSION);
         wp_enqueue_script('tix-feedback', TIXOMAT_URL . 'assets/js/feedback.js', [], TIXOMAT_VERSION, true);
         wp_localize_script('tix-feedback', 'tixFeedback', [
             'ajaxurl' => admin_url('admin-ajax.php'),

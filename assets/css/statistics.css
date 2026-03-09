@@ -31,16 +31,16 @@
 .tix-stats-filter select {
     min-width: 160px;
     padding: 6px 10px;
-    border: 1px solid #dfe2e6;
+    border: 1px solid #EDE9E0;
     border-radius: 8px;
     font-size: 13px;
     background: #fff;
-    color: #0f172a;
+    color: #0D0B09;
 }
 .tix-stats-filter select:focus {
-    border-color: #6366f1;
+    border-color: #FF5500;
     outline: none;
-    box-shadow: 0 0 0 2px rgba(99,102,241,0.15);
+    box-shadow: 0 0 0 2px rgba(255,85,0,0.15);
 }
 
 /* Presets */
@@ -51,7 +51,7 @@
 }
 .tix-stats-presets button {
     padding: 4px 10px;
-    border: 1px solid #dfe2e6;
+    border: 1px solid #EDE9E0;
     border-radius: 8px;
     background: #fff;
     font-size: 12px;
@@ -62,9 +62,9 @@
 }
 .tix-stats-presets button.active,
 .tix-stats-presets button:hover {
-    background: rgba(99,102,241,0.08);
-    border-color: #6366f1;
-    color: #6366f1;
+    background: rgba(255,85,0,0.08);
+    border-color: #FF5500;
+    color: #FF5500;
 }
 
 /* Date inputs */
@@ -75,16 +75,16 @@
 }
 .tix-stats-dates input[type="date"] {
     padding: 5px 8px;
-    border: 1px solid #dfe2e6;
+    border: 1px solid #EDE9E0;
     border-radius: 8px;
     font-size: 12px;
-    color: #0f172a;
+    color: #0D0B09;
     background: #fff;
 }
 .tix-stats-dates input[type="date"]:focus {
-    border-color: #6366f1;
+    border-color: #FF5500;
     outline: none;
-    box-shadow: 0 0 0 2px rgba(99,102,241,0.15);
+    box-shadow: 0 0 0 2px rgba(255,85,0,0.15);
 }
 .tix-stats-dates span {
     color: #94a3b8;
@@ -99,7 +99,7 @@
     flex-wrap: wrap;
     margin-top: 12px;
     padding-top: 12px;
-    border-top: 1px solid #f1f3f5;
+    border-top: 1px solid #F3F0EA;
 }
 .tix-compare-toggle {
     display: inline-flex;
@@ -114,7 +114,7 @@
 .tix-compare-toggle input[type="checkbox"] {
     width: 15px;
     height: 15px;
-    accent-color: #6366f1;
+    accent-color: #FF5500;
     cursor: pointer;
 }
 .tix-compare-options {
@@ -125,16 +125,16 @@
 }
 .tix-compare-options select {
     padding: 5px 8px;
-    border: 1px solid #dfe2e6;
+    border: 1px solid #EDE9E0;
     border-radius: 8px;
     font-size: 12px;
-    color: #0f172a;
+    color: #0D0B09;
     background: #fff;
 }
 .tix-compare-options select:focus {
-    border-color: #6366f1;
+    border-color: #FF5500;
     outline: none;
-    box-shadow: 0 0 0 2px rgba(99,102,241,0.15);
+    box-shadow: 0 0 0 2px rgba(255,85,0,0.15);
 }
 .tix-compare-custom-dates {
     display: flex;
@@ -143,16 +143,16 @@
 }
 .tix-compare-custom-dates input[type="date"] {
     padding: 5px 8px;
-    border: 1px solid #dfe2e6;
+    border: 1px solid #EDE9E0;
     border-radius: 8px;
     font-size: 12px;
-    color: #0f172a;
+    color: #0D0B09;
     background: #fff;
 }
 .tix-compare-custom-dates input[type="date"]:focus {
-    border-color: #6366f1;
+    border-color: #FF5500;
     outline: none;
-    box-shadow: 0 0 0 2px rgba(99,102,241,0.15);
+    box-shadow: 0 0 0 2px rgba(255,85,0,0.15);
 }
 .tix-compare-custom-dates span {
     color: #94a3b8;
@@ -184,7 +184,7 @@
     box-shadow: 0 2px 4px rgba(0,0,0,0.04), 0 4px 12px rgba(0,0,0,0.03);
 }
 .tix-stats-kpi-icon {
-    color: #6366f1;
+    color: #FF5500;
     font-size: 20px;
     opacity: 0.65;
     display: block;
@@ -194,7 +194,7 @@
     display: block;
     font-size: 22px;
     font-weight: 700;
-    color: #0f172a;
+    color: #0D0B09;
     line-height: 1.2;
     word-break: break-word;
 }
@@ -217,7 +217,7 @@
     gap: 6px;
     margin-top: 8px;
     padding-top: 8px;
-    border-top: 1px dashed #e2e8f0;
+    border-top: 1px dashed #EDE9E0;
 }
 .tix-kpi-compare-val {
     font-size: 15px;
@@ -280,19 +280,19 @@
     letter-spacing: 0.06em;
     color: #64748b;
     padding: 10px 12px;
-    background: #fafbfc;
-    border-bottom: 1px solid #f1f3f5;
+    background: #FAF8F4;
+    border-bottom: 1px solid #F3F0EA;
     text-align: left;
     cursor: pointer;
     white-space: nowrap;
     user-select: none;
 }
 .tix-stats-table th:hover {
-    color: #6366f1;
+    color: #FF5500;
 }
 .tix-stats-table td {
     padding: 9px 12px;
-    border-bottom: 1px solid #f1f3f5;
+    border-bottom: 1px solid #F3F0EA;
     color: #334155;
 }
 .tix-stats-table tbody tr:hover {
@@ -309,7 +309,7 @@
     align-items: center;
     gap: 4px;
     padding: 4px 12px;
-    border: 1px solid #dfe2e6;
+    border: 1px solid #EDE9E0;
     border-radius: 8px;
     background: #fff;
     font-size: 12px;
@@ -318,9 +318,9 @@
     transition: all 0.15s;
 }
 .tix-stats-export-btn:hover {
-    border-color: #6366f1;
-    color: #6366f1;
-    background: rgba(99,102,241,0.04);
+    border-color: #FF5500;
+    color: #FF5500;
+    background: rgba(255,85,0,0.04);
 }
 .tix-stats-export-btn .dashicons {
     font-size: 14px;
@@ -343,8 +343,8 @@
 .tix-stats-spinner {
     width: 28px;
     height: 28px;
-    border: 3px solid #e2e8f0;
-    border-top-color: #6366f1;
+    border: 3px solid #EDE9E0;
+    border-top-color: #FF5500;
     border-radius: 50%;
     animation: tixStatsSpin 0.7s linear infinite;
 }

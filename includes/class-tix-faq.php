@@ -45,7 +45,7 @@ class TIX_FAQ {
         if (empty($faqs)) return '';
 
         // Assets laden
-        wp_enqueue_style('tix-faq', TIXOMAT_URL . 'assets/css/faq.css', [], TIXOMAT_VERSION);
+        wp_enqueue_style('tix-faq', TIXOMAT_URL . 'assets/css/faq.css', ['tix-google-fonts'], TIXOMAT_VERSION);
         wp_enqueue_script('tix-faq', TIXOMAT_URL . 'assets/js/faq.js', [], TIXOMAT_VERSION, true);
 
         $extra_class = $atts['class'] ? ' ' . esc_attr($atts['class']) : '';
