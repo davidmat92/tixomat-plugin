@@ -252,11 +252,22 @@ class TIX_CPT {
         wp_nonce_field('tix_save_organizer', 'tix_org_nonce');
         $address = get_post_meta($post->ID, '_tix_org_address', true);
         $desc    = get_post_meta($post->ID, '_tix_org_description', true);
+        $user_id = intval(get_post_meta($post->ID, '_tix_org_user_id', true));
         ?>
         <p><label><strong>Adresse</strong></label><br>
         <input type="text" name="tix_org_address" value="<?php echo esc_attr($address); ?>" style="width:100%" placeholder="z.B. Musterstraße 1, 50667 Köln"></p>
         <p><label><strong>Beschreibung</strong></label><br>
         <textarea name="tix_org_description" rows="4" style="width:100%" placeholder="Optionale Beschreibung des Veranstalters"><?php echo esc_textarea($desc); ?></textarea></p>
+        <p><label><strong>Verkn&uuml;pfter Benutzer</strong> <small>(f&uuml;r Veranstalter-Dashboard)</small></label><br>
+        <?php
+        wp_dropdown_users([
+            'name'             => 'tix_org_user_id',
+            'selected'         => $user_id,
+            'show_option_none' => '— Kein Benutzer —',
+            'option_none_value' => 0,
+        ]);
+        ?>
+        </p>
         <?php
     }
 
@@ -268,5 +279,9 @@ class TIX_CPT {
 
         update_post_meta($post_id, '_tix_org_address', sanitize_text_field($_POST['tix_org_address'] ?? ''));
         update_post_meta($post_id, '_tix_org_description', wp_kses_post($_POST['tix_org_description'] ?? ''));
+
+        // Verknüpfter Benutzer (für Veranstalter-Dashboard)
+        $user_id = intval($_POST['tix_org_user_id'] ?? 0);
+        update_post_meta($post_id, '_tix_org_user_id', $user_id);
     }
 }

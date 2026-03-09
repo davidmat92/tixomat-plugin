@@ -76,6 +76,7 @@
 54. [Saalplan (Seatmap)](#54-saalplan-seatmap)
 55. [Promoter-System](#55-promoter-system)
 56. [Daten-Synchronisierung](#56-daten-synchronisierung)
+57. [Veranstalter-Dashboard (Organizer)](#57-veranstalter-dashboard-organizer)
 
 ---
 
@@ -96,7 +97,7 @@ Tixomat automatisiert den gesamten Ticketing-Workflow fuer WordPress-basierte Ve
 
 ### Klassenuebersicht
 
-Tixomat besteht aus 38 Klassen:
+Tixomat besteht aus 39 Klassen:
 
 | Klasse | Datei | Verantwortung |
 |---|---|---|
@@ -138,6 +139,7 @@ Tixomat besteht aus 38 Klassen:
 | `TIX_Sync_Airtable` | `class-tix-sync-airtable.php` | Airtable-Synchronisierung |
 | `TIX_Promoter` | `class-tix-promoter.php` | Promoter-System (Tracking + Provisionen) |
 | `TIX_Promoter_DB` | `class-tix-promoter-db.php` | Promoter-Datenbank-Tabellen |
+| `TIX_Organizer_Dashboard` | `class-tix-organizer-dashboard.php` | Veranstalter-Dashboard (Frontend-Shortcode) |
 
 ---
 
@@ -187,6 +189,7 @@ tixomat/
 │   ├── class-tix-promoter-db.php         Promoter-Datenbank
 │   ├── class-tix-promoter-admin.php      Promoter-Admin (Menue + Verwaltung)
 │   ├── class-tix-promoter-dashboard.php  Promoter-Dashboard (Frontend)
+│   ├── class-tix-organizer-dashboard.php Veranstalter-Dashboard (Frontend)
 ├── assets/
 │   ├── css/                              CSS-Dateien (event-page, ticket-selector, feedback, timetable, ...)
 │   ├── js/                               JS-Dateien (event-page, feedback, timetable, ...)
@@ -609,6 +612,7 @@ Alle oben genannten Meta-Keys stehen als Dynamic Data im Breakdance Page Builder
 |---|---|---|
 | `_tix_org_address` | `string` | Adresse des Veranstalters |
 | `_tix_org_description` | `string` | Beschreibung des Veranstalters |
+| `_tix_org_user_id` | `int` | Verknuepfter WP-User fuer Veranstalter-Dashboard Login |
 
 ---
 
@@ -773,7 +777,7 @@ Im manuellen Modus werden einzelne Termine explizit angegeben:
 
 ## 15. Shortcodes
 
-Tixomat stellt 16 Shortcodes zur Verfuegung:
+Tixomat stellt 17 Shortcodes zur Verfuegung:
 
 | Shortcode | Klasse | Parameter | Beschreibung |
 |---|---|---|---|
@@ -793,6 +797,7 @@ Tixomat stellt 16 Shortcodes zur Verfuegung:
 | `[tix_feedback]` | `TIX_Feedback` | `id` (Event-ID) | Feedback-Formular (Sterne + Kommentar) oder oeffentliche Bewertung |
 | `[tix_timetable]` | `TIX_Timetable` | `id` (Event-ID) | Mehrtaegiges Programm mit Buehnen-Grid |
 | `[tix_series_dates]` | `TIX_Series` | `id` (Event-ID) | Serientermin-Uebersicht |
+| `[tix_organizer_dashboard]` | `TIX_Organizer_Dashboard` | -- | Frontend-Dashboard fuer Veranstalter (Event-CRUD, Bestellungen, Check-In, Statistiken) |
 
 ---
 
@@ -849,6 +854,27 @@ Tixomat stellt 16 Shortcodes zur Verfuegung:
 | `tix_raffle_enter` | `TIX_Raffle` | Gewinnspiel-Teilnahme (Name + E-Mail) |
 | `tix_waitlist_join` | `TIX_Waitlist` | Warteliste / Presale-Benachrichtigung beitreten |
 | `tix_feedback_submit` | `TIX_Feedback` | Feedback absenden (Sterne + Kommentar, Token-validiert) |
+
+### Veranstalter-Dashboard Endpoints (erfordern Organizer-Rolle)
+
+| Action | Klasse | Beschreibung |
+|---|---|---|
+| `tix_od_overview` | `TIX_Organizer_Dashboard` | KPIs + 30-Tage-Verkaufschart |
+| `tix_od_events` | `TIX_Organizer_Dashboard` | Event-Liste des Veranstalters |
+| `tix_od_event_detail` | `TIX_Organizer_Dashboard` | Einzelnes Event fuer Editor laden |
+| `tix_od_save_event` | `TIX_Organizer_Dashboard` | Event erstellen oder bearbeiten |
+| `tix_od_delete_event` | `TIX_Organizer_Dashboard` | Event in Papierkorb verschieben |
+| `tix_od_duplicate_event` | `TIX_Organizer_Dashboard` | Event duplizieren |
+| `tix_od_orders` | `TIX_Organizer_Dashboard` | Bestellungsliste (nur eigene Events) |
+| `tix_od_order_detail` | `TIX_Organizer_Dashboard` | Bestellungsdetails |
+| `tix_od_guestlist` | `TIX_Organizer_Dashboard` | Gaesteliste laden |
+| `tix_od_guestlist_save` | `TIX_Organizer_Dashboard` | Gaesteliste speichern |
+| `tix_od_checkin` | `TIX_Organizer_Dashboard` | Check-In Toggle |
+| `tix_od_stats` | `TIX_Organizer_Dashboard` | Statistiken mit Event-Filter |
+| `tix_od_upload_media` | `TIX_Organizer_Dashboard` | Bild-Upload (Frontend) |
+| `tix_od_save_discount` | `TIX_Organizer_Dashboard` | Rabattcode erstellen (WC_Coupon) |
+| `tix_od_raffle_draw` | `TIX_Organizer_Dashboard` | Gewinnspiel auslosen |
+| `tix_od_profile` | `TIX_Organizer_Dashboard` | Profil speichern |
 
 ---
 
@@ -2328,7 +2354,73 @@ Optionale lokale Datenbank-Tabelle fuer schnelle Ticket-Abfragen (parallel zum C
 
 ---
 
+## 57. Veranstalter-Dashboard (Organizer)
+
+`TIX_Organizer_Dashboard` stellt ein vollstaendiges Frontend-Dashboard fuer externe Veranstalter bereit. Veranstalter koennen Events erstellen, bearbeiten, Bestellungen einsehen, Gaestelisten verwalten und Statistiken abrufen -- ohne wp-admin-Zugang.
+
+### Aktivierung
+
+1. **Setting**: `organizer_dashboard_enabled` auf `1` setzen (Tixomat → Einstellungen → Features)
+2. **Rolle**: WP-User mit Rolle `tix_organizer` erstellen
+3. **Mapping**: Im `tix_organizer` CPT-Editor den User unter "Verknuepfter Benutzer" auswaehlen (`_tix_org_user_id`)
+4. **Seite**: WordPress-Seite mit Shortcode `[tix_organizer_dashboard]` erstellen
+
+### Shortcode
+
+```
+[tix_organizer_dashboard]
+```
+
+### User-Mapping (Ownership-Chain)
+
+```
+WP User (user_id)
+  → tix_organizer CPT (via _tix_org_user_id = user_id)
+  → event CPT (via _tix_organizer_id = organizer_post_id)
+  → WC Products (via _tix_parent_event_id = event_id)
+  → WC Orders (via order items mit _tix_event_id)
+```
+
+### Dashboard-Tabs
+
+| Tab | Beschreibung |
+|---|---|
+| Uebersicht | KPI-Cards + 30-Tage-Verkaufschart (Chart.js) |
+| Meine Events | Event-Karten mit Status, Datum, Kapazitaet. Neues Event (Wizard), Bearbeiten (Editor-Overlay), Duplizieren, Loeschen |
+| Bestellungen | Tabelle aller WC-Orders fuer eigene Events. Filter nach Datum und Event |
+| Gaesteliste | Manuelle Gaeste + verkaufte Tickets kombiniert. Check-In per Toggle |
+| Statistiken | KPIs mit Event-Filter-Dropdown |
+| Einstellungen | Profil (Anzeigename) |
+
+### Event-Editor
+
+- **Wizard** (neue Events): 3 Schritte (Grunddaten → Tickets → Zusammenfassung). Event wird als `draft` gespeichert
+- **Editor** (bestehende Events): 9 Tabs (Grunddaten, Info, Tickets, Medien, FAQ, Rabattcodes, Gewinnspiel, Programm, Vorverkauf)
+- Media-Upload via `media_handle_upload()`
+
+### Settings
+
+| Key | Default | Beschreibung |
+|---|---|---|
+| `organizer_dashboard_enabled` | `0` | Dashboard global aktivieren |
+| `organizer_auto_publish` | `0` | Events automatisch veroeffentlichen statt Draft |
+
+### Dateien
+
+| Datei | Beschreibung |
+|---|---|
+| `includes/class-tix-organizer-dashboard.php` | Hauptklasse (Shortcode, 16 AJAX-Endpoints, Rendering) |
+| `assets/css/organizer-dashboard.css` | Dashboard-Styling (`.tix-od-*`) |
+| `assets/js/organizer-dashboard.js` | Tab-Navigation, AJAX, Event-Karten |
+| `assets/css/organizer-event-editor.css` | Editor-Styling (`.tix-oe-*`) |
+| `assets/js/organizer-event-editor.js` | Wizard + Editor (9 Tabs) |
+
+---
+
 ## Changelog
+
+### v1.28.25
+- **Veranstalter-Dashboard**: Vollstaendiges Frontend-Dashboard fuer externe Veranstalter (`[tix_organizer_dashboard]`). Event-CRUD mit Wizard + Editor (9 Tabs), Bestellungen, Gaesteliste + Check-In, Statistiken. Neue WP-Rolle `tix_organizer`, User-Mapping via `_tix_org_user_id`, 16 AJAX-Endpoints, Media-Upload, Rabattcodes, Gewinnspiel
 
 ### v1.28.19 -- v1.28.24
 - **Low-Stock-Badge**: "Nur noch X verfuegbar!" im Ticket-Selektor (konfigurierbarer Schwellenwert)

@@ -219,6 +219,9 @@ class TIX_Settings {
             // ── Promoter-System ──
             'promoter_enabled'      => 0,
             'promoter_cookie_days'  => 30,
+            // ── Veranstalter-Dashboard ──
+            'organizer_dashboard_enabled' => 0,
+            'organizer_auto_publish'      => 0,
             // ── Support-System ──
             'support_enabled'    => 0,
             'support_categories'  => '',
@@ -492,6 +495,10 @@ class TIX_Settings {
         // Promoter-System
         $clean['promoter_enabled'] = !empty($input['promoter_enabled']) ? 1 : 0;
         $clean['promoter_cookie_days'] = max(1, intval($input['promoter_cookie_days'] ?? 30));
+
+        // Veranstalter-Dashboard
+        $clean['organizer_dashboard_enabled'] = !empty($input['organizer_dashboard_enabled']) ? 1 : 0;
+        $clean['organizer_auto_publish'] = !empty($input['organizer_auto_publish']) ? 1 : 0;
 
         // Support-System
         $clean['support_enabled'] = !empty($input['support_enabled']) ? 1 : 0;
@@ -1911,6 +1918,24 @@ class TIX_Settings {
                                                        value="<?php echo intval($s['promoter_cookie_days'] ?? 30); ?>"
                                                        class="small-text" min="1" max="365" step="1">
                                                 <p class="tix-settings-hint">Wie lange ein Referral-Cookie g&uuml;ltig ist. Standard: 30 Tage. Je l&auml;nger, desto sicherer die Zuordnung &ndash; auch wenn der K&auml;ufer erst sp&auml;ter kauft.</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Veranstalter-Dashboard ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-businessman"></span>
+                                        <h3>Veranstalter-Dashboard</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('organizer_dashboard_enabled', 'Veranstalter-Dashboard aktivieren', $s, 'Aktiviert das Frontend-Dashboard f&uuml;r externe Veranstalter. Veranstalter k&ouml;nnen eigene Events erstellen und verwalten, ohne Zugang zu wp-admin. Verwende den Shortcode <code>[tix_organizer_dashboard]</code> auf einer beliebigen Seite.'); ?>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('organizer_auto_publish', 'Events automatisch ver&ouml;ffentlichen', $s, 'Wenn aktiviert, werden vom Veranstalter erstellte Events sofort ver&ouml;ffentlicht. Andernfalls werden sie als Entwurf gespeichert und m&uuml;ssen vom Admin freigegeben werden.'); ?>
                                             </div>
                                         </div>
                                     </div>

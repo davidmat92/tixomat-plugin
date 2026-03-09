@@ -58,6 +58,10 @@ class TIX_Docs {
                             <span class="dashicons dashicons-businessman"></span>
                             <span class="tix-nav-label">Promoter</span>
                         </button>
+                        <button type="button" class="tix-nav-tab" data-tab="organizer">
+                            <span class="dashicons dashicons-groups"></span>
+                            <span class="tix-nav-label">Veranstalter</span>
+                        </button>
                         <button type="button" class="tix-nav-tab" data-tab="bot">
                             <span class="dashicons dashicons-format-chat"></span>
                             <span class="tix-nav-label">Ticket-Bot</span>
@@ -72,6 +76,7 @@ class TIX_Docs {
                         <?php self::render_ajax_tab(); ?>
                         <?php self::render_templates_tab(); ?>
                         <?php self::render_promoter_tab(); ?>
+                        <?php self::render_organizer_tab(); ?>
                         <?php self::render_bot_tab(); ?>
 
                     </div>
@@ -166,6 +171,7 @@ class TIX_Docs {
                 ['_tix_loc_description', 'Beschreibung der Location', 'Text (HTML)'],
                 ['_tix_org_address', 'Adresse des Veranstalters', 'Text'],
                 ['_tix_org_description', 'Beschreibung des Veranstalters', 'Text (HTML)'],
+                ['_tix_org_user_id', 'Verkn&uuml;pfter WP-User (f&uuml;r Veranstalter-Dashboard Login)', 'Zahl (User-ID)'],
             ]);
 
             // ── Info-Sektionen ──
@@ -685,6 +691,15 @@ class TIX_Docs {
                 'Zeigt das Promoter-Dashboard im Frontend an. Promoter k&ouml;nnen hier ihre zugewiesenen Events, Verk&auml;ufe, Provisionen und Auszahlungen einsehen. Erfordert eingeloggten Benutzer mit Promoter-Status.',
                 [],
                 '[tix_promoter_dashboard]',
+                null
+            );
+
+            // ── tix_organizer_dashboard ──
+            self::shortcode_card(
+                'tix_organizer_dashboard',
+                'Zeigt das Veranstalter-Dashboard im Frontend an. Veranstalter k&ouml;nnen Events erstellen, bearbeiten und verwalten, Bestellungen einsehen, G&auml;stelisten pflegen und Statistiken abrufen &ndash; <strong>ohne wp-admin-Zugang</strong>. Erfordert eingeloggten Benutzer mit verkn&uuml;pftem <code>tix_organizer</code>-Eintrag.',
+                [],
+                '[tix_organizer_dashboard]',
                 null
             );
 
@@ -1461,7 +1476,96 @@ class TIX_Docs {
     }
 
     // ══════════════════════════════════════
-    // TAB 7: TICKET-BOT
+    // TAB 7: VERANSTALTER-DASHBOARD
+    // ══════════════════════════════════════
+
+    private static function render_organizer_tab() {
+        ?>
+        <div class="tix-pane" data-pane="organizer">
+
+            <p class="description">
+                <strong>Veranstalter-Dashboard</strong> &ndash; Frontend-Dashboard f&uuml;r externe Veranstalter.
+                Erm&ouml;glicht Event-Erstellung, -Bearbeitung und -Verwaltung <strong>ohne wp-admin-Zugang</strong>.
+                Jeder Veranstalter sieht nur seine eigenen Events und Bestellungen.
+            </p>
+
+            <?php
+            // ── Aktivierung ──
+            self::function_card('Aktivierung &amp; Einrichtung', 'dashicons-admin-plugins', [
+                'Unter <strong>Tixomat &rarr; Einstellungen &rarr; Features</strong> den Schalter <strong>&bdquo;Veranstalter-Dashboard&ldquo;</strong> aktivieren.',
+                'Neue WP-Rolle <code>tix_organizer</code> wird automatisch registriert (Rechte: <code>read</code>, <code>upload_files</code>).',
+                'Einen <strong>tix_organizer</strong> CPT-Eintrag anlegen und unter &bdquo;Verkn&uuml;pfter Benutzer&ldquo; den WP-User zuweisen.',
+                'Shortcode <code>[tix_organizer_dashboard]</code> auf einer beliebigen WordPress-Seite einf&uuml;gen (z.B. <code>/veranstalter/</code>).',
+            ]);
+
+            // ── Shortcode ──
+            self::function_card('Shortcode', 'dashicons-shortcode', [
+                '<code>[tix_organizer_dashboard]</code> &ndash; Zeigt das komplette Veranstalter-Dashboard an.',
+                '<strong>Login-Gate:</strong> Nicht eingeloggte Benutzer sehen ein Login-Formular.',
+                '<strong>Kein Zugang:</strong> Benutzer ohne Veranstalter-Verkn&uuml;pfung sehen eine Fehlermeldung.',
+                '<strong>Veranstalter:</strong> Eingeloggter und verkn&uuml;pfter User sieht das vollst&auml;ndige Dashboard.',
+            ]);
+
+            // ── User-Mapping ──
+            self::function_card('User-to-Organizer Mapping', 'dashicons-admin-users', [
+                '<strong>Meta-Feld:</strong> <code>_tix_org_user_id</code> auf dem <code>tix_organizer</code> CPT verkn&uuml;pft einen WP-User mit einem Veranstalter.',
+                '<strong>Admin-UI:</strong> Im Veranstalter-Editor erscheint ein Dropdown &bdquo;Verkn&uuml;pfter Benutzer&ldquo; mit allen WP-Usern.',
+                '<strong>Ownership-Chain:</strong> WP User &rarr; tix_organizer (via <code>_tix_org_user_id</code>) &rarr; event (via <code>_tix_organizer_id</code>) &rarr; WC Products &rarr; WC Orders.',
+                '<strong>Isolation:</strong> Jeder Veranstalter sieht nur seine eigenen Events, Bestellungen und Statistiken.',
+            ]);
+
+            // ── Dashboard-Tabs ──
+            self::function_card('Dashboard-Tabs (6 Tabs)', 'dashicons-dashboard', [
+                '<strong>&Uuml;bersicht</strong> &ndash; KPI-Cards (Events, Tickets verkauft, Umsatz, Auslastung) + 30-Tage-Verkaufschart.',
+                '<strong>Meine Events</strong> &ndash; Event-Liste als Karten (Status-Badge, Datum, Kapazit&auml;t). Neues Event (Wizard), Bearbeiten (Editor-Overlay), Duplizieren, L&ouml;schen.',
+                '<strong>Bestellungen</strong> &ndash; Tabelle aller Bestellungen f&uuml;r eigene Events. Filter nach Datum und Event.',
+                '<strong>G&auml;steliste</strong> &ndash; Manuelle G&auml;ste + verkaufte Tickets kombiniert. Check-In per Toggle-Button.',
+                '<strong>Statistiken</strong> &ndash; KPIs + Verkaufschart mit Event-Filter (Dropdown).',
+                '<strong>Einstellungen</strong> &ndash; Profil (Anzeigename &auml;ndern).',
+            ]);
+
+            // ── Event-Editor ──
+            self::function_card('Event-Editor (Fullscreen-Overlay)', 'dashicons-edit', [
+                '<strong>Wizard-Modus</strong> (neue Events): 3 Schritte &ndash; Grunddaten (Titel, Datum, Uhrzeit) &rarr; Tickets (Name, Preis, Menge) &rarr; Zusammenfassung.',
+                '<strong>Editor-Modus</strong> (bestehende Events): 9 Tabs &ndash; Grunddaten, Info, Tickets, Medien, FAQ, Rabattcodes, Gewinnspiel, Programm, Vorverkauf.',
+                'Neues Event wird als <code>draft</code> gespeichert (optional: Auto-Publish per Setting <code>organizer_auto_publish</code>).',
+                '<strong>Repeater-Felder:</strong> Tickets, FAQ, Rabattcodes, Gewinnspiel-Preise, B&uuml;hnen (hinzuf&uuml;gen/entfernen).',
+                '<strong>Media-Upload:</strong> Featured Image und Video-URL direkt im Editor.',
+            ]);
+
+            // ── AJAX-Endpoints ──
+            self::function_card('AJAX-Endpoints (16 Endpunkte)', 'dashicons-rest-api', [
+                '<strong>Dashboard:</strong> <code>tix_od_overview</code> (KPIs + Chart), <code>tix_od_stats</code> (Statistiken mit Event-Filter), <code>tix_od_profile</code> (Profil speichern).',
+                '<strong>Events:</strong> <code>tix_od_events</code> (Liste), <code>tix_od_event_detail</code> (Einzelnes Event laden), <code>tix_od_save_event</code> (Erstellen/Bearbeiten), <code>tix_od_delete_event</code> (Papierkorb), <code>tix_od_duplicate_event</code> (Duplizieren).',
+                '<strong>Bestellungen:</strong> <code>tix_od_orders</code> (Liste), <code>tix_od_order_detail</code> (Details).',
+                '<strong>G&auml;steliste:</strong> <code>tix_od_guestlist</code> (Laden), <code>tix_od_guestlist_save</code> (Speichern), <code>tix_od_checkin</code> (Check-In Toggle).',
+                '<strong>Medien:</strong> <code>tix_od_upload_media</code> (Bild-Upload via <code>media_handle_upload</code>).',
+                '<strong>Extras:</strong> <code>tix_od_save_discount</code> (Rabattcodes &rarr; WC_Coupons), <code>tix_od_raffle_draw</code> (Gewinnspiel auslosen).',
+                '<strong>Security:</strong> Alle Endpoints nutzen <code>ajax_guard()</code> (Nonce + Login + Organizer-Lookup). Ownership-Check bei jedem Event-Zugriff.',
+            ]);
+
+            // ── Settings ──
+            self::function_card('Einstellungen', 'dashicons-admin-generic', [
+                '<code>organizer_dashboard_enabled</code> &ndash; Dashboard global aktivieren/deaktivieren (Default: 0).',
+                '<code>organizer_auto_publish</code> &ndash; Events automatisch ver&ouml;ffentlichen statt als Draft speichern (Default: 0).',
+            ]);
+
+            // ── Dateien ──
+            self::function_card('Dateien', 'dashicons-media-code', [
+                '<code>includes/class-tix-organizer-dashboard.php</code> &ndash; Hauptklasse: Shortcode, alle 16 AJAX-Endpoints, Rendering.',
+                '<code>assets/css/organizer-dashboard.css</code> &ndash; Dashboard-Styling (Prefix: <code>.tix-od-*</code>).',
+                '<code>assets/js/organizer-dashboard.js</code> &ndash; Tab-Navigation, AJAX-Calls, Event-Karten, KPIs.',
+                '<code>assets/css/organizer-event-editor.css</code> &ndash; Event-Editor-Styling (Prefix: <code>.tix-oe-*</code>).',
+                '<code>assets/js/organizer-event-editor.js</code> &ndash; Event-Editor: Wizard + Vollst&auml;ndiger Editor mit 9 Tabs.',
+            ]);
+            ?>
+
+        </div>
+        <?php
+    }
+
+    // ══════════════════════════════════════
+    // TAB 8: TICKET-BOT
     // ══════════════════════════════════════
 
     private static function render_bot_tab() {
