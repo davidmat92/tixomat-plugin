@@ -129,9 +129,9 @@ function tix_css($c, $height = '700px') {
 .tix-hn{font-size:16px;font-weight:700;color:'.$c['text'].';letter-spacing:-.02em}
 .tix-hs{font-size:12px;color:'.$c['accent'].';font-weight:500;display:flex;align-items:center;gap:5px;margin-top:1px}
 .tix-hs::before{content:"";width:7px;height:7px;border-radius:50%;background:'.$c['accent'].';display:inline-block}
-.tix-hx,.tix-hfs{width:34px;height:34px;border-radius:50%;border:none;background:'.$c['bg'].';color:'.$c['text_muted'].';cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:16px;transition:all .2s;font-weight:300;flex-shrink:0}
-.tix-hx:hover,.tix-hfs:hover{background:'.$c['border'].';color:'.$c['text'].'}
-.tix-hfs svg{width:16px;height:16px;fill:currentColor}
+.tix-hx,.tix-hfs,.tix-hreset{width:34px;height:34px;border-radius:50%;border:none;background:'.$c['bg'].';color:'.$c['text_muted'].';cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:16px;transition:all .2s;font-weight:300;flex-shrink:0}
+.tix-hx:hover,.tix-hfs:hover,.tix-hreset:hover{background:'.$c['border'].';color:'.$c['text'].'}
+.tix-hfs svg,.tix-hreset svg{width:16px;height:16px;fill:currentColor}
 
 .tix-wel{padding:20px;flex-shrink:0;animation:tixFade .5s ease}
 @keyframes tixFade{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
@@ -234,7 +234,7 @@ function loadHistory(){
     const raw=localStorage.getItem(STORE_KEY);if(!raw)return false;
     const data=JSON.parse(raw);if(!data.entries||!data.entries.length)return false;
     if(data.chatId)chatId=data.chatId;
-    if(data.started){started=true;const w=$("'.$ids['welcome'].'");if(w)w.remove()}
+    if(data.started){started=true;const w=$("'.$ids['welcome'].'");if(w){w.style.display="none"}}
     const box=$("'.$ids['msgs'].'");
     data.entries.forEach(e=>{const el=document.createElement("div");el.className=e.cls;el.innerHTML=e.html;el.style.animation="none";box.appendChild(el)});
     requestAnimationFrame(()=>box.scrollTop=box.scrollHeight);
@@ -282,7 +282,11 @@ async function processWcActions(actions){
   pollWcCart();pollTimer=setInterval(pollWcCart,15000);
 })();
 
-function hw(){if(!started){started=true;const w=$("'.$ids['welcome'].'");if(w){w.style.transition="all .3s";w.style.opacity="0";w.style.maxHeight="0";w.style.padding="0";w.style.overflow="hidden";setTimeout(()=>w.remove(),300)}saveHistory()}}
+function hw(){if(!started){started=true;const w=$("'.$ids['welcome'].'");if(w){w.style.transition="all .3s";w.style.opacity="0";w.style.maxHeight="0";w.style.padding="0";w.style.overflow="hidden";w.style.display="none"}saveHistory()}}
+function showWelcome(){const w=$("'.$ids['welcome'].'");if(w){w.style.transition="all .3s";w.style.opacity="1";w.style.maxHeight="";w.style.padding="";w.style.overflow="";w.style.display="";w.querySelectorAll(".tix-mode-btn").forEach(b=>{b.classList.remove("selected");b.style.opacity="";b.style.pointerEvents=""})}}
+async function resetChat(){started=false;chatId=null;const box=$("'.$ids['msgs'].'");if(box)box.innerHTML="";clearHistory();showWelcome();
+  try{const vid=localStorage.getItem("tix_visitor")||Date.now().toString(36);const initData={visitor_id:vid};if(WP_USER){initData.wp_user_id=WP_USER.id;initData.wp_display_name=WP_USER.name;initData.wp_email=WP_USER.email;initData.wp_username=WP_USER.login;initData.customer_name=WP_USER.name}const r=await fetch(API+"/chat/init",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(initData)});const d=await r.json();if(d.ok)chatId=d.chat_id}catch(e){}
+}
 
 async function send(t){
   const msg=t||$("'.$ids['input'].'").value.trim();if(!msg||!chatId||ld)return;if(!t)$("'.$ids['input'].'").value="";
@@ -372,15 +376,20 @@ function toggleFs(){
 function checkout(){const btn=$("'.$ids['cart_btn'].'");if(btn&&btn.href)window.location.href=btn.href}
 function clearHistory(){try{localStorage.removeItem(STORE_KEY)}catch(e){}}
 
-function setMode(mode, btn){
+async function setMode(mode, btn){
   if(btn){btn.classList.add("selected");btn.closest(".tix-mode-btns").querySelectorAll(".tix-mode-btn").forEach(b=>{if(b!==btn){b.style.opacity="0.4";b.style.pointerEvents="none"}})}
-  if(mode==="order"){sAct("mode_order")}
-  else if(mode==="tickets"){sAct("mode_tickets")}
-  else if(mode==="support"){sAct("mode_support")}
   hw();
+  const cb=mode==="order"?"mode_order":mode==="tickets"?"mode_tickets":"mode_support";
+  if(!chatId){showWelcome();addMsg("Verbindungsfehler – bitte neu laden.","b");return}
+  showT();
+  try{
+    const r=await fetch(API+"/chat/action",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({chat_id:chatId,callback:cb})});const d=await r.json();hideT();
+    if(d.ok){if(d.text)addMsg(d.text,"b");if(d.keyboards&&d.keyboards.length)rKB(d.keyboards);await processWcActions(d.wc_actions);if(d.checkout_url){$("'.$ids['cart_btn'].'").href=d.checkout_url}}
+    else{showWelcome();started=false;addMsg("Modus konnte nicht gewechselt werden. Bitte erneut versuchen.","b")}
+  }catch(e){hideT();showWelcome();started=false;addMsg("Verbindungsfehler – bitte erneut versuchen.","b")}
 }
 
-return{send,quickSend:t=>{$("'.$ids['input'].'").value=t;send()},sAct,cQty,checkout,clearHistory,pollWcCart,toggleFs,setMode};
+return{send,quickSend:t=>{$("'.$ids['input'].'").value=t;send()},sAct,cQty,checkout,clearHistory,pollWcCart,toggleFs,setMode,resetChat};
 })();
 ';
 }
@@ -417,6 +426,7 @@ function tix_embed_shortcode($atts) {
   <div class="tix-hdr">
     <div class="tix-av"><img src="<?php echo esc_url($logo); ?>" alt="TX" onerror="this.remove();this.parentNode.textContent='🎫'"></div>
     <div class="tix-hi"><div class="tix-hn">Tixomat<?php if (TIX_CHAT_BETA): ?><span class="tix-badge-beta">Beta</span><?php endif; ?></div><div class="tix-hs">Online</div></div>
+    <button class="tix-hreset" onclick="TXE.resetChat()" title="Neue Sitzung"><svg viewBox="0 0 24 24"><path d="M17.65 6.35A7.958 7.958 0 0012 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0112 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg></button>
     <?php echo tix_fs_btn_html('txe-fs'); ?>
   </div>
   <div class="tix-wel" id="txe-w">
@@ -511,6 +521,7 @@ function tix_widget_shortcode($atts) {
   <div class="tix-hdr">
     <div class="tix-av"><img src="<?php echo esc_url($logo); ?>" alt="TX" onerror="this.remove();this.parentNode.textContent='🎫'"></div>
     <div class="tix-hi"><div class="tix-hn">Tixomat<?php if (TIX_CHAT_BETA): ?><span class="tix-badge-beta">Beta</span><?php endif; ?></div><div class="tix-hs">Online</div></div>
+    <button class="tix-hreset" onclick="TXW.resetChat()" title="Neue Sitzung"><svg viewBox="0 0 24 24"><path d="M17.65 6.35A7.958 7.958 0 0012 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0112 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg></button>
     <?php echo tix_fs_btn_html('txw-fs'); ?>
     <button class="tix-hx" onclick="TXW.toggle()">✕</button>
   </div>
