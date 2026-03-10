@@ -145,7 +145,7 @@ class TIX_Raffle {
             if ($header_color) $hdr_style .= '--tix-raffle-header-color:' . esc_attr($header_color) . ';';
             ?>
             <div class="tix-raffle-header"<?php if ($hdr_style): ?> style="<?php echo $hdr_style; ?>"<?php endif; ?>>
-                <h2 class="tix-raffle-title"><?php echo esc_html($title); ?></h2>
+                <h4 class="tix-raffle-title"><?php echo esc_html($title); ?></h4>
                 <?php if ($desc): ?>
                     <div class="tix-raffle-desc"><?php echo wp_kses_post(wpautop($desc)); ?></div>
                 <?php endif; ?>
