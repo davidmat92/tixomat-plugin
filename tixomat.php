@@ -2,14 +2,14 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.28.36
+ * Version: 1.28.37
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.28.36');
+define('TIXOMAT_VERSION', '1.28.37');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -22,6 +22,14 @@ add_action('wp_enqueue_scripts', function() {
     wp_register_style('tix-google-fonts',
         'https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Inter:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap',
         [], null);
+    // Utility: fullwidth für alle Shortcode-Buttons via [shortcode fullwidth="1"]
+    wp_add_inline_style('tix-google-fonts',
+        '.tix-fullwidth{display:block;width:100%}'
+        .'.tix-fullwidth .tix-mc-trigger-btn,'
+        .'.tix-fullwidth .tix-sel-buy,'
+        .'.tix-fullwidth .tix-cal-btn,'
+        .'.tix-fullwidth .tix-raffle-submit{width:100%;display:flex;justify-content:center}'
+    );
 }, 5);
 add_action('admin_enqueue_scripts', function() {
     wp_register_style('tix-google-fonts',

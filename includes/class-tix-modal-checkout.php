@@ -27,6 +27,7 @@ class TIX_Modal_Checkout {
             'id'        => 0,
             'label'     => 'Tickets kaufen',
             'show_date' => '1',
+            'fullwidth' => '0',
         ], $atts);
 
         $post_id = $atts['id'] ? intval($atts['id']) : get_the_ID();
@@ -65,7 +66,8 @@ class TIX_Modal_Checkout {
 
         ob_start();
         ?>
-        <span class="tix-mc-trigger" data-modal="<?php echo esc_attr($modal_id); ?>">
+        <?php $fw = $atts['fullwidth'] === '1' ? ' tix-fullwidth' : ''; ?>
+        <span class="tix-mc-trigger<?php echo $fw; ?>" data-modal="<?php echo esc_attr($modal_id); ?>">
             <button type="button" class="tix-mc-trigger-btn"><?php echo esc_html($atts['label']); ?></button>
         </span>
 

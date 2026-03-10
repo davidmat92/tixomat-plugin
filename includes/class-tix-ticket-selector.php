@@ -19,7 +19,7 @@ class TIX_Ticket_Selector {
      */
     public static function render($atts) {
 
-        $atts = shortcode_atts(['id' => 0], $atts);
+        $atts = shortcode_atts(['id' => 0, 'fullwidth' => '0'], $atts);
         $post_id = $atts['id'] ? intval($atts['id']) : get_the_ID();
 
         if (!$post_id || get_post_type($post_id) !== 'event') {
@@ -164,7 +164,7 @@ class TIX_Ticket_Selector {
 
         ob_start();
         ?>
-        <div class="tix-sel" data-event-id="<?php echo $post_id; ?>">
+        <div class="tix-sel<?php echo $atts['fullwidth'] === '1' ? ' tix-fullwidth' : ''; ?>" data-event-id="<?php echo $post_id; ?>">
 
             <?php
             // ── Charity-Banner ──

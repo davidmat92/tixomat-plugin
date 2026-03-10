@@ -13,7 +13,7 @@ class TIX_Calendar {
      * Shortcode: [tix_calendar] oder [tix_calendar id="123"]
      */
     public static function shortcode($atts = []) {
-        $atts = shortcode_atts(['id' => 0, 'class' => ''], $atts, 'tix_calendar');
+        $atts = shortcode_atts(['id' => 0, 'class' => '', 'fullwidth' => '0'], $atts, 'tix_calendar');
         $post_id = intval($atts['id']) ?: get_the_ID();
 
         if (!$post_id || get_post_type($post_id) !== 'event') return '';
@@ -24,6 +24,7 @@ class TIX_Calendar {
         $google_url = self::google_url($post_id);
         $ics_url    = admin_url('admin-ajax.php') . '?action=tix_ics&event_id=' . $post_id;
         $extra_class = $atts['class'] ? ' ' . esc_attr($atts['class']) : '';
+        if ($atts['fullwidth'] === '1') $extra_class .= ' tix-fullwidth';
 
         // Enqueue
         wp_enqueue_style('tix-calendar', TIXOMAT_URL . 'assets/css/calendar.css', ['tix-google-fonts'], TIXOMAT_VERSION);
