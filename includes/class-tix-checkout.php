@@ -96,7 +96,7 @@ class TIX_Checkout {
     // ══════════════════════════════════════════════
 
     public static function render($atts) {
-        $atts = shortcode_atts(['terms_url' => '', 'privacy_url' => ''], $atts);
+        $atts = shortcode_atts(['terms_url' => '', 'privacy_url' => '', 'variant' => '1'], $atts);
 
         if (!function_exists('WC') || !WC()->cart) return '<p>WooCommerce ist nicht aktiv.</p>';
 
@@ -141,7 +141,8 @@ class TIX_Checkout {
 
         ob_start();
         ?>
-        <div class="tix-co<?php echo $use_steps ? ' tix-co-stepped' : ''; ?>" id="tix-co">
+        <?php $tix_v = intval($atts['variant']) === 2 ? 2 : 1; ?>
+        <div class="tix-co<?php echo $use_steps ? ' tix-co-stepped' : ''; ?>" id="tix-co"<?php if ($tix_v === 2): ?> style="--tix-btn1-bg:var(--tix-btn2-bg,transparent);--tix-btn1-color:var(--tix-btn2-color,inherit);--tix-btn1-hover-bg:var(--tix-btn2-hover-bg,transparent);--tix-btn1-hover-color:var(--tix-btn2-hover-color,inherit);--tix-btn1-radius:var(--tix-btn2-radius,8px);--tix-btn1-border:var(--tix-btn2-border,1px solid currentColor);--tix-btn1-font-size:var(--tix-btn2-font-size,0.9rem)"<?php endif; ?>>
 
             <?php // ── COUNTDOWN ── ?>
             <?php if ($use_countdown && !WC()->cart->is_empty()): ?>
