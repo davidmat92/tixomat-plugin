@@ -130,6 +130,26 @@ class TIX_Ticket_Selector {
             }
         }
 
+        // ── Externer Ticketshop ──
+        $ext_enabled = get_post_meta($post_id, '_tix_extshop_enabled', true);
+        $ext_url     = get_post_meta($post_id, '_tix_extshop_url', true);
+        $ext_html    = '';
+
+        if ($ext_enabled === '1' && !empty($ext_url)) {
+            $ext_text = get_post_meta($post_id, '_tix_extshop_text', true) ?: 'Tickets kaufen';
+            $ext_mode = get_post_meta($post_id, '_tix_extshop_mode', true) ?: 'replace';
+
+            $ext_html = '<div class="tix-sel-external">'
+                      . '<a href="' . esc_url($ext_url) . '" target="_blank" rel="noopener" class="tix-sel-external-btn">'
+                      . esc_html($ext_text) . ' <span class="tix-sel-external-icon">↗</span>'
+                      . '</a></div>';
+
+            if ($ext_mode === 'replace') {
+                self::enqueue();
+                return '<div class="tix-sel">' . $ext_html . '</div>';
+            }
+        }
+
         // ── Saalplan-Modus prüfen ──
         $seatmap_id   = intval(get_post_meta($post_id, '_tix_seatmap_id', true));
         $seatmap_mode = get_post_meta($post_id, '_tix_seatmap_mode', true) ?: 'manual';
@@ -746,6 +766,7 @@ class TIX_Ticket_Selector {
 
             <div class="tix-group-panel" style="display:none;"></div>
             <?php endif; ?>
+            <?php if (!empty($ext_html)) echo $ext_html; ?>
             <?php echo tix_branding_footer(); ?>
         </div>
         <?php

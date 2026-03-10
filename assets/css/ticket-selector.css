@@ -1210,3 +1210,40 @@
 @keyframes tix-pulse {
     50% { opacity: .7; }
 }
+
+/* ══════════════════════════════════════
+   EXTERNER TICKETSHOP
+   ══════════════════════════════════════ */
+.tix-sel-external {
+    padding: 4px 0;
+}
+
+.tix-sel-external-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    padding: 16px;
+    border: var(--tix-btn1-border, none);
+    border-radius: var(--tix-btn1-radius, 8px);
+    background: var(--tix-btn1-bg, #c8ff00);
+    color: var(--tix-btn1-color, #000) !important;
+    font-weight: 700;
+    font-size: var(--tix-btn1-font-size, 1.05rem);
+    text-decoration: none !important;
+    transition: background 0.2s, opacity 0.2s;
+    cursor: pointer;
+    font-family: inherit;
+    box-sizing: border-box;
+}
+
+.tix-sel-external-btn:hover {
+    background: var(--tix-btn1-hover-bg, var(--tix-btn1-bg));
+    color: var(--tix-btn1-hover-color, var(--tix-btn1-color, #000)) !important;
+    opacity: 0.9;
+}
+
+.tix-sel-external-icon {
+    font-size: 1.1em;
+}

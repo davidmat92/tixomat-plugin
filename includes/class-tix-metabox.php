@@ -1097,6 +1097,12 @@ class TIX_Metabox {
         $presale    = get_post_meta($post->ID, '_tix_presale_active', true);
         $categories = get_post_meta($post->ID, '_tix_ticket_categories', true);
 
+        // Externer Ticketshop
+        $ext_enabled = get_post_meta($post->ID, '_tix_extshop_enabled', true);
+        $ext_url     = get_post_meta($post->ID, '_tix_extshop_url', true);
+        $ext_text    = get_post_meta($post->ID, '_tix_extshop_text', true) ?: '';
+        $ext_mode    = get_post_meta($post->ID, '_tix_extshop_mode', true) ?: 'replace';
+
         // Gruppenrabatt-Status vorab laden (für Paket-Exklusivität)
         $group_discount = get_post_meta($post->ID, '_tix_group_discount', true);
         $gd_enabled = !empty($group_discount['enabled']);
@@ -1208,6 +1214,49 @@ class TIX_Metabox {
                     <?php self::tip('Bei ausverkauften Tickets wird ein E-Mail-Formular angezeigt. Besucher werden automatisch benachrichtigt, wenn wieder Tickets verfügbar sind.'); ?>
                 </div>
             </div>
+
+            <?php // ── Externer Ticketshop ── ?>
+            <div class="tix-presale-end-wrap" style="margin-top:12px;padding-top:12px;border-top:1px solid #e2e8f0;">
+                <div class="tix-presale-end-row">
+                    <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+                        <input type="hidden" name="tix_extshop_enabled" value="0">
+                        <input type="checkbox" name="tix_extshop_enabled" value="1" id="tix-extshop-toggle"
+                               <?php checked($ext_enabled, '1'); ?>>
+                        <span class="tix-field-label" style="margin:0;">Externer Ticketshop</span>
+                    </label>
+                    <?php self::tip('Leite Besucher zu einem externen Ticketshop weiter (z.B. Eventim, Ticketmaster). Der interne Ticket-Selector kann ersetzt oder ergänzt werden.'); ?>
+                </div>
+                <div id="tix-extshop-panel" style="margin-top:10px;padding:12px 16px;background:#f8fafc;border-radius:6px;<?php echo $ext_enabled !== '1' ? 'display:none;' : ''; ?>">
+                    <div style="display:flex;flex-direction:column;gap:10px;">
+                        <div>
+                            <label class="tix-field-label" style="display:block;margin-bottom:4px;">URL</label>
+                            <input type="url" name="tix_extshop_url" value="<?php echo esc_attr($ext_url); ?>"
+                                   placeholder="https://www.eventim.de/event/..." class="widefat" style="max-width:500px;">
+                        </div>
+                        <div style="display:flex;gap:16px;flex-wrap:wrap;">
+                            <div>
+                                <label class="tix-field-label" style="display:block;margin-bottom:4px;">Button-Text</label>
+                                <input type="text" name="tix_extshop_text" value="<?php echo esc_attr($ext_text); ?>"
+                                       placeholder="Tickets kaufen" class="regular-text" style="width:250px;">
+                            </div>
+                            <div>
+                                <label class="tix-field-label" style="display:block;margin-bottom:4px;">Anzeige</label>
+                                <select name="tix_extshop_mode" class="tix-select-sm">
+                                    <option value="replace" <?php selected($ext_mode, 'replace'); ?>>Ersetzt Ticket-Selector</option>
+                                    <option value="both" <?php selected($ext_mode, 'both'); ?>>Zusätzlich zum Ticket-Selector</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <script>
+            (function(){
+                var cb = document.getElementById('tix-extshop-toggle');
+                var pn = document.getElementById('tix-extshop-panel');
+                if (cb && pn) cb.addEventListener('change', function(){ pn.style.display = this.checked ? '' : 'none'; });
+            })();
+            </script>
 
             <?php // ── Event-Status ── ?>
             <div class="tix-status-wrap">
@@ -3408,6 +3457,14 @@ class TIX_Metabox {
         update_post_meta($post_id, '_tix_presale_end_mode', $presale_end_mode);
         update_post_meta($post_id, '_tix_presale_end_offset', $presale_end_offset);
         update_post_meta($post_id, '_tix_presale_end', $presale_end_fixed);
+
+        // Externer Ticketshop
+        $ext_enabled = !empty($_POST['tix_extshop_enabled']) ? '1' : '0';
+        update_post_meta($post_id, '_tix_extshop_enabled', $ext_enabled);
+        update_post_meta($post_id, '_tix_extshop_url', esc_url_raw($_POST['tix_extshop_url'] ?? ''));
+        update_post_meta($post_id, '_tix_extshop_text', sanitize_text_field($_POST['tix_extshop_text'] ?? ''));
+        $ext_mode = in_array($_POST['tix_extshop_mode'] ?? '', ['replace', 'both']) ? $_POST['tix_extshop_mode'] : 'replace';
+        update_post_meta($post_id, '_tix_extshop_mode', $ext_mode);
 
         // Event-Status
         $event_status = sanitize_text_field($_POST['tix_event_status'] ?? '');
