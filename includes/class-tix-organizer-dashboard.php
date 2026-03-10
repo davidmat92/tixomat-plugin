@@ -667,6 +667,7 @@ class TIX_Organizer_Dashboard {
             'raffle_description' => get_post_meta($event_id, '_tix_raffle_description', true),
             'raffle_end_date'   => get_post_meta($event_id, '_tix_raffle_end_date', true),
             'raffle_max_entries' => get_post_meta($event_id, '_tix_raffle_max_entries', true),
+            'raffle_hide_count' => get_post_meta($event_id, '_tix_raffle_hide_count', true),
             'raffle_prizes'     => get_post_meta($event_id, '_tix_raffle_prizes', true) ?: [],
             // Timetable
             'stages'            => get_post_meta($event_id, '_tix_stages', true) ?: [],
@@ -856,6 +857,7 @@ class TIX_Organizer_Dashboard {
                 update_post_meta($event_id, '_tix_raffle_description', wp_kses_post($_POST['raffle_description'] ?? ''));
                 update_post_meta($event_id, '_tix_raffle_end_date', sanitize_text_field($_POST['raffle_end_date'] ?? ''));
                 update_post_meta($event_id, '_tix_raffle_max_entries', max(0, intval($_POST['raffle_max_entries'] ?? 0)));
+                update_post_meta($event_id, '_tix_raffle_hide_count', !empty($_POST['raffle_hide_count']) ? '1' : '');
                 // Preise
                 $raw_prizes = $_POST['raffle_prizes'] ?? [];
                 $prizes = [];

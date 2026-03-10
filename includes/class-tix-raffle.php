@@ -108,25 +108,23 @@ class TIX_Raffle {
         $desc     = get_post_meta($post_id, '_tix_raffle_description', true);
         $end_date = get_post_meta($post_id, '_tix_raffle_end_date', true);
         $max      = intval(get_post_meta($post_id, '_tix_raffle_max_entries', true));
-        $status   = get_post_meta($post_id, '_tix_raffle_status', true) ?: 'open';
-        $prizes   = get_post_meta($post_id, '_tix_raffle_prizes', true);
-        $winners  = get_post_meta($post_id, '_tix_raffle_winners', true);
+        $db_status  = get_post_meta($post_id, '_tix_raffle_status', true) ?: 'open';
+        $prizes     = get_post_meta($post_id, '_tix_raffle_prizes', true);
+        $winners    = get_post_meta($post_id, '_tix_raffle_winners', true);
+        $hide_count = get_post_meta($post_id, '_tix_raffle_hide_count', true) === '1';
 
         if (!is_array($prizes) || empty($prizes)) return '';
 
         // Aktuelle Einträge zählen
         $entry_count = self::count_entries($post_id);
 
-        // Status dynamisch prüfen (nicht permanent überschreiben)
-        $now_ts      = current_time('timestamp');
-        $end_passed  = $end_date && strtotime($end_date) <= $now_ts;
-        $max_reached = $max > 0 && $entry_count >= $max;
-
-        if ($status === 'open' && ($end_passed || $max_reached)) {
-            $status = 'closed';
-        } elseif ($status === 'closed' && !$end_passed && !$max_reached) {
-            // Wieder öffnen wenn Enddatum in der Zukunft und Max nicht erreicht
-            $status = 'open';
+        // Status komplett dynamisch bestimmen — nur 'drawn' wird aus DB respektiert
+        if ($db_status === 'drawn') {
+            $status = 'drawn';
+        } else {
+            $end_passed  = $end_date && strtotime($end_date) <= current_time('timestamp');
+            $max_reached = $max > 0 && $entry_count >= $max;
+            $status = ($end_passed || $max_reached) ? 'closed' : 'open';
         }
 
         // Nonce
@@ -184,17 +182,21 @@ class TIX_Raffle {
                 </form>
 
                 <!-- Teilnehmer-Zähler -->
+                <?php if (!$hide_count): ?>
                 <p class="tix-raffle-count">
-                    <?php echo $entry_count; ?> Teilnehmer<?php echo $entry_count !== 1 ? '' : ''; ?>
+                    <?php echo $entry_count; ?> Teilnehmer
                     <?php if ($max > 0): ?>
                         <span class="tix-raffle-max"> / max. <?php echo $max; ?></span>
                     <?php endif; ?>
                 </p>
+                <?php endif; ?>
 
             <?php elseif ($status === 'closed'): ?>
                 <div class="tix-raffle-closed">
                     <p>Die Teilnahme ist beendet. Die Auslosung steht noch aus.</p>
-                    <p class="tix-raffle-count"><?php echo $entry_count; ?> Teilnehmer</p>
+                    <?php if (!$hide_count): ?>
+                        <p class="tix-raffle-count"><?php echo $entry_count; ?> Teilnehmer</p>
+                    <?php endif; ?>
                 </div>
             <?php endif; ?>
 

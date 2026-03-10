@@ -2464,6 +2464,7 @@ class TIX_Metabox {
         $description = get_post_meta($post->ID, '_tix_raffle_description', true) ?: '';
         $end_date    = get_post_meta($post->ID, '_tix_raffle_end_date', true) ?: '';
         $max_entries = get_post_meta($post->ID, '_tix_raffle_max_entries', true) ?: '';
+        $hide_count  = get_post_meta($post->ID, '_tix_raffle_hide_count', true);
         $status      = get_post_meta($post->ID, '_tix_raffle_status', true) ?: 'open';
         $prizes      = get_post_meta($post->ID, '_tix_raffle_prizes', true);
         $winners     = get_post_meta($post->ID, '_tix_raffle_winners', true);
@@ -2549,6 +2550,15 @@ class TIX_Metabox {
                                    value="<?php echo esc_attr($max_entries); ?>"
                                    min="0" step="1" class="small-text" placeholder="0">
                             <span class="description">0 = unbegrenzt</span>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th><label for="tix-raffle-hide-count">Teilnehmer verbergen</label></th>
+                        <td>
+                            <label>
+                                <input type="checkbox" id="tix-raffle-hide-count" name="tix_raffle_hide_count" value="1" <?php checked($hide_count, '1'); ?>>
+                                Teilnehmerzahl im Frontend nicht anzeigen
+                            </label>
                         </td>
                     </tr>
                 </table>
@@ -3045,6 +3055,7 @@ class TIX_Metabox {
             update_post_meta($post_id, '_tix_raffle_description', wp_kses_post($_POST['tix_raffle_description'] ?? ''));
             update_post_meta($post_id, '_tix_raffle_end_date', sanitize_text_field($_POST['tix_raffle_end_date'] ?? ''));
             update_post_meta($post_id, '_tix_raffle_max_entries', max(0, intval($_POST['tix_raffle_max_entries'] ?? 0)));
+            update_post_meta($post_id, '_tix_raffle_hide_count', !empty($_POST['tix_raffle_hide_count']) ? '1' : '');
 
             // Status-Reset
             if (!empty($_POST['tix_raffle_status_reset'])) {
