@@ -13,14 +13,14 @@
 /* ── Header ── */
 .tix-raffle-header {
     background: var(--tix-raffle-header-bg, #FF5500);
-    color: #fff;
+    color: var(--tix-raffle-header-color, #fff);
     padding: 24px 28px 20px;
 }
 .tix-raffle-title {
     font-size: 1.35rem;
     font-weight: 700;
     margin: 0 0 6px;
-    color: #fff;
+    color: var(--tix-raffle-header-color, #fff);
     line-height: 1.3;
 }
 .tix-raffle-desc {

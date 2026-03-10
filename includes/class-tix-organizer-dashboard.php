@@ -669,11 +669,13 @@ class TIX_Organizer_Dashboard {
             'raffle_max_entries' => get_post_meta($event_id, '_tix_raffle_max_entries', true),
             'raffle_hide_count'  => get_post_meta($event_id, '_tix_raffle_hide_count', true),
             'raffle_consent_text' => get_post_meta($event_id, '_tix_raffle_consent_text', true),
-            'raffle_header_bg'  => get_post_meta($event_id, '_tix_raffle_header_bg', true),
+            'raffle_header_bg'   => get_post_meta($event_id, '_tix_raffle_header_bg', true),
+            'raffle_header_color' => get_post_meta($event_id, '_tix_raffle_header_color', true),
             'raffle_prizes'     => get_post_meta($event_id, '_tix_raffle_prizes', true) ?: [],
             // Timetable
             'stages'            => get_post_meta($event_id, '_tix_stages', true) ?: [],
             'timetable'         => get_post_meta($event_id, '_tix_timetable', true) ?: [],
+            'timetable_times_tba' => get_post_meta($event_id, '_tix_timetable_times_tba', true),
             // Presale
             'presale_active'    => get_post_meta($event_id, '_tix_presale_active', true),
             'presale_start'     => get_post_meta($event_id, '_tix_presale_start', true),
@@ -863,6 +865,8 @@ class TIX_Organizer_Dashboard {
                 update_post_meta($event_id, '_tix_raffle_consent_text', wp_kses_post($_POST['raffle_consent_text'] ?? ''));
                 $hdr_bg = sanitize_hex_color($_POST['raffle_header_bg'] ?? '');
                 update_post_meta($event_id, '_tix_raffle_header_bg', $hdr_bg);
+                $hdr_color = sanitize_hex_color($_POST['raffle_header_color'] ?? '');
+                update_post_meta($event_id, '_tix_raffle_header_color', $hdr_color);
                 // Preise
                 $raw_prizes = $_POST['raffle_prizes'] ?? [];
                 $prizes = [];
@@ -880,6 +884,11 @@ class TIX_Organizer_Dashboard {
                 }
                 update_post_meta($event_id, '_tix_raffle_prizes', $prizes);
             }
+        }
+
+        // Timetable TBA
+        if (isset($_POST['timetable_times_tba'])) {
+            update_post_meta($event_id, '_tix_timetable_times_tba', !empty($_POST['timetable_times_tba']) ? '1' : '');
         }
 
         // Timetable

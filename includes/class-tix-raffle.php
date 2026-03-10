@@ -112,8 +112,9 @@ class TIX_Raffle {
         $prizes       = get_post_meta($post_id, '_tix_raffle_prizes', true);
         $winners      = get_post_meta($post_id, '_tix_raffle_winners', true);
         $hide_count   = get_post_meta($post_id, '_tix_raffle_hide_count', true) === '1';
-        $consent_text = get_post_meta($post_id, '_tix_raffle_consent_text', true);
-        $header_bg    = get_post_meta($post_id, '_tix_raffle_header_bg', true);
+        $consent_text  = get_post_meta($post_id, '_tix_raffle_consent_text', true);
+        $header_bg     = get_post_meta($post_id, '_tix_raffle_header_bg', true);
+        $header_color  = get_post_meta($post_id, '_tix_raffle_header_color', true);
 
         if (!is_array($prizes) || empty($prizes)) return '';
 
@@ -138,7 +139,12 @@ class TIX_Raffle {
         <div class="tix-raffle<?php echo $atts['fullwidth'] === '1' ? ' tix-fullwidth' : ''; ?>" data-event="<?php echo $post_id; ?>"<?php if ($tix_v === 2): ?> style="--tix-btn1-bg:var(--tix-btn2-bg,transparent);--tix-btn1-color:var(--tix-btn2-color,inherit);--tix-btn1-hover-bg:var(--tix-btn2-hover-bg,transparent);--tix-btn1-hover-color:var(--tix-btn2-hover-color,inherit);--tix-btn1-radius:var(--tix-btn2-radius,8px);--tix-btn1-border:var(--tix-btn2-border,1px solid currentColor);--tix-btn1-font-size:var(--tix-btn2-font-size,0.9rem)"<?php endif; ?>>
 
             <!-- Header -->
-            <div class="tix-raffle-header"<?php if ($header_bg): ?> style="--tix-raffle-header-bg:<?php echo esc_attr($header_bg); ?>"<?php endif; ?>>
+            <?php
+            $hdr_style = '';
+            if ($header_bg)    $hdr_style .= '--tix-raffle-header-bg:' . esc_attr($header_bg) . ';';
+            if ($header_color) $hdr_style .= '--tix-raffle-header-color:' . esc_attr($header_color) . ';';
+            ?>
+            <div class="tix-raffle-header"<?php if ($hdr_style): ?> style="<?php echo $hdr_style; ?>"<?php endif; ?>>
                 <h2 class="tix-raffle-title"><?php echo esc_html($title); ?></h2>
                 <?php if ($desc): ?>
                     <div class="tix-raffle-desc"><?php echo wp_kses_post(wpautop($desc)); ?></div>

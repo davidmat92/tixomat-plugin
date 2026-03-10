@@ -30,6 +30,7 @@ class TIX_Timetable {
 
         $stages    = get_post_meta($post_id, '_tix_stages', true);
         $timetable = get_post_meta($post_id, '_tix_timetable', true);
+        $times_tba = get_post_meta($post_id, '_tix_timetable_times_tba', true) === '1';
 
         if (!is_array($stages) || empty($stages) || !is_array($timetable) || empty($timetable)) {
             return '';
@@ -56,6 +57,11 @@ class TIX_Timetable {
         if (!$has_any_time) $tt_classes .= ' tix-tt--no-times';
         ?>
         <div class="<?php echo $tt_classes; ?>" data-stages="<?php echo count($stages); ?>">
+
+            <?php // ── Hinweis: Zeiten noch nicht bekannt ── ?>
+            <?php if ($times_tba && !$has_any_time): ?>
+            <p class="tix-tt-tba">Die genauen Uhrzeiten werden wenige Tage vor der Veranstaltung bekanntgegeben.</p>
+            <?php endif; ?>
 
             <?php // ── Tages-Tabs (nur bei Mehrtages-Events) ── ?>
             <?php if (count($days) > 1): ?>

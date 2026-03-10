@@ -2125,6 +2125,7 @@ class TIX_Metabox {
     public static function render_timetable($post) {
         $stages    = get_post_meta($post->ID, '_tix_stages', true);
         $timetable = get_post_meta($post->ID, '_tix_timetable', true);
+        $times_tba = get_post_meta($post->ID, '_tix_timetable_times_tba', true);
         if (!is_array($stages)) $stages = [];
         if (!is_array($timetable)) $timetable = [];
 
@@ -2153,6 +2154,14 @@ class TIX_Metabox {
         ?>
         <p class="description" style="margin-bottom:14px;">
             Erstelle das Veranstaltungsprogramm mit mehreren Bühnen/Räumen. Definiere zuerst die Bühnen, dann die einzelnen Programmslots pro Tag.
+        </p>
+
+        <p style="margin-bottom:14px;">
+            <label>
+                <input type="checkbox" name="tix_timetable_times_tba" value="1" <?php checked($times_tba, '1'); ?>>
+                Hinweis anzeigen: „Uhrzeiten werden noch bekanntgegeben"
+            </label>
+            <span class="description" style="margin-left:6px;">Wird angezeigt, wenn keine Uhrzeiten eingetragen sind.</span>
         </p>
 
         <?php // ── Bühnen ── ?>
@@ -2467,6 +2476,7 @@ class TIX_Metabox {
         $hide_count   = get_post_meta($post->ID, '_tix_raffle_hide_count', true);
         $consent_text = get_post_meta($post->ID, '_tix_raffle_consent_text', true) ?: '';
         $header_bg    = get_post_meta($post->ID, '_tix_raffle_header_bg', true) ?: '';
+        $header_color = get_post_meta($post->ID, '_tix_raffle_header_color', true) ?: '';
         $status       = get_post_meta($post->ID, '_tix_raffle_status', true) ?: 'open';
         $prizes      = get_post_meta($post->ID, '_tix_raffle_prizes', true);
         $winners     = get_post_meta($post->ID, '_tix_raffle_winners', true);
@@ -2582,19 +2592,40 @@ class TIX_Metabox {
                                    placeholder="#FF5500" class="small-text" style="margin-left:6px;vertical-align:middle;"
                                    id="tix-raffle-header-bg-text">
                             <span class="description" style="margin-left:6px;">Hintergrundfarbe des Titelbereichs</span>
-                            <script>
-                            jQuery(function($) {
-                                $('#tix-raffle-header-bg').on('input', function() {
-                                    $('#tix-raffle-header-bg-text').val(this.value);
-                                });
-                                $('#tix-raffle-header-bg-text').on('input', function() {
-                                    var v = $(this).val();
-                                    if (/^#[0-9A-Fa-f]{6}$/.test(v)) $('#tix-raffle-header-bg').val(v);
-                                });
-                            });
-                            </script>
                         </td>
                     </tr>
+                    <tr>
+                        <th><label for="tix-raffle-header-color">Textfarbe Header</label></th>
+                        <td>
+                            <input type="color" id="tix-raffle-header-color"
+                                   value="<?php echo esc_attr($header_color ?: '#ffffff'); ?>"
+                                   style="width:50px;height:34px;padding:2px;cursor:pointer;vertical-align:middle;">
+                            <input type="text" name="tix_raffle_header_color" value="<?php echo esc_attr($header_color); ?>"
+                                   placeholder="#ffffff" class="small-text" style="margin-left:6px;vertical-align:middle;"
+                                   id="tix-raffle-header-color-text">
+                            <span class="description" style="margin-left:6px;">Textfarbe von Titel &amp; Beschreibung</span>
+                        </td>
+                    </tr>
+                    <script>
+                    jQuery(function($) {
+                        // Header BG sync
+                        $('#tix-raffle-header-bg').on('input', function() {
+                            $('#tix-raffle-header-bg-text').val(this.value);
+                        });
+                        $('#tix-raffle-header-bg-text').on('input', function() {
+                            var v = $(this).val();
+                            if (/^#[0-9A-Fa-f]{6}$/.test(v)) $('#tix-raffle-header-bg').val(v);
+                        });
+                        // Header Color sync
+                        $('#tix-raffle-header-color').on('input', function() {
+                            $('#tix-raffle-header-color-text').val(this.value);
+                        });
+                        $('#tix-raffle-header-color-text').on('input', function() {
+                            var v = $(this).val();
+                            if (/^#[0-9A-Fa-f]{6}$/.test(v)) $('#tix-raffle-header-color').val(v);
+                        });
+                    });
+                    </script>
                 </table>
 
                 <?php // ── Preise (Repeater) ── ?>
@@ -3100,6 +3131,8 @@ class TIX_Metabox {
             update_post_meta($post_id, '_tix_raffle_consent_text', wp_kses_post($_POST['tix_raffle_consent_text'] ?? ''));
             $hdr_bg = sanitize_hex_color($_POST['tix_raffle_header_bg'] ?? '');
             update_post_meta($post_id, '_tix_raffle_header_bg', $hdr_bg);
+            $hdr_color = sanitize_hex_color($_POST['tix_raffle_header_color'] ?? '');
+            update_post_meta($post_id, '_tix_raffle_header_color', $hdr_color);
 
             // Status-Reset
             if (!empty($_POST['tix_raffle_status_reset'])) {
@@ -3135,6 +3168,8 @@ class TIX_Metabox {
         }
 
         // ── Timetable / Programm speichern ──
+        update_post_meta($post_id, '_tix_timetable_times_tba', !empty($_POST['tix_timetable_times_tba']) ? '1' : '');
+
         $raw_stages = $_POST['tix_stages'] ?? [];
         $stages = [];
         if (is_array($raw_stages)) {
