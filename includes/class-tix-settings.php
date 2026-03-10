@@ -196,6 +196,7 @@ class TIX_Settings {
             'show_company_field'   => 0,
             'show_coupon_selector' => 1,
             'checkout_steps'       => 0,
+            'checkout_btn_variant' => '1',  // '1' = Primär, '2' = Sekundär
             // ── Countdown ──
             'checkout_countdown'         => 0,
             'checkout_countdown_minutes' => 10,
@@ -486,6 +487,7 @@ class TIX_Settings {
         $clean['show_company_field']   = !empty($input['show_company_field']) ? 1 : 0;
         $clean['show_coupon_selector'] = !empty($input['show_coupon_selector']) ? 1 : 0;
         $clean['checkout_steps']       = !empty($input['checkout_steps']) ? 1 : 0;
+        $clean['checkout_btn_variant'] = in_array($input['checkout_btn_variant'] ?? '1', ['1', '2']) ? $input['checkout_btn_variant'] : '1';
         $clean['checkout_countdown']         = !empty($input['checkout_countdown']) ? 1 : 0;
         $clean['checkout_countdown_minutes'] = max(1, min(60, intval($input['checkout_countdown_minutes'] ?? 10)));
         $clean['show_upsell']          = !empty($input['show_upsell']) ? 1 : 0;
@@ -1430,6 +1432,13 @@ class TIX_Settings {
                                             </div>
                                             <div class="tix-field tix-field-full">
                                                 <?php self::checkbox_row('show_company_field', 'Firma-Feld im Checkout anzeigen (optional aufklappbar)', $s); ?>
+                                            </div>
+                                            <div class="tix-field">
+                                                <label class="tix-field-label">Button-Variante</label>
+                                                <select name="<?php echo self::OPTION_KEY; ?>[checkout_btn_variant]" class="tix-select-input">
+                                                    <option value="1" <?php selected($s['checkout_btn_variant'] ?? '1', '1'); ?>>Variante 1 (Primär)</option>
+                                                    <option value="2" <?php selected($s['checkout_btn_variant'] ?? '1', '2'); ?>>Variante 2 (Sekundär)</option>
+                                                </select>
                                             </div>
                                             <div class="tix-field tix-field-full">
                                                 <?php self::checkbox_row('checkout_steps', 'Checkout als 3-Schritte-Prozess', $s, '1) Ticket-Übersicht → 2) Rechnungsadresse → 3) Zahlung & Abschluss'); ?>
