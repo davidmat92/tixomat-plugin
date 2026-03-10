@@ -95,6 +95,11 @@ class TIX_Settings {
             'ep_show_share'      => 1,
             'ep_show_timetable'  => 1,
 
+            // ── Share-Buttons ([tix_share]) ──
+            'share_channels'     => 'wa,tg,fb,x,li,email,copy,native',
+            'share_label'        => 'Teilen',
+            'share_style'        => 'icon',  // 'icon' | 'label'
+
             // ── Warteliste / Presale-Benachrichtigungen ──
             'waitlist_enabled'   => 1,
             // ── Post-Event Feedback ──
@@ -443,6 +448,16 @@ class TIX_Settings {
         foreach (['ep_show_hero', 'ep_show_gallery', 'ep_show_video', 'ep_show_faq', 'ep_show_location', 'ep_show_organizer', 'ep_show_series', 'ep_show_charity', 'ep_show_upsell', 'ep_show_calendar', 'ep_show_phases', 'ep_show_raffle', 'ep_show_share', 'ep_show_timetable'] as $k) {
             $clean[$k] = !empty($input[$k]) ? 1 : 0;
         }
+
+        // Share-Buttons
+        $valid_channels = ['wa', 'tg', 'fb', 'x', 'li', 'pi', 'rd', 'email', 'sms', 'copy', 'native'];
+        $share_raw = sanitize_text_field($input['share_channels'] ?? '');
+        $share_arr = array_filter(array_map('trim', explode(',', $share_raw)), function ($c) use ($valid_channels) {
+            return in_array($c, $valid_channels, true);
+        });
+        $clean['share_channels'] = implode(',', $share_arr);
+        $clean['share_label']    = sanitize_text_field($input['share_label'] ?? 'Teilen');
+        $clean['share_style']    = in_array($input['share_style'] ?? '', ['icon', 'label']) ? $input['share_style'] : 'icon';
 
         // Low-Stock-Schwellenwert
         $clean['low_stock_threshold'] = max(0, min(999, intval($input['low_stock_threshold'] ?? 10)));
@@ -1033,6 +1048,10 @@ class TIX_Settings {
                             <button type="button" class="tix-nav-tab" data-tab="event-page">
                                 <span class="dashicons dashicons-welcome-widgets-menus"></span>
                                 <span class="tix-nav-label">Event-Seite</span>
+                            </button>
+                            <button type="button" class="tix-nav-tab" data-tab="share">
+                                <span class="dashicons dashicons-share"></span>
+                                <span class="tix-nav-label">Share</span>
                             </button>
                             <button type="button" class="tix-nav-tab" data-tab="advanced">
                                 <span class="dashicons dashicons-admin-generic"></span>
@@ -1886,6 +1905,72 @@ class TIX_Settings {
 
                             </div>
 
+                            <?php // ═══ PANE: SHARE ═══ ?>
+                            <div class="tix-pane" data-pane="share">
+
+                                <?php // ── Card: Kanäle ── ?>
+                                <div class="tix-card">
+                                    <h3 class="tix-card-title">Share-Kanäle</h3>
+                                    <p class="tix-settings-hint" style="margin-bottom:12px;">Wähle die Kanäle aus, die standardmäßig angezeigt werden sollen. Per Shortcode-Attribut <code>channels="wa,copy"</code> lässt sich die Auswahl individuell überschreiben.</p>
+                                    <?php
+                                    $share_channels_active = array_map('trim', explode(',', $s['share_channels'] ?? ''));
+                                    $all_share_channels = [
+                                        'wa'     => 'WhatsApp',
+                                        'tg'     => 'Telegram',
+                                        'fb'     => 'Facebook',
+                                        'x'      => 'X (Twitter)',
+                                        'li'     => 'LinkedIn',
+                                        'pi'     => 'Pinterest',
+                                        'rd'     => 'Reddit',
+                                        'email'  => 'E-Mail',
+                                        'sms'    => 'SMS',
+                                        'copy'   => 'Link kopieren',
+                                        'native' => 'Teilen… (System-Dialog)',
+                                    ];
+                                    ?>
+                                    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px;margin-bottom:16px;">
+                                        <?php foreach ($all_share_channels as $ch_key => $ch_label): ?>
+                                            <label style="display:flex;align-items:center;gap:6px;font-size:.9rem;cursor:pointer;">
+                                                <input type="checkbox" class="tix-share-ch-toggle" data-channel="<?php echo esc_attr($ch_key); ?>"
+                                                       <?php checked(in_array($ch_key, $share_channels_active)); ?>>
+                                                <?php echo esc_html($ch_label); ?>
+                                            </label>
+                                        <?php endforeach; ?>
+                                    </div>
+                                    <input type="hidden" name="<?php echo self::OPTION_KEY; ?>[share_channels]" id="tix-share-channels-hidden"
+                                           value="<?php echo esc_attr($s['share_channels'] ?? ''); ?>">
+                                </div>
+
+                                <?php // ── Card: Darstellung ── ?>
+                                <div class="tix-card">
+                                    <h3 class="tix-card-title">Darstellung</h3>
+                                    <div class="tix-fields">
+                                        <?php self::text_row('share_label', 'Label-Text', $s, 'Teilen'); ?>
+                                        <div class="tix-field">
+                                            <label class="tix-field-label">Stil</label>
+                                            <select name="<?php echo self::OPTION_KEY; ?>[share_style]" class="tix-select-input">
+                                                <option value="icon" <?php selected($s['share_style'] ?? 'icon', 'icon'); ?>>Nur Icons</option>
+                                                <option value="label" <?php selected($s['share_style'] ?? 'icon', 'label'); ?>>Icons + Text</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Shortcode-Info ── ?>
+                                <div class="tix-card">
+                                    <h3 class="tix-card-title">Verwendung</h3>
+                                    <p class="tix-settings-hint" style="margin:0 0 8px;">Shortcode: <code>[tix_share]</code></p>
+                                    <p class="tix-settings-hint" style="margin:0 0 4px;">Optionale Attribute:</p>
+                                    <ul class="tix-settings-hint" style="margin:0;padding-left:20px;font-size:.85rem;line-height:1.6;">
+                                        <li><code>channels="wa,tg,copy"</code> – Nur bestimmte Kanäle anzeigen</li>
+                                        <li><code>label="Jetzt teilen"</code> – Eigener Label-Text</li>
+                                        <li><code>style="label"</code> – Icons mit Text</li>
+                                        <li><code>id="123"</code> – Spezifische Post-ID</li>
+                                    </ul>
+                                </div>
+
+                            </div>
+
                             <div class="tix-pane" data-pane="advanced">
 
                                 <?php // ── Card: Google Places ── ?>
@@ -2185,6 +2270,21 @@ class TIX_Settings {
                     if (btn) btn.click();
                 }
             }
+
+            // ══════════════════════════════════════
+            // Share-Kanäle Checkboxen → Hidden-Field
+            // ══════════════════════════════════════
+            (function() {
+                var hidden = document.getElementById('tix-share-channels-hidden');
+                if (!hidden) return;
+                var boxes = document.querySelectorAll('.tix-share-ch-toggle');
+                function sync() {
+                    var active = [];
+                    boxes.forEach(function(cb) { if (cb.checked) active.push(cb.getAttribute('data-channel')); });
+                    hidden.value = active.join(',');
+                }
+                boxes.forEach(function(cb) { cb.addEventListener('change', sync); });
+            })();
 
             // ══════════════════════════════════════
             // RGBA Color Picker Helpers

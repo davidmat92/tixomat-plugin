@@ -1,0 +1,92 @@
+/* ═══════════════════════════════════════════
+   Tixomat – Share-Buttons
+   ═══════════════════════════════════════════ */
+
+.tix-share {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-family: inherit;
+}
+
+.tix-share-label {
+    font-size: .82rem;
+    font-weight: 600;
+    color: var(--ep-muted, #64748b);
+    white-space: nowrap;
+}
+
+.tix-share-buttons {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+/* ── Einzelner Button ── */
+.tix-share-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    border: 1px solid var(--ep-border, #e5e7eb);
+    background: var(--ep-bg, #fff);
+    color: var(--ep-muted, #64748b);
+    cursor: pointer;
+    transition: background .2s, color .2s, border-color .2s;
+    text-decoration: none;
+    padding: 0;
+    font-size: 0;
+    line-height: 1;
+    font-family: inherit;
+}
+
+.tix-share-btn:hover {
+    border-color: var(--ep-text, #1a1a1a);
+    color: var(--ep-text, #1a1a1a);
+    background: #FAF8F4;
+}
+
+/* ── Kanal-spezifische Hover-Farben ── */
+.tix-share-btn--wa:hover     { color: #25d366; border-color: #25d366; }
+.tix-share-btn--tg:hover     { color: #26a5e4; border-color: #26a5e4; }
+.tix-share-btn--fb:hover     { color: #1877f2; border-color: #1877f2; }
+.tix-share-btn--x:hover      { color: #000;    border-color: #000; }
+.tix-share-btn--li:hover     { color: #0a66c2; border-color: #0a66c2; }
+.tix-share-btn--pi:hover     { color: #e60023; border-color: #e60023; }
+.tix-share-btn--rd:hover     { color: #ff4500; border-color: #ff4500; }
+.tix-share-btn--email:hover  { color: #ea4335; border-color: #ea4335; }
+.tix-share-btn--sms:hover    { color: #34c759; border-color: #34c759; }
+.tix-share-btn--copy:hover   { color: #FF5500; border-color: #FF5500; }
+.tix-share-btn--native:hover { color: #FF5500; border-color: #FF5500; }
+
+/* ── Kopiert-Zustand ── */
+.tix-share-btn--copied {
+    color: #16a34a !important;
+    border-color: #16a34a !important;
+    background: #f0fdf4 !important;
+}
+
+/* ── Mit Labels (style="label") ── */
+.tix-share--with-labels .tix-share-btn {
+    width: auto;
+    height: auto;
+    padding: 8px 14px;
+    gap: 6px;
+    font-size: .82rem;
+}
+.tix-share-btn-label {
+    font-size: .82rem;
+    font-weight: 500;
+    color: inherit;
+}
+
+/* ── Responsive ── */
+@media (max-width: 480px) {
+    .tix-share {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+    }
+}

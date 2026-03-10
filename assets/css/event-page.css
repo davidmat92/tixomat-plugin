@@ -670,56 +670,11 @@
 /* ═══════════════════════════════════════════════
    SHARE BUTTONS
    ═══════════════════════════════════════════════ */
+/* Share-Buttons (delegiert an .tix-share Komponente) */
 .tix-ep-share {
-    display: flex;
-    align-items: center;
-    gap: 12px;
     padding: 14px 0 0;
     margin-top: 14px;
     border-top: 1px solid var(--ep-border);
-}
-.tix-ep-share-label {
-    font-size: .82rem;
-    font-weight: 600;
-    color: var(--ep-muted);
-    white-space: nowrap;
-}
-.tix-ep-share-buttons {
-    display: flex;
-    gap: 6px;
-    flex-wrap: wrap;
-}
-.tix-ep-share-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 36px;
-    height: 36px;
-    border-radius: 8px;
-    border: 1px solid var(--ep-border);
-    background: var(--ep-bg, #fff);
-    color: var(--ep-muted);
-    cursor: pointer;
-    transition: background .2s, color .2s, border-color .2s;
-    text-decoration: none;
-    padding: 0;
-    font-size: 0;
-    line-height: 1;
-}
-.tix-ep-share-btn:hover {
-    border-color: var(--ep-text, #1a1a1a);
-    color: var(--ep-text, #1a1a1a);
-    background: #FAF8F4;
-}
-.tix-ep-share-wa:hover { color: #25d366; border-color: #25d366; }
-.tix-ep-share-fb:hover { color: #1877f2; border-color: #1877f2; }
-.tix-ep-share-x:hover  { color: #000; border-color: #000; }
-.tix-ep-share-email:hover { color: #ea4335; border-color: #ea4335; }
-.tix-ep-share-copy:hover { color: #FF5500; border-color: #FF5500; }
-.tix-ep-share-copied {
-    color: #16a34a !important;
-    border-color: #16a34a !important;
-    background: #f0fdf4 !important;
 }
 
 /* ═══════════════════════════════════════════════

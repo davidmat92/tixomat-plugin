@@ -2,14 +2,14 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.28.50
+ * Version: 1.28.51
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.28.50');
+define('TIXOMAT_VERSION', '1.28.51');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -353,6 +353,7 @@ if (!is_admin() || wp_doing_ajax()) {
     require_once TIXOMAT_PATH . 'includes/class-tix-upsell.php';
     require_once TIXOMAT_PATH . 'includes/class-tix-my-tickets.php';
     require_once TIXOMAT_PATH . 'includes/class-tix-event-page.php';
+    require_once TIXOMAT_PATH . 'includes/class-tix-share.php';
 
     require_once TIXOMAT_PATH . 'includes/class-tix-group-booking.php';
     require_once TIXOMAT_PATH . 'includes/class-tix-checkin.php';
@@ -365,6 +366,7 @@ if (!is_admin() || wp_doing_ajax()) {
     add_action('init', ['TIX_Upsell', 'init']);
     add_action('init', ['TIX_My_Tickets', 'init']);
     add_action('init', ['TIX_Event_Page', 'init']);
+    add_action('init', ['TIX_Share', 'init']);
     add_action('init', ['TIX_Group_Booking', 'init']);
     add_action('init', ['TIX_Checkin', 'init']);
     add_action('init', ['TIX_Ticket_Transfer', 'init']);
