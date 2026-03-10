@@ -162,8 +162,8 @@ function tix_css($c, $height = '700px') {
 .tix-mb{padding:12px 16px;font-size:13.5px;line-height:1.6;white-space:pre-wrap;word-break:break-word}
 .tix-m.b .tix-mb{background:'.$c['bg_card'].';color:'.$c['text'].';border-radius:18px 18px 18px 6px;box-shadow:0 1px 4px rgba(0,0,0,.04)}
 .tix-m.u .tix-mb{background:'.$c['user_bubble'].';color:'.$c['user_text'].';border-radius:18px 18px 6px 18px}
-.tix-mt{font-size:10px;color:'.$c['text_light'].';margin-top:3px;padding:0 6px}
-.tix-m.u .tix-mt{text-align:right}
+.tix-mtime{font-size:10px;color:'.$c['text_light'].';margin-top:3px;padding:0 6px}
+.tix-m.u .tix-mtime{text-align:right}
 
 .tix-tp{display:flex;gap:4px;padding:14px 18px;background:'.$c['bg_card'].';border-radius:18px 18px 18px 6px;width:fit-content;animation:tixIn .25s ease;box-shadow:0 1px 4px rgba(0,0,0,.04)}
 .tix-tp span{width:6px;height:6px;background:'.$c['accent'].';border-radius:50%;animation:tixDot 1.3s ease-in-out infinite;opacity:.4}
@@ -314,7 +314,7 @@ function addMsg(text,type){
   let html=text.replace(/\\*\\*(.*?)\\*\\*/g,"<strong>$1</strong>").replace(/\\*(.*?)\\*/g,"<strong>$1</strong>");
   html=html.replace(/\\[([^\\]]+)\\]\\(([^)]+)\\)/g,\'<a href="$2" target="_blank" style="color:inherit;text-decoration:underline">$1</a>\');
   const el=document.createElement("div");el.className="tix-m "+type;
-  el.innerHTML=\'<div class="tix-mb">\'+html+\'</div><div class="tix-mt">\'+time+\'</div>\';
+  el.innerHTML=\'<div class="tix-mb">\'+html+\'</div><div class="tix-mtime">\'+time+\'</div>\';
   box.appendChild(el);requestAnimationFrame(()=>box.scrollTop=box.scrollHeight);saveHistory();
 }
 function showT(){const box=$("'.$ids['msgs'].'"),el=document.createElement("div");el.className="tix-m b";el.id="'.$ids['typing'].'";el.innerHTML=\'<div class="tix-tp"><span></span><span></span><span></span></div>\';box.appendChild(el);box.scrollTop=box.scrollHeight}
