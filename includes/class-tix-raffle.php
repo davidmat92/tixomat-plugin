@@ -188,10 +188,19 @@ class TIX_Raffle {
                 <?php endif; ?>
 
                 <!-- Formular -->
+                <?php
+                $prefill_name  = '';
+                $prefill_email = '';
+                if (is_user_logged_in()) {
+                    $cu = wp_get_current_user();
+                    $prefill_name  = trim($cu->first_name . ' ' . $cu->last_name) ?: $cu->display_name;
+                    $prefill_email = $cu->user_email;
+                }
+                ?>
                 <form class="tix-raffle-form" data-event="<?php echo $post_id; ?>" data-nonce="<?php echo $nonce; ?>">
                     <div class="tix-raffle-form-fields">
-                        <input type="text" name="name" placeholder="Dein Name" required autocomplete="name">
-                        <input type="email" name="email" placeholder="Deine E-Mail" required autocomplete="email">
+                        <input type="text" name="name" placeholder="Dein Name" required autocomplete="name" value="<?php echo esc_attr($prefill_name); ?>">
+                        <input type="email" name="email" placeholder="Deine E-Mail" required autocomplete="email" value="<?php echo esc_attr($prefill_email); ?>">
                     </div>
                     <?php if (!empty($consent_text)): ?>
                     <label class="tix-raffle-consent">
