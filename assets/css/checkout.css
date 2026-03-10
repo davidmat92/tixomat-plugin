@@ -199,25 +199,28 @@
     background: var(--tix-co-text, #333); color: var(--tix-co-bg, #fff);
 }
 
-/* Weitere Tickets kaufen */
+/* Weitere Tickets kaufen (Variante 2) */
 .tix-co-btn-more {
     display: inline-flex;
     align-items: center;
     gap: 6px;
     margin-top: 12px;
     padding: 10px 20px;
-    border: 1px solid var(--tix-border, #333);
-    border-radius: var(--tix-buy-radius, 8px);
-    background: transparent;
-    color: inherit !important;
-    font-weight: 600;
-    font-size: 0.88rem;
+    border: var(--tix-btn2-border, 1px solid currentColor);
+    border-radius: var(--tix-btn2-radius, 8px);
+    background: var(--tix-btn2-bg, transparent);
+    color: var(--tix-btn2-color, inherit) !important;
+    font-weight: 700;
+    font-size: var(--tix-btn2-font-size, 0.9rem);
     text-decoration: none !important;
-    transition: border-color 0.2s, background 0.2s;
+    transition: background 0.2s, color 0.2s, border-color 0.2s;
+    cursor: pointer;
+    font-family: inherit;
 }
 .tix-co-btn-more:hover {
-    border-color: var(--tix-input-focus, #c8ff00);
-    background: rgba(200, 255, 0, 0.06);
+    background: var(--tix-btn2-hover-bg, transparent);
+    color: var(--tix-btn2-hover-color, inherit) !important;
+    opacity: 0.9;
 }
 
 /* ══════════════════════════════════════
