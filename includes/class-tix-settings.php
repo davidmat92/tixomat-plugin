@@ -670,12 +670,23 @@ class TIX_Settings {
         }
 
         // ── Button-Varianten ──
-        // Variante 1 (Primär)
-        $btn1_bg    = !empty($s['btn1_bg'])    ? $s['btn1_bg']    : (!empty($s['color_accent']) ? $s['color_accent'] : $d['btn1_bg']);
-        $btn1_color = !empty($s['btn1_color']) ? $s['btn1_color'] : (!empty($s['color_accent_text']) ? $s['color_accent_text'] : $d['btn1_color']);
-        $btn1_hover_bg    = !empty($s['btn1_hover_bg'])    ? $s['btn1_hover_bg']    : (!empty($s['color_accent_hover']) ? $s['color_accent_hover'] : '');
-        $btn1_hover_color = !empty($s['btn1_hover_color']) ? $s['btn1_hover_color'] : (!empty($s['color_accent_hover_text']) ? $s['color_accent_hover_text'] : '');
-        $btn1_radius    = intval($s['btn1_radius'] ?? $d['btn1_radius']);
+        // Prüfe ob btn1_* schon explizit gespeichert wurde (Migration passiert erst beim Save)
+        $raw = get_option(self::OPTION_KEY, []);
+        $btn_migrated = isset($raw['btn1_bg']);
+
+        // Variante 1 (Primär) — Fallback auf alte color_accent Werte wenn noch nicht migriert
+        if ($btn_migrated) {
+            $btn1_bg          = $s['btn1_bg'];
+            $btn1_color       = $s['btn1_color'];
+            $btn1_hover_bg    = $s['btn1_hover_bg'] ?? '';
+            $btn1_hover_color = $s['btn1_hover_color'] ?? '';
+        } else {
+            $btn1_bg          = !empty($s['color_accent'])            ? $s['color_accent']            : $d['btn1_bg'];
+            $btn1_color       = !empty($s['color_accent_text'])       ? $s['color_accent_text']       : $d['btn1_color'];
+            $btn1_hover_bg    = !empty($s['color_accent_hover'])      ? $s['color_accent_hover']      : '';
+            $btn1_hover_color = !empty($s['color_accent_hover_text']) ? $s['color_accent_hover_text'] : '';
+        }
+        $btn1_radius    = $btn_migrated ? intval($s['btn1_radius']) : intval($s['radius_button'] ?? $d['btn1_radius']);
         $btn1_border    = $s['btn1_border'] ?? '';
         $btn1_font_size = floatval($s['btn1_font_size'] ?? $d['btn1_font_size']);
 
@@ -738,7 +749,7 @@ class TIX_Settings {
         if (empty($vars)) {
             echo "<style id=\"tix-custom-vars\">\n{$vat_css}{$text_css}";
         } else {
-            echo "<style id=\"tix-custom-vars\">\n.tix-sel, .tix-co, .tix-faq, .tix-up, .tix-mt {\n    " . implode(";\n    ", $vars) . ";\n}\n";
+            echo "<style id=\"tix-custom-vars\">\n.tix-sel, .tix-co, .tix-faq, .tix-up, .tix-mt, .tix-mc-trigger, .tix-mc-overlay, .tix-cal, .tix-raffle, .tix-ec-trigger, .tix-ec-overlay {\n    " . implode(";\n    ", $vars) . ";\n}\n";
             echo $vat_css;
             echo $text_css;
         }
