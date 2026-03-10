@@ -1045,3 +1045,36 @@
     font-size: 0.85rem;
     opacity: 0.7;
 }
+
+/* ══════════════════════════════════════
+   KARTEN-LAYOUT – DANKE-SEITE
+   ══════════════════════════════════════ */
+.tix-co-thankyou .tix-co-section {
+    border: 1px solid var(--tix-border, #333);
+    border-radius: var(--tix-radius, 8px);
+    background: var(--tix-cat-bg, transparent);
+    padding: 20px;
+}
+
+.tix-co-thankyou .tix-co-heading {
+    border-bottom: none;
+    padding-bottom: 0;
+    margin-bottom: 14px;
+}
+
+.tix-co-thankyou .tix-co-summary {
+    border-top-color: var(--tix-border, #333);
+}
+
+.tix-co-thankyou .tix-co-ty-banner {
+    margin-bottom: 20px;
+}
+
+/* Bankdaten innerhalb der Ticket-Karte */
+.tix-co-thankyou .tix-co-ty-payment-notice {
+    border: none;
+    border-radius: 0;
+    padding: 14px 0 0;
+    margin-top: 14px;
+    border-top: 1px solid var(--tix-border, #333);
+}
