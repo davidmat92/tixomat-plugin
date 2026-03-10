@@ -15,7 +15,7 @@
     background: var(--tix-cal-bg, transparent);
     color: var(--tix-cal-text, inherit);
     font-size: 0.9rem;
-    font-weight: 600;
+    font-weight: 700;
     font-family: inherit;
     cursor: pointer;
     transition: border-color 0.2s, background 0.2s, opacity 0.2s;

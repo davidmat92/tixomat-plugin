@@ -17,7 +17,7 @@
     border-radius: var(--tix-mc-btn-radius, var(--tix-radius, 8px));
     background: var(--tix-mc-btn-bg, var(--tix-buy-bg, #FF5500));
     color: var(--tix-mc-btn-text, var(--tix-buy-color, #fff));
-    font-family: var(--tx-font-display, 'Outfit', system-ui, sans-serif);
+    font-family: inherit;
     font-size: 1rem;
     font-weight: 700;
     cursor: pointer;
@@ -276,7 +276,7 @@
     border-radius: var(--tix-mc-radius, 10px);
     background: var(--tx-accent, #FF5500);
     color: #fff;
-    font-family: var(--tx-font-display, 'Outfit', system-ui, sans-serif);
+    font-family: inherit;
     font-size: 1rem;
     font-weight: 700;
     cursor: pointer;
