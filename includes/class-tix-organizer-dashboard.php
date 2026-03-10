@@ -667,7 +667,9 @@ class TIX_Organizer_Dashboard {
             'raffle_description' => get_post_meta($event_id, '_tix_raffle_description', true),
             'raffle_end_date'   => get_post_meta($event_id, '_tix_raffle_end_date', true),
             'raffle_max_entries' => get_post_meta($event_id, '_tix_raffle_max_entries', true),
-            'raffle_hide_count' => get_post_meta($event_id, '_tix_raffle_hide_count', true),
+            'raffle_hide_count'  => get_post_meta($event_id, '_tix_raffle_hide_count', true),
+            'raffle_consent_text' => get_post_meta($event_id, '_tix_raffle_consent_text', true),
+            'raffle_header_bg'  => get_post_meta($event_id, '_tix_raffle_header_bg', true),
             'raffle_prizes'     => get_post_meta($event_id, '_tix_raffle_prizes', true) ?: [],
             // Timetable
             'stages'            => get_post_meta($event_id, '_tix_stages', true) ?: [],
@@ -858,6 +860,9 @@ class TIX_Organizer_Dashboard {
                 update_post_meta($event_id, '_tix_raffle_end_date', sanitize_text_field($_POST['raffle_end_date'] ?? ''));
                 update_post_meta($event_id, '_tix_raffle_max_entries', max(0, intval($_POST['raffle_max_entries'] ?? 0)));
                 update_post_meta($event_id, '_tix_raffle_hide_count', !empty($_POST['raffle_hide_count']) ? '1' : '');
+                update_post_meta($event_id, '_tix_raffle_consent_text', wp_kses_post($_POST['raffle_consent_text'] ?? ''));
+                $hdr_bg = sanitize_hex_color($_POST['raffle_header_bg'] ?? '');
+                update_post_meta($event_id, '_tix_raffle_header_bg', $hdr_bg);
                 // Preise
                 $raw_prizes = $_POST['raffle_prizes'] ?? [];
                 $prizes = [];
@@ -866,9 +871,10 @@ class TIX_Organizer_Dashboard {
                         $name = sanitize_text_field($p['name'] ?? '');
                         if (empty($name)) continue;
                         $prizes[] = [
-                            'name' => $name,
-                            'qty'  => max(1, intval($p['qty'] ?? 1)),
-                            'type' => in_array($p['type'] ?? '', ['text', 'ticket']) ? $p['type'] : 'text',
+                            'name'       => $name,
+                            'qty'        => max(1, intval($p['qty'] ?? 1)),
+                            'per_winner' => max(1, intval($p['per_winner'] ?? 1)),
+                            'type'       => in_array($p['type'] ?? '', ['text', 'ticket']) ? $p['type'] : 'text',
                         ];
                     }
                 }

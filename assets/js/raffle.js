@@ -22,12 +22,16 @@
             btn.textContent = 'Wird gesendet…';
             if (msg) { msg.hidden = true; msg.className = 'tix-raffle-msg'; msg.textContent = ''; }
 
+            var consentBox = form.querySelector('input[name="consent"]');
+            var consent = consentBox ? (consentBox.checked ? '1' : '') : '1';
+
             var body = new FormData();
             body.append('action', 'tix_raffle_enter');
             body.append('event_id', eventId);
             body.append('nonce', nonce);
             body.append('name', name);
             body.append('email', email);
+            body.append('consent', consent);
 
             fetch(tixRaffle.ajaxurl, { method: 'POST', body: body })
                 .then(function (r) { return r.json(); })

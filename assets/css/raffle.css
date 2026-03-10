@@ -12,7 +12,7 @@
 
 /* ── Header ── */
 .tix-raffle-header {
-    background: linear-gradient(135deg, #FF5500 0%, #8b5cf6 100%);
+    background: var(--tix-raffle-header-bg, #FF5500);
     color: #fff;
     padding: 24px 28px 20px;
 }
@@ -119,6 +119,28 @@
     border-color: #FF5500;
     box-shadow: 0 0 0 3px rgba(255,85,0,.12);
 }
+
+/* ── Zustimmungs-Checkbox ── */
+.tix-raffle-consent {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin-bottom: 14px;
+    font-size: .85rem;
+    line-height: 1.4;
+    color: var(--ep-text, #334155);
+    cursor: pointer;
+}
+.tix-raffle-consent input[type="checkbox"] {
+    margin-top: 2px;
+    flex-shrink: 0;
+    accent-color: #FF5500;
+}
+.tix-raffle-consent a {
+    color: #FF5500;
+    text-decoration: underline;
+}
+
 .tix-raffle-submit {
     width: 100%;
     padding: 13px 24px;

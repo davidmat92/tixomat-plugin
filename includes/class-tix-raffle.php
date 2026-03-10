@@ -108,10 +108,12 @@ class TIX_Raffle {
         $desc     = get_post_meta($post_id, '_tix_raffle_description', true);
         $end_date = get_post_meta($post_id, '_tix_raffle_end_date', true);
         $max      = intval(get_post_meta($post_id, '_tix_raffle_max_entries', true));
-        $db_status  = get_post_meta($post_id, '_tix_raffle_status', true) ?: 'open';
-        $prizes     = get_post_meta($post_id, '_tix_raffle_prizes', true);
-        $winners    = get_post_meta($post_id, '_tix_raffle_winners', true);
-        $hide_count = get_post_meta($post_id, '_tix_raffle_hide_count', true) === '1';
+        $db_status    = get_post_meta($post_id, '_tix_raffle_status', true) ?: 'open';
+        $prizes       = get_post_meta($post_id, '_tix_raffle_prizes', true);
+        $winners      = get_post_meta($post_id, '_tix_raffle_winners', true);
+        $hide_count   = get_post_meta($post_id, '_tix_raffle_hide_count', true) === '1';
+        $consent_text = get_post_meta($post_id, '_tix_raffle_consent_text', true);
+        $header_bg    = get_post_meta($post_id, '_tix_raffle_header_bg', true);
 
         if (!is_array($prizes) || empty($prizes)) return '';
 
@@ -121,20 +123,10 @@ class TIX_Raffle {
         // Status komplett dynamisch bestimmen — nur 'drawn' wird aus DB respektiert
         if ($db_status === 'drawn') {
             $status = 'drawn';
-            $close_reason = 'drawn';
         } else {
             $end_passed  = $end_date && strtotime($end_date) <= current_time('timestamp');
             $max_reached = $max > 0 && $entry_count >= $max;
-            if ($end_passed) {
-                $status = 'closed';
-                $close_reason = 'end_date_passed:' . $end_date . '|now:' . current_time('Y-m-d H:i:s');
-            } elseif ($max_reached) {
-                $status = 'closed';
-                $close_reason = 'max_reached:' . $entry_count . '/' . $max;
-            } else {
-                $status = 'open';
-                $close_reason = '';
-            }
+            $status = ($end_passed || $max_reached) ? 'closed' : 'open';
         }
 
         // Nonce
@@ -143,11 +135,10 @@ class TIX_Raffle {
         ob_start();
         ?>
         <?php $tix_v = intval($atts['variant']) === 2 ? 2 : 1; ?>
-        <!-- tix-raffle-debug: db_status=<?php echo $db_status; ?> | computed=<?php echo $status; ?> | end_date=<?php echo $end_date ?: 'NONE'; ?> | max=<?php echo $max; ?> | entries=<?php echo $entry_count; ?> | reason=<?php echo $close_reason; ?> -->
         <div class="tix-raffle<?php echo $atts['fullwidth'] === '1' ? ' tix-fullwidth' : ''; ?>" data-event="<?php echo $post_id; ?>"<?php if ($tix_v === 2): ?> style="--tix-btn1-bg:var(--tix-btn2-bg,transparent);--tix-btn1-color:var(--tix-btn2-color,inherit);--tix-btn1-hover-bg:var(--tix-btn2-hover-bg,transparent);--tix-btn1-hover-color:var(--tix-btn2-hover-color,inherit);--tix-btn1-radius:var(--tix-btn2-radius,8px);--tix-btn1-border:var(--tix-btn2-border,1px solid currentColor);--tix-btn1-font-size:var(--tix-btn2-font-size,0.9rem)"<?php endif; ?>>
 
             <!-- Header -->
-            <div class="tix-raffle-header">
+            <div class="tix-raffle-header"<?php if ($header_bg): ?> style="--tix-raffle-header-bg:<?php echo esc_attr($header_bg); ?>"<?php endif; ?>>
                 <h2 class="tix-raffle-title"><?php echo esc_html($title); ?></h2>
                 <?php if ($desc): ?>
                     <div class="tix-raffle-desc"><?php echo wp_kses_post(wpautop($desc)); ?></div>
@@ -158,9 +149,17 @@ class TIX_Raffle {
             <div class="tix-raffle-prizes">
                 <h3 class="tix-raffle-prizes-title">Preise</h3>
                 <ul class="tix-raffle-prizes-list">
-                    <?php foreach ($prizes as $p): ?>
+                    <?php foreach ($prizes as $p):
+                        $pw = intval($p['per_winner'] ?? 1);
+                        $qty_label = intval($p['qty']);
+                        if ($pw > 1) {
+                            $qty_label .= ' &times; ' . $pw;
+                        } else {
+                            $qty_label .= '&times;';
+                        }
+                    ?>
                         <li>
-                            <span class="tix-raffle-prize-qty"><?php echo intval($p['qty']); ?>&times;</span>
+                            <span class="tix-raffle-prize-qty"><?php echo $qty_label; ?></span>
                             <span class="tix-raffle-prize-name"><?php echo esc_html($p['name']); ?></span>
                             <?php if (($p['type'] ?? 'text') === 'ticket'): ?>
                                 <span class="tix-raffle-prize-badge">Freikarte</span>
@@ -188,6 +187,12 @@ class TIX_Raffle {
                         <input type="text" name="name" placeholder="Dein Name" required autocomplete="name">
                         <input type="email" name="email" placeholder="Deine E-Mail" required autocomplete="email">
                     </div>
+                    <?php if (!empty($consent_text)): ?>
+                    <label class="tix-raffle-consent">
+                        <input type="checkbox" name="consent" required>
+                        <span><?php echo wp_kses_post($consent_text); ?></span>
+                    </label>
+                    <?php endif; ?>
                     <button type="submit" class="tix-raffle-submit">Jetzt teilnehmen</button>
                     <div class="tix-raffle-msg" hidden></div>
                 </form>
@@ -237,7 +242,11 @@ class TIX_Raffle {
                         </span>
                         <?php if (isset($w['prize_index']) && isset($prizes[$w['prize_index']])): ?>
                             <span class="tix-raffle-winner-prize">
-                                <?php echo esc_html($prizes[$w['prize_index']]['name']); ?>
+                                <?php
+                                $pw = intval($w['per_winner'] ?? $prizes[$w['prize_index']]['per_winner'] ?? 1);
+                                $pname = esc_html($prizes[$w['prize_index']]['name']);
+                                echo $pw > 1 ? "{$pw}× {$pname}" : $pname;
+                                ?>
                             </span>
                         <?php endif; ?>
                     </div>
@@ -264,6 +273,12 @@ class TIX_Raffle {
 
         if (!$event_id || !$name || !$email || !is_email($email)) {
             wp_send_json_error(['message' => 'Bitte Name und gültige E-Mail angeben.']);
+        }
+
+        // Zustimmung prüfen
+        $consent_text = get_post_meta($event_id, '_tix_raffle_consent_text', true);
+        if (!empty($consent_text) && empty($_POST['consent'])) {
+            wp_send_json_error(['message' => 'Bitte stimme den Teilnahmebedingungen zu.']);
         }
 
         // Gewinnspiel aktiv?
@@ -414,19 +429,27 @@ class TIX_Raffle {
                     'prize_index' => $prize_index,
                 ], ['id' => $entry->id], ['%d', '%d'], ['%d']);
 
+                $per_winner = max(1, intval($prize['per_winner'] ?? 1));
+
                 $winner_data = [
                     'entry_id'    => $entry->id,
                     'name'        => $entry->name,
                     'email'       => $entry->email,
                     'prize_index' => $prize_index,
                     'prize_name'  => $prize['name'],
+                    'per_winner'  => $per_winner,
                 ];
 
-                // Freikarte erstellen wenn Typ = ticket
+                // Freikarte(n) erstellen wenn Typ = ticket
                 if (($prize['type'] ?? 'text') === 'ticket') {
-                    $ticket_id = self::create_prize_ticket($event_id, $entry, $prize);
-                    if ($ticket_id) {
-                        $winner_data['ticket_id'] = $ticket_id;
+                    $ticket_ids = [];
+                    for ($t = 0; $t < $per_winner; $t++) {
+                        $ticket_id = self::create_prize_ticket($event_id, $entry, $prize);
+                        if ($ticket_id) $ticket_ids[] = $ticket_id;
+                    }
+                    if (!empty($ticket_ids)) {
+                        $winner_data['ticket_id']  = $ticket_ids[0]; // Abwärtskompatibel
+                        $winner_data['ticket_ids'] = $ticket_ids;
                     }
                 }
 
@@ -496,18 +519,29 @@ class TIX_Raffle {
         $brand_name = $s['email_brand_name'] ?? get_bloginfo('name');
         $first_name = explode(' ', $winner['name'])[0];
 
+        $per_winner = intval($winner['per_winner'] ?? 1);
+        $prize_label = $winner['prize_name'];
+        if ($per_winner > 1) {
+            $prize_label .= " ({$per_winner}×)";
+        }
+
         $subject = 'Herzlichen Glückwunsch! Du hast gewonnen!';
         $body    = "Hallo {$first_name},\n\n";
         $body   .= "du hast beim Gewinnspiel für \"{$event->post_title}\" gewonnen!\n\n";
-        $body   .= "Dein Preis: {$winner['prize_name']}\n\n";
+        $body   .= "Dein Preis: {$prize_label}\n\n";
 
-        // Wenn ein Ticket erstellt wurde, Download-Link einfügen
-        if (!empty($winner['ticket_id'])) {
-            $dl_token = get_post_meta($winner['ticket_id'], '_tix_ticket_download_token', true);
-            if ($dl_token) {
-                $dl_url = add_query_arg('tix_dl', $dl_token, home_url('/'));
-                $body .= "Dein Ticket kannst du hier herunterladen:\n{$dl_url}\n\n";
+        // Wenn Tickets erstellt wurden, Download-Links einfügen
+        $ticket_ids = !empty($winner['ticket_ids']) ? $winner['ticket_ids'] : (!empty($winner['ticket_id']) ? [$winner['ticket_id']] : []);
+        if (!empty($ticket_ids)) {
+            $body .= count($ticket_ids) > 1 ? "Deine Tickets kannst du hier herunterladen:\n" : "Dein Ticket kannst du hier herunterladen:\n";
+            foreach ($ticket_ids as $tid) {
+                $dl_token = get_post_meta($tid, '_tix_ticket_download_token', true);
+                if ($dl_token) {
+                    $dl_url = add_query_arg('tix_dl', $dl_token, home_url('/'));
+                    $body .= "{$dl_url}\n";
+                }
             }
+            $body .= "\n";
         }
 
         $body .= "Viel Spaß bei der Veranstaltung!\n\n";
