@@ -73,7 +73,7 @@
 /* Price */
 .tix-sel-cat-price {
     font-weight: 700;
-    font-size: var(--tix-font-price, 1.1rem);
+    font-size: var(--tix-font-price, 0.95rem);
     white-space: nowrap;
     text-align: right;
     flex-shrink: 0;
@@ -87,7 +87,7 @@
 .tix-sel-price-sale {
     display: block;
     color: var(--tix-sale-color, #ef5350);
-    font-size: var(--tix-font-price, 1.1rem);
+    font-size: var(--tix-font-price, 0.95rem);
 }
 
 .tix-sel-price-old {
