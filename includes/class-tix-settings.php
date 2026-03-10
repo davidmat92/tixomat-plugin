@@ -64,7 +64,7 @@ class TIX_Settings {
             'btn2_font_size'     => '0.9',
 
             // ── Schrift ──
-            'font_price'         => '0.95',
+            'font_price'         => '1',
             'font_name'          => '1',
             'font_total'         => '1.3',
             'font_desc'          => '0.85',

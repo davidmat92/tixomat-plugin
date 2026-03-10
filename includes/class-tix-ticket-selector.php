@@ -298,10 +298,12 @@ class TIX_Ticket_Selector {
                          data-has-phase="<?php echo $active_phase ? '1' : '0'; ?>">
 
                         <div class="tix-sel-cat-info">
-                            <div class="tix-sel-cat-name"><?php echo $name; ?></div>
-                            <?php if ($active_phase): ?>
-                                <div class="tix-sel-phase-badge"><?php echo esc_html($active_phase['name']); ?></div>
-                            <?php endif; ?>
+                            <div class="tix-sel-cat-name">
+                                <?php echo $name; ?>
+                                <?php if ($active_phase): ?>
+                                    <span class="tix-sel-phase-badge"><?php echo esc_html($active_phase['name']); ?></span>
+                                <?php endif; ?>
+                            </div>
                             <?php if ($desc): ?>
                                 <div class="tix-sel-cat-desc"><?php echo $desc; ?></div>
                             <?php endif; ?>
@@ -409,10 +411,10 @@ class TIX_Ticket_Selector {
                             <div class="tix-sel-cat-name">
                                 <span class="tix-sel-bundle-icon">🎁</span>
                                 <?php echo esc_html($b_name); ?>
+                                <span class="tix-sel-bundle-save"><?php echo $b_save; ?>% sparen</span>
                             </div>
                             <div class="tix-sel-cat-desc">
                                 <?php echo $bundle_buy; ?>× <?php echo $name; ?> – nur <?php echo $bundle_pay; ?> zahlen, <?php echo $b_free; ?> gratis
-                                <span class="tix-sel-bundle-save"><?php echo $b_save; ?>% sparen</span>
                             </div>
                         </div>
 
@@ -535,12 +537,12 @@ class TIX_Ticket_Selector {
                         <div class="tix-sel-cat-name">
                             <span class="tix-sel-combo-icon">🎫</span>
                             <?php echo $combo_label; ?>
-                        </div>
-                        <div class="tix-sel-cat-desc tix-sel-combo-events">
-                            <?php echo implode('<br>', $combo_event_labels); ?>
                             <?php if ($savings_pct > 0): ?>
                                 <span class="tix-sel-bundle-save"><?php echo $savings_pct; ?>% sparen</span>
                             <?php endif; ?>
+                        </div>
+                        <div class="tix-sel-cat-desc tix-sel-combo-events">
+                            <?php echo implode('<br>', $combo_event_labels); ?>
                         </div>
                     </div>
 
