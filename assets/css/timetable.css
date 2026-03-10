@@ -256,6 +256,13 @@
     padding: 14px 16px;
 }
 
+/* ── Einzelne Bühne: 2-Spalten-Layout (Desktop) ── */
+.tix-tt--single-stage.tix-tt--no-times .tix-tt-list {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+
 /* ── Responsive: Mobile ── */
 @media (max-width: 768px) {
     .tix-tt-grid {
@@ -266,5 +273,10 @@
     }
     .tix-tt-stage-filter {
         display: flex;
+    }
+    /* 2-Spalten → 1 Spalte auf Mobile */
+    .tix-tt--single-stage.tix-tt--no-times .tix-tt-list {
+        display: flex;
+        grid-template-columns: none;
     }
 }
