@@ -38,6 +38,7 @@
     border: 1px solid var(--tix-border, #333);
     border-radius: var(--tix-radius, 8px);
     padding: 14px 16px;
+    background: var(--tix-cat-bg, transparent);
 }
 
 .tix-co-login-toggle {
@@ -392,6 +393,7 @@
     display: flex; align-items: center; gap: 10px;
     padding: 14px 16px;
     border: 1px solid var(--tix-border, #333); border-radius: var(--tix-radius, 8px);
+    background: var(--tix-cat-bg, transparent);
     font-size: 0.95rem; opacity: 0.7;
 }
 .tix-co-shipping-icon { font-size: 1.3rem; }
@@ -404,6 +406,7 @@
 .tix-co-gateway {
     border: 1px solid var(--tix-border, #333); border-radius: var(--tix-radius, 8px);
     padding: 14px 16px; transition: border-color 0.2s, background 0.2s; cursor: pointer;
+    background: var(--tix-cat-bg, transparent);
 }
 .tix-co-gateway.tix-co-gw-active {
     border-color: var(--tix-input-focus, #c8ff00);
@@ -488,6 +491,7 @@
     padding: 16px;
     border: 1px solid var(--tix-border, #333);
     border-radius: var(--tix-radius, 8px);
+    background: var(--tix-cat-bg, transparent);
     font-size: 13px;
 }
 
@@ -537,6 +541,7 @@
     padding: 16px;
     border: 1px solid var(--tix-border, #333);
     border-radius: var(--tix-radius, 8px);
+    background: var(--tix-cat-bg, transparent);
     font-size: 13px;
 }
 .tix-co-newsletter-heading {
