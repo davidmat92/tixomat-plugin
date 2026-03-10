@@ -1195,7 +1195,7 @@ class TIX_Settings {
                                             <?php
                                             self::range_row('qty_btn_size',    '+/- Button Größe', $s, 24, 48, 'px');
                                             self::range_row('gap',             'Abstand zwischen Elementen', $s, 4, 24, 'px');
-                                            self::range_row('checkout_width',  'Checkout Maximalbreite', $s, 400, 1200, 'px', 10);
+                                            self::range_row('checkout_width',  'Checkout Maximalbreite', $s, 400, 1600, 'px', 10);
                                             ?>
                                         </div>
                                     </div>
@@ -1328,7 +1328,7 @@ class TIX_Settings {
                                             self::range_row('sel_radius',       'Eckenradius', $s, 0, 24, 'px');
                                             self::range_row('sel_padding_v',    'Padding vertikal', $s, 4, 32, 'px');
                                             self::range_row('sel_padding_h',    'Padding horizontal', $s, 4, 40, 'px');
-                                            self::range_row('sel_max_width',    'Max. Breite (0 = keine)', $s, 0, 1200, 'px', 10);
+                                            self::range_row('sel_max_width',    'Max. Breite (0 = keine)', $s, 0, 1600, 'px', 10);
                                             ?>
                                         </div>
                                     </div>

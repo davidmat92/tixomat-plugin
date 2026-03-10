@@ -139,7 +139,11 @@ class TIX_Ticket_Selector {
             $ext_text = get_post_meta($post_id, '_tix_extshop_text', true) ?: 'Tickets kaufen';
             $ext_mode = get_post_meta($post_id, '_tix_extshop_mode', true) ?: 'replace';
 
-            $ext_html = '<div class="tix-sel-external">'
+            // replace = alleiniger Button → Variante 1 (Primary)
+            // both    = zusätzlich zum Selector → Variante 2 (Secondary)
+            $ext_variant_class = ($ext_mode === 'both') ? ' tix-sel-external--v2' : '';
+
+            $ext_html = '<div class="tix-sel-external' . $ext_variant_class . '">'
                       . '<a href="' . esc_url($ext_url) . '" target="_blank" rel="noopener" class="tix-sel-external-btn">'
                       . esc_html($ext_text) . ' <span class="tix-sel-external-icon">↗</span>'
                       . '</a></div>';
