@@ -117,17 +117,16 @@ class TIX_Raffle {
         // Aktuelle Einträge zählen
         $entry_count = self::count_entries($post_id);
 
-        // Status prüfen: automatisch schliessen wenn Enddatum vorbei
-        if ($status === 'open' && $end_date && strtotime($end_date) <= current_time('timestamp')) {
-            $status = 'closed';
-            update_post_meta($post_id, '_tix_raffle_status', 'closed');
-        }
-
-        // Max erreicht?
+        // Status dynamisch prüfen (nicht permanent überschreiben)
+        $now_ts      = current_time('timestamp');
+        $end_passed  = $end_date && strtotime($end_date) <= $now_ts;
         $max_reached = $max > 0 && $entry_count >= $max;
-        if ($max_reached && $status === 'open') {
+
+        if ($status === 'open' && ($end_passed || $max_reached)) {
             $status = 'closed';
-            update_post_meta($post_id, '_tix_raffle_status', 'closed');
+        } elseif ($status === 'closed' && !$end_passed && !$max_reached) {
+            // Wieder öffnen wenn Enddatum in der Zukunft und Max nicht erreicht
+            $status = 'open';
         }
 
         // Nonce
@@ -261,19 +260,21 @@ class TIX_Raffle {
 
         $status   = get_post_meta($event_id, '_tix_raffle_status', true) ?: 'open';
         $end_date = get_post_meta($event_id, '_tix_raffle_end_date', true);
+        $max      = intval(get_post_meta($event_id, '_tix_raffle_max_entries', true));
 
-        if ($status !== 'open') {
+        // Status dynamisch prüfen
+        $end_passed  = $end_date && strtotime($end_date) <= current_time('timestamp');
+        $max_reached = $max > 0 && self::count_entries($event_id) >= $max;
+
+        if ($status === 'drawn') {
+            wp_send_json_error(['message' => 'Die Auslosung hat bereits stattgefunden.']);
+        }
+
+        if ($end_passed) {
             wp_send_json_error(['message' => 'Die Teilnahme ist leider beendet.']);
         }
 
-        if ($end_date && strtotime($end_date) <= current_time('timestamp')) {
-            update_post_meta($event_id, '_tix_raffle_status', 'closed');
-            wp_send_json_error(['message' => 'Die Teilnahme ist leider beendet.']);
-        }
-
-        // Max-Check
-        $max = intval(get_post_meta($event_id, '_tix_raffle_max_entries', true));
-        if ($max > 0 && self::count_entries($event_id) >= $max) {
+        if ($max_reached) {
             wp_send_json_error(['message' => 'Die maximale Teilnehmerzahl ist erreicht.']);
         }
 
