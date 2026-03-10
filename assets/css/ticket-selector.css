@@ -1225,7 +1225,7 @@
     justify-content: center;
     gap: 8px;
     width: 100%;
-    padding: 16px;
+    padding: 14px;
     border: var(--tix-btn1-border, none);
     border-radius: var(--tix-btn1-radius, 8px);
     background: var(--tix-btn1-bg, #c8ff00);
