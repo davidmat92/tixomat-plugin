@@ -760,7 +760,8 @@ class TIX_Settings {
         // ── Globale Textfarbe ──
         $text_css = '';
         if (!empty($s['color_text'])) {
-            $text_css = ".tix-sel, .tix-co, .tix-faq, .tix-up, .tix-mt { color: {$s['color_text']}; }\n";
+            $vars[] = '--tix-text: ' . $s['color_text'];
+            $text_css = ".tix-sel, .tix-co, .tix-faq, .tix-up, .tix-mt, .tix-mc-trigger, .tix-ec-overlay, .tix-cal, .tix-raffle { color: var(--tix-text); }\n";
         }
 
         if (empty($vars)) {
@@ -789,7 +790,6 @@ class TIX_Settings {
         // ── FAQ Styles ──
         $faq_vars = [];
         // Farben (leer = Fallback auf global oder CSS-Default)
-        if (!empty($s['faq_text_color']))    $faq_vars[] = '--tix-faq-text: ' . $s['faq_text_color'];
         if (!empty($s['faq_bg']))            $faq_vars[] = '--tix-faq-bg: ' . $s['faq_bg'];
         if (!empty($s['faq_list_bg']))       $faq_vars[] = '--tix-faq-list-bg: ' . $s['faq_list_bg'];
         if (!empty($s['faq_hover_bg']))      $faq_vars[] = '--tix-faq-hover: ' . $s['faq_hover_bg'];
@@ -844,7 +844,6 @@ class TIX_Settings {
 
         // ── Ticket Selector Styles ──
         $sel_vars = [];
-        if (!empty($s['sel_text_color']))    $sel_vars[] = '--tix-sel-text: ' . $s['sel_text_color'];
         if (!empty($s['sel_bg']))            $sel_vars[] = '--tix-sel-cat-bg: ' . $s['sel_bg'];
         if (!empty($s['sel_border_color'])) {
             $sel_vars[] = '--tix-cat-border: ' . $s['sel_border_color'];
@@ -873,7 +872,6 @@ class TIX_Settings {
         $ec_vars = [];
         // Modal
         if (!empty($s['ec_modal_bg']))         $ec_vars[] = '--tix-ec-modal-bg: ' . $s['ec_modal_bg'];
-        if (!empty($s['ec_modal_text']))       $ec_vars[] = '--tix-ec-modal-text: ' . $s['ec_modal_text'];
         $ec_border = !empty($s['ec_modal_border']) ? $s['ec_modal_border'] : $s['color_border'];
         if ($ec_border !== $d['color_border']) {
             $ec_vars[] = '--tix-ec-modal-border: ' . $ec_border;
@@ -922,10 +920,9 @@ class TIX_Settings {
         if (!empty($s['mt_card_bg'])) {
             $mt_vars[] = '--tix-mt-card-bg: ' . $s['mt_card_bg'];
         }
-        if (!empty($s['mt_text_color'])) {
-            $mt_vars[] = '--tix-mt-text: ' . $s['mt_text_color'];
-            // Muted-Farbe ableiten (Textfarbe mit 45% Deckkraft)
-            $rgb = self::color_to_rgb($s['mt_text_color']);
+        // Muted-Farbe aus globaler Textfarbe ableiten (45% Deckkraft)
+        if (!empty($s['color_text'])) {
+            $rgb = self::color_to_rgb($s['color_text']);
             if ($rgb) {
                 $mt_vars[] = "--tix-mt-muted: rgba({$rgb['r']},{$rgb['g']},{$rgb['b']},0.45)";
             }
@@ -1304,7 +1301,6 @@ class TIX_Settings {
                                     <div class="tix-card-body">
                                         <div class="tix-field-grid">
                                             <?php
-                                            self::color_row('sel_text_color',    'Textfarbe', $s, true);
                                             self::color_row('sel_bg',            'Kategorie-Hintergrund', $s, true);
                                             self::color_row('sel_border_color',  'Rahmenfarbe', $s, true);
                                             self::color_row('sel_active_border', 'Aktiver Rahmen', $s, true);
@@ -1348,7 +1344,6 @@ class TIX_Settings {
                                     <div class="tix-card-body">
                                         <div class="tix-field-grid">
                                             <?php
-                                            self::color_row('faq_text_color',    'Textfarbe', $s, true);
                                             self::color_row('faq_bg',            'Frage-Hintergrund', $s, true);
                                             self::color_row('faq_list_bg',       'Listen-Hintergrund', $s, true);
                                             self::color_row('faq_hover_bg',      'Hover-Hintergrund', $s, true);
@@ -1469,7 +1464,6 @@ class TIX_Settings {
                                         <div class="tix-field-grid">
                                             <?php
                                             self::color_row('ec_modal_bg',     'Hintergrund', $s, true);
-                                            self::color_row('ec_modal_text',   'Textfarbe', $s, true);
                                             self::color_row('ec_modal_border', 'Rahmenfarbe', $s, true);
                                             self::range_row('ec_modal_radius',    'Eckenradius', $s, 0, 24, 'px');
                                             self::range_row('ec_modal_max_width', 'Max. Breite', $s, 320, 800, 'px', 10);
@@ -1561,7 +1555,6 @@ class TIX_Settings {
                                             <?php
                                             self::color_row('mt_bg',           'Seitenhintergrund', $s);
                                             self::color_row('mt_card_bg',      'Karten-Hintergrund', $s);
-                                            self::color_row('mt_text_color',   'Textfarbe', $s);
                                             self::color_row('mt_border_color', 'Rahmenfarbe', $s);
                                             self::color_row('mt_ticket_bg',    'Ticket-Karten Hintergrund', $s);
                                             self::color_row('mt_accent_color', 'Akzentfarbe (leer = global)', $s, true);
@@ -2407,15 +2400,15 @@ class TIX_Settings {
                     color_focus:'#3b82f6', color_sale:'#ef4444', save_badge_bg:'', save_badge_text:'',
                     color_success:'#22c55e',
                     color_card_bg:'#ffffff', color_input_bg:'#ffffff', shortcode_bg:'',
-                    sel_text_color:'', sel_bg:'#ffffff', sel_border_color:'#EDE9E0',
+                    sel_bg:'#ffffff', sel_border_color:'#EDE9E0',
                     sel_active_border:'#3b82f6', sel_active_bg:'#eff6ff', sel_hover_text:'',
-                    faq_text_color:'', faq_bg:'#ffffff', faq_list_bg:'',
+                    faq_bg:'#ffffff', faq_list_bg:'',
                     faq_hover_bg:'#FAF8F4', faq_hover_text:'', faq_active_bg:'#f1f5f9',
                     faq_border_color:'#EDE9E0', faq_divider_color:'#EDE9E0',
                     faq_accent_color:'#1e293b', faq_icon_color:'', faq_link_color:'#3b82f6',
-                    ec_modal_bg:'#ffffff', ec_modal_text:'#1e293b',
+                    ec_modal_bg:'#ffffff',
                     ec_modal_border:'#EDE9E0', ec_cat_border:'#EDE9E0', ec_cat_active:'#3b82f6',
-                    mt_bg:'#FAF8F4', mt_card_bg:'#ffffff', mt_text_color:'#1e293b',
+                    mt_bg:'#FAF8F4', mt_card_bg:'#ffffff',
                     mt_border_color:'#EDE9E0', mt_ticket_bg:'#f0fdf4', mt_accent_color:'#1e293b',
                     ci_bg:'#FAF8F4', ci_surface:'#ffffff', ci_border:'#EDE9E0',
                     ci_text:'#1e293b', ci_muted:'#64748b', ci_accent:'#1e293b',
@@ -2429,15 +2422,15 @@ class TIX_Settings {
                     color_focus:'#c8ff00', color_sale:'#ef5350', save_badge_bg:'', save_badge_text:'',
                     color_success:'#4caf50',
                     color_card_bg:'#1a1a1a', color_input_bg:'#111111', shortcode_bg:'#111111',
-                    sel_text_color:'#ffffff', sel_bg:'#1a1a1a', sel_border_color:'#333333',
+                    sel_bg:'#1a1a1a', sel_border_color:'#333333',
                     sel_active_border:'#c8ff00', sel_active_bg:'#1a2600', sel_hover_text:'',
-                    faq_text_color:'#ffffff', faq_bg:'#1a1a1a', faq_list_bg:'#111111',
+                    faq_bg:'#1a1a1a', faq_list_bg:'#111111',
                     faq_hover_bg:'#222222', faq_hover_text:'', faq_active_bg:'#2a2a2a',
                     faq_border_color:'#333333', faq_divider_color:'#333333',
                     faq_accent_color:'#c8ff00', faq_icon_color:'#94a3b8', faq_link_color:'#c8ff00',
-                    ec_modal_bg:'#1a1a1a', ec_modal_text:'#ffffff',
+                    ec_modal_bg:'#1a1a1a',
                     ec_modal_border:'#333333', ec_cat_border:'#333333', ec_cat_active:'#c8ff00',
-                    mt_bg:'#111111', mt_card_bg:'#1a1a1a', mt_text_color:'#ffffff',
+                    mt_bg:'#111111', mt_card_bg:'#1a1a1a',
                     mt_border_color:'#333333', mt_ticket_bg:'#1a2600', mt_accent_color:'#c8ff00',
                     ci_bg:'#111111', ci_surface:'#1a1a1a', ci_border:'#333333',
                     ci_text:'#ffffff', ci_muted:'#94a3b8', ci_accent:'#ffffff',

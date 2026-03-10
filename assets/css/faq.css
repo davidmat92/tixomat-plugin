@@ -7,7 +7,7 @@
     max-width: var(--tix-faq-max-width, 720px);
     width: 100%;
     font-family: inherit;
-    color: var(--tix-faq-text, inherit);
+    color: var(--tix-text, inherit);
 }
 
 /* ── Titel ── */
@@ -46,7 +46,7 @@
     margin: 0;
     border: none;
     background: var(--tix-faq-bg, transparent);
-    color: var(--tix-faq-text, inherit);
+    color: var(--tix-text, inherit);
     font: inherit;
     font-size: var(--tix-faq-question-size, 1rem);
     font-weight: var(--tix-faq-question-weight, 600);
@@ -59,7 +59,7 @@
 .tix-faq-question:hover,
 .tix-faq-question:focus-visible {
     background: var(--tix-faq-hover, rgba(0,0,0,0.03));
-    color: var(--tix-faq-hover-text, var(--tix-faq-text, inherit));
+    color: var(--tix-faq-hover-text, var(--tix-text, inherit));
     outline: none;
 }
 
@@ -104,7 +104,7 @@
     padding: 0 var(--tix-faq-padding-h, 18px) 16px var(--tix-faq-padding-h, 18px);
     font-size: var(--tix-faq-answer-size, 0.95rem);
     line-height: var(--tix-faq-answer-line-height, 1.65);
-    color: var(--tix-faq-text, inherit);
+    color: var(--tix-text, inherit);
     opacity: var(--tix-faq-answer-opacity, 0.75);
 }
 .tix-faq-a-inner p:first-child { margin-top: 0; }

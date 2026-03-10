@@ -191,13 +191,13 @@
 .tix-co-empty { text-align: center; padding: 40px 20px; }
 .tix-co-btn-back {
     display: inline-block; margin-top: 12px; padding: 14px 32px;
-    border: 2px solid var(--tix-co-text, currentColor); color: var(--tix-co-text, inherit);
+    border: 2px solid var(--tix-text, currentColor); color: var(--tix-text, inherit);
     border-radius: var(--tix-buy-radius, 8px); text-decoration: none; font-weight: 700;
     font-size: 1rem; transition: background 0.2s, color 0.2s;
     background: transparent;
 }
 .tix-co-btn-back:hover {
-    background: var(--tix-co-text, #333); color: var(--tix-co-bg, #fff);
+    background: var(--tix-text, #333); color: var(--tix-co-bg, #fff);
 }
 
 /* Weitere Tickets kaufen (Variante 2) */

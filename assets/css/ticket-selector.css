@@ -6,7 +6,7 @@
 /* ── Wrapper ── */
 .tix-sel {
     max-width: var(--tix-sel-max-width, none);
-    color: var(--tix-sel-text, inherit);
+    color: var(--tix-text, inherit);
 }
 
 /* ── Categories ── */

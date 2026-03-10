@@ -48,7 +48,7 @@
 /* ── Modal ── */
 .tix-ec-modal {
     background: var(--tix-ec-modal-bg, var(--tix-cat-bg, #1a1a1a));
-    color: var(--tix-ec-modal-text, var(--tix-sel-text, inherit));
+    color: var(--tix-text, inherit);
     border: 1px solid var(--tix-ec-modal-border, var(--tix-cat-border, #333));
     border-radius: var(--tix-ec-modal-radius, var(--tix-radius, 8px));
     width: 100%;
