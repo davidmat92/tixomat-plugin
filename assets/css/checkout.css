@@ -218,9 +218,10 @@
     font-family: inherit;
 }
 .tix-co-btn-more:hover {
-    background: var(--tix-btn2-hover-bg, transparent);
-    color: var(--tix-btn2-hover-color, inherit) !important;
-    opacity: 0.9;
+    background: var(--tix-btn2-hover-bg, var(--tix-btn2-bg, transparent));
+    color: var(--tix-btn2-hover-color, var(--tix-btn2-color, inherit)) !important;
+    border-color: var(--tix-btn2-hover-bg, currentColor);
+    opacity: 0.85;
 }
 
 /* ══════════════════════════════════════
