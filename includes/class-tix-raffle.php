@@ -121,10 +121,20 @@ class TIX_Raffle {
         // Status komplett dynamisch bestimmen — nur 'drawn' wird aus DB respektiert
         if ($db_status === 'drawn') {
             $status = 'drawn';
+            $close_reason = 'drawn';
         } else {
             $end_passed  = $end_date && strtotime($end_date) <= current_time('timestamp');
             $max_reached = $max > 0 && $entry_count >= $max;
-            $status = ($end_passed || $max_reached) ? 'closed' : 'open';
+            if ($end_passed) {
+                $status = 'closed';
+                $close_reason = 'end_date_passed:' . $end_date . '|now:' . current_time('Y-m-d H:i:s');
+            } elseif ($max_reached) {
+                $status = 'closed';
+                $close_reason = 'max_reached:' . $entry_count . '/' . $max;
+            } else {
+                $status = 'open';
+                $close_reason = '';
+            }
         }
 
         // Nonce
@@ -133,6 +143,7 @@ class TIX_Raffle {
         ob_start();
         ?>
         <?php $tix_v = intval($atts['variant']) === 2 ? 2 : 1; ?>
+        <!-- tix-raffle-debug: db_status=<?php echo $db_status; ?> | computed=<?php echo $status; ?> | end_date=<?php echo $end_date ?: 'NONE'; ?> | max=<?php echo $max; ?> | entries=<?php echo $entry_count; ?> | reason=<?php echo $close_reason; ?> -->
         <div class="tix-raffle<?php echo $atts['fullwidth'] === '1' ? ' tix-fullwidth' : ''; ?>" data-event="<?php echo $post_id; ?>"<?php if ($tix_v === 2): ?> style="--tix-btn1-bg:var(--tix-btn2-bg,transparent);--tix-btn1-color:var(--tix-btn2-color,inherit);--tix-btn1-hover-bg:var(--tix-btn2-hover-bg,transparent);--tix-btn1-hover-color:var(--tix-btn2-hover-color,inherit);--tix-btn1-radius:var(--tix-btn2-radius,8px);--tix-btn1-border:var(--tix-btn2-border,1px solid currentColor);--tix-btn1-font-size:var(--tix-btn2-font-size,0.9rem)"<?php endif; ?>>
 
             <!-- Header -->
