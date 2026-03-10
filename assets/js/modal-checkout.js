@@ -56,6 +56,10 @@
         // OPEN / CLOSE
         // ══════════════════════════════════════
 
+        // Overlay an body hängen damit position:fixed nicht von Parent-Containern
+        // (transform, filter, will-change, overflow:hidden) eingeschränkt wird
+        document.body.appendChild(overlay);
+
         trigger.querySelector('.tix-mc-trigger-btn').addEventListener('click', function() {
             overlay.style.display = '';
             document.body.style.overflow = 'hidden';
