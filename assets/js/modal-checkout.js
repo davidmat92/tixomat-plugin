@@ -376,6 +376,69 @@
             var form = checkoutWrap.querySelector('.tix-mc-form');
             if (!form) return;
 
+            // ── Login ──
+            var loginToggle = form.querySelector('#tix-mc-login-toggle');
+            var loginForm   = form.querySelector('#tix-mc-login-form');
+            var loginBtn    = form.querySelector('#tix-mc-login-btn');
+            var loginEmail  = form.querySelector('#tix_mc_login_email');
+            var loginPass   = form.querySelector('#tix_mc_login_pass');
+            var loginMsg    = form.querySelector('#tix-mc-login-msg');
+
+            if (loginToggle && loginForm) {
+                loginToggle.addEventListener('click', function() {
+                    loginForm.style.display = loginForm.style.display === 'none' ? '' : 'none';
+                });
+            }
+
+            if (loginBtn && loginEmail && loginPass && loginMsg) {
+                loginBtn.addEventListener('click', function() {
+                    var user = loginEmail.value.trim();
+                    var pass = loginPass.value;
+                    if (!user || !pass) {
+                        loginMsg.textContent = 'Bitte beide Felder ausfüllen.';
+                        loginMsg.className = 'tix-mc-login-msg error';
+                        return;
+                    }
+                    loginBtn.disabled = true;
+                    loginBtn.textContent = '…';
+
+                    var data = new FormData();
+                    data.append('action', 'tix_login');
+                    data.append('nonce', tixModal.loginNonce);
+                    data.append('user', user);
+                    data.append('pass', pass);
+
+                    fetch(tixModal.ajaxUrl, { method: 'POST', body: data })
+                        .then(function(r) { return r.json(); })
+                        .then(function(res) {
+                            if (res.success) {
+                                loginMsg.textContent = res.data.message || 'Erfolgreich angemeldet!';
+                                loginMsg.className = 'tix-mc-login-msg success';
+                                // Reload checkout form to show logged-in state
+                                setTimeout(function() { showStep2(); }, 800);
+                            } else {
+                                loginMsg.textContent = res.data.message || 'Anmeldung fehlgeschlagen.';
+                                loginMsg.className = 'tix-mc-login-msg error';
+                            }
+                        })
+                        .catch(function() {
+                            loginMsg.textContent = 'Verbindungsfehler.';
+                            loginMsg.className = 'tix-mc-login-msg error';
+                        })
+                        .finally(function() {
+                            loginBtn.disabled = false;
+                            loginBtn.textContent = 'Anmelden';
+                        });
+                });
+
+                // Enter-Key in Login-Feldern
+                [loginEmail, loginPass].forEach(function(input) {
+                    input.addEventListener('keypress', function(e) {
+                        if (e.which === 13) { e.preventDefault(); loginBtn.click(); }
+                    });
+                });
+            }
+
             var submitBtn = form.querySelector('.tix-mc-submit');
 
             // ── Gateway Radio switching ──

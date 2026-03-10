@@ -510,6 +510,67 @@
     font-size: 0.9rem;
 }
 
+/* ── Login ── */
+.tix-mc-login-section {
+    border: 1px solid var(--tx-border, #EDE9E0);
+    border-radius: var(--tix-radius, 8px);
+    padding: 14px 16px;
+    margin-bottom: 20px;
+}
+.tix-mc-login-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.95rem;
+    color: var(--tx-text, #0D0B09);
+}
+.tix-mc-link-btn {
+    background: none;
+    border: none;
+    color: var(--tix-buy-bg, #FF5500);
+    font-weight: 700;
+    cursor: pointer;
+    padding: 0;
+    font-size: inherit;
+    font-family: inherit;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+.tix-mc-link-btn:hover { opacity: 0.8; }
+.tix-mc-login-form {
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid var(--tx-border, #EDE9E0);
+}
+.tix-mc-login-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 12px;
+}
+.tix-mc-btn-login {
+    padding: 10px 24px;
+    border: none;
+    border-radius: var(--tix-buy-radius, 8px);
+    background: var(--tix-buy-bg, #FF5500);
+    color: var(--tix-buy-color, #fff);
+    font-weight: 700;
+    font-size: 0.9rem;
+    cursor: pointer;
+    font-family: inherit;
+    transition: background 0.2s, opacity 0.2s;
+}
+.tix-mc-btn-login:hover {
+    background: var(--tix-buy-hover, var(--tix-buy-bg));
+    color: var(--tix-buy-hover-color, var(--tix-buy-color, #fff));
+    opacity: 0.9;
+}
+.tix-mc-login-msg {
+    font-size: 0.85rem;
+}
+.tix-mc-login-msg.success { color: var(--tix-success-color, #4caf50); }
+.tix-mc-login-msg.error   { color: var(--tx-red, #E53B3B); }
+
 /* ── Checkout Sections ── */
 .tix-mc-section {
     margin-bottom: 20px;

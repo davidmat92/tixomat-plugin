@@ -348,6 +348,32 @@ class TIX_Modal_Checkout {
         ?>
         <form name="checkout" method="post" class="tix-mc-form" id="tix-mc-form" enctype="multipart/form-data">
 
+            <?php // ── Login ── ?>
+            <?php if (!$is_logged): ?>
+            <div class="tix-mc-section tix-mc-login-section" id="tix-mc-login-section">
+                <div class="tix-mc-login-toggle">
+                    <span>Bereits ein Konto?</span>
+                    <button type="button" class="tix-mc-link-btn" id="tix-mc-login-toggle">Anmelden</button>
+                </div>
+                <div class="tix-mc-login-form" id="tix-mc-login-form" style="display:none;">
+                    <div class="tix-mc-fields">
+                        <div class="tix-mc-field tix-mc-field-half">
+                            <label class="tix-mc-label" for="tix_mc_login_email">E-Mail oder Benutzername</label>
+                            <input type="text" id="tix_mc_login_email" class="tix-mc-input" autocomplete="username">
+                        </div>
+                        <div class="tix-mc-field tix-mc-field-half">
+                            <label class="tix-mc-label" for="tix_mc_login_pass">Passwort</label>
+                            <input type="password" id="tix_mc_login_pass" class="tix-mc-input" autocomplete="current-password">
+                        </div>
+                    </div>
+                    <div class="tix-mc-login-actions">
+                        <button type="button" class="tix-mc-btn-login" id="tix-mc-login-btn">Anmelden</button>
+                        <span class="tix-mc-login-msg" id="tix-mc-login-msg"></span>
+                    </div>
+                </div>
+            </div>
+            <?php endif; ?>
+
             <?php // ── Billing ── ?>
             <div class="tix-mc-section">
                 <h4 class="tix-mc-section-heading">Rechnungsadresse</h4>
@@ -482,6 +508,7 @@ class TIX_Modal_Checkout {
             'ajaxUrl'       => admin_url('admin-ajax.php'),
             'nonce'         => wp_create_nonce('tix_add_to_cart'),
             'checkoutNonce' => wp_create_nonce('tix_modal_checkout'),
+            'loginNonce'    => wp_create_nonce('tix_update_cart'),
             'wcCheckoutUrl' => add_query_arg('wc-ajax', 'checkout', home_url('/')),
         ]);
     }
