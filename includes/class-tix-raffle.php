@@ -153,7 +153,7 @@ class TIX_Raffle {
 
             <!-- Preise -->
             <div class="tix-raffle-prizes">
-                <h3 class="tix-raffle-prizes-title">Preise</h3>
+                <h4 class="tix-raffle-prizes-title">Preise</h4>
                 <ul class="tix-raffle-prizes-list">
                     <?php foreach ($prizes as $p):
                         $pw = intval($p['per_winner'] ?? 1);
@@ -233,7 +233,7 @@ class TIX_Raffle {
     private static function render_winners($winners, $prizes) {
         ?>
         <div class="tix-raffle-winners">
-            <h3 class="tix-raffle-winners-title">Gewinner</h3>
+            <h4 class="tix-raffle-winners-title">Gewinner</h4>
             <div class="tix-raffle-winners-list">
                 <?php foreach ($winners as $w): ?>
                     <div class="tix-raffle-winner">
