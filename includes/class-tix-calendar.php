@@ -13,7 +13,7 @@ class TIX_Calendar {
      * Shortcode: [tix_calendar] oder [tix_calendar id="123"]
      */
     public static function shortcode($atts = []) {
-        $atts = shortcode_atts(['id' => 0, 'class' => '', 'fullwidth' => '0'], $atts, 'tix_calendar');
+        $atts = shortcode_atts(['id' => 0, 'class' => '', 'fullwidth' => '0', 'variant' => '2'], $atts, 'tix_calendar');
         $post_id = intval($atts['id']) ?: get_the_ID();
 
         if (!$post_id || get_post_type($post_id) !== 'event') return '';
@@ -32,7 +32,8 @@ class TIX_Calendar {
 
         ob_start();
         ?>
-        <div class="tix-cal<?php echo $extra_class; ?>">
+        <?php $tix_v = intval($atts['variant']) === 2 ? 2 : 1; ?>
+        <div class="tix-cal<?php echo $extra_class; ?>"<?php if ($tix_v === 2): ?> style="--tix-btn1-bg:var(--tix-btn2-bg,transparent);--tix-btn1-color:var(--tix-btn2-color,inherit);--tix-btn1-hover-bg:var(--tix-btn2-hover-bg,transparent);--tix-btn1-hover-color:var(--tix-btn2-hover-color,inherit);--tix-btn1-radius:var(--tix-btn2-radius,8px);--tix-btn1-border:var(--tix-btn2-border,1px solid currentColor);--tix-btn1-font-size:var(--tix-btn2-font-size,0.9rem)"<?php endif; ?>>
             <button type="button" class="tix-cal-btn">
                 <svg class="tix-cal-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
                 Zum Kalender hinzufügen

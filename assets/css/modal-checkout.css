@@ -13,18 +13,19 @@
     align-items: center;
     gap: 8px;
     padding: 12px 28px;
-    border: none;
-    border-radius: var(--tix-mc-btn-radius, var(--tix-radius, 8px));
-    background: var(--tix-mc-btn-bg, var(--tix-buy-bg, #FF5500));
-    color: var(--tix-mc-btn-text, var(--tix-buy-color, #fff));
+    border: var(--tix-btn1-border, none);
+    border-radius: var(--tix-btn1-radius, 8px);
+    background: var(--tix-btn1-bg, #c8ff00);
+    color: var(--tix-btn1-color, #000);
     font-family: inherit;
-    font-size: 1rem;
+    font-size: var(--tix-btn1-font-size, 1rem);
     font-weight: 700;
     cursor: pointer;
     transition: background 0.15s, opacity 0.15s;
 }
 .tix-mc-trigger-btn:hover {
-    background: var(--tix-mc-btn-hover, var(--tix-buy-hover, #CC4400));
+    background: var(--tix-btn1-hover-bg, var(--tix-btn1-bg));
+    color: var(--tix-btn1-hover-color, var(--tix-btn1-color));
     opacity: 0.95;
 }
 
@@ -272,12 +273,12 @@
     justify-content: center;
     width: 100%;
     padding: 14px;
-    border: none;
-    border-radius: var(--tix-mc-radius, 10px);
-    background: var(--tx-accent, #FF5500);
-    color: #fff;
+    border: var(--tix-btn1-border, none);
+    border-radius: var(--tix-btn1-radius, 10px);
+    background: var(--tix-btn1-bg, #c8ff00);
+    color: var(--tix-btn1-color, #000);
     font-family: inherit;
-    font-size: 1rem;
+    font-size: var(--tix-btn1-font-size, 1rem);
     font-weight: 700;
     cursor: pointer;
     transition: opacity 0.15s, background 0.15s;
@@ -289,7 +290,8 @@
 }
 .tix-mc-next:hover:not(:disabled),
 .tix-mc-submit:hover:not(:disabled) {
-    background: var(--tx-accent-hover, #CC4400);
+    background: var(--tix-btn1-hover-bg, var(--tix-btn1-bg));
+    color: var(--tix-btn1-hover-color, var(--tix-btn1-color));
     opacity: 0.95;
 }
 .tix-mc-back {

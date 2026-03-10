@@ -95,7 +95,7 @@ class TIX_Raffle {
        ════════════════════════════════════ */
 
     public static function render($atts = []) {
-        $atts    = shortcode_atts(['id' => 0, 'fullwidth' => '0'], $atts, 'tix_raffle');
+        $atts    = shortcode_atts(['id' => 0, 'fullwidth' => '0', 'variant' => '1'], $atts, 'tix_raffle');
         $post_id = $atts['id'] ? intval($atts['id']) : get_the_ID();
 
         if (!$post_id || get_post_type($post_id) !== 'event') return '';
@@ -135,7 +135,8 @@ class TIX_Raffle {
 
         ob_start();
         ?>
-        <div class="tix-raffle<?php echo $atts['fullwidth'] === '1' ? ' tix-fullwidth' : ''; ?>" data-event="<?php echo $post_id; ?>">
+        <?php $tix_v = intval($atts['variant']) === 2 ? 2 : 1; ?>
+        <div class="tix-raffle<?php echo $atts['fullwidth'] === '1' ? ' tix-fullwidth' : ''; ?>" data-event="<?php echo $post_id; ?>"<?php if ($tix_v === 2): ?> style="--tix-btn1-bg:var(--tix-btn2-bg,transparent);--tix-btn1-color:var(--tix-btn2-color,inherit);--tix-btn1-hover-bg:var(--tix-btn2-hover-bg,transparent);--tix-btn1-hover-color:var(--tix-btn2-hover-color,inherit);--tix-btn1-radius:var(--tix-btn2-radius,8px);--tix-btn1-border:var(--tix-btn2-border,1px solid currentColor);--tix-btn1-font-size:var(--tix-btn2-font-size,0.9rem)"<?php endif; ?>>
 
             <!-- Header -->
             <div class="tix-raffle-header">

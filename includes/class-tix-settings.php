@@ -46,6 +46,23 @@ class TIX_Settings {
             'gap'                => 10,
             'checkout_width'     => 640,
 
+            // ── Button-Varianten ──
+            'btn1_bg'            => '#c8ff00',
+            'btn1_color'         => '#000000',
+            'btn1_hover_bg'      => '',
+            'btn1_hover_color'   => '',
+            'btn1_radius'        => 8,
+            'btn1_border'        => '',
+            'btn1_font_size'     => '1',
+
+            'btn2_bg'            => '',
+            'btn2_color'         => '',
+            'btn2_hover_bg'      => '',
+            'btn2_hover_color'   => '',
+            'btn2_radius'        => 8,
+            'btn2_border'        => '',
+            'btn2_font_size'     => '0.9',
+
             // ── Schrift ──
             'font_price'         => '1.1',
             'font_name'          => '1',
@@ -355,6 +372,30 @@ class TIX_Settings {
             $clean[$k] = max(0.5, min(3, $v));
         }
 
+        // Button-Varianten
+        foreach (['btn1_bg', 'btn1_color', 'btn1_hover_bg', 'btn1_hover_color', 'btn2_bg', 'btn2_color', 'btn2_hover_bg', 'btn2_hover_color'] as $k) {
+            $clean[$k] = self::sanitize_color($input[$k] ?? '') ?: '';
+        }
+        foreach (['btn1_radius', 'btn2_radius'] as $k) {
+            $clean[$k] = max(0, min(50, intval($input[$k] ?? $defaults[$k])));
+        }
+        foreach (['btn1_font_size', 'btn2_font_size'] as $k) {
+            $v = floatval($input[$k] ?? $defaults[$k]);
+            $clean[$k] = (string) max(0.5, min(2.5, $v));
+        }
+        $clean['btn1_border'] = sanitize_text_field($input['btn1_border'] ?? '');
+        $clean['btn2_border'] = sanitize_text_field($input['btn2_border'] ?? '');
+
+        // Migration: alte Akzentfarben → Button-Variante 1 (einmalig beim ersten Speichern)
+        $existing = get_option(self::OPTION_KEY, []);
+        if (!isset($existing['btn1_bg']) && !empty($existing['color_accent'])) {
+            if (empty($clean['btn1_bg']))          $clean['btn1_bg']          = $existing['color_accent'];
+            if (empty($clean['btn1_color']))        $clean['btn1_color']       = $existing['color_accent_text'] ?? '';
+            if (empty($clean['btn1_hover_bg']))     $clean['btn1_hover_bg']    = $existing['color_accent_hover'] ?? '';
+            if (empty($clean['btn1_hover_color']))  $clean['btn1_hover_color'] = $existing['color_accent_hover_text'] ?? '';
+            if (isset($existing['radius_button']))  $clean['btn1_radius']      = intval($existing['radius_button']);
+        }
+
         // FAQ Farben (alle optional/leer möglich)
         foreach (['faq_text_color', 'faq_bg', 'faq_list_bg', 'faq_hover_bg', 'faq_hover_text', 'faq_active_bg', 'faq_border_color', 'faq_divider_color', 'faq_accent_color', 'faq_icon_color', 'faq_link_color'] as $k) {
             $clean[$k] = self::sanitize_color($input[$k] ?? '') ?: '';
@@ -586,10 +627,6 @@ class TIX_Settings {
 
         // Nur geänderte Werte ausgeben
         $map = [
-            'color_accent'        => ['--tix-buy-bg', null],
-            'color_accent_text'   => ['--tix-buy-color', null],
-            'color_accent_hover'      => ['--tix-buy-hover', null],
-            'color_accent_hover_text' => ['--tix-buy-hover-color', null],
             'color_border'        => ['--tix-border', null],
             'color_input_border'  => ['--tix-input-border', null],
             'color_focus'         => ['--tix-input-focus', null],
@@ -621,7 +658,6 @@ class TIX_Settings {
         $num_map = [
             'radius_general' => ['--tix-radius', 'px'],
             'radius_input'   => ['--tix-input-radius', 'px'],
-            'radius_button'  => ['--tix-buy-radius', 'px'],
             'radius_qty_btn' => ['--tix-btn-radius', '%'],
             'qty_btn_size'   => ['--tix-btn-size', 'px'],
             'gap'            => ['--tix-gap', 'px'],
@@ -632,6 +668,48 @@ class TIX_Settings {
                 $vars[] = "$var: {$s[$key]}{$unit}";
             }
         }
+
+        // ── Button-Varianten ──
+        // Variante 1 (Primär)
+        $btn1_bg    = !empty($s['btn1_bg'])    ? $s['btn1_bg']    : (!empty($s['color_accent']) ? $s['color_accent'] : $d['btn1_bg']);
+        $btn1_color = !empty($s['btn1_color']) ? $s['btn1_color'] : (!empty($s['color_accent_text']) ? $s['color_accent_text'] : $d['btn1_color']);
+        $btn1_hover_bg    = !empty($s['btn1_hover_bg'])    ? $s['btn1_hover_bg']    : (!empty($s['color_accent_hover']) ? $s['color_accent_hover'] : '');
+        $btn1_hover_color = !empty($s['btn1_hover_color']) ? $s['btn1_hover_color'] : (!empty($s['color_accent_hover_text']) ? $s['color_accent_hover_text'] : '');
+        $btn1_radius    = intval($s['btn1_radius'] ?? $d['btn1_radius']);
+        $btn1_border    = $s['btn1_border'] ?? '';
+        $btn1_font_size = floatval($s['btn1_font_size'] ?? $d['btn1_font_size']);
+
+        $vars[] = '--tix-btn1-bg: ' . $btn1_bg;
+        $vars[] = '--tix-btn1-color: ' . $btn1_color;
+        $vars[] = '--tix-btn1-hover-bg: ' . ($btn1_hover_bg ?: $btn1_bg);
+        $vars[] = '--tix-btn1-hover-color: ' . ($btn1_hover_color ?: $btn1_color);
+        $vars[] = '--tix-btn1-radius: ' . $btn1_radius . 'px';
+        $vars[] = '--tix-btn1-border: ' . ($btn1_border ?: 'none');
+        $vars[] = '--tix-btn1-font-size: ' . $btn1_font_size . 'rem';
+
+        // Variante 2 (Sekundär)
+        $btn2_bg          = $s['btn2_bg'] ?? '';
+        $btn2_color       = $s['btn2_color'] ?? '';
+        $btn2_hover_bg    = $s['btn2_hover_bg'] ?? '';
+        $btn2_hover_color = $s['btn2_hover_color'] ?? '';
+        $btn2_radius      = intval($s['btn2_radius'] ?? $d['btn2_radius']);
+        $btn2_border      = $s['btn2_border'] ?? '';
+        $btn2_font_size   = floatval($s['btn2_font_size'] ?? $d['btn2_font_size']);
+
+        $vars[] = '--tix-btn2-bg: ' . ($btn2_bg ?: 'transparent');
+        $vars[] = '--tix-btn2-color: ' . ($btn2_color ?: 'inherit');
+        $vars[] = '--tix-btn2-hover-bg: ' . ($btn2_hover_bg ?: 'transparent');
+        $vars[] = '--tix-btn2-hover-color: ' . ($btn2_hover_color ?: 'inherit');
+        $vars[] = '--tix-btn2-radius: ' . $btn2_radius . 'px';
+        $vars[] = '--tix-btn2-border: ' . ($btn2_border ?: '1px solid currentColor');
+        $vars[] = '--tix-btn2-font-size: ' . $btn2_font_size . 'rem';
+
+        // Backward-Compat Aliase (alte Variablen → neue)
+        $vars[] = '--tix-buy-bg: var(--tix-btn1-bg)';
+        $vars[] = '--tix-buy-color: var(--tix-btn1-color)';
+        $vars[] = '--tix-buy-hover: var(--tix-btn1-hover-bg)';
+        $vars[] = '--tix-buy-hover-color: var(--tix-btn1-hover-color)';
+        $vars[] = '--tix-buy-radius: var(--tix-btn1-radius)';
 
         $font_map = [
             'font_price' => '--tix-font-price',
@@ -763,36 +841,8 @@ class TIX_Settings {
         if (!empty($sel_vars)) {
             echo ".tix-sel {\n    " . implode(";\n    ", $sel_vars) . ";\n}\n";
         }
-        // ── Kalender-Button Styles ──
-        $cal_vars = [];
-        if (!empty($s['cal_bg']))            $cal_vars[] = '--tix-cal-bg: ' . $s['cal_bg'];
-        if (!empty($s['cal_text_color']))    $cal_vars[] = '--tix-cal-text: ' . $s['cal_text_color'];
-        $cal_border = !empty($s['cal_border_color']) ? $s['cal_border_color'] : $s['color_border'];
-        if ($cal_border !== $d['color_border']) {
-            $cal_vars[] = '--tix-cal-border: ' . $cal_border;
-        }
-        if ((int)$s['cal_border_width'] !== 1) $cal_vars[] = '--tix-cal-border-width: ' . intval($s['cal_border_width']) . 'px';
-        if ((int)$s['cal_radius'] !== 8)       $cal_vars[] = '--tix-cal-radius: ' . intval($s['cal_radius']) . 'px';
-        if (!empty($s['cal_hover_bg']))      $cal_vars[] = '--tix-cal-hover-bg: ' . $s['cal_hover_bg'];
-        if (!empty($s['cal_hover_text']))    $cal_vars[] = '--tix-cal-hover-text: ' . $s['cal_hover_text'];
-        $cal_hover_border = !empty($s['cal_hover_border']) ? $s['cal_hover_border'] : $s['color_accent'];
-        if ($cal_hover_border !== $d['color_accent']) {
-            $cal_vars[] = '--tix-cal-hover-border: ' . $cal_hover_border;
-        }
-        if (!empty($cal_vars)) {
-            echo ".tix-cal {\n    " . implode(";\n    ", $cal_vars) . ";\n}\n";
-        }
-
-        // ── Express-Checkout Modal Styles ──
+        // ── Express-Checkout Modal Styles (nur Modal + Kategorien, Buttons via Varianten) ──
         $ec_vars = [];
-        // Trigger-Button
-        if (!empty($s['ec_btn_bg']))           $ec_vars[] = '--tix-ec-btn-bg: ' . $s['ec_btn_bg'];
-        if (!empty($s['ec_btn_text']))         $ec_vars[] = '--tix-ec-btn-text: ' . $s['ec_btn_text'];
-        if (!empty($s['ec_btn_hover_bg']))     $ec_vars[] = '--tix-ec-btn-hover-bg: ' . $s['ec_btn_hover_bg'];
-        if (!empty($s['ec_btn_hover_text']))   $ec_vars[] = '--tix-ec-btn-hover-text: ' . $s['ec_btn_hover_text'];
-        if (!empty($s['ec_btn_border_color'])) $ec_vars[] = '--tix-ec-btn-border: ' . $s['ec_btn_border_color'];
-        if ((int)$s['ec_btn_border_width'] !== 0) $ec_vars[] = '--tix-ec-btn-border-width: ' . intval($s['ec_btn_border_width']) . 'px';
-        if ((int)$s['ec_btn_radius'] !== 8)       $ec_vars[] = '--tix-ec-btn-radius: ' . intval($s['ec_btn_radius']) . 'px';
         // Modal
         if (!empty($s['ec_modal_bg']))         $ec_vars[] = '--tix-ec-modal-bg: ' . $s['ec_modal_bg'];
         if (!empty($s['ec_modal_text']))       $ec_vars[] = '--tix-ec-modal-text: ' . $s['ec_modal_text'];
@@ -812,11 +862,6 @@ class TIX_Settings {
             $ec_vars[] = '--tix-ec-cat-active: ' . $ec_cat_active;
         }
         if ((int)$s['ec_cat_radius'] !== 8) $ec_vars[] = '--tix-ec-cat-radius: ' . intval($s['ec_cat_radius']) . 'px';
-        // Kauf-Button
-        if (!empty($s['ec_buy_bg']))           $ec_vars[] = '--tix-ec-buy-bg: ' . $s['ec_buy_bg'];
-        if (!empty($s['ec_buy_text']))         $ec_vars[] = '--tix-ec-buy-text: ' . $s['ec_buy_text'];
-        if (!empty($s['ec_buy_hover_bg']))     $ec_vars[] = '--tix-ec-buy-hover: ' . $s['ec_buy_hover_bg'];
-        if (!empty($s['ec_buy_hover_text']))   $ec_vars[] = '--tix-ec-buy-hover-text: ' . $s['ec_buy_hover_text'];
 
         if (!empty($ec_vars)) {
             echo ".tix-ec-trigger, .tix-ec-overlay {\n    " . implode(";\n    ", $ec_vars) . ";\n}\n";
@@ -933,6 +978,10 @@ class TIX_Settings {
                             <button type="button" class="tix-nav-tab active" data-tab="design">
                                 <span class="dashicons dashicons-art"></span>
                                 <span class="tix-nav-label">Design</span>
+                            </button>
+                            <button type="button" class="tix-nav-tab" data-tab="buttons">
+                                <span class="dashicons dashicons-button"></span>
+                                <span class="tix-nav-label">Buttons</span>
                             </button>
                             <button type="button" class="tix-nav-tab" data-tab="selector">
                                 <span class="dashicons dashicons-tickets-alt"></span>
@@ -1070,10 +1119,6 @@ class TIX_Settings {
                                         <div class="tix-field-grid">
                                             <?php
                                             self::color_row('color_text',          'Textfarbe', $s, true);
-                                            self::color_row('color_accent',        'Akzentfarbe / Button', $s);
-                                            self::color_row('color_accent_text',   'Button-Textfarbe', $s);
-                                            self::color_row('color_accent_hover',      'Button-Hover', $s);
-                                            self::color_row('color_accent_hover_text', 'Button-Hover-Textfarbe', $s, true);
                                             self::color_row('color_border',        'Rahmenfarbe', $s);
                                             self::color_row('color_input_border',  'Input-Rahmen', $s);
                                             self::color_row('color_focus',         'Fokus- / Auswahlfarbe', $s);
@@ -1100,7 +1145,6 @@ class TIX_Settings {
                                             <?php
                                             self::range_row('radius_general', 'Eckenradius allgemein', $s, 0, 24, 'px');
                                             self::range_row('radius_input',   'Eckenradius Inputs', $s, 0, 20, 'px');
-                                            self::range_row('radius_button',  'Eckenradius Buttons', $s, 0, 24, 'px');
                                             self::range_row('radius_qty_btn', '+/- Button Rundung', $s, 0, 50, '%');
                                             self::range_row('border_width',   'Rahmenbreite', $s, 0, 4, 'px');
                                             ?>
@@ -1144,25 +1188,54 @@ class TIX_Settings {
                                     </div>
                                 </div>
 
-                                <?php // ── Card: Kalender-Button ── ?>
+                            </div>
+
+                            <?php // ═══ PANE: BUTTONS ═══ ?>
+                            <div class="tix-pane" data-pane="buttons">
+
+                                <?php // ── Card: Variante 1 (Primär) ── ?>
                                 <div class="tix-card">
                                     <div class="tix-card-header">
-                                        <span class="dashicons dashicons-calendar"></span>
-                                        <h3>Kalender-Button</h3>
+                                        <span class="dashicons dashicons-button"></span>
+                                        <h3>Variante 1 &ndash; Prim&auml;r (CTA)</h3>
                                     </div>
                                     <div class="tix-card-body">
+                                        <p class="tix-settings-hint">Wird f&uuml;r Ticket-Kauf, Modal-Trigger, Raffle und alle Haupt-CTAs verwendet. Shortcode: <code>variant="1"</code></p>
                                         <div class="tix-field-grid">
                                             <?php
-                                            self::color_row('cal_text_color',    'Textfarbe', $s, true);
-                                            self::color_row('cal_bg',            'Hintergrund', $s, true);
-                                            self::color_row('cal_border_color',  'Rahmenfarbe', $s, true);
-                                            self::range_row('cal_border_width',  'Rahmenbreite', $s, 0, 4, 'px');
-                                            self::range_row('cal_radius',        'Eckenradius', $s, 0, 24, 'px');
-                                            self::color_row('cal_hover_bg',      'Hover-Hintergrund', $s, true);
-                                            self::color_row('cal_hover_text',    'Hover-Textfarbe', $s, true);
-                                            self::color_row('cal_hover_border',  'Hover-Rahmenfarbe', $s, true);
+                                            self::color_row('btn1_bg',          'Hintergrund', $s);
+                                            self::color_row('btn1_color',       'Textfarbe', $s);
+                                            self::color_row('btn1_hover_bg',    'Hover-Hintergrund', $s, true);
+                                            self::color_row('btn1_hover_color', 'Hover-Textfarbe', $s, true);
+                                            self::range_row('btn1_radius',      'Eckenradius', $s, 0, 50, 'px');
+                                            self::text_row('btn1_border',       'Rahmen (CSS)', $s, 'z.B. 2px solid #000');
+                                            self::range_row('btn1_font_size',   'Schriftgr&ouml;&szlig;e', $s, 0.7, 2, 'rem', 0.05, true);
                                             ?>
                                         </div>
+                                        <p class="tix-settings-hint" style="margin-top:12px;">Schriftart: inherit (Theme) &middot; Schriftgewicht: 700</p>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Variante 2 (Sekundär) ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-admin-customizer"></span>
+                                        <h3>Variante 2 &ndash; Sekund&auml;r (Outline)</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <p class="tix-settings-hint">Wird f&uuml;r Kalender-Button, Coupon-Button und sekund&auml;re Aktionen verwendet. Shortcode: <code>variant="2"</code></p>
+                                        <div class="tix-field-grid">
+                                            <?php
+                                            self::color_row('btn2_bg',          'Hintergrund', $s, true);
+                                            self::color_row('btn2_color',       'Textfarbe', $s, true);
+                                            self::color_row('btn2_hover_bg',    'Hover-Hintergrund', $s, true);
+                                            self::color_row('btn2_hover_color', 'Hover-Textfarbe', $s, true);
+                                            self::range_row('btn2_radius',      'Eckenradius', $s, 0, 50, 'px');
+                                            self::text_row('btn2_border',       'Rahmen (CSS)', $s, 'z.B. 1px solid currentColor');
+                                            self::range_row('btn2_font_size',   'Schriftgr&ouml;&szlig;e', $s, 0.7, 2, 'rem', 0.05, true);
+                                            ?>
+                                        </div>
+                                        <p class="tix-settings-hint" style="margin-top:12px;">Schriftart: inherit (Theme) &middot; Schriftgewicht: 700</p>
                                     </div>
                                 </div>
 
@@ -1347,27 +1420,6 @@ class TIX_Settings {
                             <?php // ═══ PANE: EXPRESS CHECKOUT ═══ ?>
                             <div class="tix-pane" data-pane="express">
 
-                                <?php // ── Card: Trigger-Button ── ?>
-                                <div class="tix-card">
-                                    <div class="tix-card-header">
-                                        <span class="dashicons dashicons-button"></span>
-                                        <h3>Trigger-Button</h3>
-                                    </div>
-                                    <div class="tix-card-body">
-                                        <div class="tix-field-grid">
-                                            <?php
-                                            self::color_row('ec_btn_bg',           'Hintergrund', $s, true);
-                                            self::color_row('ec_btn_text',         'Textfarbe', $s, true);
-                                            self::color_row('ec_btn_hover_bg',     'Hover-Hintergrund', $s, true);
-                                            self::color_row('ec_btn_hover_text',   'Hover-Textfarbe', $s, true);
-                                            self::color_row('ec_btn_border_color', 'Rahmenfarbe', $s, true);
-                                            self::range_row('ec_btn_border_width', 'Rahmenbreite', $s, 0, 4, 'px');
-                                            self::range_row('ec_btn_radius',       'Eckenradius', $s, 0, 24, 'px');
-                                            ?>
-                                        </div>
-                                    </div>
-                                </div>
-
                                 <?php // ── Card: Modal ── ?>
                                 <div class="tix-card">
                                     <div class="tix-card-header">
@@ -1401,25 +1453,6 @@ class TIX_Settings {
                                             self::range_row('ec_cat_radius',  'Eckenradius', $s, 0, 24, 'px');
                                             ?>
                                         </div>
-                                    </div>
-                                </div>
-
-                                <?php // ── Card: Kauf-Button ── ?>
-                                <div class="tix-card">
-                                    <div class="tix-card-header">
-                                        <span class="dashicons dashicons-cart"></span>
-                                        <h3>Kauf-Button</h3>
-                                    </div>
-                                    <div class="tix-card-body">
-                                        <div class="tix-field-grid">
-                                            <?php
-                                            self::color_row('ec_buy_bg',         'Hintergrund', $s, true);
-                                            self::color_row('ec_buy_text',       'Textfarbe', $s, true);
-                                            self::color_row('ec_buy_hover_bg',   'Hover-Hintergrund', $s, true);
-                                            self::color_row('ec_buy_hover_text', 'Hover-Textfarbe', $s, true);
-                                            ?>
-                                        </div>
-                                        <p class="tix-settings-hint" style="margin-top:12px;">Leere Felder &uuml;bernehmen die globalen Akzentfarben aus dem Design-Tab.</p>
                                     </div>
                                 </div>
 
@@ -2247,8 +2280,9 @@ class TIX_Settings {
             // ── Universal Theme Toggle ──
             var themePresets = {
                 light: {
-                    color_text:'', color_accent:'#1e293b', color_accent_text:'#ffffff',
-                    color_accent_hover:'#334155', color_accent_hover_text:'',
+                    color_text:'',
+                    btn1_bg:'#1e293b', btn1_color:'#ffffff', btn1_hover_bg:'#334155', btn1_hover_color:'',
+                    btn2_bg:'', btn2_color:'', btn2_hover_bg:'#FAF8F4', btn2_hover_color:'',
                     color_border:'#EDE9E0', color_input_border:'#cbd5e1',
                     color_focus:'#3b82f6', color_sale:'#ef4444', save_badge_bg:'', save_badge_text:'',
                     color_success:'#22c55e',
@@ -2259,12 +2293,8 @@ class TIX_Settings {
                     faq_hover_bg:'#FAF8F4', faq_hover_text:'', faq_active_bg:'#f1f5f9',
                     faq_border_color:'#EDE9E0', faq_divider_color:'#EDE9E0',
                     faq_accent_color:'#1e293b', faq_icon_color:'', faq_link_color:'#3b82f6',
-                    cal_bg:'#ffffff', cal_text_color:'', cal_border_color:'#EDE9E0',
-                    cal_hover_bg:'#FAF8F4', cal_hover_text:'', cal_hover_border:'#1e293b',
-                    ec_btn_bg:'#1e293b', ec_btn_text:'#ffffff', ec_btn_hover_bg:'#334155', ec_btn_hover_text:'',
-                    ec_btn_border_color:'', ec_modal_bg:'#ffffff', ec_modal_text:'#1e293b',
+                    ec_modal_bg:'#ffffff', ec_modal_text:'#1e293b',
                     ec_modal_border:'#EDE9E0', ec_cat_border:'#EDE9E0', ec_cat_active:'#3b82f6',
-                    ec_buy_bg:'#1e293b', ec_buy_text:'#ffffff', ec_buy_hover_bg:'#334155', ec_buy_hover_text:'',
                     mt_bg:'#FAF8F4', mt_card_bg:'#ffffff', mt_text_color:'#1e293b',
                     mt_border_color:'#EDE9E0', mt_ticket_bg:'#f0fdf4', mt_accent_color:'#1e293b',
                     ci_bg:'#FAF8F4', ci_surface:'#ffffff', ci_border:'#EDE9E0',
@@ -2272,8 +2302,9 @@ class TIX_Settings {
                     ci_accent_text:'#ffffff', ci_ok:'#22c55e', ci_warn:'#eab308', ci_err:'#ef4444'
                 },
                 dark: {
-                    color_text:'#ffffff', color_accent:'#c8ff00', color_accent_text:'#000000',
-                    color_accent_hover:'#b8e600', color_accent_hover_text:'',
+                    color_text:'#ffffff',
+                    btn1_bg:'#c8ff00', btn1_color:'#000000', btn1_hover_bg:'#b8e600', btn1_hover_color:'',
+                    btn2_bg:'', btn2_color:'', btn2_hover_bg:'', btn2_hover_color:'',
                     color_border:'#333333', color_input_border:'#555555',
                     color_focus:'#c8ff00', color_sale:'#ef5350', save_badge_bg:'', save_badge_text:'',
                     color_success:'#4caf50',
@@ -2284,12 +2315,8 @@ class TIX_Settings {
                     faq_hover_bg:'#222222', faq_hover_text:'', faq_active_bg:'#2a2a2a',
                     faq_border_color:'#333333', faq_divider_color:'#333333',
                     faq_accent_color:'#c8ff00', faq_icon_color:'#94a3b8', faq_link_color:'#c8ff00',
-                    cal_bg:'', cal_text_color:'', cal_border_color:'#333333',
-                    cal_hover_bg:'', cal_hover_text:'', cal_hover_border:'#c8ff00',
-                    ec_btn_bg:'#c8ff00', ec_btn_text:'#000000', ec_btn_hover_bg:'#b8e600', ec_btn_hover_text:'',
-                    ec_btn_border_color:'', ec_modal_bg:'#1a1a1a', ec_modal_text:'#ffffff',
+                    ec_modal_bg:'#1a1a1a', ec_modal_text:'#ffffff',
                     ec_modal_border:'#333333', ec_cat_border:'#333333', ec_cat_active:'#c8ff00',
-                    ec_buy_bg:'#c8ff00', ec_buy_text:'#000000', ec_buy_hover_bg:'#b8e600', ec_buy_hover_text:'',
                     mt_bg:'#111111', mt_card_bg:'#1a1a1a', mt_text_color:'#ffffff',
                     mt_border_color:'#333333', mt_ticket_bg:'#1a2600', mt_accent_color:'#c8ff00',
                     ci_bg:'#111111', ci_surface:'#1a1a1a', ci_border:'#333333',

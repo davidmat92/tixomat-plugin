@@ -559,13 +559,13 @@
    SUBMIT
    ══════════════════════════════════════ */
 .tix-co-submit {
-    width: 100%; padding: 16px; margin-top: 28px; border: none;
-    border-radius: var(--tix-buy-radius, 8px);
-    background: var(--tix-buy-bg, #c8ff00); color: var(--tix-buy-color, #000);
-    font-weight: 700; font-size: 1.05rem;
+    width: 100%; padding: 16px; margin-top: 28px; border: var(--tix-btn1-border, none);
+    border-radius: var(--tix-btn1-radius, 8px);
+    background: var(--tix-btn1-bg, #c8ff00); color: var(--tix-btn1-color, #000);
+    font-weight: 700; font-size: var(--tix-btn1-font-size, 1.05rem);
     cursor: pointer; transition: background 0.2s, opacity 0.2s; font-family: inherit;
 }
-.tix-co-submit:hover:not(:disabled) { background: var(--tix-buy-hover, var(--tix-buy-bg)); color: var(--tix-buy-hover-color, var(--tix-buy-color, #000)); opacity: 0.9; }
+.tix-co-submit:hover:not(:disabled) { background: var(--tix-btn1-hover-bg, var(--tix-btn1-bg)); color: var(--tix-btn1-hover-color, var(--tix-btn1-color, #000)); opacity: 0.9; }
 .tix-co-submit:disabled { opacity: 0.3; cursor: not-allowed; }
 
 /* Messages */
@@ -902,14 +902,14 @@
 }
 
 .tix-co-step-btn {
-    padding: 10px 20px; border: none; border-radius: var(--tix-buy-radius, 8px);
-    font-weight: 700; font-size: 0.9rem; cursor: pointer;
+    padding: 10px 20px; border: var(--tix-btn1-border, none); border-radius: var(--tix-btn1-radius, 8px);
+    font-weight: 700; font-size: var(--tix-btn1-font-size, 0.9rem); cursor: pointer;
     font-family: inherit; transition: background 0.2s, opacity 0.2s;
 }
 .tix-co-step-next {
-    background: var(--tix-buy-bg, #c8ff00); color: var(--tix-buy-color, #000);
+    background: var(--tix-btn1-bg, #c8ff00); color: var(--tix-btn1-color, #000);
 }
-.tix-co-step-next:hover { background: var(--tix-buy-hover, var(--tix-buy-bg)); color: var(--tix-buy-hover-color, var(--tix-buy-color, #000)); opacity: 0.9; }
+.tix-co-step-next:hover { background: var(--tix-btn1-hover-bg, var(--tix-btn1-bg)); color: var(--tix-btn1-hover-color, var(--tix-btn1-color, #000)); opacity: 0.9; }
 .tix-co-step-back {
     background: transparent; color: inherit; opacity: 0.6;
     border: 1px solid var(--tix-border, #333);

@@ -210,19 +210,19 @@
 .tix-sel-buy {
     width: 100%;
     padding: 14px;
-    border: none;
-    border-radius: var(--tix-buy-radius, 8px);
-    background: var(--tix-buy-bg, #c8ff00);
-    color: var(--tix-buy-color, #000);
+    border: var(--tix-btn1-border, none);
+    border-radius: var(--tix-btn1-radius, 8px);
+    background: var(--tix-btn1-bg, #c8ff00);
+    color: var(--tix-btn1-color, #000);
     font-weight: 700;
-    font-size: 1rem;
+    font-size: var(--tix-btn1-font-size, 1rem);
     cursor: pointer;
     transition: background 0.2s, opacity 0.2s;
 }
 
 .tix-sel-buy:hover:not(:disabled) {
-    background: var(--tix-buy-hover, var(--tix-buy-bg));
-    color: var(--tix-buy-hover-color, var(--tix-buy-color, #000));
+    background: var(--tix-btn1-hover-bg, var(--tix-btn1-bg));
+    color: var(--tix-btn1-hover-color, var(--tix-btn1-color, #000));
     opacity: 0.9;
 }
 
@@ -358,20 +358,19 @@
 .tix-sel-coupon-code::placeholder { opacity: 0.4; }
 .tix-sel-coupon-btn {
     padding: 8px 16px;
-    border: 1px solid currentColor;
-    border-radius: var(--tix-sel-radius, var(--tix-radius, 8px));
-    background: transparent;
-    color: inherit;
-    font-size: 0.85rem;
+    border: var(--tix-btn2-border, 1px solid currentColor);
+    border-radius: var(--tix-btn2-radius, 8px);
+    background: var(--tix-btn2-bg, transparent);
+    color: var(--tix-btn2-color, inherit);
+    font-size: var(--tix-btn2-font-size, 0.85rem);
     font-weight: 600;
     cursor: pointer;
     white-space: nowrap;
     transition: background 0.15s, color 0.15s;
 }
 .tix-sel-coupon-btn:hover {
-    background: var(--tix-buy-bg, #c8ff00);
-    color: var(--tix-buy-color, #000);
-    border-color: var(--tix-buy-bg, #c8ff00);
+    background: var(--tix-btn2-hover-bg, transparent);
+    color: var(--tix-btn2-hover-color, inherit);
 }
 .tix-sel-coupon-result {
     margin-top: 8px;
@@ -1146,12 +1145,12 @@
 }
 .tix-sel-notify-btn {
     padding: 10px 20px;
-    background: var(--tix-buy-bg, #c8ff00);
-    color: var(--tix-buy-color, #000);
-    border: none;
-    border-radius: var(--tix-radius, 8px);
-    font-size: .92rem;
-    font-weight: 600;
+    background: var(--tix-btn1-bg, #c8ff00);
+    color: var(--tix-btn1-color, #000);
+    border: var(--tix-btn1-border, none);
+    border-radius: var(--tix-btn1-radius, 8px);
+    font-size: var(--tix-btn1-font-size, .92rem);
+    font-weight: 700;
     cursor: pointer;
     font-family: inherit;
     white-space: nowrap;

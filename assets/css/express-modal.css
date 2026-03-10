@@ -12,19 +12,19 @@
     align-items: center;
     gap: 8px;
     padding: 12px 24px;
-    border: var(--tix-ec-btn-border-width, 0) solid var(--tix-ec-btn-border, transparent);
-    border-radius: var(--tix-ec-btn-radius, var(--tix-radius, 8px));
-    background: var(--tix-ec-btn-bg, var(--tix-buy-bg, #c8ff00));
-    color: var(--tix-ec-btn-text, var(--tix-buy-color, #000));
+    border: var(--tix-btn1-border, none);
+    border-radius: var(--tix-btn1-radius, 8px);
+    background: var(--tix-btn1-bg, #c8ff00);
+    color: var(--tix-btn1-color, #000);
     font: inherit;
-    font-size: 0.95rem;
+    font-size: var(--tix-btn1-font-size, 0.95rem);
     font-weight: 700;
     cursor: pointer;
     transition: background 0.15s, color 0.15s, border-color 0.15s, opacity 0.15s;
 }
 .tix-ec-trigger-btn:hover {
-    background: var(--tix-ec-btn-hover-bg, var(--tix-ec-btn-bg, var(--tix-buy-hover, var(--tix-buy-bg, #c8ff00))));
-    color: var(--tix-ec-btn-hover-text, var(--tix-ec-btn-text, var(--tix-buy-color, #000)));
+    background: var(--tix-btn1-hover-bg, var(--tix-btn1-bg));
+    color: var(--tix-btn1-hover-color, var(--tix-btn1-color));
     opacity: 0.9;
 }
 

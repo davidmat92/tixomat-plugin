@@ -122,18 +122,19 @@
 .tix-raffle-submit {
     width: 100%;
     padding: 13px 24px;
-    background: #FF5500;
-    color: #fff;
-    border: none;
-    border-radius: 8px;
-    font-size: 1rem;
+    background: var(--tix-btn1-bg, #c8ff00);
+    color: var(--tix-btn1-color, #000);
+    border: var(--tix-btn1-border, none);
+    border-radius: var(--tix-btn1-radius, 8px);
+    font-size: var(--tix-btn1-font-size, 1rem);
     font-weight: 700;
     cursor: pointer;
     transition: background .2s, opacity .2s;
     font-family: inherit;
 }
 .tix-raffle-submit:hover {
-    background: #CC4400;
+    background: var(--tix-btn1-hover-bg, var(--tix-btn1-bg));
+    color: var(--tix-btn1-hover-color, var(--tix-btn1-color));
 }
 .tix-raffle-submit:disabled {
     opacity: .55;

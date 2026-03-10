@@ -28,6 +28,7 @@ class TIX_Modal_Checkout {
             'label'     => 'Tickets kaufen',
             'show_date' => '1',
             'fullwidth' => '0',
+            'variant'   => '1',
         ], $atts);
 
         $post_id = $atts['id'] ? intval($atts['id']) : get_the_ID();
@@ -67,7 +68,8 @@ class TIX_Modal_Checkout {
         ob_start();
         ?>
         <?php $fw = $atts['fullwidth'] === '1' ? ' tix-fullwidth' : ''; ?>
-        <span class="tix-mc-trigger<?php echo $fw; ?>" data-modal="<?php echo esc_attr($modal_id); ?>">
+        <?php $tix_v = intval($atts['variant']) === 2 ? 2 : 1; ?>
+        <span class="tix-mc-trigger<?php echo $fw; ?>" data-modal="<?php echo esc_attr($modal_id); ?>"<?php if ($tix_v === 2): ?> style="--tix-btn1-bg:var(--tix-btn2-bg,transparent);--tix-btn1-color:var(--tix-btn2-color,inherit);--tix-btn1-hover-bg:var(--tix-btn2-hover-bg,transparent);--tix-btn1-hover-color:var(--tix-btn2-hover-color,inherit);--tix-btn1-radius:var(--tix-btn2-radius,8px);--tix-btn1-border:var(--tix-btn2-border,1px solid currentColor);--tix-btn1-font-size:var(--tix-btn2-font-size,0.9rem)"<?php endif; ?>>
             <button type="button" class="tix-mc-trigger-btn"><?php echo esc_html($atts['label']); ?></button>
         </span>
 
