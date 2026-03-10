@@ -37,11 +37,25 @@ class TIX_Timetable {
 
         self::enqueue();
 
+        $single_stage = count($stages) === 1;
+
+        // Prüfe ob irgendein Slot eine Uhrzeit hat
+        $has_any_time = false;
+        foreach ($timetable as $day_slots) {
+            foreach ($day_slots as $slot) {
+                if (!empty($slot['time'])) { $has_any_time = true; break 2; }
+            }
+        }
+
         ob_start();
         $days = array_keys($timetable);
         sort($days);
+
+        $tt_classes = 'tix-tt';
+        if ($single_stage) $tt_classes .= ' tix-tt--single-stage';
+        if (!$has_any_time) $tt_classes .= ' tix-tt--no-times';
         ?>
-        <div class="tix-tt" data-stages="<?php echo count($stages); ?>">
+        <div class="<?php echo $tt_classes; ?>" data-stages="<?php echo count($stages); ?>">
 
             <?php // ── Tages-Tabs (nur bei Mehrtages-Events) ── ?>
             <?php if (count($days) > 1): ?>
@@ -68,7 +82,8 @@ class TIX_Timetable {
             </div>
             <?php endif; ?>
 
-            <?php // ── Bühnen-Filter (Mobile) ── ?>
+            <?php // ── Bühnen-Filter (Mobile, nur bei mehreren Bühnen) ── ?>
+            <?php if (!$single_stage): ?>
             <div class="tix-tt-stage-filter">
                 <button type="button" class="tix-tt-filter-btn active" data-stage="all">Alle</button>
                 <?php foreach ($stages as $si => $stage): ?>
@@ -78,19 +93,27 @@ class TIX_Timetable {
                     </button>
                 <?php endforeach; ?>
             </div>
+            <?php endif; ?>
 
             <?php // ── Timetable pro Tag ── ?>
             <?php foreach ($days as $idx => $day):
                 $slots = $timetable[$day] ?? [];
-                // Sort by time
+                // Sortierung: Einträge mit Zeit zuerst (aufsteigend), dann ohne Zeit
                 usort($slots, function($a, $b) {
-                    return strcmp($a['time'] ?? '', $b['time'] ?? '');
+                    $ta = $a['time'] ?? '';
+                    $tb = $b['time'] ?? '';
+                    if ($ta === '' && $tb === '') return 0;
+                    if ($ta === '') return 1;
+                    if ($tb === '') return -1;
+                    return strcmp($ta, $tb);
                 });
             ?>
             <div class="tix-tt-content<?php echo $idx === 0 ? ' active' : ''; ?>" data-day="<?php echo esc_attr($day); ?>">
 
-                <?php // ── Desktop: Grid-Ansicht ── ?>
+                <?php // ── Desktop: Grid-Ansicht (nur wenn Uhrzeiten vorhanden) ── ?>
+                <?php if ($has_any_time): ?>
                 <div class="tix-tt-grid">
+                    <?php if (!$single_stage): ?>
                     <div class="tix-tt-grid-header">
                         <div class="tix-tt-time-header"></div>
                         <?php foreach ($stages as $si => $stage): ?>
@@ -99,13 +122,19 @@ class TIX_Timetable {
                             </div>
                         <?php endforeach; ?>
                     </div>
+                    <?php endif; ?>
 
                     <?php
-                    // Sammle alle Zeitslots
+                    // Sammle Zeitslots und zeitlose Einträge getrennt
                     $time_slots = [];
+                    $timeless_slots = [];
                     foreach ($slots as $slot) {
                         $t = $slot['time'] ?? '';
-                        if ($t && !in_array($t, $time_slots)) $time_slots[] = $t;
+                        if ($t) {
+                            if (!in_array($t, $time_slots)) $time_slots[] = $t;
+                        } else {
+                            $timeless_slots[] = $slot;
+                        }
                     }
                     sort($time_slots);
 
@@ -137,23 +166,50 @@ class TIX_Timetable {
                         <?php endforeach; ?>
                     </div>
                     <?php endforeach; ?>
-                </div>
 
-                <?php // ── Mobile: Listen-Ansicht ── ?>
+                    <?php // Zeitlose Einträge am Ende des Grids ?>
+                    <?php foreach ($timeless_slots as $slot):
+                        $s_idx = intval($slot['stage'] ?? 0);
+                    ?>
+                    <div class="tix-tt-grid-row">
+                        <div class="tix-tt-time"></div>
+                        <?php foreach ($stages as $si => $stage): ?>
+                            <div class="tix-tt-cell" style="--tt-stage-color: <?php echo esc_attr($stage['color'] ?? '#FF5500'); ?>">
+                                <?php if ($si === $s_idx): ?>
+                                    <div class="tix-tt-slot">
+                                        <span class="tix-tt-slot-title"><?php echo esc_html($slot['title'] ?? ''); ?></span>
+                                        <?php if (!empty($slot['desc'])): ?>
+                                            <span class="tix-tt-slot-desc"><?php echo esc_html($slot['desc']); ?></span>
+                                        <?php endif; ?>
+                                    </div>
+                                <?php endif; ?>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                    <?php endforeach; ?>
+                </div>
+                <?php endif; ?>
+
+                <?php // ── Listen-Ansicht (Mobile immer, Desktop nur wenn keine Zeiten) ── ?>
                 <div class="tix-tt-list">
                     <?php foreach ($slots as $slot):
                         $s_idx = intval($slot['stage'] ?? 0);
                         $s_color = $stages[$s_idx]['color'] ?? '#FF5500';
                         $s_name  = $stages[$s_idx]['name'] ?? '';
+                        $has_time = !empty($slot['time']);
                     ?>
                         <div class="tix-tt-list-item" data-stage="<?php echo $s_idx; ?>" style="--tt-stage-color: <?php echo esc_attr($s_color); ?>">
-                            <div class="tix-tt-list-time"><?php echo esc_html($slot['time'] ?? ''); ?><?php if (!empty($slot['end'])): ?> – <?php echo esc_html($slot['end']); ?><?php endif; ?></div>
+                            <?php if ($has_time): ?>
+                                <div class="tix-tt-list-time"><?php echo esc_html($slot['time']); ?><?php if (!empty($slot['end'])): ?> – <?php echo esc_html($slot['end']); ?><?php endif; ?></div>
+                            <?php endif; ?>
                             <div class="tix-tt-list-info">
                                 <span class="tix-tt-list-title"><?php echo esc_html($slot['title'] ?? ''); ?></span>
                                 <?php if (!empty($slot['desc'])): ?>
                                     <span class="tix-tt-list-desc"><?php echo esc_html($slot['desc']); ?></span>
                                 <?php endif; ?>
-                                <span class="tix-tt-list-stage"><?php echo esc_html($s_name); ?></span>
+                                <?php if (!$single_stage): ?>
+                                    <span class="tix-tt-list-stage"><?php echo esc_html($s_name); ?></span>
+                                <?php endif; ?>
                             </div>
                         </div>
                     <?php endforeach; ?>

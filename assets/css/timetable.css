@@ -206,6 +206,44 @@
     letter-spacing: .03em;
 }
 
+/* ── Einzelne Bühne: Farb-Indikatoren ausblenden ── */
+.tix-tt--single-stage .tix-tt-stage-filter {
+    display: none !important;
+}
+.tix-tt--single-stage .tix-tt-grid-header {
+    display: none;
+}
+.tix-tt--single-stage .tix-tt-grid,
+.tix-tt--single-stage .tix-tt-grid-header {
+    grid-template-columns: 60px 1fr;
+}
+.tix-tt--single-stage .tix-tt-slot {
+    border-left: none;
+    background: transparent;
+    padding-left: 0;
+}
+.tix-tt--single-stage .tix-tt-list-item {
+    border-left-color: var(--ep-border, #e5e7eb);
+    background: var(--ep-bg, #fff);
+}
+.tix-tt--single-stage .tix-tt-list-time {
+    color: var(--ep-muted, #64748b);
+}
+.tix-tt--single-stage .tix-tt-list-stage {
+    display: none;
+}
+
+/* ── Ohne Uhrzeiten: Listenansicht auf Desktop ── */
+.tix-tt--no-times .tix-tt-grid {
+    display: none;
+}
+.tix-tt--no-times .tix-tt-list {
+    display: flex;
+}
+.tix-tt--no-times .tix-tt-list-item {
+    padding: 14px 16px;
+}
+
 /* ── Responsive: Mobile ── */
 @media (max-width: 768px) {
     .tix-tt-grid {
