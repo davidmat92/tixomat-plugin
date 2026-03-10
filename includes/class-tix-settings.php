@@ -14,6 +14,9 @@ class TIX_Settings {
             'settings_mode'       => 'recommended', // recommended | manual
             'theme_mode'          => 'light',
 
+            // ── Farbpalette ──
+            'color_palette'       => [],   // Array of {name, color} (max 12)
+
             // ── Farben ──
             'color_text'          => '',       // leer = inherit (Theme-Farbe)
             'color_accent'        => '#c8ff00',
@@ -59,6 +62,7 @@ class TIX_Settings {
             'ep_text'            => '',       // leer = #1a1a1a
             'ep_muted'           => '',       // leer = #64748b
             'ep_border'          => '',       // leer = #e5e7eb
+            'ep_ticket_mode'     => 'selector', // selector | modal | both
             'ep_show_hero'       => 1,
             'ep_show_gallery'    => 1,
             'ep_show_video'      => 1,
@@ -392,6 +396,8 @@ class TIX_Settings {
         $clean['ep_max_width'] = max(400, min(1600, intval($input['ep_max_width'] ?? 1100)));
         $clean['ep_gap']       = max(12, min(48, intval($input['ep_gap'] ?? 32)));
         $clean['ep_radius']    = max(0, min(24, intval($input['ep_radius'] ?? 12)));
+        // Event-Seite Ticket-Modus
+        $clean['ep_ticket_mode'] = in_array($input['ep_ticket_mode'] ?? '', ['selector', 'modal', 'both']) ? $input['ep_ticket_mode'] : 'selector';
         // Event-Seite Toggles
         foreach (['ep_show_hero', 'ep_show_gallery', 'ep_show_video', 'ep_show_faq', 'ep_show_location', 'ep_show_organizer', 'ep_show_series', 'ep_show_charity', 'ep_show_upsell', 'ep_show_calendar', 'ep_show_phases', 'ep_show_raffle', 'ep_show_share', 'ep_show_timetable'] as $k) {
             $clean[$k] = !empty($input[$k]) ? 1 : 0;
@@ -510,6 +516,21 @@ class TIX_Settings {
 
         // Theme-Modus (universell)
         $clean['theme_mode'] = in_array($input['theme_mode'] ?? '', ['light', 'dark']) ? $input['theme_mode'] : 'light';
+
+        // Farbpalette (max 12 Einträge, je name + color)
+        $raw_palette = $input['color_palette'] ?? [];
+        $clean_palette = [];
+        if (is_array($raw_palette)) {
+            foreach ($raw_palette as $entry) {
+                if (count($clean_palette) >= 12) break;
+                if (!is_array($entry)) continue;
+                $name  = sanitize_text_field(trim($entry['name'] ?? ''));
+                $color = self::sanitize_color($entry['color'] ?? '');
+                if ($name === '' || $color === '') continue;
+                $clean_palette[] = ['name' => $name, 'color' => $color];
+            }
+        }
+        $clean['color_palette'] = $clean_palette;
 
         // Check-in
         foreach (['ci_bg', 'ci_surface', 'ci_border', 'ci_text', 'ci_muted', 'ci_accent', 'ci_accent_text', 'ci_ok', 'ci_warn', 'ci_err'] as $k) {
@@ -963,6 +984,61 @@ class TIX_Settings {
 
                             <?php // ═══ PANE: DESIGN ═══ ?>
                             <div class="tix-pane active" data-pane="design">
+
+                                <?php // ── Card: Farbpalette ── ?>
+                                <div class="tix-card tix-card-preset tix-card-palette">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-color-picker"></span>
+                                        <h3>Farbpalette</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <p class="tix-settings-hint" style="margin-bottom:12px;">Definiere eigene Farben, die dann als Schnellauswahl in allen Farbfeldern erscheinen.</p>
+
+                                        <div class="tix-palette-presets">
+                                            <label class="tix-field-label">Palette-Preset laden</label>
+                                            <select id="tix-palette-preset-select" class="tix-palette-preset-select">
+                                                <option value="">-- Preset wählen --</option>
+                                                <option value="festival">Festival</option>
+                                                <option value="corporate">Corporate</option>
+                                                <option value="elegant">Elegant</option>
+                                                <option value="neon">Neon / Dark</option>
+                                            </select>
+                                        </div>
+
+                                        <div id="tix-palette-repeater" class="tix-palette-repeater">
+                                            <?php
+                                            $palette = $s['color_palette'] ?? [];
+                                            if (!empty($palette)):
+                                                foreach ($palette as $i => $entry):
+                                                    $pval    = $entry['color'] ?? '#000000';
+                                                    $pparsed = self::parse_color($pval);
+                                            ?>
+                                            <div class="tix-palette-row" data-index="<?php echo $i; ?>">
+                                                <input type="text" name="<?php echo $ok; ?>[color_palette][<?php echo $i; ?>][name]"
+                                                       value="<?php echo esc_attr($entry['name']); ?>"
+                                                       class="tix-palette-name" placeholder="Name (z.B. Primary)">
+                                                <div class="tix-color-wrap tix-palette-color-wrap">
+                                                    <div class="tix-color-swatch tix-palette-swatch-preview">
+                                                        <span class="tix-color-fill" style="background:<?php echo esc_attr($pval); ?>"></span>
+                                                        <input type="color" value="<?php echo esc_attr($pparsed['hex']); ?>" tabindex="-1">
+                                                    </div>
+                                                    <input type="text" name="<?php echo $ok; ?>[color_palette][<?php echo $i; ?>][color]"
+                                                           value="<?php echo esc_attr($pval); ?>"
+                                                           class="tix-color-hex tix-palette-color-input" placeholder="#000000" maxlength="30">
+                                                </div>
+                                                <button type="button" class="tix-palette-remove" title="Entfernen">&times;</button>
+                                            </div>
+                                            <?php
+                                                endforeach;
+                                            endif;
+                                            ?>
+                                        </div>
+
+                                        <button type="button" id="tix-palette-add" class="button tix-palette-add-btn">
+                                            <span class="dashicons dashicons-plus-alt2"></span> Farbe hinzufügen
+                                        </button>
+                                    </div>
+                                </div>
 
                                 <?php // ── Card: Theme-Umschalter (universell) ── ?>
                                 <div class="tix-card tix-card-preset">
@@ -1695,6 +1771,15 @@ class TIX_Settings {
                                         <p class="tix-settings-hint" style="margin-bottom:12px;">W&auml;hle aus, welche Sektionen auf der Event-Seite angezeigt werden sollen. Sektionen ohne Daten werden automatisch ausgeblendet.</p>
                                         <div class="tix-field-grid">
                                             <div class="tix-field tix-field-full">
+                                                <label class="tix-field-label">Ticket-Darstellung</label>
+                                                <select name="<?php echo $ok; ?>[ep_ticket_mode]" class="tix-input" style="max-width:280px;">
+                                                    <option value="selector" <?php selected($s['ep_ticket_mode'] ?? 'selector', 'selector'); ?>>Ticket-Selektor (Standard)</option>
+                                                    <option value="modal" <?php selected($s['ep_ticket_mode'] ?? 'selector', 'modal'); ?>>Modal-Checkout</option>
+                                                    <option value="both" <?php selected($s['ep_ticket_mode'] ?? 'selector', 'both'); ?>>Beides (Selektor + Modal-Button)</option>
+                                                </select>
+                                                <p class="tix-settings-hint">Modal-Checkout: Kompletter Ticket-Kauf inkl. Bezahlung im Modal ohne Seitenwechsel.</p>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
                                                 <?php self::checkbox_row('ep_show_hero', 'Hero-Bild (Beitragsbild im 16:9 Format)', $s); ?>
                                             </div>
                                             <div class="tix-field tix-field-full">
@@ -2259,6 +2344,181 @@ class TIX_Settings {
                     }
                 });
             });
+
+            // ══════════════════════════════════════
+            // FARBPALETTE MANAGER
+            // ══════════════════════════════════════
+
+            var palettePresets = {
+                festival: [
+                    {name: 'Primary',    color: '#FF5500'},
+                    {name: 'Secondary',  color: '#1a1a2e'},
+                    {name: 'Highlight',  color: '#e94560'},
+                    {name: 'Deep Blue',  color: '#0f3460'},
+                    {name: 'Success',    color: '#4caf50'},
+                    {name: 'Light',      color: '#ffffff'}
+                ],
+                corporate: [
+                    {name: 'Primary',    color: '#1e293b'},
+                    {name: 'Blue',       color: '#3b82f6'},
+                    {name: 'Sky',        color: '#0ea5e9'},
+                    {name: 'Background', color: '#f8fafc'},
+                    {name: 'Border',     color: '#e2e8f0'},
+                    {name: 'Success',    color: '#22c55e'}
+                ],
+                elegant: [
+                    {name: 'Dark',       color: '#2d2d2d'},
+                    {name: 'Gold',       color: '#c9a84c'},
+                    {name: 'Ivory',      color: '#f5f0e8'},
+                    {name: 'Rose',       color: '#b76e79'},
+                    {name: 'Slate',      color: '#64748b'},
+                    {name: 'Black',      color: '#1a1a1a'}
+                ],
+                neon: [
+                    {name: 'Neon Green', color: '#c8ff00'},
+                    {name: 'Neon Pink',  color: '#ff00ff'},
+                    {name: 'Electric',   color: '#00ffff'},
+                    {name: 'Dark BG',    color: '#0a0a0a'},
+                    {name: 'Surface',    color: '#1a1a1a'},
+                    {name: 'Border',     color: '#333333'}
+                ]
+            };
+
+            var repeater   = document.getElementById('tix-palette-repeater');
+            var paletteAdd = document.getElementById('tix-palette-add');
+            var optKey     = 'tix_settings';
+
+            function createPaletteRow(name, color, index) {
+                var row = document.createElement('div');
+                row.className = 'tix-palette-row';
+                row.dataset.index = index;
+                var parsed = tixParseColor(color) || {hex: color || '#000000', alpha: 100};
+                row.innerHTML =
+                    '<input type="text" name="' + optKey + '[color_palette][' + index + '][name]" ' +
+                    'value="' + (name || '').replace(/"/g, '&quot;') + '" class="tix-palette-name" placeholder="Name (z.B. Primary)">' +
+                    '<div class="tix-color-wrap tix-palette-color-wrap">' +
+                        '<div class="tix-color-swatch tix-palette-swatch-preview">' +
+                            '<span class="tix-color-fill" style="background:' + (color || '#000000') + '"></span>' +
+                            '<input type="color" value="' + parsed.hex + '" tabindex="-1">' +
+                        '</div>' +
+                        '<input type="text" name="' + optKey + '[color_palette][' + index + '][color]" ' +
+                        'value="' + (color || '') + '" class="tix-color-hex tix-palette-color-input" placeholder="#000000" maxlength="30">' +
+                    '</div>' +
+                    '<button type="button" class="tix-palette-remove" title="Entfernen">&times;</button>';
+                return row;
+            }
+
+            function reindexPaletteRows() {
+                if (!repeater) return;
+                repeater.querySelectorAll('.tix-palette-row').forEach(function(row, i) {
+                    row.dataset.index = i;
+                    var nameInput  = row.querySelector('.tix-palette-name');
+                    var colorInput = row.querySelector('.tix-palette-color-input');
+                    if (nameInput)  nameInput.name  = optKey + '[color_palette][' + i + '][name]';
+                    if (colorInput) colorInput.name = optKey + '[color_palette][' + i + '][color]';
+                });
+            }
+
+            function bindPaletteRow(row) {
+                var picker   = row.querySelector('.tix-palette-swatch-preview input[type="color"]');
+                var hexInput = row.querySelector('.tix-palette-color-input');
+                var fill     = row.querySelector('.tix-palette-swatch-preview .tix-color-fill');
+
+                if (picker) {
+                    picker.addEventListener('input', function() {
+                        hexInput.value = this.value;
+                        if (fill) fill.style.background = this.value;
+                        refreshAllPaletteSwatches();
+                    });
+                }
+                if (hexInput) {
+                    hexInput.addEventListener('input', function() {
+                        var p = tixParseColor(this.value);
+                        if (p && picker) picker.value = p.hex;
+                        if (fill) fill.style.background = this.value || '#000000';
+                        refreshAllPaletteSwatches();
+                    });
+                }
+
+                row.querySelector('.tix-palette-remove').addEventListener('click', function() {
+                    row.remove();
+                    reindexPaletteRows();
+                    refreshAllPaletteSwatches();
+                });
+            }
+
+            // Add button
+            if (paletteAdd) {
+                paletteAdd.addEventListener('click', function() {
+                    if (!repeater) return;
+                    var rows = repeater.querySelectorAll('.tix-palette-row');
+                    if (rows.length >= 12) return;
+                    var idx = rows.length;
+                    var row = createPaletteRow('', '#000000', idx);
+                    repeater.appendChild(row);
+                    bindPaletteRow(row);
+                    refreshAllPaletteSwatches();
+                    row.querySelector('.tix-palette-name').focus();
+                });
+            }
+
+            // Bind existing server-rendered rows
+            if (repeater) {
+                repeater.querySelectorAll('.tix-palette-row').forEach(bindPaletteRow);
+            }
+
+            // ── Palette Preset Loading ──
+            var presetSelect = document.getElementById('tix-palette-preset-select');
+            if (presetSelect) {
+                presetSelect.addEventListener('change', function() {
+                    var key = this.value;
+                    if (!key || !palettePresets[key] || !repeater) return;
+                    var preset = palettePresets[key];
+                    repeater.innerHTML = '';
+                    preset.forEach(function(entry, i) {
+                        var row = createPaletteRow(entry.name, entry.color, i);
+                        repeater.appendChild(row);
+                        bindPaletteRow(row);
+                    });
+                    refreshAllPaletteSwatches();
+                    this.value = '';
+                });
+            }
+
+            // ── Palette Swatches in Color Fields ──
+            function getCurrentPalette() {
+                var palette = [];
+                if (!repeater) return palette;
+                repeater.querySelectorAll('.tix-palette-row').forEach(function(row) {
+                    var name  = row.querySelector('.tix-palette-name').value.trim();
+                    var color = row.querySelector('.tix-palette-color-input').value.trim();
+                    if (name && color) palette.push({name: name, color: color});
+                });
+                return palette;
+            }
+
+            function refreshAllPaletteSwatches() {
+                var palette = getCurrentPalette();
+                document.querySelectorAll('.tix-palette-swatches').forEach(function(container) {
+                    var targetKey = container.dataset.targetKey;
+                    container.innerHTML = '';
+                    if (palette.length === 0) return;
+                    palette.forEach(function(entry) {
+                        var swatch = document.createElement('button');
+                        swatch.type = 'button';
+                        swatch.className = 'tix-palette-mini-swatch';
+                        swatch.style.background = entry.color;
+                        swatch.title = entry.name + ': ' + entry.color;
+                        swatch.addEventListener('click', function() {
+                            applyColorToField(targetKey, entry.color);
+                        });
+                        container.appendChild(swatch);
+                    });
+                });
+            }
+
+            // Initial render
+            refreshAllPaletteSwatches();
         })();
         </script>
 
@@ -2464,6 +2724,7 @@ class TIX_Settings {
                     <a href="#" class="tix-color-reset" data-default="<?php echo esc_attr($default); ?>">Reset</a>
                 <?php endif; ?>
             </div>
+            <div class="tix-palette-swatches" data-target-key="<?php echo esc_attr($key); ?>"></div>
         </div>
         <?php
     }

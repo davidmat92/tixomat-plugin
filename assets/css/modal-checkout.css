@@ -1,0 +1,825 @@
+/*
+ * Tixomat – Modal Ticket Checkout
+ * Shortcode: [tix_ticket_modal]
+ * CI Design Tokens · 2-Step Modal (Tickets → Checkout)
+ */
+
+/* ── Trigger Button ── */
+.tix-mc-trigger {
+    display: inline-block;
+}
+.tix-mc-trigger-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 28px;
+    border: none;
+    border-radius: var(--tix-mc-btn-radius, var(--tix-radius, 8px));
+    background: var(--tix-mc-btn-bg, var(--tix-buy-bg, #FF5500));
+    color: var(--tix-mc-btn-text, var(--tix-buy-color, #fff));
+    font-family: var(--tx-font-display, 'Outfit', system-ui, sans-serif);
+    font-size: 1rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.15s, opacity 0.15s;
+}
+.tix-mc-trigger-btn:hover {
+    background: var(--tix-mc-btn-hover, var(--tix-buy-hover, #CC4400));
+    opacity: 0.95;
+}
+
+/* ── Overlay ── */
+.tix-mc-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 99999;
+    background: rgba(0, 0, 0, 0.55);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    animation: tixMcFadeIn 0.2s ease;
+}
+@keyframes tixMcFadeIn {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+
+/* ── Modal ── */
+.tix-mc-modal {
+    background: var(--tx-bg-card, #fff);
+    color: var(--tx-text, #0D0B09);
+    border: 1px solid var(--tx-border, #EDE9E0);
+    border-radius: var(--tix-mc-radius, 16px);
+    width: 100%;
+    max-width: var(--tix-mc-max-width, 520px);
+    max-height: 90vh;
+    box-shadow: 0 24px 48px rgba(0, 0, 0, 0.18);
+    animation: tixMcSlideIn 0.25s ease;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+@keyframes tixMcSlideIn {
+    from { transform: translateY(20px); opacity: 0; }
+    to   { transform: translateY(0); opacity: 1; }
+}
+
+/* ── Header ── */
+.tix-mc-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    padding: 20px 20px 16px;
+    gap: 12px;
+    border-bottom: 1px solid var(--tx-border, #EDE9E0);
+    flex-shrink: 0;
+}
+.tix-mc-header-info {
+    flex: 1;
+    min-width: 0;
+}
+.tix-mc-title {
+    margin: 0;
+    font-family: var(--tx-font-display, 'Outfit', system-ui, sans-serif);
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: var(--tx-text, #0D0B09);
+}
+.tix-mc-event-name {
+    display: block;
+    font-family: var(--tx-font-body, 'Inter', system-ui, sans-serif);
+    font-size: 0.82rem;
+    color: var(--tx-text-muted, rgba(13,11,9,0.40));
+    margin-top: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.tix-mc-event-date {
+    display: block;
+    font-family: var(--tx-font-body, 'Inter', system-ui, sans-serif);
+    font-size: 0.78rem;
+    color: var(--tx-text-muted, rgba(13,11,9,0.40));
+    margin-top: 1px;
+}
+.tix-mc-close {
+    flex-shrink: 0;
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--tx-border, #EDE9E0);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--tx-text-muted, rgba(13,11,9,0.40));
+    font-size: 22px;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.tix-mc-close:hover {
+    background: var(--tx-bg-subtle, #F3F0EA);
+    color: var(--tx-text, #0D0B09);
+    border-color: var(--tx-text-muted, rgba(13,11,9,0.40));
+}
+
+/* ── Steps ── */
+.tix-mc-step {
+    display: none;
+    flex: 1;
+    flex-direction: column;
+    overflow-y: auto;
+    min-height: 0;
+}
+.tix-mc-step.active {
+    display: flex;
+}
+
+/* ── Body (Step 1) ── */
+.tix-mc-body {
+    padding: 16px 20px 20px;
+    flex: 1;
+    overflow-y: auto;
+}
+
+/* ── Category Rows ── */
+.tix-mc-cats {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+.tix-mc-cat {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 14px;
+    border: 1px solid var(--tx-border, #EDE9E0);
+    border-radius: var(--tix-mc-cat-radius, 10px);
+    gap: 12px;
+    transition: border-color 0.15s;
+}
+.tix-mc-cat.tix-mc-cat-active {
+    border-color: var(--tx-accent, #FF5500);
+}
+.tix-mc-cat-info {
+    flex: 1;
+    min-width: 0;
+}
+.tix-mc-cat-name {
+    display: block;
+    font-family: var(--tx-font-body, 'Inter', system-ui, sans-serif);
+    font-weight: 600;
+    font-size: 0.92rem;
+    color: var(--tx-text, #0D0B09);
+}
+.tix-mc-cat-desc {
+    display: block;
+    font-size: 0.78rem;
+    color: var(--tx-text-muted, rgba(13,11,9,0.40));
+    margin-top: 2px;
+    line-height: 1.35;
+}
+.tix-mc-cat-price {
+    display: block;
+    font-size: 0.85rem;
+    color: var(--tx-text-secondary, rgba(13,11,9,0.70));
+    margin-top: 2px;
+}
+.tix-mc-price-sale {
+    font-weight: 700;
+    color: var(--tx-red, #E53B3B);
+}
+.tix-mc-price-old {
+    text-decoration: line-through;
+    opacity: 0.45;
+    margin-left: 4px;
+}
+.tix-mc-vat {
+    opacity: 0.4;
+    font-size: 0.78rem;
+    margin-left: 4px;
+}
+
+/* ── Qty Controls ── */
+.tix-mc-cat-qty {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+}
+.tix-mc-btn {
+    width: 32px;
+    height: 32px;
+    border: 1px solid var(--tx-border, #EDE9E0);
+    border-radius: 50%;
+    background: transparent;
+    color: var(--tx-text, #0D0B09);
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+    padding: 0;
+}
+.tix-mc-btn:hover {
+    background: var(--tx-accent, #FF5500);
+    color: #fff;
+    border-color: var(--tx-accent, #FF5500);
+}
+.tix-mc-qty-val {
+    min-width: 26px;
+    text-align: center;
+    font-weight: 700;
+    font-size: 0.95rem;
+    font-variant-numeric: tabular-nums;
+}
+
+/* ── Total ── */
+.tix-mc-total {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    padding: 14px 0;
+    border-top: 1px solid var(--tx-border, #EDE9E0);
+    margin-bottom: 14px;
+}
+.tix-mc-total-label {
+    font-family: var(--tx-font-body, 'Inter', system-ui, sans-serif);
+    font-weight: 600;
+    color: var(--tx-text, #0D0B09);
+}
+.tix-mc-vat-note {
+    font-size: 0.78rem;
+    opacity: 0.4;
+    font-weight: 400;
+}
+.tix-mc-total-price {
+    font-family: var(--tx-font-display, 'Outfit', system-ui, sans-serif);
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--tx-text, #0D0B09);
+}
+
+/* ── Next / Back Buttons ── */
+.tix-mc-next,
+.tix-mc-submit {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    padding: 14px;
+    border: none;
+    border-radius: var(--tix-mc-radius, 10px);
+    background: var(--tx-accent, #FF5500);
+    color: #fff;
+    font-family: var(--tx-font-display, 'Outfit', system-ui, sans-serif);
+    font-size: 1rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: opacity 0.15s, background 0.15s;
+}
+.tix-mc-next:disabled,
+.tix-mc-submit:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+.tix-mc-next:hover:not(:disabled),
+.tix-mc-submit:hover:not(:disabled) {
+    background: var(--tx-accent-hover, #CC4400);
+    opacity: 0.95;
+}
+.tix-mc-back {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 10px 16px;
+    border: 1px solid var(--tx-border, #EDE9E0);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--tx-text-secondary, rgba(13,11,9,0.70));
+    font-family: var(--tx-font-body, 'Inter', system-ui, sans-serif);
+    font-size: 0.88rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+    margin: 12px 20px 16px;
+    flex-shrink: 0;
+}
+.tix-mc-back:hover {
+    background: var(--tx-bg-subtle, #F3F0EA);
+    border-color: var(--tx-text-muted, rgba(13,11,9,0.40));
+}
+
+/* ── Offers Toggle ── */
+.tix-mc-offers-toggle {
+    margin-bottom: 12px;
+}
+.tix-mc-offers-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    padding: 10px 14px;
+    border: 1px dashed var(--tx-border, #EDE9E0);
+    border-radius: 10px;
+    background: transparent;
+    color: var(--tx-text-secondary, rgba(13,11,9,0.70));
+    font-family: var(--tx-font-body, 'Inter', system-ui, sans-serif);
+    font-size: 0.88rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s;
+}
+.tix-mc-offers-btn:hover {
+    border-color: var(--tx-accent, #FF5500);
+    color: var(--tx-accent, #FF5500);
+}
+.tix-mc-offers-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: var(--tx-bg-subtle, #F3F0EA);
+    color: var(--tx-text, #0D0B09);
+    font-size: 14px;
+    font-weight: 700;
+    flex-shrink: 0;
+}
+
+/* ── Offers Section ── */
+.tix-mc-offers {
+    margin-bottom: 12px;
+}
+.tix-mc-offer-section {
+    margin-bottom: 12px;
+}
+.tix-mc-offer-section:last-child {
+    margin-bottom: 0;
+}
+.tix-mc-offer-heading {
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: var(--tx-text-secondary, rgba(13,11,9,0.70));
+    margin-bottom: 6px;
+    padding-left: 2px;
+}
+.tix-mc-offer-desc {
+    display: block;
+    font-size: 0.78rem;
+    color: var(--tx-text-muted, rgba(13,11,9,0.40));
+    margin-top: 2px;
+    line-height: 1.35;
+}
+.tix-mc-offer-save {
+    display: inline-block;
+    background: var(--tx-accent, #FF5500);
+    color: #fff;
+    font-size: 0.72rem;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 3px;
+    margin-left: 4px;
+    vertical-align: middle;
+}
+
+/* ── Group Discount (Mengenrabatt) ── */
+.tix-mc-gd {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+.tix-mc-gd-tiers {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    flex: 1;
+}
+.tix-mc-gd-tier {
+    font-size: 0.82rem;
+    color: var(--tx-text-secondary, rgba(13,11,9,0.70));
+}
+.tix-mc-gd-badge {
+    font-size: 0.78rem;
+    font-weight: 700;
+    padding: 3px 10px;
+    border-radius: 4px;
+    background: rgba(29, 184, 106, 0.12);
+    color: var(--tx-green, #1DB86A);
+    flex-shrink: 0;
+}
+.tix-mc-gd-active {
+    background: var(--tx-accent, #FF5500);
+    color: #fff;
+}
+
+/* ── Coupon ── */
+.tix-mc-coupon {
+    margin-bottom: 14px;
+}
+.tix-mc-coupon-wrap {
+    display: flex;
+    gap: 8px;
+}
+.tix-mc-coupon-code {
+    flex: 1;
+    padding: 9px 12px;
+    border: 1px solid var(--tx-border, #EDE9E0);
+    border-radius: 8px;
+    background: var(--tx-bg-card, #fff);
+    color: var(--tx-text, #0D0B09);
+    font-family: var(--tx-font-body, 'Inter', system-ui, sans-serif);
+    font-size: 0.9rem;
+    box-sizing: border-box;
+    transition: border-color 0.15s;
+}
+.tix-mc-coupon-code:focus {
+    outline: none;
+    border-color: var(--tx-accent, #FF5500);
+    box-shadow: 0 0 0 2px rgba(255,85,0,0.15);
+}
+.tix-mc-coupon-btn {
+    padding: 9px 16px;
+    border: 1px solid var(--tx-border, #EDE9E0);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--tx-text, #0D0B09);
+    font-family: var(--tx-font-body, 'Inter', system-ui, sans-serif);
+    font-weight: 600;
+    font-size: 0.88rem;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: border-color 0.15s, background 0.15s;
+}
+.tix-mc-coupon-btn:hover {
+    border-color: var(--tx-accent, #FF5500);
+    background: rgba(255,85,0,0.06);
+}
+.tix-mc-coupon-result {
+    margin-top: 6px;
+    font-size: 0.85rem;
+    padding: 6px 10px;
+    border-radius: 6px;
+}
+.tix-mc-coupon-result.success {
+    background: rgba(29, 184, 106, 0.1);
+    color: var(--tx-green, #1DB86A);
+}
+.tix-mc-coupon-result.error {
+    background: rgba(229, 59, 59, 0.1);
+    color: var(--tx-red, #E53B3B);
+}
+
+/* ── Message ── */
+.tix-mc-message {
+    padding: 10px 20px 14px;
+    font-family: var(--tx-font-body, 'Inter', system-ui, sans-serif);
+    font-size: 0.88rem;
+    text-align: center;
+    flex-shrink: 0;
+}
+.tix-mc-msg-success {
+    background: rgba(29, 184, 106, 0.1);
+    color: var(--tx-green, #1DB86A);
+}
+.tix-mc-msg-error {
+    background: rgba(229, 59, 59, 0.1);
+    color: var(--tx-red, #E53B3B);
+}
+
+/* ══════════════════════════════════════
+   STEP 2: CHECKOUT FORM
+   ══════════════════════════════════════ */
+.tix-mc-checkout-wrap {
+    padding: 16px 20px 20px;
+    flex: 1;
+    overflow-y: auto;
+}
+.tix-mc-checkout-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 20px;
+    color: var(--tx-text-muted, rgba(13,11,9,0.40));
+    font-size: 0.9rem;
+}
+
+/* ── Checkout Sections ── */
+.tix-mc-section {
+    margin-bottom: 20px;
+}
+.tix-mc-section-heading {
+    font-family: var(--tx-font-display, 'Outfit', system-ui, sans-serif);
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--tx-text, #0D0B09);
+    margin: 0 0 12px 0;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--tx-border, #EDE9E0);
+}
+
+/* ── Form Fields ── */
+.tix-mc-fields {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+.tix-mc-field {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+.tix-mc-field-full { width: 100%; }
+.tix-mc-field-half { width: calc(50% - 5px); }
+.tix-mc-field-third { width: calc(33.333% - 7px); }
+.tix-mc-field-twothirds { width: calc(66.666% - 3px); }
+
+.tix-mc-label {
+    font-family: var(--tx-font-body, 'Inter', system-ui, sans-serif);
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--tx-text-secondary, rgba(13,11,9,0.70));
+}
+.tix-mc-req {
+    color: var(--tx-red, #E53B3B);
+    text-decoration: none;
+    margin-left: 2px;
+}
+
+.tix-mc-input,
+.tix-mc-select {
+    width: 100%;
+    padding: 9px 12px;
+    border: 1px solid var(--tx-border, #EDE9E0);
+    border-radius: 8px;
+    background: var(--tx-bg-card, #fff);
+    color: var(--tx-text, #0D0B09);
+    font-family: var(--tx-font-body, 'Inter', system-ui, sans-serif);
+    font-size: 0.9rem;
+    box-sizing: border-box;
+    transition: border-color 0.15s;
+    appearance: none;
+    -webkit-appearance: none;
+}
+.tix-mc-select {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23999' stroke-width='1.5' fill='none'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    padding-right: 36px;
+    cursor: pointer;
+}
+.tix-mc-input:focus,
+.tix-mc-select:focus {
+    outline: none;
+    border-color: var(--tx-accent, #FF5500);
+    box-shadow: 0 0 0 2px rgba(255,85,0,0.15);
+}
+
+/* ── Validation ── */
+.tix-mc-field-error .tix-mc-input,
+.tix-mc-field-error .tix-mc-select {
+    border-color: var(--tx-red, #E53B3B) !important;
+}
+.tix-mc-legal.tix-mc-field-error {
+    border-color: var(--tx-red, #E53B3B) !important;
+}
+
+/* ── Payment Gateways ── */
+.tix-mc-gateways {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.tix-mc-gateway {
+    border: 1px solid var(--tx-border, #EDE9E0);
+    border-radius: 10px;
+    padding: 12px 14px;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+}
+.tix-mc-gateway.tix-mc-gw-active {
+    border-color: var(--tx-accent, #FF5500);
+    background: rgba(255,85,0,0.04);
+}
+.tix-mc-gw-label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 0.92rem;
+}
+.tix-mc-gw-radio {
+    display: none;
+}
+.tix-mc-gw-radio-custom {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    border: 2px solid var(--tx-border, #EDE9E0);
+    flex-shrink: 0;
+    position: relative;
+    transition: border-color 0.15s;
+}
+.tix-mc-gw-radio:checked + .tix-mc-gw-radio-custom {
+    border-color: var(--tx-accent, #FF5500);
+}
+.tix-mc-gw-radio:checked + .tix-mc-gw-radio-custom::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--tx-accent, #FF5500);
+    transform: translate(-50%, -50%);
+}
+.tix-mc-gw-title {
+    flex: 1;
+    color: var(--tx-text, #0D0B09);
+}
+.tix-mc-gw-icon {
+    flex-shrink: 0;
+}
+.tix-mc-gw-icon img {
+    height: 24px;
+    width: auto;
+    display: block;
+}
+.tix-mc-gw-fields {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--tx-border, #EDE9E0);
+}
+.tix-mc-gw-desc {
+    font-size: 0.82rem;
+    color: var(--tx-text-muted, rgba(13,11,9,0.40));
+    margin: 0 0 8px 0;
+}
+.tix-mc-gw-fields > p {
+    font-size: 0.82rem;
+    color: var(--tx-text-muted, rgba(13,11,9,0.40));
+    margin: 0 0 8px 0;
+}
+.tix-mc-gw-fields input[type="text"],
+.tix-mc-gw-fields input[type="tel"],
+.tix-mc-gw-fields input[type="number"],
+.tix-mc-gw-fields select {
+    width: 100%;
+    padding: 9px 12px;
+    border: 1px solid var(--tx-border, #EDE9E0);
+    border-radius: 8px;
+    background: var(--tx-bg-card, #fff);
+    color: var(--tx-text, #0D0B09);
+    font-size: 0.9rem;
+    font-family: var(--tx-font-body, 'Inter', system-ui, sans-serif);
+    box-sizing: border-box;
+}
+.tix-mc-gw-fields label {
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--tx-text-secondary, rgba(13,11,9,0.70));
+    display: block;
+    margin-bottom: 3px;
+}
+
+/* Stripe iFrames */
+.tix-mc-gw-fields .wc-stripe-elements-field,
+.tix-mc-gw-fields iframe {
+    border: 1px solid var(--tx-border, #EDE9E0) !important;
+    border-radius: 8px !important;
+    padding: 9px !important;
+}
+
+/* ── Legal Checkboxes ── */
+.tix-mc-legal {
+    padding: 14px;
+    border: 1px solid var(--tx-border, #EDE9E0);
+    border-radius: 10px;
+    margin-bottom: 14px;
+}
+.tix-mc-legal-heading {
+    font-size: 0.82rem;
+    font-weight: 700;
+    margin: 0 0 10px 0;
+    color: var(--tx-text, #0D0B09);
+}
+.tix-mc-legal-checks {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.tix-mc-check-label {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    font-size: 0.8rem;
+    cursor: pointer;
+    line-height: 1.4;
+    color: var(--tx-text-secondary, rgba(13,11,9,0.70));
+}
+.tix-mc-check {
+    display: none;
+}
+.tix-mc-check-custom {
+    width: 18px;
+    height: 18px;
+    min-width: 18px;
+    border: 2px solid var(--tx-border, #EDE9E0);
+    border-radius: 4px;
+    position: relative;
+    transition: border-color 0.15s, background 0.15s;
+    margin-top: 1px;
+}
+.tix-mc-check:checked + .tix-mc-check-custom {
+    border-color: var(--tx-accent, #FF5500);
+    background: var(--tx-accent, #FF5500);
+}
+.tix-mc-check:checked + .tix-mc-check-custom::after {
+    content: '';
+    position: absolute;
+    top: 1px;
+    left: 5px;
+    width: 5px;
+    height: 9px;
+    border: solid #fff;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+}
+.tix-mc-legal-note {
+    font-size: 0.78rem;
+    color: var(--tx-text-muted, rgba(13,11,9,0.40));
+    margin: 0;
+    padding-left: 26px;
+    line-height: 1.4;
+}
+.tix-mc-legal-link,
+.tix-mc-legal-link:link,
+.tix-mc-legal-link:visited {
+    color: inherit !important;
+    font-weight: 600;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+.tix-mc-legal-link:hover {
+    opacity: 0.7;
+}
+
+/* ── Summary (Checkout Step) ── */
+.tix-mc-summary {
+    padding: 12px 0;
+    border-top: 1px solid var(--tx-border, #EDE9E0);
+    margin-bottom: 14px;
+}
+.tix-mc-summary-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: 3px 0;
+    font-size: 0.9rem;
+}
+.tix-mc-summary-total {
+    font-weight: 700;
+    font-size: 1.1rem;
+    padding-top: 8px;
+    margin-top: 4px;
+    border-top: 1px solid var(--tx-border, #EDE9E0);
+}
+
+/* ══════════════════════════════════════
+   MOBILE: ABSOLUTER FULLSCREEN
+   ══════════════════════════════════════ */
+@media (max-width: 768px) {
+    .tix-mc-overlay {
+        padding: 0;
+        align-items: stretch;
+        justify-content: stretch;
+    }
+    .tix-mc-modal {
+        max-width: none;
+        max-height: none;
+        width: 100vw;
+        height: 100vh;
+        height: 100dvh;
+        border-radius: 0;
+        border: none;
+        box-shadow: none;
+    }
+    .tix-mc-close {
+        width: 40px;
+        height: 40px;
+        font-size: 24px;
+    }
+    .tix-mc-field-half,
+    .tix-mc-field-third,
+    .tix-mc-field-twothirds {
+        width: 100%;
+    }
+}

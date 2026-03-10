@@ -2,14 +2,14 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.28.34
+ * Version: 1.28.35
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.28.34');
+define('TIXOMAT_VERSION', '1.28.35');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -338,6 +338,7 @@ if (is_admin() && wp_doing_ajax()) {
 // ── Frontend + AJAX (Ticket-Selector, Checkout, FAQ, Calendar brauchen AJAX-Hooks) ──
 if (!is_admin() || wp_doing_ajax()) {
     require_once TIXOMAT_PATH . 'includes/class-tix-ticket-selector.php';
+    require_once TIXOMAT_PATH . 'includes/class-tix-modal-checkout.php';
     require_once TIXOMAT_PATH . 'includes/class-tix-faq.php';
     require_once TIXOMAT_PATH . 'includes/class-tix-calendar.php';
     require_once TIXOMAT_PATH . 'includes/class-tix-upsell.php';
@@ -349,6 +350,7 @@ if (!is_admin() || wp_doing_ajax()) {
     require_once TIXOMAT_PATH . 'includes/class-tix-ticket-transfer.php';
 
     add_action('init', ['TIX_Ticket_Selector', 'init']);
+    add_action('init', ['TIX_Modal_Checkout', 'init']);
     add_action('init', ['TIX_FAQ', 'init']);
     add_action('init', ['TIX_Calendar', 'init']);
     add_action('init', ['TIX_Upsell', 'init']);
@@ -489,7 +491,7 @@ if (!is_admin()) {
 
     // Defer für unsere Scripts (kein Render-Blocking)
     add_filter('script_loader_tag', function($tag, $handle) {
-        if (in_array($handle, ['tix-ticket-selector', 'tix-faq', 'tix-checkout', 'tix-calendar', 'tix-my-tickets', 'tix-qr', 'tix-ticket-img', 'tix-group-booking', 'tix-checkin', 'tix-jsqr', 'tix-support-front', 'tix-support-chat', 'tix-promoter-dashboard'])) {
+        if (in_array($handle, ['tix-ticket-selector', 'tix-modal-checkout', 'tix-faq', 'tix-checkout', 'tix-calendar', 'tix-my-tickets', 'tix-qr', 'tix-ticket-img', 'tix-group-booking', 'tix-checkin', 'tix-jsqr', 'tix-support-front', 'tix-support-chat', 'tix-promoter-dashboard'])) {
             if (strpos($tag, 'defer') === false) {
                 return str_replace(' src', ' defer src', $tag);
             }

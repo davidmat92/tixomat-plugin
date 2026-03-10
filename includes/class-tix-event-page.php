@@ -292,9 +292,16 @@ class TIX_Event_Page {
         $blocked = ['cancelled', 'postponed', 'past'];
 
         if ($enabled !== '1' || in_array($status, $blocked, true)) return;
+
+        $mode = tix_get_settings('ep_ticket_mode') ?: 'selector';
         ?>
         <div class="tix-ep-tickets">
-            <?php echo do_shortcode('[tix_ticket_selector id="' . intval($id) . '"]'); ?>
+            <?php if ($mode === 'selector' || $mode === 'both'): ?>
+                <?php echo do_shortcode('[tix_ticket_selector id="' . intval($id) . '"]'); ?>
+            <?php endif; ?>
+            <?php if ($mode === 'modal' || $mode === 'both'): ?>
+                <?php echo do_shortcode('[tix_ticket_modal id="' . intval($id) . '"]'); ?>
+            <?php endif; ?>
         </div>
         <?php
     }
