@@ -37,6 +37,7 @@
     var canvas, ctx;
     var W, H, scale;
     var mediaRecorder, recordedChunks, supportsRecording;
+    var recordingMime, recordingExt;
     var animId, running;
     var config;
     var phases, currentPhase, phaseStart, globalStart;
@@ -597,9 +598,30 @@
         if (!supportsRecording) return;
         recordedChunks = [];
         var stream = canvas.captureStream(30);
-        var mimeType = 'video/webm;codecs=vp9';
-        if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = 'video/webm;codecs=vp8';
-        if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = 'video/webm';
+
+        // MP4 zuerst (Chrome 128+, Safari), dann WebM als Fallback
+        var mimeType = '';
+        recordingExt = 'webm';
+        recordingMime = 'video/webm';
+
+        var candidates = [
+            ['video/mp4;codecs=avc1',         'mp4', 'video/mp4'],
+            ['video/mp4',                      'mp4', 'video/mp4'],
+            ['video/webm;codecs=vp9',          'webm', 'video/webm'],
+            ['video/webm;codecs=vp8',          'webm', 'video/webm'],
+            ['video/webm',                     'webm', 'video/webm']
+        ];
+
+        for (var i = 0; i < candidates.length; i++) {
+            if (MediaRecorder.isTypeSupported(candidates[i][0])) {
+                mimeType = candidates[i][0];
+                recordingExt = candidates[i][1];
+                recordingMime = candidates[i][2];
+                break;
+            }
+        }
+
+        if (!mimeType) mimeType = 'video/webm';
 
         mediaRecorder = new MediaRecorder(stream, {
             mimeType: mimeType,
@@ -618,7 +640,7 @@
                 return;
             }
             mediaRecorder.onstop = function () {
-                var blob = new Blob(recordedChunks, { type: 'video/webm' });
+                var blob = new Blob(recordedChunks, { type: recordingMime || 'video/webm' });
                 resolve(blob);
             };
             mediaRecorder.stop();
@@ -627,11 +649,12 @@
 
     function downloadBlob(blob) {
         if (!blob) return;
+        var ext = recordingExt || 'webm';
         var slug = (config.eventTitle || 'verlosung').replace(/[^a-zA-Z0-9äöüÄÖÜß_-]/g, '_').substring(0, 50);
         var url = URL.createObjectURL(blob);
         var a = document.createElement('a');
         a.href = url;
-        a.download = 'verlosung-' + slug + '.webm';
+        a.download = 'verlosung-' + slug + '.' + ext;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
@@ -660,7 +683,7 @@
 
         var dlBtn = document.createElement('button');
         dlBtn.id = 'tix-raffle-dl-btn';
-        dlBtn.textContent = '⬇ Video herunterladen (.webm)';
+        dlBtn.textContent = '⬇ Video herunterladen (.' + (recordingExt || 'mp4') + ')';
         dlBtn.onclick = function () {
             if (overlay._blob) downloadBlob(overlay._blob);
         };
