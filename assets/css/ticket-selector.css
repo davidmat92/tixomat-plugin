@@ -220,6 +220,7 @@
     color: var(--tix-btn1-color, #000);
     font-weight: 700;
     font-size: var(--tix-btn1-font-size, 1rem);
+    line-height: 1;
     cursor: pointer;
     transition: background 0.2s, opacity 0.2s;
 }
@@ -1231,7 +1232,8 @@
     background: var(--tix-btn1-bg, #c8ff00);
     color: var(--tix-btn1-color, #000) !important;
     font-weight: 700;
-    font-size: var(--tix-btn1-font-size, 1.05rem);
+    font-size: var(--tix-btn1-font-size, 1rem);
+    line-height: 1;
     text-decoration: none !important;
     transition: background 0.2s, color 0.2s, border-color 0.2s, opacity 0.2s;
     cursor: pointer;
@@ -1262,5 +1264,6 @@
 }
 
 .tix-sel-external-icon {
-    font-size: 1.1em;
+    font-size: 1em;
+    line-height: 1;
 }
