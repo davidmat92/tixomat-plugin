@@ -9,7 +9,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.28.74');
+define('TIXOMAT_VERSION', '1.28.76');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -291,7 +291,8 @@ if (is_admin() && !wp_doing_ajax()) {
 // ── Gewinnspiel AJAX (Frontend: eingeloggt + nicht-eingeloggt; Admin: Auslosung) ──
 add_action('wp_ajax_tix_raffle_enter',        ['TIX_Raffle', 'ajax_enter']);
 add_action('wp_ajax_nopriv_tix_raffle_enter', ['TIX_Raffle', 'ajax_enter']);
-add_action('wp_ajax_tix_raffle_draw',         ['TIX_Raffle', 'ajax_draw']);
+add_action('wp_ajax_tix_raffle_draw',              ['TIX_Raffle', 'ajax_draw']);
+add_action('wp_ajax_tix_raffle_get_participants', ['TIX_Raffle', 'ajax_get_participants']);
 
 // ── Warteliste AJAX ──
 add_action('wp_ajax_tix_waitlist_join',        ['TIX_Waitlist', 'ajax_join']);
@@ -502,7 +503,7 @@ if (!is_admin()) {
 
     // Defer für unsere Scripts (kein Render-Blocking)
     add_filter('script_loader_tag', function($tag, $handle) {
-        if (in_array($handle, ['tix-ticket-selector', 'tix-modal-checkout', 'tix-faq', 'tix-checkout', 'tix-calendar', 'tix-my-tickets', 'tix-qr', 'tix-ticket-img', 'tix-group-booking', 'tix-checkin', 'tix-jsqr', 'tix-support-front', 'tix-support-chat', 'tix-promoter-dashboard'])) {
+        if (in_array($handle, ['tix-ticket-selector', 'tix-modal-checkout', 'tix-faq', 'tix-checkout', 'tix-calendar', 'tix-my-tickets', 'tix-qr', 'tix-ticket-img', 'tix-group-booking', 'tix-checkin', 'tix-jsqr', 'tix-support-front', 'tix-support-chat', 'tix-promoter-dashboard', 'tix-raffle-draw'])) {
             if (strpos($tag, 'defer') === false) {
                 return str_replace(' src', ' defer src', $tag);
             }

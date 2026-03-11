@@ -385,6 +385,59 @@ class TIX_Raffle {
     }
 
     /* ════════════════════════════════════
+       AJAX: TEILNEHMER FUER ANIMATION
+       ════════════════════════════════════ */
+
+    public static function ajax_get_participants() {
+        if (!current_user_can('edit_posts')) {
+            wp_send_json_error(['message' => 'Keine Berechtigung.']);
+        }
+
+        check_ajax_referer('tix_raffle_admin', 'nonce');
+
+        $event_id = intval($_POST['event_id'] ?? 0);
+        if (!$event_id) {
+            wp_send_json_error(['message' => 'Ungültige Event-ID.']);
+        }
+
+        self::ensure_table();
+        global $wpdb;
+        $table = $wpdb->prefix . self::TABLE;
+
+        // Nur Vornamen – keine E-Mails fuer Animation
+        $names = $wpdb->get_col($wpdb->prepare(
+            "SELECT name FROM {$table} WHERE event_id = %d ORDER BY RAND()",
+            $event_id
+        ));
+
+        $total = count($names);
+
+        // Max 200 fuer den Scroll-Pool (Performance)
+        if ($total > 200) {
+            $names = array_slice($names, 0, 200);
+        }
+
+        $prizes = get_post_meta($event_id, '_tix_raffle_prizes', true);
+        if (!is_array($prizes)) $prizes = [];
+
+        $event = get_post($event_id);
+
+        wp_send_json_success([
+            'names'      => $names,
+            'total'      => $total,
+            'prizes'     => array_map(function($p) {
+                return [
+                    'name'       => $p['name'] ?? '',
+                    'qty'        => intval($p['qty'] ?? 1),
+                    'per_winner' => intval($p['per_winner'] ?? 1),
+                    'type'       => $p['type'] ?? 'text',
+                ];
+            }, $prizes),
+            'eventTitle' => $event ? $event->post_title : '',
+        ]);
+    }
+
+    /* ════════════════════════════════════
        AUSLOSUNG
        ════════════════════════════════════ */
 

@@ -130,6 +130,10 @@ class TIX_Metabox {
         // Ticket-Template Editor (für Metabox)
         wp_enqueue_style('tix-tte-editor', TIXOMAT_URL . 'assets/css/ticket-template-editor.css', ['tix-google-fonts'], TIXOMAT_VERSION);
         wp_enqueue_script('tix-tte-editor', TIXOMAT_URL . 'assets/js/ticket-template-editor.js', ['jquery'], TIXOMAT_VERSION, true);
+
+        // Raffle Draw Animation
+        wp_enqueue_style('tix-raffle-draw', TIXOMAT_URL . 'assets/css/raffle-draw.css', [], TIXOMAT_VERSION);
+        wp_enqueue_script('tix-raffle-draw', TIXOMAT_URL . 'assets/js/raffle-draw.js', [], TIXOMAT_VERSION, true);
     }
 
     /**
@@ -2749,6 +2753,14 @@ class TIX_Metabox {
                 <?php // ── Auslosen-Button + Status-Reset ── ?>
                 <div style="margin-top:24px;padding-top:16px;border-top:1px solid #e5e7eb;">
                     <?php if ($status !== 'drawn' && $entry_count > 0): ?>
+                        <div style="margin-bottom:12px;">
+                            <span style="font-size:13px;font-weight:500;margin-right:8px;">Video-Format:</span>
+                            <span class="tix-raffle-format-wrap">
+                                <label><input type="radio" name="tix_raffle_format" value="9:16" checked> <span>9:16</span></label>
+                                <label><input type="radio" name="tix_raffle_format" value="1:1"> <span>1:1</span></label>
+                                <label><input type="radio" name="tix_raffle_format" value="16:9"> <span>16:9</span></label>
+                            </span>
+                        </div>
                         <button type="button" class="button button-primary" id="tix-raffle-draw"
                                 data-event="<?php echo $post->ID; ?>">
                             🎲 Jetzt auslosen (<?php echo $entry_count; ?> Teilnehmer)
@@ -2862,23 +2874,69 @@ class TIX_Metabox {
                     prizeTable.addEventListener('dragend', function() { dragRow = null; });
                 }
 
-                // Auslosen (AJAX)
+                // Auslosen mit Animation + Recording
+                var raffleNonce = '<?php echo wp_create_nonce('tix_raffle_admin'); ?>';
                 $('#tix-raffle-draw').on('click', function() {
                     var btn = $(this);
                     if (!confirm('Gewinner jetzt auslosen? Dies kann nicht rückgängig gemacht werden.')) return;
-                    btn.prop('disabled', true).text('Wird ausgelost…');
+                    btn.prop('disabled', true).text('Lade Teilnehmer…');
+
+                    var format = $('input[name="tix_raffle_format"]:checked').val() || '9:16';
+                    var eventId = btn.data('event');
+
+                    // 1) Teilnehmer laden
                     $.post(tixAdmin.ajaxUrl, {
-                        action: 'tix_raffle_draw',
-                        event_id: btn.data('event'),
-                        nonce: '<?php echo wp_create_nonce('tix_raffle_admin'); ?>'
-                    }, function(res) {
-                        if (res.success) {
-                            alert(res.data.message);
-                            location.reload();
-                        } else {
-                            alert('Fehler: ' + (res.data.message || 'Unbekannter Fehler'));
+                        action: 'tix_raffle_get_participants',
+                        event_id: eventId,
+                        nonce: raffleNonce
+                    }, function(pRes) {
+                        if (!pRes.success) {
+                            alert('Fehler: ' + (pRes.data && pRes.data.message || 'Teilnehmer konnten nicht geladen werden'));
                             btn.prop('disabled', false).text('🎲 Jetzt auslosen');
+                            return;
                         }
+
+                        var pData = pRes.data;
+                        btn.text('Animation startet…');
+
+                        // 2) Animation initialisieren + starten
+                        if (typeof TixRaffleDraw === 'undefined') {
+                            alert('Raffle-Draw Script nicht geladen. Bitte Seite neu laden.');
+                            btn.prop('disabled', false).text('🎲 Jetzt auslosen');
+                            return;
+                        }
+
+                        TixRaffleDraw.init({
+                            format: format,
+                            names: pData.names,
+                            total: pData.total,
+                            prizes: pData.prizes,
+                            eventTitle: pData.eventTitle,
+                            onComplete: function() {
+                                // 3) Echte Auslosung auf dem Server
+                                $.post(tixAdmin.ajaxUrl, {
+                                    action: 'tix_raffle_draw',
+                                    event_id: eventId,
+                                    nonce: raffleNonce
+                                }, function(dRes) {
+                                    if (dRes.success) {
+                                        setTimeout(function() { location.reload(); }, 500);
+                                    } else {
+                                        alert('Auslosung gespeichert-Fehler: ' + (dRes.data && dRes.data.message || ''));
+                                        location.reload();
+                                    }
+                                }).fail(function() {
+                                    alert('Verbindungsfehler beim Speichern. Bitte manuell prüfen.');
+                                    location.reload();
+                                });
+                            },
+                            onError: function(msg) {
+                                btn.prop('disabled', false).text('🎲 Jetzt auslosen');
+                                if (msg) alert(msg);
+                            }
+                        });
+                        TixRaffleDraw.start();
+
                     }).fail(function() {
                         alert('Verbindungsfehler.');
                         btn.prop('disabled', false).text('🎲 Jetzt auslosen');
