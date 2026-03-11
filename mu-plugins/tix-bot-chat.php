@@ -10,7 +10,7 @@ if (!defined('ABSPATH')) exit;
 // CONFIG
 // ============================================================
 define('TIX_CHAT_API', 'https://tixomat-dpconnect.pythonanywhere.com');
-define('TIX_CHAT_LOGO', '/wp-content/uploads/2026/03/icon-tixomat-orange.png');
+define('TIX_CHAT_LOGO', '/wp-content/uploads/2026/03/favicon-tixomat-hell.jpg');
 define('TIX_CHAT_BETA', true);
 
 // ============================================================
@@ -220,8 +220,13 @@ const API="'.esc_js($api).'";
 const AJAX="'.esc_js($ajax_url).'";
 const WP_USER='.$user_json.';
 const STORE_KEY="tix_history_"+window.location.hostname;
-let chatId=null,ld=false,started=false,pollTimer=null,lastWcCart=null;
+let chatId=null,ld=false,started=false,pollTimer=null,lastWcCart=null,initPending=null;
 const $=id=>document.getElementById(id);
+
+function ftch(url,opts,ms=30000){
+  const c=new AbortController();const t=setTimeout(()=>c.abort(),ms);
+  return fetch(url,{...opts,signal:c.signal}).finally(()=>clearTimeout(t));
+}
 
 function saveHistory(){
   const box=$("'.$ids['msgs'].'");if(!box)return;
@@ -275,38 +280,63 @@ async function processWcActions(actions){
   }
 }
 
+function getVid(){return localStorage.getItem("tix_visitor")||(()=>{const id=Date.now().toString(36)+Math.random().toString(36);localStorage.setItem("tix_visitor",id);return id})()}
+function initData(){const d={visitor_id:getVid()};if(WP_USER){d.wp_user_id=WP_USER.id;d.wp_display_name=WP_USER.name;d.wp_email=WP_USER.email;d.wp_username=WP_USER.login;d.customer_name=WP_USER.name}return d}
+
+async function ensureChat(retries=3){
+  if(chatId)return true;
+  if(initPending)return initPending;
+  initPending=(async()=>{
+    for(let i=0;i<retries;i++){
+      try{const r=await ftch(API+"/chat/init",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(initData())},20000);const d=await r.json();
+        if(d.ok){chatId=d.chat_id;saveHistory();return true}}
+      catch(e){}
+      if(i<retries-1)await new Promise(r=>setTimeout(r,2000*(i+1)));
+    }
+    return false;
+  })();
+  const ok=await initPending;initPending=null;return ok;
+}
+
 (async function(){
-  const hadHistory=loadHistory();
-  const vid=localStorage.getItem("tix_visitor")||(()=>{const id=Date.now().toString(36)+Math.random().toString(36);localStorage.setItem("tix_visitor",id);return id})();
-  if(!chatId){try{const initData={visitor_id:vid};if(WP_USER){initData.wp_user_id=WP_USER.id;initData.wp_display_name=WP_USER.name;initData.wp_email=WP_USER.email;initData.wp_username=WP_USER.login;initData.customer_name=WP_USER.name}const r=await fetch(API+"/chat/init",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(initData)});const d=await r.json();if(d.ok)chatId=d.chat_id;saveHistory()}catch(e){}}
+  loadHistory();
+  if(!chatId)await ensureChat();
   pollWcCart();pollTimer=setInterval(pollWcCart,15000);
 })();
 
 function hw(){if(!started){started=true;const w=$("'.$ids['welcome'].'");if(w){w.style.transition="all .3s";w.style.opacity="0";w.style.maxHeight="0";w.style.padding="0";w.style.overflow="hidden";w.style.display="none"}saveHistory()}}
 function showWelcome(){const w=$("'.$ids['welcome'].'");if(w){w.style.transition="all .3s";w.style.opacity="1";w.style.maxHeight="";w.style.padding="";w.style.overflow="";w.style.display="";w.querySelectorAll(".tix-mode-btn").forEach(b=>{b.classList.remove("selected");b.style.opacity="";b.style.pointerEvents=""})}}
 async function resetChat(){started=false;chatId=null;const box=$("'.$ids['msgs'].'");if(box)box.innerHTML="";clearHistory();showWelcome();
-  try{const vid=localStorage.getItem("tix_visitor")||Date.now().toString(36);const initData={visitor_id:vid};if(WP_USER){initData.wp_user_id=WP_USER.id;initData.wp_display_name=WP_USER.name;initData.wp_email=WP_USER.email;initData.wp_username=WP_USER.login;initData.customer_name=WP_USER.name}const r=await fetch(API+"/chat/init",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(initData)});const d=await r.json();if(d.ok)chatId=d.chat_id}catch(e){}
+  await ensureChat();
 }
 
 async function send(t){
-  const msg=t||$("'.$ids['input'].'").value.trim();if(!msg||!chatId||ld)return;if(!t)$("'.$ids['input'].'").value="";
+  const msg=t||$("'.$ids['input'].'").value.trim();if(!msg||ld)return;if(!t)$("'.$ids['input'].'").value="";
+  if(!chatId){if(!(await ensureChat())){addMsg("Verbindung fehlgeschlagen – bitte Seite neu laden.","b");return}}
   hw();addMsg(msg,"u");showT();ld=true;$("'.$ids['send'].'").disabled=true;
-  try{const payload={chat_id:chatId,message:msg};if(lastWcCart&&lastWcCart.items)payload.wc_cart=lastWcCart.items;
-  const r=await fetch(API+"/chat/send",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});const d=await r.json();hideT();
-  if(d.ok){addMsg(d.text,"b");if(d.keyboards&&d.keyboards.length)rKB(d.keyboards);
-    await processWcActions(d.wc_actions);
-    if(d.checkout_url){const bar=$("'.$ids['cart'].'");if(bar)bar.classList.add("active");$("'.$ids['cart_btn'].'").href=d.checkout_url}
-  }else addMsg("Fehler – nochmal versuchen! 🔄","b")}
-  catch(e){hideT();addMsg("Verbindungsfehler.","b")}ld=false;$("'.$ids['send'].'").disabled=false;$("'.$ids['input'].'").focus();
+  for(let attempt=0;attempt<2;attempt++){
+    try{const payload={chat_id:chatId,message:msg};if(lastWcCart&&lastWcCart.items)payload.wc_cart=lastWcCart.items;
+    const r=await ftch(API+"/chat/send",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)},60000);const d=await r.json();hideT();
+    if(d.ok){addMsg(d.text,"b");if(d.keyboards&&d.keyboards.length)rKB(d.keyboards);
+      await processWcActions(d.wc_actions);
+      if(d.checkout_url){const bar=$("'.$ids['cart'].'");if(bar)bar.classList.add("active");$("'.$ids['cart_btn'].'").href=d.checkout_url}
+    }else addMsg("Fehler – nochmal versuchen! 🔄","b");break}
+    catch(e){if(attempt===0){await new Promise(r=>setTimeout(r,2000));continue}hideT();addMsg("Verbindungsfehler – bitte erneut versuchen.","b")}
+  }
+  ld=false;$("'.$ids['send'].'").disabled=false;$("'.$ids['input'].'").focus();
 }
 
 async function sAct(cb){
-  if(!chatId)return;showT();
-  try{const r=await fetch(API+"/chat/action",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({chat_id:chatId,callback:cb})});const d=await r.json();hideT();
-  if(d.ok){if(d.text)addMsg(d.text,"b");if(d.keyboards&&d.keyboards.length)rKB(d.keyboards);
-    await processWcActions(d.wc_actions);
-    if(d.checkout_url){$("'.$ids['cart_btn'].'").href=d.checkout_url}
-  }}catch(e){hideT()}
+  if(!chatId){if(!(await ensureChat()))return}
+  showT();
+  for(let attempt=0;attempt<2;attempt++){
+    try{const r=await ftch(API+"/chat/action",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({chat_id:chatId,callback:cb})},45000);const d=await r.json();hideT();
+    if(d.ok){if(d.text)addMsg(d.text,"b");if(d.keyboards&&d.keyboards.length)rKB(d.keyboards);
+      await processWcActions(d.wc_actions);
+      if(d.checkout_url){$("'.$ids['cart_btn'].'").href=d.checkout_url}
+    }break}
+    catch(e){if(attempt===0){await new Promise(r=>setTimeout(r,2000));continue}hideT();addMsg("Verbindungsfehler – bitte erneut versuchen.","b")}
+  }
 }
 
 function addMsg(text,type){
@@ -380,13 +410,16 @@ async function setMode(mode, btn){
   if(btn){btn.classList.add("selected");btn.closest(".tix-mode-btns").querySelectorAll(".tix-mode-btn").forEach(b=>{if(b!==btn){b.style.opacity="0.4";b.style.pointerEvents="none"}})}
   hw();
   const cb=mode==="order"?"mode_order":mode==="tickets"?"mode_tickets":"mode_support";
-  if(!chatId){showWelcome();addMsg("Verbindungsfehler – bitte neu laden.","b");return}
+  if(!chatId){if(!(await ensureChat())){showWelcome();addMsg("Verbindung fehlgeschlagen – bitte Seite neu laden.","b");return}}
   showT();
-  try{
-    const r=await fetch(API+"/chat/action",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({chat_id:chatId,callback:cb})});const d=await r.json();hideT();
-    if(d.ok){if(d.text)addMsg(d.text,"b");if(d.keyboards&&d.keyboards.length)rKB(d.keyboards);await processWcActions(d.wc_actions);if(d.checkout_url){$("'.$ids['cart_btn'].'").href=d.checkout_url}}
-    else{showWelcome();started=false;addMsg("Modus konnte nicht gewechselt werden. Bitte erneut versuchen.","b")}
-  }catch(e){hideT();showWelcome();started=false;addMsg("Verbindungsfehler – bitte erneut versuchen.","b")}
+  for(let attempt=0;attempt<2;attempt++){
+    try{
+      const r=await ftch(API+"/chat/action",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({chat_id:chatId,callback:cb})},45000);const d=await r.json();hideT();
+      if(d.ok){if(d.text)addMsg(d.text,"b");if(d.keyboards&&d.keyboards.length)rKB(d.keyboards);await processWcActions(d.wc_actions);if(d.checkout_url){$("'.$ids['cart_btn'].'").href=d.checkout_url}}
+      else{showWelcome();started=false;addMsg("Modus konnte nicht gewechselt werden. Bitte erneut versuchen.","b")}
+      break;
+    }catch(e){if(attempt===0){await new Promise(r=>setTimeout(r,2000));continue}hideT();showWelcome();started=false;addMsg("Verbindungsfehler – bitte erneut versuchen.","b")}
+  }
 }
 
 return{send,quickSend:t=>{$("'.$ids['input'].'").value=t;send()},sAct,cQty,checkout,clearHistory,pollWcCart,toggleFs,setMode,resetChat};
