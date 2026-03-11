@@ -9,7 +9,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.28.80');
+define('TIXOMAT_VERSION', '1.28.81');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -180,6 +180,10 @@ TIX_Waitlist::init();
 // ── Post-Event Feedback ──
 require_once TIXOMAT_PATH . 'includes/class-tix-feedback.php';
 TIX_Feedback::init();
+
+// ── KI-Schutz (Content Guard) ──
+require_once TIXOMAT_PATH . 'includes/class-tix-content-guard.php';
+TIX_Content_Guard::init();
 
 // ── Timetable / Programm (Multi-Stage) ──
 require_once TIXOMAT_PATH . 'includes/class-tix-timetable.php';

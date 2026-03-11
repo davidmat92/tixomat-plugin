@@ -14,6 +14,9 @@ class TIX_Columns {
                 $new['tix_tickets']  = 'Tickets';
                 $new['tix_stock']    = 'Stock';
                 $new['tix_presale']  = 'Vorverkauf';
+                if (tix_get_settings('ai_guard_enabled')) {
+                    $new['tix_ai'] = '<span title="KI-Schutz" class="dashicons dashicons-shield" style="font-size:16px;width:16px;"></span>';
+                }
             }
         }
         return $new;
@@ -160,6 +163,19 @@ class TIX_Columns {
                         $mode_label = $mode === 'before_event' ? 'auto' : 'fest';
                         echo '<br><span class="tix-col-time">Ende: ' . esc_html($end_label) . ' (' . $mode_label . ')</span>';
                     }
+                }
+                break;
+
+            case 'tix_ai':
+                $flagged  = get_post_meta($post_id, '_tix_ai_flagged', true);
+                $approved = get_post_meta($post_id, '_tix_ai_approved', true);
+                if ($flagged) {
+                    $reason = esc_attr(get_post_meta($post_id, '_tix_ai_flag_reason', true) ?: 'Inhalt markiert');
+                    echo '<span title="' . $reason . '" style="color:#ef4444;cursor:help;font-size:14px;">⚠️</span>';
+                } elseif ($approved) {
+                    echo '<span title="KI-geprüft" style="color:#22c55e;font-size:14px;">✓</span>';
+                } else {
+                    echo '<span style="color:#94a3b8;">—</span>';
                 }
                 break;
         }

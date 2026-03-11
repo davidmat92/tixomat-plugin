@@ -253,6 +253,9 @@ class TIX_Settings {
             'support_enabled'    => 0,
             'support_categories'  => '',
             'support_chat_enabled' => 0,
+            // ── KI-Schutz ──
+            'ai_guard_enabled'  => 0,
+            'ai_guard_api_key'  => '',
             // ── Geführter Modus ──
             'wizard_enabled'     => 1,
             // ── Theme-Modus (universell) ──
@@ -568,6 +571,10 @@ class TIX_Settings {
         $clean['support_enabled'] = !empty($input['support_enabled']) ? 1 : 0;
         $clean['support_categories'] = sanitize_textarea_field($input['support_categories'] ?? '');
         $clean['support_chat_enabled'] = !empty($input['support_chat_enabled']) ? 1 : 0;
+
+        // KI-Schutz
+        $clean['ai_guard_enabled'] = !empty($input['ai_guard_enabled']) ? 1 : 0;
+        $clean['ai_guard_api_key'] = sanitize_text_field($input['ai_guard_api_key'] ?? '');
 
         // Geführter Modus
         $clean['wizard_enabled'] = !empty($input['wizard_enabled']) ? 1 : 0;
@@ -2067,6 +2074,28 @@ class TIX_Settings {
                                         <div class="tix-field-grid">
                                             <div class="tix-field tix-field-full">
                                                 <?php self::checkbox_row('express_checkout_enabled', '1-Klick-Kauf für eingeloggte User aktivieren', $s, 'Zeigt einen "Sofort kaufen"-Button für Nutzer mit gespeicherten Zahlungsmethoden. Muss zusätzlich pro Event aktiviert werden.'); ?>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: KI-Schutz ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-shield"></span>
+                                        <h3>KI-Schutz</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('ai_guard_enabled', 'KI-Inhaltsprüfung beim Veröffentlichen aktivieren', $s, 'Prüft Event-Titel und -Texte automatisch auf verbotene, diskriminierende oder schädliche Inhalte, bevor sie veröffentlicht werden. Abgelehnte Events bleiben als Entwurf gespeichert und werden gekennzeichnet.'); ?>
+                                            </div>
+                                            <?php self::text_row('ai_guard_api_key', 'Anthropic API Key', $s, 'sk-ant-…'); ?>
+                                            <div class="tix-field tix-field-full">
+                                                <p class="tix-settings-hint">
+                                                    Benötigt einen <a href="https://console.anthropic.com/settings/keys" target="_blank">Anthropic API Key</a>.<br>
+                                                    Verwendet Claude 3.5 Haiku (~0,001 € pro Prüfung). Ergebnisse werden gecacht – identische Inhalte werden nicht erneut geprüft.
+                                                </p>
                                             </div>
                                         </div>
                                     </div>
