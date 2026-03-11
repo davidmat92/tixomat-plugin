@@ -438,6 +438,43 @@ class TIX_Raffle {
     }
 
     /* ════════════════════════════════════
+       AJAX: STATUS ZURÜCKSETZEN (Admin)
+       ════════════════════════════════════ */
+
+    public static function ajax_reset_draw() {
+        if (!current_user_can('edit_posts')) {
+            wp_send_json_error(['message' => 'Keine Berechtigung.']);
+        }
+
+        check_ajax_referer('tix_raffle_admin', 'nonce');
+
+        $event_id = intval($_POST['event_id'] ?? 0);
+        if (!$event_id) {
+            wp_send_json_error(['message' => 'Ungültige Event-ID.']);
+        }
+
+        self::ensure_table();
+        global $wpdb;
+        $table = $wpdb->prefix . self::TABLE;
+
+        // is_winner + prize_index in DB zuruecksetzen
+        $wpdb->update(
+            $table,
+            ['is_winner' => 0, 'prize_index' => null],
+            ['event_id' => $event_id],
+            ['%d', '%s'],
+            ['%d']
+        );
+
+        // Meta zuruecksetzen
+        update_post_meta($event_id, '_tix_raffle_status', 'open');
+        delete_post_meta($event_id, '_tix_raffle_winners');
+        delete_post_meta($event_id, '_tix_raffle_drawn_at');
+
+        wp_send_json_success(['message' => 'Auslosung zurückgesetzt. Kann erneut ausgelost werden.']);
+    }
+
+    /* ════════════════════════════════════
        AUSLOSUNG
        ════════════════════════════════════ */
 

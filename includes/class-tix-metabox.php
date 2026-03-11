@@ -2943,12 +2943,26 @@ class TIX_Metabox {
                     });
                 });
 
-                // Status zurücksetzen
+                // Status zurücksetzen (AJAX)
                 $('#tix-raffle-reset').on('click', function() {
-                    if (!confirm('Status wirklich auf "offen" zurücksetzen? Gewinner-Daten bleiben in der DB erhalten.')) return;
-                    // Hidden Field für Status-Reset beim Speichern
-                    $('<input>').attr({ type: 'hidden', name: 'tix_raffle_status_reset', value: '1' }).appendTo('#tix-raffle-options');
-                    alert('Status wird beim Speichern zurückgesetzt. Klicke "Aktualisieren".');
+                    if (!confirm('Status auf "offen" zurücksetzen?\n\nGewinner-Markierungen werden entfernt.\nTeilnehmer bleiben erhalten und können erneut ausgelost werden.')) return;
+                    var btn = $(this);
+                    btn.prop('disabled', true).text('Wird zurückgesetzt…');
+                    $.post(tixAdmin.ajaxUrl, {
+                        action: 'tix_raffle_reset',
+                        event_id: btn.data('event'),
+                        nonce: raffleNonce
+                    }, function(res) {
+                        if (res.success) {
+                            location.reload();
+                        } else {
+                            alert('Fehler: ' + (res.data && res.data.message || 'Unbekannter Fehler'));
+                            btn.prop('disabled', false).text('Status zurücksetzen (auf "offen")');
+                        }
+                    }).fail(function() {
+                        alert('Verbindungsfehler.');
+                        btn.prop('disabled', false).text('Status zurücksetzen (auf "offen")');
+                    });
                 });
             });
             </script>

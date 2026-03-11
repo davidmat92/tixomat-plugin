@@ -9,7 +9,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.28.76');
+define('TIXOMAT_VERSION', '1.28.77');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -293,6 +293,7 @@ add_action('wp_ajax_tix_raffle_enter',        ['TIX_Raffle', 'ajax_enter']);
 add_action('wp_ajax_nopriv_tix_raffle_enter', ['TIX_Raffle', 'ajax_enter']);
 add_action('wp_ajax_tix_raffle_draw',              ['TIX_Raffle', 'ajax_draw']);
 add_action('wp_ajax_tix_raffle_get_participants', ['TIX_Raffle', 'ajax_get_participants']);
+add_action('wp_ajax_tix_raffle_reset',            ['TIX_Raffle', 'ajax_reset_draw']);
 
 // ── Warteliste AJAX ──
 add_action('wp_ajax_tix_waitlist_join',        ['TIX_Waitlist', 'ajax_join']);
