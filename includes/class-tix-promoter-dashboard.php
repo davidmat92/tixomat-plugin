@@ -165,6 +165,12 @@ class TIX_Promoter_Dashboard {
                             </div>
                         </div>
                     </div>
+                    <div class="tix-pd-links-wrap" id="tix-pd-links">
+                        <h3 class="tix-pd-section-title">Deine Referral-Links</h3>
+                        <p class="tix-pd-links-hint">Teile diese Links, um Provisionen zu verdienen.</p>
+                        <div class="tix-pd-links-list" id="tix-pd-links-list"></div>
+                    </div>
+
                     <div class="tix-pd-chart-wrap">
                         <h3 class="tix-pd-section-title">Umsatzverlauf (letzte 30 Tage)</h3>
                         <canvas id="tix-pd-chart-sales" height="260"></canvas>
@@ -354,6 +360,22 @@ class TIX_Promoter_Dashboard {
             $chart_commission[] = floatval($row->commission);
         }
 
+        // Referral-Links fuer Uebersicht
+        $links = [];
+        foreach ($events as $a) {
+            if ($a->status !== 'active') continue;
+            $eid   = intval($a->event_id);
+            $plink = get_permalink($eid);
+            $ref   = $plink
+                ? add_query_arg('ref', $promoter->promoter_code, $plink)
+                : home_url('/?p=' . $eid . '&ref=' . $promoter->promoter_code);
+            $links[] = [
+                'title'    => $a->event_title ?: get_the_title($eid),
+                'link'     => $ref,
+                'promo'    => $a->promo_code ?: '',
+            ];
+        }
+
         wp_send_json_success([
             'kpis' => [
                 'total_sales'        => self::format_currency(floatval($stats->total_sales ?? 0)),
@@ -366,6 +388,7 @@ class TIX_Promoter_Dashboard {
                 'sales'      => $chart_sales,
                 'commission' => $chart_commission,
             ],
+            'links' => $links,
         ]);
     }
 

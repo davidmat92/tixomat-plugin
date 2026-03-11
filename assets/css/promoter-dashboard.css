@@ -212,6 +212,78 @@
     font-size: 15px;
 }
 
+/* ── Referral-Link-Karten (Übersicht-Tab) ── */
+.tix-pd-links-wrap {
+    margin-bottom: 28px;
+}
+.tix-pd-links-hint {
+    font-size: 14px;
+    color: #64748b;
+    margin: -4px 0 14px;
+}
+.tix-pd-links-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.tix-pd-link-card {
+    border: 1px solid #EDE9E0;
+    border-radius: 10px;
+    padding: 16px;
+    background: #FAF8F4;
+}
+.tix-pd-link-card-title {
+    font-weight: 700;
+    font-size: 15px;
+    margin-bottom: 10px;
+}
+.tix-pd-link-card-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 8px;
+}
+.tix-pd-link-card-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: #64748b;
+    min-width: 90px;
+    flex-shrink: 0;
+}
+.tix-pd-link-card-value {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+    min-width: 0;
+}
+.tix-pd-link-input {
+    flex: 1;
+    min-width: 0;
+    padding: 6px 10px;
+    border: 1px solid #EDE9E0;
+    border-radius: 6px;
+    font-size: 13px;
+    font-family: monospace, monospace;
+    color: #0D0B09;
+    background: #ffffff;
+    cursor: text;
+}
+.tix-pd-link-input:focus {
+    outline: none;
+    border-color: #FF5500;
+}
+.tix-pd-link-code {
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    color: #0D0B09;
+    background: #ffffff;
+    padding: 5px 10px;
+    border: 1px solid #EDE9E0;
+    border-radius: 6px;
+}
+
 /* ── Responsive ── */
 @media (max-width: 768px) {
     .tix-pd { padding: 0 12px; }
@@ -226,4 +298,6 @@
     .tix-pd-kpis { grid-template-columns: 1fr; }
     .tix-pd-kpi-num { font-size: 20px; }
     .tix-pd-header h2 { font-size: 18px; }
+    .tix-pd-link-card-row { flex-direction: column; align-items: flex-start; gap: 4px; }
+    .tix-pd-link-card-value { width: 100%; }
 }

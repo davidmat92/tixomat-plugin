@@ -92,6 +92,35 @@
         }
         $('#tix-pd-kpis').html(html);
 
+        // Referral-Links
+        var linksHtml = '';
+        if (d.links && d.links.length) {
+            $.each(d.links, function(i, l) {
+                linksHtml += '<div class="tix-pd-link-card">' +
+                    '<div class="tix-pd-link-card-title">' + esc(l.title) + '</div>' +
+                    '<div class="tix-pd-link-card-row">' +
+                        '<span class="tix-pd-link-card-label">Referral-Link</span>' +
+                        '<div class="tix-pd-link-card-value">' +
+                            '<input type="text" readonly value="' + esc(l.link) + '" class="tix-pd-link-input">' +
+                            '<button class="tix-pd-copy" data-copy="' + esc(l.link) + '"><span class="tix-pd-copy-label">Kopieren</span></button>' +
+                        '</div>' +
+                    '</div>';
+                if (l.promo) {
+                    linksHtml += '<div class="tix-pd-link-card-row">' +
+                        '<span class="tix-pd-link-card-label">Promo-Code</span>' +
+                        '<div class="tix-pd-link-card-value">' +
+                            '<code class="tix-pd-link-code">' + esc(l.promo) + '</code>' +
+                            '<button class="tix-pd-copy" data-copy="' + esc(l.promo) + '"><span class="tix-pd-copy-label">Kopieren</span></button>' +
+                        '</div>' +
+                    '</div>';
+                }
+                linksHtml += '</div>';
+            });
+        } else {
+            linksHtml = '<p class="tix-pd-empty">Keine aktiven Events zugeordnet.</p>';
+        }
+        $('#tix-pd-links-list').html(linksHtml);
+
         // Chart
         if (d.chart && d.chart.labels && d.chart.labels.length && window.Chart) {
             if (charts['sales']) charts['sales'].destroy();
