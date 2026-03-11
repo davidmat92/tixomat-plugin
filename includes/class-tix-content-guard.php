@@ -4,6 +4,8 @@
  *
  * Prüft Event-Inhalte (Titel, Beschreibung, Info-Sektionen) via Anthropic Claude API
  * auf verbotene, diskriminierende oder schädliche Inhalte, bevor sie veröffentlicht werden.
+ *
+ * FAIL-CLOSED: Bei API-Fehlern wird das Event NICHT veröffentlicht.
  */
 if (!defined('ABSPATH')) exit;
 
@@ -17,10 +19,10 @@ class TIX_Content_Guard {
 
     /** System-Prompt für die Inhaltsprüfung */
     const SYSTEM_PROMPT = <<<'PROMPT'
-Du bist ein Content-Moderator für eine Event-Ticketing-Plattform (Konzerte, Partys, Messen, Workshops, Festivals etc.).
+Du bist ein strenger Content-Moderator für eine Event-Ticketing-Plattform.
 
 Prüfe den folgenden Event-Text auf:
-1. Hassrede, Rassismus, Diskriminierung jeder Art
+1. Hassrede, rassistische Beleidigungen, Slurs, Diskriminierung jeder Art
 2. Gewaltverherrlichung oder Aufrufe zu Gewalt
 3. Illegale Inhalte oder Werbung für illegale Aktivitäten
 4. Betrug, Spam, Phishing oder irreführende Inhalte
@@ -28,10 +30,10 @@ Prüfe den folgenden Event-Text auf:
 6. Terrorismus-Verherrlichung oder Extremismus
 7. Persönlichkeitsrechtsverletzungen oder Doxxing
 
-WICHTIG:
-- Normale Events (Konzerte, Partys, Festivals, Messen, Sportveranstaltungen, Workshops etc.) sind IMMER erlaubt.
-- Satire und Humor sind grundsätzlich erlaubt, solange keine der oben genannten Grenzen überschritten wird.
-- Im Zweifel: genehmige den Inhalt. Nur bei klaren Verstößen ablehnen.
+REGELN:
+- Normale Events (Konzerte, Partys, Festivals, Messen, Sport, Workshops etc.) sind erlaubt.
+- Rassistische Begriffe, Slurs und Beleidigungen sind IMMER ein Verstoß, auch wenn sie im Titel stehen.
+- Bei JEDEM Verstoß: ablehnen. Sei streng.
 
 Antworte AUSSCHLIESSLICH mit einem JSON-Objekt (kein Markdown, kein Text davor/danach):
 - Genehmigt: {"approved": true}
@@ -62,7 +64,17 @@ PROMPT;
 
         // API-Key vorhanden?
         $api_key = trim(tix_get_settings('ai_guard_api_key') ?? '');
-        if (empty($api_key)) return;
+        if (empty($api_key)) {
+            // Kein API-Key → blockieren + Hinweis
+            if (get_post_status($post_id) === 'publish') {
+                self::revert_to_draft($post_id);
+                set_transient('tix_ai_flag_' . $post_id,
+                    'KI-Schutz ist aktiviert, aber kein API-Key hinterlegt. '
+                    . 'Bitte unter Einstellungen → Erweitert → KI-Schutz den Anthropic API Key eintragen.',
+                    120);
+            }
+            return;
+        }
 
         // Nur bei Status 'publish' prüfen
         $current_status = get_post_status($post_id);
@@ -78,14 +90,21 @@ PROMPT;
 
         if ($hash === $stored_hash) {
             // Content unverändert seit letzter Prüfung
-            // Wenn flagged → erneut blocken
             if (get_post_meta($post_id, '_tix_ai_flagged', true)) {
+                // Weiterhin geblockt
                 self::revert_to_draft($post_id);
                 $reason = get_post_meta($post_id, '_tix_ai_flag_reason', true);
-                set_transient('tix_ai_flag_' . $post_id, $reason ?: 'Inhalt wurde zuvor als problematisch eingestuft.', 120);
+                set_transient('tix_ai_flag_' . $post_id,
+                    $reason ?: 'Inhalt wurde zuvor als problematisch eingestuft. Bitte Inhalt ändern.', 120);
             }
+            // Wenn approved → durchlassen
             return;
         }
+
+        // ── Vorherige Flags löschen (neuer Content wird geprüft) ──
+        delete_post_meta($post_id, '_tix_ai_flagged');
+        delete_post_meta($post_id, '_tix_ai_flag_reason');
+        delete_post_meta($post_id, '_tix_ai_approved');
 
         // ── API-Aufruf ──
         $result = self::call_api($content, $api_key);
@@ -95,11 +114,20 @@ PROMPT;
         update_post_meta($post_id, '_tix_ai_checked_at', time());
 
         if ($result === null) {
-            // API-Fehler → Fail-open (veröffentlichen erlauben)
-            error_log('[TIX Content Guard] API-Fehler für Event #' . $post_id . ' – Fail-open');
-            delete_post_meta($post_id, '_tix_ai_flagged');
-            delete_post_meta($post_id, '_tix_ai_flag_reason');
-            update_post_meta($post_id, '_tix_ai_approved', 1);
+            // ═══ FAIL-CLOSED: API-Fehler → Event NICHT veröffentlichen ═══
+            $error_msg = get_transient('_tix_ai_last_error');
+            delete_transient('_tix_ai_last_error');
+
+            self::revert_to_draft($post_id);
+
+            $notice = 'KI-Schutz: API-Fehler – Event wurde nicht veröffentlicht.';
+            if ($error_msg) {
+                $notice .= ' Fehler: ' . $error_msg;
+            }
+            $notice .= ' Prüfe den API-Key in den Einstellungen.';
+
+            set_transient('tix_ai_flag_' . $post_id, $notice, 120);
+            error_log('[TIX Content Guard] API-Fehler für Event #' . $post_id . ': ' . ($error_msg ?: 'unbekannt'));
             return;
         }
 
@@ -118,7 +146,6 @@ PROMPT;
 
             self::revert_to_draft($post_id);
 
-            // Transient für Admin-Notice
             set_transient('tix_ai_flag_' . $post_id, $reason, 120);
         }
     }
@@ -133,17 +160,33 @@ PROMPT;
         global $post;
         if (!$post) return;
 
+        // ── KI-Flag / Fehler Notice ──
         $reason = get_transient('tix_ai_flag_' . $post->ID);
-        if (!$reason) return;
+        if ($reason) {
+            delete_transient('tix_ai_flag_' . $post->ID);
 
-        delete_transient('tix_ai_flag_' . $post->ID);
+            $is_api_error = (strpos($reason, 'API-Fehler') !== false || strpos($reason, 'API-Key') !== false);
 
-        echo '<div class="notice notice-error tix-ai-flag-notice is-dismissible">';
-        echo '<p><strong>🛡️ KI-Schutz: Event kann nicht veröffentlicht werden.</strong></p>';
-        echo '<p>' . esc_html($reason) . '</p>';
-        echo '<p class="description">Passe den Inhalt an und versuche es erneut. '
-           . 'Wenn du glaubst, dass dies ein Fehler ist, kann ein Administrator das Flag manuell entfernen.</p>';
-        echo '</div>';
+            echo '<div class="notice notice-error tix-ai-flag-notice is-dismissible">';
+            echo '<p><strong>🛡️ KI-Schutz: Event kann nicht veröffentlicht werden.</strong></p>';
+            echo '<p>' . esc_html($reason) . '</p>';
+            if (!$is_api_error) {
+                echo '<p class="description">Passe den Inhalt an und versuche es erneut. '
+                   . 'Wenn du glaubst, dass dies ein Fehler ist, kann ein Administrator das Flag unter '
+                   . '<em>Erweitert → KI-Schutz</em> kurz deaktivieren und das Event manuell veröffentlichen.</p>';
+            }
+            echo '</div>';
+        }
+
+        // ── Persistente Flag-Anzeige im Editor ──
+        if (get_post_meta($post->ID, '_tix_ai_flagged', true)) {
+            $stored_reason = get_post_meta($post->ID, '_tix_ai_flag_reason', true);
+            if ($stored_reason && !$reason) {
+                echo '<div class="notice notice-warning is-dismissible">';
+                echo '<p><strong>🛡️ Dieses Event wurde vom KI-Schutz markiert:</strong> ' . esc_html($stored_reason) . '</p>';
+                echo '</div>';
+            }
+        }
     }
 
     /**
@@ -195,7 +238,7 @@ PROMPT;
         }
 
         $response = wp_remote_post(self::API_URL, [
-            'timeout' => 15,
+            'timeout' => 20,
             'headers' => [
                 'x-api-key'         => $api_key,
                 'content-type'      => 'application/json',
@@ -211,24 +254,41 @@ PROMPT;
             ]),
         ]);
 
-        // HTTP-Fehler
+        // HTTP-Fehler (Netzwerk, Timeout, DNS)
         if (is_wp_error($response)) {
-            error_log('[TIX Content Guard] wp_remote_post Fehler: ' . $response->get_error_message());
+            $msg = $response->get_error_message();
+            error_log('[TIX Content Guard] wp_remote_post Fehler: ' . $msg);
+            set_transient('_tix_ai_last_error', 'Netzwerk-Fehler: ' . $msg, 60);
             return null;
         }
 
         $code = wp_remote_retrieve_response_code($response);
+        $body = wp_remote_retrieve_body($response);
+
+        // API-Fehler (401, 403, 429, 500, etc.)
         if ($code < 200 || $code >= 300) {
-            error_log('[TIX Content Guard] API HTTP ' . $code . ': ' . wp_remote_retrieve_body($response));
+            $error_data = json_decode($body, true);
+            $error_msg  = $error_data['error']['message'] ?? ('HTTP ' . $code);
+
+            if ($code === 401) {
+                $error_msg = 'Ungültiger API-Key (HTTP 401). Bitte prüfen.';
+            } elseif ($code === 429) {
+                $error_msg = 'Rate-Limit erreicht (HTTP 429). Bitte kurz warten.';
+            } elseif ($code === 529) {
+                $error_msg = 'Anthropic API überlastet (HTTP 529). Bitte kurz warten.';
+            }
+
+            error_log('[TIX Content Guard] API HTTP ' . $code . ': ' . $body);
+            set_transient('_tix_ai_last_error', $error_msg, 60);
             return null;
         }
 
         // Response parsen
-        $body = wp_remote_retrieve_body($response);
         $data = json_decode($body, true);
 
         if (!$data || empty($data['content'])) {
             error_log('[TIX Content Guard] Ungültige API-Response: ' . $body);
+            set_transient('_tix_ai_last_error', 'Ungültige API-Antwort', 60);
             return null;
         }
 
@@ -250,8 +310,9 @@ PROMPT;
 
         $result = json_decode($ai_text, true);
         if (!is_array($result) || !isset($result['approved'])) {
-            error_log('[TIX Content Guard] JSON-Parse-Fehler: ' . $ai_text);
-            return null;  // Fail-open
+            error_log('[TIX Content Guard] JSON-Parse-Fehler, AI antwortete: ' . $ai_text);
+            set_transient('_tix_ai_last_error', 'KI-Antwort konnte nicht geparst werden: ' . mb_substr($ai_text, 0, 100), 60);
+            return null;
         }
 
         return [
