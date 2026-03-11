@@ -580,67 +580,154 @@
             phases[currentPhase].render(phaseTime);
         }
 
+        // WebCodecs: Frame nach jedem Render capturen
+        captureFrame();
+
         animId = requestAnimationFrame(loop);
     }
 
     /* ══════════════════════════════════════
-       MEDIARECORDER
+       RECORDING (MP4 fuer alle Browser)
        ══════════════════════════════════════ */
 
-    supportsRecording = (function () {
+    // Erkennung: MediaRecorder MP4, WebCodecs + mp4-muxer, WebM Fallback
+    var recMode = 'none'; // 'mp4-native', 'mp4-webcodecs', 'webm', 'none'
+    supportsRecording = false;
+
+    (function detectRecording() {
         try {
-            return typeof MediaRecorder !== 'undefined' &&
-                typeof HTMLCanvasElement.prototype.captureStream === 'function';
-        } catch (e) { return false; }
+            var hasMR = typeof MediaRecorder !== 'undefined' &&
+                        typeof HTMLCanvasElement.prototype.captureStream === 'function';
+            var hasWC = typeof VideoEncoder !== 'undefined' &&
+                        typeof Mp4Muxer !== 'undefined' && Mp4Muxer.Muxer;
+
+            if (!hasMR && !hasWC) return;
+            supportsRecording = true;
+
+            // 1) MP4 nativ (Chrome 128+, Safari)
+            if (hasMR && (MediaRecorder.isTypeSupported('video/mp4;codecs=avc1') ||
+                          MediaRecorder.isTypeSupported('video/mp4'))) {
+                recMode = 'mp4-native';
+                return;
+            }
+
+            // 2) WebCodecs + mp4-muxer (Firefox 130+, aeltere Chrome)
+            if (hasWC) {
+                recMode = 'mp4-webcodecs';
+                return;
+            }
+
+            // 3) WebM Fallback
+            if (hasMR) recMode = 'webm';
+        } catch (e) { /* silent */ }
     })();
+
+    // WebCodecs State
+    var wcEncoder, wcMuxer, wcTarget, wcFrameCount;
 
     function startRecording() {
         if (!supportsRecording) return;
         recordedChunks = [];
-        var stream = canvas.captureStream(30);
+        recordingExt = 'mp4';
+        recordingMime = 'video/mp4';
 
-        // MP4 zuerst (Chrome 128+, Safari), dann WebM als Fallback
-        var mimeType = '';
-        recordingExt = 'webm';
-        recordingMime = 'video/webm';
+        if (recMode === 'mp4-native') {
+            // Strategie 1: MediaRecorder MP4
+            var stream = canvas.captureStream(30);
+            var mimeType = MediaRecorder.isTypeSupported('video/mp4;codecs=avc1')
+                ? 'video/mp4;codecs=avc1' : 'video/mp4';
 
-        var candidates = [
-            ['video/mp4;codecs=avc1',         'mp4', 'video/mp4'],
-            ['video/mp4',                      'mp4', 'video/mp4'],
-            ['video/webm;codecs=vp9',          'webm', 'video/webm'],
-            ['video/webm;codecs=vp8',          'webm', 'video/webm'],
-            ['video/webm',                     'webm', 'video/webm']
-        ];
+            mediaRecorder = new MediaRecorder(stream, {
+                mimeType: mimeType,
+                videoBitsPerSecond: 8000000
+            });
+            mediaRecorder.ondataavailable = function (e) {
+                if (e.data && e.data.size > 0) recordedChunks.push(e.data);
+            };
+            mediaRecorder.start(100);
 
-        for (var i = 0; i < candidates.length; i++) {
-            if (MediaRecorder.isTypeSupported(candidates[i][0])) {
-                mimeType = candidates[i][0];
-                recordingExt = candidates[i][1];
-                recordingMime = candidates[i][2];
-                break;
-            }
+        } else if (recMode === 'mp4-webcodecs') {
+            // Strategie 2: WebCodecs VideoEncoder + mp4-muxer
+            wcTarget = new Mp4Muxer.ArrayBufferTarget();
+            wcMuxer = new Mp4Muxer.Muxer({
+                target: wcTarget,
+                video: { codec: 'avc', width: W, height: H },
+                fastStart: 'in-memory'
+            });
+            wcFrameCount = 0;
+
+            wcEncoder = new VideoEncoder({
+                output: function (chunk, meta) {
+                    wcMuxer.addVideoChunk(chunk, meta);
+                },
+                error: function (e) {
+                    console.error('[TixRaffleDraw] VideoEncoder error:', e);
+                }
+            });
+
+            wcEncoder.configure({
+                codec: 'avc1.42001f',
+                width: W,
+                height: H,
+                bitrate: 8000000,
+                framerate: 30
+            });
+
+        } else {
+            // Strategie 3: WebM Fallback
+            recordingExt = 'webm';
+            recordingMime = 'video/webm';
+            var stream = canvas.captureStream(30);
+            var mimeType = 'video/webm;codecs=vp9';
+            if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = 'video/webm;codecs=vp8';
+            if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = 'video/webm';
+
+            mediaRecorder = new MediaRecorder(stream, {
+                mimeType: mimeType,
+                videoBitsPerSecond: 8000000
+            });
+            mediaRecorder.ondataavailable = function (e) {
+                if (e.data && e.data.size > 0) recordedChunks.push(e.data);
+            };
+            mediaRecorder.start(100);
         }
+    }
 
-        if (!mimeType) mimeType = 'video/webm';
-
-        mediaRecorder = new MediaRecorder(stream, {
-            mimeType: mimeType,
-            videoBitsPerSecond: 8000000
-        });
-        mediaRecorder.ondataavailable = function (e) {
-            if (e.data && e.data.size > 0) recordedChunks.push(e.data);
-        };
-        mediaRecorder.start(100);
+    // Bei WebCodecs: Frame in der Render-Loop capturen
+    function captureFrame() {
+        if (recMode !== 'mp4-webcodecs' || !wcEncoder || !canvas) return;
+        try {
+            var frame = new VideoFrame(canvas, {
+                timestamp: wcFrameCount * (1000000 / 30) // Mikrosekunden
+            });
+            var keyFrame = wcFrameCount % 60 === 0; // Keyframe alle 2s
+            wcEncoder.encode(frame, { keyFrame: keyFrame });
+            frame.close();
+            wcFrameCount++;
+        } catch (e) { /* skip frame */ }
     }
 
     function stopRecording() {
         return new Promise(function (resolve) {
+            if (recMode === 'mp4-webcodecs' && wcEncoder) {
+                wcEncoder.flush().then(function () {
+                    wcMuxer.finalize();
+                    var buf = wcTarget.buffer;
+                    var blob = new Blob([buf], { type: 'video/mp4' });
+                    wcEncoder = null;
+                    wcMuxer = null;
+                    wcTarget = null;
+                    resolve(blob);
+                }).catch(function () { resolve(null); });
+                return;
+            }
+
             if (!mediaRecorder || mediaRecorder.state !== 'recording') {
                 resolve(null);
                 return;
             }
             mediaRecorder.onstop = function () {
-                var blob = new Blob(recordedChunks, { type: recordingMime || 'video/webm' });
+                var blob = new Blob(recordedChunks, { type: recordingMime || 'video/mp4' });
                 resolve(blob);
             };
             mediaRecorder.stop();
@@ -649,7 +736,7 @@
 
     function downloadBlob(blob) {
         if (!blob) return;
-        var ext = recordingExt || 'webm';
+        var ext = recordingExt || 'mp4';
         var slug = (config.eventTitle || 'verlosung').replace(/[^a-zA-Z0-9äöüÄÖÜß_-]/g, '_').substring(0, 50);
         var url = URL.createObjectURL(blob);
         var a = document.createElement('a');
@@ -691,7 +778,7 @@
         var closeBtn = document.createElement('button');
         closeBtn.id = 'tix-raffle-close-btn';
         closeBtn.textContent = 'Schließen';
-        closeBtn.onclick = function () { destroy(); if (config.onComplete) config.onComplete(); };
+        closeBtn.onclick = function () { destroy(); if (config.onClose) config.onClose(); };
 
         controls.appendChild(dlBtn);
         controls.appendChild(closeBtn);
@@ -723,6 +810,8 @@
 
         stopRecording().then(function (blob) {
             showControls(blob);
+            // Auslosung SOFORT speichern wenn Animation fertig
+            if (config.onFinish) config.onFinish();
         });
     }
 
@@ -732,6 +821,10 @@
         if (mediaRecorder && mediaRecorder.state === 'recording') {
             try { mediaRecorder.stop(); } catch (e) {}
         }
+        // WebCodecs Cleanup
+        if (wcEncoder) { try { wcEncoder.close(); } catch (e) {} wcEncoder = null; }
+        wcMuxer = null;
+        wcTarget = null;
         if (overlay && overlay.parentNode) {
             overlay.parentNode.removeChild(overlay);
         }
@@ -771,6 +864,9 @@
             createOverlay();
             running = true;
             startRecording();
+            // Button-Text nach startRecording aktualisieren (recordingExt ist jetzt gesetzt)
+            var dlBtn = document.getElementById('tix-raffle-dl-btn');
+            if (dlBtn) dlBtn.textContent = '⬇ Video herunterladen (.' + (recordingExt || 'mp4') + ')';
             animId = requestAnimationFrame(loop);
 
             // ESC zum Abbrechen

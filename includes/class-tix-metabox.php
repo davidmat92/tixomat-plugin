@@ -133,7 +133,8 @@ class TIX_Metabox {
 
         // Raffle Draw Animation
         wp_enqueue_style('tix-raffle-draw', TIXOMAT_URL . 'assets/css/raffle-draw.css', [], TIXOMAT_VERSION);
-        wp_enqueue_script('tix-raffle-draw', TIXOMAT_URL . 'assets/js/raffle-draw.js', [], TIXOMAT_VERSION, true);
+        wp_enqueue_script('tix-mp4-muxer', TIXOMAT_URL . 'assets/js/vendor/mp4-muxer.js', [], '5.2.2', true);
+        wp_enqueue_script('tix-raffle-draw', TIXOMAT_URL . 'assets/js/raffle-draw.js', ['tix-mp4-muxer'], TIXOMAT_VERSION, true);
     }
 
     /**
@@ -2912,23 +2913,23 @@ class TIX_Metabox {
                             total: pData.total,
                             prizes: pData.prizes,
                             eventTitle: pData.eventTitle,
-                            onComplete: function() {
-                                // 3) Echte Auslosung auf dem Server
+                            onFinish: function() {
+                                // Sofort nach Animation: Echte Auslosung auf dem Server speichern
                                 $.post(tixAdmin.ajaxUrl, {
                                     action: 'tix_raffle_draw',
                                     event_id: eventId,
                                     nonce: raffleNonce
                                 }, function(dRes) {
-                                    if (dRes.success) {
-                                        setTimeout(function() { location.reload(); }, 500);
-                                    } else {
-                                        alert('Auslosung gespeichert-Fehler: ' + (dRes.data && dRes.data.message || ''));
-                                        location.reload();
+                                    if (!dRes.success) {
+                                        alert('Auslosung-Fehler: ' + (dRes.data && dRes.data.message || 'Unbekannter Fehler'));
                                     }
                                 }).fail(function() {
-                                    alert('Verbindungsfehler beim Speichern. Bitte manuell prüfen.');
-                                    location.reload();
+                                    alert('Verbindungsfehler beim Speichern der Gewinner. Bitte manuell prüfen.');
                                 });
+                            },
+                            onClose: function() {
+                                // User klickt "Schließen" → Seite neu laden
+                                location.reload();
                             },
                             onError: function(msg) {
                                 btn.prop('disabled', false).text('🎲 Jetzt auslosen');
