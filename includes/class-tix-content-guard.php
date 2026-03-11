@@ -137,7 +137,7 @@ PROMPT;
             delete_post_meta($post_id, '_tix_ai_flagged');
             delete_post_meta($post_id, '_tix_ai_flag_reason');
         } else {
-            // ── Abgelehnt → Zurück auf Entwurf ──
+            // ── Abgelehnt → Zurück auf Entwurf + Slug sanitizen ──
             $reason = $result['reason'] ?? 'Der Inhalt wurde von der KI-Prüfung abgelehnt.';
 
             update_post_meta($post_id, '_tix_ai_flagged', 1);
@@ -145,6 +145,7 @@ PROMPT;
             delete_post_meta($post_id, '_tix_ai_approved');
 
             self::revert_to_draft($post_id);
+            self::sanitize_slug($post_id);
 
             set_transient('tix_ai_flag_' . $post_id, $reason, 120);
         }
@@ -190,7 +191,7 @@ PROMPT;
     }
 
     /**
-     * Event-Content sammeln (Titel + Excerpt + Info-Sektionen)
+     * Event-Content sammeln (Titel + Slug + Excerpt + Info-Sektionen)
      */
     private static function collect_content($post_id, $post) {
         $parts = [];
@@ -198,6 +199,14 @@ PROMPT;
         // Titel
         if (!empty($post->post_title) && $post->post_title !== 'Automatischer Entwurf') {
             $parts[] = 'Titel: ' . $post->post_title;
+        }
+
+        // Permalink / Slug (kann manuell vom Titel abweichen)
+        $slug = $post->post_name;
+        if (!empty($slug) && $slug !== sanitize_title('Automatischer Entwurf')) {
+            // Slug in lesbaren Text umwandeln (Bindestriche → Leerzeichen)
+            $slug_readable = str_replace(['-', '_'], ' ', urldecode($slug));
+            $parts[] = 'URL-Slug: ' . $slug_readable;
         }
 
         // Excerpt (Kurzbeschreibung)
@@ -330,5 +339,24 @@ PROMPT;
         wp_update_post(['ID' => $post_id, 'post_status' => 'draft']);
         add_action('save_post_event', ['TIX_Metabox', 'save'], 10, 2);
         add_action('save_post_event', [__CLASS__, 'check'], 12, 2);
+    }
+
+    /**
+     * Slug (Permalink) auf neutralen Wert zurücksetzen.
+     *
+     * Verhindert, dass verbotene Begriffe in der URL stehen bleiben,
+     * auch wenn das Event nur als Entwurf gespeichert wird.
+     */
+    private static function sanitize_slug($post_id) {
+        global $wpdb;
+        $neutral = 'event-entwurf-' . $post_id;
+        $wpdb->update(
+            $wpdb->posts,
+            ['post_name' => $neutral],
+            ['ID' => $post_id],
+            ['%s'],
+            ['%d']
+        );
+        clean_post_cache($post_id);
     }
 }

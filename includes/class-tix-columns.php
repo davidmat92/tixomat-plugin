@@ -559,7 +559,7 @@ class TIX_Columns {
     }
 
     /**
-     * Alle WC-Produkte eines Events löschen
+     * Alle WC-Produkte + verknüpfte Daten eines Events löschen
      */
     private static function delete_event_artifacts($event_id) {
         $deleted_products = 0;
@@ -576,6 +576,9 @@ class TIX_Columns {
                 }
             }
         }
+
+        // Custom Tables + verknüpfte CPTs + Crons + Transients löschen
+        TIX_Cleanup::purge_event_data($event_id);
 
         return ['products' => $deleted_products];
     }

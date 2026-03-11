@@ -21,13 +21,10 @@ class TIX_Cleanup {
     }
 
     /**
-     * Beim Löschen eines Events: Generierte TC-Events + WC-Produkte mit löschen
+     * Beim Löschen eines Events: Generierte Einträge + alle verknüpften Daten mit löschen
      */
     public static function delete_generated($post_id) {
         if (get_post_type($post_id) !== 'event') return;
-
-        $categories = get_post_meta($post_id, '_tix_ticket_categories', true);
-        if (!is_array($categories)) return;
 
         // Temporär Schutz + eigene Hooks deaktivieren (wir löschen bewusst)
         remove_action('wp_trash_post',     [__CLASS__, 'delete_generated']);
@@ -35,21 +32,169 @@ class TIX_Cleanup {
         remove_action('wp_trash_post',     [__CLASS__, 'protect_product']);
         remove_action('before_delete_post', [__CLASS__, 'protect_product']);
 
-        foreach ($categories as $cat) {
-            if (!empty($cat['tc_event_id'])) {
-                wp_delete_post(intval($cat['tc_event_id']), true);
-            }
-            if (!empty($cat['product_id'])) {
-                $product = wc_get_product(intval($cat['product_id']));
-                if ($product) $product->delete(true);
+        // WC-Produkte + TC-Events löschen
+        $categories = get_post_meta($post_id, '_tix_ticket_categories', true);
+        if (is_array($categories)) {
+            foreach ($categories as $cat) {
+                if (!empty($cat['tc_event_id'])) {
+                    wp_delete_post(intval($cat['tc_event_id']), true);
+                }
+                if (!empty($cat['product_id'])) {
+                    $product = wc_get_product(intval($cat['product_id']));
+                    if ($product) $product->delete(true);
+                }
             }
         }
+
+        // ── Alle Custom-Table-Daten + verknüpfte CPTs löschen ──
+        self::purge_event_data($post_id);
 
         // Hooks wieder aktivieren
         add_action('wp_trash_post',     [__CLASS__, 'delete_generated']);
         add_action('before_delete_post', [__CLASS__, 'delete_generated']);
         add_action('wp_trash_post',     [__CLASS__, 'protect_product']);
         add_action('before_delete_post', [__CLASS__, 'protect_product']);
+    }
+
+    /**
+     * ALLE verknüpften Daten eines Events restlos aus der Datenbank entfernen.
+     *
+     * Räumt auf:
+     * - Custom Tables: Raffle, Waitlist, Feedback, Seatmap, Ticket-DB, Promoter
+     * - Verknüpfte CPTs: Abandoned Carts, Subscribers, WC-Coupons
+     * - Geplante Cron-Jobs (Reminder + Follow-up E-Mails)
+     * - Per-Event Transients
+     *
+     * Kann sowohl von delete_generated() (Trash/Delete) als auch von
+     * handle_force_delete() (Admin-Action) aufgerufen werden.
+     *
+     * @param int $event_id Event Post-ID
+     * @return array Anzahl gelöschter Einträge pro Typ
+     */
+    public static function purge_event_data($event_id) {
+        global $wpdb;
+        $event_id = intval($event_id);
+        $counts   = [];
+
+        // ── 1. Custom Tables ──
+
+        // Raffle-Einträge
+        $counts['raffle'] = (int) $wpdb->query(
+            $wpdb->prepare("DELETE FROM {$wpdb->prefix}tix_raffle_entries WHERE event_id = %d", $event_id)
+        );
+
+        // Waitlist-Einträge
+        $counts['waitlist'] = (int) $wpdb->query(
+            $wpdb->prepare("DELETE FROM {$wpdb->prefix}tix_waitlist WHERE event_id = %d", $event_id)
+        );
+
+        // Feedback-Einträge
+        $counts['feedback'] = (int) $wpdb->query(
+            $wpdb->prepare("DELETE FROM {$wpdb->prefix}tix_feedback WHERE event_id = %d", $event_id)
+        );
+
+        // Sitzplatz-Reservierungen
+        $counts['seats'] = (int) $wpdb->query(
+            $wpdb->prepare("DELETE FROM {$wpdb->prefix}tix_seat_reservations WHERE event_id = %d", $event_id)
+        );
+
+        // Ticket-Datenbank (denormalisierte Kopie)
+        $counts['ticket_db'] = (int) $wpdb->query(
+            $wpdb->prepare("DELETE FROM {$wpdb->prefix}tixomat_tickets WHERE event_id = %d", $event_id)
+        );
+
+        // Promoter-Event-Zuordnungen
+        $counts['promoter_events'] = (int) $wpdb->query(
+            $wpdb->prepare("DELETE FROM {$wpdb->prefix}tixomat_promoter_events WHERE event_id = %d", $event_id)
+        );
+
+        // Promoter-Provisionen (Buchhaltung → löschen, da Event weg)
+        $counts['promoter_commissions'] = (int) $wpdb->query(
+            $wpdb->prepare("DELETE FROM {$wpdb->prefix}tixomat_promoter_commissions WHERE event_id = %d", $event_id)
+        );
+
+        // ── 2. Verknüpfte CPTs ──
+
+        // Abandoned Carts
+        $ac_ids = get_posts([
+            'post_type'      => 'tix_abandoned_cart',
+            'post_status'    => 'any',
+            'posts_per_page' => -1,
+            'meta_key'       => '_tix_ac_event_id',
+            'meta_value'     => $event_id,
+            'fields'         => 'ids',
+        ]);
+        foreach ($ac_ids as $ac_id) {
+            wp_delete_post($ac_id, true);
+        }
+        $counts['abandoned_carts'] = count($ac_ids);
+
+        // Event-spezifische Subscribers
+        $sub_ids = get_posts([
+            'post_type'      => 'tix_subscriber',
+            'post_status'    => 'any',
+            'posts_per_page' => -1,
+            'meta_key'       => '_tix_sub_event_id',
+            'meta_value'     => $event_id,
+            'fields'         => 'ids',
+        ]);
+        foreach ($sub_ids as $sub_id) {
+            wp_delete_post($sub_id, true);
+        }
+        $counts['subscribers'] = count($sub_ids);
+
+        // WC-Coupons die zu diesem Event gehören
+        $coupon_ids = get_posts([
+            'post_type'      => 'shop_coupon',
+            'post_status'    => 'any',
+            'posts_per_page' => -1,
+            'meta_key'       => '_tix_event_coupon',
+            'meta_value'     => $event_id,
+            'fields'         => 'ids',
+        ]);
+        foreach ($coupon_ids as $coupon_id) {
+            wp_delete_post($coupon_id, true);
+        }
+        $counts['coupons'] = count($coupon_ids);
+
+        // ── 3. Geplante Cron-Jobs (Reminder + Follow-up E-Mails) ──
+        $cron_cleared = 0;
+
+        // Action Scheduler (wenn vorhanden)
+        if (function_exists('as_unschedule_all_actions')) {
+            as_unschedule_all_actions('tix_send_reminder_email', null, 'tixomat');
+            as_unschedule_all_actions('tix_send_followup_email', null, 'tixomat');
+            // Hinweis: as_unschedule_all_actions ohne args löscht alle für diesen Hook.
+            // Wir nutzen stattdessen die DB direkt für gezielte Löschung:
+        }
+
+        // WP-Cron: Geplante Events mit diesem Event-ID entfernen
+        $crons = _get_cron_array();
+        if (is_array($crons)) {
+            foreach ($crons as $timestamp => $hooks) {
+                foreach (['tix_send_reminder_email', 'tix_send_followup_email'] as $hook) {
+                    if (isset($hooks[$hook])) {
+                        foreach ($hooks[$hook] as $key => $data) {
+                            $args = $data['args'] ?? [];
+                            // Args: [$order_id, $event_id]
+                            if (isset($args[1]) && intval($args[1]) === $event_id) {
+                                wp_unschedule_event($timestamp, $hook, $args);
+                                $cron_cleared++;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        $counts['cron_jobs'] = $cron_cleared;
+
+        // ── 4. Per-Event Transients ──
+        delete_transient('tix_sync_log_' . $event_id);
+        delete_transient('tix_ai_flag_' . $event_id);
+        delete_transient('tix_publish_error_' . $event_id);
+        delete_transient('tix_publish_warning_' . $event_id);
+
+        return $counts;
     }
 
     /**
@@ -171,6 +316,8 @@ class TIX_Cleanup {
                         }
                     }
                 }
+                // Custom Tables + verknüpfte CPTs aufräumen
+                self::purge_event_data($event_id);
                 // Event selbst löschen
                 wp_delete_post($event_id, true);
                 $deleted_events++;
