@@ -3,9 +3,8 @@
    ═══════════════════════════════════════════ */
 
 .tix-share {
-    display: flex;
+    display: inline-flex;
     align-items: center;
-    justify-content: inherit;
     gap: 12px;
     font-family: inherit;
 }
