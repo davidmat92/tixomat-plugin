@@ -16,15 +16,18 @@ class TIX_Ticket_Transfer {
      */
     public static function render($atts) {
         $atts = shortcode_atts(['id' => 0], $atts, 'tix_ticket_transfer');
-        $post_id = intval($atts['id']) ?: get_the_ID();
+        $explicit_id = intval($atts['id']);
+        $post_id = $explicit_id ?: get_the_ID();
 
-        // Prüfe ob Transfer für dieses Event aktiviert ist
-        if ($post_id) {
-            $enabled = get_post_meta($post_id, '_tix_ticket_transfer', true);
+        // Globaler Kill-Switch
+        $s = function_exists('tix_get_settings') ? tix_get_settings() : [];
+        if (empty($s['ticket_transfer_enabled'])) return '';
+
+        // Event-spezifische Prüfung nur wenn eine explizite Event-ID übergeben wurde
+        if ($explicit_id) {
+            $enabled = get_post_meta($explicit_id, '_tix_ticket_transfer', true);
             if ($enabled !== '1') return '';
         }
-
-        $s = function_exists('tix_get_settings') ? tix_get_settings() : [];
 
         ob_start();
         ?>
