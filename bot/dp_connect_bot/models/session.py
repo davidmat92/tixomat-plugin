@@ -121,6 +121,29 @@ class SessionManager:
         conn.execute("DELETE FROM sessions WHERE chat_id = ?", (str(chat_id),))
         conn.commit()
 
+    def clear_all(self, archive_callback=None):
+        """Remove ALL sessions. Optionally archive them first.
+
+        Returns:
+            int: Number of sessions deleted.
+        """
+        conn = self._conn()
+
+        if archive_callback:
+            rows = conn.execute("SELECT chat_id, data FROM sessions").fetchall()
+            for row in rows:
+                try:
+                    archive_callback(row["chat_id"], json.loads(row["data"]))
+                except Exception as e:
+                    log.error(f"Archive callback error for {row['chat_id']}: {e}")
+
+        row = conn.execute("SELECT COUNT(*) as cnt FROM sessions").fetchone()
+        count = row["cnt"] if row else 0
+        conn.execute("DELETE FROM sessions")
+        conn.commit()
+        log.info(f"clear_all: {count} Sessions gelöscht")
+        return count
+
     def get_all(self):
         """Return all active sessions as {chat_id: session_dict}."""
         conn = self._conn()

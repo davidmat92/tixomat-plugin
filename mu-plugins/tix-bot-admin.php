@@ -390,6 +390,16 @@ function txba_page_settings() {
     <div id="channels_info" style="font-size:13px;color:#666">Laden...</div>
   </div>
 
+  <div class="txba-card">
+    <h3>Gespräche zurücksetzen</h3>
+    <p>Alle Bot-Unterhaltungen löschen. Aktive Sessions werden vorher archiviert.</p>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">
+      <button class="btn" onclick="clearSessions(false)" style="color:#e53935;border-color:#e53935">🗑️ Aktive Sessions löschen</button>
+      <button class="btn" onclick="clearSessions(true)" style="color:#b71c1c;border-color:#b71c1c">🗑️ Alles löschen (inkl. Archiv)</button>
+      <span id="clear_status" style="font-size:13px;color:#888"></span>
+    </div>
+  </div>
+
   <div class="txba-save">
     <button class="btn on" onclick="saveSettings()">Einstellungen speichern</button>
     <span id="save_status" style="margin-left:12px;font-size:13px;color:#888"></span>
@@ -447,6 +457,34 @@ async function saveSettings() {
   }
   btn.disabled = false;
   btn.textContent = 'Einstellungen speichern';
+}
+
+async function clearSessions(includeHistory) {
+  const msg = includeHistory
+    ? 'Alle aktiven Sessions UND das gesamte Archiv unwiderruflich löschen?'
+    : 'Alle aktiven Sessions löschen? (werden vorher archiviert)';
+  if (!confirm(msg)) return;
+  const st = document.getElementById('clear_status');
+  st.textContent = 'Lösche...';
+  st.style.color = '#888';
+  try {
+    const d = await api('/admin/sessions/clear', 'POST', {active: true, history: includeHistory});
+    if (d.ok) {
+      let info = d.deleted_active + ' Session(s) gelöscht';
+      if (includeHistory) info += ', ' + d.deleted_history + ' archivierte Gespräche gelöscht';
+      st.textContent = '✅ ' + info;
+      st.style.color = '#2e7d32';
+      showToast(info, 'ok');
+    } else {
+      st.textContent = '❌ ' + (d.error || 'Fehler');
+      st.style.color = '#e53935';
+      showToast('Fehler: ' + (d.error || 'Unbekannt'), 'err');
+    }
+  } catch (e) {
+    st.textContent = '❌ Verbindungsfehler';
+    st.style.color = '#e53935';
+    showToast('Verbindungsfehler', 'err');
+  }
 }
 
 function showToast(msg, type) {

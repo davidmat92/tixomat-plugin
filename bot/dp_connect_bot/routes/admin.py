@@ -82,6 +82,54 @@ def admin_sessions():
         return jsonify(ok=False, error="Internal error"), 500
 
 
+@admin_bp.route("/admin/sessions/clear", methods=["POST"])
+def admin_clear_sessions():
+    """Delete ALL active sessions (optionally archive first) and/or clear history."""
+    if not _require_admin():
+        return jsonify(ok=False, error="Unauthorized"), 401
+    try:
+        data = request.get_json(silent=True) or {}
+        clear_active = data.get("active", True)
+        clear_history = data.get("history", False)
+
+        deleted_active = 0
+        deleted_history = 0
+
+        if clear_active:
+            # Import archive helper if available
+            archive_cb = None
+            try:
+                from dp_connect_bot.services.history import archive_session
+                archive_cb = archive_session
+            except ImportError:
+                pass
+            deleted_active = session_manager.clear_all(archive_callback=archive_cb)
+
+        if clear_history:
+            try:
+                with sqlite3.connect(HISTORY_DB_PATH) as conn:
+                    row = conn.execute("SELECT COUNT(*) FROM conversations").fetchone()
+                    deleted_history = row[0] if row else 0
+                    conn.execute("DELETE FROM conversations")
+                    conn.execute("DELETE FROM daily_stats")
+                    conn.execute("DELETE FROM search_queries")
+                    conn.execute("DELETE FROM events")
+                    conn.commit()
+            except Exception as e:
+                log.error(f"[admin_clear_sessions] History DB error: {e}")
+                return jsonify(ok=False, error=f"History clear failed: {e}"), 500
+
+        log.info(f"[admin_clear_sessions] active={deleted_active}, history={deleted_history}")
+        return jsonify(
+            ok=True,
+            deleted_active=deleted_active,
+            deleted_history=deleted_history,
+        )
+    except Exception as e:
+        log.error(f"[admin_clear_sessions] Error: {e}")
+        return jsonify(ok=False, error="Internal error"), 500
+
+
 @admin_bp.route("/admin/conversation/<chat_id>", methods=["GET"])
 def admin_conversation(chat_id):
     if not _require_admin():
