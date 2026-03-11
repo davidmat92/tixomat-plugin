@@ -1,6 +1,6 @@
 # Tixomat -- Event & Ticket Management
 
-**Version:** 1.28.24
+**Version:** 1.28.84
 **Autor:** MDJ Veranstaltungs UG (haftungsbeschraenkt)
 **Text Domain:** `tixomat`
 **Abhaengigkeiten:** WordPress 6.x, WooCommerce 8.x (HPOS-kompatibel)
@@ -12,7 +12,7 @@
 
 | Konstante | Wert | Beschreibung |
 |---|---|---|
-| `TIXOMAT_VERSION` | `'1.28.24'` | Aktuelle Plugin-Version |
+| `TIXOMAT_VERSION` | `'1.28.84'` | Aktuelle Plugin-Version |
 | `TIXOMAT_PATH` | `plugin_dir_path(__FILE__)` | Absoluter Pfad zum Plugin-Verzeichnis |
 | `TIXOMAT_URL` | `plugin_dir_url(__FILE__)` | URL zum Plugin-Verzeichnis |
 
@@ -77,6 +77,7 @@
 55. [Promoter-System](#55-promoter-system)
 56. [Daten-Synchronisierung](#56-daten-synchronisierung)
 57. [Veranstalter-Dashboard (Organizer)](#57-veranstalter-dashboard-organizer)
+58. [KI-Schutz (Content Guard)](#58-ki-schutz-content-guard)
 
 ---
 
@@ -97,7 +98,7 @@ Tixomat automatisiert den gesamten Ticketing-Workflow fuer WordPress-basierte Ve
 
 ### Klassenuebersicht
 
-Tixomat besteht aus 39 Klassen:
+Tixomat besteht aus 40 Klassen:
 
 | Klasse | Datei | Verantwortung |
 |---|---|---|
@@ -124,7 +125,8 @@ Tixomat besteht aus 39 Klassen:
 | `TIX_Dynamic_Pricing` | `class-tix-dynamic-pricing.php` | Dynamische Preisphasen (Early Bird, Last Minute etc.) |
 | `TIX_Series` | `class-tix-series.php` | Serientermine (Recurring Events) |
 | `TIX_Embed` | `class-tix-embed.php` | Embed-Widget fuer externe Webseiten |
-| `TIX_Cleanup` | `class-tix-cleanup.php` | Loeschutz, Orphan-Cleanup |
+| `TIX_Content_Guard` | `class-tix-content-guard.php` | KI-Inhaltspruefung (Anthropic Claude API) |
+| `TIX_Cleanup` | `class-tix-cleanup.php` | Loeschutz, Orphan-Cleanup, Event-Daten-Purge |
 | `TIX_Support` | `class-tix-support.php` | Support-System (CRM + Kunden-Portal) |
 | `TIX_Docs` | `class-tix-docs.php` | Interaktive Dokumentation im Admin-Bereich |
 | `TIX_Event_Page` | `class-tix-event-page.php` | Dynamische Event-Detailseite (1col/2col Layout) |
@@ -172,7 +174,8 @@ tixomat/
 │   ├── class-tix-dynamic-pricing.php     Dynamische Preisphasen
 │   ├── class-tix-series.php              Serientermine
 │   ├── class-tix-embed.php               Embed-Widget
-│   ├── class-tix-cleanup.php             Loeschutz & Cleanup
+│   ├── class-tix-content-guard.php       KI-Schutz (Content Moderation via Claude API)
+│   ├── class-tix-cleanup.php             Loeschutz, Cleanup & Event-Daten-Purge
 │   ├── class-tix-support.php             Support-System (CRM + Kunden-Portal)
 │   ├── class-tix-docs.php                Admin-Dokumentation
 │   ├── class-tix-event-page.php          Event-Detailseite (1col/2col + Share + Rating)
@@ -591,6 +594,16 @@ Jede Ticket-Kategorie im Array enthaelt:
 | `_tix_express_checkout` | `string` (0/1) | Express-Checkout fuer dieses Event aktiviert |
 | `_tix_newsletter_enabled` | `string` (0/1) | Newsletter-Anmeldung beim Checkout anbieten |
 
+### KI-Schutz (Content Guard)
+
+| Meta-Key | Typ | Beschreibung |
+|---|---|---|
+| `_tix_ai_approved` | `string` (0/1) | Event wurde von KI-Pruefung genehmigt |
+| `_tix_ai_flagged` | `string` (0/1) | Event wurde von KI-Pruefung abgelehnt |
+| `_tix_ai_flag_reason` | `string` | Begruendung der Ablehnung (deutsch) |
+| `_tix_ai_content_hash` | `string` (md5) | Hash des zuletzt geprueften Contents (Cache) |
+| `_tix_ai_checked_at` | `int` (Unix) | Zeitstempel der letzten KI-Pruefung |
+
 ### Breakdance-Meta (Dynamic Data)
 
 Alle oben genannten Meta-Keys stehen als Dynamic Data im Breakdance Page Builder zur Verfuegung. `TIX_Sync` generiert zusaetzlich aufbereitete Meta-Felder mit dem Praefix `_tix_bd_*` fuer die direkte Anzeige.
@@ -887,7 +900,7 @@ Die folgenden Aktionen werden ueber `admin_post_*` registriert und erfordern Adm
 | `tix_cleanup_orphans` | `TIX_Cleanup` | Bereinigt verwaiste WooCommerce-Produkte ohne zugehoeriges Event |
 | `tix_export_subscribers` | `TIX_Columns` | Exportiert Newsletter-Abonnenten als CSV-Datei |
 | `tix_duplicate_event` | `TIX_Columns` | Dupliziert ein Event mit allen Meta-Daten (ohne Kind-Events) |
-| `tix_force_delete_event` | `TIX_Cleanup` | Loescht ein Event inklusive aller zugehoerigen Daten (WC-Produkt, Tickets) |
+| `tix_force_delete_event` | `TIX_Columns` | Loescht ein Event restlos inkl. WC-Produkte, Tickets, Custom Tables, Coupons, Crons |
 
 ---
 
@@ -1378,6 +1391,8 @@ Pro Event ueber `_tix_embed_enabled` aktivierbar.
 | Archivierungs-Tage | `tix_archive_days` | `int` | Tage nach Event bis zur Archivierung |
 | WC-Produkt-Sichtbarkeit | `tix_wc_product_visibility` | `string` | Sichtbarkeit der generierten WC-Produkte |
 | Breakdance-Integration | `tix_breakdance_enabled` | `string` (0/1) | Breakdance Dynamic Data aktivieren |
+| KI-Schutz aktiviert | `ai_guard_enabled` | `int` (0/1) | KI-Inhaltspruefung beim Veroeffentlichen |
+| Anthropic API Key | `ai_guard_api_key` | `string` | API-Key fuer Anthropic Claude API (sk-ant-...) |
 
 ### Tab 11: Dokumentation
 
@@ -1507,10 +1522,11 @@ Wenn `tix_delete_protection` aktiviert ist:
 
 Die Action `tix_force_delete_event` loescht:
 
-1. Das Event selbst.
-2. Das zugehoerige WooCommerce-Produkt (inklusive Varianten).
+1. Das Event selbst (inkl. Serien-Kinder bei Serien-Master).
+2. Alle zugehoerigen WooCommerce-Produkte (inkl. Varianten).
 3. Alle zugehoerigen `tix_ticket`-Posts (eigenes Ticketsystem).
-4. Breakdance-Meta-Daten.
+4. **Alle Custom-Table-Daten** via `purge_event_data()` (siehe unten).
+5. Automatischer Orphan-Cleanup nach Loeschung.
 
 ### Orphan-Cleanup
 
@@ -1518,7 +1534,36 @@ Die Action `tix_cleanup_orphans` bereinigt:
 
 - WooCommerce-Produkte ohne zugehoeriges Event.
 - Verwaiste `tix_ticket`-Posts.
-- Verwaiste Meta-Daten.
+- Verwaiste Serien-Kinder (Master fehlt) -- inklusive `purge_event_data()`.
+
+### Restlose Event-Daten-Loeschung (`purge_event_data`)
+
+Die zentrale Methode `TIX_Cleanup::purge_event_data($event_id)` loescht **alle** verknuepften Daten eines Events restlos aus der Datenbank. Sie wird automatisch aufgerufen bei Papierkorb, endgueltigem Loeschen, Force-Delete und Orphan-Cleanup.
+
+**Custom Tables:**
+
+| Tabelle | Beschreibung |
+|---|---|
+| `tix_raffle_entries` | Gewinnspiel-Teilnahmen |
+| `tix_waitlist` | Warteliste- und Presale-Eintraege |
+| `tix_feedback` | Feedback-Bewertungen und Kommentare |
+| `tix_seat_reservations` | Sitzplatz-Reservierungen |
+| `tixomat_tickets` | Denormalisierte Ticket-Datenbank |
+| `tixomat_promoter_events` | Promoter-Event-Zuordnungen |
+| `tixomat_promoter_commissions` | Promoter-Provisionen |
+
+**Verknuepfte CPTs:**
+
+| CPT | Meta-Key | Beschreibung |
+|---|---|---|
+| `tix_abandoned_cart` | `_tix_ac_event_id` | Verlassene Warenkoerbe |
+| `tix_subscriber` | `_tix_sub_event_id` | Event-spezifische Subscribers |
+| `shop_coupon` | `_tix_event_coupon` | Event-Gutscheine (WC-Coupons) |
+
+**Zusaetzlich:**
+
+- Geplante Cron-Jobs (Reminder- und Follow-up-E-Mails) fuer das Event.
+- Per-Event Transients (`tix_sync_log_*`, `tix_ai_flag_*`, `tix_publish_error_*`, `tix_publish_warning_*`).
 
 ---
 
@@ -1562,6 +1607,7 @@ Die Admin-Post-Action `tix_duplicate_event` (Klasse `TIX_Columns`) erstellt eine
 | Status | Event-Status mit farbigem Badge |
 | Tickets | Verkauft / Gesamt |
 | Vorverkauf | Vorverkaufsstatus |
+| KI-Schutz | KI-Pruefungsstatus: ✓ (genehmigt), ⚠️ (abgelehnt), — (nicht geprueft). Nur sichtbar wenn KI-Schutz aktiviert. |
 | Kategorie | Event-Kategorie(n) |
 | Aktionen | Duplizieren, Loeschen, Bearbeiten |
 
@@ -2417,7 +2463,95 @@ WP User (user_id)
 
 ---
 
+## 58. KI-Schutz (Content Guard)
+
+`TIX_Content_Guard` prueft Event-Inhalte automatisch via Anthropic Claude API auf verbotene, diskriminierende oder schaedliche Inhalte, bevor sie veroeffentlicht werden. Das Feature ist ueber Einstellungen → Erweitert → KI-Schutz an-/ausschaltbar.
+
+### Funktionsweise
+
+1. Veranstalter klickt "Veroeffentlichen" → `save_post_event` Hook feuert.
+2. `TIX_Content_Guard::check()` (Prioritaet 12) laeuft nach `TIX_Metabox::save()` (Prioritaet 10).
+3. Content wird gesammelt: **Titel + URL-Slug + Excerpt + Info-Sektionen**.
+4. Content-Hash (MD5) wird mit letztem geprueftem Hash verglichen → bei Uebereinstimmung: Skip (keine API-Kosten).
+5. Text wird an Anthropic Claude API (Modell: `claude-3-5-haiku-20241022`) gesendet.
+6. Claude antwortet mit JSON: `{"approved": true}` oder `{"approved": false, "reason": "..."}`.
+7. **Genehmigt**: Event wird veroeffentlicht. Meta `_tix_ai_approved = 1`.
+8. **Abgelehnt**: Event wird auf Entwurf zurueckgesetzt. Slug wird auf `event-entwurf-{id}` sanitized. Admin-Notice mit Begruendung.
+
+### Fail-Closed Design
+
+Bei **jedem API-Fehler** (Netzwerk, Timeout, HTTP 401/429/529, Parse-Fehler) wird das Event **nicht veroeffentlicht**. Fehlermeldung wird als Admin-Notice angezeigt.
+
+| Fehler | Meldung |
+|---|---|
+| Kein API-Key | "KI-Schutz ist aktiviert, aber kein API-Key hinterlegt." |
+| HTTP 401 | "Ungueltiger API-Key (HTTP 401). Bitte pruefen." |
+| HTTP 429 | "Rate-Limit erreicht (HTTP 429). Bitte kurz warten." |
+| HTTP 529 | "Anthropic API ueberlastet (HTTP 529). Bitte kurz warten." |
+| Netzwerk/Timeout | "Netzwerk-Fehler: ..." |
+| Parse-Fehler | "KI-Antwort konnte nicht geparst werden: ..." |
+
+### Slug-Sanitierung
+
+Wenn Content abgelehnt wird, setzt `sanitize_slug()` den Permalink auf `event-entwurf-{post_id}` zurueck. Dies verhindert, dass verbotene Begriffe in der URL stehen bleiben -- auch wenn das Event nur als Entwurf gespeichert wird.
+
+### Content-Hash-Cache
+
+Ein MD5-Hash des geprueften Contents wird in `_tix_ai_content_hash` gespeichert. Wird dasselbe Event erneut gespeichert, ohne dass sich Titel/Slug/Excerpt/Infos geaendert haben, wird kein neuer API-Call gemacht. Kosten pro Pruefung: ca. 0,001 EUR.
+
+### Pruefungskriterien
+
+Das System prueft auf:
+1. Hassrede, rassistische Beleidigungen, Slurs, Diskriminierung
+2. Gewaltverherrlichung oder Aufrufe zu Gewalt
+3. Illegale Inhalte oder Werbung fuer illegale Aktivitaeten
+4. Betrug, Spam, Phishing oder irrefuehrende Inhalte
+5. Sexuell explizite oder pornografische Inhalte
+6. Terrorismus-Verherrlichung oder Extremismus
+7. Persoenlichkeitsrechtsverletzungen oder Doxxing
+
+Normale Events (Konzerte, Partys, Festivals, Messen, Sport, Workshops) sind immer erlaubt.
+
+### Einstellungen
+
+| Key | Typ | Beschreibung |
+|---|---|---|
+| `ai_guard_enabled` | `int` (0/1) | KI-Inhaltspruefung aktivieren |
+| `ai_guard_api_key` | `string` | Anthropic API Key (`sk-ant-...`) |
+
+### Post-Meta
+
+| Meta-Key | Typ | Beschreibung |
+|---|---|---|
+| `_tix_ai_approved` | `string` (0/1) | Event genehmigt |
+| `_tix_ai_flagged` | `string` (0/1) | Event abgelehnt |
+| `_tix_ai_flag_reason` | `string` | Ablehnungsgrund (deutsch) |
+| `_tix_ai_content_hash` | `string` (md5) | Hash des zuletzt geprueften Contents |
+| `_tix_ai_checked_at` | `int` (Unix) | Zeitstempel der letzten Pruefung |
+
+### Hook-Prioritaet
+
+```
+save_post_event:
+  Prio 10 → TIX_Metabox::save()       (Meta-Daten + Pflichtfeld-Validierung)
+  Prio 12 → TIX_Content_Guard::check() (KI-Inhaltspruefung)
+  Prio 20 → TIX_Sync::sync()           (WooCommerce-Sync)
+  Prio 25 → TIX_Series::on_save()      (Serientermine)
+```
+
+### Dateien
+
+| Datei | Beschreibung |
+|---|---|
+| `includes/class-tix-content-guard.php` | Hauptklasse (~360 Zeilen): API-Call, Content-Sammlung, Hash-Cache, Draft-Revert, Slug-Sanitierung, Admin-Notices |
+
+---
+
 ## Changelog
+
+### v1.28.81 -- v1.28.84
+- **KI-Schutz (Content Guard)**: Automatische Inhaltspruefung fuer Events via Anthropic Claude API. Fail-closed Design, Slug-Sanitierung, Hash-Cache, Admin-Spalte.
+- **Restlose Event-Loeschung**: Neue zentrale Methode `TIX_Cleanup::purge_event_data()` loescht alle Custom Tables, CPTs, Crons und Transients bei Event-Loeschung. Kein Datenbank-Muell mehr.
 
 ### v1.28.25
 - **Veranstalter-Dashboard**: Vollstaendiges Frontend-Dashboard fuer externe Veranstalter (`[tix_organizer_dashboard]`). Event-CRUD mit Wizard + Editor (9 Tabs), Bestellungen, Gaesteliste + Check-In, Statistiken. Neue WP-Rolle `tix_organizer`, User-Mapping via `_tix_org_user_id`, 16 AJAX-Endpoints, Media-Upload, Rabattcodes, Gewinnspiel

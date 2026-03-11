@@ -471,6 +471,15 @@ class TIX_Docs {
                 ['_tix_seatmap_id', 'Saalplan-ID f&uuml;r dieses Event (0 = kein Saalplan)', 'Number (Post-ID)'],
                 ['_tix_seatmap_mode', 'Platzvergabe-Modus: <code>manual</code> (Kunde w&auml;hlt) oder <code>best</code> (automatisch)', 'Text (manual/best)'],
             ]);
+
+            // ── KI-Schutz (Content Guard) ──
+            self::meta_card('KI-Schutz (Content Guard)', 'dashicons-shield', [
+                ['_tix_ai_approved', 'Event wurde von KI-Pr&uuml;fung genehmigt', 'Ja/Nein (1/0)'],
+                ['_tix_ai_flagged', 'Event wurde von KI-Pr&uuml;fung abgelehnt', 'Ja/Nein (1/0)'],
+                ['_tix_ai_flag_reason', 'Begr&uuml;ndung der Ablehnung (deutsch)', 'Text'],
+                ['_tix_ai_content_hash', 'MD5-Hash des zuletzt gepr&uuml;ften Contents (Cache)', 'Text (md5)'],
+                ['_tix_ai_checked_at', 'Zeitstempel der letzten KI-Pr&uuml;fung', 'Zeitstempel (Unix)'],
+            ]);
             ?>
 
         </div>
@@ -989,16 +998,33 @@ class TIX_Docs {
                 'Das Duplikat wird als <strong>Entwurf</strong> erstellt &ndash; beim Ver&ouml;ffentlichen werden WC-Produkte neu erstellt.',
             ]);
 
+            // ── KI-Schutz ──
+            self::function_card('KI-Schutz (Content Guard)', 'dashicons-shield', [
+                'Pr&uuml;ft Event-Inhalte automatisch via <strong>Anthropic Claude API</strong> auf verbotene, diskriminierende oder sch&auml;dliche Inhalte.',
+                'Pr&uuml;ft: <strong>Titel + URL-Slug + Kurzbeschreibung + Info-Sektionen</strong>.',
+                '<strong>Fail-Closed:</strong> Bei API-Fehlern (Netzwerk, 401, 429, 529) wird das Event <strong>nicht</strong> ver&ouml;ffentlicht.',
+                'Bei Ablehnung: Event wird auf Entwurf zur&uuml;ckgesetzt. <strong>Slug wird sanitized</strong> (event-entwurf-{id}).',
+                '<strong>Content-Hash-Cache:</strong> MD5-Hash verhindert doppelte API-Calls bei unver&auml;ndertem Content.',
+                'Aktivierbar unter <strong>Einstellungen &rarr; Erweitert &rarr; KI-Schutz</strong>. Ben&ouml;tigt Anthropic API Key.',
+                'Modell: <code>claude-3-5-haiku-20241022</code> &ndash; ca. 0,001 &euro; pro Pr&uuml;fung.',
+                'Admin-Spalte zeigt Status: &#x2713; (genehmigt), &#x26A0;&#xFE0F; (abgelehnt, mit Tooltip), &mdash; (nicht gepr&uuml;ft).',
+            ]);
+
             // ── Force Delete & Cleanup ──
-            self::function_card('Force Delete &amp; Orphan-Bereinigung', 'dashicons-trash', [
+            self::function_card('Force Delete &amp; Restlose Event-L&ouml;schung', 'dashicons-trash', [
                 '<strong>Force Delete:</strong> &Uuml;ber die Row-Action &bdquo;Unwiderruflich l&ouml;schen&ldquo; wird ein Event sofort und permanent gel&ouml;scht.',
                 'Dabei werden <strong>alle Hooks deaktiviert</strong> (Cleanup, Series, Sync, Metabox) f&uuml;r volle Kontrolle.',
                 'Bei Serien-Mastern: Alle Kinder + deren Produkte werden mit gel&ouml;scht.',
                 'Bei Serien-Kindern: Das Kind wird aus dem <code>_tix_series_children</code>-Array des Masters entfernt.',
-                '<strong>Orphan-Bereinigung:</strong> &Uuml;ber &bdquo;Verwaiste Daten bereinigen&ldquo; werden 3 Typen aufger&auml;umt:',
-                '1. <strong>Event-Kinder</strong> &ndash; Serien-Kinder deren Master nicht mehr existiert',
+                '<strong>Restlose L&ouml;schung</strong> via <code>TIX_Cleanup::purge_event_data()</code> &ndash; l&ouml;scht <strong>alle</strong> verkn&uuml;pften Daten:',
+                '&bull; <strong>Custom Tables:</strong> Raffle, Waitlist, Feedback, Seatmap, Ticket-DB, Promoter-Events, Promoter-Provisionen',
+                '&bull; <strong>Verkn&uuml;pfte CPTs:</strong> Abandoned Carts, Subscribers, WC-Coupons',
+                '&bull; <strong>Cron-Jobs:</strong> Geplante Reminder- und Follow-up-E-Mails',
+                '&bull; <strong>Transients:</strong> Sync-Log, AI-Flag, Publish-Error, Publish-Warning',
+                '<strong>Orphan-Bereinigung:</strong> &Uuml;ber &bdquo;Verwaiste Daten bereinigen&ldquo; werden aufger&auml;umt:',
+                '1. <strong>Event-Kinder</strong> &ndash; Serien-Kinder deren Master nicht mehr existiert (inkl. purge_event_data)',
                 '2. <strong>WC-Produkte</strong> &ndash; Produkte deren Eltern-Event nicht mehr existiert',
-                '3. <strong>API-Keys</strong> &ndash; API-Keys deren Eltern-Event nicht mehr existiert',
+                '3. <strong>TIX-Tickets</strong> &ndash; Tickets deren Event nicht mehr existiert',
             ]);
 
             // ── Dynamischer Prefix ──
@@ -1258,8 +1284,8 @@ class TIX_Docs {
             // ── Admin Post Actions ──
             self::meta_card('Admin-Post-Actions <small>(admin_post_)</small>', 'dashicons-admin-links', [
                 ['tix_duplicate_event', 'Event komplett duplizieren (als Entwurf)', 'Admin'],
-                ['tix_force_delete_event', 'Event permanent l&ouml;schen inkl. aller Abh&auml;ngigkeiten', 'Admin'],
-                ['tix_cleanup_orphans', 'Verwaiste Daten bereinigen (WC-Produkte, Kind-Events)', 'Admin'],
+                ['tix_force_delete_event', 'Event restlos l&ouml;schen inkl. WC-Produkte, Custom Tables, CPTs, Crons', 'Admin'],
+                ['tix_cleanup_orphans', 'Verwaiste Daten bereinigen (Events, WC-Produkte, Tickets) inkl. purge_event_data', 'Admin'],
                 ['tix_export_subscribers', 'Newsletter-Abonnenten als CSV exportieren', 'Admin'],
                 ['tix_export_tickets_csv', 'Ticket-Daten als CSV exportieren', 'Admin'],
             ]);
@@ -1281,6 +1307,8 @@ class TIX_Docs {
                 ['tix_delete_blocked_{USER_ID}', 'L&ouml;sch-Schutz-Hinweis (30 Sek.)', 'Admin-Notice'],
                 ['tix_orphan_cleanup_result_{USER_ID}', 'Orphan-Bereinigungsergebnis (30 Sek.)', 'Admin-Notice'],
                 ['tix_force_delete_result_{USER_ID}', 'Force-Delete-Ergebnis (30 Sek.)', 'Admin-Notice'],
+                ['tix_ai_flag_{POST_ID}', 'KI-Schutz: Flag-Meldung oder Fehler (120 Sek.)', 'Admin-Notice'],
+                ['_tix_ai_last_error', 'Letzter KI-API-Fehler (60 Sek.)', 'Intern'],
                 ['tix_cart_transfer_{TOKEN}', 'Warenkorb-Wiederherstellungsdaten (15 Min.)', 'Cart Recovery'],
                 ['tix_group_{TOKEN}', 'Gruppenbuchung-Session (48 Std.)', 'Group Booking'],
                 ['tix_stats_{TAB}_{HASH}', 'Statistik-Daten pro Tab + Filter (10 Min.)', 'Statistik-Cache'],
@@ -1289,7 +1317,8 @@ class TIX_Docs {
 
             // ── Save-Post Hooks ──
             self::meta_card('save_post_event Reihenfolge', 'dashicons-sort', [
-                ['Priorit&auml;t 10', 'TIX_Metabox::save() &ndash; Meta-Felder speichern', 'Admin'],
+                ['Priorit&auml;t 10', 'TIX_Metabox::save() &ndash; Meta-Felder speichern + Pflichtfeld-Validierung', 'Admin'],
+                ['Priorit&auml;t 12', 'TIX_Content_Guard::check() &ndash; KI-Inhaltspruefung (wenn aktiviert)', 'Admin'],
                 ['Priorit&auml;t 20', 'TIX_Sync::sync() &ndash; WC/TC synchronisieren + Breakdance-Meta', 'Admin'],
                 ['Priorit&auml;t 25', 'TIX_Series::on_save() &ndash; Kind-Events generieren/aktualisieren', 'Admin'],
             ]);
