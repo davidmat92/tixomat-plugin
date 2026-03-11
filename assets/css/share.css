@@ -5,6 +5,7 @@
 .tix-share {
     display: flex;
     align-items: center;
+    justify-content: inherit;
     gap: 12px;
     font-family: inherit;
 }
@@ -12,7 +13,7 @@
 .tix-share-label {
     font-size: .82rem;
     font-weight: 600;
-    color: var(--ep-muted, #64748b);
+    color: var(--tix-text, inherit);
     white-space: nowrap;
 }
 
