@@ -291,6 +291,10 @@ class TIX_Settings {
             'exit_intent_button_text'  => 'Jetzt einl&ouml;sen',
             'exit_intent_cookie_days'  => 7,
             'exit_intent_delay'        => 5,
+            // Kampagnen-Tracking
+            'campaign_tracking_enabled'  => 0,
+            'campaign_cookie_days'       => 30,
+            'campaign_custom_channels'   => '[]',
             // ── Geführter Modus ──
             'wizard_enabled'     => 1,
             // ── Theme-Modus (universell) ──
@@ -646,6 +650,10 @@ class TIX_Settings {
         $clean['exit_intent_button_text'] = sanitize_text_field($input['exit_intent_button_text'] ?? '');
         $clean['exit_intent_cookie_days'] = max(1, intval($input['exit_intent_cookie_days'] ?? 7));
         $clean['exit_intent_delay']       = max(0, intval($input['exit_intent_delay'] ?? 5));
+        // Kampagnen-Tracking
+        $clean['campaign_tracking_enabled']  = !empty($input['campaign_tracking_enabled']) ? 1 : 0;
+        $clean['campaign_cookie_days']       = max(1, min(365, intval($input['campaign_cookie_days'] ?? 30)));
+        $clean['campaign_custom_channels']   = sanitize_text_field($input['campaign_custom_channels'] ?? '[]');
 
         // Geführter Modus
         $clean['wizard_enabled'] = !empty($input['wizard_enabled']) ? 1 : 0;
@@ -2175,6 +2183,36 @@ class TIX_Settings {
                                             </div>
                                             <div class="tix-field tix-field-full">
                                                 <p class="tix-settings-hint">Nach Aktivierung erscheint unter <strong>Tixomat &rarr; Marketing Export</strong> die Export-Seite mit Filter-Optionen.</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Kampagnen-Tracking ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-chart-bar"></span>
+                                        <h3>Kampagnen-Tracking</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('campaign_tracking_enabled',
+                                                    'Kampagnen-Tracking aktivieren', $s,
+                                                    'Trackt Besucher-Quellen per URL-Parameter (?tix_src=...) und ordnet Ticket-Verk&auml;ufe zu. DSGVO-konform, keine personenbezogenen Daten.'); ?>
+                                            </div>
+                                            <div class="tix-field">
+                                                <label class="tix-field-label">Cookie-Laufzeit (Tage)</label>
+                                                <input type="number" name="tix_settings[campaign_cookie_days]"
+                                                       value="<?php echo intval($s['campaign_cookie_days'] ?? 30); ?>"
+                                                       class="small-text" min="1" max="365" step="1">
+                                                <p class="tix-settings-hint">First-Touch Attribution: Der erste Kanal wird gespeichert.</p>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <p class="tix-settings-hint">
+                                                    Nach Aktivierung erscheint unter <strong>Tixomat &rarr; Kampagnen</strong> das Analytics-Dashboard.
+                                                    Im Event-Editor wird ein Tab &bdquo;Kampagnen&ldquo; mit fertigem Link-Generator angezeigt.
+                                                </p>
                                             </div>
                                         </div>
                                     </div>

@@ -266,6 +266,12 @@ class TIX_Metabox {
                     <span class="dashicons dashicons-schedule"></span>
                     <span class="tix-nav-label">Programm</span>
                 </button>
+                <?php if (function_exists('tix_get_settings') && tix_get_settings('campaign_tracking_enabled')): ?>
+                <button type="button" class="tix-nav-tab" data-tab="campaigns">
+                    <span class="dashicons dashicons-chart-bar"></span>
+                    <span class="tix-nav-label">Kampagnen</span>
+                </button>
+                <?php endif; ?>
                 <?php if (function_exists('tix_get_settings') && tix_get_settings('promoter_enabled') && class_exists('TIX_Promoter_Admin')): ?>
                 <button type="button" class="tix-nav-tab" data-tab="promoter">
                     <span class="dashicons dashicons-businessman"></span>
@@ -316,6 +322,11 @@ class TIX_Metabox {
                 <div class="tix-pane" data-pane="timetable">
                     <?php self::render_timetable($post); ?>
                 </div>
+                <?php if (function_exists('tix_get_settings') && tix_get_settings('campaign_tracking_enabled')): ?>
+                <div class="tix-pane" data-pane="campaigns">
+                    <?php self::render_campaign_links($post); ?>
+                </div>
+                <?php endif; ?>
                 <?php if (function_exists('tix_get_settings') && tix_get_settings('promoter_enabled') && class_exists('TIX_Promoter_Admin')): ?>
                 <div class="tix-pane" data-pane="promoter">
                     <?php TIX_Promoter_Admin::render_event_tab($post); ?>
@@ -2521,6 +2532,122 @@ class TIX_Metabox {
     // ──────────────────────────────────────────
     // Gewinnspiel (Raffle)
     // ──────────────────────────────────────────
+    // ──────────────────────────────────────────
+    // Tab: Kampagnen (Link-Generator)
+    // ──────────────────────────────────────────
+
+    public static function render_campaign_links($post) {
+        $permalink = get_permalink($post->ID);
+        $channels  = class_exists('TIX_Campaign_Tracking') ? TIX_Campaign_Tracking::get_all_channels() : [];
+
+        // Icons für bekannte Kanäle
+        $icons = [
+            'instagram'  => '📸', 'tiktok'    => '🎵', 'facebook'  => '📘',
+            'linkedin'   => '💼', 'xing'      => '🔷', 'whatsapp'  => '💬',
+            'youtube'    => '▶️',  'email'     => '📧', 'google_ads'=> '🔍',
+            'flyer'      => '📄', 'website'   => '🌐', 'twitter'   => '🐦',
+            'podcast'    => '🎙️', 'telegram'  => '✈️',
+        ];
+        ?>
+        <div class="tix-expert-section">
+            <h3>🔗 Marketing-Links</h3>
+            <p class="description" style="margin-bottom:16px">
+                Verwende diese Links in deinen Social-Media-Posts, Newslettern und Werbung.
+                Jeder Klick wird automatisch dem Kanal zugeordnet &ndash; du siehst unter
+                <strong>Tixomat &rarr; Kampagnen</strong>, welcher Kanal Besucher und Tickets bringt.
+            </p>
+
+            <div id="tix-campaign-links" style="display:grid;gap:8px;max-width:700px">
+                <?php foreach ($channels as $slug => $label):
+                    $url = add_query_arg('tix_src', $slug, $permalink);
+                    $icon = $icons[$slug] ?? '📌';
+                ?>
+                <div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px">
+                    <span style="font-size:18px;width:24px;text-align:center"><?php echo $icon; ?></span>
+                    <strong style="min-width:110px;font-size:13px"><?php echo esc_html($label); ?></strong>
+                    <input type="text" readonly value="<?php echo esc_attr($url); ?>"
+                           class="tix-campaign-url"
+                           style="flex:1;font-size:12px;padding:5px 8px;border:1px solid #d1d5db;border-radius:4px;background:#fff;font-family:monospace;cursor:pointer"
+                           onclick="this.select(); navigator.clipboard.writeText(this.value).then(function(){});">
+                    <button type="button" class="button button-small tix-copy-campaign-url"
+                            data-url="<?php echo esc_attr($url); ?>"
+                            style="flex-shrink:0;font-size:11px">📋 Kopieren</button>
+                </div>
+                <?php endforeach; ?>
+            </div>
+
+            <div style="margin-top:20px;padding:16px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;max-width:700px">
+                <h4 style="margin:0 0 8px;font-size:13px">➕ Kampagnen-Name hinzuf&uuml;gen</h4>
+                <p class="description" style="margin-bottom:10px">
+                    Nutze Kampagnen-Namen um verschiedene Posts auf dem gleichen Kanal zu unterscheiden.
+                </p>
+                <div style="display:flex;gap:8px;align-items:end;flex-wrap:wrap">
+                    <div>
+                        <label style="display:block;font-size:11px;font-weight:600;margin-bottom:2px">Kanal</label>
+                        <select id="tix-camp-channel" style="min-width:140px">
+                            <?php foreach ($channels as $slug => $label): ?>
+                            <option value="<?php echo esc_attr($slug); ?>"><?php echo esc_html($label); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div>
+                        <label style="display:block;font-size:11px;font-weight:600;margin-bottom:2px">Kampagne</label>
+                        <input type="text" id="tix-camp-name" placeholder="z.B. summer_sale" style="width:180px">
+                    </div>
+                    <button type="button" class="button" id="tix-camp-generate">Link generieren</button>
+                </div>
+                <div id="tix-camp-result" style="margin-top:10px;display:none">
+                    <input type="text" readonly id="tix-camp-result-url"
+                           style="width:100%;font-size:12px;padding:6px 8px;border:1px solid #d1d5db;border-radius:4px;background:#fff;font-family:monospace;cursor:pointer"
+                           onclick="this.select(); navigator.clipboard.writeText(this.value).then(function(){});">
+                </div>
+            </div>
+
+            <div style="margin-top:20px;padding:16px;background:#fefce8;border:1px solid #fde68a;border-radius:8px;max-width:700px">
+                <h4 style="margin:0 0 4px;font-size:13px">💡 Tipp: UTM-Parameter</h4>
+                <p class="description" style="margin:0">
+                    Standard UTM-Parameter (<code>?utm_source=...</code>) werden ebenfalls erkannt.
+                    Bestehende UTM-Links funktionieren weiterhin &ndash; <code>tix_src</code> hat aber Priorit&auml;t.
+                </p>
+            </div>
+        </div>
+
+        <script>
+        (function(){
+            var permalink = <?php echo wp_json_encode($permalink); ?>;
+
+            // Copy buttons
+            document.querySelectorAll('.tix-copy-campaign-url').forEach(function(btn) {
+                btn.addEventListener('click', function() {
+                    var url = this.getAttribute('data-url');
+                    navigator.clipboard.writeText(url).then(function() {
+                        btn.textContent = '✓ Kopiert!';
+                        setTimeout(function() { btn.textContent = '📋 Kopieren'; }, 2000);
+                    });
+                });
+            });
+
+            // Campaign link generator
+            var genBtn = document.getElementById('tix-camp-generate');
+            if (genBtn) {
+                genBtn.addEventListener('click', function() {
+                    var ch = document.getElementById('tix-camp-channel').value;
+                    var camp = document.getElementById('tix-camp-name').value.trim().replace(/\s+/g, '_').toLowerCase();
+                    var url = permalink + (permalink.indexOf('?') > -1 ? '&' : '?') + 'tix_src=' + ch;
+                    if (camp) url += '&tix_camp=' + encodeURIComponent(camp);
+                    var result = document.getElementById('tix-camp-result');
+                    var input = document.getElementById('tix-camp-result-url');
+                    input.value = url;
+                    result.style.display = 'block';
+                    input.select();
+                    navigator.clipboard.writeText(url).catch(function(){});
+                });
+            }
+        })();
+        </script>
+        <?php
+    }
+
     public static function render_raffle($post) {
         $enabled      = get_post_meta($post->ID, '_tix_raffle_enabled', true);
         $title        = get_post_meta($post->ID, '_tix_raffle_title', true) ?: '';

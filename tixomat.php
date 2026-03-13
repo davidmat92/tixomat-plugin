@@ -9,7 +9,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.28.91');
+define('TIXOMAT_VERSION', '1.28.93');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -214,6 +214,10 @@ if (tix_get_settings('exit_intent_enabled')) {
     require_once TIXOMAT_PATH . 'includes/class-tix-exit-intent.php';
     TIX_Exit_Intent::init();
 }
+if (tix_get_settings('campaign_tracking_enabled')) {
+    require_once TIXOMAT_PATH . 'includes/class-tix-campaign-tracking.php';
+    TIX_Campaign_Tracking::init();
+}
 
 // ── DB-Tabellen bei Aktivierung ──
 register_activation_hook(__FILE__, function() {
@@ -225,6 +229,8 @@ register_activation_hook(__FILE__, function() {
     TIX_Raffle::create_table();
     TIX_Waitlist::create_table();
     TIX_Feedback::create_table();
+    require_once TIXOMAT_PATH . 'includes/class-tix-campaign-tracking.php';
+    TIX_Campaign_Tracking::create_table();
 
     // Waitlist cron
     if (!wp_next_scheduled('tix_waitlist_check')) {
@@ -247,6 +253,12 @@ if (is_admin()) {
     if (tix_get_settings('marketing_export_enabled')) {
         require_once TIXOMAT_PATH . 'includes/class-tix-marketing-export.php';
         TIX_Marketing_Export::init();
+    }
+
+    // Kampagnen-Analytics (Admin-Seite)
+    if (tix_get_settings('campaign_tracking_enabled')) {
+        require_once TIXOMAT_PATH . 'includes/class-tix-campaign-analytics.php';
+        TIX_Campaign_Analytics::init();
     }
 }
 
@@ -728,6 +740,12 @@ add_action('admin_init', function() {
         if (class_exists('TIX_Promoter_DB')) {
             TIX_Promoter_DB::create_tables();
         }
+    }
+
+    // v1.28.92: Campaign-Tracking Tabelle
+    if (version_compare($stored, '1.28.92', '<')) {
+        require_once TIXOMAT_PATH . 'includes/class-tix-campaign-tracking.php';
+        TIX_Campaign_Tracking::create_table();
     }
 
     update_option('tix_db_version', TIXOMAT_VERSION);
