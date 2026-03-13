@@ -1,0 +1,62 @@
+/**
+ * Tixomat Social Proof Widget
+ */
+.tix-sp {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--tix-text, #0D0B09);
+    background: var(--tix-card-bg, #fff);
+    border: 1px solid var(--tix-border, #e5e7eb);
+    border-radius: var(--tix-radius, 8px);
+    transition: opacity 0.4s ease, transform 0.4s ease;
+    transform: translateY(-4px);
+}
+
+.tix-sp__icon {
+    display: flex;
+    color: var(--tix-buy-bg, #FF5500);
+    flex-shrink: 0;
+}
+
+.tix-sp__dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #4caf50;
+    animation: tix-sp-pulse 2s ease-in-out infinite;
+    flex-shrink: 0;
+}
+
+@keyframes tix-sp-pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(0.8); }
+}
+
+/* Position: above_tickets / below_hero */
+.tix-sp--above_tickets,
+.tix-sp--below_hero {
+    margin-bottom: 16px;
+}
+
+/* Position: floating */
+.tix-sp--floating {
+    position: fixed;
+    bottom: 24px;
+    left: 24px;
+    z-index: 9990;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+}
+
+@media (max-width: 600px) {
+    .tix-sp--floating {
+        bottom: 12px;
+        left: 12px;
+        right: 12px;
+        font-size: 0.78rem;
+        padding: 6px 12px;
+    }
+}

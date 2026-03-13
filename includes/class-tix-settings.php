@@ -246,6 +246,12 @@ class TIX_Settings {
             // ── Promoter-System ──
             'promoter_enabled'      => 0,
             'promoter_cookie_days'  => 30,
+            'promoter_self_signup'  => 0,
+            'promoter_signup_commission_type'  => 'fixed',
+            'promoter_signup_commission_value' => 2,
+            'promoter_signup_auto_events'      => 1,
+            'promoter_post_purchase_enabled'   => 0,
+            'promoter_my_tickets_enabled'      => 0,
             // ── Veranstalter-Dashboard ──
             'organizer_dashboard_enabled' => 0,
             'organizer_auto_publish'      => 0,
@@ -258,6 +264,33 @@ class TIX_Settings {
             'ai_guard_api_key'  => '',
             // ── Mein-Konto Styling ──
             'myaccount_restyle'  => 0,
+
+            // ── Marketing ──
+            // VIP
+            'vip_enabled'            => 0,
+            'vip_min_tickets'        => 5,
+            'vip_min_orders'         => 3,
+            'vip_discount_enabled'   => 0,
+            'vip_discount_type'      => 'percent',
+            'vip_discount_value'     => 10,
+            'vip_badge_label'        => 'VIP',
+            // Marketing-Export
+            'marketing_export_enabled' => 0,
+            // Social Proof
+            'social_proof_enabled'     => 0,
+            'social_proof_text'        => '{count} Personen sehen sich dieses Event gerade an',
+            'social_proof_min_count'   => 2,
+            'social_proof_multiplier'  => 1.5,
+            'social_proof_interval'    => 30,
+            'social_proof_position'    => 'above_tickets',
+            // Exit-Intent
+            'exit_intent_enabled'      => 0,
+            'exit_intent_coupon_code'  => '',
+            'exit_intent_headline'     => 'Warte! Hier ist dein Rabatt',
+            'exit_intent_text'         => 'Sichere dir {discount} Rabatt mit folgendem Code:',
+            'exit_intent_button_text'  => 'Jetzt einl&ouml;sen',
+            'exit_intent_cookie_days'  => 7,
+            'exit_intent_delay'        => 5,
             // ── Geführter Modus ──
             'wizard_enabled'     => 1,
             // ── Theme-Modus (universell) ──
@@ -564,6 +597,12 @@ class TIX_Settings {
         // Promoter-System
         $clean['promoter_enabled'] = !empty($input['promoter_enabled']) ? 1 : 0;
         $clean['promoter_cookie_days'] = max(1, intval($input['promoter_cookie_days'] ?? 30));
+        $clean['promoter_self_signup'] = !empty($input['promoter_self_signup']) ? 1 : 0;
+        $clean['promoter_signup_commission_type']  = in_array($input['promoter_signup_commission_type'] ?? '', ['percent', 'fixed']) ? $input['promoter_signup_commission_type'] : 'fixed';
+        $clean['promoter_signup_commission_value'] = max(0, floatval($input['promoter_signup_commission_value'] ?? 2));
+        $clean['promoter_signup_auto_events']      = !empty($input['promoter_signup_auto_events']) ? 1 : 0;
+        $clean['promoter_post_purchase_enabled']   = !empty($input['promoter_post_purchase_enabled']) ? 1 : 0;
+        $clean['promoter_my_tickets_enabled']      = !empty($input['promoter_my_tickets_enabled']) ? 1 : 0;
 
         // Veranstalter-Dashboard
         $clean['organizer_dashboard_enabled'] = !empty($input['organizer_dashboard_enabled']) ? 1 : 0;
@@ -580,6 +619,33 @@ class TIX_Settings {
 
         // Mein-Konto Styling
         $clean['myaccount_restyle'] = !empty($input['myaccount_restyle']) ? 1 : 0;
+
+        // ── Marketing ──
+        // VIP
+        $clean['vip_enabled']          = !empty($input['vip_enabled']) ? 1 : 0;
+        $clean['vip_min_tickets']      = max(1, intval($input['vip_min_tickets'] ?? 5));
+        $clean['vip_min_orders']       = max(1, intval($input['vip_min_orders'] ?? 3));
+        $clean['vip_discount_enabled'] = !empty($input['vip_discount_enabled']) ? 1 : 0;
+        $clean['vip_discount_type']    = in_array($input['vip_discount_type'] ?? '', ['percent', 'fixed']) ? $input['vip_discount_type'] : 'percent';
+        $clean['vip_discount_value']   = max(0, floatval($input['vip_discount_value'] ?? 10));
+        $clean['vip_badge_label']      = sanitize_text_field($input['vip_badge_label'] ?? 'VIP');
+        // Marketing-Export
+        $clean['marketing_export_enabled'] = !empty($input['marketing_export_enabled']) ? 1 : 0;
+        // Social Proof
+        $clean['social_proof_enabled']    = !empty($input['social_proof_enabled']) ? 1 : 0;
+        $clean['social_proof_text']       = sanitize_text_field($input['social_proof_text'] ?? '');
+        $clean['social_proof_min_count']  = max(1, intval($input['social_proof_min_count'] ?? 2));
+        $clean['social_proof_multiplier'] = max(1.0, min(3.0, floatval($input['social_proof_multiplier'] ?? 1.5)));
+        $clean['social_proof_interval']   = max(10, min(120, intval($input['social_proof_interval'] ?? 30)));
+        $clean['social_proof_position']   = in_array($input['social_proof_position'] ?? '', ['above_tickets', 'below_hero', 'floating']) ? $input['social_proof_position'] : 'above_tickets';
+        // Exit-Intent
+        $clean['exit_intent_enabled']     = !empty($input['exit_intent_enabled']) ? 1 : 0;
+        $clean['exit_intent_coupon_code'] = sanitize_text_field($input['exit_intent_coupon_code'] ?? '');
+        $clean['exit_intent_headline']    = sanitize_text_field($input['exit_intent_headline'] ?? '');
+        $clean['exit_intent_text']        = sanitize_textarea_field($input['exit_intent_text'] ?? '');
+        $clean['exit_intent_button_text'] = sanitize_text_field($input['exit_intent_button_text'] ?? '');
+        $clean['exit_intent_cookie_days'] = max(1, intval($input['exit_intent_cookie_days'] ?? 7));
+        $clean['exit_intent_delay']       = max(0, intval($input['exit_intent_delay'] ?? 5));
 
         // Geführter Modus
         $clean['wizard_enabled'] = !empty($input['wizard_enabled']) ? 1 : 0;
@@ -1066,6 +1132,10 @@ class TIX_Settings {
                             <button type="button" class="tix-nav-tab" data-tab="share">
                                 <span class="dashicons dashicons-share"></span>
                                 <span class="tix-nav-label">Share</span>
+                            </button>
+                            <button type="button" class="tix-nav-tab" data-tab="marketing">
+                                <span class="dashicons dashicons-megaphone"></span>
+                                <span class="tix-nav-label">Marketing</span>
                             </button>
                             <button type="button" class="tix-nav-tab" data-tab="advanced">
                                 <span class="dashicons dashicons-admin-generic"></span>
@@ -1988,6 +2058,130 @@ class TIX_Settings {
 
                             </div>
 
+                            <?php // ═══ PANE: MARKETING ═══ ?>
+                            <div class="tix-pane" data-pane="marketing">
+
+                                <?php // ── Card: VIP-Erkennung ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-awards"></span>
+                                        <h3>VIP-Erkennung</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('vip_enabled',
+                                                    'VIP-Erkennung aktivieren', $s,
+                                                    'Wiederkehrende K&auml;ufer werden automatisch als VIP markiert.'); ?>
+                                            </div>
+                                            <?php self::text_row('vip_badge_label', 'Badge-Text', $s, 'VIP'); ?>
+                                            <?php self::text_row('vip_min_tickets', 'Mindest-Tickets', $s, '5'); ?>
+                                            <?php self::text_row('vip_min_orders', 'Mindest-Bestellungen', $s, '3'); ?>
+                                            <div class="tix-field tix-field-full">
+                                                <p class="tix-settings-hint">Kunde wird VIP wenn <strong>Tickets &ge; Mindest-Tickets</strong> ODER <strong>Bestellungen &ge; Mindest-Bestellungen</strong>.</p>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('vip_discount_enabled',
+                                                    'Automatischer VIP-Rabatt', $s,
+                                                    'VIP-Kunden erhalten automatisch einen Rabatt im Warenkorb.'); ?>
+                                            </div>
+                                            <div class="tix-field">
+                                                <label>Rabatt-Typ</label>
+                                                <select name="tix_settings[vip_discount_type]">
+                                                    <option value="percent" <?php selected($s['vip_discount_type'], 'percent'); ?>>Prozent (%)</option>
+                                                    <option value="fixed" <?php selected($s['vip_discount_type'], 'fixed'); ?>>Festbetrag (&euro;)</option>
+                                                </select>
+                                            </div>
+                                            <?php self::text_row('vip_discount_value', 'Rabatt-Wert', $s, '10'); ?>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Social Proof ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-groups"></span>
+                                        <h3>Social Proof</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('social_proof_enabled',
+                                                    'Social Proof aktivieren', $s,
+                                                    'Zeigt die Anzahl aktueller Besucher auf Event-Seiten an.'); ?>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::text_row('social_proof_text', 'Anzeigetext', $s,
+                                                    '{count} Personen sehen sich dieses Event gerade an'); ?>
+                                            </div>
+                                            <?php self::text_row('social_proof_min_count', 'Minimum f&uuml;r Anzeige', $s, '2'); ?>
+                                            <?php self::range_row('social_proof_multiplier', 'Multiplikator', $s, 1.0, 3.0, 0.1); ?>
+                                            <?php self::text_row('social_proof_interval', 'Intervall (Sek.)', $s, '30'); ?>
+                                            <div class="tix-field">
+                                                <label>Position</label>
+                                                <select name="tix_settings[social_proof_position]">
+                                                    <option value="above_tickets" <?php selected($s['social_proof_position'], 'above_tickets'); ?>>Über Ticket-Selektor</option>
+                                                    <option value="below_hero" <?php selected($s['social_proof_position'], 'below_hero'); ?>>Unter Hero-Bild</option>
+                                                    <option value="floating" <?php selected($s['social_proof_position'], 'floating'); ?>>Schwebend (unten links)</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Exit-Intent Popup ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-migrate"></span>
+                                        <h3>Exit-Intent Popup</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('exit_intent_enabled',
+                                                    'Exit-Intent Popup aktivieren', $s,
+                                                    'Zeigt einen Rabattcode wenn der Besucher die Seite verlassen will.'); ?>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::text_row('exit_intent_coupon_code', 'WooCommerce Coupon-Code', $s, 'z.B. BLEIB10'); ?>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::text_row('exit_intent_headline', '&Uuml;berschrift', $s, 'Warte! Hier ist dein Rabatt'); ?>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <label>&Uuml;berschrift</label>
+                                                <textarea name="tix_settings[exit_intent_text]" rows="2" class="large-text"><?php echo esc_textarea($s['exit_intent_text']); ?></textarea>
+                                                <p class="tix-settings-hint">Platzhalter: <code>{discount}</code> wird durch den Coupon-Rabatt ersetzt.</p>
+                                            </div>
+                                            <?php self::text_row('exit_intent_button_text', 'Button-Text', $s, 'Jetzt einl&ouml;sen'); ?>
+                                            <?php self::text_row('exit_intent_cookie_days', 'Nicht erneut zeigen (Tage)', $s, '7'); ?>
+                                            <?php self::text_row('exit_intent_delay', 'Verz&ouml;gerung (Sek.)', $s, '5'); ?>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Marketing-Export ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-email-alt"></span>
+                                        <h3>Marketing-Export (Mailchimp / Brevo)</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('marketing_export_enabled',
+                                                    'Marketing-Export aktivieren', $s,
+                                                    'Erm&ouml;glicht den segmentierten CSV-Export von Kundendaten f&uuml;r Mailchimp, Brevo etc.'); ?>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <p class="tix-settings-hint">Nach Aktivierung erscheint unter <strong>Tixomat &rarr; Marketing Export</strong> die Export-Seite mit Filter-Optionen.</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                            </div>
+
                             <div class="tix-pane" data-pane="advanced">
 
                                 <?php // ── Card: Google Places ── ?>
@@ -2171,6 +2365,29 @@ class TIX_Settings {
                                                        value="<?php echo intval($s['promoter_cookie_days'] ?? 30); ?>"
                                                        class="small-text" min="1" max="365" step="1">
                                                 <p class="tix-settings-hint">Wie lange ein Referral-Cookie g&uuml;ltig ist. Standard: 30 Tage. Je l&auml;nger, desto sicherer die Zuordnung &ndash; auch wenn der K&auml;ufer erst sp&auml;ter kauft.</p>
+                                            </div>
+                                            <div class="tix-field tix-field-full" style="border-top:1px solid #e5e7eb;padding-top:16px;margin-top:8px">
+                                                <h4 style="margin:0 0 8px">Empfehlungsprogramm</h4>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('promoter_self_signup', 'Self-Signup erlauben', $s, 'K&auml;ufer k&ouml;nnen sich selbst als Promoter registrieren. Shortcode: <code>[tix_promoter_signup]</code>'); ?>
+                                            </div>
+                                            <div class="tix-field">
+                                                <label>Standard-Provisions-Typ</label>
+                                                <select name="tix_settings[promoter_signup_commission_type]">
+                                                    <option value="fixed" <?php selected($s['promoter_signup_commission_type'] ?? 'fixed', 'fixed'); ?>>Festbetrag (&euro;)</option>
+                                                    <option value="percent" <?php selected($s['promoter_signup_commission_type'] ?? 'fixed', 'percent'); ?>>Prozent (%)</option>
+                                                </select>
+                                            </div>
+                                            <?php self::text_row('promoter_signup_commission_value', 'Provisions-Wert', $s, '2'); ?>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('promoter_signup_auto_events', 'Alle Events automatisch zuweisen', $s, 'Neue Self-Signup Promoter werden automatisch allen &ouml;ffentlichen Events zugewiesen.'); ?>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('promoter_post_purchase_enabled', 'Empfehlungs-CTA auf Danke-Seite', $s, 'Zeigt nach dem Kauf einen Aufruf: &bdquo;Teile deinen Link und verdiene pro Verkauf&ldquo;.'); ?>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('promoter_my_tickets_enabled', 'Referral-Link in Meine Tickets', $s, 'Zeigt den pers&ouml;nlichen Empfehlungslink im Meine-Tickets-Bereich.'); ?>
                                             </div>
                                         </div>
                                     </div>

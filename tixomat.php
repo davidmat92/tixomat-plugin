@@ -9,7 +9,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.28.89');
+define('TIXOMAT_VERSION', '1.28.91');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -194,6 +194,25 @@ require_once TIXOMAT_PATH . 'includes/class-tix-promoter-db.php';
 require_once TIXOMAT_PATH . 'includes/class-tix-promoter.php';
 if (tix_get_settings('promoter_enabled')) {
     TIX_Promoter::init();
+    // Promoter Self-Signup / Empfehlungsprogramm
+    if (tix_get_settings('promoter_self_signup') || tix_get_settings('promoter_post_purchase_enabled') || tix_get_settings('promoter_my_tickets_enabled')) {
+        require_once TIXOMAT_PATH . 'includes/class-tix-promoter-signup.php';
+        TIX_Promoter_Signup::init();
+    }
+}
+
+// ── Marketing-Features ──
+if (tix_get_settings('vip_enabled')) {
+    require_once TIXOMAT_PATH . 'includes/class-tix-vip.php';
+    TIX_VIP::init();
+}
+if (tix_get_settings('social_proof_enabled')) {
+    require_once TIXOMAT_PATH . 'includes/class-tix-social-proof.php';
+    TIX_Social_Proof::init();
+}
+if (tix_get_settings('exit_intent_enabled')) {
+    require_once TIXOMAT_PATH . 'includes/class-tix-exit-intent.php';
+    TIX_Exit_Intent::init();
 }
 
 // ── DB-Tabellen bei Aktivierung ──
@@ -222,6 +241,12 @@ if (is_admin()) {
     if (tix_get_settings('promoter_enabled')) {
         require_once TIXOMAT_PATH . 'includes/class-tix-promoter-admin.php';
         TIX_Promoter_Admin::init();
+    }
+
+    // Marketing-Export (Admin-Seite)
+    if (tix_get_settings('marketing_export_enabled')) {
+        require_once TIXOMAT_PATH . 'includes/class-tix-marketing-export.php';
+        TIX_Marketing_Export::init();
     }
 }
 

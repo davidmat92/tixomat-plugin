@@ -1,0 +1,161 @@
+/**
+ * Tixomat Exit-Intent Popup
+ */
+
+.tix-ei-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 99999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0);
+    backdrop-filter: blur(0);
+    transition: background 0.3s ease, backdrop-filter 0.3s ease;
+    padding: 16px;
+}
+
+.tix-ei-overlay--visible {
+    background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(4px);
+}
+
+.tix-ei-modal {
+    position: relative;
+    width: 100%;
+    max-width: 420px;
+    background: var(--tix-card-bg, #fff);
+    border-radius: var(--tix-radius, 10px);
+    padding: 36px 32px;
+    text-align: center;
+    box-shadow: 0 24px 48px rgba(0, 0, 0, 0.2);
+    transform: translateY(-20px);
+    opacity: 0;
+    transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.3s ease;
+}
+
+.tix-ei-overlay--visible .tix-ei-modal {
+    transform: translateY(0);
+    opacity: 1;
+}
+
+.tix-ei-close {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    background: none;
+    font-size: 22px;
+    color: rgba(0, 0, 0, 0.35);
+    cursor: pointer;
+    border-radius: 50%;
+    transition: background 0.15s, color 0.15s;
+}
+
+.tix-ei-close:hover {
+    background: rgba(0, 0, 0, 0.06);
+    color: rgba(0, 0, 0, 0.7);
+}
+
+.tix-ei-emoji {
+    font-size: 48px;
+    margin-bottom: 8px;
+    line-height: 1;
+}
+
+.tix-ei-headline {
+    font-size: 1.35rem;
+    font-weight: 800;
+    margin: 0 0 8px;
+    color: var(--tix-text, #0D0B09);
+}
+
+.tix-ei-text {
+    font-size: 0.95rem;
+    color: rgba(0, 0, 0, 0.55);
+    margin: 0 0 20px;
+    line-height: 1.5;
+}
+
+.tix-ei-coupon {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 20px;
+    background: rgba(0, 0, 0, 0.04);
+    border: 2px dashed var(--tix-border, #ccc);
+    border-radius: var(--tix-radius, 8px);
+    margin-bottom: 20px;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+    user-select: all;
+}
+
+.tix-ei-coupon:hover {
+    border-color: var(--tix-buy-bg, #FF5500);
+    background: rgba(0, 0, 0, 0.06);
+}
+
+.tix-ei-coupon--copied {
+    border-color: #4caf50 !important;
+    background: rgba(76, 175, 80, 0.08) !important;
+}
+
+.tix-ei-code {
+    font-size: 1.3rem;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    font-family: monospace, sans-serif;
+    color: var(--tix-text, #0D0B09);
+}
+
+.tix-ei-copy-icon {
+    display: flex;
+    color: rgba(0, 0, 0, 0.3);
+}
+
+.tix-ei-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    padding: 14px 24px;
+    background: var(--tix-buy-bg, #FF5500);
+    color: var(--tix-buy-color, #fff);
+    border: none;
+    border-radius: var(--tix-radius, 10px);
+    font-size: 1rem;
+    font-weight: 700;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background 0.15s, transform 0.1s;
+}
+
+.tix-ei-button:hover {
+    background: var(--tix-buy-hover, #e04d00);
+    transform: translateY(-1px);
+}
+
+.tix-ei-button:active {
+    transform: translateY(0);
+}
+
+@media (max-width: 600px) {
+    .tix-ei-modal {
+        padding: 28px 20px;
+        max-width: 100%;
+    }
+
+    .tix-ei-headline {
+        font-size: 1.15rem;
+    }
+
+    .tix-ei-code {
+        font-size: 1.1rem;
+    }
+}
