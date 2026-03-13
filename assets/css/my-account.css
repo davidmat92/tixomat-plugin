@@ -1,7 +1,7 @@
 /*
  * Tixomat – WooCommerce Mein-Konto Styling
  * Nutzt die globalen --tix-* CSS-Variablen.
- * Hohe Spezifitaet fuer Theme-Kompatibilitaet (Breakdance etc.)
+ * Breakdance-Theme kompatibel (hohe Spezifitaet + !important).
  */
 
 /* ══════════════════════════════════════
@@ -10,15 +10,15 @@
 body.woocommerce-account .woocommerce {
     --_bg: var(--tix-mt-bg, #ffffff);
     --_card: var(--tix-mt-card-bg, #ffffff);
-    --_text: var(--tix-text, #1a1a1a);
+    --_text: var(--tix-text, #0D0B09);
     --_border: var(--tix-mt-border, var(--tix-border, #e5e7eb));
-    --_accent: var(--tix-mt-accent, var(--tix-buy-bg, #c8ff00));
-    --_accent-text: var(--tix-buy-color, #000);
-    --_accent-hover: var(--tix-buy-hover, #b8e600);
+    --_accent: var(--tix-mt-accent, var(--tix-buy-bg, #FF5500));
+    --_accent-text: var(--tix-buy-color, #ffffff);
+    --_accent-hover: var(--tix-buy-hover, #e04d00);
     --_muted: var(--tix-mt-muted, rgba(0, 0, 0, 0.45));
-    --_radius: var(--tix-radius, 8px);
-    --_input-border: var(--tix-input-border, #555);
-    --_input-bg: var(--tix-input-bg, transparent);
+    --_radius: var(--tix-radius, 10px);
+    --_input-border: var(--tix-input-border, var(--_border));
+    --_input-bg: var(--tix-input-bg, #fff);
     --_focus: var(--tix-input-focus, var(--_accent));
 
     font-family: inherit;
@@ -26,21 +26,23 @@ body.woocommerce-account .woocommerce {
 }
 
 /* ══════════════════════════════════════
-   LAYOUT
+   LAYOUT – Override Breakdance flex-direction:column
    ══════════════════════════════════════ */
+body.woocommerce-account .bde-woopageaccount .woocommerce,
 body.woocommerce-account .woocommerce {
     display: flex !important;
-    flex-wrap: wrap;
-    gap: 24px;
+    flex-direction: row !important;
+    flex-wrap: wrap !important;
+    gap: 24px !important;
 }
 
 body.woocommerce-account .woocommerce-MyAccount-navigation {
-    flex: 0 0 220px;
+    flex: 0 0 220px !important;
 }
 
 body.woocommerce-account .woocommerce-MyAccount-content {
-    flex: 1;
-    min-width: 0;
+    flex: 1 !important;
+    min-width: 0 !important;
 }
 
 /* ══════════════════════════════════════
@@ -53,7 +55,8 @@ body.woocommerce-account .woocommerce-MyAccount-navigation ul {
     border: 1px solid var(--_border) !important;
     border-radius: var(--_radius) !important;
     background: var(--_card) !important;
-    overflow: hidden;
+    overflow: hidden !important;
+    display: block !important;
 }
 
 body.woocommerce-account .woocommerce-MyAccount-navigation ul li {
@@ -64,31 +67,38 @@ body.woocommerce-account .woocommerce-MyAccount-navigation ul li {
 
 body.woocommerce-account .woocommerce-MyAccount-navigation ul li a {
     display: block !important;
-    padding: 12px 16px !important;
+    padding: 13px 18px !important;
     color: var(--_text) !important;
     text-decoration: none !important;
     font-size: 0.9rem !important;
     font-weight: 500 !important;
     border-left: 3px solid transparent !important;
     border-bottom: none !important;
-    transition: background 0.15s, border-color 0.15s;
+    border-right: none !important;
+    border-top: none !important;
+    background: none !important;
+    transition: background 0.15s, border-color 0.15s, color 0.15s !important;
+}
+
+body.woocommerce-account .woocommerce-MyAccount-navigation ul li + li {
+    border-top: 1px solid var(--_border) !important;
 }
 
 body.woocommerce-account .woocommerce-MyAccount-navigation ul li + li a {
-    border-top: 1px solid var(--_border) !important;
+    border-top: none !important;
 }
 
 body.woocommerce-account .woocommerce-MyAccount-navigation ul li a:hover {
     background: rgba(0, 0, 0, 0.03) !important;
     border-left-color: var(--_accent) !important;
-    color: var(--_text) !important;
+    color: var(--_accent) !important;
 }
 
 body.woocommerce-account .woocommerce-MyAccount-navigation ul li.is-active a,
 body.woocommerce-account .woocommerce-MyAccount-navigation ul li.woocommerce-MyAccount-navigation-link--active a {
     font-weight: 700 !important;
     border-left-color: var(--_accent) !important;
-    background: rgba(0, 0, 0, 0.03) !important;
+    background: rgba(255, 85, 0, 0.04) !important;
     color: var(--_accent) !important;
 }
 
@@ -99,7 +109,7 @@ body.woocommerce-account .woocommerce-MyAccount-content {
     background: var(--_card) !important;
     border: 1px solid var(--_border) !important;
     border-radius: var(--_radius) !important;
-    padding: 24px !important;
+    padding: 28px !important;
 }
 
 /* ══════════════════════════════════════
@@ -107,17 +117,17 @@ body.woocommerce-account .woocommerce-MyAccount-content {
    ══════════════════════════════════════ */
 body.woocommerce-account .woocommerce-MyAccount-content h2,
 body.woocommerce-account .woocommerce-MyAccount-content h3 {
-    font-size: 1.15rem;
-    font-weight: 700;
-    margin: 0 0 16px 0;
-    padding-bottom: 12px;
-    border-bottom: 2px solid var(--_border);
-    color: var(--_text);
+    font-size: 1.15rem !important;
+    font-weight: 700 !important;
+    margin: 0 0 16px 0 !important;
+    padding-bottom: 12px !important;
+    border-bottom: 2px solid var(--_border) !important;
+    color: var(--_text) !important;
 }
 
 body.woocommerce-account .woocommerce-MyAccount-content h3 {
-    font-size: 1rem;
-    border-bottom-width: 1px;
+    font-size: 1rem !important;
+    border-bottom-width: 1px !important;
 }
 
 /* ══════════════════════════════════════
@@ -128,7 +138,7 @@ body.woocommerce-account .woocommerce-table--order-details,
 body.woocommerce-account .shop_table {
     width: 100% !important;
     border-collapse: collapse !important;
-    font-size: 0.9rem;
+    font-size: 0.9rem !important;
     border: none !important;
 }
 
@@ -136,9 +146,9 @@ body.woocommerce-account .shop_table thead th {
     text-align: left !important;
     padding: 10px 12px !important;
     font-weight: 700 !important;
-    font-size: 0.78rem !important;
+    font-size: 0.75rem !important;
     text-transform: uppercase !important;
-    letter-spacing: 0.03em;
+    letter-spacing: 0.05em !important;
     color: var(--_muted) !important;
     border-bottom: 2px solid var(--_border) !important;
     border-top: none !important;
@@ -149,7 +159,8 @@ body.woocommerce-account .shop_table tbody td {
     padding: 14px 12px !important;
     border-bottom: 1px solid var(--_border) !important;
     border-top: none !important;
-    vertical-align: middle;
+    vertical-align: middle !important;
+    font-size: 0.9rem !important;
 }
 
 body.woocommerce-account .shop_table tbody tr:last-child td {
@@ -162,23 +173,21 @@ body.woocommerce-account .shop_table tbody tr:hover td {
 
 body.woocommerce-account .shop_table tfoot th,
 body.woocommerce-account .shop_table tfoot td {
-    padding: 10px 12px !important;
+    padding: 12px !important;
     border-top: 2px solid var(--_border) !important;
-    font-weight: 700;
+    font-weight: 700 !important;
 }
 
 /* ══════════════════════════════════════
    ORDER STATUS BADGES
    ══════════════════════════════════════ */
-
-/* Status als Pill-Badge (mark element – WC Standard) */
 body.woocommerce-account mark.order-status {
     display: inline-block !important;
-    padding: 3px 10px !important;
+    padding: 4px 12px !important;
     border-radius: 20px !important;
     font-size: 0.72rem !important;
     font-weight: 700 !important;
-    white-space: nowrap;
+    white-space: nowrap !important;
     background: rgba(158, 158, 158, 0.12) !important;
     color: #888 !important;
 }
@@ -186,7 +195,7 @@ body.woocommerce-account mark.order-status {
 body.woocommerce-account mark.order-status.status-completed,
 body.woocommerce-account mark.order-status.status-processing {
     background: rgba(76, 175, 80, 0.12) !important;
-    color: #4caf50 !important;
+    color: #2e7d32 !important;
 }
 
 body.woocommerce-account mark.order-status.status-on-hold,
@@ -202,53 +211,70 @@ body.woocommerce-account mark.order-status.status-failed {
     color: #ef4444 !important;
 }
 
-/* Breakdance: Status als Plain-Text — Pill-Style anwenden */
+/* Status als reiner Text (Breakdance): leichtes Styling */
 body.woocommerce-account .woocommerce-orders-table__cell-order-status {
-    font-size: 0.72rem !important;
-    font-weight: 700 !important;
+    font-size: 0.8rem !important;
+    font-weight: 600 !important;
+    color: var(--_muted) !important;
 }
 
 /* ══════════════════════════════════════
-   BUTTONS
+   BUTTONS – Primary (Submit etc.)
+   Kill Breakdance ::after arrow icon
    ══════════════════════════════════════ */
 body.woocommerce-account .woocommerce-MyAccount-content .woocommerce-Button,
-body.woocommerce-account .woocommerce-MyAccount-content button[type="submit"] {
+body.woocommerce-account .woocommerce-MyAccount-content button[type="submit"],
+body.woocommerce-account .woocommerce-MyAccount-content input[type="submit"] {
     display: inline-flex !important;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    padding: 10px 20px !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 6px !important;
+    padding: 12px 24px !important;
     background: var(--_accent) !important;
     color: var(--_accent-text) !important;
     border: none !important;
     border-radius: var(--_radius) !important;
     font-size: 0.9rem !important;
     font-weight: 700 !important;
-    font-family: inherit;
-    cursor: pointer;
+    font-family: inherit !important;
+    cursor: pointer !important;
     text-decoration: none !important;
-    transition: background 0.15s, transform 0.1s;
-    line-height: 1.4;
+    text-transform: none !important;
+    letter-spacing: normal !important;
+    transition: background 0.15s, transform 0.1s !important;
+    line-height: 1.4 !important;
+}
+
+/* Remove Breakdance arrow pseudo-element */
+body.woocommerce-account .woocommerce-MyAccount-content .woocommerce-Button::after,
+body.woocommerce-account .woocommerce-MyAccount-content .woocommerce-Button::before,
+body.woocommerce-account .woocommerce-MyAccount-content button[type="submit"]::after,
+body.woocommerce-account .woocommerce-MyAccount-content button[type="submit"]::before,
+body.woocommerce-account .woocommerce-MyAccount-content input[type="submit"]::after,
+body.woocommerce-account .woocommerce-MyAccount-content input[type="submit"]::before {
+    display: none !important;
+    content: none !important;
 }
 
 body.woocommerce-account .woocommerce-MyAccount-content .woocommerce-Button:hover,
-body.woocommerce-account .woocommerce-MyAccount-content button[type="submit"]:hover {
+body.woocommerce-account .woocommerce-MyAccount-content button[type="submit"]:hover,
+body.woocommerce-account .woocommerce-MyAccount-content input[type="submit"]:hover {
     background: var(--_accent-hover) !important;
-    transform: translateY(-1px);
+    transform: translateY(-1px) !important;
 }
 
 body.woocommerce-account .woocommerce-MyAccount-content .woocommerce-Button:active,
 body.woocommerce-account .woocommerce-MyAccount-content button[type="submit"]:active {
-    transform: translateY(0);
+    transform: translateY(0) !important;
 }
 
-/* View-Button (in Tabellen) – outline Variante */
+/* Table inline buttons – Outline Variante */
 body.woocommerce-account .shop_table .button,
 body.woocommerce-account .shop_table a.button {
     display: inline-flex !important;
-    align-items: center;
-    justify-content: center;
-    padding: 8px 16px !important;
+    align-items: center !important;
+    justify-content: center !important;
+    padding: 8px 18px !important;
     font-size: 0.82rem !important;
     font-weight: 600 !important;
     background: transparent !important;
@@ -256,8 +282,17 @@ body.woocommerce-account .shop_table a.button {
     border: 1px solid var(--_border) !important;
     border-radius: var(--_radius) !important;
     text-decoration: none !important;
-    cursor: pointer;
-    transition: background 0.15s, border-color 0.15s, color 0.15s;
+    cursor: pointer !important;
+    transition: background 0.15s, border-color 0.15s, color 0.15s !important;
+}
+
+/* Kill Breakdance arrow on table buttons too */
+body.woocommerce-account .shop_table .button::after,
+body.woocommerce-account .shop_table .button::before,
+body.woocommerce-account .shop_table a.button::after,
+body.woocommerce-account .shop_table a.button::before {
+    display: none !important;
+    content: none !important;
 }
 
 body.woocommerce-account .shop_table .button:hover,
@@ -270,42 +305,47 @@ body.woocommerce-account .shop_table a.button:hover {
 /* ══════════════════════════════════════
    LINKS
    ══════════════════════════════════════ */
-body.woocommerce-account .woocommerce-MyAccount-content a {
+body.woocommerce-account .woocommerce-MyAccount-content a:not(.button):not(.edit) {
     color: var(--_accent) !important;
-    font-weight: 600;
+    font-weight: 600 !important;
     text-decoration: none !important;
 }
 
-body.woocommerce-account .woocommerce-MyAccount-content a:hover {
+body.woocommerce-account .woocommerce-MyAccount-content a:not(.button):not(.edit):hover {
     text-decoration: underline !important;
 }
 
 /* ══════════════════════════════════════
    ADDRESSES
    ══════════════════════════════════════ */
-body.woocommerce-account .woocommerce-Addresses {
+body.woocommerce-account .woocommerce-Addresses,
+body.woocommerce-account .u-columns.col2-set.addresses {
     display: grid !important;
-    grid-template-columns: 1fr 1fr;
-    gap: 16px;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 16px !important;
+    flex-direction: unset !important;
 }
 
 body.woocommerce-account .woocommerce-Addresses .woocommerce-Address,
-body.woocommerce-account .woocommerce-Address {
+body.woocommerce-account .u-columns .u-column1,
+body.woocommerce-account .u-columns .u-column2 {
     border: 1px solid var(--_border) !important;
     border-radius: var(--_radius) !important;
-    padding: 16px !important;
-    background: var(--_bg) !important;
+    padding: 20px !important;
+    background: var(--_card) !important;
 }
 
-body.woocommerce-account .woocommerce-Address-title {
+body.woocommerce-account .woocommerce-Address-title,
+body.woocommerce-account .woocommerce-Address header.title {
     display: flex !important;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 12px;
-    padding-bottom: 10px;
-    border-bottom: 1px solid var(--_border);
+    align-items: center !important;
+    justify-content: space-between !important;
+    margin-bottom: 14px !important;
+    padding-bottom: 12px !important;
+    border-bottom: 1px solid var(--_border) !important;
 }
 
+body.woocommerce-account .woocommerce-Address-title h2,
 body.woocommerce-account .woocommerce-Address-title h3 {
     margin: 0 !important;
     padding: 0 !important;
@@ -313,115 +353,154 @@ body.woocommerce-account .woocommerce-Address-title h3 {
     font-size: 0.95rem !important;
 }
 
-body.woocommerce-account .woocommerce-Address-title .edit {
-    font-size: 0.8rem !important;
+/* Address edit link – klein und dezent */
+body.woocommerce-account .woocommerce-Address-title a.edit {
+    display: inline-flex !important;
+    align-items: center !important;
+    padding: 6px 14px !important;
+    font-size: 0.78rem !important;
     font-weight: 600 !important;
+    color: var(--_accent) !important;
+    background: transparent !important;
+    border: 1px solid var(--_border) !important;
+    border-radius: var(--_radius) !important;
+    text-decoration: none !important;
+    cursor: pointer !important;
+    transition: background 0.15s, border-color 0.15s, color 0.15s !important;
+}
+
+/* Kill Breakdance arrow on edit links */
+body.woocommerce-account .woocommerce-Address-title a.edit::after,
+body.woocommerce-account .woocommerce-Address-title a.edit::before {
+    display: none !important;
+    content: none !important;
+}
+
+body.woocommerce-account .woocommerce-Address-title a.edit:hover {
+    background: var(--_accent) !important;
+    color: var(--_accent-text) !important;
+    border-color: var(--_accent) !important;
 }
 
 body.woocommerce-account .woocommerce-Address address {
-    font-style: normal;
-    font-size: 0.9rem;
-    line-height: 1.6;
-    color: var(--_muted);
+    font-style: normal !important;
+    font-size: 0.9rem !important;
+    line-height: 1.7 !important;
+    color: var(--_muted) !important;
 }
 
 /* ══════════════════════════════════════
    FORMS
    ══════════════════════════════════════ */
-body.woocommerce-account .woocommerce-MyAccount-content .form-row label {
-    display: block;
-    font-size: 0.85rem;
-    font-weight: 600;
-    margin-bottom: 4px;
-    color: var(--_text);
+body.woocommerce-account .woocommerce-MyAccount-content .form-row label,
+body.woocommerce-account .woocommerce-MyAccount-content label {
+    display: block !important;
+    font-size: 0.85rem !important;
+    font-weight: 600 !important;
+    margin-bottom: 6px !important;
+    color: var(--_text) !important;
 }
 
 body.woocommerce-account .woocommerce-MyAccount-content .form-row label .required {
-    color: var(--_accent);
+    color: var(--_accent) !important;
 }
 
-body.woocommerce-account .woocommerce-MyAccount-content .form-row input:not([type="checkbox"]):not([type="radio"]),
-body.woocommerce-account .woocommerce-MyAccount-content .form-row select,
-body.woocommerce-account .woocommerce-MyAccount-content .form-row textarea,
+body.woocommerce-account .woocommerce-MyAccount-content input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]),
+body.woocommerce-account .woocommerce-MyAccount-content select,
+body.woocommerce-account .woocommerce-MyAccount-content textarea,
 body.woocommerce-account .woocommerce-MyAccount-content .input-text {
     width: 100% !important;
-    padding: 10px 14px !important;
-    border: 1px solid var(--_input-border) !important;
+    padding: 11px 14px !important;
+    border: 1px solid var(--_border) !important;
     border-radius: var(--_radius) !important;
     background: var(--_input-bg) !important;
     color: var(--_text) !important;
-    font-size: 0.95rem;
-    font-family: inherit;
-    box-sizing: border-box;
-    transition: border-color 0.15s;
-    -webkit-appearance: none;
-    appearance: none;
+    font-size: 0.95rem !important;
+    font-family: inherit !important;
+    box-sizing: border-box !important;
+    transition: border-color 0.2s, box-shadow 0.2s !important;
+    -webkit-appearance: none !important;
+    appearance: none !important;
 }
 
-body.woocommerce-account .woocommerce-MyAccount-content .form-row input:focus,
-body.woocommerce-account .woocommerce-MyAccount-content .form-row select:focus,
-body.woocommerce-account .woocommerce-MyAccount-content .form-row textarea:focus,
-body.woocommerce-account .woocommerce-MyAccount-content .input-text:focus {
+body.woocommerce-account .woocommerce-MyAccount-content input:focus,
+body.woocommerce-account .woocommerce-MyAccount-content select:focus,
+body.woocommerce-account .woocommerce-MyAccount-content textarea:focus {
     outline: none !important;
-    border-color: var(--_focus) !important;
+    border-color: var(--_accent) !important;
+    box-shadow: 0 0 0 3px rgba(255, 85, 0, 0.1) !important;
 }
 
 body.woocommerce-account .woocommerce-MyAccount-content .form-row {
-    margin-bottom: 16px;
+    margin-bottom: 18px !important;
 }
 
 body.woocommerce-account .woocommerce-MyAccount-content fieldset {
-    border: 1px solid var(--_border);
-    border-radius: var(--_radius);
-    padding: 16px;
-    margin: 0 0 20px 0;
+    border: 1px solid var(--_border) !important;
+    border-radius: var(--_radius) !important;
+    padding: 20px !important;
+    margin: 0 0 24px 0 !important;
+    background: var(--_card) !important;
 }
 
 body.woocommerce-account .woocommerce-MyAccount-content fieldset legend {
-    font-weight: 700;
-    font-size: 0.95rem;
-    padding: 0 8px;
+    font-weight: 700 !important;
+    font-size: 0.95rem !important;
+    padding: 0 8px !important;
 }
 
 /* Select-Dropdown Pfeil */
-body.woocommerce-account .woocommerce-MyAccount-content .form-row select {
+body.woocommerce-account .woocommerce-MyAccount-content select {
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23999' stroke-width='1.5' fill='none'/%3E%3C/svg%3E") !important;
     background-repeat: no-repeat !important;
     background-position: right 12px center !important;
     padding-right: 36px !important;
-    cursor: pointer;
+    cursor: pointer !important;
 }
 
 /* ══════════════════════════════════════
-   NOTICES
+   NOTICES – Override Breakdance light-blue
    ══════════════════════════════════════ */
 body.woocommerce-account .woocommerce-message,
 body.woocommerce-account .woocommerce-error,
-body.woocommerce-account .woocommerce-info {
+body.woocommerce-account .woocommerce-info,
+body.woocommerce-account .woocommerce-Message {
     border: 1px solid var(--_border) !important;
     border-radius: var(--_radius) !important;
-    padding: 14px 16px !important;
+    padding: 16px 20px !important;
     margin-bottom: 20px !important;
-    font-size: 0.9rem;
-    line-height: 1.5;
+    font-size: 0.9rem !important;
+    line-height: 1.5 !important;
     background: var(--_card) !important;
     list-style: none !important;
+    color: var(--_text) !important;
 }
 
 body.woocommerce-account .woocommerce-message {
     border-left: 4px solid #4caf50 !important;
+    background: rgba(76, 175, 80, 0.04) !important;
 }
 
 body.woocommerce-account .woocommerce-error {
     border-left: 4px solid #ef4444 !important;
+    background: rgba(239, 68, 68, 0.04) !important;
 }
 
 body.woocommerce-account .woocommerce-info {
     border-left: 4px solid var(--_accent) !important;
+    background: rgba(255, 85, 0, 0.04) !important;
 }
 
 body.woocommerce-account .woocommerce-error li {
     list-style: none !important;
+}
+
+/* Links in Notices */
+body.woocommerce-account .woocommerce-message a,
+body.woocommerce-account .woocommerce-info a,
+body.woocommerce-account .woocommerce-error a {
+    color: var(--_accent) !important;
+    font-weight: 600 !important;
 }
 
 /* ══════════════════════════════════════
@@ -429,60 +508,69 @@ body.woocommerce-account .woocommerce-error li {
    ══════════════════════════════════════ */
 body.woocommerce-account .woocommerce-order-details,
 body.woocommerce-account .woocommerce-customer-details {
-    margin-bottom: 24px;
+    margin-bottom: 24px !important;
 }
 
-/* Rechnungsadresse Card */
 body.woocommerce-account .woocommerce-customer-details address {
-    border: 1px solid var(--_border);
-    border-radius: var(--_radius);
-    padding: 16px;
-    background: var(--_bg);
-    font-style: normal;
-    line-height: 1.6;
+    border: 1px solid var(--_border) !important;
+    border-radius: var(--_radius) !important;
+    padding: 20px !important;
+    background: var(--_card) !important;
+    font-style: normal !important;
+    line-height: 1.7 !important;
+}
+
+/* ══════════════════════════════════════
+   DASHBOARD – Intro-Text
+   ══════════════════════════════════════ */
+body.woocommerce-account .woocommerce-MyAccount-content > p:first-child {
+    font-size: 0.95rem !important;
+    line-height: 1.6 !important;
+    color: var(--_muted) !important;
 }
 
 /* ══════════════════════════════════════
    PAGINATION
    ══════════════════════════════════════ */
 body.woocommerce-account .woocommerce-pagination {
-    display: flex;
-    gap: 8px;
-    justify-content: center;
-    margin-top: 20px;
+    display: flex !important;
+    gap: 8px !important;
+    justify-content: center !important;
+    margin-top: 20px !important;
 }
 
 body.woocommerce-account .woocommerce-pagination .page-numbers {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 36px;
-    height: 36px;
-    padding: 0 10px;
-    border: 1px solid var(--_border);
-    border-radius: var(--_radius);
-    font-size: 0.85rem;
-    font-weight: 600;
-    text-decoration: none;
-    color: var(--_text);
-    transition: background 0.15s, border-color 0.15s;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    min-width: 36px !important;
+    height: 36px !important;
+    padding: 0 10px !important;
+    border: 1px solid var(--_border) !important;
+    border-radius: var(--_radius) !important;
+    font-size: 0.85rem !important;
+    font-weight: 600 !important;
+    text-decoration: none !important;
+    color: var(--_text) !important;
+    transition: background 0.15s, border-color 0.15s !important;
 }
 
 body.woocommerce-account .woocommerce-pagination .page-numbers:hover {
-    border-color: var(--_accent);
-    background: rgba(0, 0, 0, 0.03);
+    border-color: var(--_accent) !important;
+    background: rgba(0, 0, 0, 0.03) !important;
 }
 
 body.woocommerce-account .woocommerce-pagination .page-numbers.current {
-    background: var(--_accent);
-    color: var(--_accent-text);
-    border-color: var(--_accent);
+    background: var(--_accent) !important;
+    color: var(--_accent-text) !important;
+    border-color: var(--_accent) !important;
 }
 
 /* ══════════════════════════════════════
    RESPONSIVE
    ══════════════════════════════════════ */
-@media (max-width: 600px) {
+@media (max-width: 768px) {
+    body.woocommerce-account .bde-woopageaccount .woocommerce,
     body.woocommerce-account .woocommerce {
         flex-direction: column !important;
     }
@@ -494,16 +582,24 @@ body.woocommerce-account .woocommerce-pagination .page-numbers.current {
 
     body.woocommerce-account .woocommerce-MyAccount-navigation ul {
         display: flex !important;
-        overflow-x: auto;
+        overflow-x: auto !important;
         -webkit-overflow-scrolling: touch;
     }
 
+    body.woocommerce-account .woocommerce-MyAccount-navigation ul li {
+        border-top: none !important;
+    }
+
     body.woocommerce-account .woocommerce-MyAccount-navigation ul li a {
-        white-space: nowrap;
+        white-space: nowrap !important;
         padding: 10px 14px !important;
         font-size: 0.82rem !important;
         border-left: none !important;
         border-bottom: 3px solid transparent !important;
+    }
+
+    body.woocommerce-account .woocommerce-MyAccount-navigation ul li + li {
+        border-top: none !important;
     }
 
     body.woocommerce-account .woocommerce-MyAccount-navigation ul li + li a {
@@ -518,13 +614,13 @@ body.woocommerce-account .woocommerce-pagination .page-numbers.current {
     }
 
     body.woocommerce-account .woocommerce-MyAccount-content {
-        padding: 16px !important;
+        padding: 18px !important;
     }
 
     /* Tables: horizontal scroll */
     body.woocommerce-account .shop_table {
-        display: block;
-        overflow-x: auto;
+        display: block !important;
+        overflow-x: auto !important;
         -webkit-overflow-scrolling: touch;
     }
 
@@ -533,11 +629,12 @@ body.woocommerce-account .woocommerce-pagination .page-numbers.current {
     body.woocommerce-account .shop_table tr,
     body.woocommerce-account .shop_table td,
     body.woocommerce-account .shop_table th {
-        min-width: 100px;
+        min-width: 90px !important;
     }
 
     /* Addresses: single column */
-    body.woocommerce-account .woocommerce-Addresses {
+    body.woocommerce-account .woocommerce-Addresses,
+    body.woocommerce-account .u-columns.col2-set.addresses {
         grid-template-columns: 1fr !important;
     }
 }
