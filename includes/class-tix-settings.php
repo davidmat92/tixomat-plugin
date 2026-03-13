@@ -256,6 +256,8 @@ class TIX_Settings {
             // ── KI-Schutz ──
             'ai_guard_enabled'  => 0,
             'ai_guard_api_key'  => '',
+            // ── Mein-Konto Styling ──
+            'myaccount_restyle'  => 0,
             // ── Geführter Modus ──
             'wizard_enabled'     => 1,
             // ── Theme-Modus (universell) ──
@@ -576,6 +578,9 @@ class TIX_Settings {
         $clean['ai_guard_enabled'] = !empty($input['ai_guard_enabled']) ? 1 : 0;
         $clean['ai_guard_api_key'] = sanitize_text_field($input['ai_guard_api_key'] ?? '');
 
+        // Mein-Konto Styling
+        $clean['myaccount_restyle'] = !empty($input['myaccount_restyle']) ? 1 : 0;
+
         // Geführter Modus
         $clean['wizard_enabled'] = !empty($input['wizard_enabled']) ? 1 : 0;
 
@@ -764,17 +769,20 @@ class TIX_Settings {
         $vat_size = floatval($s['font_vat'] ?: $d['font_vat']);
         $vat_css  = ".tix-vat { font-size: {$vat_size}rem; font-weight: 400; }\n";
 
+        // ── Mein-Konto Scope (WC My Account Variablen erweitern) ──
+        $wc_scope = !empty($s['myaccount_restyle']) ? ', .woocommerce-account .woocommerce' : '';
+
         // ── Globale Textfarbe ──
         $text_css = '';
         if (!empty($s['color_text'])) {
             $vars[] = '--tix-text: ' . $s['color_text'];
-            $text_css = ".tix-sel, .tix-co, .tix-faq, .tix-up, .tix-mt, .tix-mc-trigger, .tix-ec-overlay, .tix-cal, .tix-raffle { color: var(--tix-text); }\n";
+            $text_css = ".tix-sel, .tix-co, .tix-faq, .tix-up, .tix-mt, .tix-mc-trigger, .tix-ec-overlay, .tix-cal, .tix-raffle{$wc_scope} { color: var(--tix-text); }\n";
         }
 
         if (empty($vars)) {
             echo "<style id=\"tix-custom-vars\">\n{$vat_css}{$text_css}";
         } else {
-            echo "<style id=\"tix-custom-vars\">\n.tix-sel, .tix-co, .tix-faq, .tix-up, .tix-mt, .tix-mc-trigger, .tix-mc-overlay, .tix-cal, .tix-raffle, .tix-ec-trigger, .tix-ec-overlay {\n    " . implode(";\n    ", $vars) . ";\n}\n";
+            echo "<style id=\"tix-custom-vars\">\n.tix-sel, .tix-co, .tix-faq, .tix-up, .tix-mt, .tix-mc-trigger, .tix-mc-overlay, .tix-cal, .tix-raffle, .tix-ec-trigger, .tix-ec-overlay{$wc_scope} {\n    " . implode(";\n    ", $vars) . ";\n}\n";
             echo $vat_css;
             echo $text_css;
         }
@@ -2224,6 +2232,21 @@ class TIX_Settings {
                                     </div>
                                 </div>
 
+                                <?php // ── Card: Mein-Konto Styling ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-admin-appearance"></span>
+                                        <h3>Mein-Konto Styling</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('myaccount_restyle', 'Tixomat-Design f&uuml;r WooCommerce &bdquo;Mein Konto&ldquo;', $s, '&Uuml;bernimmt das Tixomat-Design (Farben, Ecken, Schrift) f&uuml;r den gesamten WooCommerce &bdquo;Mein Konto&ldquo;-Bereich unter <code>/mein-konto/</code>.'); ?>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
                                 <?php // ── Card: Branding ── ?>
                                 <div class="tix-card">
                                     <div class="tix-card-header">
@@ -2940,5 +2963,15 @@ class TIX_Settings {
         <?php if ($desc): ?>
             <p class="tix-settings-hint"><?php echo $desc; ?></p>
         <?php endif;
+    }
+
+    /**
+     * WooCommerce Mein-Konto CSS bedingt laden
+     */
+    public static function enqueue_myaccount_css() {
+        if (!function_exists('is_account_page') || !is_account_page()) return;
+        if (empty(self::get()['myaccount_restyle'])) return;
+        wp_enqueue_style('tix-my-account',
+            TIXOMAT_URL . 'assets/css/my-account.css', [], TIXOMAT_VERSION);
     }
 }

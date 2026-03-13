@@ -9,7 +9,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.28.85');
+define('TIXOMAT_VERSION', '1.28.87');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -411,6 +411,7 @@ if (!is_admin()) {
     require_once TIXOMAT_PATH . 'includes/class-tix-embed.php';
     add_action('init', ['TIX_Frontend', 'init']);
     add_action('wp_head', ['TIX_Settings', 'output_css'], 99);
+    add_action('wp_enqueue_scripts', ['TIX_Settings', 'enqueue_myaccount_css']);
     TIX_Embed::init();
 
     // Gästeliste: QR-Seite für Gäste (Self-Service)
