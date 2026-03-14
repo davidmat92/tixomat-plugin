@@ -253,14 +253,22 @@ class TIX_POS {
 
             $stock = $product->get_stock_quantity();
             $total_qty = intval($cat['quantity'] ?? 0);
-            $sold = max(0, $total_qty - intval($stock));
+
+            // null = stock management disabled → unlimited
+            if ($stock === null || $stock === '') {
+                $available = -1; // -1 = unlimited
+                $sold = 0;
+            } else {
+                $available = max(0, intval($stock));
+                $sold = max(0, $total_qty - intval($stock));
+            }
 
             $categories[] = [
                 'index'      => $idx,
                 'product_id' => $pid,
                 'name'       => $cat['name'] ?? 'Ticket',
                 'price'      => floatval($product->get_price()),
-                'stock'      => max(0, intval($stock)),
+                'stock'      => $available,
                 'sold'       => $sold,
                 'total'      => $total_qty,
             ];
@@ -310,7 +318,7 @@ class TIX_POS {
                 wp_send_json_error(['message' => 'Produkt #' . $pid . ' nicht gefunden.']);
             }
             $stock = $product->get_stock_quantity();
-            if ($stock !== null && $stock < $qty) {
+            if ($stock !== null && $stock !== '' && intval($stock) < $qty) {
                 wp_send_json_error(['message' => $product->get_name() . ': Nur noch ' . $stock . ' verfügbar.']);
             }
         }

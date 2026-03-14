@@ -115,7 +115,7 @@
 }
 
 .pos-pin-logo-img {
-    max-width: 260px;
+    max-width: 150px;
     height: auto;
     margin-bottom: 8px;
 }
@@ -209,7 +209,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 12px 20px;
+    padding: 14px 28px;
     background: var(--pos-surface);
     border-bottom: 1px solid var(--pos-border);
     min-height: 56px;
@@ -277,7 +277,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 10px 20px;
+    padding: 12px 28px;
     background: var(--pos-surface);
     border-top: 1px solid var(--pos-border);
     font-size: 13px;
@@ -308,7 +308,7 @@
 .pos-events {
     flex: 1;
     overflow-y: auto;
-    padding: 20px;
+    padding: 24px 28px;
 }
 
 .pos-events-filter {
@@ -429,7 +429,7 @@
 }
 
 .pos-categories {
-    padding: 20px;
+    padding: 24px 28px;
     overflow-y: auto;
 }
 
@@ -507,7 +507,7 @@
 }
 
 .pos-cart-header {
-    padding: 16px 20px;
+    padding: 16px 24px;
     border-bottom: 1px solid var(--pos-border);
     font-family: var(--pos-font-display);
     font-size: 16px;
@@ -520,7 +520,7 @@
 .pos-cart-items {
     flex: 1;
     overflow-y: auto;
-    padding: 12px 16px;
+    padding: 14px 20px;
 }
 
 .pos-cart-item {
@@ -605,7 +605,7 @@
 
 /* ── Cart Footer ── */
 .pos-cart-footer {
-    padding: 16px 20px;
+    padding: 18px 24px;
     border-top: 1px solid var(--pos-border);
 }
 
@@ -1009,7 +1009,7 @@
 .pos-report {
     flex: 1;
     overflow-y: auto;
-    padding: 24px;
+    padding: 24px 28px;
 }
 
 .pos-report-kpis {
@@ -1172,7 +1172,7 @@
 .pos-transactions {
     flex: 1;
     overflow-y: auto;
-    padding: 20px;
+    padding: 24px 28px;
 }
 
 .pos-tx-list {

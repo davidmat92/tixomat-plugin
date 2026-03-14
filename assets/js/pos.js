@@ -277,11 +277,13 @@
     function renderSale() {
         var catHtml = '<div class="pos-cat-grid">';
         state.categories.forEach(function (c, idx) {
-            var soldOut = c.stock <= 0;
+            var unlimited = c.stock < 0; // -1 = unlimited (no stock management)
+            var soldOut = !unlimited && c.stock <= 0;
+            var stockLabel = unlimited ? 'Verfügbar' : 'Noch ' + c.stock + ' verfügbar';
             catHtml += '<div class="pos-cat-tile' + (soldOut ? ' sold-out' : '') + '" onclick="window._posAddToCart(' + idx + ')">' +
                 '<div class="pos-cat-name">' + esc(c.name) + '</div>' +
                 '<div class="pos-cat-price">' + money(c.price) + '</div>' +
-                '<div class="pos-cat-stock">Noch ' + c.stock + ' verfügbar</div>' +
+                '<div class="pos-cat-stock">' + stockLabel + '</div>' +
                 (soldOut ? '<div class="pos-cat-sold-out">Ausverkauft</div>' : '') +
                 '</div>';
         });
@@ -346,11 +348,13 @@
 
     window._posAddToCart = function (catIdx) {
         var cat = state.categories[catIdx];
-        if (!cat || cat.stock <= 0) return;
+        if (!cat) return;
+        var unlimited = cat.stock < 0;
+        if (!unlimited && cat.stock <= 0) return;
 
         var existing = state.cart.find(function (c) { return c.product_id === cat.product_id; });
         if (existing) {
-            if (existing.qty < cat.stock) existing.qty++;
+            if (unlimited || existing.qty < cat.stock) existing.qty++;
         } else {
             state.cart.push({
                 product_id: cat.product_id,
@@ -370,9 +374,9 @@
         if (item.qty <= 0) {
             state.cart.splice(idx, 1);
         } else {
-            // Check stock
+            // Check stock (skip if unlimited = -1)
             var cat = state.categories.find(function (c) { return c.product_id === item.product_id; });
-            if (cat && item.qty > cat.stock) item.qty = cat.stock;
+            if (cat && cat.stock >= 0 && item.qty > cat.stock) item.qty = cat.stock;
         }
         render();
     };
