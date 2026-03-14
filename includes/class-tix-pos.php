@@ -63,8 +63,9 @@ class TIX_POS {
             'allowFree'        => intval($s['pos_allow_free'] ?? 1),
             'requireEmail'     => intval($s['pos_require_email'] ?? 0),
             'requireName'      => intval($s['pos_require_name'] ?? 0),
-            'currency'         => get_woocommerce_currency_symbol(),
+            'currency'         => function_exists('get_woocommerce_currency_symbol') ? get_woocommerce_currency_symbol() : '€',
             'siteUrl'          => home_url(),
+            'logoUrl'          => 'https://tixomat.de/wp-content/uploads/2026/03/logo-tixomat-dark-500px.png',
         ]);
 
         return '<div id="tix-pos-app"></div>';
@@ -152,7 +153,7 @@ class TIX_POS {
 
     public static function handle_events() {
         check_ajax_referer('tix_pos', 'nonce');
-        if (!current_user_can('manage_woocommerce')) wp_send_json_error(['message' => 'Keine Berechtigung.']);
+        if (!current_user_can('manage_options')) wp_send_json_error(['message' => 'Keine Berechtigung.']);
 
         $filter = sanitize_text_field($_POST['filter'] ?? 'today');
         $search = sanitize_text_field($_POST['search'] ?? '');
@@ -232,7 +233,7 @@ class TIX_POS {
 
     public static function handle_event_tickets() {
         check_ajax_referer('tix_pos', 'nonce');
-        if (!current_user_can('manage_woocommerce')) wp_send_json_error(['message' => 'Keine Berechtigung.']);
+        if (!current_user_can('manage_options')) wp_send_json_error(['message' => 'Keine Berechtigung.']);
 
         $event_id = intval($_POST['event_id'] ?? 0);
         if (!$event_id) wp_send_json_error(['message' => 'Event fehlt.']);
@@ -274,7 +275,7 @@ class TIX_POS {
 
     public static function handle_create_order() {
         check_ajax_referer('tix_pos', 'nonce');
-        if (!current_user_can('manage_woocommerce')) wp_send_json_error(['message' => 'Keine Berechtigung.']);
+        if (!current_user_can('manage_options')) wp_send_json_error(['message' => 'Keine Berechtigung.']);
 
         $event_id     = intval($_POST['event_id'] ?? 0);
         $items        = json_decode(stripslashes($_POST['items'] ?? '[]'), true);
@@ -425,7 +426,7 @@ class TIX_POS {
 
     public static function handle_send_email() {
         check_ajax_referer('tix_pos', 'nonce');
-        if (!current_user_can('manage_woocommerce')) wp_send_json_error(['message' => 'Keine Berechtigung.']);
+        if (!current_user_can('manage_options')) wp_send_json_error(['message' => 'Keine Berechtigung.']);
 
         $order_id = intval($_POST['order_id'] ?? 0);
         $email    = sanitize_email($_POST['email'] ?? '');
@@ -460,7 +461,7 @@ class TIX_POS {
 
     public static function handle_void_order() {
         check_ajax_referer('tix_pos', 'nonce');
-        if (!current_user_can('manage_woocommerce')) wp_send_json_error(['message' => 'Keine Berechtigung.']);
+        if (!current_user_can('manage_options')) wp_send_json_error(['message' => 'Keine Berechtigung.']);
 
         $order_id = intval($_POST['order_id'] ?? 0);
         if (!$order_id) wp_send_json_error(['message' => 'Order-ID fehlt.']);
@@ -503,7 +504,7 @@ class TIX_POS {
 
     public static function handle_daily_report() {
         check_ajax_referer('tix_pos', 'nonce');
-        if (!current_user_can('manage_woocommerce')) wp_send_json_error(['message' => 'Keine Berechtigung.']);
+        if (!current_user_can('manage_options')) wp_send_json_error(['message' => 'Keine Berechtigung.']);
 
         $date = sanitize_text_field($_POST['date'] ?? date('Y-m-d'));
         $event_id = intval($_POST['event_id'] ?? 0);
@@ -618,7 +619,7 @@ class TIX_POS {
 
     public static function handle_transactions() {
         check_ajax_referer('tix_pos', 'nonce');
-        if (!current_user_can('manage_woocommerce')) wp_send_json_error(['message' => 'Keine Berechtigung.']);
+        if (!current_user_can('manage_options')) wp_send_json_error(['message' => 'Keine Berechtigung.']);
 
         $date     = sanitize_text_field($_POST['date'] ?? date('Y-m-d'));
         $event_id = intval($_POST['event_id'] ?? 0);

@@ -114,15 +114,10 @@
     padding: 40px;
 }
 
-.pos-pin-logo {
-    font-family: var(--pos-font-display);
-    font-size: 28px;
-    font-weight: 700;
-    letter-spacing: -0.5px;
-}
-
-.pos-pin-logo span {
-    color: var(--pos-accent);
+.pos-pin-logo-img {
+    max-width: 260px;
+    height: auto;
+    margin-bottom: 8px;
 }
 
 .pos-pin-title {
