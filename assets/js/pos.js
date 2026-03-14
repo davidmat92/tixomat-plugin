@@ -36,6 +36,7 @@
         dailyStats: { tickets: 0, revenue: 0 },
         resetTimer: null,
         resetStart: 0,
+        loading: {},  // track loading state per endpoint
     };
 
     var app = document.getElementById('tix-pos-app');
@@ -82,14 +83,14 @@
             renderQRCodes();
             startAutoReset();
         }
-        // Load data
-        if (state.screen === 'events' && state.events.length === 0) {
+        // Load data (with guard against re-entrancy)
+        if (state.screen === 'events' && state.events.length === 0 && !state.loading.events) {
             loadEvents();
         }
-        if (state.screen === 'report') {
+        if (state.screen === 'report' && !state.loading.report) {
             loadReport();
         }
-        if (state.screen === 'transactions') {
+        if (state.screen === 'transactions' && !state.loading.transactions) {
             loadTransactions();
         }
     }
@@ -214,6 +215,7 @@
     window._posFilter = function (f) {
         state.eventFilter = f;
         state.events = [];
+        state.loading.events = false;
         render();
         loadEvents();
     };
@@ -765,9 +767,13 @@
 
     // ── Data Loading ──
     function loadEvents() {
+        state.loading.events = true;
         ajax('tix_pos_events', { filter: state.eventFilter, search: state.searchQuery }, function (data) {
+            state.loading.events = false;
             state.events = data.events || [];
             render();
+        }, function () {
+            state.loading.events = false;
         });
     }
 
@@ -812,21 +818,25 @@
     }
 
     function loadReport() {
+        state.loading.report = true;
         ajax('tix_pos_daily_report', {
             date: new Date().toISOString().slice(0, 10),
             event_id: state.selectedEvent || 0,
         }, function (data) {
+            state.loading.report = false;
             renderReportData(data.report);
-        });
+        }, function () { state.loading.report = false; });
     }
 
     function loadTransactions() {
+        state.loading.transactions = true;
         ajax('tix_pos_transactions', {
             date: new Date().toISOString().slice(0, 10),
             event_id: state.selectedEvent || 0,
         }, function (data) {
+            state.loading.transactions = false;
             renderTransactionsList(data.transactions || []);
-        });
+        }, function () { state.loading.transactions = false; });
     }
 
     // ── Keyboard Shortcuts ──
