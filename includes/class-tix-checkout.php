@@ -382,7 +382,7 @@ class TIX_Checkout {
                         </div>
 
                         <?php
-                        $nl_settings = TIX_Settings::get();
+                        $nl_settings = tix_get_settings();
                         if (!empty($nl_settings['newsletter_enabled'])):
                             $nl_type  = $nl_settings['newsletter_type'] ?? 'email';
                             $nl_label = $nl_settings['newsletter_label'] ?: ($nl_type === 'whatsapp' ? 'Ich möchte den WhatsApp-Newsletter erhalten' : 'Ich möchte den Newsletter per E-Mail erhalten');
@@ -1217,7 +1217,7 @@ class TIX_Checkout {
      * Newsletter-Subscriber speichern nach Checkout
      */
     public static function save_newsletter_subscriber($order_id, $posted_data, $order) {
-        $nl = TIX_Settings::get();
+        $nl = tix_get_settings();
         if (empty($nl['newsletter_enabled'])) return;
         if (empty($_POST['tix_newsletter_optin'])) return;
 

@@ -1242,7 +1242,7 @@ class TIX_Emails {
 
     private static function get_settings() {
         if (class_exists('TIX_Settings')) {
-            return TIX_Settings::get();
+            return tix_get_settings();
         }
         return wp_parse_args(get_option('tix_settings', []), [
             'color_accent'      => '#c8ff00',

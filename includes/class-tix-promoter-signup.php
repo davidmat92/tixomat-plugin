@@ -13,7 +13,7 @@ if (!defined('ABSPATH')) exit;
 class TIX_Promoter_Signup {
 
     public static function init() {
-        $s = TIX_Settings::get();
+        $s = tix_get_settings();
 
         // Shortcode
         add_shortcode('tix_promoter_signup', [__CLASS__, 'shortcode']);
@@ -168,7 +168,7 @@ class TIX_Promoter_Signup {
         $code = self::generate_code($name);
 
         // In DB einfügen
-        $s = TIX_Settings::get();
+        $s = tix_get_settings();
         $promoter_id = TIX_Promoter_DB::create_promoter([
             'user_id'       => $user_id,
             'promoter_code' => $code,
@@ -211,7 +211,7 @@ class TIX_Promoter_Signup {
             }
         }
 
-        $s = TIX_Settings::get();
+        $s = tix_get_settings();
         $commission_text = ($s['promoter_signup_commission_type'] ?? 'fixed') === 'percent'
             ? intval($s['promoter_signup_commission_value'] ?? 2) . '%'
             : number_format(floatval($s['promoter_signup_commission_value'] ?? 2), 2, ',', '.') . ' €';
@@ -316,7 +316,7 @@ class TIX_Promoter_Signup {
      * Signup-Text mit Provisions-Info.
      */
     private static function get_signup_text() {
-        $s = TIX_Settings::get();
+        $s = tix_get_settings();
         $type = $s['promoter_signup_commission_type'] ?? 'fixed';
         $val  = floatval($s['promoter_signup_commission_value'] ?? 2);
 

@@ -25,7 +25,7 @@ class TIX_Exit_Intent {
         if (!is_singular('event')) return;
 
         $post_id = get_the_ID();
-        $s = TIX_Settings::get();
+        $s = tix_get_settings();
 
         // Per-Event Override prüfen
         $event_enabled = get_post_meta($post_id, '_tix_exit_intent_enabled', true);

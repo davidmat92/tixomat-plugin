@@ -30,7 +30,7 @@ class TIX_Social_Proof {
         if (!is_singular('event')) return;
 
         $post_id = get_the_ID();
-        $s = TIX_Settings::get();
+        $s = tix_get_settings();
 
         wp_enqueue_style('tix-social-proof', TIXOMAT_URL . 'assets/css/social-proof.css', [], TIXOMAT_VERSION);
         wp_enqueue_script('tix-social-proof', TIXOMAT_URL . 'assets/js/social-proof.js', [], TIXOMAT_VERSION, true);
@@ -55,7 +55,7 @@ class TIX_Social_Proof {
         $event_id = intval($_POST['event_id'] ?? 0);
         if (!$event_id) wp_send_json_error();
 
-        $s = TIX_Settings::get();
+        $s = tix_get_settings();
         $multiplier = max(1.0, floatval($s['social_proof_multiplier'] ?? 1.5));
 
         // Viewer-Hash generieren (Session + IP)

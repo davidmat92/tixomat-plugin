@@ -48,7 +48,7 @@ class TIX_VIP {
     public static function calculate_vip_status($user_id) {
         if (!$user_id) return false;
 
-        $s = TIX_Settings::get();
+        $s = tix_get_settings();
         $min_tickets = intval($s['vip_min_tickets'] ?? 5);
         $min_orders  = intval($s['vip_min_orders'] ?? 3);
 
@@ -135,7 +135,7 @@ class TIX_VIP {
         $user_id = get_current_user_id();
         if (!$user_id || !self::is_vip($user_id)) return;
 
-        $s    = TIX_Settings::get();
+        $s    = tix_get_settings();
         $type = $s['vip_discount_type'] ?? 'percent';
         $val  = floatval($s['vip_discount_value'] ?? 10);
         if ($val <= 0) return;
