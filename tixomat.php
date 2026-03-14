@@ -9,7 +9,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.28.93');
+define('TIXOMAT_VERSION', '1.29.1');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -127,6 +127,14 @@ function tix_get_settings($key = null) {
             'support_enabled'    => 0,
             'support_categories'  => '',
             'support_chat_enabled' => 0,
+            // POS / Abendkasse
+            'pos_enabled'              => 0,
+            'pos_pin_required'         => 1,
+            'pos_auto_reset_seconds'   => 10,
+            'pos_default_payment'      => 'cash',
+            'pos_allow_free'           => 1,
+            'pos_require_email'        => 0,
+            'pos_require_name'         => 0,
             // Geführter Modus
             'wizard_enabled'     => 1,
         ]);
@@ -217,6 +225,10 @@ if (tix_get_settings('exit_intent_enabled')) {
 if (tix_get_settings('campaign_tracking_enabled')) {
     require_once TIXOMAT_PATH . 'includes/class-tix-campaign-tracking.php';
     TIX_Campaign_Tracking::init();
+}
+if (tix_get_settings('pos_enabled')) {
+    require_once TIXOMAT_PATH . 'includes/class-tix-pos.php';
+    TIX_POS::init();
 }
 
 // ── DB-Tabellen bei Aktivierung ──
@@ -546,7 +558,7 @@ if (!is_admin()) {
 
     // Defer für unsere Scripts (kein Render-Blocking)
     add_filter('script_loader_tag', function($tag, $handle) {
-        if (in_array($handle, ['tix-ticket-selector', 'tix-modal-checkout', 'tix-faq', 'tix-checkout', 'tix-calendar', 'tix-my-tickets', 'tix-qr', 'tix-ticket-img', 'tix-group-booking', 'tix-checkin', 'tix-jsqr', 'tix-support-front', 'tix-support-chat', 'tix-promoter-dashboard', 'tix-raffle-draw'])) {
+        if (in_array($handle, ['tix-ticket-selector', 'tix-modal-checkout', 'tix-faq', 'tix-checkout', 'tix-calendar', 'tix-my-tickets', 'tix-qr', 'tix-ticket-img', 'tix-group-booking', 'tix-checkin', 'tix-jsqr', 'tix-support-front', 'tix-support-chat', 'tix-promoter-dashboard', 'tix-raffle-draw', 'tix-pos'])) {
             if (strpos($tag, 'defer') === false) {
                 return str_replace(' src', ' defer src', $tag);
             }
@@ -735,11 +747,17 @@ add_action('admin_init', function() {
         flush_rewrite_rules();
     }
 
-    // v1.29.0: Promoter-Tabellen erstellen
-    if (version_compare($stored, '1.29.0', '<')) {
+    // v1.28.94: Promoter-Tabellen erstellen
+    if (version_compare($stored, '1.28.94', '<')) {
         if (class_exists('TIX_Promoter_DB')) {
             TIX_Promoter_DB::create_tables();
         }
+    }
+
+    // v1.29.0: POS-System
+    if (version_compare($stored, '1.29.0', '<')) {
+        // POS braucht keine eigene Tabelle, nutzt WC Orders + tixomat_tickets
+        flush_rewrite_rules();
     }
 
     // v1.28.92: Campaign-Tracking Tabelle

@@ -295,6 +295,14 @@ class TIX_Settings {
             'campaign_tracking_enabled'  => 0,
             'campaign_cookie_days'       => 30,
             'campaign_custom_channels'   => '[]',
+            // ── POS / Abendkasse ──
+            'pos_enabled'              => 0,
+            'pos_pin_required'         => 1,
+            'pos_auto_reset_seconds'   => 10,
+            'pos_default_payment'      => 'cash',
+            'pos_allow_free'           => 1,
+            'pos_require_email'        => 0,
+            'pos_require_name'         => 0,
             // ── Geführter Modus ──
             'wizard_enabled'     => 1,
             // ── Theme-Modus (universell) ──
@@ -654,6 +662,15 @@ class TIX_Settings {
         $clean['campaign_tracking_enabled']  = !empty($input['campaign_tracking_enabled']) ? 1 : 0;
         $clean['campaign_cookie_days']       = max(1, min(365, intval($input['campaign_cookie_days'] ?? 30)));
         $clean['campaign_custom_channels']   = sanitize_text_field($input['campaign_custom_channels'] ?? '[]');
+
+        // POS / Abendkasse
+        $clean['pos_enabled']            = !empty($input['pos_enabled']) ? 1 : 0;
+        $clean['pos_pin_required']       = !empty($input['pos_pin_required']) ? 1 : 0;
+        $clean['pos_auto_reset_seconds'] = max(3, min(60, intval($input['pos_auto_reset_seconds'] ?? 10)));
+        $clean['pos_default_payment']    = in_array($input['pos_default_payment'] ?? '', ['cash', 'card', 'free']) ? $input['pos_default_payment'] : 'cash';
+        $clean['pos_allow_free']         = !empty($input['pos_allow_free']) ? 1 : 0;
+        $clean['pos_require_email']      = !empty($input['pos_require_email']) ? 1 : 0;
+        $clean['pos_require_name']       = !empty($input['pos_require_name']) ? 1 : 0;
 
         // Geführter Modus
         $clean['wizard_enabled'] = !empty($input['wizard_enabled']) ? 1 : 0;
@@ -2467,6 +2484,42 @@ class TIX_Settings {
                                                 <label class="tix-label" for="tix-support-categories">Support-Kategorien</label>
                                                 <textarea id="tix-support-categories" name="tix_settings[support_categories]" class="tix-textarea" rows="5" placeholder="Ticket nicht erhalten&#10;Ticketinhaber &auml;ndern&#10;Stornierung / Erstattung&#10;Fragen zum Event&#10;Sonstiges"><?php echo esc_textarea($s['support_categories'] ?? ''); ?></textarea>
                                                 <p class="tix-hint">Eine Kategorie pro Zeile. Leer lassen f&uuml;r Standard-Kategorien.</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: POS / Abendkasse ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-store"></span>
+                                        <h3>POS / Abendkasse</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('pos_enabled', 'POS-System aktivieren', $s, 'Tablet-optimiertes Fullscreen-Interface f&uuml;r Vor-Ort-Ticketverkauf. Verwende den Shortcode <code>[tix_pos]</code> auf einer beliebigen Seite.'); ?>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('pos_pin_required', 'PIN-Login erforderlich', $s, 'Kassenpersonal muss sich per PIN anmelden. PINs werden im Benutzerprofil hinterlegt.'); ?>
+                                            </div>
+                                            <?php self::range_row('pos_auto_reset_seconds', 'Auto-Reset nach Verkauf', $s, 3, 60, ' Sek.', 1); ?>
+                                            <div class="tix-field">
+                                                <label class="tix-label">Standard-Zahlungsart</label>
+                                                <select name="tix_settings[pos_default_payment]" class="tix-select">
+                                                    <option value="cash" <?php selected($s['pos_default_payment'], 'cash'); ?>>Barzahlung</option>
+                                                    <option value="card" <?php selected($s['pos_default_payment'], 'card'); ?>>EC-Karte</option>
+                                                    <option value="free" <?php selected($s['pos_default_payment'], 'free'); ?>>Kostenlos</option>
+                                                </select>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('pos_allow_free', 'Kostenlose Tickets erlauben', $s, 'Zeigt die Option &quot;Kostenlos&quot; als Zahlungsart im POS.'); ?>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('pos_require_email', 'E-Mail-Adresse erforderlich', $s, 'Kunde muss eine E-Mail eingeben (f&uuml;r automatischen Ticket-Versand).'); ?>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('pos_require_name', 'Kundenname erforderlich', $s, 'Kunde muss einen Namen eingeben.'); ?>
                                             </div>
                                         </div>
                                     </div>
