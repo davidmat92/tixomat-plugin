@@ -35,7 +35,7 @@
 /* ── Reset & Base ── */
 #tix-pos-app {
     position: fixed;
-    inset: 0;
+    inset: 16px;
     z-index: 999999;
     background: var(--pos-bg);
     color: var(--pos-text);
@@ -43,6 +43,8 @@
     font-size: 15px;
     line-height: 1.5;
     overflow: hidden;
+    border-radius: 20px;
+    box-shadow: 0 0 0 9999px rgba(0,0,0,.85);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
 }
