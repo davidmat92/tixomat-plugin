@@ -35,7 +35,7 @@
 /* ── Reset & Base ── */
 #tix-pos-app {
     position: fixed;
-    inset: 16px;
+    inset: 0;
     z-index: 999999;
     background: var(--pos-bg);
     color: var(--pos-text);
@@ -43,16 +43,12 @@
     font-size: 15px;
     line-height: 1.5;
     overflow: hidden;
-    border-radius: 20px;
-    box-shadow: 0 0 0 9999px rgba(0,0,0,.85);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
 }
 
 #tix-pos-app * {
     box-sizing: border-box;
-    margin: 0;
-    padding: 0;
 }
 
 #tix-pos-app button {
@@ -117,7 +113,7 @@
 }
 
 .pos-pin-logo-img {
-    max-width: 80px !important;
+    max-width: 120px !important;
     height: auto !important;
     margin-bottom: 0;
 }
