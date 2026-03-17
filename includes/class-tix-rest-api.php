@@ -1875,9 +1875,13 @@ class TIX_REST_API {
         $tickets = [];
 
         // Aus Ticket-DB
-        if (class_exists('TIX_Ticket_DB')) {
-            $db = new TIX_Ticket_DB();
-            $rows = $db->get_tickets_by_email($user->user_email);
+        global $wpdb;
+        $table = $wpdb->prefix . 'tix_tickets';
+        if ($wpdb->get_var("SHOW TABLES LIKE '{$table}'") === $table) {
+            $rows = $wpdb->get_results($wpdb->prepare(
+                "SELECT * FROM {$table} WHERE buyer_email = %s ORDER BY id DESC",
+                $user->user_email
+            ), ARRAY_A);
 
             foreach ($rows as $row) {
                 $event_id = intval($row['event_id'] ?? 0);
@@ -1890,9 +1894,9 @@ class TIX_REST_API {
                     'event_title' => $event ? $event->post_title : ($row['event_name'] ?? ''),
                     'event_date'  => $event_id ? get_post_meta($event_id, '_tix_date_start', true) : '',
                     'event_image' => $event_id ? get_the_post_thumbnail_url($event_id, 'medium') : '',
-                    'category'    => $row['ticket_category'] ?? '',
-                    'seat'        => $row['seat'] ?? '',
-                    'status'      => $row['status'] ?? 'valid',
+                    'category'    => $row['category_name'] ?? '',
+                    'seat'        => $row['seat_id'] ?? '',
+                    'status'      => $row['ticket_status'] ?? 'valid',
                     'checked_in'  => !empty($row['checked_in']),
                     'checkin_time' => $row['checkin_time'] ?? '',
                     'order_id'    => intval($row['order_id'] ?? 0),
@@ -1953,9 +1957,13 @@ class TIX_REST_API {
         $event_ids = [];
 
         // Aus Ticket-DB
-        if (class_exists('TIX_Ticket_DB')) {
-            $db = new TIX_Ticket_DB();
-            $rows = $db->get_tickets_by_email($user->user_email);
+        global $wpdb;
+        $table = $wpdb->prefix . 'tix_tickets';
+        if ($wpdb->get_var("SHOW TABLES LIKE '{$table}'") === $table) {
+            $rows = $wpdb->get_results($wpdb->prepare(
+                "SELECT DISTINCT event_id FROM {$table} WHERE buyer_email = %s",
+                $user->user_email
+            ), ARRAY_A);
             foreach ($rows as $row) {
                 $eid = intval($row['event_id'] ?? 0);
                 if ($eid) $event_ids[$eid] = true;
@@ -2026,9 +2034,13 @@ class TIX_REST_API {
         $tickets_count = 0;
         $upcoming_events = 0;
 
-        if (class_exists('TIX_Ticket_DB')) {
-            $db = new TIX_Ticket_DB();
-            $rows = $db->get_tickets_by_email($user->user_email);
+        global $wpdb;
+        $table = $wpdb->prefix . 'tix_tickets';
+        if ($wpdb->get_var("SHOW TABLES LIKE '{$table}'") === $table) {
+            $rows = $wpdb->get_results($wpdb->prepare(
+                "SELECT event_id FROM {$table} WHERE buyer_email = %s",
+                $user->user_email
+            ), ARRAY_A);
             $tickets_count = count($rows);
 
             $seen_events = [];
