@@ -328,6 +328,14 @@
                                 bundle_pay: bPay,
                                 bundle_label: cat.dataset.bundleLabel || ''
                             });
+                        } else if (cat.dataset.special === '1') {
+                            items.push({
+                                product_id: pid,
+                                quantity: qty,
+                                special: 1,
+                                special_id: parseInt(cat.dataset.specialId, 10),
+                                event_id: parseInt(cat.dataset.eventId, 10)
+                            });
                         } else {
                             items.push({
                                 product_id: pid,

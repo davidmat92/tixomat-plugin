@@ -205,6 +205,20 @@ class TIX_Checkout {
                         <a href="<?php echo esc_url(get_post_type_archive_link('event') ?: home_url()); ?>" class="tix-co-btn-more">+ Weitere Tickets kaufen</a>
                     </div>
 
+                    <?php
+                    // ── Specials Upsell im Checkout ──
+                    if (class_exists('TIX_Specials') && function_exists('tix_get_settings') && tix_get_settings('specials_enabled')) {
+                        TIX_Specials::render_checkout_section();
+                    }
+                    ?>
+
+                    <?php
+                    // ── Tischreservierung im Checkout (unter Specials) ──
+                    if (class_exists('TIX_Table_Reservation')) {
+                        TIX_Table_Reservation::render_checkout_table_section();
+                    }
+                    ?>
+
                     <div class="tix-co-section">
                         <div class="tix-co-coupon" id="tix-co-coupon">
                             <div class="tix-co-coupon-applied" id="tix-co-coupon-applied">
@@ -423,8 +437,12 @@ class TIX_Checkout {
                         <div class="tix-co-step-nav" style="margin-bottom:16px;"><button type="button" class="tix-co-step-btn tix-co-step-back" data-goto="2">← Zurück</button><div></div></div>
                         <?php endif; ?>
 
+                        <?php
+                        // Tischreservierung wurde nach Step 1 verschoben (unter Specials)
+                        ?>
+
                         <button type="submit" class="tix-co-submit" id="tix-co-submit">
-                            <span class="tix-co-submit-text"><?php echo esc_html($tix_s['btn_text_checkout'] ?? 'Jetzt kostenpflichtig bestellen'); ?></span>
+                            <span class="tix-co-submit-text"><?php echo esc_html($tix_s['btn_text_checkout'] ?? 'Jetzt kostenpflichtig bestellen'); ?> · <span class="tix-co-submit-price"><?php echo strip_tags(WC()->cart->get_total()); ?></span></span>
                             <span class="tix-co-submit-loading" style="display:none;">Bestellung wird verarbeitet…</span>
                         </button>
                     </div>
@@ -1079,6 +1097,11 @@ class TIX_Checkout {
         }
         if (!empty($values['_tix_seatmap_id'])) {
             $item->add_meta_data('_tix_seatmap_id', intval($values['_tix_seatmap_id']), true);
+        }
+        // Special-Meta persistieren
+        if (!empty($values['_tix_special'])) {
+            $item->add_meta_data('_tix_special', 1, true);
+            $item->add_meta_data('_tix_special_id', intval($values['_tix_special_id'] ?? 0), true);
         }
     }
 

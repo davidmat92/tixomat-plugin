@@ -2,7 +2,7 @@
 
 Zentrales Event-Management mit integriertem Ticketing-System, Saalplan-Editor, Support-CRM und automatischer WooCommerce-Synchronisation.
 
-**Version:** 1.28.0
+**Version:** 1.33.1
 **Autor:** MDJ Veranstaltungs UG (haftungsbeschraenkt)
 **Voraussetzungen:** WordPress 6.x, WooCommerce 8.x (HPOS-kompatibel)
 ---
@@ -59,6 +59,10 @@ Zentrales Event-Management mit integriertem Ticketing-System, Saalplan-Editor, S
 - Express-/One-Click Checkout Modal
 - Abandoned Cart Recovery mit E-Mail-Benachrichtigungen
 - Optionaler Newsletter-Signup beim Checkout
+- Eigenstaendige Warenkorb-Seite per `[tix_cart]` Shortcode
+- Mini-Cart Drawer (Slide-in von rechts) mit Live-Badge per WooCommerce Fragments
+- Tischreservierung im Checkout und Warenkorb (wenn fuer Event aktiviert)
+- Specials-Upsell im Checkout und Warenkorb
 
 ### Check-in System
 - Browser-basierter QR-Code Scanner
@@ -97,6 +101,8 @@ Zentrales Event-Management mit integriertem Ticketing-System, Saalplan-Editor, S
 - Spenden-/Charity-Integration (pro Event, % vom Warenkorb)
 - Admin-Statistiken mit Charts und KPIs
 - Dashboard-Widget mit anstehenden Events
+- POS-System / Abendkasse (Tablet-SPA mit PIN-Login, Barzahlung, EC, QR-Tickets)
+- Tischreservierung mit Kalender, Zahlungsmodi und WooCommerce-Integration
 
 ---
 
@@ -132,6 +138,10 @@ Zentrales Event-Management mit integriertem Ticketing-System, Saalplan-Editor, S
 | `[tix_newsletter]` | `event_id`, `label` | Newsletter-Formular |
 | `[tix_countdown]` | `id`, `style` | Countdown-Timer |
 | `[tix_group_booking]` | `id` | Gruppenbuchungs-Formular |
+| `[tix_cart]` | `checkout_url` | Eigenstaendige Warenkorb-Seite |
+| `[tix_table_reservation]` | — | Tischreservierung SPA (Kalender → Buchung) |
+| `[tix_table_button]` | `event_id` | Tischreservierungs-Dialog oeffnen |
+| `[tix_pos]` | — | POS / Abendkasse (Tablet-optimiert) |
 
 ---
 
@@ -161,7 +171,7 @@ Zentrales Event-Management mit integriertem Ticketing-System, Saalplan-Editor, S
 | Check-in | Check-in Seite, Scanner-Aufloesung |
 | Ticket-Vorlage | Hintergrundbild, Felder positionieren |
 | Sync | Airtable/Supabase Zugangsdaten |
-| Erweitert | Ticket-System, Loeschenschutz, Debug, Support |
+| Erweitert | Ticket-System, Loeschenschutz, Debug, Support, POS/Abendkasse |
 
 ---
 
@@ -172,7 +182,7 @@ tixomat/
 ├── tixomat.php                              Haupt-Plugin-Datei
 ├── DOCUMENTATION.md                         Technische Dokumentation
 ├── README.md
-├── includes/                                32 PHP-Klassen
+├── includes/                                55 PHP-Klassen
 │   ├── class-tix-cpt.php                   CPTs + Taxonomien + Admin UI
 │   ├── class-tix-metabox.php               Event-Editor (9 Tabs + Wizard)
 │   ├── class-tix-sync.php                  WooCommerce Sync
@@ -204,9 +214,33 @@ tixomat/
 │   ├── class-tix-statistics.php            Admin-Statistiken
 │   ├── class-tix-sync-airtable.php         Airtable-Integration
 │   ├── class-tix-sync-supabase.php         Supabase-Integration
+│   ├── class-tix-cart.php                 Warenkorb-Shortcode + Mini-Cart
+│   ├── class-tix-specials.php             Specials-Upsell (Checkout + Cart)
+│   ├── class-tix-table-reservation.php    Tischreservierung (SPA + Checkout)
+│   ├── class-tix-pos.php                  POS / Abendkasse
+│   ├── class-tix-modal-checkout.php       Modal-Checkout
+│   ├── class-tix-event-page.php           Event-Detailseite
+│   ├── class-tix-content-guard.php        KI-Inhaltspruefung
+│   ├── class-tix-social-proof.php         Social Proof Notifications
+│   ├── class-tix-share.php                Social-Sharing Buttons
+│   ├── class-tix-exit-intent.php          Exit-Intent Popup
+│   ├── class-tix-feedback.php             Post-Event Feedback
+│   ├── class-tix-raffle.php               Gewinnspiel-System
+│   ├── class-tix-waitlist.php             Warteliste
+│   ├── class-tix-timetable.php            Timetable / Programm
+│   ├── class-tix-vip.php                  VIP-Erweiterungen
+│   ├── class-tix-campaign-tracking.php    Campaign Tracking
+│   ├── class-tix-campaign-analytics.php   Campaign Analytics
+│   ├── class-tix-marketing-export.php     Marketing Export
+│   ├── class-tix-organizer-dashboard.php  Veranstalter-Dashboard
+│   ├── class-tix-promoter.php             Promoter-System
+│   ├── class-tix-promoter-admin.php       Promoter Admin
+│   ├── class-tix-promoter-dashboard.php   Promoter Dashboard
+│   ├── class-tix-promoter-db.php          Promoter Datenbank
+│   ├── class-tix-promoter-signup.php      Promoter Signup
 ├── assets/
-│   ├── css/                                 13 Stylesheets + Minified
-│   ├── js/                                  15 JavaScript-Dateien + Minified
+│   ├── css/                                 30+ Stylesheets + Minified
+│   ├── js/                                  30+ JavaScript-Dateien + Minified
 │   └── fonts/                               OpenSans, RobotoMono (TTF)
 └── .github/
     └── workflows/

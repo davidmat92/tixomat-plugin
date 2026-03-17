@@ -1267,3 +1267,41 @@
     font-size: 1em;
     line-height: 1;
 }
+
+/* ══════════════════════════════════════
+   Specials Section
+   ══════════════════════════════════════ */
+
+/* ── Specials ── */
+.tix-sel-specials-section {
+    margin-top: var(--tix-gap, 10px);
+}
+
+.tix-sel-special-image {
+    width: 48px;
+    height: 48px;
+    border-radius: var(--tix-sel-radius, var(--tix-radius, 8px));
+    overflow: hidden;
+    flex-shrink: 0;
+}
+
+.tix-sel-special-image img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.tix-sel-special-badge {
+    font-size: 0.75em;
+    font-weight: 600;
+    color: var(--tix-success-color, #4caf50);
+}
+
+.tix-sel-special-value {
+    text-decoration: line-through;
+    opacity: 0.45;
+    font-size: 0.75em;
+    font-weight: 400;
+    display: block;
+    line-height: 1.2;
+}

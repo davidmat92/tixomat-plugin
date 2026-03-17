@@ -186,8 +186,16 @@ class TIX_Tickets {
                 $is_tc_ticket = get_post_meta($product_id, '_tc_is_ticket', true) === 'yes';
                 if (!$is_tix_ticket && !$is_tc_ticket) continue;
 
+                // Special: Event-ID aus Order-Item-Meta
+                $is_special   = $item->get_meta('_tix_special') ? true : false;
+                $special_id   = intval($item->get_meta('_tix_special_id'));
+                $is_special   = $is_special || (get_post_meta($product_id, '_tix_is_special', true) === 'yes');
+
                 // Event-ID ermitteln
-                $event_id = intval(get_post_meta($product_id, '_tix_source_event', true));
+                $event_id = intval($item->get_meta('_tix_event_id'));
+                if (!$event_id) {
+                    $event_id = intval(get_post_meta($product_id, '_tix_source_event', true));
+                }
                 if (!$event_id) {
                     // Fallback: über _event_name → _tix_parent_event_id (Legacy)
                     $tc_event_id = get_post_meta($product_id, '_event_name', true);
@@ -230,6 +238,12 @@ class TIX_Tickets {
                     update_post_meta($ticket_id, '_tix_ticket_status',     'valid');
                     update_post_meta($ticket_id, '_tix_ticket_owner_email', $buyer_email);
                     update_post_meta($ticket_id, '_tix_ticket_owner_name',  $buyer_name);
+
+                    // Special-Meta
+                    if ($is_special && $special_id) {
+                        update_post_meta($ticket_id, '_tix_ticket_type', 'special');
+                        update_post_meta($ticket_id, '_tix_ticket_special_id', $special_id);
+                    }
 
                     // Kryptisches Download-Token generieren
                     $dl_token = bin2hex(random_bytes(32));

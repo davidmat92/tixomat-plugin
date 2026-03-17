@@ -1,6 +1,6 @@
 # Tixomat -- Event & Ticket Management
 
-**Version:** 1.28.84
+**Version:** 1.33.1
 **Autor:** MDJ Veranstaltungs UG (haftungsbeschraenkt)
 **Text Domain:** `tixomat`
 **Abhaengigkeiten:** WordPress 6.x, WooCommerce 8.x (HPOS-kompatibel)
@@ -12,7 +12,7 @@
 
 | Konstante | Wert | Beschreibung |
 |---|---|---|
-| `TIXOMAT_VERSION` | `'1.28.84'` | Aktuelle Plugin-Version |
+| `TIXOMAT_VERSION` | `'1.33.1'` | Aktuelle Plugin-Version |
 | `TIXOMAT_PATH` | `plugin_dir_path(__FILE__)` | Absoluter Pfad zum Plugin-Verzeichnis |
 | `TIXOMAT_URL` | `plugin_dir_url(__FILE__)` | URL zum Plugin-Verzeichnis |
 

@@ -24,6 +24,8 @@ class TIX_POS {
             'tix_pos_void_order',
             'tix_pos_daily_report',
             'tix_pos_transactions',
+            'tix_pos_sumup_checkout',
+            'tix_pos_sumup_status',
         ];
         foreach ($actions as $a) {
             add_action('wp_ajax_' . $a, [__CLASS__, 'handle_' . str_replace('tix_pos_', '', $a)]);
@@ -64,8 +66,11 @@ class TIX_POS {
             'requireEmail'     => intval($s['pos_require_email'] ?? 0),
             'requireName'      => intval($s['pos_require_name'] ?? 0),
             'currency'         => function_exists('get_woocommerce_currency_symbol') ? get_woocommerce_currency_symbol() : '€',
+            'currencyCode'     => function_exists('get_woocommerce_currency') ? get_woocommerce_currency() : 'EUR',
             'siteUrl'          => home_url(),
             'logoUrl'          => 'https://tixomat.de/wp-content/uploads/2026/03/logo-tixomat-dark-500px.png',
+            'sumupEnabled'     => intval($s['pos_sumup_enabled'] ?? 0),
+            'accentColor'      => $s['color_accent'] ?? '#c8ff00',
         ]);
 
         return '<div id="tix-pos-app"></div>';
@@ -358,6 +363,12 @@ class TIX_POS {
         $staff_user = get_userdata($staff_id);
         if ($staff_user) {
             $order->update_meta_data('_tix_pos_staff_name', $staff_user->display_name);
+        }
+
+        // SumUp transaction ID
+        $sumup_tx = sanitize_text_field($_POST['sumup_transaction_id'] ?? '');
+        if ($sumup_tx) {
+            $order->update_meta_data('_tix_pos_sumup_transaction_id', $sumup_tx);
         }
 
         // Apply coupon
@@ -691,6 +702,107 @@ class TIX_POS {
         }
 
         wp_send_json_success(['transactions' => $transactions]);
+    }
+
+    // ──────────────────────────────────────────
+    // AJAX: SumUp Checkout erstellen
+    // ──────────────────────────────────────────
+
+    public static function handle_sumup_checkout() {
+        check_ajax_referer('tix_pos', 'nonce');
+        if (!current_user_can('manage_options')) wp_send_json_error(['message' => 'Keine Berechtigung.']);
+
+        $s = function_exists('tix_get_settings') ? tix_get_settings() : [];
+        $api_key       = $s['pos_sumup_api_key'] ?? '';
+        $merchant_code = $s['pos_sumup_merchant_code'] ?? '';
+
+        if (empty($api_key) || empty($merchant_code)) {
+            wp_send_json_error(['message' => 'SumUp ist nicht konfiguriert. Bitte API-Key und Merchant-Code in den Einstellungen hinterlegen.']);
+        }
+
+        $amount      = floatval($_POST['amount'] ?? 0);
+        $currency    = sanitize_text_field($_POST['currency'] ?? 'EUR');
+        $description = sanitize_text_field($_POST['description'] ?? 'POS Ticket-Verkauf');
+        $checkout_ref = 'tix-pos-' . time() . '-' . wp_rand(1000, 9999);
+
+        if ($amount <= 0) {
+            wp_send_json_error(['message' => 'Ungültiger Betrag.']);
+        }
+
+        // Create SumUp Checkout via REST API
+        $response = wp_remote_post('https://api.sumup.com/v0.1/checkouts', [
+            'headers' => [
+                'Authorization' => 'Bearer ' . $api_key,
+                'Content-Type'  => 'application/json',
+            ],
+            'body' => wp_json_encode([
+                'checkout_reference' => $checkout_ref,
+                'amount'             => $amount,
+                'currency'           => strtoupper($currency),
+                'merchant_code'      => $merchant_code,
+                'description'        => $description,
+            ]),
+            'timeout' => 15,
+        ]);
+
+        if (is_wp_error($response)) {
+            wp_send_json_error(['message' => 'SumUp-Verbindung fehlgeschlagen: ' . $response->get_error_message()]);
+        }
+
+        $code = wp_remote_retrieve_response_code($response);
+        $body = json_decode(wp_remote_retrieve_body($response), true);
+
+        if ($code >= 400 || empty($body['id'])) {
+            $err_msg = $body['message'] ?? $body['error_message'] ?? 'Unbekannter Fehler (HTTP ' . $code . ')';
+            wp_send_json_error(['message' => 'SumUp Checkout fehlgeschlagen: ' . $err_msg]);
+        }
+
+        wp_send_json_success([
+            'checkout_id'  => $body['id'],
+            'checkout_ref' => $checkout_ref,
+            'amount'       => $amount,
+            'currency'     => $currency,
+            'status'       => $body['status'] ?? 'PENDING',
+        ]);
+    }
+
+    // ──────────────────────────────────────────
+    // AJAX: SumUp Checkout-Status abfragen
+    // ──────────────────────────────────────────
+
+    public static function handle_sumup_status() {
+        check_ajax_referer('tix_pos', 'nonce');
+        if (!current_user_can('manage_options')) wp_send_json_error(['message' => 'Keine Berechtigung.']);
+
+        $checkout_id = sanitize_text_field($_POST['checkout_id'] ?? '');
+        if (empty($checkout_id)) wp_send_json_error(['message' => 'Checkout-ID fehlt.']);
+
+        $s       = function_exists('tix_get_settings') ? tix_get_settings() : [];
+        $api_key = $s['pos_sumup_api_key'] ?? '';
+
+        if (empty($api_key)) {
+            wp_send_json_error(['message' => 'SumUp API-Key fehlt.']);
+        }
+
+        $response = wp_remote_get('https://api.sumup.com/v0.1/checkouts/' . urlencode($checkout_id), [
+            'headers' => [
+                'Authorization' => 'Bearer ' . $api_key,
+            ],
+            'timeout' => 10,
+        ]);
+
+        if (is_wp_error($response)) {
+            wp_send_json_error(['message' => 'SumUp-Abfrage fehlgeschlagen.']);
+        }
+
+        $body = json_decode(wp_remote_retrieve_body($response), true);
+
+        wp_send_json_success([
+            'checkout_id' => $checkout_id,
+            'status'      => $body['status'] ?? 'UNKNOWN',
+            'amount'      => floatval($body['amount'] ?? 0),
+            'transaction_id' => $body['transaction_id'] ?? '',
+        ]);
     }
 
     // ──────────────────────────────────────────

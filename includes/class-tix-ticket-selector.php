@@ -595,6 +595,13 @@ class TIX_Ticket_Selector {
             </div>
 
             <?php
+            // ── Specials-Sektion ──
+            if (class_exists('TIX_Specials') && function_exists('tix_get_settings') && tix_get_settings('specials_enabled')) {
+                echo TIX_Specials::render_selector_section($post_id);
+            }
+            ?>
+
+            <?php
             // Footer nur anzeigen wenn mindestens eine Online-Kategorie existiert
             $has_online = false;
             foreach ($categories as $c) {
@@ -1272,6 +1279,13 @@ class TIX_Ticket_Selector {
                     'pay'   => intval($item['bundle_pay'] ?? 0),
                     'label' => sanitize_text_field($item['bundle_label'] ?? ''),
                 ];
+            }
+
+            // Special-Meta am Cart-Item speichern
+            if (!empty($item['special'])) {
+                $cart_item_data['_tix_special']    = 1;
+                $cart_item_data['_tix_special_id'] = intval($item['special_id'] ?? 0);
+                $cart_item_data['_tix_event_id']   = intval($item['event_id'] ?? 0);
             }
 
             // Sitzplatz-Meta am Cart-Item speichern

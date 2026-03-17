@@ -9,13 +9,18 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.29.13');
+define('TIXOMAT_VERSION', '1.33.2');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
 // ── Immer laden (CPT, leichtgewichtig) ──
 require_once TIXOMAT_PATH . 'includes/class-tix-cpt.php';
 add_action('init', ['TIX_CPT', 'register']);
+
+// ── REST API für Tixomat App (immer laden) ──
+require_once TIXOMAT_PATH . 'includes/class-tix-rest-api.php';
+TIX_REST_API::init();
+
 
 // ── Google Fonts: Outfit (Display) + Inter (Body) – Tixomat CI ──
 add_action('wp_enqueue_scripts', function() {
@@ -29,6 +34,7 @@ add_action('wp_enqueue_scripts', function() {
         .'.tix-fullwidth .tix-sel-buy,'
         .'.tix-fullwidth .tix-cal-btn,'
         .'.tix-fullwidth .tix-ec-trigger-btn,'
+        .'.tix-fullwidth .tix-table-btn,'
         .'.tix-fullwidth .tix-raffle-submit{width:100%!important;display:flex!important;justify-content:center}'
     );
 }, 5);
@@ -135,6 +141,13 @@ function tix_get_settings($key = null) {
             'pos_allow_free'           => 1,
             'pos_require_email'        => 0,
             'pos_require_name'         => 0,
+            'pos_sumup_enabled'        => 0,
+            'pos_sumup_api_key'        => '',
+            'pos_sumup_merchant_code'  => '',
+            // Specials / Zusatzprodukte
+            'specials_enabled'          => 0,
+            // Tischreservierung
+            'table_reservation_enabled' => 0,
             // Geführter Modus
             'wizard_enabled'     => 1,
         ]);
@@ -230,6 +243,14 @@ if (tix_get_settings('pos_enabled')) {
     require_once TIXOMAT_PATH . 'includes/class-tix-pos.php';
     TIX_POS::init();
 }
+if (tix_get_settings('specials_enabled')) {
+    require_once TIXOMAT_PATH . 'includes/class-tix-specials.php';
+    TIX_Specials::init();
+}
+if (tix_get_settings('table_reservation_enabled')) {
+    require_once TIXOMAT_PATH . 'includes/class-tix-table-reservation.php';
+    TIX_Table_Reservation::init();
+}
 
 // ── DB-Tabellen bei Aktivierung ──
 register_activation_hook(__FILE__, function() {
@@ -243,6 +264,8 @@ register_activation_hook(__FILE__, function() {
     TIX_Feedback::create_table();
     require_once TIXOMAT_PATH . 'includes/class-tix-campaign-tracking.php';
     TIX_Campaign_Tracking::create_table();
+    require_once TIXOMAT_PATH . 'includes/class-tix-table-reservation.php';
+    TIX_Table_Reservation::create_table();
 
     // Waitlist cron
     if (!wp_next_scheduled('tix_waitlist_check')) {
@@ -444,11 +467,14 @@ if (!is_admin() || wp_doing_ajax()) {
     }
     add_shortcode('tix_series_dates', ['TIX_Series', 'render_dates_shortcode']);
 
-    // Checkout: nur wenn WC aktiv
+    // Checkout + Cart: nur wenn WC aktiv
     add_action('init', function() {
         if (class_exists('WooCommerce')) {
             require_once TIXOMAT_PATH . 'includes/class-tix-checkout.php';
             TIX_Checkout::init();
+
+            require_once TIXOMAT_PATH . 'includes/class-tix-cart.php';
+            TIX_Cart::init();
         }
     });
 }
@@ -558,7 +584,7 @@ if (!is_admin()) {
 
     // Defer für unsere Scripts (kein Render-Blocking)
     add_filter('script_loader_tag', function($tag, $handle) {
-        if (in_array($handle, ['tix-ticket-selector', 'tix-modal-checkout', 'tix-faq', 'tix-checkout', 'tix-calendar', 'tix-my-tickets', 'tix-qr', 'tix-ticket-img', 'tix-group-booking', 'tix-checkin', 'tix-jsqr', 'tix-support-front', 'tix-support-chat', 'tix-promoter-dashboard', 'tix-raffle-draw', 'tix-pos'])) {
+        if (in_array($handle, ['tix-ticket-selector', 'tix-modal-checkout', 'tix-faq', 'tix-checkout', 'tix-calendar', 'tix-my-tickets', 'tix-qr', 'tix-ticket-img', 'tix-group-booking', 'tix-checkin', 'tix-jsqr', 'tix-support-front', 'tix-support-chat', 'tix-promoter-dashboard', 'tix-raffle-draw', 'tix-pos', 'tix-table-reservation'])) {
             if (strpos($tag, 'defer') === false) {
                 return str_replace(' src', ' defer src', $tag);
             }
@@ -758,6 +784,12 @@ add_action('admin_init', function() {
     if (version_compare($stored, '1.29.0', '<')) {
         // POS braucht keine eigene Tabelle, nutzt WC Orders + tixomat_tickets
         flush_rewrite_rules();
+    }
+
+    // v1.30.0: Tischreservierung
+    if (version_compare($stored, '1.30.0', '<')) {
+        require_once TIXOMAT_PATH . 'includes/class-tix-table-reservation.php';
+        TIX_Table_Reservation::create_table();
     }
 
     // v1.28.92: Campaign-Tracking Tabelle

@@ -329,7 +329,12 @@
         function updateTotals(data) {
             if (data.subtotal) $('.tix-co-subtotal').html(data.subtotal);
             if (data.tax)      $('.tix-co-tax').html(data.tax);
-            if (data.total)    $('.tix-co-total').html(data.total);
+            if (data.total) {
+                $('.tix-co-total').html(data.total);
+                // Update price in submit button
+                var $bp = $('.tix-co-submit-price');
+                if ($bp.length) $bp.html(data.total);
+            }
 
             // Coupon-Rabattzeile
             var $couponRow = $('.tix-co-coupon-discount-row');

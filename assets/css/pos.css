@@ -13,6 +13,7 @@
     --pos-border: #333;
     --pos-accent: #c8ff00;
     --pos-accent-dim: rgba(200,255,0,.15);
+    --pos-accent-text: #000;
     --pos-text: #fff;
     --pos-text-muted: #999;
     --pos-text-dim: #666;
@@ -113,7 +114,7 @@
 }
 
 .pos-pin-logo-img {
-    max-width: 120px !important;
+    max-width: 180px !important;
     height: auto !important;
     margin-bottom: 0;
 }
@@ -177,11 +178,12 @@
 
 .pos-numpad-btn.accent {
     background: var(--pos-accent);
-    color: #000;
+    color: var(--pos-accent-text);
 }
 
 .pos-numpad-btn.accent:active {
-    background: #b8e600;
+    background: var(--pos-accent);
+    filter: brightness(0.85);
 }
 
 .pos-numpad-btn.muted {
@@ -327,7 +329,7 @@
 
 .pos-filter-btn.active {
     background: var(--pos-accent);
-    color: #000;
+    color: var(--pos-accent-text);
 }
 
 .pos-search {
@@ -408,7 +410,7 @@
 
 .pos-event-badge.today-badge {
     background: var(--pos-accent);
-    color: #000;
+    color: var(--pos-accent-text);
 }
 
 .pos-no-events {
@@ -512,7 +514,25 @@
     font-weight: 600;
     display: flex;
     align-items: center;
+    justify-content: space-between;
     gap: 8px;
+}
+
+#tix-pos-app .pos-cart-clear-btn {
+    font-size: 12px;
+    font-weight: 500;
+    color: #ff6b6b;
+    background: rgba(255, 107, 107, 0.1);
+    border: 1px solid rgba(255, 107, 107, 0.3);
+    border-radius: 6px;
+    padding: 4px 10px;
+    cursor: pointer;
+    transition: all var(--pos-transition);
+}
+
+#tix-pos-app .pos-cart-clear-btn:hover {
+    background: rgba(255, 107, 107, 0.2);
+    border-color: rgba(255, 107, 107, 0.5);
 }
 
 .pos-cart-items {
@@ -659,12 +679,12 @@
     color: var(--pos-accent);
 }
 
-.pos-pay-btn {
+#tix-pos-app .pos-pay-btn {
     width: 100%;
     padding: 16px;
     border-radius: var(--pos-radius-sm);
     background: var(--pos-accent);
-    color: #000;
+    color: var(--pos-accent-text);
     font-family: var(--pos-font-display);
     font-size: 17px;
     font-weight: 700;
@@ -673,19 +693,23 @@
     align-items: center;
     justify-content: center;
     gap: 8px;
+    border: 2px solid transparent;
 }
 
-.pos-pay-btn:hover {
-    background: #b8e600;
+#tix-pos-app .pos-pay-btn:hover {
+    background: var(--pos-accent);
+    filter: brightness(0.85);
 }
 
-.pos-pay-btn:active {
+#tix-pos-app .pos-pay-btn:active {
     transform: scale(0.98);
 }
 
-.pos-pay-btn:disabled {
-    opacity: 0.4;
+#tix-pos-app .pos-pay-btn:disabled {
+    background: var(--pos-card);
+    color: var(--pos-text-dim);
     pointer-events: none;
+    border: 2px solid var(--pos-border);
 }
 
 /* ── Payment Screen ── */
@@ -773,8 +797,9 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 24px;
+    gap: 20px;
     padding: 40px;
+    overflow-y: auto;
 }
 
 .pos-change-due {
@@ -800,6 +825,47 @@
     min-height: 56px;
 }
 
+.pos-change-numpad {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+}
+
+.pos-numpad-btn.delete {
+    background: var(--pos-danger-dim);
+    color: var(--pos-danger);
+    font-size: 20px;
+}
+
+.pos-numpad-btn.delete:active {
+    background: var(--pos-danger);
+    color: #fff;
+}
+
+.pos-change-clear-btn {
+    padding: 8px 24px;
+    border-radius: var(--pos-radius-xs);
+    background: transparent;
+    border: 1px solid var(--pos-border);
+    color: var(--pos-text-muted);
+    font-family: var(--pos-font);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all var(--pos-transition);
+}
+
+.pos-change-clear-btn:hover {
+    border-color: var(--pos-danger);
+    color: var(--pos-danger);
+    background: var(--pos-danger-dim);
+}
+
+.pos-change-clear-btn:active {
+    transform: scale(0.95);
+}
+
 .pos-quick-amounts {
     display: flex;
     gap: 10px;
@@ -808,13 +874,30 @@
 }
 
 .pos-quick-btn {
-    padding: 12px 24px;
+    padding: 14px 28px;
     border-radius: var(--pos-radius-sm);
     background: var(--pos-card);
+    border: 2px solid var(--pos-border);
     font-family: var(--pos-font-display);
     font-size: 18px;
     font-weight: 600;
     transition: all var(--pos-transition);
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+    min-width: 80px;
+    justify-content: center;
+}
+
+.pos-quick-btn-value {
+    font-size: 22px;
+    font-weight: 700;
+}
+
+.pos-quick-btn-unit {
+    font-size: 14px;
+    color: var(--pos-text-muted);
+    font-weight: 500;
 }
 
 .pos-quick-btn:active {
@@ -822,12 +905,19 @@
 }
 
 .pos-quick-btn:hover {
+    border-color: var(--pos-accent);
     background: var(--pos-card-hover);
 }
 
 .pos-quick-btn.exact {
     background: var(--pos-accent-dim);
     color: var(--pos-accent);
+    border-color: transparent;
+    font-size: 15px;
+}
+
+.pos-quick-btn.exact:hover {
+    border-color: var(--pos-accent);
 }
 
 .pos-change-result {
@@ -852,11 +942,14 @@
     padding: 16px 48px;
     border-radius: var(--pos-radius-sm);
     background: var(--pos-cash);
-    color: #000;
+    color: var(--pos-accent-text);
     font-family: var(--pos-font-display);
     font-size: 18px;
     font-weight: 700;
     transition: all var(--pos-transition);
+    display: flex;
+    align-items: center;
+    gap: 8px;
 }
 
 .pos-change-confirm:disabled {
@@ -982,7 +1075,7 @@
 
 .pos-success-btn.primary {
     background: var(--pos-accent);
-    color: #000;
+    color: var(--pos-accent-text);
 }
 
 .pos-success-btn.secondary {
@@ -1089,7 +1182,7 @@
     padding-left: 10px;
     font-size: 12px;
     font-weight: 600;
-    color: #000;
+    color: var(--pos-accent-text);
 }
 
 .pos-bar-fill.cash { background: var(--pos-cash); }
@@ -1272,6 +1365,98 @@
     display: block;
 }
 
+/* ── SumUp Screen ── */
+.pos-sumup {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 24px;
+    padding: 40px;
+}
+
+.pos-sumup-icon {
+    font-size: 64px;
+    line-height: 1;
+}
+
+.pos-sumup-title {
+    font-family: var(--pos-font-display);
+    font-size: 24px;
+    font-weight: 700;
+    text-align: center;
+}
+
+.pos-sumup-amount {
+    font-family: var(--pos-font-display);
+    font-size: 42px;
+    font-weight: 700;
+    color: var(--pos-card-pay);
+}
+
+.pos-sumup-hint {
+    font-size: 16px;
+    color: var(--pos-text-muted);
+    text-align: center;
+}
+
+@keyframes pos-pulse-ring {
+    0% { transform: scale(0.8); opacity: 0.6; }
+    50% { transform: scale(1.2); opacity: 0.2; }
+    100% { transform: scale(0.8); opacity: 0.6; }
+}
+
+.pos-sumup-pulse {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    background: rgba(59,130,246,.2);
+    border: 3px solid var(--pos-card-pay);
+    animation: pos-pulse-ring 2s ease-in-out infinite;
+}
+
+.pos-sumup-actions {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.pos-sumup-cancel {
+    padding: 12px 28px;
+    border-radius: var(--pos-radius-sm);
+    background: var(--pos-card);
+    color: var(--pos-text);
+    font-family: var(--pos-font-display);
+    font-size: 15px;
+    font-weight: 600;
+    border: none;
+    cursor: pointer;
+    transition: all var(--pos-transition);
+}
+
+.pos-sumup-cancel:hover {
+    background: var(--pos-card-hover);
+}
+
+.pos-sumup-retry {
+    padding: 12px 28px;
+    border-radius: var(--pos-radius-sm);
+    background: var(--pos-card-pay);
+    color: #fff;
+    font-family: var(--pos-font-display);
+    font-size: 15px;
+    font-weight: 600;
+    border: none;
+    cursor: pointer;
+    transition: all var(--pos-transition);
+}
+
+.pos-sumup-retry:hover {
+    background: #2563eb;
+}
+
 /* ── Loading Spinner ── */
 .pos-loading {
     display: flex;
@@ -1367,7 +1552,7 @@
 
 .pos-modal-btn.primary {
     background: var(--pos-accent);
-    color: #000;
+    color: var(--pos-accent-text);
 }
 
 .pos-modal-btn.cancel {
@@ -1379,7 +1564,7 @@
     body > *:not(#tix-pos-app) { display: none !important; }
     #tix-pos-app {
         position: static;
-        color: #000;
+        color: var(--pos-accent-text);
         background: #fff;
     }
     .pos-topbar, .pos-statusbar, .pos-back-btn, .pos-icon-btn,

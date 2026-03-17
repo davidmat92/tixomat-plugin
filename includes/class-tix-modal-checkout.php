@@ -282,6 +282,58 @@ class TIX_Modal_Checkout {
                         </div>
                         <?php endif; ?>
 
+                        <?php
+                        // ── Specials im Modal ──
+                        if (class_exists('TIX_Specials') && function_exists('tix_get_settings') && tix_get_settings('specials_enabled')
+                            && get_post_meta($post_id, '_tix_specials_in_checkout', true) === '1') {
+                            $specials = TIX_Specials::get_event_specials($post_id);
+                            if (!empty($specials)):
+                        ?>
+                        <div class="tix-mc-specials">
+                            <div class="tix-mc-section-header">Specials</div>
+                            <?php foreach ($specials as $sp):
+                                $savings = TIX_Specials::get_savings_percent($sp['price'], $sp['value']);
+                                $image_url = $sp['image'] ? wp_get_attachment_image_url($sp['image'], 'thumbnail') : '';
+                            ?>
+                            <div class="tix-mc-cat tix-mc-special"
+                                 data-product-id="<?php echo esc_attr($sp['product_id']); ?>"
+                                 data-price="<?php echo esc_attr($sp['price']); ?>"
+                                 data-special="1"
+                                 data-special-id="<?php echo esc_attr($sp['special_id']); ?>"
+                                 data-event-id="<?php echo esc_attr($post_id); ?>">
+                                <div class="tix-mc-cat-info">
+                                    <?php if ($image_url): ?>
+                                        <img src="<?php echo esc_url($image_url); ?>" class="tix-mc-special-thumb" alt="" loading="lazy">
+                                    <?php endif; ?>
+                                    <div class="tix-mc-cat-details">
+                                        <span class="tix-mc-cat-name"><?php echo esc_html($sp['name']); ?></span>
+                                        <?php if (!empty($sp['description'])): ?>
+                                            <span class="tix-mc-cat-desc"><?php echo esc_html(wp_strip_all_tags($sp['description'])); ?></span>
+                                        <?php endif; ?>
+                                        <?php if ($savings > 0): ?>
+                                            <span class="tix-mc-special-badge"><?php echo $savings; ?>% sparen</span>
+                                        <?php endif; ?>
+                                    </div>
+                                </div>
+                                <div class="tix-mc-cat-price">
+                                    <?php if ($savings > 0): ?>
+                                        <span class="tix-mc-special-value"><?php echo number_format($sp['value'], 2, ',', '.'); ?>&nbsp;&euro;</span>
+                                    <?php endif; ?>
+                                    <span class="tix-mc-cat-amount"><?php echo number_format($sp['price'], 2, ',', '.'); ?>&nbsp;&euro;</span>
+                                </div>
+                                <div class="tix-mc-cat-qty">
+                                    <button type="button" class="tix-mc-qty-btn tix-mc-minus" aria-label="Weniger">&minus;</button>
+                                    <span class="tix-mc-qty-val" data-qty="0">0</span>
+                                    <button type="button" class="tix-mc-qty-btn tix-mc-plus" aria-label="Mehr">+</button>
+                                </div>
+                            </div>
+                            <?php endforeach; ?>
+                        </div>
+                        <?php
+                            endif;
+                        }
+                        ?>
+
                         <?php // ── Gutscheincode ── ?>
                         <?php if (!empty($tix_s['show_coupon_selector'])): ?>
                         <div class="tix-mc-coupon">
@@ -304,6 +356,45 @@ class TIX_Modal_Checkout {
                         </button>
                     </div>
                 </div>
+
+                <?php
+                // ════════════ STEP 1.5: TISCHRESERVIERUNG (optional) ════════════
+                $table_config = get_post_meta($post_id, '_tix_table_reservation', true);
+                $has_tables = !empty($table_config['enabled']) && !empty($table_config['show_in_checkout']) && !empty($table_config['categories']);
+                ?>
+                <?php if ($has_tables): ?>
+                <div class="tix-mc-step tix-mc-step-table" data-event-id="<?php echo $post_id; ?>">
+                    <div class="tix-mc-body">
+                        <div class="tix-mc-table-header">
+                            <div class="tix-mc-table-title">Tisch reservieren</div>
+                            <p class="tix-mc-table-subtitle">Optional: Reserviere einen Tisch für dein Event.</p>
+                        </div>
+                        <div class="tix-mc-table-cats">
+                            <div class="tix-mc-checkout-loading">Tische werden geladen…</div>
+                        </div>
+                        <div class="tix-mc-table-form" style="display:none;">
+                            <div class="tix-mc-table-selected-info"></div>
+                            <div class="tix-mc-table-guests">
+                                <label class="tix-mc-table-label">Anzahl Gäste</label>
+                                <div class="tix-mc-table-stepper">
+                                    <button type="button" class="tix-mc-btn tix-mc-table-guest-minus">&minus;</button>
+                                    <span class="tix-mc-table-guest-val">2</span>
+                                    <button type="button" class="tix-mc-btn tix-mc-table-guest-plus">+</button>
+                                </div>
+                            </div>
+                            <div class="tix-mc-table-comments">
+                                <label class="tix-mc-table-label">Anmerkungen (optional)</label>
+                                <textarea class="tix-mc-table-comments-input" placeholder="Besondere Wünsche, Anlass…" rows="2"></textarea>
+                            </div>
+                        </div>
+                        <div class="tix-mc-table-actions">
+                            <button type="button" class="tix-mc-table-confirm" style="display:none;">Tisch reservieren & weiter</button>
+                            <button type="button" class="tix-mc-table-skip">Ohne Tisch fortfahren</button>
+                        </div>
+                    </div>
+                    <button type="button" class="tix-mc-back tix-mc-table-back">&larr; Zurück zur Ticketauswahl</button>
+                </div>
+                <?php endif; ?>
 
                 <?php // ════════════ STEP 2: CHECKOUT ════════════ ?>
                 <div class="tix-mc-step tix-mc-step-2">
@@ -476,7 +567,7 @@ class TIX_Modal_Checkout {
 
             <?php // ── Submit ── ?>
             <button type="submit" class="tix-mc-submit" id="tix-mc-submit">
-                <span class="tix-mc-submit-text">Jetzt kostenpflichtig bestellen</span>
+                <span class="tix-mc-submit-text">Jetzt kostenpflichtig bestellen · <span class="tix-mc-submit-price"><?php echo strip_tags(WC()->cart->get_total()); ?></span></span>
                 <span class="tix-mc-submit-loading" style="display:none;">Bestellung wird verarbeitet…</span>
             </button>
         </form>

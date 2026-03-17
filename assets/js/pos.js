@@ -37,10 +37,26 @@
         resetTimer: null,
         resetStart: 0,
         loading: {},  // track loading state per endpoint
+        sumupStatus: '',       // creating | waiting | paid | error
+        sumupCheckoutId: '',
+        sumupError: '',
+        sumupTransactionId: '',
     };
 
     var app = document.getElementById('tix-pos-app');
     if (!app) return;
+
+    // ── Apply accent color from settings ──
+    if (cfg.accentColor) {
+        app.style.setProperty('--pos-accent', cfg.accentColor);
+        app.style.setProperty('--pos-accent-dim', cfg.accentColor + '26');
+        // Determine text color for accent background (black or white)
+        var r = parseInt(cfg.accentColor.substr(1, 2), 16);
+        var g = parseInt(cfg.accentColor.substr(3, 2), 16);
+        var b = parseInt(cfg.accentColor.substr(5, 2), 16);
+        var lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+        app.style.setProperty('--pos-accent-text', lum > 0.5 ? '#000' : '#fff');
+    }
 
     // ── Init ──
     render();
@@ -57,6 +73,7 @@
             success: renderSuccess,
             report: renderReport,
             transactions: renderTransactions,
+            sumup: renderSumup,
         };
         var fn = screens[state.screen];
         if (!fn) return;
@@ -333,7 +350,7 @@
             '<div class="pos-sale">' +
             '<div class="pos-categories">' + catHtml + '</div>' +
             '<div class="pos-cart">' +
-            '<div class="pos-cart-header">🛒 Warenkorb (' + cartCount() + ')</div>' +
+            '<div class="pos-cart-header"><span>🛒 Warenkorb (' + cartCount() + ')</span>' + (state.cart.length ? '<button class="pos-cart-clear-btn" onclick="window._posClearCart()">🗑 Leeren</button>' : '') + '</div>' +
             (state.cart.length ? cartItemsHtml : '<div class="pos-cart-empty">Warenkorb ist leer</div>') +
             '<div class="pos-cart-footer">' +
             '<div class="pos-coupon-row">' +
@@ -381,6 +398,14 @@
         render();
     };
 
+    window._posClearCart = function () {
+        state.cart = [];
+        state.couponCode = '';
+        state.customerName = '';
+        state.customerEmail = '';
+        render();
+    };
+
     window._posCoupon = function (v) { state.couponCode = v; };
     window._posCustomer = function (field, v) {
         if (field === 'name') state.customerName = v;
@@ -419,6 +444,8 @@
             state.givenAmount = '';
             state.changeAmount = 0;
             go('change');
+        } else if (method === 'card' && cfg.sumupEnabled) {
+            startSumupPayment();
         } else {
             createOrder();
         }
@@ -434,9 +461,9 @@
         var amounts = [5, 10, 20, 50, 100];
         var quickHtml = '';
         amounts.forEach(function (a) {
-            quickHtml += '<button class="pos-quick-btn" onclick="window._posGiven(\'' + a + '\')">' + a + ' €</button>';
+            quickHtml += '<button class="pos-quick-btn" onclick="window._posGiven(\'' + a + '\')"><span class="pos-quick-btn-value">' + a + '</span><span class="pos-quick-btn-unit">€</span></button>';
         });
-        quickHtml += '<button class="pos-quick-btn exact" onclick="window._posGiven(\'exact\')">Passend</button>';
+        quickHtml += '<button class="pos-quick-btn exact" onclick="window._posGiven(\'exact\')">✓ Passend</button>';
 
         var resultClass = given === 0 ? '' : (change >= 0 ? ' ok' : ' short');
         var resultText = given === 0 ? '—' : money(Math.abs(change));
@@ -448,17 +475,20 @@
             '<div class="pos-change-due">Zu zahlen: <strong>' + money(state.cartTotal) + '</strong></div>' +
             '<div class="pos-change-given-label">Gegeben:</div>' +
             '<div class="pos-change-given">' + (state.givenAmount ? state.givenAmount + ' €' : '—') + '</div>' +
+            '<div class="pos-change-numpad">' +
             '<div class="pos-numpad" style="margin:0">' +
             numpadBtnChange(1) + numpadBtnChange(2) + numpadBtnChange(3) +
             numpadBtnChange(4) + numpadBtnChange(5) + numpadBtnChange(6) +
             numpadBtnChange(7) + numpadBtnChange(8) + numpadBtnChange(9) +
-            '<button class="pos-numpad-btn muted" onclick="window._posGivenKey(\'clear\')">C</button>' +
-            numpadBtnChange(0) +
             '<button class="pos-numpad-btn muted" onclick="window._posGivenKey(\'.\')">.</button>' +
+            numpadBtnChange(0) +
+            '<button class="pos-numpad-btn delete" onclick="window._posGivenKey(\'backspace\')">⌫</button>' +
+            '</div>' +
+            '<button class="pos-change-clear-btn" onclick="window._posGivenKey(\'clear\')">Eingabe löschen</button>' +
             '</div>' +
             '<div class="pos-quick-amounts">' + quickHtml + '</div>' +
             '<div class="pos-change-result' + resultClass + '">' + resultLabel + ' <strong>' + resultText + '</strong></div>' +
-            '<button class="pos-change-confirm" ' + (change < 0 && given > 0 ? 'disabled' : '') + ' onclick="window._posConfirmCash()">Verkauf abschließen</button>' +
+            '<button class="pos-change-confirm" ' + (change < 0 && given > 0 ? 'disabled' : '') + ' onclick="window._posConfirmCash()">💰 Verkauf abschließen</button>' +
             '</div>';
     }
 
@@ -478,6 +508,8 @@
     window._posGivenKey = function (key) {
         if (key === 'clear') {
             state.givenAmount = '';
+        } else if (key === 'backspace') {
+            state.givenAmount = state.givenAmount.slice(0, -1);
         } else if (key === '.') {
             if (state.givenAmount.indexOf('.') < 0) {
                 state.givenAmount += state.givenAmount ? '.' : '0.';
@@ -806,6 +838,11 @@
             coupon_code: state.couponCode,
         };
 
+        // Pass SumUp transaction ID if card payment via SumUp
+        if (state.payment === 'card' && state.sumupTransactionId) {
+            params.sumup_transaction_id = state.sumupTransactionId;
+        }
+
         // Show loading
         state.orderResult = null;
         go('success');
@@ -891,7 +928,8 @@
             if (state.screen === 'change') {
                 if (e.key >= '0' && e.key <= '9') { window._posGivenKey(e.key); e.preventDefault(); }
                 else if (e.key === '.' || e.key === ',') { window._posGivenKey('.'); e.preventDefault(); }
-                else if (e.key === 'Backspace') { window._posGivenKey('clear'); e.preventDefault(); }
+                else if (e.key === 'Backspace') { window._posGivenKey('backspace'); e.preventDefault(); }
+                else if (e.key === 'Delete') { window._posGivenKey('clear'); e.preventDefault(); }
                 else if (e.key === 'Enter') { window._posConfirmCash(); e.preventDefault(); }
                 else if (e.key === 'Escape') { go('payment'); e.preventDefault(); }
             }
@@ -909,6 +947,101 @@
                 }
             }
         });
+    }
+
+    // ── SumUp Card Payment ──
+    function startSumupPayment() {
+        calcTotal();
+        state.sumupStatus = 'creating';
+        state.sumupCheckoutId = '';
+        go('sumup');
+
+        ajax('tix_pos_sumup_checkout', {
+            amount: state.cartTotal.toFixed(2),
+            currency: cfg.currencyCode || 'EUR',
+            description: state.eventTitle + ' – POS',
+        }, function (data) {
+            state.sumupCheckoutId = data.checkout_id;
+            state.sumupStatus = 'waiting';
+            render();
+            // Start polling for payment status
+            pollSumupStatus();
+        }, function (msg) {
+            state.sumupStatus = 'error';
+            state.sumupError = msg || 'Checkout konnte nicht erstellt werden';
+            render();
+        });
+    }
+
+    var sumupPollTimer = null;
+    function pollSumupStatus() {
+        clearTimeout(sumupPollTimer);
+        if (state.screen !== 'sumup' || !state.sumupCheckoutId) return;
+
+        ajax('tix_pos_sumup_status', {
+            checkout_id: state.sumupCheckoutId,
+        }, function (data) {
+            if (data.status === 'PAID') {
+                state.sumupStatus = 'paid';
+                state.sumupTransactionId = data.transaction_id || '';
+                render();
+                // Payment successful – create WC order
+                setTimeout(function () { createOrder(); }, 500);
+            } else if (data.status === 'FAILED' || data.status === 'EXPIRED') {
+                state.sumupStatus = 'error';
+                state.sumupError = data.status === 'EXPIRED' ? 'Zahlung abgelaufen' : 'Zahlung fehlgeschlagen';
+                render();
+            } else {
+                // Still pending – poll again in 2 seconds
+                sumupPollTimer = setTimeout(pollSumupStatus, 2000);
+            }
+        }, function () {
+            // Network error – retry
+            sumupPollTimer = setTimeout(pollSumupStatus, 3000);
+        });
+    }
+
+    window._posSumupCancel = function () {
+        clearTimeout(sumupPollTimer);
+        state.sumupCheckoutId = '';
+        state.sumupStatus = '';
+        go('payment');
+    };
+
+    window._posSumupRetry = function () {
+        startSumupPayment();
+    };
+
+    function renderSumup() {
+        var content = '';
+
+        if (state.sumupStatus === 'creating') {
+            content = '<div class="pos-sumup-icon">💳</div>' +
+                '<div class="pos-sumup-title">Checkout wird erstellt...</div>' +
+                '<div class="pos-spinner"></div>';
+        } else if (state.sumupStatus === 'waiting') {
+            content = '<div class="pos-sumup-icon">💳</div>' +
+                '<div class="pos-sumup-title">Warte auf Kartenzahlung</div>' +
+                '<div class="pos-sumup-amount">' + money(state.cartTotal) + '</div>' +
+                '<div class="pos-sumup-hint">Bitte am SumUp-Terminal bezahlen</div>' +
+                '<div class="pos-sumup-pulse"></div>' +
+                '<button class="pos-sumup-cancel" onclick="window._posSumupCancel()">Abbrechen</button>';
+        } else if (state.sumupStatus === 'paid') {
+            content = '<div class="pos-sumup-icon">✅</div>' +
+                '<div class="pos-sumup-title">Zahlung erfolgreich!</div>' +
+                '<div class="pos-sumup-amount">' + money(state.cartTotal) + '</div>' +
+                '<div class="pos-sumup-hint">Bestellung wird erstellt...</div>';
+        } else if (state.sumupStatus === 'error') {
+            content = '<div class="pos-sumup-icon">❌</div>' +
+                '<div class="pos-sumup-title">' + esc(state.sumupError || 'Fehler') + '</div>' +
+                '<div class="pos-sumup-actions">' +
+                '<button class="pos-sumup-cancel" onclick="window._posSumupCancel()">Zurück</button>' +
+                '<button class="pos-sumup-retry" onclick="window._posSumupRetry()">Erneut versuchen</button>' +
+                '</div>';
+        }
+
+        return topbar('SumUp Zahlung', function () { window._posSumupCancel(); }) +
+            '<div class="pos-sumup">' + content + '</div>';
     }
 
     // ── Helpers ──

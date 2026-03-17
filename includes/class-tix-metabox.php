@@ -246,6 +246,12 @@ class TIX_Metabox {
                     <span class="dashicons dashicons-megaphone"></span>
                     <span class="tix-nav-label">Zusatzprodukte</span>
                 </button>
+                <?php if (function_exists('tix_get_settings') && tix_get_settings('specials_enabled')): ?>
+                <button type="button" class="tix-nav-tab" data-tab="specials">
+                    <span class="dashicons dashicons-star-filled"></span>
+                    <span class="tix-nav-label">Specials</span>
+                </button>
+                <?php endif; ?>
                 <button type="button" class="tix-nav-tab" data-tab="series">
                     <span class="dashicons dashicons-backup"></span>
                     <span class="tix-nav-label">Serientermine</span>
@@ -266,6 +272,12 @@ class TIX_Metabox {
                     <span class="dashicons dashicons-schedule"></span>
                     <span class="tix-nav-label">Programm</span>
                 </button>
+                <?php if (function_exists('tix_get_settings') && tix_get_settings('table_reservation_enabled')): ?>
+                <button type="button" class="tix-nav-tab" data-tab="tables">
+                    <span class="dashicons dashicons-food"></span>
+                    <span class="tix-nav-label">Tische</span>
+                </button>
+                <?php endif; ?>
                 <?php if (function_exists('tix_get_settings') && tix_get_settings('campaign_tracking_enabled')): ?>
                 <button type="button" class="tix-nav-tab" data-tab="campaigns">
                     <span class="dashicons dashicons-chart-bar"></span>
@@ -307,6 +319,11 @@ class TIX_Metabox {
                 <div class="tix-pane" data-pane="upsell">
                     <?php self::render_upsell($post); ?>
                 </div>
+                <?php if (function_exists('tix_get_settings') && tix_get_settings('specials_enabled') && class_exists('TIX_Specials')): ?>
+                <div class="tix-pane" data-pane="specials">
+                    <?php TIX_Specials::render_metabox($post); ?>
+                </div>
+                <?php endif; ?>
                 <div class="tix-pane" data-pane="series">
                     <?php self::render_series($post); ?>
                 </div>
@@ -322,6 +339,11 @@ class TIX_Metabox {
                 <div class="tix-pane" data-pane="timetable">
                     <?php self::render_timetable($post); ?>
                 </div>
+                <?php if (function_exists('tix_get_settings') && tix_get_settings('table_reservation_enabled') && class_exists('TIX_Table_Reservation')): ?>
+                <div class="tix-pane" data-pane="tables">
+                    <?php TIX_Table_Reservation::render_metabox($post); ?>
+                </div>
+                <?php endif; ?>
                 <?php if (function_exists('tix_get_settings') && tix_get_settings('campaign_tracking_enabled')): ?>
                 <div class="tix-pane" data-pane="campaigns">
                     <?php self::render_campaign_links($post); ?>
@@ -3542,6 +3564,11 @@ class TIX_Metabox {
             }
         }
 
+        // ── Specials speichern ──
+        if (class_exists('TIX_Specials')) {
+            TIX_Specials::save_event_specials($post_id);
+        }
+
         // Upsell-Events speichern
         update_post_meta($post_id, '_tix_upsell_disabled', !empty($_POST['tix_upsell_disabled']) ? '1' : '');
         $raw_upsell = $_POST['tix_upsell_events'] ?? [];
@@ -3800,6 +3827,11 @@ class TIX_Metabox {
             }
         }
         update_post_meta($post_id, '_tix_combo_deals', $combos);
+
+        // ── Tischreservierung ──
+        if (class_exists('TIX_Table_Reservation') && isset($_POST['tix_table_reservation'])) {
+            TIX_Table_Reservation::save_metabox($post_id);
+        }
 
         // ── Embed Widget ──
         update_post_meta($post_id, '_tix_embed_enabled', !empty($_POST['tix_embed_enabled']) ? '1' : '0');

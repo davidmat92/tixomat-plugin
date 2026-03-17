@@ -16,10 +16,11 @@
         var cats     = overlay.querySelectorAll('.tix-mc-step-1 > .tix-mc-body > .tix-mc-cats > .tix-mc-cat');
         var totalEl  = overlay.querySelector('.tix-mc-total-price');
         var nextBtn  = overlay.querySelector('.tix-mc-next');
-        var backBtn  = overlay.querySelector('.tix-mc-back');
+        var backBtn  = overlay.querySelector('.tix-mc-step-2 .tix-mc-back');
         var msgEl    = overlay.querySelector('.tix-mc-message');
         var eventId  = overlay.dataset.eventId;
         var step1    = overlay.querySelector('.tix-mc-step-1');
+        var stepTable = overlay.querySelector('.tix-mc-step-table');
         var step2    = overlay.querySelector('.tix-mc-step-2');
         var checkoutWrap = overlay.querySelector('.tix-mc-checkout-wrap');
 
@@ -59,6 +60,11 @@
         // Overlay an body hängen damit position:fixed nicht von Parent-Containern
         // (transform, filter, will-change, overflow:hidden) eingeschränkt wird
         document.body.appendChild(overlay);
+
+        // Update Step 2 back button text if table step exists
+        if (stepTable && backBtn) {
+            backBtn.innerHTML = '&larr; Zurück zur Tischauswahl';
+        }
 
         trigger.querySelector('.tix-mc-trigger-btn').addEventListener('click', function() {
             overlay.style.display = '';
@@ -291,6 +297,14 @@
                         bundle_pay: parseInt(cat.dataset.bundlePay, 10),
                         bundle_label: cat.dataset.bundleLabel || ''
                     });
+                } else if (cat.dataset.special === '1') {
+                    items.push({
+                        product_id: parseInt(cat.dataset.productId, 10),
+                        quantity: q,
+                        special: 1,
+                        special_id: parseInt(cat.dataset.specialId, 10),
+                        event_id: parseInt(cat.dataset.eventId, 10)
+                    });
                 } else {
                     items.push({
                         product_id: parseInt(cat.dataset.productId, 10),
@@ -321,7 +335,11 @@
                 .then(function(r) { return r.json(); })
                 .then(function(res) {
                     if (res.success) {
-                        showStep2();
+                        if (stepTable) {
+                            showStepTable();
+                        } else {
+                            showStep2();
+                        }
                     } else {
                         showMessage(res.data.message || 'Fehler beim Hinzufügen.', 'error');
                         resetNext();
@@ -340,11 +358,212 @@
         }
 
         // ══════════════════════════════════════
+        // STEP 1.5: TABLE RESERVATION (optional)
+        // ══════════════════════════════════════
+
+        var tableState = { cats: [], selected: null, guests: 2, comments: '', loaded: false };
+
+        function showStepTable() {
+            step1.classList.remove('active');
+            step2.classList.remove('active');
+            stepTable.classList.add('active');
+            resetNext();
+
+            if (!tableState.loaded) {
+                loadTableCategories();
+            }
+        }
+
+        function loadTableCategories() {
+            var tableEventId = stepTable.dataset.eventId;
+            var catsWrap = stepTable.querySelector('.tix-mc-table-cats');
+            catsWrap.innerHTML = '<div class="tix-mc-checkout-loading">Tische werden geladen\u2026</div>';
+
+            var data = new FormData();
+            data.append('action', 'tix_mc_table_categories');
+            data.append('nonce', tixModal.checkoutNonce);
+            data.append('event_id', tableEventId);
+
+            fetch(tixModal.ajaxUrl, { method: 'POST', body: data })
+                .then(function(r) { return r.json(); })
+                .then(function(res) {
+                    if (!res.success || !res.data.available) {
+                        // No tables available – skip directly to checkout
+                        showStep2();
+                        return;
+                    }
+                    tableState.cats = res.data.categories || [];
+                    tableState.loaded = true;
+                    renderTableCategories(res.data.info_text || '');
+                })
+                .catch(function() {
+                    showStep2(); // On error, skip to checkout
+                });
+        }
+
+        function renderTableCategories(infoText) {
+            var catsWrap = stepTable.querySelector('.tix-mc-table-cats');
+            var html = '';
+
+            if (infoText) {
+                html += '<div class="tix-mc-table-info">' + escHtml(infoText) + '</div>';
+            }
+
+            tableState.cats.forEach(function(cat) {
+                var soldOut = cat.available <= 0;
+                var cls = 'tix-mc-table-cat' + (soldOut ? ' tix-mc-table-sold-out' : '');
+                html += '<div class="' + cls + '" data-index="' + cat.index + '">';
+                html += '<div class="tix-mc-table-cat-info">';
+                html += '<span class="tix-mc-table-cat-name">' + escHtml(cat.name) + '</span>';
+                if (cat.desc) html += '<span class="tix-mc-table-cat-desc">' + escHtml(cat.desc) + '</span>';
+                html += '<span class="tix-mc-table-cat-meta">' + cat.min_guests + '\u2013' + cat.max_guests + ' Personen</span>';
+                html += '</div>';
+                html += '<div class="tix-mc-table-cat-right">';
+                if (cat.min_spend > 0) {
+                    html += '<span class="tix-mc-table-cat-price">' + formatPrice(cat.min_spend) + '</span>';
+                    html += '<span class="tix-mc-table-cat-price-label">Mindestverzehr</span>';
+                }
+                if (soldOut) {
+                    html += '<span class="tix-mc-table-cat-avail tix-mc-table-cat-avail-out">Ausgebucht</span>';
+                } else {
+                    html += '<span class="tix-mc-table-cat-avail">' + cat.available + ' verf\u00fcgbar</span>';
+                }
+                html += '</div>';
+                html += '</div>';
+            });
+
+            catsWrap.innerHTML = html;
+
+            // Click handlers for table category cards
+            catsWrap.querySelectorAll('.tix-mc-table-cat:not(.tix-mc-table-sold-out)').forEach(function(el) {
+                el.addEventListener('click', function() {
+                    var idx = parseInt(el.dataset.index, 10);
+                    selectTableCategory(idx);
+                    // Highlight selected
+                    catsWrap.querySelectorAll('.tix-mc-table-cat').forEach(function(c) {
+                        c.classList.remove('tix-mc-table-cat-active');
+                    });
+                    el.classList.add('tix-mc-table-cat-active');
+                });
+            });
+        }
+
+        function selectTableCategory(catIndex) {
+            var cat = null;
+            tableState.cats.forEach(function(c) { if (c.index === catIndex) cat = c; });
+            if (!cat) return;
+            tableState.selected = cat;
+            tableState.guests = cat.min_guests;
+
+            // Show form
+            var form = stepTable.querySelector('.tix-mc-table-form');
+            var confirmBtn = stepTable.querySelector('.tix-mc-table-confirm');
+            form.style.display = '';
+            confirmBtn.style.display = '';
+
+            // Update selected info
+            var infoEl = stepTable.querySelector('.tix-mc-table-selected-info');
+            infoEl.innerHTML = '<strong>' + escHtml(cat.name) + '</strong>'
+                + (cat.min_spend > 0 ? ' \u2013 ' + formatPrice(cat.min_spend) + ' Mindestverzehr' : '');
+
+            // Update guest stepper
+            updateGuestStepper();
+        }
+
+        function updateGuestStepper() {
+            var cat = tableState.selected;
+            if (!cat) return;
+            var valEl = stepTable.querySelector('.tix-mc-table-guest-val');
+            valEl.textContent = tableState.guests;
+            var minusBtn = stepTable.querySelector('.tix-mc-table-guest-minus');
+            var plusBtn = stepTable.querySelector('.tix-mc-table-guest-plus');
+            minusBtn.disabled = tableState.guests <= cat.min_guests;
+            plusBtn.disabled = tableState.guests >= cat.max_guests;
+        }
+
+        if (stepTable) {
+            // Guest stepper
+            stepTable.querySelector('.tix-mc-table-guest-minus').addEventListener('click', function() {
+                if (tableState.selected && tableState.guests > tableState.selected.min_guests) {
+                    tableState.guests--;
+                    updateGuestStepper();
+                }
+            });
+            stepTable.querySelector('.tix-mc-table-guest-plus').addEventListener('click', function() {
+                if (tableState.selected && tableState.guests < tableState.selected.max_guests) {
+                    tableState.guests++;
+                    updateGuestStepper();
+                }
+            });
+
+            // Confirm button: save selection + go to checkout
+            stepTable.querySelector('.tix-mc-table-confirm').addEventListener('click', function() {
+                var btn = this;
+                btn.disabled = true;
+                btn.textContent = 'Wird gespeichert\u2026';
+
+                var commentsEl = stepTable.querySelector('.tix-mc-table-comments-input');
+                tableState.comments = commentsEl ? commentsEl.value.trim() : '';
+
+                var data = new FormData();
+                data.append('action', 'tix_mc_table_select');
+                data.append('nonce', tixModal.checkoutNonce);
+                data.append('event_id', stepTable.dataset.eventId);
+                data.append('category_index', tableState.selected.index);
+                data.append('guest_count', tableState.guests);
+                data.append('comments', tableState.comments);
+
+                fetch(tixModal.ajaxUrl, { method: 'POST', body: data })
+                    .then(function(r) { return r.json(); })
+                    .then(function(res) {
+                        if (res.success) {
+                            showStep2();
+                        } else {
+                            showMessage(res.data.message || 'Fehler.', 'error');
+                            btn.disabled = false;
+                            btn.textContent = 'Tisch reservieren & weiter';
+                        }
+                    })
+                    .catch(function() {
+                        showMessage('Verbindungsfehler.', 'error');
+                        btn.disabled = false;
+                        btn.textContent = 'Tisch reservieren & weiter';
+                    });
+            });
+
+            // Skip button: no table
+            stepTable.querySelector('.tix-mc-table-skip').addEventListener('click', function() {
+                var data = new FormData();
+                data.append('action', 'tix_mc_table_select');
+                data.append('nonce', tixModal.checkoutNonce);
+                data.append('skip', '1');
+
+                fetch(tixModal.ajaxUrl, { method: 'POST', body: data })
+                    .then(function() { showStep2(); })
+                    .catch(function() { showStep2(); });
+            });
+
+            // Back button from table step
+            stepTable.querySelector('.tix-mc-table-back').addEventListener('click', function() {
+                stepTable.classList.remove('active');
+                step1.classList.add('active');
+                resetNext();
+            });
+        }
+
+        function escHtml(s) {
+            var d = document.createElement('div');
+            d.textContent = s;
+            return d.innerHTML;
+        }
+
+        // ══════════════════════════════════════
         // STEP 2: CHECKOUT
         // ══════════════════════════════════════
 
         function showStep2() {
             step1.classList.remove('active');
+            if (stepTable) stepTable.classList.remove('active');
             step2.classList.add('active');
 
             // Load checkout form via AJAX
@@ -573,8 +792,12 @@
 
         backBtn.addEventListener('click', function() {
             step2.classList.remove('active');
-            step1.classList.add('active');
-            resetNext();
+            if (stepTable) {
+                stepTable.classList.add('active');
+            } else {
+                step1.classList.add('active');
+                resetNext();
+            }
         });
 
         // ══════════════════════════════════════

@@ -13,10 +13,10 @@
     font-family: inherit;
 }
 
-/* Links: Farbe nicht vom Theme überschreiben lassen */
-.tix-co a,
-.tix-co a:link,
-.tix-co a:visited {
+/* Links: Farbe nicht vom Theme überschreiben lassen (außer Buttons) */
+.tix-co a:not(.tix-co-submit):not(.tix-mc-checkout-btn),
+.tix-co a:link:not(.tix-co-submit):not(.tix-mc-checkout-btn),
+.tix-co a:visited:not(.tix-co-submit):not(.tix-mc-checkout-btn) {
     color: inherit !important;
 }
 
@@ -462,7 +462,7 @@
    ZUSAMMENFASSUNG
    ══════════════════════════════════════ */
 .tix-co-summary {
-    padding: 14px 0; border-top: 1px solid var(--tix-border, #333); margin-bottom: 16px;
+    padding: 14px 0; margin-bottom: 16px;
 }
 .tix-co-summary-row {
     display: flex; justify-content: space-between; align-items: baseline;
@@ -568,14 +568,16 @@
    SUBMIT
    ══════════════════════════════════════ */
 .tix-co-submit {
-    width: 100%; padding: 16px; margin-top: 28px; border: var(--tix-btn1-border, none);
-    border-radius: var(--tix-btn1-radius, 8px);
-    background: var(--tix-btn1-bg, #c8ff00); color: var(--tix-btn1-color, #000);
-    font-weight: 700; font-size: var(--tix-btn1-font-size, 1.05rem);
+    display: block !important; box-sizing: border-box; text-align: center !important; text-decoration: none !important;
+    width: 100% !important; padding: 16px !important; margin-top: 28px; border: var(--tix-btn1-border, none) !important;
+    border-radius: var(--tix-btn1-radius, 8px) !important;
+    background: var(--tix-btn1-bg, #c8ff00) !important; color: var(--tix-btn1-color, #000) !important;
+    font-weight: 700 !important; font-size: var(--tix-btn1-font-size, 1.05rem) !important;
     cursor: pointer; transition: background 0.2s, opacity 0.2s; font-family: inherit;
+    line-height: 1.4;
 }
-.tix-co-submit:hover:not(:disabled) { background: var(--tix-btn1-hover-bg, var(--tix-btn1-bg)); color: var(--tix-btn1-hover-color, var(--tix-btn1-color, #000)); opacity: 0.9; }
-.tix-co-submit:disabled { opacity: 0.3; cursor: not-allowed; }
+.tix-co-submit:hover:not(:disabled) { background: var(--tix-btn1-hover-bg, var(--tix-btn1-bg)) !important; color: var(--tix-btn1-hover-color, var(--tix-btn1-color, #000)) !important; opacity: 0.9; }
+.tix-co-submit:disabled { opacity: 0.3 !important; cursor: not-allowed; }
 
 /* Messages */
 .tix-co-message {
@@ -1077,4 +1079,353 @@
     padding: 14px 0 0;
     margin-top: 14px;
     border-top: 1px solid var(--tix-border, #333);
+}
+
+/* ══════════════════════════════════════
+   Specials Upsell im Checkout
+   ══════════════════════════════════════ */
+
+/* ══════════════════════════════════════
+   SPECIALS UPSELL
+   ══════════════════════════════════════ */
+.tix-co-specials {
+    margin-bottom: 32px;
+}
+
+.tix-co-specials-heading {
+    font-size: 1.1rem;
+    font-weight: 700;
+    margin: 0 0 16px 0;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--tix-border, #333);
+}
+
+.tix-co-specials-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.tix-co-special-card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 16px;
+    border: 1px solid var(--tix-border, #333);
+    border-radius: var(--tix-radius, 8px);
+    background: var(--tix-cat-bg, transparent);
+    font-size: 0.95rem;
+    transition: border-color 0.2s;
+}
+
+.tix-co-special-image {
+    width: 48px;
+    height: 48px;
+    border-radius: var(--tix-radius, 8px);
+    overflow: hidden;
+    flex-shrink: 0;
+}
+
+.tix-co-special-image img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.tix-co-special-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.tix-co-special-info strong {
+    font-weight: 700;
+    font-size: var(--tix-font-name, 1rem);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: block;
+}
+
+.tix-co-special-desc {
+    font-size: 0.75rem;
+    opacity: 0.55;
+    font-weight: 400;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.tix-co-special-savings {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--tix-success-color, #4caf50);
+}
+
+.tix-co-special-action {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.tix-co-special-price {
+    font-weight: 700;
+    font-size: var(--tix-font-price, 1.1rem);
+    white-space: nowrap;
+}
+
+.tix-co-special-add {
+    padding: 6px 16px;
+    border-radius: var(--tix-buy-radius, 8px);
+    background: var(--tix-buy-bg, #c8ff00);
+    color: var(--tix-buy-color, #000);
+    border: none;
+    cursor: pointer;
+    font-weight: 700;
+    font-size: 0.85rem;
+    white-space: nowrap;
+    transition: opacity 0.15s;
+}
+
+.tix-co-special-add:hover {
+    opacity: 0.85;
+}
+
+.tix-co-special-add:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.tix-co-special-in-cart-badge {
+    display: inline-block;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--tix-success-color, #4caf50);
+    margin-top: 2px;
+}
+
+.tix-co-special-card.tix-co-special-in-cart {
+    border-color: var(--tix-buy-bg, #c8ff00);
+}
+
+.tix-co-special-card.tix-co-special-soldout {
+    opacity: 0.4;
+    pointer-events: none;
+}
+
+.tix-co-special-soldout-label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    opacity: 0.5;
+}
+
+/* ══════════════════════════════════════
+   TISCHRESERVIERUNG (Checkout)
+   ══════════════════════════════════════ */
+.tix-co-tables {
+    margin-bottom: 32px;
+}
+
+.tix-co-tables-heading {
+    font-size: 1.1rem;
+    font-weight: 700;
+    margin: 0 0 16px 0;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--tix-border, #333);
+}
+
+.tix-co-tables-info {
+    font-size: 0.82rem;
+    opacity: 0.6;
+    margin: 0 0 12px;
+    line-height: 1.5;
+}
+
+.tix-co-tables-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.tix-co-table-card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 16px;
+    border: 1px solid var(--tix-border, #333);
+    border-radius: var(--tix-radius, 8px);
+    background: var(--tix-cat-bg, transparent);
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+}
+
+.tix-co-table-card:hover:not(.tix-co-table-soldout) {
+    border-color: var(--tix-input-focus, #c8ff00);
+}
+
+.tix-co-table-card.tix-co-table-active {
+    border-color: var(--tix-buy-bg, #c8ff00);
+    background: rgba(200, 255, 0, 0.04);
+}
+
+.tix-co-table-card.tix-co-table-soldout {
+    opacity: 0.4;
+    pointer-events: none;
+}
+
+/* Radio-Dot (identisch zu Payment Gateways) */
+.tix-co-table-radio-wrap {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+}
+
+.tix-co-table-radio {
+    display: none;
+}
+
+.tix-co-table-radio-dot {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    border: 2px solid var(--tix-input-border, #555);
+    position: relative;
+    transition: border-color 0.2s;
+}
+
+.tix-co-table-radio:checked + .tix-co-table-radio-dot {
+    border-color: var(--tix-input-focus, #c8ff00);
+}
+
+.tix-co-table-radio:checked + .tix-co-table-radio-dot::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--tix-input-focus, #c8ff00);
+    transform: translate(-50%, -50%);
+}
+
+.tix-co-table-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.tix-co-table-info strong {
+    font-weight: 700;
+    font-size: var(--tix-font-name, 1rem);
+}
+
+.tix-co-table-desc {
+    font-size: 0.75rem;
+    opacity: 0.55;
+    font-weight: 400;
+}
+
+.tix-co-table-meta {
+    font-size: 0.75rem;
+    opacity: 0.55;
+    font-weight: 400;
+}
+
+.tix-co-table-action {
+    flex-shrink: 0;
+    text-align: right;
+}
+
+.tix-co-table-avail {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--tix-success-color, #4caf50);
+}
+
+.tix-co-table-soldout-label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    opacity: 0.5;
+}
+
+/* Form (Gäste + Kommentar) */
+.tix-co-table-form {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--tix-border, #333);
+}
+
+.tix-co-table-form-row {
+    margin-bottom: 12px;
+}
+
+.tix-co-table-form-label {
+    display: block;
+    font-size: 0.85rem;
+    font-weight: 600;
+    opacity: 0.7;
+    margin-bottom: 6px;
+}
+
+.tix-co-table-stepper {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.tix-co-table-step-btn {
+    width: var(--tix-btn-size, 32px);
+    height: var(--tix-btn-size, 32px);
+    border-radius: var(--tix-btn-radius, 50%);
+    border: 1px solid currentColor;
+    background: transparent;
+    color: inherit;
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+    padding: 0;
+    flex-shrink: 0;
+}
+
+.tix-co-table-step-btn:hover {
+    background: var(--tix-buy-bg, #c8ff00);
+    color: var(--tix-buy-color, #000);
+    border-color: var(--tix-buy-bg, #c8ff00);
+}
+
+.tix-co-table-guest-val {
+    min-width: 24px;
+    text-align: center;
+    font-weight: 700;
+    font-size: 0.95rem;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Status Messages */
+.tix-co-table-status {
+    font-size: 0.85rem;
+    padding: 10px 14px;
+    border-radius: var(--tix-radius, 8px);
+    margin-top: 10px;
+}
+
+.tix-co-table-status-ok {
+    background: rgba(76, 175, 80, 0.1);
+    color: var(--tix-success-color, #4caf50);
+}
+
+.tix-co-table-status-err {
+    background: rgba(239, 83, 80, 0.1);
+    color: var(--tix-sale-color, #ef5350);
 }

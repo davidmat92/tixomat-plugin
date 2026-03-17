@@ -569,13 +569,56 @@ class TIX_Docs {
             // ── tix_checkout ──
             self::shortcode_card(
                 'tix_checkout',
-                'Zeigt das komplette Checkout-Formular an (Rechnungsdaten, Warenkorb, Zahlung). Ersetzt die Standard-WooCommerce-Kasse mit dem Tixomat-Design. Unterst&uuml;tzt Newsletter-Anmeldung, Countdown-Timer und AGB-Checkboxen.',
+                'Zeigt das komplette Checkout-Formular an (Rechnungsdaten, Warenkorb, Zahlung). Ersetzt die Standard-WooCommerce-Kasse mit dem Tixomat-Design. Unterst&uuml;tzt Newsletter-Anmeldung, Countdown-Timer und AGB-Checkboxen. Zeigt automatisch Specials-Upsell und Tischreservierung (wenn f&uuml;r das Event aktiviert) auf Step 1.',
                 [
                     ['terms_url', '(aus Einstellungen)', 'URL zu den AGB. Wenn leer, wird der Wert aus den Plugin-Einstellungen verwendet.'],
                     ['privacy_url', '(aus Einstellungen)', 'URL zur Datenschutzerkl&auml;rung. Wenn leer, wird der Wert aus den Plugin-Einstellungen verwendet.'],
                 ],
                 '[tix_checkout]',
                 '[tix_checkout terms_url="https://meine-seite.de/agb" privacy_url="https://meine-seite.de/datenschutz"]'
+            );
+
+            // ── tix_cart ──
+            self::shortcode_card(
+                'tix_cart',
+                'Zeigt eine vollst&auml;ndige Warenkorb-Seite im Tixomat-Checkout-Design an. Ersetzt den Standard-WooCommerce-Warenkorb. Zeigt alle Artikel mit Mengensteuerung, Gutschein-Eingabe, Specials-Upsell, Tischreservierung, Zusammenfassung und &bdquo;Zur Kasse&ldquo;-Button. Design ist <strong>identisch</strong> zum Checkout-Shortcode (gleiche CSS-Variablen, gleiche Klassen).',
+                [
+                    ['checkout_url', '(WC Checkout-URL)', 'URL zur Checkout-Seite. Wenn leer, wird die WooCommerce-Standard-Checkout-URL verwendet.'],
+                ],
+                '[tix_cart]',
+                '[tix_cart checkout_url="/checkout/"]'
+            );
+
+            // ── Mini-Cart Drawer (kein Shortcode) ──
+            self::shortcode_card(
+                'Mini-Cart Drawer',
+                'Slide-in Warenkorb von rechts, wird automatisch im Footer geladen. Zeigt Artikel, Mengensteuerung, Gesamt und &bdquo;Zur Kasse&ldquo;-Button in hellem Design. <strong>Kein Shortcode n&ouml;tig</strong> &ndash; wird &uuml;ber CSS-Klasse oder Data-Attribut ausgel&ouml;st:<br><br>'
+                . '<code>&lt;a class="tix-minicart-trigger"&gt;🛒 &lt;span class="tix-minicart-count"&gt;&lt;/span&gt;&lt;/a&gt;</code><br>'
+                . 'oder: <code>&lt;div data-tix-minicart&gt;...&lt;/div&gt;</code><br><br>'
+                . 'Der <code>.tix-minicart-count</code>-Badge zeigt automatisch die Anzahl der Artikel an und wird per WooCommerce-Fragments live aktualisiert (auch bei AJAX Add-to-Cart).',
+                [],
+                'class="tix-minicart-trigger"',
+                'data-tix-minicart'
+            );
+
+            // ── tix_table_reservation ──
+            self::shortcode_card(
+                'tix_table_reservation',
+                'Zeigt den vollst&auml;ndigen Tischreservierungs-Flow als eigenst&auml;ndige SPA an: Monatskalender &rarr; Event-Detail &rarr; Tischkategorie w&auml;hlen &rarr; Buchungsformular. Zahlungsmodi pro Event konfigurierbar (Vor Ort, Anzahlung, Vollzahlung). Tischreservierung wird zus&auml;tzlich automatisch im Checkout und auf der Warenkorb-Seite angezeigt, wenn f&uuml;r das Event aktiviert.',
+                [],
+                '[tix_table_reservation]',
+                null
+            );
+
+            // ── tix_table_button ──
+            self::shortcode_card(
+                'tix_table_button',
+                '&Ouml;ffnet den Tischreservierungs-Dialog f&uuml;r ein bestimmtes Event. Ideal f&uuml;r Event-Einzelseiten.',
+                [
+                    ['event_id', '(aktueller Post)', 'Event-ID f&uuml;r die Tischreservierung.'],
+                ],
+                '[tix_table_button]',
+                '[tix_table_button event_id="123"]'
             );
 
             // ── tix_my_tickets ──
@@ -1123,6 +1166,37 @@ class TIX_Docs {
                 'Standalone-Shortcode: <code>[tix_seatmap event="123"]</code>.',
                 '<strong>Responsive:</strong> Vollbild-Modal auf Mobile.',
             ]);
+
+            // ── Warenkorb & Mini-Cart ──
+            self::function_card('Warenkorb &amp; Mini-Cart', 'dashicons-cart', [
+                '<strong>Warenkorb-Shortcode</strong> <code>[tix_cart]</code> &ndash; Eigenst&auml;ndige Warenkorb-Seite im Tixomat-Design (gleiche CSS-Variablen wie Checkout).',
+                '<strong>Mini-Cart Drawer</strong> &ndash; Slide-in von rechts mit hellem Design, Artikel&uuml;bersicht, Mengensteuerung und &bdquo;Zur Kasse&ldquo;-Button.',
+                'Trigger per <code>class="tix-minicart-trigger"</code> oder <code>data-tix-minicart</code> Attribut auf beliebigen Elementen.',
+                '<strong>Live-Badge</strong> <code>.tix-minicart-count</code> zeigt Artikelanzahl und wird per <strong>WooCommerce Fragments</strong> bei jedem AJAX-Add-to-Cart aktualisiert.',
+                'Specials-Upsell und Tischreservierung werden automatisch in Warenkorb und Checkout eingebettet.',
+            ]);
+
+            // ── Tischreservierung ──
+            self::function_card('Tischreservierung', 'dashicons-welcome-widgets-menus', [
+                '<strong>Standalone SPA</strong> per <code>[tix_table_reservation]</code>: Monatskalender &rarr; Event &rarr; Tischkategorie &rarr; Buchungsformular.',
+                '<strong>Checkout-Integration:</strong> Tischkarten werden automatisch auf Step 1 des Checkouts und auf der Warenkorb-Seite angezeigt (unter Specials).',
+                'Pro Event konfigurierbar: Tischkategorien mit Name, Kapazit&auml;t, Preis, Mindestbestellwert.',
+                '<strong>3 Zahlungsmodi:</strong> Vor Ort, Anzahlung, Vollzahlung &ndash; jeweils pro Event einstellbar.',
+                'WooCommerce-Integration: Reservierungen werden als Cart-Fee (Mindestbestellwert) oder WC-Order gespeichert.',
+                'Design: <code>--tix-*</code> CSS-Variablen, konsistent mit Checkout und Ticket-Selector.',
+            ]);
+
+            // ── POS / Abendkasse ──
+            self::function_card('POS / Abendkasse', 'dashicons-store', [
+                '<strong>Fullscreen-SPA</strong> per <code>[tix_pos]</code> &ndash; optimiert f&uuml;r Tablets am Einlass.',
+                '<strong>PIN-Login:</strong> 4-6-stelliger PIN pro WordPress-User (gespeichert als <code>_tix_pos_pin</code>).',
+                '<strong>Screens:</strong> PIN &rarr; Event-Auswahl &rarr; Ticketverkauf &rarr; Zahlung &rarr; Wechselgeld &rarr; Erfolg (QR-Codes).',
+                '<strong>3 Zahlungsarten:</strong> Bar (mit Wechselgeldrechner), EC-Karte (SumUp-Integration), Kostenlos.',
+                '<strong>Kassenbericht:</strong> Tagesumsatz nach Zahlungsart, Ticket-Kategorie, stundweise Aufschl&uuml;sselung.',
+                '<strong>Transaktionshistorie:</strong> Alle POS-Verk&auml;ufe mit Storno-Funktion.',
+                'WooCommerce-Orders mit <code>_tix_pos_order</code> Meta + korrekter Payment-Method.',
+                'Aktivierbar unter <strong>Einstellungen &rarr; Erweitert &rarr; POS / Abendkasse</strong>.',
+            ]);
             ?>
 
         </div>
@@ -1313,6 +1387,36 @@ class TIX_Docs {
                 ['tix_group_{TOKEN}', 'Gruppenbuchung-Session (48 Std.)', 'Group Booking'],
                 ['tix_stats_{TAB}_{HASH}', 'Statistik-Daten pro Tab + Filter (10 Min.)', 'Statistik-Cache'],
                 ['tixbot_rl_{MD5(EMAIL)}', 'Bot Ticket-Lookup Rate-Limit (5 Versuche / 15 Min.)', 'Bot Rate-Limit'],
+            ]);
+
+            // ── Cart & Mini-Cart AJAX Endpoints ──
+            self::meta_card('Cart &amp; Mini-Cart AJAX <small>(wp_ajax_ / wp_ajax_nopriv_)</small>', 'dashicons-cart', [
+                ['tix_get_minicart', 'Mini-Cart HTML-Fragment laden (Artikel, Summe, Badge)', 'Frontend'],
+            ]);
+
+            // ── Tischreservierung AJAX Endpoints ──
+            self::meta_card('Tischreservierung-AJAX <small>(wp_ajax_ / wp_ajax_nopriv_)</small>', 'dashicons-welcome-widgets-menus', [
+                ['tix_table_events', 'Events mit Tischkategorien nach Monat laden (SPA)', 'Frontend'],
+                ['tix_table_event_detail', 'Event-Detail mit Tischkategorien + Verf&uuml;gbarkeit', 'Frontend'],
+                ['tix_table_submit', 'Tischreservierung abschicken (Name, E-Mail, Kategorie, G&auml;ste)', 'Frontend'],
+                ['tix_table_cancel', 'Tischreservierung stornieren', 'Frontend'],
+                ['tix_mc_table_categories', 'Tischkategorien f&uuml;r Modal-Checkout laden', 'Frontend'],
+                ['tix_mc_table_select', 'Tisch im Modal-Checkout ausw&auml;hlen', 'Frontend'],
+                ['tix_checkout_table_select', 'Tisch im Checkout/Warenkorb ausw&auml;hlen (Cart-Fee)', 'Frontend'],
+            ]);
+
+            // ── POS AJAX Endpoints ──
+            self::meta_card('POS-AJAX-Endpoints <small>(wp_ajax_)</small>', 'dashicons-store', [
+                ['tix_pos_auth', 'PIN-Login &rarr; User-Daten + Nonce', 'Admin'],
+                ['tix_pos_events', 'Events nach Filter (today/week/all) + Suche', 'Admin'],
+                ['tix_pos_event_tickets', 'Ticket-Kategorien + Bestand f&uuml;r ein Event', 'Admin'],
+                ['tix_pos_create_order', 'WC-Order erstellen &rarr; Ticket-Codes + QR-Daten', 'Admin'],
+                ['tix_pos_send_email', 'Ticket per E-Mail an Kunden senden', 'Admin'],
+                ['tix_pos_void_order', 'Storno (Order &rarr; cancelled, Stock restored)', 'Admin'],
+                ['tix_pos_daily_report', 'Tagesbericht nach Zahlungsart/Kategorie/Stunde', 'Admin'],
+                ['tix_pos_transactions', 'Transaktionsliste des Tages', 'Admin'],
+                ['tix_pos_sumup_checkout', 'SumUp EC-Zahlung initiieren', 'Admin'],
+                ['tix_pos_sumup_status', 'SumUp Zahlungsstatus abfragen', 'Admin'],
             ]);
 
             // ── Save-Post Hooks ──

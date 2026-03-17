@@ -295,6 +295,8 @@ class TIX_Settings {
             'campaign_tracking_enabled'  => 0,
             'campaign_cookie_days'       => 30,
             'campaign_custom_channels'   => '[]',
+            // ── Specials / Zusatzprodukte ──
+            'specials_enabled'         => 0,
             // ── POS / Abendkasse ──
             'pos_enabled'              => 0,
             'pos_pin_required'         => 1,
@@ -303,6 +305,14 @@ class TIX_Settings {
             'pos_allow_free'           => 1,
             'pos_require_email'        => 0,
             'pos_require_name'         => 0,
+            // ── Tischreservierung ──
+            'table_reservation_enabled'  => 0,
+            'reservation_bg'             => '',
+            'reservation_surface'        => '',
+            'reservation_card'           => '',
+            'reservation_text'           => '',
+            'table_button_style'         => '1',
+            'table_default_categories'   => '[]',
             // ── Geführter Modus ──
             'wizard_enabled'     => 1,
             // ── Theme-Modus (universell) ──
@@ -663,6 +673,9 @@ class TIX_Settings {
         $clean['campaign_cookie_days']       = max(1, min(365, intval($input['campaign_cookie_days'] ?? 30)));
         $clean['campaign_custom_channels']   = sanitize_text_field($input['campaign_custom_channels'] ?? '[]');
 
+        // Specials / Zusatzprodukte
+        $clean['specials_enabled'] = !empty($input['specials_enabled']) ? 1 : 0;
+
         // POS / Abendkasse
         $clean['pos_enabled']            = !empty($input['pos_enabled']) ? 1 : 0;
         $clean['pos_pin_required']       = !empty($input['pos_pin_required']) ? 1 : 0;
@@ -671,6 +684,39 @@ class TIX_Settings {
         $clean['pos_allow_free']         = !empty($input['pos_allow_free']) ? 1 : 0;
         $clean['pos_require_email']      = !empty($input['pos_require_email']) ? 1 : 0;
         $clean['pos_require_name']       = !empty($input['pos_require_name']) ? 1 : 0;
+        $clean['pos_sumup_enabled']      = !empty($input['pos_sumup_enabled']) ? 1 : 0;
+        $clean['pos_sumup_api_key']      = sanitize_text_field($input['pos_sumup_api_key'] ?? '');
+        $clean['pos_sumup_merchant_code'] = sanitize_text_field($input['pos_sumup_merchant_code'] ?? '');
+
+        // Tischreservierung
+        $clean['table_reservation_enabled'] = !empty($input['table_reservation_enabled']) ? 1 : 0;
+        foreach (['reservation_bg', 'reservation_surface', 'reservation_card', 'reservation_text'] as $k) {
+            $v = $input[$k] ?? '';
+            $clean[$k] = $v ? (self::sanitize_color($v) ?: '') : '';
+        }
+        $clean['table_button_style'] = in_array($input['table_button_style'] ?? '1', ['1', '2']) ? $input['table_button_style'] : '1';
+        // Default table categories (JSON)
+        $raw_defaults = $input['table_default_categories'] ?? '[]';
+        if (is_string($raw_defaults)) {
+            $parsed = json_decode($raw_defaults, true);
+            if (!is_array($parsed)) $parsed = [];
+            $valid = [];
+            foreach ($parsed as $dc) {
+                if (!is_array($dc)) continue;
+                $dcname = sanitize_text_field($dc['name'] ?? '');
+                if (!$dcname) continue;
+                $valid[] = [
+                    'name'       => $dcname,
+                    'min_spend'  => floatval($dc['min_spend'] ?? 0),
+                    'quantity'   => max(0, intval($dc['quantity'] ?? 0)),
+                    'min_guests' => max(1, intval($dc['min_guests'] ?? 1)),
+                    'max_guests' => max(1, intval($dc['max_guests'] ?? 10)),
+                ];
+            }
+            $clean['table_default_categories'] = json_encode($valid);
+        } else {
+            $clean['table_default_categories'] = '[]';
+        }
 
         // Geführter Modus
         $clean['wizard_enabled'] = !empty($input['wizard_enabled']) ? 1 : 0;
@@ -867,13 +913,13 @@ class TIX_Settings {
         $text_css = '';
         if (!empty($s['color_text'])) {
             $vars[] = '--tix-text: ' . $s['color_text'];
-            $text_css = ".tix-sel, .tix-co, .tix-faq, .tix-up, .tix-mt, .tix-mc-trigger, .tix-ec-overlay, .tix-cal, .tix-raffle{$wc_scope} { color: var(--tix-text); }\n";
+            $text_css = ".tix-sel, .tix-co, .tix-faq, .tix-up, .tix-mt, .tix-mc-trigger, .tix-ec-overlay, .tix-cal, .tix-raffle, .tix-table-btn-wrap, #tix-table-res-app, .tr-modal-overlay{$wc_scope} { color: var(--tix-text); }\n";
         }
 
         if (empty($vars)) {
             echo "<style id=\"tix-custom-vars\">\n{$vat_css}{$text_css}";
         } else {
-            echo "<style id=\"tix-custom-vars\">\n.tix-sel, .tix-co, .tix-faq, .tix-up, .tix-mt, .tix-mc-trigger, .tix-mc-overlay, .tix-cal, .tix-raffle, .tix-ec-trigger, .tix-ec-overlay{$wc_scope} {\n    " . implode(";\n    ", $vars) . ";\n}\n";
+            echo "<style id=\"tix-custom-vars\">\n.tix-sel, .tix-co, .tix-faq, .tix-up, .tix-mt, .tix-mc-trigger, .tix-mc-overlay, .tix-cal, .tix-raffle, .tix-ec-trigger, .tix-ec-overlay, .tix-table-btn-wrap, #tix-table-res-app, .tr-modal-overlay{$wc_scope} {\n    " . implode(";\n    ", $vars) . ";\n}\n";
             echo $vat_css;
             echo $text_css;
         }
@@ -2489,6 +2535,21 @@ class TIX_Settings {
                                     </div>
                                 </div>
 
+                                <?php // ── Card: Specials / Zusatzprodukte ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-star-filled"></span>
+                                        <h3>Specials / Zusatzprodukte</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('specials_enabled', 'Specials-System aktivieren', $s, 'Erm&ouml;glicht es, wiederverwendbare Zusatzprodukte (z.B. Getr&auml;nkepakete, Merch-Bundles) anzulegen und Events zuzuweisen. Specials erscheinen im Ticket-Selector und Checkout als Upsell-Angebot.'); ?>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
                                 <?php // ── Card: POS / Abendkasse ── ?>
                                 <div class="tix-card">
                                     <div class="tix-card-header">
@@ -2521,7 +2582,192 @@ class TIX_Settings {
                                             <div class="tix-field tix-field-full">
                                                 <?php self::checkbox_row('pos_require_name', 'Kundenname erforderlich', $s, 'Kunde muss einen Namen eingeben.'); ?>
                                             </div>
+                                            <div class="tix-field tix-field-full">
+                                                <label class="tix-label">Akzentfarbe</label>
+                                                <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+                                                    <input type="color" id="pos-accent-picker" name="tix_settings[color_accent]" value="<?php echo esc_attr($s['color_accent'] ?? '#c8ff00'); ?>" style="width:48px;height:36px;border:1px solid #ccc;border-radius:6px;cursor:pointer;padding:2px;">
+                                                    <input type="text" id="pos-accent-hex" value="<?php echo esc_attr($s['color_accent'] ?? '#c8ff00'); ?>" class="tix-input" style="max-width:120px;font-family:monospace;" oninput="document.getElementById('pos-accent-picker').value=this.value" onchange="document.getElementById('pos-accent-picker').value=this.value">
+                                                </div>
+                                                <?php
+                                                $palette = $s['color_palette'] ?? [];
+                                                if (!empty($palette)): ?>
+                                                <div style="display:flex;flex-wrap:wrap;gap:6px;">
+                                                    <?php foreach ($palette as $entry):
+                                                        $hex = $entry['color'] ?? '';
+                                                        $name = $entry['name'] ?? '';
+                                                        if (empty($hex)) continue;
+                                                        $light = in_array(strtolower($hex), ['#ffffff','#fff','#e2e8f0','#f1f5f9','#f8fafc']);
+                                                        $border_style = $light ? '1px solid #999' : '2px solid transparent';
+                                                    ?>
+                                                    <button type="button" title="<?php echo esc_attr($name); ?>" onclick="document.getElementById('pos-accent-picker').value='<?php echo esc_attr($hex); ?>';document.getElementById('pos-accent-hex').value='<?php echo esc_attr($hex); ?>';" style="width:32px;height:32px;border-radius:8px;background:<?php echo esc_attr($hex); ?>;border:<?php echo $border_style; ?>;cursor:pointer;transition:transform .15s;flex-shrink:0;" onmouseover="this.style.transform='scale(1.15)'" onmouseout="this.style.transform='scale(1)'"></button>
+                                                    <?php endforeach; ?>
+                                                </div>
+                                                <?php endif; ?>
+                                                <p class="tix-settings-hint" style="margin-top:8px;">Farben aus deiner <strong>Design-Palette</strong>. &Auml;ndert auch die globale Akzentfarbe.</p>
+                                            </div>
                                         </div>
+
+                                        <hr style="border:none;border-top:1px solid #e0e0e0;margin:18px 0 14px;">
+                                        <h4 style="margin:0 0 12px;font-size:14px;font-weight:600;">SumUp Kartenzahlung</h4>
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('pos_sumup_enabled', 'SumUp-Integration aktivieren', $s, 'EC-Kartenzahlung &uuml;ber SumUp-Terminal. Erstelle einen API-Key unter <a href="https://developer.sumup.com/" target="_blank">developer.sumup.com</a>.'); ?>
+                                            </div>
+                                            <div class="tix-field">
+                                                <label class="tix-label">SumUp API-Key</label>
+                                                <input type="password" name="tix_settings[pos_sumup_api_key]" value="<?php echo esc_attr($s['pos_sumup_api_key'] ?? ''); ?>" class="tix-input" placeholder="sup_sk_..." autocomplete="new-password">
+                                                <p class="tix-settings-hint">Beginnt mit <code>sup_sk_...</code>. Unter SumUp Dashboard &rarr; Developers &rarr; API Keys.</p>
+                                            </div>
+                                            <div class="tix-field">
+                                                <label class="tix-label">Merchant-Code</label>
+                                                <input type="text" name="tix_settings[pos_sumup_merchant_code]" value="<?php echo esc_attr($s['pos_sumup_merchant_code'] ?? ''); ?>" class="tix-input" placeholder="MXXXXXXXXX">
+                                                <p class="tix-settings-hint">Dein SumUp H&auml;ndler-Code. Unter SumUp Dashboard &rarr; Konto &rarr; Kontodaten.</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Tischreservierung ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-food"></span>
+                                        <h3>Tischreservierung</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('table_reservation_enabled', 'Tischreservierung aktivieren', $s, 'Erm&ouml;glicht Tischreservierungen &uuml;ber einen Kalender. Verwende <code>[tix_table_reservation]</code> f&uuml;r die Kalender-Ansicht und <code>[tix_table_button]</code> auf Event-Seiten.'); ?>
+                                            </div>
+                                        </div>
+
+                                        <div id="tix-table-res-settings" style="<?php echo empty($s['table_reservation_enabled']) ? 'display:none;' : ''; ?>margin-top:16px">
+                                            <h4 style="margin:0 0 12px;font-size:14px;font-weight:600">Farben (optional)</h4>
+                                            <div class="tix-field-grid">
+                                                <div class="tix-field">
+                                                    <label class="tix-label">Hintergrund</label>
+                                                    <div style="display:flex;gap:8px;align-items:center">
+                                                        <input type="color" name="tix_settings[reservation_bg]" value="<?php echo esc_attr($s['reservation_bg'] ?: '#0f0f0f'); ?>" style="width:40px;height:32px;padding:0;border:1px solid #ddd;border-radius:4px;cursor:pointer">
+                                                        <input type="text" name="tix_settings[reservation_bg]" value="<?php echo esc_attr($s['reservation_bg'] ?? ''); ?>" class="tix-input" style="width:100px" placeholder="leer = Standard">
+                                                    </div>
+                                                </div>
+                                                <div class="tix-field">
+                                                    <label class="tix-label">Oberfl&auml;che</label>
+                                                    <div style="display:flex;gap:8px;align-items:center">
+                                                        <input type="color" name="tix_settings[reservation_surface]" value="<?php echo esc_attr($s['reservation_surface'] ?: '#1a1a1a'); ?>" style="width:40px;height:32px;padding:0;border:1px solid #ddd;border-radius:4px;cursor:pointer">
+                                                        <input type="text" name="tix_settings[reservation_surface]" value="<?php echo esc_attr($s['reservation_surface'] ?? ''); ?>" class="tix-input" style="width:100px" placeholder="leer = Standard">
+                                                    </div>
+                                                </div>
+                                                <div class="tix-field">
+                                                    <label class="tix-label">Karte</label>
+                                                    <div style="display:flex;gap:8px;align-items:center">
+                                                        <input type="color" name="tix_settings[reservation_card]" value="<?php echo esc_attr($s['reservation_card'] ?: '#252525'); ?>" style="width:40px;height:32px;padding:0;border:1px solid #ddd;border-radius:4px;cursor:pointer">
+                                                        <input type="text" name="tix_settings[reservation_card]" value="<?php echo esc_attr($s['reservation_card'] ?? ''); ?>" class="tix-input" style="width:100px" placeholder="leer = Standard">
+                                                    </div>
+                                                </div>
+                                                <div class="tix-field">
+                                                    <label class="tix-label">Text</label>
+                                                    <div style="display:flex;gap:8px;align-items:center">
+                                                        <input type="color" name="tix_settings[reservation_text]" value="<?php echo esc_attr($s['reservation_text'] ?: '#ffffff'); ?>" style="width:40px;height:32px;padding:0;border:1px solid #ddd;border-radius:4px;cursor:pointer">
+                                                        <input type="text" name="tix_settings[reservation_text]" value="<?php echo esc_attr($s['reservation_text'] ?? ''); ?>" class="tix-input" style="width:100px" placeholder="leer = Standard">
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <h4 style="margin:24px 0 8px;font-size:14px;font-weight:600">Standard-Tischkategorien</h4>
+                                            <p class="tix-settings-hint" style="margin-bottom:12px">Diese werden automatisch &uuml;bernommen wenn Tischreservierung f&uuml;r ein neues Event aktiviert wird.</p>
+                                            <div id="tix-default-cats">
+                                                <?php
+                                                $def_cats = json_decode($s['table_default_categories'] ?? '[]', true);
+                                                if (!is_array($def_cats)) $def_cats = [];
+                                                foreach ($def_cats as $di => $dc): ?>
+                                                <div class="tix-default-cat-row" style="background:#f8f9fa;border:1px solid #e5e7eb;border-radius:8px;padding:12px;margin-bottom:8px">
+                                                    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
+                                                        <div style="flex:2;min-width:120px">
+                                                            <label class="tix-mini-label">Name</label>
+                                                            <input type="text" class="tix-input tix-dc-name" value="<?php echo esc_attr($dc['name'] ?? ''); ?>" placeholder="z.B. VIP Lounge">
+                                                        </div>
+                                                        <div style="flex:1;min-width:80px">
+                                                            <label class="tix-mini-label">Mindestverzehr (&euro;)</label>
+                                                            <input type="number" class="tix-input tix-dc-min-spend" value="<?php echo esc_attr($dc['min_spend'] ?? 0); ?>" step="0.01" min="0">
+                                                        </div>
+                                                        <div style="width:70px">
+                                                            <label class="tix-mini-label">Tische</label>
+                                                            <input type="number" class="tix-input tix-dc-quantity" value="<?php echo esc_attr($dc['quantity'] ?? 0); ?>" min="0">
+                                                        </div>
+                                                        <div style="width:60px">
+                                                            <label class="tix-mini-label">Min G.</label>
+                                                            <input type="number" class="tix-input tix-dc-min-guests" value="<?php echo esc_attr($dc['min_guests'] ?? 1); ?>" min="1">
+                                                        </div>
+                                                        <div style="width:60px">
+                                                            <label class="tix-mini-label">Max G.</label>
+                                                            <input type="number" class="tix-input tix-dc-max-guests" value="<?php echo esc_attr($dc['max_guests'] ?? 10); ?>" min="1">
+                                                        </div>
+                                                        <button type="button" class="button tix-remove-default-cat" style="color:#dc2626;border-color:#dc2626;flex-shrink:0" title="Entfernen">&#x2715;</button>
+                                                    </div>
+                                                </div>
+                                                <?php endforeach; ?>
+                                            </div>
+                                            <input type="hidden" name="tix_settings[table_default_categories]" id="tix-default-cats-json" value="<?php echo esc_attr($s['table_default_categories'] ?? '[]'); ?>">
+                                            <button type="button" class="button" id="tix-add-default-cat" style="margin-top:4px">+ Kategorie hinzuf&uuml;gen</button>
+                                        </div>
+
+                                        <script>
+                                        jQuery(function($) {
+                                            // Toggle table reservation settings visibility
+                                            $('input[name="tix_settings[table_reservation_enabled]"]').on('change', function() {
+                                                $('#tix-table-res-settings').toggle($(this).is(':checked'));
+                                            });
+
+                                            // Sync color pickers with text inputs
+                                            $('#tix-table-res-settings input[type="color"]').on('input', function() {
+                                                $(this).next('input[type="text"]').val($(this).val());
+                                            });
+                                            $('#tix-table-res-settings input[type="text"][name*="reservation_"]').on('input', function() {
+                                                var v = $(this).val();
+                                                if (/^#[0-9a-fA-F]{6}$/.test(v)) {
+                                                    $(this).prev('input[type="color"]').val(v);
+                                                }
+                                            });
+
+                                            // Default categories
+                                            function syncDefaultCats() {
+                                                var cats = [];
+                                                $('#tix-default-cats .tix-default-cat-row').each(function() {
+                                                    var name = $(this).find('.tix-dc-name').val().trim();
+                                                    if (!name) return;
+                                                    cats.push({
+                                                        name: name,
+                                                        min_spend: parseFloat($(this).find('.tix-dc-min-spend').val()) || 0,
+                                                        quantity: parseInt($(this).find('.tix-dc-quantity').val()) || 0,
+                                                        min_guests: parseInt($(this).find('.tix-dc-min-guests').val()) || 1,
+                                                        max_guests: parseInt($(this).find('.tix-dc-max-guests').val()) || 10
+                                                    });
+                                                });
+                                                $('#tix-default-cats-json').val(JSON.stringify(cats));
+                                            }
+
+                                            $('#tix-default-cats').on('input change', 'input', syncDefaultCats);
+
+                                            $('#tix-add-default-cat').on('click', function() {
+                                                var tpl = '<div class="tix-default-cat-row" style="background:#f8f9fa;border:1px solid #e5e7eb;border-radius:8px;padding:12px;margin-bottom:8px">' +
+                                                    '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">' +
+                                                    '<div style="flex:2;min-width:120px"><label class="tix-mini-label">Name</label><input type="text" class="tix-input tix-dc-name" placeholder="z.B. VIP Lounge"></div>' +
+                                                    '<div style="flex:1;min-width:80px"><label class="tix-mini-label">Mindestverzehr (\u20ac)</label><input type="number" class="tix-input tix-dc-min-spend" value="0" step="0.01" min="0"></div>' +
+                                                    '<div style="width:70px"><label class="tix-mini-label">Tische</label><input type="number" class="tix-input tix-dc-quantity" value="0" min="0"></div>' +
+                                                    '<div style="width:60px"><label class="tix-mini-label">Min G.</label><input type="number" class="tix-input tix-dc-min-guests" value="1" min="1"></div>' +
+                                                    '<div style="width:60px"><label class="tix-mini-label">Max G.</label><input type="number" class="tix-input tix-dc-max-guests" value="10" min="1"></div>' +
+                                                    '<button type="button" class="button tix-remove-default-cat" style="color:#dc2626;border-color:#dc2626;flex-shrink:0" title="Entfernen">\u2715</button>' +
+                                                    '</div></div>';
+                                                $('#tix-default-cats').append(tpl);
+                                                syncDefaultCats();
+                                            });
+
+                                            $(document).on('click', '.tix-remove-default-cat', function() {
+                                                $(this).closest('.tix-default-cat-row').remove();
+                                                syncDefaultCats();
+                                            });
+                                        });
+                                        </script>
                                     </div>
                                 </div>
 

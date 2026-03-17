@@ -1,0 +1,331 @@
+/*
+ * Tixomat Mini-Cart Drawer
+ * Slide-in von rechts. Helles Design, konsistent zur Cart-Seite.
+ */
+
+/* ══════════════════════════════════════
+   TRIGGER (Icon + Badge)
+   ══════════════════════════════════════ */
+.tix-minicart-trigger,
+[data-tix-minicart] {
+    position: relative;
+    cursor: pointer;
+}
+
+.tix-minicart-count {
+    position: absolute;
+    top: -6px;
+    right: -8px;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: 9px;
+    background: var(--tix-buy-bg, #c8ff00);
+    color: var(--tix-buy-color, #000);
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 18px;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+    pointer-events: none;
+    box-sizing: border-box;
+}
+
+.tix-minicart-count[style*="display:none"] { display: none; }
+
+/* ══════════════════════════════════════
+   OVERLAY
+   ══════════════════════════════════════ */
+/* Overlay ist auch .tix-co für CSS-Variablen – Layout-Override nötig */
+.tix-mc-overlay-wrap.tix-co {
+    max-width: none;
+    width: auto;
+}
+
+.tix-mc-overlay-wrap {
+    position: fixed;
+    inset: 0;
+    z-index: 99999;
+    background: rgba(0, 0, 0, 0.35);
+    opacity: 0;
+    transition: opacity 0.25s ease;
+    pointer-events: none;
+}
+
+.tix-mc-overlay-wrap.tix-mc-open {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+/* ══════════════════════════════════════
+   DRAWER – Helles Design
+   ══════════════════════════════════════ */
+.tix-mc-drawer {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    max-width: 400px;
+    z-index: 100000;
+    background: #ffffff;
+    color: #1a1a1a;
+    display: flex;
+    flex-direction: column;
+    transform: translateX(100%);
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: -8px 0 32px rgba(0, 0, 0, 0.12);
+    font-family: inherit;
+}
+
+.tix-mc-overlay-wrap.tix-mc-open .tix-mc-drawer {
+    transform: translateX(0);
+}
+
+/* ── Header ── */
+.tix-mc-drawer-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 20px 24px;
+    border-bottom: 1px solid #e5e5e5;
+    flex-shrink: 0;
+}
+
+.tix-mc-drawer-title {
+    font-size: 1.1rem;
+    font-weight: 700;
+    margin: 0;
+    color: #1a1a1a;
+}
+
+.tix-mc-drawer-close {
+    background: none;
+    border: none;
+    color: #1a1a1a;
+    font-size: 18px;
+    cursor: pointer;
+    opacity: 0.4;
+    transition: opacity 0.15s;
+    padding: 4px;
+    line-height: 1;
+}
+
+.tix-mc-drawer-close:hover {
+    opacity: 1;
+}
+
+/* ── Body ── */
+.tix-mc-drawer-body {
+    flex: 1;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+/* ── Content ── */
+.tix-mc-content {
+    display: flex;
+    flex-direction: column;
+    min-height: 100%;
+}
+
+/* ── Empty State ── */
+.tix-mc-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 60px 24px;
+    text-align: center;
+    flex: 1;
+}
+
+.tix-mc-empty p {
+    opacity: 0.45;
+    margin: 0 0 16px;
+    font-size: 0.95rem;
+    color: #1a1a1a;
+}
+
+/* ── Items ── */
+.tix-mc-items {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 12px 24px;
+    flex: 1;
+}
+
+.tix-mc-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 0;
+    border-bottom: 1px solid #e5e5e5;
+    font-size: 0.95rem;
+}
+
+.tix-mc-item:last-child {
+    border-bottom: none;
+}
+
+.tix-mc-item-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.tix-mc-item-name {
+    font-weight: 700;
+    font-size: 0.9rem;
+    color: #1a1a1a;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: block;
+}
+
+.tix-mc-item-hint {
+    display: block;
+    font-size: 0.75rem;
+    color: #999;
+    font-weight: 400;
+    margin-top: 2px;
+}
+
+.tix-mc-item-price {
+    font-weight: 700;
+    font-size: 0.95rem;
+    color: #1a1a1a;
+    white-space: nowrap;
+    flex-shrink: 0;
+    min-width: 60px;
+    text-align: right;
+}
+
+/* Qty Controls */
+.tix-mc-item-qty {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.tix-mc-qty-btn {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    border: 1px solid #ccc;
+    background: transparent;
+    color: #1a1a1a;
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+    padding: 0;
+    flex-shrink: 0;
+}
+
+.tix-mc-qty-btn:hover {
+    background: var(--tix-buy-bg, #c8ff00);
+    color: var(--tix-buy-color, #000);
+    border-color: var(--tix-buy-bg, #c8ff00);
+}
+
+.tix-mc-qty-val {
+    min-width: 20px;
+    text-align: center;
+    font-weight: 700;
+    font-size: 0.9rem;
+    font-variant-numeric: tabular-nums;
+    color: #1a1a1a;
+}
+
+.tix-mc-item-remove {
+    background: none;
+    border: none;
+    color: #999;
+    cursor: pointer;
+    font-size: 13px;
+    padding: 2px;
+    transition: opacity 0.15s, color 0.15s;
+    flex-shrink: 0;
+}
+
+.tix-mc-item-remove:hover {
+    color: #ef5350;
+}
+
+/* ── Footer ── */
+.tix-mc-footer {
+    padding: 20px 24px;
+    border-top: 1px solid #e5e5e5;
+    flex-shrink: 0;
+}
+
+.tix-mc-total-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-weight: 700;
+    font-size: 1.1rem;
+    margin-bottom: 16px;
+    color: #1a1a1a;
+}
+
+.tix-mc-total-amount {
+    font-variant-numeric: tabular-nums;
+}
+
+.tix-mc-checkout-btn {
+    display: block !important;
+    width: 100% !important;
+    padding: 14px !important;
+    border: var(--tix-btn1-border, none) !important;
+    border-radius: var(--tix-btn1-radius, 8px) !important;
+    background: var(--tix-btn1-bg, #c8ff00) !important;
+    color: var(--tix-btn1-color, #000) !important;
+    font-weight: 700 !important;
+    font-size: var(--tix-btn1-font-size, 1rem) !important;
+    text-align: center !important;
+    text-decoration: none !important;
+    cursor: pointer;
+    transition: background 0.2s, opacity 0.2s;
+    font-family: inherit;
+    box-sizing: border-box;
+    line-height: 1.4;
+}
+
+.tix-mc-checkout-btn:hover {
+    background: var(--tix-btn1-hover-bg, var(--tix-btn1-bg)) !important;
+    color: var(--tix-btn1-hover-color, var(--tix-btn1-color, #000)) !important;
+    opacity: 0.9;
+}
+
+/* ── Loading ── */
+.tix-mc-loading .tix-mc-items {
+    opacity: 0.4;
+    pointer-events: none;
+}
+
+/* ══════════════════════════════════════
+   RESPONSIVE
+   ══════════════════════════════════════ */
+@media (max-width: 440px) {
+    .tix-mc-drawer {
+        max-width: 100%;
+    }
+}
+
+/* WC Price in Drawer */
+.tix-mc-drawer .woocommerce-Price-amount {
+    font-variant-numeric: tabular-nums;
+    color: #1a1a1a;
+}
+
+/* Prevent body scroll when drawer open */
+body.tix-mc-body-open {
+    overflow: hidden;
+}

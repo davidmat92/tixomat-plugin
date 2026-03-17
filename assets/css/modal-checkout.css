@@ -886,3 +886,274 @@
         width: 100%;
     }
 }
+
+/* ══════════════════════════════════════
+   STEP 1.5: TABLE RESERVATION
+   Identisch zum Ticket-Selector gestylt
+   ══════════════════════════════════════ */
+
+.tix-mc-step-table {
+    display: none;
+    flex-direction: column;
+    overflow-y: auto;
+    min-height: 0;
+}
+.tix-mc-step-table.active {
+    display: flex;
+}
+
+.tix-mc-table-header {
+    margin-bottom: 12px;
+}
+.tix-mc-table-title {
+    font-family: var(--tx-font-display, 'Outfit', system-ui, sans-serif);
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--tx-text, #0D0B09);
+    margin: 0 0 12px 0;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--tx-border, #EDE9E0);
+}
+.tix-mc-table-subtitle {
+    font-family: var(--tx-font-body, 'Inter', system-ui, sans-serif);
+    font-size: 0.82rem;
+    color: var(--tx-text-muted, rgba(13,11,9,0.40));
+    margin: 0;
+}
+
+/* Info text */
+.tix-mc-table-info {
+    padding: 10px 14px;
+    background: var(--tx-bg-subtle, #F3F0EA);
+    border: 1px solid var(--tx-border, #EDE9E0);
+    border-radius: 8px;
+    font-family: var(--tx-font-body, 'Inter', system-ui, sans-serif);
+    font-size: 0.82rem;
+    color: var(--tx-text-secondary, rgba(13,11,9,0.70));
+    margin-bottom: 12px;
+    line-height: 1.5;
+}
+
+/* Category cards – identisch zu .tix-mc-cat */
+.tix-mc-table-cats {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+.tix-mc-table-cat {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 14px;
+    border: 1px solid var(--tx-border, #EDE9E0);
+    border-radius: var(--tix-mc-cat-radius, 10px);
+    gap: 12px;
+    cursor: pointer;
+    transition: border-color 0.15s;
+}
+.tix-mc-table-cat:hover {
+    border-color: var(--tx-accent, #FF5500);
+}
+.tix-mc-table-cat-active {
+    border-color: var(--tx-accent, #FF5500) !important;
+}
+.tix-mc-table-sold-out {
+    opacity: 0.35;
+    pointer-events: none;
+    cursor: not-allowed;
+}
+.tix-mc-table-cat-info {
+    flex: 1;
+    min-width: 0;
+}
+.tix-mc-table-cat-name {
+    display: block;
+    font-family: var(--tx-font-body, 'Inter', system-ui, sans-serif);
+    font-weight: 600;
+    font-size: 0.92rem;
+    color: var(--tx-text, #0D0B09);
+}
+.tix-mc-table-cat-desc {
+    display: block;
+    font-size: 0.78rem;
+    color: var(--tx-text-muted, rgba(13,11,9,0.40));
+    margin-top: 2px;
+    line-height: 1.35;
+}
+.tix-mc-table-cat-meta {
+    display: block;
+    font-size: 0.78rem;
+    color: var(--tx-text-muted, rgba(13,11,9,0.40));
+    margin-top: 2px;
+}
+.tix-mc-table-cat-right {
+    text-align: right;
+    flex-shrink: 0;
+}
+.tix-mc-table-cat-price {
+    display: block;
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--tx-text, #0D0B09);
+}
+.tix-mc-table-cat-price-label {
+    display: block;
+    font-size: 0.78rem;
+    color: var(--tx-text-muted, rgba(13,11,9,0.40));
+    margin-top: 1px;
+}
+.tix-mc-table-cat-avail {
+    display: block;
+    font-size: 0.78rem;
+    color: var(--tx-green, #1DB86A);
+    margin-top: 2px;
+}
+.tix-mc-table-cat-avail-out {
+    color: var(--tx-red, #E53B3B);
+}
+
+/* Table form (appears after selection) */
+.tix-mc-table-form {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--tx-border, #EDE9E0);
+}
+.tix-mc-table-selected-info {
+    font-family: var(--tx-font-body, 'Inter', system-ui, sans-serif);
+    font-size: 0.88rem;
+    font-weight: 600;
+    margin-bottom: 14px;
+    color: var(--tx-text, #0D0B09);
+}
+.tix-mc-table-label {
+    font-family: var(--tx-font-body, 'Inter', system-ui, sans-serif);
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--tx-text-secondary, rgba(13,11,9,0.70));
+    display: block;
+    margin-bottom: 6px;
+}
+.tix-mc-table-stepper {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-bottom: 14px;
+}
+.tix-mc-table-guest-val {
+    min-width: 26px;
+    text-align: center;
+    font-weight: 700;
+    font-size: 0.95rem;
+    font-variant-numeric: tabular-nums;
+    color: var(--tx-text, #0D0B09);
+}
+.tix-mc-table-comments-input {
+    width: 100%;
+    padding: 9px 12px;
+    border: 1px solid var(--tx-border, #EDE9E0);
+    border-radius: 8px;
+    background: var(--tx-bg-card, #fff);
+    color: var(--tx-text, #0D0B09);
+    font-family: var(--tx-font-body, 'Inter', system-ui, sans-serif);
+    font-size: 0.9rem;
+    box-sizing: border-box;
+    transition: border-color 0.15s;
+    resize: vertical;
+}
+.tix-mc-table-comments-input:focus {
+    outline: none;
+    border-color: var(--tx-accent, #FF5500);
+    box-shadow: 0 0 0 2px rgba(255,85,0,0.15);
+}
+
+/* Action buttons – identisch zu .tix-mc-next / .tix-mc-back */
+.tix-mc-table-actions {
+    margin-top: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.tix-mc-table-confirm {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    padding: 14px;
+    border: var(--tix-btn1-border, none);
+    border-radius: var(--tix-btn1-radius, 10px);
+    background: var(--tix-btn1-bg, #c8ff00);
+    color: var(--tix-btn1-color, #000);
+    font-family: inherit;
+    font-size: var(--tix-btn1-font-size, 1rem);
+    font-weight: 700;
+    cursor: pointer;
+    transition: opacity 0.15s, background 0.15s;
+}
+.tix-mc-table-confirm:hover:not(:disabled) {
+    background: var(--tix-btn1-hover-bg, var(--tix-btn1-bg));
+    color: var(--tix-btn1-hover-color, var(--tix-btn1-color));
+    opacity: 0.95;
+}
+.tix-mc-table-confirm:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+.tix-mc-table-skip {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    width: 100%;
+    padding: 10px 16px;
+    border: 1px solid var(--tx-border, #EDE9E0);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--tx-text-secondary, rgba(13,11,9,0.70));
+    font-family: var(--tx-font-body, 'Inter', system-ui, sans-serif);
+    font-size: 0.88rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+}
+.tix-mc-table-skip:hover {
+    background: var(--tx-bg-subtle, #F3F0EA);
+    border-color: var(--tx-text-muted, rgba(13,11,9,0.40));
+}
+
+/* ══════════════════════════════════════
+   Specials im Modal
+   ══════════════════════════════════════ */
+
+.tix-mc-specials {
+    margin-top: 8px;
+}
+
+.tix-mc-section-header {
+    font-size: 0.82rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--tx-text-muted, rgba(13,11,9,0.50));
+    margin-bottom: 8px;
+}
+
+.tix-mc-special-thumb {
+    width: 36px;
+    height: 36px;
+    border-radius: var(--tix-mc-cat-radius, 10px);
+    object-fit: cover;
+    flex-shrink: 0;
+}
+
+.tix-mc-special-badge {
+    font-size: 0.72em;
+    font-weight: 600;
+    color: var(--tx-green, #16a34a);
+}
+
+.tix-mc-special-value {
+    text-decoration: line-through;
+    opacity: 0.45;
+    margin-left: 4px;
+}
