@@ -16,7 +16,7 @@ jobs:
         with:
           switches: -avz --delete --exclude='.git' --exclude='.github' --exclude='bot/' --exclude='mu-plugins/' --exclude='DP-CONNECT-BOT/' --exclude='.claude/'
           path: ./
-          remote_path: /home/runcloud/webapps/Tixomat/wp-content/plugins/tixomat/
+          remote_path: /home/runcloud/webapps/Tixomat/wp-content/plugins/tixomat-plugin/
           remote_host: 51.195.61.6
           remote_port: 22
           remote_user: runcloud
