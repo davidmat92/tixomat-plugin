@@ -18,6 +18,57 @@ class TIX_REST_API {
 
     public static function init() {
         add_action('rest_api_init', [__CLASS__, 'register_routes']);
+        // Token-basierte Authentifizierung für Guest-User
+        add_filter('determine_current_user', [__CLASS__, 'authenticate_by_token'], 30);
+    }
+
+    /**
+     * Authentifiziert User anhand des X-Tix-Token Headers.
+     */
+    public static function authenticate_by_token($user_id) {
+        // Nur greifen wenn noch nicht authentifiziert
+        if ($user_id) return $user_id;
+
+        // Nur für REST-API Requests
+        if (!defined('REST_REQUEST') || !REST_REQUEST) return $user_id;
+
+        $token = '';
+        if (isset($_SERVER['HTTP_X_TIX_TOKEN'])) {
+            $token = $_SERVER['HTTP_X_TIX_TOKEN'];
+        } elseif (isset($_SERVER['HTTP_AUTHORIZATION'])) {
+            $auth = $_SERVER['HTTP_AUTHORIZATION'];
+            if (str_starts_with($auth, 'Bearer ')) {
+                $token = substr($auth, 7);
+            }
+        }
+
+        if (empty($token)) return $user_id;
+
+        $hashed = hash('sha256', $token);
+
+        // User mit passendem Token finden
+        $users = get_users([
+            'meta_key'   => '_tix_app_token',
+            'number'     => 10,
+            'fields'     => 'ids',
+        ]);
+
+        foreach ($users as $uid) {
+            $data = get_user_meta($uid, '_tix_app_token', true);
+            if (!is_array($data)) continue;
+            if (!isset($data['token'], $data['expires'])) continue;
+
+            if (hash_equals($data['token'], $hashed)) {
+                if ($data['expires'] > time()) {
+                    return $uid;
+                }
+                // Token abgelaufen → aufräumen
+                delete_user_meta($uid, '_tix_app_token');
+                return $user_id;
+            }
+        }
+
+        return $user_id;
     }
 
     // ═══════════════════════════════════════════
@@ -140,6 +191,43 @@ class TIX_REST_API {
             'methods'             => 'GET',
             'callback'            => [__CLASS__, 'pos_transactions'],
             'permission_callback' => [__CLASS__, 'check_organizer'],
+        ]);
+
+        // ── Guest / Customer Auth (unauthenticated) ──
+        register_rest_route($ns, '/auth/login', [
+            'methods'             => 'POST',
+            'callback'            => [__CLASS__, 'auth_login'],
+            'permission_callback' => '__return_true',
+        ]);
+
+        register_rest_route($ns, '/auth/register', [
+            'methods'             => 'POST',
+            'callback'            => [__CLASS__, 'auth_register'],
+            'permission_callback' => '__return_true',
+        ]);
+
+        register_rest_route($ns, '/auth/profile', [
+            'methods'             => ['GET', 'POST'],
+            'callback'            => [__CLASS__, 'auth_profile'],
+            'permission_callback' => [__CLASS__, 'check_authenticated'],
+        ]);
+
+        register_rest_route($ns, '/auth/profile/avatar', [
+            'methods'             => 'POST',
+            'callback'            => [__CLASS__, 'auth_profile_avatar'],
+            'permission_callback' => [__CLASS__, 'check_authenticated'],
+        ]);
+
+        register_rest_route($ns, '/customer/tickets', [
+            'methods'             => 'GET',
+            'callback'            => [__CLASS__, 'customer_tickets'],
+            'permission_callback' => [__CLASS__, 'check_authenticated'],
+        ]);
+
+        register_rest_route($ns, '/customer/events', [
+            'methods'             => 'GET',
+            'callback'            => [__CLASS__, 'customer_events'],
+            'permission_callback' => [__CLASS__, 'check_authenticated'],
         ]);
     }
 
@@ -1564,5 +1652,410 @@ class TIX_REST_API {
         }
 
         return $tickets;
+    }
+
+    // ═══════════════════════════════════════════
+    //  GUEST / CUSTOMER AUTH
+    // ═══════════════════════════════════════════
+
+    /**
+     * POST /auth/login – Anmeldung mit E-Mail + Passwort.
+     * Gibt User-Daten + Auth-Token zurück bei Erfolg.
+     */
+    public static function auth_login(WP_REST_Request $req) {
+        $email    = sanitize_email($req->get_param('email'));
+        $password = $req->get_param('password');
+
+        if (empty($email) || empty($password)) {
+            return new WP_Error('missing_fields', 'E-Mail und Passwort sind erforderlich.', ['status' => 400]);
+        }
+
+        // WordPress-Login mit E-Mail
+        $user = get_user_by('email', $email);
+        if (!$user) {
+            // Fallback: Username
+            $user = get_user_by('login', $email);
+        }
+
+        if (!$user) {
+            return new WP_Error('invalid_credentials', 'Ungültige E-Mail oder Passwort.', ['status' => 401]);
+        }
+
+        if (!wp_check_password($password, $user->user_pass, $user->ID)) {
+            return new WP_Error('invalid_credentials', 'Ungültige E-Mail oder Passwort.', ['status' => 401]);
+        }
+
+        // Token generieren (gespeichert als User-Meta, gültig 90 Tage)
+        $token = wp_generate_password(64, false, false);
+        $token_data = [
+            'token'   => hash('sha256', $token),
+            'expires' => time() + (90 * DAY_IN_SECONDS),
+        ];
+        update_user_meta($user->ID, '_tix_app_token', $token_data);
+
+        return rest_ensure_response([
+            'success' => true,
+            'token'   => $token,
+            'user'    => self::format_guest_user($user),
+        ]);
+    }
+
+    /**
+     * POST /auth/register – Neues Konto erstellen.
+     * Erstellt einen WordPress-User mit Rolle "subscriber".
+     */
+    public static function auth_register(WP_REST_Request $req) {
+        $first_name = sanitize_text_field($req->get_param('first_name'));
+        $last_name  = sanitize_text_field($req->get_param('last_name'));
+        $email      = sanitize_email($req->get_param('email'));
+        $password   = $req->get_param('password');
+
+        if (empty($first_name) || empty($last_name) || empty($email) || empty($password)) {
+            return new WP_Error('missing_fields', 'Alle Felder sind erforderlich.', ['status' => 400]);
+        }
+
+        if (!is_email($email)) {
+            return new WP_Error('invalid_email', 'Ungültige E-Mail-Adresse.', ['status' => 400]);
+        }
+
+        if (strlen($password) < 8) {
+            return new WP_Error('weak_password', 'Das Passwort muss mindestens 8 Zeichen lang sein.', ['status' => 400]);
+        }
+
+        if (email_exists($email)) {
+            return new WP_Error('email_exists', 'Ein Konto mit dieser E-Mail-Adresse existiert bereits.', ['status' => 409]);
+        }
+
+        // Username aus E-Mail ableiten
+        $username = sanitize_user(strtolower(explode('@', $email)[0]));
+        $base_username = $username;
+        $counter = 1;
+        while (username_exists($username)) {
+            $username = $base_username . $counter;
+            $counter++;
+        }
+
+        $user_id = wp_insert_user([
+            'user_login'   => $username,
+            'user_email'   => $email,
+            'user_pass'    => $password,
+            'first_name'   => $first_name,
+            'last_name'    => $last_name,
+            'display_name' => trim("$first_name $last_name"),
+            'role'         => 'subscriber',
+        ]);
+
+        if (is_wp_error($user_id)) {
+            return new WP_Error('registration_failed', $user_id->get_error_message(), ['status' => 500]);
+        }
+
+        $user = get_user_by('ID', $user_id);
+
+        // Optional: Willkommens-E-Mail senden
+        wp_new_user_notification($user_id, null, 'user');
+
+        // Token generieren
+        $token = wp_generate_password(64, false, false);
+        $token_data = [
+            'token'   => hash('sha256', $token),
+            'expires' => time() + (90 * DAY_IN_SECONDS),
+        ];
+        update_user_meta($user_id, '_tix_app_token', $token_data);
+
+        return rest_ensure_response([
+            'success' => true,
+            'token'   => $token,
+            'user'    => self::format_guest_user($user),
+        ]);
+    }
+
+    /**
+     * GET|POST /auth/profile – Profil abrufen oder aktualisieren.
+     */
+    public static function auth_profile(WP_REST_Request $req) {
+        $user = wp_get_current_user();
+
+        if ($req->get_method() === 'POST') {
+            $first_name = $req->get_param('first_name');
+            $last_name  = $req->get_param('last_name');
+            $phone      = $req->get_param('phone');
+
+            $update_data = ['ID' => $user->ID];
+
+            if ($first_name !== null) {
+                $update_data['first_name'] = sanitize_text_field($first_name);
+            }
+            if ($last_name !== null) {
+                $update_data['last_name'] = sanitize_text_field($last_name);
+            }
+            if ($first_name !== null || $last_name !== null) {
+                $fn = $first_name !== null ? sanitize_text_field($first_name) : $user->first_name;
+                $ln = $last_name !== null ? sanitize_text_field($last_name) : $user->last_name;
+                $update_data['display_name'] = trim("$fn $ln");
+            }
+
+            $result = wp_update_user($update_data);
+            if (is_wp_error($result)) {
+                return new WP_Error('update_failed', $result->get_error_message(), ['status' => 500]);
+            }
+
+            if ($phone !== null) {
+                update_user_meta($user->ID, '_tix_phone', sanitize_text_field($phone));
+            }
+
+            // Refresh user
+            $user = get_user_by('ID', $user->ID);
+        }
+
+        return rest_ensure_response([
+            'success' => true,
+            'user'    => self::format_guest_user($user),
+        ]);
+    }
+
+    /**
+     * POST /auth/profile/avatar – Profilbild hochladen.
+     */
+    public static function auth_profile_avatar(WP_REST_Request $req) {
+        $user = wp_get_current_user();
+        $files = $req->get_file_params();
+
+        if (empty($files['avatar'])) {
+            return new WP_Error('no_file', 'Kein Bild hochgeladen.', ['status' => 400]);
+        }
+
+        require_once ABSPATH . 'wp-admin/includes/image.php';
+        require_once ABSPATH . 'wp-admin/includes/file.php';
+        require_once ABSPATH . 'wp-admin/includes/media.php';
+
+        // Upload
+        $file = $files['avatar'];
+        $upload = wp_handle_upload($file, ['test_form' => false]);
+
+        if (isset($upload['error'])) {
+            return new WP_Error('upload_failed', $upload['error'], ['status' => 500]);
+        }
+
+        // Alte Attachments aufräumen
+        $old_avatar_id = get_user_meta($user->ID, '_tix_avatar_id', true);
+        if ($old_avatar_id) {
+            wp_delete_attachment($old_avatar_id, true);
+        }
+
+        // Attachment erstellen
+        $attachment_id = wp_insert_attachment([
+            'post_mime_type' => $upload['type'],
+            'post_title'     => 'avatar-' . $user->ID,
+            'post_status'    => 'private',
+        ], $upload['file']);
+
+        if (is_wp_error($attachment_id)) {
+            return new WP_Error('attachment_failed', 'Bild konnte nicht gespeichert werden.', ['status' => 500]);
+        }
+
+        wp_update_attachment_metadata($attachment_id, wp_generate_attachment_metadata($attachment_id, $upload['file']));
+
+        // In User-Meta speichern
+        update_user_meta($user->ID, '_tix_avatar_id', $attachment_id);
+        update_user_meta($user->ID, '_tix_avatar_url', $upload['url']);
+
+        $user = get_user_by('ID', $user->ID);
+
+        return rest_ensure_response([
+            'success' => true,
+            'user'    => self::format_guest_user($user),
+        ]);
+    }
+
+    /**
+     * GET /customer/tickets – Tickets des eingeloggten Kunden.
+     */
+    public static function customer_tickets(WP_REST_Request $req) {
+        $user = wp_get_current_user();
+        $tickets = [];
+
+        // Aus Ticket-DB
+        if (class_exists('TIX_Ticket_DB')) {
+            $db = new TIX_Ticket_DB();
+            $rows = $db->get_tickets_by_email($user->user_email);
+
+            foreach ($rows as $row) {
+                $event_id = intval($row['event_id'] ?? 0);
+                $event = $event_id ? get_post($event_id) : null;
+
+                $tickets[] = [
+                    'id'          => intval($row['id']),
+                    'code'        => $row['ticket_code'] ?? '',
+                    'event_id'    => $event_id,
+                    'event_title' => $event ? $event->post_title : ($row['event_name'] ?? ''),
+                    'event_date'  => $event_id ? get_post_meta($event_id, '_tix_date_start', true) : '',
+                    'event_image' => $event_id ? get_the_post_thumbnail_url($event_id, 'medium') : '',
+                    'category'    => $row['ticket_category'] ?? '',
+                    'seat'        => $row['seat'] ?? '',
+                    'status'      => $row['status'] ?? 'valid',
+                    'checked_in'  => !empty($row['checked_in']),
+                    'checkin_time' => $row['checkin_time'] ?? '',
+                    'order_id'    => intval($row['order_id'] ?? 0),
+                    'price'       => floatval($row['ticket_price'] ?? 0),
+                    'purchased'   => $row['created_at'] ?? '',
+                ];
+            }
+        }
+
+        // Fallback: CPT
+        if (empty($tickets)) {
+            $ticket_posts = get_posts([
+                'post_type'      => 'tix_ticket',
+                'posts_per_page' => -1,
+                'meta_query'     => [
+                    ['key' => '_tix_email', 'value' => $user->user_email],
+                ],
+            ]);
+
+            foreach ($ticket_posts as $tp) {
+                $event_id = intval(get_post_meta($tp->ID, '_tix_event_id', true));
+                $event = $event_id ? get_post($event_id) : null;
+
+                $tickets[] = [
+                    'id'          => $tp->ID,
+                    'code'        => get_post_meta($tp->ID, '_tix_ticket_code', true),
+                    'event_id'    => $event_id,
+                    'event_title' => $event ? $event->post_title : '',
+                    'event_date'  => $event_id ? get_post_meta($event_id, '_tix_date_start', true) : '',
+                    'event_image' => $event_id ? get_the_post_thumbnail_url($event_id, 'medium') : '',
+                    'category'    => get_post_meta($tp->ID, '_tix_ticket_category', true) ?: 'Ticket',
+                    'seat'        => get_post_meta($tp->ID, '_tix_seat', true),
+                    'status'      => get_post_meta($tp->ID, '_tix_status', true) ?: 'valid',
+                    'checked_in'  => (bool) get_post_meta($tp->ID, '_tix_checked_in', true),
+                    'checkin_time' => get_post_meta($tp->ID, '_tix_checkin_time', true) ?: '',
+                    'order_id'    => intval(get_post_meta($tp->ID, '_tix_order_id', true)),
+                    'price'       => floatval(get_post_meta($tp->ID, '_tix_ticket_price', true)),
+                    'purchased'   => $tp->post_date,
+                ];
+            }
+        }
+
+        // Sortierung: neueste zuerst
+        usort($tickets, fn($a, $b) => strcmp($b['purchased'] ?? '', $a['purchased'] ?? ''));
+
+        return rest_ensure_response([
+            'success' => true,
+            'tickets' => $tickets,
+            'count'   => count($tickets),
+        ]);
+    }
+
+    /**
+     * GET /customer/events – Kommende Events des Kunden (basierend auf Tickets).
+     */
+    public static function customer_events(WP_REST_Request $req) {
+        $user = wp_get_current_user();
+        $event_ids = [];
+
+        // Aus Ticket-DB
+        if (class_exists('TIX_Ticket_DB')) {
+            $db = new TIX_Ticket_DB();
+            $rows = $db->get_tickets_by_email($user->user_email);
+            foreach ($rows as $row) {
+                $eid = intval($row['event_id'] ?? 0);
+                if ($eid) $event_ids[$eid] = true;
+            }
+        }
+
+        // Fallback: CPT
+        if (empty($event_ids)) {
+            $ticket_posts = get_posts([
+                'post_type'      => 'tix_ticket',
+                'posts_per_page' => -1,
+                'meta_query'     => [
+                    ['key' => '_tix_email', 'value' => $user->user_email],
+                ],
+                'fields'         => 'ids',
+            ]);
+            foreach ($ticket_posts as $tp_id) {
+                $eid = intval(get_post_meta($tp_id, '_tix_event_id', true));
+                if ($eid) $event_ids[$eid] = true;
+            }
+        }
+
+        $events = [];
+        foreach (array_keys($event_ids) as $event_id) {
+            $event = get_post($event_id);
+            if (!$event || $event->post_status !== 'publish') continue;
+
+            $date_start = get_post_meta($event_id, '_tix_date_start', true);
+
+            // Nur kommende Events
+            if ($date_start && strtotime($date_start) < strtotime('-1 day')) continue;
+
+            $events[] = [
+                'id'         => $event_id,
+                'title'      => $event->post_title,
+                'date_start' => $date_start,
+                'time_start' => get_post_meta($event_id, '_tix_time_start', true),
+                'time_doors' => get_post_meta($event_id, '_tix_time_doors', true),
+                'location'   => get_post_meta($event_id, '_tix_location', true),
+                'image'      => get_the_post_thumbnail_url($event_id, 'medium'),
+            ];
+        }
+
+        // Sortierung: nächstes Event zuerst
+        usort($events, fn($a, $b) => strcmp($a['date_start'] ?? '', $b['date_start'] ?? ''));
+
+        return rest_ensure_response([
+            'success' => true,
+            'events'  => $events,
+            'count'   => count($events),
+        ]);
+    }
+
+    /**
+     * Hilfsfunktion: Guest-User Daten formatieren.
+     */
+    private static function format_guest_user(WP_User $user) {
+        $avatar_url = get_user_meta($user->ID, '_tix_avatar_url', true);
+        if (empty($avatar_url)) {
+            $avatar_url = get_avatar_url($user->ID, ['size' => 96]);
+        }
+        $avatar_large = get_user_meta($user->ID, '_tix_avatar_url', true);
+        if (empty($avatar_large)) {
+            $avatar_large = get_avatar_url($user->ID, ['size' => 300]);
+        }
+
+        // Ticket-Statistiken
+        $tickets_count = 0;
+        $upcoming_events = 0;
+
+        if (class_exists('TIX_Ticket_DB')) {
+            $db = new TIX_Ticket_DB();
+            $rows = $db->get_tickets_by_email($user->user_email);
+            $tickets_count = count($rows);
+
+            $seen_events = [];
+            foreach ($rows as $row) {
+                $eid = intval($row['event_id'] ?? 0);
+                if ($eid && !isset($seen_events[$eid])) {
+                    $seen_events[$eid] = true;
+                    $ds = get_post_meta($eid, '_tix_date_start', true);
+                    if ($ds && strtotime($ds) >= strtotime('today')) {
+                        $upcoming_events++;
+                    }
+                }
+            }
+        }
+
+        return [
+            'id'              => $user->ID,
+            'display_name'    => $user->display_name,
+            'first_name'      => $user->first_name,
+            'last_name'       => $user->last_name,
+            'email'           => $user->user_email,
+            'phone'           => get_user_meta($user->ID, '_tix_phone', true) ?: '',
+            'avatar'          => $avatar_url ?: '',
+            'avatar_large'    => $avatar_large ?: '',
+            'registered_date' => $user->user_registered,
+            'tickets_count'   => $tickets_count,
+            'upcoming_events' => $upcoming_events,
+        ];
     }
 }

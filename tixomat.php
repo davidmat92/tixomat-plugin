@@ -9,7 +9,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.33.2');
+define('TIXOMAT_VERSION', '1.33.3');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -150,6 +150,8 @@ function tix_get_settings($key = null) {
             'table_reservation_enabled' => 0,
             // Geführter Modus
             'wizard_enabled'     => 1,
+            // Admin-Ansicht
+            'fullscreen_admin'   => 1,
         ]);
     }
     return $key !== null ? ($cache[$key] ?? null) : $cache;
@@ -299,6 +301,13 @@ if (is_admin()) {
 
 // ── Nur Admin (nicht AJAX) ──
 if (is_admin() && !wp_doing_ajax()) {
+
+    // Admin Shell (Fullscreen-Sidebar auf allen Tixomat-Seiten)
+    if (tix_get_settings('fullscreen_admin')) {
+        require_once TIXOMAT_PATH . 'includes/class-tix-admin-shell.php';
+        TIX_Admin_Shell::init();
+    }
+
     require_once TIXOMAT_PATH . 'includes/class-tix-sync.php';
     require_once TIXOMAT_PATH . 'includes/class-tix-columns.php';
     require_once TIXOMAT_PATH . 'includes/class-tix-cleanup.php';
