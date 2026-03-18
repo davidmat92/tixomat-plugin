@@ -51,6 +51,8 @@ class TIX_Organizer_Admin {
 
         // CSV Exports
         add_action('admin_post_tix_organizer_guestlist_csv', [__CLASS__, 'export_guestlist_csv']);
+        add_action('admin_post_tix_organizer_tickets_csv', [__CLASS__, 'export_tickets_csv']);
+        add_action('admin_post_tix_organizer_combined_csv', [__CLASS__, 'export_combined_csv']);
         add_action('admin_post_tix_organizer_billing_csv', [__CLASS__, 'export_billing_csv']);
 
         // Bulk E-Mail AJAX
@@ -587,30 +589,80 @@ class TIX_Organizer_Admin {
      * Gästeliste-Export Seite (Event auswählen → CSV).
      */
     public static function render_guestlist_page() {
+        $is_admin = current_user_can('manage_options');
         $org_id = self::get_organizer_id();
-        $events = get_posts([
-            'post_type' => 'event', 'posts_per_page' => -1, 'post_status' => 'publish',
-            'meta_key' => '_tix_organizer_id', 'meta_value' => $org_id, 'meta_type' => 'NUMERIC',
+        $query_args = [
+            'post_type' => 'event', 'posts_per_page' => -1, 'post_status' => 'any',
             'orderby' => 'date', 'order' => 'DESC',
-        ]);
+        ];
+        if (!$is_admin && $org_id) {
+            $query_args['meta_key'] = '_tix_organizer_id';
+            $query_args['meta_value'] = $org_id;
+            $query_args['meta_type'] = 'NUMERIC';
+        }
+        $events = get_posts($query_args);
         ?>
         <div class="wrap">
-            <h1>G&auml;steliste Export</h1>
-            <div class="tix-card" style="max-width:600px;margin-top:20px;background:#fff;border-radius:12px;padding:24px;box-shadow:0 1px 3px rgba(0,0,0,.04);">
-                <p style="color:#64748b;font-size:13px;margin-bottom:16px;">W&auml;hle ein Event und lade die G&auml;steliste als CSV herunter.</p>
-                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
-                    <input type="hidden" name="action" value="tix_organizer_guestlist_csv">
-                    <?php wp_nonce_field('tix_guestlist_csv', '_tix_nonce'); ?>
-                    <select name="event_id" required style="width:100%;padding:10px 14px;border:1px solid #d1d5db;border-radius:10px;font-size:14px;margin-bottom:16px;">
-                        <option value="">— Event w&auml;hlen —</option>
-                        <?php foreach ($events as $e) : ?>
-                            <option value="<?php echo $e->ID; ?>"><?php echo esc_html($e->post_title); ?> (<?php echo get_post_meta($e->ID, '_tix_start_date', true); ?>)</option>
-                        <?php endforeach; ?>
-                    </select>
-                    <button type="submit" class="button button-primary" style="padding:10px 24px;border-radius:10px;font-size:14px;background:#FF5500;border-color:#FF5500;">
-                        <span class="dashicons dashicons-download" style="margin-right:4px;"></span> CSV herunterladen
-                    </button>
-                </form>
+            <h1>G&auml;steliste &amp; Ticket-Export</h1>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;max-width:1100px;margin-top:20px;">
+
+                <!-- 1: Nur Tickets -->
+                <div style="background:#fff;border-radius:12px;padding:24px;box-shadow:0 1px 3px rgba(0,0,0,.04);">
+                    <h3 style="font-size:15px;font-weight:700;margin:0 0 8px;color:#0D0B09;">Tickets</h3>
+                    <p style="color:#64748b;font-size:12px;margin-bottom:14px;">Alle Ticket-Codes mit K&auml;ufer, Kategorie und Status.</p>
+                    <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                        <input type="hidden" name="action" value="tix_organizer_tickets_csv">
+                        <?php wp_nonce_field('tix_tickets_csv', '_tix_nonce2'); ?>
+                        <select name="event_id" required style="width:100%;padding:8px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:13px;margin-bottom:10px;">
+                            <option value="">— Event —</option>
+                            <?php foreach ($events as $e) : ?>
+                                <option value="<?php echo $e->ID; ?>"><?php echo esc_html($e->post_title); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                        <button type="submit" class="button button-primary" style="padding:7px 16px;border-radius:8px;background:#FF5500;border-color:#FF5500;font-size:13px;display:inline-flex;align-items:center;gap:4px;">
+                            <span class="dashicons dashicons-tickets-alt" style="font-size:14px;width:14px;height:14px;"></span> Tickets CSV
+                        </button>
+                    </form>
+                </div>
+
+                <!-- 2: Nur Gästeliste -->
+                <div style="background:#fff;border-radius:12px;padding:24px;box-shadow:0 1px 3px rgba(0,0,0,.04);">
+                    <h3 style="font-size:15px;font-weight:700;margin:0 0 8px;color:#0D0B09;">G&auml;steliste</h3>
+                    <p style="color:#64748b;font-size:12px;margin-bottom:14px;">Manuelle G&auml;ste + K&auml;ufer mit Check-in-Status.</p>
+                    <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                        <input type="hidden" name="action" value="tix_organizer_guestlist_csv">
+                        <?php wp_nonce_field('tix_guestlist_csv', '_tix_nonce'); ?>
+                        <select name="event_id" required style="width:100%;padding:8px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:13px;margin-bottom:10px;">
+                            <option value="">— Event —</option>
+                            <?php foreach ($events as $e) : ?>
+                                <option value="<?php echo $e->ID; ?>"><?php echo esc_html($e->post_title); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                        <button type="submit" class="button" style="padding:7px 16px;border-radius:8px;font-size:13px;display:inline-flex;align-items:center;gap:4px;">
+                            <span class="dashicons dashicons-groups" style="font-size:14px;width:14px;height:14px;"></span> G&auml;steliste CSV
+                        </button>
+                    </form>
+                </div>
+
+                <!-- 3: Tickets + Gästeliste kombiniert -->
+                <div style="background:#fff;border-radius:12px;padding:24px;box-shadow:0 1px 3px rgba(0,0,0,.04);">
+                    <h3 style="font-size:15px;font-weight:700;margin:0 0 8px;color:#0D0B09;">Gesamt-Export</h3>
+                    <p style="color:#64748b;font-size:12px;margin-bottom:14px;">Tickets + G&auml;steliste zusammen in einer Datei.</p>
+                    <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                        <input type="hidden" name="action" value="tix_organizer_combined_csv">
+                        <?php wp_nonce_field('tix_combined_csv', '_tix_nonce3'); ?>
+                        <select name="event_id" required style="width:100%;padding:8px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:13px;margin-bottom:10px;">
+                            <option value="">— Event —</option>
+                            <?php foreach ($events as $e) : ?>
+                                <option value="<?php echo $e->ID; ?>"><?php echo esc_html($e->post_title); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                        <button type="submit" class="button" style="padding:7px 16px;border-radius:8px;font-size:13px;background:#0D0B09;color:#fff;border-color:#0D0B09;display:inline-flex;align-items:center;gap:4px;">
+                            <span class="dashicons dashicons-download" style="font-size:14px;width:14px;height:14px;"></span> Gesamt CSV
+                        </button>
+                    </form>
+                </div>
+
             </div>
         </div>
         <?php
@@ -620,16 +672,18 @@ class TIX_Organizer_Admin {
      * CSV-Export der Gästeliste eines Events.
      */
     public static function export_guestlist_csv() {
-        if (!self::is_organizer()) wp_die('Kein Zugriff.');
+        if (!self::is_organizer() && !current_user_can('manage_options')) wp_die('Kein Zugriff.');
         check_admin_referer('tix_guestlist_csv', '_tix_nonce');
 
         $event_id = intval($_POST['event_id'] ?? 0);
         if (!$event_id) wp_die('Kein Event gewählt.');
 
-        // Ownership prüfen
-        $org_id = self::get_organizer_id();
-        $event_org = intval(get_post_meta($event_id, '_tix_organizer_id', true));
-        if ($event_org !== $org_id) wp_die('Kein Zugriff auf dieses Event.');
+        // Ownership prüfen (nur für Organizer, Admins dürfen alles)
+        if (self::is_organizer()) {
+            $org_id = self::get_organizer_id();
+            $event_org = intval(get_post_meta($event_id, '_tix_organizer_id', true));
+            if ($event_org !== $org_id) wp_die('Kein Zugriff auf dieses Event.');
+        }
 
         $event_title = get_the_title($event_id);
         $rows = [];
@@ -638,12 +692,19 @@ class TIX_Organizer_Admin {
         $guestlist = get_post_meta($event_id, '_tix_guestlist', true);
         if (is_array($guestlist)) {
             foreach ($guestlist as $g) {
+                $full = $g['name'] ?? '';
+                $parts = explode(' ', $full, 2);
+                $added = !empty($g['added_date']) ? date_i18n('d.m.Y H:i', strtotime($g['added_date'])) : '';
                 $rows[] = [
-                    'name'       => $g['name'] ?? '',
+                    'first_name' => $parts[0] ?? '',
+                    'last_name'  => $parts[1] ?? '',
                     'email'      => $g['email'] ?? '',
+                    'phone'      => '',
+                    'address'    => '',
                     'tickets'    => $g['tickets'] ?? 1,
-                    'category'   => 'G&auml;steliste',
-                    'checked_in' => !empty($g['checked_in']) ? 'Ja' : 'Nein',
+                    'category'   => 'Gaesteliste',
+                    'status'     => !empty($g['checked_in']) ? 'Eingecheckt' : 'Offen',
+                    'date'       => $added,
                     'source'     => 'Manuell',
                 ];
             }
@@ -673,15 +734,24 @@ class TIX_Organizer_Admin {
             foreach ($order_ids as $oid) {
                 $order = wc_get_order($oid);
                 if (!$order || $order->get_status() === 'cancelled') continue;
+                $checked = get_post_meta($oid, '_tix_checked_in', true);
+                $addr = trim($order->get_billing_address_1() . ' ' . $order->get_billing_address_2());
+                $city = trim($order->get_billing_postcode() . ' ' . $order->get_billing_city());
+                $full_addr = trim($addr . ', ' . $city, ', ');
+                $date_str = $order->get_date_created() ? $order->get_date_created()->date_i18n('d.m.Y H:i') : '';
                 foreach ($order->get_items() as $item) {
                     $pid = $item->get_product_id();
                     if (in_array($pid, $product_ids)) {
                         $rows[] = [
-                            'name'       => trim($order->get_billing_first_name() . ' ' . $order->get_billing_last_name()),
+                            'first_name' => $order->get_billing_first_name(),
+                            'last_name'  => $order->get_billing_last_name(),
                             'email'      => $order->get_billing_email(),
+                            'phone'      => $order->get_billing_phone(),
+                            'address'    => $full_addr,
                             'tickets'    => $item->get_quantity(),
                             'category'   => $cat_names[$pid] ?? $item->get_name(),
-                            'checked_in' => get_post_meta($oid, '_tix_checked_in', true) ? 'Ja' : 'Nein',
+                            'status'     => $checked ? 'Eingecheckt' : 'Offen',
+                            'date'       => $date_str,
                             'source'     => 'Bestellung #' . $oid,
                         ];
                     }
@@ -695,10 +765,227 @@ class TIX_Organizer_Admin {
         header('Content-Disposition: attachment; filename="' . $filename . '"');
         $out = fopen('php://output', 'w');
         fwrite($out, "\xEF\xBB\xBF"); // UTF-8 BOM
-        fputcsv($out, ['Name', 'E-Mail', 'Tickets', 'Kategorie', 'Eingecheckt', 'Quelle'], ';');
+        fputcsv($out, ['Vorname', 'Nachname', 'E-Mail', 'Telefon', 'Adresse', 'Tickets', 'Kategorie', 'Status', 'Kaufdatum', 'Quelle'], ';');
         foreach ($rows as $r) {
             fputcsv($out, array_values($r), ';');
         }
+        fclose($out);
+        exit;
+    }
+
+    /**
+     * CSV-Export aller Tickets eines Events.
+     */
+    public static function export_tickets_csv() {
+        if (!self::is_organizer() && !current_user_can('manage_options')) wp_die('Kein Zugriff.');
+        check_admin_referer('tix_tickets_csv', '_tix_nonce2');
+
+        $event_id = intval($_POST['event_id'] ?? 0);
+        if (!$event_id) wp_die('Kein Event gewählt.');
+
+        // Ownership prüfen (nur für Organizer)
+        if (self::is_organizer()) {
+            $org_id = self::get_organizer_id();
+            $event_org = intval(get_post_meta($event_id, '_tix_organizer_id', true));
+            if ($event_org !== $org_id) wp_die('Kein Zugriff auf dieses Event.');
+        }
+
+        $event_title = get_the_title($event_id);
+
+        // Ticket-Kategorien für Namen
+        $cats = get_post_meta($event_id, '_tix_ticket_categories', true);
+        $cat_names = [];
+        if (is_array($cats)) {
+            foreach ($cats as $i => $c) {
+                $cat_names[$i] = $c['name'] ?? 'Kategorie ' . ($i + 1);
+            }
+        }
+
+        // Alle Tickets für dieses Event
+        $tickets = get_posts([
+            'post_type'      => 'tix_ticket',
+            'posts_per_page' => -1,
+            'post_status'    => 'publish',
+            'meta_key'       => '_tix_ticket_event_id',
+            'meta_value'     => $event_id,
+            'meta_type'      => 'NUMERIC',
+        ]);
+
+        // Order-Cache für Adress-Daten + Check-in + Kaufdatum
+        $order_cache = [];
+
+        $rows = [];
+        foreach ($tickets as $t) {
+            $code      = get_post_meta($t->ID, '_tix_ticket_code', true);
+            $raw_status = get_post_meta($t->ID, '_tix_ticket_status', true) ?: 'valid';
+            $email     = get_post_meta($t->ID, '_tix_ticket_owner_email', true);
+            $order_id  = get_post_meta($t->ID, '_tix_ticket_order_id', true);
+            $cat_index = get_post_meta($t->ID, '_tix_ticket_cat_index', true);
+            $cat_name  = $cat_names[intval($cat_index)] ?? '';
+
+            // Order-Daten cachen (Adresse, Telefon, Check-in, Name, Kaufdatum)
+            $phone = ''; $address = ''; $first_name = ''; $last_name = '';
+            $checked = false; $date = '';
+            if ($order_id) {
+                if (!isset($order_cache[$order_id])) {
+                    $o = wc_get_order($order_id);
+                    if ($o) {
+                        $addr = trim($o->get_billing_address_1() . ' ' . $o->get_billing_address_2());
+                        $city = trim($o->get_billing_postcode() . ' ' . $o->get_billing_city());
+                        $order_cache[$order_id] = [
+                            'phone'      => $o->get_billing_phone(),
+                            'address'    => trim($addr . ', ' . $city, ', '),
+                            'first_name' => $o->get_billing_first_name(),
+                            'last_name'  => $o->get_billing_last_name(),
+                            'checked'    => (bool) get_post_meta($order_id, '_tix_checked_in', true),
+                            'date'       => $o->get_date_created() ? $o->get_date_created()->date_i18n('d.m.Y H:i') : '',
+                        ];
+                    } else {
+                        $order_cache[$order_id] = ['phone' => '', 'address' => '', 'first_name' => '', 'last_name' => '', 'checked' => false, 'date' => ''];
+                    }
+                }
+                $phone      = $order_cache[$order_id]['phone'];
+                $address    = $order_cache[$order_id]['address'];
+                $first_name = $order_cache[$order_id]['first_name'];
+                $last_name  = $order_cache[$order_id]['last_name'];
+                $checked    = $order_cache[$order_id]['checked'];
+                $date       = $order_cache[$order_id]['date'];
+            }
+
+            // Fallback Name aus Ticket-Meta
+            if (!$first_name && !$last_name) {
+                $full = get_post_meta($t->ID, '_tix_ticket_owner_name', true);
+                $parts = explode(' ', $full, 2);
+                $first_name = $parts[0] ?? '';
+                $last_name  = $parts[1] ?? '';
+            }
+
+            // Status zusammenführen (Check-in vom ORDER lesen)
+            if ($checked) {
+                $status = 'Eingecheckt';
+            } elseif ($raw_status === 'transferred') {
+                $status = 'Umgeschrieben';
+            } elseif ($raw_status === 'cancelled' || $raw_status === 'revoked') {
+                $status = 'Storniert';
+            } else {
+                $status = 'Gueltig';
+            }
+
+            $rows[] = [
+                $code, $first_name, $last_name, $email, $phone, $address,
+                $cat_name, $status,
+                $order_id ? '#' . $order_id : '', $date,
+            ];
+        }
+
+        $filename = sanitize_file_name('tickets-' . $event_title . '-' . date('Y-m-d')) . '.csv';
+        header('Content-Type: text/csv; charset=utf-8');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        $out = fopen('php://output', 'w');
+        fwrite($out, "\xEF\xBB\xBF");
+        fputcsv($out, ['Ticket-Code', 'Vorname', 'Nachname', 'E-Mail', 'Telefon', 'Adresse', 'Kategorie', 'Status', 'Bestellnr', 'Kaufdatum'], ';');
+        foreach ($rows as $r) fputcsv($out, $r, ';');
+        fclose($out);
+        exit;
+    }
+
+    /**
+     * CSV-Export: Tickets + Gästeliste kombiniert.
+     */
+    public static function export_combined_csv() {
+        if (!self::is_organizer() && !current_user_can('manage_options')) wp_die('Kein Zugriff.');
+        check_admin_referer('tix_combined_csv', '_tix_nonce3');
+
+        $event_id = intval($_POST['event_id'] ?? 0);
+        if (!$event_id) wp_die('Kein Event gewählt.');
+
+        if (self::is_organizer()) {
+            $org_id = self::get_organizer_id();
+            $event_org = intval(get_post_meta($event_id, '_tix_organizer_id', true));
+            if ($event_org !== $org_id) wp_die('Kein Zugriff auf dieses Event.');
+        }
+
+        $event_title = get_the_title($event_id);
+        $rows = [];
+
+        // ── Tickets (tix_ticket CPT) ──
+        $cats = get_post_meta($event_id, '_tix_ticket_categories', true);
+        $cat_names = [];
+        if (is_array($cats)) foreach ($cats as $i => $c) $cat_names[$i] = $c['name'] ?? 'Kat. ' . ($i + 1);
+
+        $tickets = get_posts([
+            'post_type' => 'tix_ticket', 'posts_per_page' => -1, 'post_status' => 'publish',
+            'meta_key' => '_tix_ticket_event_id', 'meta_value' => $event_id, 'meta_type' => 'NUMERIC',
+        ]);
+        $order_cache = [];
+        foreach ($tickets as $t) {
+            $raw = get_post_meta($t->ID, '_tix_ticket_status', true) ?: 'valid';
+            $oid = get_post_meta($t->ID, '_tix_ticket_order_id', true);
+
+            $phone = ''; $address = ''; $first_name = ''; $last_name = '';
+            $checked = false; $date = '';
+            if ($oid) {
+                if (!isset($order_cache[$oid])) {
+                    $o = wc_get_order($oid);
+                    if ($o) {
+                        $a = trim($o->get_billing_address_1() . ' ' . $o->get_billing_address_2());
+                        $c = trim($o->get_billing_postcode() . ' ' . $o->get_billing_city());
+                        $order_cache[$oid] = [
+                            'phone' => $o->get_billing_phone(), 'address' => trim($a . ', ' . $c, ', '),
+                            'first_name' => $o->get_billing_first_name(), 'last_name' => $o->get_billing_last_name(),
+                            'checked' => (bool) get_post_meta($oid, '_tix_checked_in', true),
+                            'date' => $o->get_date_created() ? $o->get_date_created()->date_i18n('d.m.Y H:i') : '',
+                        ];
+                    } else { $order_cache[$oid] = ['phone' => '', 'address' => '', 'first_name' => '', 'last_name' => '', 'checked' => false, 'date' => '']; }
+                }
+                $phone = $order_cache[$oid]['phone']; $address = $order_cache[$oid]['address'];
+                $first_name = $order_cache[$oid]['first_name']; $last_name = $order_cache[$oid]['last_name'];
+                $checked = $order_cache[$oid]['checked']; $date = $order_cache[$oid]['date'];
+            }
+            if (!$first_name && !$last_name) {
+                $full = get_post_meta($t->ID, '_tix_ticket_owner_name', true);
+                $parts = explode(' ', $full, 2);
+                $first_name = $parts[0] ?? ''; $last_name = $parts[1] ?? '';
+            }
+
+            $status = $checked ? 'Eingecheckt' : ($raw === 'transferred' ? 'Umgeschrieben' : ($raw === 'cancelled' ? 'Storniert' : 'Gueltig'));
+
+            $rows[] = [
+                'Ticket',
+                get_post_meta($t->ID, '_tix_ticket_code', true),
+                $first_name, $last_name,
+                get_post_meta($t->ID, '_tix_ticket_owner_email', true),
+                $phone, $address,
+                $cat_names[intval(get_post_meta($t->ID, '_tix_ticket_cat_index', true))] ?? '',
+                $status, $date,
+            ];
+        }
+
+        // ── Manuelle Gäste ──
+        $guestlist = get_post_meta($event_id, '_tix_guestlist', true);
+        if (is_array($guestlist)) {
+            foreach ($guestlist as $g) {
+                $full = $g['name'] ?? '';
+                $parts = explode(' ', $full, 2);
+                $added = !empty($g['added_date']) ? date_i18n('d.m.Y H:i', strtotime($g['added_date'])) : '';
+                $rows[] = [
+                    'Gast', '',
+                    $parts[0] ?? '', $parts[1] ?? '',
+                    $g['email'] ?? '', '', '',
+                    'Gaesteliste',
+                    !empty($g['checked_in']) ? 'Eingecheckt' : 'Offen',
+                    $added,
+                ];
+            }
+        }
+
+        $filename = sanitize_file_name('gesamt-' . $event_title . '-' . date('Y-m-d')) . '.csv';
+        header('Content-Type: text/csv; charset=utf-8');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        $out = fopen('php://output', 'w');
+        fwrite($out, "\xEF\xBB\xBF");
+        fputcsv($out, ['Typ', 'Ticket-Code', 'Vorname', 'Nachname', 'E-Mail', 'Telefon', 'Adresse', 'Kategorie', 'Status', 'Kaufdatum'], ';');
+        foreach ($rows as $r) fputcsv($out, $r, ';');
         fclose($out);
         exit;
     }
