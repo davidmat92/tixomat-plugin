@@ -21,6 +21,9 @@ class TIX_Specials {
         add_action('add_meta_boxes', [__CLASS__, 'add_meta_boxes']);
         add_action('save_post_' . self::CPT, [__CLASS__, 'save_special'], 10, 2);
 
+        // Event-Specials speichern (hohe Priorität damit es nach Breakdance läuft)
+        add_action('save_post_event', [__CLASS__, 'save_event_specials_hook'], 999);
+
         // Admin-Spalten
         add_filter('manage_' . self::CPT . '_posts_columns', [__CLASS__, 'admin_columns']);
         add_action('manage_' . self::CPT . '_posts_custom_column', [__CLASS__, 'admin_column_content'], 10, 2);
@@ -735,6 +738,16 @@ class TIX_Specials {
             <?php endif; ?>
         </div>
         <?php
+    }
+
+    /**
+     * Hook-Wrapper: Nonce prüfen + save aufrufen (Priority 999, nach Breakdance).
+     */
+    public static function save_event_specials_hook($post_id) {
+        if (!isset($_POST['tix_nonce']) || !wp_verify_nonce($_POST['tix_nonce'], 'tix_save_event')) return;
+        if (defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) return;
+        if (!current_user_can('edit_post', $post_id)) return;
+        self::save_event_specials($post_id);
     }
 
     /**
