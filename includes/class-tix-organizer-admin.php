@@ -760,19 +760,18 @@ class TIX_Organizer_Admin {
             }
         }
 
-        // ── Gästeliste (manuell + WC) ──
+        // ── Gästeliste (nur manuelle Gäste) ──
         if ($type === 'guestlist' || $type === 'combined') {
-            // Manuelle Gäste
             $guestlist = get_post_meta($event_id, '_tix_guest_list', true);
             if (is_array($guestlist)) {
                 foreach ($guestlist as $g) {
                     $full = $g['name'] ?? '';
                     $parts = explode(' ', $full, 2);
-                    $added_ts = !empty($g['added_date']) ? strtotime($g['added_date']) : 0;
-                    $added = $added_ts ? date_i18n('d.m.Y H:i', $added_ts) : '';
+                    $created_ts = !empty($g['created']) ? strtotime($g['created']) : 0;
+                    $created = $created_ts ? date_i18n('d.m.Y H:i', $created_ts) : '';
                     $plus = intval($g['plus'] ?? 0);
                     $rows[] = [
-                        'date_sort'  => $added_ts,
+                        'date_sort'  => $created_ts,
                         'typ'        => 'Gast',
                         'code'       => '',
                         'vorname'    => $parts[0] ?? '',
@@ -783,54 +782,10 @@ class TIX_Organizer_Admin {
                         'kategorie'  => 'Gaesteliste',
                         'anzahl'     => 1 + $plus,
                         'status'     => !empty($g['checked_in']) ? 'Eingecheckt' : 'Offen',
-                        'kaufdatum'  => $added,
+                        'kaufdatum'  => $created,
                         'notizen'    => $g['note'] ?? '',
                         'quelle'     => 'Manuell',
                     ];
-                }
-            }
-
-            // WC-Bestellungen als Gäste
-            if ($product_ids) {
-                global $wpdb;
-                $pids = implode(',', $product_ids);
-                $order_ids = $wpdb->get_col("
-                    SELECT DISTINCT oi.order_id FROM {$wpdb->prefix}woocommerce_order_items oi
-                    JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim ON oi.order_item_id = oim.order_item_id
-                    WHERE oi.order_item_type = 'line_item' AND oim.meta_key = '_product_id' AND oim.meta_value IN ($pids)
-                ");
-                foreach ($order_ids as $oid) {
-                    $order = wc_get_order($oid);
-                    if (!$order || $order->get_status() === 'cancelled') continue;
-                    $order_tickets = get_posts(['post_type' => 'tix_ticket', 'posts_per_page' => -1, 'post_status' => 'publish', 'meta_key' => '_tix_ticket_order_id', 'meta_value' => $oid]);
-                    $checked = false;
-                    foreach ($order_tickets as $ot) {
-                        if (get_post_meta($ot->ID, '_tix_ticket_checked_in', true)) { $checked = true; break; }
-                    }
-                    $addr = trim($order->get_billing_address_1() . ' ' . $order->get_billing_address_2());
-                    $city = trim($order->get_billing_postcode() . ' ' . $order->get_billing_city());
-                    $dc = $order->get_date_created();
-                    foreach ($order->get_items() as $item) {
-                        $pid = $item->get_product_id();
-                        if (in_array($pid, $product_ids)) {
-                            $rows[] = [
-                                'date_sort'  => $dc ? $dc->getTimestamp() : 0,
-                                'typ'        => 'Gast',
-                                'code'       => '',
-                                'vorname'    => $order->get_billing_first_name(),
-                                'nachname'   => $order->get_billing_last_name(),
-                                'email'      => $order->get_billing_email(),
-                                'telefon'    => $order->get_billing_phone(),
-                                'adresse'    => trim($addr . ', ' . $city, ', '),
-                                'kategorie'  => $cat_names_by_pid[$pid] ?? $item->get_name(),
-                                'anzahl'     => $item->get_quantity(),
-                                'status'     => $checked ? 'Eingecheckt' : 'Offen',
-                                'kaufdatum'  => $dc ? $dc->date_i18n('d.m.Y H:i') : '',
-                                'notizen'    => '',
-                                'quelle'     => 'Bestellung #' . $oid,
-                            ];
-                        }
-                    }
                 }
             }
         }
