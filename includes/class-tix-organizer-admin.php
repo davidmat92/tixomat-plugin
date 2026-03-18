@@ -671,107 +671,188 @@ class TIX_Organizer_Admin {
     /**
      * CSV-Export der Gästeliste eines Events.
      */
-    public static function export_guestlist_csv() {
-        if (!self::is_organizer() && !current_user_can('manage_options')) wp_die('Kein Zugriff.');
-        check_admin_referer('tix_guestlist_csv', '_tix_nonce');
-
-        $event_id = intval($_POST['event_id'] ?? 0);
-        if (!$event_id) wp_die('Kein Event gewählt.');
-
-        // Ownership prüfen (nur für Organizer, Admins dürfen alles)
-        if (self::is_organizer()) {
-            $org_id = self::get_organizer_id();
-            $event_org = intval(get_post_meta($event_id, '_tix_organizer_id', true));
-            if ($event_org !== $org_id) wp_die('Kein Zugriff auf dieses Event.');
-        }
-
-        $event_title = get_the_title($event_id);
+    /**
+     * Sammelt alle Export-Rows für ein Event.
+     * @param int    $event_id
+     * @param string $type  'tickets' | 'guestlist' | 'combined'
+     * @return array  Rows mit einheitlichem Schema, sortiert nach Kaufdatum.
+     */
+    private static function collect_export_rows($event_id, $type = 'combined') {
         $rows = [];
 
-        // 1. Manuelle Gäste
-        $guestlist = get_post_meta($event_id, '_tix_guest_list', true);
-        if (is_array($guestlist)) {
-            foreach ($guestlist as $g) {
-                $full = $g['name'] ?? '';
-                $parts = explode(' ', $full, 2);
-                $added = !empty($g['added_date']) ? date_i18n('d.m.Y H:i', strtotime($g['added_date'])) : '';
+        // ── Ticket-Kategorien ──
+        $cats = get_post_meta($event_id, '_tix_ticket_categories', true);
+        $cat_names_by_index = [];
+        $product_ids = [];
+        $cat_names_by_pid = [];
+        if (is_array($cats)) {
+            foreach ($cats as $i => $c) {
+                $cat_names_by_index[$i] = $c['name'] ?? 'Kategorie ' . ($i + 1);
+                if (!empty($c['product_id'])) {
+                    $pid = intval($c['product_id']);
+                    $product_ids[] = $pid;
+                    $cat_names_by_pid[$pid] = $c['name'] ?? '';
+                }
+            }
+        }
+
+        // ── Tickets (tix_ticket CPT) ──
+        if ($type === 'tickets' || $type === 'combined') {
+            $tickets = get_posts([
+                'post_type' => 'tix_ticket', 'posts_per_page' => -1, 'post_status' => 'publish',
+                'meta_key' => '_tix_ticket_event_id', 'meta_value' => $event_id, 'meta_type' => 'NUMERIC',
+            ]);
+            $order_cache = [];
+            foreach ($tickets as $t) {
+                $raw_status = get_post_meta($t->ID, '_tix_ticket_status', true) ?: 'valid';
+                $checked = (bool) get_post_meta($t->ID, '_tix_ticket_checked_in', true);
+                $order_id = get_post_meta($t->ID, '_tix_ticket_order_id', true);
+
+                $phone = ''; $address = ''; $first_name = ''; $last_name = ''; $date = ''; $date_sort = '';
+                if ($order_id) {
+                    if (!isset($order_cache[$order_id])) {
+                        $o = wc_get_order($order_id);
+                        if ($o) {
+                            $a = trim($o->get_billing_address_1() . ' ' . $o->get_billing_address_2());
+                            $c = trim($o->get_billing_postcode() . ' ' . $o->get_billing_city());
+                            $dc = $o->get_date_created();
+                            $order_cache[$order_id] = [
+                                'phone' => $o->get_billing_phone(), 'address' => trim($a . ', ' . $c, ', '),
+                                'first_name' => $o->get_billing_first_name(), 'last_name' => $o->get_billing_last_name(),
+                                'date' => $dc ? $dc->date_i18n('d.m.Y H:i') : '',
+                                'date_sort' => $dc ? $dc->getTimestamp() : 0,
+                            ];
+                        } else {
+                            $order_cache[$order_id] = ['phone' => '', 'address' => '', 'first_name' => '', 'last_name' => '', 'date' => '', 'date_sort' => 0];
+                        }
+                    }
+                    $phone = $order_cache[$order_id]['phone']; $address = $order_cache[$order_id]['address'];
+                    $first_name = $order_cache[$order_id]['first_name']; $last_name = $order_cache[$order_id]['last_name'];
+                    $date = $order_cache[$order_id]['date']; $date_sort = $order_cache[$order_id]['date_sort'];
+                }
+                if (!$first_name && !$last_name) {
+                    $full = get_post_meta($t->ID, '_tix_ticket_owner_name', true);
+                    $parts = explode(' ', $full, 2);
+                    $first_name = $parts[0] ?? ''; $last_name = $parts[1] ?? '';
+                }
+
+                if ($checked) { $status = 'Eingecheckt'; }
+                elseif ($raw_status === 'transferred') { $status = 'Umgeschrieben'; }
+                elseif ($raw_status === 'cancelled' || $raw_status === 'revoked') { $status = 'Storniert'; }
+                else { $status = 'Gueltig'; }
+
                 $rows[] = [
-                    'first_name' => $parts[0] ?? '',
-                    'last_name'  => $parts[1] ?? '',
-                    'email'      => $g['email'] ?? '',
-                    'phone'      => '',
-                    'address'    => '',
-                    'tickets'    => $g['tickets'] ?? 1,
-                    'category'   => 'Gaesteliste',
-                    'status'     => !empty($g['checked_in']) ? 'Eingecheckt' : 'Offen',
-                    'date'       => $added,
-                    'source'     => 'Manuell',
+                    'date_sort'  => $date_sort,
+                    'typ'        => 'Ticket',
+                    'code'       => get_post_meta($t->ID, '_tix_ticket_code', true),
+                    'vorname'    => $first_name,
+                    'nachname'   => $last_name,
+                    'email'      => get_post_meta($t->ID, '_tix_ticket_owner_email', true),
+                    'telefon'    => $phone,
+                    'adresse'    => $address,
+                    'kategorie'  => $cat_names_by_index[intval(get_post_meta($t->ID, '_tix_ticket_cat_index', true))] ?? '',
+                    'anzahl'     => 1,
+                    'status'     => $status,
+                    'kaufdatum'  => $date,
+                    'notizen'    => '',
+                    'quelle'     => $order_id ? 'Bestellung #' . $order_id : '',
                 ];
             }
         }
 
-        // 2. WC-Bestellungen
-        $cats = get_post_meta($event_id, '_tix_ticket_categories', true);
-        $product_ids = [];
-        $cat_names = [];
-        if (is_array($cats)) {
-            foreach ($cats as $cat) {
-                if (!empty($cat['product_id'])) {
-                    $product_ids[] = intval($cat['product_id']);
-                    $cat_names[intval($cat['product_id'])] = $cat['name'] ?? '';
+        // ── Gästeliste (manuell + WC) ──
+        if ($type === 'guestlist' || $type === 'combined') {
+            // Manuelle Gäste
+            $guestlist = get_post_meta($event_id, '_tix_guest_list', true);
+            if (is_array($guestlist)) {
+                foreach ($guestlist as $g) {
+                    $full = $g['name'] ?? '';
+                    $parts = explode(' ', $full, 2);
+                    $added_ts = !empty($g['added_date']) ? strtotime($g['added_date']) : 0;
+                    $added = $added_ts ? date_i18n('d.m.Y H:i', $added_ts) : '';
+                    $plus = intval($g['plus'] ?? 0);
+                    $rows[] = [
+                        'date_sort'  => $added_ts,
+                        'typ'        => 'Gast',
+                        'code'       => '',
+                        'vorname'    => $parts[0] ?? '',
+                        'nachname'   => $parts[1] ?? '',
+                        'email'      => $g['email'] ?? '',
+                        'telefon'    => '',
+                        'adresse'    => '',
+                        'kategorie'  => 'Gaesteliste',
+                        'anzahl'     => 1 + $plus,
+                        'status'     => !empty($g['checked_in']) ? 'Eingecheckt' : 'Offen',
+                        'kaufdatum'  => $added,
+                        'notizen'    => $g['note'] ?? '',
+                        'quelle'     => 'Manuell',
+                    ];
                 }
             }
-        }
 
-        if ($product_ids) {
-            global $wpdb;
-            $pids = implode(',', $product_ids);
-            $order_ids = $wpdb->get_col("
-                SELECT DISTINCT oi.order_id FROM {$wpdb->prefix}woocommerce_order_items oi
-                JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim ON oi.order_item_id = oim.order_item_id
-                WHERE oi.order_item_type = 'line_item' AND oim.meta_key = '_product_id' AND oim.meta_value IN ($pids)
-            ");
-            foreach ($order_ids as $oid) {
-                $order = wc_get_order($oid);
-                if (!$order || $order->get_status() === 'cancelled') continue;
-                // Check-in: Tickets dieser Order prüfen
-                $order_tickets = get_posts(['post_type' => 'tix_ticket', 'posts_per_page' => -1, 'post_status' => 'publish', 'meta_key' => '_tix_ticket_order_id', 'meta_value' => $oid]);
-                $checked = false;
-                foreach ($order_tickets as $ot) {
-                    if (get_post_meta($ot->ID, '_tix_ticket_checked_in', true)) { $checked = true; break; }
-                }
-                $addr = trim($order->get_billing_address_1() . ' ' . $order->get_billing_address_2());
-                $city = trim($order->get_billing_postcode() . ' ' . $order->get_billing_city());
-                $full_addr = trim($addr . ', ' . $city, ', ');
-                $date_str = $order->get_date_created() ? $order->get_date_created()->date_i18n('d.m.Y H:i') : '';
-                foreach ($order->get_items() as $item) {
-                    $pid = $item->get_product_id();
-                    if (in_array($pid, $product_ids)) {
-                        $rows[] = [
-                            'first_name' => $order->get_billing_first_name(),
-                            'last_name'  => $order->get_billing_last_name(),
-                            'email'      => $order->get_billing_email(),
-                            'phone'      => $order->get_billing_phone(),
-                            'address'    => $full_addr,
-                            'tickets'    => $item->get_quantity(),
-                            'category'   => $cat_names[$pid] ?? $item->get_name(),
-                            'status'     => $checked ? 'Eingecheckt' : 'Offen',
-                            'date'       => $date_str,
-                            'source'     => 'Bestellung #' . $oid,
-                        ];
+            // WC-Bestellungen als Gäste
+            if ($product_ids) {
+                global $wpdb;
+                $pids = implode(',', $product_ids);
+                $order_ids = $wpdb->get_col("
+                    SELECT DISTINCT oi.order_id FROM {$wpdb->prefix}woocommerce_order_items oi
+                    JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim ON oi.order_item_id = oim.order_item_id
+                    WHERE oi.order_item_type = 'line_item' AND oim.meta_key = '_product_id' AND oim.meta_value IN ($pids)
+                ");
+                foreach ($order_ids as $oid) {
+                    $order = wc_get_order($oid);
+                    if (!$order || $order->get_status() === 'cancelled') continue;
+                    $order_tickets = get_posts(['post_type' => 'tix_ticket', 'posts_per_page' => -1, 'post_status' => 'publish', 'meta_key' => '_tix_ticket_order_id', 'meta_value' => $oid]);
+                    $checked = false;
+                    foreach ($order_tickets as $ot) {
+                        if (get_post_meta($ot->ID, '_tix_ticket_checked_in', true)) { $checked = true; break; }
+                    }
+                    $addr = trim($order->get_billing_address_1() . ' ' . $order->get_billing_address_2());
+                    $city = trim($order->get_billing_postcode() . ' ' . $order->get_billing_city());
+                    $dc = $order->get_date_created();
+                    foreach ($order->get_items() as $item) {
+                        $pid = $item->get_product_id();
+                        if (in_array($pid, $product_ids)) {
+                            $rows[] = [
+                                'date_sort'  => $dc ? $dc->getTimestamp() : 0,
+                                'typ'        => 'Gast',
+                                'code'       => '',
+                                'vorname'    => $order->get_billing_first_name(),
+                                'nachname'   => $order->get_billing_last_name(),
+                                'email'      => $order->get_billing_email(),
+                                'telefon'    => $order->get_billing_phone(),
+                                'adresse'    => trim($addr . ', ' . $city, ', '),
+                                'kategorie'  => $cat_names_by_pid[$pid] ?? $item->get_name(),
+                                'anzahl'     => $item->get_quantity(),
+                                'status'     => $checked ? 'Eingecheckt' : 'Offen',
+                                'kaufdatum'  => $dc ? $dc->date_i18n('d.m.Y H:i') : '',
+                                'notizen'    => '',
+                                'quelle'     => 'Bestellung #' . $oid,
+                            ];
+                        }
                     }
                 }
             }
         }
 
-        // CSV ausgeben
-        $filename = sanitize_file_name('gaesteliste-' . $event_title . '-' . date('Y-m-d')) . '.csv';
+        // Chronologisch nach Kaufdatum sortieren
+        usort($rows, fn($a, $b) => $a['date_sort'] <=> $b['date_sort']);
+
+        return $rows;
+    }
+
+    /**
+     * CSV aus Rows schreiben (einheitliches Schema).
+     */
+    private static function write_export_csv($rows, $filename) {
+        $header = ['Typ', 'Ticket-Code', 'Vorname', 'Nachname', 'E-Mail', 'Telefon', 'Adresse', 'Kategorie', 'Anzahl', 'Status', 'Kaufdatum', 'Notizen', 'Quelle'];
         header('Content-Type: text/csv; charset=utf-8');
         header('Content-Disposition: attachment; filename="' . $filename . '"');
         $out = fopen('php://output', 'w');
-        fwrite($out, "\xEF\xBB\xBF"); // UTF-8 BOM
-        fputcsv($out, ['Vorname', 'Nachname', 'E-Mail', 'Telefon', 'Adresse', 'Tickets', 'Kategorie', 'Status', 'Kaufdatum', 'Quelle'], ';');
+        fwrite($out, "\xEF\xBB\xBF");
+        fputcsv($out, $header, ';');
         foreach ($rows as $r) {
+            unset($r['date_sort']);
             fputcsv($out, array_values($r), ';');
         }
         fclose($out);
@@ -779,221 +860,36 @@ class TIX_Organizer_Admin {
     }
 
     /**
-     * CSV-Export aller Tickets eines Events.
+     * Ownership + Event-ID prüfen (gemeinsam für alle Exports).
      */
-    public static function export_tickets_csv() {
+    private static function validate_export_access($nonce_action, $nonce_field) {
         if (!self::is_organizer() && !current_user_can('manage_options')) wp_die('Kein Zugriff.');
-        check_admin_referer('tix_tickets_csv', '_tix_nonce2');
-
+        check_admin_referer($nonce_action, $nonce_field);
         $event_id = intval($_POST['event_id'] ?? 0);
         if (!$event_id) wp_die('Kein Event gewählt.');
-
-        // Ownership prüfen (nur für Organizer)
         if (self::is_organizer()) {
             $org_id = self::get_organizer_id();
-            $event_org = intval(get_post_meta($event_id, '_tix_organizer_id', true));
-            if ($event_org !== $org_id) wp_die('Kein Zugriff auf dieses Event.');
+            if (intval(get_post_meta($event_id, '_tix_organizer_id', true)) !== $org_id) wp_die('Kein Zugriff auf dieses Event.');
         }
-
-        $event_title = get_the_title($event_id);
-
-        // Ticket-Kategorien für Namen
-        $cats = get_post_meta($event_id, '_tix_ticket_categories', true);
-        $cat_names = [];
-        if (is_array($cats)) {
-            foreach ($cats as $i => $c) {
-                $cat_names[$i] = $c['name'] ?? 'Kategorie ' . ($i + 1);
-            }
-        }
-
-        // Alle Tickets für dieses Event
-        $tickets = get_posts([
-            'post_type'      => 'tix_ticket',
-            'posts_per_page' => -1,
-            'post_status'    => 'publish',
-            'meta_key'       => '_tix_ticket_event_id',
-            'meta_value'     => $event_id,
-            'meta_type'      => 'NUMERIC',
-        ]);
-
-        // Order-Cache für Adress-Daten + Kaufdatum
-        $order_cache = [];
-
-        $rows = [];
-        foreach ($tickets as $t) {
-            $code      = get_post_meta($t->ID, '_tix_ticket_code', true);
-            $raw_status = get_post_meta($t->ID, '_tix_ticket_status', true) ?: 'valid';
-            $email     = get_post_meta($t->ID, '_tix_ticket_owner_email', true);
-            $order_id  = get_post_meta($t->ID, '_tix_ticket_order_id', true);
-            $cat_index = get_post_meta($t->ID, '_tix_ticket_cat_index', true);
-            $cat_name  = $cat_names[intval($cat_index)] ?? '';
-
-            // Check-in vom TICKET lesen (richtiger Meta-Key!)
-            $checked = (bool) get_post_meta($t->ID, '_tix_ticket_checked_in', true);
-
-            // Order-Daten cachen (Adresse, Telefon, Name, Kaufdatum)
-            $phone = ''; $address = ''; $first_name = ''; $last_name = ''; $date = '';
-            if ($order_id) {
-                if (!isset($order_cache[$order_id])) {
-                    $o = wc_get_order($order_id);
-                    if ($o) {
-                        $addr = trim($o->get_billing_address_1() . ' ' . $o->get_billing_address_2());
-                        $city = trim($o->get_billing_postcode() . ' ' . $o->get_billing_city());
-                        $order_cache[$order_id] = [
-                            'phone'      => $o->get_billing_phone(),
-                            'address'    => trim($addr . ', ' . $city, ', '),
-                            'first_name' => $o->get_billing_first_name(),
-                            'last_name'  => $o->get_billing_last_name(),
-                            'date'       => $o->get_date_created() ? $o->get_date_created()->date_i18n('d.m.Y H:i') : '',
-                        ];
-                    } else {
-                        $order_cache[$order_id] = ['phone' => '', 'address' => '', 'first_name' => '', 'last_name' => '', 'date' => ''];
-                    }
-                }
-                $phone      = $order_cache[$order_id]['phone'];
-                $address    = $order_cache[$order_id]['address'];
-                $first_name = $order_cache[$order_id]['first_name'];
-                $last_name  = $order_cache[$order_id]['last_name'];
-                $date       = $order_cache[$order_id]['date'];
-            }
-
-            // Fallback Name aus Ticket-Meta
-            if (!$first_name && !$last_name) {
-                $full = get_post_meta($t->ID, '_tix_ticket_owner_name', true);
-                $parts = explode(' ', $full, 2);
-                $first_name = $parts[0] ?? '';
-                $last_name  = $parts[1] ?? '';
-            }
-
-            // Status zusammenführen
-            if ($checked) {
-                $status = 'Eingecheckt';
-            } elseif ($raw_status === 'transferred') {
-                $status = 'Umgeschrieben';
-            } elseif ($raw_status === 'cancelled' || $raw_status === 'revoked') {
-                $status = 'Storniert';
-            } else {
-                $status = 'Gueltig';
-            }
-
-            $rows[] = [
-                $code, $first_name, $last_name, $email, $phone, $address,
-                $cat_name, $status,
-                $order_id ? '#' . $order_id : '', $date,
-            ];
-        }
-
-        $filename = sanitize_file_name('tickets-' . $event_title . '-' . date('Y-m-d')) . '.csv';
-        header('Content-Type: text/csv; charset=utf-8');
-        header('Content-Disposition: attachment; filename="' . $filename . '"');
-        $out = fopen('php://output', 'w');
-        fwrite($out, "\xEF\xBB\xBF");
-        fputcsv($out, ['Ticket-Code', 'Vorname', 'Nachname', 'E-Mail', 'Telefon', 'Adresse', 'Kategorie', 'Status', 'Bestellnr', 'Kaufdatum'], ';');
-        foreach ($rows as $r) fputcsv($out, $r, ';');
-        fclose($out);
-        exit;
+        return $event_id;
     }
 
-    /**
-     * CSV-Export: Tickets + Gästeliste kombiniert.
-     */
+    public static function export_guestlist_csv() {
+        $event_id = self::validate_export_access('tix_guestlist_csv', '_tix_nonce');
+        $rows = self::collect_export_rows($event_id, 'guestlist');
+        self::write_export_csv($rows, sanitize_file_name('gaesteliste-' . get_the_title($event_id) . '-' . date('Y-m-d')) . '.csv');
+    }
+
+    public static function export_tickets_csv() {
+        $event_id = self::validate_export_access('tix_tickets_csv', '_tix_nonce2');
+        $rows = self::collect_export_rows($event_id, 'tickets');
+        self::write_export_csv($rows, sanitize_file_name('tickets-' . get_the_title($event_id) . '-' . date('Y-m-d')) . '.csv');
+    }
+
     public static function export_combined_csv() {
-        if (!self::is_organizer() && !current_user_can('manage_options')) wp_die('Kein Zugriff.');
-        check_admin_referer('tix_combined_csv', '_tix_nonce3');
-
-        $event_id = intval($_POST['event_id'] ?? 0);
-        if (!$event_id) wp_die('Kein Event gewählt.');
-
-        if (self::is_organizer()) {
-            $org_id = self::get_organizer_id();
-            $event_org = intval(get_post_meta($event_id, '_tix_organizer_id', true));
-            if ($event_org !== $org_id) wp_die('Kein Zugriff auf dieses Event.');
-        }
-
-        $event_title = get_the_title($event_id);
-        $rows = [];
-
-        // ── Tickets (tix_ticket CPT) ──
-        $cats = get_post_meta($event_id, '_tix_ticket_categories', true);
-        $cat_names = [];
-        if (is_array($cats)) foreach ($cats as $i => $c) $cat_names[$i] = $c['name'] ?? 'Kat. ' . ($i + 1);
-
-        $tickets = get_posts([
-            'post_type' => 'tix_ticket', 'posts_per_page' => -1, 'post_status' => 'publish',
-            'meta_key' => '_tix_ticket_event_id', 'meta_value' => $event_id, 'meta_type' => 'NUMERIC',
-        ]);
-        $order_cache = [];
-        foreach ($tickets as $t) {
-            $raw = get_post_meta($t->ID, '_tix_ticket_status', true) ?: 'valid';
-            $oid = get_post_meta($t->ID, '_tix_ticket_order_id', true);
-
-            // Check-in vom TICKET lesen
-            $checked = (bool) get_post_meta($t->ID, '_tix_ticket_checked_in', true);
-
-            $phone = ''; $address = ''; $first_name = ''; $last_name = ''; $date = '';
-            if ($oid) {
-                if (!isset($order_cache[$oid])) {
-                    $o = wc_get_order($oid);
-                    if ($o) {
-                        $a = trim($o->get_billing_address_1() . ' ' . $o->get_billing_address_2());
-                        $c = trim($o->get_billing_postcode() . ' ' . $o->get_billing_city());
-                        $order_cache[$oid] = [
-                            'phone' => $o->get_billing_phone(), 'address' => trim($a . ', ' . $c, ', '),
-                            'first_name' => $o->get_billing_first_name(), 'last_name' => $o->get_billing_last_name(),
-                            'date' => $o->get_date_created() ? $o->get_date_created()->date_i18n('d.m.Y H:i') : '',
-                        ];
-                    } else { $order_cache[$oid] = ['phone' => '', 'address' => '', 'first_name' => '', 'last_name' => '', 'date' => '']; }
-                }
-                $phone = $order_cache[$oid]['phone']; $address = $order_cache[$oid]['address'];
-                $first_name = $order_cache[$oid]['first_name']; $last_name = $order_cache[$oid]['last_name'];
-                $date = $order_cache[$oid]['date'];
-            }
-            if (!$first_name && !$last_name) {
-                $full = get_post_meta($t->ID, '_tix_ticket_owner_name', true);
-                $parts = explode(' ', $full, 2);
-                $first_name = $parts[0] ?? ''; $last_name = $parts[1] ?? '';
-            }
-
-            $status = $checked ? 'Eingecheckt' : ($raw === 'transferred' ? 'Umgeschrieben' : ($raw === 'cancelled' ? 'Storniert' : 'Gueltig'));
-
-            $rows[] = [
-                'Ticket',
-                get_post_meta($t->ID, '_tix_ticket_code', true),
-                $first_name, $last_name,
-                get_post_meta($t->ID, '_tix_ticket_owner_email', true),
-                $phone, $address,
-                $cat_names[intval(get_post_meta($t->ID, '_tix_ticket_cat_index', true))] ?? '',
-                $status, $date,
-            ];
-        }
-
-        // ── Manuelle Gäste ──
-        $guestlist = get_post_meta($event_id, '_tix_guest_list', true);
-        if (is_array($guestlist)) {
-            foreach ($guestlist as $g) {
-                $full = $g['name'] ?? '';
-                $parts = explode(' ', $full, 2);
-                $added = !empty($g['added_date']) ? date_i18n('d.m.Y H:i', strtotime($g['added_date'])) : '';
-                $rows[] = [
-                    'Gast', '',
-                    $parts[0] ?? '', $parts[1] ?? '',
-                    $g['email'] ?? '', '', '',
-                    'Gaesteliste',
-                    !empty($g['checked_in']) ? 'Eingecheckt' : 'Offen',
-                    $added,
-                ];
-            }
-        }
-
-        $filename = sanitize_file_name('gesamt-' . $event_title . '-' . date('Y-m-d')) . '.csv';
-        header('Content-Type: text/csv; charset=utf-8');
-        header('Content-Disposition: attachment; filename="' . $filename . '"');
-        $out = fopen('php://output', 'w');
-        fwrite($out, "\xEF\xBB\xBF");
-        fputcsv($out, ['Typ', 'Ticket-Code', 'Vorname', 'Nachname', 'E-Mail', 'Telefon', 'Adresse', 'Kategorie', 'Status', 'Kaufdatum'], ';');
-        foreach ($rows as $r) fputcsv($out, $r, ';');
-        fclose($out);
-        exit;
+        $event_id = self::validate_export_access('tix_combined_csv', '_tix_nonce3');
+        $rows = self::collect_export_rows($event_id, 'combined');
+        self::write_export_csv($rows, sanitize_file_name('gesamt-' . get_the_title($event_id) . '-' . date('Y-m-d')) . '.csv');
     }
 
     // ══════════════════════════════════════
