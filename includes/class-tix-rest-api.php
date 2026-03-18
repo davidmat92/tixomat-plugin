@@ -553,17 +553,42 @@ class TIX_REST_API {
         $by_day        = [];
 
         if (function_exists('wc_get_orders')) {
-            $orders = wc_get_orders([
-                'limit'   => -1,
-                'status'  => ['completed', 'processing'],
-                'meta_query' => [
-                    ['key' => '_tix_event_id', 'value' => $id],
-                ],
-            ]);
+            global $wpdb;
 
-            // Fallback: auch per Line-Item Meta suchen
+            // Ticket-Kategorien des Events für product_id Mapping
+            $categories_raw = get_post_meta($id, '_tix_ticket_categories', true);
+            $product_ids = [];
+            if (is_array($categories_raw)) {
+                foreach ($categories_raw as $cat) {
+                    $pid = absint($cat['product_id'] ?? 0);
+                    if ($pid) $product_ids[] = $pid;
+                }
+            }
+
+            // Orders finden die Produkte dieses Events enthalten
+            $orders = [];
+            if (!empty($product_ids)) {
+                $placeholders = implode(',', array_fill(0, count($product_ids), '%d'));
+                $order_ids = $wpdb->get_col($wpdb->prepare(
+                    "SELECT DISTINCT oi.order_id
+                     FROM {$wpdb->prefix}woocommerce_order_items oi
+                     JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim
+                       ON oi.order_item_id = oim.order_item_id
+                     WHERE oim.meta_key = '_product_id'
+                       AND oim.meta_value IN ($placeholders)
+                     ORDER BY oi.order_id DESC",
+                    ...$product_ids
+                ));
+                foreach ($order_ids as $oid) {
+                    $order = wc_get_order($oid);
+                    if ($order && in_array($order->get_status(), ['completed', 'processing'])) {
+                        $orders[] = $order;
+                    }
+                }
+            }
+
+            // Fallback: per _tix_event_id Line-Item Meta
             if (empty($orders)) {
-                global $wpdb;
                 $order_ids = $wpdb->get_col($wpdb->prepare(
                     "SELECT DISTINCT order_id FROM {$wpdb->prefix}woocommerce_order_itemmeta oim
                      JOIN {$wpdb->prefix}woocommerce_order_items oi ON oi.order_item_id = oim.order_item_id
@@ -578,24 +603,40 @@ class TIX_REST_API {
                 }
             }
 
+            // Nur Event-relevante Items zählen (nicht alle Items der Order)
+            $product_ids_set = array_flip(array_map('strval', $product_ids));
             foreach ($orders as $order) {
-                $total_revenue += (float) $order->get_total();
-                $total_orders++;
+                $order_event_revenue = 0;
+                $order_has_event_items = false;
 
                 $day = $order->get_date_created() ? $order->get_date_created()->format('Y-m-d') : '';
-                if ($day) {
-                    $by_day[$day] = ($by_day[$day] ?? 0) + (float) $order->get_total();
-                }
 
                 foreach ($order->get_items() as $item) {
+                    $item_product_id = strval($item->get_product_id());
+                    // Nur Items zählen die zu diesem Event gehören
+                    if (!isset($product_ids_set[$item_product_id])) continue;
+
+                    $order_has_event_items = true;
                     $qty  = $item->get_quantity();
                     $cat  = $item->get_name();
+                    $item_total = (float) $item->get_total();
+
                     $total_tickets += $qty;
+                    $order_event_revenue += $item_total;
+
                     if (!isset($by_category[$cat])) {
                         $by_category[$cat] = ['revenue' => 0, 'tickets' => 0];
                     }
-                    $by_category[$cat]['revenue'] += (float) $item->get_total();
+                    $by_category[$cat]['revenue'] += $item_total;
                     $by_category[$cat]['tickets'] += $qty;
+                }
+
+                if ($order_has_event_items) {
+                    $total_orders++;
+                    $total_revenue += $order_event_revenue;
+                    if ($day) {
+                        $by_day[$day] = ($by_day[$day] ?? 0) + $order_event_revenue;
+                    }
                 }
             }
         }
@@ -660,33 +701,73 @@ class TIX_REST_API {
 
         if (function_exists('wc_get_orders')) {
             global $wpdb;
-            $order_ids = $wpdb->get_col($wpdb->prepare(
-                "SELECT DISTINCT order_id FROM {$wpdb->prefix}woocommerce_order_itemmeta oim
-                 JOIN {$wpdb->prefix}woocommerce_order_items oi ON oi.order_item_id = oim.order_item_id
-                 WHERE oim.meta_key = '_tix_event_id' AND oim.meta_value = %d
-                 ORDER BY order_id DESC",
-                $id
-            ));
+
+            // Ticket-Kategorien des Events für product_id Mapping
+            $categories_raw = get_post_meta($id, '_tix_ticket_categories', true);
+            $product_ids = [];
+            if (is_array($categories_raw)) {
+                foreach ($categories_raw as $cat) {
+                    $pid = absint($cat['product_id'] ?? 0);
+                    if ($pid) $product_ids[] = $pid;
+                }
+            }
+
+            $order_ids = [];
+            if (!empty($product_ids)) {
+                $placeholders = implode(',', array_fill(0, count($product_ids), '%d'));
+                $order_ids = $wpdb->get_col($wpdb->prepare(
+                    "SELECT DISTINCT oi.order_id
+                     FROM {$wpdb->prefix}woocommerce_order_items oi
+                     JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim
+                       ON oi.order_item_id = oim.order_item_id
+                     WHERE oim.meta_key = '_product_id'
+                       AND oim.meta_value IN ($placeholders)
+                     ORDER BY oi.order_id DESC",
+                    ...$product_ids
+                ));
+            }
+
+            // Fallback
+            if (empty($order_ids)) {
+                $order_ids = $wpdb->get_col($wpdb->prepare(
+                    "SELECT DISTINCT order_id FROM {$wpdb->prefix}woocommerce_order_itemmeta oim
+                     JOIN {$wpdb->prefix}woocommerce_order_items oi ON oi.order_item_id = oim.order_item_id
+                     WHERE oim.meta_key = '_tix_event_id' AND oim.meta_value = %d
+                     ORDER BY order_id DESC",
+                    $id
+                ));
+            }
+
+            $product_ids_set = array_flip(array_map('strval', $product_ids));
 
             foreach (array_slice($order_ids, 0, 200) as $oid) {
                 $order = wc_get_order($oid);
                 if (!$order) continue;
 
+                // Nur event-relevante Items zeigen
                 $items = [];
+                $event_total = 0;
                 foreach ($order->get_items() as $item) {
+                    $item_pid = strval($item->get_product_id());
+                    if (!empty($product_ids_set) && !isset($product_ids_set[$item_pid])) continue;
+
+                    $item_total = (float) $item->get_total();
                     $items[] = [
                         'name'     => $item->get_name(),
                         'quantity' => $item->get_quantity(),
-                        'total'    => (float) $item->get_total(),
+                        'total'    => $item_total,
                     ];
+                    $event_total += $item_total;
                 }
+
+                if (empty($items)) continue;
 
                 $orders_out[] = [
                     'id'       => $order->get_id(),
-                    'customer' => $order->get_billing_first_name() . ' ' . $order->get_billing_last_name(),
+                    'customer' => trim($order->get_billing_first_name() . ' ' . $order->get_billing_last_name()),
                     'email'    => $order->get_billing_email(),
                     'items'    => $items,
-                    'total'    => (float) $order->get_total(),
+                    'total'    => $event_total,
                     'payment'  => $order->get_payment_method_title(),
                     'status'   => $order->get_status(),
                     'date'     => $order->get_date_created() ? $order->get_date_created()->format('Y-m-d H:i') : '',
