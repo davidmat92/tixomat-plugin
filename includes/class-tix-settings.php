@@ -11,7 +11,9 @@ class TIX_Settings {
     public static function defaults() {
         return [
             // ── Modus ──
-            'settings_mode'       => 'recommended', // recommended | manual
+            'fullscreen_admin'    => 1,
+            'login_slug'          => '',
+            'organizer_slug'      => '',
             'theme_mode'          => 'light',
 
             // ── Farbpalette ──
@@ -255,6 +257,7 @@ class TIX_Settings {
             // ── Veranstalter-Dashboard ──
             'organizer_dashboard_enabled' => 0,
             'organizer_auto_publish'      => 0,
+            'organizer_fullscreen'        => 1,
             // ── Support-System ──
             'support_enabled'    => 0,
             'support_categories'  => '',
@@ -530,9 +533,6 @@ class TIX_Settings {
         $clean['cal_border_width'] = max(0, min(4, intval($input['cal_border_width'] ?? 1)));
         $clean['cal_radius']       = max(0, min(24, intval($input['cal_radius'] ?? 8)));
 
-        // Settings-Modus
-        $clean['settings_mode'] = in_array($input['settings_mode'] ?? '', ['recommended', 'manual']) ? $input['settings_mode'] : 'recommended';
-
         // Texte
         foreach (['terms_url', 'privacy_url', 'revocation_url'] as $k) {
             $clean[$k] = esc_url_raw($input[$k] ?? '');
@@ -629,6 +629,7 @@ class TIX_Settings {
         // Veranstalter-Dashboard
         $clean['organizer_dashboard_enabled'] = !empty($input['organizer_dashboard_enabled']) ? 1 : 0;
         $clean['organizer_auto_publish'] = !empty($input['organizer_auto_publish']) ? 1 : 0;
+        $clean['organizer_fullscreen'] = !empty($input['organizer_fullscreen']) ? 1 : 0;
 
         // Support-System
         $clean['support_enabled'] = !empty($input['support_enabled']) ? 1 : 0;
@@ -720,6 +721,13 @@ class TIX_Settings {
 
         // Geführter Modus
         $clean['wizard_enabled'] = !empty($input['wizard_enabled']) ? 1 : 0;
+
+        // Admin-Ansicht
+        $clean['fullscreen_admin'] = !empty($input['fullscreen_admin']) ? 1 : 0;
+
+        // Custom URLs
+        $clean['login_slug'] = sanitize_title(trim($input['login_slug'] ?? ''));
+        $clean['organizer_slug'] = sanitize_title(trim($input['organizer_slug'] ?? ''));
 
         // Theme-Modus (universell)
         $clean['theme_mode'] = in_array($input['theme_mode'] ?? '', ['light', 'dark']) ? $input['theme_mode'] : 'light';
@@ -1141,14 +1149,7 @@ class TIX_Settings {
                 <div class="tix-settings-grid">
 
                     <?php // ═════════════ LEFT: TABBED SETTINGS ═════════════ ?>
-                    <div class="tix-app tix-settings-app <?php echo $s['settings_mode'] === 'recommended' ? 'tix-mode-recommended' : 'tix-mode-manual'; ?>">
-
-                        <?php // ── SETTINGS MODE TOGGLE ── ?>
-                        <div class="tix-settings-mode-toggle">
-                            <button type="button" class="tix-mode-btn<?php echo $s['settings_mode'] === 'recommended' ? ' active' : ''; ?>" data-mode="recommended">Empfohlene Einstellungen</button>
-                            <button type="button" class="tix-mode-btn<?php echo $s['settings_mode'] === 'manual' ? ' active' : ''; ?>" data-mode="manual">Manuelle Einstellungen</button>
-                            <input type="hidden" name="<?php echo $ok; ?>[settings_mode]" id="tix-settings-mode" value="<?php echo esc_attr($s['settings_mode']); ?>">
-                        </div>
+                    <div class="tix-app tix-settings-app">
 
                         <?php // ── TAB NAVIGATION ── ?>
                         <nav class="tix-nav">
@@ -1192,26 +1193,34 @@ class TIX_Settings {
                                 <span class="dashicons dashicons-media-document"></span>
                                 <span class="tix-nav-label">Ticket-Template</span>
                             </button>
-                            <button type="button" class="tix-nav-tab" data-tab="data-sync">
-                                <span class="dashicons dashicons-cloud-saved"></span>
-                                <span class="tix-nav-label">Daten-Sync</span>
-                            </button>
-                            <button type="button" class="tix-nav-tab" data-tab="event-page">
-                                <span class="dashicons dashicons-welcome-widgets-menus"></span>
-                                <span class="tix-nav-label">Event-Seite</span>
-                            </button>
-                            <button type="button" class="tix-nav-tab" data-tab="share">
-                                <span class="dashicons dashicons-share"></span>
-                                <span class="tix-nav-label">Share</span>
-                            </button>
-                            <button type="button" class="tix-nav-tab" data-tab="marketing">
-                                <span class="dashicons dashicons-megaphone"></span>
-                                <span class="tix-nav-label">Marketing</span>
-                            </button>
                             <button type="button" class="tix-nav-tab" data-tab="advanced">
                                 <span class="dashicons dashicons-admin-generic"></span>
                                 <span class="tix-nav-label">Erweitert</span>
                             </button>
+
+                            <?php // ── "Mehr" Button + versteckte Tabs ── ?>
+                            <button type="button" class="tix-settings-more-toggle" id="tix-settings-more-btn">
+                                <span class="dashicons dashicons-ellipsis"></span>
+                                <span class="tix-nav-label">Mehr</span>
+                            </button>
+                            <div class="tix-settings-more-tabs" id="tix-settings-more-tabs">
+                                <button type="button" class="tix-nav-tab" data-tab="data-sync">
+                                    <span class="dashicons dashicons-cloud-saved"></span>
+                                    <span class="tix-nav-label">Daten-Sync</span>
+                                </button>
+                                <button type="button" class="tix-nav-tab" data-tab="event-page">
+                                    <span class="dashicons dashicons-welcome-widgets-menus"></span>
+                                    <span class="tix-nav-label">Event-Seite</span>
+                                </button>
+                                <button type="button" class="tix-nav-tab" data-tab="share">
+                                    <span class="dashicons dashicons-share"></span>
+                                    <span class="tix-nav-label">Share</span>
+                                </button>
+                                <button type="button" class="tix-nav-tab" data-tab="marketing">
+                                    <span class="dashicons dashicons-megaphone"></span>
+                                    <span class="tix-nav-label">Marketing</span>
+                                </button>
+                            </div>
                         </nav>
 
                         <div class="tix-content">
@@ -2508,6 +2517,9 @@ class TIX_Settings {
                                             <div class="tix-field tix-field-full">
                                                 <?php self::checkbox_row('organizer_auto_publish', 'Events automatisch ver&ouml;ffentlichen', $s, 'Wenn aktiviert, werden vom Veranstalter erstellte Events sofort ver&ouml;ffentlicht. Andernfalls werden sie als Entwurf gespeichert und m&uuml;ssen vom Admin freigegeben werden.'); ?>
                                             </div>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('organizer_fullscreen', 'Fullscreen-Modus f&uuml;r Veranstalter-Dashboard', $s, 'Zeigt das Veranstalter-Dashboard im Fullscreen-Modus ohne WordPress-Theme-Elemente (Header, Footer, Sidebar). Das Dashboard &uuml;bernimmt die gesamte Seite mit eigenem Tixomat-Branding.'); ?>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -2817,6 +2829,53 @@ class TIX_Settings {
                                     </div>
                                 </div>
 
+                                <?php // ── Card: Custom URLs ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-admin-links"></span>
+                                        <h3>Custom URLs</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <?php self::text_row('login_slug', 'Login-URL', $s, 'anmelden'); ?>
+                                            <div class="tix-field tix-field-full">
+                                                <p class="tix-hint" style="margin:-8px 0 8px;font-size:12px;color:#94a3b8;">
+                                                    <?php if (!empty($s['login_slug'])) : ?>
+                                                        Aktiv: <code><?php echo esc_html(home_url('/' . $s['login_slug'] . '/')); ?></code>
+                                                    <?php else : ?>
+                                                        Leer lassen f&uuml;r Standard-WordPress-Login (<code>/wp-login.php</code>).
+                                                    <?php endif; ?>
+                                                </p>
+                                            </div>
+                                            <?php self::text_row('organizer_slug', 'Veranstalter-URL', $s, 'veranstalter'); ?>
+                                            <div class="tix-field tix-field-full">
+                                                <p class="tix-hint" style="margin:-8px 0 8px;font-size:12px;color:#94a3b8;">
+                                                    <?php if (!empty($s['organizer_slug'])) : ?>
+                                                        Aktiv: <code><?php echo esc_html(home_url('/' . $s['organizer_slug'] . '/')); ?></code> &rarr; leitet Veranstalter zum Dashboard weiter.
+                                                    <?php else : ?>
+                                                        Leer lassen = kein spezieller Veranstalter-Slug.
+                                                    <?php endif; ?>
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Admin-Ansicht ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-fullscreen-alt"></span>
+                                        <h3>Admin-Ansicht</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('fullscreen_admin', 'Fullscreen-Modus f&uuml;r Tixomat-Seiten', $s, 'Blendet die WordPress-Oberfl&auml;che (Admin-Bar, Sidebar, Footer) aus und zeigt stattdessen eine eigene Tixomat-Navigation. Deaktivieren f&uuml;r die klassische WordPress-Ansicht.'); ?>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
                                 <?php // ── Card: Sponsor (Danke-Seite) ── ?>
                                 <div class="tix-card">
                                     <div class="tix-card-header">
@@ -3075,21 +3134,85 @@ class TIX_Settings {
                 });
             });
 
-            // ── Settings Mode Toggle (Empfohlen / Manuell) ──
-            document.querySelectorAll('.tix-mode-btn').forEach(function(btn) {
-                btn.addEventListener('click', function() {
-                    var mode = this.dataset.mode;
-                    document.getElementById('tix-settings-mode').value = mode;
-                    document.querySelectorAll('.tix-mode-btn').forEach(function(b) { b.classList.remove('active'); });
-                    this.classList.add('active');
-                    app.classList.remove('tix-mode-recommended', 'tix-mode-manual');
-                    app.classList.add('tix-mode-' + mode);
-                    if (mode === 'recommended') {
-                        var designTab = app.querySelector('.tix-nav-tab[data-tab="design"]');
-                        if (designTab) designTab.click();
+            // ── Settings "Mehr" Tabs Toggle ──
+            (function() {
+                var moreBtn  = document.getElementById('tix-settings-more-btn');
+                var moreTabs = document.getElementById('tix-settings-more-tabs');
+                if (!moreBtn || !moreTabs) return;
+
+                // Restore state from localStorage
+                var isOpen = localStorage.getItem('tix_settings_more') === '1';
+                if (isOpen) {
+                    moreTabs.classList.add('tix-settings-more-open');
+                    moreBtn.classList.add('active');
+                }
+
+                moreBtn.addEventListener('click', function() {
+                    var open = moreTabs.classList.toggle('tix-settings-more-open');
+                    moreBtn.classList.toggle('active', open);
+                    localStorage.setItem('tix_settings_more', open ? '1' : '0');
+                });
+            })();
+
+            // ══════════════════════════════════════
+            // COLLAPSIBLE FEATURE CARDS (Erweitert-Tab)
+            // ══════════════════════════════════════
+            (function() {
+                var advPane = app.querySelector('[data-pane="advanced"]');
+                if (!advPane) return;
+
+                // Skip these cards – they have no enable/disable toggle or are always-open config
+                var skipTitles = ['Google Places Autocomplete', 'E-Mail-Templates'];
+
+                advPane.querySelectorAll('.tix-card').forEach(function(card) {
+                    var header = card.querySelector('.tix-card-header');
+                    var body   = card.querySelector('.tix-card-body');
+                    var h3     = header ? header.querySelector('h3') : null;
+                    if (!header || !body || !h3) return;
+
+                    // Skip cards without toggle logic
+                    var title = h3.textContent.trim();
+                    if (skipTitles.indexOf(title) !== -1) return;
+
+                    // Find the first checkbox inside this card
+                    var firstCb = body.querySelector('input[type="checkbox"]');
+
+                    // Determine initial state: expanded if first checkbox is checked, or no checkbox
+                    var isExpanded = !firstCb || firstCb.checked;
+
+                    // Create arrow indicator
+                    var arrow = document.createElement('span');
+                    arrow.className = 'tix-feature-arrow dashicons dashicons-arrow-right-alt2';
+                    header.insertBefore(arrow, header.firstChild);
+
+                    // Wrap body content for animation
+                    body.classList.add('tix-feature-body');
+                    header.classList.add('tix-feature-toggle');
+
+                    if (isExpanded) {
+                        body.classList.add('tix-feature-expanded');
+                        header.classList.add('tix-feature-open');
+                    }
+
+                    // Click header to toggle
+                    header.addEventListener('click', function(e) {
+                        // Don't toggle if clicking a link or button inside header
+                        if (e.target.tagName === 'A' || e.target.tagName === 'BUTTON') return;
+                        body.classList.toggle('tix-feature-expanded');
+                        header.classList.toggle('tix-feature-open');
+                    });
+
+                    // Auto-expand when checkbox is checked
+                    if (firstCb) {
+                        firstCb.addEventListener('change', function() {
+                            if (this.checked && !body.classList.contains('tix-feature-expanded')) {
+                                body.classList.add('tix-feature-expanded');
+                                header.classList.add('tix-feature-open');
+                            }
+                        });
                     }
                 });
-            });
+            })();
 
             // ══════════════════════════════════════
             // FARBPALETTE MANAGER

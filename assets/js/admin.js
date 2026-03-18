@@ -37,6 +37,21 @@
         }
 
         // ══════════════════════════════════════
+        // MORE-TABS TOGGLE
+        // ══════════════════════════════════════
+        var moreBtn = document.getElementById('tix-nav-more-btn');
+        var moreGroup = document.getElementById('tix-nav-more');
+        if (moreBtn && moreGroup) {
+            // Auto-expand if a tab within "more" group is active (e.g. from sessionStorage)
+            var activeInMore = moreGroup.querySelector('.tix-nav-tab.active');
+            if (activeInMore) moreGroup.classList.add('tix-nav-group-open');
+
+            moreBtn.addEventListener('click', function() {
+                moreGroup.classList.toggle('tix-nav-group-open');
+            });
+        }
+
+        // ══════════════════════════════════════
         // PFLICHTFELD-FORTSCHRITTSLEISTE
         // ══════════════════════════════════════
 
@@ -497,6 +512,34 @@
             placeholder: 'tix-gallery-thumb',
         });
     }
+
+    // ═══════════════════════════════════════
+    // BEITRAGSBILD (Featured Image in Medien-Tab)
+    // ═══════════════════════════════════════
+    $('#tix-featured-img-set').on('click', function() {
+        if (typeof wp === 'undefined' || typeof wp.media === 'undefined') return;
+        var frame = wp.media({
+            title: 'Beitragsbild festlegen',
+            button: { text: 'Als Beitragsbild verwenden' },
+            library: { type: 'image' },
+            multiple: false
+        });
+        frame.on('select', function() {
+            var att = frame.state().get('selection').first().toJSON();
+            var url = (att.sizes && att.sizes.medium) ? att.sizes.medium.url : att.url;
+            $('#tix-featured-img-id').val(att.id);
+            $('#tix-featured-img-preview').show().find('img').attr('src', url);
+            $('#tix-featured-img-set').text('Bild ändern');
+            $('#tix-featured-img-remove').show();
+        });
+        frame.open();
+    });
+    $('#tix-featured-img-remove').on('click', function() {
+        $('#tix-featured-img-id').val('-1');
+        $('#tix-featured-img-preview').hide();
+        $('#tix-featured-img-set').text('Beitragsbild festlegen');
+        $(this).hide();
+    });
 
     // ═══════════════════════════════════════
     // VIDEO

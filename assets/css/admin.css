@@ -1790,56 +1790,123 @@ body:is(.post-type-event,.post-type-tix_location,.post-type-tix_organizer,.post-
 }
 .tix-ci-theme-btn .dashicons { font-size: 16px; width: 16px; height: 16px; }
 
-/* ── Settings Mode Toggle (Empfohlen / Manuell) ── */
-.tix-settings-mode-toggle {
+/* ── Settings "Mehr" Tabs ── */
+.tix-settings-more-toggle {
     display: flex;
-    gap: 0;
-    padding: 16px 20px 0;
-    background: #fff;
-    border-radius: 16px 16px 0 0;
-}
-.tix-mode-btn {
-    padding: 10px 24px;
-    border: 1px solid #e8eaed;
-    background: #fff;
+    align-items: center;
+    gap: 4px;
+    padding: 8px 14px;
+    border: 1px dashed #cbd5e1;
+    border-radius: 8px;
+    background: transparent;
     color: #64748b;
-    font-size: 13px;
-    font-weight: 600;
+    font-size: 12px;
+    font-weight: 500;
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition: all 0.15s;
+    white-space: nowrap;
+    margin-left: 4px;
 }
-.tix-mode-btn:first-child {
-    border-radius: 10px 0 0 10px;
+.tix-settings-more-toggle:hover {
+    border-color: #94a3b8;
+    color: #475569;
+    background: #f8fafc;
 }
-.tix-mode-btn:last-of-type {
-    border-radius: 0 10px 10px 0;
-    border-left: none;
-}
-.tix-mode-btn:hover {
-    background: #f1f3f6;
-    color: #0D0B09;
-}
-.tix-mode-btn.active {
-    background: #0D0B09;
+.tix-settings-more-toggle.active {
+    border-style: solid;
     border-color: #0D0B09;
+    background: #0D0B09;
     color: #fff;
 }
-.tix-mode-btn.active + .tix-mode-btn {
-    border-left-color: #0D0B09;
+.tix-settings-more-toggle .dashicons {
+    font-size: 16px;
+    width: 16px;
+    height: 16px;
+}
+.tix-settings-more-tabs {
+    display: none;
+}
+.tix-settings-more-tabs.tix-settings-more-open {
+    display: contents;
 }
 
-/* Recommended Mode: hide everything except theme preset */
-.tix-mode-recommended .tix-nav {
-    display: none;
+/* ── Collapsible Feature Cards ── */
+.tix-feature-toggle {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    cursor: pointer;
 }
-.tix-mode-recommended .tix-pane:not([data-pane="design"]) {
+.tix-feature-toggle .tix-feature-arrow {
+    transition: transform 0.2s ease;
+    color: #94a3b8;
+    font-size: 14px;
+    flex-shrink: 0;
+}
+.tix-feature-toggle.tix-feature-open .tix-feature-arrow {
+    transform: rotate(90deg);
+}
+.tix-feature-body {
+    overflow: hidden;
+    max-height: 0;
+    opacity: 0;
+    transition: max-height 0.3s ease, opacity 0.2s ease, margin 0.2s ease;
+    margin-top: 0;
+}
+.tix-feature-body.tix-feature-expanded {
+    max-height: 2000px;
+    opacity: 1;
+    margin-top: 16px;
+}
+
+/* ── Event Editor Tab Groups ── */
+.tix-nav-group {
+    display: contents;
+}
+.tix-nav-group + .tix-nav-group::before {
+    content: '';
+    display: block;
+    width: 1px;
+    height: 24px;
+    background: #e2e8f0;
+    margin: 0 4px;
+    flex-shrink: 0;
+    align-self: center;
+}
+.tix-nav-group-more {
     display: none !important;
 }
-.tix-mode-recommended .tix-pane[data-pane="design"] {
-    display: block;
+.tix-nav-group-more.tix-nav-group-open {
+    display: contents !important;
 }
-.tix-mode-recommended .tix-pane[data-pane="design"] .tix-card:not(.tix-card-preset) {
-    display: none;
+.tix-nav-more-toggle {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 8px 12px;
+    border: 1px dashed #cbd5e1;
+    border-radius: 8px;
+    background: transparent;
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+}
+.tix-nav-more-toggle:hover {
+    border-color: #94a3b8;
+    color: #334155;
+    background: #f8fafc;
+}
+.tix-nav-more-toggle .dashicons {
+    font-size: 14px;
+    width: 14px;
+    height: 14px;
+    transition: transform 0.2s;
+}
+.tix-nav-group-open ~ .tix-nav-more-toggle .dashicons {
+    transform: rotate(45deg);
 }
 
 /* ═══════════════════════════════════════════

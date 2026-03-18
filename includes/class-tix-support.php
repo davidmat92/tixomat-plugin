@@ -217,16 +217,19 @@ class TIX_Support {
             <div class="tix-app">
 
                 <!-- Tabs -->
-                <nav class="tix-nav-tabs">
-                    <a class="tix-nav-tab active" data-tab="tickets" href="#">
-                        <span class="dashicons dashicons-format-chat"></span> Anfragen
-                    </a>
-                    <a class="tix-nav-tab" data-tab="search" href="#">
-                        <span class="dashicons dashicons-search"></span> Kunden-Suche
-                    </a>
-                    <a class="tix-nav-tab" data-tab="stats" href="#">
-                        <span class="dashicons dashicons-chart-bar"></span> Statistiken
-                    </a>
+                <nav class="tix-nav">
+                    <button type="button" class="tix-nav-tab active" data-tab="tickets">
+                        <span class="dashicons dashicons-format-chat"></span>
+                        <span class="tix-nav-label">Anfragen</span>
+                    </button>
+                    <button type="button" class="tix-nav-tab" data-tab="search">
+                        <span class="dashicons dashicons-search"></span>
+                        <span class="tix-nav-label">Kunden-Suche</span>
+                    </button>
+                    <button type="button" class="tix-nav-tab" data-tab="stats">
+                        <span class="dashicons dashicons-chart-bar"></span>
+                        <span class="tix-nav-label">Statistiken</span>
+                    </button>
                 </nav>
 
                 <div class="tix-content">

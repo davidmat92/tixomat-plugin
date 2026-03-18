@@ -218,84 +218,94 @@ class TIX_Metabox {
                 <div class="tix-progress-items" id="tix-prog-items"></div>
             </div>
             <nav class="tix-nav">
-                <button type="button" class="tix-nav-tab active" data-tab="details">
-                    <span class="dashicons dashicons-calendar-alt"></span>
-                    <span class="tix-nav-label">Details</span>
+                <div class="tix-nav-group">
+                    <button type="button" class="tix-nav-tab active" data-tab="details">
+                        <span class="dashicons dashicons-calendar-alt"></span>
+                        <span class="tix-nav-label">Details</span>
+                    </button>
+                    <button type="button" class="tix-nav-tab" data-tab="info">
+                        <span class="dashicons dashicons-info"></span>
+                        <span class="tix-nav-label">Info</span>
+                    </button>
+                    <button type="button" class="tix-nav-tab" data-tab="tickets">
+                        <span class="dashicons dashicons-tickets-alt"></span>
+                        <span class="tix-nav-label">Tickets</span>
+                    </button>
+                    <button type="button" class="tix-nav-tab" data-tab="media">
+                        <span class="dashicons dashicons-format-gallery"></span>
+                        <span class="tix-nav-label">Medien</span>
+                    </button>
+                </div>
+                <div class="tix-nav-group">
+                    <button type="button" class="tix-nav-tab" data-tab="template">
+                        <span class="dashicons dashicons-media-document"></span>
+                        <span class="tix-nav-label">Vorlage</span>
+                    </button>
+                    <button type="button" class="tix-nav-tab" data-tab="faq">
+                        <span class="dashicons dashicons-editor-help"></span>
+                        <span class="tix-nav-label">FAQ</span>
+                    </button>
+                    <button type="button" class="tix-nav-tab" data-tab="upsell">
+                        <span class="dashicons dashicons-megaphone"></span>
+                        <span class="tix-nav-label">Zusatzprodukte</span>
+                    </button>
+                    <?php if (function_exists('tix_get_settings') && tix_get_settings('specials_enabled')): ?>
+                    <button type="button" class="tix-nav-tab" data-tab="specials">
+                        <span class="dashicons dashicons-star-filled"></span>
+                        <span class="tix-nav-label">Specials</span>
+                    </button>
+                    <?php endif; ?>
+                    <button type="button" class="tix-nav-tab" data-tab="series">
+                        <span class="dashicons dashicons-backup"></span>
+                        <span class="tix-nav-label">Serientermine</span>
+                    </button>
+                    <button type="button" class="tix-nav-tab" data-tab="guestlist">
+                        <span class="dashicons dashicons-groups"></span>
+                        <span class="tix-nav-label">Gästeliste</span>
+                    </button>
+                    <button type="button" class="tix-nav-tab" data-tab="discounts">
+                        <span class="dashicons dashicons-tag"></span>
+                        <span class="tix-nav-label">Rabattcodes</span>
+                    </button>
+                </div>
+                <div class="tix-nav-group tix-nav-group-more" id="tix-nav-more">
+                    <button type="button" class="tix-nav-tab" data-tab="raffle">
+                        <span class="dashicons dashicons-tickets"></span>
+                        <span class="tix-nav-label">Gewinnspiel</span>
+                    </button>
+                    <button type="button" class="tix-nav-tab" data-tab="timetable">
+                        <span class="dashicons dashicons-schedule"></span>
+                        <span class="tix-nav-label">Programm</span>
+                    </button>
+                    <?php if (function_exists('tix_get_settings') && tix_get_settings('table_reservation_enabled')): ?>
+                    <button type="button" class="tix-nav-tab" data-tab="tables">
+                        <span class="dashicons dashicons-food"></span>
+                        <span class="tix-nav-label">Tische</span>
+                    </button>
+                    <?php endif; ?>
+                    <?php if (function_exists('tix_get_settings') && tix_get_settings('campaign_tracking_enabled')): ?>
+                    <button type="button" class="tix-nav-tab" data-tab="campaigns">
+                        <span class="dashicons dashicons-chart-bar"></span>
+                        <span class="tix-nav-label">Kampagnen</span>
+                    </button>
+                    <?php endif; ?>
+                    <?php if (function_exists('tix_get_settings') && tix_get_settings('promoter_enabled') && class_exists('TIX_Promoter_Admin')): ?>
+                    <button type="button" class="tix-nav-tab" data-tab="promoter">
+                        <span class="dashicons dashicons-businessman"></span>
+                        <span class="tix-nav-label">Promoter</span>
+                    </button>
+                    <?php endif; ?>
+                    <?php if (function_exists('tix_get_settings') && (tix_get_settings('abandoned_cart_enabled') || tix_get_settings('express_checkout_enabled') || tix_get_settings('ticket_transfer_enabled') || tix_get_settings('barcode_enabled') || tix_get_settings('charity_enabled') || class_exists('TIX_Seatmap'))): ?>
+                    <button type="button" class="tix-nav-tab" data-tab="advanced">
+                        <span class="dashicons dashicons-admin-generic"></span>
+                        <span class="tix-nav-label">Erweitert</span>
+                    </button>
+                    <?php endif; ?>
+                </div>
+                <button type="button" class="tix-nav-more-toggle" id="tix-nav-more-btn">
+                    <span class="dashicons dashicons-plus-alt2"></span>
+                    <span class="tix-nav-label">Mehr</span>
                 </button>
-                <button type="button" class="tix-nav-tab" data-tab="info">
-                    <span class="dashicons dashicons-info"></span>
-                    <span class="tix-nav-label">Info</span>
-                </button>
-                <button type="button" class="tix-nav-tab" data-tab="tickets">
-                    <span class="dashicons dashicons-tickets-alt"></span>
-                    <span class="tix-nav-label">Tickets</span>
-                </button>
-                <button type="button" class="tix-nav-tab" data-tab="template">
-                    <span class="dashicons dashicons-media-document"></span>
-                    <span class="tix-nav-label">Vorlage</span>
-                </button>
-                <button type="button" class="tix-nav-tab" data-tab="media">
-                    <span class="dashicons dashicons-format-gallery"></span>
-                    <span class="tix-nav-label">Medien</span>
-                </button>
-                <button type="button" class="tix-nav-tab" data-tab="faq">
-                    <span class="dashicons dashicons-editor-help"></span>
-                    <span class="tix-nav-label">FAQ</span>
-                </button>
-                <button type="button" class="tix-nav-tab" data-tab="upsell">
-                    <span class="dashicons dashicons-megaphone"></span>
-                    <span class="tix-nav-label">Zusatzprodukte</span>
-                </button>
-                <?php if (function_exists('tix_get_settings') && tix_get_settings('specials_enabled')): ?>
-                <button type="button" class="tix-nav-tab" data-tab="specials">
-                    <span class="dashicons dashicons-star-filled"></span>
-                    <span class="tix-nav-label">Specials</span>
-                </button>
-                <?php endif; ?>
-                <button type="button" class="tix-nav-tab" data-tab="series">
-                    <span class="dashicons dashicons-backup"></span>
-                    <span class="tix-nav-label">Serientermine</span>
-                </button>
-                <button type="button" class="tix-nav-tab" data-tab="guestlist">
-                    <span class="dashicons dashicons-groups"></span>
-                    <span class="tix-nav-label">Gästeliste</span>
-                </button>
-                <button type="button" class="tix-nav-tab" data-tab="discounts">
-                    <span class="dashicons dashicons-tag"></span>
-                    <span class="tix-nav-label">Rabattcodes</span>
-                </button>
-                <button type="button" class="tix-nav-tab" data-tab="raffle">
-                    <span class="dashicons dashicons-tickets"></span>
-                    <span class="tix-nav-label">Gewinnspiel</span>
-                </button>
-                <button type="button" class="tix-nav-tab" data-tab="timetable">
-                    <span class="dashicons dashicons-schedule"></span>
-                    <span class="tix-nav-label">Programm</span>
-                </button>
-                <?php if (function_exists('tix_get_settings') && tix_get_settings('table_reservation_enabled')): ?>
-                <button type="button" class="tix-nav-tab" data-tab="tables">
-                    <span class="dashicons dashicons-food"></span>
-                    <span class="tix-nav-label">Tische</span>
-                </button>
-                <?php endif; ?>
-                <?php if (function_exists('tix_get_settings') && tix_get_settings('campaign_tracking_enabled')): ?>
-                <button type="button" class="tix-nav-tab" data-tab="campaigns">
-                    <span class="dashicons dashicons-chart-bar"></span>
-                    <span class="tix-nav-label">Kampagnen</span>
-                </button>
-                <?php endif; ?>
-                <?php if (function_exists('tix_get_settings') && tix_get_settings('promoter_enabled') && class_exists('TIX_Promoter_Admin')): ?>
-                <button type="button" class="tix-nav-tab" data-tab="promoter">
-                    <span class="dashicons dashicons-businessman"></span>
-                    <span class="tix-nav-label">Promoter</span>
-                </button>
-                <?php endif; ?>
-                <?php if (function_exists('tix_get_settings') && (tix_get_settings('abandoned_cart_enabled') || tix_get_settings('express_checkout_enabled') || tix_get_settings('ticket_transfer_enabled') || tix_get_settings('barcode_enabled') || tix_get_settings('charity_enabled') || class_exists('TIX_Seatmap'))): ?>
-                <button type="button" class="tix-nav-tab" data-tab="advanced">
-                    <span class="dashicons dashicons-admin-generic"></span>
-                    <span class="tix-nav-label">Erweitert</span>
-                </button>
-                <?php endif; ?>
             </nav>
             <div class="tix-content">
                 <div class="tix-pane active" data-pane="details">
@@ -662,15 +672,59 @@ class TIX_Metabox {
                         <input type="text" id="tix_location_address_display" value="<?php echo $location_id ? esc_attr(get_post_meta($location_id, '_tix_loc_address', true)) : ''; ?>" readonly class="tix-readonly-field" placeholder="Wird automatisch aus der Location geladen">
                     </div>
                     <div class="tix-field tix-field-full">
-                        <label class="tix-field-label" for="tix_organizer_id">Veranstalter <?php self::tip('Wer veranstaltet das Event? Neue Veranstalter unter Events → Veranstalter anlegen.'); ?></label>
-                        <select id="tix_organizer_id" name="tix_organizer_id" class="tix-cpt-select">
-                            <option value="">— Veranstalter wählen —</option>
-                            <?php foreach ($organizers as $org): ?>
-                                <option value="<?php echo $org->ID; ?>" <?php selected($organizer_id, $org->ID); ?>><?php echo esc_html($org->post_title); ?></option>
-                            <?php endforeach; ?>
-                        </select>
-                        <button type="button" class="tix-add-new-link" data-modal="tix-modal-organizer">+ Neuer Veranstalter</button>
+                        <?php
+                        $is_org_user = class_exists('TIX_Organizer_Admin') && TIX_Organizer_Admin::is_organizer();
+                        if ($is_org_user) :
+                            // Veranstalter sehen nur ihren eigenen Namen (read-only)
+                            $org_name = '';
+                            if ($organizer_id) {
+                                $org_name = get_the_title($organizer_id);
+                            } else {
+                                $org_name = get_user_meta(get_current_user_id(), '_tix_organizer_name', true) ?: wp_get_current_user()->display_name;
+                            }
+                        ?>
+                            <label class="tix-field-label">Veranstalter</label>
+                            <div style="padding:8px 14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;font-size:14px;color:#1e293b;">
+                                <?php echo esc_html($org_name); ?>
+                            </div>
+                            <input type="hidden" name="tix_organizer_id" value="<?php echo esc_attr($organizer_id); ?>">
+                        <?php else : ?>
+                            <label class="tix-field-label" for="tix_organizer_id">Veranstalter <?php self::tip('Wer veranstaltet das Event? Neue Veranstalter unter Events → Veranstalter anlegen.'); ?></label>
+                            <select id="tix_organizer_id" name="tix_organizer_id" class="tix-cpt-select">
+                                <option value="">— Veranstalter wählen —</option>
+                                <?php foreach ($organizers as $org): ?>
+                                    <option value="<?php echo $org->ID; ?>" <?php selected($organizer_id, $org->ID); ?>><?php echo esc_html($org->post_title); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                            <button type="button" class="tix-add-new-link" data-modal="tix-modal-organizer">+ Neuer Veranstalter</button>
+                        <?php endif; ?>
                     </div>
+                </div>
+            </div>
+        </div>
+
+        <?php // ── Event-Kategorien ── ?>
+        <div class="tix-card" style="margin-top:20px;">
+            <div class="tix-card-header">
+                <span class="dashicons dashicons-tag"></span>
+                <h3>Event-Kategorien</h3>
+            </div>
+            <div class="tix-card-body">
+                <div id="tix-inline-categories">
+                    <?php
+                    $terms = get_terms(['taxonomy' => 'event_category', 'hide_empty' => false]);
+                    $current = wp_get_post_terms($post->ID, 'event_category', ['fields' => 'ids']);
+                    if (!is_wp_error($terms) && !empty($terms)) :
+                        foreach ($terms as $term) : ?>
+                            <label style="display:flex;align-items:center;gap:6px;margin-bottom:6px;cursor:pointer;">
+                                <input type="checkbox" name="tax_input[event_category][]" value="<?php echo esc_attr($term->term_id); ?>"
+                                    <?php checked(in_array($term->term_id, $current)); ?>>
+                                <span><?php echo esc_html($term->name); ?></span>
+                            </label>
+                        <?php endforeach;
+                    else : ?>
+                        <p class="description">Noch keine Kategorien angelegt.</p>
+                    <?php endif; ?>
                 </div>
             </div>
         </div>
@@ -791,6 +845,18 @@ class TIX_Metabox {
                 <?php endif; ?>
             </div>
         <?php endforeach; ?>
+        </div>
+
+        <?php // ── Textauszug ── ?>
+        <div class="tix-card" style="margin-top:20px;">
+            <div class="tix-card-header">
+                <span class="dashicons dashicons-editor-paragraph"></span>
+                <h3>Textauszug</h3>
+            </div>
+            <div class="tix-card-body">
+                <textarea name="excerpt" rows="3" style="width:100%;border:1px solid #d1d5db;border-radius:8px;padding:10px;font-size:13px;resize:vertical;" placeholder="Kurze Zusammenfassung des Events (wird z.B. in Suchergebnissen angezeigt)…"><?php echo esc_textarea($post->post_excerpt); ?></textarea>
+                <p class="description" style="margin-top:4px;">Wird in Übersichten und als Meta-Description verwendet.</p>
+            </div>
         </div>
         <?php
     }
@@ -1060,6 +1126,38 @@ class TIX_Metabox {
         $video_id  = get_post_meta($post->ID, '_tix_video_id', true);
         ?>
         <div class="tix-media-meta">
+
+            <?php // ── Beitragsbild ── ?>
+            <div class="tix-media-section">
+                <h4 style="margin:0 0 8px;">🖼️ Beitragsbild</h4>
+                <p class="description" style="margin:0 0 10px;">
+                    Das Hauptbild des Events. Wird als Thumbnail in Listen, Karten und Social-Shares verwendet.
+                </p>
+                <?php
+                $thumb_id = get_post_thumbnail_id($post->ID);
+                $thumb_url = $thumb_id ? wp_get_attachment_image_url($thumb_id, 'medium') : '';
+                ?>
+                <div id="tix-featured-img-wrap">
+                    <?php if ($thumb_url) : ?>
+                        <div id="tix-featured-img-preview" style="margin-bottom:8px;">
+                            <img src="<?php echo esc_url($thumb_url); ?>" style="max-width:300px;height:auto;border-radius:8px;display:block;">
+                        </div>
+                    <?php else : ?>
+                        <div id="tix-featured-img-preview" style="margin-bottom:8px;display:none;">
+                            <img src="" style="max-width:300px;height:auto;border-radius:8px;display:block;">
+                        </div>
+                    <?php endif; ?>
+                    <input type="hidden" name="_thumbnail_id" id="tix-featured-img-id" value="<?php echo esc_attr($thumb_id ?: '-1'); ?>">
+                    <button type="button" class="button" id="tix-featured-img-set"><?php echo $thumb_id ? 'Bild ändern' : 'Beitragsbild festlegen'; ?></button>
+                    <?php if ($thumb_id) : ?>
+                        <button type="button" class="button" id="tix-featured-img-remove" style="color:#dc2626;border-color:#dc2626;">Entfernen</button>
+                    <?php else : ?>
+                        <button type="button" class="button" id="tix-featured-img-remove" style="color:#dc2626;border-color:#dc2626;display:none;">Entfernen</button>
+                    <?php endif; ?>
+                </div>
+            </div>
+
+            <hr style="border:0; border-top:1px solid #e5e7eb; margin:16px 0;">
 
             <?php // ── Galerie ── ?>
             <div class="tix-media-section">

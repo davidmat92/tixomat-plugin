@@ -1,6 +1,6 @@
 # Tixomat -- Event & Ticket Management
 
-**Version:** 1.33.1
+**Version:** 1.34.0
 **Autor:** MDJ Veranstaltungs UG (haftungsbeschraenkt)
 **Text Domain:** `tixomat`
 **Abhaengigkeiten:** WordPress 6.x, WooCommerce 8.x (HPOS-kompatibel)
@@ -12,7 +12,7 @@
 
 | Konstante | Wert | Beschreibung |
 |---|---|---|
-| `TIXOMAT_VERSION` | `'1.33.1'` | Aktuelle Plugin-Version |
+| `TIXOMAT_VERSION` | `'1.34.0'` | Aktuelle Plugin-Version |
 | `TIXOMAT_PATH` | `plugin_dir_path(__FILE__)` | Absoluter Pfad zum Plugin-Verzeichnis |
 | `TIXOMAT_URL` | `plugin_dir_url(__FILE__)` | URL zum Plugin-Verzeichnis |
 
@@ -78,6 +78,10 @@
 56. [Daten-Synchronisierung](#56-daten-synchronisierung)
 57. [Veranstalter-Dashboard (Organizer)](#57-veranstalter-dashboard-organizer)
 58. [KI-Schutz (Content Guard)](#58-ki-schutz-content-guard)
+59. [REST API (tixomat/v1)](#59-rest-api-tixomatv1)
+60. [Admin Shell / Fullscreen-Modus](#60-admin-shell--fullscreen-modus)
+61. [Organizer Admin System](#61-organizer-admin-system)
+62. [Custom Login URLs](#62-custom-login-urls)
 
 ---
 
@@ -193,9 +197,17 @@ tixomat/
 │   ├── class-tix-promoter-admin.php      Promoter-Admin (Menue + Verwaltung)
 │   ├── class-tix-promoter-dashboard.php  Promoter-Dashboard (Frontend)
 │   ├── class-tix-organizer-dashboard.php Veranstalter-Dashboard (Frontend)
+│   ├── class-tix-rest-api.php           REST API (tixomat/v1, 24 Endpoints)
+│   ├── class-tix-admin-shell.php        Admin Shell (Fullscreen-Sidebar)
+│   ├── class-tix-organizer-admin.php   Organizer Admin (Capabilities, Ownership, Admin-Seiten)
+│   ├── class-tix-custom-urls.php       Custom Login & Organizer URLs
+│   ├── class-tix-cart.php               Warenkorb & Mini-Cart
+│   ├── class-tix-table-reservation.php  Tischreservierung
+│   ├── class-tix-pos.php               POS / Abendkasse
+│   ├── class-tix-specials.php           Specials / Zusatzprodukte CPT
 ├── assets/
-│   ├── css/                              CSS-Dateien (event-page, ticket-selector, feedback, timetable, ...)
-│   ├── js/                               JS-Dateien (event-page, feedback, timetable, ...)
+│   ├── css/                              CSS-Dateien (admin-shell, event-page, ticket-selector, ...)
+│   ├── js/                               JS-Dateien (admin-shell, event-page, feedback, ...)
 │   └── fonts/
 │       ├── OpenSans-Regular.ttf
 │       ├── OpenSans-Bold.ttf
@@ -2547,7 +2559,181 @@ save_post_event:
 
 ---
 
+## 59. REST API (tixomat/v1)
+
+Seit v1.34.0 bietet das Plugin eine vollstaendige REST API fuer die Tixomat-App (iOS/Android) und Drittanbieter-Integrationen.
+
+### Authentifizierung
+
+| Methode | Header | Verwendung |
+|---|---|---|
+| Application Passwords | `Authorization: Basic base64(user:app-password)` | Admin, Organizer |
+| Token (Kunden-App) | `X-Tix-Token: {token}` oder `Authorization: Bearer {token}` | Kunden |
+
+Tokens werden bei `/auth/login` generiert und als SHA-256 Hash in `_tix_app_token` User-Meta gespeichert.
+
+### Endpoints
+
+| Methode | Route | Beschreibung | Auth |
+|---|---|---|---|
+| GET | `/info` | Plugin-Version, Features, aktive Module | Public |
+| GET | `/me` | Aktueller User (ID, Name, E-Mail, Rollen, Avatar) | Auth |
+| GET | `/events` | Events des Organizers (Filter: status, search, per_page) | Auth |
+| GET | `/events/{id}` | Einzel-Event mit allen Meta-Daten | Auth |
+| PUT | `/events/{id}` | Event aktualisieren | Auth |
+| POST | `/checkin/scan` | QR-Code scannen, Body: `{"code":"ABC123"}` | Auth |
+| GET | `/checkin/{event_id}/list` | Gaesteliste (Filter: search, status) | Auth |
+| PATCH | `/checkin/{event_id}/guest/{guest_id}` | Gast-Status aktualisieren | Auth |
+| PATCH | `/checkin/ticket/{ticket_id}/toggle` | Ticket ein-/auschecken | Auth |
+| GET | `/events/{id}/guestlist` | Vollstaendige Gaesteliste | Auth |
+| PUT | `/events/{id}/guestlist` | Gaesteliste Bulk-Update | Auth |
+| GET | `/events/{id}/tickets` | Verkaufte Tickets eines Events | Auth |
+| POST | `/tickets/{id}/resend-email` | Ticket-E-Mail erneut senden | Auth |
+| GET | `/pos/events/{id}/categories` | POS Ticket-Kategorien + Bestand | Auth |
+| POST | `/pos/orders` | POS-Order erstellen | Auth |
+| POST | `/pos/orders/{id}/email` | POS-Tickets per E-Mail senden | Auth |
+| POST | `/pos/orders/{id}/void` | POS-Order stornieren | Auth |
+| GET | `/pos/report` | Tagesbericht (Filter: date, event_id) | Auth |
+| GET | `/pos/transactions` | Transaktionsliste | Auth |
+| POST | `/auth/login` | Login (E-Mail + Passwort) -> Token | Public |
+| POST | `/auth/register` | Neuen Kunden registrieren | Public |
+| GET/PUT | `/auth/profile` | Kundenprofil lesen/aktualisieren | Token |
+| POST | `/auth/profile/avatar` | Avatar hochladen (multipart) | Token |
+| GET | `/customer/tickets` | Tickets des Kunden (Filter: status) | Token |
+| GET | `/customer/events` | Vergangene + kommende Events des Kunden | Token |
+
+### Dateien
+
+| Datei | Beschreibung |
+|---|---|
+| `includes/class-tix-rest-api.php` | REST API Klasse, alle Endpoints, Token-Auth |
+
+---
+
+## 60. Admin Shell / Fullscreen-Modus
+
+Seit v1.34.0 zeigt das Plugin auf allen Tixomat-Admin-Seiten eine eigene Fullscreen-Oberflaeche mit linker Sidebar statt des WordPress-Backends.
+
+### Features
+
+- **Fullscreen-UI**: Versteckt WordPress Admin-Bar, Sidebar, Footer, Screen Options
+- **Eigene Sidebar**: Logo, Gruppen (Events, Ticketing, Verwaltung, Einstellungen, Hilfe)
+- **Organizer-Modus**: Veranstalter erhalten eine reduzierte Sidebar (Dashboard, Meine Events, Ticketing, Verwaltung, Einstellungen). Admin-Bar wird fuer Organizer komplett ausgeblendet
+- **URL-Rewriting**: `wp-admin`-URLs werden kosmetisch durch den Organizer-Slug ersetzt via `history.replaceState`
+- **Kontextabhaengige Sub-Tabs**: Settings-Seite, Docs-Seite und Support-Seite zeigen ihre Tabs in der Sidebar
+- **Floating Publish-Button**: Oben rechts fix (Aktualisieren/Veroeffentlichen + Status + Vorschau). Auch auf Post-Edit-Seiten verfuegbar
+- **Responsive**: Mobile Slide-In Sidebar
+- **Versteckt**: Breakdance-Button, LiteSpeed-Metabox, WP-Sidebar-Boxen (Kategorien/Beitragsbild/Textauszug sind in den Metabox-Tabs)
+- **Deaktivierbar**: Einstellungen -> Erweitert -> Admin-Ansicht (Setting: `fullscreen_admin`)
+
+### Erkannte Tixomat-Seiten
+
+- Event CPT (Liste, Editor, Kategorien)
+- Alle Tixomat CPTs (tix_ticket, tix_ticket_tpl, tix_support_ticket, tix_location, tix_organizer, tix_subscriber, tix_abandoned_cart, tix_seatmap, tix_special)
+- Custom Admin-Seiten (tix-settings, tix-statistics, tix-support, tix-docs, tix-promoters, tix-marketing-export, tix-campaigns)
+
+### CSS-Klassen
+
+| Klasse | Beschreibung |
+|---|---|
+| `body.tix-fullscreen` | Body-Klasse wenn Fullscreen aktiv |
+| `.tix-shell-sidebar` | Sidebar-Container (260px, fixed left) |
+| `.tix-shell-item.active` | Aktiver Menuepunkt (orange Akzent) |
+| `.tix-floating-publish` | Floating Button Container (fixed top right) |
+
+### Dateien
+
+| Datei | Beschreibung |
+|---|---|
+| `includes/class-tix-admin-shell.php` | PHP-Klasse: Seitenerkennung, Sidebar-Rendering, Floating Publish |
+| `assets/css/admin-shell.css` | Light-Theme Styling, WP-Chrome-Hiding |
+| `assets/js/admin-shell.js` | Tab-Switching, Mobile-Toggle, Mehr-Button |
+
+---
+
+## 61. Organizer Admin System
+
+Seit v1.34.0 erhalten Veranstalter (`tix_organizer`-Rolle) ein vollstaendiges Admin-Backend innerhalb von WordPress mit eingeschraenktem Zugriff auf eigene Events.
+
+**Datei:** `includes/class-tix-organizer-admin.php`
+
+### Capabilities
+
+Die Rolle `tix_organizer` erhaelt folgende WordPress-Capabilities:
+- `edit_posts`, `publish_posts`, `delete_posts`, `edit_others_posts`, `upload_files`
+
+### Event-Ownership & Zugriffskontrolle
+
+- **pre_get_posts Filter**: Events werden nach `_tix_organizer_id` gefiltert -- Organizer sehen nur eigene Events
+- **map_meta_cap**: Stellt sicher, dass Organizer nur eigene Events bearbeiten koennen
+- **Ticket-Filter**: `tix_ticket`-Liste zeigt nur Tickets der eigenen Events
+- **Erlaubte Post-Types**: `event`, `tix_location`, `tix_ticket`, `tix_seatmap`, `tix_ticket_tpl`, `tix_subscriber`
+- **Auto-Assign**: Neue Events erhalten automatisch `_tix_organizer_id` des aktuellen Nutzers
+
+### Admin-Einschraenkungen
+
+- **Menue-Cleanup**: Alle WordPress-Menues entfernt ausser Tixomat, Upload, Profil
+- **Admin-Bar**: Komplett ausgeblendet fuer Organizer
+- **Login-Redirect**: Organizer werden nach Login zu `tix-organizer-dashboard` weitergeleitet
+- **Seitenrestriktionen**: Nur erlaubte Post-Types und Tixomat-Admin-Seiten zugaenglich
+
+### Admin-Seiten (5 Custom Pages)
+
+| Seite | Slug | Beschreibung |
+|---|---|---|
+| Dashboard | `tix-organizer-dashboard` | KPI-Cards (Umsatz, verkaufte Tickets, aktive Events, naechstes Event) + Top-5-Events-Tabelle |
+| Bestellungen | `tix-organizer-orders` | Reduzierte Bestellansicht (Bestellnr., Datum, Kaeufer, E-Mail, Tickets, Betrag, Status) mit Event-Filter + Suche + Pagination |
+| Gaesteliste | `tix-organizer-guestlist` | CSV-Export (manuelle Gaeste + WC-Bestellungen). Spalten: Name, E-Mail, Tickets, Kategorie, Checked-in, Quelle |
+| E-Mail | `tix-organizer-email` | Bulk-E-Mail an alle Kaeufer eines Events (AJAX, Rate-Limit: 1x pro Event pro Tag) |
+| Abrechnung | `tix-organizer-billing` | Monatlicher CSV-Export (Bestellnr., Datum, Event, Tickets, Brutto, Steuer, Netto) |
+
+### User-Profil
+
+- Meta-Feld `_tix_organizer_name` auf dem User-Profil
+- Synchronisiert automatisch mit dem Titel des zugehoerigen `tix_organizer` CPT
+
+### Benachrichtigungen
+
+- **Neue Bestellung**: E-Mail an Organizer bei `woocommerce_order_status_completed` und `woocommerce_order_status_processing`
+- **Low-Stock-Warnung**: Wenn weniger als 10% Restbestand, einmalige Benachrichtigung (Flag: `_tix_low_stock_notified`)
+
+---
+
+## 62. Custom Login URLs
+
+Seit v1.34.0 koennen benutzerdefinierte Login- und Organizer-URLs konfiguriert werden.
+
+**Datei:** `includes/class-tix-custom-urls.php`
+
+### Features
+
+- **Custom Login URL**: z.B. `/anmelden/` statt `/wp-login.php`
+- **Custom Organizer URL**: z.B. `/veranstalter/` leitet zum Organizer-Dashboard weiter
+- **Settings**: `login_slug` und `organizer_slug` im Tab **Erweitert**
+
+### Technische Umsetzung
+
+- **URL-Intercept**: Per `init`-Hook wird der URL-Pfad geparst und auf die Custom-Seiten gemappt
+- **wp-login.php Redirect**: Automatische Weiterleitung von `wp-login.php` zur Custom-Login-URL
+- **Gebrandete Login-Seite**: Tixomat-Logo, Hintergrund `#FAF8F4`, orangener Button
+- **Login-Verarbeitung**: POST wird direkt mit `wp_signon()` verarbeitet
+- **Organizer-Redirect**: Nach Login werden Organizer automatisch zum Dashboard weitergeleitet
+
+---
+
 ## Changelog
+
+### v1.34.0
+- **REST API**: 24 Endpoints unter `tixomat/v1` (Events, Check-in, Gaesteliste, POS, Auth, Customer)
+- **Admin Shell**: Fullscreen-Modus mit eigener Sidebar-Navigation auf allen Tixomat-Seiten
+- **Organizer Admin System**: Vollstaendiges Admin-Backend fuer Veranstalter mit Event-Ownership, 5 Admin-Seiten (Dashboard, Bestellungen, Gaesteliste, E-Mail, Abrechnung), Benachrichtigungen und Ticket-Filter
+- **Admin Shell Organizer-Modus**: Reduzierte Sidebar, URL-Rewriting, Admin-Bar ausgeblendet
+- **Custom Login URLs**: Benutzerdefinierte Login- und Organizer-URLs (`/anmelden/`, `/veranstalter/`) mit gebrandeter Login-Seite
+- **Floating Publish Button**: Aktualisieren/Veroeffentlichen oben rechts fix
+- **Light Theme Sidebar**: Helles Design (#FAF8F4) mit Tixomat-Logo
+- **Support-Seite**: Konsistentes Tab-Design (tix-nav statt tix-nav-tabs)
+- **Dokumentation**: REST API Tab, Admin Shell Doku, Organizer Admin, Custom URLs, Docs-Sidebar-Tabs
+- **Fullscreen deaktivierbar**: Einstellung unter Erweitert -> Admin-Ansicht
 
 ### v1.28.81 -- v1.28.84
 - **KI-Schutz (Content Guard)**: Automatische Inhaltspruefung fuer Events via Anthropic Claude API. Fail-closed Design, Slug-Sanitierung, Hash-Cache, Admin-Spalte.
@@ -2587,4 +2773,4 @@ save_post_event:
 
 ---
 
-*Tixomat v1.28.24 -- MDJ Veranstaltungs UG (haftungsbeschraenkt)*
+*Tixomat v1.34.0 -- MDJ Veranstaltungs UG (haftungsbeschraenkt)*

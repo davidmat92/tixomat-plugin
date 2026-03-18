@@ -31,7 +31,7 @@ class TIX_Docs {
             <h1>Tixomat &ndash; Dokumentation</h1>
 
             <div class="tix-settings-grid">
-                <div class="tix-app tix-settings-app">
+                <div class="tix-app tix-docs-app">
 
                     <nav class="tix-nav">
                         <button type="button" class="tix-nav-tab active" data-tab="meta">
@@ -66,6 +66,10 @@ class TIX_Docs {
                             <span class="dashicons dashicons-format-chat"></span>
                             <span class="tix-nav-label">Ticket-Bot</span>
                         </button>
+                        <button type="button" class="tix-nav-tab" data-tab="rest-api">
+                            <span class="dashicons dashicons-rest-api"></span>
+                            <span class="tix-nav-label">REST API</span>
+                        </button>
                     </nav>
 
                     <div class="tix-content">
@@ -78,6 +82,7 @@ class TIX_Docs {
                         <?php self::render_promoter_tab(); ?>
                         <?php self::render_organizer_tab(); ?>
                         <?php self::render_bot_tab(); ?>
+                        <?php self::render_rest_api_tab(); ?>
 
                     </div>
                 </div>
@@ -87,7 +92,7 @@ class TIX_Docs {
         <script>
         (function() {
             'use strict';
-            var app = document.querySelector('.tix-settings-app');
+            var app = document.querySelector('.tix-docs-app');
             if (!app) return;
             var tabs  = app.querySelectorAll('.tix-nav-tab');
             var panes = app.querySelectorAll('.tix-pane');
@@ -1197,6 +1202,56 @@ class TIX_Docs {
                 'WooCommerce-Orders mit <code>_tix_pos_order</code> Meta + korrekter Payment-Method.',
                 'Aktivierbar unter <strong>Einstellungen &rarr; Erweitert &rarr; POS / Abendkasse</strong>.',
             ]);
+
+            // ── Admin Shell / Fullscreen ──
+            self::function_card('Admin Shell / Fullscreen-Modus', 'dashicons-fullscreen-alt', [
+                '<strong>Fullscreen-UI:</strong> Versteckt WordPress-Chrome (Admin-Bar, Sidebar, Footer) auf allen Tixomat-Seiten.',
+                '<strong>Eigene Sidebar-Navigation:</strong> Linke Sidebar mit Logo, Gruppen (Events, Ticketing, Verwaltung, Einstellungen, Hilfe).',
+                '<strong>Organizer-Modus:</strong> Veranstalter erhalten eine reduzierte Sidebar (Dashboard, Meine Events, Ticketing, Verwaltung, Einstellungen). Admin-Bar wird f&uuml;r Organizer komplett ausgeblendet.',
+                '<strong>URL-Rewriting:</strong> <code>wp-admin</code>-URLs werden kosmetisch durch den Organizer-Slug ersetzt (<code>history.replaceState</code>).',
+                '<strong>Kontextabh&auml;ngig:</strong> Auf der Einstellungs-Seite zeigt die Sidebar die Settings-Tabs, auf der Doku-Seite die Doku-Tabs, auf der Support-Seite die Support-Tabs.',
+                '<strong>Floating Publish-Button:</strong> Oben rechts fix &ndash; Aktualisieren/Ver&ouml;ffentlichen + Status-Anzeige + Vorschau-Link. Auch auf Post-Edit-Seiten verf&uuml;gbar.',
+                '<strong>Responsive:</strong> Auf Mobile wird die Sidebar als Slide-In angezeigt.',
+                'Versteckt automatisch: Breakdance-Button, LiteSpeed-Metabox, WP-Sidebar-Boxen (Kategorien, Beitragsbild, Textauszug sind in den Metabox-Tabs).',
+                'Deaktivierbar unter <strong>Einstellungen &rarr; Erweitert &rarr; Admin-Ansicht</strong>.',
+                'Dateien: <code>class-tix-admin-shell.php</code>, <code>admin-shell.css</code>, <code>admin-shell.js</code>.',
+            ]);
+
+            // ── Veranstalter-Admin ──
+            self::function_card('Veranstalter-Admin', 'dashicons-businessman', [
+                '<strong>Rolle &amp; Capabilities:</strong> <code>tix_organizer</code> erh&auml;lt <code>edit_posts</code>, <code>publish_posts</code>, <code>delete_posts</code>, <code>edit_others_posts</code>, <code>upload_files</code>.',
+                '<strong>Event-Ownership:</strong> <code>pre_get_posts</code> filtert Events nach <code>_tix_organizer_id</code> &ndash; Organizer sehen nur eigene Events.',
+                '<strong>Capability Mapping:</strong> <code>map_meta_cap</code> stellt sicher, dass Organizer nur eigene Events bearbeiten k&ouml;nnen.',
+                '<strong>Admin-Men&uuml;:</strong> Alle WP-Men&uuml;s entfernt au&szlig;er Tixomat, Upload, Profil.',
+                '<strong>Login-Redirect:</strong> Organizer werden nach Login zu <code>tix-organizer-dashboard</code> weitergeleitet.',
+                '<strong>Erlaubte Post-Types:</strong> <code>event</code>, <code>tix_location</code>, <code>tix_ticket</code>, <code>tix_seatmap</code>, <code>tix_ticket_tpl</code>, <code>tix_subscriber</code>.',
+                '<strong>Auto-Assign:</strong> Neue Events erhalten automatisch <code>_tix_organizer_id</code>.',
+                '<strong>User-Profil:</strong> <code>_tix_organizer_name</code> auf dem Profil, synchronisiert mit <code>tix_organizer</code> CPT-Titel.',
+                '<strong>5 Admin-Seiten:</strong> Dashboard (KPI-Cards + Top-5-Events), Bestellungen (Tabelle mit Event-Filter + Suche + Pagination), G&auml;steliste (CSV-Export), E-Mail (Bulk-Mail an K&auml;ufer, 1&times;/Tag/Event), Abrechnung (monatlicher CSV-Export).',
+                '<strong>Benachrichtigungen:</strong> Neue-Bestellung-E-Mail an Organizer + Low-Stock-Warnung (&lt;&nbsp;10&nbsp;% Restbestand, einmaliges Flag <code>_tix_low_stock_notified</code>).',
+                '<strong>Ticket-Filter:</strong> <code>tix_ticket</code>-Liste zeigt nur Tickets der eigenen Events.',
+                'Datei: <code>class-tix-organizer-admin.php</code>.',
+            ]);
+
+            // ── Custom Login URLs ──
+            self::function_card('Custom Login URLs', 'dashicons-admin-links', [
+                '<strong>Custom Login URL:</strong> z.&thinsp;B. <code>/anmelden/</code> statt <code>/wp-login.php</code>.',
+                '<strong>Custom Organizer URL:</strong> z.&thinsp;B. <code>/veranstalter/</code> leitet zum Dashboard weiter.',
+                '<strong>Settings:</strong> <code>login_slug</code> und <code>organizer_slug</code> im Tab <strong>Erweitert</strong>.',
+                '<strong>URL-Intercept:</strong> Per <code>init</code>-Hook wird der URL-Pfad geparst und auf die Custom-Seiten gemappt.',
+                '<strong>wp-login.php Redirect:</strong> Automatische Weiterleitung von <code>wp-login.php</code> zur Custom-Login-URL.',
+                '<strong>Gebrandete Login-Seite:</strong> Tixomat-Logo, Hintergrund <code>#FAF8F4</code>, orangener Button.',
+                '<strong>Login-Verarbeitung:</strong> POST wird direkt mit <code>wp_signon()</code> verarbeitet, Organizer-spezifischer Redirect nach Login.',
+                'Datei: <code>class-tix-custom-urls.php</code>.',
+            ]);
+
+            // ── REST API ──
+            self::function_card('REST API <small>(tixomat/v1)</small>', 'dashicons-rest-api', [
+                '<strong>24 Endpoints</strong> im Namespace <code>tixomat/v1</code> f&uuml;r die Tixomat-App (iOS/Android).',
+                '<strong>Auth:</strong> WordPress Application Passwords (Basic Auth) oder <code>X-Tix-Token</code> / <code>Bearer</code> Header.',
+                '<strong>Gruppen:</strong> Discovery, Events, Check-in, G&auml;steliste, Tickets, POS, Auth, Customer.',
+                'Details im Tab <strong>REST API</strong>.',
+            ]);
             ?>
 
         </div>
@@ -1870,6 +1925,90 @@ class TIX_Docs {
                 'Bot-Antworten k&ouml;nnen <code>wc_actions</code> enthalten &ndash; Array mit Aktionen: <code>add</code>, <code>remove</code>, <code>clear</code> (jeweils <code>product_id</code>, <code>quantity</code>).',
                 'Aktionen werden <strong>sequenziell</strong> &uuml;ber <code>processWcActions()</code> verarbeitet.',
                 'Die <strong>Warenkorb-Leiste</strong> im Chat zeigt Artikelanzahl, Gesamtsumme und &bdquo;Zur Kasse&ldquo;-Button.',
+            ]);
+            ?>
+
+        </div>
+        <?php
+    }
+
+    // ══════════════════════════════════════
+    // TAB 9: REST API
+    // ══════════════════════════════════════
+
+    private static function render_rest_api_tab() {
+        ?>
+        <div class="tix-pane" data-pane="rest-api">
+
+            <div class="tix-card" style="margin-bottom:20px;">
+                <div class="tix-card-header">
+                    <span class="dashicons dashicons-rest-api"></span>
+                    <h3>&Uuml;bersicht</h3>
+                </div>
+                <div class="tix-card-body">
+                    <ul style="margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:8px;font-size:13px;color:#475569;">
+                        <li><strong>Namespace:</strong> <code>tixomat/v1</code></li>
+                        <li><strong>Base-URL:</strong> <code>https://deine-domain.de/wp-json/tixomat/v1/</code></li>
+                        <li><strong>Auth (Admin/Organizer):</strong> WordPress Application Passwords &ndash; <code>Authorization: Basic base64(user:app-password)</code></li>
+                        <li><strong>Auth (Kunden):</strong> <code>X-Tix-Token: {token}</code> oder <code>Authorization: Bearer {token}</code></li>
+                        <li><strong>Seit:</strong> v1.34.0</li>
+                    </ul>
+                </div>
+            </div>
+
+            <?php
+            // ── Discovery ──
+            self::meta_card('Discovery &amp; User', 'dashicons-info-outline', [
+                ['/info', 'GET &ndash; &ouml;ffentlich. Plugin-Version, Features, aktive Module.', 'Public'],
+                ['/me', 'GET &ndash; authentifiziert. Aktueller User (ID, Name, E-Mail, Rollen, Avatar).', 'Auth'],
+            ]);
+
+            // ── Events ──
+            self::meta_card('Events', 'dashicons-calendar-alt', [
+                ['/events', 'GET &ndash; Events des auth. Organizers. Filter: status, search, per_page, page.', 'Auth'],
+                ['/events/{id}', 'GET &ndash; Einzel-Event mit allen Meta-Daten.', 'Auth'],
+                ['/events/{id}', 'PUT &ndash; Event aktualisieren (Title, Datum, Beschreibung, etc.).', 'Auth'],
+            ]);
+
+            // ── Check-in ──
+            self::meta_card('Check-in', 'dashicons-clipboard', [
+                ['/checkin/scan', 'POST &ndash; QR-Code scannen. Body: <code>{ "code": "ABC123" }</code>. Gibt Ticket-/G&auml;ste-Info zur&uuml;ck.', 'Auth'],
+                ['/checkin/{event_id}/list', 'GET &ndash; G&auml;steliste eines Events. Filter: search, status, per_page, page.', 'Auth'],
+                ['/checkin/{event_id}/guest/{guest_id}', 'PATCH &ndash; Gast aktualisieren (Status, Notiz). Body: <code>{ "status": "checked_in" }</code>.', 'Auth'],
+                ['/checkin/ticket/{ticket_id}/toggle', 'PATCH &ndash; Ticket-Check-in toggeln (ein-/auschecken).', 'Auth'],
+            ]);
+
+            // ── Gästeliste & Tickets ──
+            self::meta_card('G&auml;steliste &amp; Tickets', 'dashicons-groups', [
+                ['/events/{id}/guestlist', 'GET &ndash; Vollst&auml;ndige G&auml;steliste mit allen G&auml;sten + Status.', 'Auth'],
+                ['/events/{id}/guestlist', 'PUT &ndash; G&auml;steliste aktualisieren (Bulk-Update).', 'Auth'],
+                ['/events/{id}/tickets', 'GET &ndash; Verkaufte Tickets f&uuml;r ein Event. Filter: status, search.', 'Auth'],
+                ['/tickets/{id}/resend-email', 'POST &ndash; Ticket-E-Mail erneut senden.', 'Auth'],
+            ]);
+
+            // ── POS ──
+            self::meta_card('POS / Abendkasse', 'dashicons-store', [
+                ['/pos/events/{id}/categories', 'GET &ndash; Ticket-Kategorien + Bestand f&uuml;r POS-Verkauf.', 'Auth'],
+                ['/pos/orders', 'POST &ndash; POS-Order erstellen. Body: Tickets, Zahlungsart, Kundendaten.', 'Auth'],
+                ['/pos/orders/{id}/email', 'POST &ndash; POS-Tickets per E-Mail an Kunden senden.', 'Auth'],
+                ['/pos/orders/{id}/void', 'POST &ndash; POS-Order stornieren (Stock restored).', 'Auth'],
+                ['/pos/report', 'GET &ndash; Tagesbericht. Filter: date, event_id.', 'Auth'],
+                ['/pos/transactions', 'GET &ndash; Transaktionsliste. Filter: date, event_id, per_page, page.', 'Auth'],
+            ]);
+
+            // ── Auth (Kunden-App) ──
+            self::meta_card('Auth <small>(Kunden-App)</small>', 'dashicons-lock', [
+                ['/auth/login', 'POST &ndash; Login mit E-Mail + Passwort. Gibt Token + User-Daten zur&uuml;ck.', 'Public'],
+                ['/auth/register', 'POST &ndash; Neuen Kunden registrieren. Body: name, email, password.', 'Public'],
+                ['/auth/profile', 'GET &ndash; Profil des auth. Kunden.', 'Token'],
+                ['/auth/profile', 'PUT &ndash; Profil aktualisieren (Name, E-Mail, Passwort).', 'Token'],
+                ['/auth/profile/avatar', 'POST &ndash; Avatar hochladen (multipart/form-data).', 'Token'],
+            ]);
+
+            // ── Customer ──
+            self::meta_card('Customer <small>(Kunden-App)</small>', 'dashicons-id', [
+                ['/customer/tickets', 'GET &ndash; Alle Tickets des auth. Kunden. Filter: status, upcoming.', 'Token'],
+                ['/customer/events', 'GET &ndash; Vergangene + kommende Events des Kunden.', 'Token'],
             ]);
             ?>
 

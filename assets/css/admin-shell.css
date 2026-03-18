@@ -1,0 +1,574 @@
+/* ═══════════════════════════════════════════
+   Tixomat Admin Shell – Fullscreen Mode
+   Light Theme with Tixomat Branding
+   ═══════════════════════════════════════════ */
+
+/* ── Hide WordPress Chrome ── */
+body.tix-fullscreen #wpadminbar,
+body.tix-fullscreen #adminmenuwrap,
+body.tix-fullscreen #adminmenuback,
+body.tix-fullscreen #adminmenumain,
+body.tix-fullscreen #wpfooter {
+    display: none !important;
+}
+
+body.tix-fullscreen {
+    padding-top: 0 !important;
+    min-width: 0 !important;
+    background: #f4f1ec;
+}
+
+body.tix-fullscreen html {
+    padding-top: 0 !important;
+}
+
+body.tix-fullscreen #wpcontent,
+body.tix-fullscreen #wpbody {
+    margin-left: 0 !important;
+    padding-left: 0 !important;
+}
+
+body.tix-fullscreen #wpcontent {
+    margin-left: 260px !important;
+}
+
+body.tix-fullscreen #wpbody-content {
+    padding-bottom: 20px;
+    padding-top: 8px;
+    float: none;
+}
+
+/* WP Notices Padding */
+body.tix-fullscreen .notice,
+body.tix-fullscreen .updated,
+body.tix-fullscreen .error {
+    margin: 12px 24px 0;
+}
+
+/* Content-Area Padding für alle Tixomat-Seiten */
+body.tix-fullscreen .wrap {
+    padding: 12px 24px 24px;
+    margin: 0;
+}
+
+/* Settings + Docs + Support: Horizontale Tabs verstecken (Sidebar übernimmt) */
+body.tix-fullscreen .tix-settings-app > .tix-nav,
+body.tix-fullscreen .tix-docs-app > .tix-nav,
+body.tix-fullscreen .tix-support-app .tix-nav {
+    display: none !important;
+}
+
+/* Support-App: Content sauber stylen */
+body.tix-fullscreen .tix-support-app .tix-content {
+    background: #fff;
+    border-radius: 16px;
+    padding: 24px;
+}
+
+/* Support: Panes ein-/ausblenden (Support lädt kein admin.css) */
+body.tix-fullscreen .tix-support-app .tix-pane {
+    display: none;
+}
+body.tix-fullscreen .tix-support-app .tix-pane.active {
+    display: block;
+}
+
+/* Support: Gesamter App-Container sauber stylen */
+body.tix-fullscreen .tix-support-app .tix-app {
+    background: #fff;
+    border-radius: 16px;
+    padding: 24px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+}
+
+/* Support: Titel/Header ausblenden (Sidebar hat Seitentitel) */
+body.tix-fullscreen .tix-support-app > h1 {
+    display: none;
+}
+
+body.tix-fullscreen .tix-settings-wrap {
+    max-width: none;
+}
+
+body.tix-fullscreen .tix-settings-app > .tix-content,
+body.tix-fullscreen .tix-docs-app > .tix-content {
+    border-radius: 16px 16px 0 0;
+    background: #fff;
+}
+
+/* WP List Tables: mehr Padding */
+body.tix-fullscreen .wp-list-table {
+    margin-top: 8px;
+}
+body.tix-fullscreen .tablenav {
+    margin: 8px 0;
+}
+body.tix-fullscreen .subsubsub {
+    margin: 4px 0 8px;
+}
+
+
+/* ═══════════════════════════════════════════
+   POST EDITOR – Verstecke WP Sidebar-Boxen
+   ═══════════════════════════════════════════ */
+
+/* WP Rechte Spalte komplett weg */
+body.tix-fullscreen #postbox-container-1,
+body.tix-fullscreen #side-sortables {
+    display: none !important;
+}
+
+/* Hauptspalte Vollbreite */
+body.tix-fullscreen #post-body.columns-2 {
+    margin-right: 0 !important;
+}
+body.tix-fullscreen #post-body-content {
+    margin-bottom: 0;
+}
+
+/* Screen Options + Hilfe ausblenden */
+body.tix-fullscreen #screen-options-link-wrap,
+body.tix-fullscreen #show-settings-link,
+body.tix-fullscreen #contextual-help-link-wrap,
+body.tix-fullscreen .screen-meta-toggle {
+    display: none !important;
+}
+body.tix-fullscreen #screen-meta {
+    display: none !important;
+}
+
+/* WP Post-Titel dopplung verhindern (Event-Editor hat eigenes Titel-Feld in Metabox) */
+body.tix-fullscreen.post-type-event #titlewrap {
+    display: none;
+}
+
+/* Permalink-Zeile weg bei Events */
+body.tix-fullscreen.post-type-event #edit-slug-box {
+    display: none;
+}
+
+/* Andere CPTs: Titel-Input sauberer stylen */
+body.tix-fullscreen #titlewrap input#title {
+    border: 1px solid #d1d5db;
+    border-radius: 10px;
+    padding: 10px 14px;
+    font-size: 18px;
+    font-weight: 600;
+    box-shadow: none;
+}
+body.tix-fullscreen #titlewrap input#title:focus {
+    border-color: #FF5500;
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(255,85,0,0.15);
+}
+
+/* Breakdance komplett weg im Fullscreen */
+body.tix-fullscreen .breakdance-edit-link-wrap,
+body.tix-fullscreen .breakdance-launcher-small-button,
+body.tix-fullscreen .breakdance-launcher,
+body.tix-fullscreen [data-breakdance-action] {
+    display: none !important;
+}
+
+/* LiteSpeed Metabox komplett raus */
+body.tix-fullscreen #litespeed_meta_boxes,
+body.tix-fullscreen #lscwp_meta_boxes {
+    display: none !important;
+}
+
+/* Normal-Bereich Metaboxen (unterhalb des Editors) – nur unser Event Manager zeigen */
+body.tix-fullscreen #normal-sortables > .postbox:not(#tix_event_manager) {
+    display: none !important;
+}
+
+/* Publish-Box: Floating-Button oben rechts */
+body.tix-fullscreen .tix-floating-publish {
+    position: fixed;
+    top: 16px;
+    right: 24px;
+    z-index: 99999;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+body.tix-fullscreen .tix-floating-publish .tix-publish-btn {
+    background: #FF5500;
+    color: #fff;
+    border: none;
+    padding: 10px 22px;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: 'Inter', system-ui, sans-serif;
+    transition: background 0.15s, transform 0.1s;
+    box-shadow: 0 2px 8px rgba(255,85,0,0.25);
+    -webkit-font-smoothing: antialiased;
+}
+body.tix-fullscreen .tix-floating-publish .tix-publish-btn:hover {
+    background: #e04d00;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(255,85,0,0.3);
+}
+body.tix-fullscreen .tix-floating-publish .tix-publish-btn:active {
+    transform: translateY(0);
+}
+body.tix-fullscreen .tix-floating-publish .tix-status-indicator {
+    font-size: 12px;
+    color: #64748b;
+    font-weight: 500;
+}
+body.tix-fullscreen .tix-floating-publish .tix-status-indicator .tix-status-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #22c55e;
+    margin-right: 4px;
+    vertical-align: middle;
+}
+body.tix-fullscreen .tix-floating-publish .tix-preview-link {
+    color: #64748b;
+    text-decoration: none;
+    font-size: 13px;
+    font-weight: 500;
+    padding: 8px 14px;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    transition: all 0.15s;
+    background: #fff;
+}
+body.tix-fullscreen .tix-floating-publish .tix-preview-link:hover {
+    border-color: #94a3b8;
+    color: #1e293b;
+}
+
+/* WP Default Submit-Area verstecken */
+body.tix-fullscreen #major-publishing-actions,
+body.tix-fullscreen #minor-publishing-actions,
+body.tix-fullscreen #misc-publishing-actions {
+    display: none !important;
+}
+
+/* Page Title im Editor */
+body.tix-fullscreen .wrap > h1.wp-heading-inline {
+    font-size: 20px;
+    font-weight: 700;
+    font-family: 'Outfit', 'Inter', sans-serif;
+    color: #0D0B09;
+    margin: 0 0 4px;
+    display: inline-block;
+}
+body.tix-fullscreen .wrap > .page-title-action,
+body.tix-fullscreen .page-title-action {
+    margin-left: 8px;
+    vertical-align: middle;
+    background: #fff;
+    color: #64748b;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    padding: 6px 14px;
+    font-size: 13px;
+    font-weight: 500;
+    font-family: 'Inter', system-ui, sans-serif;
+    text-decoration: none;
+    transition: all 0.15s;
+    -webkit-font-smoothing: antialiased;
+}
+body.tix-fullscreen .wrap > .page-title-action:hover,
+body.tix-fullscreen .page-title-action:hover {
+    border-color: #94a3b8;
+    color: #1e293b;
+    background: #f8fafc;
+}
+
+
+/* ═══════════════════════════════════════════
+   SIDEBAR – Light Theme
+   ═══════════════════════════════════════════ */
+.tix-shell-sidebar {
+    position: fixed;
+    left: 0;
+    top: 0;
+    width: 260px;
+    height: 100vh;
+    background: #FAF8F4;
+    color: #1e293b;
+    display: flex;
+    flex-direction: column;
+    z-index: 100000;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+    border-right: 1px solid #EDE9E0;
+}
+
+
+/* ── Brand ── */
+.tix-shell-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 16px 20px 14px;
+    border-bottom: 1px solid #EDE9E0;
+    flex-shrink: 0;
+}
+
+.tix-shell-logo-img {
+    height: 28px;
+    width: auto;
+    display: block;
+}
+
+.tix-shell-version {
+    font-size: 10px;
+    color: #94a3b8;
+    margin-left: auto;
+    font-weight: 500;
+}
+
+
+/* ── Navigation ── */
+.tix-shell-nav {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 8px 0;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(0,0,0,0.08) transparent;
+}
+.tix-shell-nav::-webkit-scrollbar { width: 4px; }
+.tix-shell-nav::-webkit-scrollbar-track { background: transparent; }
+.tix-shell-nav::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.08); border-radius: 4px; }
+
+
+/* ── Groups ── */
+.tix-shell-group {
+    margin-bottom: 2px;
+}
+
+.tix-shell-group-label {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: #94a3b8;
+    padding: 12px 20px 5px;
+}
+
+.tix-shell-group + .tix-shell-group {
+    margin-top: 2px;
+}
+
+
+/* ── Nav Items ── */
+.tix-shell-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 20px;
+    color: #64748b;
+    text-decoration: none;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    position: relative;
+    border: none;
+    background: none;
+    width: 100%;
+    text-align: left;
+    font-family: inherit;
+    -webkit-font-smoothing: antialiased;
+    line-height: 1.3;
+}
+
+.tix-shell-item .dashicons {
+    font-size: 16px;
+    width: 16px;
+    height: 16px;
+    line-height: 16px;
+    flex-shrink: 0;
+    color: #94a3b8;
+    transition: color 0.15s;
+}
+
+.tix-shell-item:hover {
+    color: #1e293b;
+    background: rgba(0,0,0,0.04);
+}
+.tix-shell-item:hover .dashicons {
+    color: #64748b;
+}
+
+/* Active State */
+.tix-shell-item.active {
+    color: #0D0B09;
+    background: rgba(255,85,0,0.06);
+    font-weight: 600;
+}
+.tix-shell-item.active::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 4px;
+    bottom: 4px;
+    width: 3px;
+    background: #FF5500;
+    border-radius: 0 3px 3px 0;
+}
+.tix-shell-item.active .dashicons {
+    color: #FF5500;
+}
+
+
+/* ── "Mehr" Toggle ── */
+.tix-shell-more-btn {
+    color: #94a3b8;
+}
+.tix-shell-more-btn .tix-shell-chevron {
+    margin-left: auto;
+    font-size: 14px;
+    width: 14px;
+    height: 14px;
+    line-height: 14px;
+    transition: transform 0.2s ease;
+    color: #cbd5e1;
+}
+.tix-shell-more-btn.open .tix-shell-chevron {
+    transform: rotate(180deg);
+}
+.tix-shell-more-btn:hover {
+    color: #64748b;
+}
+
+.tix-shell-more-items {
+    display: none;
+    padding-left: 0;
+}
+.tix-shell-more-items.open {
+    display: block;
+}
+.tix-shell-more-items .tix-shell-item {
+    padding-left: 28px;
+    font-size: 12.5px;
+    color: #94a3b8;
+}
+.tix-shell-more-items .tix-shell-item:hover {
+    color: #475569;
+}
+.tix-shell-more-items .tix-shell-item.active {
+    color: #0D0B09;
+}
+
+
+/* ── Footer ── */
+.tix-shell-footer {
+    flex-shrink: 0;
+    padding: 10px 20px 14px;
+    border-top: 1px solid #EDE9E0;
+}
+
+.tix-shell-back {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #94a3b8;
+    text-decoration: none;
+    font-size: 12px;
+    font-weight: 500;
+    padding: 6px 0;
+    transition: color 0.15s;
+}
+.tix-shell-back:hover {
+    color: #64748b;
+}
+.tix-shell-back .dashicons {
+    font-size: 14px;
+    width: 14px;
+    height: 14px;
+    line-height: 14px;
+}
+
+
+/* ═══════════════════════════════════════════
+   PAGE TWEAKS
+   ═══════════════════════════════════════════ */
+
+/* H1 Titel */
+body.tix-fullscreen .wrap > h1,
+body.tix-fullscreen .tix-settings-wrap > h1 {
+    font-size: 20px;
+    font-weight: 700;
+    margin: 0 0 16px;
+    padding: 0;
+    font-family: 'Outfit', 'Inter', sans-serif;
+    color: #0D0B09;
+}
+
+/* Search + Filter Zeile */
+body.tix-fullscreen .wrap > .search-box,
+body.tix-fullscreen .wrap > .wp-filter {
+    margin-bottom: 12px;
+}
+
+/* Screen Meta (Optionen, Hilfe) */
+body.tix-fullscreen #screen-meta-links {
+    margin: 0 24px;
+}
+
+
+/* ═══════════════════════════════════════════
+   RESPONSIVE
+   ═══════════════════════════════════════════ */
+@media (max-width: 960px) {
+    .tix-shell-sidebar {
+        width: 220px;
+    }
+    body.tix-fullscreen #wpcontent {
+        margin-left: 220px !important;
+    }
+}
+
+@media (max-width: 782px) {
+    .tix-shell-sidebar {
+        transform: translateX(-100%);
+        transition: transform 0.25s ease;
+        width: 260px;
+        box-shadow: none;
+    }
+    .tix-shell-sidebar.open {
+        transform: translateX(0);
+        box-shadow: 4px 0 24px rgba(0,0,0,0.1);
+    }
+    body.tix-fullscreen #wpcontent {
+        margin-left: 0 !important;
+    }
+    .tix-shell-mobile-toggle {
+        display: flex !important;
+    }
+}
+
+/* Mobile Toggle (hidden on desktop) */
+.tix-shell-mobile-toggle {
+    display: none;
+    position: fixed;
+    top: 12px;
+    left: 12px;
+    z-index: 100001;
+    width: 40px;
+    height: 40px;
+    background: #FAF8F4;
+    color: #0D0B09;
+    border: 1px solid #EDE9E0;
+    border-radius: 10px;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+.tix-shell-mobile-toggle .dashicons {
+    font-size: 20px;
+    width: 20px;
+    height: 20px;
+}

@@ -1,0 +1,136 @@
+/* ═══════════════════════════════════════════
+   Tixomat Organizer Shell – Fullscreen Mode
+   ═══════════════════════════════════════════ */
+
+/* ── Top Bar ── */
+.tix-ofs-header {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 52px;
+    background: #FAF8F4;
+    border-bottom: 1px solid #EDE9E0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 24px;
+    z-index: 10000;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+}
+
+.tix-ofs-brand {
+    display: flex;
+    align-items: center;
+}
+
+.tix-ofs-logo {
+    height: 24px;
+    width: auto;
+}
+
+.tix-ofs-user {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.tix-ofs-user-name {
+    font-size: 13px;
+    font-weight: 500;
+    color: #64748b;
+}
+
+.tix-ofs-logout {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    color: #94a3b8;
+    text-decoration: none;
+    transition: all 0.15s;
+}
+.tix-ofs-logout:hover {
+    background: rgba(0,0,0,0.04);
+    color: #ef4444;
+}
+.tix-ofs-logout .dashicons {
+    font-size: 18px;
+    width: 18px;
+    height: 18px;
+}
+
+
+/* ── Main Content ── */
+.tix-ofs-main {
+    padding-top: 52px;
+    min-height: calc(100vh - 52px);
+}
+
+/* Dashboard inner: reset defaults to fill space */
+.tix-organizer-fullscreen .tix-od {
+    max-width: none;
+    margin: 0;
+    padding: 0;
+    border-radius: 0;
+    box-shadow: none;
+    background: transparent;
+    min-height: calc(100vh - 52px);
+}
+
+/* Header inside dashboard: hide since we have the top bar */
+.tix-organizer-fullscreen .tix-od-header {
+    display: none;
+}
+
+/* Layout: sidebar + content */
+.tix-organizer-fullscreen .tix-od-layout {
+    min-height: calc(100vh - 52px);
+}
+
+/* Sidebar: adjust for top bar */
+.tix-organizer-fullscreen .tix-od-sidebar {
+    top: 52px;
+    height: calc(100vh - 52px);
+    border-radius: 0;
+    background: #FAF8F4;
+    border-right: 1px solid #EDE9E0;
+}
+
+/* Content area: full width, clean background */
+.tix-organizer-fullscreen .tix-od-content {
+    background: #fff;
+    border-radius: 16px;
+    margin: 16px 16px 16px 0;
+    padding: 24px;
+    min-height: calc(100vh - 52px - 32px);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+}
+
+/* Event editor: expand fully */
+.tix-organizer-fullscreen .tix-oe-wrap {
+    border-radius: 12px;
+}
+
+
+/* ═══════════════════════════════════════════
+   RESPONSIVE
+   ═══════════════════════════════════════════ */
+@media (max-width: 768px) {
+    .tix-ofs-header {
+        padding: 0 16px;
+    }
+
+    .tix-ofs-user-name {
+        display: none;
+    }
+
+    .tix-organizer-fullscreen .tix-od-content {
+        margin: 8px;
+        padding: 16px;
+        border-radius: 12px;
+    }
+}
