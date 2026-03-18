@@ -689,7 +689,7 @@ class TIX_Organizer_Admin {
         $rows = [];
 
         // 1. Manuelle Gäste
-        $guestlist = get_post_meta($event_id, '_tix_guestlist', true);
+        $guestlist = get_post_meta($event_id, '_tix_guest_list', true);
         if (is_array($guestlist)) {
             foreach ($guestlist as $g) {
                 $full = $g['name'] ?? '';
@@ -968,7 +968,7 @@ class TIX_Organizer_Admin {
         }
 
         // ── Manuelle Gäste ──
-        $guestlist = get_post_meta($event_id, '_tix_guestlist', true);
+        $guestlist = get_post_meta($event_id, '_tix_guest_list', true);
         if (is_array($guestlist)) {
             foreach ($guestlist as $g) {
                 $full = $g['name'] ?? '';
