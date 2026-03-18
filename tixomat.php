@@ -9,7 +9,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.33.5');
+define('TIXOMAT_VERSION', '1.33.8');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -129,6 +129,7 @@ function tix_get_settings($key = null) {
             // Veranstalter-Dashboard
             'organizer_dashboard_enabled' => 0,
             'organizer_auto_publish'      => 0,
+            'organizer_fullscreen'        => 1,
             // Support-System
             'support_enabled'    => 0,
             'support_categories'  => '',
@@ -152,6 +153,9 @@ function tix_get_settings($key = null) {
             'wizard_enabled'     => 1,
             // Admin-Ansicht
             'fullscreen_admin'   => 1,
+            // Custom URLs
+            'login_slug'         => '',
+            'organizer_slug'     => '',
         ]);
     }
     return $key !== null ? ($cache[$key] ?? null) : $cache;
@@ -298,6 +302,16 @@ if (is_admin()) {
         TIX_Campaign_Analytics::init();
     }
 }
+
+// ── Veranstalter → wp-admin mit Fullscreen-Shell (muss global geladen werden) ──
+if (tix_get_settings('organizer_dashboard_enabled')) {
+    require_once TIXOMAT_PATH . 'includes/class-tix-organizer-admin.php';
+    TIX_Organizer_Admin::init();
+}
+
+// ── Custom URLs (Login + Veranstalter) ──
+require_once TIXOMAT_PATH . 'includes/class-tix-custom-urls.php';
+TIX_Custom_URLs::init();
 
 // ── Nur Admin (nicht AJAX) ──
 if (is_admin() && !wp_doing_ajax()) {
@@ -464,7 +478,7 @@ if (!is_admin() || wp_doing_ajax()) {
         TIX_Promoter_Dashboard::init();
     }
 
-    // ── Veranstalter-Dashboard (Frontend-Shortcode) ──
+    // ── Veranstalter-Dashboard ──
     if (tix_get_settings('organizer_dashboard_enabled')) {
         require_once TIXOMAT_PATH . 'includes/class-tix-organizer-dashboard.php';
         TIX_Organizer_Dashboard::init();

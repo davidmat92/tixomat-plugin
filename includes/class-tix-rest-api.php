@@ -105,6 +105,24 @@ class TIX_REST_API {
             'permission_callback' => [__CLASS__, 'check_organizer'],
         ]);
 
+        register_rest_route($ns, '/events', [
+            'methods'             => 'POST',
+            'callback'            => [__CLASS__, 'create_event'],
+            'permission_callback' => [__CLASS__, 'check_organizer'],
+        ]);
+
+        register_rest_route($ns, '/events/(?P<id>\d+)/statistics', [
+            'methods'             => 'GET',
+            'callback'            => [__CLASS__, 'event_statistics'],
+            'permission_callback' => [__CLASS__, 'check_organizer'],
+        ]);
+
+        register_rest_route($ns, '/events/(?P<id>\d+)/orders', [
+            'methods'             => 'GET',
+            'callback'            => [__CLASS__, 'event_orders'],
+            'permission_callback' => [__CLASS__, 'check_organizer'],
+        ]);
+
         // ── Check-in ──
         register_rest_route($ns, '/checkin/scan', [
             'methods'             => 'POST',
@@ -437,6 +455,249 @@ class TIX_REST_API {
         return rest_ensure_response([
             'ok'    => true,
             'event' => self::format_event($post, true),
+        ]);
+    }
+
+    // ═══════════════════════════════════════════
+    //  EVENT: CREATE
+    // ═══════════════════════════════════════════
+
+    public static function create_event(WP_REST_Request $req) {
+        $body = $req->get_json_params();
+
+        $title    = sanitize_text_field($body['title'] ?? '');
+        $excerpt  = wp_kses_post($body['excerpt'] ?? '');
+        $location = sanitize_text_field($body['location'] ?? '');
+
+        if (empty($title)) {
+            return new WP_Error('missing_title', 'Titel ist erforderlich.', ['status' => 400]);
+        }
+
+        // Organizer-ID ermitteln
+        $user_id = get_current_user_id();
+        $organizer_id = 0;
+        $organizers = get_posts([
+            'post_type'      => 'tix_organizer',
+            'posts_per_page' => 1,
+            'meta_query'     => [['key' => '_tix_org_user_id', 'value' => $user_id]],
+            'fields'         => 'ids',
+        ]);
+        if (!empty($organizers)) $organizer_id = $organizers[0];
+
+        // Auto-Publish Setting
+        $auto_publish = get_option('tix_organizer_auto_publish', '0') === '1';
+
+        $post_id = wp_insert_post([
+            'post_type'    => 'event',
+            'post_title'   => $title,
+            'post_excerpt' => $excerpt,
+            'post_status'  => $auto_publish ? 'publish' : 'draft',
+            'post_author'  => $user_id,
+        ], true);
+
+        if (is_wp_error($post_id)) {
+            return $post_id;
+        }
+
+        // Meta-Daten
+        if (!empty($body['date_start']))  update_post_meta($post_id, '_tix_date_start', sanitize_text_field($body['date_start']));
+        if (!empty($body['date_end']))    update_post_meta($post_id, '_tix_date_end', sanitize_text_field($body['date_end']));
+        if (!empty($body['time_start']))  update_post_meta($post_id, '_tix_time_start', sanitize_text_field($body['time_start']));
+        if (!empty($body['time_end']))    update_post_meta($post_id, '_tix_time_end', sanitize_text_field($body['time_end']));
+        if (!empty($body['time_doors']))  update_post_meta($post_id, '_tix_time_doors', sanitize_text_field($body['time_doors']));
+        if ($location)                    update_post_meta($post_id, '_tix_location', $location);
+        if (!empty($body['status']))      update_post_meta($post_id, '_tix_status', sanitize_text_field($body['status']));
+        if ($organizer_id)                update_post_meta($post_id, '_tix_organizer_id', $organizer_id);
+
+        // Ticket-Kategorien
+        if (!empty($body['categories']) && is_array($body['categories'])) {
+            $categories = [];
+            foreach ($body['categories'] as $cat) {
+                $categories[] = [
+                    'name'     => sanitize_text_field($cat['name'] ?? ''),
+                    'price'    => floatval($cat['price'] ?? 0),
+                    'quantity' => absint($cat['quantity'] ?? 0),
+                ];
+            }
+            update_post_meta($post_id, '_tix_ticket_categories', $categories);
+
+            // WooCommerce-Sync triggern
+            if (class_exists('TIX_Sync')) {
+                TIX_Sync::sync_event($post_id);
+            }
+        }
+
+        $post = get_post($post_id);
+        return rest_ensure_response([
+            'ok'    => true,
+            'event' => self::format_event($post, true),
+        ]);
+    }
+
+    // ═══════════════════════════════════════════
+    //  EVENT: STATISTICS
+    // ═══════════════════════════════════════════
+
+    public static function event_statistics(WP_REST_Request $req) {
+        $id = absint($req['id']);
+
+        if (!self::can_access_event($id)) {
+            return new WP_Error('forbidden', 'Kein Zugriff.', ['status' => 403]);
+        }
+
+        // Umsatz + Bestellungen via WooCommerce
+        $total_revenue = 0;
+        $total_orders  = 0;
+        $total_tickets = 0;
+        $by_category   = [];
+        $by_day        = [];
+
+        if (function_exists('wc_get_orders')) {
+            $orders = wc_get_orders([
+                'limit'   => -1,
+                'status'  => ['completed', 'processing'],
+                'meta_query' => [
+                    ['key' => '_tix_event_id', 'value' => $id],
+                ],
+            ]);
+
+            // Fallback: auch per Line-Item Meta suchen
+            if (empty($orders)) {
+                global $wpdb;
+                $order_ids = $wpdb->get_col($wpdb->prepare(
+                    "SELECT DISTINCT order_id FROM {$wpdb->prefix}woocommerce_order_itemmeta oim
+                     JOIN {$wpdb->prefix}woocommerce_order_items oi ON oi.order_item_id = oim.order_item_id
+                     WHERE oim.meta_key = '_tix_event_id' AND oim.meta_value = %d",
+                    $id
+                ));
+                foreach ($order_ids as $oid) {
+                    $order = wc_get_order($oid);
+                    if ($order && in_array($order->get_status(), ['completed', 'processing'])) {
+                        $orders[] = $order;
+                    }
+                }
+            }
+
+            foreach ($orders as $order) {
+                $total_revenue += (float) $order->get_total();
+                $total_orders++;
+
+                $day = $order->get_date_created() ? $order->get_date_created()->format('Y-m-d') : '';
+                if ($day) {
+                    $by_day[$day] = ($by_day[$day] ?? 0) + (float) $order->get_total();
+                }
+
+                foreach ($order->get_items() as $item) {
+                    $qty  = $item->get_quantity();
+                    $cat  = $item->get_name();
+                    $total_tickets += $qty;
+                    if (!isset($by_category[$cat])) {
+                        $by_category[$cat] = ['revenue' => 0, 'tickets' => 0];
+                    }
+                    $by_category[$cat]['revenue'] += (float) $item->get_total();
+                    $by_category[$cat]['tickets'] += $qty;
+                }
+            }
+        }
+
+        // Check-in Rate
+        $checkin_rate = 0;
+        $checkin_total = 0;
+        $checkin_done  = 0;
+
+        // Gästeliste
+        $guests = get_post_meta($id, '_tix_guest_list', true);
+        if (is_array($guests)) {
+            foreach ($guests as $g) {
+                $expected = 1 + intval($g['plus'] ?? 0);
+                $checkin_total += $expected;
+                $checkin_done  += min(intval($g['checked_in_count'] ?? (empty($g['checked_in']) ? 0 : $expected)), $expected);
+            }
+        }
+
+        // Tickets aus DB
+        if (class_exists('TIX_Ticket_DB')) {
+            $tickets = TIX_Ticket_DB::get_by_event($id);
+            foreach ($tickets as $t) {
+                $checkin_total++;
+                if (!empty($t['checked_in'])) $checkin_done++;
+            }
+        }
+
+        $checkin_rate = $checkin_total > 0 ? round($checkin_done / $checkin_total * 100, 1) : 0;
+
+        // Letzte 30 Tage
+        ksort($by_day);
+        $by_day_last30 = array_slice($by_day, -30, null, true);
+
+        return rest_ensure_response([
+            'ok'         => true,
+            'statistics' => [
+                'total_revenue'  => $total_revenue,
+                'total_tickets'  => $total_tickets,
+                'total_orders'   => $total_orders,
+                'by_category'    => $by_category,
+                'by_day'         => $by_day_last30,
+                'checkin_total'  => $checkin_total,
+                'checkin_done'   => $checkin_done,
+                'checkin_rate'   => $checkin_rate,
+            ],
+        ]);
+    }
+
+    // ═══════════════════════════════════════════
+    //  EVENT: ORDERS
+    // ═══════════════════════════════════════════
+
+    public static function event_orders(WP_REST_Request $req) {
+        $id = absint($req['id']);
+
+        if (!self::can_access_event($id)) {
+            return new WP_Error('forbidden', 'Kein Zugriff.', ['status' => 403]);
+        }
+
+        $orders_out = [];
+
+        if (function_exists('wc_get_orders')) {
+            global $wpdb;
+            $order_ids = $wpdb->get_col($wpdb->prepare(
+                "SELECT DISTINCT order_id FROM {$wpdb->prefix}woocommerce_order_itemmeta oim
+                 JOIN {$wpdb->prefix}woocommerce_order_items oi ON oi.order_item_id = oim.order_item_id
+                 WHERE oim.meta_key = '_tix_event_id' AND oim.meta_value = %d
+                 ORDER BY order_id DESC",
+                $id
+            ));
+
+            foreach (array_slice($order_ids, 0, 200) as $oid) {
+                $order = wc_get_order($oid);
+                if (!$order) continue;
+
+                $items = [];
+                foreach ($order->get_items() as $item) {
+                    $items[] = [
+                        'name'     => $item->get_name(),
+                        'quantity' => $item->get_quantity(),
+                        'total'    => (float) $item->get_total(),
+                    ];
+                }
+
+                $orders_out[] = [
+                    'id'       => $order->get_id(),
+                    'customer' => $order->get_billing_first_name() . ' ' . $order->get_billing_last_name(),
+                    'email'    => $order->get_billing_email(),
+                    'items'    => $items,
+                    'total'    => (float) $order->get_total(),
+                    'payment'  => $order->get_payment_method_title(),
+                    'status'   => $order->get_status(),
+                    'date'     => $order->get_date_created() ? $order->get_date_created()->format('Y-m-d H:i') : '',
+                ];
+            }
+        }
+
+        return rest_ensure_response([
+            'ok'     => true,
+            'orders' => $orders_out,
+            'count'  => count($orders_out),
         ]);
     }
 
