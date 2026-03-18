@@ -628,7 +628,7 @@ class TIX_Organizer_Admin {
                 <!-- 2: Nur Gästeliste -->
                 <div style="background:#fff;border-radius:12px;padding:24px;box-shadow:0 1px 3px rgba(0,0,0,.04);">
                     <h3 style="font-size:15px;font-weight:700;margin:0 0 8px;color:#0D0B09;">G&auml;steliste</h3>
-                    <p style="color:#64748b;font-size:12px;margin-bottom:14px;">Manuelle G&auml;ste + K&auml;ufer mit Check-in-Status.</p>
+                    <p style="color:#64748b;font-size:12px;margin-bottom:14px;">Manuelle G&auml;ste mit Plus-Anzahl, Notizen und Check-in-Status.</p>
                     <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
                         <input type="hidden" name="action" value="tix_organizer_guestlist_csv">
                         <?php wp_nonce_field('tix_guestlist_csv', '_tix_nonce'); ?>

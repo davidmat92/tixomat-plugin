@@ -366,6 +366,11 @@ class TIX_Admin_Shell {
                         <span class="dashicons dashicons-email-alt"></span>
                         <span>Newsletter</span>
                     </a>
+                    <a href="<?php echo admin_url('admin.php?page=tix-organizer-guestlist'); ?>"
+                       class="tix-shell-item<?php echo ($current_page === 'tix-organizer-guestlist') ? ' active' : ''; ?>">
+                        <span class="dashicons dashicons-download"></span>
+                        <span>G&auml;steliste &amp; Tickets</span>
+                    </a>
                     <?php if (!empty($s['abandoned_cart_enabled'])) : ?>
                     <a href="<?php echo admin_url('edit.php?post_type=tix_abandoned_cart'); ?>"
                        class="tix-shell-item<?php echo $active === 'abandoned-carts' ? ' active' : ''; ?>">
