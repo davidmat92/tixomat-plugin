@@ -734,7 +734,12 @@ class TIX_Organizer_Admin {
             foreach ($order_ids as $oid) {
                 $order = wc_get_order($oid);
                 if (!$order || $order->get_status() === 'cancelled') continue;
-                $checked = get_post_meta($oid, '_tix_checked_in', true);
+                // Check-in: Tickets dieser Order prüfen
+                $order_tickets = get_posts(['post_type' => 'tix_ticket', 'posts_per_page' => -1, 'post_status' => 'publish', 'meta_key' => '_tix_ticket_order_id', 'meta_value' => $oid]);
+                $checked = false;
+                foreach ($order_tickets as $ot) {
+                    if (get_post_meta($ot->ID, '_tix_ticket_checked_in', true)) { $checked = true; break; }
+                }
                 $addr = trim($order->get_billing_address_1() . ' ' . $order->get_billing_address_2());
                 $city = trim($order->get_billing_postcode() . ' ' . $order->get_billing_city());
                 $full_addr = trim($addr . ', ' . $city, ', ');
@@ -811,7 +816,7 @@ class TIX_Organizer_Admin {
             'meta_type'      => 'NUMERIC',
         ]);
 
-        // Order-Cache für Adress-Daten + Check-in + Kaufdatum
+        // Order-Cache für Adress-Daten + Kaufdatum
         $order_cache = [];
 
         $rows = [];
@@ -823,9 +828,11 @@ class TIX_Organizer_Admin {
             $cat_index = get_post_meta($t->ID, '_tix_ticket_cat_index', true);
             $cat_name  = $cat_names[intval($cat_index)] ?? '';
 
-            // Order-Daten cachen (Adresse, Telefon, Check-in, Name, Kaufdatum)
-            $phone = ''; $address = ''; $first_name = ''; $last_name = '';
-            $checked = false; $date = '';
+            // Check-in vom TICKET lesen (richtiger Meta-Key!)
+            $checked = (bool) get_post_meta($t->ID, '_tix_ticket_checked_in', true);
+
+            // Order-Daten cachen (Adresse, Telefon, Name, Kaufdatum)
+            $phone = ''; $address = ''; $first_name = ''; $last_name = ''; $date = '';
             if ($order_id) {
                 if (!isset($order_cache[$order_id])) {
                     $o = wc_get_order($order_id);
@@ -837,18 +844,16 @@ class TIX_Organizer_Admin {
                             'address'    => trim($addr . ', ' . $city, ', '),
                             'first_name' => $o->get_billing_first_name(),
                             'last_name'  => $o->get_billing_last_name(),
-                            'checked'    => (bool) get_post_meta($order_id, '_tix_checked_in', true),
                             'date'       => $o->get_date_created() ? $o->get_date_created()->date_i18n('d.m.Y H:i') : '',
                         ];
                     } else {
-                        $order_cache[$order_id] = ['phone' => '', 'address' => '', 'first_name' => '', 'last_name' => '', 'checked' => false, 'date' => ''];
+                        $order_cache[$order_id] = ['phone' => '', 'address' => '', 'first_name' => '', 'last_name' => '', 'date' => ''];
                     }
                 }
                 $phone      = $order_cache[$order_id]['phone'];
                 $address    = $order_cache[$order_id]['address'];
                 $first_name = $order_cache[$order_id]['first_name'];
                 $last_name  = $order_cache[$order_id]['last_name'];
-                $checked    = $order_cache[$order_id]['checked'];
                 $date       = $order_cache[$order_id]['date'];
             }
 
@@ -860,7 +865,7 @@ class TIX_Organizer_Admin {
                 $last_name  = $parts[1] ?? '';
             }
 
-            // Status zusammenführen (Check-in vom ORDER lesen)
+            // Status zusammenführen
             if ($checked) {
                 $status = 'Eingecheckt';
             } elseif ($raw_status === 'transferred') {
@@ -922,8 +927,10 @@ class TIX_Organizer_Admin {
             $raw = get_post_meta($t->ID, '_tix_ticket_status', true) ?: 'valid';
             $oid = get_post_meta($t->ID, '_tix_ticket_order_id', true);
 
-            $phone = ''; $address = ''; $first_name = ''; $last_name = '';
-            $checked = false; $date = '';
+            // Check-in vom TICKET lesen
+            $checked = (bool) get_post_meta($t->ID, '_tix_ticket_checked_in', true);
+
+            $phone = ''; $address = ''; $first_name = ''; $last_name = ''; $date = '';
             if ($oid) {
                 if (!isset($order_cache[$oid])) {
                     $o = wc_get_order($oid);
@@ -933,14 +940,13 @@ class TIX_Organizer_Admin {
                         $order_cache[$oid] = [
                             'phone' => $o->get_billing_phone(), 'address' => trim($a . ', ' . $c, ', '),
                             'first_name' => $o->get_billing_first_name(), 'last_name' => $o->get_billing_last_name(),
-                            'checked' => (bool) get_post_meta($oid, '_tix_checked_in', true),
                             'date' => $o->get_date_created() ? $o->get_date_created()->date_i18n('d.m.Y H:i') : '',
                         ];
-                    } else { $order_cache[$oid] = ['phone' => '', 'address' => '', 'first_name' => '', 'last_name' => '', 'checked' => false, 'date' => '']; }
+                    } else { $order_cache[$oid] = ['phone' => '', 'address' => '', 'first_name' => '', 'last_name' => '', 'date' => '']; }
                 }
                 $phone = $order_cache[$oid]['phone']; $address = $order_cache[$oid]['address'];
                 $first_name = $order_cache[$oid]['first_name']; $last_name = $order_cache[$oid]['last_name'];
-                $checked = $order_cache[$oid]['checked']; $date = $order_cache[$oid]['date'];
+                $date = $order_cache[$oid]['date'];
             }
             if (!$first_name && !$last_name) {
                 $full = get_post_meta($t->ID, '_tix_ticket_owner_name', true);
