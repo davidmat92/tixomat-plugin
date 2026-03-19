@@ -391,7 +391,7 @@ class TIX_Ticket_Selector {
 
                         <div class="tix-sel-cat-qty">
                             <?php if ($is_offline): ?>
-                                <span class="tix-sel-offline-label">Abendkasse</span>
+                                <?php /* Kein Label – Preis reicht als Info */ ?>
                             <?php elseif ($in_stock): ?>
                                 <button type="button" class="tix-sel-btn tix-sel-minus" aria-label="Weniger">−</button>
                                 <span class="tix-sel-qty-val" data-qty="0">0</span>

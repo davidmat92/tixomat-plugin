@@ -112,12 +112,26 @@
         $(document).on('input change', '#title, #tix-expert-title, input[name="tix_date_start"], input[name="tix_time_start"], #tix_location_id, #tix-tickets-toggle', checkRequiredFields);
 
         // Sync: Tixomat Titel-Feld → WordPress #title (damit es beim Speichern übernommen wird)
-        $(document).on('input', '#tix-expert-title', function() {
+        $(document).on('input change', '#tix-expert-title', function() {
             $('#title').val($(this).val());
         });
         // Sync: WordPress #title → Tixomat Titel-Feld (falls WP-Feld direkt bearbeitet wird)
         $(document).on('input', '#title', function() {
             $('#tix-expert-title').val($(this).val());
+        });
+        // Sicherstellen: Titel wird VOR dem Submit final gesynct
+        $(document).on('click', '#publish, #save-post, #tix-floating-publish-btn', function() {
+            var expertTitle = $('#tix-expert-title').val();
+            if (expertTitle && !$('#title').val()) {
+                $('#title').val(expertTitle);
+            }
+        });
+        // Auch beim Form-Submit direkt
+        $('#post').on('submit', function() {
+            var expertTitle = $('#tix-expert-title').val();
+            if (expertTitle) {
+                $('#title').val(expertTitle);
+            }
         });
 
         // Location-Adresse anzeigen wenn Location-Dropdown sich ändert

@@ -38,7 +38,7 @@ body.tix-fullscreen #wpbody-content {
     float: none;
 }
 
-/* WP Notices komplett ausblenden im Fullscreen */
+/* WP Notices + Plugin-Meldungen komplett ausblenden im Fullscreen */
 body.tix-fullscreen .notice,
 body.tix-fullscreen .updated,
 body.tix-fullscreen .error,
@@ -49,7 +49,25 @@ body.tix-fullscreen #wpbody-content > .error,
 body.tix-fullscreen #wpbody-content > .update-nag,
 body.tix-fullscreen .wp-header-end ~ .notice,
 body.tix-fullscreen .wp-header-end ~ .updated,
-body.tix-fullscreen .wp-header-end ~ .error {
+body.tix-fullscreen .wp-header-end ~ .error,
+body.tix-fullscreen .is-dismissible,
+body.tix-fullscreen .woocommerce-message,
+body.tix-fullscreen .woocommerce-error,
+body.tix-fullscreen .woocommerce-info,
+body.tix-fullscreen .woocommerce-store-alerts,
+body.tix-fullscreen #message,
+body.tix-fullscreen .notice-info,
+body.tix-fullscreen .notice-warning,
+body.tix-fullscreen .notice-error,
+body.tix-fullscreen .notice-success,
+body.tix-fullscreen .litespeed-notice,
+body.tix-fullscreen .breakdance-notice,
+body.tix-fullscreen .yoast-notice,
+body.tix-fullscreen div[class*="notice"],
+body.tix-fullscreen div[id*="message"].updated,
+body.tix-fullscreen .wrap > .notice,
+body.tix-fullscreen .wrap > .updated,
+body.tix-fullscreen .wrap > .error {
     display: none !important;
 }
 
