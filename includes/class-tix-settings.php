@@ -316,8 +316,7 @@ class TIX_Settings {
             'reservation_text'           => '',
             'table_button_style'         => '1',
             'table_default_categories'   => '[]',
-            // ── Geführter Modus ──
-            'wizard_enabled'     => 1,
+            // (Wizard-Modus entfernt)
             // ── Theme-Modus (universell) ──
             'theme_mode'         => 'light',   // 'light' oder 'dark'
             // ── Check-in ──
@@ -718,9 +717,6 @@ class TIX_Settings {
         } else {
             $clean['table_default_categories'] = '[]';
         }
-
-        // Geführter Modus
-        $clean['wizard_enabled'] = !empty($input['wizard_enabled']) ? 1 : 0;
 
         // Admin-Ansicht
         $clean['fullscreen_admin'] = !empty($input['fullscreen_admin']) ? 1 : 0;
@@ -2780,21 +2776,6 @@ class TIX_Settings {
                                             });
                                         });
                                         </script>
-                                    </div>
-                                </div>
-
-                                <?php // ── Card: Geführter Modus ── ?>
-                                <div class="tix-card">
-                                    <div class="tix-card-header">
-                                        <span class="dashicons dashicons-screenoptions"></span>
-                                        <h3>Gef&uuml;hrter Modus</h3>
-                                    </div>
-                                    <div class="tix-card-body">
-                                        <div class="tix-field-grid">
-                                            <div class="tix-field tix-field-full">
-                                                <?php self::checkbox_row('wizard_enabled', 'Gef&uuml;hrten Modus im Event-Editor anzeigen', $s, 'Wenn deaktiviert, wird der Event-Editor immer im Experten-Modus ge&ouml;ffnet. Der Modus-Toggle (Gef&uuml;hrt / Experte) wird ausgeblendet.'); ?>
-                                            </div>
-                                        </div>
                                     </div>
                                 </div>
 
