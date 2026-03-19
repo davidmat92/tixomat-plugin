@@ -2858,7 +2858,7 @@ class TIX_Settings {
                                             <div class="tix-field tix-field-full" style="margin-top:12px;">
                                                 <label class="tix-field-label">Custom Logo</label>
                                                 <div style="display:flex;gap:12px;align-items:center;">
-                                                    <input type="text" name="tix[admin_logo_url]" id="tix-admin-logo-url"
+                                                    <input type="text" name="tix_settings[admin_logo_url]" id="tix-admin-logo-url"
                                                            value="<?php echo esc_attr($s['admin_logo_url'] ?? ''); ?>"
                                                            class="regular-text" placeholder="Logo-URL eingeben oder Bild w&auml;hlen"
                                                            style="flex:1;">
