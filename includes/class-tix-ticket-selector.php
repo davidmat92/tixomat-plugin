@@ -28,7 +28,14 @@ class TIX_Ticket_Selector {
 
         // Ticketverkauf aktiviert?
         $enabled = get_post_meta($post_id, '_tix_tickets_enabled', true);
-        if ($enabled !== '1') return '';
+        if ($enabled !== '1') {
+            // Nur Abendkasse?
+            $box_office_only = get_post_meta($post_id, '_tix_box_office_only', true);
+            if ($box_office_only === '1') {
+                return self::render_box_office_only($post_id);
+            }
+            return '';
+        }
 
         // Vorverkauf noch aktiv?
         $presale = get_post_meta($post_id, '_tix_presale_active', true);
@@ -1407,6 +1414,49 @@ class TIX_Ticket_Selector {
             . '<div class="tix-countdown-sep">:</div>'
             . '<div class="tix-countdown-unit"><span class="tix-countdown-num tix-cd-secs">--</span><span class="tix-countdown-lbl">Sek</span></div>'
             . '</div></div>';
+    }
+
+    /**
+     * Nur-Abendkasse-Ansicht: Zeigt eine Ticket-Selector-Zeile ohne Kaufmöglichkeit.
+     */
+    private static function render_box_office_only($post_id) {
+        $price = floatval(get_post_meta($post_id, '_tix_box_office_price', true));
+        $desc  = get_post_meta($post_id, '_tix_box_office_desc', true);
+        $tix_s = tix_get_settings();
+        $vat_text = $tix_s['vat_text_selector'] ?? 'inkl. MwSt.';
+
+        self::enqueue();
+        ob_start();
+        ?>
+        <div class="tix-sel">
+            <div class="tix-sel-categories">
+                <div class="tix-sel-cat tix-sel-offline"
+                     data-product-id="0"
+                     data-price="0"
+                     data-index="1">
+
+                    <div class="tix-sel-cat-info">
+                        <div class="tix-sel-cat-name">Abendkasse</div>
+                        <?php if ($desc): ?>
+                            <div class="tix-sel-cat-desc"><?php echo esc_html($desc); ?></div>
+                        <?php endif; ?>
+                    </div>
+
+                    <div class="tix-sel-cat-price">
+                        <?php if ($price > 0): ?>
+                            <span class="tix-sel-price-regular"><?php echo number_format($price, 2, ',', '.'); ?>&nbsp;€</span>
+                            <span class="tix-sel-vat"><?php echo esc_html($vat_text); ?></span>
+                        <?php endif; ?>
+                    </div>
+
+                    <div class="tix-sel-cat-qty">
+                        <span class="tix-sel-offline-label">Abendkasse</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <?php
+        return ob_get_clean();
     }
 
     private static function enqueue() {

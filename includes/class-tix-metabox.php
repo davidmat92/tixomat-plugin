@@ -1233,6 +1233,11 @@ class TIX_Metabox {
         $presale    = get_post_meta($post->ID, '_tix_presale_active', true);
         $categories = get_post_meta($post->ID, '_tix_ticket_categories', true);
 
+        // Nur Abendkasse
+        $box_office_only  = get_post_meta($post->ID, '_tix_box_office_only', true);
+        $box_office_price = get_post_meta($post->ID, '_tix_box_office_price', true);
+        $box_office_desc  = get_post_meta($post->ID, '_tix_box_office_desc', true);
+
         // Externer Ticketshop
         $ext_enabled = get_post_meta($post->ID, '_tix_extshop_enabled', true);
         $ext_url     = get_post_meta($post->ID, '_tix_extshop_url', true);
@@ -1272,6 +1277,63 @@ class TIX_Metabox {
             </label>
             <?php self::tip('Aktiviere dies, wenn du für dieses Event Tickets anbieten möchtest. Ohne Haken wird das Event als Info-Seite ohne Ticketverkauf angezeigt.'); ?>
         </div>
+
+        <?php // ── Nur Abendkasse (vereinfacht) ── ?>
+        <div class="tix-toggle-wrap" id="tix-box-office-wrap" <?php echo $enabled === '1' ? 'style="display:none;"' : ''; ?>>
+            <label class="tix-toggle-label">
+                <input type="hidden" name="tix_box_office_only" value="0">
+                <input type="checkbox" name="tix_box_office_only" value="1" id="tix-box-office-only"
+                       <?php checked($box_office_only, '1'); ?>>
+                <span class="tix-toggle-text">Nur Abendkasse (ohne Online-Verkauf)</span>
+            </label>
+            <?php self::tip('Zeigt im Ticket-Bereich nur einen Abendkasse-Hinweis mit Preis an. Es können keine Tickets online gekauft werden.'); ?>
+        </div>
+
+        <div id="tix-box-office-panel" <?php echo ($box_office_only !== '1' || $enabled === '1') ? 'style="display:none;"' : ''; ?>>
+            <div style="display:grid;grid-template-columns:200px 1fr;gap:12px;align-items:start;margin:12px 0 16px;">
+                <div>
+                    <label style="font-size:12px;font-weight:600;color:#64748b;display:block;margin-bottom:4px;">Preis (Abendkasse)</label>
+                    <div style="position:relative;">
+                        <input type="number" name="tix_box_office_price" step="0.01" min="0"
+                               value="<?php echo esc_attr($box_office_price); ?>"
+                               placeholder="0.00"
+                               style="width:100%;padding:8px 30px 8px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;">
+                        <span style="position:absolute;right:10px;top:50%;transform:translateY(-50%);color:#94a3b8;font-size:14px;">€</span>
+                    </div>
+                </div>
+                <div>
+                    <label style="font-size:12px;font-weight:600;color:#64748b;display:block;margin-bottom:4px;">Beschreibung (optional)</label>
+                    <input type="text" name="tix_box_office_desc"
+                           value="<?php echo esc_attr($box_office_desc); ?>"
+                           placeholder="z.B. Tickets nur an der Abendkasse erhältlich"
+                           style="width:100%;padding:8px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;">
+                </div>
+            </div>
+        </div>
+
+        <script>
+        jQuery(function($) {
+            var $ticketsEnabled = $('#tix-tickets-enabled');
+            var $boxOfficeWrap = $('#tix-box-office-wrap');
+            var $boxOfficeOnly = $('#tix-box-office-only');
+            var $boxOfficePanel = $('#tix-box-office-panel');
+
+            function toggleBoxOffice() {
+                if ($ticketsEnabled.is(':checked')) {
+                    $boxOfficeWrap.hide();
+                    $boxOfficePanel.hide();
+                } else {
+                    $boxOfficeWrap.show();
+                    $boxOfficePanel.toggle($boxOfficeOnly.is(':checked'));
+                }
+            }
+
+            $ticketsEnabled.on('change', toggleBoxOffice);
+            $boxOfficeOnly.on('change', function() {
+                $boxOfficePanel.toggle($(this).is(':checked'));
+            });
+        });
+        </script>
 
         <?php // ── Ticket-Bereich (nur sichtbar wenn aktiviert) ── ?>
         <div id="tix-tickets-panel" <?php echo $enabled !== '1' ? 'style="display:none;"' : ''; ?>>
@@ -3739,6 +3801,12 @@ class TIX_Metabox {
         // Tickets-Schalter
         $enabled = !empty($_POST['tix_tickets_enabled']) ? '1' : '0';
         update_post_meta($post_id, '_tix_tickets_enabled', $enabled);
+
+        // Nur Abendkasse
+        $box_office_only = !empty($_POST['tix_box_office_only']) ? '1' : '0';
+        update_post_meta($post_id, '_tix_box_office_only', $box_office_only);
+        update_post_meta($post_id, '_tix_box_office_price', sanitize_text_field($_POST['tix_box_office_price'] ?? ''));
+        update_post_meta($post_id, '_tix_box_office_desc', sanitize_text_field($_POST['tix_box_office_desc'] ?? ''));
 
         $presale = !empty($_POST['tix_presale_active']) ? '1' : '0';
         update_post_meta($post_id, '_tix_presale_active', $presale);
