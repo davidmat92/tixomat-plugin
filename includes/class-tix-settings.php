@@ -299,6 +299,12 @@ class TIX_Settings {
             'campaign_tracking_enabled'  => 0,
             'campaign_cookie_days'       => 30,
             'campaign_custom_channels'   => '[]',
+            // ── Custom Order Numbers ──
+            'order_number_enabled'     => 0,
+            'order_number_prefix'      => 'TIX-',
+            'order_number_digits'      => 5,        // Mindestanzahl Ziffern (z.B. 5 → 00001)
+            'order_number_suffix'      => '',
+            'order_number_start'       => 1,        // Startwert für den Zähler
             // ── Specials / Zusatzprodukte ──
             'specials_enabled'         => 0,
             // ── POS / Abendkasse ──
@@ -673,6 +679,13 @@ class TIX_Settings {
         $clean['campaign_tracking_enabled']  = !empty($input['campaign_tracking_enabled']) ? 1 : 0;
         $clean['campaign_cookie_days']       = max(1, min(365, intval($input['campaign_cookie_days'] ?? 30)));
         $clean['campaign_custom_channels']   = sanitize_text_field($input['campaign_custom_channels'] ?? '[]');
+
+        // Custom Order Numbers
+        $clean['order_number_enabled'] = !empty($input['order_number_enabled']) ? 1 : 0;
+        $clean['order_number_prefix']  = sanitize_text_field($input['order_number_prefix'] ?? 'TIX-');
+        $clean['order_number_digits']  = max(3, min(10, intval($input['order_number_digits'] ?? 5)));
+        $clean['order_number_suffix']  = sanitize_text_field($input['order_number_suffix'] ?? '');
+        $clean['order_number_start']   = max(1, intval($input['order_number_start'] ?? 1));
 
         // Specials / Zusatzprodukte
         $clean['specials_enabled'] = !empty($input['specials_enabled']) ? 1 : 0;
@@ -1610,6 +1623,57 @@ class TIX_Settings {
                                             <div class="tix-field tix-field-full">
                                                 <?php self::checkbox_row('group_booking', '„Gemeinsam buchen" auf Event-Seiten anzeigen', $s, 'Ermöglicht Gruppenbestellungen: Organisator teilt Link, Freunde wählen eigene Tickets, eine Bestellung.'); ?>
                                             </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Bestellnummern ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-admin-settings"></span>
+                                        <h3>Bestellnummern</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('order_number_enabled', 'Eigene Bestellnummern verwenden', $s, 'Ersetzt die Standard-WooCommerce-Bestellnummern durch ein konfigurierbares Format.'); ?>
+                                            </div>
+                                            <div id="tix-order-number-fields" <?php echo empty($s['order_number_enabled']) ? 'style="display:none;"' : ''; ?>>
+                                                <div class="tix-field-grid" style="margin-top:12px;">
+                                                    <?php self::text_row('order_number_prefix', 'Pr&auml;fix', $s, 'TIX-'); ?>
+                                                    <?php self::text_row('order_number_suffix', 'Suffix', $s, ''); ?>
+                                                    <?php self::range_row('order_number_digits', 'Mindest-Ziffern', $s, 3, 10, ''); ?>
+                                                    <?php self::text_row('order_number_start', 'Startwert', $s, '1'); ?>
+                                                </div>
+                                                <div style="margin-top:12px;padding:12px 16px;background:#f8fafc;border-radius:10px;font-size:13px;color:#475569;">
+                                                    <strong>Vorschau:</strong>
+                                                    <code id="tix-order-number-preview" style="font-size:14px;font-weight:700;color:#FF5500;">
+                                                        <?php
+                                                        $p = $s['order_number_prefix'] ?? 'TIX-';
+                                                        $d = intval($s['order_number_digits'] ?? 5);
+                                                        $sf = $s['order_number_suffix'] ?? '';
+                                                        $st = intval($s['order_number_start'] ?? 1);
+                                                        echo esc_html($p . str_pad($st, $d, '0', STR_PAD_LEFT) . $sf);
+                                                        ?>
+                                                    </code>
+                                                    <span style="margin-left:8px;color:#94a3b8;">&rarr;</span>
+                                                    <code style="font-size:14px;color:#64748b;">
+                                                        <?php echo esc_html($p . str_pad($st + 1, $d, '0', STR_PAD_LEFT) . $sf); ?>
+                                                    </code>
+                                                    <span style="margin-left:8px;color:#94a3b8;">&rarr;</span>
+                                                    <code style="font-size:14px;color:#64748b;">
+                                                        <?php echo esc_html($p . str_pad($st + 2, $d, '0', STR_PAD_LEFT) . $sf); ?>
+                                                    </code>
+                                                    &hellip;
+                                                </div>
+                                            </div>
+                                            <script>
+                                            jQuery(function($){
+                                                $('[name="tix_settings[order_number_enabled]"]').on('change',function(){
+                                                    $('#tix-order-number-fields').toggle(this.checked);
+                                                });
+                                            });
+                                            </script>
                                         </div>
                                     </div>
                                 </div>
