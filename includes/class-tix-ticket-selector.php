@@ -1449,9 +1449,6 @@ class TIX_Ticket_Selector {
                         <?php endif; ?>
                     </div>
 
-                    <div class="tix-sel-cat-qty">
-                        <span class="tix-sel-offline-label">Abendkasse</span>
-                    </div>
                 </div>
             </div>
         </div>
