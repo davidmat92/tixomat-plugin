@@ -145,6 +145,56 @@ class TIX_Metabox {
     }
 
     // ──────────────────────────────────────────
+    // Event-Presets
+    // ──────────────────────────────────────────
+    public static function get_presets() {
+        return [
+            'all' => [
+                'label' => 'Alle Funktionen',
+                'icon'  => 'dashicons-admin-settings',
+                'desc'  => 'Vollständiger Editor mit allen Optionen',
+                'tabs'  => '*',
+                'defaults' => [],
+            ],
+            'clubbing' => [
+                'label' => 'Clubbing',
+                'icon'  => 'dashicons-format-audio',
+                'desc'  => 'Club-Events, Partys, DJ-Nights',
+                'tabs'  => ['details', 'info', 'tickets', 'media'],
+                'defaults' => [
+                    'tix_tickets_enabled' => '0',
+                ],
+            ],
+        ];
+    }
+
+    private static function render_preset_selector($post) {
+        $presets = self::get_presets();
+        $current = get_post_meta($post->ID, '_tix_event_preset', true) ?: 'all';
+        $is_new  = $post->post_status === 'auto-draft';
+        ?>
+        <div class="tix-preset-bar" id="tix-preset-bar">
+            <div class="tix-preset-cards">
+                <?php foreach ($presets as $slug => $p): ?>
+                <button type="button" class="tix-preset-card <?php echo $slug === $current ? 'active' : ''; ?>"
+                        data-preset="<?php echo esc_attr($slug); ?>"
+                        data-tabs="<?php echo esc_attr($p['tabs'] === '*' ? '*' : implode(',', $p['tabs'])); ?>"
+                        data-defaults="<?php echo esc_attr(json_encode($p['defaults'] ?? [])); ?>">
+                    <span class="dashicons <?php echo esc_attr($p['icon']); ?>"></span>
+                    <span class="tix-preset-label"><?php echo esc_html($p['label']); ?></span>
+                    <span class="tix-preset-desc"><?php echo esc_html($p['desc']); ?></span>
+                </button>
+                <?php endforeach; ?>
+            </div>
+            <label class="tix-preset-showall">
+                <input type="checkbox" id="tix-preset-showall"> Alle Tabs anzeigen
+            </label>
+            <input type="hidden" name="tix_event_preset" id="tix-event-preset" value="<?php echo esc_attr($current); ?>">
+        </div>
+        <?php
+    }
+
+    // ──────────────────────────────────────────
     // Tabbed Interface (Main Render)
     // ──────────────────────────────────────────
     public static function render_all($post) {
@@ -154,7 +204,7 @@ class TIX_Metabox {
         $series_enabled = get_post_meta($post->ID, '_tix_series_enabled', true);
         $series_children = get_post_meta($post->ID, '_tix_series_children', true) ?: [];
         ?>
-        <div class="tix-app">
+        <div class="tix-app" data-is-new="<?php echo $post->post_status === 'auto-draft' ? '1' : '0'; ?>">
 
             <?php // ── Serien Info-Bar ── ?>
             <?php if ($series_enabled === '1' && !empty($series_children)): ?>
@@ -186,6 +236,9 @@ class TIX_Metabox {
                     </div>
                 <?php endif; ?>
             <?php endif; ?>
+
+            <?php // ── Event-Preset Auswahl ── ?>
+            <?php self::render_preset_selector($post); ?>
 
             <?php
             $wizard_enabled = function_exists('tix_get_settings') ? tix_get_settings('wizard_enabled') : 1;
@@ -3797,6 +3850,10 @@ class TIX_Metabox {
             delete_post_meta($post_id, '_tix_video_embed');
             delete_post_meta($post_id, '_tix_video_type');
         }
+
+        // Event-Preset
+        $preset = sanitize_key($_POST['tix_event_preset'] ?? 'all');
+        update_post_meta($post_id, '_tix_event_preset', $preset);
 
         // Tickets-Schalter
         $enabled = !empty($_POST['tix_tickets_enabled']) ? '1' : '0';

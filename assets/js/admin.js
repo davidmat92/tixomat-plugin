@@ -1821,4 +1821,90 @@
         $(this).hide();
     });
 
+    // ══════════════════════════════════════
+    // EVENT-PRESET SYSTEM
+    // ══════════════════════════════════════
+    (function() {
+        var $presetCards = $('.tix-preset-card');
+        var $presetInput = $('#tix-event-preset');
+        var $showAll = $('#tix-preset-showall');
+        var $app = $('.tix-app');
+        var isNew = $app.data('is-new') === 1 || $app.data('is-new') === '1';
+
+        if (!$presetCards.length) return;
+
+        function applyPreset(slug, applyDefaults) {
+            var $card = $presetCards.filter('[data-preset="' + slug + '"]');
+            if (!$card.length) return;
+
+            var tabsAttr = $card.data('tabs');
+            var allowedTabs = (tabsAttr === '*') ? '*' : String(tabsAttr).split(',');
+
+            // Update UI
+            $presetCards.removeClass('active');
+            $card.addClass('active');
+            $presetInput.val(slug);
+
+            // Show/hide tabs
+            if ($showAll.is(':checked')) return; // "Alle anzeigen" aktiv → nichts verstecken
+
+            var $allTabs = $('.tix-nav-tab');
+            if (allowedTabs === '*') {
+                $allTabs.show();
+            } else {
+                $allTabs.each(function() {
+                    var tabName = $(this).data('tab');
+                    if (allowedTabs.indexOf(tabName) !== -1) {
+                        $(this).show();
+                    } else {
+                        $(this).hide();
+                    }
+                });
+
+                // Wenn aktiver Tab versteckt ist → zum ersten sichtbaren wechseln
+                var $activeTab = $allTabs.filter('.active');
+                if ($activeTab.length && !$activeTab.is(':visible')) {
+                    $allTabs.filter(':visible').first().trigger('click');
+                }
+            }
+
+            // Apply defaults nur bei neuen Events
+            if (applyDefaults && isNew) {
+                var defaults = $card.data('defaults') || {};
+                if (typeof defaults === 'string') {
+                    try { defaults = JSON.parse(defaults); } catch(e) { defaults = {}; }
+                }
+                for (var field in defaults) {
+                    var $el = $('[name="' + field + '"]');
+                    if ($el.is(':checkbox')) {
+                        $el.prop('checked', defaults[field] === '1').trigger('change');
+                    } else {
+                        $el.val(defaults[field]).trigger('change');
+                    }
+                }
+            }
+        }
+
+        // Klick auf Preset-Karten
+        $presetCards.on('click', function() {
+            var slug = $(this).data('preset');
+            applyPreset(slug, true);
+        });
+
+        // "Alle Tabs anzeigen" Toggle
+        $showAll.on('change', function() {
+            if ($(this).is(':checked')) {
+                $('.tix-nav-tab').show();
+            } else {
+                applyPreset($presetInput.val(), false);
+            }
+        });
+
+        // Init: gespeicherten Preset anwenden (ohne Defaults zu überschreiben)
+        var currentPreset = $presetInput.val() || 'all';
+        if (currentPreset !== 'all') {
+            applyPreset(currentPreset, false);
+        }
+    })();
+
 })(jQuery);
