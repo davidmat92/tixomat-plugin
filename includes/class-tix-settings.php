@@ -2822,9 +2822,7 @@ class TIX_Settings {
                                     <div class="tix-card-body">
                                         <div class="tix-field-grid">
                                             <div class="tix-field tix-field-full">
-                                                <?php self::checkbox_row('branding_enabled', '&quot;mit ♥️ entwickelt von MDJ.events&quot; unter Shortcodes anzeigen', $s); ?>
-                                            </div>
-                                            <?php self::text_row('branding_url', 'Link-Ziel', $s, 'https://mdj.events'); ?>
+                                                <?php self::checkbox_row('branding_enabled', '&quot;Ticketsystem von Tixomat&quot; unter Shortcodes anzeigen', $s); ?>
                                         </div>
                                     </div>
                                 </div>
