@@ -172,8 +172,9 @@ class TIX_Admin_Shell {
             'rest-api'   => ['icon' => 'rest-api',        'label' => 'REST API'],
         ];
 
-        // Logo URL
-        $logo_url = 'https://tixomat.de/wp-content/uploads/2026/03/logo-tixomat-light-500px.png';
+        // Logo URL (Custom oder Default)
+        $custom_logo = $s['admin_logo_url'] ?? '';
+        $logo_url = $custom_logo ?: 'https://tixomat.de/wp-content/uploads/2026/03/logo-tixomat-light-500px.png';
 
         // Organizer-Check
         $is_organizer = class_exists('TIX_Organizer_Admin') && TIX_Organizer_Admin::is_organizer();

@@ -97,7 +97,9 @@ class TIX_Custom_URLs {
      * Login-Seite rendern.
      */
     private static function render_login_page() {
-        $logo_url = 'https://tixomat.de/wp-content/uploads/2026/03/logo-tixomat-light-500px.png';
+        $s = function_exists('tix_get_settings') ? tix_get_settings() : [];
+        $custom_logo = $s['admin_logo_url'] ?? '';
+        $logo_url = $custom_logo ?: 'https://tixomat.de/wp-content/uploads/2026/03/logo-tixomat-light-500px.png';
         $error = '';
 
         // Login verarbeiten

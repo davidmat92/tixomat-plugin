@@ -14,6 +14,7 @@ class TIX_Settings {
             'fullscreen_admin'    => 1,
             'login_slug'          => '',
             'organizer_slug'      => '',
+            'admin_logo_url'      => '',       // Custom Logo für Admin-Shell, Login, Dashboard
             'theme_mode'          => 'light',
 
             // ── Farbpalette ──
@@ -724,6 +725,9 @@ class TIX_Settings {
         // Custom URLs
         $clean['login_slug'] = sanitize_title(trim($input['login_slug'] ?? ''));
         $clean['organizer_slug'] = sanitize_title(trim($input['organizer_slug'] ?? ''));
+
+        // Custom Logo
+        $clean['admin_logo_url'] = esc_url_raw($input['admin_logo_url'] ?? '');
 
         // Theme-Modus (universell)
         $clean['theme_mode'] = in_array($input['theme_mode'] ?? '', ['light', 'dark']) ? $input['theme_mode'] : 'light';
@@ -2851,7 +2855,37 @@ class TIX_Settings {
                                             <div class="tix-field tix-field-full">
                                                 <?php self::checkbox_row('fullscreen_admin', 'Fullscreen-Modus f&uuml;r Tixomat-Seiten', $s, 'Blendet die WordPress-Oberfl&auml;che (Admin-Bar, Sidebar, Footer) aus und zeigt stattdessen eine eigene Tixomat-Navigation. Deaktivieren f&uuml;r die klassische WordPress-Ansicht.'); ?>
                                             </div>
+                                            <div class="tix-field tix-field-full" style="margin-top:12px;">
+                                                <label class="tix-field-label">Custom Logo</label>
+                                                <div style="display:flex;gap:12px;align-items:center;">
+                                                    <input type="text" name="tix[admin_logo_url]" id="tix-admin-logo-url"
+                                                           value="<?php echo esc_attr($s['admin_logo_url'] ?? ''); ?>"
+                                                           class="regular-text" placeholder="Logo-URL eingeben oder Bild w&auml;hlen"
+                                                           style="flex:1;">
+                                                    <button type="button" class="button" id="tix-admin-logo-btn">Bild w&auml;hlen</button>
+                                                </div>
+                                                <?php if (!empty($s['admin_logo_url'])) : ?>
+                                                    <div style="margin-top:8px;">
+                                                        <img src="<?php echo esc_url($s['admin_logo_url']); ?>" style="max-height:40px;width:auto;background:#FAF8F4;padding:8px 12px;border-radius:8px;">
+                                                        <button type="button" class="button-link" style="color:#ef4444;margin-left:8px;" onclick="document.getElementById('tix-admin-logo-url').value='';this.parentNode.remove();">Entfernen</button>
+                                                    </div>
+                                                <?php endif; ?>
+                                                <p class="tix-field-hint">Ersetzt das Tixomat-Logo in Sidebar, Login-Seite und Dashboard. Empfohlen: transparentes PNG, max. 500px breit.</p>
+                                            </div>
                                         </div>
+                                        <script>
+                                        jQuery(function($){
+                                            $('#tix-admin-logo-btn').on('click',function(e){
+                                                e.preventDefault();
+                                                var frame = wp.media({title:'Logo w\u00e4hlen',multiple:false,library:{type:'image'}});
+                                                frame.on('select',function(){
+                                                    var url = frame.state().get('selection').first().toJSON().url;
+                                                    $('#tix-admin-logo-url').val(url);
+                                                });
+                                                frame.open();
+                                            });
+                                        });
+                                        </script>
                                     </div>
                                 </div>
 
