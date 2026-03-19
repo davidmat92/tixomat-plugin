@@ -2,14 +2,14 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.33.30
+ * Version: 1.33.31
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.33.30');
+define('TIXOMAT_VERSION', '1.33.31');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -174,7 +174,7 @@ function tix_branding_footer() {
     static $css = false;
     $html = '';
     if (!$css) {
-        $html .= '<style>.tix-branding{margin-top:16px;padding-top:12px;text-align:center;font-size:.8rem;opacity:.45;transition:opacity .2s}.tix-branding:hover{opacity:.7}.tix-branding a{color:inherit;text-decoration:none}.tix-branding a:hover{text-decoration:underline}</style>';
+        $html .= '<style>.tix-branding{margin-top:16px;padding-top:12px;text-align:center!important;width:100%;font-size:.8rem;opacity:.45;transition:opacity .2s}.tix-branding:hover{opacity:.7}.tix-branding a{color:inherit;text-decoration:none}.tix-branding a:hover{text-decoration:underline}</style>';
         $css = true;
     }
     $html .= '<div class="tix-branding">Ticketsystem von 🧡 <a href="https://tixomat.de" target="_blank" rel="noopener">Tixomat</a></div>';
