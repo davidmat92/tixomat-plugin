@@ -1407,9 +1407,9 @@
     (function() {
         var $presetCards = $('.tix-preset-card');
         var $presetInput = $('#tix-event-preset');
-        var $showAll = $('#tix-preset-showall');
         var $app = $('.tix-app');
         var isNew = $app.data('is-new') === 1 || $app.data('is-new') === '1';
+        var showingAll = false;
 
         if (!$presetCards.length) return;
 
@@ -1424,13 +1424,17 @@
             $presetCards.removeClass('active');
             $card.addClass('active');
             $presetInput.val(slug);
+            showingAll = false;
 
             // Show/hide tabs
-            if ($showAll.is(':checked')) return; // "Alle anzeigen" aktiv → nichts verstecken
-
             var $allTabs = $('.tix-nav-tab');
+            var $moreBtn = $('#tix-nav-more-btn');
+            var $moreGroup = $('#tix-nav-more');
+
             if (allowedTabs === '*') {
                 $allTabs.show();
+                // "Mehr"-Button normal anzeigen wenn es versteckte Tabs in der Gruppe gibt
+                if ($moreBtn.length) $moreBtn.show();
             } else {
                 $allTabs.each(function() {
                     var tabName = $(this).data('tab');
@@ -1440,6 +1444,13 @@
                         $(this).hide();
                     }
                 });
+
+                // "Mehr"-Button wird zum "Alle anzeigen"-Button wenn Preset aktiv
+                if ($moreBtn.length) {
+                    $moreBtn.show();
+                    $moreBtn.find('.tix-nav-label').text('Alle Tabs');
+                    $moreGroup.removeClass('tix-nav-group-open');
+                }
 
                 // Wenn aktiver Tab versteckt ist → zum ersten sichtbaren wechseln
                 var $activeTab = $allTabs.filter('.active');
@@ -1471,13 +1482,26 @@
             applyPreset(slug, true);
         });
 
-        // "Alle Tabs anzeigen" Toggle
-        $showAll.on('change', function() {
-            if ($(this).is(':checked')) {
+        // "Mehr"-Button: bei eingeschränktem Preset → alle Tabs anzeigen
+        $(document).on('click', '#tix-nav-more-btn', function(e) {
+            var currentPreset = $presetInput.val() || 'all';
+            var $card = $presetCards.filter('[data-preset="' + currentPreset + '"]');
+            var tabsAttr = $card.length ? $card.data('tabs') : '*';
+
+            if (tabsAttr !== '*' && !showingAll) {
+                e.stopImmediatePropagation();
+                // Alle Tabs einblenden
                 $('.tix-nav-tab').show();
-            } else {
-                applyPreset($presetInput.val(), false);
+                $('#tix-nav-more').addClass('tix-nav-group-open');
+                $(this).find('.tix-nav-label').text('Weniger');
+                showingAll = true;
+            } else if (tabsAttr !== '*' && showingAll) {
+                e.stopImmediatePropagation();
+                // Zurück zum Preset
+                applyPreset(currentPreset, false);
+                $(this).find('.tix-nav-label').text('Alle Tabs');
             }
+            // Bei 'all' Preset → normales More-Toggle Verhalten (wird vom bestehenden Handler erledigt)
         });
 
         // Init: gespeicherten Preset anwenden (ohne Defaults zu überschreiben)

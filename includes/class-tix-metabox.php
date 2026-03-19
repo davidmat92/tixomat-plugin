@@ -186,9 +186,6 @@ class TIX_Metabox {
                 </button>
                 <?php endforeach; ?>
             </div>
-            <label class="tix-preset-showall">
-                <input type="checkbox" id="tix-preset-showall"> Alle Tabs anzeigen
-            </label>
             <input type="hidden" name="tix_event_preset" id="tix-event-preset" value="<?php echo esc_attr($current); ?>">
         </div>
         <?php

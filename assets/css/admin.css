@@ -2442,15 +2442,3 @@ button.tix-add-new-link:hover {
 .tix-preset-card.active .tix-preset-desc {
     color: #64748b;
 }
-.tix-preset-showall {
-    font-size: 12px;
-    color: #94a3b8;
-    white-space: nowrap;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    gap: 4px;
-}
-.tix-preset-showall input {
-    margin: 0;
-}
