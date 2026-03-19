@@ -38,11 +38,19 @@ body.tix-fullscreen #wpbody-content {
     float: none;
 }
 
-/* WP Notices Padding */
+/* WP Notices komplett ausblenden im Fullscreen */
 body.tix-fullscreen .notice,
 body.tix-fullscreen .updated,
-body.tix-fullscreen .error {
-    margin: 12px 24px 0;
+body.tix-fullscreen .error,
+body.tix-fullscreen .update-nag,
+body.tix-fullscreen #wpbody-content > .notice,
+body.tix-fullscreen #wpbody-content > .updated,
+body.tix-fullscreen #wpbody-content > .error,
+body.tix-fullscreen #wpbody-content > .update-nag,
+body.tix-fullscreen .wp-header-end ~ .notice,
+body.tix-fullscreen .wp-header-end ~ .updated,
+body.tix-fullscreen .wp-header-end ~ .error {
+    display: none !important;
 }
 
 /* Content-Area Padding für alle Tixomat-Seiten */
