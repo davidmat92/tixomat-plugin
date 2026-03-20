@@ -218,6 +218,7 @@ class TIX_Settings {
             'mt_accent_color'    => '',  // leer = globaler Accent
 
             // ── HTML-Ticket ──
+            'ht_logo_height'     => 44,
             'ht_header_bg'       => '#222222',
             'ht_header_text'     => '#ffffff',
             'ht_body_bg'         => '#ffffff',
@@ -234,6 +235,7 @@ class TIX_Settings {
 
             // ── E-Mail ──
             'email_logo_url'     => '',       // URL zum Logo-Bild
+            'email_logo_height'  => 40,       // Logo-Höhe in px
             'email_brand_name'   => '',       // Firmenname (leer = Blogname)
             'email_footer_text'  => '',       // Footer-Text (leer = Default)
             'email_reminder'     => 1,        // Erinnerungsmail 24h vor Event
@@ -588,11 +590,13 @@ class TIX_Settings {
             $clean[$k] = self::sanitize_color($input[$k] ?? '') ?: $d[$k];
         }
         $clean['ht_border_radius'] = max(0, min(30, intval($input['ht_border_radius'] ?? 12)));
+        $clean['ht_logo_height']   = max(20, min(120, intval($input['ht_logo_height'] ?? 44)));
         $clean['ht_footer_text']   = sanitize_text_field($input['ht_footer_text'] ?? $d['ht_footer_text']);
         $clean['ht_logo_url']      = esc_url_raw($input['ht_logo_url'] ?? '');
 
         // E-Mail
         $clean['email_logo_url']     = esc_url_raw($input['email_logo_url'] ?? '');
+        $clean['email_logo_height']  = max(20, min(120, intval($input['email_logo_height'] ?? 40)));
         $clean['email_brand_name']   = sanitize_text_field($input['email_brand_name'] ?? '');
         $clean['email_footer_text']  = sanitize_text_field($input['email_footer_text'] ?? '');
         $clean['email_reminder']     = !empty($input['email_reminder']) ? 1 : 0;
@@ -1925,6 +1929,7 @@ class TIX_Settings {
                                             self::color_row('ht_btn_bg',        'Drucken-Button', $s);
                                             self::color_row('ht_btn_text',      'Button-Text', $s);
                                             self::range_row('ht_border_radius', 'Eckenradius', $s, 0, 30, 'px');
+                                            self::range_row('ht_logo_height', 'Logo-H&ouml;he', $s, 20, 120, 'px');
                                             ?>
                                             <div class="tix-field tix-field-full">
                                                 <?php self::text_row('ht_footer_text', 'Footer-Nachricht', $s, 'Text unter dem Ticket'); ?>
@@ -1984,16 +1989,18 @@ class TIX_Settings {
                                                     fc  = v('ht_footer_color') || '#888888',
                                                     dc  = v('ht_divider_color') || '#cccccc',
                                                     br  = v('ht_border_radius') || '12',
+                                                    lh  = v('ht_logo_height') || '44',
                                                     ft  = v('ht_footer_text') || 'Bitte dieses Ticket ausgedruckt oder digital zum Einlass mitbringen.',
                                                     logo = v('ht_logo_url');
 
-                                                var logoHtml = logo ? '<img src="' + logo + '" style="max-height:32px;width:auto;flex-shrink:0;">' : '';
+                                                var plh = Math.round(parseInt(lh) * 0.75);
+                                                var logoHtml = logo ? '<img src="' + logo + '" style="max-height:' + plh + 'px;width:auto;flex-shrink:0;">' : '';
 
                                                 $('#tix-ht-preview').html(
                                                     '<div style="max-width:500px;border:2px solid ' + bc + ';border-radius:' + br + 'px;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,sans-serif;">' +
-                                                        '<div style="background:' + hbg + ';color:' + htx + ';padding:16px 20px;display:flex;align-items:center;gap:12px;">' +
+                                                        '<div style="background:' + hbg + ';color:' + htx + ';padding:16px 20px;display:flex;align-items:center;justify-content:space-between;gap:12px;">' +
                                                             logoHtml +
-                                                            '<div>' +
+                                                            '<div style="text-align:right;">' +
                                                                 '<div style="font-size:16px;font-weight:700;">Beispiel-Event</div>' +
                                                                 '<div style="font-size:12px;opacity:.75;">VIP-Ticket \u2014 49,00 \u20ac</div>' +
                                                             '</div>' +
@@ -2550,6 +2557,7 @@ class TIX_Settings {
                                     <div class="tix-card-body">
                                         <div class="tix-field-grid">
                                             <?php self::text_row('email_logo_url', 'Logo-URL', $s, 'https://example.com/logo.png'); ?>
+                                            <?php self::range_row('email_logo_height', 'Logo-H&ouml;he', $s, 20, 120, 'px'); ?>
                                             <?php self::text_row('email_brand_name', 'Firmenname', $s, get_bloginfo('name')); ?>
                                             <?php self::text_row('email_footer_text', 'Footer-Text', $s, 'Du erhältst diese E-Mail, weil du eine Bestellung aufgegeben hast.'); ?>
                                             <div class="tix-field tix-field-full">
@@ -2562,10 +2570,68 @@ class TIX_Settings {
                                             <div class="tix-field tix-field-full">
                                                 <p class="tix-settings-hint">
                                                     Alle WooCommerce-E-Mails werden automatisch im Tixomat Design versendet.<br>
-                                                    Die Farben (Akzent, Rahmen) werden aus dem Design-Tab übernommen.
+                                                    Die Farben (Akzent, Rahmen) werden aus dem Design-Tab &uuml;bernommen.
                                                 </p>
                                             </div>
                                         </div>
+
+                                        <?php // ── Email-Vorschau ── ?>
+                                        <?php
+                                        $em_accent = $s['color_accent'] ?: '#c8ff00';
+                                        $em_accent_text = $s['color_accent_text'] ?: '#000000';
+                                        $em_radius = intval($s['radius_general'] ?: 8);
+                                        $em_brand  = $s['email_brand_name'] ?: get_bloginfo('name');
+                                        $em_logo   = $s['email_logo_url'] ?? '';
+                                        $em_logo_h = intval($s['email_logo_height'] ?? 40);
+                                        $em_footer = $s['email_footer_text'] ?: 'Du erh&auml;ltst diese E-Mail, weil du eine Bestellung aufgegeben hast.';
+                                        ?>
+                                        <div style="margin-top:20px;border-top:1px solid #e5e7eb;padding-top:20px;">
+                                            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+                                                <h4 style="margin:0;font-size:14px;font-weight:600;color:#374151;">E-Mail Vorschau</h4>
+                                                <button type="button" class="button button-small" id="tix-email-refresh-preview">Aktualisieren</button>
+                                            </div>
+                                            <div id="tix-email-preview" style="transform:scale(.65);transform-origin:top left;margin-bottom:-140px;"></div>
+                                        </div>
+                                        <script>
+                                        jQuery(function($){
+                                            function ev(id) {
+                                                var el = document.querySelector('[name="tix_settings[' + id + ']"]');
+                                                return el ? el.value : '';
+                                            }
+                                            function renderEmailPreview() {
+                                                var accent = ev('color_accent') || '<?php echo esc_js($em_accent); ?>',
+                                                    accentText = ev('color_accent_text') || '<?php echo esc_js($em_accent_text); ?>',
+                                                    radius = ev('radius_general') || '<?php echo $em_radius; ?>',
+                                                    brand  = ev('email_brand_name') || '<?php echo esc_js($em_brand); ?>',
+                                                    logo   = ev('email_logo_url'),
+                                                    logoH  = ev('email_logo_height') || '40',
+                                                    footer = ev('email_footer_text') || '<?php echo esc_js($em_footer); ?>';
+
+                                                var headerContent = logo
+                                                    ? '<img src="' + logo + '" alt="Logo" style="max-height:' + logoH + 'px;width:auto;">'
+                                                    : '<span style="font-size:18px;font-weight:700;color:' + accentText + ';letter-spacing:.02em;">' + $('<span>').text(brand).html() + '</span>';
+
+                                                $('#tix-email-preview').html(
+                                                    '<div style="max-width:500px;background:#f3f4f6;padding:24px 12px;border-radius:8px;font-family:-apple-system,BlinkMacSystemFont,sans-serif;">' +
+                                                        '<div style="max-width:460px;margin:0 auto;">' +
+                                                            '<div style="background:' + accent + ';padding:16px 24px;border-radius:' + radius + 'px ' + radius + 'px 0 0;text-align:center;">' + headerContent + '</div>' +
+                                                            '<div style="background:#fff;padding:24px;border-left:1px solid #e5e7eb;border-right:1px solid #e5e7eb;">' +
+                                                                '<h2 style="margin:0 0 4px;font-size:18px;font-weight:700;color:#1a1a1a;">Bestellbest&auml;tigung</h2>' +
+                                                                '<p style="margin:0 0 16px;font-size:11px;color:#6b7280;">Deine Bestellung #KK-000001 wurde erfolgreich aufgegeben.</p>' +
+                                                                '<p style="margin:0;font-size:13px;color:#1a1a1a;line-height:1.6;">Vielen Dank f&uuml;r deinen Einkauf! Deine Tickets findest du im Anhang oder du kannst sie &uuml;ber den Button unten herunterladen.</p>' +
+                                                                '<div style="margin:20px 0;text-align:center;"><span style="display:inline-block;padding:10px 24px;background:' + accent + ';color:' + accentText + ';border-radius:' + radius + 'px;font-weight:600;font-size:13px;">Tickets herunterladen</span></div>' +
+                                                            '</div>' +
+                                                            '<div style="background:#fff;padding:16px 24px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 ' + radius + 'px ' + radius + 'px;text-align:center;font-size:11px;color:#6b7280;">' +
+                                                                $('<span>').text(footer).html() +
+                                                            '</div>' +
+                                                        '</div>' +
+                                                    '</div>'
+                                                );
+                                            }
+                                            renderEmailPreview();
+                                            $('#tix-email-refresh-preview').on('click', function(e){ e.preventDefault(); renderEmailPreview(); });
+                                        });
+                                        </script>
                                     </div>
                                 </div>
 

@@ -648,6 +648,7 @@ class TIX_Tickets {
             'ht_footer_color'  => '#888888', 'ht_divider_color' => '#cccccc',
             'ht_btn_bg'        => '#222222', 'ht_btn_text'      => '#ffffff',
             'ht_border_radius' => 12,
+            'ht_logo_height'   => 44,
             'ht_footer_text'   => 'Bitte dieses Ticket ausgedruckt oder digital zum Einlass mitbringen.',
             'ht_logo_url'      => '',
         ];
@@ -655,6 +656,7 @@ class TIX_Tickets {
             $$k = isset($s[$k]) && $s[$k] !== '' ? $s[$k] : $v;
         }
         $ht_border_radius = intval($ht_border_radius);
+        $ht_logo_height   = intval($ht_logo_height);
 
         $qr_data = 'GL-' . $event_id . '-' . $code;
         $qr_url  = 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=' . urlencode($qr_data);
@@ -675,8 +677,8 @@ class TIX_Tickets {
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f0f0f0; padding: 20px; color: <?php echo esc_attr($ht_text_color); ?>; }
         .ticket { max-width: 600px; margin: 0 auto; background: <?php echo esc_attr($ht_body_bg); ?>; border: 2px solid <?php echo esc_attr($ht_border_color); ?>; border-radius: <?php echo $ht_border_radius; ?>px; overflow: hidden; }
-        .ticket-header { background: <?php echo esc_attr($ht_header_bg); ?>; color: <?php echo esc_attr($ht_header_text); ?>; padding: 24px 30px; display: flex; align-items: center; gap: 16px; }
-        .ticket-logo { max-height: 44px; width: auto; flex-shrink: 0; }
+        .ticket-header { background: <?php echo esc_attr($ht_header_bg); ?>; color: <?php echo esc_attr($ht_header_text); ?>; padding: 24px 30px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+        .ticket-logo { max-height: <?php echo $ht_logo_height; ?>px; width: auto; flex-shrink: 0; }
         .ticket-header-text { flex: 1; }
         .ticket-header h1 { font-size: 22px; margin-bottom: 4px; }
         .ticket-header p { font-size: 14px; opacity: .75; }
@@ -699,7 +701,7 @@ class TIX_Tickets {
             <?php if ($ht_logo_url): ?>
                 <img src="<?php echo esc_url($ht_logo_url); ?>" alt="Logo" class="ticket-logo">
             <?php endif; ?>
-            <div class="ticket-header-text">
+            <div class="ticket-header-text" style="text-align:right;">
                 <h1><?php echo esc_html($event_name); ?></h1>
                 <p><?php echo esc_html($cat_name); ?><?php if ($price): ?> — <?php echo esc_html($price); ?><?php endif; ?></p>
             </div>

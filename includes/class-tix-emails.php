@@ -183,6 +183,7 @@ class TIX_Emails {
         $radius      = intval($s['radius_general'] ?: 8);
         $brand_name  = $s['email_brand_name']  ?: get_bloginfo('name');
         $logo_url    = $s['email_logo_url']    ?: '';
+        $logo_height = intval($s['email_logo_height'] ?? 40) ?: 40;
         $footer_text = $s['email_footer_text'] ?: '';
 
         $text_color  = '#1a1a1a';
@@ -329,7 +330,7 @@ class TIX_Emails {
                     <tr>
                         <td style="background-color: <?php echo esc_attr($accent); ?>; padding: 20px 32px; border-radius: <?php echo $radius; ?>px <?php echo $radius; ?>px 0 0; text-align: center;">
                             <?php if ($logo_url): ?>
-                                <img src="<?php echo esc_url($logo_url); ?>" alt="<?php echo esc_attr($brand_name); ?>" style="max-height: 40px; width: auto; display: inline-block;" />
+                                <img src="<?php echo esc_url($logo_url); ?>" alt="<?php echo esc_attr($brand_name); ?>" style="max-height: <?php echo $logo_height; ?>px; width: auto; display: inline-block;" />
                             <?php else: ?>
                                 <span style="font-size: 18px; font-weight: 700; color: <?php echo esc_attr($accent_text); ?>; letter-spacing: 0.02em;"><?php echo esc_html($brand_name); ?></span>
                             <?php endif; ?>
@@ -419,6 +420,7 @@ class TIX_Emails {
         $radius      = intval($s['radius_general'] ?: 8);
         $brand_name  = $s['email_brand_name']  ?: get_bloginfo('name');
         $logo_url    = $s['email_logo_url']    ?: '';
+        $logo_height = intval($s['email_logo_height'] ?? 40) ?: 40;
         $footer_text = $footer_note ?: ($s['email_footer_text'] ?: '');
 
         $text_color  = '#1a1a1a';
@@ -464,7 +466,7 @@ class TIX_Emails {
                     <tr>
                         <td style="background-color: <?php echo esc_attr($accent); ?>; padding: 20px 32px; border-radius: <?php echo $radius; ?>px <?php echo $radius; ?>px 0 0; text-align: center;">
                             <?php if ($logo_url): ?>
-                                <img src="<?php echo esc_url($logo_url); ?>" alt="<?php echo esc_attr($brand_name); ?>" style="max-height: 40px; width: auto; display: inline-block;" />
+                                <img src="<?php echo esc_url($logo_url); ?>" alt="<?php echo esc_attr($brand_name); ?>" style="max-height: <?php echo $logo_height; ?>px; width: auto; display: inline-block;" />
                             <?php else: ?>
                                 <span style="font-size: 18px; font-weight: 700; color: <?php echo esc_attr($accent_text); ?>; letter-spacing: 0.02em;"><?php echo esc_html($brand_name); ?></span>
                             <?php endif; ?>
