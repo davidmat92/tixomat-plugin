@@ -11,7 +11,7 @@
     --sp-border: var(--tix-border, #333);
     --sp-text: var(--tix-text, #fff);
     --sp-muted: var(--tix-muted, #888);
-    --sp-accent: var(--tix-accent, #FF5500);
+    --sp-accent: var(--tix-accent, var(--tix-primary, #FF5500));
     --sp-ok: #10b981;
     --sp-warn: #f59e0b;
     --sp-err: #ef4444;
@@ -385,7 +385,7 @@
     width: 16px;
     height: 16px;
     border: 2px solid var(--sp-border, #333);
-    border-top-color: var(--sp-accent, #FF5500);
+    border-top-color: var(--sp-accent, var(--tix-primary, #FF5500));
     border-radius: 50%;
     animation: tixSpSpin 0.8s linear infinite;
     vertical-align: middle;
@@ -477,7 +477,7 @@
 }
 .tix-sp-modal-confirm {
     padding: 10px 24px;
-    background: var(--sp-accent, #FF5500);
+    background: var(--sp-accent, var(--tix-primary, #FF5500));
     color: #fff;
     border: none;
     border-radius: 10px;
@@ -507,7 +507,7 @@
     flex-shrink: 0;
 }
 .tix-sel-seatmap-cat {
-    border-left: 4px solid var(--section-color, var(--tix-accent, #FF5500)) !important;
+    border-left: 4px solid var(--section-color, var(--tix-accent, var(--tix-primary, #FF5500))) !important;
 }
 .tix-sel-seatmap-cat .tix-sel-qty-val {
     font-size: 12px;
@@ -525,17 +525,17 @@
     align-items: center;
     gap: 6px;
     padding: 12px 20px;
-    border: 2px solid var(--tix-accent, #FF5500);
+    border: 2px solid var(--tix-accent, var(--tix-primary, #FF5500));
     border-radius: 10px;
     background: transparent;
-    color: var(--tix-accent, #FF5500);
+    color: var(--tix-accent, var(--tix-primary, #FF5500));
     font-weight: 600;
     font-size: 14px;
     cursor: pointer;
     transition: all 0.2s;
 }
 .tix-sel-btn-seatmap:hover {
-    background: var(--tix-accent, #FF5500);
+    background: var(--tix-accent, var(--tix-primary, #FF5500));
     color: #fff;
 }
 .tix-sel-btn-best-available {
@@ -578,11 +578,11 @@
     gap: 4px;
     padding: 4px 10px;
     background: rgba(255,85,0,0.15);
-    color: var(--tix-accent, #FF5500);
+    color: var(--tix-accent, var(--tix-primary, #FF5500));
     border-radius: 20px;
     font-size: 11px;
     font-weight: 600;
-    border-left: 3px solid var(--tag-color, var(--tix-accent, #FF5500));
+    border-left: 3px solid var(--tag-color, var(--tix-accent, var(--tix-primary, #FF5500)));
 }
 
 /* ── Responsive ── */

@@ -1186,7 +1186,8 @@ class TIX_Columns {
 
         $body  = '<p>Hier ist dein Ticket' . ($event_name ? ' für <strong>' . esc_html($event_name) . '</strong>' : '') . ':</p>';
         if ($download_url) {
-            $body .= '<p style="margin:20px 0;"><a href="' . esc_url($download_url) . '" style="display:inline-block;padding:14px 28px;background:#FF5500;color:#fff;text-decoration:none;border-radius:10px;font-weight:700;font-size:16px;">Ticket herunterladen</a></p>';
+            $primary = tix_get_settings('color_primary') ?: '#FF5500';
+            $body .= '<p style="margin:20px 0;"><a href="' . esc_url($download_url) . '" style="display:inline-block;padding:14px 28px;background:' . esc_attr($primary) . ';color:#fff;text-decoration:none;border-radius:10px;font-weight:700;font-size:16px;">Ticket herunterladen</a></p>';
         }
         $body .= '<p style="color:#64748b;font-size:13px;">Ticket-Code: <strong>' . esc_html($code) . '</strong></p>';
 
@@ -1255,7 +1256,8 @@ class TIX_Columns {
             $body .= '<span style="color:#64748b;font-size:13px;">Code: ' . esc_html($code) . '</span>';
             $body .= '</td><td style="padding:10px 0;border-bottom:1px solid #eee;text-align:right;">';
             if ($url) {
-                $body .= '<a href="' . esc_url($url) . '" style="display:inline-block;padding:8px 18px;background:#FF5500;color:#fff;text-decoration:none;border-radius:8px;font-size:13px;font-weight:600;">Download</a>';
+                $tpri = tix_get_settings('color_primary') ?: '#FF5500';
+                $body .= '<a href="' . esc_url($url) . '" style="display:inline-block;padding:8px 18px;background:' . esc_attr($tpri) . ';color:#fff;text-decoration:none;border-radius:8px;font-size:13px;font-weight:600;">Download</a>';
             }
             $body .= '</td></tr>';
             $count++;

@@ -30,7 +30,7 @@
 }
 .tix-sp-select:focus,
 .tix-sp-input:focus {
-    border-color: #FF5500;
+    border-color: var(--tix-primary, #FF5500);
     box-shadow: 0 0 0 3px rgba(255,85,0,0.12);
 }
 .tix-sp-input { flex: 1; min-width: 200px; }
@@ -52,9 +52,9 @@
 .tix-sp-btn:hover { background: #FAF8F4; border-color: #9ca3af; }
 .tix-sp-btn:active { transform: scale(0.97); }
 .tix-sp-btn-accent {
-    background: #FF5500;
+    background: var(--tix-primary, #FF5500);
     color: #fff;
-    border-color: #FF5500;
+    border-color: var(--tix-primary, #FF5500);
 }
 .tix-sp-btn-accent:hover { background: #CC4400; border-color: #CC4400; }
 .tix-sp-btn-sm {
@@ -169,9 +169,9 @@
     cursor: pointer;
 }
 .tix-sp-pagination button.active {
-    background: #FF5500;
+    background: var(--tix-primary, #FF5500);
     color: #fff;
-    border-color: #FF5500;
+    border-color: var(--tix-primary, #FF5500);
 }
 .tix-sp-pagination button:disabled { opacity: 0.4; cursor: default; }
 
@@ -301,7 +301,7 @@
     box-sizing: border-box;
 }
 .tix-sp-reply-textarea:focus {
-    border-color: #FF5500;
+    border-color: var(--tix-primary, #FF5500);
     box-shadow: 0 0 0 3px rgba(255,85,0,0.12);
 }
 .tix-sp-reply-actions {
@@ -343,7 +343,7 @@
     text-align: right;
 }
 .tix-sp-sidebar-value a {
-    color: #FF5500;
+    color: var(--tix-primary, #FF5500);
     text-decoration: none;
 }
 .tix-sp-sidebar-value a:hover { text-decoration: underline; }
@@ -449,7 +449,7 @@
 .tix-sp-customer-avatar {
     width: 48px;
     height: 48px;
-    background: #FF5500;
+    background: var(--tix-primary, #FF5500);
     color: #fff;
     border-radius: 50%;
     display: flex;
@@ -748,14 +748,14 @@
     width: 100%;
 }
 .tix-sp-front-input:focus {
-    border-color: #FF5500;
+    border-color: var(--tix-primary, #FF5500);
     box-shadow: 0 0 0 3px rgba(255,85,0,0.12);
 }
 .tix-sp-front-input::placeholder { color: #94a3b8; }
 
 .tix-sp-front-btn {
     padding: 12px 24px;
-    background: #FF5500;
+    background: var(--tix-primary, #FF5500);
     color: #fff;
     border: none;
     border-radius: 10px;
@@ -769,7 +769,7 @@
 .tix-sp-front-btn:active { transform: scale(0.97); }
 .tix-sp-front-btn-ghost {
     background: transparent;
-    color: #FF5500;
+    color: var(--tix-primary, #FF5500);
     border: 1px solid #EDE9E0;
 }
 .tix-sp-front-btn-ghost:hover {
@@ -922,7 +922,7 @@
     box-sizing: border-box;
 }
 .tix-sp-front-reply textarea:focus {
-    border-color: #FF5500;
+    border-color: var(--tix-primary, #FF5500);
     box-shadow: 0 0 0 3px rgba(255,85,0,0.12);
 }
 .tix-sp-front-reply button {
@@ -975,7 +975,7 @@
     height: 56px;
     border-radius: 50%;
     border: none;
-    background: linear-gradient(135deg, #FF5500, #8b5cf6);
+    background: linear-gradient(135deg, var(--tix-primary, #FF5500), #8b5cf6);
     color: #fff;
     font-size: 24px;
     cursor: pointer;
@@ -1016,7 +1016,7 @@
     align-items: center;
     justify-content: space-between;
     padding: 14px 18px;
-    background: linear-gradient(135deg, #FF5500, #8b5cf6);
+    background: linear-gradient(135deg, var(--tix-primary, #FF5500), #8b5cf6);
     color: #fff;
 }
 .tix-sp-chat-panel-header h3 {

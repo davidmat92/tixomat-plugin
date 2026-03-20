@@ -65,7 +65,7 @@
     margin-bottom: 12px;
 }
 .tix-fb-comment:focus {
-    border-color: #FF5500;
+    border-color: var(--tix-primary, #FF5500);
     box-shadow: 0 0 0 3px rgba(255,85,0,.12);
 }
 
@@ -73,7 +73,7 @@
 .tix-fb-submit {
     width: 100%;
     padding: 13px 24px;
-    background: #FF5500;
+    background: var(--tix-primary, #FF5500);
     color: #fff;
     border: none;
     border-radius: var(--ep-radius, 8px);

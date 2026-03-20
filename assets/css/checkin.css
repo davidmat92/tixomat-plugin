@@ -12,7 +12,7 @@
     --ci-ok: #10b981;
     --ci-warn: #f59e0b;
     --ci-err: #ef4444;
-    --ci-accent: #FF5500;
+    --ci-accent: var(--tix-primary, #FF5500);
     --ci-accent-text: #ffffff;
 
     max-width: 480px;
@@ -225,7 +225,7 @@
 .tix-ci-guest-plus {
     display: inline-block;
     background: rgba(255,85,0,0.1);
-    color: #FF5500;
+    color: var(--tix-primary, #FF5500);
     font-size: 0.7rem;
     font-weight: 700;
     padding: 2px 8px;
@@ -389,7 +389,7 @@
 }
 .tix-ci-badge-ticket {
     background: rgba(255,85,0,0.1);
-    color: #FF5500;
+    color: var(--tix-primary, #FF5500);
 }
 .tix-ci-badge-guest {
     background: rgba(16,185,129,0.1);

@@ -38,7 +38,7 @@
     color: #0D0B09;
 }
 .tix-stats-filter select:focus {
-    border-color: #FF5500;
+    border-color: var(--tix-primary, #FF5500);
     outline: none;
     box-shadow: 0 0 0 2px rgba(255,85,0,0.15);
 }
@@ -63,8 +63,8 @@
 .tix-stats-presets button.active,
 .tix-stats-presets button:hover {
     background: rgba(255,85,0,0.08);
-    border-color: #FF5500;
-    color: #FF5500;
+    border-color: var(--tix-primary, #FF5500);
+    color: var(--tix-primary, #FF5500);
 }
 
 /* Date inputs */
@@ -82,7 +82,7 @@
     background: #fff;
 }
 .tix-stats-dates input[type="date"]:focus {
-    border-color: #FF5500;
+    border-color: var(--tix-primary, #FF5500);
     outline: none;
     box-shadow: 0 0 0 2px rgba(255,85,0,0.15);
 }
@@ -114,7 +114,7 @@
 .tix-compare-toggle input[type="checkbox"] {
     width: 15px;
     height: 15px;
-    accent-color: #FF5500;
+    accent-color: var(--tix-primary, #FF5500);
     cursor: pointer;
 }
 .tix-compare-options {
@@ -132,7 +132,7 @@
     background: #fff;
 }
 .tix-compare-options select:focus {
-    border-color: #FF5500;
+    border-color: var(--tix-primary, #FF5500);
     outline: none;
     box-shadow: 0 0 0 2px rgba(255,85,0,0.15);
 }
@@ -150,7 +150,7 @@
     background: #fff;
 }
 .tix-compare-custom-dates input[type="date"]:focus {
-    border-color: #FF5500;
+    border-color: var(--tix-primary, #FF5500);
     outline: none;
     box-shadow: 0 0 0 2px rgba(255,85,0,0.15);
 }
@@ -184,7 +184,7 @@
     box-shadow: 0 2px 4px rgba(0,0,0,0.04), 0 4px 12px rgba(0,0,0,0.03);
 }
 .tix-stats-kpi-icon {
-    color: #FF5500;
+    color: var(--tix-primary, #FF5500);
     font-size: 20px;
     opacity: 0.65;
     display: block;
@@ -288,7 +288,7 @@
     user-select: none;
 }
 .tix-stats-table th:hover {
-    color: #FF5500;
+    color: var(--tix-primary, #FF5500);
 }
 .tix-stats-table td {
     padding: 9px 12px;
@@ -318,8 +318,8 @@
     transition: all 0.15s;
 }
 .tix-stats-export-btn:hover {
-    border-color: #FF5500;
-    color: #FF5500;
+    border-color: var(--tix-primary, #FF5500);
+    color: var(--tix-primary, #FF5500);
     background: rgba(255,85,0,0.04);
 }
 .tix-stats-export-btn .dashicons {
@@ -344,7 +344,7 @@
     width: 28px;
     height: 28px;
     border: 3px solid #EDE9E0;
-    border-top-color: #FF5500;
+    border-top-color: var(--tix-primary, #FF5500);
     border-radius: 50%;
     animation: tixStatsSpin 0.7s linear infinite;
 }

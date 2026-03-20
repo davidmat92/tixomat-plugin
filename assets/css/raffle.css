@@ -12,7 +12,7 @@
 
 /* ── Header ── */
 .tix-raffle-header {
-    background: var(--tix-raffle-header-bg, #FF5500);
+    background: var(--tix-raffle-header-bg, var(--tix-primary, #FF5500));
     color: var(--tix-raffle-header-color, #fff) !important;
     padding: 24px 28px 20px;
 }
@@ -67,7 +67,7 @@
 }
 .tix-raffle-prize-qty {
     font-weight: 700;
-    color: #FF5500;
+    color: var(--tix-primary, #FF5500);
     min-width: 28px;
 }
 .tix-raffle-prize-name {
@@ -120,7 +120,7 @@
     outline: none;
 }
 .tix-raffle-form input:focus {
-    border-color: #FF5500;
+    border-color: var(--tix-primary, #FF5500);
     box-shadow: 0 0 0 3px rgba(255,85,0,.12);
 }
 
@@ -138,10 +138,10 @@
 .tix-raffle-consent input[type="checkbox"] {
     margin-top: 2px;
     flex-shrink: 0;
-    accent-color: #FF5500;
+    accent-color: var(--tix-primary, #FF5500);
 }
 .tix-raffle-consent a {
-    color: #FF5500;
+    color: var(--tix-primary, #FF5500);
     text-decoration: underline;
 }
 

@@ -6,7 +6,7 @@
 /* ── Design Tokens (Light Theme – Default) ── */
 .tix-od {
     /* Brand */
-    --tx-orange: #FF5500;
+    --tx-orange: var(--tix-primary, #FF5500);
     --tx-orange-hover: #CC4400;
     --tx-orange-50: #FFF3EE;
     --tx-orange-100: #FFE0CC;
@@ -35,7 +35,7 @@
     --tx-text-muted: rgba(13,11,9,0.40);
     --tx-border: #EDE9E0;
     --tx-border-subtle: rgba(13,11,9,0.08);
-    --tx-accent: #FF5500;
+    --tx-accent: var(--tix-primary, #FF5500);
     --tx-accent-hover: #CC4400;
     --tx-accent-bg: rgba(255,85,0,0.08);
     --tx-accent-ring: rgba(255,85,0,0.20);
@@ -67,7 +67,7 @@
     --tx-text-muted: rgba(250,248,244,0.40);
     --tx-border: rgba(250,248,244,0.12);
     --tx-border-subtle: rgba(250,248,244,0.06);
-    --tx-accent: #FF5500;
+    --tx-accent: var(--tix-primary, #FF5500);
     --tx-accent-hover: #FF7733;
     --tx-accent-bg: rgba(255,85,0,0.12);
     --tx-accent-ring: rgba(255,85,0,0.30);

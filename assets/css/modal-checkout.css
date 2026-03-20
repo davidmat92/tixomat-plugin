@@ -162,7 +162,7 @@
     transition: border-color 0.15s;
 }
 .tix-mc-cat.tix-mc-cat-active {
-    border-color: var(--tx-accent, #FF5500);
+    border-color: var(--tx-accent, var(--tix-primary, #FF5500));
 }
 .tix-mc-cat-info {
     flex: 1;
@@ -227,9 +227,9 @@
     padding: 0;
 }
 .tix-mc-btn:hover {
-    background: var(--tx-accent, #FF5500);
+    background: var(--tx-accent, var(--tix-primary, #FF5500));
     color: #fff;
-    border-color: var(--tx-accent, #FF5500);
+    border-color: var(--tx-accent, var(--tix-primary, #FF5500));
 }
 .tix-mc-qty-val {
     min-width: 26px;
@@ -337,8 +337,8 @@
     transition: border-color 0.15s, color 0.15s;
 }
 .tix-mc-offers-btn:hover {
-    border-color: var(--tx-accent, #FF5500);
-    color: var(--tx-accent, #FF5500);
+    border-color: var(--tx-accent, var(--tix-primary, #FF5500));
+    color: var(--tx-accent, var(--tix-primary, #FF5500));
 }
 .tix-mc-offers-icon {
     display: inline-flex;
@@ -380,7 +380,7 @@
 }
 .tix-mc-offer-save {
     display: inline-block;
-    background: var(--tx-accent, #FF5500);
+    background: var(--tx-accent, var(--tix-primary, #FF5500));
     color: #fff;
     font-size: 0.72rem;
     font-weight: 700;
@@ -417,7 +417,7 @@
     flex-shrink: 0;
 }
 .tix-mc-gd-active {
-    background: var(--tx-accent, #FF5500);
+    background: var(--tx-accent, var(--tix-primary, #FF5500));
     color: #fff;
 }
 
@@ -443,7 +443,7 @@
 }
 .tix-mc-coupon-code:focus {
     outline: none;
-    border-color: var(--tx-accent, #FF5500);
+    border-color: var(--tx-accent, var(--tix-primary, #FF5500));
     box-shadow: 0 0 0 2px rgba(255,85,0,0.15);
 }
 .tix-mc-coupon-btn {
@@ -460,7 +460,7 @@
     transition: border-color 0.15s, background 0.15s;
 }
 .tix-mc-coupon-btn:hover {
-    border-color: var(--tx-accent, #FF5500);
+    border-color: var(--tx-accent, var(--tix-primary, #FF5500));
     background: rgba(255,85,0,0.06);
 }
 .tix-mc-coupon-result {
@@ -529,7 +529,7 @@
 .tix-mc-link-btn {
     background: none;
     border: none;
-    color: var(--tix-buy-bg, #FF5500);
+    color: var(--tix-buy-bg, var(--tix-primary, #FF5500));
     font-weight: 700;
     cursor: pointer;
     padding: 0;
@@ -554,7 +554,7 @@
     padding: 10px 24px;
     border: none;
     border-radius: var(--tix-buy-radius, 8px);
-    background: var(--tix-buy-bg, #FF5500);
+    background: var(--tix-buy-bg, var(--tix-primary, #FF5500));
     color: var(--tix-buy-color, #fff);
     font-weight: 700;
     font-size: 0.9rem;
@@ -640,7 +640,7 @@
 .tix-mc-input:focus,
 .tix-mc-select:focus {
     outline: none;
-    border-color: var(--tx-accent, #FF5500);
+    border-color: var(--tx-accent, var(--tix-primary, #FF5500));
     box-shadow: 0 0 0 2px rgba(255,85,0,0.15);
 }
 
@@ -667,7 +667,7 @@
     transition: border-color 0.15s, background 0.15s;
 }
 .tix-mc-gateway.tix-mc-gw-active {
-    border-color: var(--tx-accent, #FF5500);
+    border-color: var(--tx-accent, var(--tix-primary, #FF5500));
     background: rgba(255,85,0,0.04);
 }
 .tix-mc-gw-label {
@@ -691,7 +691,7 @@
     transition: border-color 0.15s;
 }
 .tix-mc-gw-radio:checked + .tix-mc-gw-radio-custom {
-    border-color: var(--tx-accent, #FF5500);
+    border-color: var(--tx-accent, var(--tix-primary, #FF5500));
 }
 .tix-mc-gw-radio:checked + .tix-mc-gw-radio-custom::after {
     content: '';
@@ -701,7 +701,7 @@
     width: 8px;
     height: 8px;
     border-radius: 50%;
-    background: var(--tx-accent, #FF5500);
+    background: var(--tx-accent, var(--tix-primary, #FF5500));
     transform: translate(-50%, -50%);
 }
 .tix-mc-gw-title {
@@ -802,8 +802,8 @@
     margin-top: 1px;
 }
 .tix-mc-check:checked + .tix-mc-check-custom {
-    border-color: var(--tx-accent, #FF5500);
-    background: var(--tx-accent, #FF5500);
+    border-color: var(--tx-accent, var(--tix-primary, #FF5500));
+    background: var(--tx-accent, var(--tix-primary, #FF5500));
 }
 .tix-mc-check:checked + .tix-mc-check-custom::after {
     content: '';
@@ -953,10 +953,10 @@
     transition: border-color 0.15s;
 }
 .tix-mc-table-cat:hover {
-    border-color: var(--tx-accent, #FF5500);
+    border-color: var(--tx-accent, var(--tix-primary, #FF5500));
 }
 .tix-mc-table-cat-active {
-    border-color: var(--tx-accent, #FF5500) !important;
+    border-color: var(--tx-accent, var(--tix-primary, #FF5500)) !important;
 }
 .tix-mc-table-sold-out {
     opacity: 0.35;
@@ -1063,7 +1063,7 @@
 }
 .tix-mc-table-comments-input:focus {
     outline: none;
-    border-color: var(--tx-accent, #FF5500);
+    border-color: var(--tx-accent, var(--tix-primary, #FF5500));
     box-shadow: 0 0 0 2px rgba(255,85,0,0.15);
 }
 

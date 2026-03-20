@@ -41,9 +41,9 @@
     background: #f1f5f9;
 }
 .tix-tt-day.active {
-    background: #FF5500;
+    background: var(--tix-primary, #FF5500);
     color: #fff;
-    border-color: #FF5500;
+    border-color: var(--tix-primary, #FF5500);
 }
 
 /* ── Bühnen-Filter (nur Mobile sichtbar) ── */
@@ -66,9 +66,9 @@
     transition: all .2s;
 }
 .tix-tt-filter-btn.active {
-    background: var(--tt-stage-color, #FF5500);
+    background: var(--tt-stage-color, var(--tix-primary, #FF5500));
     color: #fff;
-    border-color: var(--tt-stage-color, #FF5500);
+    border-color: var(--tt-stage-color, var(--tix-primary, #FF5500));
 }
 
 /* ── Inhalt (Tag) ── */
@@ -105,8 +105,8 @@
 }
 .tix-tt-stage-header {
     background: #FAF8F4;
-    color: var(--tt-stage-color, #FF5500);
-    border-bottom: 3px solid var(--tt-stage-color, #FF5500);
+    color: var(--tt-stage-color, var(--tix-primary, #FF5500));
+    border-bottom: 3px solid var(--tt-stage-color, var(--tix-primary, #FF5500));
 }
 
 .tix-tt-grid-row {
@@ -152,13 +152,13 @@
     flex-direction: column;
     gap: 2px;
     padding: 8px 12px;
-    background: color-mix(in srgb, var(--tt-stage-color, #FF5500) 8%, transparent);
-    border-left: 3px solid var(--tt-stage-color, #FF5500);
+    background: color-mix(in srgb, var(--tt-stage-color, var(--tix-primary, #FF5500)) 8%, transparent);
+    border-left: 3px solid var(--tt-stage-color, var(--tix-primary, #FF5500));
     border-radius: 4px;
 }
 .tix-tt-slot-time {
     font-size: .75rem;
-    color: var(--tt-stage-color, #FF5500);
+    color: var(--tt-stage-color, var(--tix-primary, #FF5500));
     font-weight: 600;
 }
 .tix-tt-slot-title {
@@ -181,8 +181,8 @@
     display: flex;
     gap: 12px;
     padding: 12px 14px;
-    border-left: 3px solid var(--tt-stage-color, #FF5500);
-    background: color-mix(in srgb, var(--tt-stage-color, #FF5500) 5%, var(--ep-bg, #fff));
+    border-left: 3px solid var(--tt-stage-color, var(--tix-primary, #FF5500));
+    background: color-mix(in srgb, var(--tt-stage-color, var(--tix-primary, #FF5500)) 5%, var(--ep-bg, #fff));
     border-radius: 0 var(--ep-radius, 8px) var(--ep-radius, 8px) 0;
 }
 .tix-tt-list-item[hidden] {
@@ -191,7 +191,7 @@
 .tix-tt-list-time {
     font-size: .82rem;
     font-weight: 700;
-    color: var(--tt-stage-color, #FF5500);
+    color: var(--tt-stage-color, var(--tix-primary, #FF5500));
     min-width: 80px;
     white-space: nowrap;
 }
@@ -213,7 +213,7 @@
 .tix-tt-list-stage {
     font-size: .75rem;
     font-weight: 600;
-    color: var(--tt-stage-color, #FF5500);
+    color: var(--tt-stage-color, var(--tix-primary, #FF5500));
     text-transform: uppercase;
     letter-spacing: .03em;
 }

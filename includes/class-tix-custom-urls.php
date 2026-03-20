@@ -149,15 +149,16 @@ class TIX_Custom_URLs {
         .tix-login-field{margin-bottom:16px}
         .tix-login-label{display:block;font-size:13px;font-weight:600;color:#475569;margin-bottom:6px}
         .tix-login-input{width:100%;padding:10px 14px;border:1px solid #d1d5db;border-radius:10px;font-size:14px;font-family:inherit;color:#0D0B09;background:#fff;outline:none;transition:border-color .15s,box-shadow .15s}
-        .tix-login-input:focus{border-color:#FF5500;box-shadow:0 0 0 3px rgba(255,85,0,.12)}
+        <?php $cp = $s['color_primary'] ?? '#FF5500'; $cpr = hexdec(substr($cp,1,2)); $cpg = hexdec(substr($cp,3,2)); $cpb = hexdec(substr($cp,5,2)); ?>
+        .tix-login-input:focus{border-color:<?php echo esc_attr($cp); ?>;box-shadow:0 0 0 3px rgba(<?php echo "$cpr,$cpg,$cpb"; ?>,.12)}
         .tix-login-remember{display:flex;align-items:center;gap:8px;margin-bottom:20px;font-size:13px;color:#64748b}
-        .tix-login-submit{width:100%;padding:12px;background:#FF5500;color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:600;font-family:inherit;cursor:pointer;transition:background .15s,transform .1s}
-        .tix-login-submit:hover{background:#e04d00}
+        .tix-login-submit{width:100%;padding:12px;background:<?php echo esc_attr($s['color_primary'] ?? '#FF5500'); ?>;color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:600;font-family:inherit;cursor:pointer;transition:background .15s,transform .1s}
+        .tix-login-submit:hover{opacity:.88}
         .tix-login-submit:active{transform:scale(.98)}
         .tix-login-error{background:#fef2f2;color:#dc2626;border:1px solid #fecaca;border-radius:10px;padding:10px 14px;font-size:13px;margin-bottom:16px}
         .tix-login-footer{text-align:center;margin-top:16px;font-size:12px;color:#94a3b8}
         .tix-login-footer a{color:#64748b;text-decoration:none}
-        .tix-login-footer a:hover{color:#FF5500}
+        .tix-login-footer a:hover{color:<?php echo esc_attr($s['color_primary'] ?? '#FF5500'); ?>}
     </style>
 </head>
 <body>

@@ -21,6 +21,7 @@ class TIX_Settings {
             'color_palette'       => [],   // Array of {name, color} (max 12)
 
             // ── Farben ──
+            'color_primary'       => '#FF5500', // Primärfarbe (ersetzt Orange überall)
             'color_text'          => '',       // leer = inherit (Theme-Farbe)
             'color_accent'        => '#c8ff00',
             'color_accent_text'   => '#000000',
@@ -453,6 +454,7 @@ class TIX_Settings {
         foreach (['color_accent', 'color_accent_text', 'color_accent_hover', 'color_accent_hover_text', 'color_border', 'color_input_border', 'color_focus', 'color_sale', 'color_success'] as $k) {
             $clean[$k] = self::sanitize_color($input[$k] ?? '') ?: $defaults[$k];
         }
+        $clean['color_primary']  = self::sanitize_color($input['color_primary'] ?? '') ?: '#FF5500';
         $clean['color_text']     = self::sanitize_color($input['color_text'] ?? '') ?: '';
         $clean['color_card_bg']  = self::sanitize_color($input['color_card_bg'] ?? '') ?: '';
         $clean['color_input_bg'] = self::sanitize_color($input['color_input_bg'] ?? '') ?: '';
@@ -850,6 +852,12 @@ class TIX_Settings {
         $d = self::defaults();
 
         $vars = [];
+
+        // Primärfarbe immer ausgeben (ersetzt #FF5500 überall)
+        $primary = $s['color_primary'] ?? '#FF5500';
+        if ($primary && $primary !== '#FF5500') {
+            $vars[] = "--tix-primary: $primary";
+        }
 
         // Nur geänderte Werte ausgeben
         $map = [
@@ -1368,6 +1376,7 @@ class TIX_Settings {
                                     <div class="tix-card-body">
                                         <div class="tix-field-grid">
                                             <?php
+                                            self::color_row('color_primary',       'Prim&auml;rfarbe', $s);
                                             self::color_row('color_text',          'Textfarbe', $s, true);
                                             self::color_row('color_border',        'Rahmenfarbe', $s);
                                             self::color_row('color_input_border',  'Input-Rahmen', $s);

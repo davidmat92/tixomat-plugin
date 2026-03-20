@@ -200,7 +200,7 @@ body.tix-fullscreen #titlewrap input#title {
     box-shadow: none;
 }
 body.tix-fullscreen #titlewrap input#title:focus {
-    border-color: #FF5500;
+    border-color: var(--tix-primary, #FF5500);
     outline: none;
     box-shadow: 0 0 0 2px rgba(255,85,0,0.15);
 }
@@ -235,7 +235,7 @@ body.tix-fullscreen .tix-floating-publish {
     gap: 10px;
 }
 body.tix-fullscreen .tix-floating-publish .tix-publish-btn {
-    background: #FF5500;
+    background: var(--tix-primary, #FF5500);
     color: #fff;
     border: none;
     padding: 10px 22px;
@@ -457,11 +457,11 @@ body.tix-fullscreen .page-title-action:hover {
     top: 4px;
     bottom: 4px;
     width: 3px;
-    background: #FF5500;
+    background: var(--tix-primary, #FF5500);
     border-radius: 0 3px 3px 0;
 }
 .tix-shell-item.active .dashicons {
-    color: #FF5500;
+    color: var(--tix-primary, #FF5500);
 }
 
 

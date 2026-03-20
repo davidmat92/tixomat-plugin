@@ -90,7 +90,7 @@
     border-radius: 4px;
 }
 .tix-tte-field-overlay.active {
-    border-color: #FF5500;
+    border-color: var(--tix-primary, #FF5500);
     background: rgba(99, 102, 241, 0.3);
     z-index: 10;
 }
@@ -150,7 +150,7 @@
     bottom: -4px;
     width: 10px;
     height: 10px;
-    background: #FF5500;
+    background: var(--tix-primary, #FF5500);
     border: 1px solid #fff;
     border-radius: 3px;
     cursor: se-resize;
@@ -195,7 +195,7 @@
 .tix-tte-field-item input[type="checkbox"] {
     margin: 0;
     flex-shrink: 0;
-    accent-color: #FF5500;
+    accent-color: var(--tix-primary, #FF5500);
 }
 .tix-tte-field-item label {
     cursor: pointer;
@@ -205,7 +205,7 @@
 }
 .tix-tte-field-item.active label {
     font-weight: 600;
-    color: #FF5500;
+    color: var(--tix-primary, #FF5500);
 }
 .tix-tte-field-item:hover label {
     color: #0D0B09;
@@ -260,7 +260,7 @@
 .tix-tte-prop-field input:focus,
 .tix-tte-prop-field select:focus {
     outline: none;
-    border-color: #FF5500;
+    border-color: var(--tix-primary, #FF5500);
     box-shadow: 0 0 0 3px rgba(255,85,0,0.15);
 }
 .tix-tte-prop-field input[type="number"] {
@@ -297,9 +297,9 @@
     border-color: #cbd5e1;
 }
 .tix-tte-align-btns button.active {
-    background: #FF5500;
+    background: var(--tix-primary, #FF5500);
     color: #fff;
-    border-color: #FF5500;
+    border-color: var(--tix-primary, #FF5500);
 }
 
 /* ── Section-Überschriften im Properties-Panel ── */
@@ -343,7 +343,7 @@
     -webkit-appearance: none;
     width: 14px;
     height: 14px;
-    background: #FF5500;
+    background: var(--tix-primary, #FF5500);
     border-radius: 50%;
     border: 2px solid #fff;
     box-shadow: 0 1px 3px rgba(0,0,0,0.15);
@@ -352,7 +352,7 @@
 .tix-tte-slider-number input[type="range"]::-moz-range-thumb {
     width: 14px;
     height: 14px;
-    background: #FF5500;
+    background: var(--tix-primary, #FF5500);
     border-radius: 50%;
     border: 2px solid #fff;
     box-shadow: 0 1px 3px rgba(0,0,0,0.15);
@@ -387,7 +387,7 @@
     -webkit-appearance: none;
     width: 14px;
     height: 14px;
-    background: #FF5500;
+    background: var(--tix-primary, #FF5500);
     border-radius: 50%;
     border: 2px solid #fff;
     box-shadow: 0 1px 3px rgba(0,0,0,0.15);
@@ -396,7 +396,7 @@
 .tix-tte-range-wrap input[type="range"]::-moz-range-thumb {
     width: 14px;
     height: 14px;
-    background: #FF5500;
+    background: var(--tix-primary, #FF5500);
     border-radius: 50%;
     border: 2px solid #fff;
     box-shadow: 0 1px 3px rgba(0,0,0,0.15);

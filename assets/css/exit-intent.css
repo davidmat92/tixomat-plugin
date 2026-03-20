@@ -97,7 +97,7 @@
 }
 
 .tix-ei-coupon:hover {
-    border-color: var(--tix-buy-bg, #FF5500);
+    border-color: var(--tix-buy-bg, var(--tix-primary, #FF5500));
     background: rgba(0, 0, 0, 0.06);
 }
 
@@ -125,7 +125,7 @@
     justify-content: center;
     width: 100%;
     padding: 14px 24px;
-    background: var(--tix-buy-bg, #FF5500);
+    background: var(--tix-buy-bg, var(--tix-primary, #FF5500));
     color: var(--tix-buy-color, #fff);
     border: none;
     border-radius: var(--tix-radius, 10px);

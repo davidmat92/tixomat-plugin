@@ -58,8 +58,8 @@
 .tix-share-btn--rd:hover     { color: #ff4500; border-color: #ff4500; }
 .tix-share-btn--email:hover  { color: #ea4335; border-color: #ea4335; }
 .tix-share-btn--sms:hover    { color: #34c759; border-color: #34c759; }
-.tix-share-btn--copy:hover   { color: #FF5500; border-color: #FF5500; }
-.tix-share-btn--native:hover { color: #FF5500; border-color: #FF5500; }
+.tix-share-btn--copy:hover   { color: var(--tix-primary, #FF5500); border-color: var(--tix-primary, #FF5500); }
+.tix-share-btn--native:hover { color: var(--tix-primary, #FF5500); border-color: var(--tix-primary, #FF5500); }
 
 /* ── Kopiert-Zustand ── */
 .tix-share-btn--copied {

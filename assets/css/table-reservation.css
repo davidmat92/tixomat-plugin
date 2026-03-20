@@ -91,9 +91,9 @@
     transition: all 0.2s;
 }
 .tr-calendar-nav button:hover {
-    background: var(--tx-accent, #FF5500);
+    background: var(--tx-accent, var(--tix-primary, #FF5500));
     color: #fff;
-    border-color: var(--tx-accent, #FF5500);
+    border-color: var(--tx-accent, var(--tix-primary, #FF5500));
 }
 .tr-calendar-month {
     font-family: var(--tx-font-display, 'Outfit', system-ui, sans-serif);
@@ -155,7 +155,7 @@
     margin-bottom: 4px;
 }
 .tr-today .tr-day-number {
-    background: var(--tx-accent, #FF5500);
+    background: var(--tx-accent, var(--tix-primary, #FF5500));
     color: #fff;
     width: 26px;
     height: 26px;
@@ -318,7 +318,7 @@
     transition: border-color 0.15s;
 }
 .tr-cat-card:hover {
-    border-color: var(--tx-accent, #FF5500);
+    border-color: var(--tx-accent, var(--tix-primary, #FF5500));
 }
 .tr-cat-card.tr-sold-out {
     opacity: 0.35;
@@ -356,7 +356,7 @@
 }
 .tr-cat-badge-accent {
     background: rgba(255,85,0,0.08);
-    color: var(--tx-accent, #FF5500);
+    color: var(--tx-accent, var(--tix-primary, #FF5500));
     border-color: transparent;
 }
 .tr-cat-right {
@@ -389,7 +389,7 @@
 }
 .tr-cat-card:hover .tr-cat-arrow {
     transform: translateX(4px);
-    color: var(--tx-accent, #FF5500);
+    color: var(--tx-accent, var(--tix-primary, #FF5500));
 }
 
 /* ══════════════════════════════════════
@@ -424,7 +424,7 @@
 }
 .tr-form-summary-cat {
     font-size: 14px;
-    color: var(--tx-accent, #FF5500);
+    color: var(--tx-accent, var(--tix-primary, #FF5500));
     margin-bottom: 8px;
     font-weight: 600;
 }
@@ -467,7 +467,7 @@
 .tr-form-input:focus,
 .tr-form-textarea:focus,
 .tr-form-select:focus {
-    border-color: var(--tx-accent, #FF5500);
+    border-color: var(--tx-accent, var(--tix-primary, #FF5500));
     box-shadow: 0 0 0 2px rgba(255,85,0,0.15);
 }
 .tr-form-input::placeholder,
@@ -511,9 +511,9 @@
     padding: 0;
 }
 .tr-guest-stepper button:hover {
-    background: var(--tx-accent, #FF5500);
+    background: var(--tx-accent, var(--tix-primary, #FF5500));
     color: #fff;
-    border-color: var(--tx-accent, #FF5500);
+    border-color: var(--tx-accent, var(--tix-primary, #FF5500));
 }
 .tr-guest-stepper button:disabled {
     opacity: 0.3;
@@ -677,7 +677,7 @@
     width: 32px;
     height: 32px;
     border: 3px solid var(--tx-border, #EDE9E0);
-    border-top-color: var(--tx-accent, #FF5500);
+    border-top-color: var(--tx-accent, var(--tix-primary, #FF5500));
     border-radius: 50%;
     animation: trSpin 0.7s linear infinite;
     margin: 0 auto 12px;

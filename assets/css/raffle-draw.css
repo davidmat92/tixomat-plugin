@@ -44,7 +44,7 @@
 }
 
 #tix-raffle-dl-btn {
-    background: #FF5500;
+    background: var(--tix-primary, #FF5500);
     color: #fff;
 }
 
@@ -84,7 +84,7 @@
 }
 
 .tix-raffle-format-wrap label:hover {
-    border-color: #FF5500;
+    border-color: var(--tix-primary, #FF5500);
 }
 
 .tix-raffle-format-wrap input[type="radio"] {
@@ -92,7 +92,7 @@
 }
 
 .tix-raffle-format-wrap input[type="radio"]:checked + span {
-    color: #FF5500;
+    color: var(--tix-primary, #FF5500);
     font-weight: 600;
 }
 

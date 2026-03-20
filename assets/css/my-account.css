@@ -12,7 +12,7 @@ body.woocommerce-account .woocommerce {
     --_card: var(--tix-mt-card-bg, #ffffff);
     --_text: var(--tix-text, #0D0B09);
     --_border: var(--tix-mt-border, var(--tix-border, #e5e7eb));
-    --_accent: var(--tix-mt-accent, var(--tix-buy-bg, #FF5500));
+    --_accent: var(--tix-mt-accent, var(--tix-buy-bg, var(--tix-primary, #FF5500)));
     --_accent-text: var(--tix-buy-color, #ffffff);
     --_accent-hover: var(--tix-buy-hover, #e04d00);
     --_muted: var(--tix-mt-muted, rgba(0, 0, 0, 0.45));
