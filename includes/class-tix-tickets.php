@@ -639,6 +639,23 @@ class TIX_Tickets {
 
         header('Content-Type: text/html; charset=utf-8');
 
+        // Design-Settings laden
+        $s  = function_exists('tix_get_settings') ? get_option('tix_settings', []) : [];
+        $hd = [
+            'ht_header_bg'     => '#222222', 'ht_header_text'   => '#ffffff',
+            'ht_body_bg'       => '#ffffff', 'ht_text_color'    => '#1a1a1a',
+            'ht_label_color'   => '#888888', 'ht_border_color'  => '#222222',
+            'ht_footer_color'  => '#888888', 'ht_divider_color' => '#cccccc',
+            'ht_btn_bg'        => '#222222', 'ht_btn_text'      => '#ffffff',
+            'ht_border_radius' => 12,
+            'ht_footer_text'   => 'Bitte dieses Ticket ausgedruckt oder digital zum Einlass mitbringen.',
+            'ht_logo_url'      => '',
+        ];
+        foreach ($hd as $k => $v) {
+            $$k = isset($s[$k]) && $s[$k] !== '' ? $s[$k] : $v;
+        }
+        $ht_border_radius = intval($ht_border_radius);
+
         $qr_data = 'GL-' . $event_id . '-' . $code;
         $qr_url  = 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=' . urlencode($qr_data);
 
@@ -649,31 +666,43 @@ class TIX_Tickets {
     <meta charset="UTF-8">
     <title>Ticket: <?php echo esc_html($event_name); ?></title>
     <style>
-        @media print { body { margin: 0; } .no-print { display: none !important; } }
+        @media print {
+            @page { margin: 0; }
+            body { margin: 0 !important; padding: 10px !important; background: #fff !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            .no-print { display: none !important; }
+            .ticket { box-shadow: none !important; }
+        }
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f0f0f0; padding: 20px; }
-        .ticket { max-width: 600px; margin: 0 auto; background: #fff; border: 2px solid #222; border-radius: 12px; overflow: hidden; }
-        .ticket-header { background: #222; color: #fff; padding: 24px 30px; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f0f0f0; padding: 20px; color: <?php echo esc_attr($ht_text_color); ?>; }
+        .ticket { max-width: 600px; margin: 0 auto; background: <?php echo esc_attr($ht_body_bg); ?>; border: 2px solid <?php echo esc_attr($ht_border_color); ?>; border-radius: <?php echo $ht_border_radius; ?>px; overflow: hidden; }
+        .ticket-header { background: <?php echo esc_attr($ht_header_bg); ?>; color: <?php echo esc_attr($ht_header_text); ?>; padding: 24px 30px; display: flex; align-items: center; gap: 16px; }
+        .ticket-logo { max-height: 44px; width: auto; flex-shrink: 0; }
+        .ticket-header-text { flex: 1; }
         .ticket-header h1 { font-size: 22px; margin-bottom: 4px; }
         .ticket-header p { font-size: 14px; opacity: .75; }
         .ticket-body { padding: 30px; display: flex; gap: 24px; }
         .ticket-info { flex: 1; }
         .ticket-qr { flex: 0 0 160px; text-align: center; }
         .ticket-qr img { width: 160px; height: 160px; }
-        .ticket-qr .code { font-family: monospace; font-size: 16px; font-weight: bold; margin-top: 8px; letter-spacing: 2px; }
+        .ticket-qr .code { font-family: monospace; font-size: 16px; font-weight: bold; margin-top: 8px; letter-spacing: 2px; color: <?php echo esc_attr($ht_text_color); ?>; }
         .info-row { margin-bottom: 14px; }
-        .info-row .label { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: #888; margin-bottom: 2px; }
+        .info-row .label { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: <?php echo esc_attr($ht_label_color); ?>; margin-bottom: 2px; }
         .info-row .value { font-size: 16px; font-weight: 600; }
-        .ticket-footer { border-top: 1px dashed #ccc; padding: 16px 30px; font-size: 12px; color: #888; text-align: center; }
-        .print-btn { display: block; max-width: 600px; margin: 20px auto 0; padding: 12px; background: #222; color: #fff; border: none; border-radius: 8px; font-size: 16px; cursor: pointer; }
-        .print-btn:hover { background: #444; }
+        .ticket-footer { border-top: 1px dashed <?php echo esc_attr($ht_divider_color); ?>; padding: 16px 30px; font-size: 12px; color: <?php echo esc_attr($ht_footer_color); ?>; text-align: center; }
+        .print-btn { display: block; max-width: 600px; margin: 20px auto 0; padding: 12px; background: <?php echo esc_attr($ht_btn_bg); ?>; color: <?php echo esc_attr($ht_btn_text); ?>; border: none; border-radius: 8px; font-size: 16px; cursor: pointer; }
+        .print-btn:hover { opacity: .85; }
     </style>
 </head>
 <body>
     <div class="ticket">
         <div class="ticket-header">
-            <h1><?php echo esc_html($event_name); ?></h1>
-            <p><?php echo esc_html($cat_name); ?><?php if ($price): ?> — <?php echo esc_html($price); ?><?php endif; ?></p>
+            <?php if ($ht_logo_url): ?>
+                <img src="<?php echo esc_url($ht_logo_url); ?>" alt="Logo" class="ticket-logo">
+            <?php endif; ?>
+            <div class="ticket-header-text">
+                <h1><?php echo esc_html($event_name); ?></h1>
+                <p><?php echo esc_html($cat_name); ?><?php if ($price): ?> — <?php echo esc_html($price); ?><?php endif; ?></p>
+            </div>
         </div>
         <div class="ticket-body">
             <div class="ticket-info">
@@ -718,10 +747,10 @@ class TIX_Tickets {
             </div>
         </div>
         <div class="ticket-footer">
-            Bitte dieses Ticket ausgedruckt oder digital zum Einlass mitbringen.
+            <?php echo esc_html($ht_footer_text); ?>
         </div>
     </div>
-    <button class="print-btn no-print" onclick="window.print()">🖨️ Ticket drucken</button>
+    <button class="print-btn no-print" onclick="window.print()">Ticket drucken</button>
 </body>
 </html>
         <?php

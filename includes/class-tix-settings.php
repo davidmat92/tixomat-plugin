@@ -217,6 +217,21 @@ class TIX_Settings {
             'mt_ticket_bg'       => '#f8fdf0',
             'mt_accent_color'    => '',  // leer = globaler Accent
 
+            // ── HTML-Ticket ──
+            'ht_header_bg'       => '#222222',
+            'ht_header_text'     => '#ffffff',
+            'ht_body_bg'         => '#ffffff',
+            'ht_text_color'      => '#1a1a1a',
+            'ht_label_color'     => '#888888',
+            'ht_border_color'    => '#222222',
+            'ht_footer_color'    => '#888888',
+            'ht_divider_color'   => '#cccccc',
+            'ht_btn_bg'          => '#222222',
+            'ht_btn_text'        => '#ffffff',
+            'ht_border_radius'   => 12,
+            'ht_footer_text'     => 'Bitte dieses Ticket ausgedruckt oder digital zum Einlass mitbringen.',
+            'ht_logo_url'        => '',
+
             // ── E-Mail ──
             'email_logo_url'     => '',       // URL zum Logo-Bild
             'email_brand_name'   => '',       // Firmenname (leer = Blogname)
@@ -567,6 +582,14 @@ class TIX_Settings {
         foreach (['mt_bg', 'mt_card_bg', 'mt_text_color', 'mt_border_color', 'mt_ticket_bg', 'mt_accent_color'] as $k) {
             $clean[$k] = self::sanitize_color($input[$k] ?? '') ?: '';
         }
+
+        // HTML-Ticket Farben
+        foreach (['ht_header_bg', 'ht_header_text', 'ht_body_bg', 'ht_text_color', 'ht_label_color', 'ht_border_color', 'ht_footer_color', 'ht_divider_color', 'ht_btn_bg', 'ht_btn_text'] as $k) {
+            $clean[$k] = self::sanitize_color($input[$k] ?? '') ?: $d[$k];
+        }
+        $clean['ht_border_radius'] = max(0, min(30, intval($input['ht_border_radius'] ?? 12)));
+        $clean['ht_footer_text']   = sanitize_text_field($input['ht_footer_text'] ?? $d['ht_footer_text']);
+        $clean['ht_logo_url']      = esc_url_raw($input['ht_logo_url'] ?? '');
 
         // E-Mail
         $clean['email_logo_url']     = esc_url_raw($input['email_logo_url'] ?? '');
@@ -1878,6 +1901,65 @@ class TIX_Settings {
 
                                         <div id="tix-tte-settings-editor" class="tix-tte-wrap"></div>
                                         <input type="hidden" name="<?php echo $ok; ?>[ticket_template]" id="tix-tte-settings-input" value="<?php echo esc_attr($s['ticket_template'] ?: ''); ?>">
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: HTML-Ticket Design ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-layout"></span>
+                                        <h3>HTML-Ticket Design</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <p class="tix-settings-hint" style="margin-bottom:12px;">Gestalte das HTML-Ticket (Fallback ohne Bild-Template). Diese Farben werden beim direkten Download im Browser angezeigt.</p>
+                                        <div class="tix-field-grid">
+                                            <?php
+                                            self::color_row('ht_header_bg',     'Header-Hintergrund', $s);
+                                            self::color_row('ht_header_text',   'Header-Text', $s);
+                                            self::color_row('ht_body_bg',       'Body-Hintergrund', $s);
+                                            self::color_row('ht_text_color',    'Textfarbe', $s);
+                                            self::color_row('ht_label_color',   'Label-Farbe', $s);
+                                            self::color_row('ht_border_color',  'Ticket-Rahmen', $s);
+                                            self::color_row('ht_footer_color',  'Footer-Text', $s);
+                                            self::color_row('ht_divider_color', 'Trennlinie', $s);
+                                            self::color_row('ht_btn_bg',        'Drucken-Button', $s);
+                                            self::color_row('ht_btn_text',      'Button-Text', $s);
+                                            self::range_row('ht_border_radius', 'Eckenradius', $s, 0, 30, 'px');
+                                            ?>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::text_row('ht_footer_text', 'Footer-Nachricht', $s, 'Text unter dem Ticket'); ?>
+                                            </div>
+                                            <div class="tix-field tix-field-full" style="margin-top:12px;">
+                                                <label class="tix-field-label">Ticket-Logo</label>
+                                                <div style="display:flex;gap:12px;align-items:center;">
+                                                    <input type="text" name="<?php echo $ok; ?>[ht_logo_url]" id="tix-ht-logo-url"
+                                                           value="<?php echo esc_attr($s['ht_logo_url'] ?? ''); ?>"
+                                                           class="regular-text" placeholder="Logo-URL eingeben oder Bild w&auml;hlen"
+                                                           style="flex:1;">
+                                                    <button type="button" class="button" id="tix-ht-logo-btn">Bild w&auml;hlen</button>
+                                                </div>
+                                                <?php if (!empty($s['ht_logo_url'])) : ?>
+                                                    <div style="margin-top:8px;" id="tix-ht-logo-preview">
+                                                        <img src="<?php echo esc_url($s['ht_logo_url']); ?>" style="max-height:40px;width:auto;background:#222;padding:8px 12px;border-radius:8px;">
+                                                        <button type="button" class="button-link" style="color:#ef4444;margin-left:8px;" onclick="document.getElementById('tix-ht-logo-url').value='';document.getElementById('tix-ht-logo-preview').remove();">Entfernen</button>
+                                                    </div>
+                                                <?php endif; ?>
+                                                <p class="tix-field-hint">Logo im Ticket-Header (links neben dem Titel). Empfohlen: transparentes PNG oder wei&szlig;es Logo, max. 200px breit.</p>
+                                            </div>
+                                        </div>
+                                        <script>
+                                        jQuery(function($){
+                                            $('#tix-ht-logo-btn').on('click',function(e){
+                                                e.preventDefault();
+                                                var frame = wp.media({title:'Ticket-Logo w\u00e4hlen',multiple:false,library:{type:'image'}});
+                                                frame.on('select',function(){
+                                                    var url = frame.state().get('selection').first().toJSON().url;
+                                                    $('#tix-ht-logo-url').val(url);
+                                                });
+                                                frame.open();
+                                            });
+                                        });
+                                        </script>
                                     </div>
                                 </div>
 
