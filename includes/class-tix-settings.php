@@ -13,6 +13,7 @@ class TIX_Settings {
             // ── Modus ──
             'fullscreen_admin'    => 1,
             'login_slug'          => '',
+            'login_redirect'      => '',       // Weiterleitung nach Login (leer = Backend)
             'organizer_slug'      => '',
             'admin_logo_url'      => '',       // Custom Logo für Admin-Shell, Login, Dashboard
             'theme_mode'          => 'light',
@@ -778,6 +779,7 @@ class TIX_Settings {
 
         // Custom URLs
         $clean['login_slug'] = sanitize_title(trim($input['login_slug'] ?? ''));
+        $clean['login_redirect'] = sanitize_text_field(trim($input['login_redirect'] ?? ''));
         $clean['organizer_slug'] = sanitize_title(trim($input['organizer_slug'] ?? ''));
 
         // Custom Logo
@@ -3162,6 +3164,12 @@ class TIX_Settings {
                                                     <?php else : ?>
                                                         Leer lassen f&uuml;r Standard-WordPress-Login (<code>/wp-login.php</code>).
                                                     <?php endif; ?>
+                                                </p>
+                                            </div>
+                                            <?php self::text_row('login_redirect', 'Weiterleitung nach Login', $s, '/events/'); ?>
+                                            <div class="tix-field tix-field-full">
+                                                <p class="tix-hint" style="margin:-8px 0 8px;font-size:12px;color:#94a3b8;">
+                                                    Nicht-Admins werden nach dem Login hierhin weitergeleitet. Leer = WordPress-Backend. Admins landen immer im Backend.
                                                 </p>
                                             </div>
                                             <?php self::text_row('organizer_slug', 'Veranstalter-URL', $s, 'veranstalter'); ?>

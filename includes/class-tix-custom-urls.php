@@ -116,9 +116,17 @@ class TIX_Custom_URLs {
 
                 $redirect = $_POST['redirect_to'] ?? '';
                 if (!$redirect) {
-                    $redirect = in_array('tix_organizer', (array) $user->roles, true)
-                        ? admin_url('admin.php?page=tix-organizer-dashboard')
-                        : admin_url();
+                    if (user_can($user, 'manage_options')) {
+                        // Admins → Backend
+                        $redirect = admin_url();
+                    } elseif (in_array('tix_organizer', (array) $user->roles, true)) {
+                        // Veranstalter → Organizer-Dashboard
+                        $redirect = admin_url('admin.php?page=tix-organizer-dashboard');
+                    } else {
+                        // Alle anderen → Einstellung oder Backend
+                        $login_redir = $s['login_redirect'] ?? '';
+                        $redirect = $login_redir ? home_url('/' . ltrim($login_redir, '/')) : admin_url();
+                    }
                 }
                 wp_redirect($redirect);
                 exit;
