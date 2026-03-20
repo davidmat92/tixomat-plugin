@@ -2,14 +2,14 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.33.54
+ * Version: 1.33.55
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.33.54');
+define('TIXOMAT_VERSION', '1.33.55');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -181,6 +181,15 @@ function tix_get_settings($key = null) {
 /** Primärfarbe (Kurzschreibweise). */
 function tix_primary() {
     return tix_get_settings('color_primary') ?: '#FF5500';
+}
+
+/** Button-1 Style-Attribute für inline HTML (E-Mails, Admin etc.). */
+function tix_btn_style() {
+    $s = tix_get_settings();
+    $bg    = $s['btn1_bg']    ?: '#c8ff00';
+    $color = $s['btn1_color'] ?: '#000000';
+    $r     = intval($s['radius_button'] ?? 8);
+    return "background:{$bg};color:{$color};border-radius:{$r}px;";
 }
 
 /**

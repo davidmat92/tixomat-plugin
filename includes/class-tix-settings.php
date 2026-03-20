@@ -3144,6 +3144,7 @@ class TIX_Settings {
                                         <div class="tix-field-grid">
                                             <div class="tix-field tix-field-full">
                                                 <?php self::checkbox_row('branding_enabled', '&quot;Ticketsystem von Tixomat&quot; unter Shortcodes anzeigen', $s); ?>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
