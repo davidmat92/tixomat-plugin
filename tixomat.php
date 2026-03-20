@@ -2,14 +2,14 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.33.53
+ * Version: 1.33.54
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.33.53');
+define('TIXOMAT_VERSION', '1.33.54');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -176,6 +176,11 @@ function tix_get_settings($key = null) {
         ]);
     }
     return $key !== null ? ($cache[$key] ?? null) : $cache;
+}
+
+/** Primärfarbe (Kurzschreibweise). */
+function tix_primary() {
+    return tix_get_settings('color_primary') ?: '#FF5500';
 }
 
 /**
@@ -456,6 +461,63 @@ if (is_admin() && wp_doing_ajax()) {
         wp_send_json_error(['message' => 'Unbekannter Service.']);
     });
 }
+
+// ── User-Switch (Admin → Als User einloggen) ──
+add_filter('user_row_actions', function($actions, $user) {
+    if (current_user_can('manage_options') && $user->ID !== get_current_user_id()) {
+        $url = wp_nonce_url(admin_url('admin.php?action=tix_switch_user&user_id=' . $user->ID), 'tix_switch_' . $user->ID);
+        $actions['tix_switch'] = '<a href="' . esc_url($url) . '">Als User einloggen</a>';
+    }
+    return $actions;
+}, 10, 2);
+
+add_action('admin_action_tix_switch_user', function() {
+    if (!current_user_can('manage_options')) wp_die('Keine Berechtigung.');
+    $user_id = intval($_GET['user_id'] ?? 0);
+    check_admin_referer('tix_switch_' . $user_id);
+    if (!get_userdata($user_id)) wp_die('User nicht gefunden.');
+
+    // Original-Admin merken
+    update_user_meta($user_id, '_tix_switched_from', get_current_user_id());
+
+    // Einloggen als User
+    wp_set_current_user($user_id);
+    wp_set_auth_cookie($user_id);
+
+    wp_redirect(home_url('/'));
+    exit;
+});
+
+// Switch-Back Handler
+add_action('admin_action_tix_switch_back', function() {
+    $admin_id = get_user_meta(get_current_user_id(), '_tix_switched_from', true);
+    if (!$admin_id) wp_die('Kein Switch aktiv.');
+
+    delete_user_meta(get_current_user_id(), '_tix_switched_from');
+
+    wp_set_current_user($admin_id);
+    wp_set_auth_cookie($admin_id);
+
+    wp_redirect(admin_url('users.php'));
+    exit;
+});
+
+// "Zurück zum Admin" Bar im Frontend
+add_action('wp_footer', function() {
+    if (!is_user_logged_in()) return;
+    $admin_id = get_user_meta(get_current_user_id(), '_tix_switched_from', true);
+    if (!$admin_id) return;
+    $admin = get_userdata($admin_id);
+    if (!$admin) return;
+    $back_url = wp_nonce_url(admin_url('admin.php?action=tix_switch_back'), 'tix_switch_back');
+    $user = wp_get_current_user();
+    ?>
+    <div id="tix-switch-bar" style="position:fixed;bottom:0;left:0;right:0;z-index:999999;background:#1e293b;color:#fff;padding:10px 20px;display:flex;align-items:center;justify-content:center;gap:12px;font-family:-apple-system,sans-serif;font-size:13px;box-shadow:0 -2px 8px rgba(0,0,0,.2);">
+        <span>Eingeloggt als <strong><?php echo esc_html($user->display_name); ?></strong> (<?php echo esc_html($user->user_email); ?>)</span>
+        <a href="<?php echo esc_url($back_url); ?>" style="background:#fff;color:#1e293b;padding:6px 16px;border-radius:6px;text-decoration:none;font-weight:600;font-size:12px;">↩ Zurück zu <?php echo esc_html($admin->display_name); ?></a>
+    </div>
+    <?php
+});
 
 // ── Frontend + AJAX (Ticket-Selector, Checkout, FAQ, Calendar brauchen AJAX-Hooks) ──
 if (!is_admin() || wp_doing_ajax()) {

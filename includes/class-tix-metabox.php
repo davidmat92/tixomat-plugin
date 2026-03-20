@@ -2277,7 +2277,7 @@ class TIX_Metabox {
                     foreach ($stages as $si => $stage): ?>
                     <div class="tix-tt-stage-row" style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">
                         <input type="text" name="tix_stages[<?php echo $si; ?>][name]" value="<?php echo esc_attr($stage['name'] ?? ''); ?>" placeholder="Bühnenname" style="width:200px;" class="regular-text">
-                        <input type="color" name="tix_stages[<?php echo $si; ?>][color]" value="<?php echo esc_attr($stage['color'] ?? '#FF5500'); ?>" style="width:40px;height:32px;padding:2px;cursor:pointer;">
+                        <input type="color" name="tix_stages[<?php echo $si; ?>][color]" value="<?php echo esc_attr($stage['color'] ?? tix_primary()); ?>" style="width:40px;height:32px;padding:2px;cursor:pointer;">
                         <button type="button" class="button tix-tt-stage-del" title="Entfernen">&times;</button>
                     </div>
                     <?php endforeach;
@@ -2358,7 +2358,7 @@ class TIX_Metabox {
                     div.style.cssText = 'display:flex;gap:8px;align-items:center;margin-bottom:6px;';
                     div.innerHTML =
                         '<input type="text" name="tix_stages['+idx+'][name]" placeholder="Bühnenname" style="width:200px;" class="regular-text">' +
-                        '<input type="color" name="tix_stages['+idx+'][color]" value="#FF5500" style="width:40px;height:32px;padding:2px;cursor:pointer;">' +
+                        '<input type="color" name="tix_stages['+idx+'][color]" value="<?php echo tix_primary(); ?>" style="width:40px;height:32px;padding:2px;cursor:pointer;">' +
                         '<button type="button" class="button tix-tt-stage-del" title="Entfernen">&times;</button>';
                     stagesWrap.appendChild(div);
                 });
@@ -2731,7 +2731,7 @@ class TIX_Metabox {
                 <div style="margin-bottom:16px;">
                     <?php
                     $status_labels = ['open' => 'Offen', 'closed' => 'Geschlossen', 'drawn' => 'Ausgelost'];
-                    $status_colors = ['open' => '#16a34a', 'closed' => '#d97706', 'drawn' => '#FF5500'];
+                    $status_colors = ['open' => '#16a34a', 'closed' => '#d97706', 'drawn' => tix_primary()];
                     $s_color = $status_colors[$status] ?? '#64748b';
                     $s_label = $status_labels[$status] ?? $status;
                     ?>
@@ -2807,10 +2807,10 @@ class TIX_Metabox {
                         <th><label for="tix-raffle-header-bg">Header-Farbe</label></th>
                         <td>
                             <input type="color" id="tix-raffle-header-bg"
-                                   value="<?php echo esc_attr($header_bg ?: '#FF5500'); ?>"
+                                   value="<?php echo esc_attr($header_bg ?: tix_primary()); ?>"
                                    style="width:50px;height:34px;padding:2px;cursor:pointer;vertical-align:middle;">
                             <input type="text" name="tix_raffle_header_bg" value="<?php echo esc_attr($header_bg); ?>"
-                                   placeholder="#FF5500" class="small-text" style="margin-left:6px;vertical-align:middle;"
+                                   placeholder="<?php echo esc_attr(tix_primary()); ?>" class="small-text" style="margin-left:6px;vertical-align:middle;"
                                    id="tix-raffle-header-bg-text">
                             <span class="description" style="margin-left:6px;">Hintergrundfarbe des Titelbereichs</span>
                         </td>
@@ -2934,7 +2934,7 @@ class TIX_Metabox {
                             🎲 Jetzt auslosen (<?php echo $entry_count; ?> Teilnehmer)
                         </button>
                     <?php elseif ($status === 'drawn'): ?>
-                        <p style="color:#FF5500;font-weight:600;">✅ Gewinner wurden bereits ausgelost.</p>
+                        <p style="color:<?php echo tix_primary(); ?>;font-weight:600;">✅ Gewinner wurden bereits ausgelost.</p>
                         <button type="button" class="button" id="tix-raffle-reset"
                                 data-event="<?php echo $post->ID; ?>"
                                 style="margin-top:8px;">
@@ -3464,7 +3464,7 @@ class TIX_Metabox {
         if (is_array($raw_stages)) {
             foreach ($raw_stages as $st) {
                 $name  = sanitize_text_field($st['name'] ?? '');
-                $color = sanitize_hex_color($st['color'] ?? '') ?: '#FF5500';
+                $color = sanitize_hex_color($st['color'] ?? '') ?: tix_primary();
                 if (empty($name)) continue;
                 $stages[] = ['name' => $name, 'color' => $color];
             }

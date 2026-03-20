@@ -622,7 +622,7 @@ class TIX_Promoter_Admin {
                     [
                         'label'           => 'Umsatz (' . "\xe2\x82\xac" . ')',
                         'data'            => $chart_sales,
-                        'backgroundColor' => '#FF5500',
+                        'backgroundColor' => tix_primary(),
                         'borderRadius'    => 4,
                     ],
                     [

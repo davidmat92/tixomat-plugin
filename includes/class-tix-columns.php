@@ -743,7 +743,7 @@ class TIX_Columns {
                     // Format: "section_1_A5" → "A5"
                     $parts = explode('_', $seat);
                     $last  = end($parts);
-                    echo '<span style="background:rgba(255,85,0,0.1);color:#FF5500;padding:2px 8px;border-radius:10px;font-size:12px;font-weight:600;">' . esc_html($last) . '</span>';
+                    echo '<span style="background:rgba(255,85,0,0.1);color:' . tix_primary() . ';padding:2px 8px;border-radius:10px;font-size:12px;font-weight:600;">' . esc_html($last) . '</span>';
                 } else {
                     echo '<span style="color:#cbd5e1">—</span>';
                 }
@@ -763,7 +763,7 @@ class TIX_Columns {
                 $status = get_post_meta($post_id, '_tix_ticket_status', true) ?: 'valid';
                 $labels = [
                     'valid'     => ['✓ Gültig',     '#10b981', 'rgba(16,185,129,0.1)'],
-                    'used'      => ['✓ Eingelöst',  '#FF5500', 'rgba(255,85,0,0.1)'],
+                    'used'      => ['✓ Eingelöst',  '' . tix_primary() . '', 'rgba(255,85,0,0.1)'],
                     'cancelled' => ['✕ Storniert',  '#ef4444', 'rgba(239,68,68,0.1)'],
                 ];
                 $l = $labels[$status] ?? ['? ' . $status, '#64748b', 'rgba(100,116,139,0.1)'];
@@ -1076,7 +1076,7 @@ class TIX_Columns {
         echo '<div class="tix-ticket-summary">';
         echo '<div class="tix-summary-card"><span class="tix-summary-number">' . $total . '</span><span class="tix-summary-label">Gesamt</span></div>';
         echo '<div class="tix-summary-card"><span class="tix-summary-number" style="color:#10b981">' . $counts['valid'] . '</span><span class="tix-summary-label">Gültig</span></div>';
-        echo '<div class="tix-summary-card"><span class="tix-summary-number" style="color:#FF5500">' . $counts['used'] . '</span><span class="tix-summary-label">Eingelöst</span></div>';
+        echo '<div class="tix-summary-card"><span class="tix-summary-number" style="color:' . tix_primary() . '">' . $counts['used'] . '</span><span class="tix-summary-label">Eingelöst</span></div>';
         echo '<div class="tix-summary-card"><span class="tix-summary-number" style="color:#ef4444">' . $counts['cancelled'] . '</span><span class="tix-summary-label">Storniert</span></div>';
         echo '</div>';
     }
@@ -1186,7 +1186,7 @@ class TIX_Columns {
 
         $body  = '<p>Hier ist dein Ticket' . ($event_name ? ' für <strong>' . esc_html($event_name) . '</strong>' : '') . ':</p>';
         if ($download_url) {
-            $primary = tix_get_settings('color_primary') ?: '#FF5500';
+            $primary = tix_get_settings('color_primary') ?: '' . tix_primary() . '';
             $body .= '<p style="margin:20px 0;"><a href="' . esc_url($download_url) . '" style="display:inline-block;padding:14px 28px;background:' . esc_attr($primary) . ';color:#fff;text-decoration:none;border-radius:10px;font-weight:700;font-size:16px;">Ticket herunterladen</a></p>';
         }
         $body .= '<p style="color:#64748b;font-size:13px;">Ticket-Code: <strong>' . esc_html($code) . '</strong></p>';
@@ -1256,7 +1256,7 @@ class TIX_Columns {
             $body .= '<span style="color:#64748b;font-size:13px;">Code: ' . esc_html($code) . '</span>';
             $body .= '</td><td style="padding:10px 0;border-bottom:1px solid #eee;text-align:right;">';
             if ($url) {
-                $tpri = tix_get_settings('color_primary') ?: '#FF5500';
+                $tpri = tix_get_settings('color_primary') ?: '' . tix_primary() . '';
                 $body .= '<a href="' . esc_url($url) . '" style="display:inline-block;padding:8px 18px;background:' . esc_attr($tpri) . ';color:#fff;text-decoration:none;border-radius:8px;font-size:13px;font-weight:600;">Download</a>';
             }
             $body .= '</td></tr>';

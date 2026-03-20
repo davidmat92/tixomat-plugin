@@ -619,7 +619,7 @@ class TIX_Organizer_Admin {
                                 <option value="<?php echo $e->ID; ?>"><?php echo esc_html($e->post_title); ?></option>
                             <?php endforeach; ?>
                         </select>
-                        <button type="submit" class="button button-primary" style="padding:7px 16px;border-radius:8px;background:#FF5500;border-color:#FF5500;font-size:13px;display:inline-flex;align-items:center;gap:4px;">
+                        <button type="submit" class="button button-primary" style="padding:7px 16px;border-radius:8px;background:<?php echo tix_primary(); ?>;border-color:<?php echo tix_primary(); ?>;font-size:13px;display:inline-flex;align-items:center;gap:4px;">
                             <span class="dashicons dashicons-tickets-alt" style="font-size:14px;width:14px;height:14px;"></span> Tickets CSV
                         </button>
                     </form>
@@ -1006,7 +1006,7 @@ class TIX_Organizer_Admin {
                         <textarea id="tix-email-message" rows="8" style="width:100%;padding:10px 14px;border:1px solid #d1d5db;border-radius:10px;font-size:14px;font-family:inherit;resize:vertical;" placeholder="Deine Nachricht an alle K&auml;ufer..."></textarea>
                     </div>
                     <div style="display:flex;gap:12px;align-items:center;">
-                        <button type="button" id="tix-email-send" style="padding:10px 24px;background:#FF5500;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;">Senden</button>
+                        <button type="button" id="tix-email-send" style="padding:10px 24px;background:<?php echo tix_primary(); ?>;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;">Senden</button>
                         <span id="tix-email-status" style="font-size:13px;color:#64748b;"></span>
                     </div>
                 </div>
@@ -1142,7 +1142,7 @@ class TIX_Organizer_Admin {
                             <?php endforeach; ?>
                         </select>
                     </div>
-                    <button type="submit" class="button button-primary" style="padding:10px 24px;border-radius:10px;font-size:14px;background:#FF5500;border-color:#FF5500;">
+                    <button type="submit" class="button button-primary" style="padding:10px 24px;border-radius:10px;font-size:14px;background:<?php echo tix_primary(); ?>;border-color:<?php echo tix_primary(); ?>;">
                         <span class="dashicons dashicons-download" style="margin-right:4px;"></span> CSV herunterladen
                     </button>
                 </form>
@@ -1347,7 +1347,7 @@ class TIX_Organizer_Admin {
                 <button type="button" id="tix-media-btn" class="button" style="padding:8px 20px;border-radius:8px;">Dateien ausw&auml;hlen</button>
                 <div id="tix-media-progress" style="display:none;margin-top:12px;">
                     <div style="background:#e2e8f0;border-radius:4px;height:6px;overflow:hidden;">
-                        <div id="tix-media-bar" style="background:#FF5500;height:100%;width:0;transition:width .3s;"></div>
+                        <div id="tix-media-bar" style="background:<?php echo tix_primary(); ?>;height:100%;width:0;transition:width .3s;"></div>
                     </div>
                 </div>
             </div>
@@ -1400,7 +1400,7 @@ class TIX_Organizer_Admin {
 
             $('#tix-media-btn').on('click', function() { fileInput.click(); });
 
-            dropZone.addEventListener('dragover', function(e) { e.preventDefault(); this.style.borderColor = '#FF5500'; this.style.background = '#FFF8F4'; });
+            dropZone.addEventListener('dragover', function(e) { e.preventDefault(); this.style.borderColor = '<?php echo tix_primary(); ?>'; this.style.background = '#FFF8F4'; });
             dropZone.addEventListener('dragleave', function() { this.style.borderColor = '#d1d5db'; this.style.background = '#fff'; });
             dropZone.addEventListener('drop', function(e) {
                 e.preventDefault();
