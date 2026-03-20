@@ -33,7 +33,12 @@ echo ""
 echo "▸ Deploy → kitchen.mdj.events..."
 rsync $RSYNC_OPTS "$PLUGIN_DIR/" "$REMOTE_KITCHEN:/home/runcloud/webapps/demo-mdj-events/wp-content/plugins/tixomat/"
 
-# 5. OPcache reset
+# 5. Deploy evendis
+echo ""
+echo "▸ Deploy → evendis..."
+rsync $RSYNC_OPTS "$PLUGIN_DIR/" "$REMOTE_KITCHEN:/home/runcloud/webapps/evendis/wp-content/plugins/tixomat/"
+
+# 6. OPcache reset
 echo ""
 echo "▸ OPcache reset..."
 ssh "$REMOTE_TIXOMAT" "echo '<?php opcache_reset(); echo \"OK\"; unlink(__FILE__);' > /home/runcloud/webapps/Tixomat/opcache_reset.php"
