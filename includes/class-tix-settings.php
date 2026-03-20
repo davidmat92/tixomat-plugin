@@ -1249,14 +1249,6 @@ class TIX_Settings {
                                 <span class="dashicons dashicons-clipboard"></span>
                                 <span class="tix-nav-label">Check-in</span>
                             </button>
-                            <button type="button" class="tix-nav-tab" data-tab="ticket-template">
-                                <span class="dashicons dashicons-media-document"></span>
-                                <span class="tix-nav-label">Ticket-Template</span>
-                            </button>
-                            <button type="button" class="tix-nav-tab" data-tab="email-template">
-                                <span class="dashicons dashicons-email-alt"></span>
-                                <span class="tix-nav-label">E-Mail-Template</span>
-                            </button>
                             <button type="button" class="tix-nav-tab" data-tab="advanced">
                                 <span class="dashicons dashicons-admin-generic"></span>
                                 <span class="tix-nav-label">Erweitert</span>
@@ -1268,6 +1260,14 @@ class TIX_Settings {
                                 <span class="tix-nav-label">Mehr</span>
                             </button>
                             <div class="tix-settings-more-tabs" id="tix-settings-more-tabs">
+                                <button type="button" class="tix-nav-tab" data-tab="ticket-template">
+                                    <span class="dashicons dashicons-media-document"></span>
+                                    <span class="tix-nav-label">Ticket-Template</span>
+                                </button>
+                                <button type="button" class="tix-nav-tab" data-tab="email-template">
+                                    <span class="dashicons dashicons-email-alt"></span>
+                                    <span class="tix-nav-label">E-Mail-Template</span>
+                                </button>
                                 <button type="button" class="tix-nav-tab" data-tab="data-sync">
                                     <span class="dashicons dashicons-cloud-saved"></span>
                                     <span class="tix-nav-label">Daten-Sync</span>
