@@ -250,7 +250,8 @@ class TIX_Emails {
 
         // CTA für Meine Tickets
         if (in_array($type, ['order_confirmation', 'order_complete'])) {
-            $my_tickets_url = home_url('/tickets/');
+            $s = tix_get_settings();
+            $my_tickets_url = home_url('/' . ($s['my_tickets_slug'] ?: 'tickets') . '/');
             $cta_html = '
             <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 24px 0 0;">
                 <tr>

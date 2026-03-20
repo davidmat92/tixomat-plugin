@@ -1657,7 +1657,8 @@ class TIX_Metabox {
                 </div>
                 <?php
                     // Saalplan wird jetzt auf Event-Ebene konfiguriert (Erweitert-Tab)
-                    $event_sm_id = intval(get_post_meta($post->ID, '_tix_seatmap_id', true));
+                    global $post;
+                    $event_sm_id = $post ? intval(get_post_meta($post->ID, '_tix_seatmap_id', true)) : 0;
                     if ($event_sm_id):
                         $sm_title = get_the_title($event_sm_id);
                 ?>

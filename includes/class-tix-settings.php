@@ -15,6 +15,7 @@ class TIX_Settings {
             'login_slug'          => '',
             'login_redirect'      => '',       // Weiterleitung nach Login (leer = Backend)
             'organizer_slug'      => '',
+            'my_tickets_slug'     => 'tickets', // Slug für Meine-Tickets-Seite
             'admin_logo_url'      => '',       // Custom Logo für Admin-Shell, Login, Dashboard
             'theme_mode'          => 'light',
 
@@ -782,6 +783,7 @@ class TIX_Settings {
         $clean['login_slug'] = sanitize_title(trim($input['login_slug'] ?? ''));
         $clean['login_redirect'] = sanitize_text_field(trim($input['login_redirect'] ?? ''));
         $clean['organizer_slug'] = sanitize_title(trim($input['organizer_slug'] ?? ''));
+        $clean['my_tickets_slug'] = sanitize_title(trim($input['my_tickets_slug'] ?? '')) ?: 'tickets';
 
         // Custom Logo
         $clean['admin_logo_url'] = esc_url_raw($input['admin_logo_url'] ?? '');
@@ -3195,6 +3197,12 @@ class TIX_Settings {
                                                     <?php else : ?>
                                                         Leer lassen = kein spezieller Veranstalter-Slug.
                                                     <?php endif; ?>
+                                                </p>
+                                            </div>
+                                            <?php self::text_row('my_tickets_slug', 'Meine-Tickets-URL', $s, 'tickets'); ?>
+                                            <div class="tix-field tix-field-full">
+                                                <p class="tix-hint" style="margin:-8px 0 8px;font-size:12px;color:#94a3b8;">
+                                                    Aktiv: <code><?php echo esc_html(home_url('/' . ($s['my_tickets_slug'] ?: 'tickets') . '/')); ?></code> &mdash; Link in Best&auml;tigungs-E-Mails.
                                                 </p>
                                             </div>
                                         </div>
