@@ -313,12 +313,34 @@ class TIX_Order {
         do_action('tix_order_status_changed', $tix_id, $new_status);
     }
 
+    /**
+     * Generiert die nächste eigene Bestellnummer (unabhängig von WC).
+     */
+    private static function next_order_number() {
+        $s = function_exists('tix_get_settings') ? tix_get_settings() : [];
+        $prefix = $s['order_number_prefix'] ?? 'TIX-';
+        $digits = max(3, intval($s['order_number_digits'] ?? 5));
+        $suffix = $s['order_number_suffix'] ?? '';
+
+        // Atomarer Counter via UPDATE + SELECT
+        global $wpdb;
+        $wpdb->query("UPDATE {$wpdb->options} SET option_value = option_value + 1 WHERE option_name = 'tix_order_seq'");
+        $seq = (int) get_option('tix_order_seq', 0);
+        if (!$seq) {
+            $start = max(1, intval($s['order_number_start'] ?? 1));
+            update_option('tix_order_seq', $start);
+            $seq = $start;
+        }
+
+        return $prefix . str_pad($seq, $digits, '0', STR_PAD_LEFT) . $suffix;
+    }
+
     public static function create_from_wc_order($wc_order) {
         global $wpdb;
         $t = self::table_name();
         $ti = self::items_table_name();
 
-        $order_number = $wc_order->get_order_number();
+        $order_number = self::next_order_number();
         $dc = $wc_order->get_date_created();
 
         $wpdb->insert($t, [

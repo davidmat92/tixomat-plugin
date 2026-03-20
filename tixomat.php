@@ -2,14 +2,14 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.33.40
+ * Version: 1.33.41
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.33.40');
+define('TIXOMAT_VERSION', '1.33.41');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -31,60 +31,12 @@ add_filter('woocommerce_available_payment_gateways', function($gateways) {
     return $gateways;
 });
 
-// ── Custom Order Numbers ──
-add_action('woocommerce_new_order', function($order_id) {
-    $s = function_exists('tix_get_settings') ? tix_get_settings() : [];
-    if (empty($s['order_number_enabled'])) return;
-
-    // Nächste Nummer aus dem Counter holen
-    $counter = (int) get_option('tix_order_number_counter', 0);
-    if (!$counter) {
-        $counter = max(1, intval($s['order_number_start'] ?? 1));
-    }
-
-    $prefix = $s['order_number_prefix'] ?? 'TIX-';
-    $digits = max(3, intval($s['order_number_digits'] ?? 5));
-    $suffix = $s['order_number_suffix'] ?? '';
-
-    $number = $prefix . str_pad($counter, $digits, '0', STR_PAD_LEFT) . $suffix;
-
-    // Auf Order speichern
-    update_post_meta($order_id, '_tix_order_number', $number);
-
-    // Counter erhöhen
-    update_option('tix_order_number_counter', $counter + 1);
-}, 10, 1);
-
-// HPOS-kompatibel: auch für neue WC Order-Tabelle
-add_action('woocommerce_checkout_order_created', function($order) {
-    $s = function_exists('tix_get_settings') ? tix_get_settings() : [];
-    if (empty($s['order_number_enabled'])) return;
-    if ($order->get_meta('_tix_order_number')) return; // Bereits gesetzt
-
-    $counter = (int) get_option('tix_order_number_counter', 0);
-    if (!$counter) {
-        $counter = max(1, intval($s['order_number_start'] ?? 1));
-    }
-
-    $prefix = $s['order_number_prefix'] ?? 'TIX-';
-    $digits = max(3, intval($s['order_number_digits'] ?? 5));
-    $suffix = $s['order_number_suffix'] ?? '';
-
-    $number = $prefix . str_pad($counter, $digits, '0', STR_PAD_LEFT) . $suffix;
-
-    $order->update_meta_data('_tix_order_number', $number);
-    $order->save();
-
-    update_option('tix_order_number_counter', $counter + 1);
-}, 10, 1);
-
-// Filter: WooCommerce zeigt unsere Custom Number überall an
+// ── Custom Order Numbers (via tix_orders Tabelle) ──
+// WooCommerce zeigt die tix_order Nummer an (wenn vorhanden)
 add_filter('woocommerce_order_number', function($order_number, $order) {
-    $s = function_exists('tix_get_settings') ? tix_get_settings() : [];
-    if (empty($s['order_number_enabled'])) return $order_number;
-
-    $custom = $order->get_meta('_tix_order_number');
-    return $custom ?: $order_number;
+    $tix_order = TIX_Order::get_by_wc_order($order->get_id());
+    if ($tix_order) return $tix_order->get_order_number();
+    return $order_number;
 }, 10, 2);
 
 // ── Google Fonts: Outfit (Display) + Inter (Body) – Tixomat CI ──
