@@ -1225,12 +1225,20 @@ class TIX_Ticket_Selector {
         check_ajax_referer('tix_add_to_cart', 'nonce');
 
         $items = json_decode(stripslashes($_POST['items'] ?? '[]'), true);
+        error_log('[TIX] ajax_add_to_cart called. Items: ' . print_r($items, true));
 
         if (empty($items)) {
+            error_log('[TIX] ajax_add_to_cart: No items');
             wp_send_json_error(['message' => 'Keine Tickets ausgewählt.']);
         }
 
+        if (!function_exists('WC') || !WC()->cart) {
+            error_log('[TIX] ajax_add_to_cart: WooCommerce not available');
+            wp_send_json_error(['message' => 'Shop nicht verfügbar.']);
+        }
+
         $added = 0;
+        $errors = [];
 
         foreach ($items as $item) {
             // ── Kombi-Ticket ──
@@ -1297,7 +1305,15 @@ class TIX_Ticket_Selector {
             }
 
             $result = WC()->cart->add_to_cart($product_id, $quantity, 0, [], $cart_item_data);
-            if ($result) $added++;
+            if ($result) {
+                $added++;
+            } else {
+                $wc_notices = wc_get_notices('error');
+                $err_msg = !empty($wc_notices) ? wp_strip_all_tags($wc_notices[0]['notice'] ?? 'Unknown') : 'add_to_cart returned false';
+                $errors[] = "Product {$product_id} qty {$quantity}: {$err_msg}";
+                error_log("[TIX] add_to_cart FAILED for product {$product_id}, qty {$quantity}: {$err_msg}");
+                wc_clear_notices();
+            }
         }
 
         if ($added > 0) {
@@ -1331,7 +1347,9 @@ class TIX_Ticket_Selector {
                 'cart_count'   => WC()->cart->get_cart_contents_count(),
             ]);
         } else {
-            wp_send_json_error(['message' => 'Tickets konnten nicht hinzugefügt werden.']);
+            $detail = !empty($errors) ? ' (' . implode('; ', $errors) . ')' : '';
+            error_log("[TIX] ajax_add_to_cart: 0 added. Errors: " . implode('; ', $errors));
+            wp_send_json_error(['message' => 'Tickets konnten nicht hinzugefügt werden.' . $detail]);
         }
     }
 
