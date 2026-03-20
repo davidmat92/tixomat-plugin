@@ -107,6 +107,32 @@ class TIX_CPT {
             'map_meta_cap'    => true,
         ]);
 
+        // ── CPT: Tixomat Order (eigenes Bestellsystem) ──
+        register_post_type('tix_order', [
+            'labels' => [
+                'name'          => 'Bestellungen (Tix)',
+                'singular_name' => 'Bestellung',
+            ],
+            'public'          => false,
+            'show_ui'         => false,
+            'supports'        => ['title'],
+            'capability_type' => 'post',
+            'map_meta_cap'    => true,
+        ]);
+
+        // ── CPT: Tixomat Order Item (Bestellposition) ──
+        register_post_type('tix_order_item', [
+            'labels' => [
+                'name'          => 'Bestellpositionen',
+                'singular_name' => 'Bestellposition',
+            ],
+            'public'          => false,
+            'show_ui'         => false,
+            'supports'        => ['title'],
+            'capability_type' => 'post',
+            'map_meta_cap'    => true,
+        ]);
+
         // ── Admin-Menü ──
         add_action('admin_menu', [__CLASS__, 'register_admin_menu'], 5);
         add_action('admin_bar_menu', [__CLASS__, 'admin_bar'], 80);
