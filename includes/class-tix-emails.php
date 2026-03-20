@@ -186,11 +186,16 @@ class TIX_Emails {
         $logo_height = intval($s['email_logo_height'] ?? 40) ?: 40;
         $footer_text = $s['email_footer_text'] ?: '';
 
-        $text_color  = '#1a1a1a';
-        $muted       = '#6b7280';
-        $bg          = '#f3f4f6';
-        $card_bg     = '#ffffff';
-        $divider     = '#e5e7eb';
+        // E-Mail-spezifische Farben (Fallback auf globale Werte)
+        $header_bg   = !empty($s['email_header_bg'])    ? $s['email_header_bg']    : $accent;
+        $header_text = !empty($s['email_header_text'])  ? $s['email_header_text']  : $accent_text;
+        $text_color  = !empty($s['email_text_color'])   ? $s['email_text_color']   : '#1a1a1a';
+        $muted       = !empty($s['email_muted_color'])  ? $s['email_muted_color']  : '#6b7280';
+        $bg          = !empty($s['email_outer_bg'])     ? $s['email_outer_bg']     : '#f3f4f6';
+        $card_bg     = !empty($s['email_body_bg'])      ? $s['email_body_bg']      : '#ffffff';
+        $divider     = !empty($s['email_border_color']) ? $s['email_border_color'] : '#e5e7eb';
+        $btn_bg      = !empty($s['email_btn_bg'])       ? $s['email_btn_bg']       : $accent;
+        $btn_text    = !empty($s['email_btn_text'])     ? $s['email_btn_text']     : $accent_text;
 
         $order_id = $order->get_id();
 
@@ -250,7 +255,7 @@ class TIX_Emails {
             <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 24px 0 0;">
                 <tr>
                     <td align="center">
-                        <a href="' . esc_url($my_tickets_url) . '" style="display: inline-block; padding: 12px 32px; background-color: ' . esc_attr($accent) . '; color: ' . esc_attr($accent_text) . '; text-decoration: none; font-weight: 700; font-size: 14px; border-radius: ' . $radius . 'px; mso-padding-alt: 0;">
+                        <a href="' . esc_url($my_tickets_url) . '" style="display: inline-block; padding: 12px 32px; background-color: ' . esc_attr($btn_bg) . '; color: ' . esc_attr($btn_text) . '; text-decoration: none; font-weight: 700; font-size: 14px; border-radius: ' . $radius . 'px; mso-padding-alt: 0;">
                             Meine Tickets ansehen
                         </a>
                     </td>
@@ -328,11 +333,11 @@ class TIX_Emails {
 
                     <!-- HEADER -->
                     <tr>
-                        <td style="background-color: <?php echo esc_attr($accent); ?>; padding: 20px 32px; border-radius: <?php echo $radius; ?>px <?php echo $radius; ?>px 0 0; text-align: center;">
+                        <td style="background-color: <?php echo esc_attr($header_bg); ?>; padding: 20px 32px; border-radius: <?php echo $radius; ?>px <?php echo $radius; ?>px 0 0; text-align: center;">
                             <?php if ($logo_url): ?>
                                 <img src="<?php echo esc_url($logo_url); ?>" alt="<?php echo esc_attr($brand_name); ?>" style="max-height: <?php echo $logo_height; ?>px; width: auto; display: inline-block;" />
                             <?php else: ?>
-                                <span style="font-size: 18px; font-weight: 700; color: <?php echo esc_attr($accent_text); ?>; letter-spacing: 0.02em;"><?php echo esc_html($brand_name); ?></span>
+                                <span style="font-size: 18px; font-weight: 700; color: <?php echo esc_attr($header_text); ?>; letter-spacing: 0.02em;"><?php echo esc_html($brand_name); ?></span>
                             <?php endif; ?>
                         </td>
                     </tr>
@@ -423,11 +428,16 @@ class TIX_Emails {
         $logo_height = intval($s['email_logo_height'] ?? 40) ?: 40;
         $footer_text = $footer_note ?: ($s['email_footer_text'] ?: '');
 
-        $text_color  = '#1a1a1a';
-        $muted       = '#6b7280';
-        $bg          = '#f3f4f6';
-        $card_bg     = '#ffffff';
-        $divider     = '#e5e7eb';
+        // E-Mail-spezifische Farben (Fallback auf globale Werte)
+        $header_bg   = !empty($s['email_header_bg'])    ? $s['email_header_bg']    : $accent;
+        $header_text = !empty($s['email_header_text'])  ? $s['email_header_text']  : $accent_text;
+        $text_color  = !empty($s['email_text_color'])   ? $s['email_text_color']   : '#1a1a1a';
+        $muted       = !empty($s['email_muted_color'])  ? $s['email_muted_color']  : '#6b7280';
+        $bg          = !empty($s['email_outer_bg'])     ? $s['email_outer_bg']     : '#f3f4f6';
+        $card_bg     = !empty($s['email_body_bg'])      ? $s['email_body_bg']      : '#ffffff';
+        $divider     = !empty($s['email_border_color']) ? $s['email_border_color'] : '#e5e7eb';
+        $btn_bg      = !empty($s['email_btn_bg'])       ? $s['email_btn_bg']       : $accent;
+        $btn_text    = !empty($s['email_btn_text'])     ? $s['email_btn_text']     : $accent_text;
 
         ob_start();
         ?>
@@ -464,11 +474,11 @@ class TIX_Emails {
 
                     <!-- HEADER -->
                     <tr>
-                        <td style="background-color: <?php echo esc_attr($accent); ?>; padding: 20px 32px; border-radius: <?php echo $radius; ?>px <?php echo $radius; ?>px 0 0; text-align: center;">
+                        <td style="background-color: <?php echo esc_attr($header_bg); ?>; padding: 20px 32px; border-radius: <?php echo $radius; ?>px <?php echo $radius; ?>px 0 0; text-align: center;">
                             <?php if ($logo_url): ?>
                                 <img src="<?php echo esc_url($logo_url); ?>" alt="<?php echo esc_attr($brand_name); ?>" style="max-height: <?php echo $logo_height; ?>px; width: auto; display: inline-block;" />
                             <?php else: ?>
-                                <span style="font-size: 18px; font-weight: 700; color: <?php echo esc_attr($accent_text); ?>; letter-spacing: 0.02em;"><?php echo esc_html($brand_name); ?></span>
+                                <span style="font-size: 18px; font-weight: 700; color: <?php echo esc_attr($header_text); ?>; letter-spacing: 0.02em;"><?php echo esc_html($brand_name); ?></span>
                             <?php endif; ?>
                         </td>
                     </tr>
