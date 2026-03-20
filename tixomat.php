@@ -2,14 +2,14 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.33.42
+ * Version: 1.33.43
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.33.42');
+define('TIXOMAT_VERSION', '1.33.43');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -426,7 +426,8 @@ if (is_admin() && wp_doing_ajax()) {
     add_action('wp_ajax_tix_create_location',       ['TIX_Metabox', 'ajax_create_location']);
     add_action('wp_ajax_tix_create_organizer',      ['TIX_Metabox', 'ajax_create_organizer']);
 
-    // Ticket-Verwaltung (Verkaufte Tickets)
+    // Ticket-Verwaltung (Verkaufte Tickets) — Klasse laden, da sie im !ajax-Block exkludiert ist
+    require_once TIXOMAT_PATH . 'includes/class-tix-columns.php';
     add_action('wp_ajax_tix_ticket_resend',          ['TIX_Columns', 'ajax_resend_ticket']);
     add_action('wp_ajax_tix_ticket_resend_order',    ['TIX_Columns', 'ajax_resend_order_tickets']);
     add_action('wp_ajax_tix_ticket_toggle_status',   ['TIX_Columns', 'ajax_toggle_ticket_status']);
