@@ -2,14 +2,14 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.33.68
+ * Version: 1.33.69
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.33.68');
+define('TIXOMAT_VERSION', '1.33.69');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -27,7 +27,10 @@ TIX_Order::init();
 
 // ── WooCommerce: Standard-Zahlungsmethoden deaktivieren ──
 add_filter('woocommerce_available_payment_gateways', function($gateways) {
-    unset($gateways['bacs'], $gateways['cheque'], $gateways['cod']);
+    $s = tix_get_settings();
+    if (empty($s['enable_bacs']))  unset($gateways['bacs']);
+    if (empty($s['enable_cod']))   unset($gateways['cod']);
+    unset($gateways['cheque']); // Scheck immer deaktiviert
     return $gateways;
 });
 

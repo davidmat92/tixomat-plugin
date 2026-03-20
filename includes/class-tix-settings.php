@@ -199,6 +199,8 @@ class TIX_Settings {
             // ── Verhalten ──
             'skip_cart'            => 1,
             'force_email_shipping' => 1,
+            'enable_bacs'          => 0,
+            'enable_cod'           => 0,
             'show_company_field'   => 0,
             'show_coupon_selector' => 1,
             'checkout_steps'       => 0,
@@ -581,6 +583,8 @@ class TIX_Settings {
         // Toggles
         $clean['skip_cart']            = !empty($input['skip_cart']) ? 1 : 0;
         $clean['force_email_shipping'] = !empty($input['force_email_shipping']) ? 1 : 0;
+        $clean['enable_bacs']          = !empty($input['enable_bacs']) ? 1 : 0;
+        $clean['enable_cod']           = !empty($input['enable_cod']) ? 1 : 0;
         $clean['show_company_field']   = !empty($input['show_company_field']) ? 1 : 0;
         $clean['show_coupon_selector'] = !empty($input['show_coupon_selector']) ? 1 : 0;
         $clean['checkout_steps']       = !empty($input['checkout_steps']) ? 1 : 0;
@@ -1692,6 +1696,24 @@ class TIX_Settings {
                                             <?php self::range_row('checkout_countdown_minutes', 'Countdown-Zeit', $s, 1, 30, ' Min.'); ?>
                                             <div class="tix-field tix-field-full">
                                                 <?php self::checkbox_row('group_booking', '„Gemeinsam buchen" auf Event-Seiten anzeigen', $s, 'Ermöglicht Gruppenbestellungen: Organisator teilt Link, Freunde wählen eigene Tickets, eine Bestellung.'); ?>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Zahlungsmethoden ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-money-alt"></span>
+                                        <h3>Zahlungsmethoden</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('enable_bacs', 'Banküberweisung erlauben', $s, 'Wenn deaktiviert, wird Banküberweisung im Checkout ausgeblendet.'); ?>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('enable_cod', 'Barzahlung / Abendkasse erlauben', $s, 'Wenn deaktiviert, wird Nachnahme/Barzahlung im Checkout ausgeblendet.'); ?>
                                             </div>
                                         </div>
                                     </div>
