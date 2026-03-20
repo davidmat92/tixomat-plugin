@@ -1947,6 +1947,15 @@ class TIX_Settings {
                                                 <p class="tix-field-hint">Logo im Ticket-Header (links neben dem Titel). Empfohlen: transparentes PNG oder wei&szlig;es Logo, max. 200px breit.</p>
                                             </div>
                                         </div>
+                                        <?php // ── Live-Vorschau ── ?>
+                                        <div style="margin-top:20px;border-top:1px solid #e5e7eb;padding-top:20px;">
+                                            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+                                                <h4 style="margin:0;font-size:14px;font-weight:600;color:#374151;">Vorschau</h4>
+                                                <button type="button" class="button button-small" id="tix-ht-refresh-preview">Aktualisieren</button>
+                                            </div>
+                                            <div id="tix-ht-preview" style="transform:scale(.75);transform-origin:top left;margin-bottom:-80px;"></div>
+                                        </div>
+
                                         <script>
                                         jQuery(function($){
                                             $('#tix-ht-logo-btn').on('click',function(e){
@@ -1955,8 +1964,63 @@ class TIX_Settings {
                                                 frame.on('select',function(){
                                                     var url = frame.state().get('selection').first().toJSON().url;
                                                     $('#tix-ht-logo-url').val(url);
+                                                    renderHtPreview();
                                                 });
                                                 frame.open();
+                                            });
+
+                                            function v(id) {
+                                                var el = document.querySelector('[name="tix_settings[' + id + ']"]');
+                                                return el ? el.value : '';
+                                            }
+
+                                            function renderHtPreview() {
+                                                var hbg = v('ht_header_bg') || '#222222',
+                                                    htx = v('ht_header_text') || '#ffffff',
+                                                    bbg = v('ht_body_bg') || '#ffffff',
+                                                    tc  = v('ht_text_color') || '#1a1a1a',
+                                                    lc  = v('ht_label_color') || '#888888',
+                                                    bc  = v('ht_border_color') || '#222222',
+                                                    fc  = v('ht_footer_color') || '#888888',
+                                                    dc  = v('ht_divider_color') || '#cccccc',
+                                                    br  = v('ht_border_radius') || '12',
+                                                    ft  = v('ht_footer_text') || 'Bitte dieses Ticket ausgedruckt oder digital zum Einlass mitbringen.',
+                                                    logo = v('ht_logo_url');
+
+                                                var logoHtml = logo ? '<img src="' + logo + '" style="max-height:32px;width:auto;flex-shrink:0;">' : '';
+
+                                                $('#tix-ht-preview').html(
+                                                    '<div style="max-width:500px;border:2px solid ' + bc + ';border-radius:' + br + 'px;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,sans-serif;">' +
+                                                        '<div style="background:' + hbg + ';color:' + htx + ';padding:16px 20px;display:flex;align-items:center;gap:12px;">' +
+                                                            logoHtml +
+                                                            '<div>' +
+                                                                '<div style="font-size:16px;font-weight:700;">Beispiel-Event</div>' +
+                                                                '<div style="font-size:12px;opacity:.75;">VIP-Ticket \u2014 49,00 \u20ac</div>' +
+                                                            '</div>' +
+                                                        '</div>' +
+                                                        '<div style="background:' + bbg + ';padding:20px;display:flex;gap:16px;">' +
+                                                            '<div style="flex:1;">' +
+                                                                '<div style="margin-bottom:10px;"><div style="font-size:9px;text-transform:uppercase;letter-spacing:1px;color:' + lc + ';margin-bottom:1px;">Datum</div><div style="font-size:13px;font-weight:600;color:' + tc + ';">Samstag, 15. M\u00e4rz 2026</div></div>' +
+                                                                '<div style="margin-bottom:10px;"><div style="font-size:9px;text-transform:uppercase;letter-spacing:1px;color:' + lc + ';margin-bottom:1px;">Einlass / Beginn</div><div style="font-size:13px;font-weight:600;color:' + tc + ';">19:00 / 20:00 Uhr</div></div>' +
+                                                                '<div><div style="font-size:9px;text-transform:uppercase;letter-spacing:1px;color:' + lc + ';margin-bottom:1px;">Location</div><div style="font-size:13px;font-weight:600;color:' + tc + ';">Musterhaus Berlin</div></div>' +
+                                                            '</div>' +
+                                                            '<div style="flex:0 0 100px;text-align:center;">' +
+                                                                '<div style="width:100px;height:100px;background:#f3f3f3;border:1px solid #ddd;display:flex;align-items:center;justify-content:center;font-size:10px;color:#999;">QR-Code</div>' +
+                                                                '<div style="font-family:monospace;font-size:11px;font-weight:bold;margin-top:4px;letter-spacing:1px;color:' + tc + ';">ABC123XYZ</div>' +
+                                                            '</div>' +
+                                                        '</div>' +
+                                                        '<div style="border-top:1px dashed ' + dc + ';padding:10px 20px;font-size:10px;color:' + fc + ';text-align:center;">' + $('<span>').text(ft).html() + '</div>' +
+                                                    '</div>'
+                                                );
+                                            }
+
+                                            // Initial rendern
+                                            renderHtPreview();
+
+                                            // Bei Klick auf Aktualisieren
+                                            $('#tix-ht-refresh-preview').on('click', function(e) {
+                                                e.preventDefault();
+                                                renderHtPreview();
                                             });
                                         });
                                         </script>
