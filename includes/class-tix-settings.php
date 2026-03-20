@@ -1003,7 +1003,7 @@ class TIX_Settings {
         if (empty($vars)) {
             echo "<style id=\"tix-custom-vars\">\n{$vat_css}{$text_css}";
         } else {
-            echo "<style id=\"tix-custom-vars\">\n.tix-sel, .tix-co, .tix-faq, .tix-up, .tix-mt, .tix-mc-trigger, .tix-mc-overlay, .tix-cal, .tix-raffle, .tix-ec-trigger, .tix-ec-overlay, .tix-table-btn-wrap, #tix-table-res-app, .tr-modal-overlay{$wc_scope} {\n    " . implode(";\n    ", $vars) . ";\n}\n";
+            echo "<style id=\"tix-custom-vars\">\n:root, .tix-sel, .tix-co, .tix-faq, .tix-up, .tix-mt, .tix-mc-trigger, .tix-mc-overlay, .tix-cal, .tix-raffle, .tix-ec-trigger, .tix-ec-overlay, .tix-table-btn-wrap, #tix-table-res-app, .tr-modal-overlay, .tix-sp-portal, .tix-sp-chat-panel{$wc_scope} {\n    " . implode(";\n    ", $vars) . ";\n}\n";
             echo $vat_css;
             echo $text_css;
         }
