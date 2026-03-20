@@ -65,10 +65,27 @@ body.tix-fullscreen .breakdance-notice,
 body.tix-fullscreen .yoast-notice,
 body.tix-fullscreen div[class*="notice"],
 body.tix-fullscreen div[id*="message"].updated,
-body.tix-fullscreen .wrap > .notice,
+body.tix-fullscreen .wrap > .notice:not(.tix-notice),
 body.tix-fullscreen .wrap > .updated,
 body.tix-fullscreen .wrap > .error {
     display: none !important;
+}
+
+/* Tixomat eigene Notices IMMER anzeigen */
+body.tix-fullscreen .tix-notice {
+    display: block !important;
+    position: fixed;
+    top: 40px;
+    right: 24px;
+    z-index: 999999;
+    max-width: 420px;
+    box-shadow: 0 4px 20px rgba(0,0,0,.15);
+    border-radius: 8px;
+    animation: tixNoticeIn .3s ease;
+}
+@keyframes tixNoticeIn {
+    from { opacity: 0; transform: translateY(-10px); }
+    to   { opacity: 1; transform: translateY(0); }
 }
 
 /* Content-Area Padding für alle Tixomat-Seiten */

@@ -139,7 +139,6 @@
             var $btn = $(this);
             $btn.prop('disabled', true).text('Wird gesendet\u2026');
             onConfirm(email);
-            setTimeout(function() { $modal.remove(); }, 2000);
         });
 
         // Enter-Taste
@@ -169,19 +168,21 @@
     function showNotice(type, msg) {
         var cssClass = type === 'error' ? 'notice-error' : 'notice-success';
         var $notice = $(
-            '<div class="notice ' + cssClass + ' is-dismissible">' +
+            '<div class="notice tix-notice ' + cssClass + '">' +
                 '<p><strong>Tixomat:</strong> ' + esc(msg) + '</p>' +
                 '<button type="button" class="notice-dismiss"><span class="screen-reader-text">Ausblenden</span></button>' +
             '</div>'
         );
-        $('.wrap h1').first().after($notice);
+        // Modal entfernen falls noch offen
+        $('.tix-modal-overlay').remove();
+        $('body').append($notice);
         $notice.find('.notice-dismiss').on('click', function() {
             $notice.fadeOut(200, function() { $(this).remove(); });
         });
-        // Auto-dismiss nach 8 Sekunden
+        // Auto-dismiss nach 6 Sekunden
         setTimeout(function() {
             $notice.fadeOut(400, function() { $(this).remove(); });
-        }, 8000);
+        }, 6000);
     }
 
 })(jQuery);
