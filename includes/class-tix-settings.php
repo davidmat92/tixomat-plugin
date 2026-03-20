@@ -864,20 +864,16 @@ class TIX_Settings {
 
         $vars = [];
 
-        // Primärfarbe immer ausgeben (ersetzt #FF5500 überall)
+        // Primärfarbe + RGB/Hover immer ausgeben
         $primary = $s['color_primary'] ?? '#FF5500';
-        if ($primary && $primary !== '#FF5500') {
-            $vars[] = "--tix-primary: $primary";
-            // RGB-Werte für rgba()-Nutzung in Support etc.
-            $hex = ltrim($primary, '#');
-            if (strlen($hex) === 3) $hex = $hex[0].$hex[0].$hex[1].$hex[1].$hex[2].$hex[2];
-            $r = hexdec(substr($hex, 0, 2));
-            $g = hexdec(substr($hex, 2, 2));
-            $b = hexdec(substr($hex, 4, 2));
-            $vars[] = "--tix-primary-rgb: $r,$g,$b";
-            // Dunklere Hover-Variante (20% dunkler)
-            $vars[] = sprintf("--tix-primary-hover: #%02x%02x%02x", max(0,$r-40), max(0,$g-40), max(0,$b-40));
-        }
+        $hex = ltrim($primary, '#');
+        if (strlen($hex) === 3) $hex = $hex[0].$hex[0].$hex[1].$hex[1].$hex[2].$hex[2];
+        $r = hexdec(substr($hex, 0, 2));
+        $g = hexdec(substr($hex, 2, 2));
+        $b = hexdec(substr($hex, 4, 2));
+        $vars[] = "--tix-primary: $primary";
+        $vars[] = "--tix-primary-rgb: $r,$g,$b";
+        $vars[] = sprintf("--tix-primary-hover: #%02x%02x%02x", max(0,$r-40), max(0,$g-40), max(0,$b-40));
 
         // Nur geänderte Werte ausgeben
         $map = [
