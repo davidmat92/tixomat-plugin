@@ -287,7 +287,14 @@ class TIX_Order {
     // ══════════════════════════════════════
 
     public static function init() {
+        // Frontend-Checkout
         add_action('woocommerce_checkout_order_processed', [__CLASS__, 'on_wc_order_created'], 5, 1);
+        // Backend-Order (manuell erstellt) + HPOS
+        add_action('woocommerce_new_order', [__CLASS__, 'on_wc_order_created'], 5, 1);
+        add_action('woocommerce_checkout_order_created', function($order) {
+            self::on_wc_order_created($order->get_id());
+        }, 5, 1);
+        // Status-Sync
         add_action('woocommerce_order_status_changed', [__CLASS__, 'on_wc_status_changed'], 10, 3);
     }
 
