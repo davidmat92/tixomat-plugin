@@ -1,1 +1,1129 @@
-.tix-sp-toolbar{display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap}.tix-sp-filters{display:flex;gap:10px;flex:1;flex-wrap:wrap}.tix-sp-input,.tix-sp-select{padding:8px 14px;border:1px solid #d1d5db;border-radius:8px;font-size:13px;background:#fff;color:#1e293b;outline:0;transition:border-color .15s ease,box-shadow .15s ease}.tix-sp-input:focus,.tix-sp-select:focus{border-color:#FF5500;box-shadow:0 0 0 3px rgba(255,85,0,.12)}.tix-sp-input{flex:1;min-width:200px}.tix-sp-btn{padding:8px 18px;border:1px solid #d1d5db;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;background:#fff;color:#1e293b;transition:background .15s ease,border-color .15s ease,transform .1s ease;white-space:nowrap;display:inline-flex;align-items:center;gap:6px}.tix-sp-btn:hover{background:#FAF8F4;border-color:#9ca3af}.tix-sp-btn:active{transform:scale(.97)}.tix-sp-btn-accent{background:#FF5500;color:#fff;border-color:#FF5500}.tix-sp-btn-accent:hover{background:#CC4400;border-color:#CC4400}.tix-sp-btn-sm{padding:5px 12px;font-size:12px;border-radius:6px}.tix-sp-btn-danger{color:#ef4444;border-color:#fca5a5}.tix-sp-btn-danger:hover{background:#fef2f2}.tix-sp-btn-success{color:#10b981;border-color:#6ee7b7}.tix-sp-btn-success:hover{background:#ecfdf5}.tix-sp-loading{text-align:center;padding:40px;color:#6b7280;font-size:14px}.tix-sp-ticket-row{display:flex;align-items:center;gap:14px;padding:14px 18px;background:#fff;border:1px solid #e5e7eb;border-radius:10px;margin-bottom:8px;cursor:pointer;transition:box-shadow .2s ease,border-color .15s ease}.tix-sp-ticket-row:hover{box-shadow:0 2px 8px rgba(0,0,0,.06);border-color:#c7d2fe}.tix-sp-ticket-date{font-size:12px;color:#9ca3af;white-space:nowrap;min-width:100px}.tix-sp-ticket-status{display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700;white-space:nowrap;color:#fff;min-width:90px;text-align:center}.tix-sp-ticket-subject{flex:1;font-weight:600;font-size:14px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.tix-sp-ticket-customer{font-size:13px;color:#6b7280;white-space:nowrap;max-width:200px;overflow:hidden;text-overflow:ellipsis}.tix-sp-ticket-category{font-size:11px;padding:2px 8px;background:#f1f5f9;border-radius:4px;color:#475569;white-space:nowrap}.tix-sp-ticket-last{font-size:12px;color:#9ca3af;white-space:nowrap}.tix-sp-priority-high .tix-sp-ticket-subject::before{content:'⚡';margin-right:4px}.tix-sp-priority-urgent .tix-sp-ticket-subject::before{content:'🔴';margin-right:4px}.tix-sp-pagination{display:flex;justify-content:center;gap:8px;margin-top:16px}.tix-sp-pagination button{padding:6px 14px;border:1px solid #d1d5db;border-radius:6px;background:#fff;font-size:13px;cursor:pointer}.tix-sp-pagination button.active{background:#FF5500;color:#fff;border-color:#FF5500}.tix-sp-pagination button:disabled{opacity:.4;cursor:default}.tix-sp-ticket-detail{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:24px}.tix-sp-detail-header{display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap}.tix-sp-detail-back{padding:6px 12px;border:1px solid #d1d5db;border-radius:6px;background:#fff;cursor:pointer;font-size:13px}.tix-sp-detail-back:hover{background:#FAF8F4}.tix-sp-detail-title{font-size:18px;font-weight:700;flex:1}.tix-sp-detail-id{color:#9ca3af;font-size:13px}.tix-sp-detail-status-select{padding:6px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;font-weight:600}.tix-sp-detail-layout{display:grid;grid-template-columns:1fr 300px;gap:24px}@media (max-width:900px){.tix-sp-detail-layout{grid-template-columns:1fr}}.tix-sp-messages{display:flex;flex-direction:column;gap:12px;max-height:500px;overflow-y:auto;padding:4px}.tix-sp-msg{padding:14px 18px;border-radius:12px;max-width:85%;font-size:14px;line-height:1.6}.tix-sp-msg-customer{background:#eff6ff;border:1px solid #bfdbfe;align-self:flex-start}.tix-sp-msg-admin{background:#FAF8F4;border:1px solid #EDE9E0;align-self:flex-end}.tix-sp-msg-note{background:#fefce8;border:1px solid #fde68a;align-self:flex-end;font-style:italic}.tix-sp-msg-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}.tix-sp-msg-author{font-weight:700;font-size:13px}.tix-sp-msg-date{font-size:11px;color:#9ca3af}.tix-sp-msg-note .tix-sp-msg-author::before{content:'📌 '}.tix-sp-msg-content{white-space:pre-wrap;word-break:break-word}.tix-sp-reply-box{margin-top:16px;border-top:1px solid #e5e7eb;padding-top:16px}.tix-sp-reply-textarea{width:100%;min-height:100px;padding:12px 16px;border:1px solid #d1d5db;border-radius:10px;font-size:14px;font-family:inherit;resize:vertical;outline:0;transition:border-color .15s ease;box-sizing:border-box}.tix-sp-reply-textarea:focus{border-color:#FF5500;box-shadow:0 0 0 3px rgba(255,85,0,.12)}.tix-sp-reply-actions{display:flex;gap:8px;margin-top:10px}.tix-sp-sidebar-card{background:#FAF8F4;border:1px solid #e5e7eb;border-radius:10px;padding:16px;margin-bottom:12px}.tix-sp-sidebar-card h4{font-size:13px;font-weight:700;margin:0 0 10px;color:#374151;text-transform:uppercase;letter-spacing:.03em}.tix-sp-sidebar-row{display:flex;justify-content:space-between;align-items:center;padding:4px 0;font-size:13px}.tix-sp-sidebar-label{color:#6b7280}.tix-sp-sidebar-value{font-weight:600;color:#1e293b;text-align:right}.tix-sp-sidebar-value a{color:#FF5500;text-decoration:none}.tix-sp-sidebar-value a:hover{text-decoration:underline}.tix-sp-quick-actions{display:flex;flex-direction:column;gap:6px}.tix-sp-quick-actions button{width:100%;padding:8px 12px;border:1px solid #d1d5db;border-radius:8px;background:#fff;font-size:12px;font-weight:600;cursor:pointer;text-align:left;display:flex;align-items:center;gap:8px;transition:background .15s ease,border-color .15s ease}.tix-sp-quick-actions button:hover{background:#f1f5f9;border-color:#94a3b8}.tix-sp-search-row{display:flex;gap:10px}.tix-sp-search-main{flex:1;padding:12px 16px!important;font-size:15px!important}.tix-sp-search-hint{margin-top:8px;font-size:12px;color:#9ca3af}.tix-sp-search-results{margin-top:20px}.tix-sp-result-section{margin-bottom:24px}.tix-sp-result-section h3{font-size:14px;font-weight:700;color:#374151;margin:0 0 12px;padding-bottom:8px;border-bottom:1px solid #e5e7eb}.tix-sp-result-card{display:flex;align-items:center;gap:12px;padding:12px 16px;background:#fff;border:1px solid #e5e7eb;border-radius:10px;margin-bottom:8px;flex-wrap:wrap}.tix-sp-result-card-info{flex:1;min-width:0}.tix-sp-result-card-info strong{display:block;font-size:14px;margin-bottom:2px}.tix-sp-result-card-info span{font-size:12px;color:#6b7280}.tix-sp-result-card-actions{display:flex;gap:6px;flex-shrink:0}.tix-sp-customer-card{background:#f0f9ff;border:1px solid #bae6fd;border-radius:12px;padding:20px;margin-bottom:20px;display:flex;align-items:center;gap:16px}.tix-sp-customer-avatar{width:48px;height:48px;background:#FF5500;color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700;flex-shrink:0}.tix-sp-customer-info h3{margin:0 0 4px;font-size:16px}.tix-sp-customer-info p{margin:0;font-size:13px;color:#6b7280}.tix-sp-stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}@media (max-width:768px){.tix-sp-stats-grid{grid-template-columns:repeat(2,1fr)}}.tix-sp-stat-card{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:20px;text-align:center}.tix-sp-stat-icon{width:44px;height:44px;border-radius:12px;display:inline-flex;align-items:center;justify-content:center;margin-bottom:12px}.tix-sp-stat-icon .dashicons{font-size:22px;width:22px;height:22px}.tix-sp-stat-value{font-size:28px;font-weight:800;color:#1e293b;line-height:1.2}.tix-sp-stat-label{font-size:13px;color:#6b7280;margin-top:4px}.tix-sp-stats-chart{display:flex;align-items:flex-end;gap:12px;height:140px;padding-top:10px}.tix-sp-chart-day{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;height:100%;justify-content:flex-end}.tix-sp-chart-bars{display:flex;gap:3px;align-items:flex-end;flex:1;width:100%;justify-content:center}.tix-sp-chart-bar{width:14px;border-radius:4px 4px 0 0;min-height:4px;transition:height .3s ease}.tix-sp-chart-bar-created{background:#93c5fd}.tix-sp-chart-bar-resolved{background:#6ee7b7}.tix-sp-chart-label{font-size:11px;color:#9ca3af;font-weight:600}.tix-sp-chart-count{font-size:10px;color:#6b7280;font-weight:600}.tix-sp-empty{text-align:center;padding:48px 20px;color:#9ca3af;font-size:14px}.tix-sp-empty .dashicons{font-size:40px;width:40px;height:40px;display:block;margin:0 auto 12px;opacity:.4}.tix-sp-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:100000;display:flex;align-items:center;justify-content:center;animation:tixSpFadeIn .2s ease}.tix-sp-modal{background:#fff;border-radius:14px;padding:28px;width:480px;max-width:90vw;max-height:80vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.2);animation:tixSpSlideUp .25s ease}.tix-sp-modal h3{margin:0 0 20px;font-size:18px}.tix-sp-modal-field{margin-bottom:14px}.tix-sp-modal-field label{display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:4px}.tix-sp-modal-field input,.tix-sp-modal-field select,.tix-sp-modal-field textarea{width:100%;padding:10px 14px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;font-family:inherit;box-sizing:border-box}.tix-sp-modal-field textarea{min-height:100px;resize:vertical}.tix-sp-modal-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:20px}.tix-sp-inline-form{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}.tix-sp-inline-form input{padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;flex:1;min-width:120px}.tix-sp-linked-ticket{display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid #f1f5f9}.tix-sp-linked-ticket:last-child{border-bottom:none}.tix-sp-linked-ticket-info{display:flex;flex-direction:column;gap:2px;font-size:12px}.tix-sp-linked-ticket-info strong{font-size:13px;color:#1e293b}.tix-sp-linked-ticket-info span{color:#64748b}.tix-sp-linked-ticket-actions{display:flex;gap:4px;align-items:center}.tix-sp-linked-ticket-actions a,.tix-sp-linked-ticket-actions button{background:0 0;border:none;cursor:pointer;font-size:15px;padding:4px 6px;border-radius:4px;transition:background .15s;text-decoration:none}.tix-sp-linked-ticket-actions a:hover,.tix-sp-linked-ticket-actions button:hover{background:#f1f5f9}.tix-sp-qa-btn{display:inline-block;text-decoration:none;color:inherit}@keyframes tixSpFadeIn{from{opacity:0}to{opacity:1}}@keyframes tixSpSlideUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}.tix-sp-front{max-width:640px;margin:0 auto;padding:20px;font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;color:#1e293b;-webkit-font-smoothing:antialiased}.tix-sp-front-section h2{font-size:1.4rem;font-weight:700;margin:0 0 8px}.tix-sp-front-section>p{color:#6b7280;font-size:.95rem;margin:0 0 20px}.tix-sp-front-form{display:flex;flex-direction:column;gap:12px}.tix-sp-front-input{padding:12px 16px;border:1px solid #EDE9E0;border-radius:10px;font-size:1rem;background:#fff;color:#1e293b;outline:0;font-family:inherit;transition:border-color .15s ease,box-shadow .15s ease;box-sizing:border-box;width:100%}.tix-sp-front-input:focus{border-color:#FF5500;box-shadow:0 0 0 3px rgba(255,85,0,.12)}.tix-sp-front-input::placeholder{color:#94a3b8}.tix-sp-front-btn{padding:12px 24px;background:#FF5500;color:#fff;border:none;border-radius:10px;font-size:1rem;font-weight:700;cursor:pointer;transition:background .2s ease,transform .1s ease;white-space:nowrap}.tix-sp-front-btn:hover{background:#CC4400}.tix-sp-front-btn:active{transform:scale(.97)}.tix-sp-front-btn-ghost{background:0 0;color:#FF5500;border:1px solid #EDE9E0}.tix-sp-front-btn-ghost:hover{background:#FAF8F4}.tix-sp-front-error{color:#ef4444;font-size:.85rem;font-weight:600;padding:8px 0}.tix-sp-front-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;gap:12px;flex-wrap:wrap}.tix-sp-front-header h2{margin:0}.tix-sp-front-ticket{display:block;padding:16px;background:#fff;border:1px solid #EDE9E0;border-radius:12px;margin-bottom:10px;cursor:pointer;transition:box-shadow .2s ease,border-color .15s ease;text-decoration:none;color:inherit}.tix-sp-front-ticket:hover{box-shadow:0 2px 8px rgba(0,0,0,.06);border-color:#c7d2fe}.tix-sp-front-ticket-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}.tix-sp-front-ticket-subject{font-weight:700;font-size:.95rem}.tix-sp-front-ticket-badge{display:inline-block;padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700;color:#fff;flex-shrink:0}.tix-sp-front-ticket-preview{font-size:.85rem;color:#6b7280;line-height:1.4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.tix-sp-front-ticket-date{font-size:.8rem;color:#9ca3af;margin-top:4px}.tix-sp-front-detail-header{margin:16px 0}.tix-sp-front-detail-header h3{font-size:1.2rem;margin:0 0 6px}.tix-sp-front-detail-meta{font-size:.85rem;color:#6b7280;display:flex;gap:12px;flex-wrap:wrap}.tix-sp-front-messages{display:flex;flex-direction:column;gap:10px;margin:16px 0}.tix-sp-front-msg{padding:14px 18px;border-radius:14px;max-width:85%;font-size:.95rem;line-height:1.6}.tix-sp-front-msg-customer{background:#eff6ff;border:1px solid #bfdbfe;align-self:flex-start}.tix-sp-front-msg-admin{background:#FAF8F4;border:1px solid #EDE9E0;align-self:flex-end}.tix-sp-front-msg-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}.tix-sp-front-msg-author{font-weight:700;font-size:.85rem}.tix-sp-front-msg-date{font-size:.75rem;color:#9ca3af}.tix-sp-front-msg-content{white-space:pre-wrap;word-break:break-word}.tix-sp-front-reply{margin-top:16px;border-top:1px solid #EDE9E0;padding-top:16px}.tix-sp-front-reply textarea{width:100%;min-height:80px;padding:12px 16px;border:1px solid #EDE9E0;border-radius:10px;font-size:.95rem;font-family:inherit;resize:vertical;outline:0;box-sizing:border-box}.tix-sp-front-reply textarea:focus{border-color:#FF5500;box-shadow:0 0 0 3px rgba(255,85,0,.12)}.tix-sp-front-reply button{margin-top:10px}.tix-sp-front-form-actions{display:flex;gap:10px;justify-content:flex-end}.tix-sp-front-empty{text-align:center;padding:40px 20px;color:#9ca3af;font-size:.95rem}.tix-sp-front-success{background:rgba(16,185,129,.08);border:1px solid #6ee7b7;border-radius:12px;padding:16px 20px;color:#047857;font-weight:600;font-size:.95rem;margin-bottom:16px;animation:tixSpFadeIn .3s ease}#tix-sp-chat-widget{position:fixed;bottom:24px;right:24px;z-index:99999;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}.tix-sp-chat-btn{width:56px;height:56px;border-radius:50%;border:none;background:linear-gradient(135deg,#FF5500,#8b5cf6);color:#fff;font-size:24px;cursor:pointer;box-shadow:0 4px 20px rgba(255,85,0,.4);display:flex;align-items:center;justify-content:center;transition:transform .2s ease,box-shadow .2s ease;position:relative;z-index:2}.tix-sp-chat-btn:hover{transform:scale(1.08);box-shadow:0 6px 28px rgba(255,85,0,.5)}.tix-sp-chat-btn-close{font-size:20px}.tix-sp-chat-panel{position:absolute;bottom:68px;right:0;width:380px;max-height:520px;background:#fff;border-radius:16px;box-shadow:0 8px 40px rgba(0,0,0,.15);overflow:hidden;display:flex;flex-direction:column;animation:tixSpSlideUp .25s ease}.tix-sp-chat-panel-header{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;background:linear-gradient(135deg,#FF5500,#8b5cf6);color:#fff}.tix-sp-chat-panel-header h3{margin:0;font-size:15px;font-weight:700;color:#fff}.tix-sp-chat-panel-close{background:0 0;border:none;color:rgba(255,255,255,.8);font-size:18px;cursor:pointer;padding:4px;transition:color .15s}.tix-sp-chat-panel-close:hover{color:#fff}.tix-sp-chat-panel-body{padding:16px;overflow-y:auto;flex:1;max-height:440px}.tix-sp-chat-list-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}.tix-sp-chat-ticket-item{padding:10px 12px;border:1px solid #f1f5f9;border-radius:10px;margin-bottom:8px;cursor:pointer;transition:background .15s,border-color .15s}.tix-sp-chat-ticket-item:hover{background:#FAF8F4;border-color:#EDE9E0}.tix-sp-chat-messages{max-height:250px;overflow-y:auto;margin-bottom:10px;padding-right:4px}.tix-sp-chat-msg{padding:8px 10px;border-radius:10px;margin-bottom:6px;max-width:90%}.tix-sp-chat-msg-customer{background:#eff6ff;border:1px solid #bfdbfe;margin-right:auto}.tix-sp-chat-msg-admin{background:#FAF8F4;border:1px solid #EDE9E0;margin-left:auto}.tix-sp-chat-reply textarea{font-family:inherit}.tix-sp-chat-panel .tix-sp-front-input{font-size:13px;padding:8px 12px}.tix-sp-chat-panel .tix-sp-front-btn{font-size:13px;padding:8px 16px}.tix-sp-chat-panel .tix-sp-front-form{gap:8px}@media (max-width:480px){#tix-sp-chat-widget{bottom:16px;right:16px}.tix-sp-chat-panel{width:calc(100vw - 32px);max-height:70vh;right:0;bottom:68px}.tix-sp-chat-btn{width:50px;height:50px;font-size:20px}}
+/* ═══════════════════════════════════════════
+Tixomat – Support System
+Admin Dashboard + Frontend Portal
+═══════════════════════════════════════════ */
+
+/* ── Admin: Toolbar ── */
+.tix-sp-toolbar {
+display: flex;
+align-items: center;
+gap: 12px;
+margin-bottom: 20px;
+flex-wrap: wrap;
+}
+.tix-sp-filters {
+display: flex;
+gap: 10px;
+flex: 1;
+flex-wrap: wrap;
+}
+.tix-sp-select,
+.tix-sp-input {
+padding: 8px 14px;
+border: 1px solid #d1d5db;
+border-radius: 8px;
+font-size: 13px;
+background: #fff;
+color: #1e293b;
+outline: none;
+transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.tix-sp-select:focus,
+.tix-sp-input:focus {
+border-color: var(--tix-primary, #FF5500);
+box-shadow: 0 0 0 3px rgba(var(--tix-primary-rgb, 255,85,0),0.12);
+}
+.tix-sp-input { flex: 1; min-width: 200px; }
+.tix-sp-btn {
+padding: 8px 18px;
+border: 1px solid #d1d5db;
+border-radius: 8px;
+font-size: 13px;
+font-weight: 600;
+cursor: pointer;
+background: #fff;
+color: #1e293b;
+transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+white-space: nowrap;
+display: inline-flex;
+align-items: center;
+gap: 6px;
+}
+.tix-sp-btn:hover { background: #FAF8F4; border-color: #9ca3af; }
+.tix-sp-btn:active { transform: scale(0.97); }
+.tix-sp-btn-accent {
+background: var(--tix-primary, #FF5500);
+color: #fff;
+border-color: var(--tix-primary, #FF5500);
+}
+.tix-sp-btn-accent:hover { background: var(--tix-primary-hover, #CC4400); border-color: var(--tix-primary-hover, #CC4400); }
+.tix-sp-btn-sm {
+padding: 5px 12px;
+font-size: 12px;
+border-radius: 6px;
+}
+.tix-sp-btn-danger {
+color: #ef4444;
+border-color: #fca5a5;
+}
+.tix-sp-btn-danger:hover { background: #fef2f2; }
+.tix-sp-btn-success {
+color: #10b981;
+border-color: #6ee7b7;
+}
+.tix-sp-btn-success:hover { background: #ecfdf5; }
+
+/* ── Admin: Ticket-Liste ── */
+.tix-sp-ticket-list { }
+.tix-sp-loading {
+text-align: center;
+padding: 40px;
+color: #6b7280;
+font-size: 14px;
+}
+.tix-sp-ticket-row {
+display: flex;
+align-items: center;
+gap: 14px;
+padding: 14px 18px;
+background: #fff;
+border: 1px solid #e5e7eb;
+border-radius: 10px;
+margin-bottom: 8px;
+cursor: pointer;
+transition: box-shadow 0.2s ease, border-color 0.15s ease;
+}
+.tix-sp-ticket-row:hover {
+box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+border-color: #c7d2fe;
+}
+.tix-sp-ticket-date {
+font-size: 12px;
+color: #9ca3af;
+white-space: nowrap;
+min-width: 100px;
+}
+.tix-sp-ticket-status {
+display: inline-block;
+padding: 3px 10px;
+border-radius: 20px;
+font-size: 11px;
+font-weight: 700;
+white-space: nowrap;
+color: #fff;
+min-width: 90px;
+text-align: center;
+}
+.tix-sp-ticket-subject {
+flex: 1;
+font-weight: 600;
+font-size: 14px;
+min-width: 0;
+overflow: hidden;
+text-overflow: ellipsis;
+white-space: nowrap;
+}
+.tix-sp-ticket-customer {
+font-size: 13px;
+color: #6b7280;
+white-space: nowrap;
+max-width: 200px;
+overflow: hidden;
+text-overflow: ellipsis;
+}
+.tix-sp-ticket-category {
+font-size: 11px;
+padding: 2px 8px;
+background: #f1f5f9;
+border-radius: 4px;
+color: #475569;
+white-space: nowrap;
+}
+.tix-sp-ticket-last {
+font-size: 12px;
+color: #9ca3af;
+white-space: nowrap;
+}
+.tix-sp-priority-high .tix-sp-ticket-subject::before {
+content: '⚡';
+margin-right: 4px;
+}
+.tix-sp-priority-urgent .tix-sp-ticket-subject::before {
+content: '🔴';
+margin-right: 4px;
+}
+
+/* ── Pagination ── */
+.tix-sp-pagination {
+display: flex;
+justify-content: center;
+gap: 8px;
+margin-top: 16px;
+}
+.tix-sp-pagination button {
+padding: 6px 14px;
+border: 1px solid #d1d5db;
+border-radius: 6px;
+background: #fff;
+font-size: 13px;
+cursor: pointer;
+}
+.tix-sp-pagination button.active {
+background: var(--tix-primary, #FF5500);
+color: #fff;
+border-color: var(--tix-primary, #FF5500);
+}
+.tix-sp-pagination button:disabled { opacity: 0.4; cursor: default; }
+
+/* ── Admin: Ticket-Detail ── */
+.tix-sp-ticket-detail {
+background: #fff;
+border: 1px solid #e5e7eb;
+border-radius: 12px;
+padding: 24px;
+}
+.tix-sp-detail-header {
+display: flex;
+align-items: center;
+gap: 12px;
+margin-bottom: 20px;
+flex-wrap: wrap;
+}
+.tix-sp-detail-back {
+padding: 6px 12px;
+border: 1px solid #d1d5db;
+border-radius: 6px;
+background: #fff;
+cursor: pointer;
+font-size: 13px;
+}
+.tix-sp-detail-back:hover { background: #FAF8F4; }
+.tix-sp-detail-title {
+font-size: 18px;
+font-weight: 700;
+flex: 1;
+}
+.tix-sp-detail-id {
+color: #9ca3af;
+font-size: 13px;
+}
+.tix-sp-detail-status-select {
+padding: 6px 12px;
+border: 1px solid #d1d5db;
+border-radius: 6px;
+font-size: 13px;
+font-weight: 600;
+}
+
+/* ── Detail Layout (Thread + Sidebar) ── */
+.tix-sp-detail-layout {
+display: grid;
+grid-template-columns: 1fr 300px;
+gap: 24px;
+}
+@media (max-width: 900px) {
+.tix-sp-detail-layout {
+grid-template-columns: 1fr;
+}
+}
+
+/* ── Messages Thread ── */
+.tix-sp-messages {
+display: flex;
+flex-direction: column;
+gap: 12px;
+max-height: 500px;
+overflow-y: auto;
+padding: 4px;
+}
+.tix-sp-msg {
+padding: 14px 18px;
+border-radius: 12px;
+max-width: 85%;
+font-size: 14px;
+line-height: 1.6;
+}
+.tix-sp-msg-customer {
+background: #eff6ff;
+border: 1px solid #bfdbfe;
+align-self: flex-start;
+}
+.tix-sp-msg-admin {
+background: #FAF8F4;
+border: 1px solid #EDE9E0;
+align-self: flex-end;
+}
+.tix-sp-msg-note {
+background: #fefce8;
+border: 1px solid #fde68a;
+align-self: flex-end;
+font-style: italic;
+}
+.tix-sp-msg-header {
+display: flex;
+justify-content: space-between;
+align-items: center;
+margin-bottom: 6px;
+}
+.tix-sp-msg-author {
+font-weight: 700;
+font-size: 13px;
+}
+.tix-sp-msg-date {
+font-size: 11px;
+color: #9ca3af;
+}
+.tix-sp-msg-note .tix-sp-msg-author::before {
+content: '📌 ';
+}
+.tix-sp-msg-content {
+white-space: pre-wrap;
+word-break: break-word;
+}
+
+/* ── Reply Box ── */
+.tix-sp-reply-box {
+margin-top: 16px;
+border-top: 1px solid #e5e7eb;
+padding-top: 16px;
+}
+.tix-sp-reply-textarea {
+width: 100%;
+min-height: 100px;
+padding: 12px 16px;
+border: 1px solid #d1d5db;
+border-radius: 10px;
+font-size: 14px;
+font-family: inherit;
+resize: vertical;
+outline: none;
+transition: border-color 0.15s ease;
+box-sizing: border-box;
+}
+.tix-sp-reply-textarea:focus {
+border-color: var(--tix-primary, #FF5500);
+box-shadow: 0 0 0 3px rgba(var(--tix-primary-rgb, 255,85,0),0.12);
+}
+.tix-sp-reply-actions {
+display: flex;
+gap: 8px;
+margin-top: 10px;
+}
+
+/* ── Sidebar ── */
+.tix-sp-sidebar { }
+.tix-sp-sidebar-card {
+background: #FAF8F4;
+border: 1px solid #e5e7eb;
+border-radius: 10px;
+padding: 16px;
+margin-bottom: 12px;
+}
+.tix-sp-sidebar-card h4 {
+font-size: 13px;
+font-weight: 700;
+margin: 0 0 10px;
+color: #374151;
+text-transform: uppercase;
+letter-spacing: 0.03em;
+}
+.tix-sp-sidebar-row {
+display: flex;
+justify-content: space-between;
+align-items: center;
+padding: 4px 0;
+font-size: 13px;
+}
+.tix-sp-sidebar-label {
+color: #6b7280;
+}
+.tix-sp-sidebar-value {
+font-weight: 600;
+color: #1e293b;
+text-align: right;
+}
+.tix-sp-sidebar-value a {
+color: var(--tix-primary, #FF5500);
+text-decoration: none;
+}
+.tix-sp-sidebar-value a:hover { text-decoration: underline; }
+
+/* ── Quick Actions ── */
+.tix-sp-quick-actions {
+display: flex;
+flex-direction: column;
+gap: 6px;
+}
+.tix-sp-quick-actions button {
+width: 100%;
+padding: 8px 12px;
+border: 1px solid #d1d5db;
+border-radius: 8px;
+background: #fff;
+font-size: 12px;
+font-weight: 600;
+cursor: pointer;
+text-align: left;
+display: flex;
+align-items: center;
+gap: 8px;
+transition: background 0.15s ease, border-color 0.15s ease;
+}
+.tix-sp-quick-actions button:hover {
+background: #f1f5f9;
+border-color: #94a3b8;
+}
+
+/* ── Search Tab ── */
+.tix-sp-search-row {
+display: flex;
+gap: 10px;
+}
+.tix-sp-search-main {
+flex: 1;
+padding: 12px 16px !important;
+font-size: 15px !important;
+}
+.tix-sp-search-hint {
+margin-top: 8px;
+font-size: 12px;
+color: #9ca3af;
+}
+.tix-sp-search-results {
+margin-top: 20px;
+}
+
+/* ── Search Results Cards ── */
+.tix-sp-result-section {
+margin-bottom: 24px;
+}
+.tix-sp-result-section h3 {
+font-size: 14px;
+font-weight: 700;
+color: #374151;
+margin: 0 0 12px;
+padding-bottom: 8px;
+border-bottom: 1px solid #e5e7eb;
+}
+.tix-sp-result-card {
+display: flex;
+align-items: center;
+gap: 12px;
+padding: 12px 16px;
+background: #fff;
+border: 1px solid #e5e7eb;
+border-radius: 10px;
+margin-bottom: 8px;
+flex-wrap: wrap;
+}
+.tix-sp-result-card-info {
+flex: 1;
+min-width: 0;
+}
+.tix-sp-result-card-info strong {
+display: block;
+font-size: 14px;
+margin-bottom: 2px;
+}
+.tix-sp-result-card-info span {
+font-size: 12px;
+color: #6b7280;
+}
+.tix-sp-result-card-actions {
+display: flex;
+gap: 6px;
+flex-shrink: 0;
+}
+
+/* ── Customer Card (Search) ── */
+.tix-sp-customer-card {
+background: #f0f9ff;
+border: 1px solid #bae6fd;
+border-radius: 12px;
+padding: 20px;
+margin-bottom: 20px;
+display: flex;
+align-items: center;
+gap: 16px;
+}
+.tix-sp-customer-avatar {
+width: 48px;
+height: 48px;
+background: var(--tix-primary, #FF5500);
+color: #fff;
+border-radius: 50%;
+display: flex;
+align-items: center;
+justify-content: center;
+font-size: 20px;
+font-weight: 700;
+flex-shrink: 0;
+}
+.tix-sp-customer-info h3 {
+margin: 0 0 4px;
+font-size: 16px;
+}
+.tix-sp-customer-info p {
+margin: 0;
+font-size: 13px;
+color: #6b7280;
+}
+
+/* ── Stats ── */
+.tix-sp-stats-grid {
+display: grid;
+grid-template-columns: repeat(4, 1fr);
+gap: 16px;
+}
+@media (max-width: 768px) {
+.tix-sp-stats-grid { grid-template-columns: repeat(2, 1fr); }
+}
+.tix-sp-stat-card {
+background: #fff;
+border: 1px solid #e5e7eb;
+border-radius: 12px;
+padding: 20px;
+text-align: center;
+}
+.tix-sp-stat-icon {
+width: 44px;
+height: 44px;
+border-radius: 12px;
+display: inline-flex;
+align-items: center;
+justify-content: center;
+margin-bottom: 12px;
+}
+.tix-sp-stat-icon .dashicons {
+font-size: 22px;
+width: 22px;
+height: 22px;
+}
+.tix-sp-stat-value {
+font-size: 28px;
+font-weight: 800;
+color: #1e293b;
+line-height: 1.2;
+}
+.tix-sp-stat-label {
+font-size: 13px;
+color: #6b7280;
+margin-top: 4px;
+}
+
+/* ── Stats Chart ── */
+.tix-sp-stats-chart {
+display: flex;
+align-items: flex-end;
+gap: 12px;
+height: 140px;
+padding-top: 10px;
+}
+.tix-sp-chart-day {
+flex: 1;
+display: flex;
+flex-direction: column;
+align-items: center;
+gap: 4px;
+height: 100%;
+justify-content: flex-end;
+}
+.tix-sp-chart-bars {
+display: flex;
+gap: 3px;
+align-items: flex-end;
+flex: 1;
+width: 100%;
+justify-content: center;
+}
+.tix-sp-chart-bar {
+width: 14px;
+border-radius: 4px 4px 0 0;
+min-height: 4px;
+transition: height 0.3s ease;
+}
+.tix-sp-chart-bar-created {
+background: #93c5fd;
+}
+.tix-sp-chart-bar-resolved {
+background: #6ee7b7;
+}
+.tix-sp-chart-label {
+font-size: 11px;
+color: #9ca3af;
+font-weight: 600;
+}
+.tix-sp-chart-count {
+font-size: 10px;
+color: #6b7280;
+font-weight: 600;
+}
+
+/* ── Empty State ── */
+.tix-sp-empty {
+text-align: center;
+padding: 48px 20px;
+color: #9ca3af;
+font-size: 14px;
+}
+.tix-sp-empty .dashicons {
+font-size: 40px;
+width: 40px;
+height: 40px;
+display: block;
+margin: 0 auto 12px;
+opacity: 0.4;
+}
+
+/* ── Admin: Create Ticket Modal ── */
+.tix-sp-modal-overlay {
+position: fixed;
+inset: 0;
+background: rgba(0,0,0,0.4);
+z-index: 100000;
+display: flex;
+align-items: center;
+justify-content: center;
+animation: tixSpFadeIn 0.2s ease;
+}
+.tix-sp-modal {
+background: #fff;
+border-radius: 14px;
+padding: 28px;
+width: 480px;
+max-width: 90vw;
+max-height: 80vh;
+overflow-y: auto;
+box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+animation: tixSpSlideUp 0.25s ease;
+}
+.tix-sp-modal h3 {
+margin: 0 0 20px;
+font-size: 18px;
+}
+.tix-sp-modal-field {
+margin-bottom: 14px;
+}
+.tix-sp-modal-field label {
+display: block;
+font-size: 13px;
+font-weight: 600;
+color: #374151;
+margin-bottom: 4px;
+}
+.tix-sp-modal-field input,
+.tix-sp-modal-field select,
+.tix-sp-modal-field textarea {
+width: 100%;
+padding: 10px 14px;
+border: 1px solid #d1d5db;
+border-radius: 8px;
+font-size: 14px;
+font-family: inherit;
+box-sizing: border-box;
+}
+.tix-sp-modal-field textarea { min-height: 100px; resize: vertical; }
+.tix-sp-modal-actions {
+display: flex;
+gap: 10px;
+justify-content: flex-end;
+margin-top: 20px;
+}
+
+/* ── Change Owner Modal ── */
+.tix-sp-inline-form {
+display: flex;
+gap: 8px;
+margin-top: 8px;
+flex-wrap: wrap;
+}
+.tix-sp-inline-form input {
+padding: 6px 10px;
+border: 1px solid #d1d5db;
+border-radius: 6px;
+font-size: 13px;
+flex: 1;
+min-width: 120px;
+}
+
+/* ── Admin: Verknüpfte Tickets ── */
+.tix-sp-linked-ticket {
+display: flex;
+align-items: center;
+justify-content: space-between;
+padding: 8px 0;
+border-bottom: 1px solid #f1f5f9;
+}
+.tix-sp-linked-ticket:last-child { border-bottom: none; }
+.tix-sp-linked-ticket-info {
+display: flex;
+flex-direction: column;
+gap: 2px;
+font-size: 12px;
+}
+.tix-sp-linked-ticket-info strong {
+font-size: 13px;
+color: #1e293b;
+}
+.tix-sp-linked-ticket-info span {
+color: #64748b;
+}
+.tix-sp-linked-ticket-actions {
+display: flex;
+gap: 4px;
+align-items: center;
+}
+.tix-sp-linked-ticket-actions a,
+.tix-sp-linked-ticket-actions button {
+background: none;
+border: none;
+cursor: pointer;
+font-size: 15px;
+padding: 4px 6px;
+border-radius: 4px;
+transition: background 0.15s;
+text-decoration: none;
+}
+.tix-sp-linked-ticket-actions a:hover,
+.tix-sp-linked-ticket-actions button:hover {
+background: #f1f5f9;
+}
+.tix-sp-qa-btn {
+display: inline-block;
+text-decoration: none;
+color: inherit;
+}
+
+@keyframes tixSpFadeIn {
+from { opacity: 0; }
+to { opacity: 1; }
+}
+@keyframes tixSpSlideUp {
+from { opacity: 0; transform: translateY(20px); }
+to { opacity: 1; transform: translateY(0); }
+}
+
+/* ═══════════════════════════════════════════
+Frontend Kunden-Portal
+═══════════════════════════════════════════ */
+
+.tix-sp-front {
+max-width: 640px;
+margin: 0 auto;
+padding: 20px;
+font-family: 'Inter', system-ui, -apple-system, sans-serif;
+color: #1e293b;
+-webkit-font-smoothing: antialiased;
+}
+
+/* ── Frontend: Sections ── */
+.tix-sp-front-section h2 {
+font-size: 1.4rem;
+font-weight: 700;
+margin: 0 0 8px;
+}
+.tix-sp-front-section > p {
+color: #6b7280;
+font-size: 0.95rem;
+margin: 0 0 20px;
+}
+
+/* ── Frontend: Forms ── */
+.tix-sp-front-form {
+display: flex;
+flex-direction: column;
+gap: 12px;
+}
+.tix-sp-front-input {
+padding: 12px 16px;
+border: 1px solid #EDE9E0;
+border-radius: 10px;
+font-size: 1rem;
+background: #fff;
+color: #1e293b;
+outline: none;
+font-family: inherit;
+transition: border-color 0.15s ease, box-shadow 0.15s ease;
+box-sizing: border-box;
+width: 100%;
+}
+.tix-sp-front-input:focus {
+border-color: var(--tix-primary, #FF5500);
+box-shadow: 0 0 0 3px rgba(var(--tix-primary-rgb, 255,85,0),0.12);
+}
+.tix-sp-front-input::placeholder { color: #94a3b8; }
+
+.tix-sp-front-btn {
+padding: 12px 24px;
+background: var(--tix-primary, #FF5500);
+color: #fff;
+border: none;
+border-radius: 10px;
+font-size: 1rem;
+font-weight: 700;
+cursor: pointer;
+transition: background 0.2s ease, transform 0.1s ease;
+white-space: nowrap;
+}
+.tix-sp-front-btn:hover { background: var(--tix-primary-hover, #CC4400); }
+.tix-sp-front-btn:active { transform: scale(0.97); }
+.tix-sp-front-btn-ghost {
+background: transparent;
+color: var(--tix-primary, #FF5500);
+border: 1px solid #EDE9E0;
+}
+.tix-sp-front-btn-ghost:hover {
+background: #FAF8F4;
+}
+
+.tix-sp-front-error {
+color: #ef4444;
+font-size: 0.85rem;
+font-weight: 600;
+padding: 8px 0;
+}
+
+/* ── Frontend: Header ── */
+.tix-sp-front-header {
+display: flex;
+align-items: center;
+justify-content: space-between;
+margin-bottom: 20px;
+gap: 12px;
+flex-wrap: wrap;
+}
+.tix-sp-front-header h2 { margin: 0; }
+
+/* ── Frontend: Ticket List ── */
+.tix-sp-front-ticket {
+display: block;
+padding: 16px;
+background: #fff;
+border: 1px solid #EDE9E0;
+border-radius: 12px;
+margin-bottom: 10px;
+cursor: pointer;
+transition: box-shadow 0.2s ease, border-color 0.15s ease;
+text-decoration: none;
+color: inherit;
+}
+.tix-sp-front-ticket:hover {
+box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+border-color: #c7d2fe;
+}
+.tix-sp-front-ticket-top {
+display: flex;
+justify-content: space-between;
+align-items: center;
+margin-bottom: 6px;
+}
+.tix-sp-front-ticket-subject {
+font-weight: 700;
+font-size: 0.95rem;
+}
+.tix-sp-front-ticket-badge {
+display: inline-block;
+padding: 2px 10px;
+border-radius: 20px;
+font-size: 11px;
+font-weight: 700;
+color: #fff;
+flex-shrink: 0;
+}
+.tix-sp-front-ticket-preview {
+font-size: 0.85rem;
+color: #6b7280;
+line-height: 1.4;
+overflow: hidden;
+text-overflow: ellipsis;
+white-space: nowrap;
+}
+.tix-sp-front-ticket-date {
+font-size: 0.8rem;
+color: #9ca3af;
+margin-top: 4px;
+}
+
+/* ── Frontend: Detail ── */
+.tix-sp-front-detail-header {
+margin: 16px 0;
+}
+.tix-sp-front-detail-header h3 {
+font-size: 1.2rem;
+margin: 0 0 6px;
+}
+.tix-sp-front-detail-meta {
+font-size: 0.85rem;
+color: #6b7280;
+display: flex;
+gap: 12px;
+flex-wrap: wrap;
+}
+
+/* ── Frontend: Messages ── */
+.tix-sp-front-messages {
+display: flex;
+flex-direction: column;
+gap: 10px;
+margin: 16px 0;
+}
+.tix-sp-front-msg {
+padding: 14px 18px;
+border-radius: 14px;
+max-width: 85%;
+font-size: 0.95rem;
+line-height: 1.6;
+}
+.tix-sp-front-msg-customer {
+background: #eff6ff;
+border: 1px solid #bfdbfe;
+align-self: flex-start;
+}
+.tix-sp-front-msg-admin {
+background: #FAF8F4;
+border: 1px solid #EDE9E0;
+align-self: flex-end;
+}
+.tix-sp-front-msg-header {
+display: flex;
+justify-content: space-between;
+align-items: center;
+margin-bottom: 6px;
+}
+.tix-sp-front-msg-author {
+font-weight: 700;
+font-size: 0.85rem;
+}
+.tix-sp-front-msg-date {
+font-size: 0.75rem;
+color: #9ca3af;
+}
+.tix-sp-front-msg-content {
+white-space: pre-wrap;
+word-break: break-word;
+}
+
+/* ── Frontend: Reply ── */
+.tix-sp-front-reply {
+margin-top: 16px;
+border-top: 1px solid #EDE9E0;
+padding-top: 16px;
+}
+.tix-sp-front-reply textarea {
+width: 100%;
+min-height: 80px;
+padding: 12px 16px;
+border: 1px solid #EDE9E0;
+border-radius: 10px;
+font-size: 0.95rem;
+font-family: inherit;
+resize: vertical;
+outline: none;
+box-sizing: border-box;
+}
+.tix-sp-front-reply textarea:focus {
+border-color: var(--tix-primary, #FF5500);
+box-shadow: 0 0 0 3px rgba(var(--tix-primary-rgb, 255,85,0),0.12);
+}
+.tix-sp-front-reply button {
+margin-top: 10px;
+}
+
+/* ── Frontend: Form Actions ── */
+.tix-sp-front-form-actions {
+display: flex;
+gap: 10px;
+justify-content: flex-end;
+}
+
+/* ── Frontend: Empty ── */
+.tix-sp-front-empty {
+text-align: center;
+padding: 40px 20px;
+color: #9ca3af;
+font-size: 0.95rem;
+}
+
+/* ── Frontend: Success Message ── */
+.tix-sp-front-success {
+background: rgba(16,185,129,0.08);
+border: 1px solid #6ee7b7;
+border-radius: 12px;
+padding: 16px 20px;
+color: #047857;
+font-weight: 600;
+font-size: 0.95rem;
+margin-bottom: 16px;
+animation: tixSpFadeIn 0.3s ease;
+}
+
+/* ═══════════════════════════════════════════
+Floating Chat Widget
+═══════════════════════════════════════════ */
+
+#tix-sp-chat-widget {
+position: fixed;
+bottom: 24px;
+right: 24px;
+z-index: 99999;
+font-family: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+/* ── Chat Toggle Button ── */
+.tix-sp-chat-btn {
+width: 56px;
+height: 56px;
+border-radius: 50%;
+border: none;
+background: linear-gradient(135deg, var(--tix-primary, #FF5500), #8b5cf6);
+color: #fff;
+font-size: 24px;
+cursor: pointer;
+box-shadow: 0 4px 20px rgba(var(--tix-primary-rgb, 255,85,0),0.4);
+display: flex;
+align-items: center;
+justify-content: center;
+transition: transform 0.2s ease, box-shadow 0.2s ease;
+position: relative;
+z-index: 2;
+}
+.tix-sp-chat-btn:hover {
+transform: scale(1.08);
+box-shadow: 0 6px 28px rgba(var(--tix-primary-rgb, 255,85,0),0.5);
+}
+.tix-sp-chat-btn-close {
+font-size: 20px;
+}
+
+/* ── Chat Panel ── */
+.tix-sp-chat-panel {
+position: absolute;
+bottom: 68px;
+right: 0;
+width: 380px;
+max-height: 520px;
+background: #fff;
+border-radius: 16px;
+box-shadow: 0 8px 40px rgba(0,0,0,0.15);
+overflow: hidden;
+display: flex;
+flex-direction: column;
+animation: tixSpSlideUp 0.25s ease;
+}
+
+.tix-sp-chat-panel-header {
+display: flex;
+align-items: center;
+justify-content: space-between;
+padding: 14px 18px;
+background: linear-gradient(135deg, var(--tix-primary, #FF5500), #8b5cf6);
+color: #fff;
+}
+.tix-sp-chat-panel-header h3 {
+margin: 0;
+font-size: 15px;
+font-weight: 700;
+color: #fff;
+}
+.tix-sp-chat-panel-close {
+background: none;
+border: none;
+color: rgba(255,255,255,0.8);
+font-size: 18px;
+cursor: pointer;
+padding: 4px;
+transition: color 0.15s;
+}
+.tix-sp-chat-panel-close:hover {
+color: #fff;
+}
+
+.tix-sp-chat-panel-body {
+padding: 16px;
+overflow-y: auto;
+flex: 1;
+max-height: 440px;
+}
+
+/* ── Chat: List Header ── */
+.tix-sp-chat-list-header {
+display: flex;
+align-items: center;
+justify-content: space-between;
+margin-bottom: 12px;
+}
+
+/* ── Chat: Ticket Item ── */
+.tix-sp-chat-ticket-item {
+padding: 10px 12px;
+border: 1px solid #f1f5f9;
+border-radius: 10px;
+margin-bottom: 8px;
+cursor: pointer;
+transition: background 0.15s, border-color 0.15s;
+}
+.tix-sp-chat-ticket-item:hover {
+background: #FAF8F4;
+border-color: #EDE9E0;
+}
+
+/* ── Chat: Messages ── */
+.tix-sp-chat-messages {
+max-height: 250px;
+overflow-y: auto;
+margin-bottom: 10px;
+padding-right: 4px;
+}
+.tix-sp-chat-msg {
+padding: 8px 10px;
+border-radius: 10px;
+margin-bottom: 6px;
+max-width: 90%;
+}
+.tix-sp-chat-msg-customer {
+background: #eff6ff;
+border: 1px solid #bfdbfe;
+margin-right: auto;
+}
+.tix-sp-chat-msg-admin {
+background: #FAF8F4;
+border: 1px solid #EDE9E0;
+margin-left: auto;
+}
+
+/* ── Chat: Reply ── */
+.tix-sp-chat-reply textarea {
+font-family: inherit;
+}
+
+/* ── Chat: Compact form styles ── */
+.tix-sp-chat-panel .tix-sp-front-input {
+font-size: 13px;
+padding: 8px 12px;
+}
+.tix-sp-chat-panel .tix-sp-front-btn {
+font-size: 13px;
+padding: 8px 16px;
+}
+.tix-sp-chat-panel .tix-sp-front-form {
+gap: 8px;
+}
+
+/* ── Chat: Mobile ── */
+@media (max-width: 480px) {
+#tix-sp-chat-widget {
+bottom: 16px;
+right: 16px;
+}
+.tix-sp-chat-panel {
+width: calc(100vw - 32px);
+max-height: 70vh;
+right: 0;
+bottom: 68px;
+}
+.tix-sp-chat-btn {
+width: 50px;
+height: 50px;
+font-size: 20px;
+}
+}

@@ -31,7 +31,7 @@
 .tix-sp-select:focus,
 .tix-sp-input:focus {
     border-color: var(--tix-primary, #FF5500);
-    box-shadow: 0 0 0 3px rgba(255,85,0,0.12);
+    box-shadow: 0 0 0 3px rgba(var(--tix-primary-rgb, 255,85,0),0.12);
 }
 .tix-sp-input { flex: 1; min-width: 200px; }
 .tix-sp-btn {
@@ -56,7 +56,7 @@
     color: #fff;
     border-color: var(--tix-primary, #FF5500);
 }
-.tix-sp-btn-accent:hover { background: #CC4400; border-color: #CC4400; }
+.tix-sp-btn-accent:hover { background: var(--tix-primary-hover, #CC4400); border-color: var(--tix-primary-hover, #CC4400); }
 .tix-sp-btn-sm {
     padding: 5px 12px;
     font-size: 12px;
@@ -302,7 +302,7 @@
 }
 .tix-sp-reply-textarea:focus {
     border-color: var(--tix-primary, #FF5500);
-    box-shadow: 0 0 0 3px rgba(255,85,0,0.12);
+    box-shadow: 0 0 0 3px rgba(var(--tix-primary-rgb, 255,85,0),0.12);
 }
 .tix-sp-reply-actions {
     display: flex;
@@ -749,7 +749,7 @@
 }
 .tix-sp-front-input:focus {
     border-color: var(--tix-primary, #FF5500);
-    box-shadow: 0 0 0 3px rgba(255,85,0,0.12);
+    box-shadow: 0 0 0 3px rgba(var(--tix-primary-rgb, 255,85,0),0.12);
 }
 .tix-sp-front-input::placeholder { color: #94a3b8; }
 
@@ -765,7 +765,7 @@
     transition: background 0.2s ease, transform 0.1s ease;
     white-space: nowrap;
 }
-.tix-sp-front-btn:hover { background: #CC4400; }
+.tix-sp-front-btn:hover { background: var(--tix-primary-hover, #CC4400); }
 .tix-sp-front-btn:active { transform: scale(0.97); }
 .tix-sp-front-btn-ghost {
     background: transparent;
@@ -923,7 +923,7 @@
 }
 .tix-sp-front-reply textarea:focus {
     border-color: var(--tix-primary, #FF5500);
-    box-shadow: 0 0 0 3px rgba(255,85,0,0.12);
+    box-shadow: 0 0 0 3px rgba(var(--tix-primary-rgb, 255,85,0),0.12);
 }
 .tix-sp-front-reply button {
     margin-top: 10px;
@@ -979,7 +979,7 @@
     color: #fff;
     font-size: 24px;
     cursor: pointer;
-    box-shadow: 0 4px 20px rgba(255,85,0,0.4);
+    box-shadow: 0 4px 20px rgba(var(--tix-primary-rgb, 255,85,0),0.4);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -989,7 +989,7 @@
 }
 .tix-sp-chat-btn:hover {
     transform: scale(1.08);
-    box-shadow: 0 6px 28px rgba(255,85,0,0.5);
+    box-shadow: 0 6px 28px rgba(var(--tix-primary-rgb, 255,85,0),0.5);
 }
 .tix-sp-chat-btn-close {
     font-size: 20px;

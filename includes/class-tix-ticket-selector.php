@@ -973,14 +973,8 @@ class TIX_Ticket_Selector {
                     ?>
 
                     <?php if ($has_offers): ?>
-                    <div class="tix-ec-offers-toggle">
-                        <button type="button" class="tix-ec-offers-btn">
-                            <span class="tix-ec-offers-icon">+</span>
-                            Angebote anzeigen
-                        </button>
-                    </div>
 
-                    <div class="tix-ec-offers" style="display:none;">
+                    <div class="tix-ec-offers">
 
                         <?php // ── Paketangebote (Bundles) ── ?>
                         <?php if ($has_bundles): ?>
