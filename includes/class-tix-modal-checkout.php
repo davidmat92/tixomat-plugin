@@ -183,14 +183,8 @@ class TIX_Modal_Checkout {
                         ?>
 
                         <?php if ($has_offers): ?>
-                        <div class="tix-mc-offers-toggle">
-                            <button type="button" class="tix-mc-offers-btn">
-                                <span class="tix-mc-offers-icon">+</span>
-                                Angebote anzeigen
-                            </button>
-                        </div>
 
-                        <div class="tix-mc-offers" style="display:none;">
+                        <div class="tix-mc-offers">
 
                             <?php // ── Bundles ── ?>
                             <?php if ($has_bundles): ?>
