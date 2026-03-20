@@ -2,14 +2,14 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.33.55
+ * Version: 1.33.56
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.33.55');
+define('TIXOMAT_VERSION', '1.33.56');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -497,8 +497,11 @@ add_action('admin_action_tix_switch_user', function() {
     exit;
 });
 
-// Switch-Back Handler
-add_action('admin_action_tix_switch_back', function() {
+// Switch-Back Handler (auf init, weil der geswitchte User kein Admin sein kann)
+add_action('init', function() {
+    if (!isset($_GET['tix_switch_back']) || !is_user_logged_in()) return;
+    check_admin_referer('tix_switch_back');
+
     $admin_id = get_user_meta(get_current_user_id(), '_tix_switched_from', true);
     if (!$admin_id) wp_die('Kein Switch aktiv.');
 
@@ -518,7 +521,7 @@ add_action('wp_footer', function() {
     if (!$admin_id) return;
     $admin = get_userdata($admin_id);
     if (!$admin) return;
-    $back_url = wp_nonce_url(admin_url('admin.php?action=tix_switch_back'), 'tix_switch_back');
+    $back_url = wp_nonce_url(home_url('/?tix_switch_back=1'), 'tix_switch_back');
     $user = wp_get_current_user();
     ?>
     <div id="tix-switch-bar" style="position:fixed;bottom:0;left:0;right:0;z-index:999999;background:#1e293b;color:#fff;padding:10px 20px;display:flex;align-items:center;justify-content:center;gap:12px;font-family:-apple-system,sans-serif;font-size:13px;box-shadow:0 -2px 8px rgba(0,0,0,.2);">
