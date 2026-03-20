@@ -149,14 +149,15 @@ class TIX_Admin_Shell {
             'my-tickets'      => ['icon' => 'id',                     'label' => 'Meine Tickets'],
             'newsletter'      => ['icon' => 'email-alt',              'label' => 'Newsletter'],
             'checkin'         => ['icon' => 'clipboard',              'label' => 'Check-in'],
-            'ticket-template' => ['icon' => 'media-document',         'label' => 'Ticket-Template'],
             'advanced'        => ['icon' => 'admin-generic',          'label' => 'Erweitert'],
         ];
         $settings_more = [
-            'data-sync'  => ['icon' => 'cloud-saved',              'label' => 'Daten-Sync'],
-            'event-page' => ['icon' => 'welcome-widgets-menus',    'label' => 'Event-Seite'],
-            'share'      => ['icon' => 'share',                    'label' => 'Share'],
-            'marketing'  => ['icon' => 'megaphone',                'label' => 'Marketing'],
+            'ticket-template'  => ['icon' => 'media-document',          'label' => 'Ticket-Template'],
+            'email-template'   => ['icon' => 'email-alt',               'label' => 'E-Mail-Template'],
+            'data-sync'        => ['icon' => 'cloud-saved',             'label' => 'Daten-Sync'],
+            'event-page'       => ['icon' => 'welcome-widgets-menus',   'label' => 'Event-Seite'],
+            'share'            => ['icon' => 'share',                   'label' => 'Share'],
+            'marketing'        => ['icon' => 'megaphone',               'label' => 'Marketing'],
         ];
 
         // ── Docs Tabs ──
