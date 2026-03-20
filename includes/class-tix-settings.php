@@ -405,6 +405,7 @@ class TIX_Settings {
         add_action('admin_init', [__CLASS__, 'register_settings']);
         add_action('admin_enqueue_scripts', [__CLASS__, 'enqueue_assets']);
         add_action('wp_head',    [__CLASS__, 'output_css'], 99);
+        add_action('admin_head', [__CLASS__, 'output_admin_primary_css'], 99);
     }
 
     /**
@@ -849,6 +850,14 @@ class TIX_Settings {
     /**
      * CSS-Variablen ins Frontend ausgeben
      */
+    /** Primärfarbe auch im Admin-Bereich ausgeben. */
+    public static function output_admin_primary_css() {
+        $primary = (self::get())['color_primary'] ?? '#FF5500';
+        if ($primary && $primary !== '#FF5500') {
+            echo "<style>:root{--tix-primary:{$primary};}</style>\n";
+        }
+    }
+
     public static function output_css() {
         $s = self::get();
         $d = self::defaults();
