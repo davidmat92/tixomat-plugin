@@ -1,0 +1,90 @@
+/* ══ Meta Ads Dashboard ══ */
+.tix-meta-ads-wrap { max-width: 1200px; }
+
+/* Status bar */
+.tix-meta-status-bar {
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    padding: 12px 16px; background: #fff; border: 1px solid #e0e0e0;
+    border-radius: 8px; margin-bottom: 20px;
+}
+.tix-meta-status-item { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.tix-meta-dot {
+    width: 10px; height: 10px; border-radius: 50%; display: inline-block;
+}
+.tix-meta-dot.green { background: #10b981; }
+.tix-meta-dot.red { background: #ef4444; }
+.tix-meta-dot.gray { background: #9ca3af; }
+
+/* KPI Cards */
+.tix-meta-kpis {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px; margin-bottom: 20px;
+}
+.tix-meta-kpi {
+    background: #fff; border: 1px solid #e0e0e0; border-radius: 8px;
+    padding: 20px; text-align: center;
+}
+.tix-meta-kpi-label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: #6b7280; margin-bottom: 8px; }
+.tix-meta-kpi-value { font-size: 28px; font-weight: 700; color: #111; }
+
+/* Cards */
+.tix-meta-card {
+    background: #fff; border: 1px solid #e0e0e0; border-radius: 8px;
+    padding: 20px; margin-bottom: 20px;
+}
+.tix-meta-card h3 { margin: 0 0 16px; font-size: 16px; font-weight: 600; }
+.tix-meta-card h4 { margin: 0 0 8px; font-size: 14px; font-weight: 600; }
+
+/* Chart */
+.tix-meta-chart-filters { display: flex; gap: 12px; margin-bottom: 16px; }
+.tix-meta-chart-filters select { min-width: 160px; }
+
+/* Table */
+.tix-meta-table th { font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+.tix-meta-table td { vertical-align: middle; }
+.tix-meta-table .tix-adspend-input { width: 100px; text-align: right; }
+
+/* Tabs */
+.tix-meta-tabs .nav-tab { cursor: pointer; }
+
+/* Template Grid */
+.tix-meta-template-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 16px;
+}
+.tix-meta-template {
+    background: #fff; border: 2px solid #e0e0e0; border-radius: 12px;
+    padding: 24px; text-align: center; cursor: pointer;
+    transition: border-color 0.2s, transform 0.2s;
+}
+.tix-meta-template:hover { border-color: #1877F2; transform: translateY(-2px); }
+.tix-meta-template.active { border-color: #1877F2; background: #f0f7ff; }
+.tix-meta-template-icon { font-size: 36px; margin-bottom: 8px; }
+.tix-meta-template h4 { margin: 0 0 4px; font-size: 16px; }
+.tix-meta-template p { margin: 0; font-size: 13px; color: #6b7280; }
+
+/* Result Grid */
+.tix-meta-result-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 16px;
+}
+.tix-meta-result-section { display: flex; flex-direction: column; gap: 6px; }
+.tix-meta-result-section label { font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: #6b7280; }
+.tix-meta-result-section textarea,
+.tix-meta-result-section input[type="text"] { width: 100%; font-size: 14px; }
+
+/* UTM Form */
+.tix-meta-utm-form { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
+.tix-meta-field { display: flex; flex-direction: column; gap: 4px; }
+.tix-meta-field label { font-weight: 600; font-size: 12px; text-transform: uppercase; color: #6b7280; }
+
+/* Steps */
+.tix-meta-steps { line-height: 1.8; }
+.tix-meta-steps li { margin-bottom: 4px; }
+
+/* Copy button */
+.tix-copy-btn { white-space: nowrap; }
+.tix-copy-btn.copied { background: #10b981 !important; color: #fff !important; border-color: #10b981 !important; }
+
+/* QR Code */
+#tix-utm-qr canvas { border: 1px solid #e0e0e0; border-radius: 8px; }

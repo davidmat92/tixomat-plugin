@@ -330,6 +330,16 @@ class TIX_Settings {
             'campaign_tracking_enabled'  => 0,
             'campaign_cookie_days'       => 30,
             'campaign_custom_channels'   => '[]',
+            // ── Meta Ads ──
+            'meta_pixel_enabled'       => 0,
+            'meta_pixel_id'            => '',
+            'meta_access_token'        => '',
+            'meta_test_event_code'     => '',
+            'meta_capi_enabled'        => 0,
+            'meta_consent_mode'        => 'always',    // always | consent_required
+            'meta_consent_cookie'      => 'cookie_consent',
+            'meta_catalog_enabled'     => 0,
+            'meta_feed_key'            => '',
             // ── Custom Order Numbers ──
             'order_number_enabled'     => 0,
             'order_number_prefix'      => 'TIX-',
@@ -727,6 +737,18 @@ class TIX_Settings {
         $clean['campaign_tracking_enabled']  = !empty($input['campaign_tracking_enabled']) ? 1 : 0;
         $clean['campaign_cookie_days']       = max(1, min(365, intval($input['campaign_cookie_days'] ?? 30)));
         $clean['campaign_custom_channels']   = sanitize_text_field($input['campaign_custom_channels'] ?? '[]');
+        // Meta Ads
+        $clean['meta_pixel_enabled']     = !empty($input['meta_pixel_enabled']) ? 1 : 0;
+        $clean['meta_pixel_id']          = preg_replace('/[^0-9]/', '', $input['meta_pixel_id'] ?? '');
+        $clean['meta_access_token']      = sanitize_text_field($input['meta_access_token'] ?? '');
+        $clean['meta_test_event_code']   = sanitize_text_field($input['meta_test_event_code'] ?? '');
+        $clean['meta_capi_enabled']      = !empty($input['meta_capi_enabled']) ? 1 : 0;
+        $clean['meta_consent_mode']      = in_array($input['meta_consent_mode'] ?? '', ['always', 'consent_required']) ? $input['meta_consent_mode'] : 'always';
+        $clean['meta_consent_cookie']    = sanitize_text_field($input['meta_consent_cookie'] ?? 'cookie_consent');
+        $clean['meta_catalog_enabled']   = !empty($input['meta_catalog_enabled']) ? 1 : 0;
+        // Feed-Key: beibehalten oder neu generieren
+        $existing_key = $old['meta_feed_key'] ?? '';
+        $clean['meta_feed_key'] = !empty($existing_key) ? $existing_key : wp_generate_password(32, false);
 
         // Custom Order Numbers
         $clean['order_number_enabled'] = !empty($input['order_number_enabled']) ? 1 : 0;
@@ -1305,6 +1327,10 @@ class TIX_Settings {
                                 <button type="button" class="tix-nav-tab" data-tab="marketing">
                                     <span class="dashicons dashicons-megaphone"></span>
                                     <span class="tix-nav-label">Marketing</span>
+                                </button>
+                                <button type="button" class="tix-nav-tab" data-tab="meta-ads">
+                                    <span class="dashicons dashicons-facebook-alt"></span>
+                                    <span class="tix-nav-label">Meta Ads</span>
                                 </button>
                             </div>
                         </nav>
@@ -2688,6 +2714,105 @@ class TIX_Settings {
                                             $('#tix-email-refresh-preview').on('click', function(e){ e.preventDefault(); renderEmailPreview(); });
                                         });
                                         </script>
+                                    </div>
+                                </div>
+
+                            </div>
+
+                            <?php // ═══ PANE: META ADS ═══ ?>
+                            <div class="tix-pane" data-pane="meta-ads">
+
+                                <?php // ── Card: Meta Pixel ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-visibility"></span>
+                                        <h3>Meta Pixel</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('meta_pixel_enabled', 'Meta Pixel aktivieren', $s, 'Automatisches Tracking von PageView, ViewContent, AddToCart, InitiateCheckout und Purchase.'); ?>
+                                            </div>
+                                            <?php self::text_row('meta_pixel_id', 'Pixel-ID', $s, 'z.B. 1234567890123456'); ?>
+                                            <div class="tix-field tix-field-full">
+                                                <label class="tix-field-label">Consent-Modus</label>
+                                                <select name="<?php echo self::OPTION_KEY; ?>[meta_consent_mode]" class="tix-select-input">
+                                                    <option value="always" <?php selected($s['meta_consent_mode'] ?? 'always', 'always'); ?>>Pixel immer laden</option>
+                                                    <option value="consent_required" <?php selected($s['meta_consent_mode'] ?? '', 'consent_required'); ?>>Nur nach Cookie-Consent laden</option>
+                                                </select>
+                                                <p class="tix-field-hint">Bei "consent_required" wird der Pixel erst geladen, wenn ein Cookie-Consent erkannt wird.</p>
+                                            </div>
+                                            <?php self::text_row('meta_consent_cookie', 'Consent-Cookie Name', $s, 'cookie_consent'); ?>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Conversions API ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-cloud-saved"></span>
+                                        <h3>Conversions API (CAPI)</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <p class="tix-field-hint" style="margin-bottom:12px">Server-seitiges Tracking für zuverlässige Conversion-Messung — funktioniert auch bei Ad-Blockern.</p>
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('meta_capi_enabled', 'Conversions API aktivieren', $s, 'Sendet Purchase-Events direkt an Meta — unabhängig vom Browser.'); ?>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <label class="tix-field-label">Access Token</label>
+                                                <input type="password" name="<?php echo self::OPTION_KEY; ?>[meta_access_token]"
+                                                       value="<?php echo esc_attr($s['meta_access_token'] ?? ''); ?>"
+                                                       class="tix-text-input" placeholder="System User Access Token" autocomplete="off">
+                                                <p class="tix-field-hint">Erstelle unter <a href="https://business.facebook.com/events_manager" target="_blank">Meta Events Manager</a> → Einstellungen → Conversions API → Access Token generieren.</p>
+                                            </div>
+                                            <?php self::text_row('meta_test_event_code', 'Test Event Code (optional)', $s, 'z.B. TEST12345'); ?>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Event-Katalog Feed ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-rss"></span>
+                                        <h3>Event-Katalog (Dynamic Ads)</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('meta_catalog_enabled', 'Event-Katalog Feed aktivieren', $s, 'Stellt eine XML-Feed-URL bereit, die du im Meta Commerce Manager als Produktkatalog hinzufügen kannst.'); ?>
+                                            </div>
+                                            <?php
+                                            $feed_key = $s['meta_feed_key'] ?? '';
+                                            if (empty($feed_key)) {
+                                                $feed_key = wp_generate_password(32, false);
+                                            }
+                                            $feed_url = rest_url('tixomat/v1/meta-feed') . '?key=' . $feed_key;
+                                            ?>
+                                            <div class="tix-field tix-field-full">
+                                                <label class="tix-field-label">Feed-URL</label>
+                                                <div style="display:flex;gap:8px;align-items:center">
+                                                    <input type="text" value="<?php echo esc_url($feed_url); ?>" class="tix-text-input" readonly id="tix-meta-feed-url" style="flex:1">
+                                                    <button type="button" class="tix-btn-sm" onclick="navigator.clipboard.writeText(document.getElementById('tix-meta-feed-url').value).then(()=>{this.textContent='Kopiert!';setTimeout(()=>{this.textContent='Kopieren'},2000)})">Kopieren</button>
+                                                </div>
+                                                <p class="tix-field-hint">Diese URL im <a href="https://business.facebook.com/commerce" target="_blank">Meta Commerce Manager</a> → Katalog → Datenquelle → Feed-URL einfügen.</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Dashboard Link ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-chart-area"></span>
+                                        <h3>Meta Ads Dashboard</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <p>Performance-Dashboard, Kampagnen-Wizard und UTM-Link-Generator findest du unter:</p>
+                                        <a href="<?php echo admin_url('admin.php?page=tix-meta-ads'); ?>" class="button button-primary" style="margin-top:8px">
+                                            <span class="dashicons dashicons-facebook-alt" style="margin-top:4px"></span>
+                                            Meta Ads Dashboard öffnen
+                                        </a>
                                     </div>
                                 </div>
 

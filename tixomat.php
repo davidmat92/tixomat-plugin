@@ -2,14 +2,14 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.33.69
+ * Version: 1.33.70
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.33.69');
+define('TIXOMAT_VERSION', '1.33.70');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -273,6 +273,20 @@ if (tix_get_settings('campaign_tracking_enabled')) {
     require_once TIXOMAT_PATH . 'includes/class-tix-campaign-tracking.php';
     TIX_Campaign_Tracking::init();
 }
+// ── Meta Ads (Pixel + Catalog + Dashboard) ──
+$meta_s = tix_get_settings();
+if (!empty($meta_s['meta_pixel_enabled']) || (is_admin() && !empty($meta_s['meta_pixel_id']))) {
+    require_once TIXOMAT_PATH . 'includes/class-tix-meta-pixel.php';
+    TIX_Meta_Pixel::init();
+}
+if (!empty($meta_s['meta_catalog_enabled'])) {
+    require_once TIXOMAT_PATH . 'includes/class-tix-meta-catalog.php';
+    TIX_Meta_Catalog::init();
+}
+if (is_admin() || wp_doing_ajax()) {
+    require_once TIXOMAT_PATH . 'includes/class-tix-meta-ads.php';
+    TIX_Meta_Ads::init();
+}
 if (tix_get_settings('pos_enabled')) {
     require_once TIXOMAT_PATH . 'includes/class-tix-pos.php';
     TIX_POS::init();
@@ -300,6 +314,8 @@ register_activation_hook(__FILE__, function() {
     TIX_Campaign_Tracking::create_table();
     require_once TIXOMAT_PATH . 'includes/class-tix-table-reservation.php';
     TIX_Table_Reservation::create_table();
+    require_once TIXOMAT_PATH . 'includes/class-tix-meta-pixel.php';
+    TIX_Meta_Pixel::create_table();
 
     // Waitlist cron
     if (!wp_next_scheduled('tix_waitlist_check')) {
@@ -913,6 +929,12 @@ add_action('admin_init', function() {
     // v1.33.36: Eigene Tabellen für tix_orders + tix_order_items
     if (version_compare($stored, '1.33.36', '<')) {
         TIX_Order::create_tables();
+    }
+
+    // v1.33.70: Meta Ads Conversions-Tabelle
+    if (version_compare($stored, '1.33.70', '<')) {
+        require_once TIXOMAT_PATH . 'includes/class-tix-meta-pixel.php';
+        TIX_Meta_Pixel::create_table();
     }
 
     update_option('tix_db_version', TIXOMAT_VERSION);
