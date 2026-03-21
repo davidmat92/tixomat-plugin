@@ -41,7 +41,7 @@ class TIX_Admin_Shell {
         // Custom Admin-Seiten
         $tix_pages = [
             'tix-settings', 'tix-statistics', 'tix-support', 'tix-docs',
-            'tix-promoters', 'tix-marketing-export', 'tix-campaigns',
+            'tix-promoters', 'tix-marketing-export', 'tix-campaigns', 'tix-meta-ads',
             'tix-organizer-dashboard', 'tix-organizer-orders',
             'tix-organizer-guestlist', 'tix-organizer-email', 'tix-organizer-billing',
             'tix-organizer-media',
@@ -135,6 +135,7 @@ class TIX_Admin_Shell {
         elseif ($current_page === 'tix-promoters')                              $active = 'promoter';
         elseif ($current_page === 'tix-marketing-export')                       $active = 'marketing-export';
         elseif ($current_page === 'tix-campaigns')                              $active = 'campaigns';
+        elseif ($current_page === 'tix-meta-ads')                              $active = 'meta-ads';
         elseif ($current_page === 'tix-settings')                               $active = 'settings';
         elseif ($current_page === 'tix-docs')                                   $active = 'docs';
 
@@ -423,6 +424,11 @@ class TIX_Admin_Shell {
                         <span>Kampagnen</span>
                     </a>
                     <?php endif; ?>
+                    <a href="<?php echo admin_url('admin.php?page=tix-meta-ads'); ?>"
+                       class="tix-shell-item<?php echo $active === 'meta-ads' ? ' active' : ''; ?>">
+                        <span class="dashicons dashicons-facebook-alt"></span>
+                        <span>Meta Ads</span>
+                    </a>
                 </div>
 
                 <!-- Einstellungen -->
