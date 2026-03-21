@@ -1,7 +1,7 @@
 (function($){
     'use strict';
 
-    var M = tixMeta, chart = null, utmHistory = [];
+    var M = tixMeta, chart = null, utmHistory = [], currentVariants = [];
 
     /* ── Tab Navigation ── */
     $('.tix-meta-tabs .nav-tab').on('click', function(e){
@@ -164,23 +164,67 @@
             if(!r.success) return;
             var d = r.data;
             $('#tix-wizard-result-title').text(d.title);
-            $('#tix-wizard-primary').val(d.primary);
-            $('#tix-wizard-headline').val(d.headline);
-            $('#tix-wizard-description').val(d.description);
-            $('#tix-wizard-link').val(d.tracking_link || '');
-            $('#tix-wizard-budget').text(d.budget);
 
-            var audHtml = '<ul>';
-            (d.audience || []).forEach(function(a){ audHtml += '<li>' + esc(a) + '</li>'; });
+            // Strategy
+            $('#tix-wizard-strategy').html(d.strategy || '');
+
+            // Tracking link
+            $('#tix-wizard-link').val(d.tracking_link || '');
+
+            // Variants
+            currentVariants = d.variants || [];
+            renderVariantTabs();
+            if(currentVariants.length) selectVariant(0);
+
+            // Budget (HTML)
+            $('#tix-wizard-budget').html(d.budget || '');
+
+            // Audience (HTML items)
+            var audHtml = '<ul style="margin:0;line-height:1.8">';
+            (d.audience || []).forEach(function(a){ audHtml += '<li>' + a + '</li>'; });
             audHtml += '</ul>';
             $('#tix-wizard-audience').html(audHtml);
 
+            // Steps (HTML items)
             var stepsHtml = '';
-            (d.steps || []).forEach(function(s){ stepsHtml += '<li>' + esc(s) + '</li>'; });
+            (d.steps || []).forEach(function(s){ stepsHtml += '<li>' + s + '</li>'; });
             $('#tix-wizard-steps').html(stepsHtml);
 
             $('#tix-wizard-result').show();
         });
+    });
+
+    function renderVariantTabs(){
+        var $tabs = $('#tix-variant-tabs');
+        if(!currentVariants.length){ $tabs.hide(); return; }
+
+        var html = '';
+        currentVariants.forEach(function(v, i){
+            html += '<button type="button" class="button tix-variant-tab' + (i === 0 ? ' button-primary' : '') + '" data-index="' + i + '">' + esc(v.name) + '</button>';
+        });
+        $tabs.html(html).show();
+    }
+
+    function selectVariant(index){
+        var v = currentVariants[index];
+        if(!v) return;
+
+        // Update tab styles
+        $('.tix-variant-tab').removeClass('button-primary');
+        $('.tix-variant-tab[data-index="'+index+'"]').addClass('button-primary');
+
+        // Fill fields
+        $('#tix-wizard-primary').val(v.primary || '');
+        $('#tix-wizard-headline').val(v.headline || '');
+        $('#tix-wizard-description').val(v.description || '');
+
+        // Rationales
+        $('#tix-rationale-primary').text(v.rationale_primary || '');
+        $('#tix-rationale-headline').text(v.rationale_headline || '');
+    }
+
+    $(document).on('click', '.tix-variant-tab', function(){
+        selectVariant(parseInt($(this).data('index')));
     });
 
     /* ══════════════════════════════════════════
