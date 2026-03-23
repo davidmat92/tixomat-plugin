@@ -524,8 +524,10 @@ class TIX_Admin_Shell {
 
         $status = get_post_status($post);
         $is_published = ($status === 'publish');
+        $is_draft = in_array($status, ['draft', 'auto-draft'], true);
         $btn_label = $is_published ? 'Aktualisieren' : 'Veröffentlichen';
-        $status_label = $is_published ? 'Veröffentlicht' : ucfirst($status);
+        $status_label = $is_published ? 'Veröffentlicht' : ($is_draft ? 'Entwurf' : ucfirst($status));
+        $status_color = $is_published ? '#22c55e' : ($is_draft ? '#94a3b8' : '#f59e0b');
         $preview_url = get_preview_post_link($post);
         $permalink = get_permalink($post);
         ?>
@@ -536,23 +538,64 @@ class TIX_Admin_Shell {
                 <a href="<?php echo esc_url($preview_url); ?>" class="tix-preview-link" target="_blank">Vorschau</a>
             <?php endif; ?>
             <span class="tix-status-indicator">
-                <span class="tix-status-dot" style="background:<?php echo $is_published ? '#22c55e' : '#f59e0b'; ?>"></span>
+                <span class="tix-status-dot" style="background:<?php echo $status_color; ?>"></span>
                 <?php echo esc_html($status_label); ?>
             </span>
+            <?php if ($is_published) : ?>
+                <button type="button" class="tix-draft-btn" id="tix-floating-draft-btn" title="Zurück auf Entwurf setzen">
+                    <span class="dashicons dashicons-hidden" style="font-size:16px;width:16px;height:16px;line-height:16px;margin-right:4px;vertical-align:middle"></span>Entwurf
+                </button>
+            <?php else : ?>
+                <button type="button" class="tix-draft-btn" id="tix-floating-draft-btn">
+                    Entwurf speichern
+                </button>
+            <?php endif; ?>
             <button type="button" class="tix-publish-btn" id="tix-floating-publish-btn">
                 <?php echo esc_html($btn_label); ?>
             </button>
         </div>
         <script>
         document.addEventListener('DOMContentLoaded', function() {
-            var btn = document.getElementById('tix-floating-publish-btn');
-            if (!btn) return;
-            btn.addEventListener('click', function() {
-                var submit = document.getElementById('publish');
-                if (submit) { submit.click(); return; }
-                var form = document.getElementById('post');
-                if (form) form.submit();
-            });
+            var pubBtn = document.getElementById('tix-floating-publish-btn');
+            var draftBtn = document.getElementById('tix-floating-draft-btn');
+
+            if (pubBtn) {
+                pubBtn.addEventListener('click', function() {
+                    var submit = document.getElementById('publish');
+                    if (submit) { submit.click(); return; }
+                    var form = document.getElementById('post');
+                    if (form) form.submit();
+                });
+            }
+
+            if (draftBtn) {
+                draftBtn.addEventListener('click', function() {
+                    var isPublished = <?php echo $is_published ? 'true' : 'false'; ?>;
+
+                    if (isPublished) {
+                        if (!confirm('Event wirklich zurück auf Entwurf setzen? Es ist dann nicht mehr öffentlich sichtbar.')) return;
+                    }
+
+                    // Set the post status to draft
+                    var statusField = document.getElementById('post_status');
+                    var hiddenStatus = document.getElementById('hidden_post_status');
+                    if (statusField) statusField.value = 'draft';
+                    if (hiddenStatus) hiddenStatus.value = 'draft';
+
+                    // Use WordPress save-post (draft) button if available
+                    var saveBtn = document.getElementById('save-post');
+                    if (saveBtn) {
+                        saveBtn.click();
+                        return;
+                    }
+
+                    // Fallback: set status and submit
+                    var origAction = document.getElementById('original_post_status');
+                    if (origAction) origAction.value = 'draft';
+                    var form = document.getElementById('post');
+                    if (form) form.submit();
+                });
+            }
         });
         </script>
         <?php
