@@ -2066,6 +2066,35 @@ body:is(.post-type-event,.post-type-tix_location,.post-type-tix_organizer,.post-
 .tix-req { color: #ef4444; font-weight: 700; margin-left: 2px; }
 .tix-req-hint { font-size: 11px; color: #94a3b8; margin: 0 0 12px; }
 
+/* Spin Animation */
+@keyframes tixSpin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+.dashicons.spin { animation: tixSpin 1s linear infinite; }
+
+/* KI-Assistent Bar */
+.tix-ai-fill-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 12px 20px;
+    background: linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%);
+    border-bottom: 1px solid #ddd6fe;
+    border-radius: 16px 16px 0 0;
+}
+.tix-ai-fill-bar + .tix-expert .tix-progress {
+    border-radius: 0;
+}
+.tix-ai-fill-bar .button {
+    border-color: #c4b5fd;
+    color: #7c3aed;
+}
+.tix-ai-fill-bar .button:hover {
+    border-color: #8b5cf6;
+    background: #ede9fe;
+    color: #6d28d9;
+}
+
 /* Fortschrittsleiste */
 .tix-progress {
     padding: 14px 20px;

@@ -273,6 +273,33 @@ class TIX_Metabox {
             <?php // ── Event-Preset Auswahl ── ?>
             <?php self::render_preset_selector($post); ?>
 
+            <?php // ── KI-Assistent: Felder aus Bild/URL füllen ── ?>
+            <?php $ai_key = function_exists('tix_get_settings') ? tix_get_settings('ai_guard_api_key') : '';
+            if ($ai_key): ?>
+            <div class="tix-ai-fill-bar" id="tix-ai-fill-bar">
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <span class="dashicons dashicons-admin-generic" style="color:#8b5cf6;font-size:20px;width:20px;height:20px"></span>
+                    <strong style="font-size:13px;">KI-Assistent</strong>
+                    <span style="font-size:12px;color:#6b7280;">— Felder automatisch aus Bild oder URL füllen</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <button type="button" class="button" id="tix-ai-fill-image-btn" style="display:flex;align-items:center;gap:4px;font-size:12px;">
+                        <span class="dashicons dashicons-format-image" style="font-size:16px;width:16px;height:16px;line-height:16px"></span>
+                        Bild / Flyer
+                    </button>
+                    <span style="color:#d1d5db;">|</span>
+                    <div style="display:flex;align-items:center;gap:4px;">
+                        <input type="url" id="tix-ai-fill-url" placeholder="https://..." style="width:240px;font-size:12px;padding:4px 8px;border:1px solid #d1d5db;border-radius:6px;">
+                        <button type="button" class="button" id="tix-ai-fill-url-btn" style="display:flex;align-items:center;gap:4px;font-size:12px;">
+                            <span class="dashicons dashicons-admin-links" style="font-size:16px;width:16px;height:16px;line-height:16px"></span>
+                            URL
+                        </button>
+                    </div>
+                </div>
+                <div id="tix-ai-fill-status" style="display:none;font-size:12px;color:#8b5cf6;margin-top:8px;width:100%;"></div>
+            </div>
+            <?php endif; ?>
+
             <div class="tix-expert" id="tix-expert">
             <div class="tix-progress" id="tix-progress">
                 <div class="tix-progress-header">
@@ -751,13 +778,19 @@ class TIX_Metabox {
 
         <?php // ── Textauszug ── ?>
         <div class="tix-card" style="margin-top:20px;">
-            <div class="tix-card-header">
-                <span class="dashicons dashicons-editor-paragraph"></span>
-                <h3>Textauszug</h3>
+            <div class="tix-card-header" style="display:flex;align-items:center;justify-content:space-between;">
+                <span style="display:flex;align-items:center;gap:8px;">
+                    <span class="dashicons dashicons-editor-paragraph"></span>
+                    <h3 style="margin:0;">Textauszug</h3>
+                </span>
+                <button type="button" class="button" id="tix-ai-excerpt-btn" style="display:flex;align-items:center;gap:6px;font-size:12px;">
+                    <span class="dashicons dashicons-admin-generic" style="font-size:16px;width:16px;height:16px;line-height:16px"></span>
+                    KI generieren
+                </button>
             </div>
             <div class="tix-card-body">
-                <textarea name="excerpt" rows="3" style="width:100%;border:1px solid #d1d5db;border-radius:8px;padding:10px;font-size:13px;resize:vertical;" placeholder="Kurze Zusammenfassung des Events (wird z.B. in Suchergebnissen angezeigt)…"><?php echo esc_textarea($post->post_excerpt); ?></textarea>
-                <p class="description" style="margin-top:4px;">Wird in Übersichten und als Meta-Description verwendet.</p>
+                <textarea name="excerpt" id="tix-excerpt-field" rows="3" style="width:100%;border:1px solid #d1d5db;border-radius:8px;padding:10px;font-size:13px;resize:vertical;" placeholder="Kurze Zusammenfassung des Events (wird z.B. in Suchergebnissen angezeigt)…"><?php echo esc_textarea($post->post_excerpt); ?></textarea>
+                <p class="description" style="margin-top:4px;">Wird in Übersichten und als Meta-Description verwendet. <span id="tix-excerpt-ai-status" style="color:#22c55e;display:none;">✓ KI-generiert</span></p>
             </div>
         </div>
         <?php
