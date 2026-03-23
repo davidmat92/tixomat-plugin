@@ -4359,4 +4359,331 @@ class TIX_Metabox {
 
         wp_send_json_success(['id' => $post_id, 'title' => $name, 'address' => $address]);
     }
+
+    // ──────────────────────────────────────────
+    // Auto-Save AJAX (lightweight, meta-only)
+    // ──────────────────────────────────────────
+    public static function ajax_autosave() {
+        check_ajax_referer('tix_admin_action', 'nonce');
+
+        $post_id = intval($_POST['post_id'] ?? 0);
+        if (!$post_id || !current_user_can('edit_post', $post_id)) {
+            wp_send_json_error(['message' => 'Keine Berechtigung.']);
+        }
+
+        // Nur für Event-Posts
+        if (get_post_type($post_id) !== 'event') {
+            wp_send_json_error(['message' => 'Kein Event.']);
+        }
+
+        // ── Event-Details ──
+        $fields = [
+            '_tix_date_start' => sanitize_text_field($_POST['tix_date_start'] ?? ''),
+            '_tix_date_end'   => sanitize_text_field($_POST['tix_date_end'] ?? ''),
+            '_tix_time_start' => sanitize_text_field($_POST['tix_time_start'] ?? ''),
+            '_tix_time_end'   => sanitize_text_field($_POST['tix_time_end'] ?? ''),
+            '_tix_time_doors' => sanitize_text_field($_POST['tix_time_doors'] ?? ''),
+        ];
+        foreach ($fields as $key => $val) {
+            update_post_meta($post_id, $key, $val);
+        }
+
+        // Location
+        $loc_id = intval($_POST['tix_location_id'] ?? 0);
+        update_post_meta($post_id, '_tix_location_id', $loc_id);
+        if ($loc_id) {
+            update_post_meta($post_id, '_tix_location', get_the_title($loc_id));
+            update_post_meta($post_id, '_tix_address', get_post_meta($loc_id, '_tix_loc_address', true));
+        }
+
+        // Veranstalter
+        $org_id = intval($_POST['tix_organizer_id'] ?? 0);
+        update_post_meta($post_id, '_tix_organizer_id', $org_id);
+        if ($org_id) {
+            update_post_meta($post_id, '_tix_organizer', get_the_title($org_id));
+        }
+
+        // ── Event-Informationen ──
+        $sections = self::info_sections();
+        $info_data = $_POST['tix_info'] ?? [];
+        $info_labels = $_POST['tix_info_labels'] ?? [];
+        foreach ($sections as $key => $def) {
+            $label = sanitize_text_field($info_labels[$key] ?? '');
+            if ($label && $label !== $def['label']) {
+                update_post_meta($post_id, "_tix_info_{$key}_label", $label);
+            } else {
+                delete_post_meta($post_id, "_tix_info_{$key}_label");
+            }
+            $content = $info_data[$key] ?? '';
+            if ($def['type'] === 'number') {
+                $content = $content !== '' ? intval($content) : '';
+            } else {
+                $content = wp_kses_post($content);
+            }
+            update_post_meta($post_id, "_tix_info_{$key}", $content);
+        }
+
+        // ── FAQ ──
+        $raw_faq = $_POST['tix_faq'] ?? [];
+        $faqs = [];
+        if (is_array($raw_faq)) {
+            foreach ($raw_faq as $faq) {
+                $q = sanitize_text_field($faq['q'] ?? '');
+                $a = wp_kses_post($faq['a'] ?? '');
+                if (empty($q) && empty($a)) continue;
+                $faqs[] = ['q' => $q, 'a' => $a];
+            }
+        }
+        update_post_meta($post_id, '_tix_faq', $faqs);
+
+        // ── Gewinnspiel (Raffle) ──
+        $raffle_enabled = !empty($_POST['tix_raffle_enabled']) ? '1' : '';
+        update_post_meta($post_id, '_tix_raffle_enabled', $raffle_enabled);
+        if ($raffle_enabled) {
+            update_post_meta($post_id, '_tix_raffle_title', sanitize_text_field($_POST['tix_raffle_title'] ?? ''));
+            update_post_meta($post_id, '_tix_raffle_description', wp_kses_post($_POST['tix_raffle_description'] ?? ''));
+            update_post_meta($post_id, '_tix_raffle_end_date', sanitize_text_field($_POST['tix_raffle_end_date'] ?? ''));
+            update_post_meta($post_id, '_tix_raffle_max_entries', max(0, intval($_POST['tix_raffle_max_entries'] ?? 0)));
+            update_post_meta($post_id, '_tix_raffle_hide_count', !empty($_POST['tix_raffle_hide_count']) ? '1' : '');
+            update_post_meta($post_id, '_tix_raffle_consent_text', wp_kses_post($_POST['tix_raffle_consent_text'] ?? ''));
+            update_post_meta($post_id, '_tix_raffle_header_bg', sanitize_hex_color($_POST['tix_raffle_header_bg'] ?? ''));
+            update_post_meta($post_id, '_tix_raffle_header_color', sanitize_hex_color($_POST['tix_raffle_header_color'] ?? ''));
+
+            $raw_prizes = $_POST['tix_raffle_prizes'] ?? [];
+            $prizes = [];
+            if (is_array($raw_prizes)) {
+                foreach ($raw_prizes as $p) {
+                    $name = sanitize_text_field($p['name'] ?? '');
+                    if (empty($name)) continue;
+                    $prize = [
+                        'name'       => $name,
+                        'qty'        => max(1, intval($p['qty'] ?? 1)),
+                        'per_winner' => max(1, intval($p['per_winner'] ?? 1)),
+                        'type'       => in_array($p['type'] ?? '', ['text', 'ticket']) ? $p['type'] : 'text',
+                    ];
+                    if ($prize['type'] === 'ticket') {
+                        $prize['cat_index'] = intval($p['cat_index'] ?? 0);
+                    }
+                    $prizes[] = $prize;
+                }
+            }
+            update_post_meta($post_id, '_tix_raffle_prizes', $prizes);
+        }
+
+        // ── Timetable ──
+        update_post_meta($post_id, '_tix_timetable_times_tba', !empty($_POST['tix_timetable_times_tba']) ? '1' : '');
+
+        $raw_stages = $_POST['tix_stages'] ?? [];
+        $stages = [];
+        if (is_array($raw_stages)) {
+            foreach ($raw_stages as $st) {
+                $name = sanitize_text_field($st['name'] ?? '');
+                if (empty($name)) continue;
+                $stages[] = ['name' => $name, 'color' => sanitize_hex_color($st['color'] ?? '') ?: tix_primary()];
+            }
+        }
+        update_post_meta($post_id, '_tix_stages', $stages);
+
+        $raw_tt = $_POST['tix_timetable'] ?? [];
+        $timetable = [];
+        if (is_array($raw_tt)) {
+            foreach ($raw_tt as $day => $day_slots) {
+                $day = sanitize_text_field($day);
+                if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $day)) continue;
+                $slots = [];
+                if (is_array($day_slots)) {
+                    foreach ($day_slots as $slot) {
+                        $time  = sanitize_text_field($slot['time'] ?? '');
+                        $title = sanitize_text_field($slot['title'] ?? '');
+                        if (empty($time) && empty($title)) continue;
+                        $slots[] = [
+                            'time'  => $time,
+                            'end'   => sanitize_text_field($slot['end'] ?? ''),
+                            'stage' => intval($slot['stage'] ?? 0),
+                            'title' => $title,
+                            'desc'  => sanitize_text_field($slot['desc'] ?? ''),
+                        ];
+                    }
+                    usort($slots, fn($a, $b) => strcmp($a['time'], $b['time']));
+                }
+                if (!empty($slots)) $timetable[$day] = $slots;
+            }
+        }
+        update_post_meta($post_id, '_tix_timetable', $timetable);
+
+        // ── Ticket-Kategorien (meta only, NO WC sync) ──
+        $raw = $_POST['tix_tickets'] ?? [];
+        $categories = [];
+        if (is_array($raw)) {
+            foreach ($raw as $ticket) {
+                $name = sanitize_text_field($ticket['name'] ?? '');
+                if (empty($name)) continue;
+                $sale = $ticket['sale_price'] ?? '';
+                $sale = ($sale !== '' && $sale !== null) ? floatval($sale) : '';
+                $cat = [
+                    'name'           => $name,
+                    'price'          => floatval($ticket['price'] ?? 0),
+                    'sale_price'     => $sale,
+                    'qty'            => intval($ticket['qty'] ?? 1),
+                    'desc'           => sanitize_text_field($ticket['desc'] ?? ''),
+                    'image_id'       => intval($ticket['image_id'] ?? 0),
+                    'online'         => (($ticket['sale_mode'] ?? 'online') === 'online') ? '1' : '0',
+                    'offline_ticket' => (($ticket['sale_mode'] ?? 'online') === 'offline') ? '1' : '0',
+                    'bundle_buy'     => intval($ticket['bundle_buy'] ?? 0),
+                    'bundle_pay'     => intval($ticket['bundle_pay'] ?? 0),
+                    'bundle_label'   => sanitize_text_field($ticket['bundle_label'] ?? ''),
+                    'tc_event_id'    => intval($ticket['tc_event_id'] ?? 0),
+                    'product_id'     => intval($ticket['product_id'] ?? 0),
+                    'sku'            => sanitize_text_field($ticket['sku'] ?? ''),
+                    'group'          => sanitize_text_field($ticket['group'] ?? ''),
+                    'seatmap_id'     => intval($ticket['seatmap_id'] ?? 0),
+                    'seatmap_section' => sanitize_key($ticket['seatmap_section'] ?? ''),
+                ];
+
+                // Preisphasen
+                $raw_phases = $ticket['phases'] ?? [];
+                $phases = [];
+                if (is_array($raw_phases)) {
+                    foreach ($raw_phases as $ph) {
+                        $ph_name  = sanitize_text_field($ph['name'] ?? '');
+                        $ph_price = $ph['price'] ?? '';
+                        $ph_until = sanitize_text_field($ph['until'] ?? '');
+                        if (empty($ph_name) && $ph_price === '' && empty($ph_until)) continue;
+                        $phases[] = [
+                            'name'  => $ph_name,
+                            'price' => ($ph_price !== '' && $ph_price !== null) ? floatval($ph_price) : 0,
+                            'until' => $ph_until,
+                        ];
+                    }
+                    usort($phases, fn($a, $b) => strcmp($a['until'], $b['until']));
+                }
+                $cat['phases'] = $phases;
+                $categories[] = $cat;
+            }
+        }
+        update_post_meta($post_id, '_tix_ticket_categories', $categories);
+
+        // ── Einfache Felder ──
+        update_post_meta($post_id, '_tix_tickets_enabled', !empty($_POST['tix_tickets_enabled']) ? '1' : '0');
+        update_post_meta($post_id, '_tix_box_office_only', !empty($_POST['tix_box_office_only']) ? '1' : '0');
+        update_post_meta($post_id, '_tix_box_office_price', sanitize_text_field($_POST['tix_box_office_price'] ?? ''));
+        update_post_meta($post_id, '_tix_box_office_desc', sanitize_text_field($_POST['tix_box_office_desc'] ?? ''));
+        update_post_meta($post_id, '_tix_presale_active', !empty($_POST['tix_presale_active']) ? '1' : '0');
+        update_post_meta($post_id, '_tix_presale_start', sanitize_text_field($_POST['tix_presale_start'] ?? ''));
+        update_post_meta($post_id, '_tix_waitlist_enabled', !empty($_POST['tix_waitlist_enabled']) ? '1' : '');
+        update_post_meta($post_id, '_tix_presale_end_mode', sanitize_text_field($_POST['tix_presale_end_mode'] ?? 'manual'));
+        update_post_meta($post_id, '_tix_presale_end_offset', intval($_POST['tix_presale_end_offset'] ?? 0));
+        update_post_meta($post_id, '_tix_presale_end', sanitize_text_field($_POST['tix_presale_end'] ?? ''));
+
+        // Externer Ticketshop
+        update_post_meta($post_id, '_tix_extshop_enabled', !empty($_POST['tix_extshop_enabled']) ? '1' : '0');
+        update_post_meta($post_id, '_tix_extshop_url', esc_url_raw($_POST['tix_extshop_url'] ?? ''));
+        update_post_meta($post_id, '_tix_extshop_text', sanitize_text_field($_POST['tix_extshop_text'] ?? ''));
+        $ext_mode = in_array($_POST['tix_extshop_mode'] ?? '', ['replace', 'both']) ? $_POST['tix_extshop_mode'] : 'replace';
+        update_post_meta($post_id, '_tix_extshop_mode', $ext_mode);
+
+        // Event-Status
+        update_post_meta($post_id, '_tix_event_status', sanitize_text_field($_POST['tix_event_status'] ?? ''));
+
+        // Gruppenrabatt
+        $raw_gd = $_POST['tix_group_discount'] ?? [];
+        $gd = [
+            'enabled'        => !empty($raw_gd['enabled']),
+            'tiers'          => [],
+            'combine_bundle' => !empty($raw_gd['combine_bundle']),
+            'combine_combo'  => !empty($raw_gd['combine_combo']),
+            'combine_phase'  => !empty($raw_gd['combine_phase']),
+        ];
+        if (!empty($raw_gd['tiers']) && is_array($raw_gd['tiers'])) {
+            foreach ($raw_gd['tiers'] as $tier) {
+                $min = intval($tier['min_qty'] ?? 0);
+                $pct = intval($tier['percent'] ?? 0);
+                if ($min >= 2 && $pct >= 1 && $pct <= 99) {
+                    $gd['tiers'][] = ['min_qty' => $min, 'percent' => $pct];
+                }
+            }
+            usort($gd['tiers'], fn($a, $b) => $a['min_qty'] - $b['min_qty']);
+        }
+        update_post_meta($post_id, '_tix_group_discount', $gd);
+
+        // Galerie (IDs only, skip Breakdance URL resolution)
+        $raw_gallery = $_POST['tix_gallery'] ?? [];
+        $gallery_ids = [];
+        if (is_array($raw_gallery)) {
+            foreach ($raw_gallery as $gid) {
+                $gid = intval($gid);
+                if ($gid) $gallery_ids[] = $gid;
+            }
+        }
+        update_post_meta($post_id, '_tix_gallery', $gallery_ids);
+
+        // Video
+        update_post_meta($post_id, '_tix_video_url', esc_url_raw($_POST['tix_video_url'] ?? ''));
+        update_post_meta($post_id, '_tix_video_id', intval($_POST['tix_video_id'] ?? 0));
+
+        // Upsell
+        update_post_meta($post_id, '_tix_upsell_disabled', !empty($_POST['tix_upsell_disabled']) ? '1' : '');
+        $raw_upsell = $_POST['tix_upsell_events'] ?? [];
+        $upsell_ids = [];
+        if (is_array($raw_upsell)) {
+            foreach ($raw_upsell as $uid) {
+                $uid = intval($uid);
+                if ($uid && $uid !== $post_id) $upsell_ids[] = $uid;
+            }
+        }
+        update_post_meta($post_id, '_tix_upsell_events', $upsell_ids);
+
+        // Event-Preset
+        update_post_meta($post_id, '_tix_event_preset', sanitize_key($_POST['tix_event_preset'] ?? 'all'));
+
+        // Embed Widget
+        update_post_meta($post_id, '_tix_embed_enabled', !empty($_POST['tix_embed_enabled']) ? '1' : '0');
+        update_post_meta($post_id, '_tix_embed_domains', sanitize_text_field($_POST['tix_embed_domains'] ?? ''));
+
+        // Gästeliste
+        update_post_meta($post_id, '_tix_guest_list_enabled', !empty($_POST['tix_guest_list_enabled']) ? '1' : '0');
+        update_post_meta($post_id, '_tix_checkin_password', sanitize_text_field($_POST['tix_checkin_password'] ?? ''));
+
+        // Erweitert: Per-Event-Toggles
+        $tix_meta = $_POST['tix_meta'] ?? [];
+        update_post_meta($post_id, '_tix_abandoned_cart', !empty($tix_meta['_tix_abandoned_cart']) ? '1' : '0');
+        update_post_meta($post_id, '_tix_express_checkout', !empty($tix_meta['_tix_express_checkout']) ? '1' : '0');
+        update_post_meta($post_id, '_tix_ticket_transfer', !empty($tix_meta['_tix_ticket_transfer']) ? '1' : '0');
+        update_post_meta($post_id, '_tix_barcode', !empty($tix_meta['_tix_barcode']) ? '1' : '0');
+
+        // Charity
+        update_post_meta($post_id, '_tix_charity_enabled', !empty($tix_meta['_tix_charity_enabled']) ? '1' : '0');
+        update_post_meta($post_id, '_tix_charity_name', sanitize_text_field($tix_meta['_tix_charity_name'] ?? ''));
+        update_post_meta($post_id, '_tix_charity_percent', max(0, min(100, intval($tix_meta['_tix_charity_percent'] ?? 0))));
+        update_post_meta($post_id, '_tix_charity_desc', sanitize_textarea_field($tix_meta['_tix_charity_desc'] ?? ''));
+        update_post_meta($post_id, '_tix_charity_image', intval($tix_meta['_tix_charity_image'] ?? 0));
+
+        // Saalplan
+        update_post_meta($post_id, '_tix_seatmap_id', intval($tix_meta['_tix_seatmap_id'] ?? 0));
+        update_post_meta($post_id, '_tix_seatmap_mode', sanitize_key($tix_meta['_tix_seatmap_mode'] ?? 'manual'));
+
+        // Ticket-Template
+        $tt_mode = sanitize_text_field($_POST['tix_ticket_template_mode'] ?? 'global');
+        if (!in_array($tt_mode, ['global', 'custom', 'template', 'none'])) $tt_mode = 'global';
+        update_post_meta($post_id, '_tix_ticket_template_mode', $tt_mode);
+        if ($tt_mode === 'template') {
+            update_post_meta($post_id, '_tix_ticket_template_id', absint($_POST['tix_ticket_template_id'] ?? 0));
+        }
+
+        // Post-Titel aktualisieren (ohne save_post Hooks auszulösen)
+        $title = sanitize_text_field($_POST['post_title'] ?? '');
+        if ($title) {
+            global $wpdb;
+            $wpdb->update($wpdb->posts, ['post_title' => $title], ['ID' => $post_id]);
+            clean_post_cache($post_id);
+        }
+
+        // Timestamp speichern
+        update_post_meta($post_id, '_tix_autosave_time', current_time('mysql'));
+
+        wp_send_json_success([
+            'message' => 'Gespeichert',
+            'time'    => current_time('H:i'),
+        ]);
+    }
 }

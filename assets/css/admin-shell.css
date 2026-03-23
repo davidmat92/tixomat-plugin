@@ -288,6 +288,23 @@ body.tix-fullscreen .tix-floating-publish .tix-status-indicator .tix-status-dot 
     margin-right: 4px;
     vertical-align: middle;
 }
+/* Auto-Save Indicator */
+body.tix-fullscreen .tix-autosave-indicator {
+    font-size: 12px;
+    color: #94a3b8;
+    font-weight: 400;
+    white-space: nowrap;
+    transition: opacity 0.3s;
+}
+body.tix-fullscreen .tix-autosave-indicator.saving {
+    color: #f59e0b;
+}
+body.tix-fullscreen .tix-autosave-indicator.saved {
+    color: #22c55e;
+}
+body.tix-fullscreen .tix-autosave-indicator.dirty {
+    color: #94a3b8;
+}
 body.tix-fullscreen .tix-floating-publish .tix-preview-link {
     color: #64748b;
     text-decoration: none;

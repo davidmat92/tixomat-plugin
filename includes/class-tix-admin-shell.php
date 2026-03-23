@@ -532,6 +532,7 @@ class TIX_Admin_Shell {
         $permalink = get_permalink($post);
         ?>
         <div class="tix-floating-publish">
+            <span id="tix-autosave-indicator" class="tix-autosave-indicator" style="display:none"></span>
             <?php if ($is_published && $permalink) : ?>
                 <a href="<?php echo esc_url($permalink); ?>" class="tix-preview-link" target="_blank">Ansehen</a>
             <?php elseif ($preview_url) : ?>

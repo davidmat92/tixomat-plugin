@@ -1525,4 +1525,92 @@
         }
     })();
 
+    // ══════════════════════════════════════
+    // AUTO-SAVE (every 2 min + on tab switch)
+    // ══════════════════════════════════════
+    (function() {
+        var $form = $('#post');
+        var $indicator = $('#tix-autosave-indicator');
+        if (!$form.length || !$indicator.length || typeof tixAdmin === 'undefined') return;
+
+        var INTERVAL = 120000; // 2 Minuten
+        var timer = null;
+        var isSaving = false;
+        var isDirty = false;
+        var lastFormData = $form.serialize();
+
+        // Detect changes
+        function markDirty() {
+            isDirty = true;
+            $indicator.show().removeClass('saved saving').addClass('dirty').text('Ungespeicherte Änderungen');
+        }
+
+        // Listen for any input change (debounced to avoid expensive serialize on every keystroke)
+        var dirtyTimer = null;
+        $form.on('input change', 'input, select, textarea', function() {
+            if (isDirty) return; // already dirty, no need to check again
+            clearTimeout(dirtyTimer);
+            dirtyTimer = setTimeout(function() {
+                var current = $form.serialize();
+                if (current !== lastFormData) {
+                    markDirty();
+                }
+            }, 500);
+        });
+
+        function doAutosave() {
+            if (isSaving || !isDirty) return;
+
+            var postId = $('#post_ID').val();
+            if (!postId) return;
+
+            isSaving = true;
+            $indicator.show().removeClass('saved dirty').addClass('saving').text('Speichert…');
+
+            var formData = $form.serializeArray();
+
+            // Add autosave-specific fields
+            formData.push({ name: 'action', value: 'tix_autosave' });
+            formData.push({ name: 'nonce', value: tixAdmin.nonce });
+            formData.push({ name: 'post_id', value: postId });
+
+            $.post(tixAdmin.ajaxUrl, $.param(formData), function(r) {
+                isSaving = false;
+                if (r.success) {
+                    isDirty = false;
+                    lastFormData = $form.serialize();
+                    $indicator.removeClass('saving dirty').addClass('saved').text('Gespeichert ✓ ' + r.data.time);
+                } else {
+                    $indicator.removeClass('saving').addClass('dirty').text('Fehler beim Speichern');
+                }
+            }).fail(function() {
+                isSaving = false;
+                $indicator.removeClass('saving').addClass('dirty').text('Fehler beim Speichern');
+            });
+        }
+
+        // Timer: every 2 minutes
+        timer = setInterval(doAutosave, INTERVAL);
+
+        // On tab switch
+        $(document).on('click', '.tix-nav-tab', function() {
+            // Small delay to let tab content settle
+            setTimeout(doAutosave, 200);
+        });
+
+        // Cancel auto-save when manual save is triggered
+        $form.on('submit', function() {
+            clearInterval(timer);
+            isSaving = true; // prevent auto-save from firing
+            $indicator.hide();
+        });
+
+        // Also cancel on publish/draft button click
+        $('#tix-floating-publish-btn, #tix-floating-draft-btn, #publish, #save-post').on('click', function() {
+            clearInterval(timer);
+            isSaving = true;
+            $indicator.hide();
+        });
+    })();
+
 })(jQuery);
