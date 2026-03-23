@@ -1272,70 +1272,63 @@ class TIX_Metabox {
                 </label>
             </div>
 
-            <?php // ── Auto-Presale-Ende ── ?>
-            <div class="tix-presale-end-wrap">
-                <div class="tix-presale-end-row">
-                    <label class="tix-field-label">Vorverkauf endet</label>
-                    <?php self::tip('Automatisches Beenden des Vorverkaufs. „Manuell" = nur per Toggle oben. „Vor Event-Start" = automatisch X Stunden vor Beginn. „Festes Datum" = exakter Zeitpunkt.'); ?>
+            <?php // ── Vorverkauf-Einstellungen (Ende + optionaler Start) ── ?>
+            <div style="display:flex;flex-wrap:wrap;gap:12px 24px;align-items:center;margin:12px 0 16px;padding:12px 16px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;">
+                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                    <label class="tix-field-label" style="margin:0;white-space:nowrap;">Endet</label>
                     <select name="tix_presale_end_mode" id="tix-presale-end-mode" class="tix-select-sm">
-                        <option value="manual" <?php selected($presale_end_mode, 'manual'); ?>>Manuell</option>
                         <option value="before_event" <?php selected($presale_end_mode, 'before_event'); ?>>Vor Event-Start</option>
                         <option value="fixed" <?php selected($presale_end_mode, 'fixed'); ?>>Festes Datum</option>
+                        <option value="manual" <?php selected($presale_end_mode, 'manual'); ?>>Manuell</option>
                     </select>
-                    <span id="tix-presale-end-offset-wrap" style="<?php echo $presale_end_mode !== 'before_event' ? 'display:none;' : ''; ?>">
+                    <span id="tix-presale-end-offset-wrap" style="display:flex;align-items:center;gap:4px;<?php echo $presale_end_mode !== 'before_event' ? 'display:none;' : ''; ?>">
                         <input type="number" name="tix_presale_end_offset" value="<?php echo esc_attr($presale_end_offset); ?>"
-                               min="0" max="168" step="1" class="tix-input-sm" style="width:60px">
-                        <span class="tix-field-hint">Stunden vorher</span>
+                               min="0" max="168" step="1" class="tix-input-sm" style="width:55px">
+                        <span style="font-size:12px;color:#64748b;">Std. vorher</span>
                     </span>
                     <span id="tix-presale-end-fixed-wrap" style="<?php echo $presale_end_mode !== 'fixed' ? 'display:none;' : ''; ?>">
                         <input type="datetime-local" name="tix_presale_end" value="<?php echo esc_attr($presale_end); ?>" class="tix-input-sm">
                     </span>
                 </div>
-            </div>
-
-            <?php // ── Vorverkauf-Start (Countdown) ── ?>
-            <div class="tix-presale-end-wrap" style="margin-top:8px;">
-                <div class="tix-presale-end-row">
-                    <label class="tix-field-label">Vorverkauf startet am</label>
-                    <?php self::tip('Wenn gesetzt, wird vor diesem Zeitpunkt ein Countdown angezeigt und Besucher können sich per E-Mail benachrichtigen lassen.'); ?>
-                    <input type="datetime-local" name="tix_presale_start" value="<?php echo esc_attr($presale_start); ?>" class="tix-input-sm">
+                <div style="display:flex;align-items:center;gap:8px;border-left:1px solid #d1d5db;padding-left:24px;">
+                    <label class="tix-field-label" style="margin:0;white-space:nowrap;color:#94a3b8;">Startet</label>
+                    <?php self::tip('Optional: Wenn gesetzt, wird vorher ein Countdown angezeigt. Leer = Vorverkauf startet sofort.'); ?>
+                    <input type="datetime-local" name="tix_presale_start" value="<?php echo esc_attr($presale_start); ?>" class="tix-input-sm" style="max-width:200px;">
                     <?php if ($presale_start): ?>
-                        <button type="button" class="button tix-btn-sm" onclick="this.previousElementSibling.value='';this.style.display='none';" title="Zurücksetzen" style="margin-left:4px;">✕</button>
+                        <button type="button" class="button tix-btn-sm" onclick="this.previousElementSibling.value='';this.remove();" title="Zurücksetzen" style="padding:2px 6px;font-size:11px;">✕</button>
                     <?php endif; ?>
                 </div>
             </div>
 
             <?php // ── Externer Ticketshop ── ?>
-            <div class="tix-presale-end-wrap" style="margin-top:12px;padding-top:12px;border-top:1px solid #e2e8f0;">
-                <div class="tix-presale-end-row">
+            <div style="margin-bottom:16px;padding:12px 16px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;">
+                <div style="display:flex;align-items:center;gap:8px;">
                     <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
                         <input type="hidden" name="tix_extshop_enabled" value="0">
                         <input type="checkbox" name="tix_extshop_enabled" value="1" id="tix-extshop-toggle"
                                <?php checked($ext_enabled, '1'); ?>>
                         <span class="tix-field-label" style="margin:0;">Externer Ticketshop</span>
                     </label>
-                    <?php self::tip('Leite Besucher zu einem externen Ticketshop weiter (z.B. Eventim, Ticketmaster). Der interne Ticket-Selector kann ersetzt oder ergänzt werden.'); ?>
+                    <?php self::tip('Leite Besucher zu einem externen Ticketshop weiter (z.B. Eventim, Ticketmaster).'); ?>
                 </div>
-                <div id="tix-extshop-panel" style="margin-top:10px;padding:12px 16px;background:#f8fafc;border-radius:6px;<?php echo $ext_enabled !== '1' ? 'display:none;' : ''; ?>">
-                    <div style="display:flex;flex-direction:column;gap:10px;">
-                        <div>
+                <div id="tix-extshop-panel" style="margin-top:10px;<?php echo $ext_enabled !== '1' ? 'display:none;' : ''; ?>">
+                    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;">
+                        <div style="flex:1;min-width:250px;">
                             <label class="tix-field-label" style="display:block;margin-bottom:4px;">URL</label>
                             <input type="url" name="tix_extshop_url" value="<?php echo esc_attr($ext_url); ?>"
-                                   placeholder="https://www.eventim.de/event/..." class="widefat" style="max-width:500px;">
+                                   placeholder="https://www.eventim.de/event/..." class="widefat">
                         </div>
-                        <div style="display:flex;gap:16px;flex-wrap:wrap;">
-                            <div>
-                                <label class="tix-field-label" style="display:block;margin-bottom:4px;">Button-Text</label>
-                                <input type="text" name="tix_extshop_text" value="<?php echo esc_attr($ext_text); ?>"
-                                       placeholder="Tickets kaufen" class="regular-text" style="width:250px;">
-                            </div>
-                            <div>
-                                <label class="tix-field-label" style="display:block;margin-bottom:4px;">Anzeige</label>
-                                <select name="tix_extshop_mode" class="tix-select-sm">
-                                    <option value="replace" <?php selected($ext_mode, 'replace'); ?>>Ersetzt Ticket-Selector</option>
-                                    <option value="both" <?php selected($ext_mode, 'both'); ?>>Zusätzlich zum Ticket-Selector</option>
-                                </select>
-                            </div>
+                        <div>
+                            <label class="tix-field-label" style="display:block;margin-bottom:4px;">Button-Text</label>
+                            <input type="text" name="tix_extshop_text" value="<?php echo esc_attr($ext_text); ?>"
+                                   placeholder="Tickets kaufen" style="width:180px;padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;">
+                        </div>
+                        <div>
+                            <label class="tix-field-label" style="display:block;margin-bottom:4px;">Anzeige</label>
+                            <select name="tix_extshop_mode" class="tix-select-sm">
+                                <option value="replace" <?php selected($ext_mode, 'replace'); ?>>Ersetzt Ticket-Selector</option>
+                                <option value="both" <?php selected($ext_mode, 'both'); ?>>Zusätzlich</option>
+                            </select>
                         </div>
                     </div>
                 </div>
@@ -1445,7 +1438,7 @@ class TIX_Metabox {
                 $gd_combine_combo  = !empty($group_discount['combine_combo']);
                 $gd_combine_phase  = !empty($group_discount['combine_phase']);
             ?>
-            <div class="tix-group-discount-wrap" style="margin-top:20px; padding-top:16px; border-top:1px solid #ddd;">
+            <div class="tix-group-discount-wrap" style="margin-top:16px; padding:12px 16px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px;">
                 <div class="tix-toggle-wrap">
                     <label class="tix-toggle-label">
                         <input type="hidden" name="tix_group_discount[enabled]" value="0">
@@ -1503,11 +1496,11 @@ class TIX_Metabox {
             <?php // ── Kombi-Tickets ── ?>
             <?php self::render_combos($post, $categories); ?>
 
-            <?php // ── Event-Status (weniger prominent, unten) ── ?>
-            <div class="tix-presale-end-wrap" style="margin-top:20px; padding-top:16px; border-top:1px solid #e2e8f0;">
-                <div class="tix-presale-end-row">
-                    <label class="tix-field-label">Event-Status</label>
-                    <?php self::tip('Manueller Status-Override. „Automatisch" erkennt ausverkaufte Events selbst.'); ?>
+            <?php // ── Event-Status + Warteliste (kompakt unten) ── ?>
+            <div style="display:flex;flex-wrap:wrap;gap:12px 24px;align-items:center;margin-top:20px;padding:12px 16px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;">
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <label class="tix-field-label" style="margin:0;white-space:nowrap;">Event-Status</label>
+                    <?php self::tip('Manueller Override. „Automatisch" erkennt ausverkaufte Events selbst.'); ?>
                     <select name="tix_event_status" class="tix-select-sm">
                         <option value="" <?php selected($event_status, ''); ?>>Automatisch</option>
                         <option value="available" <?php selected($event_status, 'available'); ?>>Verfügbar</option>
@@ -1517,16 +1510,12 @@ class TIX_Metabox {
                         <option value="postponed" <?php selected($event_status, 'postponed'); ?>>Verschoben</option>
                     </select>
                 </div>
-            </div>
-
-            <?php // ── Warteliste ── ?>
-            <div class="tix-presale-end-wrap" style="margin-top:8px;">
-                <div class="tix-presale-end-row">
+                <div style="display:flex;align-items:center;gap:6px;border-left:1px solid #d1d5db;padding-left:24px;">
                     <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
                         <input type="checkbox" name="tix_waitlist_enabled" value="1" <?php checked($waitlist_enabled, '1'); ?>>
-                        <span class="tix-field-label" style="margin:0;">Warteliste aktivieren</span>
+                        <span class="tix-field-label" style="margin:0;">Warteliste</span>
                     </label>
-                    <?php self::tip('Bei ausverkauften Tickets wird ein E-Mail-Formular angezeigt. Besucher werden automatisch benachrichtigt, wenn wieder Tickets verfügbar sind.'); ?>
+                    <?php self::tip('Zeigt E-Mail-Formular bei ausverkauften Tickets. Automatische Benachrichtigung.'); ?>
                 </div>
             </div>
 
