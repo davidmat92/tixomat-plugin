@@ -144,6 +144,42 @@ class TIX_Metabox {
         echo '<span class="tix-tip" tabindex="0"><span class="tix-tip-icon">?</span><span class="tix-tip-text">' . esc_html($text) . '</span></span>';
     }
 
+    /**
+     * Time select dropdown (30-min intervals) instead of native time input.
+     */
+    private static function render_time_select($name, $value = '', $opts = []) {
+        $id = str_replace(['[', ']'], ['_', ''], $name);
+        $required = !empty($opts['required_label']) ? ' data-tix-required="' . esc_attr($opts['required_label']) . '"' : '';
+        $placeholder = $opts['placeholder'] ?? 'Uhrzeit wählen';
+
+        // Normalize stored value to HH:MM
+        $val_norm = $value ? substr($value, 0, 5) : '';
+
+        // Check if value doesn't match any 30-min slot (e.g. 22:15)
+        $has_custom = false;
+        if ($val_norm && !preg_match('/^\d{2}:(00|30)$/', $val_norm)) {
+            $has_custom = true;
+        }
+
+        echo '<select name="' . esc_attr($name) . '" id="' . esc_attr($id) . '"' . $required . ' class="tix-time-select" style="min-width:120px">';
+        echo '<option value="">' . esc_html($placeholder) . '</option>';
+
+        for ($h = 0; $h < 24; $h++) {
+            foreach (['00', '30'] as $m) {
+                $t = sprintf('%02d:%s', $h, $m);
+                $selected = ($val_norm === $t) ? ' selected' : '';
+                echo '<option value="' . $t . '"' . $selected . '>' . $t . '</option>';
+            }
+        }
+
+        // If existing value is at an odd time (e.g. 22:15), keep it as option
+        if ($has_custom) {
+            echo '<option value="' . esc_attr($val_norm) . '" selected>' . esc_html($val_norm) . '</option>';
+        }
+
+        echo '</select>';
+    }
+
     // ──────────────────────────────────────────
     // Event-Presets
     // ──────────────────────────────────────────
@@ -489,22 +525,32 @@ class TIX_Metabox {
                     <div class="tix-field">
                         <label class="tix-field-label">Start <span class="tix-req">*</span></label>
                         <div class="tix-field-inline">
-                            <input type="date" name="tix_date_start" value="<?php echo esc_attr($date_start); ?>" data-tix-required="Startdatum">
-                            <input type="time" name="tix_time_start" value="<?php echo esc_attr($time_start); ?>" data-tix-required="Startzeit">
+                            <input type="date" id="tix_date_start" name="tix_date_start" value="<?php echo esc_attr($date_start); ?>" data-tix-required="Startdatum">
+                            <?php self::render_time_select('tix_time_start', $time_start, ['required_label' => 'Startzeit']); ?>
                         </div>
                     </div>
                     <div class="tix-field">
                         <label class="tix-field-label">Ende</label>
                         <div class="tix-field-inline">
-                            <input type="date" name="tix_date_end" value="<?php echo esc_attr($date_end); ?>">
-                            <input type="time" name="tix_time_end" value="<?php echo esc_attr($time_end); ?>">
+                            <input type="date" id="tix_date_end" name="tix_date_end" value="<?php echo esc_attr($date_end); ?>">
+                            <?php self::render_time_select('tix_time_end', $time_end); ?>
                         </div>
                     </div>
                     <div class="tix-field">
                         <label class="tix-field-label">Einlass <?php self::tip('Ab wann dürfen Gäste rein? Leer lassen wenn gleich wie Startzeit.'); ?></label>
-                        <input type="time" id="tix_time_doors" name="tix_time_doors" value="<?php echo esc_attr($time_doors); ?>" placeholder="Optional">
+                        <?php self::render_time_select('tix_time_doors', $time_doors, ['placeholder' => 'Optional']); ?>
                     </div>
                 </div>
+                <script>
+                (function(){
+                    var ds = document.getElementById('tix_date_start');
+                    var de = document.getElementById('tix_date_end');
+                    if (!ds || !de) return;
+                    ds.addEventListener('change', function(){
+                        if (!de.value && ds.value) de.value = ds.value;
+                    });
+                })();
+                </script>
             </div>
         </div>
 
