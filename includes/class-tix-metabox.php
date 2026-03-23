@@ -361,12 +361,10 @@ class TIX_Metabox {
                         <span class="tix-nav-label">Promoter</span>
                     </button>
                     <?php endif; ?>
-                    <?php if (function_exists('tix_get_settings') && (tix_get_settings('abandoned_cart_enabled') || tix_get_settings('express_checkout_enabled') || tix_get_settings('ticket_transfer_enabled') || tix_get_settings('barcode_enabled') || tix_get_settings('charity_enabled') || class_exists('TIX_Seatmap'))): ?>
                     <button type="button" class="tix-nav-tab" data-tab="advanced">
                         <span class="dashicons dashicons-admin-generic"></span>
                         <span class="tix-nav-label">Erweitert</span>
                     </button>
-                    <?php endif; ?>
                 </div>
                 <button type="button" class="tix-nav-more-toggle" id="tix-nav-more-btn">
                     <span class="dashicons dashicons-plus-alt2"></span>
@@ -430,11 +428,9 @@ class TIX_Metabox {
                     <?php TIX_Promoter_Admin::render_event_tab($post); ?>
                 </div>
                 <?php endif; ?>
-                <?php if (function_exists('tix_get_settings') && (tix_get_settings('abandoned_cart_enabled') || tix_get_settings('express_checkout_enabled') || tix_get_settings('ticket_transfer_enabled') || tix_get_settings('barcode_enabled') || tix_get_settings('charity_enabled') || class_exists('TIX_Seatmap'))): ?>
                 <div class="tix-pane" data-pane="advanced">
                     <?php self::render_advanced($post); ?>
                 </div>
-                <?php endif; ?>
             </div>
             </div><?php // /.tix-expert ?>
         </div>
@@ -1156,9 +1152,10 @@ class TIX_Metabox {
 
         // Presale-End + Event-Status
         $presale_end    = get_post_meta($post->ID, '_tix_presale_end', true);
-        $presale_end_mode = get_post_meta($post->ID, '_tix_presale_end_mode', true) ?: 'manual';
+        $presale_end_mode = get_post_meta($post->ID, '_tix_presale_end_mode', true);
+        if ($presale_end_mode === '' || $presale_end_mode === false) $presale_end_mode = 'before_event'; // Default: 2h vor Event
         $presale_end_offset = get_post_meta($post->ID, '_tix_presale_end_offset', true);
-        if ($presale_end_offset === '') $presale_end_offset = '0';
+        if ($presale_end_offset === '' || $presale_end_offset === false) $presale_end_offset = '2';
         $event_status      = get_post_meta($post->ID, '_tix_event_status', true) ?: '';
         $presale_start     = get_post_meta($post->ID, '_tix_presale_start', true);
         $waitlist_enabled  = get_post_meta($post->ID, '_tix_waitlist_enabled', true);
@@ -1308,17 +1305,6 @@ class TIX_Metabox {
                 </div>
             </div>
 
-            <?php // ── Warteliste ── ?>
-            <div class="tix-presale-end-wrap" style="margin-top:8px;">
-                <div class="tix-presale-end-row">
-                    <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
-                        <input type="checkbox" name="tix_waitlist_enabled" value="1" <?php checked($waitlist_enabled, '1'); ?>>
-                        <span class="tix-field-label" style="margin:0;">Warteliste aktivieren</span>
-                    </label>
-                    <?php self::tip('Bei ausverkauften Tickets wird ein E-Mail-Formular angezeigt. Besucher werden automatisch benachrichtigt, wenn wieder Tickets verfügbar sind.'); ?>
-                </div>
-            </div>
-
             <?php // ── Externer Ticketshop ── ?>
             <div class="tix-presale-end-wrap" style="margin-top:12px;padding-top:12px;border-top:1px solid #e2e8f0;">
                 <div class="tix-presale-end-row">
@@ -1361,20 +1347,6 @@ class TIX_Metabox {
                 if (cb && pn) cb.addEventListener('change', function(){ pn.style.display = this.checked ? '' : 'none'; });
             })();
             </script>
-
-            <?php // ── Event-Status ── ?>
-            <div class="tix-status-wrap">
-                <label class="tix-field-label">Event-Status</label>
-                <?php self::tip('Manueller Status-Override. „Automatisch" erkennt ausverkaufte Events selbst. Wird als Breakdance-Meta ausgegeben.'); ?>
-                <select name="tix_event_status" class="tix-select-sm">
-                    <option value="" <?php selected($event_status, ''); ?>>Automatisch</option>
-                    <option value="available" <?php selected($event_status, 'available'); ?>>Verfügbar</option>
-                    <option value="few_tickets" <?php selected($event_status, 'few_tickets'); ?>>Wenige Tickets</option>
-                    <option value="sold_out" <?php selected($event_status, 'sold_out'); ?>>Ausverkauft</option>
-                    <option value="cancelled" <?php selected($event_status, 'cancelled'); ?>>Abgesagt</option>
-                    <option value="postponed" <?php selected($event_status, 'postponed'); ?>>Verschoben</option>
-                </select>
-            </div>
 
             <?php // ── Stock-Übersicht (nur wenn sync'd) ── ?>
             <?php if (!empty($stock_data['has_products'])): ?>
@@ -1531,47 +1503,32 @@ class TIX_Metabox {
             <?php // ── Kombi-Tickets ── ?>
             <?php self::render_combos($post, $categories); ?>
 
-            <?php // ── Embed Widget ── ?>
-            <?php
-                $embed_enabled = get_post_meta($post->ID, '_tix_embed_enabled', true);
-                $embed_domains = get_post_meta($post->ID, '_tix_embed_domains', true) ?: '';
-                $embed_url     = add_query_arg('tix_embed', $post->ID, home_url('/'));
-            ?>
-            <div class="tix-embed-wrap" style="margin-top:20px; padding-top:16px; border-top:1px solid #ddd;">
-                <div class="tix-toggle-wrap">
-                    <label class="tix-toggle-label">
-                        <input type="hidden" name="tix_embed_enabled" value="0">
-                        <input type="checkbox" name="tix_embed_enabled" value="1" id="tix-embed-toggle"
-                               <?php checked($embed_enabled, '1'); ?>>
-                        <span class="tix-toggle-text">Embed Widget aktivieren</span>
-                    </label>
-                    <?php self::tip('Erlaubt das Einbetten des Ticket-Selectors als iFrame auf externen Websites. Generiert einen HTML-Code zum Kopieren.'); ?>
-                </div>
-                <div id="tix-embed-panel" <?php echo $embed_enabled !== '1' ? 'style="display:none;"' : ''; ?>>
-                    <table class="form-table" style="margin-top:8px;">
-                        <tr>
-                            <th style="width:140px; padding:6px 10px 6px 0;"><label class="tix-field-label">Erlaubte Domains</label></th>
-                            <td style="padding:6px 0;">
-                                <input type="text" name="tix_embed_domains" value="<?php echo esc_attr($embed_domains); ?>"
-                                       class="regular-text" placeholder="example.com, band-website.de" style="width:100%;">
-                                <p class="description" style="margin:4px 0 0;">Kommagetrennt. Leer = alle Domains erlaubt.</p>
-                            </td>
-                        </tr>
-                        <tr>
-                            <th style="padding:6px 10px 6px 0;"><label class="tix-field-label">Embed-Code</label></th>
-                            <td style="padding:6px 0;">
-                                <div style="position:relative;">
-                                    <textarea id="tix-embed-code" readonly rows="3" class="large-text code" style="font-size:12px; background:#f6f7f7; resize:none; cursor:pointer;"
-                                        onclick="this.select(); document.execCommand('copy');">&lt;iframe src="<?php echo esc_url($embed_url); ?>" style="width:100%;border:none;min-height:400px;" allow="payment"&gt;&lt;/iframe&gt;
-&lt;script&gt;window.addEventListener('message',function(e){if(e.data&&e.data.type==='tix-embed-resize'){document.querySelector('iframe[src*="tix_embed=<?php echo $post->ID; ?>"]').style.height=e.data.height+'px';}if(e.data&&e.data.type==='tix-embed-navigate'){window.open(e.data.url,'_blank');}});&lt;/script&gt;</textarea>
-                                    <p class="description" style="margin:4px 0 0;">Klicken zum Kopieren. Füge diesen Code auf der externen Seite ein.</p>
-                                </div>
-                            </td>
-                        </tr>
-                    </table>
+            <?php // ── Event-Status (weniger prominent, unten) ── ?>
+            <div class="tix-presale-end-wrap" style="margin-top:20px; padding-top:16px; border-top:1px solid #e2e8f0;">
+                <div class="tix-presale-end-row">
+                    <label class="tix-field-label">Event-Status</label>
+                    <?php self::tip('Manueller Status-Override. „Automatisch" erkennt ausverkaufte Events selbst.'); ?>
+                    <select name="tix_event_status" class="tix-select-sm">
+                        <option value="" <?php selected($event_status, ''); ?>>Automatisch</option>
+                        <option value="available" <?php selected($event_status, 'available'); ?>>Verfügbar</option>
+                        <option value="few_tickets" <?php selected($event_status, 'few_tickets'); ?>>Wenige Tickets</option>
+                        <option value="sold_out" <?php selected($event_status, 'sold_out'); ?>>Ausverkauft</option>
+                        <option value="cancelled" <?php selected($event_status, 'cancelled'); ?>>Abgesagt</option>
+                        <option value="postponed" <?php selected($event_status, 'postponed'); ?>>Verschoben</option>
+                    </select>
                 </div>
             </div>
 
+            <?php // ── Warteliste ── ?>
+            <div class="tix-presale-end-wrap" style="margin-top:8px;">
+                <div class="tix-presale-end-row">
+                    <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+                        <input type="checkbox" name="tix_waitlist_enabled" value="1" <?php checked($waitlist_enabled, '1'); ?>>
+                        <span class="tix-field-label" style="margin:0;">Warteliste aktivieren</span>
+                    </label>
+                    <?php self::tip('Bei ausverkauften Tickets wird ein E-Mail-Formular angezeigt. Besucher werden automatisch benachrichtigt, wenn wieder Tickets verfügbar sind.'); ?>
+                </div>
+            </div>
 
         </div>
         <?php
@@ -3191,6 +3148,61 @@ class TIX_Metabox {
     // Erweitert (Per-Event-Toggles)
     // ──────────────────────────────────────────
     public static function render_advanced($post) {
+
+        // ── Ticketverkauf ──
+        $embed_enabled = get_post_meta($post->ID, '_tix_embed_enabled', true);
+        $embed_domains = get_post_meta($post->ID, '_tix_embed_domains', true) ?: '';
+        $embed_url     = add_query_arg('tix_embed', $post->ID, home_url('/'));
+        ?>
+        <div class="tix-card">
+            <div class="tix-card-header">
+                <span class="dashicons dashicons-tickets-alt"></span>
+                <h3>Ticketverkauf</h3>
+            </div>
+            <div class="tix-card-body">
+                <div class="tix-toggle-wrap">
+                    <label class="tix-toggle-label">
+                        <input type="hidden" name="tix_embed_enabled" value="0">
+                        <input type="checkbox" name="tix_embed_enabled" value="1" id="tix-embed-toggle"
+                               <?php checked($embed_enabled, '1'); ?>>
+                        <span class="tix-toggle-text">Embed Widget aktivieren</span>
+                    </label>
+                    <?php self::tip('Erlaubt das Einbetten des Ticket-Selectors als iFrame auf externen Websites. Generiert einen HTML-Code zum Kopieren.'); ?>
+                </div>
+                <div id="tix-embed-panel" <?php echo $embed_enabled !== '1' ? 'style="display:none;"' : ''; ?>>
+                    <table class="form-table" style="margin-top:8px;">
+                        <tr>
+                            <th style="width:140px; padding:6px 10px 6px 0;"><label class="tix-field-label">Erlaubte Domains</label></th>
+                            <td style="padding:6px 0;">
+                                <input type="text" name="tix_embed_domains" value="<?php echo esc_attr($embed_domains); ?>"
+                                       class="regular-text" placeholder="example.com, band-website.de" style="width:100%;">
+                                <p class="description" style="margin:4px 0 0;">Kommagetrennt. Leer = alle Domains erlaubt.</p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th style="padding:6px 10px 6px 0;"><label class="tix-field-label">Embed-Code</label></th>
+                            <td style="padding:6px 0;">
+                                <div style="position:relative;">
+                                    <textarea id="tix-embed-code" readonly rows="3" class="large-text code" style="font-size:12px; background:#f6f7f7; resize:none; cursor:pointer;"
+                                        onclick="this.select(); document.execCommand('copy');">&lt;iframe src="<?php echo esc_url($embed_url); ?>" style="width:100%;border:none;min-height:400px;" allow="payment"&gt;&lt;/iframe&gt;
+&lt;script&gt;window.addEventListener('message',function(e){if(e.data&&e.data.type==='tix-embed-resize'){document.querySelector('iframe[src*="tix_embed=<?php echo $post->ID; ?>"]').style.height=e.data.height+'px';}if(e.data&&e.data.type==='tix-embed-navigate'){window.open(e.data.url,'_blank');}});&lt;/script&gt;</textarea>
+                                    <p class="description" style="margin:4px 0 0;">Klicken zum Kopieren. Füge diesen Code auf der externen Seite ein.</p>
+                                </div>
+                            </td>
+                        </tr>
+                    </table>
+                </div>
+                <script>
+                (function(){
+                    var cb = document.getElementById('tix-embed-toggle');
+                    var pn = document.getElementById('tix-embed-panel');
+                    if (cb && pn) cb.addEventListener('change', function(){ pn.style.display = this.checked ? '' : 'none'; });
+                })();
+                </script>
+            </div>
+        </div>
+        <?php
+
         $ac_global = function_exists('tix_get_settings') && tix_get_settings('abandoned_cart_enabled');
         $ex_global = function_exists('tix_get_settings') && tix_get_settings('express_checkout_enabled');
         $tt_global = function_exists('tix_get_settings') && tix_get_settings('ticket_transfer_enabled');
