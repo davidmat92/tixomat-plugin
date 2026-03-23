@@ -770,6 +770,12 @@ class TIX_Metabox {
         $faqs = get_post_meta($post->ID, '_tix_faq', true);
         if (!is_array($faqs) || empty($faqs)) $faqs = [];
         ?>
+        <div class="tix-card">
+            <div class="tix-card-header">
+                <span class="dashicons dashicons-editor-help"></span>
+                <h3>FAQ</h3>
+            </div>
+            <div class="tix-card-body">
         <p class="description" style="margin-bottom:10px;">
             Häufig gestellte Fragen zum Event. Wird im Frontend als aufklappbares Accordion angezeigt.
             <?php self::tip('Nutze den Shortcode [tix_faq] in Breakdance um die FAQs auf der Event-Seite anzuzeigen. Reihenfolge ändern: Zeile am ☰ Symbol ziehen.'); ?>
@@ -811,6 +817,8 @@ class TIX_Metabox {
         <p style="margin-top:10px;">
             <button type="button" class="button" id="tix-faq-add">+ Frage hinzufügen</button>
         </p>
+            </div>
+        </div>
         <?php
     }
 
@@ -842,7 +850,13 @@ class TIX_Metabox {
             }
         }
         ?>
-        <div class="tix-upsell-meta">
+        <div class="tix-card">
+            <div class="tix-card-header">
+                <span class="dashicons dashicons-megaphone"></span>
+                <h3>Zusatzprodukte</h3>
+            </div>
+            <div class="tix-card-body">
+            <div class="tix-upsell-meta">
             <p>
                 <label>
                     <input type="checkbox" name="tix_upsell_disabled" value="1" <?php checked($disabled, '1'); ?> id="tix-upsell-disabled">
@@ -885,6 +899,8 @@ class TIX_Metabox {
                     <?php endforeach; ?>
                 </select>
             </div>
+            </div>
+        </div>
             </div>
         </div>
         <?php
@@ -1027,11 +1043,12 @@ class TIX_Metabox {
         $video_url = get_post_meta($post->ID, '_tix_video_url', true);
         $video_id  = get_post_meta($post->ID, '_tix_video_id', true);
         ?>
-        <div class="tix-media-meta">
-
-            <?php // ── Beitragsbild ── ?>
-            <div class="tix-media-section">
-                <h4 style="margin:0 0 8px;">🖼️ Beitragsbild</h4>
+        <div class="tix-card">
+            <div class="tix-card-header">
+                <span class="dashicons dashicons-format-image"></span>
+                <h3>Beitragsbild</h3>
+            </div>
+            <div class="tix-card-body">
                 <p class="description" style="margin:0 0 10px;">
                     Das Hauptbild des Events. Wird als Thumbnail in Listen, Karten und Social-Shares verwendet.
                 </p>
@@ -1058,12 +1075,14 @@ class TIX_Metabox {
                     <?php endif; ?>
                 </div>
             </div>
+        </div>
 
-            <hr style="border:0; border-top:1px solid #e5e7eb; margin:16px 0;">
-
-            <?php // ── Galerie ── ?>
-            <div class="tix-media-section">
-                <h4 style="margin:0 0 8px;">📷 Bildergalerie</h4>
+        <div class="tix-card">
+            <div class="tix-card-header">
+                <span class="dashicons dashicons-images-alt2"></span>
+                <h3>Bildergalerie</h3>
+            </div>
+            <div class="tix-card-body">
                 <p class="description" style="margin:0 0 10px;">
                     Bilder für die Event-Galerie. Reihenfolge per Drag &amp; Drop ändern.<br>
                     Abrufbar als Breakdance-Meta: <code>_tix_gallery_ids</code> (kommagetrennte IDs), <code>_tix_gallery_urls</code> (kommagetrennte URLs).
@@ -1085,12 +1104,14 @@ class TIX_Metabox {
 
                 <button type="button" class="button" id="tix-gallery-add">+ Bilder hinzufügen</button>
             </div>
+        </div>
 
-            <hr style="border:0; border-top:1px solid #e5e7eb; margin:16px 0;">
-
-            <?php // ── Video ── ?>
-            <div class="tix-media-section">
-                <h4 style="margin:0 0 8px;">🎬 Video</h4>
+        <div class="tix-card">
+            <div class="tix-card-header">
+                <span class="dashicons dashicons-video-alt3"></span>
+                <h3>Video</h3>
+            </div>
+            <div class="tix-card-body">
                 <p class="description" style="margin:0 0 10px;">
                     YouTube-, Vimeo- oder selbst gehostetes Video. Breakdance-Meta: <code>_tix_video_url</code>, <code>_tix_video_embed</code> (oEmbed-HTML).
                 </p>
@@ -1121,7 +1142,6 @@ class TIX_Metabox {
                     <?php endif; ?>
                 </div>
             </div>
-
         </div>
         <?php
     }
@@ -2252,6 +2272,12 @@ class TIX_Metabox {
             sort($days);
         }
         ?>
+        <div class="tix-card">
+            <div class="tix-card-header">
+                <span class="dashicons dashicons-schedule"></span>
+                <h3>Programm</h3>
+            </div>
+            <div class="tix-card-body">
         <p class="description" style="margin-bottom:14px;">
             Erstelle das Veranstaltungsprogramm mit mehreren Bühnen/Räumen. Definiere zuerst die Bühnen, dann die einzelnen Programmslots pro Tag.
         </p>
@@ -2420,6 +2446,8 @@ class TIX_Metabox {
             });
         })();
         </script>
+            </div>
+        </div>
         <?php
     }
 
@@ -2442,6 +2470,12 @@ class TIX_Metabox {
         }
         unset($c);
         ?>
+        <div class="tix-card">
+            <div class="tix-card-header">
+                <span class="dashicons dashicons-tag"></span>
+                <h3>Rabattcodes</h3>
+            </div>
+            <div class="tix-card-body">
         <p class="description" style="margin-bottom:10px;">
             Erstelle Event-spezifische Rabattcodes. Jeder Code wird als WooCommerce-Gutschein angelegt und gilt nur für Tickets dieses Events.
         </p>
@@ -2561,6 +2595,8 @@ class TIX_Metabox {
             });
         })();
         </script>
+            </div>
+        </div>
         <?php
     }
 
@@ -2584,8 +2620,12 @@ class TIX_Metabox {
             'podcast'    => '🎙️', 'telegram'  => '✈️',
         ];
         ?>
-        <div class="tix-expert-section">
-            <h3>🔗 Marketing-Links</h3>
+        <div class="tix-card">
+            <div class="tix-card-header">
+                <span class="dashicons dashicons-admin-links"></span>
+                <h3>Marketing-Links</h3>
+            </div>
+            <div class="tix-card-body">
             <p class="description" style="margin-bottom:16px">
                 Verwende diese Links in deinen Social-Media-Posts, Newslettern und Werbung.
                 Jeder Klick wird automatisch dem Kanal zugeordnet &ndash; du siehst unter
@@ -2645,7 +2685,6 @@ class TIX_Metabox {
                     Bestehende UTM-Links funktionieren weiterhin &ndash; <code>tix_src</code> hat aber Priorit&auml;t.
                 </p>
             </div>
-        </div>
 
         <script>
         (function(){
@@ -2680,6 +2719,8 @@ class TIX_Metabox {
             }
         })();
         </script>
+            </div>
+        </div>
         <?php
     }
 
@@ -2710,6 +2751,12 @@ class TIX_Metabox {
         $categories = get_post_meta($post->ID, '_tix_ticket_categories', true);
         if (!is_array($categories)) $categories = [];
         ?>
+        <div class="tix-card">
+            <div class="tix-card-header">
+                <span class="dashicons dashicons-tickets"></span>
+                <h3>Gewinnspiel</h3>
+            </div>
+            <div class="tix-card-body">
         <div class="tix-raffle-admin">
 
             <?php // ── Aktivierung ── ?>
@@ -3129,6 +3176,8 @@ class TIX_Metabox {
                 });
             });
             </script>
+        </div>
+            </div>
         </div>
         <?php
     }
