@@ -691,14 +691,16 @@ class TIX_Metabox {
                         'quicktags'     => ['buttons' => 'strong,em,link,ul,ol,li'],
                     ]); ?>
                     </div>
-                <?php elseif ($def['type'] === 'number'): ?>
+                <?php elseif ($def['type'] === 'number'):
+                    $default_val = ($key === 'age_limit' && $content === '') ? '18' : $content;
+                ?>
                     <div class="tix-info-number-wrap">
                         <input type="number" name="tix_info[<?php echo $key; ?>]"
-                               value="<?php echo esc_attr($content); ?>"
+                               value="<?php echo esc_attr($default_val); ?>"
                                min="0" max="99"
                                class="tix-info-number"
                                placeholder="z.B. 18">
-                        <span class="description">Jahre (leer = keine Begrenzung)</span>
+                        <span class="description">Jahre (leer = keine Begrenzung, Standard: 18)</span>
                     </div>
                 <?php endif; ?>
             </div>
