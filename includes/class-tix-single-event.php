@@ -10,10 +10,13 @@ if (!defined('ABSPATH')) exit;
 class TIX_Single_Event {
 
     public static function init() {
+        // Template-Override wenn aktiviert
         $enabled = function_exists('tix_get_settings') && tix_get_settings('ep_template_enabled');
         if ($enabled) {
             add_filter('single_template', [__CLASS__, 'load_template']);
         }
+        // Shortcode [tix_event_page] übernehmen
+        add_shortcode('tix_event_page', [__CLASS__, 'shortcode']);
         // Assets nur auf Event-Singles laden
         add_action('wp_enqueue_scripts', [__CLASS__, 'maybe_enqueue']);
     }
@@ -27,6 +30,32 @@ class TIX_Single_Event {
             if (file_exists($plugin_tpl)) return $plugin_tpl;
         }
         return $template;
+    }
+
+    /**
+     * Shortcode [tix_event_page] — rendert Event-Detailseite inline
+     */
+    public static function shortcode($atts) {
+        $atts = shortcode_atts(['id' => 0], $atts);
+        $id = intval($atts['id']) ?: get_the_ID();
+        if (!$id || get_post_type($id) !== 'event') return '<p>Event nicht gefunden.</p>';
+
+        self::enqueue_assets();
+
+        ob_start();
+        $GLOBALS['post'] = get_post($id);
+        setup_postdata($GLOBALS['post']);
+        include TIXOMAT_PATH . 'templates/single-event-content.php';
+        wp_reset_postdata();
+        return ob_get_clean();
+    }
+
+    /**
+     * Assets laden (für Template und Shortcode)
+     */
+    public static function enqueue_assets() {
+        wp_enqueue_style('tix-single-event', TIXOMAT_URL . 'assets/css/single-event.css', ['tix-google-fonts'], TIXOMAT_VERSION);
+        wp_enqueue_script('tix-single-event', TIXOMAT_URL . 'assets/js/single-event.js', [], TIXOMAT_VERSION, true);
     }
 
     /**

@@ -2422,16 +2422,16 @@ class TIX_Settings {
                             <?php // ═══ PANE: EVENT-SEITE ═══ ?>
                             <div class="tix-pane" data-pane="event-page">
 
-                                <?php // ── Card: Template-Modus ── ?>
+                                <?php // ── Card: Template ── ?>
                                 <div class="tix-card">
                                     <div class="tix-card-header">
                                         <span class="dashicons dashicons-layout"></span>
-                                        <h3>Eigenes Event-Template</h3>
+                                        <h3>Event-Template</h3>
                                     </div>
                                     <div class="tix-card-body">
                                         <div class="tix-field-grid">
                                             <div class="tix-field tix-field-full">
-                                                <?php self::checkbox_row('ep_template_enabled', 'Eigenes Template für Event-Einzelseiten verwenden', $s, 'Ersetzt das Breakdance/Theme-Template durch ein optimiertes, performantes Event-Template direkt aus dem Plugin. Header/Footer des Themes bleiben erhalten.'); ?>
+                                                <?php self::checkbox_row('ep_template_enabled', 'Eigenes Template für Event-Einzelseiten', $s, 'Ersetzt das Breakdance/Theme-Template durch das Tixomat Event-Template. Header/Footer des Themes bleiben erhalten. Alternativ: <code>[tix_event_page]</code> Shortcode in Breakdance einbetten.'); ?>
                                             </div>
                                             <?php self::range_row('ep_hero_height', 'Hero-Bild-Höhe', $s, 150, 600, 'px'); ?>
                                         </div>
