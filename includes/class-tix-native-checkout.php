@@ -114,7 +114,7 @@ class TIX_Native_Checkout {
             wp_send_json_error(['message' => 'Keine Artikel angegeben.']);
         }
 
-        error_log('[TIX Cart] add_to_cart called. Key: ' . self::cart_key() . ' | Items: ' . count($items) . ' | User: ' . (is_user_logged_in() ? get_current_user_id() : 'guest'));
+        error_log('[TIX Cart] add_to_cart called. Key: ' . self::cart_key() . ' | Raw items: ' . wp_json_encode($items));
 
         $cart = self::get_cart();
 
@@ -183,6 +183,8 @@ class TIX_Native_Checkout {
         }
 
         self::save_cart($cart);
+
+        error_log('[TIX Cart] after save. Key: ' . self::cart_key() . ' | Cart items: ' . count($cart['items']) . ' | Total: ' . self::cart_total());
 
         $checkout_url = self::checkout_url();
 
