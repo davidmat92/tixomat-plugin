@@ -137,6 +137,7 @@ class TIX_Admin_Shell {
         elseif ($current_page === 'tix-marketing-export')                       $active = 'marketing-export';
         elseif ($current_page === 'tix-campaigns')                              $active = 'campaigns';
         elseif ($current_page === 'tix-meta-ads')                              $active = 'meta-ads';
+        elseif ($current_page === 'tix-templates')                              $active = 'templates';
         elseif ($current_page === 'tix-settings')                               $active = 'settings';
         elseif ($current_page === 'tix-docs')                                   $active = 'docs';
 
@@ -229,6 +230,11 @@ class TIX_Admin_Shell {
                        class="tix-shell-item<?php echo $active === 'seatmaps' ? ' active' : ''; ?>">
                         <span class="dashicons dashicons-layout"></span>
                         <span>Saalpl&auml;ne</span>
+                    </a>
+                    <a href="<?php echo admin_url('admin.php?page=tix-templates'); ?>"
+                       class="tix-shell-item<?php echo $active === 'templates' ? ' active' : ''; ?>">
+                        <span class="dashicons dashicons-screenoptions"></span>
+                        <span>Vorlagen</span>
                     </a>
                 </div>
 
@@ -327,6 +333,11 @@ class TIX_Admin_Shell {
                        class="tix-shell-item<?php echo $active === 'organizers' ? ' active' : ''; ?>">
                         <span class="dashicons dashicons-businessperson"></span>
                         <span>Veranstalter</span>
+                    </a>
+                    <a href="<?php echo admin_url('admin.php?page=tix-templates'); ?>"
+                       class="tix-shell-item<?php echo $active === 'templates' ? ' active' : ''; ?>">
+                        <span class="dashicons dashicons-screenoptions"></span>
+                        <span>Vorlagen</span>
                     </a>
                 </div>
 
