@@ -311,6 +311,47 @@ class TIX_Native_Checkout {
                             <input type="text" class="tix-co-input" name="billing_last_name" required autocomplete="family-name"
                                    value="<?php echo esc_attr($user->last_name ?? ''); ?>">
                         </div>
+                        <?php if (!empty($s['show_company_field'])): ?>
+                        <div class="tix-co-field tix-co-field-full">
+                            <div class="tix-co-company-wrap">
+                                <button type="button" class="tix-co-company-toggle" onclick="this.style.display='none';this.nextElementSibling.style.display='';">+ Firma hinzufügen</button>
+                                <div class="tix-co-company-field" style="display:none;">
+                                    <label class="tix-co-label">Firma</label>
+                                    <input type="text" class="tix-co-input" name="billing_company" autocomplete="organization">
+                                </div>
+                            </div>
+                        </div>
+                        <?php endif; ?>
+                        <div class="tix-co-field tix-co-field-full">
+                            <label class="tix-co-label">Straße / Hausnummer <abbr class="tix-co-req">*</abbr></label>
+                            <input type="text" class="tix-co-input" name="billing_address_1" required autocomplete="address-line1">
+                        </div>
+                        <div class="tix-co-field tix-co-field-third">
+                            <label class="tix-co-label">PLZ <abbr class="tix-co-req">*</abbr></label>
+                            <input type="text" class="tix-co-input" name="billing_postcode" required autocomplete="postal-code">
+                        </div>
+                        <div class="tix-co-field tix-co-field-twothirds">
+                            <label class="tix-co-label">Ort <abbr class="tix-co-req">*</abbr></label>
+                            <input type="text" class="tix-co-input" name="billing_city" required autocomplete="address-level2">
+                        </div>
+                        <div class="tix-co-field tix-co-field-full">
+                            <label class="tix-co-label">Land <abbr class="tix-co-req">*</abbr></label>
+                            <select class="tix-co-select" name="billing_country" required autocomplete="country">
+                                <option value="DE" selected>Deutschland</option>
+                                <option value="AT">Österreich</option>
+                                <option value="CH">Schweiz</option>
+                                <option value="NL">Niederlande</option>
+                                <option value="BE">Belgien</option>
+                                <option value="LU">Luxemburg</option>
+                                <option value="FR">Frankreich</option>
+                                <option value="PL">Polen</option>
+                                <option value="DK">Dänemark</option>
+                                <option value="CZ">Tschechien</option>
+                                <option value="IT">Italien</option>
+                                <option value="ES">Spanien</option>
+                                <option value="GB">Vereinigtes Königreich</option>
+                            </select>
+                        </div>
                         <div class="tix-co-field tix-co-field-full">
                             <label class="tix-co-label">E-Mail-Adresse <abbr class="tix-co-req">*</abbr></label>
                             <input type="email" class="tix-co-input" name="billing_email" required autocomplete="email"
@@ -421,6 +462,11 @@ class TIX_Native_Checkout {
             'billing_last_name'  => $last_name,
             'billing_email'      => $email,
             'billing_phone'      => sanitize_text_field($_POST['billing_phone'] ?? ''),
+            'billing_company'    => sanitize_text_field($_POST['billing_company'] ?? ''),
+            'billing_address_1'  => sanitize_text_field($_POST['billing_address_1'] ?? ''),
+            'billing_city'       => sanitize_text_field($_POST['billing_city'] ?? ''),
+            'billing_postcode'   => sanitize_text_field($_POST['billing_postcode'] ?? ''),
+            'billing_country'    => sanitize_text_field($_POST['billing_country'] ?? 'DE'),
             'payment_method'     => $payment_method,
             'total'              => $total,
             'items'              => $cart['items'],
@@ -489,12 +535,12 @@ class TIX_Native_Checkout {
             'billing_last_name'     => $data['billing_last_name'],
             'billing_email'         => $data['billing_email'],
             'billing_phone'         => $data['billing_phone'] ?? '',
-            'billing_company'       => '',
-            'billing_address_1'     => '',
+            'billing_company'       => $data['billing_company'] ?? '',
+            'billing_address_1'     => $data['billing_address_1'] ?? '',
             'billing_address_2'     => '',
-            'billing_city'          => '',
-            'billing_postcode'      => '',
-            'billing_country'       => 'DE',
+            'billing_city'          => $data['billing_city'] ?? '',
+            'billing_postcode'      => $data['billing_postcode'] ?? '',
+            'billing_country'       => $data['billing_country'] ?? 'DE',
             'customer_id'           => get_current_user_id(),
             'wc_order_id'           => 0, // Kein WC-Pendant
             'order_key'             => $order_key,
