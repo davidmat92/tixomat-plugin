@@ -89,7 +89,7 @@ class TIX_Single_Event {
         $s = tix_get_settings();
 
         switch ($section) {
-            case 'hero':        return !empty($s['ep_show_hero']) && has_post_thumbnail($post_id);
+            case 'hero':        return !empty($s['ep_show_hero']);
             case 'description': return (bool) get_post_meta($post_id, '_tix_info_description', true);
             case 'lineup':      return (bool) get_post_meta($post_id, '_tix_info_lineup', true);
             case 'specials':    return (bool) get_post_meta($post_id, '_tix_info_specials', true);
@@ -135,12 +135,32 @@ class TIX_Single_Event {
 
     public static function render_hero($post_id) {
         $thumb = get_the_post_thumbnail_url($post_id, 'full');
-        if (!$thumb) return;
         $s = tix_get_settings();
         $height = intval($s['ep_hero_height'] ?? 380);
         ?>
         <div class="tse-hero m-img" style="height:<?php echo $height; ?>px;">
-            <img src="<?php echo esc_url($thumb); ?>" alt="<?php echo esc_attr(get_the_title($post_id)); ?>">
+            <?php if ($thumb): ?>
+                <img src="<?php echo esc_url($thumb); ?>" alt="<?php echo esc_attr(get_the_title($post_id)); ?>">
+            <?php else: ?>
+                <div class="tse-hero-placeholder">
+                    <svg viewBox="0 0 400 200" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid slice">
+                        <defs>
+                            <linearGradient id="tse-hero-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+                                <stop offset="0%" style="stop-color:var(--tix-primary, #FF5500);stop-opacity:0.15"/>
+                                <stop offset="100%" style="stop-color:var(--tix-primary, #FF5500);stop-opacity:0.05"/>
+                            </linearGradient>
+                        </defs>
+                        <rect width="400" height="200" fill="url(#tse-hero-grad)"/>
+                        <circle cx="320" cy="40" r="60" fill="var(--tix-primary, #FF5500)" opacity="0.08"/>
+                        <circle cx="60" cy="160" r="40" fill="var(--tix-primary, #FF5500)" opacity="0.06"/>
+                        <g transform="translate(170, 70)" fill="none" stroke="var(--tix-primary, #FF5500)" stroke-width="1.5" opacity="0.3">
+                            <rect x="0" y="12" width="60" height="48" rx="4"/>
+                            <path d="M0 36 l15-12 l10 8 l12-16 l23 20"/>
+                            <circle cx="45" cy="28" r="6"/>
+                        </g>
+                    </svg>
+                </div>
+            <?php endif; ?>
             <?php
             $terms = wp_get_post_terms($post_id, 'event_category', ['fields' => 'all']);
             $status = get_post_meta($post_id, '_tix_status', true);
@@ -183,7 +203,14 @@ class TIX_Single_Event {
     public static function render_section($post_id, $key, $id_attr = '') {
         $content = get_post_meta($post_id, "_tix_info_{$key}", true);
         if (!$content) return;
-        $label = get_post_meta($post_id, "_tix_info_{$key}_label", true) ?: ucfirst($key);
+        $default_labels = [
+            'description' => 'Beschreibung',
+            'lineup'      => 'Line-Up',
+            'specials'    => 'Specials',
+            'extra_info'  => 'Weitere Informationen',
+            'excerpt'     => 'Textauszug',
+        ];
+        $label = get_post_meta($post_id, "_tix_info_{$key}_label", true) ?: ($default_labels[$key] ?? ucfirst($key));
         ?>
         <div class="tse-sec m-<?php echo esc_attr($key); ?>" <?php echo $id_attr ? 'id="' . esc_attr($id_attr) . '"' : ''; ?>>
             <div class="tse-sec-label"><?php echo esc_html($label); ?></div>

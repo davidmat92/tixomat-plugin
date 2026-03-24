@@ -89,6 +89,12 @@
     position: relative;
 }
 .tse-hero img { width: 100%; height: 100%; object-fit: cover; }
+.tse-hero-placeholder {
+    width: 100%; height: 100%;
+    display: flex; align-items: center; justify-content: center;
+    background: linear-gradient(135deg, color-mix(in srgb, var(--tix-primary, #FF5500) 8%, #f7f8fa), color-mix(in srgb, var(--tix-primary, #FF5500) 3%, #f7f8fa));
+}
+.tse-hero-placeholder svg { width: 100%; height: 100%; }
 .tse-hero-badges {
     position: absolute; top: 16px; left: 16px;
     display: flex; flex-direction: column; gap: 6px;
