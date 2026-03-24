@@ -1,6 +1,6 @@
 # Tixomat -- Event & Ticket Management
 
-**Version:** 1.34.0
+**Version:** 1.33.95
 **Autor:** MDJ Veranstaltungs UG (haftungsbeschraenkt)
 **Text Domain:** `tixomat`
 **Abhaengigkeiten:** WordPress 6.x, WooCommerce 8.x (HPOS-kompatibel)
@@ -12,7 +12,7 @@
 
 | Konstante | Wert | Beschreibung |
 |---|---|---|
-| `TIXOMAT_VERSION` | `'1.34.0'` | Aktuelle Plugin-Version |
+| `TIXOMAT_VERSION` | `'1.33.95'` | Aktuelle Plugin-Version |
 | `TIXOMAT_PATH` | `plugin_dir_path(__FILE__)` | Absoluter Pfad zum Plugin-Verzeichnis |
 | `TIXOMAT_URL` | `plugin_dir_url(__FILE__)` | URL zum Plugin-Verzeichnis |
 
@@ -82,6 +82,10 @@
 60. [Admin Shell / Fullscreen-Modus](#60-admin-shell--fullscreen-modus)
 61. [Organizer Admin System](#61-organizer-admin-system)
 62. [Custom Login URLs](#62-custom-login-urls)
+63. [KI-Assistent (AI Writer)](#63-ki-assistent-ai-writer)
+64. [Event-Vorlagen](#64-event-vorlagen)
+65. [Auto-Save](#65-auto-save)
+66. [Emoji-Filter](#66-emoji-filter)
 
 ---
 
@@ -102,7 +106,7 @@ Tixomat automatisiert den gesamten Ticketing-Workflow fuer WordPress-basierte Ve
 
 ### Klassenuebersicht
 
-Tixomat besteht aus 40 Klassen:
+Tixomat besteht aus 43 Klassen:
 
 | Klasse | Datei | Verantwortung |
 |---|---|---|
@@ -130,6 +134,8 @@ Tixomat besteht aus 40 Klassen:
 | `TIX_Series` | `class-tix-series.php` | Serientermine (Recurring Events) |
 | `TIX_Embed` | `class-tix-embed.php` | Embed-Widget fuer externe Webseiten |
 | `TIX_Content_Guard` | `class-tix-content-guard.php` | KI-Inhaltspruefung (Anthropic Claude API) |
+| `TIX_AI_Writer` | `class-tix-ai-writer.php` | KI-Assistent (Textgenerierung, Feld-Extraktion aus Bild/URL) |
+| `TIX_Event_Templates` | `class-tix-event-templates.php` | Event-Vorlagen (Tab-Steuerung, Defaults, Admin-Seite) |
 | `TIX_Cleanup` | `class-tix-cleanup.php` | Loeschutz, Orphan-Cleanup, Event-Daten-Purge |
 | `TIX_Support` | `class-tix-support.php` | Support-System (CRM + Kunden-Portal) |
 | `TIX_Docs` | `class-tix-docs.php` | Interaktive Dokumentation im Admin-Bereich |
@@ -179,6 +185,8 @@ tixomat/
 │   ├── class-tix-series.php              Serientermine
 │   ├── class-tix-embed.php               Embed-Widget
 │   ├── class-tix-content-guard.php       KI-Schutz (Content Moderation via Claude API)
+│   ├── class-tix-ai-writer.php          KI-Assistent (Textgenerierung, Bild/URL-Analyse)
+│   ├── class-tix-event-templates.php    Event-Vorlagen (Tab-Steuerung + Defaults)
 │   ├── class-tix-cleanup.php             Loeschutz, Cleanup & Event-Daten-Purge
 │   ├── class-tix-support.php             Support-System (CRM + Kunden-Portal)
 │   ├── class-tix-docs.php                Admin-Dokumentation
@@ -2529,7 +2537,9 @@ Normale Events (Konzerte, Partys, Festivals, Messen, Sport, Workshops) sind imme
 | Key | Typ | Beschreibung |
 |---|---|---|
 | `ai_guard_enabled` | `int` (0/1) | KI-Inhaltspruefung aktivieren |
-| `ai_guard_api_key` | `string` | Anthropic API Key (`sk-ant-...`) |
+| `anthropic_api_key` | `string` | Zentraler Anthropic API Key (unter KI-Einstellungen) |
+| `openai_api_key` | `string` | OpenAI API Key (optional, fuer GPT-Modelle) |
+| `ai_model` | `string` | KI-Modell fuer Assistent/Textgenerierung (Standard: `claude-sonnet-4-20250514`) |
 
 ### Post-Meta
 
@@ -2773,4 +2783,132 @@ Seit v1.34.0 koennen benutzerdefinierte Login- und Organizer-URLs konfiguriert w
 
 ---
 
-*Tixomat v1.34.0 -- MDJ Veranstaltungs UG (haftungsbeschraenkt)*
+## 63. KI-Assistent (AI Writer)
+
+`TIX_AI_Writer` bietet KI-gestuetzte Textgenerierung und automatische Feld-Extraktion fuer den Event-Editor.
+
+### Features
+
+1. **Zusammenfassung (Excerpt)**: SEO-optimierte Meta-Description (140-160 Zeichen) per Klick generieren. Wird automatisch beim Wechsel zum Info-Tab generiert wenn leer.
+2. **KI-Assistent Bar**: Lila Bar oben im Event-Editor. Bild/Flyer hochladen oder URL eingeben → KI extrahiert alle Event-Daten.
+3. **Preview-Modal**: Extrahierte Daten werden als Vorschlaege mit Checkboxen angezeigt. Nutzer waehlt aus, was uebernommen wird.
+
+### Extrahierte Felder
+
+Titel, Beschreibung, Line-Up, Specials, Weitere Infos, Altersbegrenzung, Startdatum, Enddatum, Startzeit, Endzeit, Einlass, Location (Fuzzy-Match gegen bestehende Locations), Kategorie (Match gegen Taxonomie-Terms), Tickets (Name + Preis), FAQ (2-3 generierte Eintraege), Zusammenfassung (SEO).
+
+### Provider-Support
+
+| Provider | Modelle | Vision (Bild) |
+|---|---|---|
+| Anthropic | Claude Sonnet 4, Opus 4, Haiku 3.5 | Ja |
+| OpenAI | GPT-4o, GPT-4o Mini, o3-mini | Ja |
+
+Routing erfolgt automatisch basierend auf dem in den Einstellungen gewaehlten Modell. KI-Schutz nutzt immer Claude Haiku (kosteneffizient).
+
+### AJAX-Endpoints
+
+| Action | Methode | Beschreibung |
+|---|---|---|
+| `tix_ai_generate_excerpt` | POST | SEO-Zusammenfassung aus Event-Daten generieren |
+| `tix_ai_fill_fields` | POST | Felder aus Bild (Attachment-ID) oder URL extrahieren |
+
+### Dateien
+
+| Datei | Beschreibung |
+|---|---|
+| `includes/class-tix-ai-writer.php` | API-Calls (Anthropic + OpenAI), Feld-Extraktion, Location/Kategorie-Matching |
+
+---
+
+## 64. Event-Vorlagen
+
+`TIX_Event_Templates` verwaltet Event-Vorlagen die steuern welche Tabs im Editor sichtbar sind und welche Standardwerte vorbelegt werden.
+
+### Admin-Seite
+
+Menue: **Events → Vorlagen**. Formular mit: Name, Icon-Auswahl (16 Dashicons), sichtbare Tabs (Checkboxen), Standardwerte (Ticketverkauf, Altersbegrenzung), automatische Kategorie-Zuweisung.
+
+### Vorlage aus Event erstellen
+
+In der Event-Liste: Row-Action **"Als Vorlage"** → analysiert welche Tabs/Felder im Event befuellt sind → oeffnet Vorlagen-Formular mit vorausgefuellten Tab-Checkboxen.
+
+### Preset-Bar
+
+Beim Erstellen eines neuen Events zeigt die Preset-Bar alle gespeicherten Vorlagen als klickbare Cards. "Alle Funktionen" ist immer der erste Eintrag. Bei Klick auf eine Vorlage:
+- Nur die ausgewaehlten Tabs werden angezeigt
+- Standardwerte werden vorbelegt (Tickets an/aus, Alter, Kategorie)
+- "Alle Tabs" Button zeigt die restlichen Tabs an
+
+### Datenstruktur
+
+Gespeichert als `wp_option` (`tix_event_templates`):
+
+| Feld | Typ | Beschreibung |
+|---|---|---|
+| `label` | `string` | Name der Vorlage |
+| `icon` | `string` | Dashicon-Klasse |
+| `desc` | `string` | Kurzbeschreibung |
+| `tabs` | `array` | Sichtbare Tab-Slugs |
+| `defaults` | `array` | Feld-Standardwerte |
+| `category_id` | `int` | Auto-zugewiesene Kategorie |
+| `source_event` | `int` | Event-ID (wenn aus Event erstellt) |
+
+### Dateien
+
+| Datei | Beschreibung |
+|---|---|
+| `includes/class-tix-event-templates.php` | Admin-Seite, CRUD, Event-Analyse, Preset-Integration |
+
+---
+
+## 65. Auto-Save
+
+Automatisches Speichern im Event-Editor alle 2 Minuten und bei jedem Tab-Wechsel.
+
+### Funktionsweise
+
+- Eigener AJAX-Endpoint `tix_autosave` der NUR `update_post_meta()` ausfuehrt
+- Kein `wp_update_post()`, kein `save_post_event` Hook → keine WC-Sync, keine Series, keine Validierung
+- Speichert immer als Entwurf (setzt Post-Status nicht)
+- Visueller Indikator in der Floating Publish Bar: "Ungespeicherte Aenderungen" → "Speichert..." → "Gespeichert ✓ HH:MM"
+- Wird bei manuellem Speichern/Veroeffentlichen automatisch pausiert (keine Race Conditions)
+
+### AJAX-Endpoint
+
+| Action | Methode | Beschreibung |
+|---|---|---|
+| `tix_autosave` | POST | Alle Form-Felder als Post-Meta speichern |
+
+---
+
+## 66. Emoji-Filter
+
+Globaler `sanitize_title` Filter (Prioritaet 5) der Emojis aus Permalinks entfernt.
+
+### Entfernte Zeichen
+
+| Bereich | Unicode-Range | Beispiele |
+|---|---|---|
+| Supplementary Multilingual Plane | U+10000 - U+10FFFF | Moderne Emojis |
+| Symbole & Dingbats | U+2600 - U+27BF, U+2300 - U+23FF | Aeltere Symbole |
+
+Greift bei `context === 'save'` fuer alle Post-Typen.
+
+---
+
+### v1.33.95
+- **Event-Vorlagen**: Dynamisches Vorlagen-System (Events → Vorlagen). Vorlagen steuern Tab-Sichtbarkeit + Defaults. Aus bestehenden Events erstellbar ("Als Vorlage" in Event-Liste). Ersetzt hardcoded Presets.
+- **KI-Assistent**: Bild/Flyer hochladen oder URL eingeben → KI extrahiert alle Event-Felder. Preview-Modal mit Checkboxen zum selektiven Uebernehmen. Auto-Match von Location und Kategorie.
+- **KI-Zusammenfassung**: SEO-optimierte Meta-Description (140-160 Zeichen) per KI. Zeichenzaehler mit Farbcodierung (gruen/gelb/rot). Auto-Generierung beim Info-Tab.
+- **OpenAI-Support**: GPT-4o, GPT-4o Mini, o3-mini als Alternative zu Claude. Automatisches Routing basierend auf Modellauswahl. Vision fuer beide Provider.
+- **Zentrale KI-Einstellungen**: Neuer "Kuenstliche Intelligenz" Card in Erweitert. Zentraler API-Key fuer alle Features. Modell-Auswahl mit Anthropic + OpenAI Gruppen. Auto-Migration von altem `ai_guard_api_key`.
+- **Auto-Save**: Alle 2 Min + Tab-Wechsel. Leichtgewichtiger AJAX-Handler ohne save_post Hooks. Visueller Status-Indikator.
+- **Zero-Waste Loeschung**: 6 neue Cleanup-Ziele: Campaign-Views, Meta-Conversions, tix_ticket CPT (direkt), KI-Meta, Serien-Kinder (mit/ohne Verkaeufe), exklusive Medien. Rekursions-Schutz.
+- **Emoji-Filter**: Emojis aus Permalinks entfernen (global, alle Post-Typen).
+- **Uhrzeit-Fix**: Pflichtfeld-Check fuer Startzeit (input → select Selektor).
+- **Entwurf-Button**: Expliziter "Entwurf speichern" Button in Floating Publish Bar.
+- **Zeitauswahl**: 30-Min-Intervall Dropdowns statt nativer Time-Inputs. Auto-Fill Enddatum.
+- **Visual Consistency**: Alle Tabs im tix-card Design. Presale-Defaults (2h vor Event).
+
+*Tixomat v1.33.95 -- MDJ Veranstaltungs UG (haftungsbeschraenkt)*
