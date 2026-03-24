@@ -837,11 +837,18 @@ class TIX_Metabox {
             $content = get_post_meta($post->ID, "_tix_info_{$key}", true);
             ?>
             <div class="tix-info-section">
-                <div class="tix-info-header">
+                <div class="tix-info-header" style="display:flex;align-items:center;">
                     <input type="text" name="tix_info_labels[<?php echo $key; ?>]"
                            value="<?php echo esc_attr($label); ?>"
                            class="tix-info-label-input"
-                           placeholder="<?php echo esc_attr($def['label']); ?>">
+                           placeholder="<?php echo esc_attr($def['label']); ?>"
+                           style="flex:1;">
+                    <?php if ($def['type'] === 'textarea' && $ai_key): ?>
+                        <button type="button" class="tix-ai-gen-field-btn" data-field="<?php echo esc_attr($key); ?>" data-editor="tix_info_<?php echo $key; ?>" title="Aus vorhandenen Event-Daten generieren" style="display:flex;align-items:center;gap:4px;padding:4px 10px;font-size:11px;color:var(--tix-primary, #FF5500);background:none;border:1px solid color-mix(in srgb, var(--tix-primary, #FF5500) 30%, #e0e0e0);border-radius:6px;cursor:pointer;margin-right:12px;white-space:nowrap;">
+                            <span class="dashicons dashicons-admin-generic" style="font-size:13px;width:13px;height:13px;line-height:13px"></span>
+                            Generieren
+                        </button>
+                    <?php endif; ?>
                 </div>
                 <?php if ($def['type'] === 'textarea'): ?>
                     <div class="tix-info-editor">

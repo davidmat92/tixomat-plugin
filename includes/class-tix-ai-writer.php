@@ -29,6 +29,7 @@ class TIX_AI_Writer {
         add_action('wp_ajax_tix_ai_upload_image',     [__CLASS__, 'ajax_upload_image']);
         add_action('wp_ajax_tix_ai_check_duplicates',  [__CLASS__, 'ajax_check_duplicates']);
         add_action('wp_ajax_tix_ai_chat',              [__CLASS__, 'ajax_chat']);
+        add_action('wp_ajax_tix_ai_generate_field',    [__CLASS__, 'ajax_generate_field']);
     }
 
     private static function get_api_key() {
@@ -607,6 +608,60 @@ PROMPT;
         if ($body) $parts[] = "Seitentext:\n" . mb_substr($body, 0, 3000);
 
         return implode("\n\n", $parts);
+    }
+
+    // ──────────────────────────────────────────
+    // AJAX: Einzelnes Info-Feld generieren
+    // ──────────────────────────────────────────
+    public static function ajax_generate_field() {
+        check_ajax_referer('tix_admin_action', 'nonce');
+        if (!current_user_can('edit_posts')) wp_send_json_error(['message' => 'Keine Berechtigung.']);
+
+        $field   = sanitize_text_field($_POST['field'] ?? '');
+        $title   = sanitize_text_field($_POST['title'] ?? '');
+        $context = sanitize_textarea_field($_POST['context'] ?? '');
+
+        $field_labels = [
+            'description' => 'Beschreibung',
+            'lineup'      => 'Line-Up',
+            'specials'    => 'Specials / Besonderheiten',
+            'extra_info'  => 'Weitere Informationen',
+        ];
+
+        if (!isset($field_labels[$field])) {
+            wp_send_json_error(['message' => 'Unbekanntes Feld.']);
+        }
+
+        if (empty($title) && empty($context)) {
+            wp_send_json_error(['message' => 'Bitte fülle zuerst den Titel oder andere Felder aus.']);
+        }
+
+        $prompts = [
+            'description' => 'Schreibe eine einladende, professionelle Event-Beschreibung (3-5 Sätze). HTML erlaubt: <strong>, <em>, <br>. Wecke Vorfreude und nenne die wichtigsten Highlights.',
+            'lineup'      => 'Liste die Künstler/Acts/DJs/Sprecher auf, falls aus dem Kontext erkennbar. Formatiere mit <br> zwischen den Namen. Falls keine Acts bekannt, schreibe einen einladenden Text über das musikalische Programm.',
+            'specials'    => 'Beschreibe besondere Features, Highlights oder Attraktionen des Events. HTML erlaubt. Z.B. besondere Drinks, Deko, Thema, Aktionen.',
+            'extra_info'  => 'Schreibe nützliche Zusatzinfos für Besucher: Dresscode, Anfahrt, Parken, Barrierefreiheit, was mitbringen, etc. HTML erlaubt.',
+        ];
+
+        $system = 'Du bist ein Event-Marketing-Texter. Schreibe den Inhalt für das Feld "' . $field_labels[$field] . '" eines Events.
+
+REGELN:
+- Schreibe auf Deutsch
+- ' . $prompts[$field] . '
+- KEIN Markdown, KEINE Emojis
+- Antworte NUR mit dem Feldinhalt, keine Erklärungen
+- Nutze den gegebenen Kontext um den Text passend zu gestalten';
+
+        $user_prompt = "Event-Kontext:\n" . $context;
+        if ($title) $user_prompt = "Event-Titel: {$title}\n\n" . $user_prompt;
+
+        $result = self::call_api($system, $user_prompt, 512);
+
+        if (isset($result['error'])) {
+            wp_send_json_error(['message' => $result['error']]);
+        }
+
+        wp_send_json_success(['content' => wp_kses_post($result['text'])]);
     }
 
     // ──────────────────────────────────────────
