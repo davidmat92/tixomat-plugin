@@ -73,4 +73,69 @@
         });
         if (cat) cat.addEventListener('change', doFilter);
     });
+
+    // ── Live Search [tix_search] ──
+    document.querySelectorAll('.tix-search-wrap').forEach(function(wrap) {
+        var input = wrap.querySelector('.tix-search-input');
+        var results = wrap.querySelector('.tix-search-results');
+        var clear = wrap.querySelector('.tix-search-clear');
+        var limit = parseInt(wrap.dataset.limit, 10) || 5;
+        var searchTimer;
+
+        if (!input || !results) return;
+
+        input.addEventListener('input', function() {
+            var q = input.value.trim();
+            clear.style.display = q ? '' : 'none';
+            clearTimeout(searchTimer);
+
+            if (q.length < 2) {
+                results.style.display = 'none';
+                results.innerHTML = '';
+                return;
+            }
+
+            searchTimer = setTimeout(function() {
+                var data = new FormData();
+                data.append('action', 'tix_search_events');
+                data.append('nonce', tixCards.nonce);
+                data.append('q', q);
+                data.append('limit', limit);
+
+                fetch(tixCards.ajaxUrl, { method: 'POST', body: data })
+                    .then(function(r) { return r.json(); })
+                    .then(function(r) {
+                        if (r.success && r.data.html) {
+                            results.innerHTML = r.data.html;
+                            results.style.display = '';
+                        } else {
+                            results.style.display = 'none';
+                        }
+                    });
+            }, 250);
+        });
+
+        // Clear
+        if (clear) clear.addEventListener('click', function() {
+            input.value = '';
+            clear.style.display = 'none';
+            results.style.display = 'none';
+            results.innerHTML = '';
+            input.focus();
+        });
+
+        // Close on outside click
+        document.addEventListener('click', function(e) {
+            if (!wrap.contains(e.target)) {
+                results.style.display = 'none';
+            }
+        });
+
+        // Reopen on focus if has content
+        input.addEventListener('focus', function() {
+            if (results.innerHTML && input.value.length >= 2) {
+                results.style.display = '';
+            }
+        });
+    });
 })();

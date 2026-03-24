@@ -2683,11 +2683,103 @@ class TIX_Settings {
                                                 <?php self::checkbox_row('tix_card_show_badges', 'Status-Badges anzeigen (Empfehlung, Heute, Letzte X, etc.)', $s); ?>
                                             </div>
                                         </div>
-                                        <div class="tix-field tix-field-full" style="margin-top:16px;">
-                                            <p class="tix-settings-hint">
-                                                Shortcode: <code>[tix_events]</code> — Parameter: <code>limit</code>, <code>columns</code>, <code>category</code>, <code>city</code>, <code>featured</code>, <code>mode</code>, <code>show_filter</code>
-                                            </p>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Shortcode Generator ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-shortcode"></span>
+                                        <h3>Shortcode Generator</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <p class="tix-settings-hint" style="margin:0 0 16px;">Konfiguriere deinen Shortcode und kopiere ihn.</p>
+                                        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
+                                            <div>
+                                                <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Shortcode-Typ</label>
+                                                <select id="tix-sc-type" style="width:100%;padding:6px;border-radius:6px;border:1px solid #d1d5db;">
+                                                    <option value="tix_events">Event-Grid</option>
+                                                    <option value="tix_search">Suchfeld</option>
+                                                </select>
+                                            </div>
+                                            <div class="tix-sc-opt" data-for="tix_events">
+                                                <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Anzahl</label>
+                                                <input type="number" id="tix-sc-limit" value="8" min="1" max="50" style="width:100%;padding:6px;border-radius:6px;border:1px solid #d1d5db;">
+                                            </div>
+                                            <div class="tix-sc-opt" data-for="tix_events">
+                                                <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Spalten</label>
+                                                <select id="tix-sc-columns" style="width:100%;padding:6px;border-radius:6px;border:1px solid #d1d5db;">
+                                                    <option value="2">2</option>
+                                                    <option value="3">3</option>
+                                                    <option value="4" selected>4</option>
+                                                </select>
+                                            </div>
+                                            <div class="tix-sc-opt" data-for="tix_events">
+                                                <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Kategorie</label>
+                                                <select id="tix-sc-category" style="width:100%;padding:6px;border-radius:6px;border:1px solid #d1d5db;">
+                                                    <option value="">Alle</option>
+                                                    <?php
+                                                    $cats = get_terms(['taxonomy' => 'event_category', 'hide_empty' => false]);
+                                                    if (!is_wp_error($cats)):
+                                                        foreach ($cats as $cat): ?>
+                                                            <option value="<?php echo esc_attr($cat->slug); ?>"><?php echo esc_html($cat->name); ?></option>
+                                                        <?php endforeach;
+                                                    endif; ?>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Modus</label>
+                                                <select id="tix-sc-mode" style="width:100%;padding:6px;border-radius:6px;border:1px solid #d1d5db;">
+                                                    <option value="light">Hell</option>
+                                                    <option value="dark">Dunkel</option>
+                                                </select>
+                                            </div>
+                                            <div class="tix-sc-opt" data-for="tix_events">
+                                                <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Optionen</label>
+                                                <div style="display:flex;flex-direction:column;gap:4px;">
+                                                    <label style="font-size:12px;display:flex;align-items:center;gap:4px;"><input type="checkbox" id="tix-sc-featured"> Nur Empfehlungen</label>
+                                                    <label style="font-size:12px;display:flex;align-items:center;gap:4px;"><input type="checkbox" id="tix-sc-filter"> Filter anzeigen</label>
+                                                    <label style="font-size:12px;display:flex;align-items:center;gap:4px;"><input type="checkbox" id="tix-sc-header"> Header anzeigen</label>
+                                                </div>
+                                            </div>
                                         </div>
+                                        <div style="margin-top:16px;display:flex;gap:8px;align-items:center;">
+                                            <input type="text" id="tix-sc-output" value='[tix_events]' readonly style="flex:1;padding:10px 14px;font-family:monospace;font-size:14px;border:2px solid var(--tix-primary, #FF5500);border-radius:8px;background:#f8fafc;cursor:pointer;" onclick="this.select();document.execCommand('copy');">
+                                            <button type="button" class="button" onclick="document.getElementById('tix-sc-output').select();document.execCommand('copy');this.textContent='Kopiert!';setTimeout(function(){document.querySelector('#tix-sc-output+button').textContent='Kopieren';},1500);">Kopieren</button>
+                                        </div>
+                                        <script>
+                                        (function(){
+                                            function updateSC(){
+                                                var type = document.getElementById('tix-sc-type').value;
+                                                var parts = [type];
+                                                // Show/hide options
+                                                document.querySelectorAll('.tix-sc-opt').forEach(function(el){
+                                                    el.style.display = el.dataset.for === type ? '' : 'none';
+                                                });
+                                                if(type==='tix_events'){
+                                                    var limit=document.getElementById('tix-sc-limit').value;
+                                                    if(limit!=='8') parts.push('limit="'+limit+'"');
+                                                    var cols=document.getElementById('tix-sc-columns').value;
+                                                    if(cols!=='4') parts.push('columns="'+cols+'"');
+                                                    var cat=document.getElementById('tix-sc-category').value;
+                                                    if(cat) parts.push('category="'+cat+'"');
+                                                    var mode=document.getElementById('tix-sc-mode').value;
+                                                    if(mode!=='light') parts.push('mode="'+mode+'"');
+                                                    if(document.getElementById('tix-sc-featured').checked) parts.push('featured="1"');
+                                                    if(document.getElementById('tix-sc-filter').checked) parts.push('show_filter="1"');
+                                                    if(document.getElementById('tix-sc-header').checked) parts.push('show_header="1"');
+                                                } else {
+                                                    var mode=document.getElementById('tix-sc-mode').value;
+                                                    if(mode!=='light') parts.push('mode="'+mode+'"');
+                                                }
+                                                document.getElementById('tix-sc-output').value='['+parts.join(' ')+']';
+                                            }
+                                            document.querySelectorAll('#tix-sc-type,#tix-sc-limit,#tix-sc-columns,#tix-sc-category,#tix-sc-mode,#tix-sc-featured,#tix-sc-filter,#tix-sc-header').forEach(function(el){
+                                                el.addEventListener('change',updateSC);
+                                                el.addEventListener('input',updateSC);
+                                            });
+                                        })();
+                                        </script>
                                     </div>
                                 </div>
 

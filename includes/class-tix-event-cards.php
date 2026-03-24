@@ -11,10 +11,13 @@ class TIX_Event_Cards {
 
     public static function init() {
         add_shortcode('tix_events', [__CLASS__, 'render']);
+        add_shortcode('tix_search', [__CLASS__, 'render_search']);
         add_action('wp_ajax_tix_toggle_save_event',        [__CLASS__, 'ajax_toggle_save']);
         add_action('wp_ajax_nopriv_tix_toggle_save_event', [__CLASS__, 'ajax_toggle_save_nopriv']);
         add_action('wp_ajax_tix_filter_events',            [__CLASS__, 'ajax_filter']);
         add_action('wp_ajax_nopriv_tix_filter_events',     [__CLASS__, 'ajax_filter']);
+        add_action('wp_ajax_tix_search_events',            [__CLASS__, 'ajax_search']);
+        add_action('wp_ajax_nopriv_tix_search_events',     [__CLASS__, 'ajax_search']);
     }
 
     /**
@@ -364,5 +367,101 @@ class TIX_Event_Cards {
             'nonce'      => wp_create_nonce('tix_cards_nonce'),
             'isLoggedIn' => is_user_logged_in(),
         ]);
+    }
+
+    // ──────────────────────────────────────────
+    // [tix_search] — Kompaktes Event-Suchfeld
+    // ──────────────────────────────────────────
+
+    public static function render_search($atts) {
+        $atts = shortcode_atts([
+            'placeholder' => 'Events suchen…',
+            'mode'        => 'light',
+            'limit'       => 5,
+        ], $atts);
+
+        self::enqueue($atts['mode']);
+
+        $dark = $atts['mode'] === 'dark';
+        $id = 'tix-search-' . wp_rand(1000, 9999);
+
+        ob_start();
+        ?>
+        <div class="tix-search-wrap <?php echo $dark ? 'tix-search-dark' : ''; ?>" id="<?php echo $id; ?>" data-limit="<?php echo intval($atts['limit']); ?>">
+            <div class="tix-search-input-wrap">
+                <svg class="tix-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <input type="text" class="tix-search-input" placeholder="<?php echo esc_attr($atts['placeholder']); ?>" autocomplete="off">
+                <span class="tix-search-clear" style="display:none;">&times;</span>
+            </div>
+            <div class="tix-search-results" style="display:none;"></div>
+        </div>
+        <?php
+        return ob_get_clean();
+    }
+
+    /**
+     * AJAX: Live-Suche
+     */
+    public static function ajax_search() {
+        $q     = sanitize_text_field($_POST['q'] ?? '');
+        $limit = min(10, max(1, intval($_POST['limit'] ?? 5)));
+
+        if (strlen($q) < 2) {
+            wp_send_json_success(['html' => '', 'count' => 0]);
+        }
+
+        $events = get_posts([
+            'post_type'      => 'event',
+            'post_status'    => 'publish',
+            'posts_per_page' => $limit,
+            's'              => $q,
+            'meta_key'       => '_tix_date_start',
+            'orderby'        => 'meta_value',
+            'order'          => 'ASC',
+            'meta_query'     => [[
+                'key'     => '_tix_date_start',
+                'value'   => current_time('Y-m-d'),
+                'compare' => '>=',
+                'type'    => 'DATE',
+            ]],
+        ]);
+
+        if (empty($events)) {
+            wp_send_json_success([
+                'html'  => '<div class="tix-search-empty">Keine Events gefunden</div>',
+                'count' => 0,
+            ]);
+        }
+
+        $html = '';
+        foreach ($events as $ev) {
+            $date_card      = get_post_meta($ev->ID, '_tix_date_card', true);
+            $location_short = get_post_meta($ev->ID, '_tix_location_short', true);
+            $price_card     = get_post_meta($ev->ID, '_tix_price_card', true);
+            $thumb          = get_the_post_thumbnail_url($ev->ID, 'thumbnail');
+            $link           = get_permalink($ev->ID);
+
+            $html .= '<a href="' . esc_url($link) . '" class="tix-search-item">';
+            $html .= '<div class="tix-search-item-img">';
+            if ($thumb) {
+                $html .= '<img src="' . esc_url($thumb) . '" alt="">';
+            } else {
+                $html .= '<div class="tix-search-item-placeholder"></div>';
+            }
+            $html .= '</div>';
+            $html .= '<div class="tix-search-item-info">';
+            $html .= '<div class="tix-search-item-title">' . esc_html($ev->post_title) . '</div>';
+            $html .= '<div class="tix-search-item-meta">' . esc_html($date_card) . ($location_short ? ' · ' . esc_html($location_short) : '') . '</div>';
+            $html .= '</div>';
+            if ($price_card) {
+                $html .= '<div class="tix-search-item-price">' . esc_html($price_card) . '</div>';
+            }
+            $html .= '</a>';
+        }
+
+        $archive = get_post_type_archive_link('event');
+        $html .= '<a href="' . esc_url(add_query_arg('s', urlencode($q), $archive)) . '" class="tix-search-all">Alle Ergebnisse anzeigen →</a>';
+
+        wp_send_json_success(['html' => $html, 'count' => count($events)]);
     }
 }
