@@ -77,6 +77,8 @@ class TIX_Settings {
             'font_vat'           => '0.85',
 
             // ── Event-Seite ([tix_event_page]) ──
+            'ep_template_enabled' => 0,       // Eigenes Template statt Breakdance
+            'ep_hero_height'     => 380,
             'ep_layout'          => '2col',   // '1col' oder '2col'
             'ep_max_width'       => 1100,
             'ep_gap'             => 32,
@@ -602,6 +604,8 @@ class TIX_Settings {
             $clean[$k] = self::sanitize_color($input[$k] ?? '') ?: '';
         }
         // Event-Seite Layout
+        $clean['ep_template_enabled'] = !empty($input['ep_template_enabled']) ? 1 : 0;
+        $clean['ep_hero_height'] = max(150, min(600, intval($input['ep_hero_height'] ?? 380)));
         $clean['ep_layout'] = in_array($input['ep_layout'] ?? '', ['1col', '2col']) ? $input['ep_layout'] : '2col';
         // Event-Seite Zahlen
         $clean['ep_max_width'] = max(400, min(1600, intval($input['ep_max_width'] ?? 1100)));
@@ -2418,6 +2422,22 @@ class TIX_Settings {
                             <?php // ═══ PANE: EVENT-SEITE ═══ ?>
                             <div class="tix-pane" data-pane="event-page">
 
+                                <?php // ── Card: Template-Modus ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-layout"></span>
+                                        <h3>Eigenes Event-Template</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('ep_template_enabled', 'Eigenes Template für Event-Einzelseiten verwenden', $s, 'Ersetzt das Breakdance/Theme-Template durch ein optimiertes, performantes Event-Template direkt aus dem Plugin. Header/Footer des Themes bleiben erhalten.'); ?>
+                                            </div>
+                                            <?php self::range_row('ep_hero_height', 'Hero-Bild-Höhe', $s, 150, 600, 'px'); ?>
+                                        </div>
+                                    </div>
+                                </div>
+
                                 <?php // ── Card: Layout ── ?>
                                 <div class="tix-card">
                                     <div class="tix-card-header">
@@ -2425,7 +2445,7 @@ class TIX_Settings {
                                         <h3>Layout</h3>
                                     </div>
                                     <div class="tix-card-body">
-                                        <p class="tix-settings-hint" style="margin-bottom:12px;">Einstellungen f&uuml;r den <code>[tix_event_page]</code> Shortcode. Steuert Layout, Farben und sichtbare Sektionen der Event-Detailseite.</p>
+                                        <p class="tix-settings-hint" style="margin-bottom:12px;">Steuert Layout, Farben und sichtbare Sektionen. Gilt für das eigene Template und den <code>[tix_event_page]</code> Shortcode.</p>
                                         <div class="tix-field-grid">
                                             <div class="tix-field tix-field-full">
                                                 <label class="tix-field-label">Layout-Modus</label>
