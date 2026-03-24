@@ -10,13 +10,9 @@ if (!defined('ABSPATH')) exit;
 
 class TIX_Native_Checkout {
 
-    /** Cookie-Name für Cart-Identifier */
-    const CART_COOKIE = 'tix_cart_id';
     const CART_EXPIRY = 3600; // 1 Stunde
 
     public static function init() {
-        // Cart-Cookie initialisieren
-        add_action('init', [__CLASS__, 'init_cart_cookie'], 1);
 
         // AJAX: Cart-Aktionen
         add_action('wp_ajax_tix_native_add_to_cart',        [__CLASS__, 'ajax_add_to_cart']);
@@ -43,35 +39,49 @@ class TIX_Native_Checkout {
     // SESSION
     // ──────────────────────────────────────────
 
-    /**
-     * Cart-Cookie initialisieren (persistente Cart-ID, keine PHP Session nötig)
-     */
-    public static function init_cart_cookie() {
-        if (is_admin() && !wp_doing_ajax()) return;
-        if (!isset($_COOKIE[self::CART_COOKIE])) {
-            $cart_id = 'tix_' . wp_generate_password(20, false);
-            if (!headers_sent()) {
-                setcookie(self::CART_COOKIE, $cart_id, time() + self::CART_EXPIRY, COOKIEPATH, COOKIE_DOMAIN, is_ssl(), false);
-            }
-            $_COOKIE[self::CART_COOKIE] = $cart_id;
-        }
-    }
+    // ──────────────────────────────────────────
+    // CART STORAGE — Datenbank-basiert, keine Sessions/Cookies nötig
+    //
+    // Eingeloggte User: user_meta (zuverlässigste Methode)
+    // Gäste: wp_options mit IP+UA Hash (Fallback)
+    // ──────────────────────────────────────────
 
-    private static function cart_transient_key() {
-        return 'tix_cart_' . ($_COOKIE[self::CART_COOKIE] ?? 'none');
+    private static function cart_key() {
+        if (is_user_logged_in()) {
+            return 'user_' . get_current_user_id();
+        }
+        // Gäste: stabiler Hash aus IP + User-Agent
+        $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+        $ua = $_SERVER['HTTP_USER_AGENT'] ?? '';
+        return 'guest_' . md5($ip . '|' . $ua);
     }
 
     public static function get_cart() {
-        $cart = get_transient(self::cart_transient_key());
+        $key = self::cart_key();
+        if (str_starts_with($key, 'user_')) {
+            $cart = get_user_meta(intval(substr($key, 5)), '_tix_cart', true);
+        } else {
+            $cart = get_transient('tix_cart_' . $key);
+        }
         return is_array($cart) ? $cart : ['items' => [], 'coupon' => null];
     }
 
     public static function save_cart($cart) {
-        set_transient(self::cart_transient_key(), $cart, self::CART_EXPIRY);
+        $key = self::cart_key();
+        if (str_starts_with($key, 'user_')) {
+            update_user_meta(intval(substr($key, 5)), '_tix_cart', $cart);
+        } else {
+            set_transient('tix_cart_' . $key, $cart, self::CART_EXPIRY);
+        }
     }
 
     public static function clear_cart() {
-        delete_transient(self::cart_transient_key());
+        $key = self::cart_key();
+        if (str_starts_with($key, 'user_')) {
+            delete_user_meta(intval(substr($key, 5)), '_tix_cart');
+        } else {
+            delete_transient('tix_cart_' . $key);
+        }
     }
 
     public static function cart_total() {
@@ -103,6 +113,8 @@ class TIX_Native_Checkout {
         if (!is_array($items) || empty($items)) {
             wp_send_json_error(['message' => 'Keine Artikel angegeben.']);
         }
+
+        error_log('[TIX Cart] add_to_cart called. Key: ' . self::cart_key() . ' | Items: ' . count($items) . ' | User: ' . (is_user_logged_in() ? get_current_user_id() : 'guest'));
 
         $cart = self::get_cart();
 
@@ -241,6 +253,8 @@ class TIX_Native_Checkout {
         wp_enqueue_style('tix-checkout', TIXOMAT_URL . 'assets/css/checkout.css', ['tix-google-fonts'], TIXOMAT_VERSION);
 
         $cart = self::get_cart();
+        error_log('[TIX Cart] render_checkout. Key: ' . self::cart_key() . ' | Items: ' . count($cart['items']));
+
         if (empty($cart['items'])) {
             return '<div class="tix-co"><div class="tix-co-empty">'
                 . '<p>' . esc_html(tix_get_settings('empty_text') ?: 'Dein Warenkorb ist leer.') . '</p>'
