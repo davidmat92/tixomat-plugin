@@ -51,7 +51,7 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    font-size: 14px;
+    font-size: var(--tix-btn, 14px);
     font-weight: 500;
     color: var(--re-muted);
     opacity: 0.5;
@@ -69,7 +69,7 @@
     align-items: center;
     justify-content: center;
     font-weight: 700;
-    font-size: 13px;
+    font-size: var(--tix-small, 13px);
     transition: all 0.3s;
 }
 .tix-re-step.active .tix-re-step-num {
@@ -123,7 +123,7 @@
     cursor: pointer;
     transition: all 0.2s;
     text-align: center;
-    font-family: inherit;
+    font-family: var(--tix-font-body, inherit);
     color: var(--re-text);
 }
 .tix-re-mode:hover { border-color: var(--re-primary); }
@@ -160,7 +160,7 @@
 .tix-re-chat:empty::after {
     content: "Beschreibe dein Event in ein paar Sätzen — wir helfen dir dabei.";
     color: var(--re-muted);
-    font-size: 14px;
+    font-size: var(--tix-btn, 14px);
     text-align: center;
     padding: 20px;
 }
@@ -195,8 +195,8 @@
     border: 1px solid var(--re-border);
     border-radius: 10px;
     padding: 10px 14px;
-    font-size: 14px;
-    font-family: inherit;
+    font-size: var(--tix-btn, 14px);
+    font-family: var(--tix-font-body, inherit);
     background: var(--re-bg);
     color: var(--re-text);
     outline: none;
@@ -217,7 +217,7 @@
     justify-content: center;
     transition: opacity 0.2s;
     flex-shrink: 0;
-    font-family: inherit;
+    font-family: var(--tix-font-body, inherit);
 }
 .tix-re-btn-send:hover { opacity: 0.85; }
 .tix-re-btn-send:disabled { opacity: 0.4; cursor: default; }
@@ -236,9 +236,9 @@
     border-color: var(--re-primary);
     background: color-mix(in srgb, var(--re-primary) 4%, transparent);
 }
-.tix-re-dropzone-text { font-size: 15px; color: var(--re-muted); display: block; }
+.tix-re-dropzone-text { font-size: var(--tix-body, 15px); color: var(--re-muted); display: block; }
 .tix-re-dropzone-text a { color: var(--re-primary); text-decoration: none; font-weight: 600; }
-.tix-re-dropzone-hint { display: block; font-size: 12px; color: var(--re-muted); opacity: 0.7; margin-top: 8px; }
+.tix-re-dropzone-hint { display: block; font-size: var(--tix-label, 12px); color: var(--re-muted); opacity: 0.7; margin-top: 8px; }
 #tix-re-upload-preview img {
     max-width: 100%;
     border-radius: 10px;
@@ -266,7 +266,7 @@
     justify-content: center;
     gap: 10px;
     padding: 14px;
-    font-size: 14px;
+    font-size: var(--tix-btn, 14px);
     color: var(--re-muted);
 }
 .tix-re-spinner {
@@ -325,7 +325,7 @@
     gap: 6px;
     padding: 8px 14px;
     border-radius: 20px;
-    font-size: 13px;
+    font-size: var(--tix-small, 13px);
     color: var(--re-muted);
     background: transparent;
     transition: all 0.3s;
@@ -361,7 +361,7 @@
     border: 1px solid var(--re-border);
     border-radius: 10px;
     font-size: var(--tix-body, 15px);
-    font-family: inherit;
+    font-family: var(--tix-font-body, inherit);
     background: var(--re-bg);
     color: var(--re-text);
     outline: none;
@@ -390,7 +390,7 @@
 .tix-re-preview-label {
     width: 120px;
     flex-shrink: 0;
-    font-size: 12px;
+    font-size: var(--tix-label, 12px);
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.5px;
@@ -399,7 +399,7 @@
 }
 .tix-re-preview-value {
     flex: 1;
-    font-size: 14px;
+    font-size: var(--tix-btn, 14px);
     line-height: 1.5;
 }
 .tix-re-preview-value input,
@@ -409,8 +409,8 @@
     padding: 6px 10px;
     border: 1px solid transparent;
     border-radius: 6px;
-    font-size: 14px;
-    font-family: inherit;
+    font-size: var(--tix-btn, 14px);
+    font-family: var(--tix-font-body, inherit);
     background: transparent;
     color: var(--re-text);
     transition: all 0.2s;
@@ -455,7 +455,7 @@
 }
 .tix-re-legal {
     margin-bottom: 20px;
-    font-size: 13px;
+    font-size: var(--tix-small, 13px);
     color: var(--re-muted);
 }
 .tix-re-legal input[type="checkbox"] { margin-right: 6px; }
@@ -475,7 +475,7 @@
     border-radius: 10px;
     font-size: var(--tix-btn, 14px);
     font-weight: 600;
-    font-family: inherit;
+    font-family: var(--tix-font-body, inherit);
     cursor: pointer;
     transition: opacity 0.2s;
 }
@@ -491,9 +491,9 @@
     color: var(--re-muted);
     border: 1px solid var(--re-border);
     border-radius: 10px;
-    font-size: 14px;
+    font-size: var(--tix-btn, 14px);
     font-weight: 500;
-    font-family: inherit;
+    font-family: var(--tix-font-body, inherit);
     cursor: pointer;
     transition: all 0.2s;
 }
@@ -511,7 +511,7 @@
     border-radius: 12px;
     font-size: var(--tix-btn, 14px);
     font-weight: 700;
-    font-family: inherit;
+    font-family: var(--tix-font-body, inherit);
     cursor: pointer;
     transition: all 0.2s;
     box-shadow: 0 4px 16px color-mix(in srgb, var(--re-primary) 35%, transparent);
@@ -535,7 +535,7 @@
     border: 1px solid color-mix(in srgb, var(--re-error) 30%, transparent);
     border-radius: 10px;
     color: var(--re-error);
-    font-size: 14px;
+    font-size: var(--tix-btn, 14px);
     text-align: center;
 }
 

@@ -15,7 +15,7 @@
     --ep-accent-text: var(--tix-buy-color, #000);
     --ep-max-w: 1100px;
     --ep-sidebar-w: 380px;
-    --ep-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --ep-font: var(--tix-font-body, 'DM Sans'), sans-serif;
 
     font-family: var(--ep-font);
     color: var(--ep-text);
@@ -92,7 +92,7 @@
     left: 16px;
     padding: 6px 14px;
     border-radius: 6px;
-    font-size: 0.75rem;
+    font-size: var(--tix-label, 12px);
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.5px;
@@ -120,7 +120,7 @@
     display: inline-block;
     padding: 4px 10px;
     border-radius: 4px;
-    font-size: 0.7rem;
+    font-size: var(--tix-label, 12px);
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.5px;
@@ -154,7 +154,7 @@
     display: flex;
     align-items: flex-start;
     gap: 10px;
-    font-size: 0.9rem;
+    font-size: var(--tix-btn, 14px);
     color: var(--ep-text);
 }
 .tix-ep-meta-icon {
@@ -171,16 +171,16 @@
 }
 .tix-ep-meta-label {
     color: var(--ep-muted);
-    font-size: 0.75rem;
+    font-size: var(--tix-label, 12px);
     display: block;
 }
 .tix-ep-meta-value {
     font-weight: 600;
-    font-size: 0.88rem;
+    font-size: var(--tix-btn, 14px);
 }
 .tix-ep-meta-sub {
     color: var(--ep-muted);
-    font-size: 0.8rem;
+    font-size: var(--tix-small, 13px);
     font-weight: 400;
 }
 .tix-ep-price-badge {
@@ -190,7 +190,7 @@
     padding: 3px 10px;
     border-radius: 6px;
     font-weight: 700;
-    font-size: 0.88rem;
+    font-size: var(--tix-btn, 14px);
 }
 .tix-ep-age-badge {
     display: inline-block;
@@ -198,7 +198,7 @@
     color: var(--ep-muted);
     padding: 3px 8px;
     border-radius: 4px;
-    font-size: 0.75rem;
+    font-size: var(--tix-label, 12px);
     font-weight: 600;
 }
 
@@ -210,7 +210,7 @@
     margin-bottom: var(--ep-gap);
 }
 .tix-ep-section-title {
-    font-size: 1.15rem;
+    font-size: var(--tix-h3, 18px);
     font-weight: 700;
     margin: 0 0 14px;
     padding-bottom: 10px;
@@ -218,7 +218,7 @@
     color: var(--ep-text);
 }
 .tix-ep-section-body {
-    font-size: 0.95rem;
+    font-size: var(--tix-body, 15px);
     line-height: 1.7;
     color: #374151;
 }
@@ -347,12 +347,12 @@
 }
 .tix-ep-location-name {
     font-weight: 700;
-    font-size: 0.9rem;
+    font-size: var(--tix-btn, 14px);
     margin: 0 0 1px;
 }
 .tix-ep-location-address {
     color: var(--ep-muted);
-    font-size: 0.8rem;
+    font-size: var(--tix-small, 13px);
     margin: 0;
 }
 .tix-ep-location-arrow {
@@ -366,7 +366,7 @@
 
 /* Sidebar-Kontext: Section-Titel kompakter */
 .tix-ep-sidebar .tix-ep-section-title {
-    font-size: 0.95rem;
+    font-size: var(--tix-body, 15px);
     margin-bottom: 10px;
     padding-bottom: 8px;
 }
@@ -407,11 +407,11 @@
 }
 .tix-ep-organizer-name {
     font-weight: 600;
-    font-size: 0.9rem;
+    font-size: var(--tix-btn, 14px);
 }
 .tix-ep-organizer-label {
     color: var(--ep-muted);
-    font-size: 0.75rem;
+    font-size: var(--tix-label, 12px);
 }
 
 /* ══════════════════════════════════════════
@@ -458,7 +458,7 @@
     display: block;
 }
 .tix-ep-series-month {
-    font-size: 0.7rem;
+    font-size: var(--tix-label, 12px);
     font-weight: 600;
     text-transform: uppercase;
     color: var(--ep-muted);
@@ -470,20 +470,20 @@
 }
 .tix-ep-series-title {
     font-weight: 600;
-    font-size: 0.9rem;
+    font-size: var(--tix-btn, 14px);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 .tix-ep-series-time {
     color: var(--ep-muted);
-    font-size: 0.8rem;
+    font-size: var(--tix-small, 13px);
 }
 .tix-ep-series-status {
     flex-shrink: 0;
     padding: 3px 10px;
     border-radius: 4px;
-    font-size: 0.7rem;
+    font-size: var(--tix-label, 12px);
     font-weight: 700;
     text-transform: uppercase;
 }
@@ -535,11 +535,11 @@
 }
 .tix-ep-charity-name {
     font-weight: 700;
-    font-size: 0.88rem;
+    font-size: var(--tix-btn, 14px);
     margin: 0 0 2px;
 }
 .tix-ep-charity-desc {
-    font-size: 0.8rem;
+    font-size: var(--tix-small, 13px);
     color: #9d174d;
     margin: 0;
 }
@@ -626,7 +626,7 @@
     left: 50%;
     transform: translateX(-50%);
     color: rgba(255,255,255,.7);
-    font-size: 0.85rem;
+    font-size: var(--tix-small, 13px);
     font-weight: 500;
 }
 

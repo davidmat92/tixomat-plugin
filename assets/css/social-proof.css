@@ -6,7 +6,7 @@
     align-items: center;
     gap: 8px;
     padding: 8px 16px;
-    font-size: 0.85rem;
+    font-size: var(--tix-small, 13px);
     font-weight: 600;
     color: var(--tix-text, #0D0B09);
     background: var(--tix-card-bg, #fff);

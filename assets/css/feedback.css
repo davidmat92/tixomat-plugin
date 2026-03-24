@@ -3,7 +3,7 @@
    ═══════════════════════════════════════════ */
 
 .tix-fb {
-    font-family: inherit;
+    font-family: var(--tix-font-body, inherit);
 }
 
 /* ── Header ── */
@@ -12,13 +12,13 @@
     margin-bottom: 20px;
 }
 .tix-fb-title {
-    font-size: 1.25rem;
+    font-size: var(--tix-h3, 18px);
     font-weight: 700;
     margin: 0 0 4px;
     color: var(--ep-text, #0D0B09);
 }
 .tix-fb-subtitle {
-    font-size: .9rem;
+    font-size: var(--tix-btn, 14px);
     color: var(--ep-muted, #64748b);
     margin: 0;
 }
@@ -54,8 +54,8 @@
     padding: 12px 14px;
     border: 1px solid var(--ep-border, #e5e7eb);
     border-radius: var(--ep-radius, 8px);
-    font-size: .92rem;
-    font-family: inherit;
+    font-size: var(--tix-btn, 14px);
+    font-family: var(--tix-font-body, inherit);
     resize: vertical;
     min-height: 80px;
     background: #fff;
@@ -77,10 +77,10 @@
     color: #fff;
     border: none;
     border-radius: var(--ep-radius, 8px);
-    font-size: 1rem;
+    font-size: var(--tix-body, 15px);
     font-weight: 600;
     cursor: pointer;
-    font-family: inherit;
+    font-family: var(--tix-font-body, inherit);
     transition: background .2s, opacity .2s;
 }
 .tix-fb-submit:hover {
@@ -96,7 +96,7 @@
     margin-top: 12px;
     padding: 10px 14px;
     border-radius: 8px;
-    font-size: .9rem;
+    font-size: var(--tix-btn, 14px);
     text-align: center;
 }
 .tix-fb-msg[hidden] { display: none; }
@@ -116,13 +116,13 @@
     margin-bottom: 8px;
 }
 .tix-fb-thanks-title {
-    font-size: 1.1rem;
+    font-size: var(--tix-h3, 18px);
     font-weight: 600;
     color: #065f46;
     margin: 0 0 6px;
 }
 .tix-fb-thanks-text {
-    font-size: .9rem;
+    font-size: var(--tix-btn, 14px);
     color: var(--ep-muted, #64748b);
     margin: 0;
 }
@@ -137,19 +137,19 @@
     gap: 8px;
 }
 .tix-fb-avg-star {
-    font-size: 1.1rem;
+    font-size: var(--tix-h3, 18px);
     color: #d1d5db;
 }
 .tix-fb-avg-star.filled {
     color: #fbbf24;
 }
 .tix-fb-avg-value {
-    font-size: 1rem;
+    font-size: var(--tix-body, 15px);
     font-weight: 700;
     color: var(--ep-text, #0D0B09);
 }
 .tix-fb-avg-count {
-    font-size: .85rem;
+    font-size: var(--tix-small, 13px);
     color: var(--ep-muted, #64748b);
 }
 
@@ -158,7 +158,7 @@
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    font-size: .85rem;
+    font-size: var(--tix-small, 13px);
     font-weight: 600;
     color: #fbbf24;
     background: rgba(251, 191, 36, .1);

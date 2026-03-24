@@ -57,7 +57,7 @@
     cursor: pointer;
     padding: 0;
     font-size: inherit;
-    font-family: inherit;
+    font-family: var(--tix-font-body, inherit);
     text-decoration: underline;
     text-underline-offset: 2px;
 }
@@ -86,7 +86,7 @@
     font-weight: 700;
     font-size: 0.9rem;
     cursor: pointer;
-    font-family: inherit;
+    font-family: var(--tix-font-body, inherit);
     transition: background 0.2s, opacity 0.2s;
 }
 
@@ -217,7 +217,7 @@
     text-decoration: none !important;
     transition: background 0.2s, color 0.2s, border-color 0.2s;
     cursor: pointer;
-    font-family: inherit;
+    font-family: var(--tix-font-body, inherit);
 }
 .tix-co-btn-more:hover {
     background: var(--tix-btn2-hover-bg, var(--tix-btn2-bg, transparent));
@@ -247,7 +247,7 @@
     font-weight: 600;
     font-size: 0.9rem;
     cursor: pointer;
-    font-family: inherit;
+    font-family: var(--tix-font-body, inherit);
     white-space: nowrap;
     transition: border-color 0.2s, background 0.2s;
 }
@@ -325,7 +325,7 @@
     border: 1px solid var(--tix-input-border, #555);
     border-radius: var(--tix-input-radius, 6px);
     background: var(--tix-input-bg, transparent);
-    color: inherit; font-size: 0.95rem; font-family: inherit;
+    color: inherit; font-size: 0.95rem; font-family: var(--tix-font-body, inherit);
     transition: border-color 0.2s;
     appearance: none; -webkit-appearance: none; box-sizing: border-box;
 }
@@ -452,7 +452,7 @@
     width: 100%; padding: 10px 14px;
     border: 1px solid var(--tix-input-border, #555); border-radius: var(--tix-input-radius, 6px);
     background: var(--tix-input-bg, transparent); color: inherit;
-    font-size: 0.95rem; font-family: inherit; box-sizing: border-box;
+    font-size: 0.95rem; font-family: var(--tix-font-body, inherit); box-sizing: border-box;
 }
 .tix-co-gw-fields label {
     font-size: 0.85rem; font-weight: 600; opacity: 0.8;
@@ -493,17 +493,17 @@
     border: 1px solid var(--tix-border, #333);
     border-radius: var(--tix-radius, 8px);
     background: var(--tix-cat-bg, transparent);
-    font-size: 13px;
+    font-size: var(--tix-small, 13px);
 }
 
 .tix-co-legal-heading {
-    font-size: 13px;
+    font-size: var(--tix-small, 13px);
     font-weight: 700;
     margin: 0 0 12px 0;
 }
 
 .tix-co-legal .tix-co-check-label {
-    font-size: 13px;
+    font-size: var(--tix-small, 13px);
 }
 
 .tix-co-legal-checks {
@@ -527,7 +527,7 @@
 .tix-co-legal-link:hover { opacity: 0.7 !important; }
 
 .tix-co-legal-note {
-    font-size: 13px;
+    font-size: var(--tix-small, 13px);
     opacity: 0.65;
     margin: 0;
     padding-left: 30px;
@@ -543,18 +543,18 @@
     border: 1px solid var(--tix-border, #333);
     border-radius: var(--tix-radius, 8px);
     background: var(--tix-cat-bg, transparent);
-    font-size: 13px;
+    font-size: var(--tix-small, 13px);
 }
 .tix-co-newsletter-heading {
-    font-size: 13px;
+    font-size: var(--tix-small, 13px);
     font-weight: 700;
     margin: 0 0 12px 0;
 }
 .tix-co-newsletter .tix-co-check-label {
-    font-size: 13px;
+    font-size: var(--tix-small, 13px);
 }
 .tix-co-newsletter-legal {
-    font-size: 13px;
+    font-size: var(--tix-small, 13px);
     opacity: 0.55;
     margin: 6px 0 0;
     padding-left: 30px;
@@ -574,7 +574,7 @@
     border-radius: var(--tix-btn1-radius, 8px) !important;
     background: var(--tix-btn1-bg, #c8ff00) !important; color: var(--tix-btn1-color, #000) !important;
     font-weight: 700 !important; font-size: var(--tix-btn1-font-size, 1.05rem) !important;
-    cursor: pointer; transition: background 0.2s, opacity 0.2s; font-family: inherit;
+    cursor: pointer; transition: background 0.2s, opacity 0.2s; font-family: var(--tix-font-body, inherit);
     line-height: 1.4;
 }
 .tix-co-submit:hover:not(:disabled) { background: var(--tix-btn1-hover-bg, var(--tix-btn1-bg)) !important; color: var(--tix-btn1-hover-color, var(--tix-btn1-color, #000)) !important; opacity: 0.9; }
@@ -619,7 +619,7 @@
     border-radius: 8px !important;
     border: 1px solid rgba(255,255,255,0.15) !important;
     box-shadow: 0 8px 24px rgba(0,0,0,0.4) !important;
-    font-family: inherit !important;
+    font-family: var(--tix-font-body, inherit) !important;
 }
 
 /* ══════════════════════════════════════
@@ -916,7 +916,7 @@
 .tix-co-step-btn {
     padding: 10px 20px; border: var(--tix-btn1-border, none); border-radius: var(--tix-btn1-radius, 8px);
     font-weight: 700; font-size: var(--tix-btn1-font-size, 0.9rem); cursor: pointer;
-    font-family: inherit; transition: background 0.2s, opacity 0.2s;
+    font-family: var(--tix-font-body, inherit); transition: background 0.2s, opacity 0.2s;
 }
 .tix-co-step-next {
     background: var(--tix-btn1-bg, #c8ff00); color: var(--tix-btn1-color, #000);

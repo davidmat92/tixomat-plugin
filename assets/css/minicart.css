@@ -22,7 +22,7 @@
     border-radius: 9px;
     background: var(--tix-buy-bg, #c8ff00);
     color: var(--tix-buy-color, #000);
-    font-size: 11px;
+    font-size: var(--tix-label, 12px);
     font-weight: 700;
     line-height: 18px;
     text-align: center;
@@ -75,7 +75,7 @@
     transform: translateX(100%);
     transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     box-shadow: -8px 0 32px rgba(0, 0, 0, 0.12);
-    font-family: inherit;
+    font-family: var(--tix-font-body, inherit);
 }
 
 .tix-mc-overlay-wrap.tix-mc-open .tix-mc-drawer {
@@ -93,7 +93,7 @@
 }
 
 .tix-mc-drawer-title {
-    font-size: 1.1rem;
+    font-size: var(--tix-h3, 18px);
     font-weight: 700;
     margin: 0;
     color: #1a1a1a;
@@ -143,7 +143,7 @@
 .tix-mc-empty p {
     opacity: 0.45;
     margin: 0 0 16px;
-    font-size: 0.95rem;
+    font-size: var(--tix-body, 15px);
     color: #1a1a1a;
 }
 
@@ -162,7 +162,7 @@
     gap: 12px;
     padding: 14px 0;
     border-bottom: 1px solid #e5e5e5;
-    font-size: 0.95rem;
+    font-size: var(--tix-body, 15px);
 }
 
 .tix-mc-item:last-child {
@@ -176,7 +176,7 @@
 
 .tix-mc-item-name {
     font-weight: 700;
-    font-size: 0.9rem;
+    font-size: var(--tix-btn, 14px);
     color: #1a1a1a;
     white-space: nowrap;
     overflow: hidden;
@@ -186,7 +186,7 @@
 
 .tix-mc-item-hint {
     display: block;
-    font-size: 0.75rem;
+    font-size: var(--tix-label, 12px);
     color: #999;
     font-weight: 400;
     margin-top: 2px;
@@ -194,7 +194,7 @@
 
 .tix-mc-item-price {
     font-weight: 700;
-    font-size: 0.95rem;
+    font-size: var(--tix-body, 15px);
     color: #1a1a1a;
     white-space: nowrap;
     flex-shrink: 0;
@@ -238,7 +238,7 @@
     min-width: 20px;
     text-align: center;
     font-weight: 700;
-    font-size: 0.9rem;
+    font-size: var(--tix-btn, 14px);
     font-variant-numeric: tabular-nums;
     color: #1a1a1a;
 }
@@ -248,7 +248,7 @@
     border: none;
     color: #999;
     cursor: pointer;
-    font-size: 13px;
+    font-size: var(--tix-small, 13px);
     padding: 2px;
     transition: opacity 0.15s, color 0.15s;
     flex-shrink: 0;
@@ -270,7 +270,7 @@
     justify-content: space-between;
     align-items: baseline;
     font-weight: 700;
-    font-size: 1.1rem;
+    font-size: var(--tix-h3, 18px);
     margin-bottom: 16px;
     color: #1a1a1a;
 }
@@ -293,7 +293,7 @@
     text-decoration: none !important;
     cursor: pointer;
     transition: background 0.2s, opacity 0.2s;
-    font-family: inherit;
+    font-family: var(--tix-font-body, inherit);
     box-sizing: border-box;
     line-height: 1.4;
 }

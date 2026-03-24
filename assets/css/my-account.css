@@ -21,7 +21,7 @@ body.woocommerce-account .woocommerce {
     --_input-bg: var(--tix-input-bg, #fff);
     --_focus: var(--tix-input-focus, var(--_accent));
 
-    font-family: inherit;
+    font-family: var(--tix-font-body, inherit);
     color: var(--_text);
 }
 
@@ -70,7 +70,7 @@ body.woocommerce-account .woocommerce-MyAccount-navigation ul li a {
     padding: 13px 18px !important;
     color: var(--_text) !important;
     text-decoration: none !important;
-    font-size: 0.9rem !important;
+    font-size: var(--tix-btn, 14px) !important;
     font-weight: 500 !important;
     border-left: 3px solid transparent !important;
     border-bottom: none !important;
@@ -117,7 +117,7 @@ body.woocommerce-account .woocommerce-MyAccount-content {
    ══════════════════════════════════════ */
 body.woocommerce-account .woocommerce-MyAccount-content h2,
 body.woocommerce-account .woocommerce-MyAccount-content h3 {
-    font-size: 1.15rem !important;
+    font-size: var(--tix-h3, 18px) !important;
     font-weight: 700 !important;
     margin: 0 0 16px 0 !important;
     padding-bottom: 12px !important;
@@ -126,7 +126,7 @@ body.woocommerce-account .woocommerce-MyAccount-content h3 {
 }
 
 body.woocommerce-account .woocommerce-MyAccount-content h3 {
-    font-size: 1rem !important;
+    font-size: var(--tix-body, 15px) !important;
     border-bottom-width: 1px !important;
 }
 
@@ -138,7 +138,7 @@ body.woocommerce-account .woocommerce-table--order-details,
 body.woocommerce-account .shop_table {
     width: 100% !important;
     border-collapse: collapse !important;
-    font-size: 0.9rem !important;
+    font-size: var(--tix-btn, 14px) !important;
     border: none !important;
 }
 
@@ -146,7 +146,7 @@ body.woocommerce-account .shop_table thead th {
     text-align: left !important;
     padding: 10px 12px !important;
     font-weight: 700 !important;
-    font-size: 0.75rem !important;
+    font-size: var(--tix-label, 12px) !important;
     text-transform: uppercase !important;
     letter-spacing: 0.05em !important;
     color: var(--_muted) !important;
@@ -160,7 +160,7 @@ body.woocommerce-account .shop_table tbody td {
     border-bottom: 1px solid var(--_border) !important;
     border-top: none !important;
     vertical-align: middle !important;
-    font-size: 0.9rem !important;
+    font-size: var(--tix-btn, 14px) !important;
 }
 
 body.woocommerce-account .shop_table tbody tr:last-child td {
@@ -185,7 +185,7 @@ body.woocommerce-account mark.order-status {
     display: inline-block !important;
     padding: 4px 12px !important;
     border-radius: 20px !important;
-    font-size: 0.72rem !important;
+    font-size: var(--tix-label, 12px) !important;
     font-weight: 700 !important;
     white-space: nowrap !important;
     background: rgba(158, 158, 158, 0.12) !important;
@@ -213,7 +213,7 @@ body.woocommerce-account mark.order-status.status-failed {
 
 /* Status als reiner Text (Breakdance): leichtes Styling */
 body.woocommerce-account .woocommerce-orders-table__cell-order-status {
-    font-size: 0.8rem !important;
+    font-size: var(--tix-small, 13px) !important;
     font-weight: 600 !important;
     color: var(--_muted) !important;
 }
@@ -234,9 +234,9 @@ body.woocommerce-account .woocommerce-MyAccount-content input[type="submit"] {
     color: var(--_accent-text) !important;
     border: none !important;
     border-radius: var(--_radius) !important;
-    font-size: 0.9rem !important;
+    font-size: var(--tix-btn, 14px) !important;
     font-weight: 700 !important;
-    font-family: inherit !important;
+    font-family: var(--tix-font-body, inherit) !important;
     cursor: pointer !important;
     text-decoration: none !important;
     text-transform: none !important;
@@ -275,7 +275,7 @@ body.woocommerce-account .shop_table a.button {
     align-items: center !important;
     justify-content: center !important;
     padding: 8px 18px !important;
-    font-size: 0.82rem !important;
+    font-size: var(--tix-small, 13px) !important;
     font-weight: 600 !important;
     background: transparent !important;
     color: var(--_text) !important;
@@ -350,7 +350,7 @@ body.woocommerce-account .woocommerce-Address-title h3 {
     margin: 0 !important;
     padding: 0 !important;
     border: none !important;
-    font-size: 0.95rem !important;
+    font-size: var(--tix-body, 15px) !important;
 }
 
 /* Address edit link – klein und dezent */
@@ -358,7 +358,7 @@ body.woocommerce-account .woocommerce-Address-title a.edit {
     display: inline-flex !important;
     align-items: center !important;
     padding: 6px 14px !important;
-    font-size: 0.78rem !important;
+    font-size: var(--tix-label, 12px) !important;
     font-weight: 600 !important;
     color: var(--_accent) !important;
     background: transparent !important;
@@ -384,7 +384,7 @@ body.woocommerce-account .woocommerce-Address-title a.edit:hover {
 
 body.woocommerce-account .woocommerce-Address address {
     font-style: normal !important;
-    font-size: 0.9rem !important;
+    font-size: var(--tix-btn, 14px) !important;
     line-height: 1.7 !important;
     color: var(--_muted) !important;
 }
@@ -395,7 +395,7 @@ body.woocommerce-account .woocommerce-Address address {
 body.woocommerce-account .woocommerce-MyAccount-content .form-row label,
 body.woocommerce-account .woocommerce-MyAccount-content label {
     display: block !important;
-    font-size: 0.85rem !important;
+    font-size: var(--tix-small, 13px) !important;
     font-weight: 600 !important;
     margin-bottom: 6px !important;
     color: var(--_text) !important;
@@ -415,8 +415,8 @@ body.woocommerce-account .woocommerce-MyAccount-content .input-text {
     border-radius: var(--_radius) !important;
     background: var(--_input-bg) !important;
     color: var(--_text) !important;
-    font-size: 0.95rem !important;
-    font-family: inherit !important;
+    font-size: var(--tix-body, 15px) !important;
+    font-family: var(--tix-font-body, inherit) !important;
     box-sizing: border-box !important;
     transition: border-color 0.2s, box-shadow 0.2s !important;
     -webkit-appearance: none !important;
@@ -445,7 +445,7 @@ body.woocommerce-account .woocommerce-MyAccount-content fieldset {
 
 body.woocommerce-account .woocommerce-MyAccount-content fieldset legend {
     font-weight: 700 !important;
-    font-size: 0.95rem !important;
+    font-size: var(--tix-body, 15px) !important;
     padding: 0 8px !important;
 }
 
@@ -469,7 +469,7 @@ body.woocommerce-account .woocommerce-Message {
     border-radius: var(--_radius) !important;
     padding: 16px 20px !important;
     margin-bottom: 20px !important;
-    font-size: 0.9rem !important;
+    font-size: var(--tix-btn, 14px) !important;
     line-height: 1.5 !important;
     background: var(--_card) !important;
     list-style: none !important;
@@ -524,7 +524,7 @@ body.woocommerce-account .woocommerce-customer-details address {
    DASHBOARD – Intro-Text
    ══════════════════════════════════════ */
 body.woocommerce-account .woocommerce-MyAccount-content > p:first-child {
-    font-size: 0.95rem !important;
+    font-size: var(--tix-body, 15px) !important;
     line-height: 1.6 !important;
     color: var(--_muted) !important;
 }
@@ -548,7 +548,7 @@ body.woocommerce-account .woocommerce-pagination .page-numbers {
     padding: 0 10px !important;
     border: 1px solid var(--_border) !important;
     border-radius: var(--_radius) !important;
-    font-size: 0.85rem !important;
+    font-size: var(--tix-small, 13px) !important;
     font-weight: 600 !important;
     text-decoration: none !important;
     color: var(--_text) !important;

@@ -7,7 +7,7 @@
     border: 1px solid var(--ep-border, #e5e7eb);
     border-radius: var(--ep-radius, 12px);
     overflow: hidden;
-    font-family: inherit;
+    font-family: var(--tix-font-body, inherit);
 }
 
 /* ── Header ── */
@@ -17,7 +17,7 @@
     padding: 24px 28px 20px;
 }
 .tix-raffle-title {
-    font-size: 1.35rem;
+    font-size: var(--tix-h2, 22px);
     font-weight: 700;
     margin: 0 0 6px;
     color: var(--tix-raffle-header-color, #fff) !important;
@@ -28,7 +28,7 @@
     color: var(--tix-raffle-header-color, #fff) !important;
 }
 .tix-raffle-desc {
-    font-size: .92rem;
+    font-size: var(--tix-btn, 14px);
     opacity: .9;
     line-height: 1.5;
 }
@@ -43,7 +43,7 @@
     border-bottom: 1px solid var(--ep-border, #e5e7eb);
 }
 .tix-raffle-prizes-title {
-    font-size: 1rem;
+    font-size: var(--tix-body, 15px);
     font-weight: 600;
     margin: 0 0 10px;
     color: var(--ep-heading, #0D0B09);
@@ -60,7 +60,7 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    font-size: .92rem;
+    font-size: var(--tix-btn, 14px);
     padding: 8px 12px;
     background: #FAF8F4;
     border-radius: 8px;
@@ -75,7 +75,7 @@
     color: var(--ep-text, #334155);
 }
 .tix-raffle-prize-badge {
-    font-size: .75rem;
+    font-size: var(--tix-label, 12px);
     font-weight: 600;
     background: #dbeafe;
     color: #1d4ed8;
@@ -90,7 +90,7 @@
     padding: 14px 28px;
     background: #fefce8;
     border-bottom: 1px solid var(--ep-border, #e5e7eb);
-    font-size: .9rem;
+    font-size: var(--tix-btn, 14px);
     color: #854d0e;
     text-align: center;
 }
@@ -113,8 +113,8 @@
     padding: 12px 14px;
     border: 1px solid #d1d5db;
     border-radius: 8px;
-    font-size: .95rem;
-    font-family: inherit;
+    font-size: var(--tix-body, 15px);
+    font-family: var(--tix-font-body, inherit);
     background: #fff;
     transition: border-color .2s, box-shadow .2s;
     outline: none;
@@ -130,7 +130,7 @@
     align-items: flex-start;
     gap: 8px;
     margin-bottom: 14px;
-    font-size: .85rem;
+    font-size: var(--tix-small, 13px);
     line-height: 1.4;
     color: var(--ep-text, #334155);
     cursor: pointer;
@@ -156,7 +156,7 @@
     font-weight: 700;
     cursor: pointer;
     transition: background .2s, opacity .2s;
-    font-family: inherit;
+    font-family: var(--tix-font-body, inherit);
 }
 .tix-raffle-submit:hover {
     background: var(--tix-btn1-hover-bg, var(--tix-btn1-bg));
@@ -172,7 +172,7 @@
     margin-top: 12px;
     padding: 10px 14px;
     border-radius: 8px;
-    font-size: .9rem;
+    font-size: var(--tix-btn, 14px);
     line-height: 1.4;
     text-align: center;
 }
@@ -191,7 +191,7 @@
 /* ── Teilnehmerzähler ── */
 .tix-raffle-count {
     padding: 12px 28px 16px;
-    font-size: .85rem;
+    font-size: var(--tix-small, 13px);
     color: var(--ep-muted, #64748b);
     text-align: center;
     margin: 0;
@@ -215,7 +215,7 @@
     padding: 20px 28px 24px;
 }
 .tix-raffle-winners-title {
-    font-size: 1rem;
+    font-size: var(--tix-body, 15px);
     font-weight: 600;
     margin: 0 0 12px;
     color: var(--ep-heading, #0D0B09);
@@ -238,10 +238,10 @@
 .tix-raffle-winner-name {
     font-weight: 600;
     color: #166534;
-    font-size: .95rem;
+    font-size: var(--tix-body, 15px);
 }
 .tix-raffle-winner-prize {
-    font-size: .85rem;
+    font-size: var(--tix-small, 13px);
     color: #15803d;
     text-align: right;
 }
@@ -256,13 +256,13 @@
     margin-bottom: 8px;
 }
 .tix-raffle-success-title {
-    font-size: 1.1rem;
+    font-size: var(--tix-h3, 18px);
     font-weight: 600;
     color: #065f46;
     margin: 0 0 6px;
 }
 .tix-raffle-success-text {
-    font-size: .9rem;
+    font-size: var(--tix-btn, 14px);
     color: var(--ep-muted, #64748b);
     margin: 0;
 }
