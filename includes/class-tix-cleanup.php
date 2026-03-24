@@ -31,6 +31,11 @@ class TIX_Cleanup {
         remove_action('before_delete_post', [__CLASS__, 'delete_generated']);
         remove_action('wp_trash_post',     [__CLASS__, 'protect_product']);
         remove_action('before_delete_post', [__CLASS__, 'protect_product']);
+        // Series-Hooks: verhindern Doppelverarbeitung bei Kinder-Löschung
+        if (class_exists('TIX_Series')) {
+            remove_action('wp_trash_post',      ['TIX_Series', 'on_trash']);
+            remove_action('before_delete_post', ['TIX_Series', 'on_trash']);
+        }
 
         // WC-Produkte + TC-Events löschen
         $categories = get_post_meta($post_id, '_tix_ticket_categories', true);
@@ -54,16 +59,23 @@ class TIX_Cleanup {
         add_action('before_delete_post', [__CLASS__, 'delete_generated']);
         add_action('wp_trash_post',     [__CLASS__, 'protect_product']);
         add_action('before_delete_post', [__CLASS__, 'protect_product']);
+        if (class_exists('TIX_Series')) {
+            add_action('wp_trash_post',      ['TIX_Series', 'on_trash']);
+            add_action('before_delete_post', ['TIX_Series', 'on_trash']);
+        }
     }
 
     /**
      * ALLE verknüpften Daten eines Events restlos aus der Datenbank entfernen.
      *
      * Räumt auf:
-     * - Custom Tables: Raffle, Waitlist, Feedback, Seatmap, Ticket-DB, Promoter
-     * - Verknüpfte CPTs: Abandoned Carts, Subscribers, WC-Coupons
+     * - Custom Tables: Raffle, Waitlist, Feedback, Seatmap, Ticket-DB, Promoter,
+     *   Campaign-Views, Meta-Pixel-Conversions
+     * - Verknüpfte CPTs: TIX-Tickets, Abandoned Carts, Subscribers, WC-Coupons
      * - Geplante Cron-Jobs (Reminder + Follow-up E-Mails)
-     * - Per-Event Transients
+     * - Per-Event Transients + KI-Schutz Post-Meta
+     * - Serien-Kinder (ohne Verkäufe: komplett löschen; mit Verkäufen: entkoppeln)
+     * - Exklusive Medien-Attachments (Featured Image, Gallery)
      *
      * Kann sowohl von delete_generated() (Trash/Delete) als auch von
      * handle_force_delete() (Admin-Action) aufgerufen werden.
@@ -75,6 +87,11 @@ class TIX_Cleanup {
         global $wpdb;
         $event_id = intval($event_id);
         $counts   = [];
+
+        // Rekursions-Schutz
+        static $purging = [];
+        if (isset($purging[$event_id])) return $counts;
+        $purging[$event_id] = true;
 
         // ── 1. Custom Tables ──
 
@@ -113,7 +130,33 @@ class TIX_Cleanup {
             $wpdb->prepare("DELETE FROM {$wpdb->prefix}tixomat_promoter_commissions WHERE event_id = %d", $event_id)
         );
 
+        // Campaign-Views (UTM Tracking)
+        $counts['campaign_views'] = (int) $wpdb->query(
+            $wpdb->prepare("DELETE FROM {$wpdb->prefix}tixomat_campaign_views WHERE event_id = %d", $event_id)
+        );
+
+        // Meta-Pixel Conversions
+        $counts['meta_conversions'] = (int) $wpdb->query(
+            $wpdb->prepare("DELETE FROM {$wpdb->prefix}tix_meta_conversions WHERE event_post_id = %d", $event_id)
+        );
+
         // ── 2. Verknüpfte CPTs ──
+
+        // TIX-Tickets (einzelne Ticket-Posts)
+        if (post_type_exists('tix_ticket')) {
+            $tix_ticket_ids = get_posts([
+                'post_type'      => 'tix_ticket',
+                'post_status'    => 'any',
+                'posts_per_page' => -1,
+                'meta_key'       => '_tix_ticket_event_id',
+                'meta_value'     => $event_id,
+                'fields'         => 'ids',
+            ]);
+            foreach ($tix_ticket_ids as $tt_id) {
+                wp_delete_post($tt_id, true);
+            }
+            $counts['tix_tickets'] = count($tix_ticket_ids);
+        }
 
         // Abandoned Carts
         $ac_ids = get_posts([
@@ -194,6 +237,73 @@ class TIX_Cleanup {
         delete_transient('tix_publish_error_' . $event_id);
         delete_transient('tix_publish_warning_' . $event_id);
 
+        // ── 5. Per-Event Post-Meta (KI-Schutz, etc.) ──
+        // WordPress löscht postmeta automatisch bei wp_delete_post(),
+        // aber bei wp_trash_post bleiben sie. Explizit aufräumen:
+        $ai_meta_keys = [
+            '_tix_ai_content_hash', '_tix_ai_checked_at',
+            '_tix_ai_flagged', '_tix_ai_flag_reason', '_tix_ai_approved',
+        ];
+        foreach ($ai_meta_keys as $key) {
+            delete_post_meta($event_id, $key);
+        }
+
+        // ── 6. Serien-Kinder aufräumen ──
+        $series_children = get_post_meta($event_id, '_tix_series_children', true);
+        if (is_array($series_children) && !empty($series_children)) {
+            $children_deleted = 0;
+            foreach ($series_children as $child_id) {
+                $child_id = intval($child_id);
+                if (!$child_id || get_post_status($child_id) === false) continue;
+
+                // Kind-Event hat eigene Verkäufe? → nur entkoppeln
+                $child_orders = $wpdb->get_var($wpdb->prepare(
+                    "SELECT COUNT(*) FROM {$wpdb->prefix}tix_order_items WHERE event_id = %d", $child_id
+                ));
+
+                if ($child_orders > 0) {
+                    // Nur Serien-Link entfernen, Event bleibt bestehen
+                    delete_post_meta($child_id, '_tix_series_parent');
+                    delete_post_meta($child_id, '_tix_series_detached');
+                } else {
+                    // Keine Verkäufe → komplett löschen inkl. aller Daten
+                    $child_cats = get_post_meta($child_id, '_tix_ticket_categories', true);
+                    if (is_array($child_cats)) {
+                        foreach ($child_cats as $cat) {
+                            if (!empty($cat['product_id']) && function_exists('wc_get_product')) {
+                                $product = wc_get_product(intval($cat['product_id']));
+                                if ($product) $product->delete(true);
+                            }
+                        }
+                    }
+                    self::purge_event_data($child_id);
+                    wp_delete_post($child_id, true);
+                    $children_deleted++;
+                }
+            }
+            $counts['series_children'] = $children_deleted;
+        }
+
+        // ── 7. Medien-Attachments die NUR zu diesem Event gehören ──
+        $thumb_id = get_post_meta($event_id, '_thumbnail_id', true);
+        if ($thumb_id) {
+            $thumb_id = intval($thumb_id);
+            // Nur löschen wenn Attachment exklusiv diesem Event gehört
+            if (get_post_field('post_parent', $thumb_id) == $event_id) {
+                wp_delete_attachment($thumb_id, true);
+            }
+        }
+        $gallery = get_post_meta($event_id, '_tix_gallery', true);
+        if (is_array($gallery)) {
+            foreach ($gallery as $att_id) {
+                $att_id = intval($att_id);
+                if ($att_id && get_post_field('post_parent', $att_id) == $event_id) {
+                    wp_delete_attachment($att_id, true);
+                }
+            }
+        }
+
+        unset($purging[$event_id]);
         return $counts;
     }
 
