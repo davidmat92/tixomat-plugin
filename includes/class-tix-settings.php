@@ -1559,6 +1559,10 @@ class TIX_Settings {
                                 <span class="dashicons dashicons-clipboard"></span>
                                 <span class="tix-nav-label">Check-in</span>
                             </button>
+                            <button type="button" class="tix-nav-tab" data-tab="typography">
+                                <span class="dashicons dashicons-editor-textcolor"></span>
+                                <span class="tix-nav-label">Typografie</span>
+                            </button>
                             <button type="button" class="tix-nav-tab" data-tab="advanced">
                                 <span class="dashicons dashicons-admin-generic"></span>
                                 <span class="tix-nav-label">Erweitert</span>
@@ -1589,10 +1593,6 @@ class TIX_Settings {
                                 <button type="button" class="tix-nav-tab" data-tab="event-cards">
                                     <span class="dashicons dashicons-screenoptions"></span>
                                     <span class="tix-nav-label">Event-Karten</span>
-                                </button>
-                                <button type="button" class="tix-nav-tab" data-tab="typography">
-                                    <span class="dashicons dashicons-editor-textcolor"></span>
-                                    <span class="tix-nav-label">Typografie</span>
                                 </button>
                                 <button type="button" class="tix-nav-tab" data-tab="share">
                                     <span class="dashicons dashicons-share"></span>
