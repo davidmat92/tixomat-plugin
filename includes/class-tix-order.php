@@ -316,7 +316,7 @@ class TIX_Order {
     /**
      * Generiert die nächste eigene Bestellnummer (unabhängig von WC).
      */
-    private static function next_order_number() {
+    public static function next_order_number() {
         $s = function_exists('tix_get_settings') ? tix_get_settings() : [];
         $prefix = $s['order_number_prefix'] ?? 'TIX-';
         $digits = max(3, intval($s['order_number_digits'] ?? 5));
