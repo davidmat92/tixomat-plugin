@@ -298,6 +298,7 @@ class TIX_Settings {
             'anthropic_api_key' => '',
             'openai_api_key'    => '',
             'ai_model'          => 'claude-sonnet-4-20250514',
+            'ai_assistant_name' => 'Evendis-Assistent',
             'ai_guard_enabled'  => 0,
             'ai_guard_api_key'  => '', // Legacy – wird migriert zu anthropic_api_key
             // ── Checkout-Modus ──
@@ -720,6 +721,7 @@ class TIX_Settings {
         $clean['paypal_sandbox']   = !empty($input['paypal_sandbox']) ? 1 : 0;
 
         // KI / Künstliche Intelligenz
+        $clean['ai_assistant_name'] = sanitize_text_field($input['ai_assistant_name'] ?? 'Evendis-Assistent');
         $clean['anthropic_api_key'] = sanitize_text_field($input['anthropic_api_key'] ?? '');
         $clean['openai_api_key'] = sanitize_text_field($input['openai_api_key'] ?? '');
         $clean['ai_model'] = sanitize_text_field($input['ai_model'] ?? 'claude-sonnet-4-20250514');
@@ -2981,9 +2983,10 @@ class TIX_Settings {
                                     </div>
                                     <div class="tix-card-body">
                                         <div class="tix-field-grid">
+                                            <?php self::text_row('ai_assistant_name', 'Assistent-Name', $s, 'Evendis-Assistent'); ?>
                                             <div class="tix-field tix-field-full">
                                                 <p class="tix-settings-hint" style="margin-top:0;">
-                                                    Der API-Key wird für alle KI-Features verwendet: Inhaltsprüfung, Textgenerierung, Event-Assistent und Meta-Ads.
+                                                    Name des KI-Assistenten im Event-Editor. Der API-Key wird für alle KI-Features verwendet.
                                                 </p>
                                             </div>
                                             <?php self::text_row('anthropic_api_key', 'Anthropic API Key', $s, 'sk-ant-…'); ?>
