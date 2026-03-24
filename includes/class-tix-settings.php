@@ -324,7 +324,8 @@ class TIX_Settings {
             'tix_card_radius_badge'      => 8,
             'tix_card_radius_button'     => 10,
             'tix_card_radius_image'      => 12,
-            'tix_card_gap'               => 20,
+            'tix_card_gap_col'           => 20,
+            'tix_card_gap_row'           => 24,
             'tix_card_font_display'      => 'Sora',
             'tix_card_font_body'         => 'DM Sans',
             'tix_card_font_size_title'   => '1.05',
@@ -332,6 +333,10 @@ class TIX_Settings {
             'tix_card_font_size_price'   => '1.1',
             'tix_card_font_self_host'    => 0,
             'tix_card_columns_default'   => 4,
+            'tix_card_cols_tablet_l'     => 3, // ≤1119px
+            'tix_card_cols_tablet_p'     => 2, // ≤1023px
+            'tix_card_cols_phone_l'      => 2, // ≤767px
+            'tix_card_cols_phone_p'      => 1, // ≤479px
             'tix_card_image_ratio'       => '58',
             'tix_card_show_heart'        => 1,
             'tix_card_show_badges'       => 1,
@@ -751,7 +756,7 @@ class TIX_Settings {
         foreach (['tix_card_color_signal', 'tix_card_color_signal_mid', 'tix_card_color_nacht', 'tix_card_color_nacht_soft', 'tix_card_color_spotlight', 'tix_card_color_entdecken', 'tix_card_color_licht', 'tix_card_color_sand', 'tix_card_color_text', 'tix_card_color_text_muted'] as $k) {
             $clean[$k] = sanitize_hex_color($input[$k] ?? '') ?: ($d[$k] ?? '');
         }
-        foreach (['tix_card_radius_card', 'tix_card_radius_badge', 'tix_card_radius_button', 'tix_card_radius_image', 'tix_card_gap', 'tix_card_image_ratio', 'tix_card_columns_default'] as $k) {
+        foreach (['tix_card_radius_card', 'tix_card_radius_badge', 'tix_card_radius_button', 'tix_card_radius_image', 'tix_card_gap_col', 'tix_card_gap_row', 'tix_card_image_ratio', 'tix_card_columns_default', 'tix_card_cols_tablet_l', 'tix_card_cols_tablet_p', 'tix_card_cols_phone_l', 'tix_card_cols_phone_p'] as $k) {
             $clean[$k] = intval($input[$k] ?? $d[$k] ?? 0);
         }
         foreach (['tix_card_font_size_title', 'tix_card_font_size_date', 'tix_card_font_size_price'] as $k) {
@@ -1326,8 +1331,11 @@ class TIX_Settings {
         $card_vars[] = '--tix-card-radius-badge: ' . intval($s['tix_card_radius_badge'] ?? 8) . 'px';
         $card_vars[] = '--tix-card-radius-btn: ' . intval($s['tix_card_radius_button'] ?? 10) . 'px';
         $card_vars[] = '--tix-card-radius-img: ' . intval($s['tix_card_radius_image'] ?? 12) . 'px';
-        $card_vars[] = '--tix-card-gap: ' . intval($s['tix_card_gap'] ?? 20) . 'px';
+        $card_vars[] = '--tix-card-gap-col: ' . intval($s['tix_card_gap_col'] ?? 20) . 'px';
+        $card_vars[] = '--tix-card-gap-row: ' . intval($s['tix_card_gap_row'] ?? 24) . 'px';
+        $card_vars[] = '--tix-card-gap: ' . intval($s['tix_card_gap_row'] ?? 24) . 'px ' . intval($s['tix_card_gap_col'] ?? 20) . 'px';
         $card_vars[] = '--tix-card-img-ratio: ' . intval($s['tix_card_image_ratio'] ?? 58) . '%';
+        $card_vars[] = '--tix-card-cols: ' . intval($s['tix_card_columns_default'] ?? 4);
         // Fonts
         $card_vars[] = "--tix-card-font-d: '" . esc_attr($s['tix_card_font_display'] ?? 'Sora') . "'";
         $card_vars[] = "--tix-card-font-b: '" . esc_attr($s['tix_card_font_body'] ?? 'DM Sans') . "'";
@@ -1337,6 +1345,17 @@ class TIX_Settings {
 
         if (!empty($card_vars)) {
             echo ":root {\n    " . implode(";\n    ", $card_vars) . ";\n}\n";
+
+            // Responsive Spalten per Breakpoint
+            $bp = [
+                1119 => intval($s['tix_card_cols_tablet_l'] ?? 3),
+                1023 => intval($s['tix_card_cols_tablet_p'] ?? 2),
+                767  => intval($s['tix_card_cols_phone_l'] ?? 2),
+                479  => intval($s['tix_card_cols_phone_p'] ?? 1),
+            ];
+            foreach ($bp as $width => $cols) {
+                echo "@media(max-width:{$width}px){:root{--tix-card-cols:{$cols};}}\n";
+            }
         }
 
         echo "</style>\n";
@@ -2549,7 +2568,8 @@ class TIX_Settings {
                                             self::range_row('tix_card_radius_badge', 'Badge-Radius', $s, 0, 20, 'px');
                                             self::range_row('tix_card_radius_button', 'Button-Radius', $s, 0, 20, 'px');
                                             self::range_row('tix_card_radius_image', 'Bild-Radius', $s, 0, 24, 'px');
-                                            self::range_row('tix_card_gap', 'Karten-Abstand', $s, 8, 40, 'px');
+                                            self::range_row('tix_card_gap_col', 'Spalten-Abstand', $s, 4, 40, 'px');
+                                            self::range_row('tix_card_gap_row', 'Zeilen-Abstand', $s, 4, 60, 'px');
                                             self::range_row('tix_card_image_ratio', 'Bild-Höhe (%)', $s, 40, 80, '%');
                                             ?>
                                         </div>
@@ -2607,13 +2627,31 @@ class TIX_Settings {
                                     </div>
                                     <div class="tix-card-body">
                                         <div class="tix-field-grid">
-                                            <div class="tix-field">
-                                                <label class="tix-label">Standard-Spalten</label>
-                                                <select name="tix_settings[tix_card_columns_default]" style="width:100%;">
-                                                    <option value="2" <?php selected($s['tix_card_columns_default'] ?? 4, 2); ?>>2 Spalten</option>
-                                                    <option value="3" <?php selected($s['tix_card_columns_default'] ?? 4, 3); ?>>3 Spalten</option>
-                                                    <option value="4" <?php selected($s['tix_card_columns_default'] ?? 4, 4); ?>>4 Spalten</option>
-                                                </select>
+                                            <div class="tix-field tix-field-full">
+                                                <label class="tix-label" style="margin-bottom:8px;">Spalten pro Breakpoint</label>
+                                                <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;">
+                                                    <?php
+                                                    $breakpoints = [
+                                                        ['key' => 'tix_card_columns_default', 'label' => 'Desktop', 'desc' => 'Alle', 'icon' => '🖥'],
+                                                        ['key' => 'tix_card_cols_tablet_l',  'label' => 'Tablet L', 'desc' => '≤1119px', 'icon' => '📱'],
+                                                        ['key' => 'tix_card_cols_tablet_p',  'label' => 'Tablet P', 'desc' => '≤1023px', 'icon' => '📱'],
+                                                        ['key' => 'tix_card_cols_phone_l',   'label' => 'Phone L',  'desc' => '≤767px', 'icon' => '📱'],
+                                                        ['key' => 'tix_card_cols_phone_p',   'label' => 'Phone P',  'desc' => '≤479px', 'icon' => '📱'],
+                                                    ];
+                                                    foreach ($breakpoints as $bp):
+                                                        $val = intval($s[$bp['key']] ?? 4);
+                                                    ?>
+                                                        <div style="text-align:center;background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:10px 6px;">
+                                                            <div style="font-size:11px;font-weight:600;color:#374151;"><?php echo $bp['label']; ?></div>
+                                                            <div style="font-size:10px;color:#9ca3af;margin-bottom:6px;"><?php echo $bp['desc']; ?></div>
+                                                            <select name="tix_settings[<?php echo $bp['key']; ?>]" style="width:100%;font-size:13px;padding:4px;border-radius:4px;border:1px solid #d1d5db;text-align:center;">
+                                                                <?php for ($c = 1; $c <= 5; $c++): ?>
+                                                                    <option value="<?php echo $c; ?>" <?php selected($val, $c); ?>><?php echo $c; ?></option>
+                                                                <?php endfor; ?>
+                                                            </select>
+                                                        </div>
+                                                    <?php endforeach; ?>
+                                                </div>
                                             </div>
                                             <div class="tix-field">
                                                 <label class="tix-label">Standard-Modus</label>
