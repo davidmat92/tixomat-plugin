@@ -445,8 +445,8 @@ class TIX_Admin_Shell {
                     <?php endif; ?>
                     <a href="<?php echo admin_url('admin.php?page=tix-meta-ads'); ?>"
                        class="tix-shell-item<?php echo $active === 'meta-ads' ? ' active' : ''; ?>">
-                        <span class="dashicons dashicons-facebook-alt"></span>
-                        <span>Meta Ads</span>
+                        <span class="dashicons dashicons-share"></span>
+                        <span>Social Content</span>
                     </a>
                 </div>
 

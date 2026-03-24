@@ -305,7 +305,88 @@
     function esc(s){ return $('<span>').text(s||'').html(); }
     function fmt(n){ return parseFloat(n||0).toFixed(2).replace('.',',').replace(/\B(?=(\d{3})+(?!\d))/g,'.'); }
 
-    // Initial load
-    loadDashboard();
+    // Initial load — only if dashboard tab is visible
+    if ($('.tix-meta-tab[data-tab="dashboard"]').hasClass('active')) {
+        loadDashboard();
+    }
+
+    // ══════════════════════════════════════
+    // SOCIAL CONTENT: Beiträge generieren
+    // ══════════════════════════════════════
+
+    var socialVariants = [];
+
+    $('#tix-social-event').on('change', function() {
+        var val = $(this).val();
+        $('#tix-social-platforms').toggle(!!val);
+        $('#tix-social-result').hide();
+        $('.tix-social-platform').removeClass('active');
+    });
+
+    $(document).on('click', '.tix-social-platform', function() {
+        var platform = $(this).data('platform');
+        var eventId = $('#tix-social-event').val();
+        if (!eventId) return;
+
+        $('.tix-social-platform').removeClass('active');
+        $(this).addClass('active');
+
+        $('#tix-social-result').hide();
+        $('#tix-social-loading').show();
+
+        $.post(M.ajax, {
+            action: 'tix_social_generate',
+            nonce: M.nonce,
+            event_id: eventId,
+            platform: platform
+        }, function(r) {
+            $('#tix-social-loading').hide();
+            if (!r.success) {
+                alert(r.data ? r.data.message : 'Fehler');
+                return;
+            }
+
+            socialVariants = r.data.variants || [];
+            if (!socialVariants.length) return;
+
+            // Variant Tabs rendern
+            var tabsHtml = '';
+            socialVariants.forEach(function(v, i) {
+                var cls = i === 0 ? 'button button-primary' : 'button';
+                tabsHtml += '<button type="button" class="' + cls + ' tix-social-vtab" data-index="' + i + '" style="font-size:12px;">' + esc(v.name) + '</button>';
+            });
+            $('#tix-social-variant-tabs').html(tabsHtml);
+
+            selectSocialVariant(0);
+            $('#tix-social-result').show();
+        }).fail(function() {
+            $('#tix-social-loading').hide();
+            alert('Netzwerkfehler.');
+        });
+    });
+
+    $(document).on('click', '.tix-social-vtab', function() {
+        selectSocialVariant(parseInt($(this).data('index'), 10));
+        $('.tix-social-vtab').removeClass('button-primary');
+        $(this).addClass('button-primary');
+    });
+
+    function selectSocialVariant(i) {
+        var v = socialVariants[i];
+        if (!v) return;
+        $('#tix-social-text').val(v.text || '');
+        if (v.hashtags) {
+            $('#tix-social-hashtags').val(v.hashtags);
+            $('#tix-social-hashtags-wrap').show();
+        } else {
+            $('#tix-social-hashtags-wrap').hide();
+        }
+        if (v.subject) {
+            $('#tix-social-subject').val(v.subject);
+            $('#tix-social-subject-wrap').show();
+        } else {
+            $('#tix-social-subject-wrap').hide();
+        }
+    }
 
 })(jQuery);

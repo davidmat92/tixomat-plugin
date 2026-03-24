@@ -12,12 +12,13 @@ class TIX_Meta_Ads {
         add_action('wp_ajax_tix_meta_update_adspend', [__CLASS__, 'ajax_update_adspend']);
         add_action('wp_ajax_tix_meta_generate_utm', [__CLASS__, 'ajax_generate_utm']);
         add_action('wp_ajax_tix_meta_wizard_generate', [__CLASS__, 'ajax_wizard_generate']);
+        add_action('wp_ajax_tix_social_generate', [__CLASS__, 'ajax_social_generate']);
     }
 
     public static function add_menu() {
         add_submenu_page(
             'tixomat',
-            'Meta Ads',
+            'Social Content',
             'Meta Ads',
             'manage_options',
             'tix-meta-ads',
@@ -62,20 +63,96 @@ class TIX_Meta_Ads {
         ?>
         <div class="wrap tix-meta-ads-wrap">
             <h1 style="display:flex;align-items:center;gap:10px">
-                <span class="dashicons dashicons-facebook-alt" style="font-size:28px;width:28px;height:28px;color:#1877F2"></span>
-                Meta Ads
+                <span class="dashicons dashicons-share" style="font-size:28px;width:28px;height:28px;color:var(--tix-primary, #FF5500)"></span>
+                Social Content
             </h1>
 
             <!-- Tab Navigation -->
             <nav class="nav-tab-wrapper tix-meta-tabs" style="margin-bottom:20px">
-                <a href="#" class="nav-tab nav-tab-active" data-tab="dashboard">Dashboard</a>
+                <a href="#" class="nav-tab nav-tab-active" data-tab="social">Beiträge</a>
                 <a href="#" class="nav-tab" data-tab="wizard">Kampagnen-Wizard</a>
+                <a href="#" class="nav-tab" data-tab="dashboard">Dashboard</a>
                 <a href="#" class="nav-tab" data-tab="utm">UTM-Links & QR</a>
                 <a href="#" class="nav-tab" data-tab="setup">Setup & Anleitung</a>
             </nav>
 
+            <!-- ═══ TAB: Beiträge (Social Content) ═══ -->
+            <div class="tix-meta-tab active" data-tab="social">
+
+                <div class="tix-meta-card" style="margin-bottom:20px;">
+                    <h3 style="margin:0 0 12px;">Event auswählen</h3>
+                    <select id="tix-social-event" style="width:100%;max-width:500px;padding:10px;font-size:14px;border-radius:8px;border:1px solid #d1d5db;">
+                        <option value="">— Event wählen —</option>
+                        <?php foreach ($events as $ev):
+                            $date = get_post_meta($ev->ID, '_tix_date_card', true);
+                            $loc = get_post_meta($ev->ID, '_tix_location_short', true);
+                        ?>
+                            <option value="<?php echo $ev->ID; ?>" data-url="<?php echo esc_url(get_permalink($ev->ID)); ?>">
+                                <?php echo esc_html($ev->post_title); ?> <?php echo $date ? '(' . esc_html($date) . ')' : ''; ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+
+                <div id="tix-social-platforms" style="display:none;">
+                    <h3 style="margin:0 0 16px;">Plattform wählen</h3>
+                    <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(160px, 1fr));gap:12px;">
+                        <?php
+                        $platforms = [
+                            'instagram'       => ['icon' => '📸', 'label' => 'Instagram Post'],
+                            'instagram_story' => ['icon' => '📱', 'label' => 'Instagram Story'],
+                            'facebook'        => ['icon' => '📘', 'label' => 'Facebook Post'],
+                            'whatsapp'        => ['icon' => '💬', 'label' => 'WhatsApp'],
+                            'newsletter'      => ['icon' => '📧', 'label' => 'Newsletter'],
+                            'twitter'         => ['icon' => '🐦', 'label' => 'X (Twitter)'],
+                        ];
+                        foreach ($platforms as $key => $p): ?>
+                            <button type="button" class="tix-social-platform tix-meta-template" data-platform="<?php echo esc_attr($key); ?>" style="padding:20px;text-align:center;cursor:pointer;background:#fff;border:2px solid #e0e0e0;border-radius:12px;">
+                                <span style="font-size:28px;display:block;margin-bottom:6px;"><?php echo $p['icon']; ?></span>
+                                <strong style="font-size:13px;"><?php echo esc_html($p['label']); ?></strong>
+                            </button>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+
+                <div id="tix-social-result" style="display:none;margin-top:24px;">
+                    <div class="tix-meta-card">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+                            <h3 style="margin:0;" id="tix-social-result-title">Generierte Beiträge</h3>
+                            <div id="tix-social-variant-tabs" class="tix-variant-tabs"></div>
+                        </div>
+                        <div style="margin-bottom:12px;">
+                            <label style="font-size:12px;font-weight:600;color:#6b7280;display:block;margin-bottom:4px;">Beitrag</label>
+                            <textarea id="tix-social-text" rows="8" style="width:100%;border:1px solid #d1d5db;border-radius:8px;padding:12px;font-size:14px;font-family:inherit;resize:vertical;" readonly></textarea>
+                            <div style="display:flex;justify-content:flex-end;margin-top:6px;">
+                                <button type="button" class="button tix-copy-btn" data-target="tix-social-text">Kopieren</button>
+                            </div>
+                        </div>
+                        <div id="tix-social-hashtags-wrap" style="display:none;margin-bottom:12px;">
+                            <label style="font-size:12px;font-weight:600;color:#6b7280;display:block;margin-bottom:4px;">Hashtags</label>
+                            <input type="text" id="tix-social-hashtags" style="width:100%;border:1px solid #d1d5db;border-radius:8px;padding:10px;font-size:13px;" readonly>
+                            <div style="display:flex;justify-content:flex-end;margin-top:6px;">
+                                <button type="button" class="button tix-copy-btn" data-target="tix-social-hashtags">Kopieren</button>
+                            </div>
+                        </div>
+                        <div id="tix-social-subject-wrap" style="display:none;margin-bottom:12px;">
+                            <label style="font-size:12px;font-weight:600;color:#6b7280;display:block;margin-bottom:4px;">Betreffzeile</label>
+                            <input type="text" id="tix-social-subject" style="width:100%;border:1px solid #d1d5db;border-radius:8px;padding:10px;font-size:13px;" readonly>
+                            <div style="display:flex;justify-content:flex-end;margin-top:6px;">
+                                <button type="button" class="button tix-copy-btn" data-target="tix-social-subject">Kopieren</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="tix-social-loading" style="display:none;text-align:center;padding:40px;">
+                    <span class="dashicons dashicons-update spin" style="font-size:24px;width:24px;height:24px;color:var(--tix-primary, #FF5500);"></span>
+                    <p style="margin-top:8px;color:#6b7280;">Beitrag wird generiert…</p>
+                </div>
+            </div>
+
             <!-- ═══ TAB: Dashboard ═══ -->
-            <div class="tix-meta-tab active" data-tab="dashboard">
+            <div class="tix-meta-tab" data-tab="dashboard">
 
                 <!-- Connection Status -->
                 <div class="tix-meta-status-bar">
@@ -821,5 +898,171 @@ class TIX_Meta_Ads {
         ];
 
         return $templates[$type] ?? $templates['awareness'];
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    // SOCIAL CONTENT: KI-generierte Beiträge
+    // ══════════════════════════════════════════════════════════════
+
+    public static function ajax_social_generate() {
+        check_ajax_referer('tix_meta_ads', 'nonce');
+        if (!current_user_can('edit_posts')) wp_send_json_error(['message' => 'Keine Berechtigung.']);
+
+        $event_id = intval($_POST['event_id'] ?? 0);
+        $platform = sanitize_text_field($_POST['platform'] ?? '');
+
+        if (!$event_id || !$platform) wp_send_json_error(['message' => 'Event und Plattform erforderlich.']);
+
+        // Event-Daten sammeln
+        $title    = get_the_title($event_id);
+        $date     = get_post_meta($event_id, '_tix_date_card', true);
+        $location = get_post_meta($event_id, '_tix_location_short', true);
+        $price    = get_post_meta($event_id, '_tix_price_card', true);
+        $desc     = wp_strip_all_tags(get_post_meta($event_id, '_tix_info_description', true));
+        $lineup   = wp_strip_all_tags(get_post_meta($event_id, '_tix_info_lineup', true));
+        $url      = get_permalink($event_id);
+        $excerpt  = get_the_excerpt($event_id);
+
+        $context = "Event: {$title}\n";
+        if ($date) $context .= "Datum: {$date}\n";
+        if ($location) $context .= "Ort: {$location}\n";
+        if ($price) $context .= "Preis: {$price}\n";
+        if ($lineup) $context .= "Line-Up: {$lineup}\n";
+        if ($desc) $context .= "Beschreibung: " . mb_substr($desc, 0, 300) . "\n";
+        $context .= "Link: {$url}\n";
+
+        $prompts = self::get_social_prompts();
+        if (!isset($prompts[$platform])) wp_send_json_error(['message' => 'Unbekannte Plattform.']);
+
+        $system = $prompts[$platform];
+
+        // KI aufrufen
+        if (!class_exists('TIX_AI_Writer')) {
+            wp_send_json_error(['message' => 'KI-System nicht verfügbar.']);
+        }
+
+        $api_key = trim(tix_get_settings('anthropic_api_key') ?: tix_get_settings('openai_api_key'));
+        if (!$api_key) wp_send_json_error(['message' => 'Kein API-Key konfiguriert.']);
+
+        // AI Writer call_api nutzen (ist private, daher direkter API-Call)
+        $model = tix_get_settings('ai_model') ?: 'claude-sonnet-4-20250514';
+        $is_openai = strpos($model, 'gpt') === 0 || strpos($model, 'o3') === 0;
+
+        if ($is_openai) {
+            $response = wp_remote_post('https://api.openai.com/v1/chat/completions', [
+                'timeout' => 30,
+                'headers' => ['Authorization' => 'Bearer ' . $api_key, 'Content-Type' => 'application/json'],
+                'body'    => wp_json_encode(['model' => $model, 'max_tokens' => 1500, 'messages' => [
+                    ['role' => 'system', 'content' => $system],
+                    ['role' => 'user', 'content' => $context],
+                ]]),
+            ]);
+            $body = json_decode(wp_remote_retrieve_body($response), true);
+            $text = $body['choices'][0]['message']['content'] ?? '';
+        } else {
+            $response = wp_remote_post('https://api.anthropic.com/v1/messages', [
+                'timeout' => 30,
+                'headers' => ['x-api-key' => $api_key, 'content-type' => 'application/json', 'anthropic-version' => '2023-06-01'],
+                'body'    => wp_json_encode(['model' => $model, 'max_tokens' => 1500, 'system' => $system, 'messages' => [
+                    ['role' => 'user', 'content' => $context],
+                ]]),
+            ]);
+            $body = json_decode(wp_remote_retrieve_body($response), true);
+            $text = '';
+            foreach (($body['content'] ?? []) as $block) {
+                if (($block['type'] ?? '') === 'text') $text .= $block['text'];
+            }
+        }
+
+        if (empty($text)) wp_send_json_error(['message' => 'KI-Antwort leer.']);
+
+        // JSON extrahieren
+        if (preg_match('/```(?:json)?\s*(\{.*?\})\s*```/s', $text, $m)) $text = $m[1];
+        $data = json_decode($text, true);
+
+        if (!$data || empty($data['variants'])) {
+            // Fallback: Rohtext als eine Variante
+            wp_send_json_success(['variants' => [['name' => 'Variante', 'text' => $text, 'hashtags' => '', 'subject' => '', 'cta' => '']]]);
+            return;
+        }
+
+        wp_send_json_success($data);
+    }
+
+    /**
+     * Plattform-spezifische System-Prompts
+     */
+    private static function get_social_prompts() {
+        $base = 'Du bist ein Social-Media-Experte für Event-Marketing. Schreibe auf Deutsch. Antworte NUR mit einem JSON-Objekt (kein Markdown-Codeblock). Format:
+{"variants":[{"name":"A: Hook-Beschreibung","text":"Kompletter Beitrag","hashtags":"#relevant #hashtags","subject":"","cta":"Call-to-Action"}]}
+Generiere genau 3 Varianten: A (Emotional), B (Faktisch/Informativ), C (FOMO/Dringlichkeit).';
+
+        return [
+            'instagram' => $base . '
+
+PLATTFORM: Instagram Post
+- Max 2200 Zeichen, aber ideal 150-300 Zeichen für Engagement
+- Emojis erlaubt und erwünscht (2-4 pro Post)
+- Zeilenumbrüche für Lesbarkeit
+- KEIN Link im Text (Instagram zeigt keine klickbaren Links)
+- Stattdessen: "Link in Bio" Hinweis
+- 15-20 relevante Hashtags im "hashtags" Feld (NICHT im Text)
+- CTA: Was soll der User tun (Freunde markieren, kommentieren, Link in Bio)',
+
+            'instagram_story' => $base . '
+
+PLATTFORM: Instagram Story
+- Max 125 Zeichen (sehr kurz!)
+- 1-2 Emojis
+- Swipe-Up / Link-Sticker Hinweis
+- Keine Hashtags nötig
+- Dringlicher, persönlicher Ton
+- CTA: "Swipe up" oder "Link in Bio"',
+
+            'facebook' => $base . '
+
+PLATTFORM: Facebook Post
+- Ideal 100-250 Zeichen (kurz performt besser)
+- Link wird als Preview angezeigt → Event-URL am Ende
+- Community-orientiert: Frage stellen, Freunde einladen
+- Emojis sparsam (1-2)
+- Keine Hashtags (Facebook-Algorithmus ignoriert sie)
+- "hashtags" Feld leer lassen
+- CTA: Teilen, Freunde markieren, Event zusagen',
+
+            'whatsapp' => $base . '
+
+PLATTFORM: WhatsApp Nachricht
+- Max 300 Zeichen
+- Kompakt, persönlich, direkt
+- Emojis erlaubt (2-3)
+- Link am Ende der Nachricht
+- Weiterleitung-freundlich: so geschrieben dass man es 1:1 an Freunde weiterleiten kann
+- Keine Hashtags
+- "hashtags" Feld leer lassen
+- CTA: "Bist du dabei?" oder ähnlich',
+
+            'newsletter' => $base . '
+
+PLATTFORM: Newsletter / E-Mail
+- 400-600 Zeichen Body
+- "subject" Feld: Betreffzeile (max 60 Zeichen, Neugier wecken, KEIN Spam-Wording)
+- Professioneller aber einladender Ton
+- Link zum Event einbauen
+- Keine Emojis im Body (optional 1 in Betreffzeile)
+- Keine Hashtags
+- "hashtags" Feld leer lassen
+- CTA: "Tickets sichern", "Jetzt anmelden" etc.',
+
+            'twitter' => $base . '
+
+PLATTFORM: X (Twitter)
+- Max 280 Zeichen (STRIKT einhalten, mit Link!)
+- Link zählt ~23 Zeichen
+- 2-4 Hashtags (IM Text, nicht separat)
+- Knapp, prägnant, newsworthy
+- "hashtags" Feld leer lassen (sind im Text)
+- CTA: kurz und knackig',
+        ];
     }
 }
