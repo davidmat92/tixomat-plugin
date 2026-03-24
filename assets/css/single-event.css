@@ -3,14 +3,17 @@
    Uses --tix-card-* CSS variables from Settings
    ═══════════════════════════════════════════ */
 
-/* Wrap — max-width + gap from Event-Seite settings, rest from Event-Karten */
+/* Wrap */
 .tse-wrap {
     max-width: var(--ep-max-w, 1100px);
     margin: 0 auto;
-    padding: 0 32px 64px;
+    padding: var(--tse-pad-y, 32px) var(--tse-pad-x, 32px) var(--tse-pad-y, 64px);
 }
 
-/* Grid: 2 Columns */
+/* Spacing under sticky tabs */
+.tse-tabs + .tse-wrap { padding-top: var(--tse-pad-y, 32px); }
+
+/* Grid: 2 Columns (default) */
 .tse-grid {
     display: grid;
     grid-template-columns: 1fr 380px;
@@ -18,7 +21,20 @@
     align-items: start;
 }
 
-/* Sidebar: sticky */
+/* 1-Column Layout */
+.tse-layout-1col .tse-grid {
+    grid-template-columns: 1fr;
+    max-width: 720px;
+    margin: 0 auto;
+}
+.tse-layout-1col .tse-sidebar {
+    position: static;
+    grid-column: 1;
+    grid-row: auto;
+}
+
+/* Sidebar: sticky (2col) */
+.tse-layout-2col .tse-sidebar,
 .tse-sidebar {
     grid-column: 2;
     grid-row: 1 / span 30;

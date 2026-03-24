@@ -82,6 +82,12 @@ class TIX_Settings {
             'ep_layout'          => '2col',   // '1col' oder '2col'
             'ep_max_width'       => 1100,
             'ep_gap'             => 32,
+            'ep_pad_x'           => 32,       // Padding links/rechts
+            'ep_pad_y'           => 40,       // Padding oben/unten
+            // ── Event-Karten Seite ──
+            'ec_page_enabled'    => 0,        // Automatische /events/ Seite
+            'ec_pad_x'           => 32,
+            'ec_pad_y'           => 56,
             'ep_radius'          => 12,
             'ep_bg'              => '',       // leer = #fff
             'ep_text'            => '',       // leer = #1a1a1a
@@ -607,6 +613,11 @@ class TIX_Settings {
         $clean['ep_template_enabled'] = !empty($input['ep_template_enabled']) ? 1 : 0;
         $clean['ep_hero_height'] = max(150, min(600, intval($input['ep_hero_height'] ?? 380)));
         $clean['ep_layout'] = in_array($input['ep_layout'] ?? '', ['1col', '2col']) ? $input['ep_layout'] : '2col';
+        $clean['ep_pad_x'] = max(0, min(80, intval($input['ep_pad_x'] ?? 32)));
+        $clean['ep_pad_y'] = max(0, min(120, intval($input['ep_pad_y'] ?? 40)));
+        $clean['ec_page_enabled'] = !empty($input['ec_page_enabled']) ? 1 : 0;
+        $clean['ec_pad_x'] = max(0, min(80, intval($input['ec_pad_x'] ?? 32)));
+        $clean['ec_pad_y'] = max(0, min(120, intval($input['ec_pad_y'] ?? 56)));
         // Event-Seite Zahlen
         $clean['ep_max_width'] = max(400, min(1600, intval($input['ep_max_width'] ?? 1100)));
         $clean['ep_gap']       = max(12, min(48, intval($input['ep_gap'] ?? 32)));
@@ -1267,9 +1278,16 @@ class TIX_Settings {
         if (!empty($s['ep_text']))           $ep_vars[] = '--ep-text: ' . $s['ep_text'];
         if (!empty($s['ep_muted']))          $ep_vars[] = '--ep-muted: ' . $s['ep_muted'];
         if (!empty($s['ep_border']))         $ep_vars[] = '--ep-border: ' . $s['ep_border'];
+        // Padding-Vars
+        $ep_vars[] = '--tse-pad-x: ' . intval($s['ep_pad_x'] ?? 32) . 'px';
+        $ep_vars[] = '--tse-pad-y: ' . intval($s['ep_pad_y'] ?? 40) . 'px';
         if (!empty($ep_vars)) {
             echo ".tix-ep, .tse-wrap {\n    " . implode(";\n    ", $ep_vars) . ";\n}\n";
         }
+        // Event-Karten Seite Padding
+        $ec_pad_x = intval($s['ec_pad_x'] ?? 32);
+        $ec_pad_y = intval($s['ec_pad_y'] ?? 56);
+        echo ".section { padding: {$ec_pad_y}px {$ec_pad_x}px; }\n";
 
         // ── Meine Tickets Styles ──
         $mt_vars = [];
@@ -2462,8 +2480,10 @@ class TIX_Settings {
                                             </div>
                                             <?php self::range_row('ep_max_width', 'Max. Breite', $s, 400, 1600, 'px', 10); ?>
                                             <?php self::range_row('ep_gap', 'Sektions-Abstand', $s, 12, 48, 'px'); ?>
+                                            <?php self::range_row('ep_pad_x', 'Padding seitlich', $s, 0, 80, 'px'); ?>
+                                            <?php self::range_row('ep_pad_y', 'Padding oben/unten', $s, 0, 120, 'px'); ?>
                                             <div class="tix-field tix-field-full">
-                                                <p class="tix-settings-hint">Eckenradius, Schriften und Farben werden im Tab <strong><a href="#" onclick="document.querySelector('[data-tab=event-cards]').click();return false;">Event-Karten</a></strong> eingestellt und gelten für Karten + Einzelseite.</p>
+                                                <p class="tix-settings-hint">Farben, Schriften und Radius → <strong><a href="#" onclick="document.querySelector('[data-tab=event-cards]').click();return false;">Event-Karten</a></strong> Tab.</p>
                                             </div>
                                         </div>
                                     </div>
@@ -2703,6 +2723,23 @@ class TIX_Settings {
                                             <div class="tix-field tix-field-full">
                                                 <?php self::checkbox_row('tix_card_show_badges', 'Status-Badges anzeigen (Empfehlung, Heute, Letzte X, etc.)', $s); ?>
                                             </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Karten-Seite ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-admin-page"></span>
+                                        <h3>Automatische Event-Seite</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('ec_page_enabled', 'Automatische /events/ Seite erstellen', $s, 'Erstellt eine Archivseite unter /events/ die alle Events als Karten anzeigt. Alternativ: Shortcode [tix_events] manuell einbetten.'); ?>
+                                            </div>
+                                            <?php self::range_row('ec_pad_x', 'Padding seitlich', $s, 0, 80, 'px'); ?>
+                                            <?php self::range_row('ec_pad_y', 'Padding oben/unten', $s, 0, 120, 'px'); ?>
                                         </div>
                                     </div>
                                 </div>

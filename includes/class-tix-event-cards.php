@@ -12,12 +12,28 @@ class TIX_Event_Cards {
     public static function init() {
         add_shortcode('tix_events', [__CLASS__, 'render']);
         add_shortcode('tix_search', [__CLASS__, 'render_search']);
+
+        // Automatische /events/ Archive-Seite
+        if (function_exists('tix_get_settings') && tix_get_settings('ec_page_enabled')) {
+            add_filter('archive_template', [__CLASS__, 'archive_template']);
+        }
         add_action('wp_ajax_tix_toggle_save_event',        [__CLASS__, 'ajax_toggle_save']);
         add_action('wp_ajax_nopriv_tix_toggle_save_event', [__CLASS__, 'ajax_toggle_save_nopriv']);
         add_action('wp_ajax_tix_filter_events',            [__CLASS__, 'ajax_filter']);
         add_action('wp_ajax_nopriv_tix_filter_events',     [__CLASS__, 'ajax_filter']);
         add_action('wp_ajax_tix_search_events',            [__CLASS__, 'ajax_search']);
         add_action('wp_ajax_nopriv_tix_search_events',     [__CLASS__, 'ajax_search']);
+    }
+
+    /**
+     * Archive-Template für /events/
+     */
+    public static function archive_template($template) {
+        if (is_post_type_archive('event') || (is_tax('event_category'))) {
+            $plugin_tpl = TIXOMAT_PATH . 'templates/archive-event.php';
+            if (file_exists($plugin_tpl)) return $plugin_tpl;
+        }
+        return $template;
     }
 
     /**

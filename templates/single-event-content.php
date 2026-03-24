@@ -7,6 +7,7 @@ if (!defined('ABSPATH')) exit;
 
 $id = get_the_ID();
 $tabs = TIX_Single_Event::get_tabs($id);
+$ep_layout = tix_get_settings('ep_layout') ?: '2col';
 
 // JS-Daten für Countdown/Kalender/Share
 if (!wp_script_is('tix-single-event', 'enqueued')) {
@@ -35,7 +36,7 @@ wp_localize_script('tix-single-event', 'tixSingle', [
 </div>
 <?php endif; ?>
 
-<div class="tse-wrap">
+<div class="tse-wrap tse-layout-<?php echo esc_attr($ep_layout); ?>">
     <div class="tse-grid">
 
         <div class="tse-sidebar">
