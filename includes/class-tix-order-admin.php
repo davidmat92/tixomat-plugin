@@ -77,6 +77,7 @@ class TIX_Order_Admin {
             'completed'  => 'Abgeschlossen',
             'processing' => 'In Bearbeitung',
             'pending'    => 'Ausstehend',
+            'on-hold'    => 'Wartend (Banküberweisung)',
             'cancelled'  => 'Storniert',
             'failed'     => 'Fehlgeschlagen',
             'refunded'   => 'Erstattet',
@@ -212,6 +213,7 @@ class TIX_Order_Admin {
             'completed'  => ['label' => 'Abgeschlossen',  'color' => '#22c55e'],
             'processing' => ['label' => 'In Bearbeitung',  'color' => '#3b82f6'],
             'pending'    => ['label' => 'Ausstehend',      'color' => '#f59e0b'],
+            'on-hold'    => ['label' => 'Wartend',          'color' => '#f97316'],
             'cancelled'  => ['label' => 'Storniert',       'color' => '#6b7280'],
             'failed'     => ['label' => 'Fehlgeschlagen',  'color' => '#ef4444'],
             'refunded'   => ['label' => 'Erstattet',       'color' => '#8b5cf6'],
@@ -371,7 +373,7 @@ class TIX_Order_Admin {
 
         $order_id = intval($_POST['order_id'] ?? 0);
         $status = sanitize_text_field($_POST['status'] ?? '');
-        $allowed = ['completed', 'processing', 'pending', 'cancelled', 'failed', 'refunded'];
+        $allowed = ['completed', 'processing', 'pending', 'on-hold', 'cancelled', 'failed', 'refunded'];
 
         if (!$order_id || !in_array($status, $allowed)) {
             wp_send_json_error(['message' => 'Ungültige Parameter.']);

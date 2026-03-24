@@ -318,6 +318,12 @@ class TIX_Settings {
             'paypal_client_id'    => '',
             'paypal_secret'       => '',
             'paypal_sandbox'      => 0,
+            'bank_transfer_enabled' => 0,
+            'bank_name'           => '',
+            'bank_iban'           => '',
+            'bank_bic'            => '',
+            'bank_holder'         => '',
+            'bank_reference'      => 'Bestellnummer angeben',
             // ── Event-Karten ──
             'tix_card_color_signal'      => '#E8445A',
             'tix_card_color_signal_mid'  => '#F2899A',
@@ -776,6 +782,12 @@ class TIX_Settings {
         $clean['paypal_client_id'] = sanitize_text_field($input['paypal_client_id'] ?? '');
         $clean['paypal_secret']    = sanitize_text_field($input['paypal_secret'] ?? '');
         $clean['paypal_sandbox']   = !empty($input['paypal_sandbox']) ? 1 : 0;
+        $clean['bank_transfer_enabled'] = !empty($input['bank_transfer_enabled']) ? 1 : 0;
+        $clean['bank_name']     = sanitize_text_field($input['bank_name'] ?? '');
+        $clean['bank_iban']     = sanitize_text_field($input['bank_iban'] ?? '');
+        $clean['bank_bic']      = sanitize_text_field($input['bank_bic'] ?? '');
+        $clean['bank_holder']   = sanitize_text_field($input['bank_holder'] ?? '');
+        $clean['bank_reference'] = sanitize_text_field($input['bank_reference'] ?? '');
 
         // Syndication
         $clean['syndication_enabled']        = !empty($input['syndication_enabled']) ? 1 : 0;
@@ -1979,6 +1991,73 @@ class TIX_Settings {
                                                 });
                                             });
                                             </script>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Checkout-Modus ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-admin-generic"></span>
+                                        <h3>Checkout-Modus</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <?php $checkout_mode = $s['checkout_mode'] ?? 'auto'; $wc_active = function_exists('tix_has_wc') && tix_has_wc(); ?>
+                                            <div class="tix-field tix-field-full">
+                                                <label class="tix-label">Modus</label>
+                                                <select name="tix_settings[checkout_mode]" style="width:100%;max-width:420px;">
+                                                    <option value="auto" <?php selected($checkout_mode, 'auto'); ?>>Automatisch (WooCommerce wenn installiert, sonst nativ)</option>
+                                                    <option value="woocommerce" <?php selected($checkout_mode, 'woocommerce'); ?>>WooCommerce <?php echo $wc_active ? '(aktiv)' : '(nicht installiert!)'; ?></option>
+                                                    <option value="native" <?php selected($checkout_mode, 'native'); ?>>Nativ (ohne WooCommerce)</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Zahlungsanbieter ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-money-alt"></span>
+                                        <h3>Zahlungsanbieter</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <p class="tix-settings-hint" style="margin-top:0;">Kostenlose Events funktionieren immer ohne Zahlungsanbieter.</p>
+                                            </div>
+                                            <?php self::text_row('mollie_api_key', 'Mollie API Key', $s, 'live_... oder test_...'); ?>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('mollie_test_mode', 'Mollie Test-Modus', $s); ?>
+                                                <p class="tix-settings-hint"><a href="https://my.mollie.com/dashboard/developers/api-keys" target="_blank">Mollie Keys →</a></p>
+                                            </div>
+                                            <?php self::text_row('paypal_client_id', 'PayPal Client ID', $s, 'A...'); ?>
+                                            <?php self::text_row('paypal_secret', 'PayPal Secret', $s, 'E...'); ?>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('paypal_sandbox', 'PayPal Sandbox', $s); ?>
+                                                <p class="tix-settings-hint"><a href="https://developer.paypal.com/dashboard/applications" target="_blank">PayPal Dashboard →</a></p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Banküberweisung ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-bank"></span>
+                                        <h3>Banküberweisung (Vorkasse)</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('bank_transfer_enabled', 'Banküberweisung aktivieren', $s, 'Kunden können per Vorkasse bezahlen. Tickets werden erst nach Zahlungseingang erstellt (Status: Wartend).'); ?>
+                                            </div>
+                                            <?php self::text_row('bank_holder', 'Kontoinhaber', $s, 'Max Mustermann GmbH'); ?>
+                                            <?php self::text_row('bank_iban', 'IBAN', $s, 'DE89 3704 0044 0532 0130 00'); ?>
+                                            <?php self::text_row('bank_bic', 'BIC', $s, 'COBADEFFXXX'); ?>
+                                            <?php self::text_row('bank_name', 'Bank', $s, 'Commerzbank'); ?>
+                                            <?php self::text_row('bank_reference', 'Verwendungszweck-Hinweis', $s, 'Bestellnummer angeben'); ?>
                                         </div>
                                     </div>
                                 </div>
@@ -3350,65 +3429,6 @@ class TIX_Settings {
                                         <div class="tix-field-grid">
                                             <div class="tix-field tix-field-full">
                                                 <?php self::checkbox_row('express_checkout_enabled', '1-Klick-Kauf für eingeloggte User aktivieren', $s, 'Zeigt einen "Sofort kaufen"-Button für Nutzer mit gespeicherten Zahlungsmethoden. Muss zusätzlich pro Event aktiviert werden.'); ?>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <?php // ── Card: Checkout-Modus ── ?>
-                                <div class="tix-card">
-                                    <div class="tix-card-header">
-                                        <span class="dashicons dashicons-cart"></span>
-                                        <h3>Checkout-Modus</h3>
-                                    </div>
-                                    <div class="tix-card-body">
-                                        <div class="tix-field-grid">
-                                            <?php
-                                            $checkout_mode = $s['checkout_mode'] ?? 'auto';
-                                            $wc_active = function_exists('tix_has_wc') && tix_has_wc();
-                                            ?>
-                                            <div class="tix-field tix-field-full">
-                                                <label class="tix-label">Modus</label>
-                                                <select name="tix_settings[checkout_mode]" style="width:100%;max-width:420px;">
-                                                    <option value="auto" <?php selected($checkout_mode, 'auto'); ?>>Automatisch (WooCommerce wenn installiert, sonst nativ)</option>
-                                                    <option value="woocommerce" <?php selected($checkout_mode, 'woocommerce'); ?>>WooCommerce <?php echo $wc_active ? '(aktiv)' : '(nicht installiert!)'; ?></option>
-                                                    <option value="native" <?php selected($checkout_mode, 'native'); ?>>Nativ (ohne WooCommerce) — in Entwicklung</option>
-                                                </select>
-                                                <p class="tix-settings-hint">
-                                                    <?php if ($wc_active): ?>
-                                                        WooCommerce ist installiert und aktiv. Alle Checkout-Funktionen sind verfügbar.
-                                                    <?php else: ?>
-                                                        <strong style="color:#f59e0b;">WooCommerce ist nicht installiert.</strong> Event-Verwaltung, Evendis-Assistent und Vorlagen funktionieren. Ticketverkauf benötigt den nativen Checkout (kommt bald) oder WooCommerce.
-                                                    <?php endif; ?>
-                                                </p>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <?php // ── Card: Zahlungsanbieter (nativer Checkout) ── ?>
-                                <div class="tix-card">
-                                    <div class="tix-card-header">
-                                        <span class="dashicons dashicons-money-alt"></span>
-                                        <h3>Zahlungsanbieter</h3>
-                                    </div>
-                                    <div class="tix-card-body">
-                                        <div class="tix-field-grid">
-                                            <div class="tix-field tix-field-full">
-                                                <p class="tix-settings-hint" style="margin-top:0;">
-                                                    Für den nativen Checkout (ohne WooCommerce). Kostenlose Events funktionieren immer ohne Zahlungsanbieter.
-                                                </p>
-                                            </div>
-                                            <?php self::text_row('mollie_api_key', 'Mollie API Key', $s, 'live_... oder test_...'); ?>
-                                            <div class="tix-field tix-field-full">
-                                                <?php self::checkbox_row('mollie_test_mode', 'Mollie Test-Modus aktivieren', $s, 'Verwendet den Test-API-Key. Keine echten Zahlungen.'); ?>
-                                                <p class="tix-settings-hint"><a href="https://my.mollie.com/dashboard/developers/api-keys" target="_blank">Mollie API Keys →</a></p>
-                                            </div>
-                                            <?php self::text_row('paypal_client_id', 'PayPal Client ID', $s, 'A...'); ?>
-                                            <?php self::text_row('paypal_secret', 'PayPal Secret', $s, 'E...'); ?>
-                                            <div class="tix-field tix-field-full">
-                                                <?php self::checkbox_row('paypal_sandbox', 'PayPal Sandbox aktivieren', $s, 'Verwendet die PayPal Sandbox. Keine echten Zahlungen.'); ?>
-                                                <p class="tix-settings-hint"><a href="https://developer.paypal.com/dashboard/applications" target="_blank">PayPal Developer Dashboard →</a></p>
                                             </div>
                                         </div>
                                     </div>

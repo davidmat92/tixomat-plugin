@@ -322,6 +322,9 @@ class TIX_Native_Checkout {
             if (TIX_Gateway_PayPal::is_available()) {
                 $gateways[] = ['id' => 'paypal', 'title' => TIX_Gateway_PayPal::get_title(), 'icon' => TIX_Gateway_PayPal::get_icon()];
             }
+            if (TIX_Gateway_Bank::is_available()) {
+                $gateways[] = ['id' => 'bank', 'title' => TIX_Gateway_Bank::get_title(), 'icon' => ''];
+            }
         }
 
         $btn_text = $s['btn_text_checkout'] ?? 'Jetzt bestellen';
@@ -554,6 +557,8 @@ class TIX_Native_Checkout {
             $result = TIX_Gateway_Mollie::process($order_id);
         } elseif ($payment_method === 'paypal') {
             $result = TIX_Gateway_PayPal::process($order_id);
+        } elseif ($payment_method === 'bank') {
+            $result = TIX_Gateway_Bank::process($order_id);
         } else {
             wp_send_json_error(['message' => 'Unbekannte Zahlungsart.']);
             return;
@@ -772,13 +777,37 @@ class TIX_Native_Checkout {
                 <h1>Vielen Dank für deine Bestellung!</h1>
                 <p>Bestellung <?php echo esc_html($order->order_number); ?> &middot; Bestätigung wird an <?php echo esc_html($order->billing_email); ?> gesendet.</p>
             </div>
-        <?php elseif ($order->status === 'pending'): ?>
+        <?php elseif ($order->status === 'pending' || $order->status === 'on-hold'): ?>
             <div class="ty-status">
                 <div class="ty-check" style="background:#f59e0b;">⏳</div>
-                <h1>Zahlung wird verarbeitet</h1>
-                <p>Bestellung <?php echo esc_html($order->order_number); ?> &middot; Du erhältst eine Bestätigung per E-Mail sobald die Zahlung eingegangen ist.</p>
+                <?php if ($order->payment_method === 'bank'): ?>
+                    <h1>Bitte überweise den Betrag</h1>
+                    <p>Bestellung <?php echo esc_html($order->order_number); ?> &middot; Deine Tickets werden erstellt sobald die Zahlung eingegangen ist.</p>
+                <?php else: ?>
+                    <h1>Zahlung wird verarbeitet</h1>
+                    <p>Bestellung <?php echo esc_html($order->order_number); ?> &middot; Du erhältst eine Bestätigung per E-Mail sobald die Zahlung eingegangen ist.</p>
+                <?php endif; ?>
             </div>
-            <div class="ty-pending">Die Zahlung wird gerade verarbeitet. Deine Tickets werden automatisch erstellt sobald die Zahlung bestätigt ist.</div>
+            <?php if ($order->payment_method === 'bank'):
+                $bs = tix_get_settings();
+            ?>
+                <div class="ty-card">
+                    <h3>Bankverbindung</h3>
+                    <table style="width:100%;font-size:14px;">
+                        <?php if ($bs['bank_holder']): ?><tr><td style="padding:4px 0;color:#6b7280;">Kontoinhaber</td><td style="padding:4px 0;font-weight:600;"><?php echo esc_html($bs['bank_holder']); ?></td></tr><?php endif; ?>
+                        <?php if ($bs['bank_iban']): ?><tr><td style="padding:4px 0;color:#6b7280;">IBAN</td><td style="padding:4px 0;font-weight:600;font-family:monospace;"><?php echo esc_html($bs['bank_iban']); ?></td></tr><?php endif; ?>
+                        <?php if ($bs['bank_bic']): ?><tr><td style="padding:4px 0;color:#6b7280;">BIC</td><td style="padding:4px 0;"><?php echo esc_html($bs['bank_bic']); ?></td></tr><?php endif; ?>
+                        <?php if ($bs['bank_name']): ?><tr><td style="padding:4px 0;color:#6b7280;">Bank</td><td style="padding:4px 0;"><?php echo esc_html($bs['bank_name']); ?></td></tr><?php endif; ?>
+                        <tr><td style="padding:4px 0;color:#6b7280;">Betrag</td><td style="padding:4px 0;font-weight:700;font-size:16px;"><?php echo number_format($order->total, 2, ',', '.'); ?> &euro;</td></tr>
+                        <tr><td style="padding:4px 0;color:#6b7280;">Verwendungszweck</td><td style="padding:4px 0;font-weight:600;"><?php echo esc_html($order->order_number); ?></td></tr>
+                    </table>
+                    <?php if ($bs['bank_reference']): ?>
+                        <p style="margin-top:12px;font-size:13px;color:#6b7280;"><?php echo esc_html($bs['bank_reference']); ?></p>
+                    <?php endif; ?>
+                </div>
+            <?php else: ?>
+                <div class="ty-pending">Die Zahlung wird gerade verarbeitet. Deine Tickets werden automatisch erstellt sobald die Zahlung bestätigt ist.</div>
+            <?php endif; ?>
         <?php else: ?>
             <div class="ty-status">
                 <div class="ty-check" style="background:#ef4444;">✗</div>
