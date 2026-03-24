@@ -1808,10 +1808,12 @@
 
         function appendChatBubble(role, text) {
             var isUser = role === 'user';
-            var bg = isUser ? 'color-mix(in srgb, var(--tix-primary, #FF5500) 10%, #fff)' : '#f3f4f6';
+            var bg = isUser ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.05)';
+            var color = '#e2e8f0';
             var align = isUser ? 'flex-end' : 'flex-start';
-            var bubble = '<div style="display:flex;justify-content:' + align + ';margin-bottom:6px;">' +
-                '<div style="max-width:80%;padding:8px 12px;border-radius:10px;background:' + bg + ';font-size:13px;line-height:1.4;">' +
+            var border = isUser ? '10px 10px 2px 10px' : '10px 10px 10px 2px';
+            var bubble = '<div style="display:flex;justify-content:' + align + ';margin-bottom:8px;">' +
+                '<div style="max-width:80%;padding:10px 14px;border-radius:' + border + ';background:' + bg + ';font-size:13px;line-height:1.5;color:' + color + ';">' +
                 $('<span>').text(text).html() +
                 '</div></div>';
             $chatConv.append(bubble);

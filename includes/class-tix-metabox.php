@@ -285,48 +285,72 @@ class TIX_Metabox {
             <?php // ── Event-Preset Auswahl ── ?>
             <?php self::render_preset_selector($post); ?>
 
-            <?php // ── Evendis-Assistent: Felder aus Bild/URL füllen ── ?>
+            <?php // ── Evendis-Assistent ── ?>
             <?php $ai_key = function_exists('tix_get_settings') ? (tix_get_settings('anthropic_api_key') ?: tix_get_settings('openai_api_key')) : '';
             if ($ai_key): ?>
-            <div class="tix-ai-fill-bar" id="tix-ai-fill-bar">
-                <div class="tix-ai-bar-top">
-                    <div style="display:flex;align-items:center;gap:8px;">
-                        <span class="dashicons dashicons-admin-generic" style="color:var(--tix-primary, #FF5500);font-size:20px;width:20px;height:20px"></span>
-                        <strong style="font-size:13px;">Evendis-Assistent</strong>
+            <div class="tix-ai" id="tix-ai-fill-bar">
+
+                <div class="tix-ai-header">
+                    <div class="tix-ai-brand">
+                        <div class="tix-ai-icon">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a4 4 0 0 1 4 4v2a4 4 0 0 1-8 0V6a4 4 0 0 1 4-4z"/><path d="M16 14a4 4 0 0 1 4 4v2H4v-2a4 4 0 0 1 4-4"/><circle cx="12" cy="6" r="1" fill="currentColor"/></svg>
+                        </div>
+                        <div>
+                            <strong class="tix-ai-title">Evendis-Assistent</strong>
+                            <span class="tix-ai-subtitle">Erstelle dein Event in Sekunden</span>
+                        </div>
                     </div>
-                    <div style="display:flex;align-items:center;gap:6px;">
-                        <input type="url" id="tix-ai-fill-url" placeholder="https://eventseite.de/..." style="width:220px;font-size:12px;padding:5px 10px;border:1px solid #d1d5db;border-radius:6px;">
-                        <button type="button" class="button" id="tix-ai-fill-url-btn" style="display:flex;align-items:center;gap:4px;font-size:12px;">
-                            <span class="dashicons dashicons-admin-links" style="font-size:14px;width:14px;height:14px;line-height:14px"></span>
+                </div>
+
+                <div class="tix-ai-modes">
+                    <div class="tix-ai-mode tix-ai-mode-chat">
+                        <div class="tix-ai-mode-icon">
+                            <span class="dashicons dashicons-edit-large"></span>
+                        </div>
+                        <div class="tix-ai-mode-label">Beschreiben</div>
+                        <textarea id="tix-ai-chat-text" rows="3" placeholder="Beschreibe dein Event…&#10;z.B. Techno Party am 15. Mai, 22 Uhr, Scala Club Leverkusen, ab 18, VVK 15€"></textarea>
+                        <button type="button" class="tix-ai-mode-btn" id="tix-ai-chat-btn">
+                            <span class="dashicons dashicons-arrow-right-alt"></span>
+                            Generieren
+                        </button>
+                    </div>
+
+                    <div class="tix-ai-mode tix-ai-mode-upload">
+                        <div class="tix-ai-mode-icon">
+                            <span class="dashicons dashicons-format-image"></span>
+                        </div>
+                        <div class="tix-ai-mode-label">Flyer hochladen</div>
+                        <div class="tix-ai-dropzone" id="tix-ai-dropzone">
+                            <input type="file" id="tix-ai-file-input" accept="image/jpeg,image/png,image/gif,image/webp" style="display:none;">
+                            <div class="tix-ai-dropzone-idle" id="tix-ai-dropzone-idle">
+                                <span class="dashicons dashicons-cloud-upload"></span>
+                                <span>Drag & Drop<br>oder <a href="#" id="tix-ai-dropzone-browse">durchsuchen</a></span>
+                            </div>
+                            <div class="tix-ai-dropzone-preview" id="tix-ai-dropzone-preview" style="display:none;">
+                                <img id="tix-ai-dropzone-thumb" src="" alt="">
+                                <div class="tix-ai-dropzone-info">
+                                    <span id="tix-ai-dropzone-name"></span>
+                                    <button type="button" class="tix-ai-dropzone-remove" id="tix-ai-dropzone-remove">&times;</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="tix-ai-mode tix-ai-mode-url">
+                        <div class="tix-ai-mode-icon">
+                            <span class="dashicons dashicons-admin-links"></span>
+                        </div>
+                        <div class="tix-ai-mode-label">URL analysieren</div>
+                        <input type="url" id="tix-ai-fill-url" class="tix-ai-url-input" placeholder="https://...">
+                        <button type="button" class="tix-ai-mode-btn" id="tix-ai-fill-url-btn">
+                            <span class="dashicons dashicons-arrow-right-alt"></span>
                             Analysieren
                         </button>
                     </div>
                 </div>
-                <div style="display:flex;gap:8px;align-items:stretch;">
-                    <div class="tix-ai-dropzone" id="tix-ai-dropzone" style="flex:1;">
-                        <input type="file" id="tix-ai-file-input" accept="image/jpeg,image/png,image/gif,image/webp" style="display:none;">
-                        <div class="tix-ai-dropzone-idle" id="tix-ai-dropzone-idle">
-                            <span class="dashicons dashicons-upload" style="font-size:24px;width:24px;height:24px;color:var(--tix-primary, #FF5500);"></span>
-                            <span>Flyer / Bild hierher ziehen oder <a href="#" id="tix-ai-dropzone-browse">durchsuchen</a></span>
-                        </div>
-                        <div class="tix-ai-dropzone-preview" id="tix-ai-dropzone-preview" style="display:none;">
-                            <img id="tix-ai-dropzone-thumb" src="" alt="">
-                            <div class="tix-ai-dropzone-info">
-                                <span id="tix-ai-dropzone-name"></span>
-                                <button type="button" class="tix-ai-dropzone-remove" id="tix-ai-dropzone-remove">&times;</button>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="tix-ai-chat-input" style="flex:1;display:flex;flex-direction:column;gap:4px;">
-                        <textarea id="tix-ai-chat-text" rows="2" placeholder="Oder beschreibe dein Event in Stichpunkten…&#10;z.B. Techno Party, Samstag 20 Uhr, Scala Club, ab 18, 15€ VVK" style="flex:1;font-size:12px;padding:8px 10px;border:2px dashed #d1d5db;border-radius:10px;resize:none;font-family:inherit;"></textarea>
-                        <button type="button" class="button" id="tix-ai-chat-btn" style="align-self:flex-end;display:flex;align-items:center;gap:4px;font-size:12px;">
-                            <span class="dashicons dashicons-edit" style="font-size:14px;width:14px;height:14px;line-height:14px"></span>
-                            Event generieren
-                        </button>
-                    </div>
-                </div>
-                <div id="tix-ai-chat-conversation" style="display:none;margin-top:8px;"></div>
-                <div id="tix-ai-fill-status" style="display:none;font-size:12px;color:var(--tix-primary, #FF5500);margin-top:4px;width:100%;"></div>
+
+                <div id="tix-ai-chat-conversation" class="tix-ai-conversation"></div>
+                <div id="tix-ai-fill-status" class="tix-ai-status"></div>
             </div>
             <?php endif; ?>
 
