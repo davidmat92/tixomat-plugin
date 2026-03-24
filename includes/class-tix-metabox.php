@@ -775,7 +775,7 @@ class TIX_Metabox {
                     <?php wp_editor($content ?: '', 'tix_info_' . $key, [
                         'textarea_name' => "tix_info[$key]",
                         'media_buttons' => false,
-                        'textarea_rows' => 5,
+                        'textarea_rows' => 10,
                         'teeny'         => true,
                         'quicktags'     => ['buttons' => 'strong,em,link,ul,ol,li'],
                     ]); ?>
