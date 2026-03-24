@@ -64,7 +64,7 @@
             ];
 
             // Ticket-Pflichtfeld nur wenn Tickets aktiviert
-            var ticketsOn = $('#tix-tickets-toggle').is(':checked');
+            var ticketsOn = $('#tix-tickets-enabled').is(':checked');
             if (ticketsOn) {
                 fields.push({
                     name: 'Mind. 1 Ticket',
@@ -1683,118 +1683,202 @@
 
             $.post(tixAdmin.ajaxUrl, data, function(r) {
                 $btns.prop('disabled', false);
+                $status.hide();
                 if (!r.success) {
-                    $status.html('<span style="color:#ef4444;">✗ ' + (r.data ? r.data.message : 'Fehler') + '</span>');
+                    $status.show().html('<span style="color:#ef4444;">✗ ' + (r.data ? r.data.message : 'Fehler') + '</span>');
                     setTimeout(function() { $status.fadeOut(); }, 5000);
                     return;
                 }
-
-                var f = r.data.fields;
-                var filled = [];
-
-                // Titel (beide Felder synced setzen)
-                if (f.title) {
-                    var currentTitle = $('#title').val();
-                    if (!currentTitle || currentTitle === 'Automatischer Entwurf') {
-                        $('#title').val(f.title).trigger('change');
-                        $('#tix-expert-title').val(f.title).trigger('change');
-                        filled.push('Titel');
-                    }
-                }
-
-                // Datum & Zeit
-                if (f.date_start) {
-                    $('[name="tix_date_start"]').val(f.date_start).trigger('change');
-                    filled.push('Startdatum');
-                }
-                if (f.date_end) {
-                    $('[name="tix_date_end"]').val(f.date_end).trigger('change');
-                }
-                if (f.time_start) {
-                    setTimeSelect('tix_time_start', f.time_start);
-                    filled.push('Startzeit');
-                }
-                if (f.time_end) {
-                    setTimeSelect('tix_time_end', f.time_end);
-                }
-                if (f.time_doors) {
-                    setTimeSelect('tix_time_doors', f.time_doors);
-                    filled.push('Einlass');
-                }
-
-                // Location (auto-matched vom Server)
-                if (f.location_id && !$('#tix_location_id').val()) {
-                    $('#tix_location_id').val(f.location_id).trigger('change');
-                    filled.push('Location');
-                }
-
-                // Event-Kategorie
-                if (f.category_ids && f.category_ids.length) {
-                    f.category_ids.forEach(function(id) {
-                        $('input[name="tax_input[event_category][]"][value="' + id + '"]').prop('checked', true);
-                    });
-                    filled.push('Kategorie');
-                }
-
-                // Info-Felder (nur füllen wenn leer)
-                if (f.description) {
-                    setEditorContent('tix_info_description', f.description);
-                    filled.push('Beschreibung');
-                }
-                if (f.lineup) {
-                    setEditorContent('tix_info_lineup', f.lineup);
-                    filled.push('Line-Up');
-                }
-                if (f.specials) {
-                    setEditorContent('tix_info_specials', f.specials);
-                    filled.push('Specials');
-                }
-                if (f.extra_info) {
-                    setEditorContent('tix_info_extra_info', f.extra_info);
-                    filled.push('Weitere Infos');
-                }
-                if (f.age_limit !== '' && f.age_limit !== null) {
-                    $('[name="tix_info[age_limit]"]').val(f.age_limit).trigger('change');
-                    filled.push('Altersbegrenzung');
-                }
-
-                // Zusammenfassung
-                if (f.excerpt) {
-                    $('#tix-excerpt-field').val(f.excerpt).trigger('change');
-                    $('#tix-excerpt-ai-status').show();
-                    filled.push('Zusammenfassung');
-                }
-
-                // Tickets (erste Kategorie als Vorschlag hinzufügen)
-                if (f.tickets && f.tickets.length && typeof window.tixAddTicketRow === 'function') {
-                    f.tickets.forEach(function(t) {
-                        window.tixAddTicketRow(t.name, t.price, t.description);
-                    });
-                    filled.push(f.tickets.length + ' Ticket(s)');
-                }
-
-                // FAQ
-                if (f.faq && f.faq.length && typeof window.tixAddFaqRow === 'function') {
-                    f.faq.forEach(function(item) {
-                        window.tixAddFaqRow(item.question, item.answer);
-                    });
-                    filled.push(f.faq.length + ' FAQ');
-                }
-
-                // Location-Hinweis wenn nicht auto-matched
-                var locationHint = '';
-                if (f.location && !f.location_id) {
-                    locationHint = ' | Location erkannt: <strong>' + $('<span>').text(f.location).html() + '</strong> (bitte manuell zuordnen)';
-                }
-
-                $status.html('<span style="color:#22c55e;">✓ ' + filled.length + ' Felder gefüllt: ' + filled.join(', ') + '</span>' + locationHint);
-                setTimeout(function() { $status.fadeOut(400); }, 8000);
-
+                showPreviewModal(r.data.fields);
             }).fail(function() {
                 $btns.prop('disabled', false);
-                $status.html('<span style="color:#ef4444;">✗ Netzwerkfehler</span>');
+                $status.show().html('<span style="color:#ef4444;">✗ Netzwerkfehler</span>');
                 setTimeout(function() { $status.fadeOut(); }, 5000);
             });
+        }
+
+        // ── Preview-Modal: Vorschläge anzeigen und bestätigen lassen ──
+        function showPreviewModal(f) {
+            // Vorschläge sammeln
+            var items = [];
+            var esc = function(s) { return $('<span>').text(s || '').html(); };
+            var strip = function(s) { return $('<div>').html(s || '').text().substring(0, 120); };
+
+            if (f.title) items.push({ key: 'title', label: 'Titel', preview: esc(f.title), checked: true });
+            if (f.date_start) items.push({ key: 'date_start', label: 'Startdatum', preview: esc(f.date_start) + (f.time_start ? ' ' + esc(f.time_start) : ''), checked: true });
+            if (f.date_end && f.date_end !== f.date_start) items.push({ key: 'date_end', label: 'Enddatum', preview: esc(f.date_end) + (f.time_end ? ' ' + esc(f.time_end) : ''), checked: true });
+            if (f.time_doors) items.push({ key: 'time_doors', label: 'Einlass', preview: esc(f.time_doors) + ' Uhr', checked: true });
+            if (f.location) {
+                var locLabel = f.location_id ? 'Location (erkannt)' : 'Location (nicht zugeordnet)';
+                items.push({ key: 'location', label: locLabel, preview: esc(f.location) + (f.location_address ? ', ' + esc(f.location_address) : ''), checked: !!f.location_id });
+            }
+            if (f.category_ids && f.category_ids.length) {
+                var catNames = [];
+                f.category_ids.forEach(function(id) {
+                    var $cb = $('input[name="tax_input[event_category][]"][value="' + id + '"]');
+                    if ($cb.length) catNames.push($cb.parent().text().trim());
+                });
+                if (catNames.length) items.push({ key: 'category', label: 'Kategorie', preview: esc(catNames.join(', ')), checked: true });
+            }
+            if (f.description) items.push({ key: 'description', label: 'Beschreibung', preview: strip(f.description), checked: true });
+            if (f.lineup) items.push({ key: 'lineup', label: 'Line-Up', preview: strip(f.lineup), checked: true });
+            if (f.specials) items.push({ key: 'specials', label: 'Specials', preview: strip(f.specials), checked: true });
+            if (f.extra_info) items.push({ key: 'extra_info', label: 'Weitere Infos', preview: strip(f.extra_info), checked: true });
+            if (f.age_limit !== '' && f.age_limit !== null) items.push({ key: 'age_limit', label: 'Altersbegrenzung', preview: esc(f.age_limit) + ' Jahre', checked: true });
+            if (f.excerpt) items.push({ key: 'excerpt', label: 'Zusammenfassung', preview: esc(f.excerpt), checked: true });
+            if (f.tickets && f.tickets.length) {
+                var ticketPrev = f.tickets.map(function(t) { return esc(t.name) + (t.price ? ' (' + t.price.toFixed(2) + ' €)' : ''); }).join(', ');
+                items.push({ key: 'tickets', label: 'Tickets (' + f.tickets.length + ')', preview: ticketPrev, checked: true });
+            }
+            if (f.faq && f.faq.length) {
+                items.push({ key: 'faq', label: 'FAQ (' + f.faq.length + ')', preview: f.faq.map(function(q) { return esc(q.question); }).join(', '), checked: true });
+            }
+
+            if (!items.length) {
+                alert('Keine verwertbaren Informationen gefunden.');
+                return;
+            }
+
+            // Modal-HTML bauen
+            var rows = '';
+            items.forEach(function(item, idx) {
+                rows += '<label class="tix-ai-preview-row" style="display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid #f0f0f0;cursor:pointer;">' +
+                    '<input type="checkbox" data-key="' + item.key + '" ' + (item.checked ? 'checked' : '') + ' style="margin-top:3px;flex-shrink:0;">' +
+                    '<span style="flex:1;min-width:0;">' +
+                        '<strong style="font-size:13px;color:#1e293b;">' + item.label + '</strong><br>' +
+                        '<span style="font-size:12px;color:#6b7280;word-break:break-word;">' + item.preview + '</span>' +
+                    '</span>' +
+                '</label>';
+            });
+
+            var modal = $(
+                '<div class="tix-ai-preview-overlay" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:100100;display:flex;align-items:center;justify-content:center;">' +
+                    '<div class="tix-ai-preview-modal" style="background:#fff;border-radius:12px;width:580px;max-width:90vw;max-height:80vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,0.3);">' +
+                        '<div style="padding:20px 24px 16px;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;justify-content:space-between;">' +
+                            '<div style="display:flex;align-items:center;gap:10px;">' +
+                                '<span class="dashicons dashicons-admin-generic" style="color:#8b5cf6;font-size:22px;width:22px;height:22px;"></span>' +
+                                '<h3 style="margin:0;font-size:16px;">KI-Vorschläge</h3>' +
+                                '<span style="font-size:12px;color:#6b7280;">' + items.length + ' Felder erkannt</span>' +
+                            '</div>' +
+                            '<label style="font-size:12px;color:#6b7280;cursor:pointer;display:flex;align-items:center;gap:4px;">' +
+                                '<input type="checkbox" id="tix-ai-select-all" checked> Alle' +
+                            '</label>' +
+                        '</div>' +
+                        '<div style="padding:8px 24px;overflow-y:auto;flex:1;">' + rows + '</div>' +
+                        '<div style="padding:16px 24px;border-top:1px solid #e5e7eb;display:flex;justify-content:flex-end;gap:8px;">' +
+                            '<button type="button" class="button tix-ai-preview-cancel">Abbrechen</button>' +
+                            '<button type="button" class="button button-primary tix-ai-preview-apply" style="background:#7c3aed;border-color:#6d28d9;">Übernehmen</button>' +
+                        '</div>' +
+                    '</div>' +
+                '</div>'
+            );
+
+            $('body').append(modal);
+
+            // Select All Toggle
+            modal.on('change', '#tix-ai-select-all', function() {
+                modal.find('.tix-ai-preview-row input[type="checkbox"]').prop('checked', this.checked);
+            });
+
+            // Einzelne Checkbox ändert "Alle" Status
+            modal.on('change', '.tix-ai-preview-row input', function() {
+                var total = modal.find('.tix-ai-preview-row input').length;
+                var checked = modal.find('.tix-ai-preview-row input:checked').length;
+                $('#tix-ai-select-all').prop('checked', checked === total);
+            });
+
+            // Abbrechen
+            modal.on('click', '.tix-ai-preview-cancel, .tix-ai-preview-overlay', function(e) {
+                if (e.target === this) modal.remove();
+            });
+            modal.on('click', '.tix-ai-preview-modal', function(e) { e.stopPropagation(); });
+
+            // Übernehmen
+            modal.on('click', '.tix-ai-preview-apply', function() {
+                var selected = {};
+                modal.find('.tix-ai-preview-row input:checked').each(function() {
+                    selected[$(this).data('key')] = true;
+                });
+                modal.remove();
+                applyFields(f, selected);
+            });
+        }
+
+        // ── Felder anwenden (nur ausgewählte) ──
+        function applyFields(f, sel) {
+            var filled = [];
+
+            if (sel.title && f.title) {
+                $('#title').val(f.title).trigger('change');
+                $('#tix-expert-title').val(f.title).trigger('change');
+                filled.push('Titel');
+            }
+            if (sel.date_start && f.date_start) {
+                $('[name="tix_date_start"]').val(f.date_start).trigger('change');
+                if (f.time_start) setTimeSelect('tix_time_start', f.time_start);
+                if (f.date_end) $('[name="tix_date_end"]').val(f.date_end).trigger('change');
+                if (f.time_end) setTimeSelect('tix_time_end', f.time_end);
+                filled.push('Datum/Zeit');
+            }
+            if (sel.date_end && f.date_end && !sel.date_start) {
+                $('[name="tix_date_end"]').val(f.date_end).trigger('change');
+                if (f.time_end) setTimeSelect('tix_time_end', f.time_end);
+            }
+            if (sel.time_doors && f.time_doors) {
+                setTimeSelect('tix_time_doors', f.time_doors);
+                filled.push('Einlass');
+            }
+            if (sel.location && f.location_id) {
+                $('#tix_location_id').val(f.location_id).trigger('change');
+                filled.push('Location');
+            }
+            if (sel.category && f.category_ids) {
+                f.category_ids.forEach(function(id) {
+                    $('input[name="tax_input[event_category][]"][value="' + id + '"]').prop('checked', true);
+                });
+                filled.push('Kategorie');
+            }
+            if (sel.description && f.description) { setEditorContent('tix_info_description', f.description); filled.push('Beschreibung'); }
+            if (sel.lineup && f.lineup) { setEditorContent('tix_info_lineup', f.lineup); filled.push('Line-Up'); }
+            if (sel.specials && f.specials) { setEditorContent('tix_info_specials', f.specials); filled.push('Specials'); }
+            if (sel.extra_info && f.extra_info) { setEditorContent('tix_info_extra_info', f.extra_info); filled.push('Weitere Infos'); }
+            if (sel.age_limit && f.age_limit !== '' && f.age_limit !== null) {
+                $('[name="tix_info[age_limit]"]').val(f.age_limit).trigger('change');
+                filled.push('Altersbegrenzung');
+            }
+            if (sel.excerpt && f.excerpt) {
+                $('#tix-excerpt-field').val(f.excerpt).trigger('change');
+                $('#tix-excerpt-ai-status').show();
+                filled.push('Zusammenfassung');
+            }
+            if (sel.tickets && f.tickets && f.tickets.length && typeof window.tixAddTicketRow === 'function') {
+                // Ticket-Verkauf aktivieren
+                var $toggle = $('#tix-tickets-enabled');
+                if ($toggle.length && !$toggle.is(':checked')) {
+                    $toggle.prop('checked', true).trigger('change');
+                }
+                f.tickets.forEach(function(t) {
+                    window.tixAddTicketRow(t.name, t.price, t.description);
+                });
+                filled.push(f.tickets.length + ' Ticket(s)');
+            }
+            if (sel.faq && f.faq && f.faq.length && typeof window.tixAddFaqRow === 'function') {
+                f.faq.forEach(function(item) {
+                    window.tixAddFaqRow(item.question, item.answer);
+                });
+                filled.push(f.faq.length + ' FAQ');
+            }
+
+            var $status = $('#tix-ai-fill-status');
+            if (filled.length) {
+                $status.show().html('<span style="color:#22c55e;">✓ ' + filled.length + ' Felder übernommen: ' + filled.join(', ') + '</span>');
+            } else {
+                $status.show().html('<span style="color:#6b7280;">Keine Felder übernommen.</span>');
+            }
+            setTimeout(function() { $status.fadeOut(400); }, 6000);
+
+            // Pflichtfeld-Check aktualisieren
+            if (typeof checkRequiredFields === 'function') checkRequiredFields();
         }
 
         // Helper: TinyMCE/Textarea Content holen
