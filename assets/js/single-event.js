@@ -51,7 +51,7 @@
                     });
                 }
             });
-        }, { rootMargin: '-80px 0px -60% 0px' });
+        }, { rootMargin: '-120px 0px -60% 0px' });
 
         sections.forEach(function(s) { observer.observe(s.el); });
     }
@@ -62,7 +62,7 @@
             e.preventDefault();
             var target = document.querySelector(tab.getAttribute('href'));
             if (target) {
-                var offset = 80;
+                var offset = 120;
                 window.scrollTo({
                     top: target.offsetTop - offset,
                     behavior: 'smooth'

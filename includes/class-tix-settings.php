@@ -84,6 +84,7 @@ class TIX_Settings {
             'ep_gap'             => 32,
             'ep_pad_x'           => 32,       // Padding links/rechts
             'ep_pad_y'           => 40,       // Padding oben/unten
+            'ep_sticky_offset'   => 56,       // Abstand unter Sticky-Header (px)
             // ── Event-Karten Seite ──
             'ec_page_enabled'    => 0,        // Automatische /events/ Seite
             'ec_pad_x'           => 32,
@@ -615,6 +616,7 @@ class TIX_Settings {
         $clean['ep_layout'] = in_array($input['ep_layout'] ?? '', ['1col', '2col']) ? $input['ep_layout'] : '2col';
         $clean['ep_pad_x'] = max(0, min(80, intval($input['ep_pad_x'] ?? 32)));
         $clean['ep_pad_y'] = max(0, min(120, intval($input['ep_pad_y'] ?? 40)));
+        $clean['ep_sticky_offset'] = max(0, min(200, intval($input['ep_sticky_offset'] ?? 56)));
         $clean['ec_page_enabled'] = !empty($input['ec_page_enabled']) ? 1 : 0;
         $clean['ec_pad_x'] = max(0, min(80, intval($input['ec_pad_x'] ?? 32)));
         $clean['ec_pad_y'] = max(0, min(120, intval($input['ec_pad_y'] ?? 56)));
@@ -1278,9 +1280,10 @@ class TIX_Settings {
         if (!empty($s['ep_text']))           $ep_vars[] = '--ep-text: ' . $s['ep_text'];
         if (!empty($s['ep_muted']))          $ep_vars[] = '--ep-muted: ' . $s['ep_muted'];
         if (!empty($s['ep_border']))         $ep_vars[] = '--ep-border: ' . $s['ep_border'];
-        // Padding-Vars
+        // Padding + Sticky-Vars
         $ep_vars[] = '--tse-pad-x: ' . intval($s['ep_pad_x'] ?? 32) . 'px';
         $ep_vars[] = '--tse-pad-y: ' . intval($s['ep_pad_y'] ?? 40) . 'px';
+        $ep_vars[] = '--tse-sticky-offset: ' . intval($s['ep_sticky_offset'] ?? 56) . 'px';
         if (!empty($ep_vars)) {
             echo ".tix-ep, .tse-wrap {\n    " . implode(";\n    ", $ep_vars) . ";\n}\n";
         }
@@ -2480,6 +2483,7 @@ class TIX_Settings {
                                             <?php self::range_row('ep_gap', 'Sektions-Abstand', $s, 12, 48, 'px'); ?>
                                             <?php self::range_row('ep_pad_x', 'Padding seitlich', $s, 0, 80, 'px'); ?>
                                             <?php self::range_row('ep_pad_y', 'Padding oben/unten', $s, 0, 120, 'px'); ?>
+                                            <?php self::range_row('ep_sticky_offset', 'Abstand unter Sticky-Header', $s, 0, 200, 'px'); ?>
                                             <div class="tix-field tix-field-full">
                                                 <p class="tix-settings-hint">Farben, Schriften und Radius → <strong><a href="#" onclick="document.querySelector('[data-tab=event-cards]').click();return false;">Event-Karten</a></strong> Tab.</p>
                                             </div>
