@@ -665,77 +665,81 @@ class TIX_Specials {
             $es_map[intval($es['special_id'] ?? 0)] = $es;
         }
         ?>
-        <div class="tix-section">
-            <h3 style="margin:0 0 16px;font-size:15px;font-weight:600">Specials f&uuml;r dieses Event</h3>
-
-            <div style="display:flex;gap:20px;margin-bottom:16px;padding:12px 16px;background:#f0f6fc;border:1px solid #c8d6e5;border-radius:8px">
-                <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
-                    <input type="checkbox" name="tix_specials_in_selector" value="1" <?php checked($show_in_selector, '1'); ?>>
-                    <strong>Im Ticket-Selector anzeigen</strong>
-                </label>
-                <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
-                    <input type="checkbox" name="tix_specials_in_checkout" value="1" <?php checked($show_in_checkout, '1'); ?>>
-                    <strong>Im Checkout / Modal anzeigen</strong>
-                </label>
+        <div class="tix-card">
+            <div class="tix-card-header">
+                <span class="dashicons dashicons-star-filled"></span>
+                <h3>Specials f&uuml;r dieses Event</h3>
             </div>
+            <div class="tix-card-body">
+                <div style="display:flex;gap:20px;margin-bottom:16px;padding:12px 16px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;">
+                    <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;">
+                        <input type="checkbox" name="tix_specials_in_selector" value="1" <?php checked($show_in_selector, '1'); ?>>
+                        <strong>Im Ticket-Selector anzeigen</strong>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;">
+                        <input type="checkbox" name="tix_specials_in_checkout" value="1" <?php checked($show_in_checkout, '1'); ?>>
+                        <strong>Im Checkout / Modal anzeigen</strong>
+                    </label>
+                </div>
 
-            <?php if (empty($all_specials)): ?>
-                <p style="color:#666;margin:0">
-                    Noch keine Specials angelegt.
-                    <a href="<?php echo admin_url('post-new.php?post_type=' . self::CPT); ?>" style="font-weight:600">Erstes Special erstellen &rarr;</a>
-                </p>
-            <?php else: ?>
-                <div id="tix-specials-list" style="display:flex;flex-direction:column;gap:8px">
-                    <?php foreach ($all_specials as $sp):
-                        $sid     = $sp->ID;
-                        $active  = isset($es_map[$sid]) && !empty($es_map[$sid]['enabled']);
-                        $p_over  = $es_map[$sid]['price_override'] ?? '';
-                        $q_over  = $es_map[$sid]['qty_override'] ?? '';
-                        $price   = get_post_meta($sid, '_tix_special_price', true);
-                        $value   = get_post_meta($sid, '_tix_special_value', true);
-                        $pid     = get_post_meta($sid, '_tix_special_product_id', true);
-                    ?>
-                    <div class="tix-special-row" style="background:#f8f9fa;border:1px solid <?php echo $active ? '#3b82f6' : '#e5e7eb'; ?>;border-radius:8px;padding:12px;transition:border-color .2s">
-                        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-                            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;flex:2;min-width:200px">
-                                <input type="checkbox" name="tix_specials[<?php echo $sid; ?>][enabled]" value="1"
-                                       <?php checked($active); ?>
-                                       onchange="this.closest('.tix-special-row').style.borderColor=this.checked?'#3b82f6':'#e5e7eb'">
-                                <strong><?php echo esc_html($sp->post_title); ?></strong>
-                                <span style="color:#666;font-size:12px">
-                                    (<?php echo number_format((float)$price, 2, ',', '.'); ?>&euro;<?php echo $value ? ' / Wert: ' . number_format((float)$value, 2, ',', '.') . '€' : ''; ?>)
-                                </span>
-                                <?php if (!$pid): ?>
-                                    <span style="color:#dc2626;font-size:11px;font-weight:600" title="WC Product fehlt">&#x26A0; Kein Produkt</span>
-                                <?php endif; ?>
-                            </label>
-                            <input type="hidden" name="tix_specials[<?php echo $sid; ?>][special_id]" value="<?php echo $sid; ?>">
-                            <div style="display:flex;gap:8px;align-items:end">
-                                <div style="width:100px">
-                                    <label class="tix-mini-label" style="font-size:11px;color:#666">Preis-Override</label>
-                                    <input type="number" name="tix_specials[<?php echo $sid; ?>][price_override]"
-                                           value="<?php echo esc_attr($p_over); ?>" step="0.01" min="0"
-                                           class="tix-input" style="padding:4px 6px;font-size:13px"
-                                           placeholder="<?php echo esc_attr($price); ?>">
-                                </div>
-                                <div style="width:80px">
-                                    <label class="tix-mini-label" style="font-size:11px;color:#666">Mengen-Limit</label>
-                                    <input type="number" name="tix_specials[<?php echo $sid; ?>][qty_override]"
-                                           value="<?php echo esc_attr($q_over); ?>" min="0"
-                                           class="tix-input" style="padding:4px 6px;font-size:13px"
-                                           placeholder="unbegr.">
+                <?php if (empty($all_specials)): ?>
+                    <p style="color:#9ca3af;margin:0;">
+                        Noch keine Specials angelegt.
+                        <a href="<?php echo admin_url('post-new.php?post_type=' . self::CPT); ?>" style="font-weight:600;">Erstes Special erstellen &rarr;</a>
+                    </p>
+                <?php else: ?>
+                    <div id="tix-specials-list" style="display:flex;flex-direction:column;gap:8px;">
+                        <?php foreach ($all_specials as $sp):
+                            $sid     = $sp->ID;
+                            $active  = isset($es_map[$sid]) && !empty($es_map[$sid]['enabled']);
+                            $p_over  = $es_map[$sid]['price_override'] ?? '';
+                            $q_over  = $es_map[$sid]['qty_override'] ?? '';
+                            $price   = get_post_meta($sid, '_tix_special_price', true);
+                            $value   = get_post_meta($sid, '_tix_special_value', true);
+                            $pid     = get_post_meta($sid, '_tix_special_product_id', true);
+                        ?>
+                        <div class="tix-special-row" style="background:#f8fafc;border:1px solid <?php echo $active ? 'var(--tix-primary, #FF5500)' : '#e5e7eb'; ?>;border-radius:8px;padding:12px;transition:border-color .2s;">
+                            <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+                                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;flex:2;min-width:200px;">
+                                    <input type="checkbox" name="tix_specials[<?php echo $sid; ?>][enabled]" value="1"
+                                           <?php checked($active); ?>
+                                           onchange="this.closest('.tix-special-row').style.borderColor=this.checked?'var(--tix-primary, #FF5500)':'#e5e7eb'">
+                                    <strong><?php echo esc_html($sp->post_title); ?></strong>
+                                    <span style="color:#6b7280;font-size:12px;">
+                                        (<?php echo number_format((float)$price, 2, ',', '.'); ?>&euro;<?php echo $value ? ' / Wert: ' . number_format((float)$value, 2, ',', '.') . '€' : ''; ?>)
+                                    </span>
+                                    <?php if (!$pid && function_exists('tix_has_wc') && tix_has_wc()): ?>
+                                        <span style="color:#dc2626;font-size:11px;font-weight:600;" title="WC Product fehlt">&#x26A0; Kein Produkt</span>
+                                    <?php endif; ?>
+                                </label>
+                                <input type="hidden" name="tix_specials[<?php echo $sid; ?>][special_id]" value="<?php echo $sid; ?>">
+                                <div style="display:flex;gap:8px;align-items:end;">
+                                    <div style="width:100px;">
+                                        <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:2px;">Preis-Override</label>
+                                        <input type="number" name="tix_specials[<?php echo $sid; ?>][price_override]"
+                                               value="<?php echo esc_attr($p_over); ?>" step="0.01" min="0"
+                                               style="width:100%;padding:6px 8px;font-size:13px;border:1px solid #d1d5db;border-radius:6px;"
+                                               placeholder="<?php echo esc_attr($price); ?>">
+                                    </div>
+                                    <div style="width:80px;">
+                                        <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:2px;">Mengen-Limit</label>
+                                        <input type="number" name="tix_specials[<?php echo $sid; ?>][qty_override]"
+                                               value="<?php echo esc_attr($q_over); ?>" min="0"
+                                               style="width:100%;padding:6px 8px;font-size:13px;border:1px solid #d1d5db;border-radius:6px;"
+                                               placeholder="unbegr.">
+                                    </div>
                                 </div>
                             </div>
                         </div>
+                        <?php endforeach; ?>
                     </div>
-                    <?php endforeach; ?>
-                </div>
-                <p style="margin:12px 0 0">
-                    <a href="<?php echo admin_url('edit.php?post_type=' . self::CPT); ?>" style="font-size:13px">Alle Specials verwalten &rarr;</a>
-                    &nbsp;|&nbsp;
-                    <a href="<?php echo admin_url('post-new.php?post_type=' . self::CPT); ?>" style="font-size:13px">Neues Special anlegen &rarr;</a>
-                </p>
-            <?php endif; ?>
+                    <p style="margin:12px 0 0;">
+                        <a href="<?php echo admin_url('edit.php?post_type=' . self::CPT); ?>" style="font-size:13px;">Alle Specials verwalten &rarr;</a>
+                        &nbsp;|&nbsp;
+                        <a href="<?php echo admin_url('post-new.php?post_type=' . self::CPT); ?>" style="font-size:13px;">Neues Special anlegen &rarr;</a>
+                    </p>
+                <?php endif; ?>
+            </div>
         </div>
         <?php
     }
