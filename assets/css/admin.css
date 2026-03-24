@@ -2070,7 +2070,7 @@ body:is(.post-type-event,.post-type-tix_location,.post-type-tix_organizer,.post-
 @keyframes tixSpin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 .dashicons.spin { animation: tixSpin 1s linear infinite; }
 
-/* KI-Assistent Bar */
+/* Evendis-Assistent Bar */
 .tix-ai-fill-bar {
     display: flex;
     align-items: center;

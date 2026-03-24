@@ -2937,7 +2937,7 @@ class TIX_Settings {
                                                     <?php if ($wc_active): ?>
                                                         WooCommerce ist installiert und aktiv. Alle Checkout-Funktionen sind verfügbar.
                                                     <?php else: ?>
-                                                        <strong style="color:#f59e0b;">WooCommerce ist nicht installiert.</strong> Event-Verwaltung, KI-Assistent und Vorlagen funktionieren. Ticketverkauf benötigt den nativen Checkout (kommt bald) oder WooCommerce.
+                                                        <strong style="color:#f59e0b;">WooCommerce ist nicht installiert.</strong> Event-Verwaltung, Evendis-Assistent und Vorlagen funktionieren. Ticketverkauf benötigt den nativen Checkout (kommt bald) oder WooCommerce.
                                                     <?php endif; ?>
                                                 </p>
                                             </div>
@@ -3026,7 +3026,7 @@ class TIX_Settings {
                                                     <?php endforeach; ?>
                                                     </optgroup>
                                                 </select>
-                                                <p class="tix-settings-hint">Wird für KI-Assistent und Textgenerierung verwendet. KI-Schutz nutzt immer Claude Haiku (kostensparend).</p>
+                                                <p class="tix-settings-hint">Wird für Evendis-Assistent und Textgenerierung verwendet. KI-Schutz nutzt immer Claude Haiku (kostensparend).</p>
                                             </div>
                                         </div>
                                     </div>

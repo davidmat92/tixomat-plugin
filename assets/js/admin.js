@@ -1686,7 +1686,7 @@
             var $btns = $bar.find('.button');
 
             $btns.prop('disabled', true);
-            $status.show().html('<span class="dashicons dashicons-update spin" style="font-size:14px;width:14px;height:14px;vertical-align:middle;margin-right:4px"></span> KI analysiert… Bitte warten.');
+            $status.show().html('<span class="dashicons dashicons-update spin" style="font-size:14px;width:14px;height:14px;vertical-align:middle;margin-right:4px"></span> Evendis-Assistent analysiert… Bitte warten.');
 
             var data = $.extend({
                 action: 'tix_ai_fill_fields',
@@ -1727,8 +1727,9 @@
             if (f.date_end && f.date_end !== f.date_start) items.push({ key: 'date_end', label: 'Enddatum', preview: fmtDate(f.date_end) + (f.time_end ? ', ' + esc(f.time_end) + ' Uhr' : ''), checked: true });
             if (f.time_doors) items.push({ key: 'time_doors', label: 'Einlass', preview: esc(f.time_doors) + ' Uhr', checked: true });
             if (f.location) {
-                var locLabel = f.location_id ? 'Location (erkannt)' : 'Location (nicht zugeordnet)';
-                items.push({ key: 'location', label: locLabel, preview: esc(f.location) + (f.location_address ? ', ' + esc(f.location_address) : ''), checked: !!f.location_id });
+                var locLabel = f.location_id ? 'Location (erkannt)' : 'Location neu erstellen';
+                var locPreview = esc(f.location) + (f.location_address ? ', ' + esc(f.location_address) : '');
+                items.push({ key: 'location', label: locLabel, preview: locPreview, checked: true });
             }
             if (f.category_ids && f.category_ids.length) {
                 var catNames = [];
@@ -1775,7 +1776,7 @@
                         '<div style="padding:20px 24px 16px;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;justify-content:space-between;">' +
                             '<div style="display:flex;align-items:center;gap:10px;">' +
                                 '<span class="dashicons dashicons-admin-generic" style="color:var(--tix-primary, #FF5500);font-size:22px;width:22px;height:22px;"></span>' +
-                                '<h3 style="margin:0;font-size:16px;">KI-Vorschläge</h3>' +
+                                '<h3 style="margin:0;font-size:16px;">Evendis-Assistent</h3>' +
                                 '<span style="font-size:12px;color:#6b7280;">' + items.length + ' Felder erkannt</span>' +
                             '</div>' +
                             '<label style="font-size:12px;color:#6b7280;cursor:pointer;display:flex;align-items:center;gap:4px;">' +
@@ -1846,9 +1847,28 @@
                 setTimeSelect('tix_time_doors', f.time_doors);
                 filled.push('Einlass');
             }
-            if (sel.location && f.location_id) {
-                $('#tix_location_id').val(f.location_id).trigger('change');
-                filled.push('Location');
+            if (sel.location && f.location) {
+                if (f.location_id) {
+                    // Existierende Location zuweisen
+                    $('#tix_location_id').val(f.location_id).trigger('change');
+                    filled.push('Location');
+                } else {
+                    // Neue Location erstellen via AJAX
+                    $.post(tixAdmin.ajaxUrl, {
+                        action: 'tix_create_location',
+                        nonce: tixAdmin.modalNonce,
+                        name: f.location,
+                        address: f.location_address || ''
+                    }, function(r) {
+                        if (r.success && r.data.id) {
+                            // Option zum Select hinzufügen und auswählen
+                            var $sel = $('#tix_location_id');
+                            $sel.append('<option value="' + r.data.id + '">' + $('<span>').text(f.location).html() + '</option>');
+                            $sel.val(r.data.id).trigger('change');
+                        }
+                    });
+                    filled.push('Location (neu)');
+                }
             }
             if (sel.category && f.category_ids) {
                 f.category_ids.forEach(function(id) {

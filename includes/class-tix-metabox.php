@@ -285,13 +285,13 @@ class TIX_Metabox {
             <?php // ── Event-Preset Auswahl ── ?>
             <?php self::render_preset_selector($post); ?>
 
-            <?php // ── KI-Assistent: Felder aus Bild/URL füllen ── ?>
+            <?php // ── Evendis-Assistent: Felder aus Bild/URL füllen ── ?>
             <?php $ai_key = function_exists('tix_get_settings') ? (tix_get_settings('anthropic_api_key') ?: tix_get_settings('openai_api_key')) : '';
             if ($ai_key): ?>
             <div class="tix-ai-fill-bar" id="tix-ai-fill-bar">
                 <div style="display:flex;align-items:center;gap:8px;">
                     <span class="dashicons dashicons-admin-generic" style="color:var(--tix-primary, #FF5500);font-size:20px;width:20px;height:20px"></span>
-                    <strong style="font-size:13px;">KI-Assistent</strong>
+                    <strong style="font-size:13px;">Evendis-Assistent</strong>
                     <span style="font-size:12px;color:#6b7280;">— Felder automatisch aus Bild oder URL füllen</span>
                 </div>
                 <div style="display:flex;align-items:center;gap:8px;">
@@ -795,7 +795,7 @@ class TIX_Metabox {
                        style="flex:1;cursor:default;font-weight:600;">
                 <button type="button" class="button" id="tix-ai-excerpt-btn" style="display:flex;align-items:center;gap:6px;font-size:11px;margin-right:12px;color:var(--tix-primary, #FF5500);">
                     <span class="dashicons dashicons-admin-generic" style="font-size:14px;width:14px;height:14px;line-height:14px"></span>
-                    KI generieren
+                    Generieren
                 </button>
             </div>
             <div style="padding:12px 16px;">
