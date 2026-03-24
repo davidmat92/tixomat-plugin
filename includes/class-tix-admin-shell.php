@@ -160,6 +160,7 @@ class TIX_Admin_Shell {
             'email-template'   => ['icon' => 'email-alt',               'label' => 'E-Mail-Template'],
             'data-sync'        => ['icon' => 'cloud-saved',             'label' => 'Daten-Sync'],
             'event-page'       => ['icon' => 'welcome-widgets-menus',   'label' => 'Event-Seite'],
+            'event-cards'      => ['icon' => 'screenoptions',           'label' => 'Event-Karten'],
             'share'            => ['icon' => 'share',                   'label' => 'Share'],
             'marketing'        => ['icon' => 'megaphone',               'label' => 'Marketing'],
         ];
