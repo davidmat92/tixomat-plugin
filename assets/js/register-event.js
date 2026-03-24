@@ -161,12 +161,18 @@
         };
         reader.readAsDataURL(file);
 
-        showStatus('KI analysiert den Flyer…');
+        showProgress([
+            { icon: '📤', label: 'Bild wird hochgeladen', duration: 2000 },
+            { icon: '🔍', label: 'KI analysiert Flyer', duration: 4000 },
+            { icon: '📝', label: 'Event-Daten werden extrahiert', duration: 3000 },
+            { icon: '✅', label: 'Fertig', duration: 1000 }
+        ]);
 
         var fd = new FormData();
         fd.append('action', 'tix_ai_upload_image');
         fd.append('nonce', aiNonce);
         fd.append('file', file);
+        fd.append('context', 'register_event');
 
         $.ajax({
             url: ajax,
@@ -175,23 +181,23 @@
             contentType: false,
             processData: false,
             success: function(r) {
-                hideStatus();
                 if (r.success && r.data && r.data.attachment_id) {
-                    // Now fill fields from image
+                    advanceProgress(1);
                     fillFieldsFromImage(r.data.attachment_id);
                 } else {
+                    finishProgress();
                     showStatus('Bild konnte nicht hochgeladen werden.');
                 }
             },
             error: function() {
-                hideStatus();
+                finishProgress();
                 showStatus('Netzwerkfehler beim Upload.');
             }
         });
     }
 
     function fillFieldsFromImage(attachmentId) {
-        showStatus('KI extrahiert Event-Infos aus dem Flyer…');
+        advanceProgress(2);
 
         $.post(ajax, {
             action: 'tix_ai_fill_fields',
@@ -200,16 +206,17 @@
             attachment_id: attachmentId,
             context: 'register_event'
         }, function(r) {
-            hideStatus();
             if (r.success && r.data && r.data.fields) {
+                finishProgress();
                 eventData = r.data.fields;
                 renderPreview();
                 goToStep(2);
             } else {
+                finishProgress();
                 showStatus('Konnte keine Event-Infos extrahieren: ' + (r.data ? r.data.message : ''));
             }
         }).fail(function() {
-            hideStatus();
+            finishProgress();
             showStatus('Netzwerkfehler bei der Analyse.');
         });
     }
@@ -223,36 +230,105 @@
 
         var $btn = $(this);
         $btn.prop('disabled', true).text('Wird analysiert…');
-        showStatus('KI analysiert die URL…');
+
+        showProgress([
+            { icon: '🌐', label: 'URL wird geladen', duration: 2000 },
+            { icon: '🔍', label: 'KI analysiert Inhalt', duration: 5000 },
+            { icon: '📝', label: 'Event-Daten werden extrahiert', duration: 3000 },
+            { icon: '✅', label: 'Fertig', duration: 1000 }
+        ]);
 
         $.post(ajax, {
             action: 'tix_ai_fill_fields',
             nonce: aiNonce,
             source_type: 'url',
-            url: url,
+            source_url: url,
             context: 'register_event'
         }, function(r) {
             $btn.prop('disabled', false).text('Analysieren');
-            hideStatus();
             if (r.success && r.data && r.data.fields) {
+                finishProgress();
                 eventData = r.data.fields;
                 renderPreview();
                 goToStep(2);
             } else {
+                finishProgress();
                 showStatus('Konnte keine Infos extrahieren: ' + (r.data ? r.data.message : ''));
             }
         }).fail(function() {
             $btn.prop('disabled', false).text('Analysieren');
-            hideStatus();
+            finishProgress();
             showStatus('Netzwerkfehler.');
         });
     });
 
     // ══════════════════════════════════════
-    // STATUS HELPERS
+    // PROGRESS BAR (visual animated)
     // ══════════════════════════════════════
-    function showStatus(msg) { $('#tix-re-status').show().text(msg); }
-    function hideStatus()    { $('#tix-re-status').hide(); }
+    var progressSteps = [];
+    var progressCurrent = 0;
+    var progressTimer = null;
+
+    function showProgress(steps) {
+        progressSteps = steps;
+        progressCurrent = 0;
+
+        var html = '<div class="tix-re-progress">' +
+            '<div class="tix-re-progress-bar"><div class="tix-re-progress-fill" id="tix-re-prog-fill"></div></div>' +
+            '<div class="tix-re-progress-steps" id="tix-re-prog-steps">';
+
+        steps.forEach(function(s, i) {
+            html += '<div class="tix-re-progress-step' + (i === 0 ? ' active' : '') + '" data-pi="' + i + '">' +
+                '<span class="tix-re-prog-icon">' + s.icon + '</span>' +
+                '<span class="tix-re-prog-label">' + s.label + '</span>' +
+            '</div>';
+        });
+
+        html += '</div></div>';
+
+        $('#tix-re-status').show().html(html);
+        advanceProgress(0);
+    }
+
+    function advanceProgress(toStep) {
+        if (toStep >= progressSteps.length) return;
+        progressCurrent = toStep;
+
+        var pct = ((toStep + 0.5) / progressSteps.length) * 100;
+        $('#tix-re-prog-fill').css('width', pct + '%');
+
+        $('#tix-re-prog-steps .tix-re-progress-step').removeClass('active done');
+        $('#tix-re-prog-steps .tix-re-progress-step').each(function() {
+            var i = parseInt($(this).data('pi'), 10);
+            if (i < toStep) $(this).addClass('done');
+            if (i === toStep) $(this).addClass('active');
+        });
+
+        // Auto-advance simulation for visual feedback
+        clearTimeout(progressTimer);
+        if (toStep < progressSteps.length - 1) {
+            progressTimer = setTimeout(function() {
+                advanceProgress(toStep + 1);
+            }, progressSteps[toStep].duration || 2500);
+        }
+    }
+
+    function finishProgress() {
+        clearTimeout(progressTimer);
+        $('#tix-re-prog-fill').css('width', '100%');
+        $('#tix-re-prog-steps .tix-re-progress-step').addClass('done').removeClass('active');
+        setTimeout(function() { hideStatus(); }, 600);
+    }
+
+    function showStatus(msg) {
+        $('#tix-re-status').show().html(
+            '<div class="tix-re-status-simple">' +
+                '<div class="tix-re-spinner"></div>' +
+                '<span>' + escHtml(msg) + '</span>' +
+            '</div>'
+        );
+    }
+    function hideStatus() { $('#tix-re-status').hide().empty(); }
 
     // ══════════════════════════════════════
     // PREVIEW RENDERING (Step 2)
@@ -363,6 +439,13 @@
         $btn.find('.tix-re-btn-loading').show();
         $error.hide();
 
+        showProgress([
+            { icon: '👤', label: 'Konto wird erstellt', duration: 1500 },
+            { icon: '🏢', label: 'Veranstalter einrichten', duration: 1500 },
+            { icon: '🎉', label: 'Event wird veröffentlicht', duration: 2500 },
+            { icon: '🚀', label: 'Fast fertig…', duration: 2000 }
+        ]);
+
         $.post(ajax, {
             action:           'tix_register_and_publish',
             nonce:            nonce,
@@ -376,6 +459,7 @@
         }, function(r) {
             if (r.success && r.data) {
                 // Success!
+                finishProgress();
                 $('#tix-re-success-msg').text(r.data.message || '');
                 $('#tix-re-link-event').attr('href', r.data.event_url || '#');
                 $('#tix-re-link-dashboard').attr('href', r.data.dashboard_url || '#');
@@ -388,6 +472,7 @@
                     if (r.data.dashboard_url) window.location.href = r.data.dashboard_url;
                 }, 5000);
             } else {
+                finishProgress();
                 $btn.prop('disabled', false);
                 $btn.find('.tix-re-btn-text').show();
                 $btn.find('.tix-re-btn-loading').hide();
@@ -395,6 +480,7 @@
                 $error.show().text(msg);
             }
         }).fail(function(xhr) {
+            finishProgress();
             $btn.prop('disabled', false);
             $btn.find('.tix-re-btn-text').show();
             $btn.find('.tix-re-btn-loading').hide();

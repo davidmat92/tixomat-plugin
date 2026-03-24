@@ -251,17 +251,102 @@
 }
 #tix-re-url-area .tix-re-input { width: 100%; box-sizing: border-box; }
 
-/* ── Status ── */
+/* ══════════════════════════════════════
+   PROGRESS BAR (animated)
+   ══════════════════════════════════════ */
 .tix-re-status {
-    text-align: center;
-    padding: 12px;
+    margin-top: 20px;
+    animation: tixReFadeIn 0.3s ease;
+}
+.tix-re-status-simple {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 14px;
     font-size: 14px;
     color: var(--re-muted);
-    animation: tixRePulse 1.5s ease-in-out infinite;
 }
-@keyframes tixRePulse {
+.tix-re-spinner {
+    width: 20px; height: 20px;
+    border: 3px solid var(--re-border);
+    border-top-color: var(--re-primary);
+    border-radius: 50%;
+    animation: tixReSpin 0.7s linear infinite;
+    flex-shrink: 0;
+}
+@keyframes tixReSpin { to { transform: rotate(360deg); } }
+
+.tix-re-progress {
+    background: var(--re-surface);
+    border: 1px solid var(--re-border);
+    border-radius: var(--re-radius);
+    padding: 24px;
+}
+.tix-re-progress-bar {
+    height: 6px;
+    background: var(--re-border);
+    border-radius: 3px;
+    overflow: hidden;
+    margin-bottom: 20px;
+    position: relative;
+}
+.tix-re-progress-fill {
+    height: 100%;
+    width: 0;
+    background: linear-gradient(90deg, var(--re-primary), color-mix(in srgb, var(--re-primary) 70%, #ff00aa));
+    border-radius: 3px;
+    transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+}
+.tix-re-progress-fill::after {
+    content: '';
+    position: absolute;
+    top: 0; right: 0; bottom: 0;
+    width: 40px;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4));
+    animation: tixReGlow 1.5s ease-in-out infinite;
+}
+@keyframes tixReGlow {
+    0%, 100% { opacity: 0; }
+    50% { opacity: 1; }
+}
+
+.tix-re-progress-steps {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+}
+.tix-re-progress-step {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    border-radius: 20px;
+    font-size: 13px;
+    color: var(--re-muted);
+    background: transparent;
+    transition: all 0.3s;
+    opacity: 0.4;
+}
+.tix-re-progress-step.active {
+    opacity: 1;
+    background: color-mix(in srgb, var(--re-primary) 10%, transparent);
+    color: var(--re-primary);
+    font-weight: 600;
+    animation: tixReStepPulse 2s ease-in-out infinite;
+}
+.tix-re-progress-step.done {
+    opacity: 0.7;
+    color: var(--re-success);
+}
+.tix-re-progress-step.done .tix-re-prog-icon::after { content: ' ✓'; font-size: 10px; }
+.tix-re-prog-icon { font-size: 16px; }
+.tix-re-prog-label { white-space: nowrap; }
+
+@keyframes tixReStepPulse {
     0%, 100% { opacity: 1; }
-    50% { opacity: 0.5; }
+    50% { opacity: 0.7; }
 }
 
 /* ══════════════════════════════════════
