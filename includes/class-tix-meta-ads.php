@@ -152,7 +152,7 @@ class TIX_Meta_Ads {
             </div>
 
             <!-- ═══ TAB: Dashboard ═══ -->
-            <div class="tix-meta-tab" data-tab="dashboard">
+            <div class="tix-meta-tab" data-tab="dashboard" style="display:none">
 
                 <!-- Connection Status -->
                 <div class="tix-meta-status-bar">

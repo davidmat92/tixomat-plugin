@@ -334,15 +334,20 @@
         $('#tix-social-result').hide();
         $('#tix-social-loading').show();
 
-        $.post(M.ajax, {
-            action: 'tix_social_generate',
-            nonce: M.nonce,
-            event_id: eventId,
-            platform: platform
-        }, function(r) {
+        $.ajax({
+            url: M.ajax,
+            method: 'POST',
+            timeout: 60000, // 60s Timeout für KI-Generierung
+            data: {
+                action: 'tix_social_generate',
+                nonce: M.nonce,
+                event_id: eventId,
+                platform: platform
+            },
+            success: function(r) {
             $('#tix-social-loading').hide();
             if (!r.success) {
-                alert(r.data ? r.data.message : 'Fehler');
+                alert(r.data ? r.data.message : 'Fehler bei der Generierung.');
                 return;
             }
 
@@ -359,9 +364,17 @@
 
             selectSocialVariant(0);
             $('#tix-social-result').show();
-        }).fail(function() {
+        },
+        error: function(xhr, status) {
             $('#tix-social-loading').hide();
-            alert('Netzwerkfehler.');
+            if (status === 'timeout') {
+                alert('Zeitüberschreitung — die KI-Generierung hat zu lange gedauert. Bitte erneut versuchen.');
+            } else {
+                var msg = 'Fehler bei der Generierung.';
+                try { var r = JSON.parse(xhr.responseText); if (r.data && r.data.message) msg = r.data.message; } catch(e) {}
+                alert(msg);
+            }
+        }
         });
     });
 
