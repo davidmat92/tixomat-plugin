@@ -10,12 +10,13 @@ if (!defined('ABSPATH')) exit;
 
 class TIX_Native_Checkout {
 
-    /** Session-Key für den Warenkorb */
-    const CART_KEY = 'tix_native_cart';
+    /** Cookie-Name für Cart-Identifier */
+    const CART_COOKIE = 'tix_cart_id';
+    const CART_EXPIRY = 3600; // 1 Stunde
 
     public static function init() {
-        // Session starten
-        add_action('init', [__CLASS__, 'start_session'], 1);
+        // Cart-Cookie initialisieren
+        add_action('init', [__CLASS__, 'init_cart_cookie'], 1);
 
         // AJAX: Cart-Aktionen
         add_action('wp_ajax_tix_native_add_to_cart',        [__CLASS__, 'ajax_add_to_cart']);
@@ -42,23 +43,35 @@ class TIX_Native_Checkout {
     // SESSION
     // ──────────────────────────────────────────
 
-    public static function start_session() {
-        if (is_admin() && !wp_doing_ajax()) return; // Kein Session im Admin-Backend
-        if (!session_id() && !headers_sent()) {
-            session_start();
+    /**
+     * Cart-Cookie initialisieren (persistente Cart-ID, keine PHP Session nötig)
+     */
+    public static function init_cart_cookie() {
+        if (is_admin() && !wp_doing_ajax()) return;
+        if (!isset($_COOKIE[self::CART_COOKIE])) {
+            $cart_id = 'tix_' . wp_generate_password(20, false);
+            if (!headers_sent()) {
+                setcookie(self::CART_COOKIE, $cart_id, time() + self::CART_EXPIRY, COOKIEPATH, COOKIE_DOMAIN, is_ssl(), false);
+            }
+            $_COOKIE[self::CART_COOKIE] = $cart_id;
         }
     }
 
+    private static function cart_transient_key() {
+        return 'tix_cart_' . ($_COOKIE[self::CART_COOKIE] ?? 'none');
+    }
+
     public static function get_cart() {
-        return $_SESSION[self::CART_KEY] ?? ['items' => [], 'coupon' => null];
+        $cart = get_transient(self::cart_transient_key());
+        return is_array($cart) ? $cart : ['items' => [], 'coupon' => null];
     }
 
     public static function save_cart($cart) {
-        $_SESSION[self::CART_KEY] = $cart;
+        set_transient(self::cart_transient_key(), $cart, self::CART_EXPIRY);
     }
 
     public static function clear_cart() {
-        unset($_SESSION[self::CART_KEY]);
+        delete_transient(self::cart_transient_key());
     }
 
     public static function cart_total() {
