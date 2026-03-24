@@ -23,13 +23,16 @@ class TIX_Tickets {
         add_action('init', [__CLASS__, 'register_download_endpoint']);
         add_action('template_redirect', [__CLASS__, 'handle_download']);
 
-        // Ticket-Erstellung bei Order-Status-Änderung
+        // Ticket-Erstellung bei Order-Status-Änderung (WooCommerce)
         add_action('woocommerce_order_status_completed',  [__CLASS__, 'on_order_completed']);
         add_action('woocommerce_order_status_processing', [__CLASS__, 'on_order_completed']);
 
-        // Ticket-Stornierung
+        // Ticket-Stornierung (WooCommerce)
         add_action('woocommerce_order_status_cancelled', [__CLASS__, 'on_order_cancelled']);
         add_action('woocommerce_order_status_refunded',  [__CLASS__, 'on_order_cancelled']);
+
+        // Ticket-Erstellung bei nativen Orders (ohne WC)
+        add_action('tix_order_completed', [__CLASS__, 'on_native_order_completed']);
     }
 
     // ══════════════════════════════════════════════
@@ -834,5 +837,84 @@ class TIX_Tickets {
      */
     public static function is_checked_in($ticket_id) {
         return (bool) get_post_meta($ticket_id, '_tix_ticket_checked_in', true);
+    }
+
+    /**
+     * Ticket-Erstellung für native Orders (ohne WooCommerce).
+     * Liest Items direkt aus tix_order_items.
+     */
+    public static function on_native_order_completed($order_id) {
+        global $wpdb;
+        $t  = $wpdb->prefix . 'tix_orders';
+        $ti = $wpdb->prefix . 'tix_order_items';
+
+        $order = $wpdb->get_row($wpdb->prepare("SELECT * FROM $t WHERE id = %d", $order_id));
+        if (!$order) return;
+
+        // Guard: Keine Duplikate
+        $existing = get_posts([
+            'post_type'      => 'tix_ticket',
+            'post_status'    => 'any',
+            'posts_per_page' => 1,
+            'meta_key'       => '_tix_ticket_order_id',
+            'meta_value'     => $order_id,
+        ]);
+        if (!empty($existing)) return;
+
+        $buyer_email = $order->billing_email;
+        $buyer_name  = trim($order->billing_first_name . ' ' . $order->billing_last_name);
+
+        $items = $wpdb->get_results($wpdb->prepare("SELECT * FROM $ti WHERE order_id = %d", $order_id));
+
+        foreach ($items as $item) {
+            $event_id = intval($item->event_id);
+            if (!$event_id) continue;
+
+            $qty = intval($item->quantity);
+            $meta = $item->meta ? json_decode($item->meta, true) : [];
+            $seat_ids   = $meta['seats'] ?? [];
+            $seatmap_id = intval($meta['seatmap_id'] ?? 0);
+            $has_seats  = is_array($seat_ids) && !empty($seat_ids);
+
+            for ($i = 0; $i < $qty; $i++) {
+                $code = self::generate_ticket_code();
+                $download_token = hash('sha256', $code . wp_generate_password(32, true, true));
+
+                $ticket_id = wp_insert_post([
+                    'post_type'   => 'tix_ticket',
+                    'post_status' => 'publish',
+                    'post_title'  => $code,
+                    'post_author' => $order->customer_id ?: 1,
+                ]);
+
+                if (!$ticket_id || is_wp_error($ticket_id)) continue;
+
+                update_post_meta($ticket_id, '_tix_ticket_order_id', $order_id);
+                update_post_meta($ticket_id, '_tix_ticket_event_id', $event_id);
+                update_post_meta($ticket_id, '_tix_ticket_code', $code);
+                update_post_meta($ticket_id, '_tix_ticket_download_token', $download_token);
+                update_post_meta($ticket_id, '_tix_ticket_buyer_email', $buyer_email);
+                update_post_meta($ticket_id, '_tix_ticket_buyer_name', $buyer_name);
+                update_post_meta($ticket_id, '_tix_ticket_event_name', get_the_title($event_id));
+                update_post_meta($ticket_id, '_tix_ticket_cat_name', $item->cat_name);
+                update_post_meta($ticket_id, '_tix_ticket_price', $item->total / max(1, $qty));
+
+                // Sitzplatz zuweisen
+                if ($has_seats && isset($seat_ids[$i])) {
+                    update_post_meta($ticket_id, '_tix_ticket_seat_id', $seat_ids[$i]);
+                    update_post_meta($ticket_id, '_tix_ticket_seatmap_id', $seatmap_id);
+                }
+
+                // Ticket-DB (denormalisierte Tabelle)
+                if (class_exists('TIX_Ticket_DB')) {
+                    TIX_Ticket_DB::insert_ticket($ticket_id, $event_id, $order_id, [
+                        'code'        => $code,
+                        'buyer_email' => $buyer_email,
+                        'buyer_name'  => $buyer_name,
+                        'cat_name'    => $item->cat_name,
+                    ]);
+                }
+            }
+        }
     }
 }

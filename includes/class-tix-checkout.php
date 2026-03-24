@@ -98,7 +98,13 @@ class TIX_Checkout {
     public static function render($atts) {
         $atts = shortcode_atts(['terms_url' => '', 'privacy_url' => '', 'variant' => ''], $atts);
 
-        if (!function_exists('WC') || !WC()->cart) return '<p>WooCommerce ist nicht aktiv.</p>';
+        // Nativer Checkout wenn WC nicht verfügbar
+        if (!function_exists('WC') || !WC()->cart) {
+            if (class_exists('TIX_Native_Checkout')) {
+                return TIX_Native_Checkout::render_checkout();
+            }
+            return '<p>Checkout nicht verfügbar.</p>';
+        }
 
         // ── Bestellung abgeschlossen? → Danke-Seite ──
         global $wp;

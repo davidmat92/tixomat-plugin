@@ -2,14 +2,14 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.33.101
+ * Version: 1.33.102
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.33.101');
+define('TIXOMAT_VERSION', '1.33.102');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -270,6 +270,20 @@ TIX_Feedback::init();
 // ── Event-Vorlagen ──
 require_once TIXOMAT_PATH . 'includes/class-tix-event-templates.php';
 TIX_Event_Templates::init();
+
+// ── Nativer Checkout (ohne WooCommerce) ──
+require_once TIXOMAT_PATH . 'includes/class-tix-native-checkout.php';
+require_once TIXOMAT_PATH . 'includes/class-tix-gateway-free.php';
+require_once TIXOMAT_PATH . 'includes/class-tix-gateway-mollie.php';
+require_once TIXOMAT_PATH . 'includes/class-tix-gateway-paypal.php';
+
+$checkout_mode = tix_get_settings('checkout_mode') ?: 'auto';
+$use_native = ($checkout_mode === 'native') || ($checkout_mode === 'auto' && !tix_has_wc());
+if ($use_native) {
+    TIX_Native_Checkout::init();
+    TIX_Gateway_Mollie::init();
+    TIX_Gateway_PayPal::init();
+}
 
 // ── KI-Schutz (Content Guard) ──
 require_once TIXOMAT_PATH . 'includes/class-tix-content-guard.php';

@@ -1232,7 +1232,12 @@ class TIX_Ticket_Selector {
             wp_send_json_error(['message' => 'Keine Tickets ausgewählt.']);
         }
 
+        // Nativer Checkout: WC nicht vorhanden → an Native Checkout delegieren
         if (!function_exists('WC') || !WC()->cart) {
+            if (class_exists('TIX_Native_Checkout')) {
+                TIX_Native_Checkout::ajax_add_to_cart();
+                return;
+            }
             error_log('[TIX] ajax_add_to_cart: WooCommerce not available');
             wp_send_json_error(['message' => 'Shop nicht verfügbar.']);
         }

@@ -302,6 +302,12 @@ class TIX_Settings {
             'ai_guard_api_key'  => '', // Legacy – wird migriert zu anthropic_api_key
             // ── Checkout-Modus ──
             'checkout_mode'     => 'auto', // auto (WC wenn vorhanden), woocommerce, native
+            // ── Payment Gateways (nativer Checkout) ──
+            'mollie_api_key'      => '',
+            'mollie_test_mode'    => 0,
+            'paypal_client_id'    => '',
+            'paypal_secret'       => '',
+            'paypal_sandbox'      => 0,
             // ── Mein-Konto Styling ──
             'myaccount_restyle'  => 0,
 
@@ -705,8 +711,13 @@ class TIX_Settings {
         $clean['support_categories'] = sanitize_textarea_field($input['support_categories'] ?? '');
         $clean['support_chat_enabled'] = !empty($input['support_chat_enabled']) ? 1 : 0;
 
-        // Checkout-Modus
+        // Checkout-Modus + Payment Gateways
         $clean['checkout_mode'] = in_array($input['checkout_mode'] ?? 'auto', ['auto', 'woocommerce', 'native']) ? $input['checkout_mode'] : 'auto';
+        $clean['mollie_api_key']   = sanitize_text_field($input['mollie_api_key'] ?? '');
+        $clean['mollie_test_mode'] = !empty($input['mollie_test_mode']) ? 1 : 0;
+        $clean['paypal_client_id'] = sanitize_text_field($input['paypal_client_id'] ?? '');
+        $clean['paypal_secret']    = sanitize_text_field($input['paypal_secret'] ?? '');
+        $clean['paypal_sandbox']   = !empty($input['paypal_sandbox']) ? 1 : 0;
 
         // KI / Künstliche Intelligenz
         $clean['anthropic_api_key'] = sanitize_text_field($input['anthropic_api_key'] ?? '');
@@ -2929,6 +2940,34 @@ class TIX_Settings {
                                                         <strong style="color:#f59e0b;">WooCommerce ist nicht installiert.</strong> Event-Verwaltung, KI-Assistent und Vorlagen funktionieren. Ticketverkauf benötigt den nativen Checkout (kommt bald) oder WooCommerce.
                                                     <?php endif; ?>
                                                 </p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Zahlungsanbieter (nativer Checkout) ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-money-alt"></span>
+                                        <h3>Zahlungsanbieter</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <p class="tix-settings-hint" style="margin-top:0;">
+                                                    Für den nativen Checkout (ohne WooCommerce). Kostenlose Events funktionieren immer ohne Zahlungsanbieter.
+                                                </p>
+                                            </div>
+                                            <?php self::text_row('mollie_api_key', 'Mollie API Key', $s, 'live_... oder test_...'); ?>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('mollie_test_mode', 'Mollie Test-Modus aktivieren', $s, 'Verwendet den Test-API-Key. Keine echten Zahlungen.'); ?>
+                                                <p class="tix-settings-hint"><a href="https://my.mollie.com/dashboard/developers/api-keys" target="_blank">Mollie API Keys →</a></p>
+                                            </div>
+                                            <?php self::text_row('paypal_client_id', 'PayPal Client ID', $s, 'A...'); ?>
+                                            <?php self::text_row('paypal_secret', 'PayPal Secret', $s, 'E...'); ?>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('paypal_sandbox', 'PayPal Sandbox aktivieren', $s, 'Verwendet die PayPal Sandbox. Keine echten Zahlungen.'); ?>
+                                                <p class="tix-settings-hint"><a href="https://developer.paypal.com/dashboard/applications" target="_blank">PayPal Developer Dashboard →</a></p>
                                             </div>
                                         </div>
                                     </div>
