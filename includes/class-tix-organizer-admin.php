@@ -246,6 +246,7 @@ class TIX_Organizer_Admin {
             'tix-organizer-billing',
             'tix-organizer-media',
             'tix-templates',
+            'tix-orders',
             'tix-statistics',
             'tix-settings',
             'tix-docs',

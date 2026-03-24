@@ -2185,7 +2185,7 @@ body:is(.post-type-event,.post-type-tix_location,.post-type-tix_organizer,.post-
 .tix-ai-modal-body {
     flex: 1;
     overflow-y: auto;
-    padding: 0 28px 28px;
+    padding: 16px 28px 28px;
 }
 
 /* Mode Selection Cards */

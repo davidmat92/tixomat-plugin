@@ -42,7 +42,7 @@ class TIX_Admin_Shell {
         $tix_pages = [
             'tix-settings', 'tix-statistics', 'tix-support', 'tix-docs',
             'tix-promoters', 'tix-marketing-export', 'tix-campaigns', 'tix-meta-ads',
-            'tix-templates',
+            'tix-templates', 'tix-orders',
             'tix-organizer-dashboard', 'tix-organizer-orders',
             'tix-organizer-guestlist', 'tix-organizer-email', 'tix-organizer-billing',
             'tix-organizer-media',
@@ -138,6 +138,7 @@ class TIX_Admin_Shell {
         elseif ($current_page === 'tix-campaigns')                              $active = 'campaigns';
         elseif ($current_page === 'tix-meta-ads')                              $active = 'meta-ads';
         elseif ($current_page === 'tix-templates')                              $active = 'templates';
+        elseif ($current_page === 'tix-orders')                                 $active = 'orders';
         elseif ($current_page === 'tix-settings')                               $active = 'settings';
         elseif ($current_page === 'tix-docs')                                   $active = 'docs';
 
@@ -348,6 +349,11 @@ class TIX_Admin_Shell {
                        class="tix-shell-item<?php echo $active === 'tickets' ? ' active' : ''; ?>">
                         <span class="dashicons dashicons-tickets-alt"></span>
                         <span>Verkaufte Tickets</span>
+                    </a>
+                    <a href="<?php echo admin_url('admin.php?page=tix-orders'); ?>"
+                       class="tix-shell-item<?php echo $active === 'orders' ? ' active' : ''; ?>">
+                        <span class="dashicons dashicons-cart"></span>
+                        <span>Bestellungen</span>
                     </a>
                     <a href="<?php echo admin_url('edit.php?post_type=tix_ticket_tpl'); ?>"
                        class="tix-shell-item<?php echo $active === 'ticket-templates' ? ' active' : ''; ?>">
