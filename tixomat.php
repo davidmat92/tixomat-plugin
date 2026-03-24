@@ -2,14 +2,14 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.33.149
+ * Version: 1.33.150
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.33.149');
+define('TIXOMAT_VERSION', '1.33.150');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -333,6 +333,10 @@ TIX_Content_Guard::init();
 // ── KI-Assistent (AI Writer) ──
 require_once TIXOMAT_PATH . 'includes/class-tix-ai-writer.php';
 TIX_AI_Writer::init();
+
+// ── Register Event ("Event in 2 Minuten") ──
+require_once TIXOMAT_PATH . 'includes/class-tix-register-event.php';
+TIX_Register_Event::init();
 
 // ── Timetable / Programm (Multi-Stage) ──
 require_once TIXOMAT_PATH . 'includes/class-tix-timetable.php';

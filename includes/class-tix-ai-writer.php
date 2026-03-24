@@ -299,7 +299,8 @@ PROMPT;
     // ──────────────────────────────────────────
     public static function ajax_fill_fields() {
         check_ajax_referer('tix_admin_action', 'nonce');
-        if (!current_user_can('edit_posts')) wp_send_json_error(['message' => 'Keine Berechtigung.']);
+        $is_register = sanitize_text_field($_POST['context'] ?? '') === 'register_event';
+        if (!$is_register && !current_user_can('edit_posts')) wp_send_json_error(['message' => 'Keine Berechtigung.']);
 
         $source_type = sanitize_text_field($_POST['source_type'] ?? '');
         $source_content = '';
@@ -669,7 +670,8 @@ REGELN:
     // ──────────────────────────────────────────
     public static function ajax_chat() {
         check_ajax_referer('tix_admin_action', 'nonce');
-        if (!current_user_can('edit_posts')) wp_send_json_error(['message' => 'Keine Berechtigung.']);
+        $is_register = sanitize_text_field($_POST['context'] ?? '') === 'register_event';
+        if (!$is_register && !current_user_can('edit_posts')) wp_send_json_error(['message' => 'Keine Berechtigung.']);
 
         $user_text = sanitize_textarea_field($_POST['text'] ?? '');
         $history   = json_decode(stripslashes($_POST['history'] ?? '[]'), true);
@@ -878,7 +880,8 @@ REGELN:
     // ──────────────────────────────────────────
     public static function ajax_upload_image() {
         check_ajax_referer('tix_admin_action', 'nonce');
-        if (!current_user_can('upload_files')) wp_send_json_error(['message' => 'Keine Berechtigung.']);
+        $is_register = sanitize_text_field($_POST['context'] ?? '') === 'register_event';
+        if (!$is_register && !current_user_can('upload_files')) wp_send_json_error(['message' => 'Keine Berechtigung.']);
 
         if (empty($_FILES['file'])) {
             wp_send_json_error(['message' => 'Keine Datei empfangen.']);
