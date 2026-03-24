@@ -10,9 +10,9 @@
 .section-inner { max-width: 1200px; margin: 0 auto; }
 
 .section-header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 28px; }
-.section-label { font-family: var(--tix-card-font-d, 'Sora', sans-serif); font-size: 0.68rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--tix-card-signal, #E8445A); margin-bottom: 6px; }
-.section-title { font-family: var(--tix-card-font-d, 'Sora', sans-serif); font-size: 1.5rem; font-weight: 800; letter-spacing: -0.02em; }
-.section-link { font-family: var(--tix-card-font-d, 'Sora', sans-serif); font-size: 0.82rem; font-weight: 600; color: var(--tix-card-signal, #E8445A); text-decoration: none; display: flex; align-items: center; gap: 4px; white-space: nowrap; transition: gap 0.2s; }
+.section-label { font-family: var(--tix-card-font-d, var(--tix-font-heading, 'Sora')), sans-serif; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--tix-card-signal, #E8445A); margin-bottom: 6px; }
+.section-title { font-family: var(--tix-card-font-d, var(--tix-font-heading, 'Sora')), sans-serif; font-size: 1.5rem; font-weight: 800; letter-spacing: -0.02em; }
+.section-link { font-family: var(--tix-card-font-d, var(--tix-font-heading, 'Sora')), sans-serif; font-size: 0.82rem; font-weight: 600; color: var(--tix-card-signal, #E8445A); text-decoration: none; display: flex; align-items: center; gap: 4px; white-space: nowrap; transition: gap 0.2s; }
 .section-link:hover { gap: 8px; }
 .section-dark .section-link { color: var(--tix-card-signal-mid, #F2899A); }
 
@@ -21,6 +21,8 @@
     display: grid;
     grid-template-columns: repeat(var(--tix-card-cols, 4), 1fr);
     gap: var(--tix-card-gap, 24px 20px);
+    font-family: var(--tix-font-body, 'DM Sans'), sans-serif;
+    font-size: var(--tix-body, 15px);
 }
 
 /* Card */
@@ -50,7 +52,7 @@
 
 /* Badges */
 .ev-badges { position: absolute; top: 10px; left: 10px; z-index: 3; display: flex; flex-direction: column; gap: 6px; }
-.ev-badge { font-family: var(--tix-card-font-d, 'Sora', sans-serif); font-size: 0.65rem; font-weight: 700; padding: 4px 10px; border-radius: var(--tix-card-radius-badge, 8px); display: inline-flex; align-items: center; gap: 5px; width: fit-content; }
+.ev-badge { font-family: var(--tix-card-font-d, var(--tix-font-heading, 'Sora')), sans-serif; font-size: 0.65rem; font-weight: 700; padding: 4px 10px; border-radius: var(--tix-card-radius-badge, 8px); display: inline-flex; align-items: center; gap: 5px; width: fit-content; }
 .ev-badge-cat { background: rgba(0,0,0,0.45); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); color: #fff; }
 .ev-badge-dot { width: 5px; height: 5px; border-radius: 50%; animation: tixPulse 2s ease infinite; }
 @keyframes tixPulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
@@ -65,9 +67,9 @@
 
 /* Body */
 .ev-body { padding: 16px 18px 6px; flex: 1; }
-.ev-date { font-family: var(--tix-card-font-d, 'Sora', sans-serif); font-size: var(--tix-card-font-date, 0.7rem); font-weight: 700; color: var(--tix-card-signal, #E8445A); letter-spacing: 0.02em; margin-bottom: 5px; }
+.ev-date { font-family: var(--tix-card-font-d, var(--tix-font-heading, 'Sora')), sans-serif; font-size: var(--tix-card-font-date, 0.7rem); font-weight: 700; color: var(--tix-card-signal, #E8445A); letter-spacing: 0.02em; margin-bottom: 5px; }
 .section-dark .ev-date { color: var(--tix-card-signal-mid, #F2899A); }
-.ev-title { font-family: var(--tix-card-font-d, 'Sora', sans-serif); font-size: var(--tix-card-font-title, 0.95rem); font-weight: 700; line-height: 1.3; margin-bottom: 5px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.ev-title { font-family: var(--tix-card-font-d, var(--tix-font-heading, 'Sora')), sans-serif; font-size: var(--tix-card-font-title, 0.95rem); font-weight: 700; line-height: 1.3; margin-bottom: 5px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .section-dark .ev-title { color: #fff; }
 .ev-loc { font-size: 0.8rem; color: var(--tix-card-text-muted, #3A3937); display: flex; align-items: center; gap: 4px; }
 .section-dark .ev-loc { color: #B8B5B0; }
@@ -75,13 +77,13 @@
 
 /* Footer */
 .ev-footer { padding: 12px 18px 16px; display: flex; justify-content: space-between; align-items: center; }
-.ev-price { font-family: var(--tix-card-font-d, 'Sora', sans-serif); font-weight: 700; font-size: var(--tix-card-font-price, 0.92rem); }
+.ev-price { font-family: var(--tix-card-font-d, var(--tix-font-heading, 'Sora')), sans-serif; font-weight: 700; font-size: var(--tix-card-font-price, 0.92rem); }
 .section-dark .ev-price { color: #fff; }
 .ev-price-free { color: var(--tix-card-entdecken, #14B8A6) !important; }
 .ev-price-old { text-decoration: line-through; opacity: 0.4; font-weight: 400; font-size: 0.78rem; margin-right: 4px; }
 
 /* Buttons */
-.ev-btn { background: var(--tix-card-signal, #E8445A); color: #fff; border: none; border-radius: var(--tix-card-radius-btn, 10px); padding: 9px 18px; font-family: var(--tix-card-font-d, 'Sora', sans-serif); font-weight: 700; font-size: 0.75rem; cursor: pointer; transition: transform 0.15s, box-shadow 0.15s; text-decoration: none; }
+.ev-btn { background: var(--tix-card-signal, #E8445A); color: #fff; border: none; border-radius: var(--tix-card-radius-btn, 10px); padding: 9px 18px; font-family: var(--tix-card-font-d, var(--tix-font-heading, 'Sora')), sans-serif; font-weight: 700; font-size: 0.75rem; cursor: pointer; transition: transform 0.15s, box-shadow 0.15s; text-decoration: none; }
 .ev-btn:hover { transform: scale(1.04); box-shadow: 0 4px 14px rgba(232,68,90,0.3); }
 .ev-btn-teal { background: var(--tix-card-entdecken, #14B8A6); }
 .ev-btn-teal:hover { box-shadow: 0 4px 14px rgba(20,184,166,0.3); }
@@ -146,9 +148,9 @@
 .tix-search-item-img img { width: 100%; height: 100%; object-fit: cover; }
 .tix-search-item-placeholder { width: 100%; height: 100%; background: var(--tix-card-sand, #E0ECE4); }
 .tix-search-item-info { flex: 1; min-width: 0; }
-.tix-search-item-title { font-family: var(--tix-card-font-d, 'Sora', sans-serif); font-weight: 700; font-size: 0.88rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tix-search-item-title { font-family: var(--tix-card-font-d, var(--tix-font-heading, 'Sora')), sans-serif; font-weight: 700; font-size: 0.88rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tix-search-item-meta { font-size: 0.75rem; color: var(--tix-card-text-muted, #8C8985); margin-top: 2px; }
-.tix-search-item-price { font-family: var(--tix-card-font-d, 'Sora', sans-serif); font-weight: 700; font-size: 0.82rem; flex-shrink: 0; color: var(--tix-card-signal, #E8445A); }
+.tix-search-item-price { font-family: var(--tix-card-font-d, var(--tix-font-heading, 'Sora')), sans-serif; font-weight: 700; font-size: 0.82rem; flex-shrink: 0; color: var(--tix-card-signal, #E8445A); }
 
 .tix-search-all {
     display: block; padding: 12px 16px; text-align: center; font-size: 0.82rem;

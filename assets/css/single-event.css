@@ -8,6 +8,8 @@
     max-width: var(--ep-max-w, 1100px);
     margin: 0 auto;
     padding: var(--tse-pad-y, 32px) var(--tse-pad-x, 32px) var(--tse-pad-y, 64px);
+    font-family: var(--tix-font-body, 'DM Sans'), sans-serif;
+    font-size: var(--tix-body, 15px);
 }
 
 /* Spacing: content always has room under sticky elements */
@@ -66,7 +68,7 @@
 }
 .tse-tabs-inner::-webkit-scrollbar { display: none; }
 .tse-tab {
-    font-family: var(--tix-card-font-d, 'Sora', sans-serif);
+    font-family: var(--tix-card-font-d, var(--tix-font-heading, 'Sora')), sans-serif;
     font-size: 0.82rem;
     font-weight: 600;
     color: var(--tix-card-text-muted, #8C8985);
@@ -103,13 +105,13 @@
 /* ── Intro ── */
 .tse-intro { padding: 8px 0 16px; }
 .tse-intro-date {
-    font-family: var(--tix-card-font-d, 'Sora', sans-serif);
+    font-family: var(--tix-card-font-d, var(--tix-font-heading, 'Sora')), sans-serif;
     font-size: 0.78rem; font-weight: 700;
     color: var(--tix-card-signal, #E8445A);
     letter-spacing: 0.02em; margin-bottom: 8px;
 }
 .tse-intro-title {
-    font-family: var(--tix-card-font-d, 'Sora', sans-serif);
+    font-family: var(--tix-card-font-d, var(--tix-font-heading, 'Sora')), sans-serif;
     font-size: 1.8rem; font-weight: 800;
     letter-spacing: -0.02em; line-height: 1.2;
     margin: 0 0 8px;
@@ -132,14 +134,14 @@
     padding: 28px 32px;
 }
 .tse-sec-label {
-    font-family: var(--tix-card-font-d, 'Sora', sans-serif);
+    font-family: var(--tix-card-font-d, var(--tix-font-heading, 'Sora')), sans-serif;
     font-size: 0.65rem; font-weight: 700;
     letter-spacing: 0.12em; text-transform: uppercase;
     color: var(--tix-card-signal, #E8445A);
     margin-bottom: 8px;
 }
 .tse-sec-title {
-    font-family: var(--tix-card-font-d, 'Sora', sans-serif);
+    font-family: var(--tix-card-font-d, var(--tix-font-heading, 'Sora')), sans-serif;
     font-size: 1.3rem; font-weight: 800;
     margin: 0 0 16px; letter-spacing: -0.01em;
 }
@@ -161,11 +163,11 @@
 .tse-info-row:last-of-type { border-bottom: none; }
 .tse-info-row svg { flex-shrink: 0; margin-top: 2px; opacity: 0.5; }
 .tse-info-label { font-size: 0.72rem; color: var(--tix-card-text-muted, #8C8985); margin-bottom: 2px; }
-.tse-info-value { font-family: var(--tix-card-font-d, 'Sora', sans-serif); font-weight: 600; font-size: 0.88rem; }
+.tse-info-value { font-family: var(--tix-card-font-d, var(--tix-font-heading, 'Sora')), sans-serif; font-weight: 600; font-size: 0.88rem; }
 .tse-info-sub { font-size: 0.78rem; color: var(--tix-card-text-muted, #8C8985); margin-top: 2px; }
 .tse-info-badges { display: flex; gap: 8px; margin-top: 16px; }
 .tse-badge {
-    font-family: var(--tix-card-font-d, 'Sora', sans-serif);
+    font-family: var(--tix-card-font-d, var(--tix-font-heading, 'Sora')), sans-serif;
     font-size: 0.68rem; font-weight: 700;
     padding: 5px 12px; border-radius: 8px;
 }
@@ -179,7 +181,7 @@
     width: 100%; padding: 14px;
     background: #fff; border: 1.5px solid var(--tix-card-sand, #E3DED4);
     border-radius: var(--tix-card-radius-btn, 10px);
-    font-family: var(--tix-card-font-d, 'Sora', sans-serif);
+    font-family: var(--tix-card-font-d, var(--tix-font-heading, 'Sora')), sans-serif;
     font-weight: 600; font-size: 0.85rem;
     cursor: pointer; transition: border-color 0.2s, box-shadow 0.2s;
 }
@@ -192,7 +194,7 @@
     padding: 10px 8px;
     background: #fff; border: 1.5px solid var(--tix-card-sand, #E3DED4);
     border-radius: var(--tix-card-radius-btn, 10px);
-    font-family: var(--tix-card-font-d, 'Sora', sans-serif);
+    font-family: var(--tix-card-font-d, var(--tix-font-heading, 'Sora')), sans-serif;
     font-weight: 600; font-size: 0.72rem;
     cursor: pointer; text-decoration: none; color: inherit;
     transition: border-color 0.2s;
@@ -207,7 +209,7 @@
     color: #fff;
 }
 .tse-countdown-label {
-    font-family: var(--tix-card-font-d, 'Sora', sans-serif);
+    font-family: var(--tix-card-font-d, var(--tix-font-heading, 'Sora')), sans-serif;
     font-size: 0.65rem; font-weight: 700;
     letter-spacing: 0.12em; text-transform: uppercase;
     color: var(--tix-card-signal-mid, #F2899A);
@@ -216,7 +218,7 @@
 .tse-countdown-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; text-align: center; }
 .tse-cd-val {
     display: block;
-    font-family: var(--tix-card-font-d, 'Sora', sans-serif);
+    font-family: var(--tix-card-font-d, var(--tix-font-heading, 'Sora')), sans-serif;
     font-size: 1.5rem; font-weight: 800;
 }
 .tse-cd-label { font-size: 0.65rem; color: rgba(255,255,255,0.5); margin-top: 2px; }
@@ -234,7 +236,7 @@
 /* ── Location ── */
 .tse-location-address { font-size: 0.9rem; color: var(--tix-card-text-muted, #5C5A57); margin: 0 0 8px; }
 .tse-location-link {
-    font-family: var(--tix-card-font-d, 'Sora', sans-serif);
+    font-family: var(--tix-card-font-d, var(--tix-font-heading, 'Sora')), sans-serif;
     font-size: 0.82rem; font-weight: 600;
     color: var(--tix-card-signal, #E8445A); text-decoration: none;
 }

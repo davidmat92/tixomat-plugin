@@ -16,7 +16,7 @@
 
     width: 100%;
     box-sizing: border-box;
-    font-family: inherit;
+    font-family: var(--tix-font-body, inherit);
     color: var(--_text);
 }
 

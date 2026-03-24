@@ -7,6 +7,8 @@
 .tix-sel {
     max-width: var(--tix-sel-max-width, none);
     color: var(--tix-text, inherit);
+    font-family: var(--tix-font-body, 'DM Sans'), sans-serif;
+    font-size: var(--tix-body, 15px);
 }
 
 /* ── Categories ── */

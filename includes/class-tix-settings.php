@@ -356,6 +356,20 @@ class TIX_Settings {
             'tix_card_show_heart'        => 1,
             'tix_card_show_badges'       => 1,
             'tix_card_default_mode'      => 'light',
+            // ── Globale Typografie ──
+            'tix_typo_font_heading' => 'Sora',
+            'tix_typo_font_body'    => 'DM Sans',
+            'tix_typo_h1'           => 28,
+            'tix_typo_h2'           => 22,
+            'tix_typo_h3'           => 18,
+            'tix_typo_h4'           => 16,
+            'tix_typo_h5'           => 14,
+            'tix_typo_h6'           => 13,
+            'tix_typo_body'         => 15,
+            'tix_typo_small'        => 13,
+            'tix_typo_button'       => 14,
+            'tix_typo_label'        => 12,
+            'tix_typo_breakdance_sync' => 0,
             // ── Syndication (Selfhosted → Evendis) ──
             'syndication_enabled'   => 0,
             'syndication_api_url'   => '',
@@ -813,6 +827,14 @@ class TIX_Settings {
         $clean['tix_card_show_heart']     = !empty($input['tix_card_show_heart']) ? 1 : 0;
         $clean['tix_card_show_badges']    = !empty($input['tix_card_show_badges']) ? 1 : 0;
         $clean['tix_card_default_mode']   = in_array($input['tix_card_default_mode'] ?? 'light', ['light', 'dark']) ? $input['tix_card_default_mode'] : 'light';
+
+        // Globale Typografie
+        $clean['tix_typo_font_heading'] = sanitize_text_field($input['tix_typo_font_heading'] ?? 'Sora');
+        $clean['tix_typo_font_body']    = sanitize_text_field($input['tix_typo_font_body'] ?? 'DM Sans');
+        foreach (['tix_typo_h1', 'tix_typo_h2', 'tix_typo_h3', 'tix_typo_h4', 'tix_typo_h5', 'tix_typo_h6', 'tix_typo_body', 'tix_typo_small', 'tix_typo_button', 'tix_typo_label'] as $k) {
+            $clean[$k] = intval($input[$k] ?? $d[$k] ?? 14);
+        }
+        $clean['tix_typo_breakdance_sync'] = !empty($input['tix_typo_breakdance_sync']) ? 1 : 0;
 
         // KI / Künstliche Intelligenz
         $clean['ai_assistant_name'] = sanitize_text_field($input['ai_assistant_name'] ?? 'Evendis-Assistent');
@@ -1360,6 +1382,43 @@ class TIX_Settings {
             echo ".tix-ci {\n    " . implode(";\n    ", $ci_vars) . ";\n}\n";
         }
 
+        // ── Globale Typografie Variablen ──
+        $typo_heading = esc_attr($s['tix_typo_font_heading'] ?? 'Sora');
+        $typo_body    = esc_attr($s['tix_typo_font_body'] ?? 'DM Sans');
+
+        // Breakdance Sync
+        if (!empty($s['tix_typo_breakdance_sync']) && defined('__BREAKDANCE_VERSION')) {
+            $bd_raw = get_option('breakdance_settings_json', '{}');
+            $bd = json_decode($bd_raw, true);
+            if (!empty($bd['settings']['globalStyles']['typography'])) {
+                $bdt = $bd['settings']['globalStyles']['typography'];
+                if (!empty($bdt['headingFontFamily'])) $typo_heading = sanitize_text_field($bdt['headingFontFamily']);
+                if (!empty($bdt['bodyFontFamily']))    $typo_body = sanitize_text_field($bdt['bodyFontFamily']);
+                $bd_sizes = ['h1' => 'tix_typo_h1', 'h2' => 'tix_typo_h2', 'h3' => 'tix_typo_h3', 'h4' => 'tix_typo_h4', 'h5' => 'tix_typo_h5', 'h6' => 'tix_typo_h6', 'body' => 'tix_typo_body'];
+                foreach ($bd_sizes as $bd_key => $tix_key) {
+                    if (!empty($bdt[$bd_key]['fontSize'])) {
+                        $s[$tix_key] = intval($bdt[$bd_key]['fontSize']);
+                    }
+                }
+            }
+        }
+
+        $typo_vars = [];
+        $typo_vars[] = "--tix-font-heading: '{$typo_heading}', sans-serif";
+        $typo_vars[] = "--tix-font-body: '{$typo_body}', sans-serif";
+        $typo_vars[] = '--tix-h1: ' . intval($s['tix_typo_h1'] ?? 28) . 'px';
+        $typo_vars[] = '--tix-h2: ' . intval($s['tix_typo_h2'] ?? 22) . 'px';
+        $typo_vars[] = '--tix-h3: ' . intval($s['tix_typo_h3'] ?? 18) . 'px';
+        $typo_vars[] = '--tix-h4: ' . intval($s['tix_typo_h4'] ?? 16) . 'px';
+        $typo_vars[] = '--tix-h5: ' . intval($s['tix_typo_h5'] ?? 14) . 'px';
+        $typo_vars[] = '--tix-h6: ' . intval($s['tix_typo_h6'] ?? 13) . 'px';
+        $typo_vars[] = '--tix-body: ' . intval($s['tix_typo_body'] ?? 15) . 'px';
+        $typo_vars[] = '--tix-small: ' . intval($s['tix_typo_small'] ?? 13) . 'px';
+        $typo_vars[] = '--tix-btn: ' . intval($s['tix_typo_button'] ?? 14) . 'px';
+        $typo_vars[] = '--tix-label: ' . intval($s['tix_typo_label'] ?? 12) . 'px';
+
+        echo ":root {\n    " . implode(";\n    ", $typo_vars) . ";\n}\n";
+
         // ── Event-Karten Variablen ──
         $card_map = [
             'tix_card_color_signal'     => '--tix-card-signal',
@@ -1413,21 +1472,33 @@ class TIX_Settings {
     }
 
     /**
-     * Google Fonts für Event-Karten laden (wenn nicht self-hosted)
+     * Google Fonts laden (globale Typografie + Event-Karten)
      */
     public static function enqueue_card_fonts() {
         $s = self::get();
         if (!empty($s['tix_card_font_self_host'])) return;
 
-        $display = $s['tix_card_font_display'] ?? 'Sora';
-        $body    = $s['tix_card_font_body'] ?? 'DM Sans';
-        $fonts   = [];
+        $all_fonts = [];
 
-        if ($display) $fonts[] = str_replace(' ', '+', $display) . ':wght@400;500;600;700';
-        if ($body && $body !== $display) $fonts[] = str_replace(' ', '+', $body) . ':wght@400;500;600;700';
+        // Globale Typografie-Fonts
+        $typo_h = $s['tix_typo_font_heading'] ?? 'Sora';
+        $typo_b = $s['tix_typo_font_body'] ?? 'DM Sans';
+        if ($typo_h) $all_fonts[$typo_h] = true;
+        if ($typo_b) $all_fonts[$typo_b] = true;
 
-        if (!empty($fonts)) {
-            $url = 'https://fonts.googleapis.com/css2?family=' . implode('&family=', $fonts) . '&display=swap';
+        // Card-spezifische Fonts (falls abweichend)
+        $card_d = $s['tix_card_font_display'] ?? 'Sora';
+        $card_b = $s['tix_card_font_body'] ?? 'DM Sans';
+        if ($card_d) $all_fonts[$card_d] = true;
+        if ($card_b) $all_fonts[$card_b] = true;
+
+        $families = [];
+        foreach (array_keys($all_fonts) as $f) {
+            $families[] = str_replace(' ', '+', $f) . ':wght@400;500;600;700';
+        }
+
+        if (!empty($families)) {
+            $url = 'https://fonts.googleapis.com/css2?family=' . implode('&family=', $families) . '&display=swap';
             wp_enqueue_style('tix-card-fonts', $url, [], null);
         }
     }
@@ -1518,6 +1589,10 @@ class TIX_Settings {
                                 <button type="button" class="tix-nav-tab" data-tab="event-cards">
                                     <span class="dashicons dashicons-screenoptions"></span>
                                     <span class="tix-nav-label">Event-Karten</span>
+                                </button>
+                                <button type="button" class="tix-nav-tab" data-tab="typography">
+                                    <span class="dashicons dashicons-editor-textcolor"></span>
+                                    <span class="tix-nav-label">Typografie</span>
                                 </button>
                                 <button type="button" class="tix-nav-tab" data-tab="share">
                                     <span class="dashicons dashicons-share"></span>
@@ -2921,6 +2996,100 @@ class TIX_Settings {
                                         </script>
                                     </div>
                                 </div>
+
+                            </div>
+
+                            <?php // ═══ PANE: TYPOGRAFIE ═══ ?>
+                            <div class="tix-pane" data-pane="typography">
+
+                                <?php // ── Card: Schriftarten ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-editor-textcolor"></span>
+                                        <h3>Schriftarten</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <?php
+                                            $fonts = ['Sora', 'DM Sans', 'Inter', 'Outfit', 'Poppins', 'Montserrat', 'Open Sans', 'Roboto', 'Lato', 'Nunito', 'Raleway', 'Playfair Display', 'Oswald', 'Source Sans 3', 'Work Sans', 'Manrope', 'Plus Jakarta Sans', 'Figtree'];
+                                            $hFont = $s['tix_typo_font_heading'] ?? 'Sora';
+                                            $bFont = $s['tix_typo_font_body'] ?? 'DM Sans';
+                                            ?>
+                                            <div class="tix-field">
+                                                <label class="tix-field-label">Überschriften</label>
+                                                <select name="tix_settings[tix_typo_font_heading]" style="width:100%;">
+                                                    <?php foreach ($fonts as $f): ?>
+                                                        <option value="<?php echo esc_attr($f); ?>" <?php selected($hFont, $f); ?>><?php echo esc_html($f); ?></option>
+                                                    <?php endforeach; ?>
+                                                </select>
+                                            </div>
+                                            <div class="tix-field">
+                                                <label class="tix-field-label">Fließtext & UI</label>
+                                                <select name="tix_settings[tix_typo_font_body]" style="width:100%;">
+                                                    <?php foreach ($fonts as $f): ?>
+                                                        <option value="<?php echo esc_attr($f); ?>" <?php selected($bFont, $f); ?>><?php echo esc_html($f); ?></option>
+                                                    <?php endforeach; ?>
+                                                </select>
+                                            </div>
+                                        </div>
+                                        <p class="tix-field-hint" style="margin-top:12px;">Gilt für alle Frontend-Shortcodes: Event-Karten, Checkout, Event-Seite, Registrierung, Suche, Kalender etc.</p>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Überschriften H1–H6 ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-heading"></span>
+                                        <h3>Überschriften (H1–H6)</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <?php
+                                            self::range_row('tix_typo_h1', 'H1', $s, 16, 48, 'px');
+                                            self::range_row('tix_typo_h2', 'H2', $s, 14, 40, 'px');
+                                            self::range_row('tix_typo_h3', 'H3', $s, 12, 32, 'px');
+                                            self::range_row('tix_typo_h4', 'H4', $s, 12, 28, 'px');
+                                            self::range_row('tix_typo_h5', 'H5', $s, 10, 24, 'px');
+                                            self::range_row('tix_typo_h6', 'H6', $s, 10, 20, 'px');
+                                            ?>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Texte & Buttons ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-editor-paragraph"></span>
+                                        <h3>Texte &amp; Buttons</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <?php
+                                            self::range_row('tix_typo_body', 'Fließtext', $s, 12, 20, 'px');
+                                            self::range_row('tix_typo_small', 'Kleintext', $s, 10, 16, 'px');
+                                            self::range_row('tix_typo_button', 'Buttons', $s, 12, 18, 'px');
+                                            self::range_row('tix_typo_label', 'Labels', $s, 10, 14, 'px');
+                                            ?>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php if (defined('__BREAKDANCE_VERSION')): ?>
+                                <?php // ── Card: Breakdance Sync ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-update"></span>
+                                        <h3>Breakdance Sync</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('tix_typo_breakdance_sync', 'Typografie von Breakdance Global Styles übernehmen', $s, 'Liest die Schriftarten und -größen aus deinen Breakdance Global Styles und überschreibt die manuellen Werte oben.'); ?>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <?php endif; ?>
 
                             </div>
 

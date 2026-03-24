@@ -3,7 +3,7 @@
    ═══════════════════════════════════════════ */
 
 .tix-tt {
-    font-family: inherit;
+    font-family: var(--tix-font-body, inherit);
 }
 
 /* ── Hinweis: Zeiten TBA ── */

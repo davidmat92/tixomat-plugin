@@ -20,7 +20,7 @@
     padding: 20px;
     background: var(--ci-bg);
     color: var(--ci-text);
-    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    font-family: var(--tix-font-body, 'DM Sans'), sans-serif;
     min-height: 100vh;
     -webkit-font-smoothing: antialiased;
 }

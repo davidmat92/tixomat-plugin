@@ -15,8 +15,9 @@
     max-width: 680px;
     margin: 0 auto;
     padding: 40px 24px 60px;
-    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    font-family: var(--tix-font-body, 'DM Sans'), system-ui, sans-serif;
     color: var(--re-text);
+    font-size: var(--tix-body, 15px);
 }
 
 /* ── Dark Mode ── */
@@ -33,8 +34,8 @@
    HEADER
    ══════════════════════════════════════ */
 .tix-re-header { text-align: center; margin-bottom: 36px; }
-.tix-re-title { font-size: 28px; font-weight: 800; margin: 0 0 8px; line-height: 1.2; }
-.tix-re-subtitle { font-size: 16px; color: var(--re-muted); margin: 0; }
+.tix-re-title { font-size: var(--tix-h1, 28px); font-weight: 800; margin: 0 0 8px; line-height: 1.2; font-family: var(--tix-font-heading, 'Sora'), sans-serif; }
+.tix-re-subtitle { font-size: var(--tix-body, 15px); color: var(--re-muted); margin: 0; }
 
 /* ══════════════════════════════════════
    STEPPER
@@ -94,7 +95,7 @@
    PANELS
    ══════════════════════════════════════ */
 .tix-re-panel { animation: tixReFadeIn 0.35s ease; }
-.tix-re-panel-title { font-size: 20px; font-weight: 700; margin: 0 0 24px; text-align: center; }
+.tix-re-panel-title { font-size: var(--tix-h2, 22px); font-weight: 700; margin: 0 0 24px; text-align: center; font-family: var(--tix-font-heading, 'Sora'), sans-serif; }
 
 @keyframes tixReFadeIn {
     from { opacity: 0; transform: translateY(12px); }
@@ -131,8 +132,8 @@
     background: color-mix(in srgb, var(--re-primary) 6%, transparent);
 }
 .tix-re-mode-icon { font-size: 28px; }
-.tix-re-mode strong { font-size: 14px; }
-.tix-re-mode span:last-child { font-size: 12px; color: var(--re-muted); }
+.tix-re-mode strong { font-size: var(--tix-btn, 14px); }
+.tix-re-mode span:last-child { font-size: var(--tix-label, 12px); color: var(--re-muted); }
 
 /* ══════════════════════════════════════
    INPUT AREAS
@@ -167,7 +168,7 @@
     max-width: 85%;
     padding: 10px 14px;
     border-radius: 14px;
-    font-size: 14px;
+    font-size: var(--tix-small, 13px);
     line-height: 1.5;
     word-break: break-word;
 }
@@ -359,7 +360,7 @@
     padding: 11px 14px;
     border: 1px solid var(--re-border);
     border-radius: 10px;
-    font-size: 14px;
+    font-size: var(--tix-body, 15px);
     font-family: inherit;
     background: var(--re-bg);
     color: var(--re-text);
@@ -427,8 +428,9 @@
 }
 .tix-re-preview-value textarea { resize: vertical; min-height: 60px; }
 .tix-re-preview-title {
-    font-size: 20px;
+    font-size: var(--tix-h2, 22px);
     font-weight: 700;
+    font-family: var(--tix-font-heading, 'Sora'), sans-serif;
     margin: 0 0 16px;
     text-align: center;
 }
@@ -446,7 +448,7 @@
 .tix-re-field-half { width: calc(50% - 8px); }
 .tix-re-field label {
     display: block;
-    font-size: 13px;
+    font-size: var(--tix-label, 12px);
     font-weight: 600;
     margin-bottom: 6px;
     color: var(--re-text);
@@ -471,7 +473,7 @@
     color: #fff;
     border: none;
     border-radius: 10px;
-    font-size: 15px;
+    font-size: var(--tix-btn, 14px);
     font-weight: 600;
     font-family: inherit;
     cursor: pointer;
@@ -507,7 +509,7 @@
     color: #fff;
     border: none;
     border-radius: 12px;
-    font-size: 16px;
+    font-size: var(--tix-btn, 14px);
     font-weight: 700;
     font-family: inherit;
     cursor: pointer;
@@ -555,8 +557,8 @@
     50%  { transform: scale(1.2); }
     100% { transform: scale(1); opacity: 1; }
 }
-.tix-re-success h2 { font-size: 24px; margin: 0 0 8px; }
-.tix-re-success p { color: var(--re-muted); margin: 0 0 24px; font-size: 15px; }
+.tix-re-success h2 { font-size: var(--tix-h2, 22px); margin: 0 0 8px; font-family: var(--tix-font-heading, 'Sora'), sans-serif; }
+.tix-re-success p { color: var(--re-muted); margin: 0 0 24px; font-size: var(--tix-body, 15px); }
 .tix-re-success-links { display: flex; justify-content: center; gap: 12px; flex-wrap: wrap; }
 
 /* ══════════════════════════════════════

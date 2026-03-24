@@ -16,7 +16,7 @@
     color: var(--tix-btn1-color, inherit);
     font-size: var(--tix-btn1-font-size, 0.9rem);
     font-weight: 700;
-    font-family: inherit;
+    font-family: var(--tix-font-body, inherit);
     cursor: pointer;
     transition: border-color 0.2s, background 0.2s, opacity 0.2s;
 }

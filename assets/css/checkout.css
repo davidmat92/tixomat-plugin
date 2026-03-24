@@ -10,7 +10,8 @@
     width: 100%;
     max-width: 640px;
     box-sizing: border-box;
-    font-family: inherit;
+    font-family: var(--tix-font-body, 'DM Sans'), sans-serif;
+    font-size: var(--tix-body, 15px);
 }
 
 /* Links: Farbe nicht vom Theme überschreiben lassen (außer Buttons) */
