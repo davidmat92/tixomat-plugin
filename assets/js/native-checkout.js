@@ -79,6 +79,22 @@
         });
     });
 
+    // ── Menge ändern (+/-) ──
+    $(document).on('click', '.tix-co-qty-btn', function() {
+        var $btn = $(this);
+        var index = $btn.data('index');
+        var delta = parseInt($btn.data('delta'), 10);
+        $btn.closest('.tix-co-item').css('opacity', '0.6');
+        $.post(ajax, {
+            action: 'tix_native_update_qty',
+            nonce: nonce,
+            index: index,
+            delta: delta
+        }, function() {
+            location.reload();
+        });
+    });
+
     // ── Gateway-Auswahl ──
     $(document).on('change', '.tix-co-gw-radio', function() {
         $('.tix-co-gateway').removeClass('tix-co-gw-active');

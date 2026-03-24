@@ -20,6 +20,10 @@ class TIX_Native_Checkout {
         add_action('wp_ajax_tix_native_remove_item',        [__CLASS__, 'ajax_remove_item']);
         add_action('wp_ajax_nopriv_tix_native_remove_item', [__CLASS__, 'ajax_remove_item']);
 
+        // AJAX: Cart-Aktionen
+        add_action('wp_ajax_tix_native_update_qty',      [__CLASS__, 'ajax_update_qty']);
+        add_action('wp_ajax_nopriv_tix_native_update_qty', [__CLASS__, 'ajax_update_qty']);
+
         // AJAX: Checkout verarbeiten
         add_action('wp_ajax_tix_native_checkout',        [__CLASS__, 'ajax_process_checkout']);
         add_action('wp_ajax_nopriv_tix_native_checkout', [__CLASS__, 'ajax_process_checkout']);
@@ -211,7 +215,10 @@ class TIX_Native_Checkout {
      * AJAX: Artikel entfernen
      */
     public static function ajax_remove_item() {
-        check_ajax_referer('tix_native_checkout', 'nonce');
+        // Akzeptiere beide Nonce-Varianten
+        if (!wp_verify_nonce($_POST['nonce'] ?? '', 'tix_native_checkout')) {
+            check_ajax_referer('tix_add_to_cart', 'nonce');
+        }
         $index = intval($_POST['index'] ?? -1);
         $cart = self::get_cart();
 
@@ -221,6 +228,28 @@ class TIX_Native_Checkout {
         }
 
         wp_send_json_success(['cart_count' => self::cart_count(), 'cart_total' => self::cart_total()]);
+    }
+
+    /**
+     * AJAX: Menge ändern (+/-)
+     */
+    public static function ajax_update_qty() {
+        if (!wp_verify_nonce($_POST['nonce'] ?? '', 'tix_native_checkout')) {
+            check_ajax_referer('tix_add_to_cart', 'nonce');
+        }
+        $index = intval($_POST['index'] ?? -1);
+        $delta = intval($_POST['delta'] ?? 0);
+        $cart = self::get_cart();
+
+        if (isset($cart['items'][$index])) {
+            $cart['items'][$index]['qty'] = max(1, $cart['items'][$index]['qty'] + $delta);
+            self::save_cart($cart);
+        }
+
+        wp_send_json_success([
+            'cart_count' => self::cart_count(),
+            'cart_total' => self::cart_total(),
+        ]);
     }
 
     // ──────────────────────────────────────────
@@ -318,7 +347,9 @@ class TIX_Native_Checkout {
                                     <div style="font-size:0.85rem;opacity:0.7;"><?php echo esc_html($item['name']); ?></div>
                                 </div>
                                 <div class="tix-co-item-qty">
-                                    <span class="tix-co-qty-val"><?php echo intval($item['qty']); ?>&times;</span>
+                                    <button type="button" class="tix-co-qty-btn tix-co-qty-minus" data-index="<?php echo $i; ?>" data-delta="-1">−</button>
+                                    <span class="tix-co-qty-val"><?php echo intval($item['qty']); ?></span>
+                                    <button type="button" class="tix-co-qty-btn tix-co-qty-plus" data-index="<?php echo $i; ?>" data-delta="1">+</button>
                                 </div>
                                 <div class="tix-co-item-price">
                                     <?php echo number_format($line_total, 2, ',', '.'); ?>&nbsp;&euro;
