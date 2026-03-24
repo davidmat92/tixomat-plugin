@@ -224,17 +224,23 @@ class TIX_Native_Checkout {
      * Wird vom bestehenden [tix_checkout] Shortcode aufgerufen oder eigener Shortcode
      */
     public static function render_checkout() {
+        // Checkout-CSS laden (gleich wie WC-Checkout)
+        wp_enqueue_style('tix-checkout', TIXOMAT_URL . 'assets/css/checkout.css', ['tix-google-fonts'], TIXOMAT_VERSION);
+
         $cart = self::get_cart();
         if (empty($cart['items'])) {
-            return '<div class="tix-co" style="text-align:center;padding:40px 20px;">'
-                . '<p style="font-size:18px;color:#6b7280;">Dein Warenkorb ist leer.</p>'
-                . '<a href="' . esc_url(home_url('/events/')) . '" class="tix-co-btn" style="display:inline-block;margin-top:12px;">Events entdecken</a>'
-                . '</div>';
+            return '<div class="tix-co"><div class="tix-co-empty">'
+                . '<p>' . esc_html(tix_get_settings('empty_text') ?: 'Dein Warenkorb ist leer.') . '</p>'
+                . '<a href="' . esc_url(home_url('/events/')) . '" class="tix-co-btn-back">'
+                . esc_html(tix_get_settings('empty_link_text') ?: 'Jetzt Tickets sichern') . '</a>'
+                . '</div></div>';
         }
 
         $total = self::cart_total();
         $is_free = ($total <= 0);
         $nonce = wp_create_nonce('tix_native_checkout');
+        $s = tix_get_settings();
+        $user = wp_get_current_user();
 
         // Verfügbare Gateways
         $gateways = [];
@@ -249,81 +255,91 @@ class TIX_Native_Checkout {
             }
         }
 
-        $s = tix_get_settings();
-        $user = wp_get_current_user();
+        $btn_text = $s['btn_text_checkout'] ?? 'Jetzt bestellen';
+        $vat_text = $s['vat_text_checkout'] ?? 'inkl. MwSt.';
 
         ob_start();
         ?>
-        <div class="tix-co tix-native-checkout" data-nonce="<?php echo esc_attr($nonce); ?>" data-ajax="<?php echo esc_url(admin_url('admin-ajax.php')); ?>">
-
-            <?php // ── Warenkorb-Übersicht ── ?>
-            <div class="tix-co-section tix-co-cart-summary">
-                <h3>Deine Tickets</h3>
-                <div class="tix-co-items">
-                    <?php foreach ($cart['items'] as $i => $item): ?>
-                        <div class="tix-co-item" data-index="<?php echo $i; ?>">
-                            <div class="tix-co-item-info">
-                                <strong><?php echo esc_html($item['event_title']); ?></strong>
-                                <span><?php echo esc_html($item['name']); ?> &times; <?php echo intval($item['qty']); ?></span>
-                            </div>
-                            <div class="tix-co-item-price">
-                                <?php echo number_format($item['price'] * $item['qty'], 2, ',', '.'); ?> &euro;
-                            </div>
-                            <button type="button" class="tix-co-remove" data-index="<?php echo $i; ?>" title="Entfernen">&times;</button>
-                        </div>
-                    <?php endforeach; ?>
-                </div>
-                <div class="tix-co-total">
-                    <strong>Gesamt</strong>
-                    <strong><?php echo number_format($total, 2, ',', '.'); ?> &euro;</strong>
-                </div>
-            </div>
-
-            <?php // ── Kontaktdaten ── ?>
+        <div class="tix-co">
             <form id="tix-native-checkout-form" method="post">
                 <input type="hidden" name="action" value="tix_native_checkout">
                 <input type="hidden" name="nonce" value="<?php echo esc_attr($nonce); ?>">
 
+                <?php // ── Warenkorb ── ?>
                 <div class="tix-co-section">
-                    <h3>Kontaktdaten</h3>
-                    <div class="tix-co-fields">
-                        <div class="tix-co-row">
-                            <div class="tix-co-field">
-                                <label for="tix_billing_first_name">Vorname *</label>
-                                <input type="text" id="tix_billing_first_name" name="billing_first_name" required
-                                       value="<?php echo esc_attr($user->first_name ?? ''); ?>">
+                    <h3 class="tix-co-heading">Deine Tickets</h3>
+                    <div class="tix-co-cart">
+                        <?php foreach ($cart['items'] as $i => $item):
+                            $line_total = floatval($item['price']) * intval($item['qty']);
+                        ?>
+                            <div class="tix-co-item" data-index="<?php echo $i; ?>">
+                                <div class="tix-co-item-info">
+                                    <div class="tix-co-item-name"><?php echo esc_html($item['event_title']); ?></div>
+                                    <div style="font-size:0.85rem;opacity:0.7;"><?php echo esc_html($item['name']); ?></div>
+                                </div>
+                                <div class="tix-co-item-qty">
+                                    <span class="tix-co-qty-val"><?php echo intval($item['qty']); ?>&times;</span>
+                                </div>
+                                <div class="tix-co-item-price">
+                                    <?php echo number_format($line_total, 2, ',', '.'); ?>&nbsp;&euro;
+                                </div>
+                                <button type="button" class="tix-co-item-remove tix-co-remove" data-index="<?php echo $i; ?>" title="Entfernen">&times;</button>
                             </div>
-                            <div class="tix-co-field">
-                                <label for="tix_billing_last_name">Nachname *</label>
-                                <input type="text" id="tix_billing_last_name" name="billing_last_name" required
-                                       value="<?php echo esc_attr($user->last_name ?? ''); ?>">
-                            </div>
-                        </div>
-                        <div class="tix-co-field">
-                            <label for="tix_billing_email">E-Mail-Adresse *</label>
-                            <input type="email" id="tix_billing_email" name="billing_email" required
-                                   value="<?php echo esc_attr($user->user_email ?? ''); ?>">
-                        </div>
-                        <div class="tix-co-field">
-                            <label for="tix_billing_phone">Telefon</label>
-                            <input type="tel" id="tix_billing_phone" name="billing_phone">
+                        <?php endforeach; ?>
+                    </div>
+
+                    <?php // ── Zusammenfassung ── ?>
+                    <div class="tix-co-summary">
+                        <div class="tix-co-summary-row tix-co-summary-total">
+                            <span>Gesamt <span class="tix-co-vat-note"><?php echo esc_html($vat_text); ?></span></span>
+                            <span class="tix-co-total"><?php echo number_format($total, 2, ',', '.'); ?>&nbsp;&euro;</span>
                         </div>
                     </div>
                 </div>
 
+                <?php // ── Rechnungsdetails ── ?>
+                <div class="tix-co-section">
+                    <h3 class="tix-co-heading">Rechnungsdetails</h3>
+                    <div class="tix-co-fields">
+                        <div class="tix-co-field tix-co-field-half">
+                            <label class="tix-co-label">Vorname <abbr class="tix-co-req">*</abbr></label>
+                            <input type="text" class="tix-co-input" name="billing_first_name" required autocomplete="given-name"
+                                   value="<?php echo esc_attr($user->first_name ?? ''); ?>">
+                        </div>
+                        <div class="tix-co-field tix-co-field-half">
+                            <label class="tix-co-label">Nachname <abbr class="tix-co-req">*</abbr></label>
+                            <input type="text" class="tix-co-input" name="billing_last_name" required autocomplete="family-name"
+                                   value="<?php echo esc_attr($user->last_name ?? ''); ?>">
+                        </div>
+                        <div class="tix-co-field tix-co-field-full">
+                            <label class="tix-co-label">E-Mail-Adresse <abbr class="tix-co-req">*</abbr></label>
+                            <input type="email" class="tix-co-input" name="billing_email" required autocomplete="email"
+                                   value="<?php echo esc_attr($user->user_email ?? ''); ?>">
+                        </div>
+                        <div class="tix-co-field tix-co-field-full">
+                            <label class="tix-co-label">Telefon</label>
+                            <input type="tel" class="tix-co-input" name="billing_phone" autocomplete="tel">
+                        </div>
+                    </div>
+                </div>
+
+                <?php // ── Zahlungsart ── ?>
                 <?php if (!$is_free && !empty($gateways)): ?>
                 <div class="tix-co-section">
-                    <h3>Zahlungsart</h3>
+                    <h3 class="tix-co-heading">Zahlungsart</h3>
                     <div class="tix-co-gateways">
                         <?php foreach ($gateways as $gi => $gw): ?>
-                            <label class="tix-co-gateway <?php echo $gi === 0 ? 'active' : ''; ?>">
-                                <input type="radio" name="payment_method" value="<?php echo esc_attr($gw['id']); ?>"
-                                    <?php checked($gi, 0); ?>>
-                                <?php if ($gw['icon']): ?>
-                                    <img src="<?php echo esc_url($gw['icon']); ?>" alt="" style="height:20px;">
-                                <?php endif; ?>
-                                <span><?php echo esc_html($gw['title']); ?></span>
-                            </label>
+                            <div class="tix-co-gateway <?php echo $gi === 0 ? 'tix-co-gw-active' : ''; ?>">
+                                <label class="tix-co-gw-label">
+                                    <input type="radio" name="payment_method" value="<?php echo esc_attr($gw['id']); ?>"
+                                           class="tix-co-gw-radio" <?php checked($gi, 0); ?>>
+                                    <span class="tix-co-gw-radio-custom"></span>
+                                    <span class="tix-co-gw-title"><?php echo esc_html($gw['title']); ?></span>
+                                    <?php if ($gw['icon']): ?>
+                                        <span class="tix-co-gw-icon"><img src="<?php echo esc_url($gw['icon']); ?>" alt=""></span>
+                                    <?php endif; ?>
+                                </label>
+                            </div>
                         <?php endforeach; ?>
                     </div>
                 </div>
@@ -331,36 +347,41 @@ class TIX_Native_Checkout {
                     <input type="hidden" name="payment_method" value="free">
                 <?php endif; ?>
 
-                <?php // ── AGB + Datenschutz ── ?>
-                <div class="tix-co-section tix-co-legal">
-                    <?php
-                    $terms_url = $s['terms_url'] ?? '';
-                    $privacy_url = $s['privacy_url'] ?? '';
-                    if ($terms_url || $privacy_url):
-                    ?>
-                        <label class="tix-co-checkbox">
-                            <input type="checkbox" name="accept_terms" required>
+                <?php // ── Rechtliches ── ?>
+                <?php
+                $terms_url = $s['terms_url'] ?? '';
+                $privacy_url = $s['privacy_url'] ?? '';
+                if ($terms_url || $privacy_url):
+                ?>
+                <div class="tix-co-legal">
+                    <h4 class="tix-co-legal-heading">Rechtliches</h4>
+                    <div class="tix-co-legal-checks">
+                        <label class="tix-co-check-label">
+                            <input type="checkbox" class="tix-co-check" name="accept_terms" required>
+                            <span class="tix-co-check-custom"></span>
                             <span>Ich akzeptiere die
-                                <?php if ($terms_url): ?><a href="<?php echo esc_url($terms_url); ?>" target="_blank">AGB</a><?php endif; ?>
+                                <?php if ($terms_url): ?><a href="<?php echo esc_url($terms_url); ?>" target="_blank" class="tix-co-legal-link">AGB</a><?php endif; ?>
                                 <?php if ($terms_url && $privacy_url): ?> und <?php endif; ?>
-                                <?php if ($privacy_url): ?><a href="<?php echo esc_url($privacy_url); ?>" target="_blank">Datenschutzerklärung</a><?php endif; ?>
+                                <?php if ($privacy_url): ?><a href="<?php echo esc_url($privacy_url); ?>" target="_blank" class="tix-co-legal-link">Datenschutzerklärung</a><?php endif; ?>
                             .</span>
                         </label>
-                    <?php endif; ?>
+                    </div>
                 </div>
+                <?php endif; ?>
 
-                <div class="tix-co-submit">
-                    <button type="submit" class="tix-co-btn tix-co-pay-btn" id="tix-native-pay-btn">
+                <?php // ── Bestellen ── ?>
+                <button type="submit" class="tix-co-submit" id="tix-native-pay-btn">
+                    <span class="tix-co-submit-text">
                         <?php if ($is_free): ?>
                             Kostenlos bestellen
                         <?php else: ?>
-                            Jetzt bezahlen &middot; <?php echo number_format($total, 2, ',', '.'); ?> &euro;
+                            <?php echo esc_html($btn_text); ?> &middot; <span class="tix-co-submit-price"><?php echo number_format($total, 2, ',', '.'); ?>&nbsp;&euro;</span>
                         <?php endif; ?>
-                    </button>
-                    <p class="tix-co-secure">🔒 Sichere Verbindung (SSL-verschlüsselt)</p>
-                </div>
+                    </span>
+                    <span class="tix-co-submit-loading" style="display:none;">Bestellung wird verarbeitet&hellip;</span>
+                </button>
 
-                <div id="tix-native-checkout-error" style="display:none;" class="tix-co-error"></div>
+                <div id="tix-native-checkout-error" class="tix-co-message tix-co-msg-error" style="display:none;"></div>
             </form>
         </div>
         <?php
@@ -596,6 +617,8 @@ class TIX_Native_Checkout {
     private static function render_thankyou_page($order, $items, $tickets) {
         $s = tix_get_settings();
         $primary = $s['color_primary'] ?? '#FF5500';
+        $btn_bg = $s['btn1_bg'] ?? $s['color_accent'] ?? $primary;
+        $btn_color = $s['btn1_color'] ?? $s['color_accent_text'] ?? '#fff';
         ?><!DOCTYPE html>
 <html <?php language_attributes(); ?>>
 <head>
@@ -618,7 +641,7 @@ class TIX_Native_Checkout {
         .ty-total { display:flex; justify-content:space-between; padding:12px 0 0; font-size:16px; font-weight:600; border-top:2px solid #e5e7eb; }
         .ty-ticket { display:flex; align-items:center; justify-content:space-between; padding:12px; border:1px solid #e5e7eb; border-radius:8px; margin-bottom:8px; }
         .ty-ticket-code { font-family:monospace; font-size:13px; color:#6b7280; }
-        .ty-dl-btn { background:<?php echo $primary; ?>; color:#fff; padding:8px 16px; border-radius:8px; text-decoration:none; font-size:13px; font-weight:600; }
+        .ty-dl-btn { background:<?php echo $btn_bg; ?>; color:<?php echo $btn_color; ?>; padding:8px 16px; border-radius:8px; text-decoration:none; font-size:13px; font-weight:600; }
         .ty-dl-btn:hover { opacity:0.9; }
         .ty-pending { background:#fef3c7; border:1px solid #f59e0b; border-radius:8px; padding:12px 16px; font-size:13px; color:#92400e; margin-bottom:16px; }
         .ty-back { display:block; text-align:center; margin-top:24px; color:#6b7280; font-size:14px; }
@@ -699,6 +722,7 @@ class TIX_Native_Checkout {
     public static function enqueue_assets() {
         if (is_admin() || tix_has_wc()) return; // Nur Frontend, nur ohne WC
 
+        wp_enqueue_style('tix-checkout', TIXOMAT_URL . 'assets/css/checkout.css', ['tix-google-fonts'], TIXOMAT_VERSION);
         wp_enqueue_script('tix-native-checkout', TIXOMAT_URL . 'assets/js/native-checkout.js', ['jquery'], TIXOMAT_VERSION, true);
         wp_localize_script('tix-native-checkout', 'tixNativeCheckout', [
             'ajaxUrl' => admin_url('admin-ajax.php'),

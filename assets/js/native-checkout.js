@@ -1,6 +1,7 @@
 /**
  * TIX Native Checkout – Frontend JS
  * Cart + Checkout ohne WooCommerce.
+ * Nutzt die gleichen CSS-Klassen wie der WC-Checkout.
  */
 (function($) {
     'use strict';
@@ -17,12 +18,10 @@
         var $form = $(this);
         var $btn = $('#tix-native-pay-btn');
         var $error = $('#tix-native-checkout-error');
-        var origText = $btn.text();
 
         // Validierung
-        var required = $form.find('[required]');
         var firstInvalid = null;
-        required.each(function() {
+        $form.find('[required]').each(function() {
             if ($(this).is(':checkbox') && !$(this).is(':checked')) {
                 firstInvalid = firstInvalid || $(this);
             } else if (!$(this).val()) {
@@ -36,19 +35,26 @@
             return;
         }
 
-        $btn.prop('disabled', true).text('Wird verarbeitet…');
+        // Loading-State
+        $btn.prop('disabled', true);
+        $btn.find('.tix-co-submit-text').hide();
+        $btn.find('.tix-co-submit-loading').show();
         $error.hide();
 
         $.post(ajax, $form.serialize(), function(r) {
             if (r.success && r.data && r.data.redirect) {
                 window.location.href = r.data.redirect;
             } else {
-                $btn.prop('disabled', false).text(origText);
+                $btn.prop('disabled', false);
+                $btn.find('.tix-co-submit-text').show();
+                $btn.find('.tix-co-submit-loading').hide();
                 var msg = (r.data && r.data.message) ? r.data.message : 'Ein Fehler ist aufgetreten.';
                 $error.show().text(msg);
             }
         }).fail(function(xhr) {
-            $btn.prop('disabled', false).text(origText);
+            $btn.prop('disabled', false);
+            $btn.find('.tix-co-submit-text').show();
+            $btn.find('.tix-co-submit-loading').hide();
             var msg = 'Netzwerkfehler. Bitte versuche es erneut.';
             try {
                 var r = JSON.parse(xhr.responseText);
@@ -57,13 +63,13 @@
                 if (xhr.responseText) msg = 'Server-Fehler: ' + xhr.responseText.substring(0, 200);
             }
             $error.show().text(msg);
-            console.error('TIX Checkout Error:', xhr.status, xhr.responseText);
         });
     });
 
     // ── Artikel entfernen ──
-    $(document).on('click', '.tix-co-remove', function() {
+    $(document).on('click', '.tix-co-item-remove, .tix-co-remove', function() {
         var index = $(this).data('index');
+        $(this).closest('.tix-co-item').css('opacity', '0.3');
         $.post(ajax, {
             action: 'tix_native_remove_item',
             nonce: nonce,
@@ -73,10 +79,10 @@
         });
     });
 
-    // ── Gateway-Auswahl visuell ──
-    $(document).on('change', '.tix-co-gateways input[type="radio"]', function() {
-        $('.tix-co-gateway').removeClass('active');
-        $(this).closest('.tix-co-gateway').addClass('active');
+    // ── Gateway-Auswahl ──
+    $(document).on('change', '.tix-co-gw-radio', function() {
+        $('.tix-co-gateway').removeClass('tix-co-gw-active');
+        $(this).closest('.tix-co-gateway').addClass('tix-co-gw-active');
     });
 
 })(jQuery);
