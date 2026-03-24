@@ -63,7 +63,7 @@ PROMPT;
         if (!$enabled) return;
 
         // API-Key vorhanden?
-        $api_key = trim(tix_get_settings('ai_guard_api_key') ?? '');
+        $api_key = trim(tix_get_settings('anthropic_api_key') ?? '');
         if (empty($api_key)) {
             // Kein API-Key → blockieren + Hinweis
             if (get_post_status($post_id) === 'publish') {

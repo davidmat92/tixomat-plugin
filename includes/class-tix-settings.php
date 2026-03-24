@@ -294,9 +294,11 @@ class TIX_Settings {
             'support_enabled'    => 0,
             'support_categories'  => '',
             'support_chat_enabled' => 0,
-            // ── KI-Schutz ──
+            // ── KI / Künstliche Intelligenz ──
+            'anthropic_api_key' => '',
+            'ai_model'          => 'claude-sonnet-4-20250514',
             'ai_guard_enabled'  => 0,
-            'ai_guard_api_key'  => '',
+            'ai_guard_api_key'  => '', // Legacy – wird migriert zu anthropic_api_key
             // ── Mein-Konto Styling ──
             'myaccount_restyle'  => 0,
 
@@ -700,9 +702,15 @@ class TIX_Settings {
         $clean['support_categories'] = sanitize_textarea_field($input['support_categories'] ?? '');
         $clean['support_chat_enabled'] = !empty($input['support_chat_enabled']) ? 1 : 0;
 
-        // KI-Schutz
+        // KI / Künstliche Intelligenz
+        $clean['anthropic_api_key'] = sanitize_text_field($input['anthropic_api_key'] ?? '');
+        $clean['ai_model'] = sanitize_text_field($input['ai_model'] ?? 'claude-sonnet-4-20250514');
         $clean['ai_guard_enabled'] = !empty($input['ai_guard_enabled']) ? 1 : 0;
-        $clean['ai_guard_api_key'] = sanitize_text_field($input['ai_guard_api_key'] ?? '');
+        // Legacy-Migration: alten Key übernehmen falls neuer leer
+        if (empty($clean['anthropic_api_key']) && !empty($input['ai_guard_api_key'])) {
+            $clean['anthropic_api_key'] = sanitize_text_field($input['ai_guard_api_key']);
+        }
+        $clean['ai_guard_api_key'] = $clean['anthropic_api_key']; // Sync für Rückwärtskompatibilität
 
         // Mein-Konto Styling
         $clean['myaccount_restyle'] = !empty($input['myaccount_restyle']) ? 1 : 0;
@@ -2890,6 +2898,46 @@ class TIX_Settings {
                                     </div>
                                 </div>
 
+                                <?php // ── Card: Künstliche Intelligenz ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-admin-generic"></span>
+                                        <h3>Künstliche Intelligenz</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <p class="tix-settings-hint" style="margin-top:0;">
+                                                    Der API-Key wird für alle KI-Features verwendet: Inhaltsprüfung, Textgenerierung, Event-Assistent und Meta-Ads.
+                                                </p>
+                                            </div>
+                                            <?php self::text_row('anthropic_api_key', 'Anthropic API Key', $s, 'sk-ant-…'); ?>
+                                            <div class="tix-field tix-field-full">
+                                                <p class="tix-settings-hint">
+                                                    <a href="https://console.anthropic.com/settings/keys" target="_blank">API Key erstellen →</a>
+                                                </p>
+                                            </div>
+                                            <?php
+                                            $models = [
+                                                'claude-sonnet-4-20250514'    => 'Claude Sonnet 4 (Standard – schnell & günstig)',
+                                                'claude-opus-4-20250514'      => 'Claude Opus 4 (Premium – beste Qualität)',
+                                                'claude-3-5-haiku-20241022'   => 'Claude 3.5 Haiku (Budget – sehr günstig)',
+                                            ];
+                                            $current_model = $s['ai_model'] ?? 'claude-sonnet-4-20250514';
+                                            ?>
+                                            <div class="tix-field tix-field-full">
+                                                <label class="tix-label">KI-Modell</label>
+                                                <select name="tix_settings[ai_model]" style="width:100%;max-width:420px;">
+                                                    <?php foreach ($models as $val => $label): ?>
+                                                        <option value="<?php echo esc_attr($val); ?>" <?php selected($current_model, $val); ?>><?php echo esc_html($label); ?></option>
+                                                    <?php endforeach; ?>
+                                                </select>
+                                                <p class="tix-settings-hint">Wird für KI-Assistent und Textgenerierung verwendet. KI-Schutz nutzt immer Haiku (kostensparend).</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
                                 <?php // ── Card: KI-Schutz ── ?>
                                 <div class="tix-card">
                                     <div class="tix-card-header">
@@ -2901,10 +2949,8 @@ class TIX_Settings {
                                             <div class="tix-field tix-field-full">
                                                 <?php self::checkbox_row('ai_guard_enabled', 'KI-Inhaltsprüfung beim Veröffentlichen aktivieren', $s, 'Prüft Event-Titel und -Texte automatisch auf verbotene, diskriminierende oder schädliche Inhalte, bevor sie veröffentlicht werden. Abgelehnte Events bleiben als Entwurf gespeichert und werden gekennzeichnet.'); ?>
                                             </div>
-                                            <?php self::text_row('ai_guard_api_key', 'Anthropic API Key', $s, 'sk-ant-…'); ?>
                                             <div class="tix-field tix-field-full">
                                                 <p class="tix-settings-hint">
-                                                    Benötigt einen <a href="https://console.anthropic.com/settings/keys" target="_blank">Anthropic API Key</a>.<br>
                                                     Verwendet Claude 3.5 Haiku (~0,001 € pro Prüfung). Ergebnisse werden gecacht – identische Inhalte werden nicht erneut geprüft.
                                                 </p>
                                             </div>

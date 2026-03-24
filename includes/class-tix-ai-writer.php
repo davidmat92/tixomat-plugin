@@ -11,8 +11,12 @@ if (!defined('ABSPATH')) exit;
 
 class TIX_AI_Writer {
 
-    const API_URL = 'https://api.anthropic.com/v1/messages';
-    const MODEL   = 'claude-sonnet-4-20250514';
+    const API_URL       = 'https://api.anthropic.com/v1/messages';
+    const DEFAULT_MODEL = 'claude-sonnet-4-20250514';
+
+    private static function get_model() {
+        return tix_get_settings('ai_model') ?: self::DEFAULT_MODEL;
+    }
 
     /**
      * Hooks registrieren
@@ -26,7 +30,7 @@ class TIX_AI_Writer {
      * API-Key aus Settings holen
      */
     private static function get_api_key() {
-        return trim(tix_get_settings('ai_guard_api_key') ?? '');
+        return trim(tix_get_settings('anthropic_api_key') ?? '');
     }
 
     /**
@@ -50,7 +54,7 @@ class TIX_AI_Writer {
                 'anthropic-version' => '2023-06-01',
             ],
             'body' => wp_json_encode([
-                'model'      => self::MODEL,
+                'model'      => self::get_model(),
                 'max_tokens' => $max_tokens,
                 'system'     => $system,
                 'messages'   => $messages,
@@ -95,7 +99,7 @@ class TIX_AI_Writer {
                 'anthropic-version' => '2023-06-01',
             ],
             'body' => wp_json_encode([
-                'model'      => self::MODEL,
+                'model'      => self::get_model(),
                 'max_tokens' => $max_tokens,
                 'system'     => $system,
                 'messages'   => [
