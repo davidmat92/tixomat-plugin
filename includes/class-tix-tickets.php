@@ -907,11 +907,16 @@ class TIX_Tickets {
 
                 // Ticket-DB (denormalisierte Tabelle)
                 if (class_exists('TIX_Ticket_DB')) {
-                    TIX_Ticket_DB::insert_ticket($ticket_id, $event_id, $order_id, [
-                        'code'        => $code,
-                        'buyer_email' => $buyer_email,
-                        'buyer_name'  => $buyer_name,
-                        'cat_name'    => $item->cat_name,
+                    TIX_Ticket_DB::insert_ticket([
+                        'ticket_post_id' => $ticket_id,
+                        'ticket_code'    => $code,
+                        'event_id'       => $event_id,
+                        'event_name'     => get_the_title($event_id),
+                        'order_id'       => $order_id,
+                        'category_name'  => $item->cat_name,
+                        'buyer_name'     => $buyer_name,
+                        'buyer_email'    => $buyer_email,
+                        'ticket_price'   => $item->total / max(1, intval($item->quantity)),
                     ]);
                 }
             }
