@@ -59,7 +59,7 @@
             var fields = [
                 { name: 'Titel',         tab: 'details', ok: !!$('#title').val() && $('#title').val() !== 'Automatischer Entwurf' },
                 { name: 'Startdatum',    tab: 'details', ok: !!$('input[name="tix_date_start"]').val() },
-                { name: 'Startzeit',     tab: 'details', ok: !!$('input[name="tix_time_start"]').val() },
+                { name: 'Startzeit',     tab: 'details', ok: !!$('[name="tix_time_start"]').val() },
                 { name: 'Location',      tab: 'details', ok: !!$('#tix_location_id').val() },
             ];
 
@@ -109,7 +109,7 @@
         }
 
         // Events die Pflichtfelder-Prüfung triggern
-        $(document).on('input change', '#title, #tix-expert-title, input[name="tix_date_start"], input[name="tix_time_start"], #tix_location_id, #tix-tickets-toggle', checkRequiredFields);
+        $(document).on('input change', '#title, #tix-expert-title, input[name="tix_date_start"], [name="tix_time_start"], #tix_location_id, #tix-tickets-toggle', checkRequiredFields);
 
         // Sync: Tixomat Titel-Feld → WordPress #title (damit es beim Speichern übernommen wird)
         $(document).on('input change', '#tix-expert-title', function() {
