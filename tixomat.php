@@ -2,14 +2,14 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.33.94
+ * Version: 1.33.95
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.33.94');
+define('TIXOMAT_VERSION', '1.33.95');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -254,6 +254,10 @@ TIX_Waitlist::init();
 // ── Post-Event Feedback ──
 require_once TIXOMAT_PATH . 'includes/class-tix-feedback.php';
 TIX_Feedback::init();
+
+// ── Event-Vorlagen ──
+require_once TIXOMAT_PATH . 'includes/class-tix-event-templates.php';
+TIX_Event_Templates::init();
 
 // ── KI-Schutz (Content Guard) ──
 require_once TIXOMAT_PATH . 'includes/class-tix-content-guard.php';

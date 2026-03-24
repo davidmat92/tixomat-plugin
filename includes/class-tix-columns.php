@@ -463,6 +463,13 @@ class TIX_Columns {
         );
         $actions['tix_duplicate'] = '<a href="' . esc_url($url) . '" title="Event duplizieren">Duplizieren</a>';
 
+        // Als Vorlage speichern
+        $tpl_url = wp_nonce_url(
+            admin_url('admin-post.php?action=tix_create_template_from_event&event_id=' . $post->ID),
+            'tix_template_from_' . $post->ID
+        );
+        $actions['tix_template'] = '<a href="' . esc_url($tpl_url) . '" title="Dieses Event als Vorlage speichern">Als Vorlage</a>';
+
         // Serien-Row-Actions
         if (get_post_meta($post->ID, '_tix_series_enabled', true) === '1') {
             $url = admin_url('edit.php?post_type=event&tix_series_parent=' . $post->ID);

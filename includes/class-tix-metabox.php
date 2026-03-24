@@ -184,7 +184,7 @@ class TIX_Metabox {
     // Event-Presets
     // ──────────────────────────────────────────
     public static function get_presets() {
-        return [
+        $presets = [
             'all' => [
                 'label' => 'Alle Funktionen',
                 'icon'  => 'dashicons-admin-settings',
@@ -192,16 +192,28 @@ class TIX_Metabox {
                 'tabs'  => '*',
                 'defaults' => [],
             ],
-            'clubbing' => [
-                'label' => 'Clubbing',
-                'icon'  => 'dashicons-format-audio',
-                'desc'  => 'Club-Events, Partys, DJ-Nights',
-                'tabs'  => ['details', 'info', 'tickets', 'media'],
-                'defaults' => [
-                    'tix_tickets_enabled' => '0',
-                ],
-            ],
         ];
+
+        // Dynamische Vorlagen aus DB laden
+        if (class_exists('TIX_Event_Templates')) {
+            $templates = TIX_Event_Templates::get_all();
+            foreach ($templates as $slug => $tpl) {
+                $defaults = $tpl['defaults'] ?? [];
+                // category_id als Default-Feld hinzufügen
+                if (!empty($tpl['category_id'])) {
+                    $defaults['_tix_tpl_category_id'] = $tpl['category_id'];
+                }
+                $presets[$slug] = [
+                    'label'    => $tpl['label'] ?? $slug,
+                    'icon'     => $tpl['icon'] ?? 'dashicons-admin-generic',
+                    'desc'     => $tpl['desc'] ?? '',
+                    'tabs'     => $tpl['tabs'] ?? '*',
+                    'defaults' => $defaults,
+                ];
+            }
+        }
+
+        return $presets;
     }
 
     private static function render_preset_selector($post) {

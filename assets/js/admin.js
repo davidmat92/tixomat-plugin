@@ -1513,13 +1513,26 @@
                     try { defaults = JSON.parse(defaults); } catch(e) { defaults = {}; }
                 }
                 for (var field in defaults) {
+                    // Spezialfall: Kategorie-ID
+                    if (field === '_tix_tpl_category_id' && defaults[field]) {
+                        $('input[name="tax_input[event_category][]"][value="' + defaults[field] + '"]').prop('checked', true);
+                        continue;
+                    }
+                    // Spezialfall: Altersbegrenzung
+                    if (field === 'tix_info_age_limit' && defaults[field]) {
+                        $('[name="tix_info[age_limit]"]').val(defaults[field]).trigger('change');
+                        continue;
+                    }
+                    // Generische Felder
                     var $el = $('[name="' + field + '"]');
                     if ($el.is(':checkbox')) {
                         $el.prop('checked', defaults[field] === '1').trigger('change');
-                    } else {
+                    } else if ($el.length) {
                         $el.val(defaults[field]).trigger('change');
                     }
                 }
+                // Pflichtfelder-Check aktualisieren
+                if (typeof checkRequiredFields === 'function') checkRequiredFields();
             }
         }
 
