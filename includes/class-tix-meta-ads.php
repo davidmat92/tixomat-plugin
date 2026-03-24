@@ -905,7 +905,7 @@ class TIX_Meta_Ads {
     // ══════════════════════════════════════════════════════════════
 
     public static function ajax_social_generate() {
-        check_ajax_referer('tix_meta_ads', 'nonce');
+        check_ajax_referer('tix_admin_nonce', 'nonce');
         if (!current_user_can('edit_posts')) wp_send_json_error(['message' => 'Keine Berechtigung.']);
 
         $event_id = intval($_POST['event_id'] ?? 0);
@@ -993,9 +993,24 @@ class TIX_Meta_Ads {
      * Plattform-spezifische System-Prompts
      */
     private static function get_social_prompts() {
-        $base = 'Du bist ein Social-Media-Experte für Event-Marketing. Schreibe auf Deutsch. Antworte NUR mit einem JSON-Objekt (kein Markdown-Codeblock). Format:
-{"variants":[{"name":"A: Hook-Beschreibung","text":"Kompletter Beitrag","hashtags":"#relevant #hashtags","subject":"","cta":"Call-to-Action"}]}
-Generiere genau 3 Varianten: A (Emotional), B (Faktisch/Informativ), C (FOMO/Dringlichkeit).';
+        $base = 'Du bist ein erfahrener Social-Media-Stratege für Event-Marketing. Schreibe auf Deutsch.
+
+WICHTIG: Denke über den reinen Event-Content hinaus! Generiere Beiträge die eine KAMPAGNENSTRATEGIE verfolgen. Berücksichtige:
+- Behind-the-scenes / Vorfreude aufbauen
+- Social Proof (vergangene Events, Testimonials)
+- Storytelling (nicht nur Fakten, sondern Geschichten erzählen)
+- Community einbinden (Fragen, Umfragen, User-Generated Content)
+- Timing-Hooks (Countdown, Wochentag, Jahreszeit, Wetter)
+- Cross-Promotion-Ideen (Influencer, Partner, Location)
+- FOMO und Verknappung wo authentisch
+
+Antworte NUR mit einem JSON-Objekt (kein Markdown-Codeblock). Format:
+{"variants":[{"name":"A: Strategie-Beschreibung","text":"Kompletter Beitrag","hashtags":"#relevant #hashtags","subject":"","cta":"Call-to-Action"}]}
+
+Generiere genau 3 Varianten mit VERSCHIEDENEN Strategien:
+A: Emotionaler/Storytelling-Ansatz (Vorfreude, Bilder im Kopf erzeugen)
+B: Community/Engagement-Ansatz (Frage, Interaktion, User einbinden)
+C: Urgency/FOMO-Ansatz (Verknappung, Countdown, letzter Aufruf)';
 
         return [
             'instagram' => $base . '

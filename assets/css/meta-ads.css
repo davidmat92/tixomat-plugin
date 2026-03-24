@@ -1,5 +1,35 @@
-/* ══ Meta Ads Dashboard ══ */
+/* ══ Social Content ══ */
 .tix-meta-ads-wrap { max-width: 1200px; }
+
+/* Tab Navigation — konsistent mit Admin Shell */
+.tix-meta-tabs.nav-tab-wrapper {
+    border-bottom: 1px solid #e5e7eb;
+    padding: 0;
+    margin-bottom: 24px !important;
+}
+.tix-meta-tabs .nav-tab {
+    border: none;
+    background: none;
+    padding: 12px 18px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #6b7280;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    transition: color 0.2s, border-color 0.2s;
+}
+.tix-meta-tabs .nav-tab:hover { color: #1e293b; }
+.tix-meta-tabs .nav-tab-active,
+.tix-meta-tabs .nav-tab.nav-tab-active {
+    color: var(--tix-primary, #FF5500);
+    border-bottom-color: var(--tix-primary, #FF5500);
+    background: none;
+}
+
+/* Platform Cards */
+.tix-social-platform { transition: border-color 0.2s, transform 0.2s, box-shadow 0.2s; }
+.tix-social-platform:hover { border-color: var(--tix-primary, #FF5500); transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.06); }
+.tix-social-platform.active { border-color: var(--tix-primary, #FF5500); background: color-mix(in srgb, var(--tix-primary, #FF5500) 6%, #fff); }
 
 /* Status bar */
 .tix-meta-status-bar {
