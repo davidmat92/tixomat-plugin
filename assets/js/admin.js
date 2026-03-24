@@ -1807,7 +1807,7 @@
             formData.append('file', file);
             formData.append('post_id', $('#post_ID').val());
 
-            var $status = $('#tix-ai-fill-status');
+            var $status = $modal.is(':visible') ? $('#tix-ai-modal-status') : $('#tix-ai-fill-status');
             $status.show().html('<span class="dashicons dashicons-update spin" style="font-size:14px;width:14px;height:14px;vertical-align:middle;margin-right:4px"></span> Bild wird hochgeladen…');
 
             $.ajax({
@@ -1911,12 +1911,15 @@
         }
 
         function doAiFill(sourceType, extraData) {
-            var $status = $('#tix-ai-fill-status');
+            // Status im Modal anzeigen wenn Modal offen, sonst im Trigger-Bar
+            var $modalStatus = $('#tix-ai-modal-status');
+            var $barStatus = $('#tix-ai-fill-status');
+            var $status = $modal.is(':visible') ? $modalStatus : $barStatus;
             var $bar = $('#tix-ai-fill-bar');
-            var $btns = $bar.find('.button');
+            var $btns = $modal.find('.tix-ai-mode-btn, .button').add($bar.find('.button'));
 
             $btns.prop('disabled', true);
-            $status.show().html('<span class="dashicons dashicons-update spin" style="font-size:14px;width:14px;height:14px;vertical-align:middle;margin-right:4px"></span> Evendis-Assistent analysiert… Bitte warten.');
+            $status.show().html('<span class="dashicons dashicons-update spin" style="font-size:14px;width:14px;height:14px;vertical-align:middle;margin-right:4px"></span> ' + (tixAdmin.aiName || 'Assistent') + ' analysiert… Bitte warten.');
 
             var data = $.extend({
                 action: 'tix_ai_fill_fields',
@@ -2012,7 +2015,7 @@
                         '<div style="padding:20px 24px 16px;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;justify-content:space-between;">' +
                             '<div style="display:flex;align-items:center;gap:10px;">' +
                                 '<span class="dashicons dashicons-admin-generic" style="color:var(--tix-primary, #FF5500);font-size:22px;width:22px;height:22px;"></span>' +
-                                '<h3 style="margin:0;font-size:16px;">Evendis-Assistent</h3>' +
+                                '<h3 style="margin:0;font-size:16px;">' + (tixAdmin.aiName || 'Assistent') + '</h3>' +
                                 '<span style="font-size:12px;color:#6b7280;">' + items.length + ' Felder erkannt</span>' +
                             '</div>' +
                             '<label style="font-size:12px;color:#6b7280;cursor:pointer;display:flex;align-items:center;gap:4px;">' +

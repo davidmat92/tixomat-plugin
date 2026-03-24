@@ -125,6 +125,7 @@ class TIX_Metabox {
             'eventCategories' => (object) $event_cats,
             'availableEvents' => $available_events,
             'googleApiKey'    => $google_api_key ?: '',
+            'aiName'          => tix_get_settings('ai_assistant_name') ?: 'Evendis-Assistent',
         ]);
 
         // Ticket-Template Editor (für Metabox)
