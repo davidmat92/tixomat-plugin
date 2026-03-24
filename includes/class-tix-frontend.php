@@ -92,7 +92,7 @@ class TIX_Frontend {
 
                 $active_phase = TIX_Metabox::get_active_phase($phases);
                 $product_id   = intval($cat['product_id'] ?? 0);
-                if (!$product_id) continue;
+                if (!$product_id || !function_exists('wc_get_product')) continue;
 
                 $product = wc_get_product($product_id);
                 if (!$product) continue;

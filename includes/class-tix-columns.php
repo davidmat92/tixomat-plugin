@@ -119,7 +119,16 @@ class TIX_Columns {
                     $cap = intval($cat['qty'] ?? 0);
                     $total_cap += $cap;
 
-                    if (!$pid) continue;
+                    if (!$pid || !function_exists('wc_get_product')) {
+                        // Ohne WC: Verkäufe aus tix_order_items zählen
+                        global $wpdb;
+                        $sold = (int) $wpdb->get_var($wpdb->prepare(
+                            "SELECT COALESCE(SUM(quantity), 0) FROM {$wpdb->prefix}tix_order_items WHERE event_id = %d AND order_id IN (SELECT id FROM {$wpdb->prefix}tix_orders WHERE status IN ('completed','processing'))",
+                            $post_id
+                        ));
+                        $total_sold += $sold;
+                        continue;
+                    }
                     $product = wc_get_product($pid);
                     if (!$product) continue;
 
