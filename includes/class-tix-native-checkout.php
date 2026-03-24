@@ -27,7 +27,8 @@ class TIX_Native_Checkout {
         add_action('wp_ajax_tix_native_checkout',        [__CLASS__, 'ajax_process_checkout']);
         add_action('wp_ajax_nopriv_tix_native_checkout', [__CLASS__, 'ajax_process_checkout']);
 
-        // Shortcodes
+        // Shortcodes — [tix_checkout] übernehmen wenn WC nicht aktiv
+        add_shortcode('tix_checkout', function() { return self::render_checkout(); });
         add_shortcode('tix_native_cart', [__CLASS__, 'shortcode_cart']);
 
         // Thank-You Route
