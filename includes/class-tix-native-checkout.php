@@ -144,7 +144,18 @@ class TIX_Native_Checkout {
 
             // Ticket-Kategorie validieren
             $categories = get_post_meta($event_id, '_tix_ticket_categories', true);
-            if (!is_array($categories) || !isset($categories[$cat_index])) continue;
+            if (!is_array($categories) || empty($categories)) continue;
+
+            // Fallback: wenn cat_index nicht existiert, nutze ersten verfügbaren
+            if (!isset($categories[$cat_index])) {
+                // Versuche als 0-basiert (falls 1-basiert gesendet wurde)
+                if (isset($categories[$cat_index - 1])) {
+                    $cat_index = $cat_index - 1;
+                } else {
+                    // Letzter Fallback: erste Kategorie
+                    $cat_index = array_key_first($categories);
+                }
+            }
 
             $cat = $categories[$cat_index];
             $price = floatval($cat['price'] ?? 0);
