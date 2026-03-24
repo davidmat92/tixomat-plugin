@@ -69,17 +69,18 @@ class TIX_Meta_Ads {
 
             <!-- Tab Navigation -->
             <nav class="nav-tab-wrapper tix-meta-tabs" style="margin-bottom:20px">
-                <a href="#" class="nav-tab nav-tab-active" data-tab="social">Beiträge</a>
+                <a href="#" class="nav-tab nav-tab-active" data-tab="social">Post-Ideen</a>
                 <a href="#" class="nav-tab" data-tab="wizard">Kampagnen-Wizard</a>
                 <a href="#" class="nav-tab" data-tab="dashboard">Dashboard</a>
                 <a href="#" class="nav-tab" data-tab="utm">UTM-Links & QR</a>
                 <a href="#" class="nav-tab" data-tab="setup">Setup & Anleitung</a>
             </nav>
 
-            <!-- ═══ TAB: Beiträge (Social Content) ═══ -->
+            <!-- ═══ TAB: Post-Ideen ═══ -->
             <div class="tix-meta-tab active" data-tab="social">
 
                 <div class="tix-meta-card" style="margin-bottom:20px;">
+                    <p style="margin:0 0 12px;font-size:13px;color:#6b7280;">Lass dir Post-Ideen für verschiedene Plattformen generieren. Wähle ein Event und eine Plattform — die KI erstellt 3 Varianten mit unterschiedlichen Strategien.</p>
                     <h3 style="margin:0 0 12px;">Event auswählen</h3>
                     <select id="tix-social-event" style="width:100%;max-width:500px;padding:10px;font-size:14px;border-radius:8px;border:1px solid #d1d5db;">
                         <option value="">— Event wählen —</option>
@@ -118,7 +119,7 @@ class TIX_Meta_Ads {
                 <div id="tix-social-result" style="display:none;margin-top:24px;">
                     <div class="tix-meta-card">
                         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-                            <h3 style="margin:0;" id="tix-social-result-title">Generierte Beiträge</h3>
+                            <h3 style="margin:0;" id="tix-social-result-title">Post-Ideen</h3>
                             <div id="tix-social-variant-tabs" class="tix-variant-tabs"></div>
                         </div>
                         <div style="margin-bottom:12px;">
