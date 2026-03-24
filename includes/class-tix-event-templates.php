@@ -180,16 +180,26 @@ class TIX_Event_Templates {
                                 <tr>
                                     <th style="padding:8px 0;"><label>Icon</label></th>
                                     <td style="padding:8px 0;">
-                                        <div style="display:flex;flex-wrap:wrap;gap:4px;">
+                                        <div class="tix-icon-picker" style="display:flex;flex-wrap:wrap;gap:4px;">
                                             <?php foreach ($icons as $icon_class => $icon_label):
                                                 $sel = ($prefill['icon'] ?? 'dashicons-admin-generic') === $icon_class;
                                             ?>
-                                                <label style="display:flex;align-items:center;gap:2px;padding:6px 8px;border:2px solid <?php echo $sel ? '#7c3aed' : '#e0e0e0'; ?>;border-radius:8px;cursor:pointer;background:<?php echo $sel ? 'color-mix(in srgb, var(--tix-primary, #FF5500) 8%, #fff)' : '#fff'; ?>;" title="<?php echo esc_attr($icon_label); ?>">
+                                                <label class="tix-icon-opt <?php echo $sel ? 'active' : ''; ?>" style="display:flex;align-items:center;gap:2px;padding:6px 8px;border:2px solid <?php echo $sel ? 'var(--tix-primary, #FF5500)' : '#e0e0e0'; ?>;border-radius:8px;cursor:pointer;background:<?php echo $sel ? 'color-mix(in srgb, var(--tix-primary, #FF5500) 8%, #fff)' : '#fff'; ?>;" title="<?php echo esc_attr($icon_label); ?>">
                                                     <input type="radio" name="tpl_icon" value="<?php echo esc_attr($icon_class); ?>" <?php checked($sel); ?> style="display:none;">
-                                                    <span class="dashicons <?php echo esc_attr($icon_class); ?>" style="font-size:18px;width:18px;height:18px;color:<?php echo $sel ? '#7c3aed' : '#666'; ?>;"></span>
+                                                    <span class="dashicons <?php echo esc_attr($icon_class); ?>" style="font-size:18px;width:18px;height:18px;color:<?php echo $sel ? 'var(--tix-primary, #FF5500)' : '#666'; ?>;"></span>
                                                 </label>
                                             <?php endforeach; ?>
                                         </div>
+                                        <script>
+                                        jQuery(function($){
+                                            $('.tix-icon-picker').on('change', 'input[name="tpl_icon"]', function(){
+                                                var $wrap = $(this).closest('.tix-icon-picker');
+                                                $wrap.find('.tix-icon-opt').css({border:'2px solid #e0e0e0',background:'#fff'}).find('.dashicons').css('color','#666');
+                                                var $lbl = $(this).closest('.tix-icon-opt');
+                                                $lbl.css({border:'2px solid var(--tix-primary, #FF5500)',background:'color-mix(in srgb, var(--tix-primary, #FF5500) 8%, #fff)'}).find('.dashicons').css('color','var(--tix-primary, #FF5500)');
+                                            });
+                                        });
+                                        </script>
                                     </td>
                                 </tr>
                                 <tr>
