@@ -40,15 +40,24 @@
         $error.hide();
 
         $.post(ajax, $form.serialize(), function(r) {
-            if (r.success && r.data.redirect) {
+            if (r.success && r.data && r.data.redirect) {
                 window.location.href = r.data.redirect;
             } else {
                 $btn.prop('disabled', false).text(origText);
-                $error.show().text(r.data ? r.data.message : 'Ein Fehler ist aufgetreten.');
+                var msg = (r.data && r.data.message) ? r.data.message : 'Ein Fehler ist aufgetreten.';
+                $error.show().text(msg);
             }
-        }).fail(function() {
+        }).fail(function(xhr) {
             $btn.prop('disabled', false).text(origText);
-            $error.show().text('Netzwerkfehler. Bitte versuche es erneut.');
+            var msg = 'Netzwerkfehler. Bitte versuche es erneut.';
+            try {
+                var r = JSON.parse(xhr.responseText);
+                if (r.data && r.data.message) msg = r.data.message;
+            } catch(e) {
+                if (xhr.responseText) msg = 'Server-Fehler: ' + xhr.responseText.substring(0, 200);
+            }
+            $error.show().text(msg);
+            console.error('TIX Checkout Error:', xhr.status, xhr.responseText);
         });
     });
 
