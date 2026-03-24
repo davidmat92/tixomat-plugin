@@ -5,6 +5,14 @@ class TIX_CPT {
 
     public static function register() {
 
+        // ── Rolle: Veranstalter (immer verfügbar) ──
+        if (!get_role('tix_organizer')) {
+            add_role('tix_organizer', 'Veranstalter', [
+                'read'         => true,
+                'upload_files' => true,
+            ]);
+        }
+
         // ── CPT: Event ──
         register_post_type('event', [
             'labels' => [
@@ -228,13 +236,65 @@ class TIX_CPT {
     // ── Location Metabox Render ──
     public static function render_location_meta($post) {
         wp_nonce_field('tix_save_location', 'tix_loc_nonce');
-        $address = get_post_meta($post->ID, '_tix_loc_address', true);
-        $desc    = get_post_meta($post->ID, '_tix_loc_description', true);
+        $address     = get_post_meta($post->ID, '_tix_loc_address', true);
+        $city        = get_post_meta($post->ID, '_tix_loc_city', true);
+        $zip         = get_post_meta($post->ID, '_tix_loc_zip', true);
+        $country     = get_post_meta($post->ID, '_tix_loc_country', true);
+        $capacity    = get_post_meta($post->ID, '_tix_loc_capacity', true);
+        $website     = get_post_meta($post->ID, '_tix_loc_website', true);
+        $desc        = get_post_meta($post->ID, '_tix_loc_description', true);
+        wp_enqueue_style('tix-admin', TIXOMAT_URL . 'assets/css/admin.css', [], TIXOMAT_VERSION);
         ?>
-        <p><label><strong>Adresse</strong></label><br>
-        <input type="text" name="tix_loc_address" value="<?php echo esc_attr($address); ?>" style="width:100%" placeholder="z.B. Bartholomäus-Schink-Str. 65, 50825 Köln"></p>
-        <p><label><strong>Beschreibung</strong></label><br>
-        <textarea name="tix_loc_description" rows="4" style="width:100%" placeholder="Optionale Beschreibung der Location"><?php echo esc_textarea($desc); ?></textarea></p>
+        <div class="tix-app" style="background:transparent;box-shadow:none;">
+            <div class="tix-card">
+                <div class="tix-card-header">
+                    <span class="dashicons dashicons-location"></span>
+                    <h3>Adresse</h3>
+                </div>
+                <div class="tix-card-body">
+                    <div class="tix-field-grid">
+                        <div class="tix-field tix-field-full">
+                            <label class="tix-field-label">Straße &amp; Hausnummer</label>
+                            <input type="text" name="tix_loc_address" value="<?php echo esc_attr($address); ?>" placeholder="z.B. Schanzenstraße 6-20">
+                        </div>
+                        <div class="tix-field">
+                            <label class="tix-field-label">PLZ</label>
+                            <input type="text" name="tix_loc_zip" value="<?php echo esc_attr($zip); ?>" placeholder="z.B. 51063">
+                        </div>
+                        <div class="tix-field">
+                            <label class="tix-field-label">Stadt</label>
+                            <input type="text" name="tix_loc_city" value="<?php echo esc_attr($city); ?>" placeholder="z.B. Köln">
+                        </div>
+                        <div class="tix-field">
+                            <label class="tix-field-label">Land</label>
+                            <input type="text" name="tix_loc_country" value="<?php echo esc_attr($country); ?>" placeholder="z.B. Deutschland">
+                        </div>
+                        <div class="tix-field">
+                            <label class="tix-field-label">Kapazität</label>
+                            <input type="number" name="tix_loc_capacity" value="<?php echo esc_attr($capacity); ?>" placeholder="z.B. 500" min="0">
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="tix-card">
+                <div class="tix-card-header">
+                    <span class="dashicons dashicons-admin-links"></span>
+                    <h3>Weitere Infos</h3>
+                </div>
+                <div class="tix-card-body">
+                    <div class="tix-field-grid">
+                        <div class="tix-field tix-field-full">
+                            <label class="tix-field-label">Website</label>
+                            <input type="url" name="tix_loc_website" value="<?php echo esc_attr($website); ?>" placeholder="https://...">
+                        </div>
+                        <div class="tix-field tix-field-full">
+                            <label class="tix-field-label">Beschreibung</label>
+                            <textarea name="tix_loc_description" rows="4" placeholder="Optionale Beschreibung der Location"><?php echo esc_textarea($desc); ?></textarea>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
         <?php
     }
 
@@ -244,31 +304,104 @@ class TIX_CPT {
         if (defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) return;
         if (!current_user_can('edit_post', $post_id)) return;
 
-        update_post_meta($post_id, '_tix_loc_address', sanitize_text_field($_POST['tix_loc_address'] ?? ''));
+        update_post_meta($post_id, '_tix_loc_address',     sanitize_text_field($_POST['tix_loc_address'] ?? ''));
+        update_post_meta($post_id, '_tix_loc_city',        sanitize_text_field($_POST['tix_loc_city'] ?? ''));
+        update_post_meta($post_id, '_tix_loc_zip',         sanitize_text_field($_POST['tix_loc_zip'] ?? ''));
+        update_post_meta($post_id, '_tix_loc_country',     sanitize_text_field($_POST['tix_loc_country'] ?? ''));
+        update_post_meta($post_id, '_tix_loc_capacity',    sanitize_text_field($_POST['tix_loc_capacity'] ?? ''));
+        update_post_meta($post_id, '_tix_loc_website',     esc_url_raw($_POST['tix_loc_website'] ?? ''));
         update_post_meta($post_id, '_tix_loc_description', wp_kses_post($_POST['tix_loc_description'] ?? ''));
     }
 
     // ── Veranstalter Metabox Render ──
     public static function render_organizer_meta($post) {
         wp_nonce_field('tix_save_organizer', 'tix_org_nonce');
-        $address = get_post_meta($post->ID, '_tix_org_address', true);
-        $desc    = get_post_meta($post->ID, '_tix_org_description', true);
-        $user_id = intval(get_post_meta($post->ID, '_tix_org_user_id', true));
+        $address  = get_post_meta($post->ID, '_tix_org_address', true);
+        $city     = get_post_meta($post->ID, '_tix_org_city', true);
+        $zip      = get_post_meta($post->ID, '_tix_org_zip', true);
+        $country  = get_post_meta($post->ID, '_tix_org_country', true);
+        $email    = get_post_meta($post->ID, '_tix_org_email', true);
+        $phone    = get_post_meta($post->ID, '_tix_org_phone', true);
+        $website  = get_post_meta($post->ID, '_tix_org_website', true);
+        $desc     = get_post_meta($post->ID, '_tix_org_description', true);
+        $user_id  = intval(get_post_meta($post->ID, '_tix_org_user_id', true));
+        wp_enqueue_style('tix-admin', TIXOMAT_URL . 'assets/css/admin.css', [], TIXOMAT_VERSION);
         ?>
-        <p><label><strong>Adresse</strong></label><br>
-        <input type="text" name="tix_org_address" value="<?php echo esc_attr($address); ?>" style="width:100%" placeholder="z.B. Musterstraße 1, 50667 Köln"></p>
-        <p><label><strong>Beschreibung</strong></label><br>
-        <textarea name="tix_org_description" rows="4" style="width:100%" placeholder="Optionale Beschreibung des Veranstalters"><?php echo esc_textarea($desc); ?></textarea></p>
-        <p><label><strong>Verkn&uuml;pfter Benutzer</strong> <small>(f&uuml;r Veranstalter-Dashboard)</small></label><br>
-        <?php
-        wp_dropdown_users([
-            'name'             => 'tix_org_user_id',
-            'selected'         => $user_id,
-            'show_option_none' => '— Kein Benutzer —',
-            'option_none_value' => 0,
-        ]);
-        ?>
-        </p>
+        <div class="tix-app" style="background:transparent;box-shadow:none;">
+            <div class="tix-card">
+                <div class="tix-card-header">
+                    <span class="dashicons dashicons-location"></span>
+                    <h3>Adresse</h3>
+                </div>
+                <div class="tix-card-body">
+                    <div class="tix-field-grid">
+                        <div class="tix-field tix-field-full">
+                            <label class="tix-field-label">Straße &amp; Hausnummer</label>
+                            <input type="text" name="tix_org_address" value="<?php echo esc_attr($address); ?>" placeholder="z.B. Musterstraße 1">
+                        </div>
+                        <div class="tix-field">
+                            <label class="tix-field-label">PLZ</label>
+                            <input type="text" name="tix_org_zip" value="<?php echo esc_attr($zip); ?>" placeholder="z.B. 50667">
+                        </div>
+                        <div class="tix-field">
+                            <label class="tix-field-label">Stadt</label>
+                            <input type="text" name="tix_org_city" value="<?php echo esc_attr($city); ?>" placeholder="z.B. Köln">
+                        </div>
+                        <div class="tix-field">
+                            <label class="tix-field-label">Land</label>
+                            <input type="text" name="tix_org_country" value="<?php echo esc_attr($country); ?>" placeholder="z.B. Deutschland">
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="tix-card">
+                <div class="tix-card-header">
+                    <span class="dashicons dashicons-email"></span>
+                    <h3>Kontakt</h3>
+                </div>
+                <div class="tix-card-body">
+                    <div class="tix-field-grid">
+                        <div class="tix-field">
+                            <label class="tix-field-label">E-Mail</label>
+                            <input type="email" name="tix_org_email" value="<?php echo esc_attr($email); ?>" placeholder="info@veranstalter.de">
+                        </div>
+                        <div class="tix-field">
+                            <label class="tix-field-label">Telefon</label>
+                            <input type="tel" name="tix_org_phone" value="<?php echo esc_attr($phone); ?>" placeholder="+49 221 12345">
+                        </div>
+                        <div class="tix-field tix-field-full">
+                            <label class="tix-field-label">Website</label>
+                            <input type="url" name="tix_org_website" value="<?php echo esc_attr($website); ?>" placeholder="https://...">
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="tix-card">
+                <div class="tix-card-header">
+                    <span class="dashicons dashicons-admin-users"></span>
+                    <h3>Verknüpfung</h3>
+                </div>
+                <div class="tix-card-body">
+                    <div class="tix-field-grid">
+                        <div class="tix-field tix-field-full">
+                            <label class="tix-field-label">Verknüpfter Benutzer <small style="text-transform:none;font-weight:400;">(für Veranstalter-Dashboard)</small></label>
+                            <?php
+                            wp_dropdown_users([
+                                'name'              => 'tix_org_user_id',
+                                'selected'          => $user_id,
+                                'show_option_none'  => '— Kein Benutzer —',
+                                'option_none_value' => 0,
+                            ]);
+                            ?>
+                        </div>
+                        <div class="tix-field tix-field-full">
+                            <label class="tix-field-label">Beschreibung</label>
+                            <textarea name="tix_org_description" rows="4" placeholder="Optionale Beschreibung des Veranstalters"><?php echo esc_textarea($desc); ?></textarea>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
         <?php
     }
 
@@ -278,10 +411,15 @@ class TIX_CPT {
         if (defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) return;
         if (!current_user_can('edit_post', $post_id)) return;
 
-        update_post_meta($post_id, '_tix_org_address', sanitize_text_field($_POST['tix_org_address'] ?? ''));
+        update_post_meta($post_id, '_tix_org_address',     sanitize_text_field($_POST['tix_org_address'] ?? ''));
+        update_post_meta($post_id, '_tix_org_city',        sanitize_text_field($_POST['tix_org_city'] ?? ''));
+        update_post_meta($post_id, '_tix_org_zip',         sanitize_text_field($_POST['tix_org_zip'] ?? ''));
+        update_post_meta($post_id, '_tix_org_country',     sanitize_text_field($_POST['tix_org_country'] ?? ''));
+        update_post_meta($post_id, '_tix_org_email',       sanitize_email($_POST['tix_org_email'] ?? ''));
+        update_post_meta($post_id, '_tix_org_phone',       sanitize_text_field($_POST['tix_org_phone'] ?? ''));
+        update_post_meta($post_id, '_tix_org_website',     esc_url_raw($_POST['tix_org_website'] ?? ''));
         update_post_meta($post_id, '_tix_org_description', wp_kses_post($_POST['tix_org_description'] ?? ''));
 
-        // Verknüpfter Benutzer (für Veranstalter-Dashboard)
         $user_id = intval($_POST['tix_org_user_id'] ?? 0);
         update_post_meta($post_id, '_tix_org_user_id', $user_id);
     }
