@@ -208,15 +208,18 @@ class TIX_AI_Writer {
         }
 
         $system = <<<'PROMPT'
-Du bist ein Marketing-Texter für eine Event-Ticketing-Plattform. Deine Aufgabe ist es, einen prägnanten Textauszug (Excerpt) für ein Event zu schreiben.
+Du bist ein SEO-Experte und Marketing-Texter für eine Event-Ticketing-Plattform. Deine Aufgabe ist es, eine Google-optimierte Meta-Description (Zusammenfassung) für ein Event zu schreiben.
 
 REGELN:
-- Maximal 2-3 Sätze, 150-200 Zeichen ideal
-- Wecke Interesse und Neugierde
-- Nenne die wichtigsten Highlights (wer, was, wo, wann)
-- Schreibe auf Deutsch in einem einladenden, professionellen Ton
-- KEIN Markdown, KEINE Emojis, KEIN HTML
-- Antworte NUR mit dem Textauszug selbst, keine Erklärungen oder Anführungszeichen
+- EXAKT 140-160 Zeichen (Google schneidet bei ~160 Zeichen ab)
+- Beginne mit dem wichtigsten Keyword (Event-Name/Art)
+- Nenne Datum, Ort und 1-2 Highlights
+- Verwende einen Call-to-Action am Ende (z.B. "Jetzt Tickets sichern!", "Tickets hier!")
+- Schreibe auf Deutsch in einem einladenden, aktivierenden Ton
+- Verwende keine Sonderzeichen die Google nicht darstellt
+- KEIN Markdown, KEINE Emojis, KEIN HTML, KEINE Anführungszeichen
+- Antworte NUR mit der Meta-Description selbst, keine Erklärungen
+- Der Text muss eigenständig funktionieren und Klickanreiz in Google-Suchergebnissen bieten
 PROMPT;
 
         $result = self::call_api($system, "Schreibe einen Textauszug für folgendes Event:\n\n" . $event_context, 256);

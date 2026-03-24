@@ -776,21 +776,26 @@ class TIX_Metabox {
         <?php endforeach; ?>
         </div>
 
-        <?php // ── Textauszug ── ?>
-        <div class="tix-card" style="margin-top:20px;">
-            <div class="tix-card-header" style="display:flex;align-items:center;justify-content:space-between;">
-                <span style="display:flex;align-items:center;gap:8px;">
-                    <span class="dashicons dashicons-editor-paragraph"></span>
-                    <h3 style="margin:0;">Textauszug</h3>
-                </span>
-                <button type="button" class="button" id="tix-ai-excerpt-btn" style="display:flex;align-items:center;gap:6px;font-size:12px;">
-                    <span class="dashicons dashicons-admin-generic" style="font-size:16px;width:16px;height:16px;line-height:16px"></span>
+        <?php // ── Zusammenfassung (SEO / Meta-Description) ── ?>
+        <div class="tix-info-section" style="margin-top:4px;">
+            <div class="tix-info-header" style="display:flex;align-items:center;justify-content:space-between;">
+                <input type="text" value="Zusammenfassung" class="tix-info-label-input" readonly
+                       style="flex:1;cursor:default;font-weight:600;">
+                <button type="button" class="button" id="tix-ai-excerpt-btn" style="display:flex;align-items:center;gap:6px;font-size:11px;margin-right:12px;border-color:#c4b5fd;color:#7c3aed;">
+                    <span class="dashicons dashicons-admin-generic" style="font-size:14px;width:14px;height:14px;line-height:14px"></span>
                     KI generieren
                 </button>
             </div>
-            <div class="tix-card-body">
-                <textarea name="excerpt" id="tix-excerpt-field" rows="3" style="width:100%;border:1px solid #d1d5db;border-radius:8px;padding:10px;font-size:13px;resize:vertical;" placeholder="Kurze Zusammenfassung des Events (wird z.B. in Suchergebnissen angezeigt)…"><?php echo esc_textarea($post->post_excerpt); ?></textarea>
-                <p class="description" style="margin-top:4px;">Wird in Übersichten und als Meta-Description verwendet. <span id="tix-excerpt-ai-status" style="color:#22c55e;display:none;">✓ KI-generiert</span></p>
+            <div style="padding:12px 16px;">
+                <p class="description" style="margin:0 0 8px;font-size:12px;color:#6b7280;">
+                    Wird als <strong>Meta-Description in Google-Suchergebnissen</strong> und in Event-Übersichten angezeigt.
+                    Die KI generiert einen SEO-optimierten Text aus deinen Event-Daten.
+                </p>
+                <textarea name="excerpt" id="tix-excerpt-field" rows="3" style="width:100%;border:1px solid #d1d5db;border-radius:8px;padding:10px;font-size:13px;resize:vertical;" placeholder="SEO-optimierte Zusammenfassung – wird automatisch per KI generiert oder manuell eingeben…"><?php echo esc_textarea($post->post_excerpt); ?></textarea>
+                <p class="description" style="margin-top:4px;font-size:11px;">
+                    <span id="tix-excerpt-char-count" style="color:#6b7280;">0</span><span style="color:#6b7280;"> / 160 Zeichen (ideal für Google)</span>
+                    <span id="tix-excerpt-ai-status" style="color:#22c55e;display:none;margin-left:8px;">✓ KI-generiert</span>
+                </p>
             </div>
         </div>
         <?php
