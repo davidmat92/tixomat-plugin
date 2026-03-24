@@ -891,9 +891,7 @@ class TIX_Settings {
     /** Primärfarbe auch im Admin-Bereich ausgeben. */
     public static function output_admin_primary_css() {
         $primary = (self::get())['color_primary'] ?? '#FF5500';
-        if ($primary && $primary !== '#FF5500') {
-            echo "<style>:root{--tix-primary:{$primary};}</style>\n";
-        }
+        echo "<style>:root{--tix-primary:{$primary};}</style>\n";
     }
 
     public static function output_css() {

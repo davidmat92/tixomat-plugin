@@ -2078,21 +2078,21 @@ body:is(.post-type-event,.post-type-tix_location,.post-type-tix_organizer,.post-
     flex-wrap: wrap;
     gap: 10px;
     padding: 12px 20px;
-    background: linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%);
-    border-bottom: 1px solid #ddd6fe;
+    background: color-mix(in srgb, var(--tix-primary, #FF5500) 8%, #fff);
+    border-bottom: 1px solid color-mix(in srgb, var(--tix-primary, #FF5500) 20%, #e0e0e0);
     border-radius: 16px 16px 0 0;
 }
 .tix-ai-fill-bar + .tix-expert .tix-progress {
     border-radius: 0;
 }
 .tix-ai-fill-bar .button {
-    border-color: #c4b5fd;
-    color: #7c3aed;
+    border-color: color-mix(in srgb, var(--tix-primary, #FF5500) 40%, #e0e0e0);
+    color: var(--tix-primary, #FF5500);
 }
 .tix-ai-fill-bar .button:hover {
-    border-color: #8b5cf6;
-    background: #ede9fe;
-    color: #6d28d9;
+    border-color: var(--tix-primary, #FF5500);
+    background: color-mix(in srgb, var(--tix-primary, #FF5500) 12%, #fff);
+    color: var(--tix-primary, #FF5500);
 }
 
 /* Fortschrittsleiste */

@@ -1716,10 +1716,15 @@
             var items = [];
             var esc = function(s) { return $('<span>').text(s || '').html(); };
             var strip = function(s) { return $('<div>').html(s || '').text().substring(0, 120); };
+            var fmtDate = function(d) {
+                if (!d) return '';
+                var p = d.split('-');
+                return p.length === 3 ? p[2] + '.' + p[1] + '.' + p[0] : d;
+            };
 
             if (f.title) items.push({ key: 'title', label: 'Titel', preview: esc(f.title), checked: true });
-            if (f.date_start) items.push({ key: 'date_start', label: 'Startdatum', preview: esc(f.date_start) + (f.time_start ? ' ' + esc(f.time_start) : ''), checked: true });
-            if (f.date_end && f.date_end !== f.date_start) items.push({ key: 'date_end', label: 'Enddatum', preview: esc(f.date_end) + (f.time_end ? ' ' + esc(f.time_end) : ''), checked: true });
+            if (f.date_start) items.push({ key: 'date_start', label: 'Startdatum', preview: fmtDate(f.date_start) + (f.time_start ? ', ' + esc(f.time_start) + ' Uhr' : ''), checked: true });
+            if (f.date_end && f.date_end !== f.date_start) items.push({ key: 'date_end', label: 'Enddatum', preview: fmtDate(f.date_end) + (f.time_end ? ', ' + esc(f.time_end) + ' Uhr' : ''), checked: true });
             if (f.time_doors) items.push({ key: 'time_doors', label: 'Einlass', preview: esc(f.time_doors) + ' Uhr', checked: true });
             if (f.location) {
                 var locLabel = f.location_id ? 'Location (erkannt)' : 'Location (nicht zugeordnet)';
@@ -1769,7 +1774,7 @@
                     '<div class="tix-ai-preview-modal" style="background:#fff;border-radius:12px;width:580px;max-width:90vw;max-height:80vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,0.3);">' +
                         '<div style="padding:20px 24px 16px;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;justify-content:space-between;">' +
                             '<div style="display:flex;align-items:center;gap:10px;">' +
-                                '<span class="dashicons dashicons-admin-generic" style="color:#8b5cf6;font-size:22px;width:22px;height:22px;"></span>' +
+                                '<span class="dashicons dashicons-admin-generic" style="color:var(--tix-primary, #FF5500);font-size:22px;width:22px;height:22px;"></span>' +
                                 '<h3 style="margin:0;font-size:16px;">KI-Vorschläge</h3>' +
                                 '<span style="font-size:12px;color:#6b7280;">' + items.length + ' Felder erkannt</span>' +
                             '</div>' +
@@ -1780,7 +1785,7 @@
                         '<div style="padding:8px 24px;overflow-y:auto;flex:1;">' + rows + '</div>' +
                         '<div style="padding:16px 24px;border-top:1px solid #e5e7eb;display:flex;justify-content:flex-end;gap:8px;">' +
                             '<button type="button" class="button tix-ai-preview-cancel">Abbrechen</button>' +
-                            '<button type="button" class="button button-primary tix-ai-preview-apply" style="background:#7c3aed;border-color:#6d28d9;">Übernehmen</button>' +
+                            '<button type="button" class="button button-primary tix-ai-preview-apply" style="background:var(--tix-primary, #FF5500);border-color:var(--tix-primary, #FF5500);">Übernehmen</button>' +
                         '</div>' +
                     '</div>' +
                 '</div>'

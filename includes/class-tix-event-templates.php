@@ -128,7 +128,7 @@ class TIX_Event_Templates {
         ?>
         <div class="wrap" style="max-width:900px;">
             <h1 style="display:flex;align-items:center;gap:10px;margin-bottom:20px;">
-                <span class="dashicons dashicons-layout" style="font-size:28px;width:28px;height:28px;color:#7c3aed;"></span>
+                <span class="dashicons dashicons-layout" style="font-size:28px;width:28px;height:28px;color:var(--tix-primary, #FF5500);"></span>
                 Event-Vorlagen
             </h1>
 
@@ -184,7 +184,7 @@ class TIX_Event_Templates {
                                             <?php foreach ($icons as $icon_class => $icon_label):
                                                 $sel = ($prefill['icon'] ?? 'dashicons-admin-generic') === $icon_class;
                                             ?>
-                                                <label style="display:flex;align-items:center;gap:2px;padding:6px 8px;border:2px solid <?php echo $sel ? '#7c3aed' : '#e0e0e0'; ?>;border-radius:8px;cursor:pointer;background:<?php echo $sel ? '#f5f3ff' : '#fff'; ?>;" title="<?php echo esc_attr($icon_label); ?>">
+                                                <label style="display:flex;align-items:center;gap:2px;padding:6px 8px;border:2px solid <?php echo $sel ? '#7c3aed' : '#e0e0e0'; ?>;border-radius:8px;cursor:pointer;background:<?php echo $sel ? 'color-mix(in srgb, var(--tix-primary, #FF5500) 8%, #fff)' : '#fff'; ?>;" title="<?php echo esc_attr($icon_label); ?>">
                                                     <input type="radio" name="tpl_icon" value="<?php echo esc_attr($icon_class); ?>" <?php checked($sel); ?> style="display:none;">
                                                     <span class="dashicons <?php echo esc_attr($icon_class); ?>" style="font-size:18px;width:18px;height:18px;color:<?php echo $sel ? '#7c3aed' : '#666'; ?>;"></span>
                                                 </label>
@@ -240,7 +240,7 @@ class TIX_Event_Templates {
                             </div>
 
                             <div style="margin-top:20px;display:flex;gap:8px;">
-                                <button type="submit" class="button button-primary" style="background:#7c3aed;border-color:#6d28d9;">
+                                <button type="submit" class="button button-primary" style="background:var(--tix-primary, #FF5500);border-color:var(--tix-primary, #FF5500);">
                                     <?php echo $editing ? 'Aktualisieren' : 'Vorlage speichern'; ?>
                                 </button>
                                 <?php if ($editing || $from_event): ?>
@@ -263,7 +263,7 @@ class TIX_Event_Templates {
                                 <?php foreach ($templates as $slug => $tpl): ?>
                                     <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border:1px solid #e5e7eb;border-radius:8px;background:#fafafa;">
                                         <div style="display:flex;align-items:center;gap:10px;">
-                                            <span class="dashicons <?php echo esc_attr($tpl['icon'] ?? 'dashicons-admin-generic'); ?>" style="color:#7c3aed;font-size:20px;width:20px;height:20px;"></span>
+                                            <span class="dashicons <?php echo esc_attr($tpl['icon'] ?? 'dashicons-admin-generic'); ?>" style="color:var(--tix-primary, #FF5500);font-size:20px;width:20px;height:20px;"></span>
                                             <div>
                                                 <strong style="font-size:14px;"><?php echo esc_html($tpl['label']); ?></strong>
                                                 <?php if (!empty($tpl['desc'])): ?>

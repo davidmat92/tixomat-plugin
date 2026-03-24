@@ -290,7 +290,7 @@ class TIX_Metabox {
             if ($ai_key): ?>
             <div class="tix-ai-fill-bar" id="tix-ai-fill-bar">
                 <div style="display:flex;align-items:center;gap:8px;">
-                    <span class="dashicons dashicons-admin-generic" style="color:#8b5cf6;font-size:20px;width:20px;height:20px"></span>
+                    <span class="dashicons dashicons-admin-generic" style="color:var(--tix-primary, #FF5500);font-size:20px;width:20px;height:20px"></span>
                     <strong style="font-size:13px;">KI-Assistent</strong>
                     <span style="font-size:12px;color:#6b7280;">— Felder automatisch aus Bild oder URL füllen</span>
                 </div>
@@ -308,7 +308,7 @@ class TIX_Metabox {
                         </button>
                     </div>
                 </div>
-                <div id="tix-ai-fill-status" style="display:none;font-size:12px;color:#8b5cf6;margin-top:8px;width:100%;"></div>
+                <div id="tix-ai-fill-status" style="display:none;font-size:12px;color:var(--tix-primary, #FF5500);margin-top:8px;width:100%;"></div>
             </div>
             <?php endif; ?>
 
@@ -793,7 +793,7 @@ class TIX_Metabox {
             <div class="tix-info-header" style="display:flex;align-items:center;justify-content:space-between;">
                 <input type="text" value="Zusammenfassung" class="tix-info-label-input" readonly
                        style="flex:1;cursor:default;font-weight:600;">
-                <button type="button" class="button" id="tix-ai-excerpt-btn" style="display:flex;align-items:center;gap:6px;font-size:11px;margin-right:12px;border-color:#c4b5fd;color:#7c3aed;">
+                <button type="button" class="button" id="tix-ai-excerpt-btn" style="display:flex;align-items:center;gap:6px;font-size:11px;margin-right:12px;color:var(--tix-primary, #FF5500);">
                     <span class="dashicons dashicons-admin-generic" style="font-size:14px;width:14px;height:14px;line-height:14px"></span>
                     KI generieren
                 </button>
