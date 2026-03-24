@@ -138,6 +138,29 @@ class TIX_Ticket_Selector {
         }
 
         // ── Externer Ticketshop ──
+        // ── Syndiziertes Event → Redirect-Popup ──
+        $syndicated = get_post_meta($post_id, '_tix_syndicated', true);
+        if ($syndicated === '1') {
+            $source_checkout = get_post_meta($post_id, '_tix_source_checkout', true);
+            $source_site     = get_post_meta($post_id, '_tix_source_site', true) ?: 'Veranstalter';
+            $source_url      = get_post_meta($post_id, '_tix_source_url', true);
+            if ($source_checkout) {
+                self::enqueue();
+                $price_card = get_post_meta($post_id, '_tix_price_card', true);
+                return '<div class="tix-sel" data-event-id="' . $post_id . '">'
+                    . '<div class="tix-sel-syndicated">'
+                    . '<p style="font-size:14px;margin:0 0 12px;">' . ($price_card ? '<strong>' . esc_html($price_card) . '</strong>' : '') . '</p>'
+                    . '<button type="button" class="tix-sel-buy tix-sel-syndicated-buy" '
+                    . 'data-source-url="' . esc_url($source_checkout) . '" '
+                    . 'data-source-site="' . esc_attr($source_site) . '">'
+                    . '<span class="tix-sel-buy-text">Tickets kaufen</span>'
+                    . '</button>'
+                    . '<p style="font-size:11px;color:#9ca3af;margin:8px 0 0;">Tickets über ' . esc_html($source_site) . '</p>'
+                    . '</div>'
+                    . '</div>';
+            }
+        }
+
         $ext_enabled = get_post_meta($post_id, '_tix_extshop_enabled', true);
         $ext_url     = get_post_meta($post_id, '_tix_extshop_url', true);
         $ext_html    = '';

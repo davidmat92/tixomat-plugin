@@ -6,6 +6,35 @@
         // ══════════════════════════════════════
         // TICKET SELECTOR
         // ══════════════════════════════════════
+        // ══════════════════════════════════════
+        // SYNDICATED EVENT REDIRECT POPUP
+        // ══════════════════════════════════════
+        document.querySelectorAll('.tix-sel-syndicated-buy').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                var sourceUrl = btn.dataset.sourceUrl;
+                var sourceSite = btn.dataset.sourceSite;
+                if (!sourceUrl) return;
+
+                // Popup erstellen
+                var overlay = document.createElement('div');
+                overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:99999;display:flex;align-items:center;justify-content:center;';
+                overlay.innerHTML =
+                    '<div style="background:#fff;border-radius:16px;padding:32px;max-width:400px;width:90%;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,0.3);">' +
+                        '<div style="font-size:28px;margin-bottom:12px;">↗</div>' +
+                        '<h3 style="margin:0 0 8px;font-size:18px;color:#1e293b;">Weiterleitung</h3>' +
+                        '<p style="color:#6b7280;font-size:14px;margin:0 0 20px;">Du wirst zu <strong>' + sourceSite + '</strong> weitergeleitet um deine Tickets zu kaufen.</p>' +
+                        '<a href="' + sourceUrl + '" target="_blank" rel="noopener" style="display:inline-block;padding:12px 28px;background:var(--tix-primary, #FF5500);color:#fff;border-radius:10px;text-decoration:none;font-weight:600;font-size:14px;">Weiter zu ' + sourceSite + ' →</a>' +
+                        '<p style="margin:16px 0 0;font-size:11px;color:#9ca3af;">Powered by Tixomat</p>' +
+                    '</div>';
+
+                overlay.addEventListener('click', function(e) {
+                    if (e.target === overlay) document.body.removeChild(overlay);
+                });
+
+                document.body.appendChild(overlay);
+            });
+        });
+
         document.querySelectorAll('.tix-sel').forEach(initSelector);
 
         function initSelector(sel) {
@@ -16,6 +45,18 @@
             var expressBtn    = sel.querySelector('.tix-sel-express');
             var expressTerms  = sel.querySelector('.tix-sel-express-terms-check');
             var msg           = sel.querySelector('.tix-sel-message');
+
+            // URL-Parameter: tix_qty → Menge vorauswählen (von Syndication-Redirect)
+            var urlParams = new URLSearchParams(window.location.search);
+            var presetQty = parseInt(urlParams.get('tix_qty'), 10) || 0;
+            if (presetQty > 0 && cats.length > 0) {
+                var firstCat = cats[0];
+                var qtyVal = firstCat.querySelector('.tix-sel-qty-val');
+                if (qtyVal) {
+                    qtyVal.dataset.qty = presetQty;
+                    qtyVal.textContent = presetQty;
+                }
+            }
 
             // Coupon state
             var activeCoupon = null;

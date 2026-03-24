@@ -3569,6 +3569,41 @@ class TIX_Metabox {
         </div>
         <?php
         endif;
+
+        // ── Syndication ──
+        $syn_global = function_exists('tix_get_settings') && tix_get_settings('syndication_enabled');
+        if ($syn_global && class_exists('TIX_Syndication_Push') && TIX_Syndication_Push::is_configured()):
+            $syn_active  = get_post_meta($post->ID, '_tix_syndicate', true);
+            $syn_status  = get_post_meta($post->ID, '_tix_syndicate_status', true);
+            $syn_last    = get_post_meta($post->ID, '_tix_syndicate_last', true);
+            $syn_error   = get_post_meta($post->ID, '_tix_syndicate_error', true);
+            $platform    = tix_get_settings('syndication_api_url');
+        ?>
+        <div class="tix-card">
+            <div class="tix-card-header">
+                <span class="dashicons dashicons-rss"></span>
+                <h3>Plattform-Syndication</h3>
+            </div>
+            <div class="tix-card-body">
+                <div class="tix-toggle-wrap">
+                    <label>
+                        <input type="hidden" name="tix_syndicate_to_platform" value="0">
+                        <input type="checkbox" name="tix_syndicate_to_platform" value="1" <?php checked($syn_active, '1'); ?>>
+                        <strong>Auf Plattform veröffentlichen</strong>
+                    </label>
+                </div>
+                <p class="description" style="margin-top:6px;">
+                    Event wird automatisch an <code><?php echo esc_html(preg_replace('#https?://#', '', $platform)); ?></code> gesendet. Ticketkauf wird zur Quellseite weitergeleitet.
+                </p>
+                <?php if ($syn_status === 'synced'): ?>
+                    <p style="margin-top:8px;font-size:12px;color:#22c55e;">✓ Gesynced <?php echo $syn_last ? '(' . date_i18n('d.m.Y H:i', strtotime($syn_last)) . ')' : ''; ?></p>
+                <?php elseif ($syn_status === 'error'): ?>
+                    <p style="margin-top:8px;font-size:12px;color:#ef4444;">✗ Fehler: <?php echo esc_html($syn_error); ?></p>
+                <?php endif; ?>
+            </div>
+        </div>
+        <?php
+        endif;
     }
 
     // ──────────────────────────────────────────

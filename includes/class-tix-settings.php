@@ -341,6 +341,14 @@ class TIX_Settings {
             'tix_card_show_heart'        => 1,
             'tix_card_show_badges'       => 1,
             'tix_card_default_mode'      => 'light',
+            // ── Syndication (Selfhosted → Evendis) ──
+            'syndication_enabled'   => 0,
+            'syndication_api_url'   => '',
+            'syndication_api_key'   => '',
+            'syndication_site_name' => '',
+            // ── Syndication Empfang ──
+            'syndication_receive_enabled' => 0,
+            'syndication_receive_key'     => '',
             // ── Mein-Konto Styling ──
             'myaccount_restyle'  => 0,
 
@@ -751,6 +759,14 @@ class TIX_Settings {
         $clean['paypal_client_id'] = sanitize_text_field($input['paypal_client_id'] ?? '');
         $clean['paypal_secret']    = sanitize_text_field($input['paypal_secret'] ?? '');
         $clean['paypal_sandbox']   = !empty($input['paypal_sandbox']) ? 1 : 0;
+
+        // Syndication
+        $clean['syndication_enabled']        = !empty($input['syndication_enabled']) ? 1 : 0;
+        $clean['syndication_api_url']        = esc_url_raw($input['syndication_api_url'] ?? '');
+        $clean['syndication_api_key']        = sanitize_text_field($input['syndication_api_key'] ?? '');
+        $clean['syndication_site_name']      = sanitize_text_field($input['syndication_site_name'] ?? '');
+        $clean['syndication_receive_enabled'] = !empty($input['syndication_receive_enabled']) ? 1 : 0;
+        $clean['syndication_receive_key']    = sanitize_text_field($input['syndication_receive_key'] ?? '');
 
         // Event-Karten
         foreach (['tix_card_color_signal', 'tix_card_color_signal_mid', 'tix_card_color_nacht', 'tix_card_color_nacht_soft', 'tix_card_color_spotlight', 'tix_card_color_entdecken', 'tix_card_color_licht', 'tix_card_color_sand', 'tix_card_color_text', 'tix_card_color_text_muted'] as $k) {
@@ -3301,6 +3317,65 @@ class TIX_Settings {
                                                     </optgroup>
                                                 </select>
                                                 <p class="tix-settings-hint">Wird für Evendis-Assistent und Textgenerierung verwendet. KI-Schutz nutzt immer Claude Haiku (kostensparend).</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Syndication (Push) ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-rss"></span>
+                                        <h3>Event-Syndication (Push)</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <p class="tix-settings-hint" style="margin-top:0;">
+                                                    Events automatisch an eine zentrale Plattform senden. Aktiviere pro Event die Checkbox "Auf Plattform veröffentlichen".
+                                                </p>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('syndication_enabled', 'Syndication aktivieren', $s, 'Events können an eine externe Plattform gesendet werden.'); ?>
+                                            </div>
+                                            <?php self::text_row('syndication_api_url', 'Plattform API-URL', $s, 'https://evendis.de/wp-json/tixomat/v1'); ?>
+                                            <?php self::text_row('syndication_api_key', 'API Key', $s, 'tix_syn_...'); ?>
+                                            <?php self::text_row('syndication_site_name', 'Anzeigename dieser Seite', $s, 'z.B. Kitchen Klub'); ?>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Syndication (Empfang) ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-download"></span>
+                                        <h3>Event-Syndication (Empfang)</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <p class="tix-settings-hint" style="margin-top:0;">
+                                                    Events von externen Tixomat-Installationen empfangen. Syndizierte Events werden automatisch erstellt und bei Klick auf "Tickets" zur Quellseite weitergeleitet.
+                                                </p>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('syndication_receive_enabled', 'Empfang aktivieren', $s, 'Diese Seite kann syndizierte Events empfangen.'); ?>
+                                            </div>
+                                            <?php
+                                            $receive_key = $s['syndication_receive_key'] ?? '';
+                                            if (empty($receive_key)) {
+                                                $receive_key = 'tix_syn_' . wp_generate_password(24, false);
+                                            }
+                                            ?>
+                                            <div class="tix-field tix-field-full">
+                                                <label class="tix-label">Empfangs-Key (an Sender weitergeben)</label>
+                                                <input type="text" name="tix_settings[syndication_receive_key]" value="<?php echo esc_attr($receive_key); ?>" class="regular-text" style="width:100%;font-family:monospace;font-size:13px;" readonly onclick="this.select();">
+                                                <p class="tix-settings-hint">Diesen Key dem Sender mitteilen. Er wird als <code>X-Tix-Syndication-Key</code> Header gesendet.</p>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <p class="tix-settings-hint">
+                                                    API-Endpoint: <code><?php echo esc_html(rest_url('tixomat/v1/syndicate')); ?></code>
+                                                </p>
                                             </div>
                                         </div>
                                     </div>
