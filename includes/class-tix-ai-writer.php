@@ -887,9 +887,29 @@ REGELN:
             wp_send_json_error(['message' => 'Keine Datei empfangen.']);
         }
 
+        // Validate file type
+        $allowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+        $file_type = wp_check_filetype(sanitize_file_name($_FILES['file']['name']));
+        if (!$file_type['type'] || !in_array($file_type['type'], $allowed)) {
+            wp_send_json_error(['message' => 'Nur Bilder erlaubt (JPG, PNG, GIF, WEBP).']);
+        }
+
+        // Max 10 MB
+        if ($_FILES['file']['size'] > 10 * 1024 * 1024) {
+            wp_send_json_error(['message' => 'Datei zu groß (max. 10 MB).']);
+        }
+
         require_once ABSPATH . 'wp-admin/includes/image.php';
         require_once ABSPATH . 'wp-admin/includes/file.php';
         require_once ABSPATH . 'wp-admin/includes/media.php';
+
+        // For non-logged-in register context: temporarily allow uploads
+        if ($is_register && !current_user_can('upload_files')) {
+            add_filter('user_has_cap', function($caps) {
+                $caps['upload_files'] = true;
+                return $caps;
+            }, 99);
+        }
 
         $attachment_id = media_handle_upload('file', intval($_POST['post_id'] ?? 0));
         if (is_wp_error($attachment_id)) {

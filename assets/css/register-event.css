@@ -235,8 +235,9 @@
     border-color: var(--re-primary);
     background: color-mix(in srgb, var(--re-primary) 4%, transparent);
 }
-.tix-re-dropzone-text { font-size: 15px; color: var(--re-muted); }
+.tix-re-dropzone-text { font-size: 15px; color: var(--re-muted); display: block; }
 .tix-re-dropzone-text a { color: var(--re-primary); text-decoration: none; font-weight: 600; }
+.tix-re-dropzone-hint { display: block; font-size: 12px; color: var(--re-muted); opacity: 0.7; margin-top: 8px; }
 #tix-re-upload-preview img {
     max-width: 100%;
     border-radius: 10px;
@@ -559,17 +560,73 @@
 .tix-re-success-links { display: flex; justify-content: center; gap: 12px; flex-wrap: wrap; }
 
 /* ══════════════════════════════════════
-   RESPONSIVE
+   RESPONSIVE (matching event-card breakpoints)
    ══════════════════════════════════════ */
-@media (max-width: 600px) {
-    .tix-re { padding: 24px 16px 48px; }
-    .tix-re-title { font-size: 22px; }
-    .tix-re-modes { grid-template-columns: 1fr; }
+
+/* ── Tablet (768px) ── */
+@media (max-width: 768px) {
+    .tix-re { padding: 28px 18px 48px; }
+    .tix-re-title { font-size: 24px; }
+    .tix-re-subtitle { font-size: 14px; }
+    .tix-re-panel-title { font-size: 18px; }
+    .tix-re-mode strong { font-size: 13px; }
+    .tix-re-mode span:last-child { font-size: 11px; }
+    .tix-re-mode-icon { font-size: 24px; }
+    .tix-re-mode { padding: 16px 10px; }
+    .tix-re-input, .tix-re-chat-footer textarea { font-size: 13px; }
+    .tix-re-bubble { font-size: 13px; }
+    .tix-re-btn-primary { font-size: 14px; padding: 10px 22px; }
+    .tix-re-btn-publish { font-size: 15px; padding: 12px 26px; }
+    .tix-re-btn-back { font-size: 13px; padding: 10px 16px; }
+    .tix-re-preview-title { font-size: 18px; }
+    .tix-re-preview-value input,
+    .tix-re-preview-value textarea { font-size: 13px; }
+    .tix-re-field label { font-size: 12px; }
+    .tix-re-legal { font-size: 12px; }
+    .tix-re-success h2 { font-size: 22px; }
+    .tix-re-success p { font-size: 14px; }
+    .tix-re-progress-step { font-size: 12px; padding: 6px 10px; }
+}
+
+/* ── Mobile (480px) ── */
+@media (max-width: 480px) {
+    .tix-re { padding: 20px 14px 40px; }
+    .tix-re-title { font-size: 20px; }
+    .tix-re-subtitle { font-size: 13px; }
+    .tix-re-panel-title { font-size: 16px; margin-bottom: 18px; }
+    .tix-re-modes { grid-template-columns: 1fr; gap: 8px; }
+    .tix-re-mode { flex-direction: row; padding: 14px 16px; gap: 12px; text-align: left; }
+    .tix-re-mode-icon { font-size: 22px; }
+    .tix-re-mode strong { font-size: 14px; }
+    .tix-re-mode span:last-child { font-size: 11px; }
     .tix-re-field-half { width: 100%; }
     .tix-re-step span:not(.tix-re-step-num) { display: none; }
-    .tix-re-step-line { width: 24px; margin: 0 6px; }
+    .tix-re-step-num { width: 28px; height: 28px; font-size: 12px; }
+    .tix-re-step-line { width: 20px; margin: 0 6px; }
+    .tix-re-stepper { margin-bottom: 24px; }
+    .tix-re-input-area { padding: 14px; }
+    .tix-re-chat { max-height: 260px; }
+    .tix-re-bubble { font-size: 13px; padding: 8px 12px; max-width: 90%; }
+    .tix-re-btn-send { width: 38px; height: 38px; font-size: 16px; }
+    .tix-re-dropzone { padding: 28px 16px; }
+    .tix-re-dropzone-text { font-size: 14px; }
+    .tix-re-input, .tix-re-chat-footer textarea { font-size: 14px; padding: 10px 12px; }
+    .tix-re-preview { padding: 16px; }
     .tix-re-preview-row { flex-direction: column; gap: 4px; }
-    .tix-re-preview-label { width: auto; }
-    .tix-re-nav { flex-direction: column-reverse; }
-    .tix-re-nav > * { width: 100%; text-align: center; }
+    .tix-re-preview-label { width: auto; font-size: 11px; }
+    .tix-re-preview-title { font-size: 17px; }
+    .tix-re-btn-primary { font-size: 14px; padding: 10px 20px; }
+    .tix-re-btn-publish { font-size: 14px; padding: 12px 22px; }
+    .tix-re-btn-back { font-size: 13px; }
+    .tix-re-nav { flex-direction: column-reverse; gap: 8px; }
+    .tix-re-nav > * { width: 100%; text-align: center; justify-content: center; }
+    .tix-re-success-check { font-size: 56px; }
+    .tix-re-success h2 { font-size: 20px; }
+    .tix-re-success p { font-size: 13px; }
+    .tix-re-success-links { flex-direction: column; }
+    .tix-re-success-links a { width: 100%; text-align: center; justify-content: center; }
+    .tix-re-error { font-size: 13px; padding: 10px 14px; }
+    .tix-re-progress { padding: 16px; }
+    .tix-re-progress-steps { flex-direction: column; gap: 2px; }
+    .tix-re-progress-step { font-size: 12px; padding: 5px 10px; }
 }

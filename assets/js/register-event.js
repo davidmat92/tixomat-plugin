@@ -134,8 +134,23 @@
     var $dropzone = $('#tix-re-dropzone');
     var $file     = $('#tix-re-file');
 
-    $dropzone.on('click', function() { $file.trigger('click'); });
-    $('#tix-re-browse').on('click', function(e) { e.preventDefault(); $file.trigger('click'); });
+    // On desktop, remove capture so it shows file picker instead of camera
+    var isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    if (!isMobile) {
+        $file.removeAttr('capture');
+    }
+
+    // Click anywhere on dropzone opens file picker
+    $dropzone.on('click', function(e) {
+        // Don't double-trigger if clicking the file input itself
+        if (e.target === $file[0]) return;
+        $file[0].click(); // Native click for best mobile compatibility
+    });
+    $('#tix-re-browse').on('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        $file[0].click();
+    });
 
     $dropzone.on('dragover', function(e) { e.preventDefault(); $(this).addClass('dragover'); });
     $dropzone.on('dragleave drop', function() { $(this).removeClass('dragover'); });

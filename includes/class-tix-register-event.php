@@ -111,8 +111,9 @@ class TIX_Register_Event {
                 <?php // Upload-Modus ?>
                 <div class="tix-re-input-area" id="tix-re-upload-area" style="display:none;">
                     <div class="tix-re-dropzone" id="tix-re-dropzone">
-                        <input type="file" id="tix-re-file" accept="image/*" style="display:none;">
+                        <input type="file" id="tix-re-file" accept="image/jpeg,image/png,image/gif,image/webp,image/*" capture="environment" style="display:none;">
                         <span class="tix-re-dropzone-text">📸 Flyer hierher ziehen oder <a href="#" id="tix-re-browse">durchsuchen</a></span>
+                        <span class="tix-re-dropzone-hint">JPG, PNG, WEBP — Foto aufnehmen oder aus Galerie wählen</span>
                     </div>
                     <div id="tix-re-upload-preview" style="display:none;"></div>
                 </div>
