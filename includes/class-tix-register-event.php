@@ -43,16 +43,18 @@ class TIX_Register_Event {
 
         $atts = shortcode_atts([
             'title'    => 'Veröffentliche dein Event in 2 Minuten',
-            'subtitle' => 'Kostenlos registrieren. KI erstellt dein Event.',
+            'subtitle' => 'Kostenlos registrieren. Dein Event wird automatisch erstellt.',
             'mode'     => 'light',
         ], $atts);
 
         wp_enqueue_style('tix-register-event', TIXOMAT_URL . 'assets/css/register-event.css', [], TIXOMAT_VERSION);
         wp_enqueue_script('tix-register-event', TIXOMAT_URL . 'assets/js/register-event.js', ['jquery'], TIXOMAT_VERSION, true);
+        $ai_name = tix_get_settings('ai_assistant_name') ?: 'Evendis-Assistent';
         wp_localize_script('tix-register-event', 'tixRegister', [
             'ajaxUrl' => admin_url('admin-ajax.php'),
             'nonce'   => wp_create_nonce('tix_register_event'),
             'aiNonce' => wp_create_nonce('tix_admin_action'),
+            'aiName'  => $ai_name,
         ]);
 
         $dark = $atts['mode'] === 'dark';

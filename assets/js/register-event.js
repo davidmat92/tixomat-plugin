@@ -10,6 +10,7 @@
     var ajax    = tixRegister.ajaxUrl;
     var nonce   = tixRegister.nonce;
     var aiNonce = tixRegister.aiNonce;
+    var aiName  = tixRegister.aiName || 'Evendis-Assistent';
 
     var chatHistory = [];
     var eventData   = {};
@@ -93,7 +94,7 @@
             $('#tix-re-chat .tix-re-bubble-ai:last').remove();
 
             if (!r.success) {
-                appendBubble('assistant', r.data ? r.data.message : 'Fehler bei der KI-Anfrage.');
+                appendBubble('assistant', r.data ? r.data.message : 'Fehler bei der Anfrage.');
                 return;
             }
 
@@ -163,7 +164,7 @@
 
         showProgress([
             { icon: '📤', label: 'Bild wird hochgeladen', duration: 2000 },
-            { icon: '🔍', label: 'KI analysiert Flyer', duration: 4000 },
+            { icon: '🔍', label: aiName + ' analysiert Flyer', duration: 4000 },
             { icon: '📝', label: 'Event-Daten werden extrahiert', duration: 3000 },
             { icon: '✅', label: 'Fertig', duration: 1000 }
         ]);
@@ -233,7 +234,7 @@
 
         showProgress([
             { icon: '🌐', label: 'URL wird geladen', duration: 2000 },
-            { icon: '🔍', label: 'KI analysiert Inhalt', duration: 5000 },
+            { icon: '🔍', label: aiName + ' analysiert Inhalt', duration: 5000 },
             { icon: '📝', label: 'Event-Daten werden extrahiert', duration: 3000 },
             { icon: '✅', label: 'Fertig', duration: 1000 }
         ]);
@@ -363,13 +364,16 @@
             var val = d[row[1]];
             if (!val) return;
 
+            // Strip HTML tags so users don't see <br>, <strong> etc.
+            var clean = stripHtml(val);
+
             var input;
             if (row[2] === 'textarea') {
-                input = '<textarea class="tix-re-preview-edit" data-field="' + row[1] + '">' + escHtml(val) + '</textarea>';
+                input = '<textarea class="tix-re-preview-edit" data-field="' + row[1] + '">' + escHtml(clean) + '</textarea>';
             } else if (row[2] === 'date') {
-                input = '<input type="date" class="tix-re-preview-edit" data-field="' + row[1] + '" value="' + escAttr(val) + '">';
+                input = '<input type="date" class="tix-re-preview-edit" data-field="' + row[1] + '" value="' + escAttr(clean) + '">';
             } else {
-                input = '<input type="text" class="tix-re-preview-edit" data-field="' + row[1] + '" value="' + escAttr(val) + '">';
+                input = '<input type="text" class="tix-re-preview-edit" data-field="' + row[1] + '" value="' + escAttr(clean) + '">';
             }
 
             $p.append(
@@ -579,6 +583,19 @@
     }
     function escAttr(str) {
         return String(str).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+    function stripHtml(str) {
+        if (!str) return '';
+        // Replace <br>, <br/>, <br /> with newline, then strip all remaining tags
+        return String(str)
+            .replace(/<br\s*\/?>/gi, '\n')
+            .replace(/<[^>]+>/g, '')
+            .replace(/&amp;/g, '&')
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/&quot;/g, '"')
+            .replace(/&#39;/g, "'")
+            .trim();
     }
 
 })(jQuery);

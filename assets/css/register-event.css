@@ -157,7 +157,7 @@
     min-height: 60px;
 }
 .tix-re-chat:empty::after {
-    content: "Beschreibe dein Event in ein paar Sätzen — die KI hilft dir dabei.";
+    content: "Beschreibe dein Event in ein paar Sätzen — wir helfen dir dabei.";
     color: var(--re-muted);
     font-size: 14px;
     text-align: center;
