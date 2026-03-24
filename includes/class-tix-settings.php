@@ -1284,10 +1284,8 @@ class TIX_Settings {
         if (!empty($ep_vars)) {
             echo ".tix-ep, .tse-wrap {\n    " . implode(";\n    ", $ep_vars) . ";\n}\n";
         }
-        // Event-Karten Seite Padding
-        $ec_pad_x = intval($s['ec_pad_x'] ?? 32);
-        $ec_pad_y = intval($s['ec_pad_y'] ?? 56);
-        echo ".section { padding: {$ec_pad_y}px {$ec_pad_x}px; }\n";
+        // Event-Karten: Padding nur als CSS-Var (Breakdance steuert Hintergrund)
+        // Padding wird nur im archive-event.php Template angewendet, nicht im Shortcode
 
         // ── Meine Tickets Styles ──
         $mt_vars = [];

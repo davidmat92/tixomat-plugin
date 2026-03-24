@@ -3,9 +3,10 @@
    Uses --tix-card-* CSS variables from Settings
    ═══════════════════════════════════════════ */
 
-.section { padding: 56px 32px 64px; }
-.section-light { background: var(--tix-card-licht, #FDFBF7); color: var(--tix-card-text, #131020); }
-.section-dark { background: var(--tix-card-nacht, #131020); color: #fff; }
+/* Section: kein eigener Hintergrund/Padding — kommt von Breakdance */
+.section { padding: 0; background: transparent; }
+.section-light { color: var(--tix-card-text, #131020); }
+.section-dark { color: #fff; }
 .section-inner { max-width: 1200px; margin: 0 auto; }
 
 .section-header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 28px; }
