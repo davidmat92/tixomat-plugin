@@ -10,9 +10,8 @@
     padding: var(--tse-pad-y, 32px) var(--tse-pad-x, 32px) var(--tse-pad-y, 64px);
 }
 
-/* Spacing under sticky tabs */
+/* Spacing: content always has room under sticky elements */
 .tse-tabs + .tse-wrap { padding-top: var(--tse-pad-y, 32px); }
-.tse-wrap:first-child { padding-top: var(--tse-pad-y, 32px); }
 
 /* Grid: 2 Columns (default) */
 .tse-grid {

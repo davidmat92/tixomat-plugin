@@ -5,6 +5,18 @@
     'use strict';
     if (typeof tixSingle === 'undefined') return;
 
+    // ── Auto-detect header height for sticky offset ──
+    (function() {
+        // Suche den Breakdance/Theme Header
+        var header = document.querySelector('header, .bde-header-builder, [data-breakdance-element-type="header"], .site-header, #masthead');
+        if (header) {
+            var h = header.offsetHeight;
+            if (h > 0) {
+                document.documentElement.style.setProperty('--tse-sticky-offset', h + 'px');
+            }
+        }
+    })();
+
     // ── Countdown ──
     var cdEl = document.getElementById('tse-countdown');
     if (cdEl && tixSingle.eventDate) {
@@ -51,7 +63,7 @@
                     });
                 }
             });
-        }, { rootMargin: '-120px 0px -60% 0px' });
+        }, { rootMargin: '-' + ((parseInt(getComputedStyle(document.documentElement).getPropertyValue('--tse-sticky-offset')) || 56) + 60) + 'px 0px -60% 0px' });
 
         sections.forEach(function(s) { observer.observe(s.el); });
     }
@@ -62,7 +74,9 @@
             e.preventDefault();
             var target = document.querySelector(tab.getAttribute('href'));
             if (target) {
-                var offset = 120;
+                // Dynamic offset: header + tabs height
+                var stickyOffset = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--tse-sticky-offset')) || 56;
+                var offset = stickyOffset + 52;
                 window.scrollTo({
                     top: target.offsetTop - offset,
                     behavior: 'smooth'
