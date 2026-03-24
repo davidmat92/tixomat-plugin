@@ -42,6 +42,7 @@ class TIX_Native_Checkout {
     // ──────────────────────────────────────────
 
     public static function start_session() {
+        if (is_admin() && !wp_doing_ajax()) return; // Kein Session im Admin-Backend
         if (!session_id() && !headers_sent()) {
             session_start();
         }
@@ -678,7 +679,7 @@ class TIX_Native_Checkout {
     // ──────────────────────────────────────────
 
     public static function enqueue_assets() {
-        if (tix_has_wc()) return; // WC-Modus hat eigene Assets
+        if (is_admin() || tix_has_wc()) return; // Nur Frontend, nur ohne WC
 
         wp_enqueue_script('tix-native-checkout', TIXOMAT_URL . 'assets/js/native-checkout.js', ['jquery'], TIXOMAT_VERSION, true);
         wp_localize_script('tix-native-checkout', 'tixNativeCheckout', [
