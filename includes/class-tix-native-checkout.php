@@ -98,6 +98,23 @@ class TIX_Native_Checkout {
             $cat_index = intval($item['cat_index'] ?? $item['category_index'] ?? 0);
             $qty       = max(1, intval($item['quantity'] ?? 1));
 
+            // Fallback: product_id → event_id + cat_index auflösen
+            if (!$event_id && !empty($item['product_id'])) {
+                $pid = intval($item['product_id']);
+                $event_id = intval(get_post_meta($pid, '_tix_parent_event_id', true));
+                if ($event_id) {
+                    $cats = get_post_meta($event_id, '_tix_ticket_categories', true);
+                    if (is_array($cats)) {
+                        foreach ($cats as $ci => $c) {
+                            if (intval($c['product_id'] ?? 0) === $pid) {
+                                $cat_index = $ci;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
             if (!$event_id) continue;
 
             // Ticket-Kategorie validieren

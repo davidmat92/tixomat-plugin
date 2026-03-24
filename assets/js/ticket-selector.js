@@ -326,7 +326,9 @@
                                 bundle: 1,
                                 bundle_buy: bBuy,
                                 bundle_pay: bPay,
-                                bundle_label: cat.dataset.bundleLabel || ''
+                                bundle_label: cat.dataset.bundleLabel || '',
+                                event_id: parseInt(sel.dataset.eventId, 10) || 0,
+                                cat_index: parseInt(cat.dataset.index, 10) || 0
                             });
                         } else if (cat.dataset.special === '1') {
                             items.push({
@@ -339,7 +341,9 @@
                         } else {
                             items.push({
                                 product_id: pid,
-                                quantity: qty
+                                quantity: qty,
+                                event_id: parseInt(sel.dataset.eventId, 10) || 0,
+                                cat_index: parseInt(cat.dataset.index, 10) || 0
                             });
                         }
                     }
