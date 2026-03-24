@@ -1268,7 +1268,7 @@ class TIX_Settings {
         if (!empty($s['ep_muted']))          $ep_vars[] = '--ep-muted: ' . $s['ep_muted'];
         if (!empty($s['ep_border']))         $ep_vars[] = '--ep-border: ' . $s['ep_border'];
         if (!empty($ep_vars)) {
-            echo ".tix-ep {\n    " . implode(";\n    ", $ep_vars) . ";\n}\n";
+            echo ".tix-ep, .tse-wrap {\n    " . implode(";\n    ", $ep_vars) . ";\n}\n";
         }
 
         // ── Meine Tickets Styles ──
@@ -2462,24 +2462,25 @@ class TIX_Settings {
                                             </div>
                                             <?php self::range_row('ep_max_width', 'Max. Breite', $s, 400, 1600, 'px', 10); ?>
                                             <?php self::range_row('ep_gap', 'Sektions-Abstand', $s, 12, 48, 'px'); ?>
-                                            <?php self::range_row('ep_radius', 'Eckenradius', $s, 0, 24, 'px'); ?>
+                                            <div class="tix-field tix-field-full">
+                                                <p class="tix-settings-hint">Eckenradius, Schriften und Farben werden im Tab <strong><a href="#" onclick="document.querySelector('[data-tab=event-cards]').click();return false;">Event-Karten</a></strong> eingestellt und gelten für Karten + Einzelseite.</p>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
 
-                                <?php // ── Card: Farben ── ?>
+                                <?php // ── Card: Design (Verweis auf Event-Karten) ── ?>
                                 <div class="tix-card">
                                     <div class="tix-card-header">
                                         <span class="dashicons dashicons-admin-appearance"></span>
-                                        <h3>Farben</h3>
+                                        <h3>Farben, Schriften & Radius</h3>
                                     </div>
                                     <div class="tix-card-body">
-                                        <div class="tix-field-grid">
-                                            <?php self::color_row('ep_bg', 'Hintergrund', $s, true); ?>
-                                            <?php self::color_row('ep_text', 'Textfarbe', $s, true); ?>
-                                            <?php self::color_row('ep_muted', 'Ged&auml;mpfte Farbe', $s, true); ?>
-                                            <?php self::color_row('ep_border', 'Rahmenfarbe', $s, true); ?>
-                                        </div>
+                                        <p class="tix-settings-hint" style="margin:0;">
+                                            Das Event-Template nutzt die gleichen Design-Settings wie die Event-Karten.
+                                            Farben, Schriften, Radius und Abstände werden im Tab
+                                            <strong><a href="#" onclick="document.querySelector('[data-tab=event-cards]').click();return false;">Event-Karten</a></strong> eingestellt.
+                                        </p>
                                     </div>
                                 </div>
 

@@ -3,9 +3,9 @@
    Uses --tix-card-* CSS variables from Settings
    ═══════════════════════════════════════════ */
 
-/* Wrap */
+/* Wrap — max-width + gap from Event-Seite settings, rest from Event-Karten */
 .tse-wrap {
-    max-width: 1100px;
+    max-width: var(--ep-max-w, 1100px);
     margin: 0 auto;
     padding: 0 32px 64px;
 }
@@ -14,7 +14,7 @@
 .tse-grid {
     display: grid;
     grid-template-columns: 1fr 380px;
-    gap: 24px 36px;
+    gap: var(--ep-gap, 24px) 36px;
     align-items: start;
 }
 
