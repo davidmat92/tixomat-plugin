@@ -369,6 +369,15 @@ class TIX_Sync {
                 update_post_meta($post_id, '_tix_date_only', $ds);
             }
 
+            // Card-Datum: "Fr, 28. März · 20:00" (für Event-Karten)
+            $card_date = date_i18n('D, j. F', strtotime($date_start));
+            if ($ts) $card_date .= ' · ' . $ts;
+            if (!$same_day && $date_end) {
+                $card_date .= ' – ' . date_i18n('D, j. F', strtotime($date_end));
+                if ($te) $card_date .= ' · ' . $te;
+            }
+            update_post_meta($post_id, '_tix_date_card', $card_date);
+
             // Nur-Uhrzeit z.B. "19:00 Uhr" oder "19:00 – 23:00 Uhr"
             if ($time_start) {
                 if ($time_end) {
@@ -392,6 +401,23 @@ class TIX_Sync {
         if ($address) $loc_full .= ', ' . $address;
         update_post_meta($post_id, '_tix_location_full', $loc_full);
         update_post_meta($post_id, '_tix_address_display', $address ?: '');
+
+        // Location kurz: "Name, Stadt" (für Event-Karten)
+        $loc_short = $location;
+        if ($address) {
+            // Stadt aus Adresse extrahieren (letzter Teil nach PLZ-Muster oder letztes Komma-Segment)
+            $city = '';
+            if (preg_match('/\d{4,5}\s+(.+?)$/', $address, $m)) {
+                $city = trim($m[1]);
+            } elseif (strpos($address, ',') !== false) {
+                $parts = explode(',', $address);
+                $city = trim(end($parts));
+                // Wenn Stadt mit PLZ beginnt, PLZ entfernen
+                $city = preg_replace('/^\d{4,5}\s*/', '', $city);
+            }
+            if ($city) $loc_short .= ', ' . $city;
+        }
+        update_post_meta($post_id, '_tix_location_short', $loc_short);
 
         // ── Info-Sektionen (Breakdance-Meta) ──
         if (class_exists('TIX_Metabox')) {
@@ -541,10 +567,12 @@ class TIX_Sync {
             if ($min === $max && $min > 0) {
                 update_post_meta($post_id, '_tix_price_range', self::fmt_price($min));
                 update_post_meta($post_id, '_tix_price_range_full', self::fmt_price($min));
+                update_post_meta($post_id, '_tix_price_card', number_format($min, 2, ',', '.') . ' €');
             } elseif ($min > 0) {
                 update_post_meta($post_id, '_tix_price_range', 'ab ' . self::fmt_price($min));
                 update_post_meta($post_id, '_tix_price_range_full',
                     number_format($min, 2, ',', '.') . ' € – ' . self::fmt_price($max));
+                update_post_meta($post_id, '_tix_price_card', 'Ab ' . number_format($min, 2, ',', '.') . ' €');
             }
         } else {
             update_post_meta($post_id, '_tix_price_min', 0);
@@ -553,6 +581,7 @@ class TIX_Sync {
             update_post_meta($post_id, '_tix_price_max_formatted', '');
             update_post_meta($post_id, '_tix_price_range', '');
             update_post_meta($post_id, '_tix_price_range_full', '');
+            update_post_meta($post_id, '_tix_price_card', '');
         }
 
         // ── FAQ: flache Meta-Felder ──
