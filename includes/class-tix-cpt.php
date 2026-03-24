@@ -56,7 +56,7 @@ class TIX_CPT {
             'rewrite'           => ['slug' => 'event-kategorie'],
         ]);
 
-        // ── CPT: Location ──
+        // ── CPT: Location (classic editor — no Gutenberg) ──
         register_post_type('tix_location', [
             'labels' => [
                 'name'               => 'Locations',
@@ -72,10 +72,10 @@ class TIX_CPT {
             'show_ui'       => true,
             'show_in_menu'  => 'tixomat',
             'supports'      => ['title'],
-            'show_in_rest'  => true,
+            'show_in_rest'  => false,
         ]);
 
-        // ── CPT: Veranstalter ──
+        // ── CPT: Veranstalter (classic editor — no Gutenberg) ──
         register_post_type('tix_organizer', [
             'labels' => [
                 'name'               => 'Veranstalter',
@@ -91,7 +91,7 @@ class TIX_CPT {
             'show_ui'       => true,
             'show_in_menu'  => 'tixomat',
             'supports'      => ['title'],
-            'show_in_rest'  => true,
+            'show_in_rest'  => false,
         ]);
 
         // ── CPT: Verlassene Warenkörbe ──

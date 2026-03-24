@@ -134,12 +134,6 @@
     var $dropzone = $('#tix-re-dropzone');
     var $file     = $('#tix-re-file');
 
-    // On desktop, remove capture so it shows file picker instead of camera
-    var isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-    if (!isMobile) {
-        $file.removeAttr('capture');
-    }
-
     // Click anywhere on dropzone opens file picker
     $dropzone.on('click', function(e) {
         // Don't double-trigger if clicking the file input itself
