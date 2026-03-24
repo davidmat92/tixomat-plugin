@@ -238,9 +238,21 @@
    MOBILE (≤1024px): display: contents
    ══════════════════════════════════════════ */
 @media (max-width: 1024px) {
-    .tse-grid { grid-template-columns: 1fr; gap: 16px; }
-    .tse-sidebar { display: contents; position: static; }
+    .tse-grid {
+        grid-template-columns: 1fr !important;
+        gap: 16px !important;
+    }
 
+    /* KRITISCH: Sidebar entpacken — Kinder werden Grid-Items */
+    .tse-sidebar,
+    .tse-layout-2col .tse-sidebar {
+        display: contents !important;
+        position: static !important;
+        grid-column: auto !important;
+        grid-row: auto !important;
+    }
+
+    /* Order: Sidebar-Kinder + Main-Items in der richtigen Reihenfolge */
     .sb-info       { order: 1; }
     .m-img         { order: 2; }
     .sb-cal        { order: 3; }
@@ -259,10 +271,10 @@
     .m-gewinnspiel { order: 16; }
     .m-feedback    { order: 17; }
     .sb-share      { order: 18; }
-    .m-upsell      { order: 19; }
+    .m-upsell      { order: 19; grid-column: auto !important; }
 
     .tse-hero { height: 280px !important; }
-    .tse-wrap { padding: 0 20px 48px; }
+    .tse-wrap { padding: 0 var(--tse-pad-x, 20px) 48px !important; }
     .tse-sec { padding: 20px 24px; }
 }
 
@@ -271,4 +283,6 @@
     .tse-intro-title { font-size: 1.4rem; }
     .tse-gallery-grid { grid-template-columns: repeat(2, 1fr); }
     .tse-tabs-inner { padding: 0 16px; }
+    .tse-wrap { padding: 0 16px 40px !important; }
+    .tse-sec { padding: 16px 20px; }
 }
