@@ -2,14 +2,14 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.33.136
+ * Version: 1.33.137
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.33.136');
+define('TIXOMAT_VERSION', '1.33.137');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -21,11 +21,26 @@ function tix_has_wc() {
     return class_exists('WooCommerce');
 }
 
-// ── Emojis aus Slugs entfernen (global) ──
+// ── Emojis aus Slugs entfernen (global, umfassend) ──
 add_filter('sanitize_title', function($title, $raw_title, $context) {
     if ('save' === $context) {
+        // Supplementary Multilingual Plane (die meisten modernen Emojis)
         $title = preg_replace('/[\x{10000}-\x{10FFFF}]/u', '', $title);
-        $title = preg_replace('/[\x{2600}-\x{27BF}\x{2300}-\x{23FF}]/u', '', $title);
+        // Variation Selectors (unsichtbare Emoji-Modifier wie ️)
+        $title = preg_replace('/[\x{FE00}-\x{FE0F}]/u', '', $title);
+        // Dingbats, Symbole, Pfeile, technische Zeichen
+        $title = preg_replace('/[\x{2000}-\x{2BFF}]/u', '', $title);
+        // Enclosed Alphanumerics, CJK Symbols, Miscellaneous
+        $title = preg_replace('/[\x{2E00}-\x{33FF}]/u', '', $title);
+        // Zero-Width Joiner/Non-Joiner (Emoji-Kombinationen)
+        $title = preg_replace('/[\x{200B}-\x{200F}\x{2028}-\x{202F}\x{2060}-\x{206F}]/u', '', $title);
+        // Skin tone modifiers
+        $title = preg_replace('/[\x{1F3FB}-\x{1F3FF}]/u', '', $title);
+        // Doppelte Bindestriche die durch entfernte Emojis entstehen
+        $title = preg_replace('/-{2,}/', '-', $title);
+        // Führende/nachfolgende Bindestriche
+        $title = trim($title, '- ');
+        // Doppelte Leerzeichen
         $title = trim(preg_replace('/\s+/', ' ', $title));
     }
     return $title;
