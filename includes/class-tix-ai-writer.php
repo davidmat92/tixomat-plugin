@@ -26,6 +26,8 @@ class TIX_AI_Writer {
     public static function init() {
         add_action('wp_ajax_tix_ai_generate_excerpt', [__CLASS__, 'ajax_generate_excerpt']);
         add_action('wp_ajax_tix_ai_fill_fields',      [__CLASS__, 'ajax_fill_fields']);
+        add_action('wp_ajax_tix_ai_upload_image',     [__CLASS__, 'ajax_upload_image']);
+        add_action('wp_ajax_tix_ai_check_duplicates',  [__CLASS__, 'ajax_check_duplicates']);
     }
 
     private static function get_api_key() {
@@ -604,5 +606,99 @@ PROMPT;
         if ($body) $parts[] = "Seitentext:\n" . mb_substr($body, 0, 3000);
 
         return implode("\n\n", $parts);
+    }
+
+    // ──────────────────────────────────────────
+    // AJAX: Bild direkt hochladen (ohne wp.media)
+    // ──────────────────────────────────────────
+    public static function ajax_upload_image() {
+        check_ajax_referer('tix_admin_action', 'nonce');
+        if (!current_user_can('upload_files')) wp_send_json_error(['message' => 'Keine Berechtigung.']);
+
+        if (empty($_FILES['file'])) {
+            wp_send_json_error(['message' => 'Keine Datei empfangen.']);
+        }
+
+        require_once ABSPATH . 'wp-admin/includes/image.php';
+        require_once ABSPATH . 'wp-admin/includes/file.php';
+        require_once ABSPATH . 'wp-admin/includes/media.php';
+
+        $attachment_id = media_handle_upload('file', intval($_POST['post_id'] ?? 0));
+        if (is_wp_error($attachment_id)) {
+            wp_send_json_error(['message' => $attachment_id->get_error_message()]);
+        }
+
+        $url = wp_get_attachment_image_url($attachment_id, 'medium');
+
+        wp_send_json_success([
+            'attachment_id' => $attachment_id,
+            'url'           => $url,
+            'filename'      => basename(get_attached_file($attachment_id)),
+        ]);
+    }
+
+    // ──────────────────────────────────────────
+    // AJAX: Ähnliche eigene Events prüfen
+    // ──────────────────────────────────────────
+    public static function ajax_check_duplicates() {
+        check_ajax_referer('tix_admin_action', 'nonce');
+        if (!current_user_can('edit_posts')) wp_send_json_error(['message' => 'Keine Berechtigung.']);
+
+        $title      = sanitize_text_field($_POST['title'] ?? '');
+        $date_start = sanitize_text_field($_POST['date_start'] ?? '');
+        $location   = sanitize_text_field($_POST['location'] ?? '');
+        $post_id    = intval($_POST['post_id'] ?? 0);
+
+        if (!$title) wp_send_json_success(['duplicates' => []]);
+
+        // Nur eigene Events prüfen
+        $args = [
+            'post_type'      => 'event',
+            'post_status'    => ['publish', 'draft', 'pending'],
+            'posts_per_page' => 5,
+            'author'         => get_current_user_id(),
+            'post__not_in'   => $post_id ? [$post_id] : [],
+        ];
+
+        $events = get_posts($args);
+        $duplicates = [];
+
+        $title_lower = mb_strtolower($title);
+
+        foreach ($events as $ev) {
+            $ev_title = mb_strtolower($ev->post_title);
+            $ev_date  = get_post_meta($ev->ID, '_tix_date_start', true);
+            $ev_loc   = get_post_meta($ev->ID, '_tix_location', true);
+
+            $match = false;
+            $reason = '';
+
+            // Starke Übereinstimmung: fast identischer Titel
+            similar_text($title_lower, $ev_title, $pct);
+            if ($pct > 85) {
+                $match = true;
+                $reason = 'Ähnlicher Titel';
+            }
+
+            // Gleiche Location + gleiches Datum
+            if (!$match && $date_start && $ev_date === $date_start && $location && $ev_loc) {
+                if (mb_strtolower($location) === mb_strtolower($ev_loc)) {
+                    $match = true;
+                    $reason = 'Gleiche Location & Datum';
+                }
+            }
+
+            if ($match) {
+                $duplicates[] = [
+                    'id'     => $ev->ID,
+                    'title'  => $ev->post_title,
+                    'date'   => $ev_date ? date_i18n('d.m.Y', strtotime($ev_date)) : '',
+                    'reason' => $reason,
+                    'url'    => get_edit_post_link($ev->ID, 'raw'),
+                ];
+            }
+        }
+
+        wp_send_json_success(['duplicates' => $duplicates]);
     }
 }

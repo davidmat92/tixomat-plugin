@@ -289,26 +289,34 @@ class TIX_Metabox {
             <?php $ai_key = function_exists('tix_get_settings') ? (tix_get_settings('anthropic_api_key') ?: tix_get_settings('openai_api_key')) : '';
             if ($ai_key): ?>
             <div class="tix-ai-fill-bar" id="tix-ai-fill-bar">
-                <div style="display:flex;align-items:center;gap:8px;">
-                    <span class="dashicons dashicons-admin-generic" style="color:var(--tix-primary, #FF5500);font-size:20px;width:20px;height:20px"></span>
-                    <strong style="font-size:13px;">Evendis-Assistent</strong>
-                    <span style="font-size:12px;color:#6b7280;">— Felder automatisch aus Bild oder URL füllen</span>
-                </div>
-                <div style="display:flex;align-items:center;gap:8px;">
-                    <button type="button" class="button" id="tix-ai-fill-image-btn" style="display:flex;align-items:center;gap:4px;font-size:12px;">
-                        <span class="dashicons dashicons-format-image" style="font-size:16px;width:16px;height:16px;line-height:16px"></span>
-                        Bild / Flyer
-                    </button>
-                    <span style="color:#d1d5db;">|</span>
-                    <div style="display:flex;align-items:center;gap:4px;">
-                        <input type="url" id="tix-ai-fill-url" placeholder="https://..." style="width:240px;font-size:12px;padding:4px 8px;border:1px solid #d1d5db;border-radius:6px;">
+                <div class="tix-ai-bar-top">
+                    <div style="display:flex;align-items:center;gap:8px;">
+                        <span class="dashicons dashicons-admin-generic" style="color:var(--tix-primary, #FF5500);font-size:20px;width:20px;height:20px"></span>
+                        <strong style="font-size:13px;">Evendis-Assistent</strong>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:6px;">
+                        <input type="url" id="tix-ai-fill-url" placeholder="https://eventseite.de/..." style="width:220px;font-size:12px;padding:5px 10px;border:1px solid #d1d5db;border-radius:6px;">
                         <button type="button" class="button" id="tix-ai-fill-url-btn" style="display:flex;align-items:center;gap:4px;font-size:12px;">
-                            <span class="dashicons dashicons-admin-links" style="font-size:16px;width:16px;height:16px;line-height:16px"></span>
-                            URL
+                            <span class="dashicons dashicons-admin-links" style="font-size:14px;width:14px;height:14px;line-height:14px"></span>
+                            Analysieren
                         </button>
                     </div>
                 </div>
-                <div id="tix-ai-fill-status" style="display:none;font-size:12px;color:var(--tix-primary, #FF5500);margin-top:8px;width:100%;"></div>
+                <div class="tix-ai-dropzone" id="tix-ai-dropzone">
+                    <input type="file" id="tix-ai-file-input" accept="image/jpeg,image/png,image/gif,image/webp" style="display:none;">
+                    <div class="tix-ai-dropzone-idle" id="tix-ai-dropzone-idle">
+                        <span class="dashicons dashicons-upload" style="font-size:24px;width:24px;height:24px;color:var(--tix-primary, #FF5500);"></span>
+                        <span>Flyer / Bild hierher ziehen oder <a href="#" id="tix-ai-dropzone-browse">durchsuchen</a></span>
+                    </div>
+                    <div class="tix-ai-dropzone-preview" id="tix-ai-dropzone-preview" style="display:none;">
+                        <img id="tix-ai-dropzone-thumb" src="" alt="">
+                        <div class="tix-ai-dropzone-info">
+                            <span id="tix-ai-dropzone-name"></span>
+                            <button type="button" class="tix-ai-dropzone-remove" id="tix-ai-dropzone-remove">&times;</button>
+                        </div>
+                    </div>
+                </div>
+                <div id="tix-ai-fill-status" style="display:none;font-size:12px;color:var(--tix-primary, #FF5500);margin-top:4px;width:100%;"></div>
             </div>
             <?php endif; ?>
 

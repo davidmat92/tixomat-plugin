@@ -1656,39 +1656,100 @@
             });
         });
 
-        // ── KI-Fill aus Bild ──
-        $('#tix-ai-fill-image-btn').on('click', function() {
-            var frame = wp.media({
-                title: 'Bild / Flyer auswählen',
-                button: { text: 'KI analysieren' },
-                multiple: false,
-                library: { type: 'image' }
-            });
+        // ── Drag & Drop Upload Zone ──
+        var $dropzone = $('#tix-ai-dropzone');
+        var $fileInput = $('#tix-ai-file-input');
+        var $idle = $('#tix-ai-dropzone-idle');
+        var $preview = $('#tix-ai-dropzone-preview');
+        var currentAttachmentId = null;
 
-            frame.on('select', function() {
-                var attachment = frame.state().get('selection').first().toJSON();
-                doAiFill('image', { attachment_id: attachment.id });
-            });
+        // Klick auf "durchsuchen"
+        $('#tix-ai-dropzone-browse').on('click', function(e) { e.preventDefault(); $fileInput.click(); });
+        $dropzone.on('click', function(e) { if (e.target === this || e.target.closest('.tix-ai-dropzone-idle')) $fileInput.click(); });
 
-            frame.open();
+        // Drag Events
+        $dropzone.on('dragover dragenter', function(e) { e.preventDefault(); e.stopPropagation(); $(this).addClass('tix-ai-dragover'); });
+        $dropzone.on('dragleave drop', function(e) { e.preventDefault(); e.stopPropagation(); $(this).removeClass('tix-ai-dragover'); });
+
+        // Drop
+        $dropzone.on('drop', function(e) {
+            var files = e.originalEvent.dataTransfer.files;
+            if (files.length) handleFileUpload(files[0]);
         });
 
-        // ── KI-Fill aus URL ──
-        $('#tix-ai-fill-url-btn').on('click', function() {
-            var url = $('#tix-ai-fill-url').val().trim();
-            if (!url) {
-                alert('Bitte eine URL eingeben.');
+        // File Input Change
+        $fileInput.on('change', function() {
+            if (this.files.length) handleFileUpload(this.files[0]);
+        });
+
+        // Remove
+        $('#tix-ai-dropzone-remove').on('click', function(e) {
+            e.stopPropagation();
+            currentAttachmentId = null;
+            $idle.show();
+            $preview.hide();
+            $fileInput.val('');
+        });
+
+        function handleFileUpload(file) {
+            if (!file.type.match(/^image\/(jpeg|png|gif|webp)$/)) {
+                alert('Nur JPG, PNG, GIF oder WEBP erlaubt.');
                 return;
             }
+            if (file.size > 5 * 1024 * 1024) {
+                alert('Bild zu groß (max. 5 MB).');
+                return;
+            }
+
+            // Inline-Preview
+            var reader = new FileReader();
+            reader.onload = function(e) {
+                $('#tix-ai-dropzone-thumb').attr('src', e.target.result);
+                $('#tix-ai-dropzone-name').text(file.name);
+                $idle.hide();
+                $preview.show();
+            };
+            reader.readAsDataURL(file);
+
+            // Upload
+            var formData = new FormData();
+            formData.append('action', 'tix_ai_upload_image');
+            formData.append('nonce', tixAdmin.nonce);
+            formData.append('file', file);
+            formData.append('post_id', $('#post_ID').val());
+
+            var $status = $('#tix-ai-fill-status');
+            $status.show().html('<span class="dashicons dashicons-update spin" style="font-size:14px;width:14px;height:14px;vertical-align:middle;margin-right:4px"></span> Bild wird hochgeladen…');
+
+            $.ajax({
+                url: tixAdmin.ajaxUrl,
+                type: 'POST',
+                data: formData,
+                processData: false,
+                contentType: false,
+                success: function(r) {
+                    if (r.success) {
+                        currentAttachmentId = r.data.attachment_id;
+                        // Sofort KI-Analyse starten
+                        doAiFill('image', { attachment_id: r.data.attachment_id });
+                    } else {
+                        $status.html('<span style="color:#ef4444;">✗ ' + (r.data ? r.data.message : 'Upload fehlgeschlagen') + '</span>');
+                    }
+                },
+                error: function() {
+                    $status.html('<span style="color:#ef4444;">✗ Upload fehlgeschlagen</span>');
+                }
+            });
+        }
+
+        // ── URL-Analyse ──
+        $('#tix-ai-fill-url-btn').on('click', function() {
+            var url = $('#tix-ai-fill-url').val().trim();
+            if (!url) { alert('Bitte eine URL eingeben.'); return; }
             doAiFill('url', { source_url: url });
         });
-
-        // Enter-Taste im URL-Feld
         $('#tix-ai-fill-url').on('keypress', function(e) {
-            if (e.which === 13) {
-                e.preventDefault();
-                $('#tix-ai-fill-url-btn').click();
-            }
+            if (e.which === 13) { e.preventDefault(); $('#tix-ai-fill-url-btn').click(); }
         });
 
         function doAiFill(sourceType, extraData) {
@@ -1763,6 +1824,11 @@
             if (f.faq && f.faq.length) {
                 items.push({ key: 'faq', label: 'FAQ (' + f.faq.length + ')', preview: f.faq.map(function(q) { return esc(q.question); }).join(', '), checked: true });
             }
+            // Beitragsbild (wenn Bild hochgeladen wurde)
+            if (currentAttachmentId) {
+                var thumbSrc = $('#tix-ai-dropzone-thumb').attr('src') || '';
+                items.push({ key: 'featured_image', label: 'Beitragsbild', preview: '<img src="' + thumbSrc + '" style="width:40px;height:40px;object-fit:cover;border-radius:4px;vertical-align:middle;"> Als Beitragsbild setzen', checked: true });
+            }
 
             if (!items.length) {
                 alert('Keine verwertbaren Informationen gefunden.');
@@ -1795,9 +1861,13 @@
                             '</label>' +
                         '</div>' +
                         '<div style="padding:8px 24px;overflow-y:auto;flex:1;">' + rows + '</div>' +
-                        '<div style="padding:16px 24px;border-top:1px solid #e5e7eb;display:flex;justify-content:flex-end;gap:8px;">' +
-                            '<button type="button" class="button tix-ai-preview-cancel">Abbrechen</button>' +
-                            '<button type="button" class="button button-primary tix-ai-preview-apply" style="background:var(--tix-primary, #FF5500);border-color:var(--tix-primary, #FF5500);">Übernehmen</button>' +
+                        '<div id="tix-ai-duplicate-warning" style="display:none;padding:8px 24px;"></div>' +
+                        '<div style="padding:16px 24px;border-top:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center;">' +
+                            '<button type="button" class="button tix-ai-preview-save-draft" style="color:var(--tix-primary, #FF5500);border-color:var(--tix-primary, #FF5500);" title="Felder übernehmen und sofort als Entwurf speichern">Übernehmen & Entwurf speichern</button>' +
+                            '<div style="display:flex;gap:8px;">' +
+                                '<button type="button" class="button tix-ai-preview-cancel">Abbrechen</button>' +
+                                '<button type="button" class="button button-primary tix-ai-preview-apply" style="background:var(--tix-primary, #FF5500);border-color:var(--tix-primary, #FF5500);">Übernehmen</button>' +
+                            '</div>' +
                         '</div>' +
                     '</div>' +
                 '</div>'
@@ -1832,6 +1902,50 @@
                 modal.remove();
                 applyFields(f, selected);
             });
+
+            // Übernehmen & als Entwurf speichern (One-Click)
+            modal.on('click', '.tix-ai-preview-save-draft', function() {
+                var selected = {};
+                modal.find('.tix-ai-preview-row input:checked').each(function() {
+                    selected[$(this).data('key')] = true;
+                });
+                modal.remove();
+                applyFields(f, selected);
+                // Kurz warten bis Felder gesetzt, dann Entwurf speichern
+                setTimeout(function() {
+                    $('#post_status').val('draft');
+                    var $saveBtn = $('#save-post');
+                    if ($saveBtn.length) {
+                        $saveBtn.click();
+                    } else {
+                        $('#post').submit();
+                    }
+                }, 500);
+            });
+
+            // Duplikat-Prüfung (asynchron, nach Modal-Anzeige)
+            if (f.title) {
+                $.post(tixAdmin.ajaxUrl, {
+                    action: 'tix_ai_check_duplicates',
+                    nonce: tixAdmin.nonce,
+                    title: f.title,
+                    date_start: f.date_start || '',
+                    location: f.location || '',
+                    post_id: $('#post_ID').val()
+                }, function(r) {
+                    if (r.success && r.data.duplicates && r.data.duplicates.length) {
+                        var html = '<div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:10px 14px;font-size:12px;color:#92400e;">';
+                        html += '<strong>⚠ Mögliches Duplikat:</strong> ';
+                        r.data.duplicates.forEach(function(d) {
+                            html += '"<a href="' + d.url + '" target="_blank" style="color:#92400e;font-weight:600;">' + $('<span>').text(d.title).html() + '</a>"';
+                            if (d.date) html += ' (' + d.date + ')';
+                            html += ' — ' + d.reason + '. ';
+                        });
+                        html += '</div>';
+                        $('#tix-ai-duplicate-warning').html(html).show();
+                    }
+                });
+            }
         }
 
         // ── Felder anwenden (nur ausgewählte) ──
@@ -1916,6 +2030,17 @@
                     window.tixAddFaqRow(item.question, item.answer);
                 });
                 filled.push(f.faq.length + ' FAQ');
+            }
+
+            // Beitragsbild setzen
+            if (sel.featured_image && currentAttachmentId) {
+                var thumbUrl = $('#tix-ai-dropzone-thumb').attr('src') || '';
+                $('#tix-featured-img-id').val(currentAttachmentId);
+                var $imgPreview = $('#tix-featured-img-preview');
+                $imgPreview.show().find('img').attr('src', thumbUrl);
+                $('#tix-featured-img-set').text('Bild ändern');
+                $('#tix-featured-img-remove').show();
+                filled.push('Beitragsbild');
             }
 
             var $status = $('#tix-ai-fill-status');
