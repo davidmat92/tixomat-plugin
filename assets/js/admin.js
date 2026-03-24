@@ -280,6 +280,24 @@
             checkRequiredFields();
         });
 
+        // Global-API für KI-Fill: Ticket-Zeile mit Daten hinzufügen
+        window.tixAddTicketRow = function(name, price, desc) {
+            // Nur hinzufügen wenn nicht schon Rows vorhanden
+            if ($tbody.find('tr.tix-row').length > 0) {
+                // Prüfe ob bereits eine Zeile mit diesem Namen existiert
+                var exists = false;
+                $tbody.find('tr.tix-row input[name$="[name]"]').each(function() {
+                    if ($(this).val().toLowerCase() === name.toLowerCase()) exists = true;
+                });
+                if (exists) return;
+            }
+            $('#tix-add-row').click();
+            var $lastRow = $tbody.find('tr.tix-row').last();
+            $lastRow.find('input[name$="[name]"]').val(name);
+            if (price > 0) $lastRow.find('input[name$="[price]"]').val(price.toFixed(2));
+            if (desc) $lastRow.find('input[name$="[desc]"]').val(desc);
+        };
+
         // ══════════════════════════════════════
         // Zeile entfernen
         // ══════════════════════════════════════
@@ -391,6 +409,21 @@
             $(this).closest('tr').remove();
             reindexFaq();
         });
+
+        // Global-API für KI-Fill: FAQ-Zeile mit Daten hinzufügen
+        window.tixAddFaqRow = function(question, answer) {
+            if (!question) return;
+            $faqBody.find('.tix-faq-empty').remove();
+            var i = $faqBody.find('.tix-faq-row').length;
+            var html =
+                '<tr class="tix-faq-row" draggable="true">' +
+                    '<td class="tix-faq-drag" title="Reihenfolge ändern">☰</td>' +
+                    '<td><input type="text" name="tix_faq[' + i + '][q]" value="' + $('<span>').text(question).html() + '" style="width:100%"></td>' +
+                    '<td><textarea name="tix_faq[' + i + '][a]" rows="2" style="width:100%">' + $('<span>').text(answer).html() + '</textarea></td>' +
+                    '<td><button type="button" class="button tix-faq-del" title="Entfernen">&times;</button></td>' +
+                '</tr>';
+            $faqBody.append(html);
+        };
 
         // Drag & Drop
         var dragRow = null;
@@ -1659,10 +1692,14 @@
                 var f = r.data.fields;
                 var filled = [];
 
-                // Titel
-                if (f.title && (!$('#title').val() || $('#title').val() === 'Automatischer Entwurf')) {
-                    $('#title').val(f.title).trigger('change');
-                    filled.push('Titel');
+                // Titel (beide Felder synced setzen)
+                if (f.title) {
+                    var currentTitle = $('#title').val();
+                    if (!currentTitle || currentTitle === 'Automatischer Entwurf') {
+                        $('#title').val(f.title).trigger('change');
+                        $('#tix-expert-title').val(f.title).trigger('change');
+                        filled.push('Titel');
+                    }
                 }
 
                 // Datum & Zeit
@@ -1683,6 +1720,20 @@
                 if (f.time_doors) {
                     setTimeSelect('tix_time_doors', f.time_doors);
                     filled.push('Einlass');
+                }
+
+                // Location (auto-matched vom Server)
+                if (f.location_id && !$('#tix_location_id').val()) {
+                    $('#tix_location_id').val(f.location_id).trigger('change');
+                    filled.push('Location');
+                }
+
+                // Event-Kategorie
+                if (f.category_ids && f.category_ids.length) {
+                    f.category_ids.forEach(function(id) {
+                        $('input[name="tax_input[event_category][]"][value="' + id + '"]').prop('checked', true);
+                    });
+                    filled.push('Kategorie');
                 }
 
                 // Info-Felder (nur füllen wenn leer)
@@ -1707,16 +1758,32 @@
                     filled.push('Altersbegrenzung');
                 }
 
-                // Textauszug
+                // Zusammenfassung
                 if (f.excerpt) {
                     $('#tix-excerpt-field').val(f.excerpt).trigger('change');
                     $('#tix-excerpt-ai-status').show();
-                    filled.push('Textauszug');
+                    filled.push('Zusammenfassung');
                 }
 
-                // Location-Hinweis (kann nicht automatisch zugeordnet werden)
+                // Tickets (erste Kategorie als Vorschlag hinzufügen)
+                if (f.tickets && f.tickets.length && typeof window.tixAddTicketRow === 'function') {
+                    f.tickets.forEach(function(t) {
+                        window.tixAddTicketRow(t.name, t.price, t.description);
+                    });
+                    filled.push(f.tickets.length + ' Ticket(s)');
+                }
+
+                // FAQ
+                if (f.faq && f.faq.length && typeof window.tixAddFaqRow === 'function') {
+                    f.faq.forEach(function(item) {
+                        window.tixAddFaqRow(item.question, item.answer);
+                    });
+                    filled.push(f.faq.length + ' FAQ');
+                }
+
+                // Location-Hinweis wenn nicht auto-matched
                 var locationHint = '';
-                if (f.location) {
+                if (f.location && !f.location_id) {
                     locationHint = ' | Location erkannt: <strong>' + $('<span>').text(f.location).html() + '</strong> (bitte manuell zuordnen)';
                 }
 

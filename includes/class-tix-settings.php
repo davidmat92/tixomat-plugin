@@ -296,6 +296,7 @@ class TIX_Settings {
             'support_chat_enabled' => 0,
             // ── KI / Künstliche Intelligenz ──
             'anthropic_api_key' => '',
+            'openai_api_key'    => '',
             'ai_model'          => 'claude-sonnet-4-20250514',
             'ai_guard_enabled'  => 0,
             'ai_guard_api_key'  => '', // Legacy – wird migriert zu anthropic_api_key
@@ -704,6 +705,7 @@ class TIX_Settings {
 
         // KI / Künstliche Intelligenz
         $clean['anthropic_api_key'] = sanitize_text_field($input['anthropic_api_key'] ?? '');
+        $clean['openai_api_key'] = sanitize_text_field($input['openai_api_key'] ?? '');
         $clean['ai_model'] = sanitize_text_field($input['ai_model'] ?? 'claude-sonnet-4-20250514');
         $clean['ai_guard_enabled'] = !empty($input['ai_guard_enabled']) ? 1 : 0;
         // Legacy-Migration: alten Key übernehmen falls neuer leer
@@ -2914,25 +2916,44 @@ class TIX_Settings {
                                             <?php self::text_row('anthropic_api_key', 'Anthropic API Key', $s, 'sk-ant-…'); ?>
                                             <div class="tix-field tix-field-full">
                                                 <p class="tix-settings-hint">
-                                                    <a href="https://console.anthropic.com/settings/keys" target="_blank">API Key erstellen →</a>
+                                                    <a href="https://console.anthropic.com/settings/keys" target="_blank">Anthropic Key erstellen →</a>
+                                                </p>
+                                            </div>
+                                            <?php self::text_row('openai_api_key', 'OpenAI API Key', $s, 'sk-…'); ?>
+                                            <div class="tix-field tix-field-full">
+                                                <p class="tix-settings-hint">
+                                                    <a href="https://platform.openai.com/api-keys" target="_blank">OpenAI Key erstellen →</a>
+                                                    Optional – nur nötig wenn ein OpenAI-Modell ausgewählt wird.
                                                 </p>
                                             </div>
                                             <?php
                                             $models = [
-                                                'claude-sonnet-4-20250514'    => 'Claude Sonnet 4 (Standard – schnell & günstig)',
-                                                'claude-opus-4-20250514'      => 'Claude Opus 4 (Premium – beste Qualität)',
-                                                'claude-3-5-haiku-20241022'   => 'Claude 3.5 Haiku (Budget – sehr günstig)',
+                                                // Anthropic
+                                                'claude-sonnet-4-20250514'    => 'Claude Sonnet 4 (Standard)',
+                                                'claude-opus-4-20250514'      => 'Claude Opus 4 (Premium)',
+                                                'claude-3-5-haiku-20241022'   => 'Claude 3.5 Haiku (Budget)',
+                                                // OpenAI
+                                                'gpt-4o'                      => 'GPT-4o (Standard)',
+                                                'gpt-4o-mini'                 => 'GPT-4o Mini (Budget)',
+                                                'o3-mini'                     => 'o3-mini (Reasoning)',
                                             ];
                                             $current_model = $s['ai_model'] ?? 'claude-sonnet-4-20250514';
                                             ?>
                                             <div class="tix-field tix-field-full">
                                                 <label class="tix-label">KI-Modell</label>
                                                 <select name="tix_settings[ai_model]" style="width:100%;max-width:420px;">
-                                                    <?php foreach ($models as $val => $label): ?>
+                                                    <optgroup label="Anthropic (Claude)">
+                                                    <?php foreach (array_slice($models, 0, 3) as $val => $label): ?>
                                                         <option value="<?php echo esc_attr($val); ?>" <?php selected($current_model, $val); ?>><?php echo esc_html($label); ?></option>
                                                     <?php endforeach; ?>
+                                                    </optgroup>
+                                                    <optgroup label="OpenAI">
+                                                    <?php foreach (array_slice($models, 3) as $val => $label): ?>
+                                                        <option value="<?php echo esc_attr($val); ?>" <?php selected($current_model, $val); ?>><?php echo esc_html($label); ?></option>
+                                                    <?php endforeach; ?>
+                                                    </optgroup>
                                                 </select>
-                                                <p class="tix-settings-hint">Wird für KI-Assistent und Textgenerierung verwendet. KI-Schutz nutzt immer Haiku (kostensparend).</p>
+                                                <p class="tix-settings-hint">Wird für KI-Assistent und Textgenerierung verwendet. KI-Schutz nutzt immer Claude Haiku (kostensparend).</p>
                                             </div>
                                         </div>
                                     </div>

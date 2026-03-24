@@ -11,42 +11,47 @@ if (!defined('ABSPATH')) exit;
 
 class TIX_AI_Writer {
 
-    const API_URL       = 'https://api.anthropic.com/v1/messages';
     const DEFAULT_MODEL = 'claude-sonnet-4-20250514';
+
+    /** OpenAI-Modelle erkennen */
+    private static function is_openai() {
+        $model = self::get_model();
+        return strpos($model, 'gpt') === 0 || strpos($model, 'o3') === 0 || strpos($model, 'o1') === 0;
+    }
 
     private static function get_model() {
         return tix_get_settings('ai_model') ?: self::DEFAULT_MODEL;
     }
 
-    /**
-     * Hooks registrieren
-     */
     public static function init() {
         add_action('wp_ajax_tix_ai_generate_excerpt', [__CLASS__, 'ajax_generate_excerpt']);
         add_action('wp_ajax_tix_ai_fill_fields',      [__CLASS__, 'ajax_fill_fields']);
     }
 
-    /**
-     * API-Key aus Settings holen
-     */
     private static function get_api_key() {
+        if (self::is_openai()) {
+            $key = trim(tix_get_settings('openai_api_key') ?? '');
+            if (empty($key)) return '';
+            return $key;
+        }
         return trim(tix_get_settings('anthropic_api_key') ?? '');
     }
 
     /**
-     * Anthropic API aufrufen (Text-only)
+     * API aufrufen (Text-only) — routet automatisch zu Anthropic oder OpenAI
      */
     private static function call_api($system, $user_content, $max_tokens = 512) {
         $api_key = self::get_api_key();
         if (empty($api_key)) {
-            return ['error' => 'Kein API-Key hinterlegt. Bitte unter Einstellungen → Erweitert → KI-Schutz den Anthropic API Key eintragen.'];
+            $provider = self::is_openai() ? 'OpenAI' : 'Anthropic';
+            return ['error' => "Kein {$provider} API-Key hinterlegt. Bitte unter Einstellungen → Erweitert → KI eintragen."];
         }
 
-        $messages = [
-            ['role' => 'user', 'content' => $user_content],
-        ];
+        if (self::is_openai()) {
+            return self::call_openai($system, [['role' => 'user', 'content' => $user_content]], $max_tokens);
+        }
 
-        $response = wp_remote_post(self::API_URL, [
+        $response = wp_remote_post('https://api.anthropic.com/v1/messages', [
             'timeout' => 30,
             'headers' => [
                 'x-api-key'         => $api_key,
@@ -57,15 +62,15 @@ class TIX_AI_Writer {
                 'model'      => self::get_model(),
                 'max_tokens' => $max_tokens,
                 'system'     => $system,
-                'messages'   => $messages,
+                'messages'   => [['role' => 'user', 'content' => $user_content]],
             ]),
         ]);
 
-        return self::parse_response($response);
+        return self::parse_anthropic_response($response);
     }
 
     /**
-     * Anthropic API aufrufen mit Bild (Vision)
+     * API aufrufen mit Bild (Vision)
      */
     private static function call_api_with_image($system, $text_prompt, $image_data, $media_type, $max_tokens = 2048) {
         $api_key = self::get_api_key();
@@ -73,25 +78,25 @@ class TIX_AI_Writer {
             return ['error' => 'Kein API-Key hinterlegt.'];
         }
 
-        $content = [];
+        if (self::is_openai()) {
+            $data_url = "data:{$media_type};base64,{$image_data}";
+            $messages = [[
+                'role' => 'user',
+                'content' => [
+                    ['type' => 'image_url', 'image_url' => ['url' => $data_url]],
+                    ['type' => 'text', 'text' => $text_prompt],
+                ],
+            ]];
+            return self::call_openai($system, $messages, $max_tokens);
+        }
 
-        // Image block
-        $content[] = [
-            'type'   => 'image',
-            'source' => [
-                'type'         => 'base64',
-                'media_type'   => $media_type,
-                'data'         => $image_data,
-            ],
+        // Anthropic Vision
+        $content = [
+            ['type' => 'image', 'source' => ['type' => 'base64', 'media_type' => $media_type, 'data' => $image_data]],
+            ['type' => 'text', 'text' => $text_prompt],
         ];
 
-        // Text block
-        $content[] = [
-            'type' => 'text',
-            'text' => $text_prompt,
-        ];
-
-        $response = wp_remote_post(self::API_URL, [
+        $response = wp_remote_post('https://api.anthropic.com/v1/messages', [
             'timeout' => 45,
             'headers' => [
                 'x-api-key'         => $api_key,
@@ -102,19 +107,41 @@ class TIX_AI_Writer {
                 'model'      => self::get_model(),
                 'max_tokens' => $max_tokens,
                 'system'     => $system,
-                'messages'   => [
-                    ['role' => 'user', 'content' => $content],
-                ],
+                'messages'   => [['role' => 'user', 'content' => $content]],
             ]),
         ]);
 
-        return self::parse_response($response);
+        return self::parse_anthropic_response($response);
     }
 
     /**
-     * API Response parsen
+     * OpenAI Chat Completions API
      */
-    private static function parse_response($response) {
+    private static function call_openai($system, $messages, $max_tokens = 2048) {
+        $api_key = self::get_api_key();
+
+        array_unshift($messages, ['role' => 'system', 'content' => $system]);
+
+        $response = wp_remote_post('https://api.openai.com/v1/chat/completions', [
+            'timeout' => 45,
+            'headers' => [
+                'Authorization' => 'Bearer ' . $api_key,
+                'Content-Type'  => 'application/json',
+            ],
+            'body' => wp_json_encode([
+                'model'      => self::get_model(),
+                'max_tokens' => $max_tokens,
+                'messages'   => $messages,
+            ]),
+        ]);
+
+        return self::parse_openai_response($response);
+    }
+
+    /**
+     * Anthropic Response parsen
+     */
+    private static function parse_anthropic_response($response) {
         if (is_wp_error($response)) {
             return ['error' => 'Netzwerk-Fehler: ' . $response->get_error_message()];
         }
@@ -125,7 +152,7 @@ class TIX_AI_Writer {
         if ($code < 200 || $code >= 300) {
             $error_data = json_decode($body, true);
             $error_msg = $error_data['error']['message'] ?? ('HTTP ' . $code);
-            if ($code === 401) $error_msg = 'Ungültiger API-Key.';
+            if ($code === 401) $error_msg = 'Ungültiger Anthropic API-Key.';
             if ($code === 429) $error_msg = 'Rate-Limit erreicht. Bitte kurz warten.';
             return ['error' => $error_msg];
         }
@@ -140,6 +167,34 @@ class TIX_AI_Writer {
             if (($block['type'] ?? '') === 'text') {
                 $text .= $block['text'];
             }
+        }
+
+        return ['text' => trim($text)];
+    }
+
+    /**
+     * OpenAI Response parsen
+     */
+    private static function parse_openai_response($response) {
+        if (is_wp_error($response)) {
+            return ['error' => 'Netzwerk-Fehler: ' . $response->get_error_message()];
+        }
+
+        $code = wp_remote_retrieve_response_code($response);
+        $body = wp_remote_retrieve_body($response);
+
+        if ($code < 200 || $code >= 300) {
+            $error_data = json_decode($body, true);
+            $error_msg = $error_data['error']['message'] ?? ('HTTP ' . $code);
+            if ($code === 401) $error_msg = 'Ungültiger OpenAI API-Key.';
+            if ($code === 429) $error_msg = 'Rate-Limit erreicht. Bitte kurz warten.';
+            return ['error' => $error_msg];
+        }
+
+        $data = json_decode($body, true);
+        $text = $data['choices'][0]['message']['content'] ?? '';
+        if (empty($text)) {
+            return ['error' => 'Leere OpenAI-Antwort.'];
         }
 
         return ['text' => trim($text)];
@@ -315,32 +370,43 @@ PROMPT;
 
         // System-Prompt für Feld-Extraktion
         $system = <<<'PROMPT'
-Du bist ein Assistent für eine Event-Ticketing-Plattform. Deine Aufgabe ist es, aus der gegebenen Quelle (Bild eines Flyers/Plakats oder Webseiten-Text) Event-Informationen zu extrahieren.
+Du bist ein Assistent für eine Event-Ticketing-Plattform. Deine Aufgabe ist es, aus der gegebenen Quelle (Bild eines Flyers/Plakats oder Webseiten-Text) ALLE Event-Informationen vollständig zu extrahieren.
 
 Extrahiere folgende Felder und antworte AUSSCHLIESSLICH mit einem JSON-Objekt:
 
 {
-    "title": "Event-Titel",
-    "description": "Ausführliche Beschreibung des Events (2-4 Sätze, HTML erlaubt: <strong>, <em>, <br>)",
-    "lineup": "Künstler/Acts/Sprecher (HTML erlaubt, mit <br> getrennt falls mehrere)",
-    "specials": "Besondere Features/Highlights (HTML erlaubt)",
-    "extra_info": "Zusätzliche Informationen wie Dresscode, Hinweise etc. (HTML erlaubt)",
+    "title": "Event-Titel (IMMER extrahieren, auch wenn nur ein Name erkennbar ist)",
+    "description": "Ausführliche Beschreibung des Events (3-5 Sätze, HTML: <strong>, <em>, <br>). Schreibe einladend und professionell. Wenn wenig Info: ergänze sinnvoll basierend auf dem Event-Typ.",
+    "lineup": "Künstler/Acts/DJs/Sprecher (HTML, mit <br> getrennt falls mehrere)",
+    "specials": "Besondere Features/Highlights/Attraktionen (HTML)",
+    "extra_info": "Dresscode, Hinweise, Anfahrt, Parken, Barrierefreiheit etc. (HTML)",
     "age_limit": "Mindestalter als Zahl oder leer",
-    "date_start": "Startdatum im Format YYYY-MM-DD oder leer",
-    "date_end": "Enddatum im Format YYYY-MM-DD oder leer (gleich wie start wenn eintägig)",
-    "time_start": "Startzeit im Format HH:MM oder leer",
-    "time_end": "Endzeit im Format HH:MM oder leer",
-    "time_doors": "Einlass im Format HH:MM oder leer",
+    "date_start": "Startdatum YYYY-MM-DD oder leer",
+    "date_end": "Enddatum YYYY-MM-DD oder leer (gleich wie start wenn eintägig)",
+    "time_start": "Startzeit HH:MM oder leer",
+    "time_end": "Endzeit HH:MM oder leer",
+    "time_doors": "Einlass HH:MM oder leer",
     "location": "Name der Location oder leer",
-    "excerpt": "Kurzer Textauszug (1-2 Sätze, max 200 Zeichen, kein HTML)"
+    "location_address": "Adresse der Location oder leer",
+    "excerpt": "SEO-optimierte Zusammenfassung (140-160 Zeichen, kein HTML, mit Call-to-Action)",
+    "event_type": "Art des Events: konzert, party, festival, workshop, messe, sport, theater, comedy, networking, sonstiges",
+    "tickets": [
+        {"name": "Ticket-Name", "price": 0.00, "description": "Kurze Beschreibung"}
+    ],
+    "faq": [
+        {"question": "Häufige Frage", "answer": "Antwort"}
+    ]
 }
 
 REGELN:
-- Felder die nicht erkennbar sind: leerer String ""
+- IMMER einen Titel extrahieren. Wenn unklar, nutze den prominentesten Text.
+- Felder die nicht erkennbar sind: leerer String "" (oder leeres Array [] für tickets/faq)
 - Schreibe auf Deutsch
 - KEIN Markdown-Codeblock, NUR das JSON-Objekt
-- Beschreibungen sollen einladend und professionell klingen
-- Bei Bildern: lies ALLE sichtbaren Texte, Daten und Informationen
+- Beschreibungen einladend und professionell
+- Bei Bildern: lies ALLE sichtbaren Texte, Daten, Logos und Informationen
+- tickets: Wenn Preise erkennbar sind, als Array zurückgeben. Sonst leeres Array.
+- faq: Generiere 2-3 sinnvolle FAQ basierend auf dem Event-Typ (Anfahrt, Einlass, Dresscode etc.)
 PROMPT;
 
         $text_prompt = 'Extrahiere die Event-Informationen aus dieser Quelle.';
@@ -372,20 +438,125 @@ PROMPT;
 
         // Felder sanitizen
         $clean = [
-            'title'       => sanitize_text_field($fields['title'] ?? ''),
-            'description' => wp_kses_post($fields['description'] ?? ''),
-            'lineup'      => wp_kses_post($fields['lineup'] ?? ''),
-            'specials'    => wp_kses_post($fields['specials'] ?? ''),
-            'extra_info'  => wp_kses_post($fields['extra_info'] ?? ''),
-            'age_limit'   => $fields['age_limit'] !== '' ? intval($fields['age_limit']) : '',
-            'date_start'  => sanitize_text_field($fields['date_start'] ?? ''),
-            'date_end'    => sanitize_text_field($fields['date_end'] ?? ''),
-            'time_start'  => sanitize_text_field($fields['time_start'] ?? ''),
-            'time_end'    => sanitize_text_field($fields['time_end'] ?? ''),
-            'time_doors'  => sanitize_text_field($fields['time_doors'] ?? ''),
-            'location'    => sanitize_text_field($fields['location'] ?? ''),
-            'excerpt'     => sanitize_text_field($fields['excerpt'] ?? ''),
+            'title'            => sanitize_text_field($fields['title'] ?? ''),
+            'description'      => wp_kses_post($fields['description'] ?? ''),
+            'lineup'           => wp_kses_post($fields['lineup'] ?? ''),
+            'specials'         => wp_kses_post($fields['specials'] ?? ''),
+            'extra_info'       => wp_kses_post($fields['extra_info'] ?? ''),
+            'age_limit'        => ($fields['age_limit'] ?? '') !== '' ? intval($fields['age_limit']) : '',
+            'date_start'       => sanitize_text_field($fields['date_start'] ?? ''),
+            'date_end'         => sanitize_text_field($fields['date_end'] ?? ''),
+            'time_start'       => sanitize_text_field($fields['time_start'] ?? ''),
+            'time_end'         => sanitize_text_field($fields['time_end'] ?? ''),
+            'time_doors'       => sanitize_text_field($fields['time_doors'] ?? ''),
+            'location'         => sanitize_text_field($fields['location'] ?? ''),
+            'location_address' => sanitize_text_field($fields['location_address'] ?? ''),
+            'excerpt'          => sanitize_text_field($fields['excerpt'] ?? ''),
+            'event_type'       => sanitize_text_field($fields['event_type'] ?? ''),
+            'tickets'          => [],
+            'faq'              => [],
         ];
+
+        // Tickets sanitizen
+        if (!empty($fields['tickets']) && is_array($fields['tickets'])) {
+            foreach ($fields['tickets'] as $t) {
+                if (empty($t['name'])) continue;
+                $clean['tickets'][] = [
+                    'name'        => sanitize_text_field($t['name']),
+                    'price'       => floatval($t['price'] ?? 0),
+                    'description' => sanitize_text_field($t['description'] ?? ''),
+                ];
+            }
+        }
+
+        // FAQ sanitizen
+        if (!empty($fields['faq']) && is_array($fields['faq'])) {
+            foreach ($fields['faq'] as $f) {
+                if (empty($f['question'])) continue;
+                $clean['faq'][] = [
+                    'question' => sanitize_text_field($f['question']),
+                    'answer'   => wp_kses_post($f['answer'] ?? ''),
+                ];
+            }
+        }
+
+        // ── Location Matching: Fuzzy-Match gegen bestehende Locations ──
+        $clean['location_id'] = 0;
+        if ($clean['location']) {
+            $locations = get_posts([
+                'post_type'      => 'tix_location',
+                'post_status'    => 'any',
+                'posts_per_page' => -1,
+            ]);
+            $best_match = 0;
+            $best_score = 0;
+            $search = mb_strtolower($clean['location']);
+            foreach ($locations as $loc) {
+                $name = mb_strtolower($loc->post_title);
+                // Exakter Match
+                if ($name === $search) {
+                    $best_match = $loc->ID;
+                    $best_score = 100;
+                    break;
+                }
+                // Enthält den Namen
+                if (strpos($name, $search) !== false || strpos($search, $name) !== false) {
+                    $score = 80;
+                    if ($score > $best_score) {
+                        $best_match = $loc->ID;
+                        $best_score = $score;
+                    }
+                }
+                // similar_text Score
+                similar_text($name, $search, $pct);
+                if ($pct > 60 && $pct > $best_score) {
+                    $best_match = $loc->ID;
+                    $best_score = $pct;
+                }
+            }
+            if ($best_match && $best_score >= 60) {
+                $clean['location_id'] = $best_match;
+            }
+        }
+
+        // ── Event-Kategorie Matching ──
+        $clean['category_ids'] = [];
+        if ($clean['event_type']) {
+            $type_map = [
+                'konzert'    => ['konzert', 'concert', 'live', 'musik'],
+                'party'      => ['party', 'club', 'nachtleben', 'nightlife'],
+                'festival'   => ['festival', 'open air', 'openair'],
+                'workshop'   => ['workshop', 'seminar', 'kurs', 'schulung'],
+                'messe'      => ['messe', 'expo', 'ausstellung', 'exhibition'],
+                'sport'      => ['sport', 'turnier', 'marathon', 'lauf'],
+                'theater'    => ['theater', 'schauspiel', 'aufführung', 'musical'],
+                'comedy'     => ['comedy', 'stand-up', 'standup', 'kabarett'],
+                'networking' => ['networking', 'meetup', 'business', 'konferenz'],
+            ];
+            $terms = get_terms(['taxonomy' => 'event_category', 'hide_empty' => false]);
+            if (!is_wp_error($terms)) {
+                $event_type_lower = mb_strtolower($clean['event_type']);
+                foreach ($terms as $term) {
+                    $term_lower = mb_strtolower($term->name);
+                    // Direkter Match
+                    if ($term_lower === $event_type_lower || strpos($term_lower, $event_type_lower) !== false) {
+                        $clean['category_ids'][] = $term->term_id;
+                        break;
+                    }
+                    // Synonym-Match
+                    foreach ($type_map as $type => $synonyms) {
+                        if ($event_type_lower === $type || in_array($event_type_lower, $synonyms)) {
+                            foreach ($synonyms as $syn) {
+                                if (strpos($term_lower, $syn) !== false) {
+                                    $clean['category_ids'][] = $term->term_id;
+                                    break 3;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         wp_send_json_success(['fields' => $clean]);
     }

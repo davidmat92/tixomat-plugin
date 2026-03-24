@@ -274,7 +274,7 @@ class TIX_Metabox {
             <?php self::render_preset_selector($post); ?>
 
             <?php // ── KI-Assistent: Felder aus Bild/URL füllen ── ?>
-            <?php $ai_key = function_exists('tix_get_settings') ? tix_get_settings('anthropic_api_key') : '';
+            <?php $ai_key = function_exists('tix_get_settings') ? (tix_get_settings('anthropic_api_key') ?: tix_get_settings('openai_api_key')) : '';
             if ($ai_key): ?>
             <div class="tix-ai-fill-bar" id="tix-ai-fill-bar">
                 <div style="display:flex;align-items:center;gap:8px;">
