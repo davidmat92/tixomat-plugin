@@ -174,7 +174,8 @@ class TIX_Single_Event {
     }
 
     public static function render_sidebar_info($post_id) {
-        $date_display = get_post_meta($post_id, '_tix_date_display', true);
+        $date_only    = get_post_meta($post_id, '_tix_date_only', true);
+        $time_only    = get_post_meta($post_id, '_tix_time_only', true);
         $doors        = get_post_meta($post_id, '_tix_doors_display', true);
         $location     = get_post_meta($post_id, '_tix_location', true);
         $address      = get_post_meta($post_id, '_tix_address', true);
@@ -183,14 +184,34 @@ class TIX_Single_Event {
         $organizer    = get_post_meta($post_id, '_tix_organizer_display', true);
         $status       = get_post_meta($post_id, '_tix_status', true);
         $status_label = get_post_meta($post_id, '_tix_status_label', true);
+
+        // Datum formatiert (z.B. "Samstag, 15. März 2026")
+        $date_start = get_post_meta($post_id, '_tix_date_start', true);
+        $date_end   = get_post_meta($post_id, '_tix_date_end', true);
+        $date_formatted = '';
+        if ($date_start) {
+            $date_formatted = date_i18n('l, j. F Y', strtotime($date_start));
+            if ($date_end && $date_end !== $date_start) {
+                $date_formatted .= ' – ' . date_i18n('l, j. F Y', strtotime($date_end));
+            }
+        }
         ?>
         <div class="tse-info-card sb-info">
-            <?php if ($date_display): ?>
+            <?php if ($date_formatted): ?>
                 <div class="tse-info-row">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
                     <div>
-                        <div class="tse-info-label">Datum & Uhrzeit</div>
-                        <div class="tse-info-value"><?php echo esc_html($date_display); ?></div>
+                        <div class="tse-info-label">Datum</div>
+                        <div class="tse-info-value"><?php echo esc_html($date_formatted); ?></div>
+                    </div>
+                </div>
+            <?php endif; ?>
+            <?php if ($time_only): ?>
+                <div class="tse-info-row">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                    <div>
+                        <div class="tse-info-label">Uhrzeit</div>
+                        <div class="tse-info-value"><?php echo esc_html($time_only); ?></div>
                         <?php if ($doors): ?><div class="tse-info-sub"><?php echo esc_html($doors); ?></div><?php endif; ?>
                     </div>
                 </div>
