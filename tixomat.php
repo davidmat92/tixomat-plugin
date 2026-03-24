@@ -2,14 +2,14 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.33.122
+ * Version: 1.33.123
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.33.122');
+define('TIXOMAT_VERSION', '1.33.123');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -72,6 +72,11 @@ add_action('plugins_loaded', function() {
         return $order_number;
     }, 10, 2);
 });
+
+// ── Event-Karten Fonts (Google Fonts, wenn nicht self-hosted) ──
+add_action('wp_enqueue_scripts', function() {
+    if (class_exists('TIX_Settings')) TIX_Settings::enqueue_card_fonts();
+}, 4);
 
 // ── Google Fonts: Outfit (Display) + Inter (Body) – Tixomat CI ──
 add_action('wp_enqueue_scripts', function() {

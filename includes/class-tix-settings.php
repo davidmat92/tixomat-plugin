@@ -309,6 +309,33 @@ class TIX_Settings {
             'paypal_client_id'    => '',
             'paypal_secret'       => '',
             'paypal_sandbox'      => 0,
+            // ── Event-Karten ──
+            'tix_card_color_signal'      => '#E8445A',
+            'tix_card_color_signal_mid'  => '#F2899A',
+            'tix_card_color_nacht'       => '#131020',
+            'tix_card_color_nacht_soft'  => '#1C1831',
+            'tix_card_color_spotlight'   => '#F5B731',
+            'tix_card_color_entdecken'   => '#14B8A6',
+            'tix_card_color_licht'       => '#FDFBF7',
+            'tix_card_color_sand'        => '#F0ECE4',
+            'tix_card_color_text'        => '#131020',
+            'tix_card_color_text_muted'  => '#5C5A57',
+            'tix_card_radius_card'       => 16,
+            'tix_card_radius_badge'      => 8,
+            'tix_card_radius_button'     => 10,
+            'tix_card_radius_image'      => 12,
+            'tix_card_gap'               => 20,
+            'tix_card_font_display'      => 'Sora',
+            'tix_card_font_body'         => 'DM Sans',
+            'tix_card_font_size_title'   => '1.05',
+            'tix_card_font_size_date'    => '0.8',
+            'tix_card_font_size_price'   => '1.1',
+            'tix_card_font_self_host'    => 0,
+            'tix_card_columns_default'   => 4,
+            'tix_card_image_ratio'       => '58',
+            'tix_card_show_heart'        => 1,
+            'tix_card_show_badges'       => 1,
+            'tix_card_default_mode'      => 'light',
             // ── Mein-Konto Styling ──
             'myaccount_restyle'  => 0,
 
@@ -719,6 +746,23 @@ class TIX_Settings {
         $clean['paypal_client_id'] = sanitize_text_field($input['paypal_client_id'] ?? '');
         $clean['paypal_secret']    = sanitize_text_field($input['paypal_secret'] ?? '');
         $clean['paypal_sandbox']   = !empty($input['paypal_sandbox']) ? 1 : 0;
+
+        // Event-Karten
+        foreach (['tix_card_color_signal', 'tix_card_color_signal_mid', 'tix_card_color_nacht', 'tix_card_color_nacht_soft', 'tix_card_color_spotlight', 'tix_card_color_entdecken', 'tix_card_color_licht', 'tix_card_color_sand', 'tix_card_color_text', 'tix_card_color_text_muted'] as $k) {
+            $clean[$k] = sanitize_hex_color($input[$k] ?? '') ?: ($d[$k] ?? '');
+        }
+        foreach (['tix_card_radius_card', 'tix_card_radius_badge', 'tix_card_radius_button', 'tix_card_radius_image', 'tix_card_gap', 'tix_card_image_ratio', 'tix_card_columns_default'] as $k) {
+            $clean[$k] = intval($input[$k] ?? $d[$k] ?? 0);
+        }
+        foreach (['tix_card_font_size_title', 'tix_card_font_size_date', 'tix_card_font_size_price'] as $k) {
+            $clean[$k] = floatval($input[$k] ?? $d[$k] ?? 1);
+        }
+        $clean['tix_card_font_display']   = sanitize_text_field($input['tix_card_font_display'] ?? 'Sora');
+        $clean['tix_card_font_body']      = sanitize_text_field($input['tix_card_font_body'] ?? 'DM Sans');
+        $clean['tix_card_font_self_host'] = !empty($input['tix_card_font_self_host']) ? 1 : 0;
+        $clean['tix_card_show_heart']     = !empty($input['tix_card_show_heart']) ? 1 : 0;
+        $clean['tix_card_show_badges']    = !empty($input['tix_card_show_badges']) ? 1 : 0;
+        $clean['tix_card_default_mode']   = in_array($input['tix_card_default_mode'] ?? 'light', ['light', 'dark']) ? $input['tix_card_default_mode'] : 'light';
 
         // KI / Künstliche Intelligenz
         $clean['ai_assistant_name'] = sanitize_text_field($input['ai_assistant_name'] ?? 'Evendis-Assistent');
@@ -1260,7 +1304,62 @@ class TIX_Settings {
             echo ".tix-ci {\n    " . implode(";\n    ", $ci_vars) . ";\n}\n";
         }
 
+        // ── Event-Karten Variablen ──
+        $card_map = [
+            'tix_card_color_signal'     => '--tix-card-signal',
+            'tix_card_color_signal_mid' => '--tix-card-signal-mid',
+            'tix_card_color_nacht'      => '--tix-card-nacht',
+            'tix_card_color_nacht_soft' => '--tix-card-nacht-soft',
+            'tix_card_color_spotlight'  => '--tix-card-spotlight',
+            'tix_card_color_entdecken'  => '--tix-card-entdecken',
+            'tix_card_color_licht'      => '--tix-card-licht',
+            'tix_card_color_sand'       => '--tix-card-sand',
+            'tix_card_color_text'       => '--tix-card-text',
+            'tix_card_color_text_muted' => '--tix-card-text-muted',
+        ];
+        $card_vars = [];
+        foreach ($card_map as $key => $var) {
+            if (!empty($s[$key])) $card_vars[] = "{$var}: {$s[$key]}";
+        }
+        // Radius & Spacing
+        $card_vars[] = '--tix-card-radius: ' . intval($s['tix_card_radius_card'] ?? 16) . 'px';
+        $card_vars[] = '--tix-card-radius-badge: ' . intval($s['tix_card_radius_badge'] ?? 8) . 'px';
+        $card_vars[] = '--tix-card-radius-btn: ' . intval($s['tix_card_radius_button'] ?? 10) . 'px';
+        $card_vars[] = '--tix-card-radius-img: ' . intval($s['tix_card_radius_image'] ?? 12) . 'px';
+        $card_vars[] = '--tix-card-gap: ' . intval($s['tix_card_gap'] ?? 20) . 'px';
+        $card_vars[] = '--tix-card-img-ratio: ' . intval($s['tix_card_image_ratio'] ?? 58) . '%';
+        // Fonts
+        $card_vars[] = "--tix-card-font-d: '" . esc_attr($s['tix_card_font_display'] ?? 'Sora') . "'";
+        $card_vars[] = "--tix-card-font-b: '" . esc_attr($s['tix_card_font_body'] ?? 'DM Sans') . "'";
+        $card_vars[] = '--tix-card-font-title: ' . floatval($s['tix_card_font_size_title'] ?? 1.05) . 'rem';
+        $card_vars[] = '--tix-card-font-date: ' . floatval($s['tix_card_font_size_date'] ?? 0.8) . 'rem';
+        $card_vars[] = '--tix-card-font-price: ' . floatval($s['tix_card_font_size_price'] ?? 1.1) . 'rem';
+
+        if (!empty($card_vars)) {
+            echo ":root {\n    " . implode(";\n    ", $card_vars) . ";\n}\n";
+        }
+
         echo "</style>\n";
+    }
+
+    /**
+     * Google Fonts für Event-Karten laden (wenn nicht self-hosted)
+     */
+    public static function enqueue_card_fonts() {
+        $s = self::get();
+        if (!empty($s['tix_card_font_self_host'])) return;
+
+        $display = $s['tix_card_font_display'] ?? 'Sora';
+        $body    = $s['tix_card_font_body'] ?? 'DM Sans';
+        $fonts   = [];
+
+        if ($display) $fonts[] = str_replace(' ', '+', $display) . ':wght@400;500;600;700';
+        if ($body && $body !== $display) $fonts[] = str_replace(' ', '+', $body) . ':wght@400;500;600;700';
+
+        if (!empty($fonts)) {
+            $url = 'https://fonts.googleapis.com/css2?family=' . implode('&family=', $fonts) . '&display=swap';
+            wp_enqueue_style('tix-card-fonts', $url, [], null);
+        }
     }
 
     /**
@@ -1345,6 +1444,10 @@ class TIX_Settings {
                                 <button type="button" class="tix-nav-tab" data-tab="event-page">
                                     <span class="dashicons dashicons-welcome-widgets-menus"></span>
                                     <span class="tix-nav-label">Event-Seite</span>
+                                </button>
+                                <button type="button" class="tix-nav-tab" data-tab="event-cards">
+                                    <span class="dashicons dashicons-screenoptions"></span>
+                                    <span class="tix-nav-label">Event-Karten</span>
                                 </button>
                                 <button type="button" class="tix-nav-tab" data-tab="share">
                                     <span class="dashicons dashicons-share"></span>
@@ -2400,6 +2503,136 @@ class TIX_Settings {
                                                     <span class="tix-hint" style="margin:0;">Zeigt &bdquo;Nur noch X verf&uuml;gbar!&ldquo; wenn der Bestand unter diesen Wert f&auml;llt. 0 = deaktiviert.</span>
                                                 </div>
                                             </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                            </div>
+
+                            <?php // ═══ PANE: EVENT-KARTEN ═══ ?>
+                            <div class="tix-pane" data-pane="event-cards">
+
+                                <?php // ── Card: Farben ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-art"></span>
+                                        <h3>Farben</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <?php
+                                            self::color_row('tix_card_color_signal', 'Signal (Primär-CTA)', $s);
+                                            self::color_row('tix_card_color_signal_mid', 'Signal Mittel (Dark-Datum)', $s);
+                                            self::color_row('tix_card_color_nacht', 'Nacht (Dunkel)', $s);
+                                            self::color_row('tix_card_color_nacht_soft', 'Nacht Soft', $s);
+                                            self::color_row('tix_card_color_spotlight', 'Spotlight (Gelb)', $s);
+                                            self::color_row('tix_card_color_entdecken', 'Entdecken (Teal)', $s);
+                                            self::color_row('tix_card_color_licht', 'Hintergrund Hell', $s);
+                                            self::color_row('tix_card_color_sand', 'Sand (Neutral)', $s);
+                                            self::color_row('tix_card_color_text', 'Text Dunkel', $s);
+                                            self::color_row('tix_card_color_text_muted', 'Text Gedämpft', $s);
+                                            ?>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Radius & Abstände ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-image-crop"></span>
+                                        <h3>Radius & Abstände</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <?php
+                                            self::range_row('tix_card_radius_card', 'Karten-Radius', $s, 0, 30, 'px');
+                                            self::range_row('tix_card_radius_badge', 'Badge-Radius', $s, 0, 20, 'px');
+                                            self::range_row('tix_card_radius_button', 'Button-Radius', $s, 0, 20, 'px');
+                                            self::range_row('tix_card_radius_image', 'Bild-Radius', $s, 0, 24, 'px');
+                                            self::range_row('tix_card_gap', 'Karten-Abstand', $s, 8, 40, 'px');
+                                            self::range_row('tix_card_image_ratio', 'Bild-Höhe (%)', $s, 40, 80, '%');
+                                            ?>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Typografie ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-editor-textcolor"></span>
+                                        <h3>Typografie</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <?php
+                                            $fonts = ['Sora', 'DM Sans', 'Inter', 'Outfit', 'Poppins', 'Montserrat', 'Open Sans', 'Roboto', 'Lato', 'Nunito', 'Raleway', 'Playfair Display', 'Oswald', 'Source Sans 3'];
+                                            $display_font = $s['tix_card_font_display'] ?? 'Sora';
+                                            $body_font = $s['tix_card_font_body'] ?? 'DM Sans';
+                                            ?>
+                                            <div class="tix-field">
+                                                <label class="tix-label">Display-Schrift (Titel)</label>
+                                                <select name="tix_settings[tix_card_font_display]" style="width:100%;">
+                                                    <?php foreach ($fonts as $f): ?>
+                                                        <option value="<?php echo esc_attr($f); ?>" <?php selected($display_font, $f); ?> style="font-family:'<?php echo esc_attr($f); ?>';"><?php echo esc_html($f); ?></option>
+                                                    <?php endforeach; ?>
+                                                    <option value="custom" <?php selected(!in_array($display_font, $fonts) && $display_font !== ''); ?>>Eigene Schrift…</option>
+                                                </select>
+                                            </div>
+                                            <div class="tix-field">
+                                                <label class="tix-label">Body-Schrift (Text)</label>
+                                                <select name="tix_settings[tix_card_font_body]" style="width:100%;">
+                                                    <?php foreach ($fonts as $f): ?>
+                                                        <option value="<?php echo esc_attr($f); ?>" <?php selected($body_font, $f); ?> style="font-family:'<?php echo esc_attr($f); ?>';"><?php echo esc_html($f); ?></option>
+                                                    <?php endforeach; ?>
+                                                    <option value="custom" <?php selected(!in_array($body_font, $fonts) && $body_font !== ''); ?>>Eigene Schrift…</option>
+                                                </select>
+                                            </div>
+                                            <?php
+                                            self::range_row('tix_card_font_size_title', 'Titelgröße', $s, 0.8, 1.6, 'rem', 0.05, true);
+                                            self::range_row('tix_card_font_size_date', 'Datumgröße', $s, 0.6, 1.2, 'rem', 0.05, true);
+                                            self::range_row('tix_card_font_size_price', 'Preisgröße', $s, 0.8, 1.6, 'rem', 0.05, true);
+                                            ?>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('tix_card_font_self_host', 'Schriften selbst hosten (DSGVO)', $s, 'Keine Verbindung zu Google Fonts. Du musst die Schriften dann selbst in dein Theme einbinden (z.B. per @font-face).'); ?>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Layout & Optionen ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-grid-view"></span>
+                                        <h3>Layout & Optionen</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field">
+                                                <label class="tix-label">Standard-Spalten</label>
+                                                <select name="tix_settings[tix_card_columns_default]" style="width:100%;">
+                                                    <option value="2" <?php selected($s['tix_card_columns_default'] ?? 4, 2); ?>>2 Spalten</option>
+                                                    <option value="3" <?php selected($s['tix_card_columns_default'] ?? 4, 3); ?>>3 Spalten</option>
+                                                    <option value="4" <?php selected($s['tix_card_columns_default'] ?? 4, 4); ?>>4 Spalten</option>
+                                                </select>
+                                            </div>
+                                            <div class="tix-field">
+                                                <label class="tix-label">Standard-Modus</label>
+                                                <select name="tix_settings[tix_card_default_mode]" style="width:100%;">
+                                                    <option value="light" <?php selected($s['tix_card_default_mode'] ?? 'light', 'light'); ?>>Hell</option>
+                                                    <option value="dark" <?php selected($s['tix_card_default_mode'] ?? 'light', 'dark'); ?>>Dunkel</option>
+                                                </select>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('tix_card_show_heart', 'Herz-Button (Favorisieren) anzeigen', $s); ?>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('tix_card_show_badges', 'Status-Badges anzeigen (Empfehlung, Heute, Letzte X, etc.)', $s); ?>
+                                            </div>
+                                        </div>
+                                        <div class="tix-field tix-field-full" style="margin-top:16px;">
+                                            <p class="tix-settings-hint">
+                                                Shortcode: <code>[tix_events]</code> — Parameter: <code>limit</code>, <code>columns</code>, <code>category</code>, <code>city</code>, <code>featured</code>, <code>mode</code>, <code>show_filter</code>
+                                            </p>
                                         </div>
                                     </div>
                                 </div>
