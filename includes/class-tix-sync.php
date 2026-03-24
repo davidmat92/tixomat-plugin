@@ -18,6 +18,12 @@ class TIX_Sync {
         if ($post->post_status === 'auto-draft') return;
         if ($post->post_status === 'trash') return;
 
+        // Ohne WooCommerce: nur Breakdance-Meta, kein Produkt-Sync
+        if (!function_exists('wc_get_product')) {
+            self::save_breakdance_meta($post_id, []);
+            return;
+        }
+
         // Serien-Master nicht syncen (ist nur Vorlage)
         if (get_post_meta($post_id, '_tix_series_enabled', true) === '1') {
             self::save_breakdance_meta($post_id, []);
@@ -299,7 +305,7 @@ class TIX_Sync {
     /**
      * Flache Meta-Felder für Breakdance
      */
-    private static function save_breakdance_meta($post_id, $categories) {
+    public static function save_breakdance_meta($post_id, $categories = []) {
 
         $date_start = get_post_meta($post_id, '_tix_date_start', true);
         $date_end   = get_post_meta($post_id, '_tix_date_end', true);

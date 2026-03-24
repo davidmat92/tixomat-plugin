@@ -37,14 +37,14 @@ class TIX_Cleanup {
             remove_action('before_delete_post', ['TIX_Series', 'on_trash']);
         }
 
-        // WC-Produkte + TC-Events löschen
+        // WC-Produkte + TC-Events löschen (nur wenn WC aktiv)
         $categories = get_post_meta($post_id, '_tix_ticket_categories', true);
         if (is_array($categories)) {
             foreach ($categories as $cat) {
                 if (!empty($cat['tc_event_id'])) {
                     wp_delete_post(intval($cat['tc_event_id']), true);
                 }
-                if (!empty($cat['product_id'])) {
+                if (!empty($cat['product_id']) && function_exists('wc_get_product')) {
                     $product = wc_get_product(intval($cat['product_id']));
                     if ($product) $product->delete(true);
                 }

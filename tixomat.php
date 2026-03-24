@@ -2,16 +2,24 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.33.100
+ * Version: 1.33.101
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.33.100');
+define('TIXOMAT_VERSION', '1.33.101');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
+
+/**
+ * Prüft ob WooCommerce aktiv und geladen ist.
+ * Zentrale Funktion — alle WC-abhängigen Features nutzen diese.
+ */
+function tix_has_wc() {
+    return class_exists('WooCommerce');
+}
 
 // ── Emojis aus Slugs entfernen (global) ──
 add_filter('sanitize_title', function($title, $raw_title, $context) {
@@ -44,22 +52,26 @@ TIX_REST_API::init();
 require_once TIXOMAT_PATH . 'includes/class-tix-order.php';
 TIX_Order::init();
 
-// ── WooCommerce: Standard-Zahlungsmethoden deaktivieren ──
-add_filter('woocommerce_available_payment_gateways', function($gateways) {
-    $s = tix_get_settings();
-    if (empty($s['enable_bacs']))  unset($gateways['bacs']);
-    if (empty($s['enable_cod']))   unset($gateways['cod']);
-    unset($gateways['cheque']); // Scheck immer deaktiviert
-    return $gateways;
-});
+// ── WooCommerce-spezifische Hooks (nur wenn WC aktiv) ──
+add_action('plugins_loaded', function() {
+    if (!tix_has_wc()) return;
 
-// ── Custom Order Numbers (via tix_orders Tabelle) ──
-// WooCommerce zeigt die tix_order Nummer an (wenn vorhanden)
-add_filter('woocommerce_order_number', function($order_number, $order) {
-    $tix_order = TIX_Order::get_by_wc_order($order->get_id());
-    if ($tix_order) return $tix_order->get_order_number();
-    return $order_number;
-}, 10, 2);
+    // Standard-Zahlungsmethoden deaktivieren
+    add_filter('woocommerce_available_payment_gateways', function($gateways) {
+        $s = tix_get_settings();
+        if (empty($s['enable_bacs']))  unset($gateways['bacs']);
+        if (empty($s['enable_cod']))   unset($gateways['cod']);
+        unset($gateways['cheque']);
+        return $gateways;
+    });
+
+    // Custom Order Numbers (via tix_orders Tabelle)
+    add_filter('woocommerce_order_number', function($order_number, $order) {
+        $tix_order = TIX_Order::get_by_wc_order($order->get_id());
+        if ($tix_order) return $tix_order->get_order_number();
+        return $order_number;
+    }, 10, 2);
+});
 
 // ── Google Fonts: Outfit (Display) + Inter (Body) – Tixomat CI ──
 add_action('wp_enqueue_scripts', function() {
@@ -403,7 +415,16 @@ if (is_admin() && !wp_doing_ajax()) {
     add_action('add_meta_boxes', ['TIX_Metabox', 'register']);
     add_action('save_post_event', ['TIX_Metabox', 'save'], 10, 2);
     add_action('admin_enqueue_scripts', ['TIX_Metabox', 'enqueue_assets']);
-    add_action('save_post_event', ['TIX_Sync', 'sync'], 20, 2);
+    if (tix_has_wc()) {
+        add_action('save_post_event', ['TIX_Sync', 'sync'], 20, 2);
+    } else {
+        // Ohne WC: nur Breakdance-Meta speichern, keine WC-Produkte
+        add_action('save_post_event', function($post_id, $post) {
+            if (defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) return;
+            if (wp_is_post_revision($post_id)) return;
+            if (class_exists('TIX_Sync')) TIX_Sync::save_breakdance_meta($post_id, []);
+        }, 20, 2);
+    }
     add_action('save_post_event', ['TIX_Series', 'on_save'], 25, 2);
     add_action('wp_trash_post',      ['TIX_Series', 'on_trash']);
     add_action('before_delete_post', ['TIX_Series', 'on_trash']);

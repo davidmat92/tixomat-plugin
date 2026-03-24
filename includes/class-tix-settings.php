@@ -300,6 +300,8 @@ class TIX_Settings {
             'ai_model'          => 'claude-sonnet-4-20250514',
             'ai_guard_enabled'  => 0,
             'ai_guard_api_key'  => '', // Legacy – wird migriert zu anthropic_api_key
+            // ── Checkout-Modus ──
+            'checkout_mode'     => 'auto', // auto (WC wenn vorhanden), woocommerce, native
             // ── Mein-Konto Styling ──
             'myaccount_restyle'  => 0,
 
@@ -702,6 +704,9 @@ class TIX_Settings {
         $clean['support_enabled'] = !empty($input['support_enabled']) ? 1 : 0;
         $clean['support_categories'] = sanitize_textarea_field($input['support_categories'] ?? '');
         $clean['support_chat_enabled'] = !empty($input['support_chat_enabled']) ? 1 : 0;
+
+        // Checkout-Modus
+        $clean['checkout_mode'] = in_array($input['checkout_mode'] ?? 'auto', ['auto', 'woocommerce', 'native']) ? $input['checkout_mode'] : 'auto';
 
         // KI / Künstliche Intelligenz
         $clean['anthropic_api_key'] = sanitize_text_field($input['anthropic_api_key'] ?? '');
@@ -2893,6 +2898,37 @@ class TIX_Settings {
                                         <div class="tix-field-grid">
                                             <div class="tix-field tix-field-full">
                                                 <?php self::checkbox_row('express_checkout_enabled', '1-Klick-Kauf für eingeloggte User aktivieren', $s, 'Zeigt einen "Sofort kaufen"-Button für Nutzer mit gespeicherten Zahlungsmethoden. Muss zusätzlich pro Event aktiviert werden.'); ?>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Checkout-Modus ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-cart"></span>
+                                        <h3>Checkout-Modus</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <?php
+                                            $checkout_mode = $s['checkout_mode'] ?? 'auto';
+                                            $wc_active = function_exists('tix_has_wc') && tix_has_wc();
+                                            ?>
+                                            <div class="tix-field tix-field-full">
+                                                <label class="tix-label">Modus</label>
+                                                <select name="tix_settings[checkout_mode]" style="width:100%;max-width:420px;">
+                                                    <option value="auto" <?php selected($checkout_mode, 'auto'); ?>>Automatisch (WooCommerce wenn installiert, sonst nativ)</option>
+                                                    <option value="woocommerce" <?php selected($checkout_mode, 'woocommerce'); ?>>WooCommerce <?php echo $wc_active ? '(aktiv)' : '(nicht installiert!)'; ?></option>
+                                                    <option value="native" <?php selected($checkout_mode, 'native'); ?>>Nativ (ohne WooCommerce) — in Entwicklung</option>
+                                                </select>
+                                                <p class="tix-settings-hint">
+                                                    <?php if ($wc_active): ?>
+                                                        WooCommerce ist installiert und aktiv. Alle Checkout-Funktionen sind verfügbar.
+                                                    <?php else: ?>
+                                                        <strong style="color:#f59e0b;">WooCommerce ist nicht installiert.</strong> Event-Verwaltung, KI-Assistent und Vorlagen funktionieren. Ticketverkauf benötigt den nativen Checkout (kommt bald) oder WooCommerce.
+                                                    <?php endif; ?>
+                                                </p>
                                             </div>
                                         </div>
                                     </div>
