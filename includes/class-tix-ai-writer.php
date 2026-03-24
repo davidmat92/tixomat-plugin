@@ -28,6 +28,7 @@ class TIX_AI_Writer {
         add_action('wp_ajax_tix_ai_fill_fields',      [__CLASS__, 'ajax_fill_fields']);
         add_action('wp_ajax_tix_ai_upload_image',     [__CLASS__, 'ajax_upload_image']);
         add_action('wp_ajax_tix_ai_check_duplicates',  [__CLASS__, 'ajax_check_duplicates']);
+        add_action('wp_ajax_tix_ai_chat',              [__CLASS__, 'ajax_chat']);
     }
 
     private static function get_api_key() {
@@ -606,6 +607,215 @@ PROMPT;
         if ($body) $parts[] = "Seitentext:\n" . mb_substr($body, 0, 3000);
 
         return implode("\n\n", $parts);
+    }
+
+    // ──────────────────────────────────────────
+    // AJAX: Chat-basierte Event-Generierung
+    // ──────────────────────────────────────────
+    public static function ajax_chat() {
+        check_ajax_referer('tix_admin_action', 'nonce');
+        if (!current_user_can('edit_posts')) wp_send_json_error(['message' => 'Keine Berechtigung.']);
+
+        $user_text = sanitize_textarea_field($_POST['text'] ?? '');
+        $history   = json_decode(stripslashes($_POST['history'] ?? '[]'), true);
+        if (!is_array($history)) $history = [];
+
+        if (empty($user_text)) {
+            wp_send_json_error(['message' => 'Bitte beschreibe dein Event.']);
+        }
+
+        // Bestehende Locations für Kontext
+        $locations = get_posts(['post_type' => 'tix_location', 'post_status' => 'any', 'posts_per_page' => 50]);
+        $loc_list = [];
+        foreach ($locations as $loc) {
+            $addr = get_post_meta($loc->ID, '_tix_loc_address', true);
+            $loc_list[] = $loc->post_title . ($addr ? " ({$addr})" : '');
+        }
+
+        // Kategorien
+        $terms = get_terms(['taxonomy' => 'event_category', 'hide_empty' => false]);
+        $cat_list = [];
+        if (!is_wp_error($terms)) {
+            foreach ($terms as $t) $cat_list[] = $t->name;
+        }
+
+        $system = 'Du bist der Evendis-Assistent, ein freundlicher Event-Planungs-Assistent für eine Ticketing-Plattform. Der Veranstalter beschreibt sein Event in Stichpunkten oder natürlicher Sprache. Deine Aufgabe:
+
+1. Wenn ALLE nötigen Infos vorhanden sind (Titel, Datum, Uhrzeit, Location), erstelle das Event.
+2. Wenn wichtige Infos fehlen, stelle 1-3 kurze Rückfragen auf Deutsch. KEINE langen Texte, kurze Fragen.
+
+KONTEXT:
+- Verfügbare Locations: ' . implode(', ', $loc_list) . '
+- Verfügbare Kategorien: ' . implode(', ', $cat_list) . '
+- Heute ist: ' . date_i18n('l, d. F Y') . '
+
+ANTWORT-FORMAT:
+Wenn du Rückfragen hast, antworte mit JSON:
+{"status": "questions", "message": "Deine Frage(n) als kurzer Text"}
+
+Wenn du genug Infos hast um das Event zu erstellen, antworte mit JSON:
+{"status": "complete", "fields": {
+    "title": "Event-Titel",
+    "description": "Beschreibung (3-5 Sätze, HTML erlaubt)",
+    "lineup": "Künstler/Acts",
+    "specials": "Besonderheiten",
+    "extra_info": "Hinweise",
+    "age_limit": "18 oder leer",
+    "date_start": "YYYY-MM-DD",
+    "date_end": "YYYY-MM-DD",
+    "time_start": "HH:MM",
+    "time_end": "HH:MM",
+    "time_doors": "HH:MM",
+    "location": "Location-Name",
+    "location_address": "Adresse",
+    "excerpt": "SEO-Zusammenfassung 140-160 Zeichen",
+    "event_type": "konzert/party/festival/workshop/etc",
+    "tickets": [{"name": "Name", "price": 0.00, "description": ""}],
+    "faq": [{"question": "Frage", "answer": "Antwort"}]
+}}
+
+REGELN:
+- Immer auf Deutsch antworten
+- NUR JSON, kein Markdown-Codeblock, kein Text davor/danach
+- Fehlende Felder: leerer String oder leeres Array
+- Wenn Location in der Liste ist, exakten Namen verwenden
+- Beschreibung einladend und professionell
+- FAQ: 2-3 sinnvolle Fragen generieren';
+
+        // Konversations-History aufbauen
+        $messages = [];
+        foreach ($history as $h) {
+            $messages[] = ['role' => $h['role'], 'content' => $h['content']];
+        }
+        $messages[] = ['role' => 'user', 'content' => $user_text];
+
+        $result = self::call_api($system, $messages, 2048);
+
+        // call_api erwartet string, nicht array — wir müssen die Messages als einzelnen String formatieren
+        // Stattdessen: baue den Konversationskontext als einen User-Prompt
+        $full_prompt = '';
+        foreach ($history as $h) {
+            $prefix = $h['role'] === 'user' ? 'Veranstalter: ' : 'Assistent: ';
+            $full_prompt .= $prefix . $h['content'] . "\n\n";
+        }
+        $full_prompt .= 'Veranstalter: ' . $user_text;
+
+        $result = self::call_api($system, $full_prompt, 2048);
+
+        if (isset($result['error'])) {
+            wp_send_json_error(['message' => $result['error']]);
+        }
+
+        $text = $result['text'];
+        // JSON aus Codeblock extrahieren
+        if (preg_match('/```(?:json)?\s*(\{.*?\})\s*```/s', $text, $m)) {
+            $text = $m[1];
+        }
+
+        $data = json_decode($text, true);
+        if (!is_array($data) || !isset($data['status'])) {
+            // Fallback: behandle als Frage
+            wp_send_json_success([
+                'status'  => 'questions',
+                'message' => $text,
+                'history' => array_merge($history, [
+                    ['role' => 'user', 'content' => $user_text],
+                    ['role' => 'assistant', 'content' => $text],
+                ]),
+            ]);
+            return;
+        }
+
+        if ($data['status'] === 'questions') {
+            wp_send_json_success([
+                'status'  => 'questions',
+                'message' => $data['message'],
+                'history' => array_merge($history, [
+                    ['role' => 'user', 'content' => $user_text],
+                    ['role' => 'assistant', 'content' => $data['message']],
+                ]),
+            ]);
+            return;
+        }
+
+        // Status = complete → Felder wie bei fill_fields aufbereiten
+        $fields = $data['fields'] ?? [];
+
+        // Sanitize (gleich wie in ajax_fill_fields)
+        $clean = [
+            'title'            => sanitize_text_field($fields['title'] ?? ''),
+            'description'      => wp_kses_post($fields['description'] ?? ''),
+            'lineup'           => wp_kses_post($fields['lineup'] ?? ''),
+            'specials'         => wp_kses_post($fields['specials'] ?? ''),
+            'extra_info'       => wp_kses_post($fields['extra_info'] ?? ''),
+            'age_limit'        => ($fields['age_limit'] ?? '') !== '' ? intval($fields['age_limit']) : '',
+            'date_start'       => sanitize_text_field($fields['date_start'] ?? ''),
+            'date_end'         => sanitize_text_field($fields['date_end'] ?? ''),
+            'time_start'       => sanitize_text_field($fields['time_start'] ?? ''),
+            'time_end'         => sanitize_text_field($fields['time_end'] ?? ''),
+            'time_doors'       => sanitize_text_field($fields['time_doors'] ?? ''),
+            'location'         => sanitize_text_field($fields['location'] ?? ''),
+            'location_address' => sanitize_text_field($fields['location_address'] ?? ''),
+            'excerpt'          => sanitize_text_field($fields['excerpt'] ?? ''),
+            'event_type'       => sanitize_text_field($fields['event_type'] ?? ''),
+            'tickets'          => [],
+            'faq'              => [],
+        ];
+
+        if (!empty($fields['tickets']) && is_array($fields['tickets'])) {
+            foreach ($fields['tickets'] as $t) {
+                if (empty($t['name'])) continue;
+                $clean['tickets'][] = [
+                    'name'        => sanitize_text_field($t['name']),
+                    'price'       => floatval($t['price'] ?? 0),
+                    'description' => sanitize_text_field($t['description'] ?? ''),
+                ];
+            }
+        }
+        if (!empty($fields['faq']) && is_array($fields['faq'])) {
+            foreach ($fields['faq'] as $f) {
+                if (empty($f['question'])) continue;
+                $clean['faq'][] = [
+                    'question' => sanitize_text_field($f['question']),
+                    'answer'   => wp_kses_post($f['answer'] ?? ''),
+                ];
+            }
+        }
+
+        // Location matching
+        $clean['location_id'] = 0;
+        if ($clean['location']) {
+            $search = mb_strtolower($clean['location']);
+            foreach ($locations as $loc) {
+                $name = mb_strtolower($loc->post_title);
+                if ($name === $search || strpos($name, $search) !== false || strpos($search, $name) !== false) {
+                    $clean['location_id'] = $loc->ID;
+                    break;
+                }
+                similar_text($name, $search, $pct);
+                if ($pct > 60) {
+                    $clean['location_id'] = $loc->ID;
+                    break;
+                }
+            }
+        }
+
+        // Category matching
+        $clean['category_ids'] = [];
+        if ($clean['event_type'] && !is_wp_error($terms)) {
+            $type_lower = mb_strtolower($clean['event_type']);
+            foreach ($terms as $term) {
+                if (mb_strtolower($term->name) === $type_lower || strpos(mb_strtolower($term->name), $type_lower) !== false) {
+                    $clean['category_ids'][] = $term->term_id;
+                    break;
+                }
+            }
+        }
+
+        wp_send_json_success([
+            'status' => 'complete',
+            'fields' => $clean,
+        ]);
     }
 
     // ──────────────────────────────────────────

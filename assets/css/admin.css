@@ -2160,6 +2160,20 @@ body:is(.post-type-event,.post-type-tix_location,.post-type-tix_organizer,.post-
 }
 .tix-ai-dropzone-remove:hover { color: #ef4444; }
 
+/* Chat Conversation */
+#tix-ai-chat-conversation {
+    max-height: 200px;
+    overflow-y: auto;
+    padding: 8px 0;
+}
+.tix-ai-chat-input textarea {
+    transition: border-color 0.2s;
+}
+.tix-ai-chat-input textarea:focus {
+    border-color: var(--tix-primary, #FF5500);
+    outline: none;
+}
+
 /* Fortschrittsleiste */
 .tix-progress {
     padding: 14px 20px;

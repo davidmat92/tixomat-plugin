@@ -1752,6 +1752,72 @@
             if (e.which === 13) { e.preventDefault(); $('#tix-ai-fill-url-btn').click(); }
         });
 
+        // ── Chat-basierte Event-Generierung ──
+        var chatHistory = [];
+        var $chatConv = $('#tix-ai-chat-conversation');
+        var $chatText = $('#tix-ai-chat-text');
+
+        $('#tix-ai-chat-btn').on('click', function() {
+            var text = $chatText.val().trim();
+            if (!text) return;
+            sendChat(text);
+        });
+        $chatText.on('keydown', function(e) {
+            if (e.which === 13 && !e.shiftKey) { e.preventDefault(); $('#tix-ai-chat-btn').click(); }
+        });
+
+        function sendChat(text) {
+            var $btn = $('#tix-ai-chat-btn');
+            $btn.prop('disabled', true).find('.dashicons').removeClass('dashicons-edit').addClass('dashicons-update spin');
+
+            // Nachricht anzeigen
+            appendChatBubble('user', text);
+            $chatText.val('');
+            $chatConv.show();
+
+            $.post(tixAdmin.ajaxUrl, {
+                action: 'tix_ai_chat',
+                nonce: tixAdmin.nonce,
+                text: text,
+                history: JSON.stringify(chatHistory)
+            }, function(r) {
+                $btn.prop('disabled', false).find('.dashicons').removeClass('dashicons-update spin').addClass('dashicons-edit');
+
+                if (!r.success) {
+                    appendChatBubble('assistant', r.data ? r.data.message : 'Fehler.');
+                    return;
+                }
+
+                if (r.data.status === 'questions') {
+                    chatHistory = r.data.history || chatHistory;
+                    appendChatBubble('assistant', r.data.message);
+                    $chatText.focus();
+                } else if (r.data.status === 'complete') {
+                    appendChatBubble('assistant', '✓ Event-Daten vollständig! Öffne Vorschau…');
+                    chatHistory = [];
+                    setTimeout(function() {
+                        $chatConv.hide().empty();
+                        showPreviewModal(r.data.fields);
+                    }, 800);
+                }
+            }).fail(function() {
+                $btn.prop('disabled', false).find('.dashicons').removeClass('dashicons-update spin').addClass('dashicons-edit');
+                appendChatBubble('assistant', 'Netzwerkfehler. Bitte erneut versuchen.');
+            });
+        }
+
+        function appendChatBubble(role, text) {
+            var isUser = role === 'user';
+            var bg = isUser ? 'color-mix(in srgb, var(--tix-primary, #FF5500) 10%, #fff)' : '#f3f4f6';
+            var align = isUser ? 'flex-end' : 'flex-start';
+            var bubble = '<div style="display:flex;justify-content:' + align + ';margin-bottom:6px;">' +
+                '<div style="max-width:80%;padding:8px 12px;border-radius:10px;background:' + bg + ';font-size:13px;line-height:1.4;">' +
+                $('<span>').text(text).html() +
+                '</div></div>';
+            $chatConv.append(bubble);
+            $chatConv.scrollTop($chatConv[0].scrollHeight);
+        }
+
         function doAiFill(sourceType, extraData) {
             var $status = $('#tix-ai-fill-status');
             var $bar = $('#tix-ai-fill-bar');
