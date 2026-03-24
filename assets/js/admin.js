@@ -282,20 +282,31 @@
 
         // Global-API für KI-Fill: Ticket-Zeile mit Daten hinzufügen
         window.tixAddTicketRow = function(name, price, desc) {
-            // Nur hinzufügen wenn nicht schon Rows vorhanden
-            if ($tbody.find('tr.tix-row').length > 0) {
-                // Prüfe ob bereits eine Zeile mit diesem Namen existiert
-                var exists = false;
-                $tbody.find('tr.tix-row input[name$="[name]"]').each(function() {
-                    if ($(this).val().toLowerCase() === name.toLowerCase()) exists = true;
-                });
-                if (exists) return;
+            // Prüfe ob bereits eine Zeile mit diesem Namen existiert
+            var exists = false;
+            $tbody.find('tr.tix-row input[name$="[name]"]').each(function() {
+                if ($(this).val() && $(this).val().toLowerCase() === name.toLowerCase()) exists = true;
+            });
+            if (exists) return;
+
+            // Suche nach einer leeren Zeile (Name-Feld leer) und befülle diese zuerst
+            var $emptyRow = null;
+            $tbody.find('tr.tix-row').each(function() {
+                if (!$(this).find('input[name$="[name]"]').val()) {
+                    $emptyRow = $(this);
+                    return false; // break
+                }
+            });
+
+            if (!$emptyRow) {
+                // Keine leere Zeile → neue erstellen
+                $('#tix-add-row').click();
+                $emptyRow = $tbody.find('tr.tix-row').last();
             }
-            $('#tix-add-row').click();
-            var $lastRow = $tbody.find('tr.tix-row').last();
-            $lastRow.find('input[name$="[name]"]').val(name);
-            if (price > 0) $lastRow.find('input[name$="[price]"]').val(price.toFixed(2));
-            if (desc) $lastRow.find('input[name$="[desc]"]').val(desc);
+
+            $emptyRow.find('input[name$="[name]"]').val(name);
+            if (price > 0) $emptyRow.find('input[name$="[price]"]').val(price.toFixed(2));
+            if (desc) $emptyRow.find('input[name$="[desc]"]').val(desc);
         };
 
         // ══════════════════════════════════════
