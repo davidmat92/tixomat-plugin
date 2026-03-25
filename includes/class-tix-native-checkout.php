@@ -926,8 +926,7 @@ class TIX_Native_Checkout {
                     $max_uses = intval($coupons[$coupon_code]['max_uses'] ?? 0);
                     $used = intval($coupons[$coupon_code]['used'] ?? 0);
                     if ($max_uses > 0 && $used >= $max_uses) {
-                        // Coupon hit limit between validation and now — still apply but log
-                        error_log('[TIX Coupon] Race condition: coupon ' . $coupon_code . ' hit max_uses during checkout');
+                        // Coupon hit limit between validation and now — still apply
                     }
                     $coupons[$coupon_code]['used'] = $used + 1;
                     update_option('tix_coupons', $coupons);
@@ -1036,12 +1035,13 @@ class TIX_Native_Checkout {
             ]);
         }
 
-        // Decrement stock for each ticket category
+        // Decrement stock for each ticket category (cache-busted for freshness)
         foreach ($data['items'] as $item) {
             $event_id  = intval($item['event_id']);
             $cat_index = intval($item['cat_index']);
             $qty       = intval($item['qty']);
 
+            wp_cache_delete($event_id, 'post_meta');
             $categories = get_post_meta($event_id, '_tix_ticket_categories', true);
             if (is_array($categories) && isset($categories[$cat_index])) {
                 $current_stock = isset($categories[$cat_index]['stock']) ? intval($categories[$cat_index]['stock']) : -1;

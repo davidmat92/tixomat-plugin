@@ -221,7 +221,8 @@
 
         $.post(ajax, {
             action: 'tix_native_apply_coupon',
-            coupon_code: code
+            coupon_code: code,
+            nonce: nonce
         }, function(res) {
             if (res.success) {
                 $msg.html('<span style="color:#22c55e;">' + res.data.message + '</span>');

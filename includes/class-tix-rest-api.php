@@ -49,7 +49,7 @@ class TIX_REST_API {
         // User mit passendem Token finden
         $users = get_users([
             'meta_key'   => '_tix_app_token',
-            'number'     => 10,
+            'number'     => 0, // No limit
             'fields'     => 'ids',
         ]);
 

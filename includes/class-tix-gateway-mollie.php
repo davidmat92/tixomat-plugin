@@ -175,8 +175,6 @@ class TIX_Gateway_Mollie {
             wp_die('No change', '', 200);
         }
 
-        error_log('[TIX Mollie Webhook] Payment ' . $payment_id . ' status: ' . $status . ' → order ' . $order_id . ' → ' . $tix_status);
-
         TIX_Native_Checkout::update_order_status($order_id, $tix_status, 'mollie');
 
         delete_transient($lock_key);

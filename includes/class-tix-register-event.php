@@ -223,8 +223,12 @@ class TIX_Register_Event {
 
         // ── 1. User erstellen ──
         $username = sanitize_user(strtolower($first_name . '.' . $last_name));
-        if (username_exists($username)) $username .= wp_rand(10, 99);
-        if (username_exists($username)) $username .= wp_rand(100, 999);
+        $base_username = $username;
+        $attempt = 0;
+        while (username_exists($username) && $attempt < 10) {
+            $username = $base_username . wp_rand(10, 9999);
+            $attempt++;
+        }
 
         $user_id = wp_create_user($username, $password, $email);
         if (is_wp_error($user_id)) wp_send_json_error(['message' => $user_id->get_error_message()]);

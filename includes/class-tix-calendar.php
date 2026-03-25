@@ -150,8 +150,11 @@ class TIX_Calendar {
         $description = implode("\n", $desc_parts);
 
         // DateTime-Objekte
-        $start_ts = strtotime("{$date_start} {$time_start}");
-        $end_ts   = strtotime("{$date_end} {$time_end}");
+        $wp_tz = wp_timezone();
+        $start_dt = new DateTime("{$date_start} {$time_start}", $wp_tz);
+        $end_dt   = new DateTime("{$date_end} {$time_end}", $wp_tz);
+        $start_ts = $start_dt->getTimestamp();
+        $end_ts   = $end_dt->getTimestamp();
 
         // Fallback: Ende mindestens 1h nach Start
         if ($end_ts <= $start_ts) $end_ts = $start_ts + 3600;
@@ -192,11 +195,20 @@ class TIX_Calendar {
      */
     private static function ics_escape($text) {
         $text = str_replace(['\\', ';', ',', "\n", "\r"], ['\\\\', '\\;', '\\,', '\\n', ''], $text);
-        // Zeilen-Folding (max 75 Zeichen)
-        if (strlen($text) > 60) {
-            $text = mb_substr($text, 0, 60) . "\r\n " . mb_substr($text, 60);
+        // RFC 5545 line folding: max 75 octets per line
+        if (strlen($text) <= 73) return $text;
+        $lines = [];
+        $remaining = $text;
+        $first = true;
+        while (strlen($remaining) > 0) {
+            $max = $first ? 73 : 72; // First line: 73 bytes, continuation: 72 (1 byte for space prefix)
+            // Don't break in the middle of a multi-byte character
+            $chunk = mb_strcut($remaining, 0, $max, 'UTF-8');
+            $lines[] = ($first ? '' : ' ') . $chunk;
+            $remaining = substr($remaining, strlen($chunk));
+            $first = false;
         }
-        return $text;
+        return implode("\r\n", $lines);
     }
 
     /**

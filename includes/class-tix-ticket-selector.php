@@ -1248,10 +1248,8 @@ class TIX_Ticket_Selector {
         check_ajax_referer('tix_add_to_cart', 'nonce');
 
         $items = json_decode(stripslashes($_POST['items'] ?? '[]'), true);
-        error_log('[TIX] ajax_add_to_cart called. Items: ' . print_r($items, true));
 
         if (empty($items)) {
-            error_log('[TIX] ajax_add_to_cart: No items');
             wp_send_json_error(['message' => 'Keine Tickets ausgewählt.']);
         }
 
@@ -1261,7 +1259,6 @@ class TIX_Ticket_Selector {
                 TIX_Native_Checkout::ajax_add_to_cart();
                 return;
             }
-            error_log('[TIX] ajax_add_to_cart: WooCommerce not available');
             wp_send_json_error(['message' => 'Shop nicht verfügbar.']);
         }
 
@@ -1339,7 +1336,6 @@ class TIX_Ticket_Selector {
                 $wc_notices = wc_get_notices('error');
                 $err_msg = !empty($wc_notices) ? wp_strip_all_tags($wc_notices[0]['notice'] ?? 'Unknown') : 'add_to_cart returned false';
                 $errors[] = "Product {$product_id} qty {$quantity}: {$err_msg}";
-                error_log("[TIX] add_to_cart FAILED for product {$product_id}, qty {$quantity}: {$err_msg}");
                 wc_clear_notices();
             }
         }
@@ -1376,7 +1372,6 @@ class TIX_Ticket_Selector {
             ]);
         } else {
             $detail = !empty($errors) ? ' (' . implode('; ', $errors) . ')' : '';
-            error_log("[TIX] ajax_add_to_cart: 0 added. Errors: " . implode('; ', $errors));
             wp_send_json_error(['message' => 'Tickets konnten nicht hinzugefügt werden.' . $detail]);
         }
     }

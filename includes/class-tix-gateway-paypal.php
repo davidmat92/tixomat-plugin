@@ -191,7 +191,6 @@ class TIX_Gateway_PayPal {
         }
 
         $event_type = sanitize_text_field($data['event_type']);
-        error_log('[TIX PayPal Webhook] Event: ' . $event_type);
 
         $resource = $data['resource'] ?? [];
         $purchase_units = $resource['purchase_units'] ?? [];
@@ -202,9 +201,6 @@ class TIX_Gateway_PayPal {
             // For PAYMENT.CAPTURE.COMPLETED, reference_id may be in supplementary_data
             $reference_id = $resource['supplementary_data']['related_ids']['order_id'] ?? '';
             // Try to find our order via the PayPal order ID
-            if (!empty($reference_id)) {
-                error_log('[TIX PayPal Webhook] Capture event with PayPal order ID: ' . $reference_id);
-            }
             wp_die('OK', '', 200);
         }
 
@@ -216,7 +212,6 @@ class TIX_Gateway_PayPal {
             "SELECT id FROM {$wpdb->prefix}tix_orders WHERE id = %d", $order_id
         ));
         if (!$order_exists) {
-            error_log('[TIX PayPal Webhook] Order not found: ' . $order_id);
             wp_die('Order not found', '', 200);
         }
 
@@ -224,7 +219,6 @@ class TIX_Gateway_PayPal {
             // Capture the payment if not yet captured
             $pp_order_id = get_option('_tix_paypal_order_' . $order_id);
             if ($pp_order_id) {
-                error_log('[TIX PayPal Webhook] Capturing order ' . $order_id . ' (PayPal: ' . $pp_order_id . ')');
                 $captured = self::capture($pp_order_id, $order_id);
                 if ($captured) {
                     delete_option('_tix_paypal_order_' . $order_id);
@@ -236,7 +230,6 @@ class TIX_Gateway_PayPal {
                 "SELECT status FROM {$wpdb->prefix}tix_orders WHERE id = %d", $order_id
             ));
             if ($old_status !== 'completed') {
-                error_log('[TIX PayPal Webhook] Completing order ' . $order_id);
                 TIX_Native_Checkout::update_order_status($order_id, 'completed', 'paypal');
             }
         }

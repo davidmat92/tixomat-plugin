@@ -375,31 +375,23 @@ class TIX_Seatmap {
         $failed     = [];
 
         foreach ($seat_ids as $seat_id) {
-            // Prüfen ob bereits belegt
-            $existing = $wpdb->get_var($wpdb->prepare(
-                "SELECT id FROM $table
-                 WHERE event_id = %d AND seat_id = %s
-                 AND status IN ('reserved','sold')
-                 AND (status = 'sold' OR expires_at > NOW())",
+            // Atomic: INSERT only if no active reservation exists
+            $sql = $wpdb->prepare(
+                "INSERT INTO $table (event_id, seatmap_id, seat_id, status, session_id, reserved_at, expires_at)
+                 SELECT %d, %d, %s, 'reserved', %s, %s, %s
+                 FROM (SELECT 1) AS tmp
+                 WHERE NOT EXISTS (
+                     SELECT 1 FROM $table
+                     WHERE event_id = %d AND seat_id = %s
+                     AND status IN ('reserved','sold')
+                     AND (status = 'sold' OR expires_at > NOW())
+                 )",
+                $event_id, $seatmap_id, $seat_id, $session_id, $now, $expires_at,
                 $event_id, $seat_id
-            ));
+            );
+            $result = $wpdb->query($sql);
 
-            if ($existing) {
-                $failed[] = $seat_id;
-                continue;
-            }
-
-            $wpdb->insert($table, [
-                'event_id'    => $event_id,
-                'seatmap_id'  => $seatmap_id,
-                'seat_id'     => $seat_id,
-                'status'      => 'reserved',
-                'session_id'  => $session_id,
-                'reserved_at' => $now,
-                'expires_at'  => $expires_at,
-            ], ['%d','%d','%s','%s','%s','%s','%s']);
-
-            if ($wpdb->insert_id) {
+            if ($result && $wpdb->insert_id) {
                 $reserved[] = $seat_id;
             } else {
                 $failed[] = $seat_id;

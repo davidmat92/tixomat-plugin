@@ -302,6 +302,15 @@ PROMPT;
         $is_register = sanitize_text_field($_POST['context'] ?? '') === 'register_event';
         if (!$is_register && !current_user_can('edit_posts')) wp_send_json_error(['message' => 'Keine Berechtigung.']);
 
+        // Rate limit: max 20 AI requests per minute per IP
+        $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+        $rate_key = 'tix_ai_rate_' . md5($ip);
+        $count = (int) get_transient($rate_key);
+        if ($count >= 20) {
+            wp_send_json_error(['message' => 'Zu viele Anfragen. Bitte warte einen Moment.']);
+        }
+        set_transient($rate_key, $count + 1, 60);
+
         $source_type = sanitize_text_field($_POST['source_type'] ?? '');
         $source_content = '';
         $image_data = null;
@@ -673,6 +682,15 @@ REGELN:
         $is_register = sanitize_text_field($_POST['context'] ?? '') === 'register_event';
         if (!$is_register && !current_user_can('edit_posts')) wp_send_json_error(['message' => 'Keine Berechtigung.']);
 
+        // Rate limit: max 20 AI requests per minute per IP
+        $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+        $rate_key = 'tix_ai_rate_' . md5($ip);
+        $count = (int) get_transient($rate_key);
+        if ($count >= 20) {
+            wp_send_json_error(['message' => 'Zu viele Anfragen. Bitte warte einen Moment.']);
+        }
+        set_transient($rate_key, $count + 1, 60);
+
         $user_text = sanitize_textarea_field($_POST['text'] ?? '');
         $history   = json_decode(stripslashes($_POST['history'] ?? '[]'), true);
         if (!is_array($history)) $history = [];
@@ -903,8 +921,17 @@ REGELN:
         require_once ABSPATH . 'wp-admin/includes/file.php';
         require_once ABSPATH . 'wp-admin/includes/media.php';
 
-        // For non-logged-in register context: temporarily allow uploads
+        // For non-logged-in register context: temporarily allow uploads with rate limiting
         if ($is_register && !current_user_can('upload_files')) {
+            // Rate limit uploads: max 5 per 10 minutes per IP
+            $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+            $upload_rate_key = 'tix_upload_rate_' . md5($ip);
+            $upload_count = (int) get_transient($upload_rate_key);
+            if ($upload_count >= 5) {
+                wp_send_json_error(['message' => 'Upload-Limit erreicht. Bitte warte einen Moment.']);
+            }
+            set_transient($upload_rate_key, $upload_count + 1, 600);
+
             add_filter('user_has_cap', function($caps) {
                 $caps['upload_files'] = true;
                 return $caps;
