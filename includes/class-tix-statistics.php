@@ -361,7 +361,7 @@ class TIX_Statistics {
     }
 
     /** Tickets (eigenes CPT) zählen */
-    private static function query_tickets($from, $to, $event_ids = [], $statuses = ['valid','checked_in','redeemed']) {
+    private static function query_tickets($from, $to, $event_ids = [], $statuses = ['valid','checked_in','redeemed','used']) {
         global $wpdb;
         $status_in = "'" . implode("','", array_map('esc_sql', $statuses)) . "'";
         $where = "p.post_type = 'tix_ticket' AND p.post_status = 'publish'";
@@ -387,7 +387,7 @@ class TIX_Statistics {
     /** Tickets nach Kategorie */
     private static function query_tickets_by_cat($from, $to, $event_ids = []) {
         global $wpdb;
-        $where = "p.post_type = 'tix_ticket' AND p.post_status = 'publish' AND sm.meta_value IN ('valid','checked_in','redeemed')";
+        $where = "p.post_type = 'tix_ticket' AND p.post_status = 'publish' AND sm.meta_value IN ('valid','checked_in','redeemed','used')";
         $params = [];
         if ($from) { $where .= " AND p.post_date >= %s"; $params[] = $from . ' 00:00:00'; }
         if ($to)   { $where .= " AND p.post_date <= %s"; $params[] = $to   . ' 23:59:59'; }
@@ -411,7 +411,7 @@ class TIX_Statistics {
     /** Tickets über Zeit */
     private static function query_tickets_over_time($from, $to, $event_ids = []) {
         global $wpdb;
-        $where = "p.post_type = 'tix_ticket' AND p.post_status = 'publish' AND sm.meta_value IN ('valid','checked_in','redeemed')";
+        $where = "p.post_type = 'tix_ticket' AND p.post_status = 'publish' AND sm.meta_value IN ('valid','checked_in','redeemed','used')";
         $params = [];
         if ($from) { $where .= " AND p.post_date >= %s"; $params[] = $from . ' 00:00:00'; }
         if ($to)   { $where .= " AND p.post_date <= %s"; $params[] = $to   . ' 23:59:59'; }
@@ -432,7 +432,7 @@ class TIX_Statistics {
     /** Top Events nach Umsatz (via eigenes Ticket-CPT) */
     private static function query_top_events($from, $to, $event_ids = [], $limit = 5) {
         global $wpdb;
-        $where = "p.post_type = 'tix_ticket' AND p.post_status = 'publish' AND sm.meta_value IN ('valid','checked_in','redeemed')";
+        $where = "p.post_type = 'tix_ticket' AND p.post_status = 'publish' AND sm.meta_value IN ('valid','checked_in','redeemed','used')";
         $params = [];
         if ($from) { $where .= " AND p.post_date >= %s"; $params[] = $from . ' 00:00:00'; }
         if ($to)   { $where .= " AND p.post_date <= %s"; $params[] = $to   . ' 23:59:59'; }
@@ -836,7 +836,7 @@ class TIX_Statistics {
         global $wpdb;
         $eids = self::filtered_event_ids($f);
 
-        $sold      = self::query_tickets($f['date_from'], $f['date_to'], $eids, ['valid','checked_in','redeemed']);
+        $sold      = self::query_tickets($f['date_from'], $f['date_to'], $eids, ['valid','checked_in','redeemed','used']);
         $cancelled = self::query_tickets($f['date_from'], $f['date_to'], $eids, ['cancelled']);
         $transferred = self::query_tickets($f['date_from'], $f['date_to'], $eids, ['transferred']);
         $today     = self::query_tickets(current_time('Y-m-d'), current_time('Y-m-d'), $eids);
