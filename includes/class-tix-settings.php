@@ -840,22 +840,40 @@ class TIX_Settings {
         $clean['tix_typo_base_size']    = max(10, min(22, intval($input['tix_typo_base_size'] ?? 15)));
         $clean['tix_typo_breakdance_sync'] = !empty($input['tix_typo_breakdance_sync']) ? 1 : 0;
 
-        // Per-Class Typografie Overrides
+        // Per-Class Typografie Overrides (via JSON hidden input — umgeht max_input_vars)
         $clean['tix_typo_classes'] = [];
-        if (!empty($input['tix_typo_classes']) && is_array($input['tix_typo_classes'])) {
-            $registry = self::typo_class_registry_flat();
-            $allowed_fonts = ['Sora', 'DM Sans', 'Inter', 'Outfit', 'Poppins', 'Montserrat', 'Open Sans', 'Roboto', 'Lato', 'Nunito', 'Raleway', 'Playfair Display', 'Oswald', 'Source Sans 3', 'Work Sans', 'Manrope', 'Plus Jakarta Sans', 'Figtree', 'heading', 'body'];
-            foreach ($input['tix_typo_classes'] as $cls => $vals) {
-                if (!isset($registry[$cls]) || !is_array($vals)) continue;
-                $def = $registry[$cls];
-                $entry = [];
-                $size = intval($vals['size'] ?? $def['size']);
-                if ($size !== $def['size'] && $size >= 8 && $size <= 60) $entry['size'] = $size;
-                $font = sanitize_text_field($vals['font'] ?? $def['font']);
-                if ($font !== $def['font'] && in_array($font, $allowed_fonts, true)) $entry['font'] = $font;
-                $weight = intval($vals['weight'] ?? $def['weight']);
-                if ($weight !== $def['weight'] && $weight >= 100 && $weight <= 900 && $weight % 100 === 0) $entry['weight'] = $weight;
-                if (!empty($entry)) $clean['tix_typo_classes'][$cls] = $entry;
+        $typo_json = $input['tix_typo_classes_json'] ?? '';
+        if (!empty($typo_json)) {
+            $typo_data = json_decode(wp_unslash($typo_json), true);
+            if (is_array($typo_data)) {
+                $registry = self::typo_class_registry_flat();
+                $allowed_fonts = ['Sora', 'DM Sans', 'Inter', 'Outfit', 'Poppins', 'Montserrat', 'Open Sans', 'Roboto', 'Lato', 'Nunito', 'Raleway', 'Playfair Display', 'Oswald', 'Source Sans 3', 'Work Sans', 'Manrope', 'Plus Jakarta Sans', 'Figtree', 'heading', 'body'];
+                foreach ($typo_data as $cls => $vals) {
+                    $cls = sanitize_text_field($cls);
+                    if (!isset($registry[$cls]) || !is_array($vals)) continue;
+                    $def = $registry[$cls];
+                    $entry = [];
+                    if (isset($vals['size'])) {
+                        $size = intval($vals['size']);
+                        if ($size !== $def['size'] && $size >= 8 && $size <= 60) $entry['size'] = $size;
+                    }
+                    if (isset($vals['font'])) {
+                        $font = sanitize_text_field($vals['font']);
+                        if ($font !== $def['font'] && in_array($font, $allowed_fonts, true)) $entry['font'] = $font;
+                    }
+                    if (isset($vals['weight'])) {
+                        $weight = intval($vals['weight']);
+                        if ($weight !== $def['weight'] && $weight >= 100 && $weight <= 900 && $weight % 100 === 0) $entry['weight'] = $weight;
+                    }
+                    if (!empty($entry)) $clean['tix_typo_classes'][$cls] = $entry;
+                }
+            }
+        }
+        // Wenn kein JSON gesendet wurde, bestehende Overrides aus DB beibehalten
+        if (empty($typo_json)) {
+            $existing = get_option('tix_settings', []);
+            if (!empty($existing['tix_typo_classes']) && is_array($existing['tix_typo_classes'])) {
+                $clean['tix_typo_classes'] = $existing['tix_typo_classes'];
             }
         }
 
@@ -3134,22 +3152,21 @@ class TIX_Settings {
                                             $cur_font   = $ov['font']   ?? $def['font'];
                                             $cur_weight = $ov['weight'] ?? $def['weight'];
                                             $has_changes = !empty($ov);
-                                            $prefix = "tix_settings[tix_typo_classes][{$cls}]";
                                         ?>
                                         <div class="tix-typo-row" data-cls="<?php echo esc_attr($cls); ?>" data-def-size="<?php echo esc_attr($def['size']); ?>" data-def-font="<?php echo esc_attr($def['font']); ?>" data-def-weight="<?php echo esc_attr($def['weight']); ?>">
                                             <div class="tix-typo-label">
                                                 <span class="tix-typo-label-name"><?php echo esc_html($def['label']); ?></span>
                                                 <span class="tix-typo-label-cls">.<?php echo esc_html($cls); ?></span>
                                             </div>
-                                            <input type="number" name="<?php echo esc_attr($prefix); ?>[size]" value="<?php echo esc_attr($cur_size); ?>" min="8" max="60" step="1" class="<?php echo ($ov['size'] ?? null) !== null ? 'tix-typo-changed' : ''; ?>">
-                                            <select name="<?php echo esc_attr($prefix); ?>[font]" class="<?php echo ($ov['font'] ?? null) !== null ? 'tix-typo-changed' : ''; ?>">
+                                            <input type="number" data-prop="size" value="<?php echo esc_attr($cur_size); ?>" min="8" max="60" step="1" class="<?php echo ($ov['size'] ?? null) !== null ? 'tix-typo-changed' : ''; ?>">
+                                            <select data-prop="font" class="<?php echo ($ov['font'] ?? null) !== null ? 'tix-typo-changed' : ''; ?>">
                                                 <option value="heading" <?php selected($cur_font, 'heading'); ?>>Standard (Heading)</option>
                                                 <option value="body" <?php selected($cur_font, 'body'); ?>>Standard (Body)</option>
                                                 <?php foreach ($fonts as $f): ?>
                                                     <option value="<?php echo esc_attr($f); ?>" <?php selected($cur_font, $f); ?>><?php echo esc_html($f); ?></option>
                                                 <?php endforeach; ?>
                                             </select>
-                                            <select name="<?php echo esc_attr($prefix); ?>[weight]" class="<?php echo ($ov['weight'] ?? null) !== null ? 'tix-typo-changed' : ''; ?>">
+                                            <select data-prop="weight" class="<?php echo ($ov['weight'] ?? null) !== null ? 'tix-typo-changed' : ''; ?>">
                                                 <?php foreach ($weight_options as $w): ?>
                                                     <option value="<?php echo $w; ?>" <?php selected($cur_weight, $w); ?>><?php echo $w; ?></option>
                                                 <?php endforeach; ?>
@@ -3162,6 +3179,8 @@ class TIX_Settings {
                                     </div>
                                 </div>
                                 <?php endforeach; ?>
+
+                                <input type="hidden" name="tix_settings[tix_typo_classes_json]" id="tix-typo-json" value="">
 
                                 <script>
                                 function tixTypoReset(btn) {
@@ -3192,21 +3211,28 @@ class TIX_Settings {
                                         });
                                     });
                                 });
-                                /* Vor dem Absenden: Nur geänderte Typo-Felder senden (max_input_vars!) */
+                                /* Vor dem Absenden: Alle Typo-Overrides als 1 JSON-String senden (umgeht max_input_vars) */
                                 var tixForm = document.getElementById('tix-settings-form');
                                 if (tixForm) {
                                     tixForm.addEventListener('submit', function() {
+                                        var overrides = {};
                                         document.querySelectorAll('.tix-typo-row:not(.tix-typo-row-head)').forEach(function(row) {
+                                            var cls = row.dataset.cls;
                                             var s = row.querySelector('input[type="number"]');
                                             var f = row.querySelectorAll('select')[0];
                                             var w = row.querySelectorAll('select')[1];
-                                            var diffFromDefault = s.value != row.dataset.defSize || f.value != row.dataset.defFont || w.value != row.dataset.defWeight;
-                                            if (!diffFromDefault) {
-                                                s.removeAttribute('name');
-                                                f.removeAttribute('name');
-                                                w.removeAttribute('name');
+                                            var sizeChanged = s.value != row.dataset.defSize;
+                                            var fontChanged = f.value != row.dataset.defFont;
+                                            var weightChanged = w.value != row.dataset.defWeight;
+                                            if (sizeChanged || fontChanged || weightChanged) {
+                                                var entry = {};
+                                                if (sizeChanged) entry.size = parseInt(s.value, 10);
+                                                if (fontChanged) entry.font = f.value;
+                                                if (weightChanged) entry.weight = parseInt(w.value, 10);
+                                                overrides[cls] = entry;
                                             }
                                         });
+                                        document.getElementById('tix-typo-json').value = JSON.stringify(overrides);
                                     });
                                 }
                                 </script>
