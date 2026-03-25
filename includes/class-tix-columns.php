@@ -402,7 +402,7 @@ class TIX_Columns {
 
     public static function series_filter($post_type) {
         if ($post_type !== 'event') return;
-        $current = $_GET['tix_series_filter'] ?? '';
+        $current = sanitize_text_field($_GET['tix_series_filter'] ?? '');
         ?>
         <select name="tix_series_filter">
             <option value="">Alle Events</option>
@@ -425,8 +425,8 @@ class TIX_Columns {
         if (!is_admin() || !$query->is_main_query()) return;
         if ($query->get('post_type') !== 'event') return;
 
-        $filter = $_GET['tix_series_filter'] ?? '';
-        $parent = $_GET['tix_series_parent'] ?? '';
+        $filter = sanitize_text_field($_GET['tix_series_filter'] ?? '');
+        $parent = intval($_GET['tix_series_parent'] ?? 0);
 
         $mq = $query->get('meta_query') ?: [];
 
@@ -873,7 +873,7 @@ class TIX_Columns {
         }
 
         // Kategorie-Filter
-        $cat = $_GET['tix_filter_cat'] ?? '';
+        $cat = sanitize_text_field($_GET['tix_filter_cat'] ?? '');
         if ($cat !== '' && $cat !== null) {
             $meta_query[] = [
                 'key'   => '_tix_ticket_cat_index',

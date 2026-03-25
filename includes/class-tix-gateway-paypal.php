@@ -74,6 +74,7 @@ class TIX_Gateway_PayPal {
         $cancel_url = add_query_arg([
             'tix_payment_cancel' => 1,
             'order_id'           => $order_id,
+            'order_key'          => $order->order_key,
         ], home_url('/'));
 
         $response = wp_remote_post(self::api_url() . '/v2/checkout/orders', [
@@ -250,10 +251,18 @@ class TIX_Gateway_PayPal {
         // Handle cancellation
         if (!empty($_GET['tix_payment_cancel'])) {
             $order_id = intval($_GET['order_id'] ?? 0);
-            if ($order_id) {
-                TIX_Native_Checkout::update_order_status($order_id, 'cancelled', 'paypal');
+            $order_key = sanitize_text_field($_GET['order_key'] ?? '');
+            if ($order_id && $order_key) {
+                // Verify order exists and key matches
+                global $wpdb;
+                $valid = $wpdb->get_var($wpdb->prepare(
+                    "SELECT id FROM {$wpdb->prefix}tix_orders WHERE id = %d AND order_key = %s",
+                    $order_id, $order_key
+                ));
+                if ($valid) {
+                    TIX_Native_Checkout::update_order_status($order_id, 'cancelled', 'paypal');
+                }
             }
-            // Redirect back to checkout with message
             $checkout_url = class_exists('TIX_Native_Checkout') ? TIX_Native_Checkout::checkout_url() : home_url('/checkout/');
             wp_safe_redirect(add_query_arg('tix_cancelled', '1', $checkout_url));
             exit;

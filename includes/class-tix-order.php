@@ -364,9 +364,9 @@ class TIX_Order {
             add_option('tix_order_seq', $start, '', 'no');
         }
 
-        // Atomic increment + read in one query
-        $wpdb->query("UPDATE {$wpdb->options} SET option_value = option_value + 1 WHERE option_name = 'tix_order_seq'");
-        $seq = (int) $wpdb->get_var("SELECT option_value FROM {$wpdb->options} WHERE option_name = 'tix_order_seq'");
+        // Truly atomic: use LAST_INSERT_ID() to get the connection-scoped value
+        $wpdb->query("UPDATE {$wpdb->options} SET option_value = LAST_INSERT_ID(option_value + 1) WHERE option_name = 'tix_order_seq'");
+        $seq = (int) $wpdb->get_var("SELECT LAST_INSERT_ID()");
 
         // Clear object cache to prevent stale reads
         wp_cache_delete('tix_order_seq', 'options');

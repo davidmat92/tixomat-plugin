@@ -14,6 +14,8 @@ class TIX_Native_Checkout {
 
     public static function init() {
 
+        add_action('init', [__CLASS__, 'init_cart_session'], 1);
+
         // AJAX: Cart-Aktionen
         add_action('wp_ajax_tix_native_add_to_cart',        [__CLASS__, 'ajax_add_to_cart']);
         add_action('wp_ajax_nopriv_tix_native_add_to_cart', [__CLASS__, 'ajax_add_to_cart']);
@@ -57,17 +59,25 @@ class TIX_Native_Checkout {
     // Gäste: wp_options mit IP+UA Hash (Fallback)
     // ──────────────────────────────────────────
 
+    public static function init_cart_session() {
+        if (is_user_logged_in()) return;
+        $cookie_name = 'tix_cart_session';
+        if (empty($_COOKIE[$cookie_name])) {
+            $session_id = wp_generate_password(32, false);
+            setcookie($cookie_name, $session_id, time() + 7200, COOKIEPATH, COOKIE_DOMAIN, is_ssl(), true);
+            $_COOKIE[$cookie_name] = $session_id;
+        }
+    }
+
     private static function cart_key() {
         if (is_user_logged_in()) {
             return 'user_' . get_current_user_id();
         }
-        // Use a unique session cookie per browser
         $cookie_name = 'tix_cart_session';
-        if (!empty($_COOKIE[$cookie_name])) {
-            $session_id = sanitize_text_field($_COOKIE[$cookie_name]);
-        } else {
+        $session_id = sanitize_text_field($_COOKIE[$cookie_name] ?? '');
+        if (!$session_id) {
+            // Fallback for when cookie hasn't been set yet (first request)
             $session_id = wp_generate_password(32, false);
-            setcookie($cookie_name, $session_id, time() + 7200, COOKIEPATH, COOKIE_DOMAIN, is_ssl(), true);
             $_COOKIE[$cookie_name] = $session_id;
         }
         return 'guest_' . $session_id;
@@ -734,15 +744,20 @@ class TIX_Native_Checkout {
         $create_account = !is_user_logged_in() && !empty($_POST['createaccount']);
         if ($create_account && $email) {
             if (!email_exists($email) && !username_exists($email)) {
+                // Save guest cart before switching user context
+                $guest_cart = self::get_cart();
+
                 $password = wp_generate_password(12, true);
                 $user_id = wp_create_user($email, $password, $email);
                 if (!is_wp_error($user_id)) {
                     wp_update_user(['ID' => $user_id, 'first_name' => $first_name, 'last_name' => $last_name]);
                     wp_set_current_user($user_id);
                     wp_set_auth_cookie($user_id, true, is_ssl());
-                    // Migrate guest cart to user
-                    $guest_key = self::cart_key(); // will still return guest key since we just set user
-                    // Cart will be read under new user context in create_order
+
+                    // Migrate guest cart to new user
+                    if (!empty($guest_cart['items'])) {
+                        self::save_cart($guest_cart);
+                    }
                 }
             }
         }
@@ -782,6 +797,10 @@ class TIX_Native_Checkout {
             $event_id  = intval($cart_item['event_id'] ?? 0);
             $cat_index = intval($cart_item['cat_index'] ?? 0);
             $qty       = intval($cart_item['qty']);
+
+            if (get_post_status($event_id) !== 'publish') {
+                wp_send_json_error(['message' => 'Event "' . get_the_title($event_id) . '" ist nicht mehr verfügbar.']);
+            }
 
             $categories = get_post_meta($event_id, '_tix_ticket_categories', true);
             if (!is_array($categories) || !isset($categories[$cat_index])) {
@@ -840,9 +859,6 @@ class TIX_Native_Checkout {
             wp_send_json_error(['message' => $result['error']]);
             return;
         }
-
-        // Cart leeren
-        self::clear_cart();
 
         if (isset($result['redirect'])) {
             wp_send_json_success(['redirect' => $result['redirect']]);
@@ -903,10 +919,17 @@ class TIX_Native_Checkout {
             $data['total'] = max(0, round($data['total'] - $coupon_discount, 2));
 
             if ($coupon_code && $coupon_discount > 0) {
-                // Atomic coupon usage increment
+                // Re-read coupons to get latest state (minimize race window)
+                wp_cache_delete('tix_coupons', 'options');
                 $coupons = get_option('tix_coupons', []);
                 if (isset($coupons[$coupon_code])) {
-                    $coupons[$coupon_code]['used'] = intval($coupons[$coupon_code]['used'] ?? 0) + 1;
+                    $max_uses = intval($coupons[$coupon_code]['max_uses'] ?? 0);
+                    $used = intval($coupons[$coupon_code]['used'] ?? 0);
+                    if ($max_uses > 0 && $used >= $max_uses) {
+                        // Coupon hit limit between validation and now — still apply but log
+                        error_log('[TIX Coupon] Race condition: coupon ' . $coupon_code . ' hit max_uses during checkout');
+                    }
+                    $coupons[$coupon_code]['used'] = $used + 1;
                     update_option('tix_coupons', $coupons);
                 }
             }
@@ -1011,6 +1034,22 @@ class TIX_Native_Checkout {
                 'cat_name'   => sanitize_text_field($item['name'] ?? ''),
                 'meta'       => !empty($item['meta']) ? json_encode($item['meta']) : null,
             ]);
+        }
+
+        // Decrement stock for each ticket category
+        foreach ($data['items'] as $item) {
+            $event_id  = intval($item['event_id']);
+            $cat_index = intval($item['cat_index']);
+            $qty       = intval($item['qty']);
+
+            $categories = get_post_meta($event_id, '_tix_ticket_categories', true);
+            if (is_array($categories) && isset($categories[$cat_index])) {
+                $current_stock = isset($categories[$cat_index]['stock']) ? intval($categories[$cat_index]['stock']) : -1;
+                if ($current_stock >= 0) {
+                    $categories[$cat_index]['stock'] = max(0, $current_stock - $qty);
+                    update_post_meta($event_id, '_tix_ticket_categories', $categories);
+                }
+            }
         }
 
         return $order_id;
@@ -1121,6 +1160,11 @@ class TIX_Native_Checkout {
                 'Status geändert: ' . $old_status . ' → ' . $new_status . ($gateway ? ' (via ' . $gateway . ')' : ''),
                 'status_change'
             );
+        }
+
+        // Clear cart when order reaches a terminal state
+        if (in_array($new_status, ['completed', 'on-hold', 'processing'])) {
+            self::clear_cart();
         }
 
         // Zentraler Hook — wird von Tickets, Emails, Seatmap etc. genutzt

@@ -59,6 +59,18 @@
             var remaining = Math.max(0, endTime - Date.now());
             if (remaining === 0) {
                 $countdown.html('<div style="text-align:center;padding:12px;color:#ef4444;font-weight:600;">Zeit abgelaufen — bitte neu starten.</div>');
+                // Disable form submission
+                const submitBtn = document.getElementById('tix-native-pay-btn');
+                if (submitBtn) {
+                    submitBtn.disabled = true;
+                    submitBtn.style.opacity = '0.5';
+                    submitBtn.style.cursor = 'not-allowed';
+                }
+                // Prevent form submission
+                const form = document.getElementById('tix-native-checkout-form');
+                if (form) {
+                    form.addEventListener('submit', function(e) { e.preventDefault(); });
+                }
                 return;
             }
             var m = Math.floor(remaining / 60000);

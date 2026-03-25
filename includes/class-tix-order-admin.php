@@ -201,12 +201,30 @@ class TIX_Order_Admin {
             <?php // ── Pagination ── ?>
             <?php if ($total_pages > 1): ?>
                 <div style="display:flex;justify-content:center;gap:4px;margin-top:16px;">
-                    <?php for ($p = 1; $p <= $total_pages; $p++):
+                    <?php
+                    // Truncated pagination
+                    $range = 2;
+                    $show_pages = [];
+                    for ($p = 1; $p <= $total_pages; $p++) {
+                        if ($p === 1 || $p === $total_pages || abs($p - $paged) <= $range) {
+                            $show_pages[] = $p;
+                        } elseif (end($show_pages) !== '...') {
+                            $show_pages[] = '...';
+                        }
+                    }
+                    foreach ($show_pages as $p):
+                        if ($p === '...'):
+                    ?>
+                        <span style="display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;font-size:13px;">…</span>
+                    <?php else:
                         $url = admin_url('admin.php?page=tix-orders&paged=' . $p . ($status_filter ? '&status=' . $status_filter : '') . ($search ? '&s=' . urlencode($search) : ''));
                         $active_pg = $p === $paged ? 'background:var(--tix-primary, #FF5500);color:#fff;' : 'background:#fff;border:1px solid #e5e7eb;';
                     ?>
                         <a href="<?php echo esc_url($url); ?>" style="display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:6px;font-size:13px;text-decoration:none;<?php echo $active_pg; ?>"><?php echo $p; ?></a>
-                    <?php endfor; ?>
+                    <?php
+                        endif;
+                    endforeach;
+                    ?>
                 </div>
             <?php endif; ?>
 
@@ -965,11 +983,19 @@ class TIX_Order_Admin {
             'Zahlungsart', 'Zwischensumme', 'MwSt', 'Rabatt', 'Gesamt', 'Positionen'
         ], ';');
 
+        // Batch-load all items for these orders
+        $order_ids = wp_list_pluck($orders, 'id');
+        $all_items = [];
+        if (!empty($order_ids)) {
+            $ids_str = implode(',', array_map('intval', $order_ids));
+            $item_rows = $wpdb->get_results("SELECT * FROM $ti WHERE order_id IN ($ids_str) ORDER BY order_id, id");
+            foreach ($item_rows as $ir) {
+                $all_items[$ir->order_id][] = $ir;
+            }
+        }
+
         foreach ($orders as $o) {
-            $items = $wpdb->get_results($wpdb->prepare(
-                "SELECT name, quantity FROM $ti WHERE order_id = %d ORDER BY id ASC",
-                $o->id
-            ));
+            $items = $all_items[$o->id] ?? [];
             $item_names = [];
             foreach ($items as $item) {
                 $item_names[] = $item->name . ' x' . intval($item->quantity);

@@ -160,15 +160,26 @@ class TIX_Gateway_Mollie {
 
         $tix_status = $map[$status] ?? 'pending';
 
-        // Idempotency: skip update if status already matches
+        // Atomic idempotency via transient lock
+        $lock_key = 'tix_mollie_lock_' . $order_id;
+        if (get_transient($lock_key)) {
+            wp_die('Already processing', '', 200);
+        }
+        set_transient($lock_key, 1, 30); // 30 second lock
+
         $old_status = $wpdb->get_var($wpdb->prepare(
             "SELECT status FROM {$wpdb->prefix}tix_orders WHERE id = %d", $order_id
         ));
-        if ($old_status === $tix_status) wp_die('No change', '', 200);
+        if ($old_status === $tix_status) {
+            delete_transient($lock_key);
+            wp_die('No change', '', 200);
+        }
 
         error_log('[TIX Mollie Webhook] Payment ' . $payment_id . ' status: ' . $status . ' → order ' . $order_id . ' → ' . $tix_status);
 
         TIX_Native_Checkout::update_order_status($order_id, $tix_status, 'mollie');
+
+        delete_transient($lock_key);
 
         wp_die('OK', '', 200);
     }

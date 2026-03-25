@@ -33,6 +33,9 @@ class TIX_Tickets {
 
         // Ticket-Erstellung bei nativen Orders (ohne WC)
         add_action('tix_order_completed', [__CLASS__, 'on_native_order_completed']);
+
+        // Ticket-Stornierung bei nativen Orders (ohne WC)
+        add_action('tix_order_cancelled', [__CLASS__, 'on_native_order_cancelled']);
     }
 
     // ══════════════════════════════════════════════
@@ -844,6 +847,31 @@ class TIX_Tickets {
     }
 
     /**
+     * Cancel tickets when a native order is cancelled/refunded.
+     */
+    public static function on_native_order_cancelled($order_id) {
+        $tickets = get_posts([
+            'post_type'      => 'tix_ticket',
+            'post_status'    => 'publish',
+            'posts_per_page' => -1,
+            'meta_key'       => '_tix_ticket_order_id',
+            'meta_value'     => $order_id,
+        ]);
+
+        foreach ($tickets as $ticket) {
+            wp_update_post(['ID' => $ticket->ID, 'post_status' => 'cancelled']);
+            update_post_meta($ticket->ID, '_tix_ticket_status', 'cancelled');
+
+            // Release seatmap reservation if applicable
+            $seat = get_post_meta($ticket->ID, '_tix_ticket_seat', true);
+            $seatmap_id = get_post_meta($ticket->ID, '_tix_ticket_seatmap_id', true);
+            if ($seat && $seatmap_id) {
+                do_action('tix_release_seat', $seatmap_id, $seat, $ticket->ID);
+            }
+        }
+    }
+
+    /**
      * Ticket-Erstellung für native Orders (ohne WooCommerce).
      * Liest Items direkt aus tix_order_items.
      */
@@ -889,6 +917,7 @@ class TIX_Tickets {
                     'post_status' => 'publish',
                     'post_title'  => $code,
                     'post_author' => $order->customer_id ?: 1,
+                    'post_parent' => $order_id,
                 ]);
 
                 if (!$ticket_id || is_wp_error($ticket_id)) continue;
@@ -897,8 +926,8 @@ class TIX_Tickets {
                 update_post_meta($ticket_id, '_tix_ticket_event_id', $event_id);
                 update_post_meta($ticket_id, '_tix_ticket_code', $code);
                 update_post_meta($ticket_id, '_tix_ticket_download_token', $download_token);
-                update_post_meta($ticket_id, '_tix_ticket_buyer_email', $buyer_email);
-                update_post_meta($ticket_id, '_tix_ticket_buyer_name', $buyer_name);
+                update_post_meta($ticket_id, '_tix_ticket_owner_email', $buyer_email);
+                update_post_meta($ticket_id, '_tix_ticket_owner_name', $buyer_name);
                 update_post_meta($ticket_id, '_tix_ticket_event_name', get_the_title($event_id));
                 update_post_meta($ticket_id, '_tix_ticket_cat_name', $item->cat_name);
                 update_post_meta($ticket_id, '_tix_ticket_price', $item->total / max(1, $qty));
