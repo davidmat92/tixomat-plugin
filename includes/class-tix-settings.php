@@ -310,6 +310,10 @@ class TIX_Settings {
             'ai_assistant_name' => 'Evendis-Assistent',
             'ai_guard_enabled'  => 0,
             'ai_guard_api_key'  => '', // Legacy – wird migriert zu anthropic_api_key
+            // ── Steuern ──
+            'tax_enabled'       => 0,
+            'tax_rate'          => 19,
+            'tax_inclusive'     => 1, // German standard: prices include MwSt
             // ── Checkout-Modus ──
             'checkout_mode'     => 'auto', // auto (WC wenn vorhanden), woocommerce, native
             // ── Payment Gateways (nativer Checkout) ──
@@ -461,6 +465,11 @@ class TIX_Settings {
             'airtable_api_key'   => '',
             'airtable_base_id'   => '',
             'airtable_table'     => 'Tickets',
+            // ── Rechnungen ──
+            'invoice_company_name'    => '',
+            'invoice_company_address' => '',
+            'invoice_company_tax_id'  => '',
+            'invoice_footer_text'     => '',
             // ── Branding ──
             'branding_enabled'  => 1,
             'branding_url'      => 'https://mdj.events',
@@ -780,6 +789,11 @@ class TIX_Settings {
         $clean['support_categories'] = sanitize_textarea_field($input['support_categories'] ?? '');
         $clean['support_chat_enabled'] = !empty($input['support_chat_enabled']) ? 1 : 0;
 
+        // Steuern
+        $clean['tax_enabled']   = !empty($input['tax_enabled']) ? 1 : 0;
+        $clean['tax_rate']      = max(0, min(100, floatval($input['tax_rate'] ?? 19)));
+        $clean['tax_inclusive'] = !empty($input['tax_inclusive']) ? 1 : 0;
+
         // Checkout-Modus + Payment Gateways
         $clean['checkout_mode'] = in_array($input['checkout_mode'] ?? 'auto', ['auto', 'woocommerce', 'native']) ? $input['checkout_mode'] : 'auto';
         $clean['mollie_api_key']   = sanitize_text_field($input['mollie_api_key'] ?? '');
@@ -986,6 +1000,12 @@ class TIX_Settings {
         if ($clean['ticket_db_enabled'] && class_exists('TIX_Ticket_DB') && !TIX_Ticket_DB::table_exists()) {
             TIX_Ticket_DB::create_table();
         }
+
+        // Rechnungen
+        $clean['invoice_company_name']    = sanitize_text_field($input['invoice_company_name'] ?? '');
+        $clean['invoice_company_address'] = sanitize_textarea_field($input['invoice_company_address'] ?? '');
+        $clean['invoice_company_tax_id']  = sanitize_text_field($input['invoice_company_tax_id'] ?? '');
+        $clean['invoice_footer_text']     = sanitize_textarea_field($input['invoice_footer_text'] ?? '');
 
         // Branding
         $clean['branding_enabled'] = !empty($input['branding_enabled']) ? 1 : 0;
@@ -3498,6 +3518,25 @@ class TIX_Settings {
                             <?php // ═══ PANE: ADVANCED ═══ ?>
                             <div class="tix-pane" data-pane="advanced">
 
+                                <?php // ── Card: Steuern ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-money-alt"></span>
+                                        <h3>Steuern</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('tax_enabled', 'Steuerberechnung aktivieren', $s, 'Berechnet automatisch die MwSt. bei jeder Bestellung.'); ?>
+                                            </div>
+                                            <?php self::range_row('tax_rate', 'Steuersatz', $s, 0, 100, ' %', 0.5, true); ?>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('tax_inclusive', 'Preise enthalten MwSt. (Bruttopreise)', $s, 'Wenn aktiviert, wird die MwSt. aus dem Preis herausgerechnet. Andernfalls wird die MwSt. auf den Preis aufgeschlagen.'); ?>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
                                 <?php // ── Card: Google Places ── ?>
                                 <div class="tix-card">
                                     <div class="tix-card-header">
@@ -4086,6 +4125,33 @@ class TIX_Settings {
                                         <div class="tix-field-grid">
                                             <div class="tix-field tix-field-full">
                                                 <?php self::checkbox_row('myaccount_restyle', 'Tixomat-Design f&uuml;r WooCommerce &bdquo;Mein Konto&ldquo;', $s, '&Uuml;bernimmt das Tixomat-Design (Farben, Ecken, Schrift) f&uuml;r den gesamten WooCommerce &bdquo;Mein Konto&ldquo;-Bereich unter <code>/mein-konto/</code>.'); ?>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Rechnungen ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-media-document"></span>
+                                        <h3>Rechnungen</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <?php self::text_row('invoice_company_name', 'Firmenname', $s, 'Meine Firma GmbH'); ?>
+                                            <div class="tix-field tix-field-full">
+                                                <label class="tix-field-label">Firmenadresse</label>
+                                                <textarea name="<?php echo self::OPTION_KEY; ?>[invoice_company_address]" rows="3" class="large-text" style="width:100%;padding:8px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;resize:vertical;" placeholder="Musterstra&szlig;e 1&#10;12345 Berlin&#10;Deutschland"><?php echo esc_textarea($s['invoice_company_address'] ?? ''); ?></textarea>
+                                            </div>
+                                            <?php self::text_row('invoice_company_tax_id', 'USt-IdNr. / Steuernummer', $s, 'DE123456789'); ?>
+                                            <div class="tix-field tix-field-full">
+                                                <label class="tix-field-label">Fu&szlig;zeile</label>
+                                                <textarea name="<?php echo self::OPTION_KEY; ?>[invoice_footer_text]" rows="2" class="large-text" style="width:100%;padding:8px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;resize:vertical;" placeholder="Gesch&auml;ftsf&uuml;hrer: Max Mustermann | Amtsgericht Berlin HRB 12345"><?php echo esc_textarea($s['invoice_footer_text'] ?? ''); ?></textarea>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <p class="tix-settings-hint">
+                                                    Diese Daten erscheinen auf der Rechnung, die &uuml;ber die Bestelldetails generiert werden kann.
+                                                </p>
                                             </div>
                                         </div>
                                     </div>

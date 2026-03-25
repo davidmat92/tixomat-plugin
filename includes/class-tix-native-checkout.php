@@ -10,7 +10,7 @@ if (!defined('ABSPATH')) exit;
 
 class TIX_Native_Checkout {
 
-    const CART_EXPIRY = 3600; // 1 Stunde
+    const CART_EXPIRY = 7200; // 2 Stunden
 
     public static function init() {
 
@@ -30,6 +30,10 @@ class TIX_Native_Checkout {
         // AJAX: Checkout verarbeiten
         add_action('wp_ajax_tix_native_checkout',        [__CLASS__, 'ajax_process_checkout']);
         add_action('wp_ajax_nopriv_tix_native_checkout', [__CLASS__, 'ajax_process_checkout']);
+
+        // AJAX: Coupon
+        add_action('wp_ajax_tix_native_apply_coupon',        [__CLASS__, 'ajax_apply_coupon']);
+        add_action('wp_ajax_nopriv_tix_native_apply_coupon', [__CLASS__, 'ajax_apply_coupon']);
 
         // Shortcodes — [tix_checkout] übernehmen wenn WC nicht aktiv
         add_shortcode('tix_checkout', function() { return self::render_checkout(); });
@@ -331,9 +335,36 @@ class TIX_Native_Checkout {
         }
 
         $total = self::cart_total();
-        $is_free = ($total <= 0);
-        $nonce = wp_create_nonce('tix_native_checkout');
+
+        // ── Coupon discount ──
+        $coupon_discount = 0;
+        $coupon_code = '';
+        if (!empty($cart['coupon']) && !empty($cart['coupon']['discount'])) {
+            $coupon_discount = round(floatval($cart['coupon']['discount']), 2);
+            $coupon_code = $cart['coupon']['code'] ?? '';
+            $total = max(0, round($total - $coupon_discount, 2));
+        }
+
+        // ── Tax calculation for display ──
         $s = tix_get_settings();
+        $tax_enabled   = !empty($s['tax_enabled']);
+        $tax_rate      = floatval($s['tax_rate'] ?? 0);
+        $tax_inclusive  = !empty($s['tax_inclusive']);
+        $display_tax   = 0;
+        $display_total = $total;
+        if ($tax_enabled && $tax_rate > 0) {
+            if ($tax_inclusive) {
+                $display_tax = round($total - ($total / (1 + $tax_rate / 100)), 2);
+            } else {
+                $display_tax = round($total * $tax_rate / 100, 2);
+                $display_total = $total + $display_tax;
+            }
+        }
+
+        $is_free = ($display_total <= 0);
+        $nonce = wp_create_nonce('tix_native_checkout');
+        $idempotency_token = wp_generate_password(32, false);
+        set_transient('tix_checkout_token_' . $idempotency_token, 1, 600); // 10 min
         $user = wp_get_current_user();
         $is_logged = is_user_logged_in();
 
@@ -410,6 +441,7 @@ class TIX_Native_Checkout {
             <form id="tix-native-checkout-form" method="post">
                 <input type="hidden" name="action" value="tix_native_checkout">
                 <input type="hidden" name="nonce" value="<?php echo esc_attr($nonce); ?>">
+                <input type="hidden" name="idempotency_token" value="<?php echo esc_attr($idempotency_token); ?>">
 
                 <?php // ══════════════ STEP 1: TICKETS ══════════════ ?>
                 <div class="tix-co-step-panel<?php echo $use_steps ? ' tix-co-step-visible' : ''; ?>" data-step="1">
@@ -435,14 +467,27 @@ class TIX_Native_Checkout {
                             <?php endforeach; ?>
                         </div>
                         <a href="<?php echo esc_url(get_post_type_archive_link('event') ?: home_url('/events/')); ?>" class="tix-co-btn-more">+ Weitere Tickets kaufen</a>
+
+                        <?php // ── Coupon Input ── ?>
+                        <div class="tix-co-coupon" style="margin-top:12px;display:flex;gap:8px;align-items:center;">
+                            <input type="text" id="tix-co-coupon-input" placeholder="Gutscheincode" class="tix-co-input" style="flex:1;" value="<?php echo esc_attr($coupon_code); ?>">
+                            <button type="button" id="tix-co-coupon-btn" class="button">Einlösen</button>
+                        </div>
+                        <div id="tix-co-coupon-msg" style="font-size:13px;margin-top:4px;"></div>
                     </div>
 
                     <?php // Mini-Zusammenfassung ?>
                     <div class="tix-co-section">
                         <div class="tix-co-summary tix-co-summary-mini">
+                            <?php if ($coupon_discount > 0): ?>
+                            <div class="tix-co-summary-row"><span>Rabatt (<?php echo esc_html($coupon_code); ?>)</span><span style="color:#22c55e;">-<?php echo number_format($coupon_discount, 2, ',', '.'); ?>&nbsp;&euro;</span></div>
+                            <?php endif; ?>
+                            <?php if ($display_tax > 0): ?>
+                            <div class="tix-co-summary-row"><span>MwSt. (<?php echo number_format($tax_rate, 1, ',', ''); ?>%)</span><span><?php echo number_format($display_tax, 2, ',', '.'); ?>&nbsp;&euro;</span></div>
+                            <?php endif; ?>
                             <div class="tix-co-summary-row tix-co-summary-total">
                                 <span>Gesamt <span class="tix-co-vat-note"><?php echo esc_html($vat_text); ?></span></span>
-                                <span class="tix-co-total"><?php echo number_format($total, 2, ',', '.'); ?>&nbsp;&euro;</span>
+                                <span class="tix-co-total"><?php echo number_format($display_total, 2, ',', '.'); ?>&nbsp;&euro;</span>
                             </div>
                         </div>
                     </div>
@@ -569,10 +614,16 @@ class TIX_Native_Checkout {
                     <?php // Volle Zusammenfassung ?>
                     <div class="tix-co-section">
                         <div class="tix-co-summary">
-                            <div class="tix-co-summary-row"><span>Zwischensumme</span><span><?php echo number_format($total, 2, ',', '.'); ?>&nbsp;&euro;</span></div>
+                            <div class="tix-co-summary-row"><span>Zwischensumme</span><span><?php echo number_format(self::cart_total(), 2, ',', '.'); ?>&nbsp;&euro;</span></div>
+                            <?php if ($coupon_discount > 0): ?>
+                            <div class="tix-co-summary-row"><span>Rabatt (<?php echo esc_html($coupon_code); ?>)</span><span style="color:#22c55e;">-<?php echo number_format($coupon_discount, 2, ',', '.'); ?>&nbsp;&euro;</span></div>
+                            <?php endif; ?>
+                            <?php if ($display_tax > 0): ?>
+                            <div class="tix-co-summary-row"><span>MwSt. (<?php echo number_format($tax_rate, 1, ',', ''); ?>%)</span><span><?php echo number_format($display_tax, 2, ',', '.'); ?>&nbsp;&euro;</span></div>
+                            <?php endif; ?>
                             <div class="tix-co-summary-row tix-co-summary-total">
                                 <span>Gesamt <span class="tix-co-vat-note"><?php echo esc_html($vat_text); ?></span></span>
-                                <span class="tix-co-total"><?php echo number_format($total, 2, ',', '.'); ?>&nbsp;&euro;</span>
+                                <span class="tix-co-total"><?php echo number_format($display_total, 2, ',', '.'); ?>&nbsp;&euro;</span>
                             </div>
                         </div>
 
@@ -618,7 +669,7 @@ class TIX_Native_Checkout {
                                 <?php if ($is_free): ?>
                                     Kostenlos bestellen
                                 <?php else: ?>
-                                    <?php echo esc_html($btn_text); ?> &middot; <span class="tix-co-submit-price"><?php echo number_format($total, 2, ',', '.'); ?>&nbsp;&euro;</span>
+                                    <?php echo esc_html($btn_text); ?> &middot; <span class="tix-co-submit-price"><?php echo number_format($display_total, 2, ',', '.'); ?>&nbsp;&euro;</span>
                                 <?php endif; ?>
                             </span>
                             <span class="tix-co-submit-loading" style="display:none;">Bestellung wird verarbeitet&hellip;</span>
@@ -640,6 +691,13 @@ class TIX_Native_Checkout {
     public static function ajax_process_checkout() {
         check_ajax_referer('tix_native_checkout', 'nonce');
 
+        // Idempotency: Prevent double-submit
+        $token = sanitize_text_field($_POST['idempotency_token'] ?? '');
+        if (!$token || !get_transient('tix_checkout_token_' . $token)) {
+            wp_send_json_error(['message' => 'Bestellung wurde bereits verarbeitet. Bitte Seite neu laden.']);
+        }
+        delete_transient('tix_checkout_token_' . $token);
+
         $cart = self::get_cart();
         if (empty($cart['items'])) {
             wp_send_json_error(['message' => 'Warenkorb ist leer.']);
@@ -659,6 +717,26 @@ class TIX_Native_Checkout {
 
         $payment_method = sanitize_text_field($_POST['payment_method'] ?? 'free');
         $total = self::cart_total();
+
+        // Server-side price validation: re-read actual prices from ticket categories
+        $validated_total = 0;
+        foreach ($cart['items'] as &$cart_item) {
+            $event_id = intval($cart_item['event_id'] ?? 0);
+            $cat_id   = $cart_item['cat_id'] ?? '';
+            $categories = get_post_meta($event_id, '_tix_ticket_categories', true);
+            if (is_array($categories)) {
+                foreach ($categories as $cat) {
+                    if (($cat['id'] ?? '') === $cat_id) {
+                        $actual_price = floatval($cat['price'] ?? 0);
+                        $cart_item['price'] = $actual_price; // overwrite with verified price
+                        break;
+                    }
+                }
+            }
+            $validated_total += floatval($cart_item['price']) * intval($cart_item['qty']);
+        }
+        unset($cart_item);
+        $total = round($validated_total, 2);
 
         // Order erstellen
         $order_id = self::create_order([
@@ -728,13 +806,51 @@ class TIX_Native_Checkout {
         $order_number = TIX_Order::next_order_number();
         $order_key = 'tix_' . wp_generate_password(16, false);
 
+        // ── Coupon / Discount ──
+        $cart = self::get_cart();
+        $coupon_discount = 0;
+        if (!empty($cart['coupon']) && !empty($cart['coupon']['discount'])) {
+            $coupon_discount = round(floatval($cart['coupon']['discount']), 2);
+            $data['total'] = max(0, round($data['total'] - $coupon_discount, 2));
+
+            // Increment coupon usage counter
+            $coupon_code = $cart['coupon']['code'] ?? '';
+            if ($coupon_code) {
+                $coupons = get_option('tix_coupons', []);
+                if (isset($coupons[$coupon_code])) {
+                    $coupons[$coupon_code]['used'] = intval($coupons[$coupon_code]['used'] ?? 0) + 1;
+                    update_option('tix_coupons', $coupons);
+                }
+            }
+        }
+
+        // ── Tax Calculation ──
+        $s = tix_get_settings();
+        $tax_enabled   = !empty($s['tax_enabled']);
+        $tax_rate      = floatval($s['tax_rate'] ?? 0);
+        $tax_inclusive  = !empty($s['tax_inclusive']);
+
+        $subtotal = $data['total'];
+        $tax = 0;
+        if ($tax_enabled && $tax_rate > 0) {
+            if ($tax_inclusive) {
+                // Preis enthält MwSt → herausrechnen
+                $tax = round($subtotal - ($subtotal / (1 + $tax_rate / 100)), 2);
+            } else {
+                // MwSt kommt oben drauf
+                $tax = round($subtotal * $tax_rate / 100, 2);
+                $subtotal = $data['total'];
+                $data['total'] = $subtotal + $tax;
+            }
+        }
+
         $wpdb->insert($t, [
             'order_number'          => $order_number,
             'status'                => 'pending',
             'total'                 => $data['total'],
-            'subtotal'              => $data['total'],
-            'tax'                   => 0,
-            'discount'              => 0,
+            'subtotal'              => $subtotal,
+            'tax'                   => $tax,
+            'discount'              => $coupon_discount,
             'payment_method'        => $data['payment_method'],
             'payment_method_title'  => self::gateway_title($data['payment_method']),
             'billing_first_name'    => $data['billing_first_name'],
@@ -791,8 +907,81 @@ class TIX_Native_Checkout {
             'free'   => 'Kostenlos',
             'mollie' => 'Online bezahlen (Mollie)',
             'paypal' => 'PayPal',
+            'bank'   => 'Banküberweisung (Vorkasse)',
         ];
         return $titles[$id] ?? $id;
+    }
+
+    // ──────────────────────────────────────────
+    // COUPON SYSTEM
+    // ──────────────────────────────────────────
+
+    public static function ajax_apply_coupon() {
+        $code = strtolower(trim(sanitize_text_field($_POST['coupon_code'] ?? '')));
+        if (!$code) {
+            wp_send_json_error(['message' => 'Bitte einen Gutscheincode eingeben.']);
+        }
+
+        $coupons = get_option('tix_coupons', []);
+        // Case-insensitive lookup
+        $found_key = null;
+        foreach ($coupons as $k => $v) {
+            if (strtolower($k) === $code) {
+                $found_key = $k;
+                break;
+            }
+        }
+
+        if (!$found_key) {
+            wp_send_json_error(['message' => 'Gutscheincode ungültig.']);
+        }
+
+        $coupon = $coupons[$found_key];
+
+        // Check expiry
+        if (!empty($coupon['expires'])) {
+            $expires = strtotime($coupon['expires']);
+            if ($expires && $expires < time()) {
+                wp_send_json_error(['message' => 'Dieser Gutschein ist abgelaufen.']);
+            }
+        }
+
+        // Check max uses
+        $used = intval($coupon['used'] ?? 0);
+        $max_uses = intval($coupon['max_uses'] ?? 0);
+        if ($max_uses > 0 && $used >= $max_uses) {
+            wp_send_json_error(['message' => 'Dieser Gutschein wurde bereits eingelöst.']);
+        }
+
+        // Calculate discount
+        $cart = self::get_cart();
+        $cart_total = self::cart_total();
+        $discount_type = $coupon['discount_type'] ?? 'percent';
+        $discount_value = floatval($coupon['value'] ?? 0);
+
+        if ($discount_type === 'percent') {
+            $discount = round($cart_total * $discount_value / 100, 2);
+        } else {
+            $discount = min($cart_total, $discount_value);
+        }
+
+        $discount = round($discount, 2);
+
+        // Apply to cart
+        $cart['coupon'] = [
+            'code'     => $found_key,
+            'discount' => $discount,
+        ];
+        self::save_cart($cart);
+
+        $new_total = max(0, round($cart_total - $discount, 2));
+
+        wp_send_json_success([
+            'message'   => 'Gutschein eingelöst! Rabatt: ' . number_format($discount, 2, ',', '.') . ' €',
+            'discount'  => $discount,
+            'new_total' => $new_total,
+            'code'      => $found_key,
+        ]);
     }
 
     // ──────────────────────────────────────────
@@ -806,6 +995,15 @@ class TIX_Native_Checkout {
         $old_status = $wpdb->get_var($wpdb->prepare("SELECT status FROM $t WHERE id = %d", $order_id));
 
         $wpdb->update($t, ['status' => $new_status], ['id' => $order_id]);
+
+        // Auto-add order note on status change
+        if ($old_status !== $new_status && class_exists('TIX_Order_Admin')) {
+            TIX_Order_Admin::add_note(
+                $order_id,
+                'Status geändert: ' . $old_status . ' → ' . $new_status . ($gateway ? ' (via ' . $gateway . ')' : ''),
+                'status_change'
+            );
+        }
 
         // Zentraler Hook — wird von Tickets, Emails, Seatmap etc. genutzt
         do_action('tix_order_status_changed', $order_id, $new_status, $old_status, $gateway);

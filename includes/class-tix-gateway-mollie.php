@@ -103,7 +103,7 @@ class TIX_Gateway_Mollie {
             ],
             ['id' => $order_id]
         );
-        update_option('_tix_mollie_payment_' . $order_id, $payment_id);
+        update_option('_tix_mollie_payment_' . $order_id, $payment_id, false);
 
         // Redirect-URL
         $checkout_url = $body['_links']['checkout']['href'] ?? '';
@@ -140,6 +140,13 @@ class TIX_Gateway_Mollie {
 
         if (!$order_id) wp_die('No order ID', '', 200);
 
+        // Verify order exists in DB
+        global $wpdb;
+        $order_exists = $wpdb->get_var($wpdb->prepare(
+            "SELECT id FROM {$wpdb->prefix}tix_orders WHERE id = %d", $order_id
+        ));
+        if (!$order_exists) wp_die('Order not found', '', 200);
+
         // Mollie-Status → TIX-Status mappen
         $map = [
             'paid'      => 'completed',
@@ -152,9 +159,66 @@ class TIX_Gateway_Mollie {
         ];
 
         $tix_status = $map[$status] ?? 'pending';
+
+        // Idempotency: skip update if status already matches
+        $old_status = $wpdb->get_var($wpdb->prepare(
+            "SELECT status FROM {$wpdb->prefix}tix_orders WHERE id = %d", $order_id
+        ));
+        if ($old_status === $tix_status) wp_die('No change', '', 200);
+
+        error_log('[TIX Mollie Webhook] Payment ' . $payment_id . ' status: ' . $status . ' → order ' . $order_id . ' → ' . $tix_status);
+
         TIX_Native_Checkout::update_order_status($order_id, $tix_status, 'mollie');
 
         wp_die('OK', '', 200);
+    }
+
+    /**
+     * Erstattung über Mollie Refunds API
+     *
+     * @param int        $order_id  TIX Order ID
+     * @param float|null $amount    Teilbetrag oder null für Vollerstattung
+     * @return array     ['success' => true] oder ['error' => '...']
+     */
+    public static function refund($order_id, $amount = null) {
+        $payment_id = get_option('_tix_mollie_payment_' . $order_id);
+        if (!$payment_id) {
+            return ['error' => 'Keine Mollie-Payment-ID gefunden.'];
+        }
+
+        $api_key = self::get_api_key();
+        if (!$api_key) {
+            return ['error' => 'Mollie API-Key nicht konfiguriert.'];
+        }
+
+        $body = [];
+        if ($amount !== null) {
+            $body['amount'] = [
+                'currency' => 'EUR',
+                'value'    => number_format($amount, 2, '.', ''),
+            ];
+        }
+
+        $response = wp_remote_post(self::API_URL . '/payments/' . $payment_id . '/refunds', [
+            'timeout' => 15,
+            'headers' => [
+                'Authorization' => 'Bearer ' . $api_key,
+                'Content-Type'  => 'application/json',
+            ],
+            'body' => wp_json_encode($body),
+        ]);
+
+        if (is_wp_error($response)) {
+            return ['error' => 'Mollie-Verbindungsfehler: ' . $response->get_error_message()];
+        }
+
+        $code = wp_remote_retrieve_response_code($response);
+        if ($code >= 200 && $code < 300) {
+            return ['success' => true];
+        }
+
+        $data = json_decode(wp_remote_retrieve_body($response), true);
+        return ['error' => $data['detail'] ?? 'Mollie-Fehler (HTTP ' . $code . ')'];
     }
 
     /**

@@ -191,4 +191,38 @@
         $(this).closest('.tix-co-gateway').addClass('tix-co-gw-active');
     });
 
+    // ══════════════════════════════════════
+    // COUPON
+    // ══════════════════════════════════════
+    $(document).on('click', '#tix-co-coupon-btn', function() {
+        var code = $('#tix-co-coupon-input').val().trim();
+        var $msg = $('#tix-co-coupon-msg');
+        var $btn = $(this);
+
+        if (!code) {
+            $msg.html('<span style="color:#ef4444;">Bitte einen Gutscheincode eingeben.</span>');
+            return;
+        }
+
+        $btn.prop('disabled', true).text('…');
+        $msg.text('');
+
+        $.post(ajax, {
+            action: 'tix_native_apply_coupon',
+            coupon_code: code
+        }, function(res) {
+            if (res.success) {
+                $msg.html('<span style="color:#22c55e;">' + res.data.message + '</span>');
+                // Reload to reflect new totals
+                setTimeout(function() { location.reload(); }, 800);
+            } else {
+                $msg.html('<span style="color:#ef4444;">' + (res.data.message || 'Fehler') + '</span>');
+                $btn.prop('disabled', false).text('Einlösen');
+            }
+        }).fail(function() {
+            $msg.html('<span style="color:#ef4444;">Netzwerkfehler.</span>');
+            $btn.prop('disabled', false).text('Einlösen');
+        });
+    });
+
 })(jQuery);

@@ -52,6 +52,10 @@ class TIX_Emails {
         add_action('tix_send_reminder_email', [__CLASS__, 'send_reminder'], 10, 2);
         add_action('tix_send_followup_email', [__CLASS__, 'send_followup'], 10, 2);
 
+        // Native order emails (without WooCommerce)
+        add_action('tix_order_completed', [__CLASS__, 'send_native_completed'], 10, 1);
+        add_action('tix_order_status_changed', [__CLASS__, 'send_native_status_email'], 10, 4);
+
         // WordPress Core-Mails im Tixomat Design
         add_filter('retrieve_password_message',            [__CLASS__, 'wrap_password_reset'], 99, 4);
         add_filter('wp_mail',                              [__CLASS__, 'ensure_html_content_type'], 1);
@@ -856,7 +860,7 @@ class TIX_Emails {
                                         </td>
                                         <td style="vertical-align: top; text-align: right; white-space: nowrap; padding-left: 16px;">
                                             <span style="font-size: 12px; color: ' . esc_attr($muted) . ';">&times; ' . $item->get_quantity() . '</span><br>
-                                            <strong style="font-size: 14px; color: ' . esc_attr($text_color) . ';">' . wp_strip_all_tags(wc_price($item->get_total())) . '</strong>
+                                            <strong style="font-size: 14px; color: ' . esc_attr($text_color) . ';">' . self::format_price($item->get_total()) . '</strong>
                                         </td>
                                     </tr>
                                 </table>
@@ -876,22 +880,23 @@ class TIX_Emails {
             $html .= '
                             <tr>
                                 <td style="font-size: 13px; color: ' . esc_attr($muted) . '; padding: 2px 0;">Zwischensumme</td>
-                                <td style="font-size: 13px; color: ' . esc_attr($text_color) . '; text-align: right; padding: 2px 0;">' . wp_strip_all_tags(wc_price($order->get_subtotal())) . '</td>
+                                <td style="font-size: 13px; color: ' . esc_attr($text_color) . '; text-align: right; padding: 2px 0;">' . self::format_price($order->get_subtotal()) . '</td>
                             </tr>
                             <tr>
                                 <td style="font-size: 13px; color: #059669; padding: 2px 0;">Rabatt</td>
-                                <td style="font-size: 13px; color: #059669; text-align: right; padding: 2px 0;">-' . wp_strip_all_tags(wc_price($order->get_total_discount())) . '</td>
+                                <td style="font-size: 13px; color: #059669; text-align: right; padding: 2px 0;">-' . self::format_price($order->get_total_discount()) . '</td>
                             </tr>';
         }
 
-        // Fees
-        foreach ($order->get_fees() as $fee) {
+        // Fees (only available on WC_Order, not TIX_Order)
+        $fees = method_exists($order, 'get_fees') ? $order->get_fees() : [];
+        foreach ($fees as $fee) {
             $fee_total = floatval($fee->get_total());
             $fee_color = $fee_total < 0 ? '#059669' : $muted;
             $html .= '
                             <tr>
                                 <td style="font-size: 13px; color: ' . esc_attr($fee_color) . '; padding: 2px 0;">' . esc_html($fee->get_name()) . '</td>
-                                <td style="font-size: 13px; color: ' . esc_attr($fee_color) . '; text-align: right; padding: 2px 0;">' . wp_strip_all_tags(wc_price($fee_total)) . '</td>
+                                <td style="font-size: 13px; color: ' . esc_attr($fee_color) . '; text-align: right; padding: 2px 0;">' . self::format_price($fee_total) . '</td>
                             </tr>';
         }
 
@@ -900,7 +905,7 @@ class TIX_Emails {
             $html .= '
                             <tr>
                                 <td style="font-size: 12px; color: ' . esc_attr($muted) . '; padding: 2px 0;">inkl. MwSt.</td>
-                                <td style="font-size: 12px; color: ' . esc_attr($muted) . '; text-align: right; padding: 2px 0;">' . wp_strip_all_tags(wc_price($order->get_total_tax())) . '</td>
+                                <td style="font-size: 12px; color: ' . esc_attr($muted) . '; text-align: right; padding: 2px 0;">' . self::format_price($order->get_total_tax()) . '</td>
                             </tr>';
         }
 
@@ -1152,7 +1157,8 @@ class TIX_Emails {
      * Erinnerungsmail senden (24h vor Event)
      */
     public static function send_reminder($order_id, $event_id) {
-        $order = wc_get_order($order_id);
+        $order = function_exists('wc_get_order') ? wc_get_order($order_id) : null;
+        if (!$order && class_exists('TIX_Order')) $order = TIX_Order::get($order_id);
         $event = get_post($event_id);
         if (!$order || !$event) return;
 
@@ -1192,7 +1198,8 @@ class TIX_Emails {
      * Nachbefragungsmail senden (24h nach Event)
      */
     public static function send_followup($order_id, $event_id) {
-        $order = wc_get_order($order_id);
+        $order = function_exists('wc_get_order') ? wc_get_order($order_id) : null;
+        if (!$order && class_exists('TIX_Order')) $order = TIX_Order::get($order_id);
         $event = get_post($event_id);
         if (!$order || !$event) return;
 
@@ -1247,6 +1254,168 @@ class TIX_Emails {
         } else {
             wp_mail($to, $subject, $html, $headers);
         }
+    }
+
+    // ══════════════════════════════════════
+    // Native Order Emails (ohne WooCommerce)
+    // ══════════════════════════════════════
+
+    /**
+     * Sendet Bestätigungsmail bei abgeschlossener nativer Bestellung.
+     */
+    public static function send_native_completed($order_id) {
+        // Skip if WooCommerce handles emails
+        if (function_exists('wc_get_order')) return;
+
+        $order = TIX_Order::get($order_id);
+        if (!$order) return;
+
+        $brand_name = self::get_settings()['email_brand_name'] ?: get_bloginfo('name');
+
+        // Customer confirmation
+        $html = self::build_email_html('order_complete', $order, 'Deine Tickets sind bereit!');
+        self::send_html_mail(
+            $order->get_billing_email(),
+            $brand_name . ' – Deine Tickets sind bereit!',
+            $html
+        );
+
+        // Admin notification (new_order)
+        $admin_html = self::build_email_html('admin_new_order', $order, 'Neue Bestellung');
+        self::send_html_mail(
+            get_option('admin_email'),
+            $brand_name . ' – Neue Bestellung #' . $order->get_id(),
+            $admin_html
+        );
+
+        // Schedule reminder + followup emails for native orders
+        self::schedule_native_event_emails($order);
+    }
+
+    /**
+     * Sendet Status-Änderungs-Mails für native Bestellungen.
+     */
+    public static function send_native_status_email($order_id, $new_status, $old_status, $gateway) {
+        // Skip if WooCommerce handles emails
+        if (function_exists('wc_get_order')) return;
+
+        // No email needed if status didn't change
+        if ($new_status === $old_status) return;
+
+        // No email for pending status
+        if ($new_status === 'pending') return;
+
+        $order = TIX_Order::get($order_id);
+        if (!$order) return;
+
+        $brand_name = self::get_settings()['email_brand_name'] ?: get_bloginfo('name');
+
+        // Map status to email type and heading
+        $status_map = [
+            'on-hold'   => ['type' => 'on_hold',    'heading' => 'Bestellung wird geprüft',    'subject' => 'Bestellung wird geprüft'],
+            'cancelled' => ['type' => 'cancelled',   'heading' => 'Bestellung storniert',       'subject' => 'Bestellung storniert'],
+            'failed'    => ['type' => 'admin_failed_order', 'heading' => 'Bestellung fehlgeschlagen', 'subject' => 'Bestellung fehlgeschlagen'],
+        ];
+
+        if (!isset($status_map[$new_status])) return;
+
+        $config  = $status_map[$new_status];
+        $html    = self::build_email_html($config['type'], $order, $config['heading']);
+        $subject = $brand_name . ' – ' . $config['subject'] . ' #' . $order->get_id();
+
+        if ($new_status === 'failed') {
+            // Failed: admin only
+            self::send_html_mail(get_option('admin_email'), $subject, $html);
+        } else {
+            // on-hold, cancelled: send to customer
+            self::send_html_mail($order->get_billing_email(), $subject, $html);
+        }
+    }
+
+    /**
+     * HTML-Mail versenden via wp_mail mit korrektem Content-Type Header.
+     */
+    public static function send_html_mail($to, $subject, $html) {
+        $headers = ['Content-Type: text/html; charset=UTF-8'];
+        wp_mail($to, $subject, $html, $headers);
+    }
+
+    /**
+     * Erinnerungs- und Nachbefragungsmails für native Orders planen.
+     */
+    private static function schedule_native_event_emails($order) {
+        $s = self::get_settings();
+        $reminder_active = !empty($s['email_reminder']);
+        $followup_active = !empty($s['email_followup']);
+
+        if (!$reminder_active && !$followup_active) return;
+
+        $order_id  = $order->get_id();
+        $event_ids = [];
+
+        foreach ($order->get_items() as $item) {
+            $product_id = $item->get_product_id();
+            $event_id   = $item->get_event_id() ?: (int) get_post_meta($product_id, '_tix_parent_event_id', true);
+            if ($event_id && !in_array($event_id, $event_ids)) {
+                $event_ids[] = $event_id;
+            }
+        }
+
+        $now = time();
+
+        foreach ($event_ids as $event_id) {
+            $date_start = get_post_meta($event_id, '_tix_date_start', true);
+            $time_start = get_post_meta($event_id, '_tix_time_start', true);
+
+            if (!$date_start) continue;
+
+            $event_time = strtotime($date_start . ($time_start ? ' ' . $time_start : ' 00:00'));
+            if (!$event_time) continue;
+
+            if ($reminder_active) {
+                $reminder_time = $event_time - (24 * 3600);
+                if ($reminder_time > $now) {
+                    if (function_exists('as_next_scheduled_action')) {
+                        if (!as_next_scheduled_action('tix_send_reminder_email', [$order_id, $event_id])) {
+                            as_schedule_single_action($reminder_time, 'tix_send_reminder_email', [$order_id, $event_id]);
+                        }
+                    } else {
+                        if (!wp_next_scheduled('tix_send_reminder_email', [$order_id, $event_id])) {
+                            wp_schedule_single_event($reminder_time, 'tix_send_reminder_email', [$order_id, $event_id]);
+                        }
+                    }
+                }
+            }
+
+            if ($followup_active) {
+                $followup_time = $event_time + (24 * 3600);
+                if ($followup_time > $now) {
+                    if (function_exists('as_next_scheduled_action')) {
+                        if (!as_next_scheduled_action('tix_send_followup_email', [$order_id, $event_id])) {
+                            as_schedule_single_action($followup_time, 'tix_send_followup_email', [$order_id, $event_id]);
+                        }
+                    } else {
+                        if (!wp_next_scheduled('tix_send_followup_email', [$order_id, $event_id])) {
+                            wp_schedule_single_event($followup_time, 'tix_send_followup_email', [$order_id, $event_id]);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ══════════════════════════════════════
+    // Price Formatting Helper
+    // ══════════════════════════════════════
+
+    /**
+     * Preis formatieren – nutzt wc_price() wenn verfügbar, sonst eigene Formatierung.
+     */
+    private static function format_price($amount) {
+        if (function_exists('wc_price')) {
+            return wp_strip_all_tags(wc_price($amount));
+        }
+        return number_format(floatval($amount), 2, ',', '.') . '&nbsp;&euro;';
     }
 
     // ══════════════════════════════════════

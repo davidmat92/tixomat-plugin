@@ -26,7 +26,9 @@ class TIX_Gateway_PayPal {
     }
 
     public static function init() {
-        add_action('template_redirect', [__CLASS__, 'handle_return']);
+        add_action('wp_ajax_tix_paypal_webhook',        [__CLASS__, 'handle_webhook']);
+        add_action('wp_ajax_nopriv_tix_paypal_webhook', [__CLASS__, 'handle_webhook']);
+        add_action('template_redirect',                 [__CLASS__, 'handle_return']);
     }
 
     /**
@@ -118,7 +120,7 @@ class TIX_Gateway_PayPal {
         }
 
         // PayPal Order ID speichern
-        update_option('_tix_paypal_order_' . $order_id, $pp_order_id);
+        update_option('_tix_paypal_order_' . $order_id, $pp_order_id, false);
         $wpdb->update(
             $wpdb->prefix . 'tix_orders',
             ['payment_method' => 'paypal', 'payment_method_title' => 'PayPal'],
@@ -141,6 +143,75 @@ class TIX_Gateway_PayPal {
         }
 
         return ['redirect' => $approve_url];
+    }
+
+    /**
+     * PayPal Webhook: Zahlungsstatus-Update
+     *
+     * Note: Webhooks must be configured in the PayPal Developer Dashboard.
+     * Set the webhook URL to: admin-ajax.php?action=tix_paypal_webhook
+     * Subscribe to events: CHECKOUT.ORDER.APPROVED, PAYMENT.CAPTURE.COMPLETED
+     */
+    public static function handle_webhook() {
+        $raw = file_get_contents('php://input');
+        $data = json_decode($raw, true);
+
+        if (!is_array($data) || empty($data['event_type'])) {
+            wp_die('Invalid payload', '', 400);
+        }
+
+        $event_type = sanitize_text_field($data['event_type']);
+        error_log('[TIX PayPal Webhook] Event: ' . $event_type);
+
+        $resource = $data['resource'] ?? [];
+        $purchase_units = $resource['purchase_units'] ?? [];
+        $reference_id = $purchase_units[0]['reference_id'] ?? '';
+
+        // Extract order_id from reference_id format "tix_123"
+        if (!preg_match('/^tix_(\d+)$/', $reference_id, $matches)) {
+            // For PAYMENT.CAPTURE.COMPLETED, reference_id may be in supplementary_data
+            $reference_id = $resource['supplementary_data']['related_ids']['order_id'] ?? '';
+            // Try to find our order via the PayPal order ID
+            if (!empty($reference_id)) {
+                error_log('[TIX PayPal Webhook] Capture event with PayPal order ID: ' . $reference_id);
+            }
+            wp_die('OK', '', 200);
+        }
+
+        $order_id = intval($matches[1]);
+
+        // Verify order exists in DB
+        global $wpdb;
+        $order_exists = $wpdb->get_var($wpdb->prepare(
+            "SELECT id FROM {$wpdb->prefix}tix_orders WHERE id = %d", $order_id
+        ));
+        if (!$order_exists) {
+            error_log('[TIX PayPal Webhook] Order not found: ' . $order_id);
+            wp_die('Order not found', '', 200);
+        }
+
+        if ($event_type === 'CHECKOUT.ORDER.APPROVED') {
+            // Capture the payment if not yet captured
+            $pp_order_id = get_option('_tix_paypal_order_' . $order_id);
+            if ($pp_order_id) {
+                error_log('[TIX PayPal Webhook] Capturing order ' . $order_id . ' (PayPal: ' . $pp_order_id . ')');
+                $captured = self::capture($pp_order_id, $order_id);
+                if ($captured) {
+                    delete_option('_tix_paypal_order_' . $order_id);
+                }
+            }
+        } elseif ($event_type === 'PAYMENT.CAPTURE.COMPLETED') {
+            // Idempotency: skip if already completed
+            $old_status = $wpdb->get_var($wpdb->prepare(
+                "SELECT status FROM {$wpdb->prefix}tix_orders WHERE id = %d", $order_id
+            ));
+            if ($old_status !== 'completed') {
+                error_log('[TIX PayPal Webhook] Completing order ' . $order_id);
+                TIX_Native_Checkout::update_order_status($order_id, 'completed', 'paypal');
+            }
+        }
+
+        wp_die('OK', '', 200);
     }
 
     /**
@@ -196,10 +267,64 @@ class TIX_Gateway_PayPal {
         $status = $body['status'] ?? '';
 
         if ($status === 'COMPLETED') {
+            // Store capture ID for potential refunds
+            $captures = $body['purchase_units'][0]['payments']['captures'] ?? [];
+            if (!empty($captures[0]['id'])) {
+                update_option('_tix_paypal_capture_' . $tix_order_id, $captures[0]['id'], false);
+            }
             TIX_Native_Checkout::update_order_status($tix_order_id, 'completed', 'paypal');
             return true;
         }
 
         return false;
+    }
+
+    /**
+     * Erstattung über PayPal Captures API
+     *
+     * @param int        $order_id  TIX Order ID
+     * @param float|null $amount    Teilbetrag oder null für Vollerstattung
+     * @return array     ['success' => true] oder ['error' => '...']
+     */
+    public static function refund($order_id, $amount = null) {
+        $capture_id = get_option('_tix_paypal_capture_' . $order_id);
+        if (!$capture_id) {
+            return ['error' => 'Keine PayPal-Capture-ID gefunden. Erstattung nicht möglich.'];
+        }
+
+        $token = self::get_access_token();
+        if (!$token) {
+            return ['error' => 'PayPal-Authentifizierung fehlgeschlagen.'];
+        }
+
+        $body = new stdClass();
+        if ($amount !== null) {
+            $body->amount = [
+                'currency_code' => 'EUR',
+                'value'         => number_format($amount, 2, '.', ''),
+            ];
+        }
+
+        $response = wp_remote_post(self::api_url() . '/v2/payments/captures/' . $capture_id . '/refund', [
+            'timeout' => 15,
+            'headers' => [
+                'Authorization' => 'Bearer ' . $token,
+                'Content-Type'  => 'application/json',
+            ],
+            'body' => wp_json_encode($body),
+        ]);
+
+        if (is_wp_error($response)) {
+            return ['error' => 'PayPal-Verbindungsfehler: ' . $response->get_error_message()];
+        }
+
+        $code = wp_remote_retrieve_response_code($response);
+        if ($code >= 200 && $code < 300) {
+            return ['success' => true];
+        }
+
+        $data = json_decode(wp_remote_retrieve_body($response), true);
+        $msg = $data['details'][0]['description'] ?? $data['message'] ?? ('HTTP ' . $code);
+        return ['error' => 'PayPal-Fehler: ' . $msg];
     }
 }

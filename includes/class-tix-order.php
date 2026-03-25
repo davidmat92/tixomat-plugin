@@ -84,9 +84,22 @@ class TIX_Order {
             KEY product_id (product_id)
         ) $charset;";
 
+        $tn = $wpdb->prefix . 'tix_order_notes';
+        $sql_notes = "CREATE TABLE $tn (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            order_id BIGINT UNSIGNED NOT NULL,
+            note TEXT NOT NULL,
+            note_type VARCHAR(20) NOT NULL DEFAULT 'internal',
+            author VARCHAR(200) NOT NULL DEFAULT '',
+            date_created DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            KEY order_id (order_id)
+        ) $charset;";
+
         require_once ABSPATH . 'wp-admin/includes/upgrade.php';
         dbDelta($sql_orders);
         dbDelta($sql_items);
+        dbDelta($sql_notes);
     }
 
     // ══════════════════════════════════════
