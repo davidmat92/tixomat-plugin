@@ -1171,23 +1171,8 @@ class TIX_Settings {
         $vars[] = '--tix-buy-hover-color: var(--tix-btn1-hover-color)';
         $vars[] = '--tix-buy-radius: var(--tix-btn1-radius)';
 
-        $font_map = [
-            'font_price' => '--tix-font-price',
-            'font_name'  => '--tix-font-name',
-            'font_total' => '--tix-font-total',
-            'font_desc'  => '--tix-font-desc',
-            'font_vat'   => '--tix-font-vat',
-        ];
-
-        foreach ($font_map as $key => $var) {
-            if ((string)$s[$key] !== (string)$d[$key]) {
-                $vars[] = "$var: {$s[$key]}rem";
-            }
-        }
-
-        // ── .tix-vat Regel (immer ausgeben, da Meta-Spans auch außerhalb von .tix-sel/.tix-co vorkommen) ──
-        $vat_size = floatval($s['font_vat'] ?: $d['font_vat']);
-        $vat_css  = ".tix-vat { font-size: {$vat_size}rem; font-weight: 400; }\n";
+        // Schriftgrößen (font_price, font_name etc.) jetzt über Typografie-Tab per Klasse
+        $vat_css  = '';
 
         // ── Mein-Konto Scope (WC My Account Variablen erweitern) ──
         $wc_scope = !empty($s['myaccount_restyle']) ? ', .woocommerce-account .woocommerce' : '';
@@ -1267,10 +1252,7 @@ class TIX_Settings {
         if ($ph !== 18) {
             $faq_vars[] = "--tix-faq-padding-h: {$ph}px";
         }
-        // Schrift
-        if ((string)$s['faq_title_size'] !== '1.3')      $faq_vars[] = '--tix-faq-title-size: ' . $s['faq_title_size'] . 'rem';
-        if ((string)$s['faq_question_size'] !== '1')      $faq_vars[] = '--tix-faq-question-size: ' . $s['faq_question_size'] . 'rem';
-        if ((string)$s['faq_answer_size'] !== '0.95')     $faq_vars[] = '--tix-faq-answer-size: ' . $s['faq_answer_size'] . 'rem';
+        // Deckkraft (Schriftgrößen jetzt über Typografie-Tab)
         if ((string)$s['faq_answer_opacity'] !== '0.75')  $faq_vars[] = '--tix-faq-answer-opacity: ' . $s['faq_answer_opacity'];
 
         if (!empty($faq_vars)) {
@@ -1815,25 +1797,6 @@ class TIX_Settings {
                                     </div>
                                 </div>
 
-                                <?php // ── Card: Schriftgrößen ── ?>
-                                <div class="tix-card">
-                                    <div class="tix-card-header">
-                                        <span class="dashicons dashicons-editor-textcolor"></span>
-                                        <h3>Schriftgr&ouml;&szlig;en</h3>
-                                    </div>
-                                    <div class="tix-card-body">
-                                        <div class="tix-field-grid">
-                                            <?php
-                                            self::range_row('font_price', 'Preis', $s, 0.7, 2, 'rem', 0.05, true);
-                                            self::range_row('font_name',  'Kategorie-Name', $s, 0.7, 2, 'rem', 0.05, true);
-                                            self::range_row('font_total', 'Gesamtpreis', $s, 0.8, 2.5, 'rem', 0.05, true);
-                                            self::range_row('font_desc',  'Beschreibung', $s, 0.6, 1.5, 'rem', 0.05, true);
-                                            self::range_row('font_vat',   'MwSt.-Hinweis', $s, 0.5, 1.5, 'rem', 0.05, true);
-                                            ?>
-                                        </div>
-                                    </div>
-                                </div>
-
                             </div>
 
                             <?php // ═══ PANE: BUTTONS ═══ ?>
@@ -1855,10 +1818,9 @@ class TIX_Settings {
                                             self::color_row('btn1_hover_color', 'Hover-Textfarbe', $s, true);
                                             self::range_row('btn1_radius',      'Eckenradius', $s, 0, 50, 'px');
                                             self::text_row('btn1_border',       'Rahmen (CSS)', $s, 'z.B. 2px solid #000');
-                                            self::range_row('btn1_font_size',   'Schriftgr&ouml;&szlig;e', $s, 0.7, 2, 'rem', 0.05, true);
                                             ?>
                                         </div>
-                                        <p class="tix-settings-hint" style="margin-top:12px;">Schriftart: inherit (Theme) &middot; Schriftgewicht: 700</p>
+                                        <p class="tix-settings-hint" style="margin-top:12px;">Schriftgr&ouml;&szlig;e &amp; Schriftgewicht: &uuml;ber Typografie-Tab steuerbar</p>
                                     </div>
                                 </div>
 
@@ -1878,10 +1840,9 @@ class TIX_Settings {
                                             self::color_row('btn2_hover_color', 'Hover-Textfarbe', $s, true);
                                             self::range_row('btn2_radius',      'Eckenradius', $s, 0, 50, 'px');
                                             self::text_row('btn2_border',       'Rahmen (CSS)', $s, 'z.B. 1px solid currentColor');
-                                            self::range_row('btn2_font_size',   'Schriftgr&ouml;&szlig;e', $s, 0.7, 2, 'rem', 0.05, true);
                                             ?>
                                         </div>
-                                        <p class="tix-settings-hint" style="margin-top:12px;">Schriftart: inherit (Theme) &middot; Schriftgewicht: 700</p>
+                                        <p class="tix-settings-hint" style="margin-top:12px;">Schriftgr&ouml;&szlig;e &amp; Schriftgewicht: &uuml;ber Typografie-Tab steuerbar</p>
                                     </div>
                                 </div>
 
@@ -1992,9 +1953,6 @@ class TIX_Settings {
                                             self::range_row('faq_max_width',      'Maximale Breite', $s, 300, 1600, 'px', 10);
                                             self::range_row('faq_padding_v',      'Padding vertikal', $s, 4, 32, 'px');
                                             self::range_row('faq_padding_h',      'Padding horizontal', $s, 8, 40, 'px');
-                                            self::range_row('faq_title_size',     'Titel-Schriftgröße', $s, 0.8, 2.5, 'rem', 0.05, true);
-                                            self::range_row('faq_question_size',  'Frage-Schriftgröße', $s, 0.7, 2, 'rem', 0.05, true);
-                                            self::range_row('faq_answer_size',    'Antwort-Schriftgröße', $s, 0.7, 1.5, 'rem', 0.05, true);
                                             self::range_row('faq_answer_opacity', 'Antwort-Deckkraft', $s, 0.3, 1, '', 0.05, true);
                                             ?>
                                         </div>
@@ -2885,11 +2843,9 @@ class TIX_Settings {
                                                     <option value="custom" <?php selected(!in_array($body_font, $fonts) && $body_font !== ''); ?>>Eigene Schrift…</option>
                                                 </select>
                                             </div>
-                                            <?php
-                                            self::range_row('tix_card_font_size_title', 'Titelgröße', $s, 0.8, 1.6, 'rem', 0.05, true);
-                                            self::range_row('tix_card_font_size_date', 'Datumgröße', $s, 0.6, 1.2, 'rem', 0.05, true);
-                                            self::range_row('tix_card_font_size_price', 'Preisgröße', $s, 0.8, 1.6, 'rem', 0.05, true);
-                                            ?>
+                                            <div class="tix-field tix-field-full">
+                                                <p class="tix-settings-hint">Schriftgr&ouml;&szlig;en: &uuml;ber Typografie-Tab steuerbar (Event Cards &amp; Suche)</p>
+                                            </div>
                                             <div class="tix-field tix-field-full">
                                                 <?php self::checkbox_row('tix_card_font_self_host', 'Schriften selbst hosten (DSGVO)', $s, 'Keine Verbindung zu Google Fonts. Du musst die Schriften dann selbst in dein Theme einbinden (z.B. per @font-face).'); ?>
                                             </div>
