@@ -3146,18 +3146,18 @@ class TIX_Settings {
                                 }
                                 </style>
 
-                                <?php foreach ($typo_registry as $group_key => $group): ?>
+                                <?php foreach ($typo_registry as $group_label => $group_classes): ?>
                                 <?php
                                     $mod_count = 0;
-                                    foreach ($group['classes'] as $cls => $def) {
+                                    foreach ($group_classes as $cls => $def) {
                                         if (!empty($typo_overrides[$cls])) $mod_count++;
                                     }
                                 ?>
                                 <div class="tix-typo-accordion">
                                     <div class="tix-typo-accordion-header" onclick="this.classList.toggle('open');">
                                         <div class="tix-typo-accordion-title">
-                                            <?php echo esc_html($group['label']); ?>
-                                            <span class="tix-typo-accordion-count"><?php echo count($group['classes']); ?></span>
+                                            <?php echo esc_html($group_label); ?>
+                                            <span class="tix-typo-accordion-count"><?php echo count($group_classes); ?></span>
                                             <?php if ($mod_count > 0): ?>
                                                 <span class="tix-typo-accordion-modified"><?php echo $mod_count; ?> geändert</span>
                                             <?php endif; ?>
@@ -3172,7 +3172,7 @@ class TIX_Settings {
                                             <div>Gewicht</div>
                                             <div></div>
                                         </div>
-                                        <?php foreach ($group['classes'] as $cls => $def):
+                                        <?php foreach ($group_classes as $cls => $def):
                                             $ov = $typo_overrides[$cls] ?? [];
                                             $cur_size   = $ov['size']   ?? $def['size'];
                                             $cur_font   = $ov['font']   ?? $def['font'];
