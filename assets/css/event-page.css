@@ -91,7 +91,7 @@
     top: 16px;
     left: 16px;
     padding: 6px 14px;
-    border-radius: 6px;
+    border-radius: var(--tix-card-radius-badge, 8px);
     font-size: var(--tix-label, 12px);
     font-weight: 700;
     text-transform: uppercase;
@@ -119,7 +119,7 @@
 .tix-ep-status {
     display: inline-block;
     padding: 4px 10px;
-    border-radius: 4px;
+    border-radius: var(--tix-card-radius-badge, 8px);
     font-size: var(--tix-label, 12px);
     font-weight: 700;
     text-transform: uppercase;
@@ -188,7 +188,7 @@
     background: var(--ep-accent);
     color: var(--ep-accent-text);
     padding: 3px 10px;
-    border-radius: 6px;
+    border-radius: var(--tix-card-radius-badge, 8px);
     font-weight: 700;
     font-size: var(--tix-btn, 14px);
 }
@@ -197,7 +197,7 @@
     background: #f1f5f9;
     color: var(--ep-muted);
     padding: 3px 8px;
-    border-radius: 4px;
+    border-radius: var(--tix-card-radius-badge, 8px);
     font-size: var(--tix-label, 12px);
     font-weight: 600;
 }

@@ -170,7 +170,7 @@ class TIX_Single_Event {
                 <div class="tse-hero-badges">
                     <span class="ev-badge ev-badge-cat"><?php echo esc_html($terms[0]->name); ?></span>
                     <?php if ($status_label && in_array($status, ['sold_out', 'few_tickets', 'postponed'])): ?>
-                        <span class="ev-badge" style="background:var(--tix-card-nacht, #131020);color:#fff;"><?php echo esc_html($status_label); ?></span>
+                        <span class="ev-badge" style="background:var(--tix-card-signal, #E8445A);color:#fff;"><?php echo esc_html($status_label); ?></span>
                     <?php endif; ?>
                 </div>
             <?php endif; ?>

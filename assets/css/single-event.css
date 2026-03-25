@@ -99,7 +99,17 @@
 .tse-hero-placeholder svg { width: 100%; height: 100%; }
 .tse-hero-badges {
     position: absolute; top: 16px; left: 16px;
-    display: flex; flex-direction: column; gap: 6px;
+    display: flex; flex-direction: column; gap: 6px; z-index: 3;
+}
+.tse-hero-badges .ev-badge {
+    font-family: var(--tix-card-font-d, var(--tix-font-heading, 'Sora')), sans-serif;
+    font-size: 0.65rem; font-weight: 700;
+    padding: 4px 10px; border-radius: var(--tix-card-radius-badge, 8px);
+    display: inline-flex; align-items: center; gap: 5px; width: fit-content;
+    color: #fff;
+}
+.tse-hero-badges .ev-badge-cat {
+    background: rgba(0,0,0,0.45); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
 }
 
 /* ── Intro ── */
@@ -169,7 +179,7 @@
 .tse-badge {
     font-family: var(--tix-card-font-d, var(--tix-font-heading, 'Sora')), sans-serif;
     font-size: 0.68rem; font-weight: 700;
-    padding: 5px 12px; border-radius: 8px;
+    padding: 5px 12px; border-radius: var(--tix-card-radius-badge, 8px);
 }
 .tse-badge-available { background: var(--tix-card-entdecken, #14B8A6); color: #fff; }
 .tse-badge-soldout { background: var(--tix-card-signal, #E8445A); color: #fff; }
