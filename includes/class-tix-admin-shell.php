@@ -153,7 +153,9 @@ class TIX_Admin_Shell {
             'my-tickets'      => ['icon' => 'id',                     'label' => 'Meine Tickets'],
             'newsletter'      => ['icon' => 'email-alt',              'label' => 'Newsletter'],
             'checkin'         => ['icon' => 'clipboard',              'label' => 'Check-in'],
+            'fees'            => ['icon' => 'money-alt',              'label' => 'Gebühren'],
             'typography'      => ['icon' => 'editor-textcolor',       'label' => 'Typografie'],
+            'colors'          => ['icon' => 'admin-appearance',      'label' => 'Farben'],
             'advanced'        => ['icon' => 'admin-generic',          'label' => 'Erweitert'],
         ];
         $settings_more = [

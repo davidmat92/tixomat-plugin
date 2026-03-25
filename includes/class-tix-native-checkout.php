@@ -117,7 +117,21 @@ class TIX_Native_Checkout {
         foreach ($cart['items'] as $item) {
             $total += floatval($item['price']) * intval($item['qty']);
         }
+        // Kundengebühren aufschlagen
+        if (class_exists('TIX_Fees')) {
+            $fee_data = TIX_Fees::calc_order_fees($cart['items']);
+            $total += $fee_data['customer_fee_line'];
+        }
         return round($total, 2);
+    }
+
+    /**
+     * Gibt die Gebühren-Aufstellung für den aktuellen Warenkorb zurück.
+     */
+    public static function cart_fees() {
+        if (!class_exists('TIX_Fees')) return null;
+        $cart = self::get_cart();
+        return TIX_Fees::calc_order_fees($cart['items']);
     }
 
     public static function cart_count() {
@@ -370,6 +384,11 @@ class TIX_Native_Checkout {
             $total = max(0, round($total - $coupon_discount, 2));
         }
 
+        // ── Gebühren für Anzeige ──
+        $fee_display = self::cart_fees();
+        $customer_fee_line = $fee_display ? $fee_display['customer_fee_line'] : 0;
+        $fee_label = $fee_display ? $fee_display['fee_label'] : '';
+
         // ── Tax calculation for display ──
         $s = tix_get_settings();
         $tax_enabled   = !empty($s['tax_enabled']);
@@ -507,6 +526,9 @@ class TIX_Native_Checkout {
                             <?php if ($coupon_discount > 0): ?>
                             <div class="tix-co-summary-row"><span>Rabatt (<?php echo esc_html($coupon_code); ?>)</span><span style="color:#22c55e;">-<?php echo number_format($coupon_discount, 2, ',', '.'); ?>&nbsp;&euro;</span></div>
                             <?php endif; ?>
+                            <?php if ($customer_fee_line > 0): ?>
+                            <div class="tix-co-summary-row tix-co-fee-row"><span><?php echo esc_html($fee_label); ?></span><span><?php echo number_format($customer_fee_line, 2, ',', '.'); ?>&nbsp;&euro;</span></div>
+                            <?php endif; ?>
                             <?php if ($display_tax > 0): ?>
                             <div class="tix-co-summary-row"><span>MwSt. (<?php echo number_format($tax_rate, 1, ',', ''); ?>%)</span><span><?php echo number_format($display_tax, 2, ',', '.'); ?>&nbsp;&euro;</span></div>
                             <?php endif; ?>
@@ -642,6 +664,9 @@ class TIX_Native_Checkout {
                             <div class="tix-co-summary-row"><span>Zwischensumme</span><span><?php echo number_format(self::cart_total(), 2, ',', '.'); ?>&nbsp;&euro;</span></div>
                             <?php if ($coupon_discount > 0): ?>
                             <div class="tix-co-summary-row"><span>Rabatt (<?php echo esc_html($coupon_code); ?>)</span><span style="color:#22c55e;">-<?php echo number_format($coupon_discount, 2, ',', '.'); ?>&nbsp;&euro;</span></div>
+                            <?php endif; ?>
+                            <?php if ($customer_fee_line > 0): ?>
+                            <div class="tix-co-summary-row tix-co-fee-row"><span><?php echo esc_html($fee_label); ?></span><span><?php echo number_format($customer_fee_line, 2, ',', '.'); ?>&nbsp;&euro;</span></div>
                             <?php endif; ?>
                             <?php if ($display_tax > 0): ?>
                             <div class="tix-co-summary-row"><span>MwSt. (<?php echo number_format($tax_rate, 1, ',', ''); ?>%)</span><span><?php echo number_format($display_tax, 2, ',', '.'); ?>&nbsp;&euro;</span></div>
@@ -934,6 +959,16 @@ class TIX_Native_Checkout {
             }
         }
 
+        // ── Gebühren / Provisionen ──
+        $fee_data = null;
+        if (class_exists('TIX_Fees')) {
+            $fee_data = TIX_Fees::calc_order_fees($cart['items']);
+            // Kundengebühren auf Total aufschlagen
+            if ($fee_data['customer_fee_line'] > 0) {
+                $data['total'] = round($data['total'] + $fee_data['customer_fee_line'], 2);
+            }
+        }
+
         // ── Tax Calculation ──
         $s = tix_get_settings();
         $tax_enabled   = !empty($s['tax_enabled']);
@@ -981,6 +1016,19 @@ class TIX_Native_Checkout {
 
         $order_id = $wpdb->insert_id;
         if (!$order_id) return null;
+
+        // ── Gebühren-Daten als Order-Meta speichern ──
+        if ($fee_data) {
+            update_option('_tix_order_fees_' . $order_id, [
+                'platform_fee'      => $fee_data['platform_fee'],
+                'platform_fee_mode' => $fee_data['platform_fee_mode'],
+                'gateway_fee'       => $fee_data['gateway_fee'],
+                'gateway_fee_mode'  => $fee_data['gateway_fee_mode'],
+                'customer_fee_line' => $fee_data['customer_fee_line'],
+                'organizer_payout'  => $fee_data['organizer_payout'],
+                'fee_label'         => $fee_data['fee_label'],
+            ], false);
+        }
 
         // Save campaign tracking data from cookie
         $cookie_raw = class_exists('TIX_Campaign_Tracking') ? ($_COOKIE[TIX_Campaign_Tracking::COOKIE_NAME] ?? '') : '';

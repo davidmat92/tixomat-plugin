@@ -310,6 +310,20 @@ class TIX_Settings {
             'ai_assistant_name' => 'Evendis-Assistent',
             'ai_guard_enabled'  => 0,
             'ai_guard_api_key'  => '', // Legacy – wird migriert zu anthropic_api_key
+            // ── Gebühren / Provisionen ──
+            'fee_fixed'            => 0,       // Fixbetrag pro Ticket in €
+            'fee_percent'          => 0,       // Prozentualer Anteil am Ticketpreis
+            'fee_mode'             => 'organizer', // organizer = unsichtbar abgezogen, customer = aufgeschlagen
+            'fee_label'            => 'Servicegebühr', // Bezeichnung für den Kunden
+            'fee_rounding'         => 'none',  // none, 0.90, 0.99, 0.50, 0.00, custom
+            'fee_rounding_custom'  => '',      // Eigener Nachkomma-Wert z.B. 0.49
+            'fee_max_per_ticket'   => 0,       // Max-Gebühr pro Ticket (0 = unbegrenzt)
+            'fee_max_per_order'    => 0,       // Max-Gebühr pro Bestellung (0 = unbegrenzt, überschreibt pro Ticket)
+            'fee_show_in_selector' => 0,       // Gebührenhinweis unter Ticket-Selektor anzeigen
+            'gateway_fee_fixed'    => 0,       // Gateway-Fixkosten pro Transaktion
+            'gateway_fee_percent'  => 0,       // Gateway-Prozent pro Transaktion
+            'gateway_fee_mode'     => 'organizer', // organizer oder customer
+
             // ── Steuern ──
             'tax_enabled'       => 0,
             'tax_rate'          => 19,
@@ -366,6 +380,7 @@ class TIX_Settings {
             'tix_typo_base_size'    => 15,
             'tix_typo_breakdance_sync' => 0,
             'tix_typo_classes'      => [],
+            'tix_color_classes'     => [],
             // ── Syndication (Selfhosted → Evendis) ──
             'syndication_enabled'   => 0,
             'syndication_api_url'   => '',
@@ -790,6 +805,21 @@ class TIX_Settings {
         $clean['support_categories'] = sanitize_textarea_field($input['support_categories'] ?? '');
         $clean['support_chat_enabled'] = !empty($input['support_chat_enabled']) ? 1 : 0;
 
+        // Gebühren / Provisionen
+        $clean['fee_fixed']         = max(0, floatval($input['fee_fixed'] ?? 0));
+        $clean['fee_percent']       = max(0, min(100, floatval($input['fee_percent'] ?? 0)));
+        $clean['fee_mode']          = in_array($input['fee_mode'] ?? 'organizer', ['organizer', 'customer']) ? $input['fee_mode'] : 'organizer';
+        $clean['fee_label']         = sanitize_text_field($input['fee_label'] ?? 'Servicegebühr');
+        $valid_rounding = ['none', '0.90', '0.99', '0.50', '0.00', 'custom'];
+        $clean['fee_rounding']      = in_array($input['fee_rounding'] ?? 'none', $valid_rounding) ? $input['fee_rounding'] : 'none';
+        $clean['fee_rounding_custom'] = max(0, min(0.99, floatval($input['fee_rounding_custom'] ?? 0)));
+        $clean['fee_max_per_ticket'] = max(0, floatval($input['fee_max_per_ticket'] ?? 0));
+        $clean['fee_max_per_order']  = max(0, floatval($input['fee_max_per_order'] ?? 0));
+        $clean['fee_show_in_selector'] = !empty($input['fee_show_in_selector']) ? 1 : 0;
+        $clean['gateway_fee_fixed'] = max(0, floatval($input['gateway_fee_fixed'] ?? 0));
+        $clean['gateway_fee_percent'] = max(0, min(100, floatval($input['gateway_fee_percent'] ?? 0)));
+        $clean['gateway_fee_mode']  = in_array($input['gateway_fee_mode'] ?? 'organizer', ['organizer', 'customer']) ? $input['gateway_fee_mode'] : 'organizer';
+
         // Steuern
         $clean['tax_enabled']   = !empty($input['tax_enabled']) ? 1 : 0;
         $clean['tax_rate']      = max(0, min(100, floatval($input['tax_rate'] ?? 19)));
@@ -857,6 +887,13 @@ class TIX_Settings {
                         $size = intval($vals['size']);
                         if ($size !== $def['size'] && $size >= 8 && $size <= 60) $entry['size'] = $size;
                     }
+                    // Responsive Breakpoint Sizes
+                    foreach (['size_tl', 'size_tp', 'size_pl', 'size_pp'] as $bp_key) {
+                        if (isset($vals[$bp_key]) && $vals[$bp_key] !== '') {
+                            $bp_size = intval($vals[$bp_key]);
+                            if ($bp_size >= 8 && $bp_size <= 60) $entry[$bp_key] = $bp_size;
+                        }
+                    }
                     if (isset($vals['font'])) {
                         $font = sanitize_text_field($vals['font']);
                         if ($font !== $def['font'] && in_array($font, $allowed_fonts, true)) $entry['font'] = $font;
@@ -874,6 +911,40 @@ class TIX_Settings {
             $existing = get_option('tix_settings', []);
             if (!empty($existing['tix_typo_classes']) && is_array($existing['tix_typo_classes'])) {
                 $clean['tix_typo_classes'] = $existing['tix_typo_classes'];
+            }
+        }
+
+        // Per-Class Farben Overrides (via JSON hidden input — umgeht max_input_vars)
+        $clean['tix_color_classes'] = [];
+        $color_json = $input['tix_color_classes_json'] ?? '';
+        if (!empty($color_json)) {
+            $color_data = json_decode(wp_unslash($color_json), true);
+            if (is_array($color_data)) {
+                $color_registry = self::color_class_registry_flat();
+                foreach ($color_data as $cls => $vals) {
+                    $cls = sanitize_text_field($cls);
+                    if (!isset($color_registry[$cls]) || !is_array($vals)) continue;
+                    $def = $color_registry[$cls];
+                    $entry = [];
+                    foreach (['color', 'bg', 'border'] as $prop) {
+                        if (isset($vals[$prop]) && isset($def['props'][$prop])) {
+                            $val = sanitize_text_field($vals[$prop]);
+                            // Erlaube nur gültige Farbwerte
+                            if (preg_match('/^#[0-9a-fA-F]{3,8}$/', $val) || preg_match('/^(rgb|hsl)a?\(/', $val)) {
+                                if ($val !== $def['props'][$prop]) {
+                                    $entry[$prop] = $val;
+                                }
+                            }
+                        }
+                    }
+                    if (!empty($entry)) $clean['tix_color_classes'][$cls] = $entry;
+                }
+            }
+        }
+        if (empty($color_json)) {
+            $existing = $existing ?? get_option('tix_settings', []);
+            if (!empty($existing['tix_color_classes']) && is_array($existing['tix_color_classes'])) {
+                $clean['tix_color_classes'] = $existing['tix_color_classes'];
             }
         }
 
@@ -1498,8 +1569,20 @@ class TIX_Settings {
         $typo_classes = $s['tix_typo_classes'] ?? [];
         if (!empty($typo_classes) && is_array($typo_classes)) {
             $registry_flat = self::typo_class_registry_flat();
+
+            // Breakpoint-Sammler: width => ['.cls { font-size: Xpx !important; }', ...]
+            $bp_map = [
+                'size_tl' => 1119,
+                'size_tp' => 1023,
+                'size_pl' => 767,
+                'size_pp' => 479,
+            ];
+            $bp_rules = [];
+
             foreach ($typo_classes as $cls => $vals) {
                 if (!isset($registry_flat[$cls]) || !is_array($vals)) continue;
+
+                // Desktop-Regel (size, font, weight)
                 $props = [];
                 if (isset($vals['size'])) {
                     $props[] = 'font-size: ' . intval($vals['size']) . 'px !important';
@@ -1516,6 +1599,38 @@ class TIX_Settings {
                 }
                 if (isset($vals['weight'])) {
                     $props[] = 'font-weight: ' . intval($vals['weight']) . ' !important';
+                }
+                if (!empty($props)) {
+                    echo '.' . $cls . " { " . implode('; ', $props) . "; }\n";
+                }
+
+                // Responsive Breakpoint font-sizes
+                foreach ($bp_map as $bp_key => $width) {
+                    if (isset($vals[$bp_key])) {
+                        $bp_rules[$width][] = '.' . $cls . ' { font-size: ' . intval($vals[$bp_key]) . 'px !important; }';
+                    }
+                }
+            }
+
+            // Media-Queries ausgeben (absteigend sortiert, damit Kaskade stimmt)
+            krsort($bp_rules);
+            foreach ($bp_rules as $width => $rules) {
+                echo "@media(max-width:{$width}px){\n" . implode("\n", $rules) . "\n}\n";
+            }
+        }
+
+        // ── Per-Class Farben Overrides ──
+        $color_classes = $s['tix_color_classes'] ?? [];
+        if (!empty($color_classes) && is_array($color_classes)) {
+            $color_registry_flat = self::color_class_registry_flat();
+            $css_prop_map = ['color' => 'color', 'bg' => 'background-color', 'border' => 'border-color'];
+            foreach ($color_classes as $cls => $vals) {
+                if (!isset($color_registry_flat[$cls]) || !is_array($vals)) continue;
+                $props = [];
+                foreach ($css_prop_map as $key => $css_prop) {
+                    if (isset($vals[$key])) {
+                        $props[] = $css_prop . ': ' . esc_attr($vals[$key]) . ' !important';
+                    }
                 }
                 if (!empty($props)) {
                     echo '.' . $cls . " { " . implode('; ', $props) . "; }\n";
@@ -1624,9 +1739,17 @@ class TIX_Settings {
                                 <span class="dashicons dashicons-clipboard"></span>
                                 <span class="tix-nav-label">Check-in</span>
                             </button>
+                            <button type="button" class="tix-nav-tab" data-tab="fees">
+                                <span class="dashicons dashicons-money-alt"></span>
+                                <span class="tix-nav-label">Gebühren</span>
+                            </button>
                             <button type="button" class="tix-nav-tab" data-tab="typography">
                                 <span class="dashicons dashicons-editor-textcolor"></span>
                                 <span class="tix-nav-label">Typografie</span>
+                            </button>
+                            <button type="button" class="tix-nav-tab" data-tab="colors">
+                                <span class="dashicons dashicons-admin-appearance"></span>
+                                <span class="tix-nav-label">Farben</span>
                             </button>
                             <button type="button" class="tix-nav-tab" data-tab="advanced">
                                 <span class="dashicons dashicons-admin-generic"></span>
@@ -3099,15 +3222,20 @@ class TIX_Settings {
                                 .tix-typo-accordion-modified { font-size: 11px; font-weight: 600; color: #f59e0b; background: #fffbeb; padding: 2px 8px; border-radius: 10px; }
                                 .tix-typo-accordion-chevron { transition: transform .2s; color: #9ca3af; }
                                 .tix-typo-accordion-header.open .tix-typo-accordion-chevron { transform: rotate(180deg); }
-                                .tix-typo-accordion-body { display: none; padding: 0; }
+                                .tix-typo-accordion-body { display: none; padding: 0; overflow-x: auto; }
                                 .tix-typo-accordion-header.open + .tix-typo-accordion-body { display: block; }
-                                .tix-typo-row { display: grid; grid-template-columns: 200px 80px 170px 90px 36px; gap: 8px; align-items: center; padding: 8px 18px; border-bottom: 1px solid #f3f4f6; font-size: 12px; }
+                                .tix-typo-row { display: grid; grid-template-columns: 170px repeat(5, 52px) 140px 76px 32px; gap: 6px; align-items: center; padding: 8px 18px; border-bottom: 1px solid #f3f4f6; font-size: 12px; min-width: 750px; }
                                 .tix-typo-row:last-child { border-bottom: none; }
-                                .tix-typo-row-head { background: #f9fafb; font-weight: 600; color: #6b7280; padding: 6px 18px; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; border-bottom: 1px solid #e5e7eb; }
+                                .tix-typo-row-head { background: #f9fafb; font-weight: 600; color: #6b7280; padding: 6px 18px; font-size: 10px; text-transform: uppercase; letter-spacing: .04em; border-bottom: 1px solid #e5e7eb; }
+                                .tix-typo-row-head div { text-align: center; line-height: 1.2; }
+                                .tix-typo-row-head div:first-child { text-align: left; }
                                 .tix-typo-label { display: flex; flex-direction: column; gap: 1px; }
                                 .tix-typo-label-name { font-weight: 500; color: #374151; }
                                 .tix-typo-label-cls { font-size: 10px; color: #9ca3af; font-family: monospace; }
-                                .tix-typo-row input[type="number"] { width: 100%; padding: 5px 6px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 12px; text-align: center; background: #fff; }
+                                .tix-typo-row input[type="number"] { width: 100%; padding: 4px 2px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 12px; text-align: center; background: #fff; -moz-appearance: textfield; }
+                                .tix-typo-row input[type="number"]::-webkit-inner-spin-button,
+                                .tix-typo-row input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+                                .tix-typo-row input[type="number"]::placeholder { color: #c4c9d0; font-size: 11px; }
                                 .tix-typo-row select { width: 100%; padding: 5px 4px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 11px; background: #fff; }
                                 .tix-typo-row input:focus, .tix-typo-row select:focus { outline: none; border-color: #6366f1; box-shadow: 0 0 0 2px rgba(99,102,241,.15); }
                                 .tix-typo-row input.tix-typo-changed, .tix-typo-row select.tix-typo-changed { border-color: #f59e0b; background: #fffbeb; }
@@ -3115,7 +3243,7 @@ class TIX_Settings {
                                 .tix-typo-reset:hover { color: #ef4444; background: #fef2f2; }
                                 .tix-typo-reset.has-changes { color: #f59e0b; }
                                 @media (max-width: 900px) {
-                                    .tix-typo-row { grid-template-columns: 1fr; gap: 4px; padding: 10px 14px; }
+                                    .tix-typo-row { grid-template-columns: 1fr; gap: 4px; padding: 10px 14px; min-width: 0; }
                                     .tix-typo-row-head { display: none; }
                                 }
                                 </style>
@@ -3140,13 +3268,19 @@ class TIX_Settings {
                                     </div>
                                     <div class="tix-typo-accordion-body">
                                         <div class="tix-typo-row tix-typo-row-head">
-                                            <div>Element</div>
-                                            <div>Größe</div>
+                                            <div style="text-align:left;">Element</div>
+                                            <div title="Desktop / Alle">🖥</div>
+                                            <div title="Tablet Landscape ≤1119px">TL</div>
+                                            <div title="Tablet Portrait ≤1023px">TP</div>
+                                            <div title="Phone Landscape ≤767px">PL</div>
+                                            <div title="Phone Portrait ≤479px">PP</div>
                                             <div>Font</div>
                                             <div>Gewicht</div>
                                             <div></div>
                                         </div>
-                                        <?php foreach ($group_classes as $cls => $def):
+                                        <?php
+                                        $bp_keys = ['size', 'size_tl', 'size_tp', 'size_pl', 'size_pp'];
+                                        foreach ($group_classes as $cls => $def):
                                             $ov = $typo_overrides[$cls] ?? [];
                                             $cur_size   = $ov['size']   ?? $def['size'];
                                             $cur_font   = $ov['font']   ?? $def['font'];
@@ -3158,7 +3292,15 @@ class TIX_Settings {
                                                 <span class="tix-typo-label-name"><?php echo esc_html($def['label']); ?></span>
                                                 <span class="tix-typo-label-cls">.<?php echo esc_html($cls); ?></span>
                                             </div>
-                                            <input type="number" data-prop="size" value="<?php echo esc_attr($cur_size); ?>" min="8" max="60" step="1" class="<?php echo ($ov['size'] ?? null) !== null ? 'tix-typo-changed' : ''; ?>">
+                                            <?php /* Desktop Size — immer Wert anzeigen */ ?>
+                                            <input type="number" data-prop="size" value="<?php echo esc_attr($cur_size); ?>" min="8" max="60" step="1" class="<?php echo ($ov['size'] ?? null) !== null ? 'tix-typo-changed' : ''; ?>" title="Desktop">
+                                            <?php /* Responsive Breakpoint Sizes — leer = vererbt */ ?>
+                                            <?php foreach (['size_tl', 'size_tp', 'size_pl', 'size_pp'] as $bp_key):
+                                                $bp_val = $ov[$bp_key] ?? '';
+                                                $bp_labels = ['size_tl' => 'Tablet L ≤1119', 'size_tp' => 'Tablet P ≤1023', 'size_pl' => 'Phone L ≤767', 'size_pp' => 'Phone P ≤479'];
+                                            ?>
+                                            <input type="number" data-prop="<?php echo $bp_key; ?>" value="<?php echo esc_attr($bp_val); ?>" min="8" max="60" step="1" placeholder="" class="<?php echo $bp_val !== '' ? 'tix-typo-changed' : ''; ?>" title="<?php echo $bp_labels[$bp_key]; ?>">
+                                            <?php endforeach; ?>
                                             <select data-prop="font" class="<?php echo ($ov['font'] ?? null) !== null ? 'tix-typo-changed' : ''; ?>">
                                                 <option value="heading" <?php selected($cur_font, 'heading'); ?>>Standard (Heading)</option>
                                                 <option value="body" <?php selected($cur_font, 'body'); ?>>Standard (Body)</option>
@@ -3183,34 +3325,73 @@ class TIX_Settings {
                                 <input type="hidden" name="tix_settings[tix_typo_classes_json]" id="tix-typo-json" value="">
 
                                 <script>
+                                var bpProps = ['size', 'size_tl', 'size_tp', 'size_pl', 'size_pp'];
+
+                                /* Placeholder-Kaskade: Jeder leere BP erbt vom nächst-größeren */
+                                function tixTypoUpdatePlaceholders(row) {
+                                    var inputs = bpProps.map(function(p) { return row.querySelector('input[data-prop="' + p + '"]'); });
+                                    var inherited = row.dataset.defSize;
+                                    for (var i = 0; i < inputs.length; i++) {
+                                        if (i === 0) {
+                                            // Desktop hat immer einen Wert
+                                            inherited = inputs[0].value || row.dataset.defSize;
+                                        } else {
+                                            inputs[i].placeholder = inherited;
+                                            if (inputs[i].value !== '') inherited = inputs[i].value;
+                                        }
+                                    }
+                                }
+
                                 function tixTypoReset(btn) {
                                     var row = btn.closest('.tix-typo-row');
-                                    var sizeInput = row.querySelector('input[type="number"]');
+                                    var sizeInput = row.querySelector('input[data-prop="size"]');
+                                    sizeInput.value = row.dataset.defSize;
+                                    sizeInput.classList.remove('tix-typo-changed');
+                                    // Responsive BPs leeren
+                                    ['size_tl', 'size_tp', 'size_pl', 'size_pp'].forEach(function(p) {
+                                        var inp = row.querySelector('input[data-prop="' + p + '"]');
+                                        if (inp) { inp.value = ''; inp.classList.remove('tix-typo-changed'); }
+                                    });
                                     var fontSelect = row.querySelectorAll('select')[0];
                                     var weightSelect = row.querySelectorAll('select')[1];
-                                    sizeInput.value = row.dataset.defSize;
                                     fontSelect.value = row.dataset.defFont;
                                     weightSelect.value = row.dataset.defWeight;
-                                    sizeInput.classList.remove('tix-typo-changed');
                                     fontSelect.classList.remove('tix-typo-changed');
                                     weightSelect.classList.remove('tix-typo-changed');
                                     btn.classList.remove('has-changes');
+                                    tixTypoUpdatePlaceholders(row);
                                 }
+
                                 document.querySelectorAll('.tix-typo-row:not(.tix-typo-row-head)').forEach(function(row) {
+                                    // Initial: Placeholders setzen
+                                    tixTypoUpdatePlaceholders(row);
                                     row.querySelectorAll('input, select').forEach(function(el) {
                                         el.addEventListener('change', function() {
                                             var r = this.closest('.tix-typo-row');
-                                            var sizeInput = r.querySelector('input[type="number"]');
+                                            var sizeInput = r.querySelector('input[data-prop="size"]');
                                             var fontSelect = r.querySelectorAll('select')[0];
                                             var weightSelect = r.querySelectorAll('select')[1];
-                                            var changed = sizeInput.value != r.dataset.defSize || fontSelect.value != r.dataset.defFont || weightSelect.value != r.dataset.defWeight;
+                                            // Desktop size changed?
                                             sizeInput.classList.toggle('tix-typo-changed', sizeInput.value != r.dataset.defSize);
                                             fontSelect.classList.toggle('tix-typo-changed', fontSelect.value != r.dataset.defFont);
                                             weightSelect.classList.toggle('tix-typo-changed', weightSelect.value != r.dataset.defWeight);
+                                            // Responsive BP inputs changed?
+                                            var anyBpChanged = false;
+                                            ['size_tl', 'size_tp', 'size_pl', 'size_pp'].forEach(function(p) {
+                                                var inp = r.querySelector('input[data-prop="' + p + '"]');
+                                                if (inp) {
+                                                    var c = inp.value !== '';
+                                                    inp.classList.toggle('tix-typo-changed', c);
+                                                    if (c) anyBpChanged = true;
+                                                }
+                                            });
+                                            var changed = sizeInput.value != r.dataset.defSize || fontSelect.value != r.dataset.defFont || weightSelect.value != r.dataset.defWeight || anyBpChanged;
                                             r.querySelector('.tix-typo-reset').classList.toggle('has-changes', changed);
+                                            tixTypoUpdatePlaceholders(r);
                                         });
                                     });
                                 });
+
                                 /* Vor dem Absenden: Alle Typo-Overrides als 1 JSON-String senden (umgeht max_input_vars) */
                                 var tixForm = document.getElementById('tix-settings-form');
                                 if (tixForm) {
@@ -3218,21 +3399,216 @@ class TIX_Settings {
                                         var overrides = {};
                                         document.querySelectorAll('.tix-typo-row:not(.tix-typo-row-head)').forEach(function(row) {
                                             var cls = row.dataset.cls;
-                                            var s = row.querySelector('input[type="number"]');
-                                            var f = row.querySelectorAll('select')[0];
-                                            var w = row.querySelectorAll('select')[1];
-                                            var sizeChanged = s.value != row.dataset.defSize;
-                                            var fontChanged = f.value != row.dataset.defFont;
-                                            var weightChanged = w.value != row.dataset.defWeight;
-                                            if (sizeChanged || fontChanged || weightChanged) {
-                                                var entry = {};
-                                                if (sizeChanged) entry.size = parseInt(s.value, 10);
-                                                if (fontChanged) entry.font = f.value;
-                                                if (weightChanged) entry.weight = parseInt(w.value, 10);
-                                                overrides[cls] = entry;
-                                            }
+                                            var sizeInput = row.querySelector('input[data-prop="size"]');
+                                            var fontSelect = row.querySelectorAll('select')[0];
+                                            var weightSelect = row.querySelectorAll('select')[1];
+                                            var entry = {};
+                                            // Desktop size
+                                            if (sizeInput.value != row.dataset.defSize) entry.size = parseInt(sizeInput.value, 10);
+                                            // Responsive breakpoint sizes
+                                            ['size_tl', 'size_tp', 'size_pl', 'size_pp'].forEach(function(p) {
+                                                var inp = row.querySelector('input[data-prop="' + p + '"]');
+                                                if (inp && inp.value !== '') entry[p] = parseInt(inp.value, 10);
+                                            });
+                                            // Font + Weight
+                                            if (fontSelect.value != row.dataset.defFont) entry.font = fontSelect.value;
+                                            if (weightSelect.value != row.dataset.defWeight) entry.weight = parseInt(weightSelect.value, 10);
+                                            if (Object.keys(entry).length > 0) overrides[cls] = entry;
                                         });
                                         document.getElementById('tix-typo-json').value = JSON.stringify(overrides);
+                                    });
+                                }
+                                </script>
+
+                            </div>
+
+                            <?php // ═══ PANE: COLORS (Per-Class) ═══ ?>
+                            <div class="tix-pane" data-pane="colors">
+
+                                <?php
+                                $color_registry  = self::color_class_registry();
+                                $color_overrides = $s['tix_color_classes'] ?? [];
+                                $prop_labels = ['color' => 'Text', 'bg' => 'Hintergrund', 'border' => 'Rahmen'];
+                                ?>
+
+                                <style>
+                                .tix-clr-accordion { border: 1px solid #e5e7eb; border-radius: 10px; overflow: hidden; margin-bottom: 8px; background: #fff; }
+                                .tix-clr-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; cursor: pointer; user-select: none; background: #fafbfc; border-bottom: 1px solid transparent; transition: background .15s; }
+                                .tix-clr-header:hover { background: #f3f4f6; }
+                                .tix-clr-header.open { border-bottom-color: #e5e7eb; }
+                                .tix-clr-title { font-size: 13px; font-weight: 600; color: #1f2937; display: flex; align-items: center; gap: 8px; }
+                                .tix-clr-count { font-size: 11px; font-weight: 500; color: #9ca3af; background: #f3f4f6; padding: 2px 8px; border-radius: 10px; }
+                                .tix-clr-modified { font-size: 11px; font-weight: 600; color: #f59e0b; background: #fffbeb; padding: 2px 8px; border-radius: 10px; }
+                                .tix-clr-chevron { transition: transform .2s; color: #9ca3af; }
+                                .tix-clr-header.open .tix-clr-chevron { transform: rotate(180deg); }
+                                .tix-clr-body { display: none; padding: 0; }
+                                .tix-clr-header.open + .tix-clr-body { display: block; }
+                                .tix-clr-row { display: grid; grid-template-columns: 170px repeat(3, 120px) 32px; gap: 6px; align-items: center; padding: 8px 18px; border-bottom: 1px solid #f3f4f6; font-size: 12px; }
+                                .tix-clr-row:last-child { border-bottom: none; }
+                                .tix-clr-row-head { background: #f9fafb; font-weight: 600; color: #6b7280; padding: 6px 18px; font-size: 10px; text-transform: uppercase; letter-spacing: .04em; border-bottom: 1px solid #e5e7eb; }
+                                .tix-clr-label { display: flex; flex-direction: column; gap: 1px; }
+                                .tix-clr-label-name { font-weight: 500; color: #374151; }
+                                .tix-clr-label-cls { font-size: 10px; color: #9ca3af; font-family: monospace; }
+                                .tix-clr-cell { display: flex; align-items: center; gap: 4px; }
+                                .tix-clr-cell.tix-clr-empty { visibility: hidden; }
+                                .tix-clr-swatch { width: 26px; height: 26px; border-radius: 6px; border: 1px solid #d1d5db; cursor: pointer; flex-shrink: 0; padding: 0; position: relative; }
+                                .tix-clr-swatch input[type="color"] { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; border: none; padding: 0; }
+                                .tix-clr-hex { width: 72px; padding: 4px 6px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 11px; font-family: monospace; text-align: center; background: #fff; }
+                                .tix-clr-hex:focus { outline: none; border-color: #6366f1; box-shadow: 0 0 0 2px rgba(99,102,241,.15); }
+                                .tix-clr-hex.tix-clr-changed { border-color: #f59e0b; background: #fffbeb; }
+                                .tix-clr-reset { width: 28px; height: 28px; border: none; background: none; cursor: pointer; color: #d1d5db; border-radius: 6px; display: flex; align-items: center; justify-content: center; transition: color .15s, background .15s; padding: 0; }
+                                .tix-clr-reset:hover { color: #ef4444; background: #fef2f2; }
+                                .tix-clr-reset.has-changes { color: #f59e0b; }
+                                @media (max-width: 900px) {
+                                    .tix-clr-row { grid-template-columns: 1fr; gap: 4px; padding: 10px 14px; }
+                                    .tix-clr-row-head { display: none; }
+                                    .tix-clr-cell.tix-clr-empty { display: none; }
+                                }
+                                </style>
+
+                                <?php foreach ($color_registry as $group_label => $group_classes): ?>
+                                <?php
+                                    $col_mod_count = 0;
+                                    foreach ($group_classes as $cls => $def) {
+                                        if (!empty($color_overrides[$cls])) $col_mod_count++;
+                                    }
+                                ?>
+                                <div class="tix-clr-accordion">
+                                    <div class="tix-clr-header" onclick="this.classList.toggle('open');">
+                                        <div class="tix-clr-title">
+                                            <?php echo esc_html($group_label); ?>
+                                            <span class="tix-clr-count"><?php echo count($group_classes); ?></span>
+                                            <?php if ($col_mod_count > 0): ?>
+                                                <span class="tix-clr-modified"><?php echo $col_mod_count; ?> geändert</span>
+                                            <?php endif; ?>
+                                        </div>
+                                        <svg class="tix-clr-chevron" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                                    </div>
+                                    <div class="tix-clr-body">
+                                        <div class="tix-clr-row tix-clr-row-head">
+                                            <div>Element</div>
+                                            <div>Text</div>
+                                            <div>Hintergrund</div>
+                                            <div>Rahmen</div>
+                                            <div></div>
+                                        </div>
+                                        <?php foreach ($group_classes as $cls => $def):
+                                            $ov = $color_overrides[$cls] ?? [];
+                                            $has_changes = !empty($ov);
+                                        ?>
+                                        <div class="tix-clr-row" data-cls="<?php echo esc_attr($cls); ?>"<?php
+                                            foreach ($def['props'] as $pk => $pv) {
+                                                echo ' data-def-' . $pk . '="' . esc_attr($pv) . '"';
+                                            }
+                                        ?>>
+                                            <div class="tix-clr-label">
+                                                <span class="tix-clr-label-name"><?php echo esc_html($def['label']); ?></span>
+                                                <span class="tix-clr-label-cls">.<?php echo esc_html($cls); ?></span>
+                                            </div>
+                                            <?php foreach (['color', 'bg', 'border'] as $prop):
+                                                $has_prop = isset($def['props'][$prop]);
+                                                $def_val  = $def['props'][$prop] ?? '';
+                                                $cur_val  = $ov[$prop] ?? $def_val;
+                                                $is_changed = isset($ov[$prop]);
+                                            ?>
+                                            <div class="tix-clr-cell <?php echo !$has_prop ? 'tix-clr-empty' : ''; ?>">
+                                                <?php if ($has_prop): ?>
+                                                <div class="tix-clr-swatch" style="background:<?php echo esc_attr($cur_val); ?>;">
+                                                    <input type="color" data-prop="<?php echo $prop; ?>" data-role="picker" value="<?php echo esc_attr($cur_val); ?>" tabindex="-1">
+                                                </div>
+                                                <input type="text" data-prop="<?php echo $prop; ?>" data-role="hex" value="<?php echo esc_attr($cur_val); ?>" class="tix-clr-hex <?php echo $is_changed ? 'tix-clr-changed' : ''; ?>" maxlength="9" spellcheck="false">
+                                                <?php endif; ?>
+                                            </div>
+                                            <?php endforeach; ?>
+                                            <button type="button" class="tix-clr-reset <?php echo $has_changes ? 'has-changes' : ''; ?>" title="Auf Standard zurücksetzen" onclick="tixColorReset(this);">
+                                                <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2 2v5h5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M3.05 10A6 6 0 1 0 4.18 4.18L2 7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                                            </button>
+                                        </div>
+                                        <?php endforeach; ?>
+                                    </div>
+                                </div>
+                                <?php endforeach; ?>
+
+                                <input type="hidden" name="tix_settings[tix_color_classes_json]" id="tix-color-json" value="">
+
+                                <script>
+                                function tixColorReset(btn) {
+                                    var row = btn.closest('.tix-clr-row');
+                                    ['color', 'bg', 'border'].forEach(function(p) {
+                                        var hex = row.querySelector('input[data-role="hex"][data-prop="' + p + '"]');
+                                        var picker = row.querySelector('input[data-role="picker"][data-prop="' + p + '"]');
+                                        if (!hex) return;
+                                        if (p === 'color') var def = row.dataset.defColor || '';
+                                        else if (p === 'bg') var def = row.dataset.defBg || '';
+                                        else var def = row.dataset.defBorder || '';
+                                        hex.value = def;
+                                        hex.classList.remove('tix-clr-changed');
+                                        if (picker && def.match(/^#[0-9a-fA-F]{6}$/)) picker.value = def;
+                                        var swatch = picker ? picker.closest('.tix-clr-swatch') : null;
+                                        if (swatch) swatch.style.background = def;
+                                    });
+                                    btn.classList.remove('has-changes');
+                                }
+
+                                // Sync picker ↔ hex
+                                document.querySelectorAll('.tix-clr-row:not(.tix-clr-row-head)').forEach(function(row) {
+                                    row.querySelectorAll('input[data-role="picker"]').forEach(function(picker) {
+                                        picker.addEventListener('input', function() {
+                                            var prop = this.dataset.prop;
+                                            var hex = row.querySelector('input[data-role="hex"][data-prop="' + prop + '"]');
+                                            var swatch = this.closest('.tix-clr-swatch');
+                                            if (swatch) swatch.style.background = this.value;
+                                            if (hex) {
+                                                hex.value = this.value;
+                                                var defKey = 'def' + prop.charAt(0).toUpperCase() + prop.slice(1);
+                                                hex.classList.toggle('tix-clr-changed', this.value !== (row.dataset[defKey] || ''));
+                                                tixColorUpdateResetBtn(row);
+                                            }
+                                        });
+                                    });
+                                    row.querySelectorAll('input[data-role="hex"]').forEach(function(hex) {
+                                        hex.addEventListener('input', function() {
+                                            var prop = this.dataset.prop;
+                                            var picker = row.querySelector('input[data-role="picker"][data-prop="' + prop + '"]');
+                                            var swatch = row.querySelector('.tix-clr-swatch input[data-prop="' + prop + '"]');
+                                            if (swatch) swatch.closest('.tix-clr-swatch').style.background = this.value;
+                                            if (picker && this.value.match(/^#[0-9a-fA-F]{6}$/)) picker.value = this.value;
+                                            var defKey = 'def' + prop.charAt(0).toUpperCase() + prop.slice(1);
+                                            this.classList.toggle('tix-clr-changed', this.value !== (row.dataset[defKey] || ''));
+                                            tixColorUpdateResetBtn(row);
+                                        });
+                                    });
+                                });
+
+                                function tixColorUpdateResetBtn(row) {
+                                    var anyChanged = false;
+                                    row.querySelectorAll('input[data-role="hex"]').forEach(function(hex) {
+                                        if (hex.classList.contains('tix-clr-changed')) anyChanged = true;
+                                    });
+                                    row.querySelector('.tix-clr-reset').classList.toggle('has-changes', anyChanged);
+                                }
+
+                                // Submit: sammle alle Overrides als JSON
+                                var tixColorForm = document.getElementById('tix-settings-form');
+                                if (tixColorForm) {
+                                    tixColorForm.addEventListener('submit', function() {
+                                        var overrides = {};
+                                        document.querySelectorAll('.tix-clr-row:not(.tix-clr-row-head)').forEach(function(row) {
+                                            var cls = row.dataset.cls;
+                                            if (!cls) return;
+                                            var entry = {};
+                                            ['color', 'bg', 'border'].forEach(function(p) {
+                                                var hex = row.querySelector('input[data-role="hex"][data-prop="' + p + '"]');
+                                                if (!hex) return;
+                                                var defKey = 'def' + p.charAt(0).toUpperCase() + p.slice(1);
+                                                var def = row.dataset[defKey] || '';
+                                                if (hex.value !== def && hex.value.trim() !== '') {
+                                                    entry[p] = hex.value.trim();
+                                                }
+                                            });
+                                            if (Object.keys(entry).length > 0) overrides[cls] = entry;
+                                        });
+                                        document.getElementById('tix-color-json').value = JSON.stringify(overrides);
                                     });
                                 }
                                 </script>
@@ -3674,6 +4050,345 @@ class TIX_Settings {
                                         </a>
                                     </div>
                                 </div>
+
+                            </div>
+
+                            <?php // ═══ PANE: GEBÜHREN ═══ ?>
+                            <div class="tix-pane" data-pane="fees">
+
+                                <?php // ── Card: Plattform-Provision ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-money-alt"></span>
+                                        <h3>Plattform-Provision</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <p class="tix-field-hint" style="margin:0 0 18px;color:#6b7280;font-size:13px;">
+                                            Dein Verdienst pro verkauftem Ticket. Kann global definiert und pro Veranstalter überschrieben werden.
+                                        </p>
+                                        <div class="tix-field-grid">
+
+                                            <div class="tix-field">
+                                                <label>Fixbetrag pro Ticket</label>
+                                                <div style="display:flex;align-items:center;gap:6px;">
+                                                    <input type="number" name="tix_settings[fee_fixed]"
+                                                           value="<?php echo esc_attr($s['fee_fixed']); ?>"
+                                                           step="0.01" min="0" style="width:100px;" />
+                                                    <span style="color:#6b7280;">€</span>
+                                                </div>
+                                            </div>
+
+                                            <div class="tix-field">
+                                                <label>Prozentualer Anteil</label>
+                                                <div style="display:flex;align-items:center;gap:6px;">
+                                                    <input type="number" name="tix_settings[fee_percent]"
+                                                           value="<?php echo esc_attr($s['fee_percent']); ?>"
+                                                           step="0.01" min="0" max="100" style="width:100px;" />
+                                                    <span style="color:#6b7280;">%</span>
+                                                </div>
+                                            </div>
+
+                                            <div class="tix-field">
+                                                <label>Wer trägt die Gebühr?</label>
+                                                <select name="tix_settings[fee_mode]" style="width:240px;">
+                                                    <option value="organizer" <?php selected($s['fee_mode'], 'organizer'); ?>>Veranstalter (unsichtbar für Kunden)</option>
+                                                    <option value="customer" <?php selected($s['fee_mode'], 'customer'); ?>>Kunde (wird aufgeschlagen)</option>
+                                                </select>
+                                            </div>
+
+                                            <div class="tix-field" id="tix-fee-label-wrap" style="<?php echo $s['fee_mode'] === 'customer' ? '' : 'display:none;'; ?>">
+                                                <label>Bezeichnung für Kunden</label>
+                                                <input type="text" name="tix_settings[fee_label]"
+                                                       value="<?php echo esc_attr($s['fee_label']); ?>"
+                                                       placeholder="Servicegebühr" style="width:240px;" />
+                                                <p class="tix-field-hint" style="color:#9ca3af;font-size:12px;margin:4px 0 0;">
+                                                    Wird im Checkout als eigene Zeile angezeigt.
+                                                </p>
+                                            </div>
+
+                                            <div class="tix-field" id="tix-fee-rounding-wrap" style="<?php echo $s['fee_mode'] === 'customer' ? '' : 'display:none;'; ?>">
+                                                <label>Endpreis-Rundung</label>
+                                                <select name="tix_settings[fee_rounding]" id="tix-fee-rounding" style="width:240px;">
+                                                    <option value="none" <?php selected($s['fee_rounding'], 'none'); ?>>Keine Rundung</option>
+                                                    <option value="0.90" <?php selected($s['fee_rounding'], '0.90'); ?>>Auf x,90 € aufrunden</option>
+                                                    <option value="0.99" <?php selected($s['fee_rounding'], '0.99'); ?>>Auf x,99 € aufrunden</option>
+                                                    <option value="0.50" <?php selected($s['fee_rounding'], '0.50'); ?>>Auf x,50 € aufrunden</option>
+                                                    <option value="0.00" <?php selected($s['fee_rounding'], '0.00'); ?>>Auf volle € aufrunden</option>
+                                                    <option value="custom" <?php selected($s['fee_rounding'], 'custom'); ?>>Eigener Wert</option>
+                                                </select>
+                                                <p class="tix-field-hint" style="color:#9ca3af;font-size:12px;margin:4px 0 0;">
+                                                    Der Endpreis für den Kunden wird auf den nächsten passenden Betrag aufgerundet. Die Differenz geht an die Plattform.
+                                                </p>
+                                            </div>
+
+                                            <div class="tix-field" id="tix-fee-rounding-custom-wrap" style="<?php echo ($s['fee_mode'] === 'customer' && $s['fee_rounding'] === 'custom') ? '' : 'display:none;'; ?>">
+                                                <label>Eigener Nachkomma-Wert</label>
+                                                <div style="display:flex;align-items:center;gap:6px;">
+                                                    <span style="color:#6b7280;">x,</span>
+                                                    <input type="number" name="tix_settings[fee_rounding_custom]"
+                                                           value="<?php echo esc_attr($s['fee_rounding_custom']); ?>"
+                                                           step="0.01" min="0" max="0.99" style="width:80px;"
+                                                           placeholder="0.49" />
+                                                    <span style="color:#6b7280;">€</span>
+                                                </div>
+                                            </div>
+
+                                        </div>
+
+                                        <div style="margin-top:20px;padding:14px 16px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;font-size:13px;color:#166534;">
+                                            <strong>Beispiel:</strong>
+                                            <span id="tix-fee-example">
+                                            <?php
+                                            $ex_fixed = floatval($s['fee_fixed']);
+                                            $ex_pct   = floatval($s['fee_percent']);
+                                            if ($ex_fixed > 0 && $ex_pct > 0) {
+                                                printf('Bei einem Ticket à 50 € = %.2f € + %.1f%% = <strong>%.2f € Provision</strong>', $ex_fixed, $ex_pct, $ex_fixed + 50 * $ex_pct / 100);
+                                            } elseif ($ex_fixed > 0) {
+                                                printf('%.2f € pro Ticket', $ex_fixed);
+                                            } elseif ($ex_pct > 0) {
+                                                printf('%.1f%% vom Ticketpreis (bei 50 € = <strong>%.2f €</strong>)', $ex_pct, 50 * $ex_pct / 100);
+                                            } else {
+                                                echo 'Noch keine Provision konfiguriert.';
+                                            }
+                                            ?>
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Zahlungsdienstleister-Gebühren ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-credit-card"></span>
+                                        <h3>Zahlungsdienstleister-Gebühren</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <p class="tix-field-hint" style="margin:0 0 18px;color:#6b7280;font-size:13px;">
+                                            Kosten deines Payment-Providers (z.B. Stripe 1,4% + 0,25 €, Mollie 1,8% + 0,25 €).
+                                            Diese Kosten fallen immer an und müssen getragen werden.
+                                        </p>
+                                        <div class="tix-field-grid">
+
+                                            <div class="tix-field">
+                                                <label>Fixbetrag pro Transaktion</label>
+                                                <div style="display:flex;align-items:center;gap:6px;">
+                                                    <input type="number" name="tix_settings[gateway_fee_fixed]"
+                                                           value="<?php echo esc_attr($s['gateway_fee_fixed']); ?>"
+                                                           step="0.01" min="0" style="width:100px;" />
+                                                    <span style="color:#6b7280;">€</span>
+                                                </div>
+                                            </div>
+
+                                            <div class="tix-field">
+                                                <label>Prozentualer Anteil</label>
+                                                <div style="display:flex;align-items:center;gap:6px;">
+                                                    <input type="number" name="tix_settings[gateway_fee_percent]"
+                                                           value="<?php echo esc_attr($s['gateway_fee_percent']); ?>"
+                                                           step="0.01" min="0" max="100" style="width:100px;" />
+                                                    <span style="color:#6b7280;">%</span>
+                                                </div>
+                                            </div>
+
+                                            <div class="tix-field">
+                                                <label>Wer trägt die Gateway-Gebühr?</label>
+                                                <select name="tix_settings[gateway_fee_mode]" style="width:240px;">
+                                                    <option value="organizer" <?php selected($s['gateway_fee_mode'], 'organizer'); ?>>Veranstalter (von Auszahlung abgezogen)</option>
+                                                    <option value="customer" <?php selected($s['gateway_fee_mode'], 'customer'); ?>>Kunde (wird aufgeschlagen)</option>
+                                                </select>
+                                            </div>
+
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Gebühren-Limits ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-shield"></span>
+                                        <h3>Gebühren-Limits &amp; Anzeige</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+
+                                            <div class="tix-field">
+                                                <label>Max. Gebühr pro Ticket</label>
+                                                <div style="display:flex;align-items:center;gap:6px;">
+                                                    <input type="number" name="tix_settings[fee_max_per_ticket]"
+                                                           value="<?php echo esc_attr($s['fee_max_per_ticket']); ?>"
+                                                           step="0.01" min="0" style="width:100px;" placeholder="0" />
+                                                    <span style="color:#6b7280;">€ <small>(0 = unbegrenzt)</small></span>
+                                                </div>
+                                            </div>
+
+                                            <div class="tix-field">
+                                                <label>Max. Gebühr pro Bestellung</label>
+                                                <div style="display:flex;align-items:center;gap:6px;">
+                                                    <input type="number" name="tix_settings[fee_max_per_order]"
+                                                           value="<?php echo esc_attr($s['fee_max_per_order']); ?>"
+                                                           step="0.01" min="0" style="width:100px;" placeholder="0" />
+                                                    <span style="color:#6b7280;">€ <small>(0 = unbegrenzt)</small></span>
+                                                </div>
+                                                <p class="tix-field-hint" style="color:#9ca3af;font-size:12px;margin:4px 0 0;">
+                                                    Falls gesetzt, überschreibt dies die Maximalgebühr pro Ticket.
+                                                </p>
+                                            </div>
+
+                                            <div class="tix-field tix-field-full">
+                                                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                                                    <input type="checkbox" name="tix_settings[fee_show_in_selector]" value="1" <?php checked($s['fee_show_in_selector']); ?> />
+                                                    <strong>Gebührenhinweis im Ticket-Selektor anzeigen</strong>
+                                                </label>
+                                                <p class="tix-field-hint" style="color:#9ca3af;font-size:12px;margin:4px 0 0 26px;">
+                                                    Zeigt unter dem Ticket-Selektor einen Hinweis wie <em>„zzgl. 2,50 € Servicegebühr"</em> an (nur wenn Kunde Gebühren trägt).
+                                                </p>
+                                            </div>
+
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Veranstalter-Überschreibungen ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-groups"></span>
+                                        <h3>Veranstalter-Überschreibungen</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <p class="tix-field-hint" style="margin:0 0 18px;color:#6b7280;font-size:13px;">
+                                            Pro Veranstalter können individuelle Gebühren definiert werden, die die globalen Einstellungen überschreiben.
+                                            Bearbeite dazu den jeweiligen Veranstalter unter <strong>Tixomat → Veranstalter</strong>.
+                                        </p>
+                                        <?php
+                                        $organizers = get_posts([
+                                            'post_type'      => 'tix_organizer',
+                                            'posts_per_page' => -1,
+                                            'orderby'        => 'title',
+                                            'order'          => 'ASC',
+                                        ]);
+                                        if (!empty($organizers)) : ?>
+                                        <table class="widefat striped" style="max-width:700px;">
+                                            <thead>
+                                                <tr>
+                                                    <th>Veranstalter</th>
+                                                    <th>Fixbetrag</th>
+                                                    <th>Prozent</th>
+                                                    <th>Träger</th>
+                                                    <th>Status</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                            <?php foreach ($organizers as $org) :
+                                                $override = get_post_meta($org->ID, '_tix_fee_override', true);
+                                                $o_fixed  = get_post_meta($org->ID, '_tix_fee_fixed', true);
+                                                $o_pct    = get_post_meta($org->ID, '_tix_fee_percent', true);
+                                                $o_mode   = get_post_meta($org->ID, '_tix_fee_mode', true);
+                                            ?>
+                                                <tr>
+                                                    <td>
+                                                        <a href="<?php echo get_edit_post_link($org->ID); ?>">
+                                                            <?php echo esc_html($org->post_title); ?>
+                                                        </a>
+                                                    </td>
+                                                    <td><?php echo $override ? number_format_i18n(floatval($o_fixed), 2) . ' €' : '—'; ?></td>
+                                                    <td><?php echo $override ? number_format_i18n(floatval($o_pct), 1) . ' %' : '—'; ?></td>
+                                                    <td><?php echo $override ? ($o_mode === 'customer' ? 'Kunde' : 'Veranstalter') : '—'; ?></td>
+                                                    <td>
+                                                        <?php if ($override) : ?>
+                                                            <span style="color:#16a34a;font-weight:600;">Individuell</span>
+                                                        <?php else : ?>
+                                                            <span style="color:#9ca3af;">Global</span>
+                                                        <?php endif; ?>
+                                                    </td>
+                                                </tr>
+                                            <?php endforeach; ?>
+                                            </tbody>
+                                        </table>
+                                        <?php else : ?>
+                                            <p style="color:#9ca3af;">Noch keine Veranstalter angelegt.</p>
+                                        <?php endif; ?>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Rechenbeispiel ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-calculator"></span>
+                                        <h3>Rechenbeispiel</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div id="tix-fee-calc" style="font-size:13px;line-height:1.8;color:#374151;">
+                                        <?php
+                                        $calc_price = 50;
+                                        $pf_fixed   = floatval($s['fee_fixed']);
+                                        $pf_pct     = floatval($s['fee_percent']);
+                                        $gw_fixed   = floatval($s['gateway_fee_fixed']);
+                                        $gw_pct     = floatval($s['gateway_fee_percent']);
+                                        $pf_fee     = $pf_fixed + ($calc_price * $pf_pct / 100);
+                                        $fee_mode   = $s['fee_mode'];
+                                        $gw_mode    = $s['gateway_fee_mode'];
+
+                                        // Subtotal nach Plattform-Fee
+                                        $charge_base = $calc_price;
+                                        if ($fee_mode === 'customer') $charge_base += $pf_fee;
+
+                                        // Gateway-Fee (mit Zirkularitäts-Auflösung)
+                                        if ($gw_pct > 0 && $gw_mode === 'customer') {
+                                            $total_with_gw = ($charge_base + $gw_fixed) / (1 - $gw_pct / 100);
+                                            $gw_fee = $total_with_gw - $charge_base;
+                                        } else {
+                                            $gw_fee = $gw_fixed + ($charge_base * $gw_pct / 100);
+                                        }
+
+                                        $customer_total = $charge_base + ($gw_mode === 'customer' ? $gw_fee : 0);
+
+                                        // Rundung anwenden
+                                        $rounding_surplus = 0;
+                                        $customer_fee_exists = ($fee_mode === 'customer' || $gw_mode === 'customer');
+                                        if ($customer_fee_exists && $s['fee_rounding'] !== 'none' && class_exists('TIX_Fees')) {
+                                            $rounded = TIX_Fees::round_up_to_target($customer_total, $s['fee_rounding'], floatval($s['fee_rounding_custom'] ?? 0));
+                                            if ($rounded > $customer_total) {
+                                                $rounding_surplus = round($rounded - $customer_total, 2);
+                                                $customer_total = $rounded;
+                                            }
+                                        }
+
+                                        $organizer_gets = $calc_price - ($fee_mode === 'organizer' ? $pf_fee : 0) - ($gw_mode === 'organizer' ? $gw_fee : 0);
+                                        $platform_gets  = $pf_fee + $rounding_surplus;
+                                        ?>
+                                        <table style="border-collapse:collapse;width:100%;max-width:500px;">
+                                            <tr><td style="padding:4px 12px 4px 0;">Ticket-Preis:</td><td style="padding:4px 0;font-weight:600;"><?php echo number_format_i18n($calc_price, 2); ?> €</td></tr>
+                                            <tr><td style="padding:4px 12px 4px 0;">Plattform-Provision:</td><td style="padding:4px 0;"><?php echo number_format_i18n($pf_fee, 2); ?> € <span style="color:#9ca3af;">(<?php echo $fee_mode === 'customer' ? 'Kunde zahlt' : 'Veranstalter zahlt'; ?>)</span></td></tr>
+                                            <tr><td style="padding:4px 12px 4px 0;">Gateway-Gebühr:</td><td style="padding:4px 0;"><?php echo number_format_i18n($gw_fee, 2); ?> € <span style="color:#9ca3af;">(<?php echo $gw_mode === 'customer' ? 'Kunde zahlt' : 'Veranstalter zahlt'; ?>)</span></td></tr>
+                                            <?php if ($rounding_surplus > 0): ?>
+                                            <tr><td style="padding:4px 12px 4px 0;">Rundungs-Aufschlag:</td><td style="padding:4px 0;"><?php echo number_format_i18n($rounding_surplus, 2); ?> € <span style="color:#9ca3af;">(→ Plattform)</span></td></tr>
+                                            <?php endif; ?>
+                                            <tr style="border-top:1px solid #e5e7eb;"><td style="padding:8px 12px 4px 0;font-weight:700;">Kunde zahlt:</td><td style="padding:8px 0 4px;font-weight:700;color:#0D0B09;"><?php echo number_format_i18n($customer_total, 2); ?> €</td></tr>
+                                            <tr><td style="padding:4px 12px 4px 0;font-weight:700;">Veranstalter erhält:</td><td style="padding:4px 0;font-weight:700;color:#16a34a;"><?php echo number_format_i18n($organizer_gets, 2); ?> €</td></tr>
+                                            <tr><td style="padding:4px 12px 4px 0;font-weight:700;">Plattform-Provision:</td><td style="padding:4px 0;font-weight:700;color:#FF5500;"><?php echo number_format_i18n($platform_gets, 2); ?> €</td></tr>
+                                        </table>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <script>
+                                (function(){
+                                    var feeMode = document.querySelector('[name="tix_settings[fee_mode]"]');
+                                    var labelWrap = document.getElementById('tix-fee-label-wrap');
+                                    var roundWrap = document.getElementById('tix-fee-rounding-wrap');
+                                    var roundSel  = document.getElementById('tix-fee-rounding');
+                                    var customWrap = document.getElementById('tix-fee-rounding-custom-wrap');
+
+                                    function updateVisibility() {
+                                        var isCustomer = feeMode && feeMode.value === 'customer';
+                                        if (labelWrap)  labelWrap.style.display  = isCustomer ? '' : 'none';
+                                        if (roundWrap)  roundWrap.style.display  = isCustomer ? '' : 'none';
+                                        if (customWrap) customWrap.style.display = (isCustomer && roundSel && roundSel.value === 'custom') ? '' : 'none';
+                                    }
+
+                                    if (feeMode) feeMode.addEventListener('change', updateVisibility);
+                                    if (roundSel) roundSel.addEventListener('change', updateVisibility);
+                                })();
+                                </script>
 
                             </div>
 
@@ -5572,5 +6287,663 @@ class TIX_Settings {
         if (empty(self::get()['myaccount_restyle'])) return;
         wp_enqueue_style('tix-my-account',
             TIXOMAT_URL . 'assets/css/my-account.css', [], TIXOMAT_VERSION);
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // Per-Class Farben Registry
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Vollständige Registry aller Frontend-Klassen mit Farb-Properties.
+     * Gruppiert nach Komponente. Jeder Eintrag: label, props => [color, bg, border].
+     */
+    public static function color_class_registry(): array {
+        return [
+            'Single Event' => [
+                'tse-intro-title'      => ['label' => 'Event-Titel',           'props' => ['color' => '#1f2937']],
+                'tse-intro-date'       => ['label' => 'Event-Datum',           'props' => ['color' => '#8C8985']],
+                'tse-intro-loc'        => ['label' => 'Event-Ort',             'props' => ['color' => '#3A3937']],
+                'tse-intro-excerpt'    => ['label' => 'Event-Kurztext',        'props' => ['color' => '#3A3937']],
+                'tse-tab'              => ['label' => 'Tab',                   'props' => ['color' => '#8C8985', 'border' => '#E3DED4']],
+                'tse-tabs'             => ['label' => 'Tab-Leiste',            'props' => ['bg' => '#FDFBF7']],
+                'tse-sec-label'        => ['label' => 'Sektions-Label',        'props' => ['color' => '#8C8985']],
+                'tse-sec-title'        => ['label' => 'Sektions-Titel',        'props' => ['color' => '#1f2937']],
+                'tse-sec-content'      => ['label' => 'Sektions-Inhalt',       'props' => ['color' => '#3A3937']],
+                'tse-sec'              => ['label' => 'Sektion',               'props' => ['bg' => '#ffffff', 'border' => '#E3DED4']],
+                'tse-info-card'        => ['label' => 'Info-Karte',            'props' => ['bg' => '#ffffff', 'border' => '#E3DED4']],
+                'tse-info-label'       => ['label' => 'Info-Label',            'props' => ['color' => '#8C8985']],
+                'tse-info-value'       => ['label' => 'Info-Wert',             'props' => ['color' => '#1f2937']],
+                'tse-info-sub'         => ['label' => 'Info-Zusatz',           'props' => ['color' => '#8C8985']],
+                'tse-badge-available'  => ['label' => 'Badge Verfügbar',       'props' => ['bg' => '#14B8A6', 'color' => '#ffffff']],
+                'tse-badge-soldout'    => ['label' => 'Badge Ausverkauft',     'props' => ['bg' => '#E8445A', 'color' => '#ffffff']],
+                'tse-badge-age'        => ['label' => 'Badge Alter',           'props' => ['bg' => '#131020', 'color' => '#ffffff']],
+                'tse-countdown-label'  => ['label' => 'Countdown-Label',       'props' => ['color' => '#8C8985']],
+                'tse-cd-val'           => ['label' => 'Countdown-Wert',        'props' => ['color' => '#1f2937']],
+                'tse-cd-label'         => ['label' => 'Countdown-Einheit',     'props' => ['color' => '#8C8985']],
+                'tse-location-address' => ['label' => 'Adresse',               'props' => ['color' => '#3A3937']],
+                'tse-location-link'    => ['label' => 'Ort-Link',              'props' => ['color' => '#E8445A']],
+                'tse-cal-btn'          => ['label' => 'Kalender-Button',       'props' => ['color' => '#1f2937', 'border' => '#E3DED4']],
+                'tse-share-btn'        => ['label' => 'Teilen-Button',         'props' => ['color' => '#1f2937', 'border' => '#E3DED4']],
+                'tse-countdown'        => ['label' => 'Countdown-Box',         'props' => ['bg' => '#131020', 'color' => '#ffffff']],
+                'tse-hero-placeholder' => ['label' => 'Hero-Platzhalter',      'props' => ['bg' => '#FF5500']],
+            ],
+            'Ticket Selector' => [
+                'tix-sel'               => ['label' => 'Ticket-Selector',          'props' => ['color' => '#475569']],
+                'tix-sel-group-header'  => ['label' => 'Gruppen-Header',           'props' => ['color' => '#475569']],
+                'tix-sel-cat'           => ['label' => 'Kategorie',                'props' => ['border' => '#333333', 'bg' => '#ffffff']],
+                'tix-sel-active'        => ['label' => 'Kategorie aktiv',          'props' => ['bg' => 'rgba(255,255,255,0.05)']],
+                'tix-sel-cat-name'      => ['label' => 'Kategorie-Name',           'props' => ['color' => '#ffffff']],
+                'tix-sel-cat-desc'      => ['label' => 'Kategorie-Beschreibung',   'props' => ['color' => '#aaaaaa']],
+                'tix-sel-price-regular' => ['label' => 'Preis (regulär)',          'props' => ['color' => '#ffffff']],
+                'tix-sel-price-sale'    => ['label' => 'Preis (Sale)',             'props' => ['color' => '#ef5350']],
+                'tix-sel-price-old'     => ['label' => 'Preis (alt)',              'props' => ['color' => '#999999']],
+                'tix-sel-vat'           => ['label' => 'MwSt.-Hinweis',            'props' => ['color' => '#999999']],
+                'tix-sel-low-stock'     => ['label' => 'Wenige verfügbar',         'props' => ['color' => '#f59e0b']],
+                'tix-sel-soldout-label' => ['label' => 'Ausverkauft-Label',        'props' => ['color' => '#ef5350']],
+                'tix-sel-phase-badge'   => ['label' => 'Phasen-Badge',             'props' => ['bg' => '#c8ff00', 'color' => '#000000']],
+                'tix-sel-phase-name'    => ['label' => 'Phasen-Name',              'props' => ['color' => '#aaaaaa']],
+                'tix-sel-phase-price'   => ['label' => 'Phasen-Preis',             'props' => ['color' => '#ffffff']],
+                'tix-sel-phase-until'   => ['label' => 'Gültig bis',               'props' => ['color' => '#999999']],
+                'tix-sel-btn'           => ['label' => 'Ticket-Button',            'props' => ['bg' => '#c8ff00', 'color' => '#000000']],
+                'tix-sel-buy'           => ['label' => 'Kaufen-Button',            'props' => ['bg' => '#c8ff00', 'color' => '#000000']],
+                'tix-sel-charity-badge' => ['label' => 'Charity-Badge',            'props' => ['bg' => '#14B8A6', 'color' => '#ffffff']],
+                'tix-sel-charity'       => ['label' => 'Charity-Box',              'props' => ['bg' => 'rgba(236,72,153,0.06)', 'border' => 'rgba(236,72,153,0.2)']],
+                'tix-sel-charity-desc'  => ['label' => 'Charity-Text',             'props' => ['color' => '#ffffff']],
+                'tix-sel-bundle-save'   => ['label' => 'Bundle-Ersparnis',         'props' => ['color' => '#c8ff00']],
+                'tix-sel-bundle-applied'=> ['label' => 'Bundle aktiv',             'props' => ['color' => '#4caf50', 'bg' => 'rgba(76,175,80,0.1)']],
+                'tix-sel-bundle-badge'  => ['label' => 'Bundle-Badge',             'props' => ['color' => '#ef5350']],
+                'tix-sel-bundle-hint'   => ['label' => 'Bundle-Hinweis',           'props' => ['color' => '#ef5350']],
+                'tix-sel-coupon-ok'     => ['label' => 'Gutschein gültig',         'props' => ['color' => '#4caf50']],
+                'tix-sel-coupon-err'    => ['label' => 'Gutschein ungültig',       'props' => ['color' => '#ef5350']],
+                'tix-sel-coupon-btn'    => ['label' => 'Gutschein-Button',         'props' => ['color' => '#ffffff']],
+                'tix-sel-coupon-code'   => ['label' => 'Gutschein-Eingabe',        'props' => ['border' => '#333333']],
+                'tix-sel-notify-btn'    => ['label' => 'Erinnern-Button',          'props' => ['bg' => '#c8ff00', 'color' => '#000000']],
+                'tix-sel-notify-text'   => ['label' => 'Benachrichtigungs-Text',   'props' => ['color' => '#ffffff']],
+                'tix-sel-notify-success'=> ['label' => 'Benachrichtigung OK',      'props' => ['color' => '#4caf50']],
+                'tix-sel-presale-label' => ['label' => 'Vorverkauf-Label',         'props' => ['color' => '#ffffff']],
+                'tix-sel-presale-timer' => ['label' => 'Vorverkauf-Timer',         'props' => ['color' => '#ffffff']],
+                'tix-sel-express'       => ['label' => 'Express-Badge',            'props' => ['bg' => '#f59e0b', 'color' => '#ffffff']],
+                'tix-sel-external-btn'  => ['label' => 'Externer-Button',          'props' => ['bg' => '#c8ff00', 'color' => '#000000']],
+                'tix-sel-msg-success'   => ['label' => 'Erfolgs-Meldung',          'props' => ['color' => '#4caf50', 'bg' => 'rgba(46,125,50,0.15)']],
+                'tix-sel-msg-error'     => ['label' => 'Fehler-Meldung',           'props' => ['color' => '#ef5350', 'bg' => 'rgba(211,47,47,0.15)']],
+                'tix-sel-special-badge' => ['label' => 'Spezial-Badge',            'props' => ['color' => '#4caf50']],
+                'tix-sel-group-discount'=> ['label' => 'Gruppenrabatt',            'props' => ['bg' => 'rgba(239,83,80,0.06)', 'border' => '#ef5350']],
+                'tix-sel-gd-active'     => ['label' => 'Gruppenrabatt aktiv',      'props' => ['bg' => 'rgba(239,83,80,0.06)', 'border' => '#ef5350']],
+                'tix-sel-gd-badge'      => ['label' => 'Gruppenrabatt-Badge',      'props' => ['bg' => '#ef5350', 'color' => '#ffffff']],
+                'tix-group-create-btn'  => ['label' => 'Gruppe erstellen',         'props' => ['bg' => '#c8ff00', 'color' => '#000000']],
+                'tix-group-checkout-btn'=> ['label' => 'Gruppen-Checkout',         'props' => ['bg' => '#c8ff00', 'color' => '#000000']],
+                'tix-group-copy-btn'    => ['label' => 'Gruppen-Link kopieren',    'props' => ['color' => '#c8ff00', 'border' => '#c8ff00']],
+                'tix-group-member-org'  => ['label' => 'Gruppen-Organisator',      'props' => ['bg' => '#c8ff00', 'color' => '#000000']],
+                'tix-group-msg-success' => ['label' => 'Gruppen-Erfolg',           'props' => ['color' => '#4caf50', 'bg' => 'rgba(46,125,50,0.15)']],
+                'tix-group-msg-error'   => ['label' => 'Gruppen-Fehler',           'props' => ['color' => '#ef5350', 'bg' => 'rgba(211,47,47,0.15)']],
+                'tix-group-name-input'  => ['label' => 'Gruppen-Name-Eingabe',     'props' => ['border' => '#333333']],
+                'tix-group-share-url'   => ['label' => 'Gruppen-URL',              'props' => ['border' => '#333333']],
+            ],
+            'Checkout' => [
+                'tix-co'                    => ['label' => 'Checkout',                'props' => ['color' => '#ffffff']],
+                'tix-co-heading'            => ['label' => 'Überschrift',             'props' => ['color' => '#ffffff', 'border' => '#333333']],
+                'tix-co-label'              => ['label' => 'Label',                   'props' => ['color' => '#ffffff']],
+                'tix-co-input'              => ['label' => 'Eingabefeld',             'props' => ['color' => '#ffffff', 'border' => '#333333', 'bg' => '#000000']],
+                'tix-co-item'               => ['label' => 'Warenkorb-Artikel',       'props' => ['border' => '#333333', 'bg' => '#000000']],
+                'tix-co-item-name'          => ['label' => 'Artikel-Name',            'props' => ['color' => '#ffffff']],
+                'tix-co-item-price'         => ['label' => 'Artikel-Preis',           'props' => ['color' => '#ffffff']],
+                'tix-co-item-price-sale'    => ['label' => 'Artikel-Preis (Sale)',    'props' => ['color' => '#ef5350']],
+                'tix-co-link-btn'           => ['label' => 'Link-Button',             'props' => ['color' => '#c8ff00']],
+                'tix-co-coupon-btn'         => ['label' => 'Gutschein-Button',        'props' => ['border' => '#333333', 'color' => '#ffffff']],
+                'tix-co-coupon-tag'         => ['label' => 'Gutschein-Tag',           'props' => ['bg' => '#1a2e00', 'color' => '#c8ff00']],
+                'tix-co-discount-row'       => ['label' => 'Rabatt-Zeile',            'props' => ['color' => '#4caf50']],
+                'tix-co-summary-row'        => ['label' => 'Zusammenfassung Zeile',   'props' => ['color' => '#ffffff']],
+                'tix-co-summary-total'      => ['label' => 'Zusammenfassung Gesamt',  'props' => ['color' => '#ffffff']],
+                'tix-co-submit'             => ['label' => 'Bestellen-Button',        'props' => ['bg' => '#c8ff00', 'color' => '#000000']],
+                'tix-co-btn-back'           => ['label' => 'Zurück-Button',           'props' => ['border' => '#ffffff', 'color' => '#ffffff']],
+                'tix-co-qty-btn'            => ['label' => 'Mengen-Button',           'props' => ['color' => '#ffffff', 'border' => '#333333']],
+                'tix-co-req'                => ['label' => 'Pflichtfeld-Stern',       'props' => ['color' => '#ef5350']],
+                'tix-co-vat-note'           => ['label' => 'MwSt.-Hinweis',           'props' => ['color' => '#999999']],
+                'tix-co-gw-title'           => ['label' => 'Gateway-Titel',           'props' => ['color' => '#ffffff']],
+                'tix-co-step-num'           => ['label' => 'Schritt-Nummer',          'props' => ['color' => '#ffffff']],
+                'tix-co-step-label'         => ['label' => 'Schritt-Label',           'props' => ['color' => '#ffffff']],
+                'tix-co-msg-success'        => ['label' => 'Erfolgs-Meldung',         'props' => ['bg' => 'rgba(46,125,50,0.15)', 'color' => '#4caf50']],
+                'tix-co-msg-error'          => ['label' => 'Fehler-Meldung',          'props' => ['bg' => 'rgba(211,47,47,0.15)', 'color' => '#ef5350']],
+                'tix-co-ty-status-processing' => ['label' => 'Status: Bearbeitung',   'props' => ['bg' => 'rgba(76,175,80,0.15)', 'color' => '#4caf50']],
+                'tix-co-ty-status-on-hold'  => ['label' => 'Status: Wartend',         'props' => ['bg' => 'rgba(255,152,0,0.15)', 'color' => '#ff9800']],
+                'tix-co-ty-status-pending'  => ['label' => 'Status: Ausstehend',      'props' => ['bg' => 'rgba(158,158,158,0.15)', 'color' => '#9e9e9e']],
+                'tix-co-ty-status-completed'=> ['label' => 'Status: Abgeschlossen',   'props' => ['bg' => 'rgba(76,175,80,0.15)', 'color' => '#4caf50']],
+                'tix-co-ty-status-failed'   => ['label' => 'Status: Fehlgeschlagen',  'props' => ['bg' => 'rgba(239,83,80,0.15)', 'color' => '#ef5350']],
+                'tix-co-ty-status-cancelled'=> ['label' => 'Status: Storniert',       'props' => ['bg' => 'rgba(239,83,80,0.15)', 'color' => '#ef5350']],
+                'tix-co-login-msg'          => ['label' => 'Login-Meldung',            'props' => ['color' => '#ef5350']],
+                'tix-co-coupon-msg'         => ['label' => 'Gutschein-Meldung',        'props' => ['color' => '#ef5350', 'bg' => 'rgba(211,47,47,0.12)']],
+                'tix-co-btn-login'          => ['label' => 'Login-Button',             'props' => ['bg' => '#c8ff00', 'color' => '#000000']],
+                'tix-co-login-section'      => ['label' => 'Login-Bereich',            'props' => ['border' => '#333333']],
+                'tix-co-select'             => ['label' => 'Select-Feld',              'props' => ['border' => '#555555']],
+                'tix-co-textarea'           => ['label' => 'Textarea',                 'props' => ['border' => '#555555']],
+                'tix-co-field-error'        => ['label' => 'Feld-Fehler',              'props' => ['border' => '#ef5350']],
+                'tix-co-check-custom'       => ['label' => 'Checkbox',                 'props' => ['border' => '#555555']],
+                'tix-co-legal'              => ['label' => 'Rechtliches',              'props' => ['border' => '#ef5350']],
+                'tix-co-newsletter'         => ['label' => 'Newsletter-Box',           'props' => ['border' => '#333333']],
+                'tix-co-gateway'            => ['label' => 'Zahlungsart',              'props' => ['bg' => 'rgba(200,255,0,0.04)', 'border' => '#c8ff00']],
+                'tix-co-gw-active'          => ['label' => 'Zahlungsart aktiv',        'props' => ['bg' => 'rgba(200,255,0,0.04)', 'border' => '#c8ff00']],
+                'tix-co-gw-radio-custom'    => ['label' => 'Gateway-Radio',            'props' => ['border' => '#555555']],
+                'tix-co-step-next'          => ['label' => 'Weiter-Button',            'props' => ['bg' => '#c8ff00', 'color' => '#000000']],
+                'tix-co-step-back'          => ['label' => 'Schritt-Zurück',           'props' => ['border' => '#333333']],
+                'tix-co-countdown'          => ['label' => 'Countdown-Box',            'props' => ['border' => '#333333']],
+                'tix-co-countdown-bar'      => ['label' => 'Countdown-Balken',         'props' => ['bg' => '#ef5350']],
+                'tix-co-countdown-track'    => ['label' => 'Countdown-Track',          'props' => ['bg' => 'rgba(255,255,255,0.08)']],
+                'tix-co-countdown-warn'     => ['label' => 'Countdown-Warnung',        'props' => ['bg' => '#ff9800']],
+                'tix-co-countdown-crit'     => ['label' => 'Countdown-Kritisch',       'props' => ['bg' => '#ef5350']],
+                'tix-co-countdown-expired'  => ['label' => 'Countdown-Abgelaufen',     'props' => ['color' => '#ef5350']],
+                'tix-co-combo-group'        => ['label' => 'Kombi-Gruppe',             'props' => ['border' => '#333333']],
+                'tix-co-shipping-info'      => ['label' => 'Versand-Info',             'props' => ['border' => '#333333']],
+                'tix-co-multi-event-notice' => ['label' => 'Multi-Event-Hinweis',      'props' => ['bg' => 'rgba(255,152,0,0.1)', 'border' => 'rgba(255,152,0,0.3)']],
+                'tix-co-special-card'       => ['label' => 'Spezial-Karte',            'props' => ['border' => '#c8ff00']],
+                'tix-co-special-add'        => ['label' => 'Spezial-Hinzufügen',      'props' => ['bg' => '#c8ff00', 'color' => '#000000']],
+                'tix-co-special-in-cart'    => ['label' => 'Spezial im Warenkorb',     'props' => ['border' => '#c8ff00']],
+                'tix-co-special-in-cart-badge' => ['label' => 'Spezial-Badge',         'props' => ['color' => '#4caf50']],
+                'tix-co-special-savings'    => ['label' => 'Spezial-Ersparnis',        'props' => ['color' => '#4caf50']],
+                'tix-co-table-card'         => ['label' => 'Tisch-Karte',              'props' => ['bg' => 'rgba(200,255,0,0.04)', 'border' => '#c8ff00']],
+                'tix-co-table-active'       => ['label' => 'Tisch aktiv',              'props' => ['bg' => 'rgba(200,255,0,0.04)', 'border' => '#c8ff00']],
+                'tix-co-table-radio-dot'    => ['label' => 'Tisch-Radio',              'props' => ['border' => '#555555']],
+                'tix-co-table-avail'        => ['label' => 'Tisch verfügbar',          'props' => ['color' => '#4caf50']],
+                'tix-co-table-status-ok'    => ['label' => 'Tisch-Status OK',          'props' => ['color' => '#4caf50', 'bg' => 'rgba(76,175,80,0.1)']],
+                'tix-co-table-status-err'   => ['label' => 'Tisch-Status Fehler',      'props' => ['color' => '#ef5350', 'bg' => 'rgba(239,83,80,0.1)']],
+                'tix-co-ty-icon'            => ['label' => 'Danke-Icon',               'props' => ['bg' => '#c8ff00', 'color' => '#000000']],
+                'tix-co-ty-ticket'          => ['label' => 'Danke-Ticket',             'props' => ['border' => '#333333']],
+                'tix-co-ty-ticket-dl'       => ['label' => 'Ticket-Download',          'props' => ['bg' => '#c8ff00', 'color' => '#000000']],
+                'tix-co-ty-tickets-note'    => ['label' => 'Tickets-Hinweis',          'props' => ['border' => '#333333']],
+                'tix-co-ty-payment-notice'  => ['label' => 'Zahlungs-Hinweis',         'props' => ['border' => '#e5e7eb']],
+                'tix-co-ty-charity'         => ['label' => 'Danke-Charity',            'props' => ['bg' => 'rgba(236,72,153,0.06)', 'border' => 'rgba(236,72,153,0.2)']],
+                'tix-co-ty-charity-badge'   => ['label' => 'Danke-Charity-Badge',      'props' => ['color' => '#be185d']],
+                'tix-co-btn-more'           => ['label' => 'Mehr-Button',              'props' => ['color' => '#ffffff']],
+                'tix-co-cost-split'         => ['label' => 'Kosten-Aufteiler',         'props' => ['bg' => '#ffffff', 'border' => '#e5e7eb']],
+                'tix-co-sponsor-inner'      => ['label' => 'Sponsor-Box',              'props' => ['border' => '#e2e8f0']],
+                'tix-co-terms'              => ['label' => 'AGB-Fehler',               'props' => ['bg' => 'rgba(239,68,68,0.04)', 'border' => '#ef4444']],
+            ],
+            'Check-In' => [
+                'tix-ci'            => ['label' => 'Check-In',         'props' => ['bg' => '#f7f8fa', 'color' => '#0D0B09']],
+                'tix-ci-select'     => ['label' => 'Select-Feld',     'props' => ['bg' => '#ffffff', 'border' => '#e8eaed', 'color' => '#0D0B09']],
+                'tix-ci-input'      => ['label' => 'Eingabefeld',     'props' => ['bg' => '#ffffff', 'border' => '#e8eaed', 'color' => '#0D0B09']],
+                'tix-ci-btn'        => ['label' => 'Button',           'props' => ['bg' => '#FF5500', 'color' => '#ffffff']],
+                'tix-ci-result-ok'  => ['label' => 'Ergebnis OK',     'props' => ['border' => '#10b981', 'bg' => '#e6f9f1']],
+                'tix-ci-result-warn'=> ['label' => 'Ergebnis Warnung','props' => ['border' => '#f59e0b', 'bg' => '#fef6e6']],
+                'tix-ci-result-err' => ['label' => 'Ergebnis Fehler', 'props' => ['border' => '#ef4444', 'bg' => '#fde8e8']],
+                'tix-ci-guest-name'     => ['label' => 'Gast-Name',          'props' => ['color' => '#0D0B09']],
+                'tix-ci-guest-plus'     => ['label' => 'Plus-Eins',           'props' => ['color' => '#FF5500', 'bg' => 'rgba(255,85,0,0.1)']],
+                'tix-ci-guest-note'     => ['label' => 'Gast-Notiz',          'props' => ['color' => '#94a3b8']],
+                'tix-ci-guest-status-ok'=> ['label' => 'Gast-Status OK',      'props' => ['color' => '#10b981']],
+                'tix-ci-guest-checkin'  => ['label' => 'Einchecken-Btn',      'props' => ['color' => '#ffffff']],
+                'tix-ci-guest-edit'     => ['label' => 'Gast-Bearbeiten',     'props' => ['color' => '#94a3b8']],
+                'tix-ci-badge'          => ['label' => 'Check-In Badge',      'props' => ['bg' => '#FF5500', 'color' => '#ffffff']],
+                'tix-ci-badge-guest'    => ['label' => 'Gäste-Badge',        'props' => ['color' => '#10b981', 'bg' => 'rgba(16,185,129,0.1)']],
+                'tix-ci-badge-ticket'   => ['label' => 'Ticket-Badge',        'props' => ['color' => '#FF5500', 'bg' => 'rgba(255,85,0,0.1)']],
+                'tix-ci-title'          => ['label' => 'Titel',               'props' => ['color' => '#94a3b8']],
+                'tix-ci-counter-btn'    => ['label' => 'Counter-Button',      'props' => ['color' => '#0D0B09']],
+                'tix-ci-counter-val'    => ['label' => 'Counter-Wert',        'props' => ['color' => '#0D0B09']],
+                'tix-ci-filter-btn'     => ['label' => 'Filter-Button',       'props' => ['color' => '#ffffff']],
+                'tix-ci-pw-error'       => ['label' => 'Passwort-Fehler',     'props' => ['color' => '#ef4444']],
+                'tix-ci-result-details' => ['label' => 'Ergebnis-Details',    'props' => ['color' => '#94a3b8']],
+                'tix-ci-empty'          => ['label' => 'Leer-Text',           'props' => ['color' => '#94a3b8']],
+                'tix-ci-ticket-checkin' => ['label' => 'Ticket-Einchecken',   'props' => ['color' => '#ffffff']],
+                'tix-ci-ticket-toggle'  => ['label' => 'Ticket-Toggle',       'props' => ['color' => '#94a3b8']],
+                'tix-ci-camera-wrap'    => ['label' => 'Kamera-Box',          'props' => ['bg' => '#0D0B09']],
+            ],
+            'My Tickets' => [
+                'tix-mt'               => ['label' => 'Meine Tickets',           'props' => ['bg' => '#ffffff', 'color' => '#1a1a1a']],
+                'tix-mt-section-title' => ['label' => 'Sektionstitel',           'props' => ['color' => '#1a1a1a', 'border' => '#e5e7eb']],
+                'tix-mt-card'          => ['label' => 'Karte',                   'props' => ['border' => '#e5e7eb', 'bg' => '#ffffff']],
+                'tix-mt-ticket'        => ['label' => 'Ticket',                  'props' => ['border' => '#e5e7eb', 'bg' => '#f8fdf0']],
+                'tix-mt-action-btn'    => ['label' => 'Aktions-Button',          'props' => ['bg' => '#c8ff00', 'color' => '#000000']],
+                'tix-mt-event-badge'       => ['label' => 'Event-Badge',             'props' => ['bg' => '#e5e7eb', 'color' => '#1a1a1a']],
+                'tix-mt-event-cancelled'   => ['label' => 'Event abgesagt',          'props' => ['color' => '#ef5350', 'bg' => 'rgba(239,83,80,0.12)']],
+                'tix-mt-event-postponed'   => ['label' => 'Event verschoben',        'props' => ['color' => '#ab47bc', 'bg' => 'rgba(123,31,162,0.12)']],
+                'tix-mt-card-title'        => ['label' => 'Karten-Titel',            'props' => ['color' => '#1a1a1a']],
+                'tix-mt-card-chevron'      => ['label' => 'Karten-Pfeil',            'props' => ['color' => '#1a1a1a']],
+                'tix-mt-meta-item'         => ['label' => 'Meta-Info',               'props' => ['color' => '#666666']],
+                'tix-mt-ticket-qty'        => ['label' => 'Ticket-Menge',            'props' => ['color' => '#666666']],
+                'tix-mt-tcard-dl'          => ['label' => 'Download-Link',           'props' => ['color' => '#c8ff00']],
+                'tix-mt-tcard-save'        => ['label' => 'Ticket-Speichern',        'props' => ['color' => '#1a1a1a']],
+                'tix-mt-tcard-share'       => ['label' => 'Ticket-Teilen',           'props' => ['color' => '#1a1a1a']],
+                'tix-mt-order-ref'         => ['label' => 'Bestell-Nr',              'props' => ['color' => '#666666']],
+                'tix-mt-status-ok'         => ['label' => 'Status OK',               'props' => ['color' => '#4caf50', 'bg' => 'rgba(76,175,80,0.12)']],
+                'tix-mt-status-wait'       => ['label' => 'Status Wartend',          'props' => ['color' => '#888888', 'bg' => 'rgba(158,158,158,0.12)']],
+                'tix-mt-status-warn'       => ['label' => 'Status Warnung',          'props' => ['color' => '#e68900', 'bg' => 'rgba(255,152,0,0.12)']],
+                'tix-mt-pending-notice'    => ['label' => 'Pending-Hinweis',         'props' => ['color' => '#b37400', 'bg' => 'rgba(255,152,0,0.08)', 'border' => 'rgba(255,152,0,0.2)']],
+                'tix-mt-pending-info'      => ['label' => 'Pending-Info',            'props' => ['color' => '#666666', 'bg' => 'rgba(0,0,0,0.025)']],
+                'tix-mt-bank-ref-value'    => ['label' => 'Bank-Referenz',           'props' => ['color' => '#1a1a1a']],
+                'tix-mt-login-text'        => ['label' => 'Login-Text',              'props' => ['color' => '#666666']],
+                'tix-mt-empty-text'        => ['label' => 'Leer-Text',               'props' => ['color' => '#666666']],
+                'tix-mt-combo-badge'       => ['label' => 'Kombi-Badge',             'props' => ['color' => '#ffffff']],
+                'tix-mt-combo-event-name'  => ['label' => 'Kombi-Event',             'props' => ['color' => '#1a1a1a']],
+                'tix-mt-combo-event-meta'  => ['label' => 'Kombi-Meta',              'props' => ['color' => '#666666']],
+                'tix-mt-combo-price'       => ['label' => 'Kombi-Preis',             'props' => ['color' => '#666666']],
+            ],
+            'Event Cards' => [
+                'ev'                    => ['label' => 'Event-Karte',        'props' => ['bg' => '#ffffff', 'border' => '#F0ECE4']],
+                'ev-badge-cat'          => ['label' => 'Kategorie-Badge',    'props' => ['bg' => '#000000', 'color' => '#ffffff']],
+                'ev-save'               => ['label' => 'Merken-Button',      'props' => ['bg' => '#ffffff', 'color' => '#333333']],
+                'ev-date'               => ['label' => 'Datum',              'props' => ['color' => '#E8445A']],
+                'ev-title'              => ['label' => 'Titel',              'props' => ['color' => '#1f2937']],
+                'ev-loc'                => ['label' => 'Ort',                'props' => ['color' => '#3A3937']],
+                'ev-price'              => ['label' => 'Preis',              'props' => ['color' => '#1f2937']],
+                'ev-price-free'         => ['label' => 'Preis (Kostenlos)',  'props' => ['color' => '#14B8A6']],
+                'ev-btn'                => ['label' => 'Button',             'props' => ['bg' => '#E8445A', 'color' => '#ffffff']],
+                'ev-btn-teal'           => ['label' => 'Button (Teal)',      'props' => ['bg' => '#14B8A6', 'color' => '#ffffff']],
+                'ev-btn-outline'        => ['label' => 'Button (Outline)',   'props' => ['border' => '#E3DED4', 'color' => '#1f2937']],
+                'ev-btn-disabled'       => ['label' => 'Button (Deaktiviert)','props' => ['bg' => '#8C8985']],
+                'section-label'         => ['label' => 'Sektions-Label',     'props' => ['color' => '#E8445A']],
+                'section-link'          => ['label' => 'Sektions-Link',      'props' => ['color' => '#E8445A']],
+                'tix-search-input-wrap' => ['label' => 'Suchfeld',          'props' => ['bg' => '#ffffff', 'border' => '#E0ECE4']],
+                'tix-search-results'    => ['label' => 'Suchergebnisse',    'props' => ['bg' => '#ffffff', 'border' => '#E0ECE4']],
+                'tix-search-item'       => ['label' => 'Suchergebnis',       'props' => ['border' => 'rgba(0,0,0,0.04)']],
+                'tix-search-item-meta'  => ['label' => 'Such-Meta',          'props' => ['color' => '#8C8985']],
+                'tix-search-item-price' => ['label' => 'Such-Preis',         'props' => ['color' => '#E8445A']],
+                'tix-search-item-img'   => ['label' => 'Such-Bild',          'props' => ['bg' => '#F0ECE4']],
+                'tix-search-empty'      => ['label' => 'Suche leer',         'props' => ['color' => '#8C8985']],
+                'tix-search-clear'      => ['label' => 'Suche löschen',     'props' => ['color' => '#999999']],
+                'tix-search-all'        => ['label' => 'Alle anzeigen',      'props' => ['color' => '#E8445A']],
+            ],
+            'Event Page' => [
+                'tix-ep'                => ['label' => 'Event-Seite',            'props' => ['color' => '#1f2937']],
+                'tix-ep-header'         => ['label' => 'Header',                 'props' => ['bg' => '#FAF8F4']],
+                'tix-ep-title'          => ['label' => 'Seiten-Titel',           'props' => ['color' => '#1f2937']],
+                'tix-ep-hero-badge'     => ['label' => 'Hero-Badge',             'props' => ['bg' => 'rgba(0,0,0,0.55)', 'color' => '#ffffff']],
+                'tix-ep-hero-badge--sold_out'    => ['label' => 'Hero: Ausverkauft',   'props' => ['bg' => 'rgba(220,38,38,0.85)']],
+                'tix-ep-hero-badge--cancelled'   => ['label' => 'Hero: Abgesagt',      'props' => ['bg' => 'rgba(107,114,128,0.85)']],
+                'tix-ep-hero-badge--postponed'   => ['label' => 'Hero: Verschoben',    'props' => ['bg' => 'rgba(234,179,8,0.85)', 'color' => '#1a1a1a']],
+                'tix-ep-hero-badge--few_tickets' => ['label' => 'Hero: Wenige',        'props' => ['bg' => 'rgba(234,88,12,0.85)']],
+                'tix-ep-status'         => ['label' => 'Status-Badge',           'props' => ['color' => '#ffffff']],
+                'tix-ep-status--sold_out'    => ['label' => 'Status: Ausverkauft',   'props' => ['bg' => '#dc2626']],
+                'tix-ep-status--cancelled'   => ['label' => 'Status: Abgesagt',      'props' => ['bg' => '#6b7280']],
+                'tix-ep-status--postponed'   => ['label' => 'Status: Verschoben',    'props' => ['bg' => '#eab308', 'color' => '#1a1a1a']],
+                'tix-ep-status--few_tickets' => ['label' => 'Status: Wenige Tickets','props' => ['bg' => '#ea580c']],
+                'tix-ep-status--past'        => ['label' => 'Status: Vergangen',     'props' => ['bg' => '#9ca3af']],
+                'tix-ep-meta-row'       => ['label' => 'Meta-Zeile',             'props' => ['bg' => '#FAF8F4', 'border' => '#e5e7eb']],
+                'tix-ep-meta-label'     => ['label' => 'Meta-Label',             'props' => ['color' => '#64748b']],
+                'tix-ep-meta-value'     => ['label' => 'Meta-Wert',              'props' => ['color' => '#1f2937']],
+                'tix-ep-meta-sub'       => ['label' => 'Meta-Zusatz',            'props' => ['color' => '#64748b']],
+                'tix-ep-price-badge'    => ['label' => 'Preis-Badge',            'props' => ['bg' => '#c8ff00', 'color' => '#000000']],
+                'tix-ep-age-badge'      => ['label' => 'Alter-Badge',            'props' => ['bg' => '#f1f5f9', 'color' => '#64748b']],
+                'tix-ep-section-title'  => ['label' => 'Abschnitts-Titel',       'props' => ['color' => '#1f2937', 'border' => '#e5e7eb']],
+                'tix-ep-section-body'   => ['label' => 'Abschnitts-Text',        'props' => ['color' => '#374151']],
+                'tix-ep-location-name'  => ['label' => 'Ort-Name',               'props' => ['color' => '#1f2937']],
+                'tix-ep-location-address'=> ['label' => 'Adresse',               'props' => ['color' => '#64748b']],
+                'tix-ep-organizer-name' => ['label' => 'Veranstalter',           'props' => ['color' => '#1f2937']],
+                'tix-ep-organizer-label'=> ['label' => 'Veranstalter-Label',     'props' => ['color' => '#64748b']],
+                'tix-ep-series-status--available'   => ['label' => 'Serie: Verfügbar',    'props' => ['bg' => '#dcfce7', 'color' => '#166534']],
+                'tix-ep-series-status--sold_out'    => ['label' => 'Serie: Ausverkauft',  'props' => ['bg' => '#fee2e2', 'color' => '#991b1b']],
+                'tix-ep-series-status--cancelled'   => ['label' => 'Serie: Abgesagt',     'props' => ['bg' => '#f3f4f6', 'color' => '#6b7280']],
+                'tix-ep-series-status--few_tickets' => ['label' => 'Serie: Wenige',       'props' => ['bg' => '#fff7ed', 'color' => '#9a3412']],
+                'tix-ep-rating'         => ['label' => 'Rating',                  'props' => ['color' => '#cbd5e1']],
+                'tix-ep-meta-icon'      => ['label' => 'Meta-Icon',              'props' => ['color' => '#64748b']],
+                'tix-ep-location-card'  => ['label' => 'Ort-Karte',              'props' => ['bg' => '#FAF8F4']],
+                'tix-ep-location-icon'  => ['label' => 'Ort-Icon',               'props' => ['color' => '#000000']],
+                'tix-ep-location-arrow' => ['label' => 'Ort-Pfeil',              'props' => ['color' => '#cbd5e1']],
+                'tix-ep-organizer-card' => ['label' => 'Veranstalter-Karte',     'props' => ['bg' => '#FAF8F4']],
+                'tix-ep-organizer-avatar'=> ['label' => 'Veranstalter-Avatar',   'props' => ['bg' => '#EDE9E0']],
+                'tix-ep-gallery-item'   => ['label' => 'Galerie-Bild',           'props' => ['bg' => '#f1f5f9']],
+                'tix-ep-lightbox'       => ['label' => 'Lightbox',               'props' => ['bg' => 'rgba(0,0,0,0.92)']],
+                'tix-ep-lightbox-close' => ['label' => 'Lightbox-Schließen',    'props' => ['color' => '#ffffff', 'bg' => 'rgba(255,255,255,0.15)']],
+                'tix-ep-lightbox-nav'   => ['label' => 'Lightbox-Navigation',    'props' => ['color' => '#ffffff', 'bg' => 'rgba(255,255,255,0.15)']],
+                'tix-ep-lightbox-counter'=> ['label' => 'Lightbox-Zähler',      'props' => ['color' => 'rgba(255,255,255,0.7)']],
+                'tix-ep-video-wrap'     => ['label' => 'Video-Box',              'props' => ['bg' => '#000000']],
+                'tix-ep-charity-card'   => ['label' => 'Charity-Karte',          'props' => ['bg' => '#fdf2f8', 'border' => '#f9a8d4']],
+                'tix-ep-charity-desc'   => ['label' => 'Charity-Text',           'props' => ['color' => '#9d174d']],
+                'tix-ep-charity-percent'=> ['label' => 'Charity-Prozent',        'props' => ['color' => '#be185d']],
+                'tix-ep-series-item'    => ['label' => 'Serien-Eintrag',         'props' => ['bg' => '#FAF8F4']],
+                'tix-ep-series-item--current' => ['label' => 'Serien-Eintrag aktuell', 'props' => ['bg' => 'rgba(200,255,0,0.06)']],
+                'tix-ep-series-month'   => ['label' => 'Serien-Monat',           'props' => ['color' => '#64748b']],
+                'tix-ep-series-time'    => ['label' => 'Serien-Zeit',            'props' => ['color' => '#64748b']],
+                'tix-ep-series-status--postponed' => ['label' => 'Serie: Verschoben', 'props' => ['bg' => '#fef9c3', 'color' => '#854d0e']],
+            ],
+            'Express Modal' => [
+                'tix-ec-modal'          => ['label' => 'Modal',                  'props' => ['bg' => '#1a1a1a', 'color' => '#ffffff', 'border' => '#333333']],
+                'tix-ec-trigger-btn'    => ['label' => 'Trigger-Button',         'props' => ['bg' => '#c8ff00', 'color' => '#000000']],
+                'tix-ec-cat'            => ['label' => 'Kategorie',              'props' => ['border' => '#333333']],
+                'tix-ec-cat-name'       => ['label' => 'Kategorie-Name',         'props' => ['color' => '#ffffff']],
+                'tix-ec-price-sale'     => ['label' => 'Sale-Preis',             'props' => ['color' => '#ef5350']],
+                'tix-ec-total-price'    => ['label' => 'Gesamtpreis',            'props' => ['color' => '#ffffff']],
+                'tix-ec-buy'            => ['label' => 'Kaufen-Button',          'props' => ['bg' => '#c8ff00', 'color' => '#000000']],
+                'tix-ec-note'           => ['label' => 'Hinweis',                'props' => ['color' => '#aaaaaa']],
+                'tix-ec-vat'            => ['label' => 'MwSt.',                  'props' => ['color' => '#999999']],
+                'tix-ec-message'        => ['label' => 'Meldung',                'props' => ['color' => '#ffffff']],
+                'tix-ec-offer-heading'  => ['label' => 'Angebots-Titel',         'props' => ['color' => '#ffffff']],
+                'tix-ec-offer-save'     => ['label' => 'Angebots-Ersparnis',     'props' => ['bg' => '#c8ff00', 'color' => '#000000']],
+                'tix-ec-close'          => ['label' => 'Schließen-Button',      'props' => ['border' => '#333333']],
+                'tix-ec-btn'            => ['label' => 'Mengen-Button',          'props' => ['border' => '#333333']],
+                'tix-ec-overlay'        => ['label' => 'Overlay',                'props' => ['bg' => 'rgba(0,0,0,0.6)']],
+                'tix-ec-terms-custom'   => ['label' => 'AGB-Checkbox',           'props' => ['border' => '#555555']],
+                'tix-ec-offers-btn'     => ['label' => 'Angebote-Button',        'props' => ['border' => '#333333']],
+                'tix-ec-offers-icon'    => ['label' => 'Angebote-Icon',          'props' => ['bg' => '#333333']],
+                'tix-ec-msg-success'    => ['label' => 'Erfolgs-Meldung',        'props' => ['color' => '#4caf50', 'bg' => 'rgba(76,175,80,0.15)']],
+                'tix-ec-msg-error'      => ['label' => 'Fehler-Meldung',         'props' => ['color' => '#ef5350', 'bg' => 'rgba(239,83,80,0.15)']],
+                'tix-ec-gd-active'      => ['label' => 'Gruppenrabatt aktiv',    'props' => ['bg' => '#c8ff00', 'color' => '#000000']],
+                'tix-ec-gd-badge'       => ['label' => 'Gruppenrabatt-Badge',    'props' => ['color' => '#4caf50', 'bg' => 'rgba(76,175,80,0.15)']],
+            ],
+            'Modal Checkout' => [
+                'tix-mc-modal'          => ['label' => 'Modal',                  'props' => ['bg' => '#ffffff', 'color' => '#0D0B09', 'border' => '#EDE9E0']],
+                'tix-mc-title'          => ['label' => 'Titel',                  'props' => ['color' => '#0D0B09']],
+                'tix-mc-event-name'     => ['label' => 'Event-Name',             'props' => ['color' => 'rgba(13,11,9,0.40)']],
+                'tix-mc-event-date'     => ['label' => 'Event-Datum',            'props' => ['color' => 'rgba(13,11,9,0.40)']],
+                'tix-mc-cat'            => ['label' => 'Kategorie',              'props' => ['border' => '#EDE9E0']],
+                'tix-mc-cat-name'       => ['label' => 'Kategorie-Name',         'props' => ['color' => '#0D0B09']],
+                'tix-mc-cat-desc'       => ['label' => 'Kategorie-Beschreibung', 'props' => ['color' => 'rgba(13,11,9,0.40)']],
+                'tix-mc-cat-price'      => ['label' => 'Kategorie-Preis',        'props' => ['color' => 'rgba(13,11,9,0.70)']],
+                'tix-mc-price-sale'     => ['label' => 'Sale-Preis',             'props' => ['color' => '#E53B3B']],
+                'tix-mc-total-price'    => ['label' => 'Gesamtpreis',            'props' => ['color' => '#0D0B09']],
+                'tix-mc-next'           => ['label' => 'Weiter-Button',          'props' => ['bg' => '#c8ff00', 'color' => '#000000']],
+                'tix-mc-back'           => ['label' => 'Zurück-Button',          'props' => ['color' => 'rgba(13,11,9,0.70)']],
+                'tix-mc-section-heading'=> ['label' => 'Abschnitts-Titel',       'props' => ['color' => '#0D0B09']],
+                'tix-mc-label'          => ['label' => 'Feld-Label',             'props' => ['color' => '#0D0B09']],
+                'tix-mc-input'          => ['label' => 'Eingabefeld',            'props' => ['border' => '#EDE9E0', 'color' => '#0D0B09']],
+                'tix-mc-summary-total'  => ['label' => 'Gesamt',                 'props' => ['color' => '#0D0B09']],
+                'tix-mc-submit'         => ['label' => 'Bestellen-Button',       'props' => ['bg' => '#c8ff00', 'color' => '#000000']],
+                'tix-mc-vat-note'       => ['label' => 'MwSt.-Hinweis',          'props' => ['color' => 'rgba(13,11,9,0.40)']],
+                'tix-mc-trigger-btn'    => ['label' => 'Trigger-Button',         'props' => ['bg' => '#c8ff00', 'color' => '#000000']],
+                'tix-mc-overlay'        => ['label' => 'Overlay',                'props' => ['bg' => 'rgba(0,0,0,0.55)']],
+                'tix-mc-close'          => ['label' => 'Schließen-Button',      'props' => ['color' => 'rgba(13,11,9,0.40)', 'border' => '#EDE9E0']],
+                'tix-mc-btn'            => ['label' => 'Mengen-Button',          'props' => ['color' => '#0D0B09', 'border' => '#EDE9E0']],
+                'tix-mc-total-label'    => ['label' => 'Gesamt-Label',           'props' => ['color' => '#0D0B09']],
+                'tix-mc-gw-title'       => ['label' => 'Zahlungsart-Name',       'props' => ['color' => '#0D0B09']],
+                'tix-mc-gw-desc'        => ['label' => 'Zahlungsart-Info',       'props' => ['color' => 'rgba(13,11,9,0.40)']],
+                'tix-mc-gw-active'      => ['label' => 'Zahlungsart aktiv',      'props' => ['bg' => 'rgba(255,85,0,0.04)']],
+                'tix-mc-gw-radio-custom'=> ['label' => 'Gateway-Radio',          'props' => ['border' => '#EDE9E0']],
+                'tix-mc-gateway'        => ['label' => 'Zahlungsart',            'props' => ['bg' => 'rgba(255,85,0,0.04)', 'border' => '#FF5500']],
+                'tix-mc-select'         => ['label' => 'Select-Feld',            'props' => ['color' => '#0D0B09', 'bg' => '#ffffff', 'border' => '#EDE9E0']],
+                'tix-mc-check-custom'   => ['label' => 'Checkbox',               'props' => ['border' => '#EDE9E0']],
+                'tix-mc-check-label'    => ['label' => 'Checkbox-Label',          'props' => ['color' => 'rgba(13,11,9,0.70)']],
+                'tix-mc-req'            => ['label' => 'Pflichtfeld-Stern',      'props' => ['color' => '#E53B3B']],
+                'tix-mc-field-error'    => ['label' => 'Feld-Fehler',            'props' => ['border' => '#E53B3B']],
+                'tix-mc-legal'          => ['label' => 'Rechtliches',            'props' => ['border' => '#EDE9E0']],
+                'tix-mc-legal-heading'  => ['label' => 'Rechtliches-Titel',      'props' => ['color' => '#0D0B09']],
+                'tix-mc-legal-note'     => ['label' => 'Rechtliches-Hinweis',    'props' => ['color' => 'rgba(13,11,9,0.40)']],
+                'tix-mc-link-btn'       => ['label' => 'Link-Button',            'props' => ['color' => '#FF5500']],
+                'tix-mc-login-msg'      => ['label' => 'Login-Meldung',          'props' => ['color' => '#E53B3B']],
+                'tix-mc-login-section'  => ['label' => 'Login-Bereich',          'props' => ['border' => '#EDE9E0']],
+                'tix-mc-login-toggle'   => ['label' => 'Login-Toggle',           'props' => ['color' => '#0D0B09']],
+                'tix-mc-btn-login'      => ['label' => 'Login-Button',           'props' => ['bg' => '#FF5500', 'color' => '#ffffff']],
+                'tix-mc-coupon-code'    => ['label' => 'Gutschein-Eingabe',      'props' => ['color' => '#0D0B09', 'bg' => '#ffffff', 'border' => '#EDE9E0']],
+                'tix-mc-coupon-btn'     => ['label' => 'Gutschein-Button',       'props' => ['color' => '#0D0B09', 'border' => '#EDE9E0']],
+                'tix-mc-coupon-result'  => ['label' => 'Gutschein-Ergebnis',     'props' => ['color' => '#E53B3B', 'bg' => 'rgba(229,59,59,0.1)']],
+                'tix-mc-msg-success'    => ['label' => 'Erfolgs-Meldung',        'props' => ['color' => '#1DB86A', 'bg' => 'rgba(29,184,106,0.1)']],
+                'tix-mc-msg-error'      => ['label' => 'Fehler-Meldung',         'props' => ['color' => '#E53B3B', 'bg' => 'rgba(229,59,59,0.1)']],
+                'tix-mc-checkout-loading'=> ['label' => 'Lade-Text',             'props' => ['color' => 'rgba(13,11,9,0.40)']],
+                'tix-mc-section-header' => ['label' => 'Sektions-Header',        'props' => ['color' => 'rgba(13,11,9,0.50)']],
+                'tix-mc-offer-heading'  => ['label' => 'Angebots-Titel',         'props' => ['color' => 'rgba(13,11,9,0.70)']],
+                'tix-mc-offer-desc'     => ['label' => 'Angebots-Text',          'props' => ['color' => 'rgba(13,11,9,0.40)']],
+                'tix-mc-offer-save'     => ['label' => 'Angebots-Ersparnis',     'props' => ['bg' => '#FF5500', 'color' => '#ffffff']],
+                'tix-mc-offers-btn'     => ['label' => 'Angebote-Button',        'props' => ['color' => 'rgba(13,11,9,0.70)', 'border' => '#EDE9E0']],
+                'tix-mc-offers-icon'    => ['label' => 'Angebote-Icon',          'props' => ['color' => '#0D0B09', 'bg' => '#F3F0EA']],
+                'tix-mc-gd-active'      => ['label' => 'Gruppenrabatt aktiv',    'props' => ['bg' => '#FF5500', 'color' => '#ffffff']],
+                'tix-mc-gd-badge'       => ['label' => 'Gruppenrabatt-Badge',    'props' => ['color' => '#1DB86A', 'bg' => 'rgba(29,184,106,0.12)']],
+                'tix-mc-gd-tier'        => ['label' => 'Gruppenrabatt-Stufe',    'props' => ['color' => 'rgba(13,11,9,0.70)']],
+                'tix-mc-special-badge'  => ['label' => 'Spezial-Badge',          'props' => ['color' => '#16a34a']],
+                'tix-mc-summary-row'    => ['label' => 'Zusammenfassung',        'props' => ['color' => '#0D0B09']],
+                'tix-mc-table-title'    => ['label' => 'Tisch-Titel',            'props' => ['color' => '#0D0B09']],
+                'tix-mc-table-subtitle' => ['label' => 'Tisch-Untertitel',       'props' => ['color' => 'rgba(13,11,9,0.40)']],
+                'tix-mc-table-info'     => ['label' => 'Tisch-Info',             'props' => ['color' => 'rgba(13,11,9,0.70)', 'bg' => '#F3F0EA', 'border' => '#EDE9E0']],
+                'tix-mc-table-cat'      => ['label' => 'Tisch-Kategorie',        'props' => ['border' => '#EDE9E0']],
+                'tix-mc-table-cat-active'=> ['label' => 'Tisch-Kategorie aktiv', 'props' => ['border' => '#FF5500']],
+                'tix-mc-table-cat-name' => ['label' => 'Tisch-Kategorie-Name',   'props' => ['color' => '#0D0B09']],
+                'tix-mc-table-cat-desc' => ['label' => 'Tisch-Kategorie-Beschr.','props' => ['color' => 'rgba(13,11,9,0.40)']],
+                'tix-mc-table-cat-meta' => ['label' => 'Tisch-Kategorie-Meta',   'props' => ['color' => 'rgba(13,11,9,0.40)']],
+                'tix-mc-table-cat-price'=> ['label' => 'Tisch-Kategorie-Preis',  'props' => ['color' => '#0D0B09']],
+                'tix-mc-table-cat-price-label' => ['label' => 'Tisch-Preis-Label','props' => ['color' => 'rgba(13,11,9,0.40)']],
+                'tix-mc-table-cat-avail'=> ['label' => 'Tisch verfügbar',        'props' => ['color' => '#1DB86A']],
+                'tix-mc-table-cat-avail-out' => ['label' => 'Tisch nicht verfügbar', 'props' => ['color' => '#E53B3B']],
+                'tix-mc-table-label'    => ['label' => 'Tisch-Label',            'props' => ['color' => 'rgba(13,11,9,0.70)']],
+                'tix-mc-table-guest-val'=> ['label' => 'Tisch-Gäste-Wert',     'props' => ['color' => '#0D0B09']],
+                'tix-mc-table-selected-info' => ['label' => 'Tisch-Auswahl-Info','props' => ['color' => '#0D0B09']],
+                'tix-mc-table-comments-input' => ['label' => 'Tisch-Kommentar', 'props' => ['color' => '#0D0B09', 'bg' => '#ffffff', 'border' => '#EDE9E0']],
+                'tix-mc-table-confirm'  => ['label' => 'Tisch-Bestätigen',      'props' => ['bg' => '#c8ff00', 'color' => '#000000']],
+                'tix-mc-table-skip'     => ['label' => 'Tisch-Überspringen',    'props' => ['color' => 'rgba(13,11,9,0.70)', 'border' => '#EDE9E0']],
+            ],
+            'Table Reservation' => [
+                'tr-header-title'       => ['label' => 'Header-Titel',           'props' => ['color' => '#0D0B09']],
+                'tr-back-btn'           => ['label' => 'Zurück-Button',          'props' => ['color' => 'rgba(13,11,9,0.40)']],
+                'tr-calendar-month'     => ['label' => 'Kalender-Monat',         'props' => ['color' => '#0D0B09']],
+                'tr-weekday-header'     => ['label' => 'Wochentag',              'props' => ['color' => 'rgba(13,11,9,0.40)']],
+                'tr-day-number'         => ['label' => 'Tag-Nummer',             'props' => ['color' => '#0D0B09']],
+                'tr-event-title'        => ['label' => 'Event-Titel',            'props' => ['color' => '#0D0B09']],
+                'tr-event-meta'         => ['label' => 'Event-Meta',             'props' => ['color' => 'rgba(13,11,9,0.40)']],
+                'tr-info-text'          => ['label' => 'Info-Text',              'props' => ['color' => 'rgba(13,11,9,0.70)']],
+                'tr-categories-title'   => ['label' => 'Kategorien-Titel',       'props' => ['color' => '#0D0B09']],
+                'tr-cat-name'           => ['label' => 'Kategorie-Name',         'props' => ['color' => '#0D0B09']],
+                'tr-cat-desc'           => ['label' => 'Kategorie-Beschreibung', 'props' => ['color' => 'rgba(13,11,9,0.40)']],
+                'tr-cat-price'          => ['label' => 'Kategorie-Preis',        'props' => ['color' => '#0D0B09']],
+                'tr-cat-avail'          => ['label' => 'Verfügbarkeit',          'props' => ['color' => '#1DB86A']],
+                'tr-form-summary-event' => ['label' => 'Formular-Event',         'props' => ['color' => '#0D0B09']],
+                'tr-form-label'         => ['label' => 'Formular-Label',         'props' => ['color' => 'rgba(13,11,9,0.70)']],
+                'tr-form-input'         => ['label' => 'Formular-Eingabe',       'props' => ['border' => '#EDE9E0', 'color' => '#0D0B09']],
+                'tr-price-total'        => ['label' => 'Gesamt-Preis',           'props' => ['color' => '#0D0B09']],
+                'tr-price-note'         => ['label' => 'Preis-Hinweis',          'props' => ['color' => 'rgba(13,11,9,0.40)']],
+                'tr-success-title'      => ['label' => 'Erfolgs-Titel',          'props' => ['color' => '#0D0B09']],
+                'tr-success-text'       => ['label' => 'Erfolgs-Text',           'props' => ['color' => 'rgba(13,11,9,0.70)']],
+                'tr-success-details'    => ['label' => 'Erfolgs-Details',        'props' => ['bg' => '#F3F0EA', 'border' => '#EDE9E0']],
+                'tr-success-row-label'  => ['label' => 'Erfolgs-Label',          'props' => ['color' => 'rgba(13,11,9,0.40)']],
+                'tr-success-row-value'  => ['label' => 'Erfolgs-Wert',           'props' => ['color' => '#0D0B09']],
+                'tr-calendar-grid'      => ['label' => 'Kalender-Grid',          'props' => ['bg' => '#EDE9E0']],
+                'tr-calendar-nav'       => ['label' => 'Kalender-Navigation',    'props' => ['bg' => '#F3F0EA']],
+                'tr-day-cell'           => ['label' => 'Tag-Zelle',              'props' => ['bg' => 'rgba(255,85,0,0.04)']],
+                'tr-day-event-title'    => ['label' => 'Tages-Event',            'props' => ['color' => '#0D0B09']],
+                'tr-no-events'          => ['label' => 'Keine Events',           'props' => ['color' => 'rgba(13,11,9,0.40)']],
+                'tr-cat-card'           => ['label' => 'Kategorie-Karte',        'props' => ['bg' => '#ffffff', 'border' => '#EDE9E0']],
+                'tr-cat-badge'          => ['label' => 'Kategorie-Badge',        'props' => ['color' => 'rgba(13,11,9,0.70)', 'bg' => '#F3F0EA', 'border' => '#EDE9E0']],
+                'tr-cat-badge-accent'   => ['label' => 'Badge Akzent',           'props' => ['color' => '#FF5500', 'bg' => 'rgba(255,85,0,0.08)']],
+                'tr-cat-arrow'          => ['label' => 'Kategorie-Pfeil',        'props' => ['color' => 'rgba(13,11,9,0.40)']],
+                'tr-few'                => ['label' => 'Wenig verfügbar',        'props' => ['color' => '#f59e0b']],
+                'tr-error'              => ['label' => 'Fehler',                 'props' => ['color' => '#E53B3B', 'bg' => 'rgba(229,59,59,0.08)', 'border' => 'rgba(229,59,59,0.2)']],
+                'tr-empty'              => ['label' => 'Leer',                   'props' => ['bg' => '#F3F0EA']],
+                'tr-loading'            => ['label' => 'Laden',                  'props' => ['color' => 'rgba(13,11,9,0.40)']],
+                'tr-form-summary'       => ['label' => 'Zusammenfassung',        'props' => ['bg' => '#F3F0EA', 'border' => '#EDE9E0']],
+                'tr-form-summary-title' => ['label' => 'Zusammenfassung-Titel',  'props' => ['color' => '#0D0B09']],
+                'tr-form-summary-meta'  => ['label' => 'Zusammenfassung-Meta',   'props' => ['color' => 'rgba(13,11,9,0.70)']],
+                'tr-form-summary-cat'   => ['label' => 'Zusammenfassung-Kategorie','props' => ['color' => '#FF5500']],
+                'tr-form-select'        => ['label' => 'Formular-Select',        'props' => ['color' => '#0D0B09', 'bg' => '#ffffff', 'border' => '#EDE9E0']],
+                'tr-form-textarea'      => ['label' => 'Formular-Textarea',      'props' => ['color' => '#0D0B09', 'bg' => '#ffffff', 'border' => '#EDE9E0']],
+                'tr-price-row'          => ['label' => 'Preis-Zeile',            'props' => ['color' => 'rgba(13,11,9,0.70)']],
+                'tr-modal-overlay'      => ['label' => 'Modal-Overlay',          'props' => ['bg' => 'rgba(0,0,0,0.55)']],
+                'tr-modal-content'      => ['label' => 'Modal-Inhalt',           'props' => ['bg' => '#ffffff', 'border' => '#EDE9E0']],
+                'tr-modal-close'        => ['label' => 'Modal-Schließen',       'props' => ['color' => 'rgba(13,11,9,0.40)', 'border' => '#EDE9E0']],
+                'tr-floor-plan-toggle'  => ['label' => 'Raumplan-Toggle',        'props' => ['color' => 'rgba(13,11,9,0.40)']],
+                'tr-marker-label'       => ['label' => 'Marker-Label',           'props' => ['color' => '#0D0B09', 'bg' => 'rgba(255,255,255,0.9)', 'border' => '#EDE9E0']],
+                'tix-table-btn'         => ['label' => 'Tischreservierung-Btn',  'props' => ['bg' => '#c8ff00', 'color' => '#000000']],
+            ],
+            'Seatmap Picker' => [
+                'tix-sp-stage'          => ['label' => 'Bühne',                  'props' => ['bg' => '#1e293b', 'color' => '#94a3b8']],
+                'tix-sp-legend-item'    => ['label' => 'Legende',                'props' => ['color' => '#94a3b8']],
+                'tix-sp-section-header' => ['label' => 'Sektions-Header',        'props' => ['color' => '#ffffff']],
+                'tix-sp-selection-header'=> ['label' => 'Auswahl-Header',        'props' => ['color' => '#ffffff']],
+                'tix-sp-selected-tag'   => ['label' => 'Auswahl-Tag',            'props' => ['bg' => 'rgba(255,85,0,0.15)', 'color' => '#FF5500']],
+                'tix-sp-timer'          => ['label' => 'Timer',                  'props' => ['color' => '#f59e0b']],
+                'tix-sp-loading'        => ['label' => 'Laden-Text',             'props' => ['color' => '#94a3b8']],
+                'tix-sp-modal-header'   => ['label' => 'Modal-Titel',            'props' => ['color' => '#ffffff']],
+                'tix-sp-modal-summary'  => ['label' => 'Modal-Info',             'props' => ['color' => '#94a3b8']],
+                'tix-sp-modal-confirm'  => ['label' => 'Bestätigen-Button',      'props' => ['bg' => '#FF5500', 'color' => '#ffffff']],
+                'tix-sp-modal'          => ['label' => 'Modal',                  'props' => ['bg' => '#111111', 'color' => '#ffffff']],
+                'tix-sp-modal-close'    => ['label' => 'Modal-Schließen',       'props' => ['color' => '#666666']],
+                'tix-sp-modal-overlay'  => ['label' => 'Modal-Overlay',          'props' => ['bg' => 'rgba(0,0,0,0.55)']],
+                'tix-sp-modal-footer'   => ['label' => 'Modal-Footer',           'props' => ['bg' => '#0a0a0a']],
+                'tix-sp-modal-total'    => ['label' => 'Modal-Gesamt',           'props' => ['color' => '#ffffff']],
+                'tix-sp-legend-dot'     => ['label' => 'Legende-Punkt',          'props' => ['bg' => '#475569']],
+                'tix-sp-legend-price'   => ['label' => 'Legende-Preis',          'props' => ['color' => '#ffffff']],
+                'tix-sp-row-label'      => ['label' => 'Reihen-Label',           'props' => ['color' => '#94a3b8']],
+                'tix-sp-seat'           => ['label' => 'Sitzplatz',              'props' => ['color' => '#64748b']],
+                'tix-sp-overview'       => ['label' => 'Übersicht',             'props' => ['bg' => 'rgba(255,255,255,0.03)']],
+                'tix-sp-ov-stage'       => ['label' => 'Übersicht-Bühne',      'props' => ['bg' => '#1e293b', 'color' => '#94a3b8']],
+                'tix-sp-ov-block'       => ['label' => 'Übersicht-Block',       'props' => ['color' => '#ffffff']],
+                'tix-sp-ov-selected'    => ['label' => 'Übersicht-Auswahl',     'props' => ['color' => '#ffffff', 'bg' => 'rgba(0,0,0,0.2)']],
+                'tix-sp-ov-unused'      => ['label' => 'Übersicht-Ungenutzt',   'props' => ['border' => 'rgba(255,255,255,0.1)']],
+                'tix-sp-spinner'        => ['label' => 'Spinner',                'props' => ['border' => '#333333']],
+                'tix-sel-btn-seatmap'   => ['label' => 'Seatmap öffnen',        'props' => ['color' => '#FF5500', 'border' => '#FF5500']],
+                'tix-sel-btn-best-available' => ['label' => 'Beste Plätze',     'props' => ['color' => '#f59e0b', 'border' => '#f59e0b']],
+                'tix-sel-seatmap-selected' => ['label' => 'Seatmap-Auswahl',    'props' => ['bg' => '#1a1a1a', 'border' => '#333333']],
+                'tix-sel-seatmap-selected-header' => ['label' => 'Seatmap-Header', 'props' => ['color' => '#ffffff']],
+                'tix-sel-seatmap-selected-tag' => ['label' => 'Seatmap-Tag',    'props' => ['color' => '#FF5500', 'bg' => 'rgba(255,85,0,0.15)']],
+            ],
+            'FAQ' => [
+                'tix-faq'          => ['label' => 'FAQ',          'props' => ['color' => '#ffffff']],
+                'tix-faq-list'     => ['label' => 'FAQ-Liste',    'props' => ['border' => '#333333']],
+                'tix-faq-item'     => ['label' => 'FAQ-Eintrag',  'props' => ['border' => '#333333']],
+                'tix-faq-question' => ['label' => 'Frage',        'props' => ['bg' => '#1a1a1a', 'color' => '#ffffff']],
+                'tix-faq-icon'     => ['label' => 'Icon',         'props' => ['color' => '#ffffff']],
+                'tix-faq-answer'   => ['label' => 'Antwort',      'props' => ['color' => '#aaaaaa']],
+                'tix-faq-a-inner'  => ['label' => 'Antwort-Text',  'props' => ['color' => '#ffffff']],
+            ],
+            'Timetable' => [
+                'tix-tt-day'            => ['label' => 'Tag-Button',             'props' => ['bg' => '#ffffff', 'color' => '#1a1a1a', 'border' => '#e5e7eb']],
+                'tix-tt-filter-btn'     => ['label' => 'Filter-Button',          'props' => ['bg' => '#ffffff', 'color' => '#1a1a1a', 'border' => '#e5e7eb']],
+                'tix-tt-grid-header'    => ['label' => 'Grid-Header',            'props' => ['bg' => '#FAF8F4']],
+                'tix-tt-time'           => ['label' => 'Uhrzeit',                'props' => ['color' => '#64748b']],
+                'tix-tt-slot-title'     => ['label' => 'Slot-Titel',             'props' => ['color' => '#0D0B09']],
+                'tix-tt-slot-desc'      => ['label' => 'Slot-Beschreibung',      'props' => ['color' => '#64748b']],
+                'tix-tt-list-title'     => ['label' => 'Listen-Titel',           'props' => ['color' => '#0D0B09']],
+                'tix-tt-list-time'      => ['label' => 'Listen-Zeit',            'props' => ['color' => '#64748b']],
+                'tix-tt-list-desc'      => ['label' => 'Listen-Beschreibung',    'props' => ['color' => '#64748b']],
+                'tix-tt-list-stage'     => ['label' => 'Bühne',                  'props' => ['color' => '#FF5500']],
+                'tix-tt-tba'            => ['label' => 'TBA-Label',              'props' => ['color' => '#64748b']],
+                'tix-tt-grid'           => ['label' => 'Grid',                   'props' => ['bg' => '#e5e7eb', 'border' => '#e5e7eb']],
+                'tix-tt-slot'           => ['label' => 'Slot',                   'props' => ['bg' => '#FF5500']],
+                'tix-tt-slot-time'      => ['label' => 'Slot-Zeit',              'props' => ['color' => '#FF5500']],
+                'tix-tt-stage-header'   => ['label' => 'Bühnen-Header',         'props' => ['color' => '#FF5500', 'bg' => '#FAF8F4']],
+                'tix-tt-time-header'    => ['label' => 'Zeit-Header',            'props' => ['bg' => '#FAF8F4']],
+                'tix-tt-list-item'      => ['label' => 'Listen-Eintrag',         'props' => ['bg' => '#FF5500']],
+            ],
+            'Share' => [
+                'tix-share-label'       => ['label' => 'Teilen-Label',           'props' => ['color' => '#1a1a1a']],
+                'tix-share-btn'         => ['label' => 'Teilen-Button',          'props' => ['bg' => '#ffffff', 'color' => '#64748b', 'border' => '#e5e7eb']],
+                'tix-share-btn--copied' => ['label' => 'Kopiert-Button',         'props' => ['color' => '#16a34a', 'bg' => '#f0fdf4', 'border' => '#16a34a']],
+            ],
+            'Raffle' => [
+                'tix-raffle-title'          => ['label' => 'Titel',              'props' => ['color' => '#0D0B09']],
+                'tix-raffle-desc'           => ['label' => 'Beschreibung',       'props' => ['color' => '#334155']],
+                'tix-raffle-prizes-title'   => ['label' => 'Preise-Titel',       'props' => ['color' => '#FF5500']],
+                'tix-raffle-prize-badge'    => ['label' => 'Preis-Badge',        'props' => ['bg' => '#dbeafe', 'color' => '#1d4ed8']],
+                'tix-raffle-countdown'      => ['label' => 'Countdown',          'props' => ['bg' => '#fefce8', 'color' => '#854d0e']],
+                'tix-raffle-consent'        => ['label' => 'Einwilligung',       'props' => ['color' => '#334155']],
+                'tix-raffle-msg'            => ['label' => 'Meldung',            'props' => ['color' => '#334155']],
+                'tix-raffle-count'          => ['label' => 'Teilnehmer-Zähler', 'props' => ['color' => '#64748b']],
+                'tix-raffle-success-title'  => ['label' => 'Erfolgs-Titel',      'props' => ['color' => '#166534']],
+                'tix-raffle-success-text'   => ['label' => 'Erfolgs-Text',       'props' => ['color' => '#15803d']],
+                'tix-raffle'                => ['label' => 'Gewinnspiel-Box',    'props' => ['bg' => '#ffffff', 'border' => '#e5e7eb']],
+                'tix-raffle-header'         => ['label' => 'Header',             'props' => ['bg' => '#FF5500', 'color' => '#ffffff']],
+                'tix-raffle-submit'         => ['label' => 'Absenden-Button',    'props' => ['bg' => '#c8ff00', 'color' => '#000000']],
+                'tix-raffle-closed'         => ['label' => 'Geschlossen-Text',   'props' => ['color' => '#64748b']],
+                'tix-raffle-msg--success'   => ['label' => 'Erfolgs-Meldung',    'props' => ['color' => '#065f46', 'bg' => '#ecfdf5', 'border' => '#a7f3d0']],
+                'tix-raffle-msg--error'     => ['label' => 'Fehler-Meldung',     'props' => ['color' => '#991b1b', 'bg' => '#fef2f2', 'border' => '#fecaca']],
+                'tix-raffle-prize-name'     => ['label' => 'Preis-Name',         'props' => ['color' => '#334155']],
+                'tix-raffle-prize-qty'      => ['label' => 'Preis-Anzahl',       'props' => ['color' => '#FF5500']],
+                'tix-raffle-winner'         => ['label' => 'Gewinner-Box',        'props' => ['bg' => '#f0fdf4', 'border' => '#bbf7d0']],
+                'tix-raffle-winner-name'    => ['label' => 'Gewinner-Name',       'props' => ['color' => '#166534']],
+                'tix-raffle-winner-prize'   => ['label' => 'Gewinner-Preis',      'props' => ['color' => '#15803d']],
+                'tix-raffle-winners-title'  => ['label' => 'Gewinner-Titel',      'props' => ['color' => '#0D0B09']],
+            ],
+            'Exit Intent' => [
+                'tix-ei-headline'       => ['label' => 'Überschrift',            'props' => ['color' => '#0D0B09']],
+                'tix-ei-text'           => ['label' => 'Text',                   'props' => ['color' => 'rgba(0,0,0,0.55)']],
+                'tix-ei-button'         => ['label' => 'Button',                 'props' => ['bg' => '#FF5500', 'color' => '#ffffff']],
+                'tix-ei-modal'          => ['label' => 'Modal',                  'props' => ['bg' => '#ffffff']],
+                'tix-ei-overlay'        => ['label' => 'Overlay',                'props' => ['bg' => 'rgba(0,0,0,0.55)']],
+                'tix-ei-close'          => ['label' => 'Schließen-Button',      'props' => ['color' => 'rgba(0,0,0,0.35)']],
+                'tix-ei-code'           => ['label' => 'Code-Text',              'props' => ['color' => '#0D0B09']],
+                'tix-ei-coupon'         => ['label' => 'Gutschein-Box',          'props' => ['bg' => 'rgba(0,0,0,0.04)', 'border' => '#cccccc']],
+                'tix-ei-coupon--copied' => ['label' => 'Gutschein kopiert',      'props' => ['bg' => 'rgba(76,175,80,0.08)', 'border' => '#4caf50']],
+                'tix-ei-copy-icon'      => ['label' => 'Kopieren-Icon',          'props' => ['color' => 'rgba(0,0,0,0.3)']],
+            ],
+            'Social Proof' => [
+                'tix-sp'                => ['label' => 'Social Proof',           'props' => ['bg' => '#ffffff', 'color' => '#0D0B09', 'border' => '#e5e7eb']],
+                'tix-sp__dot'           => ['label' => 'Live-Punkt',             'props' => ['bg' => '#4caf50']],
+                'tix-sp__icon'          => ['label' => 'Icon',                   'props' => ['color' => '#FF5500']],
+            ],
+            'Register Event' => [
+                'tix-re-title'          => ['label' => 'Titel',                  'props' => ['color' => '#ffffff']],
+                'tix-re-subtitle'       => ['label' => 'Untertitel',             'props' => ['color' => '#94a3b8']],
+                'tix-re-panel-title'    => ['label' => 'Panel-Titel',            'props' => ['color' => '#ffffff']],
+                'tix-re-bubble'         => ['label' => 'Chat-Blase',             'props' => ['bg' => 'rgba(255,255,255,0.06)', 'color' => '#ffffff']],
+                'tix-re-input'          => ['label' => 'Eingabefeld',            'props' => ['bg' => 'rgba(255,255,255,0.06)', 'color' => '#ffffff', 'border' => 'rgba(255,255,255,0.12)']],
+                'tix-re-field-label'    => ['label' => 'Feld-Label',             'props' => ['color' => '#94a3b8']],
+                'tix-re-preview-label'  => ['label' => 'Preview-Label',          'props' => ['color' => '#94a3b8']],
+                'tix-re-preview-value'  => ['label' => 'Preview-Wert',           'props' => ['color' => '#ffffff']],
+                'tix-re-legal'          => ['label' => 'Rechtliches',            'props' => ['color' => '#94a3b8']],
+                'tix-re-btn-primary'    => ['label' => 'Haupt-Button',           'props' => ['bg' => '#FF5500', 'color' => '#ffffff']],
+                'tix-re-error'          => ['label' => 'Fehler-Meldung',         'props' => ['color' => '#f87171']],
+                'tix-re'                => ['label' => 'Register Event',         'props' => ['color' => '#ffffff']],
+                'tix-re-btn-back'       => ['label' => 'Zurück-Button',         'props' => ['color' => '#94a3b8']],
+                'tix-re-btn-publish'    => ['label' => 'Veröffentlichen',       'props' => ['bg' => '#ff00aa', 'color' => '#ffffff']],
+                'tix-re-btn-send'       => ['label' => 'Senden-Button',          'props' => ['color' => '#ffffff']],
+                'tix-re-bubble-user'    => ['label' => 'User-Blase',             'props' => ['color' => '#ffffff']],
+                'tix-re-dropzone'       => ['label' => 'Upload-Zone',            'props' => ['border' => '#FF5500']],
+                'tix-re-dropzone-text'  => ['label' => 'Upload-Text',            'props' => ['color' => '#94a3b8']],
+                'tix-re-dropzone-hint'  => ['label' => 'Upload-Hinweis',         'props' => ['color' => '#94a3b8']],
+                'tix-re-mode'           => ['label' => 'Modus-Toggle',           'props' => ['color' => '#ffffff', 'border' => '#FF5500']],
+                'tix-re-progress-fill'  => ['label' => 'Fortschritt-Balken',     'props' => ['bg' => '#ff00aa']],
+                'tix-re-progress-step'  => ['label' => 'Fortschritt-Schritt',    'props' => ['color' => '#10b981']],
+                'tix-re-step'           => ['label' => 'Schritt',                'props' => ['color' => '#10b981']],
+                'tix-re-status-simple'  => ['label' => 'Status-Text',            'props' => ['color' => '#94a3b8']],
+            ],
+            'My Account' => [
+                'wc-nav-link'           => ['label' => 'Navigation',             'props' => ['color' => '#374151']],
+                'wc-content-h2'         => ['label' => 'Überschrift H2',         'props' => ['color' => '#1f2937']],
+                'wc-content-h3'         => ['label' => 'Überschrift H3',         'props' => ['color' => '#374151']],
+                'wc-table-th'           => ['label' => 'Tabellen-Header',        'props' => ['bg' => '#f9fafb', 'color' => '#374151']],
+                'wc-table-td'           => ['label' => 'Tabellen-Zelle',         'props' => ['color' => '#374151', 'border' => '#e5e7eb']],
+                'wc-order-status'       => ['label' => 'Bestell-Status',         'props' => ['bg' => '#c8ff00', 'color' => '#000000']],
+                'wc-button'             => ['label' => 'Button',                 'props' => ['bg' => '#c8ff00', 'color' => '#000000']],
+                'wc-label'              => ['label' => 'Formular-Label',         'props' => ['color' => '#374151']],
+                'wc-input'              => ['label' => 'Eingabefeld',            'props' => ['border' => '#e5e7eb', 'color' => '#1f2937']],
+                'wc-message'            => ['label' => 'Meldung',                'props' => ['color' => '#374151']],
+            ],
+            'Minicart' => [
+                'tix-minicart-count'   => ['label' => 'Warenkorb-Zähler',  'props' => ['bg' => '#c8ff00', 'color' => '#000000']],
+                'tix-mc-drawer'        => ['label' => 'Drawer',            'props' => ['bg' => '#ffffff', 'color' => '#1a1a1a']],
+                'tix-mc-drawer-header' => ['label' => 'Drawer-Header',     'props' => ['border' => '#e5e5e5']],
+                'tix-mc-drawer-title'  => ['label' => 'Drawer-Titel',      'props' => ['color' => '#1a1a1a']],
+                'tix-mc-item'          => ['label' => 'Artikel',            'props' => ['border' => '#e5e5e5']],
+                'tix-mc-item-name'     => ['label' => 'Artikel-Name',       'props' => ['color' => '#1a1a1a']],
+                'tix-mc-item-price'    => ['label' => 'Artikel-Preis',      'props' => ['color' => '#1a1a1a']],
+                'tix-mc-qty-btn'       => ['label' => 'Mengen-Button',      'props' => ['border' => '#e5e5e5']],
+                'tix-mc-item-remove'   => ['label' => 'Entfernen-Button',   'props' => ['color' => '#999999']],
+                'tix-mc-total-row'     => ['label' => 'Gesamt-Zeile',       'props' => ['color' => '#1a1a1a']],
+                'tix-mc-footer'        => ['label' => 'Footer',             'props' => ['border' => '#e5e5e5']],
+                'tix-mc-checkout-btn'  => ['label' => 'Checkout-Button',    'props' => ['bg' => '#c8ff00', 'color' => '#000000']],
+                'tix-mc-drawer-close'  => ['label' => 'Drawer-Schließen',  'props' => ['color' => '#1a1a1a']],
+                'tix-mc-item-hint'     => ['label' => 'Artikel-Hinweis',    'props' => ['color' => '#999999']],
+                'tix-mc-qty-val'       => ['label' => 'Mengen-Wert',        'props' => ['color' => '#1a1a1a']],
+                'tix-mc-overlay-wrap'  => ['label' => 'Overlay',             'props' => ['bg' => 'rgba(0,0,0,0.35)']],
+            ],
+            'Feedback' => [
+                'tix-fb-title'         => ['label' => 'Titel',             'props' => ['color' => '#0D0B09']],
+                'tix-fb-subtitle'      => ['label' => 'Untertitel',        'props' => ['color' => '#64748b']],
+                'tix-fb-star'          => ['label' => 'Stern (inaktiv)',   'props' => ['color' => '#d1d5db']],
+                'tix-fb-comment'       => ['label' => 'Kommentarfeld',     'props' => ['bg' => '#ffffff', 'border' => '#e5e7eb', 'color' => '#1a1a1a']],
+                'tix-fb-submit'        => ['label' => 'Absenden-Button',   'props' => ['bg' => '#FF5500', 'color' => '#ffffff']],
+                'tix-fb-thanks-title'  => ['label' => 'Danke-Titel',      'props' => ['color' => '#065f46']],
+                'tix-fb-thanks-text'   => ['label' => 'Danke-Text',       'props' => ['color' => '#334155']],
+                'tix-fb-avg-value'     => ['label' => 'Bewertungs-Wert',  'props' => ['color' => '#0D0B09']],
+                'tix-fb-avg-count'     => ['label' => 'Anzahl',           'props' => ['color' => '#64748b']],
+                'tix-fb-avg-star'      => ['label' => 'Stern (aktiv)',      'props' => ['color' => '#fbbf24']],
+                'tix-fb-msg--error'    => ['label' => 'Fehler-Meldung',    'props' => ['color' => '#991b1b', 'bg' => '#fef2f2', 'border' => '#fecaca']],
+                'tix-ep-rating-count'  => ['label' => 'Rating-Anzahl',     'props' => ['color' => '#64748b']],
+            ],
+            'Upsell' => [
+                'tix-up-card'           => ['label' => 'Upsell-Karte',          'props' => ['border' => '#333333', 'bg' => '#1a1a1a']],
+                'tix-up-heading'        => ['label' => 'Überschrift',            'props' => ['color' => '#ffffff']],
+                'tix-up-card-title'     => ['label' => 'Karten-Titel',           'props' => ['color' => '#ffffff']],
+                'tix-up-card-meta'      => ['label' => 'Meta-Info',              'props' => ['color' => 'rgba(255,255,255,0.2)']],
+                'tix-up-card-price'     => ['label' => 'Preis',                  'props' => ['color' => '#8b5cf6']],
+                'tix-up-card-badge'     => ['label' => 'Badge',                  'props' => ['bg' => 'rgba(245,158,11,0.85)', 'color' => '#000000']],
+                'tix-up-badge-few_tickets' => ['label' => 'Badge: Wenige',      'props' => ['bg' => 'rgba(245,158,11,0.85)', 'color' => '#000000']],
+                'tix-up-badge-postponed'   => ['label' => 'Badge: Verschoben',  'props' => ['bg' => 'rgba(59,130,246,0.85)']],
+                'tix-up-card-img'       => ['label' => 'Karten-Bild',           'props' => ['bg' => 'rgba(255,255,255,0.03)']],
+                'tix-up-card-noimg'     => ['label' => 'Kein-Bild-Icon',        'props' => ['color' => 'rgba(255,255,255,0.2)']],
+            ],
+        ];
+    }
+
+    public static function color_class_registry_flat(): array {
+        $flat = [];
+        foreach (self::color_class_registry() as $classes) {
+            foreach ($classes as $cls => $def) {
+                $flat[$cls] = $def;
+            }
+        }
+        return $flat;
     }
 }

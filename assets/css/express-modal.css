@@ -191,6 +191,15 @@
     font-size: var(--tix-body, 15px);
 }
 
+/* ── Fee Line ── */
+.tix-ec-fee-line {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 0 0;
+    font-size: 13px;
+    color: var(--tix-muted, #888);
+}
+
 /* ── Total ── */
 .tix-ec-total {
     display: flex;

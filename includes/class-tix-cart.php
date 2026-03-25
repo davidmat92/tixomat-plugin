@@ -197,6 +197,23 @@ class TIX_Cart {
                 </div>
 
                 <div class="tix-mc-footer">
+                    <?php
+                    // Gebühren-Zeile im Minicart
+                    if (class_exists('TIX_Fees')) {
+                        $mc_fees = WC()->cart->get_fees();
+                        if (!empty($mc_fees)) {
+                            foreach ($mc_fees as $mc_fee) {
+                                $mc_amt = floatval($mc_fee->total);
+                                if ($mc_amt > 0) { ?>
+                    <div class="tix-mc-fee-row" style="display:flex;justify-content:space-between;padding:0 0 8px;font-size:13px;color:#666;">
+                        <span><?php echo esc_html($mc_fee->name); ?></span>
+                        <span><?php echo wc_price($mc_amt); ?></span>
+                    </div>
+                    <?php       }
+                            }
+                        }
+                    }
+                    ?>
                     <div class="tix-mc-total-row">
                         <span>Gesamt</span>
                         <span class="tix-mc-total-amount"><?php echo $cart->get_total(); ?></span>

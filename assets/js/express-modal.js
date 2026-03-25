@@ -18,6 +18,13 @@
         var buyBtn    = overlay.querySelector('.tix-ec-buy');
         var msgEl     = overlay.querySelector('.tix-ec-message');
         var eventId   = overlay.dataset.eventId;
+        var feeLineEl = overlay.querySelector('.tix-ec-fee-line');
+
+        // Fee-Config
+        var feeConfig = null;
+        if (overlay.dataset.feeConfig) {
+            try { feeConfig = JSON.parse(overlay.dataset.feeConfig); } catch(e) {}
+        }
 
         // Angebote toggle
         var offersBtn  = overlay.querySelector('.tix-ec-offers-btn');
@@ -150,7 +157,34 @@
                 }
             }
 
-            totalEl.textContent = formatPrice(total);
+            // Fee-Berechnung
+            var feeAmount = 0;
+            if (feeConfig && total > 0) {
+                // Fees pro Ticket berechnen (mit Max pro Ticket)
+                cats.forEach(function(cat) {
+                    var q = parseInt(cat.querySelector('.tix-ec-qty-val').dataset.qty, 10) || 0;
+                    if (q > 0) {
+                        var p = parseFloat(cat.dataset.price);
+                        var ticketFee = feeConfig.fixed + (p * feeConfig.percent / 100);
+                        if (feeConfig.maxTicket > 0) ticketFee = Math.min(ticketFee, feeConfig.maxTicket);
+                        feeAmount += ticketFee * q;
+                    }
+                });
+                // Max pro Bestellung
+                if (feeConfig.maxOrder > 0) feeAmount = Math.min(feeAmount, feeConfig.maxOrder);
+                feeAmount = Math.round(feeAmount * 100) / 100;
+            }
+
+            if (feeLineEl) {
+                if (feeAmount > 0) {
+                    feeLineEl.textContent = (feeConfig.label || 'Servicegebühr') + ': ' + formatPrice(feeAmount);
+                    feeLineEl.style.display = '';
+                } else {
+                    feeLineEl.style.display = 'none';
+                }
+            }
+
+            totalEl.textContent = formatPrice(total + feeAmount);
             buyBtn.disabled = !hasItems || !(termsChk && termsChk.checked);
         }
 

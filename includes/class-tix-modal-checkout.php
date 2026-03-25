@@ -73,7 +73,24 @@ class TIX_Modal_Checkout {
             <button type="button" class="tix-mc-trigger-btn"><?php echo esc_html($atts['label']); ?></button>
         </span>
 
-        <div class="tix-mc-overlay" id="<?php echo esc_attr($modal_id); ?>" style="display:none;" data-event-id="<?php echo $post_id; ?>">
+        <?php
+        // Fee-Config für clientseitige Berechnung
+        $mc_fee_json = '';
+        if (class_exists('TIX_Fees')) {
+            $mc_org = TIX_Fees::get_organizer_for_event($post_id);
+            $mc_cfg = TIX_Fees::get_fee_config($mc_org);
+            if ($mc_cfg['fee_mode'] === 'customer') {
+                $mc_fee_json = wp_json_encode([
+                    'fixed'     => $mc_cfg['fee_fixed'],
+                    'percent'   => $mc_cfg['fee_percent'],
+                    'label'     => $mc_cfg['fee_label'],
+                    'maxTicket' => $mc_cfg['fee_max_per_ticket'],
+                    'maxOrder'  => $mc_cfg['fee_max_per_order'],
+                ]);
+            }
+        }
+        ?>
+        <div class="tix-mc-overlay" id="<?php echo esc_attr($modal_id); ?>" style="display:none;" data-event-id="<?php echo $post_id; ?>"<?php if ($mc_fee_json) echo ' data-fee-config="' . esc_attr($mc_fee_json) . '"'; ?>>
             <div class="tix-mc-modal">
                 <?php // ── Header ── ?>
                 <div class="tix-mc-header">
@@ -339,6 +356,10 @@ class TIX_Modal_Checkout {
                         </div>
                         <?php endif; ?>
 
+                        <div class="tix-mc-fee-line" style="display:none;font-size:13px;color:var(--tx-text-muted, rgba(13,11,9,0.5));display:flex;justify-content:space-between;margin-bottom:8px;">
+                            <span class="tix-mc-fee-label"></span>
+                            <span class="tix-mc-fee-amount"></span>
+                        </div>
                         <div class="tix-mc-total">
                             <span class="tix-mc-total-label">Gesamt <span class="tix-mc-vat-note"><?php echo esc_html($vat_text); ?></span></span>
                             <span class="tix-mc-total-price">0,00 €</span>

@@ -15,6 +15,11 @@
         var closeBtn = overlay.querySelector('.tix-mc-close');
         var cats     = overlay.querySelectorAll('.tix-mc-step-1 > .tix-mc-body > .tix-mc-cats > .tix-mc-cat');
         var totalEl  = overlay.querySelector('.tix-mc-total-price');
+        var feeLine  = overlay.querySelector('.tix-mc-fee-line');
+        var feeLabelEl = overlay.querySelector('.tix-mc-fee-label');
+        var feeAmountEl = overlay.querySelector('.tix-mc-fee-amount');
+        var feeConfig = null;
+        try { feeConfig = JSON.parse(overlay.dataset.feeConfig || 'null'); } catch(e) {}
         var nextBtn  = overlay.querySelector('.tix-mc-next');
         var backBtn  = overlay.querySelector('.tix-mc-step-2 .tix-mc-back');
         var msgEl    = overlay.querySelector('.tix-mc-message');
@@ -191,7 +196,34 @@
                 }
             }
 
-            totalEl.textContent = formatPrice(total);
+            // Gebühren berechnen (clientseitig)
+            var feeAmount = 0;
+            if (feeConfig && hasItems) {
+                var totalQty = 0;
+                allCats.forEach(function(cat) {
+                    var q = parseInt(cat.querySelector('.tix-mc-qty-val').dataset.qty, 10) || 0;
+                    if (q > 0) {
+                        var p = parseFloat(cat.dataset.price);
+                        var f = (feeConfig.fixed || 0) + (p * (feeConfig.percent || 0) / 100);
+                        if (feeConfig.maxTicket > 0) f = Math.min(f, feeConfig.maxTicket);
+                        feeAmount += f * q;
+                        totalQty += q;
+                    }
+                });
+                if (feeConfig.maxOrder > 0) feeAmount = Math.min(feeAmount, feeConfig.maxOrder);
+                feeAmount = Math.round(feeAmount * 100) / 100;
+            }
+            if (feeLine && feeLabelEl && feeAmountEl) {
+                if (feeAmount > 0) {
+                    feeLabelEl.textContent = feeConfig.label || 'Servicegebühr';
+                    feeAmountEl.textContent = formatPrice(feeAmount);
+                    feeLine.style.display = 'flex';
+                } else {
+                    feeLine.style.display = 'none';
+                }
+            }
+
+            totalEl.textContent = formatPrice(total + feeAmount);
             nextBtn.disabled = !hasItems;
         }
 

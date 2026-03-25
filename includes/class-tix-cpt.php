@@ -401,6 +401,105 @@ class TIX_CPT {
                     </div>
                 </div>
             </div>
+            <?php // ── Gebühren-Override ── ?>
+            <div class="tix-card">
+                <div class="tix-card-header">
+                    <span class="dashicons dashicons-money-alt"></span>
+                    <h3>Individuelle Gebühren</h3>
+                </div>
+                <div class="tix-card-body">
+                    <?php
+                    $fee_override    = get_post_meta($post->ID, '_tix_fee_override', true);
+                    $fee_fixed       = get_post_meta($post->ID, '_tix_fee_fixed', true);
+                    $fee_percent     = get_post_meta($post->ID, '_tix_fee_percent', true);
+                    $fee_mode        = get_post_meta($post->ID, '_tix_fee_mode', true) ?: 'organizer';
+                    $fee_label       = get_post_meta($post->ID, '_tix_fee_label', true) ?: '';
+                    $fee_max_ticket  = get_post_meta($post->ID, '_tix_fee_max_per_ticket', true);
+                    $fee_max_order   = get_post_meta($post->ID, '_tix_fee_max_per_order', true);
+                    $global          = function_exists('tix_get_settings') ? tix_get_settings() : [];
+                    ?>
+                    <div class="tix-field tix-field-full" style="margin-bottom:16px;">
+                        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                            <input type="checkbox" name="tix_fee_override" value="1" <?php checked($fee_override); ?>
+                                   id="tix-fee-override-toggle" />
+                            <strong>Individuelle Gebühren für diesen Veranstalter verwenden</strong>
+                        </label>
+                        <p style="color:#9ca3af;font-size:12px;margin:4px 0 0 26px;">
+                            Wenn deaktiviert, gelten die globalen Einstellungen
+                            (<?php echo number_format_i18n(floatval($global['fee_fixed'] ?? 0), 2); ?> € +
+                            <?php echo number_format_i18n(floatval($global['fee_percent'] ?? 0), 1); ?> %,
+                            <?php echo ($global['fee_mode'] ?? 'organizer') === 'customer' ? 'Kunde zahlt' : 'Veranstalter zahlt'; ?>).
+                        </p>
+                    </div>
+                    <div id="tix-fee-override-fields" style="<?php echo $fee_override ? '' : 'display:none;'; ?>">
+                        <div class="tix-field-grid">
+                            <div class="tix-field">
+                                <label class="tix-field-label">Fixbetrag pro Ticket</label>
+                                <div style="display:flex;align-items:center;gap:6px;">
+                                    <input type="number" name="tix_fee_fixed"
+                                           value="<?php echo esc_attr($fee_fixed); ?>"
+                                           step="0.01" min="0" style="width:100px;"
+                                           placeholder="<?php echo esc_attr($global['fee_fixed'] ?? 0); ?>" />
+                                    <span style="color:#6b7280;">€</span>
+                                </div>
+                            </div>
+                            <div class="tix-field">
+                                <label class="tix-field-label">Prozentualer Anteil</label>
+                                <div style="display:flex;align-items:center;gap:6px;">
+                                    <input type="number" name="tix_fee_percent"
+                                           value="<?php echo esc_attr($fee_percent); ?>"
+                                           step="0.01" min="0" max="100" style="width:100px;"
+                                           placeholder="<?php echo esc_attr($global['fee_percent'] ?? 0); ?>" />
+                                    <span style="color:#6b7280;">%</span>
+                                </div>
+                            </div>
+                            <div class="tix-field">
+                                <label class="tix-field-label">Wer trägt die Gebühr?</label>
+                                <select name="tix_fee_mode" style="width:240px;">
+                                    <option value="organizer" <?php selected($fee_mode, 'organizer'); ?>>Veranstalter (unsichtbar)</option>
+                                    <option value="customer" <?php selected($fee_mode, 'customer'); ?>>Kunde (aufgeschlagen)</option>
+                                </select>
+                            </div>
+                            <div class="tix-field">
+                                <label class="tix-field-label">Bezeichnung für Kunden</label>
+                                <input type="text" name="tix_fee_label"
+                                       value="<?php echo esc_attr($fee_label); ?>"
+                                       placeholder="<?php echo esc_attr(($global['fee_label'] ?? '') ?: 'Servicegebühr'); ?>"
+                                       style="width:240px;" />
+                            </div>
+                            <div class="tix-field">
+                                <label class="tix-field-label">Max. Gebühr pro Ticket</label>
+                                <div style="display:flex;align-items:center;gap:6px;">
+                                    <input type="number" name="tix_fee_max_per_ticket"
+                                           value="<?php echo esc_attr($fee_max_ticket); ?>"
+                                           step="0.01" min="0" style="width:100px;"
+                                           placeholder="<?php echo esc_attr($global['fee_max_per_ticket'] ?? 0); ?>" />
+                                    <span style="color:#6b7280;">€ <small>(0 = unbegrenzt)</small></span>
+                                </div>
+                            </div>
+                            <div class="tix-field">
+                                <label class="tix-field-label">Max. Gebühr pro Bestellung</label>
+                                <div style="display:flex;align-items:center;gap:6px;">
+                                    <input type="number" name="tix_fee_max_per_order"
+                                           value="<?php echo esc_attr($fee_max_order); ?>"
+                                           step="0.01" min="0" style="width:100px;"
+                                           placeholder="<?php echo esc_attr($global['fee_max_per_order'] ?? 0); ?>" />
+                                    <span style="color:#6b7280;">€ <small>(0 = unbegrenzt, überschreibt pro Ticket)</small></span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <script>
+                    (function(){
+                        var cb = document.getElementById('tix-fee-override-toggle');
+                        var wrap = document.getElementById('tix-fee-override-fields');
+                        if (cb && wrap) {
+                            cb.addEventListener('change', function(){ wrap.style.display = this.checked ? '' : 'none'; });
+                        }
+                    })();
+                    </script>
+                </div>
+            </div>
         </div>
         <?php
     }
@@ -422,5 +521,17 @@ class TIX_CPT {
 
         $user_id = intval($_POST['tix_org_user_id'] ?? 0);
         update_post_meta($post_id, '_tix_org_user_id', $user_id);
+
+        // ── Gebühren-Override ──
+        $fee_override = !empty($_POST['tix_fee_override']);
+        update_post_meta($post_id, '_tix_fee_override', $fee_override ? 1 : 0);
+        if ($fee_override) {
+            update_post_meta($post_id, '_tix_fee_fixed',   max(0, floatval($_POST['tix_fee_fixed'] ?? 0)));
+            update_post_meta($post_id, '_tix_fee_percent', max(0, min(100, floatval($_POST['tix_fee_percent'] ?? 0))));
+            update_post_meta($post_id, '_tix_fee_mode',    in_array($_POST['tix_fee_mode'] ?? '', ['organizer', 'customer']) ? $_POST['tix_fee_mode'] : 'organizer');
+            update_post_meta($post_id, '_tix_fee_label',   sanitize_text_field($_POST['tix_fee_label'] ?? ''));
+            update_post_meta($post_id, '_tix_fee_max_per_ticket', max(0, floatval($_POST['tix_fee_max_per_ticket'] ?? 0)));
+            update_post_meta($post_id, '_tix_fee_max_per_order',  max(0, floatval($_POST['tix_fee_max_per_order'] ?? 0)));
+        }
     }
 }

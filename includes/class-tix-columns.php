@@ -802,56 +802,8 @@ class TIX_Columns {
      * Ticket-Liste: Filter-Dropdowns (Event, Status, Kategorie) + Export-Button
      */
     public static function ticket_event_filter() {
-        $screen = get_current_screen();
-        if (!$screen || $screen->post_type !== 'tix_ticket') return;
-
-        $selected = intval($_GET['tix_filter_event'] ?? 0);
-        $events = get_posts([
-            'post_type'      => 'event',
-            'posts_per_page' => -1,
-            'post_status'    => 'any',
-            'orderby'        => 'date',
-            'order'          => 'DESC',
-        ]);
-
-        echo '<select name="tix_filter_event">';
-        echo '<option value="">Alle Events</option>';
-        foreach ($events as $ev) {
-            $sel = selected($selected, $ev->ID, false);
-            echo '<option value="' . $ev->ID . '" ' . $sel . '>' . esc_html($ev->post_title) . '</option>';
-        }
-        echo '</select>';
-
-        // Status-Filter
-        $status_sel = sanitize_text_field($_GET['tix_filter_status'] ?? '');
-        echo '<select name="tix_filter_status">';
-        echo '<option value="">Alle Status</option>';
-        echo '<option value="valid" ' . selected($status_sel, 'valid', false) . '>Gültig</option>';
-        echo '<option value="used" ' . selected($status_sel, 'used', false) . '>Eingelöst</option>';
-        echo '<option value="cancelled" ' . selected($status_sel, 'cancelled', false) . '>Storniert</option>';
-        echo '</select>';
-
-        // Kategorie-Filter (nur wenn Event gewählt)
-        if ($selected) {
-            $cats = get_post_meta($selected, '_tix_ticket_categories', true);
-            $cat_sel = sanitize_text_field($_GET['tix_filter_cat'] ?? '');
-            if (is_array($cats) && !empty($cats)) {
-                echo '<select name="tix_filter_cat">';
-                echo '<option value="">Alle Kategorien</option>';
-                foreach ($cats as $i => $cat) {
-                    $sel = selected($cat_sel, (string) $i, false);
-                    echo '<option value="' . $i . '" ' . $sel . '>' . esc_html($cat['name'] ?? 'Kat. ' . $i) . '</option>';
-                }
-                echo '</select>';
-            }
-
-            // CSV-Export Button
-            $export_url = wp_nonce_url(
-                admin_url('admin-post.php?action=tix_export_tickets_csv&event_id=' . $selected),
-                'tix_export_tickets'
-            );
-            echo ' <a href="' . esc_url($export_url) . '" class="button tix-export-btn">&#x1F4E5; Teilnehmerliste CSV</a>';
-        }
+        // Filter-UI wird jetzt in ticket_summary_bar() gerendert
+        // Diese Methode bleibt leer, da tablenav.top per CSS versteckt ist
     }
 
     /**
@@ -1104,47 +1056,108 @@ class TIX_Columns {
             $total += intval($r->cnt);
         }
 
-        // ── Styles: Ticket-Liste an Bestellungen-Design angleichen ──
+        $primary = tix_primary();
+        $status_filter = sanitize_text_field($_GET['tix_filter_status'] ?? '');
+        $search = sanitize_text_field($_GET['s'] ?? '');
+
+        // ── Styles: Ticket-Liste identisch zu Bestellungen ──
         echo '<style>
-        /* Titel-Zeile konsistent (!important nötig wegen admin-shell.css) */
+        /* WP-Defaults verstecken */
         body.post-type-tix_ticket .wrap > h1.wp-heading-inline { display:none !important; }
         body.post-type-tix_ticket .wrap > .page-title-action { display:none !important; }
         body.post-type-tix_ticket .wrap > hr.wp-header-end { display:none; }
         body.post-type-tix_ticket .subsubsub { display:none !important; }
-        /* Tabelle in Card-Style */
+        /* Komplett tablenav.top verstecken — eigene Filter-Zeile stattdessen */
+        body.post-type-tix_ticket .tablenav.top { display:none !important; }
+        /* Tabelle in Card-Style wie Bestellungen */
         body.post-type-tix_ticket #posts-filter > .wp-list-table { border:1px solid #e5e7eb !important; border-radius:12px !important; overflow:hidden; background:#fff; }
-        body.post-type-tix_ticket .wp-list-table thead th { background:#fafafa !important; padding:12px 16px; font-size:13px; font-weight:600; border-bottom:1px solid #e5e7eb; }
+        body.post-type-tix_ticket .wp-list-table thead th { background:#fafafa !important; padding:12px 16px !important; font-size:13px !important; font-weight:600 !important; border-bottom:1px solid #e5e7eb; text-transform:none !important; letter-spacing:normal !important; }
+        body.post-type-tix_ticket .wp-list-table thead th a { color:inherit; text-decoration:none; }
+        body.post-type-tix_ticket .wp-list-table thead th .sorting-indicators { display:none; }
         body.post-type-tix_ticket .wp-list-table tbody tr { border-top:1px solid #f3f4f6; }
         body.post-type-tix_ticket .wp-list-table tbody td { padding:14px 16px; vertical-align:middle; border-bottom:none; }
-        body.post-type-tix_ticket .wp-list-table .check-column { padding:12px 8px !important; }
+        body.post-type-tix_ticket .wp-list-table .check-column { padding:12px 8px !important; width:40px; }
         body.post-type-tix_ticket .wp-list-table tfoot { display:none; }
         body.post-type-tix_ticket .wp-list-table .column-title .row-actions { visibility:visible; opacity:0; transition:opacity .15s; }
         body.post-type-tix_ticket .wp-list-table tr:hover .row-actions { opacity:1; }
-        /* Filter-Zeile cleaner */
-        body.post-type-tix_ticket .tablenav.top .actions select { border-radius:6px; border-color:#d1d5db; }
-        body.post-type-tix_ticket .tablenav.top .actions .button { border-radius:6px; }
-        body.post-type-tix_ticket .tablenav.bottom { margin-top:12px; }
-        /* Alternating Row Color entfernen */
         body.post-type-tix_ticket .wp-list-table .alternate { background:transparent !important; }
         body.post-type-tix_ticket .wp-list-table tbody tr:hover { background:#fafbfc !important; }
-        /* Bottom Bulk Actions verstecken (redundant) */
+        /* Bottom: nur Pagination, keine Bulk Actions */
         body.post-type-tix_ticket .tablenav.bottom .actions { display:none; }
+        body.post-type-tix_ticket .tablenav.bottom .displaying-num { display:none; }
+        body.post-type-tix_ticket .tablenav.bottom { margin-top:12px; }
+        /* WP Search Box verstecken (eigene Suche) */
+        body.post-type-tix_ticket .search-box { display:none !important; }
         </style>';
 
-        // ── Custom Titel mit Icon ──
-        $primary = tix_primary();
-        echo '<h1 style="display:flex;align-items:center;gap:10px;margin:0 0 16px;">';
+        // ── Custom Titel mit Icon (wie Bestellungen) ──
+        echo '<h1 style="display:flex;align-items:center;gap:10px;margin-bottom:20px;">';
         echo '<span class="dashicons dashicons-tickets-alt" style="font-size:28px;width:28px;height:28px;color:' . $primary . ';"></span>';
         echo 'Verkaufte Tickets';
         echo '<span style="font-size:14px;color:#6b7280;font-weight:400;">' . $total . ' gesamt</span>';
         echo '</h1>';
 
-        // ── KPI Cards ──
-        echo '<div class="tix-ticket-summary">';
-        echo '<div class="tix-summary-card"><span class="tix-summary-number">' . $total . '</span><span class="tix-summary-label">Gesamt</span></div>';
-        echo '<div class="tix-summary-card"><span class="tix-summary-number" style="color:#10b981">' . $counts['valid'] . '</span><span class="tix-summary-label">Gültig</span></div>';
-        echo '<div class="tix-summary-card"><span class="tix-summary-number" style="color:' . $primary . '">' . $counts['used'] . '</span><span class="tix-summary-label">Eingelöst</span></div>';
-        echo '<div class="tix-summary-card"><span class="tix-summary-number" style="color:#ef4444">' . $counts['cancelled'] . '</span><span class="tix-summary-label">Storniert</span></div>';
+        // ── Filter-Tabs + Suche (identisch zu Bestellungen) ──
+        $base_url = admin_url('edit.php?post_type=tix_ticket');
+        if ($event_id) $base_url = add_query_arg('tix_filter_event', $event_id, $base_url);
+
+        $statuses = [
+            ''          => 'Alle',
+            'valid'     => 'Gültig',
+            'used'      => 'Eingelöst',
+            'cancelled' => 'Storniert',
+        ];
+
+        echo '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px;">';
+
+        // Links: Status-Tabs
+        echo '<div style="display:flex;gap:4px;align-items:center;">';
+        foreach ($statuses as $val => $label) {
+            $active = ($status_filter === $val) ? 'font-weight:700;color:' . $primary . ';' : '';
+            $url = add_query_arg('tix_filter_status', $val, $base_url);
+            if ($val === '') $url = remove_query_arg('tix_filter_status', $base_url);
+            echo '<a href="' . esc_url($url) . '" style="padding:4px 12px;font-size:13px;text-decoration:none;border-radius:6px;' . $active . '">' . esc_html($label) . '</a>';
+        }
+
+        // Event-Dropdown (falls Events existieren)
+        $events = get_posts([
+            'post_type'      => 'event',
+            'posts_per_page' => -1,
+            'post_status'    => 'any',
+            'orderby'        => 'date',
+            'order'          => 'DESC',
+        ]);
+        if (!empty($events)) {
+            $filter_base = admin_url('edit.php?post_type=tix_ticket');
+            if ($status_filter) $filter_base = add_query_arg('tix_filter_status', $status_filter, $filter_base);
+            echo '<select onchange="if(this.value){location.href=\'' . esc_url($filter_base) . '&tix_filter_event=\'+this.value}else{location.href=\'' . esc_url($filter_base) . '\'}" style="padding:4px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;margin-left:8px;">';
+            echo '<option value="">Alle Events</option>';
+            foreach ($events as $ev) {
+                $sel = selected($event_id, $ev->ID, false);
+                echo '<option value="' . $ev->ID . '" ' . $sel . '>' . esc_html($ev->post_title) . '</option>';
+            }
+            echo '</select>';
+
+            // CSV-Export Button (wenn Event gewählt)
+            if ($event_id) {
+                $export_url = wp_nonce_url(
+                    admin_url('admin-post.php?action=tix_export_tickets_csv&event_id=' . $event_id),
+                    'tix_export_tickets'
+                );
+                echo ' <a href="' . esc_url($export_url) . '" class="button" style="border-radius:6px;font-size:13px;padding:4px 10px;">&#x1F4E5; CSV</a>';
+            }
+        }
+        echo '</div>';
+
+        // Rechts: Suche
+        echo '<form method="get" style="display:flex;gap:6px;">';
+        echo '<input type="hidden" name="post_type" value="tix_ticket">';
+        if ($event_id) echo '<input type="hidden" name="tix_filter_event" value="' . $event_id . '">';
+        if ($status_filter) echo '<input type="hidden" name="tix_filter_status" value="' . esc_attr($status_filter) . '">';
+        echo '<input type="text" name="s" value="' . esc_attr($search) . '" placeholder="Suche nach Code, E-Mail, Name…" style="padding:6px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;width:240px;">';
+        echo '<button type="submit" class="button" style="border-radius:6px;">Suchen</button>';
+        echo '</form>';
+
         echo '</div>';
     }
 

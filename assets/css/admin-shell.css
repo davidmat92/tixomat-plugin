@@ -219,8 +219,8 @@ body.tix-fullscreen #lscwp_meta_boxes {
     display: none !important;
 }
 
-/* Normal-Bereich Metaboxen (unterhalb des Editors) – nur unser Event Manager zeigen */
-body.tix-fullscreen #normal-sortables > .postbox:not(#tix_event_manager) {
+/* Normal-Bereich Metaboxen auf Event-Seiten – nur unser Event Manager zeigen */
+body.tix-fullscreen.post-type-event #normal-sortables > .postbox:not(#tix_event_manager) {
     display: none !important;
 }
 

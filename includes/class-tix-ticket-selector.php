@@ -808,6 +808,29 @@ class TIX_Ticket_Selector {
             <div class="tix-group-panel" style="display:none;"></div>
             <?php endif; ?>
             <?php if (!empty($ext_html)) echo $ext_html; ?>
+
+            <?php
+            // ── Gebührenhinweis unter dem Selektor ──
+            if (class_exists('TIX_Fees') && function_exists('tix_get_settings') && !empty(tix_get_settings('fee_show_in_selector'))) {
+                $org_id = TIX_Fees::get_organizer_for_event($post_id);
+                $fee_cfg = TIX_Fees::get_fee_config($org_id);
+                if ($fee_cfg['fee_mode'] === 'customer' && ($fee_cfg['fee_fixed'] > 0 || $fee_cfg['fee_percent'] > 0)) {
+                    $hint_parts = [];
+                    if ($fee_cfg['fee_fixed'] > 0) $hint_parts[] = number_format($fee_cfg['fee_fixed'], 2, ',', '.') . ' €';
+                    if ($fee_cfg['fee_percent'] > 0) $hint_parts[] = number_format($fee_cfg['fee_percent'], 1, ',', '.') . ' %';
+                    $hint_label = $fee_cfg['fee_label'] ?: 'Servicegebühr';
+                    ?>
+                    <div class="tix-sel-fee-hint" style="text-align:center;font-size:12px;color:#8C8985;padding:8px 0 0;">
+                        zzgl. <?php echo implode(' + ', $hint_parts); ?> <?php echo esc_html($hint_label); ?>
+                        <?php if (!empty($fee_cfg['fee_max_per_ticket']) && $fee_cfg['fee_max_per_ticket'] > 0): ?>
+                        <span>(max. <?php echo number_format($fee_cfg['fee_max_per_ticket'], 2, ',', '.'); ?> € pro Ticket)</span>
+                        <?php endif; ?>
+                    </div>
+                    <?php
+                }
+            }
+            ?>
+
             <?php echo tix_branding_footer(); ?>
         </div>
         <?php
@@ -889,7 +912,24 @@ class TIX_Ticket_Selector {
             <button type="button" class="tix-ec-trigger-btn"><?php echo esc_html($atts['label']); ?></button>
         </span>
 
-        <div class="tix-ec-overlay" id="<?php echo esc_attr($modal_id); ?>" style="display:none;" data-event-id="<?php echo $post_id; ?>">
+        <?php
+        // Fee-Config für clientseitige Berechnung im Express Modal
+        $ec_fee_json = '';
+        if (class_exists('TIX_Fees')) {
+            $ec_org = TIX_Fees::get_organizer_for_event($post_id);
+            $ec_cfg = TIX_Fees::get_fee_config($ec_org);
+            if ($ec_cfg['fee_mode'] === 'customer') {
+                $ec_fee_json = wp_json_encode([
+                    'fixed'     => $ec_cfg['fee_fixed'],
+                    'percent'   => $ec_cfg['fee_percent'],
+                    'label'     => $ec_cfg['fee_label'],
+                    'maxTicket' => $ec_cfg['fee_max_per_ticket'],
+                    'maxOrder'  => $ec_cfg['fee_max_per_order'],
+                ]);
+            }
+        }
+        ?>
+        <div class="tix-ec-overlay" id="<?php echo esc_attr($modal_id); ?>" style="display:none;" data-event-id="<?php echo $post_id; ?>"<?php if ($ec_fee_json) echo ' data-fee-config="' . esc_attr($ec_fee_json) . '"'; ?>>
             <div class="tix-ec-modal">
                 <div class="tix-ec-header">
                     <div>
@@ -1213,6 +1253,8 @@ class TIX_Ticket_Selector {
 
                     </div>
                     <?php endif; ?>
+
+                    <div class="tix-ec-fee-line" style="display:none;"></div>
 
                     <div class="tix-ec-total">
                         <span class="tix-ec-total-label">Gesamt <span class="tix-ec-vat-note"><?php echo esc_html($vat_text); ?></span></span>
