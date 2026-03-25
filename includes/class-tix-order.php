@@ -64,7 +64,9 @@ class TIX_Order {
             KEY billing_email (billing_email),
             KEY wc_order_id (wc_order_id),
             KEY date_created (date_created),
-            KEY customer_id (customer_id)
+            KEY customer_id (customer_id),
+            UNIQUE KEY order_number (order_number),
+            KEY order_key (order_key)
         ) $charset;";
 
         $sql_items = "CREATE TABLE $ti (
@@ -128,6 +130,7 @@ class TIX_Order {
     public function get_billing_postcode()       { return $this->data['billing_postcode'] ?? ''; }
     public function get_billing_country()        { return $this->data['billing_country'] ?? ''; }
     public function get_customer_id()            { return intval($this->data['customer_id'] ?? 0); }
+    public function get_wc_order_id()            { return intval($this->data['wc_order_id'] ?? 0); }
 
     public function get_date_created() {
         $d = $this->data['date_created'] ?? null;
@@ -169,11 +172,28 @@ class TIX_Order {
     // STATUS
     // ══════════════════════════════════════
 
-    public function update_status($status) {
+    public function update_status($status, $gateway = '') {
         global $wpdb;
+        $old_status = $this->data['status'] ?? 'pending';
         $wpdb->update(self::table_name(), ['status' => $status], ['id' => $this->id]);
         $this->data['status'] = $status;
-        do_action('tix_order_status_changed', $this->id, $status, $this);
+
+        // Auto-add order note
+        if ($old_status !== $status && class_exists('TIX_Order_Admin')) {
+            TIX_Order_Admin::add_note(
+                $this->id,
+                'Status geändert: ' . $old_status . ' → ' . $status . ($gateway ? ' (via ' . $gateway . ')' : ''),
+                'status_change'
+            );
+        }
+
+        do_action('tix_order_status_changed', $this->id, $status, $old_status, $gateway);
+
+        if ($status === 'completed') {
+            do_action('tix_order_completed', $this->id);
+        } elseif ($status === 'cancelled' || $status === 'failed') {
+            do_action('tix_order_cancelled', $this->id);
+        }
     }
 
     // ══════════════════════════════════════
@@ -236,7 +256,8 @@ class TIX_Order {
             $params[] = intval($args['event_id']);
         }
 
-        $order_col = $args['orderby'] ?? 'date_created';
+        $allowed_cols = ['date_created', 'id', 'total', 'status', 'order_number', 'billing_email', 'billing_last_name'];
+        $order_col = in_array($args['orderby'] ?? 'date_created', $allowed_cols, true) ? $args['orderby'] : 'date_created';
         $order_dir = strtoupper($args['order'] ?? 'DESC') === 'ASC' ? 'ASC' : 'DESC';
         $limit = intval($args['limit'] ?? 0);
         $offset = intval($args['offset'] ?? 0);
@@ -323,7 +344,7 @@ class TIX_Order {
         $tix_id = get_post_meta($order_id, '_tix_order_id', true);
         if (!$tix_id) return;
         $wpdb->update(self::table_name(), ['status' => $new_status], ['id' => $tix_id]);
-        do_action('tix_order_status_changed', $tix_id, $new_status);
+        do_action('tix_order_status_changed', $tix_id, $new_status, $old_status, 'woocommerce');
     }
 
     /**
@@ -335,15 +356,20 @@ class TIX_Order {
         $digits = max(3, intval($s['order_number_digits'] ?? 5));
         $suffix = $s['order_number_suffix'] ?? '';
 
-        // Atomarer Counter via UPDATE + SELECT
         global $wpdb;
-        $wpdb->query("UPDATE {$wpdb->options} SET option_value = option_value + 1 WHERE option_name = 'tix_order_seq'");
-        $seq = (int) get_option('tix_order_seq', 0);
-        if (!$seq) {
+
+        // Initialize if not exists
+        if (get_option('tix_order_seq') === false) {
             $start = max(1, intval($s['order_number_start'] ?? 1));
-            update_option('tix_order_seq', $start);
-            $seq = $start;
+            add_option('tix_order_seq', $start, '', 'no');
         }
+
+        // Atomic increment + read in one query
+        $wpdb->query("UPDATE {$wpdb->options} SET option_value = option_value + 1 WHERE option_name = 'tix_order_seq'");
+        $seq = (int) $wpdb->get_var("SELECT option_value FROM {$wpdb->options} WHERE option_name = 'tix_order_seq'");
+
+        // Clear object cache to prevent stale reads
+        wp_cache_delete('tix_order_seq', 'options');
 
         return $prefix . str_pad($seq, $digits, '0', STR_PAD_LEFT) . $suffix;
     }
@@ -474,6 +500,9 @@ if (!class_exists('TIX_DateTime')) {
         }
         public function getOffsetTimestamp() {
             return $this->getTimestamp();
+        }
+        public function __toString() {
+            return $this->format('Y-m-d H:i:s');
         }
     }
 }

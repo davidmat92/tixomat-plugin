@@ -160,6 +160,35 @@ class TIX_Gateway_PayPal {
             wp_die('Invalid payload', '', 400);
         }
 
+        // Verify webhook signature
+        $webhook_id = tix_get_settings('paypal_webhook_id') ?? '';
+        if ($webhook_id) {
+            $verify_response = wp_remote_post(self::api_url() . '/v1/notifications/verify-webhook-signature', [
+                'timeout' => 10,
+                'headers' => [
+                    'Authorization' => 'Bearer ' . (self::get_access_token() ?: ''),
+                    'Content-Type'  => 'application/json',
+                ],
+                'body' => wp_json_encode([
+                    'auth_algo'         => sanitize_text_field($_SERVER['HTTP_PAYPAL_AUTH_ALGO'] ?? ''),
+                    'cert_url'          => esc_url_raw($_SERVER['HTTP_PAYPAL_CERT_URL'] ?? ''),
+                    'transmission_id'   => sanitize_text_field($_SERVER['HTTP_PAYPAL_TRANSMISSION_ID'] ?? ''),
+                    'transmission_sig'  => sanitize_text_field($_SERVER['HTTP_PAYPAL_TRANSMISSION_SIG'] ?? ''),
+                    'transmission_time' => sanitize_text_field($_SERVER['HTTP_PAYPAL_TRANSMISSION_TIME'] ?? ''),
+                    'webhook_id'        => $webhook_id,
+                    'webhook_event'     => $data,
+                ]),
+            ]);
+
+            if (!is_wp_error($verify_response)) {
+                $verify_body = json_decode(wp_remote_retrieve_body($verify_response), true);
+                if (($verify_body['verification_status'] ?? '') !== 'SUCCESS') {
+                    error_log('[TIX PayPal Webhook] Signature verification failed');
+                    wp_die('Signature verification failed', '', 403);
+                }
+            }
+        }
+
         $event_type = sanitize_text_field($data['event_type']);
         error_log('[TIX PayPal Webhook] Event: ' . $event_type);
 
@@ -218,6 +247,18 @@ class TIX_Gateway_PayPal {
      * Return von PayPal → Capture + Thank-You
      */
     public static function handle_return() {
+        // Handle cancellation
+        if (!empty($_GET['tix_payment_cancel'])) {
+            $order_id = intval($_GET['order_id'] ?? 0);
+            if ($order_id) {
+                TIX_Native_Checkout::update_order_status($order_id, 'cancelled', 'paypal');
+            }
+            // Redirect back to checkout with message
+            $checkout_url = class_exists('TIX_Native_Checkout') ? TIX_Native_Checkout::checkout_url() : home_url('/checkout/');
+            wp_safe_redirect(add_query_arg('tix_cancelled', '1', $checkout_url));
+            exit;
+        }
+
         if (empty($_GET['tix_payment_return']) || ($_GET['gateway'] ?? '') !== 'paypal') return;
 
         $order_id  = intval($_GET['order_id'] ?? 0);

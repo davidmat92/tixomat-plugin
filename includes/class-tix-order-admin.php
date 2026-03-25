@@ -16,6 +16,7 @@ class TIX_Order_Admin {
         add_action('wp_ajax_tix_order_bulk_action', [__CLASS__, 'ajax_bulk_action']);
         add_action('wp_ajax_tix_order_export_csv', [__CLASS__, 'ajax_export_csv']);
         add_action('wp_ajax_tix_order_invoice', [__CLASS__, 'render_invoice']);
+        add_action('wp_ajax_tix_order_resend_email', [__CLASS__, 'ajax_resend_email']);
     }
 
     public static function register_menu() {
@@ -23,7 +24,7 @@ class TIX_Order_Admin {
             'tixomat',
             'Bestellungen',
             'Bestellungen',
-            'edit_posts',
+            'manage_options',
             'tix-orders',
             [__CLASS__, 'render_page']
         );
@@ -511,6 +512,16 @@ class TIX_Order_Admin {
                target="_blank" class="button" style="margin-top:8px;display:inline-flex;align-items:center;gap:5px;">
                 <span class="dashicons dashicons-media-document" style="font-size:16px;width:16px;height:16px;vertical-align:middle;"></span> Rechnung
             </a>
+            <button type="button" class="button" id="tix-resend-email-btn" style="margin-top:8px;display:inline-flex;align-items:center;gap:5px;"
+                    onclick="
+                        var btn = this; btn.disabled = true; btn.textContent = 'Wird gesendet…';
+                        fetch(ajaxurl, {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:'action=tix_order_resend_email&nonce=<?php echo $nonce; ?>&order_id=<?php echo $order_id; ?>'})
+                        .then(function(r){return r.json()})
+                        .then(function(r){ alert(r.success ? (r.data.message || 'Gesendet.') : (r.data.message || 'Fehler')); btn.disabled = false; btn.innerHTML = '<span class=\'dashicons dashicons-email\' style=\'font-size:16px;width:16px;height:16px;vertical-align:middle;\'></span> E-Mail erneut senden'; })
+                        .catch(function(){ alert('Netzwerkfehler.'); btn.disabled = false; btn.innerHTML = '<span class=\'dashicons dashicons-email\' style=\'font-size:16px;width:16px;height:16px;vertical-align:middle;\'></span> E-Mail erneut senden'; });
+                    ">
+                <span class="dashicons dashicons-email" style="font-size:16px;width:16px;height:16px;vertical-align:middle;"></span> E-Mail erneut senden
+            </button>
 
             <?php // ── Positionen ── ?>
             <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:20px;margin-top:16px;">
@@ -716,7 +727,7 @@ class TIX_Order_Admin {
      */
     public static function ajax_add_note() {
         check_ajax_referer('tix_order_action', 'nonce');
-        if (!current_user_can('edit_posts')) {
+        if (!current_user_can('manage_options')) {
             wp_send_json_error(['message' => 'Keine Berechtigung.']);
         }
 
@@ -739,11 +750,30 @@ class TIX_Order_Admin {
     }
 
     // ──────────────────────────────────────────
+    // AJAX: E-Mail erneut senden
+    // ──────────────────────────────────────────
+    public static function ajax_resend_email() {
+        check_ajax_referer('tix_order_action', 'nonce');
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(['message' => 'Keine Berechtigung.']);
+        }
+        $order_id = intval($_POST['order_id'] ?? 0);
+        if (!$order_id) wp_send_json_error(['message' => 'Ungültige Bestellnummer.']);
+
+        if (class_exists('TIX_Emails')) {
+            TIX_Emails::send_native_completed($order_id);
+            self::add_note($order_id, 'Bestätigungsmail erneut gesendet.', 'email');
+        }
+
+        wp_send_json_success(['message' => 'E-Mail wurde erneut gesendet.']);
+    }
+
+    // ──────────────────────────────────────────
     // AJAX: Status ändern
     // ──────────────────────────────────────────
     public static function ajax_update_status() {
         check_ajax_referer('tix_order_action', 'nonce');
-        if (!current_user_can('edit_posts')) wp_send_json_error(['message' => 'Keine Berechtigung.']);
+        if (!current_user_can('manage_options')) wp_send_json_error(['message' => 'Keine Berechtigung.']);
 
         $order_id = intval($_POST['order_id'] ?? 0);
         $status = sanitize_text_field($_POST['status'] ?? '');
@@ -768,7 +798,7 @@ class TIX_Order_Admin {
     // ──────────────────────────────────────────
     public static function ajax_process_refund() {
         check_ajax_referer('tix_order_action', 'nonce');
-        if (!current_user_can('edit_posts')) {
+        if (!current_user_can('manage_options')) {
             wp_send_json_error(['message' => 'Keine Berechtigung.']);
         }
 
@@ -820,11 +850,14 @@ class TIX_Order_Admin {
             wp_send_json_error(['message' => $result['error']]);
         }
 
-        // Update order status to refunded
-        if (class_exists('TIX_Native_Checkout')) {
-            TIX_Native_Checkout::update_order_status($order_id, 'refunded', 'admin_refund');
-        } else {
-            $wpdb->update($wpdb->prefix . 'tix_orders', ['status' => 'refunded'], ['id' => $order_id]);
+        // Update order status — only set to refunded for full refunds
+        $new_status = $is_full_refund ? 'refunded' : $order->status;
+        if ($is_full_refund) {
+            if (class_exists('TIX_Native_Checkout')) {
+                TIX_Native_Checkout::update_order_status($order_id, 'refunded', 'admin_refund');
+            } else {
+                $wpdb->update($wpdb->prefix . 'tix_orders', ['status' => 'refunded'], ['id' => $order_id]);
+            }
         }
 
         // Store refund metadata
@@ -837,6 +870,11 @@ class TIX_Order_Admin {
             'gateway'    => $gateway,
         ];
         update_option('_tix_refund_' . $order_id, $refund_data, false);
+
+        // Write refund order note
+        $refund_note = ($is_full_refund ? 'Vollständige' : 'Teilweise') . ' Erstattung: ' . number_format($refund_amount, 2, ',', '.') . ' €';
+        if ($reason) $refund_note .= ' — Grund: ' . $reason;
+        self::add_note($order_id, $refund_note, 'refund');
 
         // Cancel tickets if requested
         if ($cancel_tickets) {
@@ -851,7 +889,7 @@ class TIX_Order_Admin {
     // ──────────────────────────────────────────
     public static function ajax_bulk_action() {
         check_ajax_referer('tix_bulk_action', 'nonce');
-        if (!current_user_can('edit_posts')) {
+        if (!current_user_can('manage_options')) {
             wp_send_json_error(['message' => 'Keine Berechtigung.']);
         }
 
@@ -883,7 +921,7 @@ class TIX_Order_Admin {
     // ──────────────────────────────────────────
     public static function ajax_export_csv() {
         check_ajax_referer('tix_bulk_action', 'nonce');
-        if (!current_user_can('edit_posts')) {
+        if (!current_user_can('manage_options')) {
             wp_die('Keine Berechtigung.');
         }
 
@@ -963,7 +1001,7 @@ class TIX_Order_Admin {
         if (!check_ajax_referer('tix_invoice', '_wpnonce', false)) {
             wp_die('Ungültiger Sicherheitstoken.', 'Fehler', ['response' => 403]);
         }
-        if (!current_user_can('edit_posts')) {
+        if (!current_user_can('manage_options')) {
             wp_die('Keine Berechtigung.', 'Fehler', ['response' => 403]);
         }
 

@@ -224,7 +224,7 @@ class TIX_Emails {
         // Subtitle
         $subtitle = '';
         if (in_array($type, ['order_confirmation', 'order_complete', 'admin_new_order', 'admin_failed_order', 'on_hold', 'invoice', 'customer_note'])) {
-            $subtitle = 'Bestellung #' . $order_id . ' &middot; ' . date_i18n('d.m.Y, H:i', strtotime($order->get_date_created()));
+            $subtitle = 'Bestellung #' . $order_id . ' &middot; ' . date_i18n('d.m.Y, H:i', ($order->get_date_created() instanceof DateTime ? $order->get_date_created()->getTimestamp() : strtotime($order->get_date_created())));
         } elseif ($type === 'cancelled') {
             $subtitle = 'Bestellung #' . $order_id . ' wurde storniert.';
         } elseif ($type === 'refunded') {
@@ -287,7 +287,7 @@ class TIX_Emails {
         $hold_info = '';
         if ($type === 'on_hold') {
             $method = $order->get_payment_method();
-            if ($method === 'bacs') {
+            if ($method === 'bacs' || $method === 'bank') {
                 $hold_info = '
                 <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 20px;">
                     <tr>
@@ -1321,6 +1321,7 @@ class TIX_Emails {
             'on-hold'   => ['type' => 'on_hold',    'heading' => 'Bestellung wird geprüft',    'subject' => 'Bestellung wird geprüft'],
             'cancelled' => ['type' => 'cancelled',   'heading' => 'Bestellung storniert',       'subject' => 'Bestellung storniert'],
             'failed'    => ['type' => 'admin_failed_order', 'heading' => 'Bestellung fehlgeschlagen', 'subject' => 'Bestellung fehlgeschlagen'],
+            'refunded'  => ['type' => 'refunded',     'heading' => 'Erstattung bestätigt',       'subject' => 'Deine Erstattung wurde bestätigt'],
         ];
 
         if (!isset($status_map[$new_status])) return;
@@ -1333,7 +1334,7 @@ class TIX_Emails {
             // Failed: admin only
             self::send_html_mail(get_option('admin_email'), $subject, $html);
         } else {
-            // on-hold, cancelled: send to customer
+            // on-hold, cancelled, refunded: send to customer
             self::send_html_mail($order->get_billing_email(), $subject, $html);
         }
     }

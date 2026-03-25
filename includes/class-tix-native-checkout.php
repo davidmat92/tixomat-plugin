@@ -61,10 +61,16 @@ class TIX_Native_Checkout {
         if (is_user_logged_in()) {
             return 'user_' . get_current_user_id();
         }
-        // Gäste: stabiler Hash aus IP + User-Agent
-        $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
-        $ua = $_SERVER['HTTP_USER_AGENT'] ?? '';
-        return 'guest_' . md5($ip . '|' . $ua);
+        // Use a unique session cookie per browser
+        $cookie_name = 'tix_cart_session';
+        if (!empty($_COOKIE[$cookie_name])) {
+            $session_id = sanitize_text_field($_COOKIE[$cookie_name]);
+        } else {
+            $session_id = wp_generate_password(32, false);
+            setcookie($cookie_name, $session_id, time() + 7200, COOKIEPATH, COOKIE_DOMAIN, is_ssl(), true);
+            $_COOKIE[$cookie_name] = $session_id;
+        }
+        return 'guest_' . $session_id;
     }
 
     public static function get_cart() {
@@ -124,8 +130,6 @@ class TIX_Native_Checkout {
         if (!is_array($items) || empty($items)) {
             wp_send_json_error(['message' => 'Keine Artikel angegeben.']);
         }
-
-        error_log('[TIX Cart] add_to_cart called. Key: ' . self::cart_key() . ' | Raw items: ' . wp_json_encode($items));
 
         $cart = self::get_cart();
 
@@ -206,8 +210,6 @@ class TIX_Native_Checkout {
 
         self::save_cart($cart);
 
-        error_log('[TIX Cart] after save. Key: ' . self::cart_key() . ' | Cart items: ' . count($cart['items']) . ' | Total: ' . self::cart_total());
-
         $checkout_url = self::checkout_url();
 
         wp_send_json_success([
@@ -249,7 +251,7 @@ class TIX_Native_Checkout {
         $cart = self::get_cart();
 
         if (isset($cart['items'][$index])) {
-            $cart['items'][$index]['qty'] = max(1, $cart['items'][$index]['qty'] + $delta);
+            $cart['items'][$index]['qty'] = max(1, min(20, $cart['items'][$index]['qty'] + $delta));
             self::save_cart($cart);
         }
 
@@ -263,6 +265,10 @@ class TIX_Native_Checkout {
      * AJAX: Login im Checkout
      */
     public static function ajax_login() {
+        if (!wp_verify_nonce($_POST['nonce'] ?? '', 'tix_native_checkout')) {
+            wp_send_json_error(['message' => 'Sicherheitsprüfung fehlgeschlagen.']);
+        }
+
         $user = sanitize_text_field($_POST['user'] ?? '');
         $pass = $_POST['pass'] ?? '';
 
@@ -288,21 +294,30 @@ class TIX_Native_Checkout {
     // ──────────────────────────────────────────
 
     public static function checkout_url() {
-        // Suche nach Seite mit [tix_checkout] Shortcode
-        $pages = get_posts([
-            'post_type'   => 'page',
-            'post_status' => 'publish',
-            's'           => '[tix_checkout]',
-            'fields'      => 'ids',
-            'numberposts' => 1,
-        ]);
-        if (!empty($pages)) return get_permalink($pages[0]);
+        // Cached lookup
+        static $url = null;
+        if ($url !== null) return $url;
 
-        // Fallback: Suche nach WC checkout oder eigener Seite
+        // Check saved setting first
         $checkout_page_id = get_option('tix_checkout_page_id');
-        if ($checkout_page_id) return get_permalink($checkout_page_id);
+        if ($checkout_page_id && get_post_status($checkout_page_id) === 'publish') {
+            $url = get_permalink($checkout_page_id);
+            return $url;
+        }
 
-        return home_url('/checkout/');
+        // Search for page containing the shortcode
+        global $wpdb;
+        $page_id = $wpdb->get_var(
+            "SELECT ID FROM {$wpdb->posts} WHERE post_type = 'page' AND post_status = 'publish' AND post_content LIKE '%[tix_checkout]%' LIMIT 1"
+        );
+        if ($page_id) {
+            update_option('tix_checkout_page_id', $page_id, false);
+            $url = get_permalink($page_id);
+            return $url;
+        }
+
+        $url = home_url('/checkout/');
+        return $url;
     }
 
     public static function thankyou_url($order_id, $order_key) {
@@ -715,6 +730,23 @@ class TIX_Native_Checkout {
             wp_send_json_error(['message' => 'Bitte eine gültige E-Mail-Adresse angeben.']);
         }
 
+        // Account creation for guests
+        $create_account = !is_user_logged_in() && !empty($_POST['createaccount']);
+        if ($create_account && $email) {
+            if (!email_exists($email) && !username_exists($email)) {
+                $password = wp_generate_password(12, true);
+                $user_id = wp_create_user($email, $password, $email);
+                if (!is_wp_error($user_id)) {
+                    wp_update_user(['ID' => $user_id, 'first_name' => $first_name, 'last_name' => $last_name]);
+                    wp_set_current_user($user_id);
+                    wp_set_auth_cookie($user_id, true, is_ssl());
+                    // Migrate guest cart to user
+                    $guest_key = self::cart_key(); // will still return guest key since we just set user
+                    // Cart will be read under new user context in create_order
+                }
+            }
+        }
+
         $payment_method = sanitize_text_field($_POST['payment_method'] ?? 'free');
         $total = self::cart_total();
 
@@ -745,6 +777,25 @@ class TIX_Native_Checkout {
         unset($cart_item);
         $total = round($validated_total, 2);
 
+        // Stock validation — prevent overselling
+        foreach ($cart['items'] as $cart_item) {
+            $event_id  = intval($cart_item['event_id'] ?? 0);
+            $cat_index = intval($cart_item['cat_index'] ?? 0);
+            $qty       = intval($cart_item['qty']);
+
+            $categories = get_post_meta($event_id, '_tix_ticket_categories', true);
+            if (!is_array($categories) || !isset($categories[$cat_index])) {
+                wp_send_json_error(['message' => 'Ticket-Kategorie nicht mehr verfügbar.']);
+            }
+
+            $cat = $categories[$cat_index];
+            $stock = isset($cat['stock']) ? intval($cat['stock']) : -1; // -1 = unlimited
+            if ($stock >= 0 && $qty > $stock) {
+                $name = $cat['name'] ?? 'Ticket';
+                wp_send_json_error(['message' => esc_html($name) . ': Nur noch ' . $stock . ' verfügbar.']);
+            }
+        }
+
         // Order erstellen
         $order_id = self::create_order([
             'billing_first_name' => $first_name,
@@ -763,6 +814,12 @@ class TIX_Native_Checkout {
 
         if (!$order_id) {
             wp_send_json_error(['message' => 'Bestellung konnte nicht erstellt werden.']);
+        }
+
+        // Newsletter opt-in
+        if (!empty($_POST['tix_newsletter_optin'])) {
+            update_option('_tix_order_newsletter_' . $order_id, 1, false);
+            do_action('tix_newsletter_optin', $order_id, $email, $first_name, $last_name);
         }
 
         // Payment verarbeiten
@@ -818,11 +875,35 @@ class TIX_Native_Checkout {
         $coupon_discount = 0;
         if (!empty($cart['coupon']) && !empty($cart['coupon']['discount'])) {
             $coupon_discount = round(floatval($cart['coupon']['discount']), 2);
-            $data['total'] = max(0, round($data['total'] - $coupon_discount, 2));
 
-            // Increment coupon usage counter
+            // Re-validate coupon before applying
             $coupon_code = $cart['coupon']['code'] ?? '';
             if ($coupon_code) {
+                $coupons = get_option('tix_coupons', []);
+                $coupon = null;
+                foreach ($coupons as $k => $v) {
+                    if (strtolower($k) === strtolower($coupon_code)) { $coupon = $v; $coupon_code = $k; break; }
+                }
+                if (!$coupon) {
+                    $coupon_discount = 0; // Coupon no longer exists
+                } else {
+                    // Check expiry
+                    if (!empty($coupon['expires']) && strtotime($coupon['expires']) < time()) {
+                        $coupon_discount = 0;
+                    }
+                    // Check max uses
+                    $used = intval($coupon['used'] ?? 0);
+                    $max_uses = intval($coupon['max_uses'] ?? 0);
+                    if ($max_uses > 0 && $used >= $max_uses) {
+                        $coupon_discount = 0;
+                    }
+                }
+            }
+
+            $data['total'] = max(0, round($data['total'] - $coupon_discount, 2));
+
+            if ($coupon_code && $coupon_discount > 0) {
+                // Atomic coupon usage increment
                 $coupons = get_option('tix_coupons', []);
                 if (isset($coupons[$coupon_code])) {
                     $coupons[$coupon_code]['used'] = intval($coupons[$coupon_code]['used'] ?? 0) + 1;
@@ -880,7 +961,7 @@ class TIX_Native_Checkout {
         if (!$order_id) return null;
 
         // Save campaign tracking data from cookie
-        $cookie_raw = $_COOKIE[TIX_Campaign_Tracking::COOKIE_NAME] ?? '';
+        $cookie_raw = class_exists('TIX_Campaign_Tracking') ? ($_COOKIE[TIX_Campaign_Tracking::COOKIE_NAME] ?? '') : '';
         if (!empty($cookie_raw)) {
             $cookie = json_decode(stripslashes(urldecode($cookie_raw)), true);
             if (is_array($cookie)) {
@@ -950,6 +1031,10 @@ class TIX_Native_Checkout {
     // ──────────────────────────────────────────
 
     public static function ajax_apply_coupon() {
+        if (!wp_verify_nonce($_POST['nonce'] ?? '', 'tix_native_checkout')) {
+            check_ajax_referer('tix_add_to_cart', 'nonce');
+        }
+
         $code = strtolower(trim(sanitize_text_field($_POST['coupon_code'] ?? '')));
         if (!$code) {
             wp_send_json_error(['message' => 'Bitte einen Gutscheincode eingeben.']);
@@ -1102,153 +1187,149 @@ class TIX_Native_Checkout {
         $primary = $s['color_primary'] ?? '#FF5500';
         $btn_bg = $s['btn1_bg'] ?? $s['color_accent'] ?? $primary;
         $btn_color = $s['btn1_color'] ?? $s['color_accent_text'] ?? '#fff';
-        ?><!DOCTYPE html>
-<html <?php language_attributes(); ?>>
-<head>
-    <meta charset="<?php bloginfo('charset'); ?>">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Bestellbestätigung – <?php echo esc_html($order->order_number); ?></title>
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
-    <style>
-        * { margin:0; padding:0; box-sizing:border-box; }
-        body { font-family:'Inter',system-ui,sans-serif; background:#f7f8fa; color:#1e293b; line-height:1.6; }
-        .ty-wrap { max-width:640px; margin:40px auto; padding:0 20px; }
-        .ty-status { text-align:center; padding:40px 20px; background:#fff; border-radius:16px; box-shadow:0 1px 3px rgba(0,0,0,0.06); margin-bottom:20px; }
-        .ty-check { width:60px; height:60px; border-radius:50%; background:<?php echo $primary; ?>; color:#fff; display:flex; align-items:center; justify-content:center; margin:0 auto 16px; font-size:28px; }
-        .ty-status h1 { font-size:22px; margin-bottom:4px; }
-        .ty-status p { color:#6b7280; font-size:14px; }
-        .ty-card { background:#fff; border-radius:12px; box-shadow:0 1px 3px rgba(0,0,0,0.06); padding:24px; margin-bottom:16px; }
-        .ty-card h3 { font-size:15px; margin-bottom:12px; color:#374151; }
-        .ty-item { display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid #f0f0f0; font-size:14px; }
-        .ty-item:last-child { border:none; }
-        .ty-total { display:flex; justify-content:space-between; padding:12px 0 0; font-size:16px; font-weight:600; border-top:2px solid #e5e7eb; }
-        .ty-ticket { display:flex; align-items:center; justify-content:space-between; padding:12px; border:1px solid #e5e7eb; border-radius:8px; margin-bottom:8px; }
-        .ty-ticket-code { font-family:monospace; font-size:13px; color:#6b7280; }
-        .ty-dl-btn { background:<?php echo $btn_bg; ?>; color:<?php echo $btn_color; ?>; padding:8px 16px; border-radius:8px; text-decoration:none; font-size:13px; font-weight:600; }
-        .ty-dl-btn:hover { opacity:0.9; }
-        .ty-pending { background:#fef3c7; border:1px solid #f59e0b; border-radius:8px; padding:12px 16px; font-size:13px; color:#92400e; margin-bottom:16px; }
-        .ty-back { display:block; text-align:center; margin-top:24px; color:#6b7280; font-size:14px; }
-    </style>
-    <?php
-    // Meta Pixel: inject Purchase event from transient (native orders)
-    $pixel_data = get_transient('tix_pixel_purchase_' . $order->id);
-    if ($pixel_data) {
-        delete_transient('tix_pixel_purchase_' . $order->id);
-        $s_pixel = tix_get_settings();
-        $pixel_id = esc_js($s_pixel['meta_pixel_id'] ?? '');
-        if ($pixel_id && !empty($s_pixel['meta_pixel_enabled'])):
-    ?>
-    <script>
-    !function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?
-    n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;
-    n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;
-    t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}
-    (window,document,'script','https://connect.facebook.net/en_US/fbevents.js');
-    fbq('init','<?php echo $pixel_id; ?>');
-    fbq('track','PageView');
-    fbq('track','Purchase',{
-        value:<?php echo floatval($pixel_data['value']); ?>,
-        currency:<?php echo wp_json_encode($pixel_data['currency']); ?>,
-        content_ids:<?php echo wp_json_encode($pixel_data['content_ids']); ?>,
-        content_type:'product',
-        num_items:<?php echo intval($pixel_data['num_items']); ?>
-    },{eventID:<?php echo wp_json_encode($pixel_data['event_id']); ?>});
-    </script>
-    <?php
-        endif;
-    }
-    ?>
-</head>
-<body>
-    <div class="ty-wrap">
-        <?php if ($order->status === 'completed' || $order->status === 'processing'): ?>
-            <div class="ty-status">
-                <div class="ty-check">✓</div>
-                <h1>Vielen Dank für deine Bestellung!</h1>
-                <p>Bestellung <?php echo esc_html($order->order_number); ?> &middot; Bestätigung wird an <?php echo esc_html($order->billing_email); ?> gesendet.</p>
-            </div>
-        <?php elseif ($order->status === 'pending' || $order->status === 'on-hold'): ?>
-            <div class="ty-status">
-                <div class="ty-check" style="background:#f59e0b;">⏳</div>
-                <?php if ($order->payment_method === 'bank'): ?>
-                    <h1>Bitte überweise den Betrag</h1>
-                    <p>Bestellung <?php echo esc_html($order->order_number); ?> &middot; Deine Tickets werden erstellt sobald die Zahlung eingegangen ist.</p>
-                <?php else: ?>
-                    <h1>Zahlung wird verarbeitet</h1>
-                    <p>Bestellung <?php echo esc_html($order->order_number); ?> &middot; Du erhältst eine Bestätigung per E-Mail sobald die Zahlung eingegangen ist.</p>
-                <?php endif; ?>
-            </div>
-            <?php if ($order->payment_method === 'bank'):
-                $bs = tix_get_settings();
+
+        // Meta Pixel: inject Purchase event
+        $pixel_data = get_transient('tix_pixel_purchase_' . $order->id);
+        if ($pixel_data) {
+            delete_transient('tix_pixel_purchase_' . $order->id);
+            $s_pixel = tix_get_settings();
+            $pixel_id = esc_js($s_pixel['meta_pixel_id'] ?? '');
+            if ($pixel_id && !empty($s_pixel['meta_pixel_enabled'])) {
+                add_action('wp_head', function() use ($pixel_id, $pixel_data) {
+                    ?>
+                    <script>
+                    !function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+                    n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;
+                    n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;
+                    t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}
+                    (window,document,'script','https://connect.facebook.net/en_US/fbevents.js');
+                    fbq('init','<?php echo $pixel_id; ?>');
+                    fbq('track','PageView');
+                    fbq('track','Purchase',{
+                        value:<?php echo floatval($pixel_data['value']); ?>,
+                        currency:<?php echo wp_json_encode($pixel_data['currency']); ?>,
+                        content_ids:<?php echo wp_json_encode($pixel_data['content_ids']); ?>,
+                        content_type:'product',
+                        num_items:<?php echo intval($pixel_data['num_items']); ?>
+                    },{eventID:<?php echo wp_json_encode($pixel_data['event_id']); ?>});
+                    </script>
+                    <?php
+                }, 5);
+            }
+        }
+
+        // Add inline CSS via wp_head
+        add_action('wp_head', function() use ($primary, $btn_bg, $btn_color) {
             ?>
-                <div class="ty-card">
-                    <h3>Bankverbindung</h3>
-                    <table style="width:100%;font-size:14px;">
-                        <?php if ($bs['bank_holder']): ?><tr><td style="padding:4px 0;color:#6b7280;">Kontoinhaber</td><td style="padding:4px 0;font-weight:600;"><?php echo esc_html($bs['bank_holder']); ?></td></tr><?php endif; ?>
-                        <?php if ($bs['bank_iban']): ?><tr><td style="padding:4px 0;color:#6b7280;">IBAN</td><td style="padding:4px 0;font-weight:600;font-family:monospace;"><?php echo esc_html($bs['bank_iban']); ?></td></tr><?php endif; ?>
-                        <?php if ($bs['bank_bic']): ?><tr><td style="padding:4px 0;color:#6b7280;">BIC</td><td style="padding:4px 0;"><?php echo esc_html($bs['bank_bic']); ?></td></tr><?php endif; ?>
-                        <?php if ($bs['bank_name']): ?><tr><td style="padding:4px 0;color:#6b7280;">Bank</td><td style="padding:4px 0;"><?php echo esc_html($bs['bank_name']); ?></td></tr><?php endif; ?>
-                        <tr><td style="padding:4px 0;color:#6b7280;">Betrag</td><td style="padding:4px 0;font-weight:700;font-size:16px;"><?php echo number_format($order->total, 2, ',', '.'); ?> &euro;</td></tr>
-                        <tr><td style="padding:4px 0;color:#6b7280;">Verwendungszweck</td><td style="padding:4px 0;font-weight:600;"><?php echo esc_html($order->order_number); ?></td></tr>
-                    </table>
-                    <?php if ($bs['bank_reference']): ?>
-                        <p style="margin-top:12px;font-size:13px;color:#6b7280;"><?php echo esc_html($bs['bank_reference']); ?></p>
+            <style>
+            .tix-ty-wrap { max-width:640px; margin:40px auto; padding:0 20px; }
+            .tix-ty-status { text-align:center; padding:40px 20px; background:#fff; border-radius:16px; box-shadow:0 1px 3px rgba(0,0,0,0.06); margin-bottom:20px; }
+            .tix-ty-check { width:60px; height:60px; border-radius:50%; background:<?php echo esc_attr($primary); ?>; color:#fff; display:flex; align-items:center; justify-content:center; margin:0 auto 16px; font-size:28px; }
+            .tix-ty-status h1 { font-size:22px; margin-bottom:4px; }
+            .tix-ty-status p { color:#6b7280; font-size:14px; }
+            .tix-ty-card { background:#fff; border-radius:12px; box-shadow:0 1px 3px rgba(0,0,0,0.06); padding:24px; margin-bottom:16px; }
+            .tix-ty-card h3 { font-size:15px; margin-bottom:12px; color:#374151; }
+            .tix-ty-item { display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid #f0f0f0; font-size:14px; }
+            .tix-ty-item:last-child { border:none; }
+            .tix-ty-total { display:flex; justify-content:space-between; padding:12px 0 0; font-size:16px; font-weight:600; border-top:2px solid #e5e7eb; }
+            .tix-ty-ticket { display:flex; align-items:center; justify-content:space-between; padding:12px; border:1px solid #e5e7eb; border-radius:8px; margin-bottom:8px; }
+            .tix-ty-ticket-code { font-family:monospace; font-size:13px; color:#6b7280; }
+            .tix-ty-dl-btn { background:<?php echo esc_attr($btn_bg); ?>; color:<?php echo esc_attr($btn_color); ?>; padding:8px 16px; border-radius:8px; text-decoration:none; font-size:13px; font-weight:600; display:inline-block; }
+            .tix-ty-dl-btn:hover { opacity:0.9; color:<?php echo esc_attr($btn_color); ?>; }
+            .tix-ty-pending { background:#fef3c7; border:1px solid #f59e0b; border-radius:8px; padding:12px 16px; font-size:13px; color:#92400e; margin-bottom:16px; }
+            .tix-ty-back { display:block; text-align:center; margin-top:24px; color:#6b7280; font-size:14px; }
+            </style>
+            <?php
+        }, 99);
+
+        get_header();
+        ?>
+        <div class="tix-ty-wrap">
+            <?php if ($order->status === 'completed' || $order->status === 'processing'): ?>
+                <div class="tix-ty-status">
+                    <div class="tix-ty-check">✓</div>
+                    <h1>Vielen Dank für deine Bestellung!</h1>
+                    <p>Bestellung <?php echo esc_html($order->order_number); ?> &middot; Bestätigung wird an <?php echo esc_html($order->billing_email); ?> gesendet.</p>
+                </div>
+            <?php elseif ($order->status === 'pending' || $order->status === 'on-hold'): ?>
+                <div class="tix-ty-status">
+                    <div class="tix-ty-check" style="background:#f59e0b;">⏳</div>
+                    <?php if ($order->payment_method === 'bank'): ?>
+                        <h1>Bitte überweise den Betrag</h1>
+                        <p>Bestellung <?php echo esc_html($order->order_number); ?> &middot; Deine Tickets werden erstellt sobald die Zahlung eingegangen ist.</p>
+                    <?php else: ?>
+                        <h1>Zahlung wird verarbeitet</h1>
+                        <p>Bestellung <?php echo esc_html($order->order_number); ?> &middot; Du erhältst eine Bestätigung per E-Mail sobald die Zahlung eingegangen ist.</p>
                     <?php endif; ?>
                 </div>
-            <?php else: ?>
-                <div class="ty-pending">Die Zahlung wird gerade verarbeitet. Deine Tickets werden automatisch erstellt sobald die Zahlung bestätigt ist.</div>
-            <?php endif; ?>
-        <?php else: ?>
-            <div class="ty-status">
-                <div class="ty-check" style="background:#ef4444;">✗</div>
-                <h1>Zahlung fehlgeschlagen</h1>
-                <p>Bitte versuche es erneut oder wähle eine andere Zahlungsart.</p>
-            </div>
-        <?php endif; ?>
-
-        <?php // Tickets ?>
-        <?php if (!empty($tickets)): ?>
-            <div class="ty-card">
-                <h3>Deine Tickets</h3>
-                <?php foreach ($tickets as $ticket):
-                    $code = get_post_meta($ticket->ID, '_tix_ticket_code', true);
-                    $token = get_post_meta($ticket->ID, '_tix_ticket_download_token', true);
-                    $event_id = get_post_meta($ticket->ID, '_tix_ticket_event_id', true);
-                    $dl_url = $token ? add_query_arg('tix_dl', $token, home_url('/')) : '';
+                <?php if ($order->payment_method === 'bank'):
+                    $bs = tix_get_settings();
                 ?>
-                    <div class="ty-ticket">
-                        <div>
-                            <strong><?php echo esc_html(get_the_title($event_id)); ?></strong>
-                            <div class="ty-ticket-code"><?php echo esc_html($code); ?></div>
-                        </div>
-                        <?php if ($dl_url): ?>
-                            <a href="<?php echo esc_url($dl_url); ?>" class="ty-dl-btn">PDF ↓</a>
+                    <div class="tix-ty-card">
+                        <h3>Bankverbindung</h3>
+                        <table style="width:100%;font-size:14px;">
+                            <?php if (!empty($bs['bank_holder'])): ?><tr><td style="padding:4px 0;color:#6b7280;">Kontoinhaber</td><td style="padding:4px 0;font-weight:600;"><?php echo esc_html($bs['bank_holder']); ?></td></tr><?php endif; ?>
+                            <?php if (!empty($bs['bank_iban'])): ?><tr><td style="padding:4px 0;color:#6b7280;">IBAN</td><td style="padding:4px 0;font-weight:600;font-family:monospace;"><?php echo esc_html($bs['bank_iban']); ?></td></tr><?php endif; ?>
+                            <?php if (!empty($bs['bank_bic'])): ?><tr><td style="padding:4px 0;color:#6b7280;">BIC</td><td style="padding:4px 0;"><?php echo esc_html($bs['bank_bic']); ?></td></tr><?php endif; ?>
+                            <?php if (!empty($bs['bank_name'])): ?><tr><td style="padding:4px 0;color:#6b7280;">Bank</td><td style="padding:4px 0;"><?php echo esc_html($bs['bank_name']); ?></td></tr><?php endif; ?>
+                            <tr><td style="padding:4px 0;color:#6b7280;">Betrag</td><td style="padding:4px 0;font-weight:700;font-size:16px;"><?php echo number_format($order->total, 2, ',', '.'); ?> &euro;</td></tr>
+                            <tr><td style="padding:4px 0;color:#6b7280;">Verwendungszweck</td><td style="padding:4px 0;font-weight:600;"><?php echo esc_html($order->order_number); ?></td></tr>
+                        </table>
+                        <?php if (!empty($bs['bank_reference'])): ?>
+                            <p style="margin-top:12px;font-size:13px;color:#6b7280;"><?php echo esc_html($bs['bank_reference']); ?></p>
                         <?php endif; ?>
                     </div>
-                <?php endforeach; ?>
-            </div>
-        <?php endif; ?>
-
-        <?php // Bestellübersicht ?>
-        <div class="ty-card">
-            <h3>Bestellübersicht</h3>
-            <?php foreach ($items as $item): ?>
-                <div class="ty-item">
-                    <span><?php echo esc_html($item->name); ?> &times; <?php echo intval($item->quantity); ?></span>
-                    <span><?php echo number_format($item->total, 2, ',', '.'); ?> &euro;</span>
+                <?php else: ?>
+                    <div class="tix-ty-pending">Die Zahlung wird gerade verarbeitet. Deine Tickets werden automatisch erstellt sobald die Zahlung bestätigt ist.</div>
+                <?php endif; ?>
+            <?php else: ?>
+                <div class="tix-ty-status">
+                    <div class="tix-ty-check" style="background:#ef4444;">✗</div>
+                    <h1>Zahlung fehlgeschlagen</h1>
+                    <p>Bitte versuche es erneut oder wähle eine andere Zahlungsart.</p>
                 </div>
-            <?php endforeach; ?>
-            <div class="ty-total">
-                <span>Gesamt</span>
-                <span><?php echo number_format($order->total, 2, ',', '.'); ?> &euro;</span>
-            </div>
-        </div>
+            <?php endif; ?>
 
-        <a href="<?php echo esc_url(home_url('/events/')); ?>" class="ty-back">&larr; Zurück zu den Events</a>
-    </div>
-</body>
-</html>
+            <?php if (!empty($tickets)): ?>
+                <div class="tix-ty-card">
+                    <h3>Deine Tickets</h3>
+                    <?php foreach ($tickets as $ticket):
+                        $code = get_post_meta($ticket->ID, '_tix_ticket_code', true);
+                        $token = get_post_meta($ticket->ID, '_tix_ticket_download_token', true);
+                        $event_id = get_post_meta($ticket->ID, '_tix_ticket_event_id', true);
+                        $dl_url = $token ? add_query_arg('tix_dl', $token, home_url('/')) : '';
+                    ?>
+                        <div class="tix-ty-ticket">
+                            <div>
+                                <strong><?php echo esc_html(get_the_title($event_id)); ?></strong>
+                                <div class="tix-ty-ticket-code"><?php echo esc_html($code); ?></div>
+                            </div>
+                            <?php if ($dl_url): ?>
+                                <a href="<?php echo esc_url($dl_url); ?>" class="tix-ty-dl-btn">PDF ↓</a>
+                            <?php endif; ?>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+            <?php endif; ?>
+
+            <div class="tix-ty-card">
+                <h3>Bestellübersicht</h3>
+                <?php foreach ($items as $item): ?>
+                    <div class="tix-ty-item">
+                        <span><?php echo esc_html($item->name); ?> &times; <?php echo intval($item->quantity); ?></span>
+                        <span><?php echo number_format($item->total, 2, ',', '.'); ?> &euro;</span>
+                    </div>
+                <?php endforeach; ?>
+                <div class="tix-ty-total">
+                    <span>Gesamt</span>
+                    <span><?php echo number_format($order->total, 2, ',', '.'); ?> &euro;</span>
+                </div>
+            </div>
+
+            <a href="<?php echo esc_url(home_url('/events/')); ?>" class="tix-ty-back">&larr; Zurück zu den Events</a>
+        </div>
         <?php
+        get_footer();
     }
 
     // ──────────────────────────────────────────
