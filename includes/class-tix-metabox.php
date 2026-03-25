@@ -828,6 +828,7 @@ class TIX_Metabox {
 
     public static function render_info($post) {
         $sections = self::info_sections();
+        $ai_key = function_exists('tix_get_settings') ? (tix_get_settings('anthropic_api_key') ?: tix_get_settings('openai_api_key')) : '';
         ?>
         <p class="description" style="margin-bottom:12px;">
             Klicke auf die graue Überschrift um sie umzubenennen. Leere Felder werden im Frontend nicht angezeigt.
@@ -1979,6 +1980,8 @@ class TIX_Metabox {
      */
     private static function get_stock_data($categories) {
         $data = ['has_products' => false, 'total_sold' => 0, 'total_remaining' => 0, 'total_capacity' => 0, 'items' => []];
+
+        if (!function_exists('wc_get_product')) return $data;
 
         foreach ($categories as $i => $cat) {
             $product_id = intval($cat['product_id'] ?? 0);
@@ -3570,7 +3573,7 @@ class TIX_Metabox {
         <?php
         endif;
 
-        // ── Syndication ──
+        // ── Event-Verteilung ──
         $syn_global = function_exists('tix_get_settings') && tix_get_settings('syndication_enabled');
         if ($syn_global && class_exists('TIX_Syndication_Push') && TIX_Syndication_Push::is_configured()):
             $syn_active  = get_post_meta($post->ID, '_tix_syndicate', true);
@@ -3582,7 +3585,7 @@ class TIX_Metabox {
         <div class="tix-card">
             <div class="tix-card-header">
                 <span class="dashicons dashicons-rss"></span>
-                <h3>Plattform-Syndication</h3>
+                <h3>Event-Verteilung</h3>
             </div>
             <div class="tix-card-body">
                 <div class="tix-toggle-wrap">
@@ -3596,7 +3599,7 @@ class TIX_Metabox {
                     Event wird automatisch an <code><?php echo esc_html(preg_replace('#https?://#', '', $platform)); ?></code> gesendet. Ticketkauf wird zur Quellseite weitergeleitet.
                 </p>
                 <?php if ($syn_status === 'synced'): ?>
-                    <p style="margin-top:8px;font-size:12px;color:#22c55e;">✓ Gesynced <?php echo $syn_last ? '(' . date_i18n('d.m.Y H:i', strtotime($syn_last)) . ')' : ''; ?></p>
+                    <p style="margin-top:8px;font-size:12px;color:#22c55e;">✓ Verteilt <?php echo $syn_last ? '(' . date_i18n('d.m.Y H:i', strtotime($syn_last)) . ')' : ''; ?></p>
                 <?php elseif ($syn_status === 'error'): ?>
                     <p style="margin-top:8px;font-size:12px;color:#ef4444;">✗ Fehler: <?php echo esc_html($syn_error); ?></p>
                 <?php endif; ?>
@@ -4051,7 +4054,7 @@ class TIX_Metabox {
 
             // Stock-Override: Wenn ein Wert eingegeben wurde, WC-Produkt aktualisieren
             $stock_override = $ticket['stock_override'] ?? '';
-            if ($stock_override !== '' && $cat['product_id']) {
+            if ($stock_override !== '' && $cat['product_id'] && function_exists('wc_get_product')) {
                 $product = wc_get_product($cat['product_id']);
                 if ($product) {
                     $new_stock = max(0, intval($stock_override));
@@ -4415,13 +4418,13 @@ class TIX_Metabox {
         if (!is_array($cats)) wp_send_json_success(['rows' => []]);
 
         $product_ids = array_filter(array_map('intval', array_column($cats, 'product_id')));
-        if (empty($product_ids)) wp_send_json_success(['rows' => []]);
+        if (empty($product_ids) && !class_exists('TIX_Order')) wp_send_json_success(['rows' => []]);
 
         // WooCommerce-Bestellungen mit diesen Produkten
-        $orders = wc_get_orders([
+        $orders = function_exists('wc_get_orders') ? wc_get_orders([
             'status' => ['wc-completed', 'wc-processing'],
             'limit'  => -1,
-        ]);
+        ]) : [];
 
         // Native Orders (TIX_Order) einbeziehen
         if (class_exists('TIX_Order')) {

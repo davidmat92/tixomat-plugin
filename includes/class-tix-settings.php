@@ -4543,21 +4543,21 @@ class TIX_Settings {
                                     </div>
                                 </div>
 
-                                <?php // ── Card: Syndication (Push) ── ?>
+                                <?php // ── Card: Event-Verteilung (Push) ── ?>
                                 <div class="tix-card">
                                     <div class="tix-card-header">
                                         <span class="dashicons dashicons-rss"></span>
-                                        <h3>Event-Syndication (Push)</h3>
+                                        <h3>Event-Verteilung (Senden)</h3>
                                     </div>
                                     <div class="tix-card-body">
                                         <div class="tix-field-grid">
                                             <div class="tix-field tix-field-full">
                                                 <p class="tix-settings-hint" style="margin-top:0;">
-                                                    Events automatisch an eine zentrale Plattform senden. Aktiviere pro Event die Checkbox "Auf Plattform veröffentlichen".
+                                                    Events automatisch an eine zentrale Plattform senden. Aktiviere pro Event die Checkbox „Auf Plattform veröffentlichen".
                                                 </p>
                                             </div>
                                             <div class="tix-field tix-field-full">
-                                                <?php self::checkbox_row('syndication_enabled', 'Syndication aktivieren', $s, 'Events können an eine externe Plattform gesendet werden.'); ?>
+                                                <?php self::checkbox_row('syndication_enabled', 'Verteilung aktivieren', $s, 'Events können an eine externe Plattform gesendet werden.'); ?>
                                             </div>
                                             <?php self::text_row('syndication_api_url', 'Plattform API-URL', $s, 'https://evendis.de/wp-json/tixomat/v1'); ?>
                                             <?php self::text_row('syndication_api_key', 'API Key', $s, 'tix_syn_...'); ?>
@@ -4566,21 +4566,21 @@ class TIX_Settings {
                                     </div>
                                 </div>
 
-                                <?php // ── Card: Syndication (Empfang) ── ?>
+                                <?php // ── Card: Event-Verteilung (Empfang) ── ?>
                                 <div class="tix-card">
                                     <div class="tix-card-header">
                                         <span class="dashicons dashicons-download"></span>
-                                        <h3>Event-Syndication (Empfang)</h3>
+                                        <h3>Event-Verteilung (Empfang)</h3>
                                     </div>
                                     <div class="tix-card-body">
                                         <div class="tix-field-grid">
                                             <div class="tix-field tix-field-full">
                                                 <p class="tix-settings-hint" style="margin-top:0;">
-                                                    Events von externen Tixomat-Installationen empfangen. Syndizierte Events werden automatisch erstellt und bei Klick auf "Tickets" zur Quellseite weitergeleitet.
+                                                    Events von externen Tixomat-Installationen empfangen. Verteilte Events werden automatisch erstellt und bei Klick auf „Tickets" zur Quellseite weitergeleitet.
                                                 </p>
                                             </div>
                                             <div class="tix-field tix-field-full">
-                                                <?php self::checkbox_row('syndication_receive_enabled', 'Empfang aktivieren', $s, 'Diese Seite kann syndizierte Events empfangen.'); ?>
+                                                <?php self::checkbox_row('syndication_receive_enabled', 'Empfang aktivieren', $s, 'Diese Seite kann verteilte Events empfangen.'); ?>
                                             </div>
                                             <?php
                                             $receive_key = $s['syndication_receive_key'] ?? '';
@@ -4591,7 +4591,7 @@ class TIX_Settings {
                                             <div class="tix-field tix-field-full">
                                                 <label class="tix-label">Empfangs-Key (an Sender weitergeben)</label>
                                                 <input type="text" name="tix_settings[syndication_receive_key]" value="<?php echo esc_attr($receive_key); ?>" class="regular-text" style="width:100%;font-family:monospace;font-size:13px;" readonly onclick="this.select();">
-                                                <p class="tix-settings-hint">Diesen Key dem Sender mitteilen. Er wird als <code>X-Tix-Syndication-Key</code> Header gesendet.</p>
+                                                <p class="tix-settings-hint">Diesen Key dem Sender mitteilen. Er wird als Authentifizierungs-Header gesendet.</p>
                                             </div>
                                             <div class="tix-field tix-field-full">
                                                 <p class="tix-settings-hint">
