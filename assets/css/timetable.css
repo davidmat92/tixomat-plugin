@@ -8,7 +8,7 @@
 
 /* ── Hinweis: Zeiten TBA ── */
 .tix-tt-tba {
-    font-size: .82rem;
+    font-size: var(--tix-small, 13px);
     color: var(--ep-muted, #64748b);
     background: #fefce8;
     border: 1px solid #fde68a;
@@ -31,7 +31,7 @@
     border-radius: var(--ep-radius, 8px);
     background: var(--ep-bg, #fff);
     color: var(--ep-text, #1a1a1a);
-    font-size: .88rem;
+    font-size: var(--tix-btn, 14px);
     font-weight: 600;
     cursor: pointer;
     font-family: inherit;
@@ -59,7 +59,7 @@
     border-radius: 20px;
     background: var(--ep-bg, #fff);
     color: var(--ep-text, #1a1a1a);
-    font-size: .8rem;
+    font-size: var(--tix-label, 12px);
     font-weight: 500;
     cursor: pointer;
     font-family: inherit;
@@ -94,7 +94,7 @@
 .tix-tt-grid-header > * {
     background: #FAF8F4;
     padding: 10px 14px;
-    font-size: .8rem;
+    font-size: var(--tix-label, 12px);
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: .03em;
@@ -118,7 +118,7 @@
     min-height: 48px;
 }
 .tix-tt-time {
-    font-size: .82rem;
+    font-size: var(--tix-small, 13px);
     font-weight: 600;
     color: var(--ep-muted, #64748b);
     white-space: nowrap;
@@ -157,17 +157,17 @@
     border-radius: 4px;
 }
 .tix-tt-slot-time {
-    font-size: .75rem;
+    font-size: var(--tix-label, 12px);
     color: var(--tt-stage-color, var(--tix-primary, #FF5500));
     font-weight: 600;
 }
 .tix-tt-slot-title {
-    font-size: .9rem;
+    font-size: var(--tix-body, 15px);
     font-weight: 600;
     color: var(--ep-text, #0D0B09);
 }
 .tix-tt-slot-desc {
-    font-size: .8rem;
+    font-size: var(--tix-small, 13px);
     color: var(--ep-muted, #64748b);
 }
 
@@ -189,7 +189,7 @@
     display: none;
 }
 .tix-tt-list-time {
-    font-size: .82rem;
+    font-size: var(--tix-small, 13px);
     font-weight: 700;
     color: var(--tt-stage-color, var(--tix-primary, #FF5500));
     min-width: 80px;
@@ -202,16 +202,16 @@
     min-width: 0;
 }
 .tix-tt-list-title {
-    font-size: .92rem;
+    font-size: var(--tix-body, 15px);
     font-weight: 600;
     color: var(--ep-text, #0D0B09);
 }
 .tix-tt-list-desc {
-    font-size: .82rem;
+    font-size: var(--tix-small, 13px);
     color: var(--ep-muted, #64748b);
 }
 .tix-tt-list-stage {
-    font-size: .75rem;
+    font-size: var(--tix-label, 12px);
     font-weight: 600;
     color: var(--tt-stage-color, var(--tix-primary, #FF5500));
     text-transform: uppercase;

@@ -110,7 +110,7 @@
    ══════════════════════════════════════════ */
 
 .tix-ep-title {
-    font-size: 2rem;
+    font-size: var(--tix-h1, 28px);
     font-weight: 800;
     line-height: 1.2;
     margin: 0;
@@ -453,7 +453,7 @@
     line-height: 1.2;
 }
 .tix-ep-series-day {
-    font-size: 1.3rem;
+    font-size: var(--tix-h3, 18px);
     font-weight: 800;
     display: block;
 }
@@ -545,7 +545,7 @@
 }
 .tix-ep-charity-percent {
     flex-shrink: 0;
-    font-size: 1.2rem;
+    font-size: var(--tix-h3, 18px);
     font-weight: 800;
     color: #be185d;
 }

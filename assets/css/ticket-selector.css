@@ -433,13 +433,13 @@
     min-width: 50px;
 }
 .tix-countdown-num {
-    font-size: 2rem;
+    font-size: var(--tix-h1, 28px);
     font-weight: 700;
     font-variant-numeric: tabular-nums;
     line-height: 1.1;
 }
 .tix-countdown-lbl {
-    font-size: 0.7rem;
+    font-size: var(--tix-label, 12px);
     opacity: 0.5;
     text-transform: uppercase;
     letter-spacing: 0.05em;
@@ -478,7 +478,7 @@
 .tix-sel-phase-badge {
     display: inline-flex;
     align-items: center;
-    font-size: 0.65rem;
+    font-size: var(--tix-label, 12px);
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.03em;
@@ -551,7 +551,7 @@
 }
 .tix-sel-phase-until {
     color: color-mix(in srgb, currentColor 50%, transparent);
-    font-size: 0.72rem;
+    font-size: var(--tix-label, 12px);
     white-space: nowrap;
     margin-left: auto;
 }
@@ -623,7 +623,7 @@
 .tix-sel-bundle-save {
     display: inline-flex;
     align-items: center;
-    font-size: 0.65rem;
+    font-size: var(--tix-label, 12px);
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.03em;
@@ -859,7 +859,7 @@
 }
 .tix-group-member-org {
     font-weight: 400;
-    font-size: 0.72rem;
+    font-size: var(--tix-label, 12px);
     padding: 1px 6px;
     border-radius: 3px;
     background: var(--tix-buy-bg, #c8ff00);

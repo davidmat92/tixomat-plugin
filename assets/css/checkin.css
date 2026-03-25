@@ -28,7 +28,6 @@
 /* ── Header ── */
 .tix-ci-header { margin-bottom: 20px; }
 .tix-ci-title {
-    font-size: 1rem;
     font-weight: 650;
     color: var(--ci-muted);
     margin: 0 0 12px;
@@ -315,7 +314,7 @@
     border: 1px solid var(--ci-border);
     background: var(--ci-surface);
     color: var(--ci-text);
-    font-size: 1rem;
+    font-size: var(--tix-h4, 16px);
     font-weight: 700;
     cursor: pointer;
     display: flex;
@@ -377,7 +376,7 @@
 /* ── Type Badges ── */
 .tix-ci-badge {
     display: inline-block;
-    font-size: 0.6rem;
+    font-size: var(--tix-label, 12px);
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.04em;

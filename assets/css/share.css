@@ -10,7 +10,7 @@
 }
 
 .tix-share-label {
-    font-size: .82rem;
+    font-size: var(--tix-small, 13px);
     font-weight: 600;
     color: var(--tix-text, inherit);
     white-space: nowrap;
@@ -74,10 +74,10 @@
     height: auto;
     padding: 8px 14px;
     gap: 6px;
-    font-size: .82rem;
+    font-size: var(--tix-small, 13px);
 }
 .tix-share-btn-label {
-    font-size: .82rem;
+    font-size: var(--tix-small, 13px);
     font-weight: 500;
     color: inherit;
 }

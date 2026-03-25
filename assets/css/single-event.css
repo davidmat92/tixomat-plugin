@@ -69,7 +69,7 @@
 .tse-tabs-inner::-webkit-scrollbar { display: none; }
 .tse-tab {
     font-family: var(--tix-card-font-d, var(--tix-font-heading, 'Sora')), sans-serif;
-    font-size: 0.82rem;
+    font-size: var(--tix-small, 13px);
     font-weight: 600;
     color: var(--tix-card-text-muted, #8C8985);
     text-decoration: none;
@@ -103,7 +103,7 @@
 }
 .tse-hero-badges .ev-badge {
     font-family: var(--tix-card-font-d, var(--tix-font-heading, 'Sora')), sans-serif;
-    font-size: 0.65rem; font-weight: 700;
+    font-size: var(--tix-label, 12px); font-weight: 700;
     padding: 4px 10px; border-radius: var(--tix-card-radius-badge, 8px);
     display: inline-flex; align-items: center; gap: 5px; width: fit-content;
     color: #fff;
@@ -116,23 +116,23 @@
 .tse-intro { padding: 8px 0 16px; }
 .tse-intro-date {
     font-family: var(--tix-card-font-d, var(--tix-font-heading, 'Sora')), sans-serif;
-    font-size: 0.78rem; font-weight: 700;
+    font-size: var(--tix-label, 12px); font-weight: 700;
     color: var(--tix-card-signal, #E8445A);
     letter-spacing: 0.02em; margin-bottom: 8px;
 }
 .tse-intro-title {
     font-family: var(--tix-card-font-d, var(--tix-font-heading, 'Sora')), sans-serif;
-    font-size: 1.8rem; font-weight: 800;
+    font-size: var(--tix-h1, 28px); font-weight: 800;
     letter-spacing: -0.02em; line-height: 1.2;
     margin: 0 0 8px;
 }
 .tse-intro-loc {
     display: flex; align-items: center; gap: 6px;
-    font-size: 0.9rem; color: var(--tix-card-text-muted, #5C5A57);
+    font-size: var(--tix-small, 13px); color: var(--tix-card-text-muted, #5C5A57);
 }
 .tse-intro-loc svg { opacity: 0.5; flex-shrink: 0; }
 .tse-intro-excerpt {
-    margin: 12px 0 0; font-size: 0.95rem;
+    margin: 12px 0 0; font-size: var(--tix-body, 15px);
     color: var(--tix-card-text-muted, #5C5A57); line-height: 1.6;
 }
 
@@ -145,17 +145,17 @@
 }
 .tse-sec-label {
     font-family: var(--tix-card-font-d, var(--tix-font-heading, 'Sora')), sans-serif;
-    font-size: 0.65rem; font-weight: 700;
+    font-size: var(--tix-label, 12px); font-weight: 700;
     letter-spacing: 0.12em; text-transform: uppercase;
     color: var(--tix-card-signal, #E8445A);
     margin-bottom: 8px;
 }
 .tse-sec-title {
     font-family: var(--tix-card-font-d, var(--tix-font-heading, 'Sora')), sans-serif;
-    font-size: 1.3rem; font-weight: 800;
+    font-size: var(--tix-h3, 18px); font-weight: 800;
     margin: 0 0 16px; letter-spacing: -0.01em;
 }
-.tse-sec-content { font-size: 0.95rem; line-height: 1.7; color: var(--tix-card-text-muted, #3A3937); }
+.tse-sec-content { font-size: var(--tix-body, 15px); line-height: 1.7; color: var(--tix-card-text-muted, #3A3937); }
 .tse-sec-content p { margin: 0 0 12px; }
 .tse-sec-content p:last-child { margin: 0; }
 
@@ -172,13 +172,13 @@
 }
 .tse-info-row:last-of-type { border-bottom: none; }
 .tse-info-row svg { flex-shrink: 0; margin-top: 2px; opacity: 0.5; }
-.tse-info-label { font-size: 0.72rem; color: var(--tix-card-text-muted, #8C8985); margin-bottom: 2px; }
-.tse-info-value { font-family: var(--tix-card-font-d, var(--tix-font-heading, 'Sora')), sans-serif; font-weight: 600; font-size: 0.88rem; }
-.tse-info-sub { font-size: 0.78rem; color: var(--tix-card-text-muted, #8C8985); margin-top: 2px; }
+.tse-info-label { font-size: var(--tix-label, 12px); color: var(--tix-card-text-muted, #8C8985); margin-bottom: 2px; }
+.tse-info-value { font-family: var(--tix-card-font-d, var(--tix-font-heading, 'Sora')), sans-serif; font-weight: 600; font-size: var(--tix-small, 13px); }
+.tse-info-sub { font-size: var(--tix-label, 12px); color: var(--tix-card-text-muted, #8C8985); margin-top: 2px; }
 .tse-info-badges { display: flex; gap: 8px; margin-top: 16px; }
 .tse-badge {
     font-family: var(--tix-card-font-d, var(--tix-font-heading, 'Sora')), sans-serif;
-    font-size: 0.68rem; font-weight: 700;
+    font-size: var(--tix-label, 12px); font-weight: 700;
     padding: 5px 12px; border-radius: var(--tix-card-radius-badge, 8px);
 }
 .tse-badge-available { background: var(--tix-card-entdecken, #14B8A6); color: #fff; }
@@ -192,7 +192,7 @@
     background: #fff; border: 1.5px solid var(--tix-card-sand, #E3DED4);
     border-radius: var(--tix-card-radius-btn, 10px);
     font-family: var(--tix-card-font-d, var(--tix-font-heading, 'Sora')), sans-serif;
-    font-weight: 600; font-size: 0.85rem;
+    font-weight: 600; font-size: var(--tix-small, 13px);
     cursor: pointer; transition: border-color 0.2s, box-shadow 0.2s;
 }
 .tse-cal-btn:hover { border-color: var(--tix-card-text-muted, #8C8985); box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
@@ -205,7 +205,7 @@
     background: #fff; border: 1.5px solid var(--tix-card-sand, #E3DED4);
     border-radius: var(--tix-card-radius-btn, 10px);
     font-family: var(--tix-card-font-d, var(--tix-font-heading, 'Sora')), sans-serif;
-    font-weight: 600; font-size: 0.72rem;
+    font-weight: 600; font-size: var(--tix-label, 12px);
     cursor: pointer; text-decoration: none; color: inherit;
     transition: border-color 0.2s;
 }
@@ -220,7 +220,7 @@
 }
 .tse-countdown-label {
     font-family: var(--tix-card-font-d, var(--tix-font-heading, 'Sora')), sans-serif;
-    font-size: 0.65rem; font-weight: 700;
+    font-size: var(--tix-label, 12px); font-weight: 700;
     letter-spacing: 0.12em; text-transform: uppercase;
     color: var(--tix-card-signal-mid, #F2899A);
     margin-bottom: 12px;
@@ -229,9 +229,9 @@
 .tse-cd-val {
     display: block;
     font-family: var(--tix-card-font-d, var(--tix-font-heading, 'Sora')), sans-serif;
-    font-size: 1.5rem; font-weight: 800;
+    font-size: var(--tix-h2, 22px); font-weight: 800;
 }
-.tse-cd-label { font-size: 0.65rem; color: rgba(255,255,255,0.5); margin-top: 2px; }
+.tse-cd-label { font-size: var(--tix-label, 12px); color: rgba(255,255,255,0.5); margin-top: 2px; }
 
 /* ── Gallery ── */
 .tse-gallery-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
@@ -244,10 +244,10 @@
 .tse-video-wrap iframe { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
 
 /* ── Location ── */
-.tse-location-address { font-size: 0.9rem; color: var(--tix-card-text-muted, #5C5A57); margin: 0 0 8px; }
+.tse-location-address { font-size: var(--tix-small, 13px); color: var(--tix-card-text-muted, #5C5A57); margin: 0 0 8px; }
 .tse-location-link {
     font-family: var(--tix-card-font-d, var(--tix-font-heading, 'Sora')), sans-serif;
-    font-size: 0.82rem; font-weight: 600;
+    font-size: var(--tix-small, 13px); font-weight: 600;
     color: var(--tix-card-signal, #E8445A); text-decoration: none;
 }
 .tse-location-link:hover { text-decoration: underline; }

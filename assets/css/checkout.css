@@ -25,7 +25,7 @@
 .tix-co-section { margin-bottom: 32px; }
 
 .tix-co-heading {
-    font-size: 1.1rem;
+    font-size: var(--tix-h4, 16px);
     font-weight: 700;
     margin: 0 0 16px 0;
     padding-bottom: 10px;
@@ -46,7 +46,7 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    font-size: 0.95rem;
+    font-size: var(--tix-body, 15px);
 }
 
 .tix-co-link-btn {
@@ -84,7 +84,7 @@
     background: var(--tix-buy-bg, #c8ff00);
     color: var(--tix-buy-color, #000);
     font-weight: 700;
-    font-size: 0.9rem;
+    font-size: var(--tix-btn, 14px);
     cursor: pointer;
     font-family: var(--tix-font-body, inherit);
     transition: background 0.2s, opacity 0.2s;
@@ -93,7 +93,7 @@
 .tix-co-btn-login:hover { background: var(--tix-buy-hover, var(--tix-buy-bg)); color: var(--tix-buy-hover-color, var(--tix-buy-color, #000)); opacity: 0.9; }
 
 .tix-co-login-msg {
-    font-size: 0.85rem;
+    font-size: var(--tix-small, 13px);
 }
 
 .tix-co-login-msg.success { color: var(--tix-success-color, #4caf50); }
@@ -116,7 +116,7 @@
     border: 1px solid var(--tix-border, #333);
     border-radius: var(--tix-radius, 8px);
     background: var(--tix-cat-bg, transparent);
-    font-size: 0.95rem;
+    font-size: var(--tix-body, 15px);
 }
 
 .tix-co-item-info {
@@ -245,7 +245,7 @@
     background: transparent;
     color: inherit;
     font-weight: 600;
-    font-size: 0.9rem;
+    font-size: var(--tix-btn, 14px);
     cursor: pointer;
     font-family: var(--tix-font-body, inherit);
     white-space: nowrap;
@@ -276,7 +276,7 @@
     padding: 5px 10px;
     border-radius: 20px;
     background: rgba(200, 255, 0, 0.12);
-    font-size: 0.8rem;
+    font-size: var(--tix-label, 12px);
     font-weight: 700;
 }
 
@@ -293,7 +293,7 @@
 
 .tix-co-coupon-msg {
     margin-top: 8px;
-    font-size: 0.85rem;
+    font-size: var(--tix-small, 13px);
     padding: 8px 12px;
     border-radius: var(--tix-radius, 8px);
 }
@@ -312,10 +312,10 @@
 
 /* Firma aufklappbar */
 .tix-co-company-wrap { margin-top: 4px; }
-.tix-co-company-toggle { font-size: 0.85rem; }
+.tix-co-company-toggle { font-size: var(--tix-small, 13px); }
 .tix-co-company-field { margin-top: 8px; }
 
-.tix-co-label { font-size: 0.85rem; font-weight: 600; opacity: 0.8; }
+.tix-co-label { font-size: var(--tix-small, 13px); font-weight: 600; opacity: 0.8; }
 .tix-co-req { color: var(--tix-sale-color, #ef5350); text-decoration: none; margin-left: 2px; }
 
 .tix-co-input,
@@ -325,7 +325,7 @@
     border: 1px solid var(--tix-input-border, #555);
     border-radius: var(--tix-input-radius, 6px);
     background: var(--tix-input-bg, transparent);
-    color: inherit; font-size: 0.95rem; font-family: var(--tix-font-body, inherit);
+    color: inherit; font-size: var(--tix-body, 15px); font-family: var(--tix-font-body, inherit);
     transition: border-color 0.2s;
     appearance: none; -webkit-appearance: none; box-sizing: border-box;
 }
@@ -354,7 +354,7 @@
     display: flex;
     align-items: flex-start;
     gap: 10px;
-    font-size: 0.9rem;
+    font-size: var(--tix-small, 13px);
     cursor: pointer;
     line-height: 1.4;
 }
@@ -395,7 +395,7 @@
     padding: 14px 16px;
     border: 1px solid var(--tix-border, #333); border-radius: var(--tix-radius, 8px);
     background: var(--tix-cat-bg, transparent);
-    font-size: 0.95rem; opacity: 0.7;
+    font-size: var(--tix-body, 15px); opacity: 0.7;
 }
 .tix-co-shipping-icon { font-size: 1.3rem; }
 
@@ -441,9 +441,9 @@
     margin-top: 12px; padding-top: 12px;
     border-top: 1px solid rgba(255,255,255,0.08);
 }
-.tix-co-gw-desc { font-size: 0.85rem; opacity: 0.6; margin: 0 0 8px 0; }
+.tix-co-gw-desc { font-size: var(--tix-small, 13px); opacity: 0.6; margin: 0 0 8px 0; }
 /* payment_fields() Ausgabe: Text klein und gedimmt halten */
-.tix-co-gw-fields > p { font-size: 0.85rem; opacity: 0.6; margin: 0 0 8px 0; }
+.tix-co-gw-fields > p { font-size: var(--tix-small, 13px); opacity: 0.6; margin: 0 0 8px 0; }
 
 .tix-co-gw-fields input[type="text"],
 .tix-co-gw-fields input[type="tel"],
@@ -452,10 +452,10 @@
     width: 100%; padding: 10px 14px;
     border: 1px solid var(--tix-input-border, #555); border-radius: var(--tix-input-radius, 6px);
     background: var(--tix-input-bg, transparent); color: inherit;
-    font-size: 0.95rem; font-family: var(--tix-font-body, inherit); box-sizing: border-box;
+    font-size: var(--tix-body, 15px); font-family: var(--tix-font-body, inherit); box-sizing: border-box;
 }
 .tix-co-gw-fields label {
-    font-size: 0.85rem; font-weight: 600; opacity: 0.8;
+    font-size: var(--tix-small, 13px); font-weight: 600; opacity: 0.8;
     display: block; margin-bottom: 4px;
 }
 
@@ -467,10 +467,10 @@
 }
 .tix-co-summary-row {
     display: flex; justify-content: space-between; align-items: baseline;
-    padding: 4px 0; font-size: 0.95rem;
+    padding: 4px 0; font-size: var(--tix-body, 15px);
 }
 .tix-co-summary-total {
-    font-weight: 700; font-size: 1.2rem;
+    font-weight: 700; font-size: var(--tix-h3, 18px);
     padding-top: 10px; margin-top: 6px; border-top: 1px solid var(--tix-border, #333);
 }
 
@@ -481,7 +481,7 @@
 }
 
 .tix-co-discount-row { color: var(--tix-success-color, #4caf50); }
-.tix-co-fee-row { font-size: 0.88rem; }
+.tix-co-fee-row { font-size: var(--tix-small, 13px); }
 .tix-co-fees:empty { display: none; }
 
 /* ══════════════════════════════════════
@@ -583,7 +583,7 @@
 /* Messages */
 .tix-co-message {
     margin-top: 12px; padding: 12px 16px;
-    border-radius: var(--tix-radius, 8px); font-size: 0.9rem; text-align: center;
+    border-radius: var(--tix-radius, 8px); font-size: var(--tix-small, 13px); text-align: center;
 }
 .tix-co-msg-success { background: rgba(46, 125, 50, 0.15); color: var(--tix-success-color, #4caf50); }
 .tix-co-msg-error   { background: rgba(211, 47, 47, 0.15); color: var(--tix-sale-color, #ef5350); }
@@ -642,12 +642,12 @@
 }
 
 .tix-co-ty-title {
-    font-size: 1.4rem; font-weight: 700;
+    font-size: var(--tix-h2, 22px); font-weight: 700;
     margin: 0 0 8px;
 }
 
 .tix-co-ty-subtitle {
-    font-size: 0.88rem; opacity: 0.6; margin: 0;
+    font-size: var(--tix-small, 13px); opacity: 0.6; margin: 0;
 }
 
 /* Tickets */
@@ -668,16 +668,16 @@
 }
 
 .tix-co-ty-ticket-event {
-    font-weight: 700; font-size: 0.9rem;
+    font-weight: 700; font-size: var(--tix-small, 13px);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
 .tix-co-ty-ticket-type {
-    font-size: 0.82rem; opacity: 0.6;
+    font-size: var(--tix-label, 12px); opacity: 0.6;
 }
 
 .tix-co-ty-ticket-code {
-    font-size: 0.72rem; opacity: 0.4;
+    font-size: var(--tix-label, 12px); opacity: 0.4;
     font-family: monospace; letter-spacing: 0.05em;
 }
 
@@ -685,7 +685,7 @@
     display: inline-flex; align-items: center; gap: 6px;
     padding: 8px 16px; border-radius: var(--tix-buy-radius, 8px);
     background: var(--tix-buy-bg, #c8ff00); color: var(--tix-buy-color, #000) !important;
-    font-weight: 700; font-size: 0.82rem;
+    font-weight: 700; font-size: var(--tix-label, 12px);
     text-decoration: none; white-space: nowrap; flex-shrink: 0;
     transition: background 0.2s;
 }
@@ -694,11 +694,11 @@
 .tix-co-ty-dl-icon { font-size: 1.1em; }
 
 .tix-co-ty-ticket-pending {
-    font-size: 0.82rem; opacity: 0.45; white-space: nowrap; font-style: italic;
+    font-size: var(--tix-label, 12px); opacity: 0.45; white-space: nowrap; font-style: italic;
 }
 
 .tix-co-ty-tickets-note {
-    font-size: 0.9rem; opacity: 0.6; margin: 0;
+    font-size: var(--tix-small, 13px); opacity: 0.6; margin: 0;
     padding: 12px 16px;
     border: 1px dashed var(--tix-border, #333);
     border-radius: var(--tix-radius, 8px);
@@ -714,12 +714,12 @@
     display: flex; align-items: baseline; gap: 8px;
     padding: 6px 0;
     border-bottom: 1px solid rgba(255,255,255,0.06);
-    font-size: 0.88rem;
+    font-size: var(--tix-small, 13px);
 }
 .tix-co-ty-item:last-child { border-bottom: none; }
 
 .tix-co-ty-item-name { flex: 1; font-weight: 600; }
-.tix-co-ty-item-qty { opacity: 0.5; font-size: 0.82rem; min-width: 30px; }
+.tix-co-ty-item-qty { opacity: 0.5; font-size: var(--tix-label, 12px); min-width: 30px; }
 .tix-co-ty-item-total { font-weight: 700; min-width: 60px; text-align: right; }
 
 /* Details */
@@ -728,7 +728,7 @@
 }
 
 .tix-co-ty-detail {
-    display: flex; justify-content: space-between; gap: 12px; font-size: 0.88rem;
+    display: flex; justify-content: space-between; gap: 12px; font-size: var(--tix-small, 13px);
 }
 
 .tix-co-ty-detail-label {
@@ -739,7 +739,7 @@
 
 .tix-co-ty-status {
     font-weight: 700; padding: 2px 10px; border-radius: 20px;
-    font-size: 0.78rem; display: inline-block;
+    font-size: var(--tix-label, 12px); display: inline-block;
 }
 .tix-co-ty-status-completed,
 .tix-co-ty-status-processing { background: rgba(76,175,80,0.15); color: #4caf50; }
@@ -767,7 +767,7 @@
     border-radius: 6px;
     background: rgba(255, 152, 0, 0.1);
     border: 1px solid rgba(255, 152, 0, 0.3);
-    font-size: 0.85rem;
+    font-size: var(--tix-small, 13px);
     display: flex;
     align-items: center;
     gap: 8px;
@@ -795,7 +795,7 @@
     margin: 0 0 12px;
 }
 .tix-co-ty-payment-instructions {
-    font-size: 0.9rem;
+    font-size: var(--tix-small, 13px);
     opacity: 0.8;
     margin: 0 0 12px;
 }
@@ -806,7 +806,7 @@
     border-top: 1px solid var(--tix-co-border, #e5e7eb);
 }
 .tix-co-ty-bank-heading {
-    font-size: 0.92rem;
+    font-size: var(--tix-body, 15px);
     font-weight: 700;
     margin: 0 0 10px;
 }
@@ -819,7 +819,7 @@
     display: flex;
     justify-content: space-between;
     padding: 4px 0;
-    font-size: 0.9rem;
+    font-size: var(--tix-small, 13px);
 }
 .tix-co-ty-bank-label {
     opacity: 0.6;
@@ -833,7 +833,7 @@
 }
 .tix-co-ty-bank-ref {
     margin: 12px 0 0;
-    font-size: 0.9rem;
+    font-size: var(--tix-small, 13px);
     padding-top: 10px;
     border-top: 1px solid var(--tix-co-border, #e5e7eb);
 }
@@ -843,7 +843,7 @@
 }
 
 /* Hook-Output (Payment-Gateways etc.) */
-.tix-co-ty-hook-output { font-size: 0.88rem; }
+.tix-co-ty-hook-output { font-size: var(--tix-small, 13px); }
 .tix-co-ty-hook-output table { width: 100%; border-collapse: collapse; }
 .tix-co-ty-hook-output td, .tix-co-ty-hook-output th {
     padding: 6px 10px; text-align: left;
@@ -888,7 +888,7 @@
     border-radius: 50%;
     border: 2px solid currentColor;
     display: flex; align-items: center; justify-content: center;
-    font-weight: 700; font-size: 0.9rem;
+    font-weight: 700; font-size: var(--tix-small, 13px);
     flex-shrink: 0;
 }
 .tix-co-step-ind.tix-co-step-active .tix-co-step-num {
@@ -898,7 +898,7 @@
     background: transparent; border-color: var(--tix-buy-bg, #c8ff00); color: var(--tix-buy-bg, #c8ff00);
 }
 
-.tix-co-step-label { font-size: 0.85rem; font-weight: 600; white-space: nowrap; }
+.tix-co-step-label { font-size: var(--tix-small, 13px); font-weight: 600; white-space: nowrap; }
 
 .tix-co-step-line {
     flex: 1; height: 1px;
@@ -995,7 +995,7 @@
     justify-content: center;
     gap: 8px;
     padding: 10px 16px;
-    font-size: 0.88rem;
+    font-size: var(--tix-small, 13px);
     font-weight: 600;
     opacity: 0.85;
 }
@@ -1004,7 +1004,7 @@
     font-variant-numeric: tabular-nums;
     font-weight: 700;
     letter-spacing: 0.03em;
-    font-size: 0.95rem;
+    font-size: var(--tix-body, 15px);
 }
 
 .tix-co-countdown-expired {
@@ -1040,12 +1040,12 @@
     min-width: 0;
 }
 .tix-co-ty-charity-badge {
-    font-size: 0.95rem;
+    font-size: var(--tix-body, 15px);
     font-weight: 600;
     color: #be185d;
 }
 .tix-co-ty-charity-desc {
-    font-size: 0.85rem;
+    font-size: var(--tix-small, 13px);
     opacity: 0.7;
 }
 
@@ -1094,7 +1094,7 @@
 }
 
 .tix-co-specials-heading {
-    font-size: 1.1rem;
+    font-size: var(--tix-h4, 16px);
     font-weight: 700;
     margin: 0 0 16px 0;
     padding-bottom: 10px;
@@ -1115,7 +1115,7 @@
     border: 1px solid var(--tix-border, #333);
     border-radius: var(--tix-radius, 8px);
     background: var(--tix-cat-bg, transparent);
-    font-size: 0.95rem;
+    font-size: var(--tix-body, 15px);
     transition: border-color 0.2s;
 }
 
@@ -1187,7 +1187,7 @@
     border: none;
     cursor: pointer;
     font-weight: 700;
-    font-size: 0.85rem;
+    font-size: var(--tix-small, 13px);
     white-space: nowrap;
     transition: opacity 0.15s;
 }
@@ -1203,7 +1203,7 @@
 
 .tix-co-special-in-cart-badge {
     display: inline-block;
-    font-size: 0.75rem;
+    font-size: var(--tix-label, 12px);
     font-weight: 600;
     color: var(--tix-success-color, #4caf50);
     margin-top: 2px;
@@ -1219,7 +1219,7 @@
 }
 
 .tix-co-special-soldout-label {
-    font-size: 0.85rem;
+    font-size: var(--tix-small, 13px);
     font-weight: 600;
     opacity: 0.5;
 }
@@ -1232,7 +1232,7 @@
 }
 
 .tix-co-tables-heading {
-    font-size: 1.1rem;
+    font-size: var(--tix-h4, 16px);
     font-weight: 700;
     margin: 0 0 16px 0;
     padding-bottom: 10px;
@@ -1240,7 +1240,7 @@
 }
 
 .tix-co-tables-info {
-    font-size: 0.82rem;
+    font-size: var(--tix-label, 12px);
     opacity: 0.6;
     margin: 0 0 12px;
     line-height: 1.5;
@@ -1351,7 +1351,7 @@
 }
 
 .tix-co-table-soldout-label {
-    font-size: 0.85rem;
+    font-size: var(--tix-small, 13px);
     font-weight: 600;
     opacity: 0.5;
 }
@@ -1369,7 +1369,7 @@
 
 .tix-co-table-form-label {
     display: block;
-    font-size: 0.85rem;
+    font-size: var(--tix-small, 13px);
     font-weight: 600;
     opacity: 0.7;
     margin-bottom: 6px;
@@ -1409,13 +1409,13 @@
     min-width: 24px;
     text-align: center;
     font-weight: 700;
-    font-size: 0.95rem;
+    font-size: var(--tix-body, 15px);
     font-variant-numeric: tabular-nums;
 }
 
 /* Status Messages */
 .tix-co-table-status {
-    font-size: 0.85rem;
+    font-size: var(--tix-small, 13px);
     padding: 10px 14px;
     border-radius: var(--tix-radius, 8px);
     margin-top: 10px;
