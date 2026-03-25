@@ -374,6 +374,9 @@ class TIX_Support {
                     $result['tickets'][] = self::format_ticket($ticket);
                     if ($order_id) {
                         $order = wc_get_order($order_id);
+                        if (!$order && class_exists('TIX_Order')) {
+                            $order = TIX_Order::get($order_id);
+                        }
                         if ($order) {
                             $result['orders'][] = self::format_order($order);
                             $result['customer'] = self::format_customer_from_order($order);
@@ -386,17 +389,18 @@ class TIX_Support {
         elseif (preg_match('/^#?(\d+)$/', $query, $m)) {
             $result['type'] = 'order';
             $order_id = intval($m[1]);
-            if (function_exists('wc_get_order')) {
-                $order = wc_get_order($order_id);
-                if ($order) {
-                    $result['orders'][] = self::format_order($order);
-                    $result['customer'] = self::format_customer_from_order($order);
-                    // Tickets für diese Bestellung
-                    if (class_exists('TIX_Tickets')) {
-                        $tickets = TIX_Tickets::get_all_tickets_for_order($order_id);
-                        foreach ($tickets as $t) {
-                            $result['tickets'][] = self::format_ticket($t);
-                        }
+            $order = function_exists('wc_get_order') ? wc_get_order($order_id) : false;
+            if (!$order && class_exists('TIX_Order')) {
+                $order = TIX_Order::get($order_id);
+            }
+            if ($order) {
+                $result['orders'][] = self::format_order($order);
+                $result['customer'] = self::format_customer_from_order($order);
+                // Tickets für diese Bestellung
+                if (class_exists('TIX_Tickets')) {
+                    $tickets = TIX_Tickets::get_all_tickets_for_order($order_id);
+                    foreach ($tickets as $t) {
+                        $result['tickets'][] = self::format_ticket($t);
                     }
                 }
             }
@@ -425,6 +429,35 @@ class TIX_Support {
                 if (class_exists('TIX_Tickets')) {
                     foreach ($orders as $o) {
                         $tickets = TIX_Tickets::get_all_tickets_for_order($o->get_id());
+                        foreach ($tickets as $t) {
+                            $result['tickets'][] = self::format_ticket($t);
+                        }
+                    }
+                }
+            }
+
+            // Native orders (wc_order_id = 0 only, to avoid double-counting)
+            if (class_exists('TIX_Order')) {
+                $native_orders = TIX_Order::query(['email' => $email, 'limit' => 10]);
+                foreach ($native_orders as $no) {
+                    $result['orders'][] = [
+                        'id'     => $no->get_id(),
+                        'number' => $no->get_order_number(),
+                        'status' => $no->get_status(),
+                        'total'  => $no->get_formatted_order_total(),
+                        'date'   => $no->get_date_created() ? $no->get_date_created()->date_i18n('d.m.Y H:i') : '',
+                        'email'  => $no->get_billing_email(),
+                        'name'   => $no->get_billing_first_name() . ' ' . $no->get_billing_last_name(),
+                        'type'   => 'native',
+                    ];
+                    if (!$result['customer']['name']) {
+                        $result['customer']['name'] = $no->get_billing_first_name() . ' ' . $no->get_billing_last_name();
+                    }
+                }
+                // Tickets from native orders
+                if (class_exists('TIX_Tickets')) {
+                    foreach ($native_orders as $no) {
+                        $tickets = TIX_Tickets::get_all_tickets_for_order($no->get_id());
                         foreach ($tickets as $t) {
                             $result['tickets'][] = self::format_ticket($t);
                         }
@@ -570,8 +603,11 @@ class TIX_Support {
 
         // Verknüpfte Order-Infos
         $order_id = get_post_meta($ticket_id, '_tix_sp_order_id', true);
-        if ($order_id && function_exists('wc_get_order')) {
-            $order = wc_get_order($order_id);
+        if ($order_id) {
+            $order = function_exists('wc_get_order') ? wc_get_order($order_id) : false;
+            if (!$order && class_exists('TIX_Order')) {
+                $order = TIX_Order::get($order_id);
+            }
             if ($order) {
                 $ticket['order'] = self::format_order($order);
             }
@@ -744,8 +780,11 @@ class TIX_Support {
         }
         if (!$email) {
             $order_id = get_post_meta($ticket_post_id, '_tix_ticket_order_id', true);
-            if ($order_id && function_exists('wc_get_order')) {
-                $order = wc_get_order($order_id);
+            if ($order_id) {
+                $order = function_exists('wc_get_order') ? wc_get_order($order_id) : false;
+                if (!$order && class_exists('TIX_Order')) {
+                    $order = TIX_Order::get($order_id);
+                }
                 if ($order) $email = $order->get_billing_email();
             }
         }
@@ -991,6 +1030,20 @@ class TIX_Support {
                 }
             }
 
+            // Native orders
+            if (class_exists('TIX_Order')) {
+                $native_orders = TIX_Order::query(['email' => $email, 'limit' => 10]);
+                foreach ($native_orders as $no) {
+                    $orders_data[] = [
+                        'id'     => $no->get_id(),
+                        'date'   => $no->get_date_created() ? $no->get_date_created()->date_i18n('d.m.Y') : '',
+                        'total'  => $no->get_total(),
+                        'status' => $no->get_status(),
+                        'type'   => 'native',
+                    ];
+                }
+            }
+
             wp_send_json_success([
                 'access_key' => $access_key,
                 'name'       => $user->display_name,
@@ -999,9 +1052,12 @@ class TIX_Support {
         }
 
         // Option 2: Bestellnummer prüfen (Gast)
-        if (!empty($order_id) && function_exists('wc_get_order')) {
-            $oid = intval(str_replace('#', '', $order_id));
-            $order = wc_get_order($oid);
+        $oid = !empty($order_id) ? intval(str_replace('#', '', $order_id)) : 0;
+        if ($oid) {
+            $order = function_exists('wc_get_order') ? wc_get_order($oid) : false;
+            if (!$order && class_exists('TIX_Order')) {
+                $order = TIX_Order::get($oid);
+            }
             if ($order && strtolower($order->get_billing_email()) === strtolower($email)) {
                 $access_key = self::ensure_access_key_for_email($email);
                 $name = $order->get_billing_first_name() . ' ' . $order->get_billing_last_name();

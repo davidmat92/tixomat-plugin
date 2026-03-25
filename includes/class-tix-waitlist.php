@@ -196,6 +196,24 @@ class TIX_Waitlist {
             $url   = get_permalink($event_id);
 
             foreach ($entries as $entry) {
+                // Check if user already purchased via native order
+                if (class_exists('TIX_Order')) {
+                    $existing = TIX_Order::query([
+                        'email'  => $entry->email,
+                        'status' => ['completed', 'processing'],
+                    ]);
+                    $already_bought = false;
+                    foreach ($existing as $ord) {
+                        foreach ($ord->get_items() as $item) {
+                            if (method_exists($item, 'get_event_id') && $item->get_event_id() == $event_id) {
+                                $already_bought = true;
+                                break 2;
+                            }
+                        }
+                    }
+                    if ($already_bought) continue;
+                }
+
                 self::send_notification($entry->email, $title, $url, 'soldout');
             }
 

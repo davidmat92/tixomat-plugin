@@ -23,6 +23,9 @@ class TIX_Group_Booking {
         // Order-Meta speichern bei Checkout
         add_action('woocommerce_checkout_create_order_line_item', [__CLASS__, 'save_line_item_meta'], 10, 4);
         add_action('woocommerce_checkout_create_order',           [__CLASS__, 'save_order_meta'], 10, 2);
+
+        // Native checkout: process group booking after order completion
+        add_action('tix_order_completed', [__CLASS__, 'process_native_group_booking']);
     }
 
     // ══════════════════════════════════════
@@ -373,6 +376,41 @@ class TIX_Group_Booking {
         if ($group_data) {
             $order->update_meta_data('_tix_group_data', $group_data);
             delete_transient($key);
+        }
+    }
+
+    /**
+     * Process group booking data for native orders (wc_order_id = 0).
+     * Group data is saved in wp_options by TIX_Native_Checkout::create_order().
+     *
+     * @param int $order_id The native order ID.
+     */
+    public static function process_native_group_booking($order_id) {
+        $group_data = get_option('_tix_order_group_data_' . $order_id);
+        if (empty($group_data) || empty($group_data['members'])) return;
+
+        // Store group member info on each ticket created for this order
+        if (!post_type_exists('tix_ticket')) return;
+
+        $tickets = get_posts([
+            'post_type'      => 'tix_ticket',
+            'posts_per_page' => -1,
+            'meta_query'     => [
+                ['key' => '_tix_ticket_order_id', 'value' => (string) $order_id],
+            ],
+            'post_status' => 'publish',
+        ]);
+
+        // Build member name lookup from group data items
+        foreach ($tickets as $ticket) {
+            $ticket_meta = get_post_meta($ticket->ID, '_tix_group_member', true);
+            if (!$ticket_meta) {
+                // Try to match ticket to group member by item meta
+                $item_meta = get_post_meta($ticket->ID, '_tix_ticket_item_meta', true);
+                if (is_array($item_meta) && !empty($item_meta['group_member'])) {
+                    update_post_meta($ticket->ID, '_tix_group_member', sanitize_text_field($item_meta['group_member']));
+                }
+            }
         }
     }
 

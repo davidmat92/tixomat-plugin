@@ -12,6 +12,7 @@ class TIX_My_Tickets {
 
     public static function init() {
         add_shortcode('tix_my_tickets', [__CLASS__, 'render']);
+        add_shortcode('tix_order_history', [__CLASS__, 'render_order_history']);
     }
 
     /**
@@ -44,10 +45,6 @@ class TIX_My_Tickets {
      * Shortcode rendern
      */
     public static function render($atts = []) {
-        if (!class_exists('WooCommerce')) {
-            return '<p>WooCommerce ist nicht aktiv.</p>';
-        }
-
         self::enqueue();
 
         // -- Nicht eingeloggt: Login-Formular --
@@ -57,14 +54,47 @@ class TIX_My_Tickets {
 
         $user_id = get_current_user_id();
 
-        // -- Bestellungen laden --
-        $orders = wc_get_orders([
-            'customer_id' => $user_id,
-            'limit'       => 50,
-            'orderby'     => 'date',
-            'order'       => 'DESC',
-            'status'      => ['wc-completed', 'wc-processing', 'wc-on-hold', 'wc-pending'],
-        ]);
+        // -- Bestellungen laden (WooCommerce) --
+        $orders = [];
+        if (class_exists('WooCommerce')) {
+            $orders = wc_get_orders([
+                'customer_id' => $user_id,
+                'limit'       => 50,
+                'orderby'     => 'date',
+                'order'       => 'DESC',
+                'status'      => ['wc-completed', 'wc-processing', 'wc-on-hold', 'wc-pending'],
+            ]);
+        }
+
+        // -- Native Orders (tix_orders table) --
+        if (class_exists('TIX_Order')) {
+            $native_orders = TIX_Order::query([
+                'customer_id' => $user_id,
+                'status'      => ['completed', 'processing'],
+                'limit'       => 50,
+            ]);
+            // Also try by email if no results by customer_id
+            if (empty($native_orders)) {
+                $user = get_user_by('id', $user_id);
+                if ($user) {
+                    $native_orders = TIX_Order::query([
+                        'email'  => $user->user_email,
+                        'status' => ['completed', 'processing'],
+                        'limit'  => 50,
+                    ]);
+                }
+            }
+            // Merge native orders, skip dual-write (already in WC orders)
+            if (!empty($native_orders)) {
+                $wc_order_ids = array_map(fn($o) => $o->get_id(), $orders);
+                foreach ($native_orders as $native) {
+                    // Skip if this native order is linked to a WC order (dual-write)
+                    $wc_id = method_exists($native, 'get_wc_order_id') ? $native->get_wc_order_id() : 0;
+                    if ($wc_id && in_array($wc_id, $wc_order_ids)) continue;
+                    $orders[] = $native;
+                }
+            }
+        }
 
         if (empty($orders)) {
             return self::render_empty();
@@ -410,19 +440,29 @@ class TIX_My_Tickets {
         $separator = html_entity_decode(' &ndash; ', ENT_QUOTES, 'UTF-8');
 
         foreach ($order->get_items() as $item) {
-            $product_id = $item->get_product_id();
-            $product    = $item->get_product();
-            if (!$product) continue;
+            $is_native_item = ($order instanceof TIX_Order) || (is_object($item) && method_exists($item, 'get_event_id'));
 
-            // Nur Ticket-Produkte
-            // Legacy: _tc_is_ticket check retained for backward compatibility with older products
-            $is_ticket = get_post_meta($product_id, '_tc_is_ticket', true) === 'yes'
-                      || get_post_meta($product_id, '_tix_is_ticket', true) === 'yes';
-            if (!$is_ticket) continue;
+            if ($is_native_item) {
+                // Native TIX_Order item: has name, quantity, total, event_id directly
+                $product_id   = method_exists($item, 'get_product_id') ? $item->get_product_id() : 0;
+                $product_name = method_exists($item, 'get_name') ? $item->get_name() : ($item->name ?? '');
+                $qty          = method_exists($item, 'get_quantity') ? $item->get_quantity() : (intval($item->quantity ?? 1));
+                $total        = floatval(method_exists($item, 'get_total') ? $item->get_total() : ($item->total ?? 0));
+            } else {
+                $product_id = $item->get_product_id();
+                $product    = $item->get_product();
+                if (!$product) continue;
 
-            $product_name = $product->get_name();
-            $qty          = $item->get_quantity();
-            $total        = floatval($item->get_total());
+                // Nur Ticket-Produkte
+                // Legacy: _tc_is_ticket check retained for backward compatibility with older products
+                $is_ticket = get_post_meta($product_id, '_tc_is_ticket', true) === 'yes'
+                          || get_post_meta($product_id, '_tix_is_ticket', true) === 'yes';
+                if (!$is_ticket) continue;
+
+                $product_name = $product->get_name();
+                $qty          = $item->get_quantity();
+                $total        = floatval($item->get_total());
+            }
 
             // Event-Name und Ticket-Type aus Produktname ableiten
             $parts = explode($separator, $product_name, 2);
@@ -432,18 +472,24 @@ class TIX_My_Tickets {
             $event_name = $parts[0] ?? $product_name;
             $type_name  = $parts[1] ?? '';
 
-            // Event-Post finden: Primär via _tix_source_event (direkt), dann _tix_parent_event_id, Fallback per Name
-            $event_id = intval(get_post_meta($product_id, '_tix_source_event', true));
-            if (!$event_id) {
-                $event_id = intval(get_post_meta($product_id, '_tix_parent_event_id', true));
-            }
-            if (!$event_id) {
-                $event_post = self::find_event_by_name($event_name);
-                $event_id   = $event_post ? $event_post->ID : 0;
+            // Event-Post finden
+            if ($is_native_item && method_exists($item, 'get_event_id')) {
+                // Native TIX_Order item: event_id is stored directly
+                $event_id = intval($item->get_event_id());
+            } else {
+                // WC: Primär via _tix_source_event (direkt), dann _tix_parent_event_id, Fallback per Name
+                $event_id = $product_id ? intval(get_post_meta($product_id, '_tix_source_event', true)) : 0;
+                if (!$event_id && $product_id) {
+                    $event_id = intval(get_post_meta($product_id, '_tix_parent_event_id', true));
+                }
+                if (!$event_id) {
+                    $event_post = self::find_event_by_name($event_name);
+                    $event_id   = $event_post ? $event_post->ID : 0;
+                }
             }
 
             // TC Event-ID für präzises Matching (jede Kategorie hat eigenes TC-Event)
-            $tc_event_id_of_product = get_post_meta($product_id, '_event_name', true);
+            $tc_event_id_of_product = $product_id ? get_post_meta($product_id, '_event_name', true) : '';
 
             // Event-Daten
             $ev_data = self::get_event_display_data($event_id);
@@ -452,7 +498,7 @@ class TIX_My_Tickets {
             $matching_tickets = self::match_tickets($all_tickets, $event_id, $product_id, $product_name, $type_name, $tc_event_id_of_product);
 
             // Kombi-Erkennung
-            $combo_meta = $item->get_meta('_tix_combo');
+            $combo_meta = method_exists($item, 'get_meta') ? $item->get_meta('_tix_combo') : null;
 
             if (!empty($combo_meta) && !empty($combo_meta['group_id'])) {
                 // ── Kombi-Item ──
@@ -556,19 +602,35 @@ class TIX_My_Tickets {
 
         return [
             'order_id'       => $order_id,
-            'order_date'     => $order->get_date_created() ? $order->get_date_created()->date_i18n('d.m.Y') : '',
+            'order_date'     => self::format_order_date($order),
             'status'         => $status,
             'status_label'   => isset($status_labels[$status]) ? $status_labels[$status] : ucfirst($status),
             'total'          => $order->get_total(),
-            'currency'       => $order->get_currency(),
+            'currency'       => method_exists($order, 'get_currency') ? $order->get_currency() : (function_exists('get_woocommerce_currency') ? get_woocommerce_currency() : 'EUR'),
             'events'         => $events,
             'combos'         => $combos,
             'payment_method'    => $order->get_payment_method_title(),
-            'payment_method_id' => $order->get_payment_method(),
+            'payment_method_id' => method_exists($order, 'get_payment_method') ? $order->get_payment_method() : '',
             'order_total_formatted' => $order->get_formatted_order_total(),
             'buyer_name'  => trim($order->get_billing_first_name() . ' ' . $order->get_billing_last_name()),
             'buyer_email' => $order->get_billing_email(),
         ];
+    }
+
+    /**
+     * Format order date from WC_Order or TIX_Order
+     */
+    private static function format_order_date($order) {
+        $date = $order->get_date_created();
+        if (!$date) return '';
+        if (is_object($date) && method_exists($date, 'date_i18n')) {
+            return $date->date_i18n('d.m.Y');
+        }
+        // TIX_Order may return a string or timestamp
+        if (is_string($date)) {
+            return date_i18n('d.m.Y', strtotime($date));
+        }
+        return date_i18n('d.m.Y', $date);
     }
 
     /**
@@ -1027,5 +1089,87 @@ class TIX_My_Tickets {
         }
 
         return is_array($accounts) ? $accounts : [];
+    }
+
+    /**
+     * Shortcode [tix_order_history] – shows native orders for logged-in users.
+     */
+    public static function render_order_history($atts = []) {
+        if (!is_user_logged_in()) {
+            return '<p>' . esc_html__('Bitte melde dich an, um deine Bestellungen zu sehen.', 'tixomat') . '</p>';
+        }
+
+        if (!class_exists('TIX_Order')) {
+            return '<p>' . esc_html__('Bestellhistorie nicht verfügbar.', 'tixomat') . '</p>';
+        }
+
+        $user_id = get_current_user_id();
+        $user    = get_user_by('id', $user_id);
+
+        // Query native orders by customer_id, then fallback to email
+        $orders = TIX_Order::query([
+            'customer_id' => $user_id,
+            'limit'       => 50,
+        ]);
+        if (empty($orders) && $user) {
+            $orders = TIX_Order::query([
+                'email' => $user->user_email,
+                'limit' => 50,
+            ]);
+        }
+
+        // Filter out dual-write orders (wc_order_id > 0)
+        $orders = array_filter($orders, function($o) {
+            $wc_id = method_exists($o, 'get_wc_order_id') ? $o->get_wc_order_id() : 0;
+            return $wc_id == 0;
+        });
+
+        if (empty($orders)) {
+            return '<p>' . esc_html__('Du hast noch keine Bestellungen.', 'tixomat') . '</p>';
+        }
+
+        $s      = function_exists('tix_get_settings') ? tix_get_settings() : [];
+        $accent = !empty($s['color_accent']) ? $s['color_accent'] : '#c8ff00';
+
+        ob_start();
+        ?>
+        <div class="tix-order-history" style="max-width:800px;">
+        <?php foreach ($orders as $order) :
+            $order_num = method_exists($order, 'get_order_number') ? $order->get_order_number() : $order->get_id();
+            $date = method_exists($order, 'get_date_created') && $order->get_date_created()
+                ? $order->get_date_created()->format('d.m.Y H:i') : '';
+            $status_labels = [
+                'completed'  => 'Abgeschlossen',
+                'processing' => 'In Bearbeitung',
+                'on-hold'    => 'Wartend',
+                'cancelled'  => 'Storniert',
+                'pending'    => 'Ausstehend',
+                'failed'     => 'Fehlgeschlagen',
+                'refunded'   => 'Erstattet',
+            ];
+            $status_label = $status_labels[$order->get_status()] ?? ucfirst($order->get_status());
+        ?>
+            <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:20px;margin-bottom:16px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                    <strong style="font-size:16px;">Bestellung #<?php echo esc_html($order_num); ?></strong>
+                    <span style="font-size:13px;color:#6b7280;"><?php echo esc_html($date); ?></span>
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                    <span style="display:inline-block;padding:4px 10px;border-radius:6px;font-size:12px;font-weight:600;background:<?php echo $order->get_status() === 'completed' ? '#dcfce7;color:#166534' : '#fef3c7;color:#92400e'; ?>;">
+                        <?php echo esc_html($status_label); ?>
+                    </span>
+                    <strong style="font-size:16px;"><?php echo number_format((float) $order->get_total(), 2, ',', '.'); ?> &euro;</strong>
+                </div>
+                <?php foreach ($order->get_items() as $item) : ?>
+                <div style="display:flex;justify-content:space-between;padding:6px 0;border-top:1px solid #f3f4f6;font-size:14px;">
+                    <span><?php echo esc_html($item->get_name()); ?> &times; <?php echo esc_html($item->get_quantity()); ?></span>
+                    <span><?php echo number_format((float) $item->get_total(), 2, ',', '.'); ?> &euro;</span>
+                </div>
+                <?php endforeach; ?>
+            </div>
+        <?php endforeach; ?>
+        </div>
+        <?php
+        return ob_get_clean();
     }
 }

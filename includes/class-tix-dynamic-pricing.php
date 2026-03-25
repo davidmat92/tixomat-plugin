@@ -139,6 +139,46 @@ class TIX_Dynamic_Pricing {
     }
 
     /**
+     * Public method to get the dynamic price for a ticket category.
+     * Used by native checkout for server-side price validation.
+     *
+     * @param int $event_id   The event post ID.
+     * @param int $cat_index  The ticket category index.
+     * @return float|null The current effective price, or null if not found.
+     */
+    public static function get_dynamic_price($event_id, $cat_index) {
+        $categories = get_post_meta($event_id, '_tix_ticket_categories', true);
+        if (!is_array($categories) || !isset($categories[$cat_index])) {
+            return null;
+        }
+
+        $cat     = $categories[$cat_index];
+        $regular = floatval($cat['price']);
+        $raw_sale = $cat['sale_price'] ?? '';
+        $sale    = ($raw_sale !== '' && $raw_sale !== null) ? floatval($raw_sale) : null;
+
+        // Check active phase pricing
+        if (class_exists('TIX_Metabox')) {
+            $active_phase = TIX_Metabox::get_active_phase($cat['phases'] ?? []);
+            if ($active_phase) {
+                $phase_price = floatval($active_phase['price']);
+                if ($phase_price < $regular) {
+                    return $phase_price;
+                } else {
+                    $regular = $phase_price;
+                }
+            }
+        }
+
+        // Normal sale price
+        if ($sale !== null && $sale < $regular) {
+            return $sale;
+        }
+
+        return $regular;
+    }
+
+    /**
      * Cache leeren (z.B. nach Sync)
      */
     public static function clear_cache() {

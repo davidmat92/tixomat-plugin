@@ -247,6 +247,19 @@ class TIX_REST_API {
             'callback'            => [__CLASS__, 'customer_events'],
             'permission_callback' => [__CLASS__, 'check_authenticated'],
         ]);
+
+        // ── Native Orders ──
+        register_rest_route($ns, '/orders', [
+            'methods'             => 'GET',
+            'callback'            => [__CLASS__, 'get_orders'],
+            'permission_callback' => function() { return current_user_can('edit_posts'); },
+        ]);
+
+        register_rest_route($ns, '/orders/(?P<id>\d+)', [
+            'methods'             => 'GET',
+            'callback'            => [__CLASS__, 'get_order'],
+            'permission_callback' => function() { return current_user_can('edit_posts'); },
+        ]);
     }
 
     // ═══════════════════════════════════════════
@@ -615,6 +628,50 @@ class TIX_REST_API {
                     $item_product_id = strval($item->get_product_id());
                     // Nur Items zählen die zu diesem Event gehören
                     if (!isset($product_ids_set[$item_product_id])) continue;
+
+                    $order_has_event_items = true;
+                    $qty  = $item->get_quantity();
+                    $cat  = $item->get_name();
+                    $item_total = (float) $item->get_total();
+
+                    $total_tickets += $qty;
+                    $order_event_revenue += $item_total;
+
+                    if (!isset($by_category[$cat])) {
+                        $by_category[$cat] = ['revenue' => 0, 'tickets' => 0];
+                    }
+                    $by_category[$cat]['revenue'] += $item_total;
+                    $by_category[$cat]['tickets'] += $qty;
+                }
+
+                if ($order_has_event_items) {
+                    $total_orders++;
+                    $total_revenue += $order_event_revenue;
+                    if ($day) {
+                        $by_day[$day] = ($by_day[$day] ?? 0) + $order_event_revenue;
+                    }
+                }
+            }
+        }
+
+        // ── Native Orders (wc_order_id = 0) ──
+        if (class_exists('TIX_Order')) {
+            $native_orders = TIX_Order::query([
+                'event_id' => $id,
+                'status'   => ['completed', 'processing'],
+            ]);
+            foreach ($native_orders as $native) {
+                // Skip dual-write orders (already counted above)
+                if (method_exists($native, 'get_wc_order_id') && $native->get_wc_order_id() > 0) continue;
+
+                $order_event_revenue = 0;
+                $order_has_event_items = false;
+                $day = method_exists($native, 'get_date_created') && $native->get_date_created()
+                    ? $native->get_date_created()->format('Y-m-d') : '';
+
+                foreach ($native->get_items() as $item) {
+                    $item_event_id = method_exists($item, 'get_event_id') ? $item->get_event_id() : 0;
+                    if ($item_event_id && $item_event_id != $id) continue;
 
                     $order_has_event_items = true;
                     $qty  = $item->get_quantity();
@@ -2410,6 +2467,98 @@ class TIX_REST_API {
             'registered_date' => $user->user_registered,
             'tickets_count'   => $tickets_count,
             'upcoming_events' => $upcoming_events,
+        ];
+    }
+
+    // ═══════════════════════════════════════════
+    //  NATIVE ORDERS
+    // ═══════════════════════════════════════════
+
+    /**
+     * GET /orders – list native orders (wc_order_id = 0).
+     */
+    public static function get_orders(WP_REST_Request $req) {
+        if (!class_exists('TIX_Order')) {
+            return rest_ensure_response(['ok' => true, 'orders' => []]);
+        }
+
+        $args = [
+            'limit' => absint($req->get_param('per_page') ?: 50),
+        ];
+
+        $status = $req->get_param('status');
+        if ($status) {
+            $args['status'] = array_map('sanitize_text_field', explode(',', $status));
+        }
+
+        $email = sanitize_email($req->get_param('email') ?: '');
+        if ($email) {
+            $args['email'] = $email;
+        }
+
+        $event_id = absint($req->get_param('event_id') ?: 0);
+        if ($event_id) {
+            $args['event_id'] = $event_id;
+        }
+
+        $orders = TIX_Order::query($args);
+        $out = [];
+
+        foreach ($orders as $order) {
+            // Only return native orders (wc_order_id = 0)
+            $wc_id = method_exists($order, 'get_wc_order_id') ? $order->get_wc_order_id() : 0;
+            if ($wc_id > 0) continue;
+
+            $out[] = self::format_native_order($order);
+        }
+
+        return rest_ensure_response(['ok' => true, 'orders' => $out]);
+    }
+
+    /**
+     * GET /orders/{id} – single native order.
+     */
+    public static function get_order(WP_REST_Request $req) {
+        if (!class_exists('TIX_Order')) {
+            return new WP_Error('not_found', 'Native Orders nicht verfügbar.', ['status' => 404]);
+        }
+
+        $order = TIX_Order::get(absint($req['id']));
+        if (!$order) {
+            return new WP_Error('not_found', 'Bestellung nicht gefunden.', ['status' => 404]);
+        }
+
+        return rest_ensure_response(['ok' => true, 'order' => self::format_native_order($order)]);
+    }
+
+    /**
+     * Format a TIX_Order for JSON response.
+     */
+    private static function format_native_order($order) {
+        $items = [];
+        foreach ($order->get_items() as $item) {
+            $items[] = [
+                'name'       => $item->get_name(),
+                'quantity'   => $item->get_quantity(),
+                'total'      => (float) $item->get_total(),
+                'event_id'   => method_exists($item, 'get_event_id') ? $item->get_event_id() : 0,
+                'product_id' => method_exists($item, 'get_product_id') ? $item->get_product_id() : 0,
+            ];
+        }
+
+        return [
+            'id'             => $order->get_id(),
+            'order_number'   => method_exists($order, 'get_order_number') ? $order->get_order_number() : $order->get_id(),
+            'status'         => $order->get_status(),
+            'total'          => (float) $order->get_total(),
+            'currency'       => method_exists($order, 'get_currency') ? $order->get_currency() : 'EUR',
+            'billing_email'  => $order->get_billing_email(),
+            'billing_name'   => trim($order->get_billing_first_name() . ' ' . $order->get_billing_last_name()),
+            'date_created'   => method_exists($order, 'get_date_created') && $order->get_date_created()
+                ? $order->get_date_created()->format('c') : '',
+            'payment_method' => method_exists($order, 'get_payment_method') ? $order->get_payment_method() : '',
+            'wc_order_id'    => method_exists($order, 'get_wc_order_id') ? $order->get_wc_order_id() : 0,
+            'items'          => $items,
         ];
     }
 }

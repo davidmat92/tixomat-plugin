@@ -329,20 +329,38 @@ class TIX_Campaign_Analytics {
     }
 
     /**
-     * Order-Daten aus WC-Orders mit _tix_campaign_source Meta.
+     * Order-Daten aus WC-Orders mit _tix_campaign_source Meta + native Orders.
      */
     private static function query_orders($filter) {
         global $wpdb;
 
-        // HPOS-kompatible Queries
-        $is_hpos = class_exists('Automattic\\WooCommerce\\Utilities\\OrderUtil')
-            && \Automattic\WooCommerce\Utilities\OrderUtil::custom_orders_table_usage_is_enabled();
+        // WC orders
+        $wc_data = [];
+        if (class_exists('WooCommerce')) {
+            $is_hpos = class_exists('Automattic\\WooCommerce\\Utilities\\OrderUtil')
+                && \Automattic\WooCommerce\Utilities\OrderUtil::custom_orders_table_usage_is_enabled();
 
-        if ($is_hpos) {
-            return self::query_orders_hpos($filter);
+            $wc_data = $is_hpos
+                ? self::query_orders_hpos($filter)
+                : self::query_orders_legacy($filter);
         }
 
-        return self::query_orders_legacy($filter);
+        // Native orders (wc_order_id = 0)
+        $native_data = self::query_orders_native($filter);
+
+        // Merge by source + campaign
+        $merged = [];
+        foreach (array_merge($wc_data, $native_data) as $row) {
+            $key = $row['source'] . '::' . $row['campaign'];
+            if (!isset($merged[$key])) {
+                $merged[$key] = $row;
+            } else {
+                $merged[$key]['tickets'] = intval($merged[$key]['tickets']) + intval($row['tickets']);
+                $merged[$key]['revenue'] = floatval($merged[$key]['revenue']) + floatval($row['revenue']);
+            }
+        }
+
+        return array_values($merged);
     }
 
     /**
@@ -450,6 +468,75 @@ class TIX_Campaign_Analytics {
         }
 
         return $wpdb->get_results($sql, ARRAY_A) ?: [];
+    }
+
+    /**
+     * Order-Query für native TIX-Orders (wc_order_id = 0) mit campaign data in wp_options.
+     */
+    private static function query_orders_native($filter) {
+        global $wpdb;
+
+        $orders_table = $wpdb->prefix . 'tix_orders';
+
+        // Check if table exists
+        $exists = $wpdb->get_var("SHOW TABLES LIKE '$orders_table'");
+        if (!$exists) return [];
+
+        $where = ["o.status IN ('completed', 'processing')", "o.wc_order_id = 0"];
+        $args  = [];
+
+        if (!empty($filter['date_from'])) {
+            $where[] = 'o.date_created >= %s';
+            $args[]  = $filter['date_from'] . ' 00:00:00';
+        }
+        if (!empty($filter['date_to'])) {
+            $where[] = 'o.date_created <= %s';
+            $args[]  = $filter['date_to'] . ' 23:59:59';
+        }
+
+        $event_join = '';
+        if (!empty($filter['event_id'])) {
+            $items_table = $wpdb->prefix . 'tix_order_items';
+            $event_join = "INNER JOIN $items_table oi ON oi.order_id = o.id AND oi.event_id = %d";
+            $args[] = intval($filter['event_id']);
+        }
+
+        $where_sql = implode(' AND ', $where);
+
+        $sql = "SELECT o.id, o.total
+                FROM $orders_table o
+                $event_join
+                WHERE $where_sql";
+
+        if (!empty($args)) {
+            $sql = $wpdb->prepare($sql, ...$args);
+        }
+
+        $orders = $wpdb->get_results($sql, ARRAY_A) ?: [];
+
+        // Group by campaign data stored in wp_options
+        $grouped = [];
+        foreach ($orders as $row) {
+            $campaign_data = get_option('_tix_order_campaign_' . $row['id']);
+            if (empty($campaign_data) || empty($campaign_data['source'])) continue;
+
+            $source   = $campaign_data['source'];
+            $campaign = $campaign_data['name'] ?? '';
+            $key = $source . '::' . $campaign;
+
+            if (!isset($grouped[$key])) {
+                $grouped[$key] = [
+                    'source'   => $source,
+                    'campaign' => $campaign,
+                    'tickets'  => 0,
+                    'revenue'  => 0.0,
+                ];
+            }
+            $grouped[$key]['tickets'] += 1;
+            $grouped[$key]['revenue'] += floatval($row['total']);
+        }
+
+        return array_values($grouped);
     }
 
     // ──────────────────────────────────────────

@@ -718,20 +718,27 @@ class TIX_Native_Checkout {
         $payment_method = sanitize_text_field($_POST['payment_method'] ?? 'free');
         $total = self::cart_total();
 
-        // Server-side price validation: re-read actual prices from ticket categories
+        // Server-side price validation: use dynamic pricing (phases, sale prices)
         $validated_total = 0;
         foreach ($cart['items'] as &$cart_item) {
-            $event_id = intval($cart_item['event_id'] ?? 0);
-            $cat_id   = $cart_item['cat_id'] ?? '';
-            $categories = get_post_meta($event_id, '_tix_ticket_categories', true);
-            if (is_array($categories)) {
-                foreach ($categories as $cat) {
-                    if (($cat['id'] ?? '') === $cat_id) {
-                        $actual_price = floatval($cat['price'] ?? 0);
-                        $cart_item['price'] = $actual_price; // overwrite with verified price
-                        break;
-                    }
+            $event_id  = intval($cart_item['event_id'] ?? 0);
+            $cat_index = intval($cart_item['cat_index'] ?? 0);
+
+            // Use dynamic pricing if available (respects phases + sale prices)
+            if (class_exists('TIX_Dynamic_Pricing')) {
+                $dynamic_price = TIX_Dynamic_Pricing::get_dynamic_price($event_id, $cat_index);
+                if ($dynamic_price !== null) {
+                    $cart_item['price'] = $dynamic_price;
+                    $validated_total += $dynamic_price * intval($cart_item['qty']);
+                    continue;
                 }
+            }
+
+            // Fallback: read base price from ticket categories
+            $categories = get_post_meta($event_id, '_tix_ticket_categories', true);
+            if (is_array($categories) && isset($categories[$cat_index])) {
+                $actual_price = floatval($categories[$cat_index]['price'] ?? 0);
+                $cart_item['price'] = $actual_price;
             }
             $validated_total += floatval($cart_item['price']) * intval($cart_item['qty']);
         }
@@ -871,6 +878,32 @@ class TIX_Native_Checkout {
 
         $order_id = $wpdb->insert_id;
         if (!$order_id) return null;
+
+        // Save campaign tracking data from cookie
+        $cookie_raw = $_COOKIE[TIX_Campaign_Tracking::COOKIE_NAME] ?? '';
+        if (!empty($cookie_raw)) {
+            $cookie = json_decode(stripslashes(urldecode($cookie_raw)), true);
+            if (is_array($cookie)) {
+                $campaign_source  = sanitize_key($cookie['src'] ?? '');
+                $campaign_name    = sanitize_text_field($cookie['camp'] ?? '');
+                $campaign_content = sanitize_text_field($cookie['content'] ?? '');
+                if ($campaign_source) {
+                    update_option('_tix_order_campaign_' . $order_id, [
+                        'source'  => $campaign_source,
+                        'name'    => $campaign_name,
+                        'content' => $campaign_content,
+                    ], false);
+                }
+            }
+        }
+
+        // Save group booking data if available
+        $group_key = 'tix_group_order_data_' . get_current_user_id() . '_' . wp_get_session_token();
+        $group_data = get_transient($group_key);
+        if ($group_data) {
+            update_option('_tix_order_group_data_' . $order_id, $group_data, false);
+            delete_transient($group_key);
+        }
 
         // Order Items
         foreach ($data['items'] as $item) {
@@ -1096,6 +1129,35 @@ class TIX_Native_Checkout {
         .ty-pending { background:#fef3c7; border:1px solid #f59e0b; border-radius:8px; padding:12px 16px; font-size:13px; color:#92400e; margin-bottom:16px; }
         .ty-back { display:block; text-align:center; margin-top:24px; color:#6b7280; font-size:14px; }
     </style>
+    <?php
+    // Meta Pixel: inject Purchase event from transient (native orders)
+    $pixel_data = get_transient('tix_pixel_purchase_' . $order->id);
+    if ($pixel_data) {
+        delete_transient('tix_pixel_purchase_' . $order->id);
+        $s_pixel = tix_get_settings();
+        $pixel_id = esc_js($s_pixel['meta_pixel_id'] ?? '');
+        if ($pixel_id && !empty($s_pixel['meta_pixel_enabled'])):
+    ?>
+    <script>
+    !function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+    n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;
+    n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;
+    t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}
+    (window,document,'script','https://connect.facebook.net/en_US/fbevents.js');
+    fbq('init','<?php echo $pixel_id; ?>');
+    fbq('track','PageView');
+    fbq('track','Purchase',{
+        value:<?php echo floatval($pixel_data['value']); ?>,
+        currency:<?php echo wp_json_encode($pixel_data['currency']); ?>,
+        content_ids:<?php echo wp_json_encode($pixel_data['content_ids']); ?>,
+        content_type:'product',
+        num_items:<?php echo intval($pixel_data['num_items']); ?>
+    },{eventID:<?php echo wp_json_encode($pixel_data['event_id']); ?>});
+    </script>
+    <?php
+        endif;
+    }
+    ?>
 </head>
 <body>
     <div class="ty-wrap">

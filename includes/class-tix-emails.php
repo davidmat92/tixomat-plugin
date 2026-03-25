@@ -1264,11 +1264,14 @@ class TIX_Emails {
      * Sendet Bestätigungsmail bei abgeschlossener nativer Bestellung.
      */
     public static function send_native_completed($order_id) {
-        // Skip if WooCommerce handles emails
-        if (function_exists('wc_get_order')) return;
+        if (!class_exists('TIX_Order')) return;
 
         $order = TIX_Order::get($order_id);
         if (!$order) return;
+
+        // Skip if this native order is linked to a WC order (WC handles its own emails)
+        $wc_id = method_exists($order, 'get_wc_order_id') ? $order->get_wc_order_id() : 0;
+        if ($wc_id > 0 && function_exists('wc_get_order')) return;
 
         $brand_name = self::get_settings()['email_brand_name'] ?: get_bloginfo('name');
 
@@ -1296,8 +1299,7 @@ class TIX_Emails {
      * Sendet Status-Änderungs-Mails für native Bestellungen.
      */
     public static function send_native_status_email($order_id, $new_status, $old_status, $gateway) {
-        // Skip if WooCommerce handles emails
-        if (function_exists('wc_get_order')) return;
+        if (!class_exists('TIX_Order')) return;
 
         // No email needed if status didn't change
         if ($new_status === $old_status) return;
@@ -1307,6 +1309,10 @@ class TIX_Emails {
 
         $order = TIX_Order::get($order_id);
         if (!$order) return;
+
+        // Skip if this native order is linked to a WC order (WC handles its own emails)
+        $wc_id = method_exists($order, 'get_wc_order_id') ? $order->get_wc_order_id() : 0;
+        if ($wc_id > 0 && function_exists('wc_get_order')) return;
 
         $brand_name = self::get_settings()['email_brand_name'] ?: get_bloginfo('name');
 

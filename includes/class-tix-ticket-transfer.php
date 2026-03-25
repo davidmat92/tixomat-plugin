@@ -289,7 +289,10 @@ class TIX_Ticket_Transfer {
         }
 
         // WC-Order prüfen
-        $order = wc_get_order($order_id);
+        $order = function_exists('wc_get_order') ? wc_get_order($order_id) : false;
+        if (!$order && class_exists('TIX_Order')) {
+            $order = TIX_Order::get($order_id);
+        }
         if (!$order) {
             wp_send_json_error('Bestellung nicht gefunden.');
         }

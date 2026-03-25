@@ -15,6 +15,45 @@ class TIX_Sync_Airtable {
     const API_BASE = 'https://api.airtable.com/v0';
 
     // ──────────────────────────────────────────
+    // Init – Hook into native order completion
+    // ──────────────────────────────────────────
+    public static function init() {
+        add_action('tix_order_completed', [__CLASS__, 'sync_native_order']);
+    }
+
+    // ──────────────────────────────────────────
+    // Native Order → Airtable sync
+    // ──────────────────────────────────────────
+    public static function sync_native_order($order_id) {
+        if (!self::is_enabled()) return;
+        if (!class_exists('TIX_Order')) return;
+
+        $order = TIX_Order::get($order_id);
+        if (!$order) return;
+
+        // Sync each item/ticket from the native order
+        foreach ($order->get_items() as $item) {
+            $data = [
+                'ticket_code'   => method_exists($item, 'get_ticket_code') ? $item->get_ticket_code() : '',
+                'event_id'      => method_exists($item, 'get_event_id') ? $item->get_event_id() : 0,
+                'event_name'    => $item->get_name(),
+                'order_id'      => $order->get_id(),
+                'category_name' => $item->get_name(),
+                'buyer_name'    => trim($order->get_billing_first_name() . ' ' . $order->get_billing_last_name()),
+                'buyer_email'   => $order->get_billing_email(),
+                'buyer_phone'   => method_exists($order, 'get_billing_phone') ? $order->get_billing_phone() : '',
+                'ticket_status' => $order->get_status(),
+                'ticket_price'  => (float) $item->get_total() / max($item->get_quantity(), 1),
+            ];
+
+            // Skip items without a ticket code
+            if (empty($data['ticket_code'])) continue;
+
+            self::sync_ticket($data);
+        }
+    }
+
+    // ──────────────────────────────────────────
     // Aktiviert?
     // ──────────────────────────────────────────
     public static function is_enabled() {

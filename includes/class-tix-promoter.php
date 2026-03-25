@@ -52,6 +52,9 @@ class TIX_Promoter {
             add_action('woocommerce_order_status_cancelled', [__CLASS__, 'cancel_commissions'], 15);
             add_action('woocommerce_order_status_refunded',  [__CLASS__, 'cancel_commissions'], 15);
         }
+
+        // Native Order Provision berechnen
+        add_action('tix_order_completed', [__CLASS__, 'calculate_commissions']);
     }
 
     // ──────────────────────────────────────────
@@ -212,7 +215,10 @@ class TIX_Promoter {
     public static function calculate_commissions($order_id) {
         if (!class_exists('TIX_Promoter_DB')) return;
 
-        $order = wc_get_order($order_id);
+        $order = function_exists('wc_get_order') ? wc_get_order($order_id) : false;
+        if (!$order && class_exists('TIX_Order')) {
+            $order = TIX_Order::get($order_id);
+        }
         if (!$order) return;
 
         $promoter_id = intval($order->get_meta('_tix_promoter_id'));

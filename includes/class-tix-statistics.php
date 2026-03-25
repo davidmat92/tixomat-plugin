@@ -255,7 +255,32 @@ class TIX_Statistics {
                 $oj
                 WHERE $where";
 
-        return $wpdb->get_row(empty($params) ? $sql : $wpdb->prepare($sql, ...$params));
+        $result = $wpdb->get_row(empty($params) ? $sql : $wpdb->prepare($sql, ...$params));
+
+        // Add native order revenue (tix_orders where wc_order_id = 0 to avoid double-counting)
+        if (class_exists('TIX_Order')) {
+            $native_where = "o.status IN ('completed','processing') AND o.wc_order_id = 0";
+            $native_params = [];
+            if ($from) { $native_where .= " AND o.date_created >= %s"; $native_params[] = $from . ' 00:00:00'; }
+            if ($to)   { $native_where .= " AND o.date_created <= %s"; $native_params[] = $to   . ' 23:59:59'; }
+            if (!empty($event_ids)) {
+                $eid_ph = implode(',', array_fill(0, count($event_ids), '%d'));
+                $native_where .= " AND oi_n.event_id IN ($eid_ph)";
+                $native_params = array_merge($native_params, $event_ids);
+            }
+            $native_sql = "SELECT COALESCE(SUM(oi_n.total), 0) as revenue,
+                                  COUNT(DISTINCT o.id) as order_count
+                           FROM {$wpdb->prefix}tix_order_items oi_n
+                           INNER JOIN {$wpdb->prefix}tix_orders o ON oi_n.order_id = o.id
+                           WHERE $native_where";
+            $native = $wpdb->get_row(empty($native_params) ? $native_sql : $wpdb->prepare($native_sql, ...$native_params));
+            if ($native) {
+                $result->revenue     = floatval($result->revenue) + floatval($native->revenue);
+                $result->order_count = intval($result->order_count) + intval($native->order_count);
+            }
+        }
+
+        return $result;
     }
 
     /** Revenue über Zeit (für Line-Charts) */
@@ -294,7 +319,45 @@ class TIX_Statistics {
                 WHERE $where
                 GROUP BY period ORDER BY period";
 
-        return $wpdb->get_results($wpdb->prepare($sql, ...$params));
+        $results = $wpdb->get_results($wpdb->prepare($sql, ...$params));
+
+        // Merge native order revenue over time (wc_order_id = 0 to avoid double-counting)
+        if (class_exists('TIX_Order')) {
+            $native_where = "o.status IN ('completed','processing') AND o.wc_order_id = 0";
+            $native_params = [$df];
+            if ($from) { $native_where .= " AND o.date_created >= %s"; $native_params[] = $from . ' 00:00:00'; }
+            if ($to)   { $native_where .= " AND o.date_created <= %s"; $native_params[] = $to   . ' 23:59:59'; }
+            if (!empty($event_ids)) {
+                $eid_ph = implode(',', array_fill(0, count($event_ids), '%d'));
+                $native_where .= " AND oi_n.event_id IN ($eid_ph)";
+                $native_params = array_merge($native_params, $event_ids);
+            }
+            $native_sql = "SELECT DATE_FORMAT(o.date_created, %s) as period,
+                                  COALESCE(SUM(oi_n.total), 0) as revenue,
+                                  COUNT(DISTINCT o.id) as orders,
+                                  SUM(oi_n.quantity) as tickets
+                           FROM {$wpdb->prefix}tix_order_items oi_n
+                           INNER JOIN {$wpdb->prefix}tix_orders o ON oi_n.order_id = o.id
+                           WHERE $native_where
+                           GROUP BY period ORDER BY period";
+            $native_rows = $wpdb->get_results($wpdb->prepare($native_sql, ...$native_params));
+            // Merge native into WC results by period
+            $period_map = [];
+            foreach ($results as $r) $period_map[$r->period] = $r;
+            foreach ($native_rows as $nr) {
+                if (isset($period_map[$nr->period])) {
+                    $period_map[$nr->period]->revenue = floatval($period_map[$nr->period]->revenue) + floatval($nr->revenue);
+                    $period_map[$nr->period]->orders  = intval($period_map[$nr->period]->orders) + intval($nr->orders);
+                    $period_map[$nr->period]->tickets = intval($period_map[$nr->period]->tickets) + intval($nr->tickets);
+                } else {
+                    $period_map[$nr->period] = $nr;
+                }
+            }
+            ksort($period_map);
+            $results = array_values($period_map);
+        }
+
+        return $results;
     }
 
     /** Tickets (eigenes CPT) zählen */
@@ -410,7 +473,32 @@ class TIX_Statistics {
                 FROM {$wpdb->prefix}woocommerce_order_items oi
                 INNER JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim ON oi.order_item_id = oim.order_item_id AND oim.meta_key = '_line_total'
                 $oj WHERE $where GROUP BY dow ORDER BY dow";
-        return $wpdb->get_results(empty($params) ? $sql : $wpdb->prepare($sql, ...$params));
+        $results = $wpdb->get_results(empty($params) ? $sql : $wpdb->prepare($sql, ...$params));
+
+        // Add native order revenue by weekday (wc_order_id = 0 to avoid double-counting)
+        if (class_exists('TIX_Order')) {
+            $native_where = "o.status IN ('completed','processing') AND o.wc_order_id = 0";
+            $native_params = [];
+            if ($from) { $native_where .= " AND o.date_created >= %s"; $native_params[] = $from . ' 00:00:00'; }
+            if ($to)   { $native_where .= " AND o.date_created <= %s"; $native_params[] = $to   . ' 23:59:59'; }
+            $native_sql = "SELECT DAYOFWEEK(o.date_created) as dow, COALESCE(SUM(o.total), 0) as revenue
+                           FROM {$wpdb->prefix}tix_orders o
+                           WHERE $native_where GROUP BY dow ORDER BY dow";
+            $native_rows = $wpdb->get_results(empty($native_params) ? $native_sql : $wpdb->prepare($native_sql, ...$native_params));
+            $dow_map = [];
+            foreach ($results as $r) $dow_map[$r->dow] = $r;
+            foreach ($native_rows as $nr) {
+                if (isset($dow_map[$nr->dow])) {
+                    $dow_map[$nr->dow]->revenue = floatval($dow_map[$nr->dow]->revenue) + floatval($nr->revenue);
+                } else {
+                    $dow_map[$nr->dow] = $nr;
+                }
+            }
+            ksort($dow_map);
+            $results = array_values($dow_map);
+        }
+
+        return $results;
     }
 
     /** Revenue nach Zahlungsart */
@@ -437,7 +525,32 @@ class TIX_Statistics {
                     LEFT JOIN {$wpdb->postmeta} pm2 ON p.ID = pm2.post_id AND pm2.meta_key = '_order_total'
                     WHERE $where GROUP BY pm.meta_value ORDER BY revenue DESC";
         }
-        return $wpdb->get_results(empty($params) ? $sql : $wpdb->prepare($sql, ...$params));
+        $results = $wpdb->get_results(empty($params) ? $sql : $wpdb->prepare($sql, ...$params));
+
+        // Add native order revenue by payment method (wc_order_id = 0 to avoid double-counting)
+        if (class_exists('TIX_Order')) {
+            $native_where = "o.status IN ('completed','processing') AND o.wc_order_id = 0 AND o.payment_method_title != ''";
+            $native_params = [];
+            if ($from) { $native_where .= " AND o.date_created >= %s"; $native_params[] = $from . ' 00:00:00'; }
+            if ($to)   { $native_where .= " AND o.date_created <= %s"; $native_params[] = $to   . ' 23:59:59'; }
+            $native_sql = "SELECT o.payment_method_title as method, COUNT(*) as cnt, COALESCE(SUM(o.total), 0) as revenue
+                           FROM {$wpdb->prefix}tix_orders o
+                           WHERE $native_where GROUP BY o.payment_method_title ORDER BY revenue DESC";
+            $native_rows = $wpdb->get_results(empty($native_params) ? $native_sql : $wpdb->prepare($native_sql, ...$native_params));
+            $method_map = [];
+            foreach ($results as $r) $method_map[$r->method] = $r;
+            foreach ($native_rows as $nr) {
+                if (isset($method_map[$nr->method])) {
+                    $method_map[$nr->method]->revenue = floatval($method_map[$nr->method]->revenue) + floatval($nr->revenue);
+                    $method_map[$nr->method]->cnt     = intval($method_map[$nr->method]->cnt) + intval($nr->cnt);
+                } else {
+                    $method_map[$nr->method] = $nr;
+                }
+            }
+            $results = array_values($method_map);
+        }
+
+        return $results;
     }
 
     /** Granularität auto-detect */

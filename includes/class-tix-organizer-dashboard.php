@@ -538,18 +538,67 @@ class TIX_Organizer_Dashboard {
                         'revenue' => floatval($row->revenue),
                     ];
                 }
+            }
+        }
 
-                // 30-Tage-Array befuellen
-                for ($i = 29; $i >= 0; $i--) {
-                    $date = date('Y-m-d', strtotime("-{$i} days"));
-                    $label = date_i18n('d.m.', strtotime($date));
-                    $chart_data[] = [
-                        'label'   => $label,
-                        'tickets' => $chart_map[$date]['qty'] ?? 0,
-                        'revenue' => $chart_map[$date]['revenue'] ?? 0,
+        // Add native order revenue/tickets (wc_order_id = 0 to avoid double-counting)
+        if (!empty($event_ids) && class_exists('TIX_Order')) {
+            global $wpdb;
+            $eid_ph = implode(',', array_fill(0, count($event_ids), '%d'));
+            $native_result = $wpdb->get_row($wpdb->prepare(
+                "SELECT COALESCE(SUM(oi_n.quantity), 0) as total_qty,
+                        COALESCE(SUM(oi_n.total), 0) as total_revenue
+                 FROM {$wpdb->prefix}tix_order_items oi_n
+                 INNER JOIN {$wpdb->prefix}tix_orders o ON oi_n.order_id = o.id
+                 WHERE o.status IN ('completed','processing')
+                   AND o.wc_order_id = 0
+                   AND oi_n.event_id IN ($eid_ph)",
+                ...$event_ids
+            ));
+            if ($native_result) {
+                $tickets_sold  += intval($native_result->total_qty);
+                $total_revenue += floatval($native_result->total_revenue);
+            }
+
+            // Native chart data: last 30 days
+            $native_chart = $wpdb->get_results($wpdb->prepare(
+                "SELECT DATE(o.date_created) as sale_date,
+                        COALESCE(SUM(oi_n.quantity), 0) as qty,
+                        COALESCE(SUM(oi_n.total), 0) as revenue
+                 FROM {$wpdb->prefix}tix_order_items oi_n
+                 INNER JOIN {$wpdb->prefix}tix_orders o ON oi_n.order_id = o.id
+                 WHERE o.status IN ('completed','processing')
+                   AND o.wc_order_id = 0
+                   AND oi_n.event_id IN ($eid_ph)
+                   AND o.date_created >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+                 GROUP BY DATE(o.date_created)
+                 ORDER BY sale_date ASC",
+                ...$event_ids
+            ));
+            if (!isset($chart_map)) $chart_map = [];
+            foreach ($native_chart as $nr) {
+                if (isset($chart_map[$nr->sale_date])) {
+                    $chart_map[$nr->sale_date]['qty']     += intval($nr->qty);
+                    $chart_map[$nr->sale_date]['revenue'] += floatval($nr->revenue);
+                } else {
+                    $chart_map[$nr->sale_date] = [
+                        'qty'     => intval($nr->qty),
+                        'revenue' => floatval($nr->revenue),
                     ];
                 }
             }
+        }
+
+        // Build 30-day chart array
+        if (!isset($chart_map)) $chart_map = [];
+        for ($i = 29; $i >= 0; $i--) {
+            $date = date('Y-m-d', strtotime("-{$i} days"));
+            $label = date_i18n('d.m.', strtotime($date));
+            $chart_data[] = [
+                'label'   => $label,
+                'tickets' => $chart_map[$date]['qty'] ?? 0,
+                'revenue' => $chart_map[$date]['revenue'] ?? 0,
+            ];
         }
 
         wp_send_json_success([
@@ -1118,6 +1167,47 @@ class TIX_Organizer_Dashboard {
             }
         }
 
+        // Add native orders (wc_order_id = 0 to avoid double-counting)
+        if (class_exists('TIX_Order')) {
+            $eid_ph = implode(',', array_fill(0, count($event_ids), '%d'));
+            $native_where = "o.status IN ('completed','processing') AND o.wc_order_id = 0 AND oi_n.event_id IN ($eid_ph)";
+            $native_params = $event_ids;
+            if ($date_from) { $native_where .= " AND o.date_created >= %s"; $native_params[] = $date_from . ' 00:00:00'; }
+            if ($date_to)   { $native_where .= " AND o.date_created <= %s"; $native_params[] = $date_to . ' 23:59:59'; }
+            $native_rows = $wpdb->get_results($wpdb->prepare(
+                "SELECT o.id as order_id, o.date_created as order_date,
+                        o.billing_first_name, o.billing_last_name,
+                        oi_n.name as order_item_name, oi_n.quantity as qty,
+                        oi_n.total as line_total, oi_n.event_id, o.status
+                 FROM {$wpdb->prefix}tix_order_items oi_n
+                 INNER JOIN {$wpdb->prefix}tix_orders o ON oi_n.order_id = o.id
+                 WHERE $native_where
+                 ORDER BY o.date_created DESC
+                 LIMIT 200",
+                ...$native_params
+            ));
+            foreach ($native_rows as $row) {
+                $oid = intval($row->order_id);
+                $eid = intval($row->event_id);
+                if ($filter_event && $eid !== $filter_event) continue;
+                $key = 'native_' . $oid . '_' . $eid;
+                if (!isset($seen[$key])) {
+                    $seen[$key] = true;
+                    $status_labels = ['completed' => 'Abgeschlossen', 'processing' => 'In Bearbeitung'];
+                    $orders[] = [
+                        'order_id'   => $oid,
+                        'date'       => date_i18n('d.m.Y H:i', strtotime($row->order_date)),
+                        'customer'   => trim($row->billing_first_name . ' ' . $row->billing_last_name),
+                        'event'      => $eid ? get_the_title($eid) : $row->order_item_name,
+                        'tickets'    => intval($row->qty),
+                        'total'      => self::format_currency(floatval($row->line_total)),
+                        'status'     => $status_labels[$row->status] ?? ucfirst($row->status),
+                        'status_key' => $row->status,
+                    ];
+                }
+            }
+        }
+
         wp_send_json_success(['orders' => $orders]);
     }
 
@@ -1130,7 +1220,12 @@ class TIX_Organizer_Dashboard {
         if (!$org) return;
 
         $order_id = intval($_POST['order_id'] ?? 0);
-        $order = wc_get_order($order_id);
+
+        // Try WC order first, then native order
+        $order = function_exists('wc_get_order') ? wc_get_order($order_id) : false;
+        if (!$order && class_exists('TIX_Order')) {
+            $order = TIX_Order::find($order_id);
+        }
         if (!$order) {
             wp_send_json_error(['message' => 'Bestellung nicht gefunden.']);
             return;
@@ -1141,14 +1236,22 @@ class TIX_Organizer_Dashboard {
         $belongs = false;
         $items = [];
 
+        $is_native = ($order instanceof TIX_Order);
         foreach ($order->get_items() as $item) {
-            $eid = intval($item->get_meta('_tix_event_id'));
+            if ($is_native && method_exists($item, 'get_event_id')) {
+                $eid = intval($item->get_event_id());
+            } else {
+                $eid = intval($item->get_meta('_tix_event_id'));
+            }
             if (in_array($eid, $event_ids)) {
                 $belongs = true;
+                $item_name = method_exists($item, 'get_name') ? $item->get_name() : ($item->name ?? '');
+                $item_qty  = method_exists($item, 'get_quantity') ? $item->get_quantity() : intval($item->quantity ?? 1);
+                $item_total = method_exists($item, 'get_total') ? floatval($item->get_total()) : floatval($item->total ?? 0);
                 $items[] = [
-                    'name'  => $item->get_name(),
-                    'qty'   => $item->get_quantity(),
-                    'total' => self::format_currency(floatval($item->get_total())),
+                    'name'  => $item_name,
+                    'qty'   => $item_qty,
+                    'total' => self::format_currency($item_total),
                     'event' => get_the_title($eid),
                 ];
             }
@@ -1159,16 +1262,35 @@ class TIX_Organizer_Dashboard {
             return;
         }
 
+        // Format date safely for both WC and native orders
+        $date_created = $order->get_date_created();
+        if (is_object($date_created) && method_exists($date_created, 'date_i18n')) {
+            $formatted_date = $date_created->date_i18n('d.m.Y H:i');
+        } elseif (is_string($date_created)) {
+            $formatted_date = date_i18n('d.m.Y H:i', strtotime($date_created));
+        } else {
+            $formatted_date = '';
+        }
+
+        // Format status safely
+        $status_str = $order->get_status();
+        if (function_exists('wc_get_order_status_name') && !$is_native) {
+            $status_display = wc_get_order_status_name($status_str);
+        } else {
+            $native_status_labels = ['completed' => 'Abgeschlossen', 'processing' => 'In Bearbeitung'];
+            $status_display = $native_status_labels[$status_str] ?? ucfirst($status_str);
+        }
+
         wp_send_json_success([
             'order_id' => $order_id,
-            'date'     => $order->get_date_created() ? $order->get_date_created()->date_i18n('d.m.Y H:i') : '',
+            'date'     => $formatted_date,
             'customer' => [
                 'name'  => $order->get_billing_first_name() . ' ' . $order->get_billing_last_name(),
                 'email' => $order->get_billing_email(),
             ],
             'items'    => $items,
             'total'    => self::format_currency(floatval($order->get_total())),
-            'status'   => wc_get_order_status_name($order->get_status()),
+            'status'   => $status_display,
         ]);
     }
 
@@ -1238,6 +1360,33 @@ class TIX_Organizer_Dashboard {
                         'source'     => 'order',
                     ];
                 }
+            }
+        }
+
+        // Native order guests (wc_order_id = 0 to avoid double-counting)
+        if (class_exists('TIX_Order')) {
+            global $wpdb;
+            $native_guests = $wpdb->get_results($wpdb->prepare(
+                "SELECT o.id as order_id, o.billing_first_name, o.billing_last_name, o.billing_email,
+                        oi_n.name as ticket_name, oi_n.quantity, o.date_created, o.status
+                 FROM {$wpdb->prefix}tix_order_items oi_n
+                 INNER JOIN {$wpdb->prefix}tix_orders o ON oi_n.order_id = o.id
+                 WHERE oi_n.event_id = %d
+                   AND o.status IN ('completed','processing')
+                   AND o.wc_order_id = 0
+                 ORDER BY o.date_created DESC",
+                $event_id
+            ));
+            foreach ($native_guests as $ng) {
+                $checkin = get_post_meta(intval($ng->order_id), '_tix_checked_in', true);
+                $sold[] = [
+                    'order_id'   => intval($ng->order_id),
+                    'name'       => trim($ng->billing_first_name . ' ' . $ng->billing_last_name),
+                    'email'      => $ng->billing_email,
+                    'tickets'    => intval($ng->quantity),
+                    'checked_in' => !empty($checkin),
+                    'source'     => 'order',
+                ];
             }
         }
 
@@ -1381,6 +1530,26 @@ class TIX_Organizer_Dashboard {
                     $stats['tickets_sold']  = intval($result->total_qty);
                     $stats['total_revenue'] = floatval($result->total_revenue);
                 }
+            }
+        }
+
+        // Add native order stats (wc_order_id = 0 to avoid double-counting)
+        if (!empty($event_ids) && class_exists('TIX_Order')) {
+            global $wpdb;
+            $eid_ph = implode(',', array_fill(0, count($event_ids), '%d'));
+            $native_result = $wpdb->get_row($wpdb->prepare(
+                "SELECT COALESCE(SUM(oi_n.quantity), 0) as total_qty,
+                        COALESCE(SUM(oi_n.total), 0) as total_revenue
+                 FROM {$wpdb->prefix}tix_order_items oi_n
+                 INNER JOIN {$wpdb->prefix}tix_orders o ON oi_n.order_id = o.id
+                 WHERE o.status IN ('completed','processing')
+                   AND o.wc_order_id = 0
+                   AND oi_n.event_id IN ($eid_ph)",
+                ...$event_ids
+            ));
+            if ($native_result) {
+                $stats['tickets_sold']  += intval($native_result->total_qty);
+                $stats['total_revenue'] += floatval($native_result->total_revenue);
             }
         }
 

@@ -21,6 +21,9 @@ class TIX_Meta_Pixel {
             add_action('woocommerce_checkout_order_processed', [__CLASS__, 'capi_purchase'], 30, 1);
         }
 
+        // Native order tracking
+        add_action('tix_order_completed', [__CLASS__, 'track_native_purchase']);
+
         // AJAX: store event_id from browser for deduplication
         add_action('wp_ajax_tix_meta_store_event_id', [__CLASS__, 'ajax_store_event_id']);
         add_action('wp_ajax_nopriv_tix_meta_store_event_id', [__CLASS__, 'ajax_store_event_id']);
@@ -273,6 +276,91 @@ class TIX_Meta_Pixel {
 
         // Also store in our conversions table
         self::store_conversion($order);
+    }
+
+    /**
+     * Track native order purchase (wc_order_id = 0)
+     * Stores pixel data in a transient for the thank-you page and fires CAPI event.
+     */
+    public static function track_native_purchase($order_id) {
+        if (!class_exists('TIX_Order')) return;
+
+        $order = TIX_Order::get($order_id);
+        if (!$order) return;
+
+        // Skip dual-write orders (wc_order_id > 0) to avoid double-counting
+        $wc_order_id = method_exists($order, 'get_wc_order_id') ? $order->get_wc_order_id() : 0;
+        if ($wc_order_id > 0) return;
+
+        $event_id_dedup = 'tix_purchase_' . $order_id . '_' . wp_generate_password(8, false);
+
+        $content_ids = [];
+        $event_ids = [];
+        foreach ($order->get_items() as $item) {
+            $product_id = $item->get_product_id();
+            $content_ids[] = $product_id;
+            $event_id = get_post_meta($product_id, '_tix_event_id', true);
+            if ($event_id) $event_ids[] = intval($event_id);
+        }
+
+        $data = [
+            'value'       => floatval($order->get_total()),
+            'currency'    => $order->get_currency(),
+            'content_ids' => array_unique($content_ids),
+            'event_ids'   => array_unique($event_ids),
+            'num_items'   => $order->get_item_count(),
+            'order_id'    => $order_id,
+            'event_id'    => $event_id_dedup,
+        ];
+
+        // Store for thank-you page pixel injection
+        set_transient('tix_pixel_purchase_' . $order_id, $data, 600);
+
+        // Fire server-side CAPI event if configured
+        $s = self::$settings;
+        $pixel_id = $s['meta_pixel_id'] ?? '';
+        $token = $s['meta_access_token'] ?? '';
+        if (!empty($s['meta_capi_enabled']) && !empty($pixel_id) && !empty($token)) {
+            $user_data = [
+                'client_ip_address' => self::get_client_ip(),
+                'client_user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? '',
+            ];
+
+            $billing_email = $order->get_billing_email();
+            if ($billing_email) $user_data['em'] = [hash('sha256', strtolower(trim($billing_email)))];
+
+            $fn = $order->get_billing_first_name();
+            if ($fn) $user_data['fn'] = [hash('sha256', strtolower(trim($fn)))];
+
+            $ln = $order->get_billing_last_name();
+            if ($ln) $user_data['ln'] = [hash('sha256', strtolower(trim($ln)))];
+
+            if (!empty($_COOKIE['_fbc'])) $user_data['fbc'] = sanitize_text_field($_COOKIE['_fbc']);
+            if (!empty($_COOKIE['_fbp'])) $user_data['fbp'] = sanitize_text_field($_COOKIE['_fbp']);
+
+            $event_data = [
+                'event_name'    => 'Purchase',
+                'event_time'    => time(),
+                'event_id'      => $event_id_dedup,
+                'action_source' => 'website',
+                'user_data'     => $user_data,
+                'custom_data'   => [
+                    'value'        => floatval($order->get_total()),
+                    'currency'     => $order->get_currency(),
+                    'content_ids'  => array_map('strval', array_unique($content_ids)),
+                    'content_type' => 'product',
+                    'num_items'    => $order->get_item_count(),
+                    'order_id'     => (string) $order_id,
+                ],
+            ];
+
+            $payload = ['data' => [$event_data]];
+            $test_code = $s['meta_test_event_code'] ?? '';
+            if (!empty($test_code)) $payload['test_event_code'] = $test_code;
+
+            wp_schedule_single_event(time(), 'tix_meta_capi_send', [$pixel_id, $token, $payload]);
+            spawn_cron();
+        }
     }
 
     /**
