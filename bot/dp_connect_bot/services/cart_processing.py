@@ -1,6 +1,6 @@
 """
 Cart processing – parses cart_actions and keyboard triggers from Claude responses.
-Adapted for Tixomat event ticketing bot.
+Multi-tenant: accepts TenantContext (ctx) parameter.
 """
 
 import json
@@ -8,16 +8,18 @@ import re
 
 from dp_connect_bot.config import WOOCOMMERCE_URL, log
 from dp_connect_bot.models.response import Button, Keyboard, KeyboardType, WcAction
-from dp_connect_bot.services.event_cache import cache
+from dp_connect_bot.services.event_cache import ensure_cache
 from dp_connect_bot.services.history import track_event
 from dp_connect_bot.utils.formatting import format_price_de, parse_price
 
 
-def process_cart_actions(session, ai_response):
+def process_cart_actions(session, ai_response, ctx=None):
     """Verarbeitet cart_actions UND Keyboard-Trigger aus Claude's Antwort.
 
     Returns: (clean_text, keyboards: list[Keyboard], wc_actions: list[WcAction])
     """
+    tc = ensure_cache(ctx) if ctx else None
+
     pattern = r"```cart_action\n(.*?)\n```"
     matches = re.findall(pattern, ai_response, re.DOTALL)
     clean = re.sub(r"\s*```cart_action\n.*?\n```\s*", "", ai_response, flags=re.DOTALL).strip()
@@ -36,11 +38,11 @@ def process_cart_actions(session, ai_response):
     clean = re.sub(r"\s*\[REQUEST_CALLBACK\]\s*", "", clean).strip()
 
     for event_id in category_matches:
-        kb = build_category_keyboard(event_id)
+        kb = build_category_keyboard(event_id, ctx=ctx)
         if kb:
             keyboards.append(kb)
     for product_id in quantity_matches:
-        keyboards.append(build_quantity_keyboard(product_id))
+        keyboards.append(build_quantity_keyboard(product_id, ctx=ctx))
 
     # Cart Actions verarbeiten
     for match in matches:
@@ -53,7 +55,11 @@ def process_cart_actions(session, ai_response):
                 qty = data.get("quantity", 1)
 
                 # Verfuegbarkeit pruefen
-                cat, event = cache.get_category_by_product_id(int(pid))
+                if tc:
+                    cat, event = tc.get_category_by_product_id(int(pid))
+                else:
+                    cat, event = None, None
+
                 if not cat:
                     clean += f"\n\n⚠️ Dieses Ticket ist leider nicht mehr verfuegbar."
                     continue
@@ -101,7 +107,8 @@ def process_cart_actions(session, ai_response):
                 if session["cart"]:
                     session["status"] = "checkout"
                     session["last_order"] = [dict(i) for i in session["cart"]]
-                    url = generate_checkout_url(session["cart"])
+                    site_url = ctx.site_url if ctx else WOOCOMMERCE_URL
+                    url = _generate_checkout_url_from_cart(session["cart"], site_url)
                     clean += "\n\n" + format_cart(session)
                     if url:
                         clean += "\n\nDirekt zum Checkout:\n" + url
@@ -119,9 +126,13 @@ def process_cart_actions(session, ai_response):
     return clean, keyboards, wc_actions
 
 
-def build_category_keyboard(event_id):
+def build_category_keyboard(event_id, ctx=None):
     """Baut ein Kategorie-Keyboard fuer ein Event."""
-    event = cache.get_event_by_id(event_id)
+    tc = ensure_cache(ctx) if ctx else None
+    if not tc:
+        return None
+
+    event = tc.get_event_by_id(event_id)
     if not event:
         return None
 
@@ -158,9 +169,14 @@ def build_category_keyboard(event_id):
     )
 
 
-def build_quantity_keyboard(product_id):
+def build_quantity_keyboard(product_id, ctx=None):
     """Baut ein Mengen-Keyboard fuer ein Ticket-Produkt."""
-    cat, event = cache.get_category_by_product_id(int(product_id))
+    tc = ensure_cache(ctx) if ctx else None
+    if tc:
+        cat, event = tc.get_category_by_product_id(int(product_id))
+    else:
+        cat, event = None, None
+
     if not cat:
         return Keyboard(type=KeyboardType.QUANTITIES, product_id=str(product_id))
 
@@ -231,11 +247,17 @@ def format_cart_rich(session):
     }
 
 
-def generate_checkout_url(cart):
+def generate_checkout_url(cart, ctx=None):
     """Generiert den WooCommerce Checkout URL."""
+    site_url = ctx.site_url if ctx else WOOCOMMERCE_URL
+    return _generate_checkout_url_from_cart(cart, site_url)
+
+
+def _generate_checkout_url_from_cart(cart, site_url):
+    """Internal: generate checkout URL from cart items."""
     if not cart:
         return None
-    base = WOOCOMMERCE_URL.rstrip("/")
+    base = site_url.rstrip("/")
     if len(cart) == 1:
         item = cart[0]
         return base + "/checkout/?add-to-cart=" + str(item["product_id"]) + "&quantity=" + str(item["quantity"])

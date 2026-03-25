@@ -1,19 +1,26 @@
 """
 Telegram adapter – renders BotResponse into Telegram messages with inline keyboards.
-Adapted for Tixomat event ticketing bot.
+Multi-tenant: accepts TenantContext (ctx) for per-tenant Telegram API calls.
 """
 
 import json
 import requests
 
 from dp_connect_bot.adapters.base import ChannelAdapter
-from dp_connect_bot.config import TELEGRAM_API, log
+from dp_connect_bot.config import TELEGRAM_API, TELEGRAM_TOKEN, log
 from dp_connect_bot.models.response import BotResponse, Keyboard, KeyboardType
-from dp_connect_bot.services.event_cache import cache
 from dp_connect_bot.utils.formatting import format_price_de
 
 
 class TelegramAdapter(ChannelAdapter):
+    def __init__(self, ctx=None):
+        """Initialize with optional TenantContext for multi-tenant support."""
+        self.ctx = ctx
+        if ctx and ctx.telegram_token:
+            self._api_base = f"https://api.telegram.org/bot{ctx.telegram_token}"
+        else:
+            self._api_base = TELEGRAM_API
+
     @property
     def channel_name(self) -> str:
         return "telegram"
@@ -41,7 +48,7 @@ class TelegramAdapter(ChannelAdapter):
     def send_typing(self, chat_id):
         try:
             requests.post(
-                f"{TELEGRAM_API}/sendChatAction",
+                f"{self._api_base}/sendChatAction",
                 json={"chat_id": chat_id, "action": "typing"},
                 timeout=5,
             )
@@ -52,7 +59,7 @@ class TelegramAdapter(ChannelAdapter):
         """Answer a Telegram callback query."""
         try:
             requests.post(
-                f"{TELEGRAM_API}/answerCallbackQuery",
+                f"{self._api_base}/answerCallbackQuery",
                 json={"callback_query_id": callback_query_id, "text": text},
                 timeout=5,
             )
@@ -69,12 +76,12 @@ class TelegramAdapter(ChannelAdapter):
                     json.dumps(reply_markup) if isinstance(reply_markup, dict) else reply_markup
                 )
             try:
-                resp = requests.post(f"{TELEGRAM_API}/sendMessage", json=payload, timeout=10)
+                resp = requests.post(f"{self._api_base}/sendMessage", json=payload, timeout=10)
                 if not resp.ok:
                     log.warning(f"Telegram send failed (Markdown): {resp.text}")
                     # Retry without parse_mode (plain text fallback)
                     payload.pop("parse_mode", None)
-                    resp2 = requests.post(f"{TELEGRAM_API}/sendMessage", json=payload, timeout=10)
+                    resp2 = requests.post(f"{self._api_base}/sendMessage", json=payload, timeout=10)
                     if not resp2.ok:
                         log.error(f"Telegram send failed (plain): {resp2.text}")
             except Exception as e:

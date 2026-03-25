@@ -1,6 +1,7 @@
 """
 Voice message transcription via OpenAI Whisper API.
 Supports Telegram and WhatsApp voice messages.
+Multi-tenant: accepts TenantContext (ctx) for per-tenant API tokens.
 """
 
 import os
@@ -13,19 +14,27 @@ from dp_connect_bot.config import (
 )
 
 
-def transcribe_telegram_voice(file_id):
+def transcribe_telegram_voice(file_id, ctx=None):
     """Transkribiert eine Telegram Voice Message via OpenAI Whisper API."""
     if not OPENAI_API_KEY:
         log.warning("OpenAI API Key fehlt - Voice Message kann nicht transkribiert werden")
         return None
 
+    # Use tenant-specific Telegram token if available
+    if ctx and ctx.telegram_token:
+        tg_api = f"https://api.telegram.org/bot{ctx.telegram_token}"
+        tg_token = ctx.telegram_token
+    else:
+        tg_api = TELEGRAM_API
+        tg_token = TELEGRAM_TOKEN
+
     tmp_path = None
     try:
-        resp = requests.get(f"{TELEGRAM_API}/getFile", params={"file_id": file_id}, timeout=10)
+        resp = requests.get(f"{tg_api}/getFile", params={"file_id": file_id}, timeout=10)
         resp.raise_for_status()
         file_path = resp.json()["result"]["file_path"]
 
-        file_url = f"https://api.telegram.org/file/bot{TELEGRAM_TOKEN}/{file_path}"
+        file_url = f"https://api.telegram.org/file/bot{tg_token}/{file_path}"
         audio_resp = requests.get(file_url, timeout=30)
         audio_resp.raise_for_status()
 
@@ -59,12 +68,15 @@ def transcribe_telegram_voice(file_id):
         return None
 
 
-def transcribe_whatsapp_voice(media_id):
+def transcribe_whatsapp_voice(media_id, ctx=None):
     """Transkribiert eine WhatsApp Voice Message via OpenAI Whisper API."""
     if not OPENAI_API_KEY:
         log.error("OPENAI_API_KEY fehlt - Voice kann nicht transkribiert werden!")
         return None
-    if not WHATSAPP_TOKEN:
+
+    # Use tenant-specific WhatsApp token if available
+    wa_token = ctx.whatsapp_token if ctx and ctx.whatsapp_token else WHATSAPP_TOKEN
+    if not wa_token:
         log.error("WHATSAPP_TOKEN fehlt - Voice kann nicht transkribiert werden!")
         return None
 
@@ -74,7 +86,7 @@ def transcribe_whatsapp_voice(media_id):
         log.info(f"Voice: Lade Media-URL fuer {media_id}")
         resp = requests.get(
             f"{WHATSAPP_API}/{media_id}",
-            headers={"Authorization": f"Bearer {WHATSAPP_TOKEN}"},
+            headers={"Authorization": f"Bearer {wa_token}"},
             timeout=10,
         )
         resp.raise_for_status()
@@ -87,7 +99,7 @@ def transcribe_whatsapp_voice(media_id):
         log.info(f"Voice: Lade Audio-Datei herunter")
         audio_resp = requests.get(
             media_url,
-            headers={"Authorization": f"Bearer {WHATSAPP_TOKEN}"},
+            headers={"Authorization": f"Bearer {wa_token}"},
             timeout=30,
         )
         audio_resp.raise_for_status()

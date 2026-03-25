@@ -1,6 +1,6 @@
 """
 Support flow handler – AI-First support + Ticket-Lookup Flow.
-Adapted for Tixomat event ticketing bot.
+Multi-tenant: accepts TenantContext (ctx) parameter.
 """
 
 from dp_connect_bot.config import log
@@ -10,11 +10,11 @@ from dp_connect_bot.services.tixomat_api import customer_exists, lookup_tickets
 from dp_connect_bot.services.history import track_event
 
 
-def handle_support_message(chat_id, text, session, channel):
+def handle_support_message(chat_id, text, session, channel, ctx=None):
     """AI-First Support: Claude versucht selbst zu loesen."""
     log.info(f"Support message from {chat_id}: {text[:80]}...")
 
-    response_text, escalated, escalation_info = call_claude_support(session, text)
+    response_text, escalated, escalation_info = call_claude_support(session, text, ctx=ctx)
 
     if escalated and escalation_info:
         log.info(f"Support escalated for {chat_id}: {escalation_info.get('reason', '?')}")
@@ -44,7 +44,7 @@ def handle_support_step(session, text, channel):
 # TICKET-LOOKUP FLOW (structured, multi-step)
 # ============================================================
 
-def handle_ticket_lookup(chat_id, text, session, channel):
+def handle_ticket_lookup(chat_id, text, session, channel, ctx=None):
     """Ticket-Lookup Flow: Hilft Kunden ihre gekauften Tickets zu finden.
 
     Steps:
@@ -57,20 +57,20 @@ def handle_ticket_lookup(chat_id, text, session, channel):
     step = session.get("ticket_lookup_step", "ask_email")
 
     if step == "ask_email":
-        return _lookup_ask_email(session, text)
+        return _lookup_ask_email(session, text, ctx=ctx)
     elif step == "verify_exists":
-        return _lookup_verify_exists(session, text)
+        return _lookup_verify_exists(session, text, ctx=ctx)
     elif step == "ask_verification":
         return _lookup_handle_verification_choice(session, text)
     elif step == "verify_order_id":
-        return _lookup_verify_order_id(session, text)
+        return _lookup_verify_order_id(session, text, ctx=ctx)
     elif step == "verify_last_name":
-        return _lookup_verify_last_name(session, text)
+        return _lookup_verify_last_name(session, text, ctx=ctx)
 
     return BotResponse(text="Etwas ist schiefgelaufen. Schreib /start um neu zu beginnen.")
 
 
-def _lookup_ask_email(session, text):
+def _lookup_ask_email(session, text, ctx=None):
     """Step 1: E-Mail abfragen oder verarbeiten."""
     email = text.strip().lower()
 
@@ -87,17 +87,17 @@ def _lookup_ask_email(session, text):
     session["ticket_lookup_step"] = "verify_exists"
 
     # Sofort pruefen ob Bestellungen existieren
-    return _lookup_verify_exists(session, email)
+    return _lookup_verify_exists(session, email, ctx=ctx)
 
 
-def _lookup_verify_exists(session, text):
+def _lookup_verify_exists(session, text, ctx=None):
     """Step 2: Pruefen ob E-Mail Bestellungen hat."""
     email = session.get("ticket_lookup_email", "")
     if not email:
         session["ticket_lookup_step"] = "ask_email"
         return BotResponse(text="Bitte gib zuerst deine E-Mail-Adresse ein: ✉️")
 
-    result = customer_exists(email)
+    result = customer_exists(ctx, email) if ctx else {"ok": False}
 
     if not result.get("ok"):
         return BotResponse(
@@ -163,7 +163,7 @@ def _lookup_handle_verification_choice(session, text):
     )
 
 
-def _lookup_verify_order_id(session, text):
+def _lookup_verify_order_id(session, text, ctx=None):
     """Step 4a: Verifizierung per Bestellnummer."""
     order_id = text.strip().replace("#", "")
 
@@ -171,10 +171,10 @@ def _lookup_verify_order_id(session, text):
         return BotResponse(text="Bitte gib deine Bestellnummer ein: 📋")
 
     email = session.get("ticket_lookup_email", "")
-    return _do_ticket_lookup(session, email, "order_id", order_id)
+    return _do_ticket_lookup(session, email, "order_id", order_id, ctx=ctx)
 
 
-def _lookup_verify_last_name(session, text):
+def _lookup_verify_last_name(session, text, ctx=None):
     """Step 4b: Verifizierung per Nachname."""
     last_name = text.strip()
 
@@ -182,12 +182,12 @@ def _lookup_verify_last_name(session, text):
         return BotResponse(text="Bitte gib deinen Nachnamen ein: 👤")
 
     email = session.get("ticket_lookup_email", "")
-    return _do_ticket_lookup(session, email, "last_name", last_name)
+    return _do_ticket_lookup(session, email, "last_name", last_name, ctx=ctx)
 
 
-def _do_ticket_lookup(session, email, verification_type, verification_value):
+def _do_ticket_lookup(session, email, verification_type, verification_value, ctx=None):
     """Fuehrt den eigentlichen Ticket-Lookup durch."""
-    result = lookup_tickets(email, verification_type, verification_value)
+    result = lookup_tickets(ctx, email, verification_type, verification_value) if ctx else {"ok": False, "error": "no_ctx"}
 
     if not result.get("ok"):
         error = result.get("error", "")

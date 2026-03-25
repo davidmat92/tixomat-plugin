@@ -1,6 +1,6 @@
 """
 WhatsApp adapter – renders BotResponse into WhatsApp Cloud API messages.
-Adapted for Tixomat event ticketing bot.
+Multi-tenant: accepts TenantContext (ctx) for per-tenant WhatsApp API calls.
 """
 
 import requests
@@ -12,6 +12,16 @@ from dp_connect_bot.utils.formatting import format_price_de
 
 
 class WhatsAppAdapter(ChannelAdapter):
+    def __init__(self, ctx=None):
+        """Initialize with optional TenantContext for multi-tenant support."""
+        self.ctx = ctx
+        if ctx and ctx.whatsapp_token:
+            self._wa_token = ctx.whatsapp_token
+            self._wa_phone_id = ctx.whatsapp_phone_id
+        else:
+            self._wa_token = WHATSAPP_TOKEN
+            self._wa_phone_id = WHATSAPP_PHONE_ID
+
     @property
     def channel_name(self) -> str:
         return "whatsapp"
@@ -73,11 +83,11 @@ class WhatsAppAdapter(ChannelAdapter):
 
     def _send_message(self, phone, text, buttons=None, list_menu=None):
         """Send a message via WhatsApp Cloud API."""
-        if not WHATSAPP_TOKEN or not WHATSAPP_PHONE_ID:
+        if not self._wa_token or not self._wa_phone_id:
             log.warning("WhatsApp nicht konfiguriert")
             return
 
-        headers = {"Authorization": f"Bearer {WHATSAPP_TOKEN}", "Content-Type": "application/json"}
+        headers = {"Authorization": f"Bearer {self._wa_token}", "Content-Type": "application/json"}
 
         if list_menu:
             payload = {
@@ -119,7 +129,7 @@ class WhatsAppAdapter(ChannelAdapter):
 
         try:
             resp = requests.post(
-                f"{WHATSAPP_API}/{WHATSAPP_PHONE_ID}/messages",
+                f"{WHATSAPP_API}/{self._wa_phone_id}/messages",
                 headers=headers,
                 json=payload,
                 timeout=10,

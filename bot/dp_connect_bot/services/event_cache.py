@@ -1,13 +1,12 @@
 """
 Event Cache – loads and indexes events from the Tixomat REST API.
-Replaces product_cache.py for the Tixomat bot.
+Multi-tenant: each tenant gets its own EventCache instance.
 """
 
 from datetime import datetime
 from threading import Lock
 
 from dp_connect_bot.config import CACHE_REFRESH_MINUTES, log
-from dp_connect_bot.services.tixomat_api import get_events
 
 # Callback for _build_fuzzy_vocab – set by fuzzy_matching module to avoid circular import
 _on_cache_loaded = None
@@ -20,7 +19,8 @@ def set_on_cache_loaded(callback):
 
 
 class EventCache:
-    def __init__(self):
+    def __init__(self, tenant_id="default"):
+        self.tenant_id = tenant_id
         self.events = []          # Alle kommenden Events
         self.event_names = set()  # Dynamisch aus Daten
         self.locations = set()
@@ -32,12 +32,15 @@ class EventCache:
             return True
         return (datetime.now() - self.last_loaded).total_seconds() / 60 > CACHE_REFRESH_MINUTES
 
-    def load(self):
-        log.info("Lade Events von Tixomat API...")
-        events = get_events()
+    def load(self, ctx=None):
+        """Load events from the API. Requires a TenantContext for multi-tenant mode."""
+        from dp_connect_bot.services.tixomat_api import get_events
+        log.info(f"[{self.tenant_id}] Loading events from Tixomat API...")
+
+        events = get_events(ctx) if ctx else None
 
         if events is None:
-            log.error("Event-Cache: Konnte Events nicht laden.")
+            log.error(f"[{self.tenant_id}] Event cache: Could not load events.")
             return
 
         with self.lock:
@@ -45,9 +48,9 @@ class EventCache:
             self._build_indices()
             self.last_loaded = datetime.now()
 
-        log.info(f"Geladen: {len(self.events)} kommende Events")
+        log.info(f"[{self.tenant_id}] Loaded: {len(self.events)} upcoming events")
         if _on_cache_loaded:
-            _on_cache_loaded()
+            _on_cache_loaded(self.tenant_id)
 
     def _build_indices(self):
         """Baut Event-Name und Location-Index aus den echten Daten."""
@@ -107,7 +110,7 @@ class EventCache:
                         scored.append((score, e))
                 scored.sort(key=lambda x: -x[0])
                 if scored:
-                    log.info(f"Fuzzy-Fallback fuer '{query}': {len(scored)} Treffer (top: {scored[0][0]})")
+                    log.info(f"[{self.tenant_id}] Fuzzy fallback for '{query}': {len(scored)} hits (top: {scored[0][0]})")
             except ImportError:
                 pass
 
@@ -132,12 +135,46 @@ class EventCache:
         return None, None
 
 
-cache = EventCache()
+# ============================================================
+# Per-Tenant Cache Registry
+# ============================================================
+
+_caches: dict[str, EventCache] = {}
+_registry_lock = Lock()
+
+# Legacy global cache for backward compatibility
+cache = EventCache("default")
 
 
-def ensure_cache():
-    if cache.needs_refresh():
+def ensure_cache(ctx=None):
+    """Ensure the cache for a tenant is loaded. Returns the EventCache instance.
+
+    Args:
+        ctx: TenantContext. If None, uses the legacy global cache (backward compat).
+    """
+    if ctx is None:
+        # Legacy mode: use global cache (won't load without ctx)
+        return cache
+
+    tenant_id = ctx.tenant_id
+    tc = get_cache(tenant_id)
+
+    if tc is None:
+        with _registry_lock:
+            # Double-check after acquiring lock
+            if tenant_id not in _caches:
+                _caches[tenant_id] = EventCache(tenant_id)
+            tc = _caches[tenant_id]
+
+    if tc.needs_refresh():
         try:
-            cache.load()
+            tc.load(ctx)
         except Exception as e:
-            log.error(f"Event-Cache-Refresh fehlgeschlagen: {e}")
+            log.error(f"[{tenant_id}] Event cache refresh failed: {e}")
+
+    return tc
+
+
+def get_cache(tenant_id: str) -> EventCache | None:
+    """Get existing cache for a tenant, or None."""
+    return _caches.get(tenant_id)

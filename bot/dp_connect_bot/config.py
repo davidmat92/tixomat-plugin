@@ -8,7 +8,16 @@ import os
 import logging
 
 # ============================================================
+# MULTI-TENANT HUB CONFIG
+# ============================================================
+
+HUB_MASTER_KEY = os.environ.get("HUB_MASTER_KEY", "")
+BOT_BASE_URL = os.environ.get("BOT_BASE_URL", "https://tixomat-dpconnect.pythonanywhere.com")
+
+# ============================================================
 # API KEYS & EXTERNAL SERVICES
+# Legacy single-tenant config (kept for backward compatibility)
+# New tenants are configured via the tenant store (tenants.db)
 # ============================================================
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "")

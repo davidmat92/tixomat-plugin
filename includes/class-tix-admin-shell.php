@@ -154,6 +154,7 @@ class TIX_Admin_Shell {
             'newsletter'      => ['icon' => 'email-alt',              'label' => 'Newsletter'],
             'checkin'         => ['icon' => 'clipboard',              'label' => 'Check-in'],
             'fees'            => ['icon' => 'money-alt',              'label' => 'Gebühren'],
+            'bot'             => ['icon' => 'format-chat',            'label' => 'Ticket-Bot'],
             'typography'      => ['icon' => 'editor-textcolor',       'label' => 'Typografie'],
             'colors'          => ['icon' => 'admin-appearance',      'label' => 'Farben'],
             'advanced'        => ['icon' => 'admin-generic',          'label' => 'Erweitert'],

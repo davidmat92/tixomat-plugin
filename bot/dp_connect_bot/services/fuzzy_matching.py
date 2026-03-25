@@ -1,6 +1,6 @@
 """
 Fuzzy matching & search – alias resolution, typo correction, search term extraction.
-Adapted for Tixomat event ticketing bot.
+Multi-tenant: accepts cache parameter to use per-tenant EventCache.
 """
 
 from dp_connect_bot.config import CONFIRM_ALL, log
@@ -48,18 +48,21 @@ ALIASES = {
 _fuzzy_vocab = set()
 
 
-def _build_fuzzy_vocab():
+def _build_fuzzy_vocab(tenant_id=None):
     """Baut Vokabular aus allen bekannten Woertern auf."""
     global _fuzzy_vocab
-    from dp_connect_bot.services.event_cache import cache
+    from dp_connect_bot.services.event_cache import get_cache
+
+    tc = get_cache(tenant_id) if tenant_id else None
 
     vocab = set()
     for alias, target in ALIASES.items():
         vocab.add(alias)
         for w in target.split():
             vocab.add(w)
-    if cache.events:
-        for e in cache.events:
+    events = tc.events if tc else []
+    if events:
+        for e in events:
             title = e.get("title", "").lower()
             for w in title.split():
                 if len(w) >= 3:
@@ -131,24 +134,30 @@ def fuzzy_correct_text(text):
     return " ".join(corrected)
 
 
-def extract_search_terms(text):
-    """Extrahiert Suchbegriffe aus der Nutzer-Nachricht."""
-    from dp_connect_bot.services.event_cache import cache
+def extract_search_terms(text, cache=None):
+    """Extrahiert Suchbegriffe aus der Nutzer-Nachricht.
 
+    Args:
+        text: User message text
+        cache: EventCache instance (per-tenant). If None, uses empty events list.
+    """
     text_lower = normalize_query(fuzzy_correct_text(text))
     terms = []
 
     # Event-Signalwoerter (nicht als Suchbegriff nutzen)
     _event_signals = {"events", "event", "ticket", "buchen", "kaufen", "bestellen"}
 
+    events = cache.events if cache else []
+    locations = cache.locations if cache else set()
+
     # Event-Titel im Text suchen
-    for event in cache.events:
+    for event in events:
         title = event.get("title", "").lower()
         if len(title) >= 4 and title in text_lower:
             terms.append(title)
 
     # Location im Text suchen
-    for loc in cache.locations:
+    for loc in locations:
         if len(loc) >= 4 and loc in text_lower:
             if loc not in terms:
                 terms.append(loc)

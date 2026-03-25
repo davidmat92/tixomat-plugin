@@ -1,3 +1,5 @@
+"""Admin route blueprint – multi-tenant scoped."""
+
 import json
 import re
 import sqlite3
@@ -7,21 +9,56 @@ from flask import Blueprint, request, jsonify
 
 from dp_connect_bot.config import ADMIN_API_KEY, HISTORY_DB_PATH, SESSION_TIMEOUT_HOURS, log
 from dp_connect_bot.models.session import session_manager
+from dp_connect_bot.models.tenant import TenantContext
 from dp_connect_bot.adapters.telegram import TelegramAdapter
 from dp_connect_bot.adapters.whatsapp import WhatsAppAdapter
 from dp_connect_bot.services.bot_config import load_bot_config, save_bot_config
+from dp_connect_bot.services import tenant_store
 
 admin_bp = Blueprint("admin", __name__)
 
 
-def _require_admin():
+def _require_admin() -> TenantContext | None:
+    """Authenticate admin request. Returns TenantContext if authorized, None otherwise.
+
+    Supports two auth modes:
+    1. Legacy: X-Admin-Key header matches global ADMIN_API_KEY (no tenant scoping)
+    2. Multi-tenant: X-Admin-Key header matches a tenant's admin_api_key
+    """
     key = request.headers.get("X-Admin-Key", "")
-    return key == ADMIN_API_KEY
+    if not key:
+        return None
+
+    # Legacy global admin key – return first tenant for backward compat
+    if ADMIN_API_KEY and key == ADMIN_API_KEY:
+        tenants = tenant_store.get_all_active()
+        if tenants:
+            return TenantContext.from_dict(tenants[0])
+        return None
+
+    # Per-tenant admin key lookup
+    for t in tenant_store.get_all_active():
+        if t.get("admin_api_key") == key:
+            return TenantContext.from_dict(t)
+
+    return None
+
+
+def _session_belongs_to_tenant(chat_id: str, tenant_id: str) -> bool:
+    """Check if a session chat_id belongs to a given tenant."""
+    # Session keys are formatted as: {channel}_{tenant_id}_{chat_id}
+    # or legacy format: {channel}_{chat_id} (belongs to default tenant)
+    parts = chat_id.split("_", 2)
+    if len(parts) >= 3:
+        return parts[1] == tenant_id
+    # Legacy sessions belong to the default/first tenant
+    return True
 
 
 @admin_bp.route("/admin/sessions", methods=["GET"])
 def admin_sessions():
-    if not _require_admin():
+    ctx = _require_admin()
+    if not ctx:
         return jsonify(ok=False, error="Unauthorized"), 401
     try:
         channel_filter = request.args.get("channel")
@@ -31,6 +68,10 @@ def admin_sessions():
 
         result = []
         for cid, s in all_sessions.items():
+            # Tenant scoping
+            if not _session_belongs_to_tenant(cid, ctx.tenant_id):
+                continue
+
             if channel_filter and s.get("channel") != channel_filter:
                 continue
 
@@ -76,7 +117,7 @@ def admin_sessions():
             })
 
         result.sort(key=lambda x: x.get("last_activity", ""), reverse=True)
-        return jsonify(ok=True, sessions=result, total=len(result))
+        return jsonify(ok=True, sessions=result, total=len(result), tenant_id=ctx.tenant_id)
     except Exception as e:
         log.error(f"[admin_sessions] Error: {e}")
         return jsonify(ok=False, error="Internal error"), 500
@@ -85,7 +126,8 @@ def admin_sessions():
 @admin_bp.route("/admin/sessions/clear", methods=["POST"])
 def admin_clear_sessions():
     """Delete ALL active sessions (optionally archive first) and/or clear history."""
-    if not _require_admin():
+    ctx = _require_admin()
+    if not ctx:
         return jsonify(ok=False, error="Unauthorized"), 401
     try:
         data = request.get_json(silent=True) or {}
@@ -119,7 +161,7 @@ def admin_clear_sessions():
                 log.error(f"[admin_clear_sessions] History DB error: {e}")
                 return jsonify(ok=False, error=f"History clear failed: {e}"), 500
 
-        log.info(f"[admin_clear_sessions] active={deleted_active}, history={deleted_history}")
+        log.info(f"[admin_clear_sessions] tenant={ctx.tenant_id} active={deleted_active}, history={deleted_history}")
         return jsonify(
             ok=True,
             deleted_active=deleted_active,
@@ -132,9 +174,13 @@ def admin_clear_sessions():
 
 @admin_bp.route("/admin/conversation/<chat_id>", methods=["GET"])
 def admin_conversation(chat_id):
-    if not _require_admin():
+    ctx = _require_admin()
+    if not ctx:
         return jsonify(ok=False, error="Unauthorized"), 401
     try:
+        if not _session_belongs_to_tenant(chat_id, ctx.tenant_id):
+            return jsonify(ok=False, error="Session not found"), 404
+
         all_sessions = session_manager.get_all()
         if chat_id not in all_sessions:
             return jsonify(ok=False, error="Session not found"), 404
@@ -166,6 +212,7 @@ def admin_conversation(chat_id):
             last_activity=s.get("last_activity", ""),
             conversation=clean_conv,
             is_human_mode=s.get("human_mode", False),
+            tenant_id=ctx.tenant_id,
         )
     except Exception as e:
         log.error(f"[admin_conversation] Error: {e}")
@@ -174,13 +221,17 @@ def admin_conversation(chat_id):
 
 @admin_bp.route("/admin/reply", methods=["POST"])
 def admin_reply():
-    if not _require_admin():
+    ctx = _require_admin()
+    if not ctx:
         return jsonify(ok=False, error="Unauthorized"), 401
     try:
         data = request.get_json()
         chat_id = data.get("chat_id", "")
         message = data.get("message", "").strip()
         enable_human_mode = data.get("human_mode")
+
+        if not _session_belongs_to_tenant(chat_id, ctx.tenant_id):
+            return jsonify(ok=False, error="Session not found"), 404
 
         all_sessions = session_manager.get_all()
         if chat_id not in all_sessions:
@@ -201,15 +252,20 @@ def admin_reply():
         raw_id = chat_id.split("_", 1)[1] if "_" in chat_id else chat_id
 
         if channel == "telegram":
-            tg = TelegramAdapter()
-            tg._send_message(raw_id, f"\U0001f464 {message}")
+            # For multi-tenant, extract the actual telegram chat_id (last part)
+            parts = chat_id.split("_")
+            tg_chat_id = parts[-1] if len(parts) >= 3 else raw_id
+            tg = TelegramAdapter(ctx=ctx)
+            tg._send_message(tg_chat_id, f"\U0001f464 {message}")
             s["conversation"].append({"role": "assistant", "content": f"[ADMIN] {message}"})
             session_manager.save(chat_id, s)
             return jsonify(ok=True, sent=True, channel="telegram")
 
         elif channel == "whatsapp":
-            wa = WhatsAppAdapter()
-            wa._send_message(raw_id, f"\U0001f464 {message}")
+            parts = chat_id.split("_")
+            wa_phone = parts[-1] if len(parts) >= 3 else raw_id
+            wa = WhatsAppAdapter(ctx=ctx)
+            wa._send_message(wa_phone, f"\U0001f464 {message}")
             s["conversation"].append({"role": "assistant", "content": f"[ADMIN] {message}"})
             session_manager.save(chat_id, s)
             return jsonify(ok=True, sent=True, channel="whatsapp")
@@ -228,14 +284,15 @@ def admin_reply():
 
 @admin_bp.route("/admin/stats", methods=["GET"])
 def admin_stats():
-    if not _require_admin():
+    ctx = _require_admin()
+    if not ctx:
         return jsonify(ok=False, error="Unauthorized"), 401
     try:
         days = int(request.args.get("days", 30))
         now = datetime.now()
         all_sessions = session_manager.get_all()
 
-        total_sessions = len(all_sessions)
+        total_sessions = 0
         active_24h = 0
         active_1h = 0
         channels = {"web": 0, "telegram": 0, "whatsapp": 0}
@@ -246,6 +303,12 @@ def admin_stats():
         conv_lengths = []
 
         for cid, s in all_sessions.items():
+            # Tenant scoping
+            if not _session_belongs_to_tenant(cid, ctx.tenant_id):
+                continue
+
+            total_sessions += 1
+
             try:
                 last = datetime.fromisoformat(s.get("last_activity", "2000-01-01"))
                 hours = (now - last).total_seconds() / 3600
@@ -337,6 +400,7 @@ def admin_stats():
 
         return jsonify(
             ok=True,
+            tenant_id=ctx.tenant_id,
             total_sessions=total_sessions,
             active_24h=active_24h,
             active_1h=active_1h,
@@ -360,7 +424,8 @@ def admin_stats():
 
 @admin_bp.route("/admin/search", methods=["GET"])
 def admin_search():
-    if not _require_admin():
+    ctx = _require_admin()
+    if not ctx:
         return jsonify(ok=False, error="Unauthorized"), 401
     try:
         q = request.args.get("q", "").strip()
@@ -372,6 +437,9 @@ def admin_search():
         all_sessions = session_manager.get_all()
 
         for cid, s in all_sessions.items():
+            if not _session_belongs_to_tenant(cid, ctx.tenant_id):
+                continue
+
             match_reason = []
             name = (s.get("customer_name") or "").lower()
             email = (s.get("user_info", {}).get("wp_email") or "").lower()
@@ -447,7 +515,7 @@ def admin_search():
             log.error(f"Search DB error: {e}")
 
         results.sort(key=lambda x: x.get("last_activity", ""), reverse=True)
-        return jsonify(ok=True, results=results, total=len(results), query=q)
+        return jsonify(ok=True, results=results, total=len(results), query=q, tenant_id=ctx.tenant_id)
     except Exception as e:
         log.error(f"[admin_search] Error: {e}")
         return jsonify(ok=False, error="Internal error"), 500
@@ -455,7 +523,8 @@ def admin_search():
 
 @admin_bp.route("/admin/history/<chat_id>", methods=["GET"])
 def admin_history(chat_id):
-    if not _require_admin():
+    ctx = _require_admin()
+    if not ctx:
         return jsonify(ok=False, error="Unauthorized"), 401
     try:
         all_sessions = session_manager.get_all()
@@ -496,6 +565,7 @@ def admin_history(chat_id):
                 conversation=clean_conv,
                 is_archived=True,
                 archived_at=row["archived_at"] or "",
+                tenant_id=ctx.tenant_id,
             )
     except Exception as e:
         log.error(f"History load error: {e}")
@@ -504,7 +574,8 @@ def admin_history(chat_id):
 
 @admin_bp.route("/admin/notifications", methods=["GET"])
 def admin_notifications():
-    if not _require_admin():
+    ctx = _require_admin()
+    if not ctx:
         return jsonify(ok=False, error="Unauthorized"), 401
     try:
         since = request.args.get("since", "")
@@ -515,6 +586,9 @@ def admin_notifications():
         all_sessions = session_manager.get_all()
 
         for cid, s in all_sessions.items():
+            if not _session_belongs_to_tenant(cid, ctx.tenant_id):
+                continue
+
             try:
                 last = datetime.fromisoformat(s.get("last_activity", "2000-01-01"))
                 since_dt = datetime.fromisoformat(since)
@@ -544,12 +618,13 @@ def admin_notifications():
 @admin_bp.route("/admin/config", methods=["GET", "POST"])
 def admin_config():
     """Get or update global bot configuration."""
-    if not _require_admin():
+    ctx = _require_admin()
+    if not ctx:
         return jsonify(ok=False, error="Unauthorized"), 401
     try:
         if request.method == "GET":
             config = load_bot_config()
-            return jsonify(ok=True, config=config)
+            return jsonify(ok=True, config=config, tenant_id=ctx.tenant_id)
 
         # POST – update config
         data = request.get_json() or {}
@@ -557,8 +632,8 @@ def admin_config():
         if "order_enabled" in data:
             config["order_enabled"] = bool(data["order_enabled"])
         save_bot_config(config)
-        log.info(f"[admin_config] Config updated: {config}")
-        return jsonify(ok=True, config=config)
+        log.info(f"[admin_config] Config updated by tenant {ctx.tenant_id}: {config}")
+        return jsonify(ok=True, config=config, tenant_id=ctx.tenant_id)
     except Exception as e:
         log.error(f"[admin_config] Error: {e}")
         return jsonify(ok=False, error="Internal error"), 500

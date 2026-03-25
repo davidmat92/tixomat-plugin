@@ -2,6 +2,7 @@
 Claude AI service – loads system prompt, calls Anthropic API.
 Supports both order mode (simple text) and support mode (tool use).
 Adapted for Tixomat event ticketing bot.
+Multi-tenant: accepts TenantContext (ctx) parameter.
 """
 
 import json
@@ -46,12 +47,46 @@ _API_HEADERS = {
 }
 
 
-def _api_call(system, messages, tools=None, max_tokens=1024):
+def _get_api_key(ctx=None) -> str:
+    """Get Anthropic API key – from tenant context or global config."""
+    if ctx and ctx.anthropic_api_key:
+        return ctx.anthropic_api_key
+    return ANTHROPIC_API_KEY
+
+
+def _build_system_prompt(ctx=None) -> str:
+    """Build system prompt with tenant-specific personality and bot name."""
+    base = SYSTEM_PROMPT
+    if ctx:
+        if ctx.personality:
+            base = f"{base}\n\n## Tenant-Specific Personality\n{ctx.personality}"
+        if ctx.bot_name and ctx.bot_name != "Ticket-Assistent":
+            base = base.replace("Ticket-Assistent", ctx.bot_name)
+        if ctx.site_name:
+            base = base.replace("Tixomat", ctx.site_name)
+    return base
+
+
+def _build_support_prompt(ctx=None) -> str:
+    """Build support prompt with tenant-specific info."""
+    base = SUPPORT_PROMPT
+    if ctx:
+        if ctx.personality:
+            base = f"{base}\n\n## Tenant-Specific Personality\n{ctx.personality}"
+        if ctx.bot_name and ctx.bot_name != "Ticket-Assistent":
+            base = base.replace("Ticket-Assistent", ctx.bot_name)
+        if ctx.site_name:
+            base = base.replace("Tixomat", ctx.site_name)
+    return base
+
+
+def _api_call(system, messages, tools=None, max_tokens=1024, ctx=None):
     """Low-level Anthropic API call. Returns parsed JSON or None."""
-    if not ANTHROPIC_API_KEY:
+    api_key = _get_api_key(ctx)
+    if not api_key:
         return None
 
-    headers = {**_API_HEADERS, "x-api-key": ANTHROPIC_API_KEY}
+    headers = {**_API_HEADERS, "x-api-key": api_key}
     payload = {
         "model": "claude-sonnet-4-20250514",
         "max_tokens": max_tokens,
@@ -70,7 +105,7 @@ def _api_call(system, messages, tools=None, max_tokens=1024):
 # ORDER MODE (Ticket-Verkauf)
 # ============================================================
 
-def call_claude(session, user_message, event_context="", wc_cart=None):
+def call_claude(session, user_message, event_context="", wc_cart=None, ctx=None):
     """Ruft Claude API auf und gibt die Antwort zurueck.
 
     Args:
@@ -78,11 +113,13 @@ def call_claude(session, user_message, event_context="", wc_cart=None):
         user_message: Nachricht des Kunden
         event_context: Eventdaten-String von build_event_context
         wc_cart: WooCommerce Cart vom Frontend (optional, fuer Webchat)
+        ctx: TenantContext for multi-tenant support
 
     Returns:
         AI response text string
     """
-    if not ANTHROPIC_API_KEY:
+    api_key = _get_api_key(ctx)
+    if not api_key:
         return "Bot ist noch nicht konfiguriert (API Key fehlt). Bitte Admin kontaktieren."
 
     messages = list(session["conversation"][-16:])
@@ -120,7 +157,8 @@ def call_claude(session, user_message, event_context="", wc_cart=None):
     messages.append({"role": "user", "content": content})
 
     try:
-        data = _api_call(SYSTEM_PROMPT, messages)
+        system_prompt = _build_system_prompt(ctx)
+        data = _api_call(system_prompt, messages, ctx=ctx)
         if not data:
             return "Bot ist noch nicht konfiguriert (API Key fehlt). Bitte Admin kontaktieren."
 
@@ -212,7 +250,7 @@ SUPPORT_TOOLS = [
 ]
 
 
-def _execute_support_tool(tool_name, tool_input):
+def _execute_support_tool(tool_name, tool_input, ctx=None):
     """Execute a support tool and return the result as a dict."""
     from dp_connect_bot.services.woocommerce import wc_client
     from dp_connect_bot.services.tixomat_api import lookup_tickets, customer_exists
@@ -228,7 +266,7 @@ def _execute_support_tool(tool_name, tool_input):
             email = tool_input["email"]
             v_type = tool_input["verification_type"]
             v_value = tool_input["verification_value"]
-            result = lookup_tickets(email, v_type, v_value)
+            result = lookup_tickets(ctx, email, v_type, v_value) if ctx else {"ok": False, "error": "no_ctx"}
             if result.get("ok"):
                 tickets = result.get("tickets", [])
                 if tickets:
@@ -253,7 +291,7 @@ def _execute_support_tool(tool_name, tool_input):
             return {"success": False, "error": message}
 
         elif tool_name == "check_customer_account":
-            result = customer_exists(tool_input["email"])
+            result = customer_exists(ctx, tool_input["email"]) if ctx else {"ok": False}
             if result.get("ok"):
                 return {
                     "success": True,
@@ -278,12 +316,13 @@ def _execute_support_tool(tool_name, tool_input):
         return {"success": False, "error": "Interner Fehler beim Abrufen der Daten."}
 
 
-def call_claude_support(session, user_message):
+def call_claude_support(session, user_message, ctx=None):
     """Claude mit Tool Use fuer Support-Anfragen.
 
     Args:
         session: Session dict (with conversation)
         user_message: Nachricht des Kunden
+        ctx: TenantContext for multi-tenant support
 
     Returns:
         tuple: (response_text, escalated, escalation_info)
@@ -291,7 +330,8 @@ def call_claude_support(session, user_message):
         - escalated: bool, True if escalation was triggered
         - escalation_info: dict with reason and collected_info if escalated
     """
-    if not ANTHROPIC_API_KEY:
+    api_key = _get_api_key(ctx)
+    if not api_key:
         return "Bot ist noch nicht konfiguriert (API Key fehlt). Bitte Admin kontaktieren.", False, None
 
     # Build conversation messages (last 20 for support – may need more context)
@@ -303,8 +343,9 @@ def call_claude_support(session, user_message):
     max_tool_rounds = 5  # Safety limit
 
     try:
+        support_prompt = _build_support_prompt(ctx)
         # First API call with tools
-        data = _api_call(SUPPORT_PROMPT, messages, tools=SUPPORT_TOOLS)
+        data = _api_call(support_prompt, messages, tools=SUPPORT_TOOLS, ctx=ctx)
         if not data:
             return "Bot ist noch nicht konfiguriert (API Key fehlt). Bitte Admin kontaktieren.", False, None
 
@@ -323,7 +364,7 @@ def call_claude_support(session, user_message):
                     tool_id = block["id"]
 
                     log.info(f"Support tool call: {tool_name}({json.dumps(tool_input, ensure_ascii=False)})")
-                    result = _execute_support_tool(tool_name, tool_input)
+                    result = _execute_support_tool(tool_name, tool_input, ctx=ctx)
                     log.info(f"Support tool result: {tool_name} -> success={result.get('success')}")
 
                     # Check for escalation
@@ -344,7 +385,7 @@ def call_claude_support(session, user_message):
             messages.append({"role": "assistant", "content": assistant_content})
             messages.append({"role": "user", "content": tool_results})
 
-            data = _api_call(SUPPORT_PROMPT, messages, tools=SUPPORT_TOOLS)
+            data = _api_call(support_prompt, messages, tools=SUPPORT_TOOLS, ctx=ctx)
             if not data:
                 break
 

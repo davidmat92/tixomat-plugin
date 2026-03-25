@@ -1,6 +1,7 @@
 """
 Unified message & callback handlers – single code path for ALL channels.
 Adapted for Tixomat event ticketing bot.
+Multi-tenant: accepts TenantContext (ctx) parameter throughout.
 """
 
 from dp_connect_bot.config import (
@@ -9,9 +10,10 @@ from dp_connect_bot.config import (
 )
 from dp_connect_bot.models.response import BotResponse, Keyboard, KeyboardType, WcAction
 from dp_connect_bot.models.session import session_manager
+from dp_connect_bot.models.tenant import TenantContext
 from dp_connect_bot.services.claude_ai import call_claude
 from dp_connect_bot.services.event_context import build_event_context
-from dp_connect_bot.services.event_cache import cache
+from dp_connect_bot.services.event_cache import ensure_cache
 from dp_connect_bot.services.cart_processing import (
     process_cart_actions, format_cart, format_cart_rich, generate_checkout_url,
 )
@@ -35,11 +37,38 @@ from dp_connect_bot.handlers.mode import (
 )
 
 
-def unified_handle_message(chat_id, text, user_info=None, channel="telegram", wc_cart=None):
-    """Single entry point for ALL text messages from ALL channels."""
+def _get_default_ctx() -> TenantContext | None:
+    """Get default tenant context for backward compatibility."""
+    from dp_connect_bot.services import tenant_store
+    tenants = tenant_store.get_all_active()
+    if tenants:
+        return TenantContext.from_dict(tenants[0])
+    return None
+
+
+def unified_handle_message(chat_id, text, user_info=None, channel="telegram", wc_cart=None, ctx=None):
+    """Single entry point for ALL text messages from ALL channels.
+
+    Args:
+        chat_id: Session key (should be prefixed with channel and tenant_id)
+        text: User message text
+        user_info: User info dict (optional)
+        channel: Channel name (telegram, web, whatsapp)
+        wc_cart: WooCommerce cart from frontend (optional)
+        ctx: TenantContext for multi-tenant support
+    """
+    if ctx is None:
+        ctx = _get_default_ctx()
+
     chat_id = str(chat_id)
     session = session_manager.get(chat_id, archive_callback=archive_session)
     session["channel"] = channel
+    if ctx:
+        session["tenant_id"] = ctx.tenant_id
+
+    # Ensure event cache is loaded for this tenant
+    if ctx:
+        tenant_cache = ensure_cache(ctx)
 
     # Store user info
     if user_info and not session["customer_name"]:
@@ -72,7 +101,7 @@ def unified_handle_message(chat_id, text, user_info=None, channel="telegram", wc
     # --- Commands ---
     stripped = text.strip()
     if stripped.startswith("/start"):
-        resp = handle_start(session)
+        resp = handle_start(session, ctx=ctx)
         session_manager.save(chat_id, session)
         return resp
 
@@ -92,7 +121,7 @@ def unified_handle_message(chat_id, text, user_info=None, channel="telegram", wc
     # --- Callback-like strings from WhatsApp/channel button clicks ---
     _CB_PREFIXES = ("mode_", "tcat_", "tqty_", "custom_", "ev_", "tl_", "cb_", "done_")
     if stripped.startswith(_CB_PREFIXES) or stripped == "noop":
-        resp = unified_handle_callback(chat_id, stripped, channel=session.get("channel", "telegram"))
+        resp = unified_handle_callback(chat_id, stripped, channel=session.get("channel", "telegram"), ctx=ctx)
         session_manager.save(chat_id, session)
         return resp
 
@@ -104,7 +133,7 @@ def unified_handle_message(chat_id, text, user_info=None, channel="telegram", wc
         return resp
 
     # --- Mode gate ---
-    mode_response = detect_mode(session, text, channel)
+    mode_response = detect_mode(session, text, channel, ctx=ctx)
     if mode_response:
         session_manager.save(chat_id, session)
         return mode_response
@@ -117,7 +146,7 @@ def unified_handle_message(chat_id, text, user_info=None, channel="telegram", wc
 
     # --- Ticket-Lookup Flow ---
     if session.get("mode") == "ticket_lookup":
-        resp = handle_ticket_lookup(chat_id, text, session, channel)
+        resp = handle_ticket_lookup(chat_id, text, session, channel, ctx=ctx)
         session_manager.save(chat_id, session)
         return resp
 
@@ -129,7 +158,7 @@ def unified_handle_message(chat_id, text, user_info=None, channel="telegram", wc
 
     # --- AI-First Support ---
     if session.get("mode") == "support" and not session.get("human_mode"):
-        resp = handle_support_message(chat_id, text, session, channel)
+        resp = handle_support_message(chat_id, text, session, channel, ctx=ctx)
         session_manager.save(chat_id, session)
         return resp
 
@@ -153,7 +182,7 @@ def unified_handle_message(chat_id, text, user_info=None, channel="telegram", wc
 
     # --- Checkout shortcut ---
     if lower_text in CHECKOUT_WORDS and session.get("cart"):
-        resp = handle_checkout(session, channel)
+        resp = handle_checkout(session, channel, ctx=ctx)
         if resp:
             track_event("checkout", chat_id, channel)
             session_manager.save(chat_id, session)
@@ -167,7 +196,7 @@ def unified_handle_message(chat_id, text, user_info=None, channel="telegram", wc
 
     # --- Browse/events shortcut ---
     if lower_text in BROWSE_TRIGGERS:
-        resp = handle_browse(session, channel)
+        resp = handle_browse(session, channel, ctx=ctx)
         session_manager.save(chat_id, session)
         return resp
 
@@ -175,10 +204,10 @@ def unified_handle_message(chat_id, text, user_info=None, channel="telegram", wc
     if lower_text in CONFIRM_ALL:
         event_context = ""
     else:
-        event_context = build_event_context(text)
+        event_context = build_event_context(text, ctx=ctx)
 
-    ai_response = call_claude(session, text, event_context, wc_cart=wc_cart)
-    clean_text, keyboards, wc_actions = process_cart_actions(session, ai_response)
+    ai_response = call_claude(session, text, event_context, wc_cart=wc_cart, ctx=ctx)
+    clean_text, keyboards, wc_actions = process_cart_actions(session, ai_response, ctx=ctx)
 
     session_manager.save(chat_id, session)
 
@@ -191,10 +220,17 @@ def unified_handle_message(chat_id, text, user_info=None, channel="telegram", wc
     )
 
 
-def unified_handle_callback(chat_id, callback_data, channel="telegram"):
+def unified_handle_callback(chat_id, callback_data, channel="telegram", ctx=None):
     """Single entry point for ALL callback/button clicks from ALL channels."""
+    if ctx is None:
+        ctx = _get_default_ctx()
+
     chat_id = str(chat_id)
     session = session_manager.get(chat_id, archive_callback=archive_session)
+
+    # Ensure event cache is loaded for this tenant
+    if ctx:
+        tenant_cache = ensure_cache(ctx)
 
     if callback_data == "mode_order":
         session["mode"] = "order"
@@ -261,21 +297,22 @@ def unified_handle_callback(chat_id, callback_data, channel="telegram"):
         event_id = callback_data[3:]
         session["mode"] = "order"
         session_manager.save(chat_id, session)
-        event = cache.get_event_by_id(event_id)
+        tc = ensure_cache(ctx) if ctx else None
+        event = tc.get_event_by_id(event_id) if tc else None
         if event:
-            return unified_handle_message(chat_id, event.get("title", ""), channel=session.get("channel", "telegram"))
+            return unified_handle_message(chat_id, event.get("title", ""), channel=session.get("channel", "telegram"), ctx=ctx)
         return BotResponse(text="Event nicht gefunden. Versuch es nochmal!", answer_callback_text="❌")
 
     # --- Ticket category selection ---
     elif callback_data.startswith("tcat_"):
-        return _handle_category_selection(session, chat_id, callback_data)
+        return _handle_category_selection(session, chat_id, callback_data, ctx=ctx)
 
     # --- Ticket quantity selection ---
     elif callback_data.startswith("tqty_"):
-        return _handle_quantity_selection(session, chat_id, callback_data)
+        return _handle_quantity_selection(session, chat_id, callback_data, ctx=ctx)
 
     elif callback_data.startswith("custom_"):
-        return _handle_custom_quantity(session, chat_id, callback_data)
+        return _handle_custom_quantity(session, chat_id, callback_data, ctx=ctx)
 
     elif callback_data == "done_categories":
         return _handle_done_categories(session, chat_id)
@@ -289,10 +326,14 @@ def unified_handle_callback(chat_id, callback_data, channel="telegram"):
     return BotResponse(is_silent=True)
 
 
-def _handle_category_selection(session, chat_id, callback_data):
+def _handle_category_selection(session, chat_id, callback_data, ctx=None):
     """Handle ticket category button click."""
     product_id = callback_data[5:]
-    cat, event = cache.get_category_by_product_id(int(product_id))
+    tc = ensure_cache(ctx) if ctx else None
+    if not tc:
+        return BotResponse(answer_callback_text="Cache nicht verfuegbar")
+
+    cat, event = tc.get_category_by_product_id(int(product_id))
 
     if not cat or not event:
         return BotResponse(answer_callback_text="Kategorie nicht gefunden")
@@ -332,7 +373,7 @@ def _handle_category_selection(session, chat_id, callback_data):
     )
 
 
-def _handle_quantity_selection(session, chat_id, callback_data):
+def _handle_quantity_selection(session, chat_id, callback_data, ctx=None):
     """Handle quantity button click for tickets."""
     parts = callback_data.split("_")
     if len(parts) != 3:
@@ -341,7 +382,11 @@ def _handle_quantity_selection(session, chat_id, callback_data):
     product_id = parts[1]
     quantity = int(parts[2])
 
-    cat, event = cache.get_category_by_product_id(int(product_id))
+    tc = ensure_cache(ctx) if ctx else None
+    if not tc:
+        return BotResponse(answer_callback_text="Cache nicht verfuegbar")
+
+    cat, event = tc.get_category_by_product_id(int(product_id))
     if not cat or not event:
         return BotResponse(answer_callback_text="Nicht mehr verfuegbar")
 
@@ -392,10 +437,14 @@ def _handle_quantity_selection(session, chat_id, callback_data):
     )
 
 
-def _handle_custom_quantity(session, chat_id, callback_data):
+def _handle_custom_quantity(session, chat_id, callback_data, ctx=None):
     """Handle 'custom quantity' button click."""
     product_id = callback_data[7:]
-    cat, event = cache.get_category_by_product_id(int(product_id))
+    tc = ensure_cache(ctx) if ctx else None
+    if not tc:
+        return BotResponse(answer_callback_text="Cache nicht verfuegbar")
+
+    cat, event = tc.get_category_by_product_id(int(product_id))
 
     if not cat or not event:
         return BotResponse(answer_callback_text="Produkt nicht gefunden")

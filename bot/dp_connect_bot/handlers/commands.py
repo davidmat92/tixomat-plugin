@@ -1,6 +1,6 @@
 """
 Command handlers – /start, /reset, /warenkorb, /hilfe.
-Adapted for Tixomat event ticketing bot.
+Multi-tenant: accepts TenantContext (ctx) parameter where needed.
 """
 
 from dp_connect_bot.config import BETA_HINT, log
@@ -8,7 +8,7 @@ from dp_connect_bot.models.response import BotResponse, Keyboard, KeyboardType, 
 from dp_connect_bot.services.cart_processing import format_cart
 
 
-def handle_start(session):
+def handle_start(session, ctx=None):
     """Handle /start command – reset session, show mode choice."""
     name = session.get("customer_name", "")
 
@@ -24,10 +24,15 @@ def handle_start(session):
     session["ticket_lookup_step"] = None
     session["ticket_lookup_email"] = None
 
+    # Use tenant-specific bot name if available
+    site_name = "Tixomat"
+    if ctx and ctx.site_name:
+        site_name = ctx.site_name
+
     return BotResponse(
         text=(
             f"Hey{' ' + name if name else ''}! 👋\n\n"
-            f"Willkommen bei *Tixomat*! Wie kann ich dir helfen?{BETA_HINT}"
+            f"Willkommen bei *{site_name}*! Wie kann ich dir helfen?{BETA_HINT}"
         ),
         keyboards=[Keyboard(type=KeyboardType.MODE_CHOICE)],
     )

@@ -1,6 +1,6 @@
 """
 Mode detection & gate – determines order vs support vs ticket-lookup mode.
-Adapted for Tixomat event ticketing bot.
+Multi-tenant: accepts TenantContext (ctx) parameter.
 """
 
 from dp_connect_bot.config import BETA_HINT, log
@@ -42,7 +42,7 @@ SUPPORT_KEYWORDS = {
 }
 
 
-def detect_mode(session, text, channel):
+def detect_mode(session, text, channel, ctx=None):
     """Smart mode detection. Returns BotResponse if mode gate should block, else None.
 
     Side effect: sets session["mode"] if detected.
@@ -87,15 +87,21 @@ def detect_mode(session, text, channel):
         return None
 
     if session.get("message_count", 0) <= 1:
-        # First message, no signal → show mode choice
+        # First message, no signal -> show mode choice
         name = session.get("customer_name", "")
         session["mode"] = "choosing"
+
+        # Use tenant-specific site name if available
+        site_name = ""
+        if ctx and ctx.site_name:
+            site_name = f" bei {ctx.site_name}"
+
         return BotResponse(
             text=f"Hey{' ' + name if name else ''}! 👋\n\nWie kann ich dir helfen?{BETA_HINT}",
             keyboards=[Keyboard(type=KeyboardType.MODE_CHOICE)],
         )
 
-    # Subsequent messages without mode → assume order
+    # Subsequent messages without mode -> assume order
     session["mode"] = "order"
     return None
 

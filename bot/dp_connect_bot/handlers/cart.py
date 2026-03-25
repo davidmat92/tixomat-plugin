@@ -1,25 +1,25 @@
 """
 Cart handlers – checkout, cart display, browse events, pending quantity.
-Adapted for Tixomat event ticketing bot.
+Multi-tenant: accepts TenantContext (ctx) parameter where needed.
 """
 
 from dp_connect_bot.config import CHECKOUT_WORDS, CART_DISPLAY_WORDS, BROWSE_TRIGGERS, log
 from dp_connect_bot.models.response import BotResponse, Keyboard, KeyboardType, Button
 from dp_connect_bot.services.cart_processing import format_cart, generate_checkout_url
-from dp_connect_bot.services.event_cache import cache, ensure_cache
+from dp_connect_bot.services.event_cache import ensure_cache
 from dp_connect_bot.services.history import track_event
 from dp_connect_bot.utils.formatting import format_price_de, parse_price
 from dp_connect_bot.utils.hints import get_hint
 
 
-def handle_checkout(session, channel):
+def handle_checkout(session, channel, ctx=None):
     """Handle checkout request when cart is not empty."""
     if not session.get("cart"):
         return None
 
     n = len(session["cart"])
     total = sum(parse_price(i.get("price", "0")) * i.get("quantity", 0) for i in session["cart"])
-    url = generate_checkout_url(session["cart"])
+    url = generate_checkout_url(session["cart"], ctx=ctx)
     session["status"] = "checkout"
     session["last_order"] = list(session["cart"])
 
@@ -60,10 +60,10 @@ def handle_cart_view(session):
         return BotResponse(text="🛒 Dein Warenkorb ist noch leer. Sag mir welches Event dich interessiert! 🎫")
 
 
-def handle_browse(session, channel):
+def handle_browse(session, channel, ctx=None):
     """Handle browse/events overview request."""
-    ensure_cache()
-    events = cache.get_upcoming()
+    tc = ensure_cache(ctx)
+    events = tc.get_upcoming()
 
     if not events:
         return BotResponse(text="Aktuell sind leider keine Events geplant. Schau spaeter nochmal vorbei! 😊")

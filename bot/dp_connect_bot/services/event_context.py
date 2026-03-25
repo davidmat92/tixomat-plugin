@@ -1,26 +1,26 @@
 """
 Event context builder – creates the event context string for Claude AI.
-Replaces product_context.py for the Tixomat bot.
+Multi-tenant: accepts TenantContext (ctx) parameter.
 """
 
-from dp_connect_bot.services.event_cache import cache, ensure_cache
+from dp_connect_bot.services.event_cache import ensure_cache
 from dp_connect_bot.services.fuzzy_matching import extract_search_terms
 from dp_connect_bot.utils.formatting import format_price_de
 
 
-def build_event_context(user_message):
+def build_event_context(user_message, ctx=None):
     """Baut den Event-Kontext fuer Claude basierend auf der Nutzer-Nachricht."""
-    ensure_cache()
-    search_terms = extract_search_terms(user_message)
+    tc = ensure_cache(ctx)
+    search_terms = extract_search_terms(user_message, cache=tc)
     parts = []
 
     if not search_terms:
         # Kein spezifischer Suchbegriff -> alle kommenden Events zeigen
-        parts.append(get_event_overview())
+        parts.append(get_event_overview(ctx=ctx))
         return "\n".join(parts)
 
     for term in search_terms:
-        found = cache.search_events(term)
+        found = tc.search_events(term)
 
         if found:
             parts.append(f"\n=== EVENTS fuer '{term}' ===")
@@ -109,10 +109,10 @@ def format_event(event):
     return "\n".join(lines)
 
 
-def get_event_overview():
+def get_event_overview(ctx=None):
     """Uebersicht aller kommenden Events."""
-    ensure_cache()
-    events = cache.get_upcoming()
+    tc = ensure_cache(ctx)
+    events = tc.get_upcoming()
 
     if not events:
         return "Aktuell sind keine kommenden Events geplant."

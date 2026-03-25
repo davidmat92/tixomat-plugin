@@ -495,6 +495,24 @@ class TIX_Settings {
             'sponsor_logo_width' => 30,
             // Ticket-Template
             'ticket_template'    => '',
+            // ── Ticket-Bot ──
+            'bot_enabled'            => 0,
+            'bot_hub_url'            => 'https://tixomat-dpconnect.pythonanywhere.com',
+            'bot_hub_master_key'     => '',
+            'bot_api_secret'         => '',
+            'bot_telegram_token'     => '',
+            'bot_telegram_enabled'   => 0,
+            'bot_whatsapp_token'     => '',
+            'bot_whatsapp_phone_id'  => '',
+            'bot_whatsapp_verify'    => '',
+            'bot_whatsapp_enabled'   => 0,
+            'bot_anthropic_key'      => '',
+            'bot_name'               => 'Ticket-Assistent',
+            'bot_greeting'           => '',
+            'bot_personality'        => '',
+            'bot_webchat_enabled'    => 1,
+            'bot_registered'         => 0,
+            'bot_tenant_id'          => '',
         ];
     }
 
@@ -1134,6 +1152,27 @@ class TIX_Settings {
             $clean['ticket_template'] = '';
         }
 
+        // Bot
+        $clean['bot_enabled']           = !empty($input['bot_enabled']) ? 1 : 0;
+        $clean['bot_hub_url']           = esc_url_raw(rtrim($input['bot_hub_url'] ?? '', '/'));
+        $clean['bot_hub_master_key']    = sanitize_text_field($input['bot_hub_master_key'] ?? '');
+        $clean['bot_api_secret']        = sanitize_text_field($input['bot_api_secret'] ?? '');
+        $clean['bot_telegram_token']    = sanitize_text_field($input['bot_telegram_token'] ?? '');
+        $clean['bot_telegram_enabled']  = !empty($input['bot_telegram_enabled']) ? 1 : 0;
+        $clean['bot_whatsapp_token']    = sanitize_text_field($input['bot_whatsapp_token'] ?? '');
+        $clean['bot_whatsapp_phone_id'] = sanitize_text_field($input['bot_whatsapp_phone_id'] ?? '');
+        $clean['bot_whatsapp_verify']   = sanitize_text_field($input['bot_whatsapp_verify'] ?? '');
+        $clean['bot_whatsapp_enabled']  = !empty($input['bot_whatsapp_enabled']) ? 1 : 0;
+        $clean['bot_anthropic_key']     = sanitize_text_field($input['bot_anthropic_key'] ?? '');
+        $clean['bot_name']              = sanitize_text_field($input['bot_name'] ?? 'Ticket-Assistent');
+        $clean['bot_greeting']          = sanitize_textarea_field($input['bot_greeting'] ?? '');
+        $clean['bot_personality']       = sanitize_textarea_field($input['bot_personality'] ?? '');
+        $clean['bot_webchat_enabled']   = !empty($input['bot_webchat_enabled']) ? 1 : 0;
+        // bot_registered and bot_tenant_id are programmatic, preserve existing
+        $existing_s = get_option('tix_settings', []);
+        $clean['bot_registered']        = intval($input['bot_registered'] ?? $existing_s['bot_registered'] ?? 0);
+        $clean['bot_tenant_id']         = sanitize_text_field($input['bot_tenant_id'] ?? $existing_s['bot_tenant_id'] ?? '');
+
         return $clean;
     }
 
@@ -1750,6 +1789,10 @@ class TIX_Settings {
                             <button type="button" class="tix-nav-tab" data-tab="colors">
                                 <span class="dashicons dashicons-admin-appearance"></span>
                                 <span class="tix-nav-label">Farben</span>
+                            </button>
+                            <button type="button" class="tix-nav-tab" data-tab="bot">
+                                <span class="dashicons dashicons-format-chat"></span>
+                                <span class="tix-nav-label">Ticket-Bot</span>
                             </button>
                             <button type="button" class="tix-nav-tab" data-tab="advanced">
                                 <span class="dashicons dashicons-admin-generic"></span>
@@ -5154,6 +5197,309 @@ class TIX_Settings {
                                         </div>
                                     </div>
                                 </div>
+
+                            </div>
+
+                            <?php // ═══ PANE: TICKET-BOT ═══ ?>
+                            <div class="tix-pane" data-pane="bot">
+
+                                <?php // ── Card: Allgemein ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-admin-settings"></span>
+                                        <h3>Allgemein</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('bot_enabled', 'Bot aktivieren', $s, 'Aktiviert die REST-API-Endpunkte und den Ticket-Bot.'); ?>
+                                            </div>
+                                            <?php self::text_row('bot_name', 'Bot-Name', $s, 'Ticket-Assistent'); ?>
+                                            <div class="tix-field tix-field-full">
+                                                <label class="tix-label">Begr&uuml;&szlig;ung</label>
+                                                <textarea name="tix_settings[bot_greeting]" rows="3" class="regular-text" style="width:100%;" placeholder="Hallo! Ich bin dein Ticket-Assistent..."><?php echo esc_textarea($s['bot_greeting'] ?? ''); ?></textarea>
+                                                <p class="tix-settings-hint">Wird dem Nutzer beim ersten Kontakt angezeigt.</p>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <label class="tix-label">Pers&ouml;nlichkeit</label>
+                                                <textarea name="tix_settings[bot_personality]" rows="3" class="regular-text" style="width:100%;" placeholder="Freundlich, hilfsbereit, kennt sich mit Events aus..."><?php echo esc_textarea($s['bot_personality'] ?? ''); ?></textarea>
+                                                <p class="tix-settings-hint">Beschreibt den Ton und Stil des Bots in der Konversation.</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Verbindung ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-cloud"></span>
+                                        <h3>Verbindung</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <?php self::text_row('bot_hub_url', 'Hub-URL', $s, 'https://tixomat-dpconnect.pythonanywhere.com'); ?>
+                                            <div class="tix-field tix-field-full">
+                                                <label class="tix-label">Hub Master-Key</label>
+                                                <input type="password" name="tix_settings[bot_hub_master_key]" value="<?php echo esc_attr($s['bot_hub_master_key'] ?? ''); ?>" class="regular-text" style="width:100%;" placeholder="Master-Key vom Hub-Betreiber">
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <label class="tix-label">API-Secret</label>
+                                                <div style="display:flex;gap:8px;align-items:center;">
+                                                    <input type="text" name="tix_settings[bot_api_secret]" id="tix-bot-api-secret" value="<?php echo esc_attr($s['bot_api_secret'] ?? ''); ?>" class="regular-text" style="flex:1;font-family:monospace;font-size:13px;">
+                                                    <button type="button" class="button" id="tix-bot-generate-secret">Generieren</button>
+                                                </div>
+                                                <p class="tix-settings-hint">Wird zur Authentifizierung der Bot-API-Anfragen verwendet.</p>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <label class="tix-label">Status</label>
+                                                <div id="tix-bot-status" style="display:flex;align-items:center;gap:8px;padding:8px 0;">
+                                                    <?php if (!empty($s['bot_registered'])) : ?>
+                                                        <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#22c55e;"></span>
+                                                        <span style="color:#22c55e;font-weight:600;">Registriert</span>
+                                                    <?php else : ?>
+                                                        <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#ef4444;"></span>
+                                                        <span style="color:#ef4444;font-weight:600;">Nicht registriert</span>
+                                                    <?php endif; ?>
+                                                </div>
+                                            </div>
+                                            <div class="tix-field tix-field-full" style="display:flex;gap:8px;">
+                                                <?php if (empty($s['bot_registered'])) : ?>
+                                                    <button type="button" class="button button-primary" id="tix-bot-register-btn">Registrieren / Deployen</button>
+                                                <?php else : ?>
+                                                    <button type="button" class="button button-primary" id="tix-bot-register-btn">Erneut registrieren</button>
+                                                    <button type="button" class="button" id="tix-bot-unregister-btn" style="color:#ef4444;">Abmelden</button>
+                                                <?php endif; ?>
+                                                <button type="button" class="button" id="tix-bot-test-btn">Verbindung testen</button>
+                                                <span id="tix-bot-action-msg" style="line-height:30px;margin-left:8px;"></span>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <label class="tix-label">Tenant-ID</label>
+                                                <input type="text" value="<?php echo esc_attr($s['bot_tenant_id'] ?? ''); ?>" class="regular-text" style="width:100%;font-family:monospace;font-size:13px;background:#f8f8f8;" readonly onclick="this.select();">
+                                                <input type="hidden" name="tix_settings[bot_registered]" value="<?php echo esc_attr($s['bot_registered'] ?? 0); ?>">
+                                                <input type="hidden" name="tix_settings[bot_tenant_id]" value="<?php echo esc_attr($s['bot_tenant_id'] ?? ''); ?>">
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Kan&auml;le ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-share"></span>
+                                        <h3>Kan&auml;le</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('bot_webchat_enabled', 'Webchat aktiviert', $s, 'Zeigt das Chat-Widget auf der Webseite an.'); ?>
+                                            </div>
+                                            <div class="tix-field tix-field-full" style="border-top:1px solid #eee;padding-top:12px;margin-top:4px;">
+                                                <?php self::checkbox_row('bot_telegram_enabled', 'Telegram aktiviert', $s); ?>
+                                            </div>
+                                            <?php self::text_row('bot_telegram_token', 'Telegram Bot-Token', $s, '123456:ABC-DEF...'); ?>
+                                            <div class="tix-field tix-field-full" style="border-top:1px solid #eee;padding-top:12px;margin-top:4px;">
+                                                <?php self::checkbox_row('bot_whatsapp_enabled', 'WhatsApp aktiviert', $s); ?>
+                                            </div>
+                                            <?php self::text_row('bot_whatsapp_token', 'WhatsApp Token', $s); ?>
+                                            <?php self::text_row('bot_whatsapp_phone_id', 'WhatsApp Phone-ID', $s); ?>
+                                            <?php self::text_row('bot_whatsapp_verify', 'WhatsApp Verify-Token', $s); ?>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: KI-Einstellungen ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-lightbulb"></span>
+                                        <h3>KI-Einstellungen</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <label class="tix-label">Anthropic API-Key</label>
+                                                <input type="password" name="tix_settings[bot_anthropic_key]" value="<?php echo esc_attr($s['bot_anthropic_key'] ?? ''); ?>" class="regular-text" style="width:100%;" placeholder="sk-ant-...">
+                                                <p class="tix-settings-hint">Wird f&uuml;r die KI-gest&uuml;tzte Konversation ben&ouml;tigt. Jede Seite kann einen eigenen Key nutzen.</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Hub-Status ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-heart"></span>
+                                        <h3>Hub-Status</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <div id="tix-bot-health" style="padding:12px;border-radius:8px;background:#f8f8f8;">
+                                                    <span style="color:#94a3b8;">Lade Hub-Status...</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <script>
+                                (function(){
+                                    'use strict';
+
+                                    // ── Secret generieren ──
+                                    var genBtn = document.getElementById('tix-bot-generate-secret');
+                                    if (genBtn) {
+                                        genBtn.addEventListener('click', function() {
+                                            var chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()-_=+';
+                                            var result = '';
+                                            var arr = new Uint8Array(32);
+                                            crypto.getRandomValues(arr);
+                                            for (var i = 0; i < 32; i++) {
+                                                result += chars.charAt(arr[i] % chars.length);
+                                            }
+                                            document.getElementById('tix-bot-api-secret').value = result;
+                                        });
+                                    }
+
+                                    var nonce = '<?php echo wp_create_nonce('tix_admin_action'); ?>';
+                                    var ajaxUrl = '<?php echo admin_url('admin-ajax.php'); ?>';
+                                    var msgEl = document.getElementById('tix-bot-action-msg');
+
+                                    function showMsg(text, color) {
+                                        if (!msgEl) return;
+                                        msgEl.textContent = text;
+                                        msgEl.style.color = color || '#333';
+                                        setTimeout(function() { msgEl.textContent = ''; }, 8000);
+                                    }
+
+                                    // ── Registrieren ──
+                                    var regBtn = document.getElementById('tix-bot-register-btn');
+                                    if (regBtn) {
+                                        regBtn.addEventListener('click', function() {
+                                            regBtn.disabled = true;
+                                            regBtn.textContent = 'Registriere...';
+                                            var fd = new FormData();
+                                            fd.append('action', 'tix_bot_register');
+                                            fd.append('nonce', nonce);
+                                            fetch(ajaxUrl, {method:'POST', body: fd})
+                                                .then(function(r) { return r.json(); })
+                                                .then(function(d) {
+                                                    if (d.success) {
+                                                        showMsg(d.data.message, '#22c55e');
+                                                        setTimeout(function() { location.reload(); }, 1500);
+                                                    } else {
+                                                        showMsg(d.data || 'Fehler', '#ef4444');
+                                                        regBtn.disabled = false;
+                                                        regBtn.textContent = 'Registrieren / Deployen';
+                                                    }
+                                                })
+                                                .catch(function(e) {
+                                                    showMsg('Netzwerkfehler: ' + e.message, '#ef4444');
+                                                    regBtn.disabled = false;
+                                                    regBtn.textContent = 'Registrieren / Deployen';
+                                                });
+                                        });
+                                    }
+
+                                    // ── Abmelden ──
+                                    var unregBtn = document.getElementById('tix-bot-unregister-btn');
+                                    if (unregBtn) {
+                                        unregBtn.addEventListener('click', function() {
+                                            if (!confirm('Bot wirklich vom Hub abmelden?')) return;
+                                            unregBtn.disabled = true;
+                                            var fd = new FormData();
+                                            fd.append('action', 'tix_bot_unregister');
+                                            fd.append('nonce', nonce);
+                                            fetch(ajaxUrl, {method:'POST', body: fd})
+                                                .then(function(r) { return r.json(); })
+                                                .then(function(d) {
+                                                    if (d.success) {
+                                                        showMsg(d.data.message, '#22c55e');
+                                                        setTimeout(function() { location.reload(); }, 1500);
+                                                    } else {
+                                                        showMsg(d.data || 'Fehler', '#ef4444');
+                                                        unregBtn.disabled = false;
+                                                    }
+                                                })
+                                                .catch(function(e) {
+                                                    showMsg('Netzwerkfehler: ' + e.message, '#ef4444');
+                                                    unregBtn.disabled = false;
+                                                });
+                                        });
+                                    }
+
+                                    // ── Verbindung testen ──
+                                    var testBtn = document.getElementById('tix-bot-test-btn');
+                                    if (testBtn) {
+                                        testBtn.addEventListener('click', function() {
+                                            testBtn.disabled = true;
+                                            testBtn.textContent = 'Teste...';
+                                            var fd = new FormData();
+                                            fd.append('action', 'tix_bot_test');
+                                            fd.append('nonce', nonce);
+                                            fetch(ajaxUrl, {method:'POST', body: fd})
+                                                .then(function(r) { return r.json(); })
+                                                .then(function(d) {
+                                                    if (d.success) {
+                                                        showMsg(d.data.message, '#22c55e');
+                                                    } else {
+                                                        showMsg(d.data || 'Fehler', '#ef4444');
+                                                    }
+                                                    testBtn.disabled = false;
+                                                    testBtn.textContent = 'Verbindung testen';
+                                                })
+                                                .catch(function(e) {
+                                                    showMsg('Netzwerkfehler: ' + e.message, '#ef4444');
+                                                    testBtn.disabled = false;
+                                                    testBtn.textContent = 'Verbindung testen';
+                                                });
+                                        });
+                                    }
+
+                                    // ── Health Check beim Pane-Oeffnen ──
+                                    function checkHealth() {
+                                        var healthEl = document.getElementById('tix-bot-health');
+                                        if (!healthEl) return;
+                                        var hubUrl = '<?php echo esc_js(rtrim($s['bot_hub_url'] ?? '', '/')); ?>';
+                                        if (!hubUrl) {
+                                            healthEl.innerHTML = '<span style="color:#94a3b8;">Keine Hub-URL konfiguriert.</span>';
+                                            return;
+                                        }
+                                        fetch(hubUrl + '/health', {mode: 'cors'})
+                                            .then(function(r) { return r.json(); })
+                                            .then(function(d) {
+                                                var html = '<div style="display:flex;align-items:center;gap:8px;">';
+                                                html += '<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#22c55e;"></span>';
+                                                html += '<strong style="color:#22c55e;">Hub erreichbar</strong>';
+                                                html += '</div>';
+                                                if (d.version) html += '<div style="margin-top:6px;font-size:13px;color:#64748b;">Version: ' + d.version + '</div>';
+                                                if (d.tenants !== undefined) html += '<div style="font-size:13px;color:#64748b;">Aktive Tenants: ' + d.tenants + '</div>';
+                                                healthEl.innerHTML = html;
+                                            })
+                                            .catch(function() {
+                                                healthEl.innerHTML = '<div style="display:flex;align-items:center;gap:8px;">'
+                                                    + '<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#ef4444;"></span>'
+                                                    + '<strong style="color:#ef4444;">Hub nicht erreichbar</strong>'
+                                                    + '</div>'
+                                                    + '<div style="margin-top:6px;font-size:13px;color:#64748b;">CORS-Fehler oder Server offline.</div>';
+                                            });
+                                    }
+
+                                    // Health Check starten wenn Pane sichtbar wird
+                                    var botPane = document.querySelector('[data-pane="bot"]');
+                                    if (botPane) {
+                                        var observer = new MutationObserver(function(mutations) {
+                                            mutations.forEach(function(m) {
+                                                if (botPane.classList.contains('active')) {
+                                                    checkHealth();
+                                                }
+                                            });
+                                        });
+                                        observer.observe(botPane, {attributes: true, attributeFilter: ['class']});
+                                        // Falls bereits aktiv (z.B. via URL-Hash)
+                                        if (botPane.classList.contains('active')) checkHealth();
+                                    }
+                                })();
+                                </script>
 
                             </div>
 
