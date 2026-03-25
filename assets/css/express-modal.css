@@ -73,12 +73,12 @@
 }
 .tix-ec-title {
     margin: 0;
-    font-size: 1.15rem;
+    font-size: var(--tix-h3, 18px);
     font-weight: 700;
 }
 .tix-ec-event-name {
     display: block;
-    font-size: 0.82rem;
+    font-size: var(--tix-small, 13px);
     opacity: 0.5;
     margin-top: 2px;
 }
@@ -134,11 +134,11 @@
 .tix-ec-cat-name {
     display: block;
     font-weight: 600;
-    font-size: 0.92rem;
+    font-size: var(--tix-body, 15px);
 }
 .tix-ec-cat-price {
     display: block;
-    font-size: 0.85rem;
+    font-size: var(--tix-btn, 14px);
     margin-top: 2px;
 }
 .tix-ec-price-sale {
@@ -152,7 +152,7 @@
 }
 .tix-ec-vat {
     opacity: 0.4;
-    font-size: 0.78rem;
+    font-size: var(--tix-label, 12px);
     margin-left: 4px;
 }
 
@@ -188,7 +188,7 @@
     min-width: 24px;
     text-align: center;
     font-weight: 700;
-    font-size: 0.95rem;
+    font-size: var(--tix-body, 15px);
 }
 
 /* ── Total ── */
@@ -204,12 +204,12 @@
     font-weight: 600;
 }
 .tix-ec-vat-note {
-    font-size: 0.78rem;
+    font-size: var(--tix-label, 12px);
     opacity: 0.4;
     font-weight: 400;
 }
 .tix-ec-total-price {
-    font-size: 1.25rem;
+    font-size: var(--tix-h2, 20px);
     font-weight: 700;
 }
 
@@ -218,7 +218,7 @@
     display: flex;
     align-items: flex-start;
     gap: 10px;
-    font-size: 0.82rem;
+    font-size: var(--tix-small, 13px);
     cursor: pointer;
     line-height: 1.4;
     margin-bottom: 14px;
@@ -269,7 +269,7 @@
     background: var(--tix-ec-buy-bg, var(--tix-buy-bg, #c8ff00));
     color: var(--tix-ec-buy-text, var(--tix-buy-color, #000));
     font: inherit;
-    font-size: 1rem;
+    font-size: var(--tix-h4, 16px);
     font-weight: 700;
     cursor: pointer;
     transition: opacity 0.15s, background 0.15s;
@@ -287,7 +287,7 @@
 /* ── Note ── */
 .tix-ec-note {
     display: block;
-    font-size: 0.75rem;
+    font-size: var(--tix-label, 12px);
     opacity: 0.45;
     text-align: center;
     margin-top: 8px;
@@ -296,7 +296,7 @@
 /* ── Message ── */
 .tix-ec-message {
     padding: 10px 20px 14px;
-    font-size: 0.88rem;
+    font-size: var(--tix-btn, 14px);
     text-align: center;
     border-radius: 0 0 var(--tix-ec-modal-radius, var(--tix-radius, 8px)) var(--tix-ec-modal-radius, var(--tix-radius, 8px));
 }
@@ -324,7 +324,7 @@
     background: transparent;
     color: inherit;
     font: inherit;
-    font-size: 0.88rem;
+    font-size: var(--tix-btn, 14px);
     font-weight: 600;
     cursor: pointer;
     opacity: 0.7;
@@ -360,7 +360,7 @@
     margin-bottom: 0;
 }
 .tix-ec-offer-heading {
-    font-size: 0.82rem;
+    font-size: var(--tix-small, 13px);
     font-weight: 700;
     opacity: 0.6;
     margin-bottom: 6px;
@@ -368,7 +368,7 @@
 }
 .tix-ec-offer-desc {
     display: block;
-    font-size: 0.78rem;
+    font-size: var(--tix-label, 12px);
     opacity: 0.55;
     margin-top: 2px;
     line-height: 1.35;
@@ -377,7 +377,7 @@
     display: inline-block;
     background: var(--tix-save-bg, var(--tix-ec-cat-active, var(--tix-input-focus, var(--tix-buy-bg, #c8ff00))));
     color: var(--tix-save-text, var(--tix-ec-buy-text, var(--tix-buy-color, #000)));
-    font-size: 0.72rem;
+    font-size: var(--tix-label, 12px);
     font-weight: 700;
     padding: 1px 6px;
     border-radius: 3px;
@@ -399,11 +399,11 @@
     flex: 1;
 }
 .tix-ec-gd-tier {
-    font-size: 0.82rem;
+    font-size: var(--tix-small, 13px);
     opacity: 0.65;
 }
 .tix-ec-gd-badge {
-    font-size: 0.78rem;
+    font-size: var(--tix-label, 12px);
     font-weight: 700;
     padding: 3px 10px;
     border-radius: 4px;

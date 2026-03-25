@@ -360,11 +360,12 @@ class TIX_Settings {
             'tix_card_show_heart'        => 1,
             'tix_card_show_badges'       => 1,
             'tix_card_default_mode'      => 'light',
-            // ── Globale Typografie (3 Regler) ──
+            // ── Globale Typografie ──
             'tix_typo_font_heading' => 'Sora',
             'tix_typo_font_body'    => 'DM Sans',
             'tix_typo_base_size'    => 15,
             'tix_typo_breakdance_sync' => 0,
+            'tix_typo_classes'      => [],
             // ── Syndication (Selfhosted → Evendis) ──
             'syndication_enabled'   => 0,
             'syndication_api_url'   => '',
@@ -838,6 +839,25 @@ class TIX_Settings {
         $clean['tix_typo_font_body']    = sanitize_text_field($input['tix_typo_font_body'] ?? 'DM Sans');
         $clean['tix_typo_base_size']    = max(10, min(22, intval($input['tix_typo_base_size'] ?? 15)));
         $clean['tix_typo_breakdance_sync'] = !empty($input['tix_typo_breakdance_sync']) ? 1 : 0;
+
+        // Per-Class Typografie Overrides
+        $clean['tix_typo_classes'] = [];
+        if (!empty($input['tix_typo_classes']) && is_array($input['tix_typo_classes'])) {
+            $registry = self::typo_class_registry_flat();
+            $allowed_fonts = ['Sora', 'DM Sans', 'Inter', 'Outfit', 'Poppins', 'Montserrat', 'Open Sans', 'Roboto', 'Lato', 'Nunito', 'Raleway', 'Playfair Display', 'Oswald', 'Source Sans 3', 'Work Sans', 'Manrope', 'Plus Jakarta Sans', 'Figtree', 'heading', 'body'];
+            foreach ($input['tix_typo_classes'] as $cls => $vals) {
+                if (!isset($registry[$cls]) || !is_array($vals)) continue;
+                $def = $registry[$cls];
+                $entry = [];
+                $size = intval($vals['size'] ?? $def['size']);
+                if ($size !== $def['size'] && $size >= 8 && $size <= 60) $entry['size'] = $size;
+                $font = sanitize_text_field($vals['font'] ?? $def['font']);
+                if ($font !== $def['font'] && in_array($font, $allowed_fonts, true)) $entry['font'] = $font;
+                $weight = intval($vals['weight'] ?? $def['weight']);
+                if ($weight !== $def['weight'] && $weight >= 100 && $weight <= 900 && $weight % 100 === 0) $entry['weight'] = $weight;
+                if (!empty($entry)) $clean['tix_typo_classes'][$cls] = $entry;
+            }
+        }
 
         // KI / Künstliche Intelligenz
         $clean['ai_assistant_name'] = sanitize_text_field($input['ai_assistant_name'] ?? 'Evendis-Assistent');
@@ -1474,6 +1494,35 @@ class TIX_Settings {
             }
         }
 
+        // ── Per-Class Typografie Overrides ──
+        $typo_classes = $s['tix_typo_classes'] ?? [];
+        if (!empty($typo_classes) && is_array($typo_classes)) {
+            $registry_flat = self::typo_class_registry_flat();
+            foreach ($typo_classes as $cls => $vals) {
+                if (!isset($registry_flat[$cls]) || !is_array($vals)) continue;
+                $props = [];
+                if (isset($vals['size'])) {
+                    $props[] = 'font-size: ' . intval($vals['size']) . 'px';
+                }
+                if (isset($vals['font'])) {
+                    $f = esc_attr($vals['font']);
+                    if ($f === 'heading') {
+                        $props[] = "font-family: '{$typo_heading}', sans-serif";
+                    } elseif ($f === 'body') {
+                        $props[] = "font-family: '{$typo_body}', sans-serif";
+                    } else {
+                        $props[] = "font-family: '{$f}', sans-serif";
+                    }
+                }
+                if (isset($vals['weight'])) {
+                    $props[] = 'font-weight: ' . intval($vals['weight']);
+                }
+                if (!empty($props)) {
+                    echo '.' . $cls . " { " . implode('; ', $props) . "; }\n";
+                }
+            }
+        }
+
         echo "</style>\n";
     }
 
@@ -1498,9 +1547,19 @@ class TIX_Settings {
         if ($card_d) $all_fonts[$card_d] = true;
         if ($card_b) $all_fonts[$card_b] = true;
 
+        // Per-Class Typografie-Fonts
+        $typo_classes = $s['tix_typo_classes'] ?? [];
+        if (is_array($typo_classes)) {
+            foreach ($typo_classes as $vals) {
+                if (!empty($vals['font']) && $vals['font'] !== 'heading' && $vals['font'] !== 'body') {
+                    $all_fonts[$vals['font']] = true;
+                }
+            }
+        }
+
         $families = [];
         foreach (array_keys($all_fonts) as $f) {
-            $families[] = str_replace(' ', '+', $f) . ':wght@400;500;600;700';
+            $families[] = str_replace(' ', '+', $f) . ':wght@100;200;300;400;500;600;700;800;900';
         }
 
         if (!empty($families)) {
@@ -3008,11 +3067,11 @@ class TIX_Settings {
                             <?php // ═══ PANE: TYPOGRAFIE ═══ ?>
                             <div class="tix-pane" data-pane="typography">
 
-                                <?php // ── Card: Globale Typografie ── ?>
+                                <?php // ── Card: Globale Schriftarten ── ?>
                                 <div class="tix-card">
                                     <div class="tix-card-header">
                                         <span class="dashicons dashicons-editor-textcolor"></span>
-                                        <h3>Globale Typografie</h3>
+                                        <h3>Globale Schriftarten</h3>
                                     </div>
                                     <div class="tix-card-body">
                                         <div class="tix-field-grid">
@@ -3037,35 +3096,8 @@ class TIX_Settings {
                                                     <?php endforeach; ?>
                                                 </select>
                                             </div>
-                                            <div class="tix-field tix-field-full">
-                                                <?php self::range_row('tix_typo_base_size', 'Basisgröße', $s, 12, 20, 'px'); ?>
-                                            </div>
                                         </div>
-
-                                        <?php
-                                        $base = intval($s['tix_typo_base_size'] ?? 15);
-                                        $scale = [
-                                            'H1' => round($base * 1.87),
-                                            'H2' => round($base * 1.47),
-                                            'H3' => round($base * 1.20),
-                                            'Body' => $base,
-                                            'Small' => round($base * 0.87),
-                                            'Button' => round($base * 0.93),
-                                            'Label' => round($base * 0.80),
-                                        ];
-                                        ?>
-                                        <div style="margin-top:16px;padding:14px 18px;background:#f8fafc;border-radius:10px;border:1px solid #e5e7eb;">
-                                            <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:#64748b;margin-bottom:8px;">Berechnete Größen</div>
-                                            <div style="display:flex;flex-wrap:wrap;gap:6px;">
-                                                <?php foreach ($scale as $name => $px): ?>
-                                                    <span style="padding:4px 10px;background:#fff;border:1px solid #e5e7eb;border-radius:6px;font-size:12px;color:#374151;">
-                                                        <strong><?php echo $name; ?></strong> <?php echo $px; ?>px
-                                                    </span>
-                                                <?php endforeach; ?>
-                                            </div>
-                                        </div>
-
-                                        <p class="tix-field-hint" style="margin-top:12px;">Ein Regler steuert alle Größen proportional. Gilt für alle Frontend-Shortcodes: Event-Karten, Checkout, Event-Seite, Registrierung, Suche, Kalender etc.</p>
+                                        <p class="tix-field-hint" style="margin-top:8px;">Standard-Fonts für Heading- und Body-Klassen. Einzelne Klassen können unten individuell überschrieben werden.</p>
 
                                         <?php if (defined('__BREAKDANCE_VERSION')): ?>
                                         <div style="margin-top:16px;padding:14px 18px;background:#f0f9ff;border-radius:10px;border:1px solid #bae6fd;">
@@ -3074,6 +3106,137 @@ class TIX_Settings {
                                         <?php endif; ?>
                                     </div>
                                 </div>
+
+                                <?php // ── Per-Class Typography Accordions ── ?>
+                                <?php
+                                $typo_registry = self::typo_class_registry();
+                                $typo_overrides = $s['tix_typo_classes'] ?? [];
+                                $font_options = array_merge(['heading', 'body'], $fonts);
+                                $weight_options = [100, 200, 300, 400, 500, 600, 700, 800, 900];
+                                ?>
+
+                                <style>
+                                .tix-typo-accordion { border: 1px solid #e5e7eb; border-radius: 10px; overflow: hidden; margin-bottom: 8px; background: #fff; }
+                                .tix-typo-accordion-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; cursor: pointer; user-select: none; background: #fafbfc; border-bottom: 1px solid transparent; transition: background .15s; }
+                                .tix-typo-accordion-header:hover { background: #f3f4f6; }
+                                .tix-typo-accordion-header.open { border-bottom-color: #e5e7eb; }
+                                .tix-typo-accordion-title { font-size: 13px; font-weight: 600; color: #1f2937; display: flex; align-items: center; gap: 8px; }
+                                .tix-typo-accordion-count { font-size: 11px; font-weight: 500; color: #9ca3af; background: #f3f4f6; padding: 2px 8px; border-radius: 10px; }
+                                .tix-typo-accordion-modified { font-size: 11px; font-weight: 600; color: #f59e0b; background: #fffbeb; padding: 2px 8px; border-radius: 10px; }
+                                .tix-typo-accordion-chevron { transition: transform .2s; color: #9ca3af; }
+                                .tix-typo-accordion-header.open .tix-typo-accordion-chevron { transform: rotate(180deg); }
+                                .tix-typo-accordion-body { display: none; padding: 0; }
+                                .tix-typo-accordion-header.open + .tix-typo-accordion-body { display: block; }
+                                .tix-typo-row { display: grid; grid-template-columns: 200px 80px 170px 90px 36px; gap: 8px; align-items: center; padding: 8px 18px; border-bottom: 1px solid #f3f4f6; font-size: 12px; }
+                                .tix-typo-row:last-child { border-bottom: none; }
+                                .tix-typo-row-head { background: #f9fafb; font-weight: 600; color: #6b7280; padding: 6px 18px; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; border-bottom: 1px solid #e5e7eb; }
+                                .tix-typo-label { display: flex; flex-direction: column; gap: 1px; }
+                                .tix-typo-label-name { font-weight: 500; color: #374151; }
+                                .tix-typo-label-cls { font-size: 10px; color: #9ca3af; font-family: monospace; }
+                                .tix-typo-row input[type="number"] { width: 100%; padding: 5px 6px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 12px; text-align: center; background: #fff; }
+                                .tix-typo-row select { width: 100%; padding: 5px 4px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 11px; background: #fff; }
+                                .tix-typo-row input:focus, .tix-typo-row select:focus { outline: none; border-color: #6366f1; box-shadow: 0 0 0 2px rgba(99,102,241,.15); }
+                                .tix-typo-row input.tix-typo-changed, .tix-typo-row select.tix-typo-changed { border-color: #f59e0b; background: #fffbeb; }
+                                .tix-typo-reset { width: 28px; height: 28px; border: none; background: none; cursor: pointer; color: #d1d5db; border-radius: 6px; display: flex; align-items: center; justify-content: center; transition: color .15s, background .15s; padding: 0; }
+                                .tix-typo-reset:hover { color: #ef4444; background: #fef2f2; }
+                                .tix-typo-reset.has-changes { color: #f59e0b; }
+                                @media (max-width: 900px) {
+                                    .tix-typo-row { grid-template-columns: 1fr; gap: 4px; padding: 10px 14px; }
+                                    .tix-typo-row-head { display: none; }
+                                }
+                                </style>
+
+                                <?php foreach ($typo_registry as $group_key => $group): ?>
+                                <?php
+                                    $mod_count = 0;
+                                    foreach ($group['classes'] as $cls => $def) {
+                                        if (!empty($typo_overrides[$cls])) $mod_count++;
+                                    }
+                                ?>
+                                <div class="tix-typo-accordion">
+                                    <div class="tix-typo-accordion-header" onclick="this.classList.toggle('open');">
+                                        <div class="tix-typo-accordion-title">
+                                            <?php echo esc_html($group['label']); ?>
+                                            <span class="tix-typo-accordion-count"><?php echo count($group['classes']); ?></span>
+                                            <?php if ($mod_count > 0): ?>
+                                                <span class="tix-typo-accordion-modified"><?php echo $mod_count; ?> geändert</span>
+                                            <?php endif; ?>
+                                        </div>
+                                        <svg class="tix-typo-accordion-chevron" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                                    </div>
+                                    <div class="tix-typo-accordion-body">
+                                        <div class="tix-typo-row tix-typo-row-head">
+                                            <div>Element</div>
+                                            <div>Größe</div>
+                                            <div>Font</div>
+                                            <div>Gewicht</div>
+                                            <div></div>
+                                        </div>
+                                        <?php foreach ($group['classes'] as $cls => $def):
+                                            $ov = $typo_overrides[$cls] ?? [];
+                                            $cur_size   = $ov['size']   ?? $def['size'];
+                                            $cur_font   = $ov['font']   ?? $def['font'];
+                                            $cur_weight = $ov['weight'] ?? $def['weight'];
+                                            $has_changes = !empty($ov);
+                                            $prefix = "tix_settings[tix_typo_classes][{$cls}]";
+                                        ?>
+                                        <div class="tix-typo-row" data-cls="<?php echo esc_attr($cls); ?>" data-def-size="<?php echo esc_attr($def['size']); ?>" data-def-font="<?php echo esc_attr($def['font']); ?>" data-def-weight="<?php echo esc_attr($def['weight']); ?>">
+                                            <div class="tix-typo-label">
+                                                <span class="tix-typo-label-name"><?php echo esc_html($def['label']); ?></span>
+                                                <span class="tix-typo-label-cls">.<?php echo esc_html($cls); ?></span>
+                                            </div>
+                                            <input type="number" name="<?php echo esc_attr($prefix); ?>[size]" value="<?php echo esc_attr($cur_size); ?>" min="8" max="60" step="1" class="<?php echo ($ov['size'] ?? null) !== null ? 'tix-typo-changed' : ''; ?>">
+                                            <select name="<?php echo esc_attr($prefix); ?>[font]" class="<?php echo ($ov['font'] ?? null) !== null ? 'tix-typo-changed' : ''; ?>">
+                                                <option value="heading" <?php selected($cur_font, 'heading'); ?>>Standard (Heading)</option>
+                                                <option value="body" <?php selected($cur_font, 'body'); ?>>Standard (Body)</option>
+                                                <?php foreach ($fonts as $f): ?>
+                                                    <option value="<?php echo esc_attr($f); ?>" <?php selected($cur_font, $f); ?>><?php echo esc_html($f); ?></option>
+                                                <?php endforeach; ?>
+                                            </select>
+                                            <select name="<?php echo esc_attr($prefix); ?>[weight]" class="<?php echo ($ov['weight'] ?? null) !== null ? 'tix-typo-changed' : ''; ?>">
+                                                <?php foreach ($weight_options as $w): ?>
+                                                    <option value="<?php echo $w; ?>" <?php selected($cur_weight, $w); ?>><?php echo $w; ?></option>
+                                                <?php endforeach; ?>
+                                            </select>
+                                            <button type="button" class="tix-typo-reset <?php echo $has_changes ? 'has-changes' : ''; ?>" title="Auf Standard zurücksetzen" onclick="tixTypoReset(this);">
+                                                <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2 2v5h5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M3.05 10A6 6 0 1 0 4.18 4.18L2 7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                                            </button>
+                                        </div>
+                                        <?php endforeach; ?>
+                                    </div>
+                                </div>
+                                <?php endforeach; ?>
+
+                                <script>
+                                function tixTypoReset(btn) {
+                                    var row = btn.closest('.tix-typo-row');
+                                    var sizeInput = row.querySelector('input[type="number"]');
+                                    var fontSelect = row.querySelectorAll('select')[0];
+                                    var weightSelect = row.querySelectorAll('select')[1];
+                                    sizeInput.value = row.dataset.defSize;
+                                    fontSelect.value = row.dataset.defFont;
+                                    weightSelect.value = row.dataset.defWeight;
+                                    sizeInput.classList.remove('tix-typo-changed');
+                                    fontSelect.classList.remove('tix-typo-changed');
+                                    weightSelect.classList.remove('tix-typo-changed');
+                                    btn.classList.remove('has-changes');
+                                }
+                                document.querySelectorAll('.tix-typo-row:not(.tix-typo-row-head)').forEach(function(row) {
+                                    row.querySelectorAll('input, select').forEach(function(el) {
+                                        el.addEventListener('change', function() {
+                                            var r = this.closest('.tix-typo-row');
+                                            var sizeInput = r.querySelector('input[type="number"]');
+                                            var fontSelect = r.querySelectorAll('select')[0];
+                                            var weightSelect = r.querySelectorAll('select')[1];
+                                            var changed = sizeInput.value != r.dataset.defSize || fontSelect.value != r.dataset.defFont || weightSelect.value != r.dataset.defWeight;
+                                            sizeInput.classList.toggle('tix-typo-changed', sizeInput.value != r.dataset.defSize);
+                                            fontSelect.classList.toggle('tix-typo-changed', fontSelect.value != r.dataset.defFont);
+                                            weightSelect.classList.toggle('tix-typo-changed', weightSelect.value != r.dataset.defWeight);
+                                            r.querySelector('.tix-typo-reset').classList.toggle('has-changes', changed);
+                                        });
+                                    });
+                                });
+                                </script>
 
                             </div>
 
@@ -5025,6 +5188,381 @@ class TIX_Settings {
         <?php if ($desc): ?>
             <p class="tix-settings-hint"><?php echo $desc; ?></p>
         <?php endif;
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // Per-Class Typografie Registry
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Vollständige Registry aller Frontend-Text-Klassen.
+     * Gruppiert nach Komponente. Jeder Eintrag: label, size (px), font (heading|body), weight.
+     */
+    public static function typo_class_registry() {
+        return [
+            'Single Event' => [
+                'tse-intro-title'      => ['label' => 'Event-Titel',          'size' => 28, 'font' => 'heading', 'weight' => 800],
+                'tse-intro-date'       => ['label' => 'Datum-Label',          'size' => 12, 'font' => 'heading', 'weight' => 700],
+                'tse-intro-loc'        => ['label' => 'Ort',                  'size' => 13, 'font' => 'body',    'weight' => 400],
+                'tse-intro-excerpt'    => ['label' => 'Beschreibung',         'size' => 15, 'font' => 'body',    'weight' => 400],
+                'tse-tab'              => ['label' => 'Tab-Navigation',       'size' => 13, 'font' => 'heading', 'weight' => 600],
+                'tse-sec-label'        => ['label' => 'Abschnitts-Label',     'size' => 12, 'font' => 'heading', 'weight' => 700],
+                'tse-sec-title'        => ['label' => 'Abschnitts-Titel',     'size' => 18, 'font' => 'heading', 'weight' => 800],
+                'tse-sec-content'      => ['label' => 'Abschnitts-Text',      'size' => 15, 'font' => 'body',    'weight' => 400],
+                'tse-info-label'       => ['label' => 'Info-Label',           'size' => 12, 'font' => 'body',    'weight' => 400],
+                'tse-info-value'       => ['label' => 'Info-Wert',            'size' => 13, 'font' => 'heading', 'weight' => 600],
+                'tse-info-sub'         => ['label' => 'Info-Zusatz',          'size' => 12, 'font' => 'body',    'weight' => 400],
+                'tse-badge'            => ['label' => 'Badge',                'size' => 12, 'font' => 'heading', 'weight' => 700],
+                'tse-cal-btn'          => ['label' => 'Kalender-Button',      'size' => 13, 'font' => 'heading', 'weight' => 600],
+                'tse-share-btn'        => ['label' => 'Teilen-Button',        'size' => 12, 'font' => 'heading', 'weight' => 600],
+                'tse-countdown-label'  => ['label' => 'Countdown-Label',      'size' => 12, 'font' => 'heading', 'weight' => 700],
+                'tse-cd-val'           => ['label' => 'Countdown-Zahl',       'size' => 22, 'font' => 'heading', 'weight' => 800],
+                'tse-cd-label'         => ['label' => 'Countdown-Einheit',    'size' => 12, 'font' => 'body',    'weight' => 400],
+                'tse-location-address' => ['label' => 'Adresse',              'size' => 13, 'font' => 'body',    'weight' => 400],
+                'tse-location-link'    => ['label' => 'Maps-Link',            'size' => 13, 'font' => 'heading', 'weight' => 600],
+            ],
+            'Ticket Selector' => [
+                'tix-sel-presale-label' => ['label' => 'Vorverkauf-Label',       'size' => 13, 'font' => 'body', 'weight' => 400],
+                'tix-sel-notify-text'   => ['label' => 'Benachrichtigungs-Text', 'size' => 13, 'font' => 'body', 'weight' => 400],
+                'tix-sel-notify-btn'    => ['label' => 'Erinnern-Button',        'size' => 13, 'font' => 'body', 'weight' => 600],
+                'tix-sel-group-header'  => ['label' => 'Gruppen-Überschrift',    'size' => 16, 'font' => 'heading', 'weight' => 700],
+                'tix-sel-cat-name'      => ['label' => 'Ticket-Name',            'size' => 15, 'font' => 'heading', 'weight' => 700],
+                'tix-sel-cat-desc'      => ['label' => 'Ticket-Beschreibung',    'size' => 13, 'font' => 'body', 'weight' => 400],
+                'tix-sel-phase-badge'   => ['label' => 'Phasen-Badge',           'size' => 12, 'font' => 'heading', 'weight' => 700],
+                'tix-sel-phase-name'    => ['label' => 'Phasen-Name',            'size' => 12, 'font' => 'body', 'weight' => 400],
+                'tix-sel-phase-price'   => ['label' => 'Phasen-Preis',           'size' => 15, 'font' => 'body', 'weight' => 700],
+                'tix-sel-phase-until'   => ['label' => 'Gültig bis',             'size' => 12, 'font' => 'body', 'weight' => 400],
+                'tix-sel-price-sale'    => ['label' => 'Sale-Preis',             'size' => 18, 'font' => 'heading', 'weight' => 800],
+                'tix-sel-price-old'     => ['label' => 'Alter Preis',            'size' => 13, 'font' => 'body', 'weight' => 400],
+                'tix-sel-price-regular' => ['label' => 'Regulärer Preis',        'size' => 16, 'font' => 'heading', 'weight' => 700],
+                'tix-sel-vat'           => ['label' => 'MwSt-Hinweis',           'size' => 12, 'font' => 'body', 'weight' => 400],
+                'tix-sel-low-stock'     => ['label' => 'Wenig verfügbar',        'size' => 12, 'font' => 'body', 'weight' => 600],
+                'tix-sel-soldout-label' => ['label' => 'Ausverkauft',            'size' => 13, 'font' => 'body', 'weight' => 600],
+                'tix-sel-charity-badge' => ['label' => 'Charity-Badge',          'size' => 12, 'font' => 'heading', 'weight' => 600],
+                'tix-sel-charity-desc'  => ['label' => 'Charity-Text',           'size' => 13, 'font' => 'body', 'weight' => 400],
+                'tix-sel-bundle-save'   => ['label' => 'Bundle-Ersparnis',       'size' => 12, 'font' => 'heading', 'weight' => 700],
+                'tix-countdown-num'     => ['label' => 'Countdown-Zahl',         'size' => 28, 'font' => 'heading', 'weight' => 800],
+                'tix-countdown-lbl'     => ['label' => 'Countdown-Label',        'size' => 12, 'font' => 'body', 'weight' => 400],
+            ],
+            'Checkout' => [
+                'tix-co-heading'          => ['label' => 'Abschnitts-Titel',    'size' => 16, 'font' => 'heading', 'weight' => 700],
+                'tix-co-label'            => ['label' => 'Feld-Label',          'size' => 13, 'font' => 'body', 'weight' => 600],
+                'tix-co-input'            => ['label' => 'Eingabefeld',         'size' => 15, 'font' => 'body', 'weight' => 400],
+                'tix-co-item-name'        => ['label' => 'Artikel-Name',        'size' => 15, 'font' => 'body', 'weight' => 600],
+                'tix-co-item-price'       => ['label' => 'Artikel-Preis',       'size' => 15, 'font' => 'body', 'weight' => 700],
+                'tix-co-qty-val'          => ['label' => 'Mengen-Wert',         'size' => 15, 'font' => 'body', 'weight' => 700],
+                'tix-co-coupon-btn'       => ['label' => 'Gutschein-Button',    'size' => 14, 'font' => 'body', 'weight' => 600],
+                'tix-co-coupon-tag'       => ['label' => 'Gutschein-Tag',       'size' => 12, 'font' => 'body', 'weight' => 600],
+                'tix-co-summary-row'      => ['label' => 'Zusammenfassung',     'size' => 15, 'font' => 'body', 'weight' => 400],
+                'tix-co-summary-total'    => ['label' => 'Gesamt-Betrag',       'size' => 18, 'font' => 'heading', 'weight' => 700],
+                'tix-co-vat-note'         => ['label' => 'MwSt-Hinweis',        'size' => 12, 'font' => 'body', 'weight' => 400],
+                'tix-co-gw-title'         => ['label' => 'Zahlungsart-Name',    'size' => 15, 'font' => 'body', 'weight' => 600],
+                'tix-co-gw-desc'          => ['label' => 'Zahlungsart-Info',    'size' => 13, 'font' => 'body', 'weight' => 400],
+                'tix-co-step-num'         => ['label' => 'Schritt-Nummer',      'size' => 12, 'font' => 'body', 'weight' => 700],
+                'tix-co-step-label'       => ['label' => 'Schritt-Label',       'size' => 12, 'font' => 'body', 'weight' => 600],
+                'tix-co-submit'           => ['label' => 'Bestellen-Button',    'size' => 16, 'font' => 'body', 'weight' => 700],
+                'tix-co-submit-price'     => ['label' => 'Button-Preis',        'size' => 16, 'font' => 'body', 'weight' => 700],
+                'tix-co-link-btn'         => ['label' => 'Link-Button',         'size' => 14, 'font' => 'body', 'weight' => 600],
+                'tix-co-message'          => ['label' => 'Status-Meldung',      'size' => 13, 'font' => 'body', 'weight' => 400],
+                'tix-co-countdown-label'  => ['label' => 'Countdown-Label',     'size' => 13, 'font' => 'body', 'weight' => 600],
+                'tix-co-countdown-time'   => ['label' => 'Countdown-Zeit',      'size' => 15, 'font' => 'body', 'weight' => 700],
+                'tix-co-specials-heading' => ['label' => 'Specials-Titel',      'size' => 16, 'font' => 'heading', 'weight' => 700],
+                'tix-co-tables-heading'   => ['label' => 'Tisch-Titel',         'size' => 16, 'font' => 'heading', 'weight' => 700],
+                'tix-co-shipping-info'    => ['label' => 'Versand-Info',        'size' => 13, 'font' => 'body', 'weight' => 400],
+                'tix-co-legal-heading'    => ['label' => 'Rechtliches-Titel',   'size' => 14, 'font' => 'heading', 'weight' => 600],
+            ],
+            'Checkout Thank-You' => [
+                'tix-co-ty-title'          => ['label' => 'Danke-Überschrift',    'size' => 22, 'font' => 'heading', 'weight' => 700],
+                'tix-co-ty-subtitle'       => ['label' => 'Bestätigungs-Text',    'size' => 15, 'font' => 'body', 'weight' => 400],
+                'tix-co-ty-ticket-type'    => ['label' => 'Ticket-Typ',           'size' => 12, 'font' => 'body', 'weight' => 600],
+                'tix-co-ty-ticket-code'    => ['label' => 'Ticket-Code',          'size' => 12, 'font' => 'body', 'weight' => 600],
+                'tix-co-ty-ticket-dl'      => ['label' => 'Download-Link',        'size' => 13, 'font' => 'body', 'weight' => 600],
+                'tix-co-ty-ticket-event'   => ['label' => 'Event-Name',           'size' => 13, 'font' => 'body', 'weight' => 400],
+                'tix-co-ty-ticket-pending' => ['label' => 'Zahlung ausstehend',   'size' => 13, 'font' => 'body', 'weight' => 400],
+                'tix-co-ty-item-name'      => ['label' => 'Artikel-Name',         'size' => 15, 'font' => 'body', 'weight' => 400],
+                'tix-co-ty-item-qty'       => ['label' => 'Artikel-Menge',        'size' => 13, 'font' => 'body', 'weight' => 400],
+                'tix-co-ty-item-total'     => ['label' => 'Artikel-Preis',        'size' => 15, 'font' => 'body', 'weight' => 700],
+                'tix-co-ty-vat'            => ['label' => 'MwSt-Hinweis',         'size' => 12, 'font' => 'body', 'weight' => 400],
+                'tix-co-ty-detail-label'   => ['label' => 'Detail-Label',         'size' => 12, 'font' => 'body', 'weight' => 400],
+                'tix-co-ty-detail-value'   => ['label' => 'Detail-Wert',          'size' => 14, 'font' => 'body', 'weight' => 600],
+                'tix-co-ty-status'         => ['label' => 'Status-Badge',         'size' => 12, 'font' => 'body', 'weight' => 700],
+                'tix-co-ty-bank-heading'   => ['label' => 'Bank-Überschrift',     'size' => 16, 'font' => 'heading', 'weight' => 700],
+                'tix-co-ty-bank-label'     => ['label' => 'Bank-Label',           'size' => 13, 'font' => 'body', 'weight' => 400],
+                'tix-co-ty-bank-value'     => ['label' => 'Bank-Wert',            'size' => 13, 'font' => 'body', 'weight' => 600],
+                'tix-co-ty-charity-badge'  => ['label' => 'Charity-Badge',        'size' => 12, 'font' => 'body', 'weight' => 600],
+            ],
+            'Native Thank-You' => [
+                'tix-ty-title'       => ['label' => 'Danke-Überschrift', 'size' => 22, 'font' => 'heading', 'weight' => 700],
+                'tix-ty-text'        => ['label' => 'Bestätigungs-Text', 'size' => 15, 'font' => 'body', 'weight' => 400],
+                'tix-ty-card-title'  => ['label' => 'Karten-Titel',      'size' => 18, 'font' => 'heading', 'weight' => 700],
+                'tix-ty-ticket-code' => ['label' => 'Ticket-Code',       'size' => 12, 'font' => 'body', 'weight' => 600],
+            ],
+            'Event Cards' => [
+                'section-label'        => ['label' => 'Sektion-Label',   'size' => 12, 'font' => 'heading', 'weight' => 700],
+                'section-title'        => ['label' => 'Sektion-Titel',   'size' => 22, 'font' => 'heading', 'weight' => 800],
+                'section-link'         => ['label' => 'Mehr-Link',       'size' => 13, 'font' => 'heading', 'weight' => 600],
+                'ev-badge'             => ['label' => 'Event-Badge',     'size' => 12, 'font' => 'heading', 'weight' => 700],
+                'ev-date'              => ['label' => 'Datum',           'size' => 11, 'font' => 'heading', 'weight' => 700],
+                'ev-title'             => ['label' => 'Event-Titel',     'size' => 15, 'font' => 'heading', 'weight' => 700],
+                'ev-loc'               => ['label' => 'Ort',             'size' => 13, 'font' => 'body', 'weight' => 400],
+                'ev-price'             => ['label' => 'Preis',           'size' => 15, 'font' => 'heading', 'weight' => 700],
+                'ev-price-old'         => ['label' => 'Alter Preis',     'size' => 12, 'font' => 'body', 'weight' => 400],
+                'ev-btn'               => ['label' => 'Ticket-Button',   'size' => 12, 'font' => 'heading', 'weight' => 700],
+                'tix-search-item-title' => ['label' => 'Such-Titel',    'size' => 14, 'font' => 'heading', 'weight' => 700],
+                'tix-search-item-meta'  => ['label' => 'Such-Meta',     'size' => 12, 'font' => 'body', 'weight' => 400],
+                'tix-search-item-price' => ['label' => 'Such-Preis',    'size' => 13, 'font' => 'heading', 'weight' => 700],
+            ],
+            'Event Page' => [
+                'tix-ep-title'            => ['label' => 'Seiten-Titel',        'size' => 28, 'font' => 'heading', 'weight' => 800],
+                'tix-ep-hero-badge'       => ['label' => 'Hero-Badge',          'size' => 12, 'font' => 'body', 'weight' => 700],
+                'tix-ep-status'           => ['label' => 'Status-Badge',        'size' => 12, 'font' => 'body', 'weight' => 700],
+                'tix-ep-meta-row'         => ['label' => 'Meta-Zeile',          'size' => 14, 'font' => 'body', 'weight' => 400],
+                'tix-ep-meta-label'       => ['label' => 'Meta-Label',          'size' => 12, 'font' => 'body', 'weight' => 400],
+                'tix-ep-meta-value'       => ['label' => 'Meta-Wert',           'size' => 14, 'font' => 'body', 'weight' => 600],
+                'tix-ep-meta-sub'         => ['label' => 'Meta-Zusatz',         'size' => 13, 'font' => 'body', 'weight' => 400],
+                'tix-ep-price-badge'      => ['label' => 'Preis-Badge',         'size' => 14, 'font' => 'body', 'weight' => 700],
+                'tix-ep-age-badge'        => ['label' => 'Alter-Badge',         'size' => 12, 'font' => 'body', 'weight' => 600],
+                'tix-ep-section-title'    => ['label' => 'Abschnitts-Titel',    'size' => 18, 'font' => 'heading', 'weight' => 700],
+                'tix-ep-section-body'     => ['label' => 'Abschnitts-Text',     'size' => 15, 'font' => 'body', 'weight' => 400],
+                'tix-ep-location-name'    => ['label' => 'Ort-Name',            'size' => 14, 'font' => 'body', 'weight' => 700],
+                'tix-ep-location-address' => ['label' => 'Adresse',             'size' => 13, 'font' => 'body', 'weight' => 400],
+                'tix-ep-organizer-name'   => ['label' => 'Veranstalter',        'size' => 14, 'font' => 'body', 'weight' => 600],
+                'tix-ep-organizer-label'  => ['label' => 'Veranstalter-Label',  'size' => 12, 'font' => 'body', 'weight' => 400],
+                'tix-ep-series-day'       => ['label' => 'Serien-Tag',          'size' => 18, 'font' => 'heading', 'weight' => 800],
+                'tix-ep-series-month'     => ['label' => 'Serien-Monat',        'size' => 12, 'font' => 'body', 'weight' => 600],
+            ],
+            'My Tickets' => [
+                'tix-mt-section-title'    => ['label' => 'Abschnitts-Titel',  'size' => 18, 'font' => 'heading', 'weight' => 700],
+                'tix-mt-card-title'       => ['label' => 'Karten-Titel',      'size' => 15, 'font' => 'body', 'weight' => 700],
+                'tix-mt-meta-item'        => ['label' => 'Meta-Info',          'size' => 13, 'font' => 'body', 'weight' => 400],
+                'tix-mt-event-badge'      => ['label' => 'Event-Badge',        'size' => 12, 'font' => 'body', 'weight' => 700],
+                'tix-mt-ticket-type'      => ['label' => 'Ticket-Typ',         'size' => 14, 'font' => 'body', 'weight' => 700],
+                'tix-mt-ticket-qty'       => ['label' => 'Ticket-Menge',       'size' => 13, 'font' => 'body', 'weight' => 400],
+                'tix-mt-ticket-price'     => ['label' => 'Ticket-Preis',       'size' => 15, 'font' => 'body', 'weight' => 700],
+                'tix-mt-tcard-code'       => ['label' => 'Ticket-Code',        'size' => 12, 'font' => 'body', 'weight' => 400],
+                'tix-mt-tcard-num'        => ['label' => 'Ticket-Nummer',      'size' => 12, 'font' => 'body', 'weight' => 600],
+                'tix-mt-tcard-type'       => ['label' => 'Ticket-Art',         'size' => 15, 'font' => 'body', 'weight' => 700],
+                'tix-mt-tcard-event'      => ['label' => 'Event-Name',         'size' => 13, 'font' => 'body', 'weight' => 400],
+                'tix-mt-tcard-date'       => ['label' => 'Ticket-Datum',       'size' => 12, 'font' => 'body', 'weight' => 400],
+                'tix-mt-tcard-dl'         => ['label' => 'Download-Link',      'size' => 13, 'font' => 'body', 'weight' => 700],
+                'tix-mt-tcard-pending'    => ['label' => 'Ausstehend',         'size' => 13, 'font' => 'body', 'weight' => 400],
+                'tix-mt-pending-notice'   => ['label' => 'Pending-Hinweis',    'size' => 14, 'font' => 'body', 'weight' => 400],
+                'tix-mt-bank-heading'     => ['label' => 'Bank-Überschrift',   'size' => 14, 'font' => 'body', 'weight' => 700],
+                'tix-mt-bank-row'         => ['label' => 'Bank-Zeile',         'size' => 13, 'font' => 'body', 'weight' => 400],
+                'tix-mt-pending-info'     => ['label' => 'Pending-Info',       'size' => 13, 'font' => 'body', 'weight' => 400],
+                'tix-mt-order-ref'        => ['label' => 'Bestell-Nr',         'size' => 12, 'font' => 'body', 'weight' => 400],
+                'tix-mt-login-title'      => ['label' => 'Login-Titel',        'size' => 22, 'font' => 'heading', 'weight' => 700],
+                'tix-mt-login-text'       => ['label' => 'Login-Text',         'size' => 15, 'font' => 'body', 'weight' => 400],
+                'tix-mt-login-register'   => ['label' => 'Registrieren-Link',  'size' => 14, 'font' => 'body', 'weight' => 400],
+                'tix-mt-empty-title'      => ['label' => 'Leer-Titel',         'size' => 18, 'font' => 'heading', 'weight' => 700],
+                'tix-mt-empty-text'       => ['label' => 'Leer-Text',          'size' => 15, 'font' => 'body', 'weight' => 400],
+                'tix-mt-combo-badge'      => ['label' => 'Kombi-Badge',        'size' => 12, 'font' => 'body', 'weight' => 700],
+                'tix-mt-combo-event-name' => ['label' => 'Kombi-Event',        'size' => 14, 'font' => 'body', 'weight' => 600],
+                'tix-mt-combo-event-meta' => ['label' => 'Kombi-Meta',         'size' => 12, 'font' => 'body', 'weight' => 400],
+                'tix-mt-combo-price'      => ['label' => 'Kombi-Preis',        'size' => 13, 'font' => 'body', 'weight' => 400],
+            ],
+            'Feedback' => [
+                'tix-fb-title'        => ['label' => 'Feedback-Titel',       'size' => 18, 'font' => 'heading', 'weight' => 700],
+                'tix-fb-subtitle'     => ['label' => 'Untertitel',           'size' => 14, 'font' => 'body', 'weight' => 400],
+                'tix-fb-submit'       => ['label' => 'Absenden-Button',      'size' => 15, 'font' => 'body', 'weight' => 600],
+                'tix-fb-thanks-title' => ['label' => 'Danke-Titel',          'size' => 18, 'font' => 'heading', 'weight' => 600],
+                'tix-fb-thanks-text'  => ['label' => 'Danke-Text',           'size' => 14, 'font' => 'body', 'weight' => 400],
+                'tix-fb-avg-value'    => ['label' => 'Bewertungs-Wert',      'size' => 15, 'font' => 'body', 'weight' => 700],
+                'tix-fb-avg-count'    => ['label' => 'Anzahl Bewertungen',   'size' => 13, 'font' => 'body', 'weight' => 400],
+                'tix-ep-rating'       => ['label' => 'Rating-Anzeige',       'size' => 13, 'font' => 'body', 'weight' => 600],
+            ],
+            'FAQ' => [
+                'tix-faq-title'    => ['label' => 'FAQ-Titel', 'size' => 20, 'font' => 'heading', 'weight' => 700],
+                'tix-faq-question' => ['label' => 'Frage',     'size' => 16, 'font' => 'body', 'weight' => 600],
+                'tix-faq-a-inner'  => ['label' => 'Antwort',   'size' => 15, 'font' => 'body', 'weight' => 400],
+            ],
+            'Timetable' => [
+                'tix-tt-day'         => ['label' => 'Tag',                 'size' => 14, 'font' => 'heading', 'weight' => 600],
+                'tix-tt-filter-btn'  => ['label' => 'Filter-Button',       'size' => 12, 'font' => 'body', 'weight' => 500],
+                'tix-tt-grid-header' => ['label' => 'Grid-Header',         'size' => 12, 'font' => 'body', 'weight' => 700],
+                'tix-tt-time'        => ['label' => 'Uhrzeit',             'size' => 13, 'font' => 'body', 'weight' => 600],
+                'tix-tt-slot-title'  => ['label' => 'Slot-Titel',          'size' => 15, 'font' => 'heading', 'weight' => 600],
+                'tix-tt-slot-desc'   => ['label' => 'Slot-Beschreibung',   'size' => 13, 'font' => 'body', 'weight' => 400],
+                'tix-tt-slot-time'   => ['label' => 'Slot-Zeit',           'size' => 12, 'font' => 'body', 'weight' => 600],
+                'tix-tt-list-title'  => ['label' => 'Listen-Titel',        'size' => 15, 'font' => 'heading', 'weight' => 600],
+                'tix-tt-list-time'   => ['label' => 'Listen-Zeit',         'size' => 13, 'font' => 'body', 'weight' => 700],
+                'tix-tt-list-desc'   => ['label' => 'Listen-Beschreibung', 'size' => 13, 'font' => 'body', 'weight' => 400],
+                'tix-tt-list-stage'  => ['label' => 'Bühne',               'size' => 12, 'font' => 'body', 'weight' => 600],
+                'tix-tt-tba'         => ['label' => 'TBA-Label',           'size' => 13, 'font' => 'body', 'weight' => 400],
+            ],
+            'Checkin' => [
+                'tix-ci-title'         => ['label' => 'Checkin-Titel',     'size' => 12, 'font' => 'heading', 'weight' => 650],
+                'tix-ci-select'        => ['label' => 'Event-Auswahl',     'size' => 15, 'font' => 'body', 'weight' => 500],
+                'tix-ci-pw-error'      => ['label' => 'Passwort-Fehler',   'size' => 13, 'font' => 'body', 'weight' => 500],
+                'tix-ci-input'         => ['label' => 'Eingabefeld',       'size' => 15, 'font' => 'body', 'weight' => 400],
+                'tix-ci-btn'           => ['label' => 'Checkin-Button',    'size' => 15, 'font' => 'body', 'weight' => 700],
+                'tix-ci-result-title'  => ['label' => 'Ergebnis-Titel',    'size' => 22, 'font' => 'heading', 'weight' => 700],
+                'tix-ci-result-details' => ['label' => 'Ergebnis-Details', 'size' => 14, 'font' => 'body', 'weight' => 400],
+                'tix-ci-search'        => ['label' => 'Suchfeld',          'size' => 14, 'font' => 'body', 'weight' => 400],
+                'tix-ci-guest-name'    => ['label' => 'Gast-Name',         'size' => 15, 'font' => 'body', 'weight' => 600],
+                'tix-ci-guest-plus'    => ['label' => 'Plus-Eins',         'size' => 12, 'font' => 'body', 'weight' => 700],
+                'tix-ci-guest-note'    => ['label' => 'Gast-Notiz',        'size' => 13, 'font' => 'body', 'weight' => 400],
+                'tix-ci-guest-status'  => ['label' => 'Gast-Status',       'size' => 13, 'font' => 'body', 'weight' => 600],
+                'tix-ci-guest-checkin' => ['label' => 'Einchecken-Btn',    'size' => 13, 'font' => 'body', 'weight' => 700],
+                'tix-ci-counter-btn'   => ['label' => 'Counter-Button',    'size' => 16, 'font' => 'body', 'weight' => 700],
+                'tix-ci-counter-val'   => ['label' => 'Counter-Wert',      'size' => 13, 'font' => 'body', 'weight' => 700],
+                'tix-ci-filter-btn'    => ['label' => 'Filter-Button',     'size' => 13, 'font' => 'body', 'weight' => 600],
+                'tix-ci-badge'         => ['label' => 'Checkin-Badge',     'size' => 12, 'font' => 'body', 'weight' => 700],
+                'tix-ci-empty'         => ['label' => 'Leer-Text',         'size' => 14, 'font' => 'body', 'weight' => 400],
+            ],
+            'Share' => [
+                'tix-share-label'     => ['label' => 'Teilen-Label',  'size' => 13, 'font' => 'body', 'weight' => 600],
+                'tix-share-btn-label' => ['label' => 'Button-Label',  'size' => 13, 'font' => 'body', 'weight' => 500],
+            ],
+            'Calendar' => [
+                'tix-cal-btn' => ['label' => 'Kalender-Button', 'size' => 14, 'font' => 'body', 'weight' => 700],
+                'tix-cal-opt' => ['label' => 'Kalender-Option', 'size' => 14, 'font' => 'body', 'weight' => 500],
+            ],
+            'Upsell' => [
+                'tix-up-heading'    => ['label' => 'Überschrift',   'size' => 18, 'font' => 'heading', 'weight' => 600],
+                'tix-up-card-title' => ['label' => 'Karten-Titel',  'size' => 15, 'font' => 'body', 'weight' => 600],
+                'tix-up-card-meta'  => ['label' => 'Meta-Info',     'size' => 13, 'font' => 'body', 'weight' => 400],
+                'tix-up-card-price' => ['label' => 'Preis',         'size' => 14, 'font' => 'body', 'weight' => 600],
+                'tix-up-card-badge' => ['label' => 'Badge',         'size' => 11, 'font' => 'body', 'weight' => 600],
+            ],
+            'Express Modal' => [
+                'tix-ec-trigger-btn'   => ['label' => 'Trigger-Button',   'size' => 15, 'font' => 'body', 'weight' => 700],
+                'tix-ec-title'         => ['label' => 'Modal-Titel',      'size' => 18, 'font' => 'heading', 'weight' => 700],
+                'tix-ec-event-name'    => ['label' => 'Event-Name',       'size' => 13, 'font' => 'body', 'weight' => 400],
+                'tix-ec-cat-name'      => ['label' => 'Kategorie-Name',   'size' => 15, 'font' => 'body', 'weight' => 600],
+                'tix-ec-cat-price'     => ['label' => 'Kategorie-Preis',  'size' => 14, 'font' => 'body', 'weight' => 400],
+                'tix-ec-price-sale'    => ['label' => 'Sale-Preis',       'size' => 14, 'font' => 'body', 'weight' => 700],
+                'tix-ec-vat'           => ['label' => 'MwSt',             'size' => 12, 'font' => 'body', 'weight' => 400],
+                'tix-ec-qty-val'       => ['label' => 'Mengen-Wert',      'size' => 15, 'font' => 'body', 'weight' => 700],
+                'tix-ec-vat-note'      => ['label' => 'MwSt-Hinweis',     'size' => 12, 'font' => 'body', 'weight' => 400],
+                'tix-ec-total-price'   => ['label' => 'Gesamtpreis',      'size' => 20, 'font' => 'heading', 'weight' => 700],
+                'tix-ec-terms'         => ['label' => 'AGB-Text',         'size' => 13, 'font' => 'body', 'weight' => 400],
+                'tix-ec-buy'           => ['label' => 'Kaufen-Button',    'size' => 16, 'font' => 'body', 'weight' => 700],
+                'tix-ec-note'          => ['label' => 'Hinweis',          'size' => 12, 'font' => 'body', 'weight' => 400],
+                'tix-ec-message'       => ['label' => 'Meldung',          'size' => 14, 'font' => 'body', 'weight' => 400],
+                'tix-ec-offer-heading' => ['label' => 'Angebots-Titel',   'size' => 13, 'font' => 'body', 'weight' => 700],
+                'tix-ec-offer-desc'    => ['label' => 'Angebots-Text',    'size' => 12, 'font' => 'body', 'weight' => 400],
+            ],
+            'Modal Checkout' => [
+                'tix-mc-title'           => ['label' => 'Modal-Titel',            'size' => 18, 'font' => 'heading', 'weight' => 700],
+                'tix-mc-event-name'      => ['label' => 'Event-Name',             'size' => 13, 'font' => 'body', 'weight' => 400],
+                'tix-mc-event-date'      => ['label' => 'Event-Datum',            'size' => 12, 'font' => 'body', 'weight' => 400],
+                'tix-mc-cat-name'        => ['label' => 'Kategorie-Name',         'size' => 14, 'font' => 'body', 'weight' => 600],
+                'tix-mc-cat-desc'        => ['label' => 'Kategorie-Beschreibung', 'size' => 13, 'font' => 'body', 'weight' => 400],
+                'tix-mc-cat-price'       => ['label' => 'Kategorie-Preis',        'size' => 14, 'font' => 'body', 'weight' => 400],
+                'tix-mc-price-sale'      => ['label' => 'Sale-Preis',             'size' => 14, 'font' => 'body', 'weight' => 700],
+                'tix-mc-vat'             => ['label' => 'MwSt',                   'size' => 12, 'font' => 'body', 'weight' => 400],
+                'tix-mc-total-label'     => ['label' => 'Gesamt-Label',           'size' => 14, 'font' => 'body', 'weight' => 600],
+                'tix-mc-total-price'     => ['label' => 'Gesamtpreis',            'size' => 20, 'font' => 'heading', 'weight' => 700],
+                'tix-mc-vat-note'        => ['label' => 'MwSt-Hinweis',           'size' => 12, 'font' => 'body', 'weight' => 400],
+                'tix-mc-next'            => ['label' => 'Weiter-Button',          'size' => 16, 'font' => 'body', 'weight' => 700],
+                'tix-mc-back'            => ['label' => 'Zurück-Button',          'size' => 14, 'font' => 'body', 'weight' => 400],
+                'tix-mc-section-heading' => ['label' => 'Abschnitts-Titel',       'size' => 14, 'font' => 'heading', 'weight' => 600],
+                'tix-mc-label'           => ['label' => 'Feld-Label',             'size' => 13, 'font' => 'body', 'weight' => 600],
+                'tix-mc-input'           => ['label' => 'Eingabefeld',            'size' => 14, 'font' => 'body', 'weight' => 400],
+                'tix-mc-gw-title'        => ['label' => 'Zahlungsart-Name',       'size' => 14, 'font' => 'body', 'weight' => 600],
+                'tix-mc-summary-row'     => ['label' => 'Zusammenfassung',        'size' => 14, 'font' => 'body', 'weight' => 400],
+                'tix-mc-summary-total'   => ['label' => 'Gesamt',                 'size' => 16, 'font' => 'heading', 'weight' => 700],
+                'tix-mc-submit'          => ['label' => 'Bestellen-Button',       'size' => 16, 'font' => 'body', 'weight' => 700],
+                'tix-mc-offer-heading'   => ['label' => 'Angebots-Titel',         'size' => 13, 'font' => 'body', 'weight' => 700],
+                'tix-mc-offer-save'      => ['label' => 'Ersparnis',              'size' => 12, 'font' => 'body', 'weight' => 700],
+            ],
+            'Minicart' => [
+                'tix-minicart-count' => ['label' => 'Warenkorb-Zähler', 'size' => 12, 'font' => 'body', 'weight' => 700],
+                'tix-mc-drawer-title' => ['label' => 'Warenkorb-Titel', 'size' => 18, 'font' => 'heading', 'weight' => 700],
+                'tix-mc-item-name'   => ['label' => 'Artikel-Name',     'size' => 14, 'font' => 'body', 'weight' => 700],
+                'tix-mc-item-hint'   => ['label' => 'Artikel-Hinweis',  'size' => 12, 'font' => 'body', 'weight' => 400],
+                'tix-mc-item-price'  => ['label' => 'Artikel-Preis',    'size' => 15, 'font' => 'body', 'weight' => 700],
+                'tix-mc-total-row'   => ['label' => 'Gesamt-Zeile',     'size' => 18, 'font' => 'heading', 'weight' => 700],
+                'tix-mc-checkout-btn' => ['label' => 'Zur Kasse Button', 'size' => 16, 'font' => 'body', 'weight' => 700],
+            ],
+            'Raffle' => [
+                'tix-raffle-title'         => ['label' => 'Gewinnspiel-Titel', 'size' => 22, 'font' => 'heading', 'weight' => 700],
+                'tix-raffle-desc'          => ['label' => 'Beschreibung',      'size' => 14, 'font' => 'body', 'weight' => 400],
+                'tix-raffle-prizes-title'  => ['label' => 'Preise-Titel',      'size' => 15, 'font' => 'body', 'weight' => 600],
+                'tix-raffle-prize-badge'   => ['label' => 'Preis-Badge',       'size' => 12, 'font' => 'body', 'weight' => 600],
+                'tix-raffle-countdown'     => ['label' => 'Countdown',         'size' => 14, 'font' => 'body', 'weight' => 400],
+                'tix-raffle-consent'       => ['label' => 'Einwilligung',      'size' => 13, 'font' => 'body', 'weight' => 400],
+                'tix-raffle-msg'           => ['label' => 'Meldung',           'size' => 14, 'font' => 'body', 'weight' => 400],
+                'tix-raffle-count'         => ['label' => 'Teilnehmer-Zähler', 'size' => 13, 'font' => 'body', 'weight' => 400],
+                'tix-raffle-success-title' => ['label' => 'Erfolgs-Titel',     'size' => 18, 'font' => 'heading', 'weight' => 600],
+                'tix-raffle-success-text'  => ['label' => 'Erfolgs-Text',      'size' => 14, 'font' => 'body', 'weight' => 400],
+            ],
+            'Table Reservation' => [
+                'tr-header-title'       => ['label' => 'Header-Titel',           'size' => 15, 'font' => 'heading', 'weight' => 700],
+                'tr-back-btn'           => ['label' => 'Zurück-Button',          'size' => 13, 'font' => 'body', 'weight' => 400],
+                'tr-calendar-month'     => ['label' => 'Kalender-Monat',         'size' => 22, 'font' => 'heading', 'weight' => 700],
+                'tr-weekday-header'     => ['label' => 'Wochentag',              'size' => 12, 'font' => 'body', 'weight' => 600],
+                'tr-day-number'         => ['label' => 'Tag-Nummer',             'size' => 13, 'font' => 'body', 'weight' => 600],
+                'tr-day-event-title'    => ['label' => 'Tages-Event',            'size' => 10, 'font' => 'body', 'weight' => 600],
+                'tr-no-events'          => ['label' => 'Keine Events',           'size' => 15, 'font' => 'body', 'weight' => 400],
+                'tr-event-title'        => ['label' => 'Event-Titel',            'size' => 15, 'font' => 'heading', 'weight' => 700],
+                'tr-event-meta'         => ['label' => 'Event-Meta',             'size' => 12, 'font' => 'body', 'weight' => 400],
+                'tr-info-text'          => ['label' => 'Info-Text',              'size' => 13, 'font' => 'body', 'weight' => 400],
+                'tr-categories-title'   => ['label' => 'Kategorien-Titel',       'size' => 14, 'font' => 'heading', 'weight' => 700],
+                'tr-cat-name'           => ['label' => 'Kategorie-Name',         'size' => 14, 'font' => 'body', 'weight' => 600],
+                'tr-cat-desc'           => ['label' => 'Kategorie-Beschreibung', 'size' => 12, 'font' => 'body', 'weight' => 400],
+                'tr-cat-badge'          => ['label' => 'Kategorie-Badge',        'size' => 12, 'font' => 'body', 'weight' => 400],
+                'tr-cat-price'          => ['label' => 'Kategorie-Preis',        'size' => 13, 'font' => 'heading', 'weight' => 700],
+                'tr-cat-price-label'    => ['label' => 'Preis-Label',            'size' => 12, 'font' => 'body', 'weight' => 400],
+                'tr-cat-avail'          => ['label' => 'Verfügbarkeit',          'size' => 12, 'font' => 'body', 'weight' => 400],
+                'tr-form-summary-event' => ['label' => 'Zusammenfassung-Event',  'size' => 18, 'font' => 'heading', 'weight' => 700],
+                'tr-form-label'         => ['label' => 'Formular-Label',         'size' => 13, 'font' => 'body', 'weight' => 600],
+                'tr-form-input'         => ['label' => 'Formular-Eingabe',       'size' => 14, 'font' => 'body', 'weight' => 400],
+                'tr-price-total'        => ['label' => 'Gesamt-Preis',           'size' => 18, 'font' => 'heading', 'weight' => 700],
+                'tr-price-note'         => ['label' => 'Preis-Hinweis',          'size' => 12, 'font' => 'body', 'weight' => 400],
+                'tr-success-title'      => ['label' => 'Erfolgs-Titel',          'size' => 28, 'font' => 'heading', 'weight' => 800],
+                'tr-success-text'       => ['label' => 'Erfolgs-Text',           'size' => 15, 'font' => 'body', 'weight' => 400],
+            ],
+            'Seatmap Picker' => [
+                'tix-sp-stage'            => ['label' => 'Bühne',              'size' => 12, 'font' => 'body', 'weight' => 700],
+                'tix-sp-legend-item'      => ['label' => 'Legende',            'size' => 12, 'font' => 'body', 'weight' => 400],
+                'tix-sp-section-header'   => ['label' => 'Sektions-Header',    'size' => 12, 'font' => 'body', 'weight' => 600],
+                'tix-sp-section-avail'    => ['label' => 'Verfügbarkeit',      'size' => 12, 'font' => 'body', 'weight' => 400],
+                'tix-sp-selection-header' => ['label' => 'Auswahl-Header',     'size' => 12, 'font' => 'body', 'weight' => 700],
+                'tix-sp-selected-tag'     => ['label' => 'Auswahl-Tag',        'size' => 12, 'font' => 'body', 'weight' => 600],
+                'tix-sp-timer'            => ['label' => 'Timer',              'size' => 12, 'font' => 'body', 'weight' => 600],
+                'tix-sp-loading'          => ['label' => 'Laden-Text',         'size' => 13, 'font' => 'body', 'weight' => 400],
+                'tix-sp-modal-header'     => ['label' => 'Modal-Titel',        'size' => 18, 'font' => 'heading', 'weight' => 700],
+                'tix-sp-modal-summary'    => ['label' => 'Modal-Info',         'size' => 15, 'font' => 'body', 'weight' => 400],
+                'tix-sp-modal-confirm'    => ['label' => 'Bestätigen-Button',  'size' => 14, 'font' => 'body', 'weight' => 600],
+            ],
+            'Exit Intent' => [
+                'tix-ei-headline' => ['label' => 'Überschrift', 'size' => 22, 'font' => 'heading', 'weight' => 800],
+                'tix-ei-text'     => ['label' => 'Text',        'size' => 15, 'font' => 'body', 'weight' => 400],
+                'tix-ei-button'   => ['label' => 'Button',      'size' => 15, 'font' => 'body', 'weight' => 700],
+            ],
+            'Register Event' => [
+                'tix-re-title'         => ['label' => 'Seiten-Titel',    'size' => 28, 'font' => 'heading', 'weight' => 800],
+                'tix-re-subtitle'      => ['label' => 'Untertitel',      'size' => 15, 'font' => 'body', 'weight' => 400],
+                'tix-re-step'          => ['label' => 'Schritt',         'size' => 14, 'font' => 'body', 'weight' => 500],
+                'tix-re-step-num'      => ['label' => 'Schritt-Nummer',  'size' => 13, 'font' => 'body', 'weight' => 700],
+                'tix-re-panel-title'   => ['label' => 'Panel-Titel',     'size' => 22, 'font' => 'heading', 'weight' => 700],
+                'tix-re-bubble'        => ['label' => 'Chat-Blase',      'size' => 13, 'font' => 'body', 'weight' => 400],
+                'tix-re-dropzone-text' => ['label' => 'Upload-Text',     'size' => 15, 'font' => 'body', 'weight' => 400],
+                'tix-re-dropzone-hint' => ['label' => 'Upload-Hinweis',  'size' => 12, 'font' => 'body', 'weight' => 400],
+                'tix-re-input'         => ['label' => 'Eingabefeld',     'size' => 15, 'font' => 'body', 'weight' => 400],
+                'tix-re-preview-label' => ['label' => 'Preview-Label',   'size' => 12, 'font' => 'body', 'weight' => 600],
+                'tix-re-preview-value' => ['label' => 'Preview-Wert',    'size' => 14, 'font' => 'body', 'weight' => 400],
+                'tix-re-field label'   => ['label' => 'Feld-Label',      'size' => 12, 'font' => 'body', 'weight' => 600],
+                'tix-re-legal'         => ['label' => 'Rechtliches',     'size' => 13, 'font' => 'body', 'weight' => 400],
+                'tix-re-btn-primary'   => ['label' => 'Haupt-Button',    'size' => 14, 'font' => 'body', 'weight' => 600],
+                'tix-re-error'         => ['label' => 'Fehler-Meldung',  'size' => 14, 'font' => 'body', 'weight' => 400],
+            ],
+        ];
+    }
+
+    /**
+     * Flache Registry: Klasse => Defaults (ohne Gruppierung).
+     */
+    public static function typo_class_registry_flat() {
+        $flat = [];
+        foreach (self::typo_class_registry() as $classes) {
+            foreach ($classes as $cls => $def) {
+                $flat[$cls] = $def;
+            }
+        }
+        return $flat;
     }
 
     /**

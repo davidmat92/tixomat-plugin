@@ -1292,25 +1292,25 @@ class TIX_Native_Checkout {
             <?php if ($order->status === 'completed' || $order->status === 'processing'): ?>
                 <div class="tix-ty-status">
                     <div class="tix-ty-check">✓</div>
-                    <h1>Vielen Dank für deine Bestellung!</h1>
-                    <p>Bestellung <?php echo esc_html($order->order_number); ?> &middot; Bestätigung wird an <?php echo esc_html($order->billing_email); ?> gesendet.</p>
+                    <h1 class="tix-ty-title">Vielen Dank für deine Bestellung!</h1>
+                    <p class="tix-ty-text">Bestellung <?php echo esc_html($order->order_number); ?> &middot; Bestätigung wird an <?php echo esc_html($order->billing_email); ?> gesendet.</p>
                 </div>
             <?php elseif ($order->status === 'pending' || $order->status === 'on-hold'): ?>
                 <div class="tix-ty-status">
                     <div class="tix-ty-check" style="background:#f59e0b;">⏳</div>
                     <?php if ($order->payment_method === 'bank'): ?>
-                        <h1>Bitte überweise den Betrag</h1>
-                        <p>Bestellung <?php echo esc_html($order->order_number); ?> &middot; Deine Tickets werden erstellt sobald die Zahlung eingegangen ist.</p>
+                        <h1 class="tix-ty-title">Bitte überweise den Betrag</h1>
+                        <p class="tix-ty-text">Bestellung <?php echo esc_html($order->order_number); ?> &middot; Deine Tickets werden erstellt sobald die Zahlung eingegangen ist.</p>
                     <?php else: ?>
-                        <h1>Zahlung wird verarbeitet</h1>
-                        <p>Bestellung <?php echo esc_html($order->order_number); ?> &middot; Du erhältst eine Bestätigung per E-Mail sobald die Zahlung eingegangen ist.</p>
+                        <h1 class="tix-ty-title">Zahlung wird verarbeitet</h1>
+                        <p class="tix-ty-text">Bestellung <?php echo esc_html($order->order_number); ?> &middot; Du erhältst eine Bestätigung per E-Mail sobald die Zahlung eingegangen ist.</p>
                     <?php endif; ?>
                 </div>
                 <?php if ($order->payment_method === 'bank'):
                     $bs = tix_get_settings();
                 ?>
                     <div class="tix-ty-card">
-                        <h3>Bankverbindung</h3>
+                        <h3 class="tix-ty-card-title">Bankverbindung</h3>
                         <table style="width:100%;font-size:14px;">
                             <?php if (!empty($bs['bank_holder'])): ?><tr><td style="padding:4px 0;color:#6b7280;">Kontoinhaber</td><td style="padding:4px 0;font-weight:600;"><?php echo esc_html($bs['bank_holder']); ?></td></tr><?php endif; ?>
                             <?php if (!empty($bs['bank_iban'])): ?><tr><td style="padding:4px 0;color:#6b7280;">IBAN</td><td style="padding:4px 0;font-weight:600;font-family:monospace;"><?php echo esc_html($bs['bank_iban']); ?></td></tr><?php endif; ?>
@@ -1329,14 +1329,14 @@ class TIX_Native_Checkout {
             <?php else: ?>
                 <div class="tix-ty-status">
                     <div class="tix-ty-check" style="background:#ef4444;">✗</div>
-                    <h1>Zahlung fehlgeschlagen</h1>
-                    <p>Bitte versuche es erneut oder wähle eine andere Zahlungsart.</p>
+                    <h1 class="tix-ty-title">Zahlung fehlgeschlagen</h1>
+                    <p class="tix-ty-text">Bitte versuche es erneut oder wähle eine andere Zahlungsart.</p>
                 </div>
             <?php endif; ?>
 
             <?php if (!empty($tickets)): ?>
                 <div class="tix-ty-card">
-                    <h3>Deine Tickets</h3>
+                    <h3 class="tix-ty-card-title">Deine Tickets</h3>
                     <?php foreach ($tickets as $ticket):
                         $code = get_post_meta($ticket->ID, '_tix_ticket_code', true);
                         $token = get_post_meta($ticket->ID, '_tix_ticket_download_token', true);

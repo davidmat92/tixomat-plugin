@@ -7,7 +7,7 @@
 }
 
 .tix-up-heading {
-    font-size: 1.15rem;
+    font-size: var(--tix-h3, 18px);
     font-weight: 600;
     margin: 0 0 16px;
     color: inherit;
@@ -73,7 +73,7 @@
     position: absolute;
     top: 8px;
     right: 8px;
-    font-size: 0.7rem;
+    font-size: var(--tix-label, 11px);
     font-weight: 600;
     padding: 3px 8px;
     border-radius: 4px;
@@ -99,7 +99,7 @@
     padding: 12px 14px 14px;
 }
 .tix-up-card-title {
-    font-size: 0.95rem;
+    font-size: var(--tix-body, 15px);
     font-weight: 600;
     line-height: 1.3;
     display: -webkit-box;
@@ -111,7 +111,7 @@
     display: flex;
     align-items: center;
     gap: 5px;
-    font-size: 0.8rem;
+    font-size: var(--tix-small, 13px);
     opacity: .65;
     line-height: 1.3;
 }
@@ -120,7 +120,7 @@
     opacity: .7;
 }
 .tix-up-card-price {
-    font-size: 0.9rem;
+    font-size: var(--tix-btn, 14px);
     font-weight: 600;
     color: var(--tix-accent, #8b5cf6);
     margin-top: 2px;
@@ -158,6 +158,6 @@
         justify-content: center;
     }
     .tix-up-card-title {
-        font-size: 0.88rem;
+        font-size: var(--tix-small, 13px);
     }
 }

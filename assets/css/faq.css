@@ -12,7 +12,7 @@
 
 /* ── Titel ── */
 .tix-faq-title {
-    font-size: var(--tix-faq-title-size, 1.3rem);
+    font-size: var(--tix-faq-title-size, var(--tix-h2, 20px));
     font-weight: 700;
     margin: 0 0 16px 0;
 }
@@ -48,7 +48,7 @@
     background: var(--tix-faq-bg, transparent);
     color: var(--tix-text, inherit);
     font: inherit;
-    font-size: var(--tix-faq-question-size, 1rem);
+    font-size: var(--tix-faq-question-size, var(--tix-h4, 16px));
     font-weight: var(--tix-faq-question-weight, 600);
     text-align: left;
     cursor: pointer;
@@ -102,7 +102,7 @@
 
 .tix-faq-a-inner {
     padding: 0 var(--tix-faq-padding-h, 18px) 16px var(--tix-faq-padding-h, 18px);
-    font-size: var(--tix-faq-answer-size, 0.95rem);
+    font-size: var(--tix-faq-answer-size, var(--tix-body, 15px));
     line-height: var(--tix-faq-answer-line-height, 1.65);
     color: var(--tix-text, inherit);
     opacity: var(--tix-faq-answer-opacity, 0.75);
