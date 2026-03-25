@@ -697,14 +697,14 @@ class TIX_Columns {
             if ($key === 'title') {
                 $new[$key] = 'Ticket-Code';
             } elseif ($key === 'date') {
-                // Datum am Ende, davor unsere Spalten
+                // Datum am Ende, davor unsere Spalten — WP-Datum durch Custom ersetzen
                 $new['tix_t_event']  = 'Event';
                 $new['tix_t_owner']  = 'Käufer';
                 $new['tix_t_cat']    = 'Kategorie';
                 $new['tix_t_seat']   = 'Sitzplatz';
                 $new['tix_t_order']  = 'Bestellung';
                 $new['tix_t_status'] = 'Status';
-                $new[$key] = $val;
+                $new['tix_t_date']   = 'Datum';
             } else {
                 $new[$key] = $val;
             }
@@ -778,12 +778,22 @@ class TIX_Columns {
             case 'tix_t_status':
                 $status = get_post_meta($post_id, '_tix_ticket_status', true) ?: 'valid';
                 $labels = [
-                    'valid'     => ['✓ Gültig',     '#10b981', 'rgba(16,185,129,0.1)'],
-                    'used'      => ['✓ Eingelöst',  '' . tix_primary() . '', 'rgba(255,85,0,0.1)'],
-                    'cancelled' => ['✕ Storniert',  '#ef4444', 'rgba(239,68,68,0.1)'],
+                    'valid'     => ['Gültig',     '#10b981'],
+                    'used'      => ['Eingelöst',  tix_primary()],
+                    'cancelled' => ['Storniert',  '#ef4444'],
                 ];
-                $l = $labels[$status] ?? ['? ' . $status, '#64748b', 'rgba(100,116,139,0.1)'];
-                echo '<span style="background:' . $l[2] . ';color:' . $l[1] . ';padding:3px 10px;border-radius:10px;font-size:12px;font-weight:600;white-space:nowrap;">' . esc_html($l[0]) . '</span>';
+                $l = $labels[$status] ?? [$status, '#64748b'];
+                echo '<span style="display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;color:' . $l[1] . ';background:color-mix(in srgb, ' . $l[1] . ' 10%, #fff);padding:3px 10px;border-radius:20px;white-space:nowrap;">'
+                    . '<span style="width:7px;height:7px;border-radius:50%;background:' . $l[1] . ';flex-shrink:0;"></span>'
+                    . esc_html($l[0])
+                    . '</span>';
+                break;
+
+            case 'tix_t_date':
+                $post = get_post($post_id);
+                if ($post) {
+                    echo '<span style="font-size:13px;color:#6b7280;">' . date_i18n('d.m.Y, H:i', strtotime($post->post_date)) . '</span>';
+                }
                 break;
         }
     }
@@ -917,6 +927,7 @@ class TIX_Columns {
         $columns['tix_t_owner']  = 'tix_t_owner';
         $columns['tix_t_status'] = 'tix_t_status';
         $columns['tix_t_order']  = 'tix_t_order';
+        $columns['tix_t_date']   = 'date';
         return $columns;
     }
 
@@ -1093,10 +1104,44 @@ class TIX_Columns {
             $total += intval($r->cnt);
         }
 
+        // ── Styles: Ticket-Liste an Bestellungen-Design angleichen ──
+        echo '<style>
+        /* Titel-Zeile konsistent */
+        .post-type-tix_ticket .wrap > .wp-heading-inline { display:none; }
+        .post-type-tix_ticket .wrap > .page-title-action { display:none; }
+        .post-type-tix_ticket .subsubsub { display:none; }
+        /* Tabelle in Card-Style */
+        .post-type-tix_ticket .wp-list-table { border:none; border-radius:0; }
+        .post-type-tix_ticket #posts-filter > .wp-list-table { border:1px solid #e5e7eb; border-radius:12px; overflow:hidden; }
+        .post-type-tix_ticket .wp-list-table thead th { background:#fafafa; padding:12px 16px; font-size:13px; font-weight:600; border-bottom:1px solid #e5e7eb; }
+        .post-type-tix_ticket .wp-list-table tbody tr { border-top:1px solid #f3f4f6; }
+        .post-type-tix_ticket .wp-list-table tbody td { padding:14px 16px; vertical-align:middle; }
+        .post-type-tix_ticket .wp-list-table .check-column { padding:12px 8px !important; }
+        .post-type-tix_ticket .wp-list-table tfoot { display:none; }
+        .post-type-tix_ticket .wp-list-table .column-title .row-actions { visibility:visible; opacity:0; transition:opacity .15s; }
+        .post-type-tix_ticket .wp-list-table tr:hover .row-actions { opacity:1; }
+        /* Filter-Zeile cleaner */
+        .post-type-tix_ticket .tablenav.top .actions select { border-radius:6px; border-color:#d1d5db; }
+        .post-type-tix_ticket .tablenav.top .actions .button { border-radius:6px; }
+        .post-type-tix_ticket .tablenav.bottom { margin-top:12px; }
+        /* Alternating Row Color entfernen */
+        .post-type-tix_ticket .wp-list-table .alternate { background:transparent; }
+        .post-type-tix_ticket .wp-list-table tbody tr:hover { background:#fafbfc; }
+        </style>';
+
+        // ── Custom Titel mit Icon ──
+        $primary = tix_primary();
+        echo '<h1 style="display:flex;align-items:center;gap:10px;margin:0 0 16px;">';
+        echo '<span class="dashicons dashicons-tickets-alt" style="font-size:28px;width:28px;height:28px;color:' . $primary . ';"></span>';
+        echo 'Verkaufte Tickets';
+        echo '<span style="font-size:14px;color:#6b7280;font-weight:400;">' . $total . ' gesamt</span>';
+        echo '</h1>';
+
+        // ── KPI Cards ──
         echo '<div class="tix-ticket-summary">';
         echo '<div class="tix-summary-card"><span class="tix-summary-number">' . $total . '</span><span class="tix-summary-label">Gesamt</span></div>';
         echo '<div class="tix-summary-card"><span class="tix-summary-number" style="color:#10b981">' . $counts['valid'] . '</span><span class="tix-summary-label">Gültig</span></div>';
-        echo '<div class="tix-summary-card"><span class="tix-summary-number" style="color:' . tix_primary() . '">' . $counts['used'] . '</span><span class="tix-summary-label">Eingelöst</span></div>';
+        echo '<div class="tix-summary-card"><span class="tix-summary-number" style="color:' . $primary . '">' . $counts['used'] . '</span><span class="tix-summary-label">Eingelöst</span></div>';
         echo '<div class="tix-summary-card"><span class="tix-summary-number" style="color:#ef4444">' . $counts['cancelled'] . '</span><span class="tix-summary-label">Storniert</span></div>';
         echo '</div>';
     }
