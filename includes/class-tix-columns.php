@@ -1106,27 +1106,29 @@ class TIX_Columns {
 
         // ── Styles: Ticket-Liste an Bestellungen-Design angleichen ──
         echo '<style>
-        /* Titel-Zeile konsistent */
-        .post-type-tix_ticket .wrap > .wp-heading-inline { display:none; }
-        .post-type-tix_ticket .wrap > .page-title-action { display:none; }
-        .post-type-tix_ticket .subsubsub { display:none; }
+        /* Titel-Zeile konsistent (!important nötig wegen admin-shell.css) */
+        body.post-type-tix_ticket .wrap > h1.wp-heading-inline { display:none !important; }
+        body.post-type-tix_ticket .wrap > .page-title-action { display:none !important; }
+        body.post-type-tix_ticket .wrap > hr.wp-header-end { display:none; }
+        body.post-type-tix_ticket .subsubsub { display:none !important; }
         /* Tabelle in Card-Style */
-        .post-type-tix_ticket .wp-list-table { border:none; border-radius:0; }
-        .post-type-tix_ticket #posts-filter > .wp-list-table { border:1px solid #e5e7eb; border-radius:12px; overflow:hidden; }
-        .post-type-tix_ticket .wp-list-table thead th { background:#fafafa; padding:12px 16px; font-size:13px; font-weight:600; border-bottom:1px solid #e5e7eb; }
-        .post-type-tix_ticket .wp-list-table tbody tr { border-top:1px solid #f3f4f6; }
-        .post-type-tix_ticket .wp-list-table tbody td { padding:14px 16px; vertical-align:middle; }
-        .post-type-tix_ticket .wp-list-table .check-column { padding:12px 8px !important; }
-        .post-type-tix_ticket .wp-list-table tfoot { display:none; }
-        .post-type-tix_ticket .wp-list-table .column-title .row-actions { visibility:visible; opacity:0; transition:opacity .15s; }
-        .post-type-tix_ticket .wp-list-table tr:hover .row-actions { opacity:1; }
+        body.post-type-tix_ticket #posts-filter > .wp-list-table { border:1px solid #e5e7eb !important; border-radius:12px !important; overflow:hidden; background:#fff; }
+        body.post-type-tix_ticket .wp-list-table thead th { background:#fafafa !important; padding:12px 16px; font-size:13px; font-weight:600; border-bottom:1px solid #e5e7eb; }
+        body.post-type-tix_ticket .wp-list-table tbody tr { border-top:1px solid #f3f4f6; }
+        body.post-type-tix_ticket .wp-list-table tbody td { padding:14px 16px; vertical-align:middle; border-bottom:none; }
+        body.post-type-tix_ticket .wp-list-table .check-column { padding:12px 8px !important; }
+        body.post-type-tix_ticket .wp-list-table tfoot { display:none; }
+        body.post-type-tix_ticket .wp-list-table .column-title .row-actions { visibility:visible; opacity:0; transition:opacity .15s; }
+        body.post-type-tix_ticket .wp-list-table tr:hover .row-actions { opacity:1; }
         /* Filter-Zeile cleaner */
-        .post-type-tix_ticket .tablenav.top .actions select { border-radius:6px; border-color:#d1d5db; }
-        .post-type-tix_ticket .tablenav.top .actions .button { border-radius:6px; }
-        .post-type-tix_ticket .tablenav.bottom { margin-top:12px; }
+        body.post-type-tix_ticket .tablenav.top .actions select { border-radius:6px; border-color:#d1d5db; }
+        body.post-type-tix_ticket .tablenav.top .actions .button { border-radius:6px; }
+        body.post-type-tix_ticket .tablenav.bottom { margin-top:12px; }
         /* Alternating Row Color entfernen */
-        .post-type-tix_ticket .wp-list-table .alternate { background:transparent; }
-        .post-type-tix_ticket .wp-list-table tbody tr:hover { background:#fafbfc; }
+        body.post-type-tix_ticket .wp-list-table .alternate { background:transparent !important; }
+        body.post-type-tix_ticket .wp-list-table tbody tr:hover { background:#fafbfc !important; }
+        /* Bottom Bulk Actions verstecken (redundant) */
+        body.post-type-tix_ticket .tablenav.bottom .actions { display:none; }
         </style>';
 
         // ── Custom Titel mit Icon ──
