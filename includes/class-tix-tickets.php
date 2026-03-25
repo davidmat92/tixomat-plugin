@@ -119,11 +119,14 @@ class TIX_Tickets {
 
             // Order-Key validieren
             $order_id = get_post_meta($ticket->ID, '_tix_ticket_order_id', true);
-            if (!$order_id || !function_exists('wc_get_order')) {
+            if (!$order_id) {
                 wp_die('Bestellung nicht gefunden.', 'Fehler', ['response' => 404]);
             }
 
-            $order = wc_get_order($order_id);
+            $order = function_exists('wc_get_order') ? wc_get_order($order_id) : null;
+            if (!$order && class_exists('TIX_Order')) {
+                $order = TIX_Order::get($order_id);
+            }
             if (!$order || $order->get_order_key() !== $order_key) {
                 wp_die('Ungültiger Zugangsschlüssel.', 'Fehler', ['response' => 403]);
             }
@@ -139,8 +142,6 @@ class TIX_Tickets {
             $ticket_id = intval($_GET['download_ticket']);
             $order_key = sanitize_text_field($_GET['order_key']);
 
-            if (!function_exists('wc_get_order')) return;
-
             $post = get_post($ticket_id);
             if (!$post) {
                 wp_die('Ticket nicht gefunden.', 'Fehler', ['response' => 404]);
@@ -149,7 +150,10 @@ class TIX_Tickets {
             // tix_ticket → eigener PDF-Download
             if ($post->post_type === 'tix_ticket') {
                 $order_id = get_post_meta($ticket_id, '_tix_ticket_order_id', true);
-                $order = wc_get_order($order_id);
+                $order = function_exists('wc_get_order') ? wc_get_order($order_id) : null;
+                if (!$order && class_exists('TIX_Order')) {
+                    $order = TIX_Order::get($order_id);
+                }
                 if (!$order || $order->get_order_key() !== $order_key) {
                     wp_die('Ungültiger Zugangsschlüssel.', 'Fehler', ['response' => 403]);
                 }

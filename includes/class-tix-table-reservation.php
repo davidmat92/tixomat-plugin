@@ -717,11 +717,16 @@ class TIX_Table_Reservation {
         ], ['id' => $res->id], ['%s','%s'], ['%d']);
 
         // WC Order stornieren wenn vorhanden
+        $order = null;
         if ($res->order_id && function_exists('wc_get_order')) {
             $order = wc_get_order($res->order_id);
             if ($order && !in_array($order->get_status(), ['cancelled', 'refunded'])) {
                 $order->update_status('cancelled', 'Tischreservierung storniert');
             }
+        }
+        // Native Order Fallback
+        if ($res->order_id && !$order && class_exists('TIX_Native_Checkout')) {
+            TIX_Native_Checkout::update_order_status($res->order_id, 'cancelled', 'table_reservation');
         }
 
         wp_send_json_success(['message' => 'Reservierung wurde storniert.']);

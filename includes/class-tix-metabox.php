@@ -4423,6 +4423,23 @@ class TIX_Metabox {
             'limit'  => -1,
         ]);
 
+        // Native Orders (TIX_Order) einbeziehen
+        if (class_exists('TIX_Order')) {
+            $native_orders = TIX_Order::query([
+                'event_id' => $event_id,
+                'status'   => ['completed', 'processing'],
+            ]);
+            if (!empty($native_orders)) {
+                // Nur native Orders ohne WC-Dual-Write hinzufügen
+                $wc_ids = array_map(function($o) { return $o->get_id(); }, $orders);
+                foreach ($native_orders as $no) {
+                    if ($no->get_wc_order_id() === 0 || !in_array($no->get_wc_order_id(), $wc_ids, true)) {
+                        $orders[] = $no;
+                    }
+                }
+            }
+        }
+
         // Ticket-Codes vorladen (alle für dieses Event)
         $ticket_codes_by_order = [];
 

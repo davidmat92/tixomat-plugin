@@ -71,6 +71,15 @@ class TIX_VIP {
             $order_count = count($orders);
         }
 
+        // Native Orders (wc_order_id = 0) hinzufügen
+        if (class_exists('TIX_Order')) {
+            $native_count = (int) $wpdb->get_var($wpdb->prepare(
+                "SELECT COUNT(*) FROM {$wpdb->prefix}tix_orders WHERE customer_id = %d AND status = 'completed' AND wc_order_id = 0",
+                $user_id
+            ));
+            $order_count += $native_count;
+        }
+
         // OR-Logik: VIP wenn eines der Kriterien erfüllt
         $is_vip = ($ticket_count >= $min_tickets) || ($order_count >= $min_orders);
 
@@ -91,7 +100,13 @@ class TIX_VIP {
      * Hook: Neuberechnung nach Bestellabschluss.
      */
     public static function recalculate_on_order($order_id) {
-        $order = wc_get_order($order_id);
+        $order = function_exists('wc_get_order') ? wc_get_order($order_id) : null;
+
+        // Native Order Fallback
+        if (!$order && class_exists('TIX_Order')) {
+            $order = TIX_Order::get($order_id);
+        }
+
         if (!$order) return;
         $user_id = $order->get_customer_id();
         if (!$user_id) return;

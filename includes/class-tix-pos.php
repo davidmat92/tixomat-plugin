@@ -562,12 +562,28 @@ class TIX_POS {
             'cancelled'      => 0,
         ];
 
+        // Native POS Orders (wc_order_id = 0)
+        if (class_exists('TIX_Order')) {
+            $native_pos_sql = "SELECT id FROM {$wpdb->prefix}tix_orders
+                WHERE status = 'completed' AND wc_order_id = 0
+                AND JSON_EXTRACT(meta, '$.\"_tix_pos_order\"') IS NOT NULL
+                AND DATE(date_created) = %s";
+            $native_pos_ids = $wpdb->get_col($wpdb->prepare($native_pos_sql, $date));
+            if (!empty($native_pos_ids)) {
+                $order_ids = array_merge($order_ids ?: [], $native_pos_ids);
+            }
+        }
+
         if (empty($order_ids)) {
             wp_send_json_success(['report' => $report]);
         }
 
         foreach ($order_ids as $oid) {
             $order = wc_get_order($oid);
+            // Native Order Fallback
+            if (!$order && class_exists('TIX_Order')) {
+                $order = TIX_Order::get($oid);
+            }
             if (!$order) continue;
 
             // Skip if event filter set and doesn't match
@@ -625,6 +641,15 @@ class TIX_POS {
                 WHERE p.post_type = 'shop_order' AND p.post_status = 'wc-cancelled' AND DATE(p.post_date) = %s";
         }
         $report['cancelled'] = intval($wpdb->get_var($wpdb->prepare($cancel_sql, $date)));
+
+        // Native cancelled POS orders
+        if (class_exists('TIX_Order')) {
+            $native_cancel_sql = "SELECT COUNT(*) FROM {$wpdb->prefix}tix_orders
+                WHERE status = 'cancelled' AND wc_order_id = 0
+                AND JSON_EXTRACT(meta, '$.\"_tix_pos_order\"') IS NOT NULL
+                AND DATE(date_created) = %s";
+            $report['cancelled'] += intval($wpdb->get_var($wpdb->prepare($native_cancel_sql, $date)));
+        }
 
         // Sort hours
         ksort($report['by_hour']);

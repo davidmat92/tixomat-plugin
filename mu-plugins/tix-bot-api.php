@@ -160,20 +160,26 @@ function tixbot_tickets_lookup(WP_REST_Request $req) {
 
     set_transient($rate_key, $attempts + 1, TIX_BOT_RATE_LIMIT_WINDOW);
 
-    // ── WooCommerce Orders suchen ──
-    if (!function_exists('wc_get_orders')) {
-        return new WP_Error('tixbot_wc_missing', 'WooCommerce nicht aktiv.', ['status' => 500]);
+    // ── Orders suchen (WooCommerce + Native) ──
+    $orders = [];
+    if (function_exists('wc_get_orders')) {
+        $orders = wc_get_orders([
+            'billing_email' => strtolower($email),
+            'status'        => ['completed', 'processing'],
+            'limit'         => 50,
+            'orderby'       => 'date',
+            'order'         => 'DESC',
+        ]);
     }
 
-    $order_args = [
-        'billing_email' => strtolower($email),
-        'status'        => ['completed', 'processing'],
-        'limit'         => 50,
-        'orderby'       => 'date',
-        'order'         => 'DESC',
-    ];
-
-    $orders = wc_get_orders($order_args);
+    // Native Orders hinzufügen
+    if (class_exists('TIX_Order')) {
+        $native = TIX_Order::query(['email' => strtolower($email), 'status' => ['completed', 'processing'], 'limit' => 50]);
+        foreach ($native as $no) {
+            if ($no->get_meta('wc_order_id')) continue; // skip dual-write
+            $orders[] = $no; // TIX_Order has compatible getters
+        }
+    }
 
     if (empty($orders)) {
         return rest_ensure_response([
@@ -347,25 +353,33 @@ function tixbot_customer_exists(WP_REST_Request $req) {
         return new WP_Error('tixbot_invalid_email', 'Ungueltige E-Mail-Adresse.', ['status' => 400]);
     }
 
-    if (!function_exists('wc_get_orders')) {
-        return new WP_Error('tixbot_wc_missing', 'WooCommerce nicht aktiv.', ['status' => 500]);
+    $orders = [];
+    if (function_exists('wc_get_orders')) {
+        $orders = wc_get_orders([
+            'billing_email' => strtolower($email),
+            'status'        => ['completed', 'processing'],
+            'limit'         => 1,
+            'return'        => 'ids',
+        ]);
     }
 
-    $orders = wc_get_orders([
-        'billing_email' => strtolower($email),
-        'status'        => ['completed', 'processing'],
-        'limit'         => 1,
-        'return'        => 'ids',
-    ]);
-
     $has_orders = !empty($orders);
+    $first_name = '';
 
     // Zusatzinfo: Kundenname (nur Vorname fuer Begruessung)
-    $first_name = '';
-    if ($has_orders) {
+    if ($has_orders && function_exists('wc_get_order')) {
         $order = wc_get_order($orders[0]);
         if ($order) {
             $first_name = $order->get_billing_first_name();
+        }
+    }
+
+    // Native Orders prüfen
+    if (!$has_orders && class_exists('TIX_Order')) {
+        $native = TIX_Order::query(['email' => strtolower($email), 'status' => ['completed', 'processing'], 'limit' => 1]);
+        if (!empty($native)) {
+            $has_orders = true;
+            $first_name = $native[0]->get_billing_first_name();
         }
     }
 

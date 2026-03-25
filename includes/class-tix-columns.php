@@ -999,6 +999,10 @@ class TIX_Columns {
                         $order = wc_get_order($oid);
                         if ($order) $email = $order->get_billing_email();
                     }
+                    if (!$email && class_exists('TIX_Order')) {
+                        $native_order = TIX_Order::get($oid);
+                        if ($native_order) $email = $native_order->get_billing_email();
+                    }
                     if ($email) {
                         self::send_order_tickets_email($oid, $email);
                         $count += count($tids);
@@ -1191,6 +1195,10 @@ class TIX_Columns {
                 $order = wc_get_order($order_id);
                 if ($order) $email = $order->get_billing_email();
             }
+            if (!$email && $order_id && class_exists('TIX_Order')) {
+                $native_order = TIX_Order::get($order_id);
+                if ($native_order) $email = $native_order->get_billing_email();
+            }
         }
         if (!is_email($email)) wp_send_json_error('Keine gültige E-Mail-Adresse.');
 
@@ -1232,6 +1240,10 @@ class TIX_Columns {
         if (!$email && function_exists('wc_get_order')) {
             $order = wc_get_order($order_id);
             if ($order) $email = $order->get_billing_email();
+        }
+        if (!$email && class_exists('TIX_Order')) {
+            $native_order = TIX_Order::get($order_id);
+            if ($native_order) $email = $native_order->get_billing_email();
         }
         if (!is_email($email)) wp_send_json_error('Keine gültige E-Mail-Adresse.');
 

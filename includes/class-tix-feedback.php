@@ -197,23 +197,50 @@ class TIX_Feedback {
         $order_id = 0;
         $name = '';
 
-        // Search recent orders
-        $orders = wc_get_orders([
-            'limit'  => 500,
-            'status' => ['completed', 'processing'],
-            'meta_key' => '_tix_event_id',
-            'meta_value' => $event_id,
-        ]);
+        // Search recent orders (WooCommerce)
+        if (function_exists('wc_get_orders')) {
+            $orders = wc_get_orders([
+                'limit'  => 500,
+                'status' => ['completed', 'processing'],
+                'meta_key' => '_tix_event_id',
+                'meta_value' => $event_id,
+            ]);
 
-        foreach ($orders as $o) {
-            $o_email = $o->get_billing_email();
-            $expected = self::generate_token($o->get_id(), $event_id, $o_email);
-            if (hash_equals($expected, $token)) {
-                $valid = true;
-                $email = $o_email;
-                $order_id = $o->get_id();
-                $name = $o->get_billing_first_name() . ' ' . $o->get_billing_last_name();
-                break;
+            foreach ($orders as $o) {
+                $o_email = $o->get_billing_email();
+                $expected = self::generate_token($o->get_id(), $event_id, $o_email);
+                if (hash_equals($expected, $token)) {
+                    $valid = true;
+                    $email = $o_email;
+                    $order_id = $o->get_id();
+                    $name = $o->get_billing_first_name() . ' ' . $o->get_billing_last_name();
+                    break;
+                }
+            }
+        }
+
+        // Search native orders
+        if (!$valid && class_exists('TIX_Order')) {
+            global $wpdb;
+            $native_orders = $wpdb->get_results($wpdb->prepare(
+                "SELECT DISTINCT o.id FROM {$wpdb->prefix}tix_orders o
+                 INNER JOIN {$wpdb->prefix}tix_order_items oi ON oi.order_id = o.id
+                 WHERE oi.event_id = %d AND o.status IN ('completed','processing')",
+                $event_id
+            ));
+
+            foreach ($native_orders as $row) {
+                $no = TIX_Order::get($row->id);
+                if (!$no) continue;
+                $o_email = $no->get_billing_email();
+                $expected = self::generate_token($no->get_id(), $event_id, $o_email);
+                if (hash_equals($expected, $token)) {
+                    $valid = true;
+                    $email = $o_email;
+                    $order_id = $no->get_id();
+                    $name = $no->get_billing_first_name() . ' ' . $no->get_billing_last_name();
+                    break;
+                }
             }
         }
 
