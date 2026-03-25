@@ -3192,6 +3192,23 @@ class TIX_Settings {
                                         });
                                     });
                                 });
+                                /* Vor dem Absenden: Nur geänderte Typo-Felder senden (max_input_vars!) */
+                                var tixForm = document.getElementById('tix-settings-form');
+                                if (tixForm) {
+                                    tixForm.addEventListener('submit', function() {
+                                        document.querySelectorAll('.tix-typo-row:not(.tix-typo-row-head)').forEach(function(row) {
+                                            var s = row.querySelector('input[type="number"]');
+                                            var f = row.querySelectorAll('select')[0];
+                                            var w = row.querySelectorAll('select')[1];
+                                            var diffFromDefault = s.value != row.dataset.defSize || f.value != row.dataset.defFont || w.value != row.dataset.defWeight;
+                                            if (!diffFromDefault) {
+                                                s.removeAttribute('name');
+                                                f.removeAttribute('name');
+                                                w.removeAttribute('name');
+                                            }
+                                        });
+                                    });
+                                }
                                 </script>
 
                             </div>
