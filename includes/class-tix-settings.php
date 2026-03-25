@@ -1484,20 +1484,20 @@ class TIX_Settings {
                 if (!isset($registry_flat[$cls]) || !is_array($vals)) continue;
                 $props = [];
                 if (isset($vals['size'])) {
-                    $props[] = 'font-size: ' . intval($vals['size']) . 'px';
+                    $props[] = 'font-size: ' . intval($vals['size']) . 'px !important';
                 }
                 if (isset($vals['font'])) {
                     $f = esc_attr($vals['font']);
                     if ($f === 'heading') {
-                        $props[] = "font-family: '{$typo_heading}', sans-serif";
+                        $props[] = "font-family: '{$typo_heading}', sans-serif !important";
                     } elseif ($f === 'body') {
-                        $props[] = "font-family: '{$typo_body}', sans-serif";
+                        $props[] = "font-family: '{$typo_body}', sans-serif !important";
                     } else {
-                        $props[] = "font-family: '{$f}', sans-serif";
+                        $props[] = "font-family: '{$f}', sans-serif !important";
                     }
                 }
                 if (isset($vals['weight'])) {
-                    $props[] = 'font-weight: ' . intval($vals['weight']);
+                    $props[] = 'font-weight: ' . intval($vals['weight']) . ' !important';
                 }
                 if (!empty($props)) {
                     echo '.' . $cls . " { " . implode('; ', $props) . "; }\n";
