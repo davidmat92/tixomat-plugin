@@ -79,11 +79,41 @@ class TIX_Settings {
             // ── Event-Seite ([tix_event_page]) ──
             'ep_template_enabled' => 0,       // Eigenes Template statt Breakdance
             'ep_hero_height'     => 380,
+            'ep_hero_auto'       => 0,        // Auto-Höhe: Bild bestimmt Höhe
             'ep_layout'          => '2col',   // '1col' oder '2col'
             'ep_max_width'       => 1100,
+            'ep_col_split'       => 65,         // Spaltenverteilung: % für Hauptspalte (Rest = Sidebar)
+            'ep_col_gap'         => 36,         // Abstand zwischen den Spalten (px)
             'ep_gap'             => 32,
-            'ep_pad_x'           => 32,       // Padding links/rechts
-            'ep_pad_y'           => 40,       // Padding oben/unten
+            'ep_gap_tl'          => 28,
+            'ep_gap_tp'          => 24,
+            'ep_gap_pl'          => 20,
+            'ep_gap_pp'          => 16,
+            'ep_pad_x'           => 32,       // Padding links/rechts (Desktop)
+            'ep_pad_x_tl'       => 28,       // Padding ≤1119 (Tablet Landscape)
+            'ep_pad_x_tp'       => 20,       // Padding ≤1023 (Tablet Portrait)
+            'ep_pad_x_pl'       => 16,       // Padding ≤767  (Phone Landscape)
+            'ep_pad_x_pp'       => 12,       // Padding ≤479  (Phone Portrait)
+            'ep_card_gap'       => 0,        // Karten-Abstand vom Rand Desktop
+            'ep_card_gap_tl'    => 0,        // Karten-Abstand ≤1119
+            'ep_card_gap_tp'    => 0,        // Karten-Abstand ≤1023
+            'ep_card_gap_pl'    => 0,        // Karten-Abstand ≤767
+            'ep_card_gap_pp'    => 0,        // Karten-Abstand ≤479
+            'ep_card_pad'       => 28,       // Karten-Innenabstand Desktop
+            'ep_card_pad_tl'    => 20,       // Karten-Innenabstand ≤1119
+            'ep_card_pad_tp'    => 20,       // Karten-Innenabstand ≤1023
+            'ep_card_pad_pl'    => 16,       // Karten-Innenabstand ≤767
+            'ep_card_pad_pp'    => 12,       // Karten-Innenabstand ≤479
+            'ep_pad_top'         => 32,       // Padding oben Desktop
+            'ep_pad_top_tl'      => 28,
+            'ep_pad_top_tp'      => 24,
+            'ep_pad_top_pl'      => 20,
+            'ep_pad_top_pp'      => 16,
+            'ep_pad_bottom'      => 64,       // Padding unten Desktop
+            'ep_pad_bottom_tl'   => 56,
+            'ep_pad_bottom_tp'   => 48,
+            'ep_pad_bottom_pl'   => 40,
+            'ep_pad_bottom_pp'   => 32,
             'ep_sticky_offset'   => 56,       // Abstand unter Sticky-Header (px)
             // ── Event-Karten Seite ──
             'ec_page_enabled'    => 0,        // Automatische /events/ Seite
@@ -109,6 +139,7 @@ class TIX_Settings {
             'ep_show_raffle'     => 1,
             'ep_show_share'      => 1,
             'ep_show_timetable'  => 1,
+            'ep_sticky_tabs'     => 1,        // Sticky Tab-Navigation
 
             // ── Share-Buttons ([tix_share]) ──
             'share_channels'     => 'wa,tg,fb,x,li,email,copy,native',
@@ -496,9 +527,25 @@ class TIX_Settings {
             // Ticket-Template
             'ticket_template'    => '',
             // ── Ticket-Bot ──
+            'bot_avatar_id'          => 0,
+            'bot_font'               => 'Inter',
+            'bot_color_bg'           => '#FAF8F4',
+            'bot_color_bg_header'    => '#ffffff',
+            'bot_color_bg_input'     => '#ffffff',
+            'bot_color_bg_card'      => '#ffffff',
+            'bot_color_bg_input_field' => '#F3F0EA',
+            'bot_color_accent'       => '#FF5500',
+            'bot_color_accent_hover' => '#CC4400',
+            'bot_color_text'         => '#0D0B09',
+            'bot_color_text_muted'   => 'rgba(13,11,9,.50)',
+            'bot_color_text_light'   => 'rgba(13,11,9,.35)',
+            'bot_color_border'       => '#EDE9E0',
+            'bot_color_user_bubble'  => '#FF5500',
+            'bot_color_user_text'    => '#ffffff',
             'bot_enabled'            => 0,
-            'bot_hub_url'            => 'https://tixomat-dpconnect.pythonanywhere.com',
+            'bot_hub_url'            => 'https://tixomat.pythonanywhere.com',
             'bot_hub_master_key'     => '',
+            'bot_hub_admin_key'      => '',
             'bot_api_secret'         => '',
             'bot_telegram_token'     => '',
             'bot_telegram_enabled'   => 0,
@@ -534,6 +581,10 @@ class TIX_Settings {
         add_action('admin_enqueue_scripts', [__CLASS__, 'enqueue_assets']);
         add_action('wp_head',    [__CLASS__, 'output_css'], 99);
         add_action('admin_head', [__CLASS__, 'output_admin_primary_css'], 99);
+
+        // Export / Import AJAX
+        add_action('wp_ajax_tix_export_settings', [__CLASS__, 'ajax_export']);
+        add_action('wp_ajax_tix_import_settings', [__CLASS__, 'ajax_import']);
     }
 
     /**
@@ -667,21 +718,57 @@ class TIX_Settings {
         // Event-Seite Layout
         $clean['ep_template_enabled'] = !empty($input['ep_template_enabled']) ? 1 : 0;
         $clean['ep_hero_height'] = max(150, min(600, intval($input['ep_hero_height'] ?? 380)));
+        $clean['ep_hero_auto']   = !empty($input['ep_hero_auto']) ? 1 : 0;
         $clean['ep_layout'] = in_array($input['ep_layout'] ?? '', ['1col', '2col']) ? $input['ep_layout'] : '2col';
-        $clean['ep_pad_x'] = max(0, min(80, intval($input['ep_pad_x'] ?? 32)));
-        $clean['ep_pad_y'] = max(0, min(120, intval($input['ep_pad_y'] ?? 40)));
+        $clean['ep_pad_x']    = max(0, min(80, intval($input['ep_pad_x'] ?? 32)));
+        $clean['ep_pad_x_tl'] = max(0, min(80, intval($input['ep_pad_x_tl'] ?? 28)));
+        $clean['ep_pad_x_tp'] = max(0, min(80, intval($input['ep_pad_x_tp'] ?? 20)));
+        $clean['ep_pad_x_pl'] = max(0, min(80, intval($input['ep_pad_x_pl'] ?? 16)));
+        $clean['ep_pad_x_pp'] = max(0, min(80, intval($input['ep_pad_x_pp'] ?? 12)));
+        // Karten-Abstand vom Rand (pro Breakpoint)
+        $clean['ep_card_gap']    = max(0, min(80, intval($input['ep_card_gap'] ?? 0)));
+        $clean['ep_card_gap_tl'] = max(0, min(80, intval($input['ep_card_gap_tl'] ?? 0)));
+        $clean['ep_card_gap_tp'] = max(0, min(80, intval($input['ep_card_gap_tp'] ?? 0)));
+        $clean['ep_card_gap_pl'] = max(0, min(80, intval($input['ep_card_gap_pl'] ?? 0)));
+        $clean['ep_card_gap_pp'] = max(0, min(80, intval($input['ep_card_gap_pp'] ?? 0)));
+        // Karten-Innenabstand (pro Breakpoint)
+        $clean['ep_card_pad']    = max(0, min(80, intval($input['ep_card_pad'] ?? 28)));
+        $clean['ep_card_pad_tl'] = max(0, min(80, intval($input['ep_card_pad_tl'] ?? 20)));
+        $clean['ep_card_pad_tp'] = max(0, min(80, intval($input['ep_card_pad_tp'] ?? 20)));
+        $clean['ep_card_pad_pl'] = max(0, min(80, intval($input['ep_card_pad_pl'] ?? 16)));
+        $clean['ep_card_pad_pp'] = max(0, min(80, intval($input['ep_card_pad_pp'] ?? 12)));
+        // Padding oben (pro Breakpoint)
+        $clean['ep_pad_top']       = max(0, min(120, intval($input['ep_pad_top'] ?? 32)));
+        $clean['ep_pad_top_tl']    = max(0, min(120, intval($input['ep_pad_top_tl'] ?? 28)));
+        $clean['ep_pad_top_tp']    = max(0, min(120, intval($input['ep_pad_top_tp'] ?? 24)));
+        $clean['ep_pad_top_pl']    = max(0, min(120, intval($input['ep_pad_top_pl'] ?? 20)));
+        $clean['ep_pad_top_pp']    = max(0, min(120, intval($input['ep_pad_top_pp'] ?? 16)));
+        // Padding unten (pro Breakpoint)
+        $clean['ep_pad_bottom']    = max(0, min(120, intval($input['ep_pad_bottom'] ?? 64)));
+        $clean['ep_pad_bottom_tl'] = max(0, min(120, intval($input['ep_pad_bottom_tl'] ?? 56)));
+        $clean['ep_pad_bottom_tp'] = max(0, min(120, intval($input['ep_pad_bottom_tp'] ?? 48)));
+        $clean['ep_pad_bottom_pl'] = max(0, min(120, intval($input['ep_pad_bottom_pl'] ?? 40)));
+        $clean['ep_pad_bottom_pp'] = max(0, min(120, intval($input['ep_pad_bottom_pp'] ?? 32)));
+        // Rückwärtskompatibel: ep_pad_y Fallback
+        $clean['ep_pad_y'] = $clean['ep_pad_top'];
         $clean['ep_sticky_offset'] = max(0, min(200, intval($input['ep_sticky_offset'] ?? 56)));
         $clean['ec_page_enabled'] = !empty($input['ec_page_enabled']) ? 1 : 0;
         $clean['ec_pad_x'] = max(0, min(80, intval($input['ec_pad_x'] ?? 32)));
         $clean['ec_pad_y'] = max(0, min(120, intval($input['ec_pad_y'] ?? 56)));
         // Event-Seite Zahlen
         $clean['ep_max_width'] = max(400, min(1600, intval($input['ep_max_width'] ?? 1100)));
-        $clean['ep_gap']       = max(12, min(48, intval($input['ep_gap'] ?? 32)));
+        $clean['ep_col_split'] = max(50, min(80, intval($input['ep_col_split'] ?? 65)));
+        $clean['ep_col_gap']   = max(0, min(100, intval($input['ep_col_gap'] ?? 36)));
+        $clean['ep_gap']       = max(0, min(60, intval($input['ep_gap'] ?? 32)));
+        $clean['ep_gap_tl']    = max(0, min(60, intval($input['ep_gap_tl'] ?? 28)));
+        $clean['ep_gap_tp']    = max(0, min(60, intval($input['ep_gap_tp'] ?? 24)));
+        $clean['ep_gap_pl']    = max(0, min(60, intval($input['ep_gap_pl'] ?? 20)));
+        $clean['ep_gap_pp']    = max(0, min(60, intval($input['ep_gap_pp'] ?? 16)));
         $clean['ep_radius']    = max(0, min(24, intval($input['ep_radius'] ?? 12)));
         // Event-Seite Ticket-Modus
         $clean['ep_ticket_mode'] = in_array($input['ep_ticket_mode'] ?? '', ['selector', 'modal', 'both']) ? $input['ep_ticket_mode'] : 'selector';
         // Event-Seite Toggles
-        foreach (['ep_show_hero', 'ep_show_gallery', 'ep_show_video', 'ep_show_faq', 'ep_show_location', 'ep_show_organizer', 'ep_show_series', 'ep_show_charity', 'ep_show_upsell', 'ep_show_calendar', 'ep_show_phases', 'ep_show_raffle', 'ep_show_share', 'ep_show_timetable'] as $k) {
+        foreach (['ep_show_hero', 'ep_show_gallery', 'ep_show_video', 'ep_show_faq', 'ep_show_location', 'ep_show_organizer', 'ep_show_series', 'ep_show_charity', 'ep_show_upsell', 'ep_show_calendar', 'ep_show_phases', 'ep_show_raffle', 'ep_show_share', 'ep_show_timetable', 'ep_sticky_tabs'] as $k) {
             $clean[$k] = !empty($input[$k]) ? 1 : 0;
         }
 
@@ -901,9 +988,9 @@ class TIX_Settings {
                     if (!isset($registry[$cls]) || !is_array($vals)) continue;
                     $def = $registry[$cls];
                     $entry = [];
-                    if (isset($vals['size'])) {
+                    if (isset($vals['size']) && $vals['size'] !== '') {
                         $size = intval($vals['size']);
-                        if ($size !== $def['size'] && $size >= 8 && $size <= 60) $entry['size'] = $size;
+                        if ($size >= 8 && $size <= 60) $entry['size'] = $size;
                     }
                     // Responsive Breakpoint Sizes
                     foreach (['size_tl', 'size_tp', 'size_pl', 'size_pp'] as $bp_key) {
@@ -912,13 +999,13 @@ class TIX_Settings {
                             if ($bp_size >= 8 && $bp_size <= 60) $entry[$bp_key] = $bp_size;
                         }
                     }
-                    if (isset($vals['font'])) {
+                    if (isset($vals['font']) && $vals['font'] !== '') {
                         $font = sanitize_text_field($vals['font']);
-                        if ($font !== $def['font'] && in_array($font, $allowed_fonts, true)) $entry['font'] = $font;
+                        if (in_array($font, $allowed_fonts, true)) $entry['font'] = $font;
                     }
-                    if (isset($vals['weight'])) {
+                    if (isset($vals['weight']) && $vals['weight'] !== '') {
                         $weight = intval($vals['weight']);
-                        if ($weight !== $def['weight'] && $weight >= 100 && $weight <= 900 && $weight % 100 === 0) $entry['weight'] = $weight;
+                        if ($weight >= 100 && $weight <= 900 && $weight % 100 === 0) $entry['weight'] = $weight;
                     }
                     if (!empty($entry)) $clean['tix_typo_classes'][$cls] = $entry;
                 }
@@ -949,9 +1036,7 @@ class TIX_Settings {
                             $val = sanitize_text_field($vals[$prop]);
                             // Erlaube nur gültige Farbwerte
                             if (preg_match('/^#[0-9a-fA-F]{3,8}$/', $val) || preg_match('/^(rgb|hsl)a?\(/', $val)) {
-                                if ($val !== $def['props'][$prop]) {
-                                    $entry[$prop] = $val;
-                                }
+                                $entry[$prop] = $val;
                             }
                         }
                     }
@@ -1152,10 +1237,21 @@ class TIX_Settings {
             $clean['ticket_template'] = '';
         }
 
-        // Bot
+        // Bot — Appearance
+        $clean['bot_avatar_id'] = absint($input['bot_avatar_id'] ?? 0);
+        $bot_fonts = ['Inter', 'Sora', 'DM Sans', 'Outfit', 'Poppins', 'Montserrat', 'Open Sans', 'Roboto', 'Lato', 'Nunito', 'Raleway', 'Playfair Display', 'Oswald', 'Source Sans 3', 'Work Sans', 'Manrope', 'Plus Jakarta Sans', 'Figtree'];
+        $clean['bot_font'] = in_array($input['bot_font'] ?? 'Inter', $bot_fonts, true) ? $input['bot_font'] : 'Inter';
+        $bot_color_keys = ['bot_color_bg', 'bot_color_bg_header', 'bot_color_bg_input', 'bot_color_bg_card', 'bot_color_bg_input_field', 'bot_color_accent', 'bot_color_accent_hover', 'bot_color_text', 'bot_color_text_muted', 'bot_color_text_light', 'bot_color_border', 'bot_color_user_bubble', 'bot_color_user_text'];
+        foreach ($bot_color_keys as $ck) {
+            $val = self::sanitize_color($input[$ck] ?? '');
+            $clean[$ck] = $val !== '' ? $val : ($d[$ck] ?? '');
+        }
+
+        // Bot — General
         $clean['bot_enabled']           = !empty($input['bot_enabled']) ? 1 : 0;
         $clean['bot_hub_url']           = esc_url_raw(rtrim($input['bot_hub_url'] ?? '', '/'));
         $clean['bot_hub_master_key']    = sanitize_text_field($input['bot_hub_master_key'] ?? '');
+        $clean['bot_hub_admin_key']     = sanitize_text_field($input['bot_hub_admin_key'] ?? '');
         $clean['bot_api_secret']        = sanitize_text_field($input['bot_api_secret'] ?? '');
         $clean['bot_telegram_token']    = sanitize_text_field($input['bot_telegram_token'] ?? '');
         $clean['bot_telegram_enabled']  = !empty($input['bot_telegram_enabled']) ? 1 : 0;
@@ -1172,6 +1268,11 @@ class TIX_Settings {
         $existing_s = get_option('tix_settings', []);
         $clean['bot_registered']        = intval($input['bot_registered'] ?? $existing_s['bot_registered'] ?? 0);
         $clean['bot_tenant_id']         = sanitize_text_field($input['bot_tenant_id'] ?? $existing_s['bot_tenant_id'] ?? '');
+
+        // LiteSpeed Cache purgen damit CSS-Änderungen sofort greifen
+        if (class_exists('LiteSpeed\Purge')) {
+            \LiteSpeed\Purge::purge_all();
+        }
 
         return $clean;
     }
@@ -1447,18 +1548,64 @@ class TIX_Settings {
         // ── Event-Seite Styles ──
         $ep_vars = [];
         if ((int)$s['ep_max_width'] !== 1100) $ep_vars[] = '--ep-max-w: ' . intval($s['ep_max_width']) . 'px';
-        if ((int)$s['ep_gap'] !== 32)        $ep_vars[] = '--ep-gap: ' . intval($s['ep_gap']) . 'px';
+        $col_split = intval($s['ep_col_split'] ?? 65);
+        if ($col_split !== 65) {
+            $side = 100 - $col_split;
+            $ep_vars[] = '--ep-col-split: ' . $col_split . 'fr ' . $side . 'fr';
+        }
+        $col_gap = intval($s['ep_col_gap'] ?? 36);
+        $ep_vars[] = '--ep-col-gap: ' . $col_gap . 'px';
         if ((int)$s['ep_radius'] !== 12)     $ep_vars[] = '--ep-radius: ' . intval($s['ep_radius']) . 'px';
         if (!empty($s['ep_bg']))             $ep_vars[] = '--ep-bg: ' . $s['ep_bg'];
         if (!empty($s['ep_text']))           $ep_vars[] = '--ep-text: ' . $s['ep_text'];
         if (!empty($s['ep_muted']))          $ep_vars[] = '--ep-muted: ' . $s['ep_muted'];
         if (!empty($s['ep_border']))         $ep_vars[] = '--ep-border: ' . $s['ep_border'];
-        // Padding + Sticky-Vars
+        // Padding + Sticky-Vars (Desktop)
         $ep_vars[] = '--tse-pad-x: ' . intval($s['ep_pad_x'] ?? 32) . 'px';
-        $ep_vars[] = '--tse-pad-y: ' . intval($s['ep_pad_y'] ?? 40) . 'px';
+        $ep_vars[] = '--tse-pad-top: ' . intval($s['ep_pad_top'] ?? 32) . 'px';
+        $ep_vars[] = '--tse-pad-bottom: ' . intval($s['ep_pad_bottom'] ?? 64) . 'px';
+        $ep_vars[] = '--ep-gap: ' . intval($s['ep_gap'] ?? 32) . 'px';
         $ep_vars[] = '--tse-sticky-offset: ' . intval($s['ep_sticky_offset'] ?? 56) . 'px';
+        $desktop_gap = intval($s['ep_card_gap'] ?? 0);
+        $ep_vars[] = '--tse-card-gap: ' . $desktop_gap . 'px';
+        $ep_vars[] = '--tse-card-pad: ' . intval($s['ep_card_pad'] ?? 28) . 'px';
+        // Wenn Karten-Abstand > 0: Radius + Border wiederherstellen
+        if ($desktop_gap > 0) {
+            $ep_vars[] = '--tse-card-radius: var(--tix-card-radius, 16px)';
+            $ep_vars[] = '--tse-card-border: 1px solid var(--tix-card-sand, #E3DED4)';
+        }
         if (!empty($ep_vars)) {
             echo ".tix-ep, .tse-wrap {\n    " . implode(";\n    ", $ep_vars) . ";\n}\n";
+        }
+        // Responsive Breakpoints (alle Variablen pro Breakpoint)
+        $resp_bps = [
+            ['width' => 1119, 'suffix' => '_tl'],
+            ['width' => 1023, 'suffix' => '_tp'],
+            ['width' => 767,  'suffix' => '_pl'],
+            ['width' => 479,  'suffix' => '_pp'],
+        ];
+        foreach ($resp_bps as $bp) {
+            $sfx = $bp['suffix'];
+            $vars = [];
+            $vars[] = '--tse-pad-x:' . intval($s["ep_pad_x{$sfx}"] ?? 20) . 'px';
+            $vars[] = '--tse-pad-top:' . intval($s["ep_pad_top{$sfx}"] ?? 24) . 'px';
+            $vars[] = '--tse-pad-bottom:' . intval($s["ep_pad_bottom{$sfx}"] ?? 48) . 'px';
+            $vars[] = '--ep-gap:' . intval($s["ep_gap{$sfx}"] ?? 24) . 'px';
+            $gap_val = intval($s["ep_card_gap{$sfx}"] ?? 0);
+            $vars[] = '--tse-card-gap:' . $gap_val . 'px';
+            $vars[] = '--tse-card-pad:' . intval($s["ep_card_pad{$sfx}"] ?? 20) . 'px';
+            if ($gap_val > 0) {
+                $vars[] = '--tse-card-radius:var(--tix-card-radius, 16px)';
+                $vars[] = '--tse-card-border:1px solid var(--tix-card-sand, #E3DED4)';
+            } else {
+                $vars[] = '--tse-card-radius:0px';
+                $vars[] = '--tse-card-border:none';
+            }
+            echo "@media(max-width:{$bp['width']}px){.tix-ep,.tse-wrap{" . implode(';', $vars) . "}}\n";
+        }
+        // Sticky Tabs deaktivieren → komplett ausblenden
+        if (empty($s['ep_sticky_tabs'])) {
+            echo ".tse-tabs { display: none !important; }\n";
         }
         // Event-Karten: Padding nur als CSS-Var (Breakdance steuert Hintergrund)
         // Padding wird nur im archive-event.php Template angewendet, nicht im Shortcode
@@ -1604,58 +1751,67 @@ class TIX_Settings {
             }
         }
 
-        // ── Per-Class Typografie Overrides ──
+        // WooCommerce Klassen → echte CSS-Selektoren (für Typo + Farben)
+        $wc_selector_map = [
+                'wc-nav-link'     => '.woocommerce-MyAccount-navigation ul li a',
+                'wc-content-h2'   => '.woocommerce-MyAccount-content h2',
+                'wc-content-h3'   => '.woocommerce-MyAccount-content h3',
+                'wc-table-th'     => '.woocommerce-MyAccount-content table th',
+                'wc-table-td'     => '.woocommerce-MyAccount-content table td',
+                'wc-order-status' => '.woocommerce-MyAccount-content .woocommerce-orders-table .woocommerce-orders-table__cell-order-status',
+                'wc-button'       => '.woocommerce-MyAccount-content .woocommerce-Button, .woocommerce-MyAccount-content .button',
+                'wc-label'        => '.woocommerce-MyAccount-content label',
+                'wc-input'        => '.woocommerce-MyAccount-content input[type="text"], .woocommerce-MyAccount-content input[type="email"], .woocommerce-MyAccount-content input[type="tel"], .woocommerce-MyAccount-content select, .woocommerce-MyAccount-content textarea',
+                'wc-message'      => '.woocommerce-message, .woocommerce-info, .woocommerce-error',
+        ];
+
+        // ── Per-Class Typografie: ALLE Klassen explizit ausgeben (Override oder Default) ──
         $typo_classes = $s['tix_typo_classes'] ?? [];
-        if (!empty($typo_classes) && is_array($typo_classes)) {
-            $registry_flat = self::typo_class_registry_flat();
+        if (!is_array($typo_classes)) $typo_classes = [];
+        $registry_flat = self::typo_class_registry_flat();
 
-            // Breakpoint-Sammler: width => ['.cls { font-size: Xpx !important; }', ...]
-            $bp_map = [
-                'size_tl' => 1119,
-                'size_tp' => 1023,
-                'size_pl' => 767,
-                'size_pp' => 479,
-            ];
-            $bp_rules = [];
+        $bp_map = [
+            'size_tl' => 1119,
+            'size_tp' => 1023,
+            'size_pl' => 767,
+            'size_pp' => 479,
+        ];
+        $bp_rules = [];
 
-            foreach ($typo_classes as $cls => $vals) {
-                if (!isset($registry_flat[$cls]) || !is_array($vals)) continue;
+        foreach ($registry_flat as $cls => $def) {
+            $vals = $typo_classes[$cls] ?? [];
+            $selector = $wc_selector_map[$cls] ?? '.' . $cls;
 
-                // Desktop-Regel (size, font, weight)
-                $props = [];
-                if (isset($vals['size'])) {
-                    $props[] = 'font-size: ' . intval($vals['size']) . 'px !important';
-                }
-                if (isset($vals['font'])) {
-                    $f = esc_attr($vals['font']);
-                    if ($f === 'heading') {
-                        $props[] = "font-family: '{$typo_heading}', sans-serif !important";
-                    } elseif ($f === 'body') {
-                        $props[] = "font-family: '{$typo_body}', sans-serif !important";
-                    } else {
-                        $props[] = "font-family: '{$f}', sans-serif !important";
-                    }
-                }
-                if (isset($vals['weight'])) {
-                    $props[] = 'font-weight: ' . intval($vals['weight']) . ' !important';
-                }
-                if (!empty($props)) {
-                    echo '.' . $cls . " { " . implode('; ', $props) . "; }\n";
-                }
+            // Effektive Werte: Override wenn vorhanden, sonst Registry-Default
+            $eff_size   = isset($vals['size'])   ? intval($vals['size'])   : $def['size'];
+            $eff_font   = isset($vals['font'])   ? $vals['font']          : $def['font'];
+            $eff_weight = isset($vals['weight']) ? intval($vals['weight']) : $def['weight'];
 
-                // Responsive Breakpoint font-sizes
-                foreach ($bp_map as $bp_key => $width) {
-                    if (isset($vals[$bp_key])) {
-                        $bp_rules[$width][] = '.' . $cls . ' { font-size: ' . intval($vals[$bp_key]) . 'px !important; }';
-                    }
+            $props = [];
+            $props[] = 'font-size: ' . $eff_size . 'px !important';
+            if ($eff_font === 'heading') {
+                $props[] = "font-family: '{$typo_heading}', sans-serif !important";
+            } elseif ($eff_font === 'body') {
+                $props[] = "font-family: '{$typo_body}', sans-serif !important";
+            } else {
+                $f = esc_attr($eff_font);
+                $props[] = "font-family: '{$f}', sans-serif !important";
+            }
+            $props[] = 'font-weight: ' . $eff_weight . ' !important';
+            echo $selector . " { " . implode('; ', $props) . "; }\n";
+
+            // Responsive Breakpoint font-sizes (nur wenn Override gesetzt)
+            foreach ($bp_map as $bp_key => $width) {
+                if (isset($vals[$bp_key])) {
+                    $bp_rules[$width][] = $selector . ' { font-size: ' . intval($vals[$bp_key]) . 'px !important; }';
                 }
             }
+        }
 
-            // Media-Queries ausgeben (absteigend sortiert, damit Kaskade stimmt)
-            krsort($bp_rules);
-            foreach ($bp_rules as $width => $rules) {
-                echo "@media(max-width:{$width}px){\n" . implode("\n", $rules) . "\n}\n";
-            }
+        // Media-Queries ausgeben
+        krsort($bp_rules);
+        foreach ($bp_rules as $width => $rules) {
+            echo "@media(max-width:{$width}px){\n" . implode("\n", $rules) . "\n}\n";
         }
 
         // ── Per-Class Farben Overrides ──
@@ -1665,6 +1821,7 @@ class TIX_Settings {
             $css_prop_map = ['color' => 'color', 'bg' => 'background-color', 'border' => 'border-color'];
             foreach ($color_classes as $cls => $vals) {
                 if (!isset($color_registry_flat[$cls]) || !is_array($vals)) continue;
+                $selector = $wc_selector_map[$cls] ?? '.' . $cls;
                 $props = [];
                 foreach ($css_prop_map as $key => $css_prop) {
                     if (isset($vals[$key])) {
@@ -1672,7 +1829,7 @@ class TIX_Settings {
                     }
                 }
                 if (!empty($props)) {
-                    echo '.' . $cls . " { " . implode('; ', $props) . "; }\n";
+                    echo $selector . " { " . implode('; ', $props) . "; }\n";
                 }
             }
         }
@@ -1739,6 +1896,14 @@ class TIX_Settings {
 
                     <?php // ═════════════ LEFT: TABBED SETTINGS ═════════════ ?>
                     <div class="tix-app tix-settings-app">
+
+                        <?php // ── SEARCH BAR ── ?>
+                        <div class="tix-settings-search-wrap" id="tix-search-wrap">
+                            <span class="dashicons dashicons-search tix-search-icon"></span>
+                            <input type="text" id="tix-settings-search" class="tix-settings-search" placeholder="Einstellungen durchsuchen…" autocomplete="off" />
+                            <span class="tix-search-clear" id="tix-search-clear" title="Suche leeren">&times;</span>
+                            <div class="tix-search-results" id="tix-search-results"></div>
+                        </div>
 
                         <?php // ── TAB NAVIGATION ── ?>
                         <nav class="tix-nav">
@@ -1837,6 +2002,10 @@ class TIX_Settings {
                                     <span class="dashicons dashicons-facebook-alt"></span>
                                     <span class="tix-nav-label">Meta Ads</span>
                                 </button>
+                                <button type="button" class="tix-nav-tab" data-tab="export-import">
+                                    <span class="dashicons dashicons-database-export"></span>
+                                    <span class="tix-nav-label">Export / Import</span>
+                                </button>
                             </div>
                         </nav>
 
@@ -1907,15 +2076,33 @@ class TIX_Settings {
                                         <h3>Theme-Preset</h3>
                                     </div>
                                     <div class="tix-card-body">
-                                        <p class="tix-settings-hint" style="margin-bottom:12px;">Schnellumschalter: setzt alle Farben des Plugins (Design, Selector, FAQ, Check-in, Meine Tickets) auf das gewählte Preset. Einzelne Farben können danach manuell angepasst werden.</p>
-                                        <div class="tix-ci-theme-toggle">
-                                            <input type="hidden" name="<?php echo $ok; ?>[theme_mode]" id="tix-theme-mode" value="<?php echo esc_attr($s['theme_mode'] ?: 'light'); ?>">
-                                            <button type="button" class="tix-ci-theme-btn<?php echo ($s['theme_mode'] ?? 'light') === 'light' ? ' active' : ''; ?>" data-theme="light">
-                                                <span class="dashicons dashicons-admin-appearance"></span> Light
+                                        <p class="tix-settings-hint" style="margin-bottom:12px;">Setzt alle Farben des Plugins auf einmal. Einzelne Farben k&ouml;nnen danach manuell angepasst werden.</p>
+                                        <input type="hidden" name="<?php echo $ok; ?>[theme_mode]" id="tix-theme-mode" value="<?php echo esc_attr($s['theme_mode'] ?: 'light'); ?>">
+                                        <div class="tix-theme-presets" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(140px, 1fr)); gap:10px;">
+                                            <?php
+                                            $presets_ui = [
+                                                'light'     => ['Light',          ['#ffffff','#1e293b','#3b82f6','#EDE9E0','#22c55e','#FAF8F4']],
+                                                'dark'      => ['Dark',           ['#111111','#c8ff00','#c8ff00','#333333','#4caf50','#1a1a1a']],
+                                                'festival'  => ['Festival',       ['#0f0f1a','#FF5500','#e94560','#2a2a3a','#4caf50','#1a1a2e']],
+                                                'corporate' => ['Corporate',      ['#f8fafc','#1e293b','#3b82f6','#e2e8f0','#22c55e','#ffffff']],
+                                                'elegant'   => ['Elegant',        ['#f5f0e8','#2d2d2d','#c9a84c','#d4c9b5','#4caf50','#ffffff']],
+                                                'neon'      => ['Neon',           ['#0a0a0a','#ff00ff','#00ffff','#333333','#c8ff00','#1a1a1a']],
+                                                'warm'      => ['Warm',           ['#FFF8F0','#8B4513','#D2691E','#E8D5C0','#22c55e','#ffffff']],
+                                                'ocean'     => ['Ocean',          ['#f0f7ff','#0c4a6e','#0891b2','#bae6fd','#22c55e','#ffffff']],
+                                            ];
+                                            $current = $s['theme_mode'] ?? 'light';
+                                            foreach ($presets_ui as $key => $info):
+                                                $colors = $info[1];
+                                            ?>
+                                            <button type="button" class="tix-ci-theme-btn<?php echo $current === $key ? ' active' : ''; ?>" data-theme="<?php echo $key; ?>" style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:10px 8px;border:2px solid <?php echo $current === $key ? 'var(--tix-primary,#6366f1)' : '#d1d5db'; ?>;border-radius:10px;background:#fff;cursor:pointer;transition:border-color .2s;">
+                                                <span style="display:flex;gap:2px;">
+                                                    <?php foreach ($colors as $c): ?>
+                                                    <span style="width:16px;height:16px;border-radius:50%;background:<?php echo $c; ?>;border:1px solid rgba(0,0,0,.1);"></span>
+                                                    <?php endforeach; ?>
+                                                </span>
+                                                <span style="font-size:11px;font-weight:600;color:#374151;"><?php echo $info[0]; ?></span>
                                             </button>
-                                            <button type="button" class="tix-ci-theme-btn<?php echo ($s['theme_mode'] ?? 'light') === 'dark' ? ' active' : ''; ?>" data-theme="dark">
-                                                <span class="dashicons dashicons-welcome-view-site"></span> Dark
-                                            </button>
+                                            <?php endforeach; ?>
                                         </div>
                                     </div>
                                 </div>
@@ -2813,7 +3000,10 @@ class TIX_Settings {
                                             <div class="tix-field tix-field-full">
                                                 <?php self::checkbox_row('ep_template_enabled', 'Eigenes Template für Event-Einzelseiten', $s, 'Ersetzt das Breakdance/Theme-Template durch das Tixomat Event-Template. Header/Footer des Themes bleiben erhalten. Alternativ: <code>[tix_event_page]</code> Shortcode in Breakdance einbetten.'); ?>
                                             </div>
-                                            <?php self::range_row('ep_hero_height', 'Hero-Bild-Höhe', $s, 150, 600, 'px'); ?>
+                                            <?php self::checkbox_row('ep_hero_auto', 'Hero-Bild: Auto-Höhe', $s, 'Bild nimmt seine natürliche Höhe ein statt einer fixen Höhe.'); ?>
+                                            <?php if (empty($s['ep_hero_auto'])): ?>
+                                                <?php self::range_row('ep_hero_height', 'Hero-Bild-Höhe', $s, 150, 600, 'px'); ?>
+                                            <?php endif; ?>
                                         </div>
                                     </div>
                                 </div>
@@ -2841,9 +3031,132 @@ class TIX_Settings {
                                                 </div>
                                             </div>
                                             <?php self::range_row('ep_max_width', 'Max. Breite', $s, 400, 1600, 'px', 10); ?>
-                                            <?php self::range_row('ep_gap', 'Sektions-Abstand', $s, 12, 48, 'px'); ?>
-                                            <?php self::range_row('ep_pad_x', 'Padding seitlich', $s, 0, 80, 'px'); ?>
-                                            <?php self::range_row('ep_pad_y', 'Padding oben/unten', $s, 0, 120, 'px'); ?>
+
+                                            <!-- ── Gruppierung: Spalten ── -->
+                                            <div class="tix-field tix-field-full" style="border:1px solid #e5e7eb;border-radius:10px;padding:16px 16px 8px;background:#fafafa;">
+                                                <div style="font-size:12px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:12px;">Spalten</div>
+                                                <?php self::range_row('ep_col_split', 'Spaltenverteilung (Content / Sidebar)', $s, 50, 80, '%', 1); ?>
+                                                <?php self::range_row('ep_col_gap', 'Spalten-Abstand', $s, 0, 100, 'px', 1); ?>
+                                            </div>
+                                            <?php
+                                            // ── Sektions-Abstand (responsiv) ──
+                                            self::responsive_number_row('Sektions-Abstand (responsiv)', [
+                                                'ep_gap'    => ['label' => 'Desktop', 'icon' => '🖥️', 'def' => 32],
+                                                'ep_gap_tl' => ['label' => '≤1119', 'icon' => '💻', 'def' => 28],
+                                                'ep_gap_tp' => ['label' => '≤1023', 'icon' => '📱↔', 'def' => 24],
+                                                'ep_gap_pl' => ['label' => '≤767', 'icon' => '📱', 'def' => 20],
+                                                'ep_gap_pp' => ['label' => '≤479', 'icon' => '📱↕', 'def' => 16],
+                                            ], $s, 0, 60, 'Vertikaler Abstand zwischen den Sektionen/Karten.');
+                                            ?>
+
+                                            <!-- ── Gruppierung: Abstände vom Rand ── -->
+                                            <div class="tix-field tix-field-full" style="border:1px solid #e5e7eb;border-radius:10px;padding:16px 16px 8px;background:#fafafa;">
+                                                <div style="font-size:12px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:12px;">Abstände vom Rand</div>
+
+                                                <div style="margin-bottom:14px;">
+                                                    <label class="tix-field-label" style="margin-bottom:6px;">Text — Abstand vom Rand (responsiv)</label>
+                                                    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;">
+                                                        <?php
+                                                        $bp_pads = [
+                                                            'ep_pad_x'    => ['label' => 'Desktop', 'icon' => '🖥️'],
+                                                            'ep_pad_x_tl' => ['label' => '≤1119', 'icon' => '💻'],
+                                                            'ep_pad_x_tp' => ['label' => '≤1023', 'icon' => '📱↔'],
+                                                            'ep_pad_x_pl' => ['label' => '≤767', 'icon' => '📱'],
+                                                            'ep_pad_x_pp' => ['label' => '≤479', 'icon' => '📱↕'],
+                                                        ];
+                                                        foreach ($bp_pads as $bp_key => $bp_meta):
+                                                            $bp_val = intval($s[$bp_key] ?? 32);
+                                                        ?>
+                                                        <div style="text-align:center;">
+                                                            <div style="font-size:11px;color:#64748b;margin-bottom:4px;" title="<?php echo esc_attr($bp_meta['label']); ?>">
+                                                                <?php echo $bp_meta['icon']; ?> <?php echo $bp_meta['label']; ?>
+                                                            </div>
+                                                            <input type="number"
+                                                                   name="tix_settings[<?php echo $bp_key; ?>]"
+                                                                   value="<?php echo $bp_val; ?>"
+                                                                   min="0" max="80" step="1"
+                                                                   style="width:100%;text-align:center;padding:6px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;font-weight:600;">
+                                                            <div style="font-size:10px;color:#94a3b8;margin-top:2px;">px</div>
+                                                        </div>
+                                                        <?php endforeach; ?>
+                                                    </div>
+                                                    <p style="font-size:11px;color:#94a3b8;margin:4px 0 0;">Innenabstand des Texts innerhalb der Spalte (links/rechts).</p>
+                                                </div>
+
+                                                <div style="border-top:1px solid #e5e7eb;padding-top:14px;margin-bottom:14px;">
+                                                    <label class="tix-field-label" style="margin-bottom:6px;">Karten — Abstand vom Rand (responsiv)</label>
+                                                    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;">
+                                                        <?php
+                                                        $card_gap_bps = [
+                                                            'ep_card_gap'    => ['label' => 'Desktop', 'icon' => '🖥️', 'def' => 0],
+                                                            'ep_card_gap_tl' => ['label' => '≤1119', 'icon' => '💻', 'def' => 0],
+                                                            'ep_card_gap_tp' => ['label' => '≤1023', 'icon' => '📱↔', 'def' => 0],
+                                                            'ep_card_gap_pl' => ['label' => '≤767', 'icon' => '📱', 'def' => 0],
+                                                            'ep_card_gap_pp' => ['label' => '≤479', 'icon' => '📱↕', 'def' => 0],
+                                                        ];
+                                                        foreach ($card_gap_bps as $cg_key => $cg_meta): ?>
+                                                        <div style="text-align:center;">
+                                                            <div style="font-size:11px;color:#64748b;margin-bottom:4px;"><?php echo $cg_meta['icon']; ?> <?php echo $cg_meta['label']; ?></div>
+                                                            <input type="number" name="tix_settings[<?php echo $cg_key; ?>]"
+                                                                   value="<?php echo intval($s[$cg_key] ?? $cg_meta['def']); ?>"
+                                                                   min="0" max="80" step="1"
+                                                                   style="width:100%;text-align:center;padding:6px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;font-weight:600;">
+                                                            <div style="font-size:10px;color:#94a3b8;margin-top:2px;">px</div>
+                                                        </div>
+                                                        <?php endforeach; ?>
+                                                    </div>
+                                                    <p style="font-size:11px;color:#94a3b8;margin:4px 0 0;">Abstand der Karten vom Bildschirmrand. 0 = randlos (edge-to-edge).</p>
+                                                </div>
+                                            </div>
+
+                                            <!-- Karten-Innenabstand (responsiv) -->
+                                            <div class="tix-field tix-field-full">
+                                                <label class="tix-field-label">Karten — Innenabstand (responsiv)</label>
+                                                <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:6px;">
+                                                    <?php
+                                                    $card_pad_bps = [
+                                                        'ep_card_pad'    => ['label' => 'Desktop', 'icon' => '🖥️', 'def' => 28],
+                                                        'ep_card_pad_tl' => ['label' => '≤1119', 'icon' => '💻', 'def' => 20],
+                                                        'ep_card_pad_tp' => ['label' => '≤1023', 'icon' => '📱↔', 'def' => 20],
+                                                        'ep_card_pad_pl' => ['label' => '≤767', 'icon' => '📱', 'def' => 16],
+                                                        'ep_card_pad_pp' => ['label' => '≤479', 'icon' => '📱↕', 'def' => 12],
+                                                    ];
+                                                    foreach ($card_pad_bps as $cp_key => $cp_meta): ?>
+                                                    <div style="text-align:center;">
+                                                        <div style="font-size:11px;color:#64748b;margin-bottom:4px;"><?php echo $cp_meta['icon']; ?> <?php echo $cp_meta['label']; ?></div>
+                                                        <input type="number" name="tix_settings[<?php echo $cp_key; ?>]"
+                                                               value="<?php echo intval($s[$cp_key] ?? $cp_meta['def']); ?>"
+                                                               min="0" max="80" step="1"
+                                                               style="width:100%;text-align:center;padding:6px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;font-weight:600;">
+                                                        <div style="font-size:10px;color:#94a3b8;margin-top:2px;">px</div>
+                                                    </div>
+                                                    <?php endforeach; ?>
+                                                </div>
+                                                <p style="font-size:11px;color:#94a3b8;margin:6px 0 0;">Padding innerhalb der Karten (Abstand vom Kartenrand zum Inhalt).</p>
+                                            </div>
+
+                                            <!-- ── Gruppierung: Padding oben/unten ── -->
+                                            <div class="tix-field tix-field-full" style="border:1px solid #e5e7eb;border-radius:10px;padding:16px 16px 8px;background:#fafafa;">
+                                                <div style="font-size:12px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:12px;">Vertikales Padding</div>
+                                                <?php
+                                                self::responsive_number_row('Padding oben (responsiv)', [
+                                                    'ep_pad_top'    => ['label' => 'Desktop', 'icon' => '🖥️', 'def' => 32],
+                                                    'ep_pad_top_tl' => ['label' => '≤1119', 'icon' => '💻', 'def' => 28],
+                                                    'ep_pad_top_tp' => ['label' => '≤1023', 'icon' => '📱↔', 'def' => 24],
+                                                    'ep_pad_top_pl' => ['label' => '≤767', 'icon' => '📱', 'def' => 20],
+                                                    'ep_pad_top_pp' => ['label' => '≤479', 'icon' => '📱↕', 'def' => 16],
+                                                ], $s, 0, 120, 'Abstand oben über dem Inhalt (beide Spalten).');
+
+                                                self::responsive_number_row('Padding unten (responsiv)', [
+                                                    'ep_pad_bottom'    => ['label' => 'Desktop', 'icon' => '🖥️', 'def' => 64],
+                                                    'ep_pad_bottom_tl' => ['label' => '≤1119', 'icon' => '💻', 'def' => 56],
+                                                    'ep_pad_bottom_tp' => ['label' => '≤1023', 'icon' => '📱↔', 'def' => 48],
+                                                    'ep_pad_bottom_pl' => ['label' => '≤767', 'icon' => '📱', 'def' => 40],
+                                                    'ep_pad_bottom_pp' => ['label' => '≤479', 'icon' => '📱↕', 'def' => 32],
+                                                ], $s, 0, 120, 'Abstand unten nach dem Inhalt (beide Spalten).');
+                                                ?>
+                                            </div>
+                                            <?php self::checkbox_row('ep_sticky_tabs', 'Sticky Tab-Navigation', $s, 'Tab-Leiste klebt beim Scrollen oben fest. Deaktivieren = Tabs scrollen mit dem Inhalt.'); ?>
                                             <?php self::range_row('ep_sticky_offset', 'Abstand unter Sticky-Header', $s, 0, 200, 'px'); ?>
                                             <div class="tix-field tix-field-full">
                                                 <p class="tix-settings-hint">Farben, Schriften und Radius → <strong><a href="#" onclick="document.querySelector('[data-tab=event-cards]').click();return false;">Event-Karten</a></strong> Tab.</p>
@@ -3247,6 +3560,27 @@ class TIX_Settings {
                                     </div>
                                 </div>
 
+                                <?php // ── Card: Chat-Bot Schrift ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-format-chat"></span>
+                                        <h3>Chat-Bot Schrift</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field">
+                                                <label class="tix-field-label">Bot-Font</label>
+                                                <select name="tix_settings[bot_font]" style="width:100%;">
+                                                    <?php foreach ($fonts as $f): ?>
+                                                        <option value="<?php echo esc_attr($f); ?>" <?php selected($s['bot_font'] ?? 'Inter', $f); ?>><?php echo esc_html($f); ?></option>
+                                                    <?php endforeach; ?>
+                                                </select>
+                                            </div>
+                                        </div>
+                                        <p class="tix-field-hint" style="margin-top:8px;">Schriftart f&uuml;r das Chat-Widget. Standard: Inter.</p>
+                                    </div>
+                                </div>
+
                                 <?php // ── Per-Class Typography Accordions ── ?>
                                 <?php
                                 $typo_registry = self::typo_class_registry();
@@ -3446,16 +3780,16 @@ class TIX_Settings {
                                             var fontSelect = row.querySelectorAll('select')[0];
                                             var weightSelect = row.querySelectorAll('select')[1];
                                             var entry = {};
-                                            // Desktop size
-                                            if (sizeInput.value != row.dataset.defSize) entry.size = parseInt(sizeInput.value, 10);
+                                            // Desktop size — immer senden wenn ein Wert vorhanden
+                                            if (sizeInput.value !== '') entry.size = parseInt(sizeInput.value, 10);
                                             // Responsive breakpoint sizes
                                             ['size_tl', 'size_tp', 'size_pl', 'size_pp'].forEach(function(p) {
                                                 var inp = row.querySelector('input[data-prop="' + p + '"]');
                                                 if (inp && inp.value !== '') entry[p] = parseInt(inp.value, 10);
                                             });
-                                            // Font + Weight
-                                            if (fontSelect.value != row.dataset.defFont) entry.font = fontSelect.value;
-                                            if (weightSelect.value != row.dataset.defWeight) entry.weight = parseInt(weightSelect.value, 10);
+                                            // Font + Weight — immer senden
+                                            entry.font = fontSelect.value;
+                                            entry.weight = parseInt(weightSelect.value, 10);
                                             if (Object.keys(entry).length > 0) overrides[cls] = entry;
                                         });
                                         document.getElementById('tix-typo-json').value = JSON.stringify(overrides);
@@ -3508,6 +3842,51 @@ class TIX_Settings {
                                     .tix-clr-cell.tix-clr-empty { display: none; }
                                 }
                                 </style>
+
+                                <?php // ── Card: Chat-Bot Farben ── ?>
+                                <div class="tix-card" style="margin-bottom:16px;">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-format-chat"></span>
+                                        <h3>Chat-Bot</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <?php
+                                        $bot_color_map = [
+                                            'bot_color_accent'       => ['label' => 'Akzentfarbe',        'hint' => 'Buttons, Links, Bubble-Button'],
+                                            'bot_color_accent_hover' => ['label' => 'Akzent Hover',       'hint' => 'Hover-Zustand der Akzentfarbe'],
+                                            'bot_color_bg'           => ['label' => 'Hintergrund',        'hint' => 'Haupt-Hintergrund des Widgets'],
+                                            'bot_color_bg_header'    => ['label' => 'Header-Hintergrund', 'hint' => 'Kopfbereich und Eingabebereich'],
+                                            'bot_color_bg_card'      => ['label' => 'Karten-Hintergrund', 'hint' => 'Nachrichtenblasen, Willkommens-Karte'],
+                                            'bot_color_bg_input'     => ['label' => 'Eingabe-Hintergrund','hint' => 'Bereich um das Eingabefeld'],
+                                            'bot_color_bg_input_field' => ['label' => 'Eingabefeld',      'hint' => 'Das Textfeld selbst'],
+                                            'bot_color_text'         => ['label' => 'Text',               'hint' => 'Haupttextfarbe'],
+                                            'bot_color_text_muted'   => ['label' => 'Text Gedämpft',   'hint' => 'Sekundärer Text'],
+                                            'bot_color_text_light'   => ['label' => 'Text Hell',          'hint' => 'Uhrzeit, Platzhalter'],
+                                            'bot_color_border'       => ['label' => 'Rahmen',             'hint' => 'Trennlinien und Rahmen'],
+                                            'bot_color_user_bubble'  => ['label' => 'User-Nachricht',     'hint' => 'Hintergrund der Nutzer-Blase'],
+                                            'bot_color_user_text'    => ['label' => 'User-Text',          'hint' => 'Textfarbe in der Nutzer-Blase'],
+                                        ];
+                                        ?>
+                                        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;">
+                                            <?php foreach ($bot_color_map as $key => $meta): ?>
+                                            <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid #e5e7eb;border-radius:8px;background:#fafbfc;">
+                                                <div class="tix-clr-swatch" style="background:<?php echo esc_attr($s[$key] ?? $d[$key]); ?>;flex-shrink:0;">
+                                                    <input type="color" value="<?php
+                                                        $cv = $s[$key] ?? $d[$key];
+                                                        // Color picker braucht hex - rgba Fallback
+                                                        echo esc_attr(preg_match('/^#[0-9a-fA-F]{6}$/', $cv) ? $cv : '#FF5500');
+                                                    ?>" onchange="this.closest('.tix-clr-swatch').style.background=this.value;this.closest('.tix-clr-swatch').nextElementSibling.querySelector('input').value=this.value;">
+                                                </div>
+                                                <div style="flex:1;min-width:0;">
+                                                    <div style="font-size:12px;font-weight:600;color:#374151;"><?php echo esc_html($meta['label']); ?></div>
+                                                    <div style="font-size:10px;color:#9ca3af;"><?php echo esc_html($meta['hint']); ?></div>
+                                                    <input type="text" name="tix_settings[<?php echo $key; ?>]" value="<?php echo esc_attr($s[$key] ?? $d[$key]); ?>" style="width:100%;margin-top:4px;padding:3px 6px;border:1px solid #d1d5db;border-radius:4px;font-size:11px;font-family:monospace;" spellcheck="false" onchange="var sw=this.closest('div').parentNode.querySelector('.tix-clr-swatch');if(sw)sw.style.background=this.value;">
+                                                </div>
+                                            </div>
+                                            <?php endforeach; ?>
+                                        </div>
+                                    </div>
+                                </div>
 
                                 <?php foreach ($color_registry as $group_label => $group_classes): ?>
                                 <?php
@@ -3645,7 +4024,7 @@ class TIX_Settings {
                                                 if (!hex) return;
                                                 var defKey = 'def' + p.charAt(0).toUpperCase() + p.slice(1);
                                                 var def = row.dataset[defKey] || '';
-                                                if (hex.value !== def && hex.value.trim() !== '') {
+                                                if (hex.value.trim() !== '') {
                                                     entry[p] = hex.value.trim();
                                                 }
                                             });
@@ -5216,6 +5595,28 @@ class TIX_Settings {
                                             </div>
                                             <?php self::text_row('bot_name', 'Bot-Name', $s, 'Ticket-Assistent'); ?>
                                             <div class="tix-field tix-field-full">
+                                                <label class="tix-label">Bot-Avatar</label>
+                                                <div style="display:flex;align-items:center;gap:12px;">
+                                                    <?php
+                                                    $bot_avatar_id = intval($s['bot_avatar_id'] ?? 0);
+                                                    $bot_avatar_url = $bot_avatar_id ? wp_get_attachment_image_url($bot_avatar_id, 'thumbnail') : '';
+                                                    ?>
+                                                    <div id="tix-bot-avatar-preview" style="width:60px;height:60px;border-radius:50%;background:#f3f4f6;display:flex;align-items:center;justify-content:center;overflow:hidden;border:2px solid #e5e7eb;flex-shrink:0;">
+                                                        <?php if ($bot_avatar_url): ?>
+                                                            <img src="<?php echo esc_url($bot_avatar_url); ?>" style="width:100%;height:100%;object-fit:cover;">
+                                                        <?php else: ?>
+                                                            <span style="font-size:24px;">🤖</span>
+                                                        <?php endif; ?>
+                                                    </div>
+                                                    <div style="display:flex;flex-direction:column;gap:6px;">
+                                                        <button type="button" class="button" id="tix-bot-avatar-upload">Bild w&auml;hlen</button>
+                                                        <button type="button" class="button" id="tix-bot-avatar-remove" style="color:#ef4444;<?php echo $bot_avatar_id ? '' : 'display:none;'; ?>">Entfernen</button>
+                                                    </div>
+                                                    <input type="hidden" name="tix_settings[bot_avatar_id]" id="tix-bot-avatar-id" value="<?php echo esc_attr($bot_avatar_id); ?>">
+                                                </div>
+                                                <p class="tix-settings-hint">Wird als Profilbild des Bots im Chat-Widget angezeigt. Empfohlen: quadratisch, mind. 88&times;88px.</p>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
                                                 <label class="tix-label">Begr&uuml;&szlig;ung</label>
                                                 <textarea name="tix_settings[bot_greeting]" rows="3" class="regular-text" style="width:100%;" placeholder="Hallo! Ich bin dein Ticket-Assistent..."><?php echo esc_textarea($s['bot_greeting'] ?? ''); ?></textarea>
                                                 <p class="tix-settings-hint">Wird dem Nutzer beim ersten Kontakt angezeigt.</p>
@@ -5237,10 +5638,16 @@ class TIX_Settings {
                                     </div>
                                     <div class="tix-card-body">
                                         <div class="tix-field-grid">
-                                            <?php self::text_row('bot_hub_url', 'Hub-URL', $s, 'https://tixomat-dpconnect.pythonanywhere.com'); ?>
+                                            <?php self::text_row('bot_hub_url', 'Hub-URL', $s, 'https://tixomat.pythonanywhere.com'); ?>
                                             <div class="tix-field tix-field-full">
                                                 <label class="tix-label">Hub Master-Key</label>
                                                 <input type="password" name="tix_settings[bot_hub_master_key]" value="<?php echo esc_attr($s['bot_hub_master_key'] ?? ''); ?>" class="regular-text" style="width:100%;" placeholder="Master-Key vom Hub-Betreiber">
+                                                <p class="tix-settings-hint">Wird zur Bot-Registrierung benoetigt. Erhaeltst du vom Plattform-Betreiber.</p>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <label class="tix-label">Hub Admin-Key <span style="font-size:11px;color:#94a3b8;font-weight:normal;">(optional, nur Plattform-Admin)</span></label>
+                                                <input type="password" name="tix_settings[bot_hub_admin_key]" value="<?php echo esc_attr($s['bot_hub_admin_key'] ?? ''); ?>" class="regular-text" style="width:100%;" placeholder="Nur fuer den Plattform-Admin">
+                                                <p class="tix-settings-hint">Erlaubt das Verwalten aller registrierten Seiten. Nur noetig fuer den zentralen Admin.</p>
                                             </div>
                                             <div class="tix-field tix-field-full">
                                                 <label class="tix-label">API-Secret</label>
@@ -5341,9 +5748,67 @@ class TIX_Settings {
                                     </div>
                                 </div>
 
+                                <?php // ── Card: Tenant-Verwaltung (nur mit Admin-Key) ── ?>
+                                <?php if (!empty($s['bot_hub_admin_key'])) : ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-networking"></span>
+                                        <h3>Registrierte Seiten</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <p style="font-size:13px;color:#64748b;margin:0 0 12px;">
+                                                    Alle beim Hub registrierten Websites. Falls eine Seite nicht mehr existiert, kann der Tenant hier entfernt werden.
+                                                </p>
+                                                <div id="tix-bot-tenants" style="padding:12px;border-radius:8px;background:#f8f8f8;">
+                                                    <span style="color:#94a3b8;">Lade Tenants...</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <?php endif; ?>
+
                                 <script>
                                 (function(){
                                     'use strict';
+
+                                    // ── Avatar Upload (WP Media) ──
+                                    var avatarUploadBtn = document.getElementById('tix-bot-avatar-upload');
+                                    var avatarRemoveBtn = document.getElementById('tix-bot-avatar-remove');
+                                    var avatarIdInput   = document.getElementById('tix-bot-avatar-id');
+                                    var avatarPreview   = document.getElementById('tix-bot-avatar-preview');
+                                    var avatarFrame;
+
+                                    if (avatarUploadBtn) {
+                                        avatarUploadBtn.addEventListener('click', function(e) {
+                                            e.preventDefault();
+                                            if (avatarFrame) { avatarFrame.open(); return; }
+                                            avatarFrame = wp.media({
+                                                title: 'Bot-Avatar wählen',
+                                                button: { text: 'Als Avatar verwenden' },
+                                                multiple: false,
+                                                library: { type: 'image' }
+                                            });
+                                            avatarFrame.on('select', function() {
+                                                var att = avatarFrame.state().get('selection').first().toJSON();
+                                                var url = att.sizes && att.sizes.thumbnail ? att.sizes.thumbnail.url : att.url;
+                                                avatarIdInput.value = att.id;
+                                                avatarPreview.innerHTML = '<img src="' + url + '" style="width:100%;height:100%;object-fit:cover;">';
+                                                if (avatarRemoveBtn) avatarRemoveBtn.style.display = '';
+                                            });
+                                            avatarFrame.open();
+                                        });
+                                    }
+                                    if (avatarRemoveBtn) {
+                                        avatarRemoveBtn.addEventListener('click', function(e) {
+                                            e.preventDefault();
+                                            avatarIdInput.value = '0';
+                                            avatarPreview.innerHTML = '<span style="font-size:24px;">🤖</span>';
+                                            this.style.display = 'none';
+                                        });
+                                    }
 
                                     // ── Secret generieren ──
                                     var genBtn = document.getElementById('tix-bot-generate-secret');
@@ -5371,6 +5836,12 @@ class TIX_Settings {
                                         setTimeout(function() { msgEl.textContent = ''; }, 8000);
                                     }
 
+                                    // ── Hilfsfunktion: aktuelle Formularwerte lesen ──
+                                    function getLiveField(name) {
+                                        var el = document.querySelector('[name="tix_settings[' + name + ']"]');
+                                        return el ? el.value : '';
+                                    }
+
                                     // ── Registrieren ──
                                     var regBtn = document.getElementById('tix-bot-register-btn');
                                     if (regBtn) {
@@ -5380,6 +5851,11 @@ class TIX_Settings {
                                             var fd = new FormData();
                                             fd.append('action', 'tix_bot_register');
                                             fd.append('nonce', nonce);
+                                            // Aktuelle Formularwerte mitsenden (falls noch nicht gespeichert)
+                                            fd.append('bot_hub_url', getLiveField('bot_hub_url'));
+                                            fd.append('bot_hub_master_key', getLiveField('bot_hub_master_key'));
+                                            fd.append('bot_hub_admin_key', getLiveField('bot_hub_admin_key'));
+                                            fd.append('bot_api_secret', getLiveField('bot_api_secret'));
                                             fetch(ajaxUrl, {method:'POST', body: fd})
                                                 .then(function(r) { return r.json(); })
                                                 .then(function(d) {
@@ -5464,7 +5940,12 @@ class TIX_Settings {
                                             healthEl.innerHTML = '<span style="color:#94a3b8;">Keine Hub-URL konfiguriert.</span>';
                                             return;
                                         }
-                                        fetch(hubUrl + '/health', {mode: 'cors'})
+                                        var adminKey = getLiveField('bot_hub_admin_key');
+                                        var fetchOpts = {mode: 'cors'};
+                                        if (adminKey) {
+                                            fetchOpts.headers = {'X-Hub-Admin-Key': adminKey};
+                                        }
+                                        fetch(hubUrl + '/health', fetchOpts)
                                             .then(function(r) { return r.json(); })
                                             .then(function(d) {
                                                 var html = '<div style="display:flex;align-items:center;gap:8px;">';
@@ -5484,20 +5965,284 @@ class TIX_Settings {
                                             });
                                     }
 
-                                    // Health Check starten wenn Pane sichtbar wird
+                                    // ── Tenant-Verwaltung ──
+                                    function loadTenants() {
+                                        var el = document.getElementById('tix-bot-tenants');
+                                        if (!el) return;
+                                        var fd = new FormData();
+                                        fd.append('action', 'tix_bot_list_tenants');
+                                        fd.append('nonce', nonce);
+                                        fetch(ajaxUrl, {method:'POST', body: fd})
+                                            .then(function(r) { return r.json(); })
+                                            .then(function(d) {
+                                                if (!d.success) {
+                                                    if (d.data === 'no_admin_key') {
+                                                        el.innerHTML = '<span style="color:#94a3b8;">Admin-Key erforderlich.</span>';
+                                                    } else {
+                                                        el.innerHTML = '<span style="color:#ef4444;">' + (d.data || 'Fehler beim Laden') + '</span>';
+                                                    }
+                                                    return;
+                                                }
+                                                var tenants = d.data.tenants || [];
+                                                var ownTenant = d.data.own_tenant || '';
+                                                if (!tenants.length) {
+                                                    el.innerHTML = '<span style="color:#94a3b8;">Keine Tenants registriert.</span>';
+                                                    return;
+                                                }
+                                                var html = '<table style="width:100%;border-collapse:collapse;font-size:13px;">';
+                                                html += '<thead><tr style="border-bottom:2px solid #e2e8f0;text-align:left;">';
+                                                html += '<th style="padding:6px 8px;">Seite</th>';
+                                                html += '<th style="padding:6px 8px;">Tenant-ID</th>';
+                                                html += '<th style="padding:6px 8px;width:100px;"></th>';
+                                                html += '</tr></thead><tbody>';
+                                                tenants.forEach(function(t) {
+                                                    var isOwn = t.tenant_id === ownTenant;
+                                                    html += '<tr style="border-bottom:1px solid #e2e8f0;" data-tenant="' + t.tenant_id + '">';
+                                                    html += '<td style="padding:8px;">';
+                                                    html += '<strong>' + (t.site_name || t.site_url) + '</strong>';
+                                                    html += '<br><span style="color:#94a3b8;font-size:12px;">' + t.site_url + '</span>';
+                                                    if (isOwn) html += ' <span style="background:#dbeafe;color:#2563eb;padding:1px 6px;border-radius:4px;font-size:11px;">Diese Seite</span>';
+                                                    html += '</td>';
+                                                    html += '<td style="padding:8px;font-family:monospace;font-size:12px;color:#64748b;">' + t.tenant_id + '</td>';
+                                                    html += '<td style="padding:8px;text-align:right;">';
+                                                    html += '<button type="button" class="tix-remove-tenant-btn" data-tid="' + t.tenant_id + '" data-name="' + (t.site_name || t.site_url) + '"';
+                                                    html += ' style="background:#fee2e2;color:#dc2626;border:1px solid #fca5a5;padding:4px 10px;border-radius:6px;cursor:pointer;font-size:12px;">';
+                                                    html += 'Entfernen</button>';
+                                                    html += '</td></tr>';
+                                                });
+                                                html += '</tbody></table>';
+                                                el.innerHTML = html;
+
+                                                // Loesch-Buttons binden
+                                                el.querySelectorAll('.tix-remove-tenant-btn').forEach(function(btn) {
+                                                    btn.addEventListener('click', function() {
+                                                        var tid = btn.dataset.tid;
+                                                        var tname = btn.dataset.name;
+                                                        if (!confirm('Tenant "' + tname + '" (' + tid + ') wirklich vom Hub entfernen?\n\nDer Bot wird fuer diese Seite deaktiviert.')) return;
+                                                        btn.disabled = true;
+                                                        btn.textContent = 'Entferne...';
+                                                        var rfd = new FormData();
+                                                        rfd.append('action', 'tix_bot_remove_tenant');
+                                                        rfd.append('nonce', nonce);
+                                                        rfd.append('tenant_id', tid);
+                                                        fetch(ajaxUrl, {method:'POST', body: rfd})
+                                                            .then(function(r) { return r.json(); })
+                                                            .then(function(rd) {
+                                                                if (rd.success) {
+                                                                    showMsg(rd.data.message, '#22c55e');
+                                                                    var row = btn.closest('tr');
+                                                                    if (row) row.remove();
+                                                                    // Tabelle leer? Hinweis zeigen
+                                                                    if (!el.querySelector('tr[data-tenant]')) {
+                                                                        el.innerHTML = '<span style="color:#94a3b8;">Keine Tenants registriert.</span>';
+                                                                    }
+                                                                } else {
+                                                                    showMsg(rd.data || 'Fehler', '#ef4444');
+                                                                    btn.disabled = false;
+                                                                    btn.textContent = 'Entfernen';
+                                                                }
+                                                            })
+                                                            .catch(function(e) {
+                                                                showMsg('Netzwerkfehler: ' + e.message, '#ef4444');
+                                                                btn.disabled = false;
+                                                                btn.textContent = 'Entfernen';
+                                                            });
+                                                    });
+                                                });
+                                            })
+                                            .catch(function(e) {
+                                                el.innerHTML = '<span style="color:#ef4444;">Fehler: ' + e.message + '</span>';
+                                            });
+                                    }
+
+                                    // Health Check + Tenants laden wenn Pane sichtbar wird
                                     var botPane = document.querySelector('[data-pane="bot"]');
                                     if (botPane) {
                                         var observer = new MutationObserver(function(mutations) {
                                             mutations.forEach(function(m) {
                                                 if (botPane.classList.contains('active')) {
                                                     checkHealth();
+                                                    loadTenants();
                                                 }
                                             });
                                         });
                                         observer.observe(botPane, {attributes: true, attributeFilter: ['class']});
                                         // Falls bereits aktiv (z.B. via URL-Hash)
-                                        if (botPane.classList.contains('active')) checkHealth();
+                                        if (botPane.classList.contains('active')) {
+                                            checkHealth();
+                                            loadTenants();
+                                        }
                                     }
+                                })();
+                                </script>
+
+                            </div>
+
+                            <?php // ═══ PANE: EXPORT / IMPORT ═══ ?>
+                            <div class="tix-pane" data-pane="export-import">
+
+                                <?php // ── Export ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-download"></span>
+                                        <h3>Einstellungen exportieren</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <p class="tix-settings-hint">Exportiert <strong>alle</strong> Plugin-Einstellungen als JSON-Datei. Die Datei kann auf einer anderen Instanz importiert werden.</p>
+                                        <p class="tix-settings-hint" style="margin-bottom:16px;"><strong>Enthalten:</strong> Alle Design-, Farb-, Typografie-, Checkout-, Bot-, Marketing-, Fee-, Template- und Erweitert-Einstellungen sowie separate Optionen (Coupons, Bestellnummern-Sequenz).</p>
+                                        <button type="button" class="button button-primary" id="tix-export-btn">
+                                            <span class="dashicons dashicons-download" style="margin-top:4px;margin-right:4px;"></span>
+                                            Einstellungen exportieren
+                                        </button>
+                                        <span id="tix-export-status" style="margin-left:12px;font-size:13px;color:#6b7280;"></span>
+                                    </div>
+                                </div>
+
+                                <?php // ── Import ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-upload"></span>
+                                        <h3>Einstellungen importieren</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <p class="tix-settings-hint" style="margin-bottom:4px;"><strong>Achtung:</strong> Der Import &uuml;berschreibt alle bestehenden Einstellungen. Erstelle vorher einen Export als Backup!</p>
+                                        <p class="tix-settings-hint" style="margin-bottom:16px;">W&auml;hle eine zuvor exportierte JSON-Datei aus:</p>
+
+                                        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+                                            <label class="button" style="cursor:pointer;display:inline-flex;align-items:center;gap:4px;">
+                                                <span class="dashicons dashicons-media-code" style="margin-top:3px;"></span>
+                                                JSON-Datei w&auml;hlen
+                                                <input type="file" accept=".json,application/json" id="tix-import-file" style="display:none;">
+                                            </label>
+                                            <span id="tix-import-filename" style="font-size:13px;color:#6b7280;">Keine Datei gew&auml;hlt</span>
+                                        </div>
+
+                                        <div id="tix-import-preview" style="display:none;margin-top:16px;">
+                                            <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:16px;">
+                                                <h4 style="margin:0 0 8px;font-size:14px;">Vorschau</h4>
+                                                <div id="tix-import-info" style="font-size:13px;color:#374151;line-height:1.6;"></div>
+                                            </div>
+                                            <div style="margin-top:16px;display:flex;gap:8px;">
+                                                <button type="button" class="button button-primary" id="tix-import-btn" disabled>
+                                                    <span class="dashicons dashicons-upload" style="margin-top:4px;margin-right:4px;"></span>
+                                                    Jetzt importieren
+                                                </button>
+                                                <button type="button" class="button" id="tix-import-cancel">Abbrechen</button>
+                                            </div>
+                                            <span id="tix-import-status" style="display:block;margin-top:8px;font-size:13px;color:#6b7280;"></span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <script>
+                                (function(){
+                                    'use strict';
+
+                                    var importData = null;
+
+                                    // ── EXPORT ──
+                                    document.getElementById('tix-export-btn').addEventListener('click', function(){
+                                        var btn = this;
+                                        var status = document.getElementById('tix-export-status');
+                                        btn.disabled = true;
+                                        status.textContent = 'Exportiere...';
+                                        fetch(ajaxurl + '?action=tix_export_settings&_wpnonce=<?php echo wp_create_nonce("tix_export_settings"); ?>')
+                                            .then(function(r){ return r.json(); })
+                                            .then(function(d){
+                                                if(!d.success){ status.textContent = 'Fehler: ' + (d.data||''); btn.disabled=false; return; }
+                                                var blob = new Blob([JSON.stringify(d.data, null, 2)], {type:'application/json'});
+                                                var url = URL.createObjectURL(blob);
+                                                var a = document.createElement('a');
+                                                var date = new Date().toISOString().slice(0,10);
+                                                a.href = url;
+                                                a.download = 'tixomat-settings-' + date + '.json';
+                                                a.click();
+                                                URL.revokeObjectURL(url);
+                                                status.textContent = 'Export erfolgreich!';
+                                                status.style.color = '#16a34a';
+                                                btn.disabled = false;
+                                                setTimeout(function(){ status.textContent=''; status.style.color=''; }, 3000);
+                                            })
+                                            .catch(function(e){ status.textContent='Fehler: '+e.message; btn.disabled=false; });
+                                    });
+
+                                    // ── IMPORT: File selection ──
+                                    document.getElementById('tix-import-file').addEventListener('change', function(){
+                                        var file = this.files[0];
+                                        var nameEl = document.getElementById('tix-import-filename');
+                                        var preview = document.getElementById('tix-import-preview');
+                                        var info = document.getElementById('tix-import-info');
+                                        var btn = document.getElementById('tix-import-btn');
+
+                                        if(!file){ nameEl.textContent='Keine Datei'; preview.style.display='none'; importData=null; return; }
+                                        nameEl.textContent = file.name + ' (' + (file.size/1024).toFixed(1) + ' KB)';
+
+                                        var reader = new FileReader();
+                                        reader.onload = function(e){
+                                            try {
+                                                importData = JSON.parse(e.target.result);
+                                                if(!importData._tix_export || !importData.tix_settings){
+                                                    info.innerHTML = '<span style="color:#dc2626;">Ung\u00fcltige Datei: Kein g\u00fcltiger Tixomat-Export.</span>';
+                                                    btn.disabled = true;
+                                                    preview.style.display = '';
+                                                    return;
+                                                }
+                                                var keys = Object.keys(importData.tix_settings).length;
+                                                var extras = Object.keys(importData).filter(function(k){ return k!=='tix_settings' && k!=='_tix_export'; }).length;
+                                                info.innerHTML = '<strong>Plugin-Version:</strong> ' + (importData._tix_export.version||'?')
+                                                    + '<br><strong>Export-Datum:</strong> ' + (importData._tix_export.date||'?')
+                                                    + '<br><strong>Quell-Site:</strong> ' + (importData._tix_export.site||'?')
+                                                    + '<br><strong>Einstellungen:</strong> ' + keys + ' Keys'
+                                                    + '<br><strong>Weitere Optionen:</strong> ' + extras;
+                                                btn.disabled = false;
+                                            } catch(err) {
+                                                info.innerHTML = '<span style="color:#dc2626;">JSON-Fehler: ' + err.message + '</span>';
+                                                btn.disabled = true;
+                                                importData = null;
+                                            }
+                                            preview.style.display = '';
+                                        };
+                                        reader.readAsText(file);
+                                    });
+
+                                    // ── IMPORT: Cancel ──
+                                    document.getElementById('tix-import-cancel').addEventListener('click', function(){
+                                        importData = null;
+                                        document.getElementById('tix-import-preview').style.display = 'none';
+                                        document.getElementById('tix-import-file').value = '';
+                                        document.getElementById('tix-import-filename').textContent = 'Keine Datei gew\u00e4hlt';
+                                    });
+
+                                    // ── IMPORT: Execute ──
+                                    document.getElementById('tix-import-btn').addEventListener('click', function(){
+                                        if(!importData) return;
+                                        if(!confirm('Bist du sicher? Alle bestehenden Einstellungen werden \u00fcberschrieben!')) return;
+
+                                        var btn = this;
+                                        var status = document.getElementById('tix-import-status');
+                                        btn.disabled = true;
+                                        status.textContent = 'Importiere...';
+                                        status.style.color = '';
+
+                                        fetch(ajaxurl, {
+                                            method: 'POST',
+                                            headers: {'Content-Type':'application/x-www-form-urlencoded'},
+                                            body: 'action=tix_import_settings&_wpnonce=<?php echo wp_create_nonce("tix_import_settings"); ?>&data=' + encodeURIComponent(JSON.stringify(importData))
+                                        })
+                                        .then(function(r){ return r.json(); })
+                                        .then(function(d){
+                                            if(d.success){
+                                                status.textContent = 'Import erfolgreich! Seite wird neu geladen...';
+                                                status.style.color = '#16a34a';
+                                                setTimeout(function(){ location.reload(); }, 1500);
+                                            } else {
+                                                status.textContent = 'Fehler: ' + (d.data||'');
+                                                status.style.color = '#dc2626';
+                                                btn.disabled = false;
+                                            }
+                                        })
+                                        .catch(function(e){ status.textContent='Fehler: '+e.message; status.style.color='#dc2626'; btn.disabled=false; });
+                                    });
                                 })();
                                 </script>
 
@@ -5666,7 +6411,7 @@ class TIX_Settings {
             // ── Universal Theme Toggle ──
             var themePresets = {
                 light: {
-                    color_text:'',
+                    color_primary:'#FF5500', color_text:'',
                     btn1_bg:'#1e293b', btn1_color:'#ffffff', btn1_hover_bg:'#334155', btn1_hover_color:'',
                     btn2_bg:'', btn2_color:'', btn2_hover_bg:'#FAF8F4', btn2_hover_color:'',
                     color_border:'#EDE9E0', color_input_border:'#cbd5e1',
@@ -5688,7 +6433,7 @@ class TIX_Settings {
                     ci_accent_text:'#ffffff', ci_ok:'#22c55e', ci_warn:'#eab308', ci_err:'#ef4444'
                 },
                 dark: {
-                    color_text:'#ffffff',
+                    color_primary:'#c8ff00', color_text:'#ffffff',
                     btn1_bg:'#c8ff00', btn1_color:'#000000', btn1_hover_bg:'#b8e600', btn1_hover_color:'',
                     btn2_bg:'', btn2_color:'', btn2_hover_bg:'', btn2_hover_color:'',
                     color_border:'#333333', color_input_border:'#555555',
@@ -5708,6 +6453,138 @@ class TIX_Settings {
                     ci_bg:'#111111', ci_surface:'#1a1a1a', ci_border:'#333333',
                     ci_text:'#ffffff', ci_muted:'#94a3b8', ci_accent:'#ffffff',
                     ci_accent_text:'#000000', ci_ok:'#22c55e', ci_warn:'#eab308', ci_err:'#ef4444'
+                },
+                festival: {
+                    color_primary:'#FF5500', color_text:'#ffffff',
+                    btn1_bg:'#FF5500', btn1_color:'#ffffff', btn1_hover_bg:'#e04a00', btn1_hover_color:'',
+                    btn2_bg:'', btn2_color:'#FF5500', btn2_hover_bg:'rgba(255,85,0,0.1)', btn2_hover_color:'',
+                    color_border:'#2a2a3a', color_input_border:'#3a3a4a',
+                    color_focus:'#e94560', color_sale:'#e94560', save_badge_bg:'#FF5500', save_badge_text:'#ffffff',
+                    color_success:'#4caf50',
+                    color_card_bg:'#1a1a2e', color_input_bg:'#0f0f1a', shortcode_bg:'#0f0f1a',
+                    sel_bg:'#1a1a2e', sel_border_color:'#2a2a3a',
+                    sel_active_border:'#FF5500', sel_active_bg:'#2a1a0a', sel_hover_text:'',
+                    faq_bg:'#1a1a2e', faq_list_bg:'#0f0f1a',
+                    faq_hover_bg:'#252540', faq_hover_text:'', faq_active_bg:'#2a2a3a',
+                    faq_border_color:'#2a2a3a', faq_divider_color:'#2a2a3a',
+                    faq_accent_color:'#FF5500', faq_icon_color:'#94a3b8', faq_link_color:'#e94560',
+                    ec_modal_bg:'#1a1a2e',
+                    ec_modal_border:'#2a2a3a', ec_cat_border:'#2a2a3a', ec_cat_active:'#FF5500',
+                    mt_bg:'#0f0f1a', mt_card_bg:'#1a1a2e',
+                    mt_border_color:'#2a2a3a', mt_ticket_bg:'#2a1a0a', mt_accent_color:'#FF5500',
+                    ci_bg:'#0f0f1a', ci_surface:'#1a1a2e', ci_border:'#2a2a3a',
+                    ci_text:'#ffffff', ci_muted:'#94a3b8', ci_accent:'#FF5500',
+                    ci_accent_text:'#ffffff', ci_ok:'#4caf50', ci_warn:'#eab308', ci_err:'#ef4444'
+                },
+                corporate: {
+                    color_primary:'#3b82f6', color_text:'',
+                    btn1_bg:'#1e293b', btn1_color:'#ffffff', btn1_hover_bg:'#334155', btn1_hover_color:'',
+                    btn2_bg:'', btn2_color:'#1e293b', btn2_hover_bg:'#f1f5f9', btn2_hover_color:'',
+                    color_border:'#e2e8f0', color_input_border:'#cbd5e1',
+                    color_focus:'#3b82f6', color_sale:'#ef4444', save_badge_bg:'', save_badge_text:'',
+                    color_success:'#22c55e',
+                    color_card_bg:'#ffffff', color_input_bg:'#ffffff', shortcode_bg:'#f8fafc',
+                    sel_bg:'#ffffff', sel_border_color:'#e2e8f0',
+                    sel_active_border:'#3b82f6', sel_active_bg:'#eff6ff', sel_hover_text:'',
+                    faq_bg:'#ffffff', faq_list_bg:'#f8fafc',
+                    faq_hover_bg:'#f1f5f9', faq_hover_text:'', faq_active_bg:'#e2e8f0',
+                    faq_border_color:'#e2e8f0', faq_divider_color:'#e2e8f0',
+                    faq_accent_color:'#1e293b', faq_icon_color:'', faq_link_color:'#3b82f6',
+                    ec_modal_bg:'#ffffff',
+                    ec_modal_border:'#e2e8f0', ec_cat_border:'#e2e8f0', ec_cat_active:'#3b82f6',
+                    mt_bg:'#f8fafc', mt_card_bg:'#ffffff',
+                    mt_border_color:'#e2e8f0', mt_ticket_bg:'#f0fdf4', mt_accent_color:'#1e293b',
+                    ci_bg:'#f8fafc', ci_surface:'#ffffff', ci_border:'#e2e8f0',
+                    ci_text:'#1e293b', ci_muted:'#64748b', ci_accent:'#1e293b',
+                    ci_accent_text:'#ffffff', ci_ok:'#22c55e', ci_warn:'#eab308', ci_err:'#ef4444'
+                },
+                elegant: {
+                    color_primary:'#c9a84c', color_text:'#2d2d2d',
+                    btn1_bg:'#2d2d2d', btn1_color:'#f5f0e8', btn1_hover_bg:'#444444', btn1_hover_color:'',
+                    btn2_bg:'', btn2_color:'#2d2d2d', btn2_hover_bg:'#f5f0e8', btn2_hover_color:'',
+                    color_border:'#d4c9b5', color_input_border:'#c4b9a5',
+                    color_focus:'#c9a84c', color_sale:'#b76e79', save_badge_bg:'#c9a84c', save_badge_text:'#ffffff',
+                    color_success:'#4caf50',
+                    color_card_bg:'#ffffff', color_input_bg:'#fdfcfa', shortcode_bg:'#f5f0e8',
+                    sel_bg:'#ffffff', sel_border_color:'#d4c9b5',
+                    sel_active_border:'#c9a84c', sel_active_bg:'#faf5e8', sel_hover_text:'',
+                    faq_bg:'#ffffff', faq_list_bg:'#f5f0e8',
+                    faq_hover_bg:'#f0ebe0', faq_hover_text:'', faq_active_bg:'#e8e0d0',
+                    faq_border_color:'#d4c9b5', faq_divider_color:'#d4c9b5',
+                    faq_accent_color:'#2d2d2d', faq_icon_color:'#8a7e6e', faq_link_color:'#c9a84c',
+                    ec_modal_bg:'#ffffff',
+                    ec_modal_border:'#d4c9b5', ec_cat_border:'#d4c9b5', ec_cat_active:'#c9a84c',
+                    mt_bg:'#f5f0e8', mt_card_bg:'#ffffff',
+                    mt_border_color:'#d4c9b5', mt_ticket_bg:'#faf5e8', mt_accent_color:'#2d2d2d',
+                    ci_bg:'#f5f0e8', ci_surface:'#ffffff', ci_border:'#d4c9b5',
+                    ci_text:'#2d2d2d', ci_muted:'#8a7e6e', ci_accent:'#2d2d2d',
+                    ci_accent_text:'#f5f0e8', ci_ok:'#4caf50', ci_warn:'#eab308', ci_err:'#ef4444'
+                },
+                neon: {
+                    color_primary:'#ff00ff', color_text:'#ffffff',
+                    btn1_bg:'#ff00ff', btn1_color:'#000000', btn1_hover_bg:'#cc00cc', btn1_hover_color:'',
+                    btn2_bg:'', btn2_color:'#00ffff', btn2_hover_bg:'rgba(0,255,255,0.1)', btn2_hover_color:'',
+                    color_border:'#333333', color_input_border:'#444444',
+                    color_focus:'#00ffff', color_sale:'#ff00ff', save_badge_bg:'#ff00ff', save_badge_text:'#000000',
+                    color_success:'#c8ff00',
+                    color_card_bg:'#1a1a1a', color_input_bg:'#0a0a0a', shortcode_bg:'#0a0a0a',
+                    sel_bg:'#1a1a1a', sel_border_color:'#333333',
+                    sel_active_border:'#00ffff', sel_active_bg:'#0a1a1a', sel_hover_text:'',
+                    faq_bg:'#1a1a1a', faq_list_bg:'#0a0a0a',
+                    faq_hover_bg:'#2a2a2a', faq_hover_text:'', faq_active_bg:'#333333',
+                    faq_border_color:'#333333', faq_divider_color:'#333333',
+                    faq_accent_color:'#00ffff', faq_icon_color:'#94a3b8', faq_link_color:'#ff00ff',
+                    ec_modal_bg:'#1a1a1a',
+                    ec_modal_border:'#333333', ec_cat_border:'#333333', ec_cat_active:'#ff00ff',
+                    mt_bg:'#0a0a0a', mt_card_bg:'#1a1a1a',
+                    mt_border_color:'#333333', mt_ticket_bg:'#1a0a1a', mt_accent_color:'#ff00ff',
+                    ci_bg:'#0a0a0a', ci_surface:'#1a1a1a', ci_border:'#333333',
+                    ci_text:'#ffffff', ci_muted:'#94a3b8', ci_accent:'#ff00ff',
+                    ci_accent_text:'#000000', ci_ok:'#c8ff00', ci_warn:'#eab308', ci_err:'#ef4444'
+                },
+                warm: {
+                    color_primary:'#D2691E', color_text:'#5C3317',
+                    btn1_bg:'#8B4513', btn1_color:'#ffffff', btn1_hover_bg:'#6B3410', btn1_hover_color:'',
+                    btn2_bg:'', btn2_color:'#8B4513', btn2_hover_bg:'#FFF0E0', btn2_hover_color:'',
+                    color_border:'#E8D5C0', color_input_border:'#D4C0A8',
+                    color_focus:'#D2691E', color_sale:'#ef4444', save_badge_bg:'#D2691E', save_badge_text:'#ffffff',
+                    color_success:'#22c55e',
+                    color_card_bg:'#ffffff', color_input_bg:'#FFFBF5', shortcode_bg:'#FFF8F0',
+                    sel_bg:'#ffffff', sel_border_color:'#E8D5C0',
+                    sel_active_border:'#D2691E', sel_active_bg:'#FFF0E0', sel_hover_text:'',
+                    faq_bg:'#ffffff', faq_list_bg:'#FFF8F0',
+                    faq_hover_bg:'#FFF0E0', faq_hover_text:'', faq_active_bg:'#FFE8D0',
+                    faq_border_color:'#E8D5C0', faq_divider_color:'#E8D5C0',
+                    faq_accent_color:'#8B4513', faq_icon_color:'#A08060', faq_link_color:'#D2691E',
+                    ec_modal_bg:'#ffffff',
+                    ec_modal_border:'#E8D5C0', ec_cat_border:'#E8D5C0', ec_cat_active:'#D2691E',
+                    mt_bg:'#FFF8F0', mt_card_bg:'#ffffff',
+                    mt_border_color:'#E8D5C0', mt_ticket_bg:'#FFF0E0', mt_accent_color:'#8B4513',
+                    ci_bg:'#FFF8F0', ci_surface:'#ffffff', ci_border:'#E8D5C0',
+                    ci_text:'#5C3317', ci_muted:'#A08060', ci_accent:'#8B4513',
+                    ci_accent_text:'#ffffff', ci_ok:'#22c55e', ci_warn:'#eab308', ci_err:'#ef4444'
+                },
+                ocean: {
+                    color_primary:'#0891b2', color_text:'#0c4a6e',
+                    btn1_bg:'#0c4a6e', btn1_color:'#ffffff', btn1_hover_bg:'#083b5a', btn1_hover_color:'',
+                    btn2_bg:'', btn2_color:'#0c4a6e', btn2_hover_bg:'#f0f7ff', btn2_hover_color:'',
+                    color_border:'#bae6fd', color_input_border:'#7dd3fc',
+                    color_focus:'#0891b2', color_sale:'#ef4444', save_badge_bg:'#0891b2', save_badge_text:'#ffffff',
+                    color_success:'#22c55e',
+                    color_card_bg:'#ffffff', color_input_bg:'#f8fdff', shortcode_bg:'#f0f7ff',
+                    sel_bg:'#ffffff', sel_border_color:'#bae6fd',
+                    sel_active_border:'#0891b2', sel_active_bg:'#ecfeff', sel_hover_text:'',
+                    faq_bg:'#ffffff', faq_list_bg:'#f0f7ff',
+                    faq_hover_bg:'#e0f2fe', faq_hover_text:'', faq_active_bg:'#bae6fd',
+                    faq_border_color:'#bae6fd', faq_divider_color:'#bae6fd',
+                    faq_accent_color:'#0c4a6e', faq_icon_color:'#0891b2', faq_link_color:'#0891b2',
+                    ec_modal_bg:'#ffffff',
+                    ec_modal_border:'#bae6fd', ec_cat_border:'#bae6fd', ec_cat_active:'#0891b2',
+                    mt_bg:'#f0f7ff', mt_card_bg:'#ffffff',
+                    mt_border_color:'#bae6fd', mt_ticket_bg:'#ecfeff', mt_accent_color:'#0c4a6e',
+                    ci_bg:'#f0f7ff', ci_surface:'#ffffff', ci_border:'#bae6fd',
+                    ci_text:'#0c4a6e', ci_muted:'#0891b2', ci_accent:'#0c4a6e',
+                    ci_accent_text:'#ffffff', ci_ok:'#22c55e', ci_warn:'#eab308', ci_err:'#ef4444'
                 }
             };
 
@@ -5734,8 +6611,12 @@ class TIX_Settings {
                     var preset = themePresets[theme];
                     if (!preset) return;
                     document.getElementById('tix-theme-mode').value = theme;
-                    document.querySelectorAll('.tix-ci-theme-btn').forEach(function(b) { b.classList.remove('active'); });
+                    document.querySelectorAll('.tix-ci-theme-btn').forEach(function(b) {
+                        b.classList.remove('active');
+                        b.style.borderColor = '#d1d5db';
+                    });
                     this.classList.add('active');
+                    this.style.borderColor = 'var(--tix-primary,#6366f1)';
                     for (var key in preset) {
                         applyColorToField(key, preset[key]);
                     }
@@ -5999,6 +6880,297 @@ class TIX_Settings {
         })();
         </script>
 
+        <?php // ── Settings Search ── ?>
+        <script>
+        (function() {
+            'use strict';
+
+            var app      = document.querySelector('.tix-settings-app');
+            var input    = document.getElementById('tix-settings-search');
+            var results  = document.getElementById('tix-search-results');
+            var clearBtn = document.getElementById('tix-search-clear');
+            if (!app || !input || !results) return;
+
+            // ── Build search index from DOM ──
+            var index = [];
+
+            // Tab name → icon mapping
+            var tabMap = {};
+            app.querySelectorAll('.tix-nav-tab[data-tab]').forEach(function(btn) {
+                var icon = btn.querySelector('.dashicons');
+                var label = btn.querySelector('.tix-nav-label');
+                if (label) {
+                    tabMap[btn.getAttribute('data-tab')] = {
+                        label: label.textContent.trim(),
+                        icon: icon ? icon.className.replace('dashicons ', '').replace('dashicons-', '') : 'admin-generic'
+                    };
+                }
+            });
+
+            // Crawl all panes
+            app.querySelectorAll('.tix-pane[data-pane]').forEach(function(pane) {
+                var tabId = pane.getAttribute('data-pane');
+                var tabInfo = tabMap[tabId] || { label: tabId, icon: 'admin-generic' };
+
+                // Index card headers (h3)
+                pane.querySelectorAll('.tix-card').forEach(function(card, cardIdx) {
+                    var h3 = card.querySelector('.tix-card-header h3');
+                    var cardTitle = h3 ? h3.textContent.trim() : '';
+
+                    if (cardTitle) {
+                        index.push({
+                            label: cardTitle,
+                            meta: tabInfo.label,
+                            icon: tabInfo.icon,
+                            tab: tabId,
+                            card: card,
+                            type: 'card'
+                        });
+                    }
+
+                    // Index field labels
+                    card.querySelectorAll('.tix-field-label, .tix-field label, label.tix-toggle').forEach(function(lbl) {
+                        var text = lbl.textContent.trim();
+                        if (!text || text.length < 2) return;
+                        // Skip duplicate if same as card title
+                        if (text === cardTitle) return;
+
+                        index.push({
+                            label: text,
+                            meta: tabInfo.label + ' → ' + (cardTitle || 'Einstellungen'),
+                            icon: tabInfo.icon,
+                            tab: tabId,
+                            card: card,
+                            field: lbl,
+                            type: 'field'
+                        });
+                    });
+
+                    // Index select/input with name attributes (setting keys)
+                    card.querySelectorAll('input[name], select[name], textarea[name]').forEach(function(el) {
+                        var name = el.getAttribute('name') || '';
+                        // Extract key from tix_settings[key_name]
+                        var m = name.match(/tix_settings\[([^\]]+)\]/);
+                        if (m) {
+                            var key = m[1];
+                            // Check if already indexed by label
+                            var already = false;
+                            var closestLabel = el.closest('.tix-field, .tix-field-full');
+                            if (closestLabel && closestLabel.querySelector('.tix-field-label, label')) already = true;
+
+                            if (!already) {
+                                index.push({
+                                    label: key.replace(/_/g, ' '),
+                                    meta: tabInfo.label + ' → ' + (cardTitle || 'Einstellungen'),
+                                    icon: tabInfo.icon,
+                                    tab: tabId,
+                                    card: card,
+                                    field: el,
+                                    type: 'key'
+                                });
+                            }
+                        }
+                    });
+                });
+
+                // Index accordion headers (for Typography/Colors)
+                pane.querySelectorAll('.tix-typo-accordion-header, .tix-color-accordion-header, [class*="accordion-header"]').forEach(function(hdr) {
+                    var text = hdr.textContent.trim().replace(/[\u25B6\u25BC]/g, '').trim();
+                    if (text) {
+                        index.push({
+                            label: text,
+                            meta: tabInfo.label,
+                            icon: tabInfo.icon,
+                            tab: tabId,
+                            card: hdr.closest('.tix-card') || hdr,
+                            type: 'accordion'
+                        });
+                    }
+                });
+            });
+
+            // ── Search logic ──
+            var activeIdx = -1;
+            var filtered = [];
+
+            function search(query) {
+                query = query.toLowerCase().trim();
+                if (!query || query.length < 2) {
+                    results.classList.remove('open');
+                    results.innerHTML = '';
+                    clearBtn.classList.toggle('visible', input.value.length > 0);
+                    return;
+                }
+
+                clearBtn.classList.add('visible');
+
+                // Split query into words for multi-word matching
+                var words = query.split(/\s+/).filter(function(w) { return w.length > 0; });
+
+                filtered = index.filter(function(item) {
+                    var haystack = (item.label + ' ' + item.meta).toLowerCase();
+                    return words.every(function(w) { return haystack.indexOf(w) !== -1; });
+                });
+
+                // Deduplicate by label+tab
+                var seen = {};
+                filtered = filtered.filter(function(item) {
+                    var key = item.label + '|' + item.tab;
+                    if (seen[key]) return false;
+                    seen[key] = true;
+                    return true;
+                });
+
+                // Limit results
+                filtered = filtered.slice(0, 15);
+
+                if (filtered.length === 0) {
+                    results.innerHTML = '<div class="tix-search-no-results">Keine Ergebnisse f&uuml;r &bdquo;' + escHtml(query) + '&ldquo;</div>';
+                    results.classList.add('open');
+                    activeIdx = -1;
+                    return;
+                }
+
+                var html = '';
+                filtered.forEach(function(item, i) {
+                    var label = highlightMatch(item.label, words);
+                    html += '<div class="tix-search-result' + (i === 0 ? ' active' : '') + '" data-idx="' + i + '">'
+                        + '<div class="tix-search-result-icon"><span class="dashicons dashicons-' + item.icon + '"></span></div>'
+                        + '<div class="tix-search-result-text">'
+                        + '<div class="tix-search-result-label">' + label + '</div>'
+                        + '<div class="tix-search-result-meta">' + escHtml(item.meta) + '</div>'
+                        + '</div></div>';
+                });
+
+                results.innerHTML = html;
+                results.classList.add('open');
+                activeIdx = 0;
+
+                // Click handlers
+                results.querySelectorAll('.tix-search-result').forEach(function(el) {
+                    el.addEventListener('click', function() {
+                        var idx = parseInt(this.getAttribute('data-idx'));
+                        selectResult(idx);
+                    });
+                    el.addEventListener('mouseenter', function() {
+                        results.querySelectorAll('.tix-search-result').forEach(function(r) { r.classList.remove('active'); });
+                        this.classList.add('active');
+                        activeIdx = parseInt(this.getAttribute('data-idx'));
+                    });
+                });
+            }
+
+            function selectResult(idx) {
+                var item = filtered[idx];
+                if (!item) return;
+
+                // Close search
+                results.classList.remove('open');
+                input.value = '';
+                clearBtn.classList.remove('visible');
+
+                // Switch to correct tab
+                var tabBtn = app.querySelector('.tix-nav-tab[data-tab="' + item.tab + '"]');
+                if (tabBtn) {
+                    // Open "Mehr" section if the tab is hidden
+                    var moreTabs = document.getElementById('tix-settings-more-tabs');
+                    if (moreTabs && moreTabs.contains(tabBtn) && !moreTabs.classList.contains('tix-settings-more-open')) {
+                        var moreBtn = document.getElementById('tix-settings-more-btn');
+                        if (moreBtn) moreBtn.click();
+                    }
+                    tabBtn.click();
+                }
+
+                // Scroll to and highlight card
+                setTimeout(function() {
+                    var target = item.card;
+                    if (target) {
+                        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        target.classList.remove('tix-search-highlight');
+                        void target.offsetWidth; // force reflow
+                        target.classList.add('tix-search-highlight');
+
+                        // If accordion, open it
+                        if (item.type === 'accordion') {
+                            var accBody = target.nextElementSibling;
+                            if (accBody && accBody.style.display === 'none') {
+                                target.click();
+                            }
+                        }
+                    }
+                }, 120);
+            }
+
+            function highlightMatch(text, words) {
+                var safe = escHtml(text);
+                words.forEach(function(w) {
+                    var re = new RegExp('(' + w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
+                    safe = safe.replace(re, '<mark>$1</mark>');
+                });
+                return safe;
+            }
+
+            function escHtml(s) {
+                var d = document.createElement('div');
+                d.textContent = s;
+                return d.innerHTML;
+            }
+
+            // ── Event listeners ──
+            var debounce = null;
+            input.addEventListener('input', function() {
+                clearTimeout(debounce);
+                debounce = setTimeout(function() { search(input.value); }, 150);
+            });
+
+            input.addEventListener('keydown', function(e) {
+                if (!results.classList.contains('open')) return;
+                var items = results.querySelectorAll('.tix-search-result');
+
+                if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    activeIdx = Math.min(activeIdx + 1, items.length - 1);
+                    items.forEach(function(r) { r.classList.remove('active'); });
+                    if (items[activeIdx]) { items[activeIdx].classList.add('active'); items[activeIdx].scrollIntoView({ block: 'nearest' }); }
+                } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    activeIdx = Math.max(activeIdx - 1, 0);
+                    items.forEach(function(r) { r.classList.remove('active'); });
+                    if (items[activeIdx]) { items[activeIdx].classList.add('active'); items[activeIdx].scrollIntoView({ block: 'nearest' }); }
+                } else if (e.key === 'Enter') {
+                    e.preventDefault();
+                    if (activeIdx >= 0) selectResult(activeIdx);
+                } else if (e.key === 'Escape') {
+                    results.classList.remove('open');
+                    input.blur();
+                }
+            });
+
+            clearBtn.addEventListener('click', function() {
+                input.value = '';
+                results.classList.remove('open');
+                clearBtn.classList.remove('visible');
+                input.focus();
+            });
+
+            // Close on outside click
+            document.addEventListener('click', function(e) {
+                if (!e.target.closest('#tix-search-wrap')) {
+                    results.classList.remove('open');
+                }
+            });
+
+            // Keyboard shortcut: Ctrl+K or Cmd+K to focus search
+            document.addEventListener('keydown', function(e) {
+                if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+                    e.preventDefault();
+                    input.focus();
+                    input.select();
+                }
+            });
+        })();
+        </script>
+
         <?php // ── Ticket-Template-Editor Init ── ?>
         <script>
         jQuery(function($) {
@@ -6206,6 +7378,32 @@ class TIX_Settings {
         <?php
     }
 
+    /**
+     * Responsive Number-Input-Reihe (5 Breakpoints).
+     */
+    private static function responsive_number_row($label, $breakpoints, $s, $min = 0, $max = 80, $hint = '') {
+        ?>
+        <div class="tix-field tix-field-full">
+            <label class="tix-field-label"><?php echo esc_html($label); ?></label>
+            <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:6px;">
+                <?php foreach ($breakpoints as $key => $meta): ?>
+                <div style="text-align:center;">
+                    <div style="font-size:11px;color:#64748b;margin-bottom:4px;"><?php echo $meta['icon']; ?> <?php echo $meta['label']; ?></div>
+                    <input type="number" name="tix_settings[<?php echo esc_attr($key); ?>]"
+                           value="<?php echo intval($s[$key] ?? $meta['def']); ?>"
+                           min="<?php echo $min; ?>" max="<?php echo $max; ?>" step="1"
+                           style="width:100%;text-align:center;padding:6px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;font-weight:600;">
+                    <div style="font-size:10px;color:#94a3b8;margin-top:2px;">px</div>
+                </div>
+                <?php endforeach; ?>
+            </div>
+            <?php if ($hint): ?>
+            <p style="font-size:11px;color:#94a3b8;margin:6px 0 0;"><?php echo esc_html($hint); ?></p>
+            <?php endif; ?>
+        </div>
+        <?php
+    }
+
     private static function range_row($key, $label, $s, $min = 0, $max = 50, $unit = 'px', $step = 1, $is_float = false) {
         $val  = $is_float ? floatval($s[$key]) : intval($s[$key]);
         $name = self::OPTION_KEY . "[$key]";
@@ -6386,8 +7584,10 @@ class TIX_Settings {
                 'tix-ep-section-body'     => ['label' => 'Abschnitts-Text',     'size' => 15, 'font' => 'body', 'weight' => 400],
                 'tix-ep-location-name'    => ['label' => 'Ort-Name',            'size' => 14, 'font' => 'body', 'weight' => 700],
                 'tix-ep-location-address' => ['label' => 'Adresse',             'size' => 13, 'font' => 'body', 'weight' => 400],
+                'tix-ep-location-desc'    => ['label' => 'Ort-Kurzbeschreibung','size' => 13, 'font' => 'body', 'weight' => 400],
                 'tix-ep-organizer-name'   => ['label' => 'Veranstalter',        'size' => 14, 'font' => 'body', 'weight' => 600],
                 'tix-ep-organizer-label'  => ['label' => 'Veranstalter-Label',  'size' => 12, 'font' => 'body', 'weight' => 400],
+                'tix-ep-organizer-desc'   => ['label' => 'Veranstalter-Kurzbeschreibung', 'size' => 13, 'font' => 'body', 'weight' => 400],
                 'tix-ep-series-day'       => ['label' => 'Serien-Tag',          'size' => 18, 'font' => 'heading', 'weight' => 800],
                 'tix-ep-series-month'     => ['label' => 'Serien-Monat',        'size' => 12, 'font' => 'body', 'weight' => 600],
             ],
@@ -6458,6 +7658,7 @@ class TIX_Settings {
                 'tix-ci-btn'           => ['label' => 'Checkin-Button',    'size' => 15, 'font' => 'body', 'weight' => 700],
                 'tix-ci-result-title'  => ['label' => 'Ergebnis-Titel',    'size' => 22, 'font' => 'heading', 'weight' => 700],
                 'tix-ci-result-details' => ['label' => 'Ergebnis-Details', 'size' => 14, 'font' => 'body', 'weight' => 400],
+                'tix-ci-list-header'   => ['label' => 'Listen-Header',    'size' => 15, 'font' => 'body', 'weight' => 650],
                 'tix-ci-search'        => ['label' => 'Suchfeld',          'size' => 14, 'font' => 'body', 'weight' => 400],
                 'tix-ci-guest-name'    => ['label' => 'Gast-Name',         'size' => 15, 'font' => 'body', 'weight' => 600],
                 'tix-ci-guest-plus'    => ['label' => 'Plus-Eins',         'size' => 12, 'font' => 'body', 'weight' => 700],
@@ -6592,6 +7793,21 @@ class TIX_Settings {
                 'tix-ei-text'     => ['label' => 'Text',        'size' => 15, 'font' => 'body', 'weight' => 400],
                 'tix-ei-button'   => ['label' => 'Button',      'size' => 15, 'font' => 'body', 'weight' => 700],
             ],
+            'Social Proof' => [
+                'tix-sp' => ['label' => 'Social Proof Text', 'size' => 13, 'font' => 'body', 'weight' => 600],
+            ],
+            'My Account' => [
+                'wc-nav-link'     => ['label' => 'Navigation',       'size' => 14, 'font' => 'body', 'weight' => 500],
+                'wc-content-h2'   => ['label' => 'Überschrift H2',   'size' => 18, 'font' => 'heading', 'weight' => 700],
+                'wc-content-h3'   => ['label' => 'Überschrift H3',   'size' => 15, 'font' => 'body', 'weight' => 400],
+                'wc-table-th'     => ['label' => 'Tabellen-Header',  'size' => 12, 'font' => 'body', 'weight' => 700],
+                'wc-table-td'     => ['label' => 'Tabellen-Zelle',   'size' => 14, 'font' => 'body', 'weight' => 400],
+                'wc-order-status' => ['label' => 'Bestell-Status',   'size' => 12, 'font' => 'body', 'weight' => 700],
+                'wc-button'       => ['label' => 'Button',           'size' => 14, 'font' => 'body', 'weight' => 700],
+                'wc-label'        => ['label' => 'Formular-Label',   'size' => 13, 'font' => 'body', 'weight' => 600],
+                'wc-input'        => ['label' => 'Eingabefeld',      'size' => 15, 'font' => 'body', 'weight' => 400],
+                'wc-message'      => ['label' => 'Meldung',          'size' => 14, 'font' => 'body', 'weight' => 400],
+            ],
             'Register Event' => [
                 'tix-re-title'         => ['label' => 'Seiten-Titel',    'size' => 28, 'font' => 'heading', 'weight' => 800],
                 'tix-re-subtitle'      => ['label' => 'Untertitel',      'size' => 15, 'font' => 'body', 'weight' => 400],
@@ -6604,7 +7820,7 @@ class TIX_Settings {
                 'tix-re-input'         => ['label' => 'Eingabefeld',     'size' => 15, 'font' => 'body', 'weight' => 400],
                 'tix-re-preview-label' => ['label' => 'Preview-Label',   'size' => 12, 'font' => 'body', 'weight' => 600],
                 'tix-re-preview-value' => ['label' => 'Preview-Wert',    'size' => 14, 'font' => 'body', 'weight' => 400],
-                'tix-re-field label'   => ['label' => 'Feld-Label',      'size' => 12, 'font' => 'body', 'weight' => 600],
+                'tix-re-field-label'   => ['label' => 'Feld-Label',      'size' => 12, 'font' => 'body', 'weight' => 600],
                 'tix-re-legal'         => ['label' => 'Rechtliches',     'size' => 13, 'font' => 'body', 'weight' => 400],
                 'tix-re-btn-primary'   => ['label' => 'Haupt-Button',    'size' => 14, 'font' => 'body', 'weight' => 600],
                 'tix-re-error'         => ['label' => 'Fehler-Meldung',  'size' => 14, 'font' => 'body', 'weight' => 400],
@@ -6911,8 +8127,10 @@ class TIX_Settings {
                 'tix-ep-section-body'   => ['label' => 'Abschnitts-Text',        'props' => ['color' => '#374151']],
                 'tix-ep-location-name'  => ['label' => 'Ort-Name',               'props' => ['color' => '#1f2937']],
                 'tix-ep-location-address'=> ['label' => 'Adresse',               'props' => ['color' => '#64748b']],
+                'tix-ep-location-desc'  => ['label' => 'Ort-Kurzbeschreibung',  'props' => ['color' => '#64748b']],
                 'tix-ep-organizer-name' => ['label' => 'Veranstalter',           'props' => ['color' => '#1f2937']],
                 'tix-ep-organizer-label'=> ['label' => 'Veranstalter-Label',     'props' => ['color' => '#64748b']],
+                'tix-ep-organizer-desc' => ['label' => 'Veranstalter-Kurzbeschreibung', 'props' => ['color' => '#64748b']],
                 'tix-ep-series-status--available'   => ['label' => 'Serie: Verfügbar',    'props' => ['bg' => '#dcfce7', 'color' => '#166534']],
                 'tix-ep-series-status--sold_out'    => ['label' => 'Serie: Ausverkauft',  'props' => ['bg' => '#fee2e2', 'color' => '#991b1b']],
                 'tix-ep-series-status--cancelled'   => ['label' => 'Serie: Abgesagt',     'props' => ['bg' => '#f3f4f6', 'color' => '#6b7280']],
@@ -7291,5 +8509,150 @@ class TIX_Settings {
             }
         }
         return $flat;
+    }
+
+    /* =========================================================
+     * Export / Import AJAX handlers
+     * ========================================================= */
+
+    /**
+     * Separate wp_options die zum Plugin gehoeren (neben tix_settings).
+     */
+    private static function extra_option_keys(): array {
+        return [
+            'tix_order_seq',
+            'tix_coupons',
+            'tix_db_version',
+            'tix_checkout_page_id',
+            'tix_auto_widget',
+            'tix_organizer_auto_publish',
+            'tix_meta_adspend',
+        ];
+    }
+
+    /**
+     * AJAX: Export alle Settings als JSON.
+     */
+    public static function ajax_export() {
+        check_ajax_referer('tix_export_settings');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Keine Berechtigung.', 403);
+        }
+
+        $payload = [
+            '_tix_export' => [
+                'plugin'  => 'tixomat',
+                'version' => defined('TIXOMAT_VERSION') ? TIXOMAT_VERSION : '?',
+                'date'    => gmdate('c'),
+                'site'    => get_site_url(),
+                'wp'      => get_bloginfo('version'),
+            ],
+            'tix_settings' => get_option('tix_settings', []),
+        ];
+
+        // Separate Optionen
+        foreach (self::extra_option_keys() as $key) {
+            $val = get_option($key, null);
+            if ($val !== null) {
+                $payload[$key] = $val;
+            }
+        }
+
+        wp_send_json_success($payload);
+    }
+
+    /**
+     * AJAX: Import Settings aus JSON.
+     */
+    public static function ajax_import() {
+        check_ajax_referer('tix_import_settings');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Keine Berechtigung.', 403);
+        }
+
+        $raw = isset($_POST['data']) ? wp_unslash($_POST['data']) : '';
+        $data = json_decode($raw, true);
+
+        if (!is_array($data)) {
+            wp_send_json_error('Ungueltige JSON-Daten.');
+        }
+
+        // Muss tix_settings enthalten
+        if (!isset($data['tix_settings']) || !is_array($data['tix_settings'])) {
+            wp_send_json_error('JSON enthaelt kein gueltiges tix_settings Array.');
+        }
+
+        // Meta pruefen (optional, nur Warnung)
+        $meta = $data['_tix_export'] ?? [];
+
+        // --- tix_settings importieren ---
+        $imported = $data['tix_settings'];
+
+        // Sanitize: Sicherstellen dass nur erlaubte Keys drin sind
+        // Wir mergen mit bestehenden Defaults und sanitizen die Werte
+        $sanitized = [];
+        foreach ($imported as $k => $v) {
+            if (is_string($k)) {
+                // Einfache Sanitization: Strings escapen, Arrays durchlassen, Numerics casten
+                if (is_array($v)) {
+                    $sanitized[$k] = self::sanitize_setting_array($v);
+                } elseif (is_numeric($v)) {
+                    $sanitized[$k] = is_float($v + 0) ? (float)$v : (int)$v;
+                } else {
+                    $sanitized[$k] = sanitize_text_field((string)$v);
+                }
+            }
+        }
+
+        update_option('tix_settings', $sanitized);
+
+        // --- Separate Optionen importieren ---
+        $extra_updated = 0;
+        foreach (self::extra_option_keys() as $key) {
+            if (array_key_exists($key, $data)) {
+                $val = $data[$key];
+                // Sanitize je nach Typ
+                if (is_array($val)) {
+                    $val = self::sanitize_setting_array($val);
+                } elseif (is_numeric($val)) {
+                    $val = is_float($val + 0) ? (float)$val : (int)$val;
+                } else {
+                    $val = sanitize_text_field((string)$val);
+                }
+                update_option($key, $val);
+                $extra_updated++;
+            }
+        }
+
+        $count = count($sanitized) + $extra_updated;
+        $source = !empty($meta['site']) ? ' von ' . esc_html($meta['site']) : '';
+
+        wp_send_json_success(sprintf(
+            'Import erfolgreich! %d Einstellungen importiert%s.',
+            $count,
+            $source
+        ));
+    }
+
+    /**
+     * Rekursive Sanitization fuer verschachtelte Arrays.
+     */
+    private static function sanitize_setting_array(array $arr): array {
+        $clean = [];
+        foreach ($arr as $k => $v) {
+            $key = is_string($k) ? sanitize_text_field($k) : (int)$k;
+            if (is_array($v)) {
+                $clean[$key] = self::sanitize_setting_array($v);
+            } elseif (is_numeric($v)) {
+                $clean[$key] = is_float($v + 0) ? (float)$v : (int)$v;
+            } elseif (is_bool($v)) {
+                $clean[$key] = $v;
+            } else {
+                $clean[$key] = sanitize_text_field((string)$v);
+            }
+        }
+        return $clean;
     }
 }
