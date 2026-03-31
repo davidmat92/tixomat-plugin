@@ -59,6 +59,8 @@ class TIX_Emails {
         // WordPress Core-Mails im Tixomat Design
         add_filter('retrieve_password_message',            [__CLASS__, 'wrap_password_reset'], 99, 4);
         add_filter('wp_mail',                              [__CLASS__, 'ensure_html_content_type'], 1);
+        add_filter('wp_mail',                              [__CLASS__, 'enhance_email_headers'], 999);
+        add_action('phpmailer_init',                       [__CLASS__, 'add_plaintext_alt'], 10);
         add_filter('wp_new_user_notification_email',       [__CLASS__, 'wrap_new_user_email'], 99, 3);
         add_filter('wp_new_user_notification_email_admin', [__CLASS__, 'wrap_new_user_admin_email'], 99, 3);
         add_filter('password_change_email',                [__CLASS__, 'wrap_password_change_email'], 99, 3);
@@ -797,6 +799,107 @@ class TIX_Emails {
         }
         $headers[] = 'Content-Type: text/html; charset=UTF-8';
         return $headers;
+    }
+
+    // ══════════════════════════════════════
+    // Email Deliverability: Reply-To, List-Unsubscribe, Plain-Text
+    // ══════════════════════════════════════
+
+    /**
+     * Fügt Reply-To und List-Unsubscribe Header zu allen HTML-Mails hinzu.
+     * Läuft als wp_mail Filter mit hoher Priorität (999).
+     */
+    public static function enhance_email_headers($atts) {
+        // Nur für HTML-Mails (prüfe Content-Type Header)
+        $headers = $atts['headers'] ?? [];
+        if (!is_array($headers)) $headers = !empty($headers) ? [$headers] : [];
+
+        $is_html = false;
+        foreach ($headers as $h) {
+            if (stripos($h, 'text/html') !== false) { $is_html = true; break; }
+        }
+        if (!$is_html) return $atts;
+
+        $s = self::get_settings();
+
+        // ── Reply-To ──
+        $has_reply_to = false;
+        foreach ($headers as $h) {
+            if (stripos($h, 'Reply-To:') !== false) { $has_reply_to = true; break; }
+        }
+        if (!$has_reply_to) {
+            $reply_to = $s['email_from_address'] ?? '';
+            if (empty($reply_to)) $reply_to = get_option('admin_email');
+            if (!empty($reply_to)) {
+                $brand = $s['email_brand_name'] ?: get_bloginfo('name');
+                $headers[] = 'Reply-To: ' . $brand . ' <' . $reply_to . '>';
+            }
+        }
+
+        // ── List-Unsubscribe (mailto-basiert, RFC 2369) ──
+        $has_unsub = false;
+        foreach ($headers as $h) {
+            if (stripos($h, 'List-Unsubscribe') !== false) { $has_unsub = true; break; }
+        }
+        if (!$has_unsub) {
+            $unsub_email = $s['email_from_address'] ?? '';
+            if (empty($unsub_email)) $unsub_email = get_option('admin_email');
+            if (!empty($unsub_email)) {
+                $headers[] = 'List-Unsubscribe: <mailto:' . $unsub_email . '?subject=unsubscribe>';
+                $headers[] = 'List-Unsubscribe-Post: List-Unsubscribe=One-Click';
+            }
+        }
+
+        $atts['headers'] = $headers;
+        return $atts;
+    }
+
+    /**
+     * Erzeugt automatisch eine Plain-Text-Alternative (AltBody) für HTML-Mails.
+     * Verbessert die Spam-Bewertung erheblich, da Spam-Filter multipart/alternative bevorzugen.
+     */
+    public static function add_plaintext_alt($phpmailer) {
+        // Nur wenn HTML und kein AltBody vorhanden
+        if ($phpmailer->ContentType !== 'text/html') return;
+        if (!empty($phpmailer->AltBody)) return;
+        if (empty($phpmailer->Body)) return;
+
+        $html = $phpmailer->Body;
+
+        // HTML → Plain-Text Konvertierung
+        // Links extrahieren: <a href="URL">Text</a> → Text (URL)
+        $text = preg_replace_callback(
+            '/<a\s[^>]*href=["\']([^"\']+)["\'][^>]*>(.*?)<\/a>/si',
+            function($m) {
+                $url  = html_entity_decode($m[1], ENT_QUOTES, 'UTF-8');
+                $link_text = strip_tags($m[2]);
+                $link_text = trim($link_text);
+                if (empty($link_text) || $link_text === $url) return $url;
+                return $link_text . ' (' . $url . ')';
+            },
+            $html
+        );
+
+        // Block-Elemente durch Zeilenumbrüche ersetzen
+        $text = preg_replace('/<br\s*\/?>/i', "\n", $text);
+        $text = preg_replace('/<\/(p|div|tr|h[1-6]|li|td)>/i', "\n", $text);
+        $text = preg_replace('/<(p|div|h[1-6]|li|table)[^>]*>/i', "\n", $text);
+        $text = preg_replace('/<hr[^>]*>/i', "\n---\n", $text);
+
+        // Verbleibende Tags entfernen
+        $text = strip_tags($text);
+
+        // HTML-Entities dekodieren
+        $text = html_entity_decode($text, ENT_QUOTES, 'UTF-8');
+
+        // Mehrfache Leerzeilen zusammenfassen
+        $text = preg_replace('/[ \t]+/', ' ', $text);
+        $text = preg_replace('/\n{3,}/', "\n\n", $text);
+        $text = trim($text);
+
+        if (!empty($text)) {
+            $phpmailer->AltBody = $text;
+        }
     }
 
     // ══════════════════════════════════════
