@@ -3836,6 +3836,10 @@ class TIX_Settings {
                                 .tix-clr-reset { width: 28px; height: 28px; border: none; background: none; cursor: pointer; color: #d1d5db; border-radius: 6px; display: flex; align-items: center; justify-content: center; transition: color .15s, background .15s; padding: 0; }
                                 .tix-clr-reset:hover { color: #ef4444; background: #fef2f2; }
                                 .tix-clr-reset.has-changes { color: #f59e0b; }
+                                .tix-clr-palette-swatches { display: flex; gap: 2px; flex-wrap: wrap; min-height: 0; }
+                                .tix-clr-palette-swatches:empty { display: none; }
+                                .tix-clr-palette-btn { width: 14px; height: 14px; border-radius: 3px; border: 1px solid rgba(0,0,0,.1); cursor: pointer; padding: 0; transition: transform .1s; flex-shrink: 0; }
+                                .tix-clr-palette-btn:hover { transform: scale(1.3); box-shadow: 0 0 0 1.5px var(--tix-primary, #FF5500); z-index: 1; }
                                 @media (max-width: 900px) {
                                     .tix-clr-row { grid-template-columns: 1fr; gap: 4px; padding: 10px 14px; }
                                     .tix-clr-row-head { display: none; }
@@ -3881,6 +3885,7 @@ class TIX_Settings {
                                                     <div style="font-size:12px;font-weight:600;color:#374151;"><?php echo esc_html($meta['label']); ?></div>
                                                     <div style="font-size:10px;color:#9ca3af;"><?php echo esc_html($meta['hint']); ?></div>
                                                     <input type="text" name="tix_settings[<?php echo $key; ?>]" value="<?php echo esc_attr($s[$key] ?? $d[$key]); ?>" style="width:100%;margin-top:4px;padding:3px 6px;border:1px solid #d1d5db;border-radius:4px;font-size:11px;font-family:monospace;" spellcheck="false" onchange="var sw=this.closest('div').parentNode.querySelector('.tix-clr-swatch');if(sw)sw.style.background=this.value;">
+                                                    <div class="tix-palette-swatches tix-bot-palette" data-target-key="<?php echo esc_attr($key); ?>" style="margin-top:4px;"></div>
                                                 </div>
                                             </div>
                                             <?php endforeach; ?>
@@ -3935,10 +3940,15 @@ class TIX_Settings {
                                             ?>
                                             <div class="tix-clr-cell <?php echo !$has_prop ? 'tix-clr-empty' : ''; ?>">
                                                 <?php if ($has_prop): ?>
-                                                <div class="tix-clr-swatch" style="background:<?php echo esc_attr($cur_val); ?>;">
-                                                    <input type="color" data-prop="<?php echo $prop; ?>" data-role="picker" value="<?php echo esc_attr($cur_val); ?>" tabindex="-1">
+                                                <div style="display:flex;flex-direction:column;gap:2px;">
+                                                    <div style="display:flex;align-items:center;gap:4px;">
+                                                        <div class="tix-clr-swatch" style="background:<?php echo esc_attr($cur_val); ?>;">
+                                                            <input type="color" data-prop="<?php echo $prop; ?>" data-role="picker" value="<?php echo esc_attr($cur_val); ?>" tabindex="-1">
+                                                        </div>
+                                                        <input type="text" data-prop="<?php echo $prop; ?>" data-role="hex" value="<?php echo esc_attr($cur_val); ?>" class="tix-clr-hex <?php echo $is_changed ? 'tix-clr-changed' : ''; ?>" maxlength="9" spellcheck="false">
+                                                    </div>
+                                                    <div class="tix-clr-palette-swatches" data-prop="<?php echo $prop; ?>"></div>
                                                 </div>
-                                                <input type="text" data-prop="<?php echo $prop; ?>" data-role="hex" value="<?php echo esc_attr($cur_val); ?>" class="tix-clr-hex <?php echo $is_changed ? 'tix-clr-changed' : ''; ?>" maxlength="9" spellcheck="false">
                                                 <?php endif; ?>
                                             </div>
                                             <?php endforeach; ?>
@@ -4032,6 +4042,57 @@ class TIX_Settings {
                                         });
                                         document.getElementById('tix-color-json').value = JSON.stringify(overrides);
                                     });
+                                }
+
+                                // ── Palette-Swatches in Akkordeon-Farbzellen ──
+                                function tixRefreshClrPaletteSwatches() {
+                                    // Palette aus dem Repeater lesen (gleiche Quelle wie refreshAllPaletteSwatches)
+                                    var palette = [];
+                                    var repeater = document.getElementById('tix-palette-repeater');
+                                    if (repeater) {
+                                        repeater.querySelectorAll('.tix-palette-row').forEach(function(row) {
+                                            var name  = row.querySelector('.tix-palette-name') ? row.querySelector('.tix-palette-name').value.trim() : '';
+                                            var color = row.querySelector('.tix-palette-color-input') ? row.querySelector('.tix-palette-color-input').value.trim() : '';
+                                            if (name && color) palette.push({name: name, color: color});
+                                        });
+                                    }
+                                    // Alle .tix-clr-palette-swatches im Colors-Pane befüllen
+                                    document.querySelectorAll('.tix-clr-palette-swatches').forEach(function(container) {
+                                        var prop = container.dataset.prop;
+                                        var row  = container.closest('.tix-clr-row');
+                                        container.innerHTML = '';
+                                        if (palette.length === 0) return;
+                                        palette.forEach(function(entry) {
+                                            var btn = document.createElement('button');
+                                            btn.type = 'button';
+                                            btn.className = 'tix-clr-palette-btn';
+                                            btn.style.background = entry.color;
+                                            btn.title = entry.name + ': ' + entry.color;
+                                            btn.addEventListener('click', function() {
+                                                if (!row) return;
+                                                var hex = row.querySelector('input[data-role="hex"][data-prop="' + prop + '"]');
+                                                var picker = row.querySelector('input[data-role="picker"][data-prop="' + prop + '"]');
+                                                var swatch = row.querySelector('.tix-clr-swatch input[data-prop="' + prop + '"]');
+                                                if (hex) {
+                                                    hex.value = entry.color;
+                                                    var defKey = 'def' + prop.charAt(0).toUpperCase() + prop.slice(1);
+                                                    hex.classList.toggle('tix-clr-changed', entry.color !== (row.dataset[defKey] || ''));
+                                                }
+                                                if (picker && entry.color.match(/^#[0-9a-fA-F]{6}$/)) picker.value = entry.color;
+                                                if (swatch) swatch.closest('.tix-clr-swatch').style.background = entry.color;
+                                                tixColorUpdateResetBtn(row);
+                                            });
+                                            container.appendChild(btn);
+                                        });
+                                    });
+                                }
+                                // Initial render + hook into palette changes
+                                tixRefreshClrPaletteSwatches();
+                                // Re-render whenever Design palette changes (observed via MutationObserver on repeater)
+                                var clrRepeater = document.getElementById('tix-palette-repeater');
+                                if (clrRepeater) {
+                                    new MutationObserver(function() { setTimeout(tixRefreshClrPaletteSwatches, 50); })
+                                        .observe(clrRepeater, {childList: true, subtree: true, characterData: true});
                                 }
                                 </script>
 
