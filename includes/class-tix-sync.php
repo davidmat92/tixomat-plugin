@@ -574,11 +574,13 @@ class TIX_Sync {
                 update_post_meta($post_id, '_tix_price_range', self::fmt_price($min));
                 update_post_meta($post_id, '_tix_price_range_full', self::fmt_price($min));
                 update_post_meta($post_id, '_tix_price_card', number_format($min, 2, ',', '.') . ' €');
+                update_post_meta($post_id, '_tix_price_label', 'Tickets ab ' . number_format($min, 2, ',', '.') . '€');
             } elseif ($min > 0) {
                 update_post_meta($post_id, '_tix_price_range', 'ab ' . self::fmt_price($min));
                 update_post_meta($post_id, '_tix_price_range_full',
                     number_format($min, 2, ',', '.') . ' € – ' . self::fmt_price($max));
                 update_post_meta($post_id, '_tix_price_card', 'Ab ' . number_format($min, 2, ',', '.') . ' €');
+                update_post_meta($post_id, '_tix_price_label', 'Tickets ab ' . number_format($min, 2, ',', '.') . '€');
             }
         } else {
             update_post_meta($post_id, '_tix_price_min', 0);
@@ -588,6 +590,7 @@ class TIX_Sync {
             update_post_meta($post_id, '_tix_price_range', '');
             update_post_meta($post_id, '_tix_price_range_full', '');
             update_post_meta($post_id, '_tix_price_card', '');
+            update_post_meta($post_id, '_tix_price_label', '');
         }
 
         // ── FAQ: flache Meta-Felder ──
@@ -796,9 +799,35 @@ class TIX_Sync {
 
             if ($min === $max && $min > 0) {
                 update_post_meta($post_id, '_tix_price_range', self::fmt_price($min));
+                update_post_meta($post_id, '_tix_price_card', number_format($min, 2, ',', '.') . ' €');
+                update_post_meta($post_id, '_tix_price_label', 'Tickets ab ' . number_format($min, 2, ',', '.') . '€');
             } elseif ($min > 0) {
                 update_post_meta($post_id, '_tix_price_range', 'ab ' . self::fmt_price($min));
+                update_post_meta($post_id, '_tix_price_card', 'Ab ' . number_format($min, 2, ',', '.') . ' €');
+                update_post_meta($post_id, '_tix_price_label', 'Tickets ab ' . number_format($min, 2, ',', '.') . '€');
             }
         }
+    }
+
+    /**
+     * Automatisch Preis-Meta aktualisieren, wenn _tix_ticket_categories gespeichert wird.
+     * Fängt ALLE Codepfade ab (Metabox, REST API, Organizer-Dashboard, Serien, etc.)
+     */
+    public static function auto_update_price_on_meta_change($meta_id, $post_id, $meta_key, $meta_value) {
+        if ($meta_key !== '_tix_ticket_categories') return;
+        if (get_post_type($post_id) !== 'event') return;
+
+        // WordPress übergibt den serialisierten String an updated_postmeta
+        $categories = maybe_unserialize($meta_value);
+        if (!is_array($categories) || empty($categories)) return;
+
+        // Rekursion vermeiden (update_price_meta schreibt auch postmeta)
+        static $running = [];
+        if (isset($running[$post_id])) return;
+        $running[$post_id] = true;
+
+        self::update_price_meta($post_id, $categories);
+
+        unset($running[$post_id]);
     }
 }

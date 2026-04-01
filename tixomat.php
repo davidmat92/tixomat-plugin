@@ -2,14 +2,14 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.34.228
+ * Version: 1.34.230
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.34.228');
+define('TIXOMAT_VERSION', '1.34.230');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -467,6 +467,14 @@ if (tix_get_settings('organizer_dashboard_enabled')) {
 require_once TIXOMAT_PATH . 'includes/class-tix-custom-urls.php';
 TIX_Custom_URLs::init();
 
+// ── Preis-Meta automatisch aktualisieren wenn Ticket-Kategorien sich ändern ──
+// Läuft global (Admin, REST, Frontend, CLI), damit ALLE Codepfade abgedeckt sind
+if (!class_exists('TIX_Sync')) {
+    require_once TIXOMAT_PATH . 'includes/class-tix-sync.php';
+}
+add_action('updated_postmeta', ['TIX_Sync', 'auto_update_price_on_meta_change'], 10, 4);
+add_action('added_post_meta',  ['TIX_Sync', 'auto_update_price_on_meta_change'], 10, 4);
+
 // ── Nur Admin (nicht AJAX) ──
 if (is_admin() && !wp_doing_ajax()) {
 
@@ -486,6 +494,7 @@ if (is_admin() && !wp_doing_ajax()) {
     add_action('add_meta_boxes', ['TIX_Metabox', 'register']);
     add_action('save_post_event', ['TIX_Metabox', 'save'], 10, 2);
     add_action('admin_enqueue_scripts', ['TIX_Metabox', 'enqueue_assets']);
+
     if (tix_has_wc()) {
         add_action('save_post_event', ['TIX_Sync', 'sync'], 20, 2);
     } else {
