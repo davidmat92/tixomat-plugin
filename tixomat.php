@@ -2,14 +2,14 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.34.230
+ * Version: 1.34.231
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.34.230');
+define('TIXOMAT_VERSION', '1.34.239');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -454,6 +454,14 @@ if (is_admin()) {
     }
 }
 
+// ── Team-Mitglieder (muss vor Organizer-Admin geladen werden) ──
+require_once TIXOMAT_PATH . 'includes/class-tix-team.php';
+TIX_Team::init();
+
+// ── Auto-Archiv für abgelaufene Events ──
+require_once TIXOMAT_PATH . 'includes/class-tix-archive.php';
+TIX_Archive::init();
+
 // ── Veranstalter-Klasse immer laden (Gästeliste wird auch ohne Organizer-Dashboard benötigt) ──
 require_once TIXOMAT_PATH . 'includes/class-tix-organizer-admin.php';
 if (tix_get_settings('organizer_dashboard_enabled')) {
@@ -516,6 +524,7 @@ if (is_admin() && !wp_doing_ajax()) {
 
     add_filter('manage_event_posts_columns', ['TIX_Columns', 'add']);
     add_action('manage_event_posts_custom_column', ['TIX_Columns', 'render'], 10, 2);
+    add_filter('default_hidden_columns', ['TIX_Columns', 'default_hidden'], 10, 2);
     add_filter('manage_tix_subscriber_posts_columns', ['TIX_Columns', 'add_subscriber_columns']);
     add_action('manage_tix_subscriber_posts_custom_column', ['TIX_Columns', 'render_subscriber_column'], 10, 2);
     add_action('restrict_manage_posts', ['TIX_Columns', 'subscriber_csv_button']);
@@ -544,6 +553,8 @@ if (is_admin() && !wp_doing_ajax()) {
     add_action('admin_notices', ['TIX_Columns', 'force_delete_notice']);
     add_action('restrict_manage_posts', ['TIX_Columns', 'series_filter']);
     add_action('pre_get_posts', ['TIX_Columns', 'filter_series_query']);
+    add_action('pre_get_posts', ['TIX_Columns', 'sort_by_event_date'], 99);
+    add_filter('manage_edit-event_sortable_columns', ['TIX_Columns', 'sortable_event_columns']);
 
     add_action('admin_notices', function() {
         $screen = get_current_screen();
@@ -558,6 +569,20 @@ if (is_admin() && !wp_doing_ajax()) {
         echo '</ul></div>';
     });
 }
+
+// ── Price-Label: "Abendkasse geöffnet" wenn Presale beendet ──
+add_filter('get_post_metadata', function($value, $post_id, $meta_key, $single) {
+    if ($meta_key !== '_tix_price_label') return $value;
+    if (get_post_type($post_id) !== 'event') return $value;
+    if (!TIX_Ticket_Selector::check_presale_active($post_id)) {
+        // Presale nicht aktiv — prüfen ob es überhaupt Presale gab
+        $had_presale = get_post_meta($post_id, '_tix_presale_end_computed', true);
+        if ($had_presale) {
+            return $single ? 'Abendkasse geöffnet' : ['Abendkasse geöffnet'];
+        }
+    }
+    return $value;
+}, 10, 4);
 
 // ── Gewinnspiel AJAX (Frontend: eingeloggt + nicht-eingeloggt; Admin: Auslosung) ──
 add_action('wp_ajax_tix_raffle_enter',        ['TIX_Raffle', 'ajax_enter']);
@@ -660,6 +685,64 @@ add_action('init', function() {
 
     wp_redirect(admin_url('users.php'));
     exit;
+});
+
+// Fun Mode Topbar
+add_action('wp_ajax_tix_disable_fun_topbar', function() {
+    check_ajax_referer('tix_fun_topbar', '_n');
+    $user = wp_get_current_user();
+    if (!in_array('administrator', $user->roles) && !in_array('tix_organizer', $user->roles)) wp_send_json_error();
+    $s = get_option('tix_settings', []);
+    $s['fun_topbar'] = 0;
+    update_option('tix_settings', $s);
+    wp_send_json_success();
+});
+
+add_action('admin_footer', function() {
+    $s = function_exists('tix_get_settings') ? tix_get_settings() : [];
+    if (empty($s['fun_topbar'])) return;
+    $user = wp_get_current_user();
+    if (!in_array('administrator', $user->roles) && !in_array('tix_organizer', $user->roles)) return;
+    $name = $user->first_name ?: $user->display_name;
+    $tpl  = $s['fun_topbar_text'] ?? '{name}, du bist eine geile Sau';
+    $text = str_replace('{name}', $name, $tpl);
+    $nonce = wp_create_nonce('tix_fun_topbar');
+    ?>
+    <script>
+    (function(){
+        var bar = document.createElement('div');
+        bar.id = 'tix-fun-topbar';
+        bar.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:#fff;text-align:center;padding:8px 16px;font-size:14px;font-weight:600;letter-spacing:.5px;box-shadow:0 2px 12px rgba(0,0,0,.25);animation:tix-fun-shimmer 3s ease-in-out infinite;display:flex;align-items:center;justify-content:center;gap:12px';
+
+        var txt = document.createElement('span');
+        txt.textContent = <?php echo wp_json_encode($text . ' 🔥'); ?>;
+        bar.appendChild(txt);
+
+        var btn = document.createElement('button');
+        btn.innerHTML = '✕';
+        btn.title = 'Topbar deaktivieren';
+        btn.style.cssText = 'background:rgba(255,255,255,.2);border:none;color:#fff;width:22px;height:22px;border-radius:50%;cursor:pointer;font-size:12px;line-height:1;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:background .2s';
+        btn.onmouseover = function(){ this.style.background='rgba(255,255,255,.4)'; };
+        btn.onmouseout = function(){ this.style.background='rgba(255,255,255,.2)'; };
+        btn.onclick = function(){
+            bar.style.transition='opacity .3s';
+            bar.style.opacity='0';
+            setTimeout(function(){ bar.remove(); document.querySelectorAll('.tix-fun-offset').forEach(function(s){s.remove()}); }, 300);
+            var fd = new FormData();
+            fd.append('action','tix_disable_fun_topbar');
+            fd.append('_n',<?php echo wp_json_encode($nonce); ?>);
+            fetch(ajaxurl,{method:'POST',body:fd});
+        };
+        bar.appendChild(btn);
+
+        document.body.prepend(bar);
+        var style = document.createElement('style');
+        style.className = 'tix-fun-offset';
+        style.textContent = '@keyframes tix-fun-shimmer{0%,100%{background:linear-gradient(135deg,#667eea 0%,#764ba2 100%)}50%{background:linear-gradient(135deg,#f093fb 0%,#f5576c 100%)}}.tix-shell-sidebar{top:36px!important;height:calc(100vh - 36px)!important}.tix-shell-content{padding-top:36px!important}#wpadminbar{top:36px!important}';
+        document.head.appendChild(style);
+    })();
+    </script>
+    <?php
 });
 
 // "Zurück zum Admin" Bar im Frontend

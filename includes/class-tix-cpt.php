@@ -71,7 +71,7 @@ class TIX_CPT {
             'public'        => false,
             'show_ui'       => true,
             'show_in_menu'  => 'tixomat',
-            'supports'      => ['title'],
+            'supports'      => ['title', 'thumbnail'],
             'show_in_rest'  => false,
         ]);
 
@@ -90,7 +90,7 @@ class TIX_CPT {
             'public'        => false,
             'show_ui'       => true,
             'show_in_menu'  => 'tixomat',
-            'supports'      => ['title'],
+            'supports'      => ['title', 'thumbnail'],
             'show_in_rest'  => false,
         ]);
 
@@ -243,9 +243,47 @@ class TIX_CPT {
         $capacity    = get_post_meta($post->ID, '_tix_loc_capacity', true);
         $website     = get_post_meta($post->ID, '_tix_loc_website', true);
         $desc        = get_post_meta($post->ID, '_tix_loc_description', true);
+        $image_id    = intval(get_post_meta($post->ID, '_tix_loc_image_id', true));
+        $short_desc  = get_post_meta($post->ID, '_tix_loc_short_desc', true);
         wp_enqueue_style('tix-admin', TIXOMAT_URL . 'assets/css/admin.css', [], TIXOMAT_VERSION);
+        wp_enqueue_media();
         ?>
         <div class="tix-app" style="background:transparent;box-shadow:none;">
+            <?php // ── Bild & Kurzbeschreibung ── ?>
+            <div class="tix-card">
+                <div class="tix-card-header">
+                    <span class="dashicons dashicons-format-image"></span>
+                    <h3>Bild &amp; Beschreibung</h3>
+                </div>
+                <div class="tix-card-body">
+                    <div class="tix-field-grid">
+                        <div class="tix-field tix-field-full">
+                            <label class="tix-field-label">Bild</label>
+                            <div style="display:flex;align-items:flex-start;gap:14px;">
+                                <?php $image_url = $image_id ? wp_get_attachment_image_url($image_id, 'medium') : ''; ?>
+                                <div id="tix-loc-image-preview" style="width:180px;height:120px;border-radius:10px;background:#f3f4f6;display:flex;align-items:center;justify-content:center;overflow:hidden;border:2px dashed #d1d5db;flex-shrink:0;">
+                                    <?php if ($image_url): ?>
+                                        <img src="<?php echo esc_url($image_url); ?>" style="width:100%;height:100%;object-fit:cover;">
+                                    <?php else: ?>
+                                        <span style="color:#9ca3af;font-size:13px;">Kein Bild</span>
+                                    <?php endif; ?>
+                                </div>
+                                <div style="display:flex;flex-direction:column;gap:6px;">
+                                    <button type="button" class="button" id="tix-loc-image-upload">Bild w&auml;hlen</button>
+                                    <button type="button" class="button" id="tix-loc-image-remove" style="color:#ef4444;<?php echo $image_id ? '' : 'display:none;'; ?>">Entfernen</button>
+                                    <p style="font-size:11px;color:#9ca3af;margin:0;">Empfohlen: mind. 800&times;600px</p>
+                                </div>
+                                <input type="hidden" name="tix_loc_image_id" id="tix-loc-image-id" value="<?php echo esc_attr($image_id); ?>">
+                            </div>
+                        </div>
+                        <div class="tix-field tix-field-full">
+                            <label class="tix-field-label">Kurzbeschreibung</label>
+                            <textarea name="tix_loc_short_desc" rows="2" maxlength="300" placeholder="Kurze Beschreibung der Location (max. 300 Zeichen)"><?php echo esc_textarea($short_desc); ?></textarea>
+                            <p style="font-size:11px;color:#9ca3af;margin:4px 0 0;">Wird auf der Event-Seite angezeigt. Max. 300 Zeichen.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
             <div class="tix-card">
                 <div class="tix-card-header">
                     <span class="dashicons dashicons-location"></span>
@@ -254,8 +292,8 @@ class TIX_CPT {
                 <div class="tix-card-body">
                     <div class="tix-field-grid">
                         <div class="tix-field tix-field-full">
-                            <label class="tix-field-label">Straße &amp; Hausnummer</label>
-                            <input type="text" name="tix_loc_address" value="<?php echo esc_attr($address); ?>" placeholder="z.B. Schanzenstraße 6-20">
+                            <label class="tix-field-label">Stra&szlig;e &amp; Hausnummer</label>
+                            <input type="text" name="tix_loc_address" value="<?php echo esc_attr($address); ?>" placeholder="z.B. Schanzenstra&szlig;e 6-20">
                         </div>
                         <div class="tix-field">
                             <label class="tix-field-label">PLZ</label>
@@ -263,14 +301,14 @@ class TIX_CPT {
                         </div>
                         <div class="tix-field">
                             <label class="tix-field-label">Stadt</label>
-                            <input type="text" name="tix_loc_city" value="<?php echo esc_attr($city); ?>" placeholder="z.B. Köln">
+                            <input type="text" name="tix_loc_city" value="<?php echo esc_attr($city); ?>" placeholder="z.B. K&ouml;ln">
                         </div>
                         <div class="tix-field">
                             <label class="tix-field-label">Land</label>
                             <input type="text" name="tix_loc_country" value="<?php echo esc_attr($country); ?>" placeholder="z.B. Deutschland">
                         </div>
                         <div class="tix-field">
-                            <label class="tix-field-label">Kapazität</label>
+                            <label class="tix-field-label">Kapazit&auml;t</label>
                             <input type="number" name="tix_loc_capacity" value="<?php echo esc_attr($capacity); ?>" placeholder="z.B. 500" min="0">
                         </div>
                     </div>
@@ -289,12 +327,44 @@ class TIX_CPT {
                         </div>
                         <div class="tix-field tix-field-full">
                             <label class="tix-field-label">Beschreibung</label>
-                            <textarea name="tix_loc_description" rows="4" placeholder="Optionale Beschreibung der Location"><?php echo esc_textarea($desc); ?></textarea>
+                            <textarea name="tix_loc_description" rows="4" placeholder="Ausf&uuml;hrliche Beschreibung der Location"><?php echo esc_textarea($desc); ?></textarea>
                         </div>
                     </div>
                 </div>
             </div>
         </div>
+        <script>
+        (function(){
+            var frame;
+            var uploadBtn = document.getElementById('tix-loc-image-upload');
+            var removeBtn = document.getElementById('tix-loc-image-remove');
+            var idInput   = document.getElementById('tix-loc-image-id');
+            var preview   = document.getElementById('tix-loc-image-preview');
+            if (uploadBtn) {
+                uploadBtn.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    if (frame) { frame.open(); return; }
+                    frame = wp.media({ title: 'Location-Bild w\u00e4hlen', button: { text: 'Bild verwenden' }, multiple: false, library: { type: 'image' } });
+                    frame.on('select', function() {
+                        var att = frame.state().get('selection').first().toJSON();
+                        var url = att.sizes && att.sizes.medium ? att.sizes.medium.url : att.url;
+                        idInput.value = att.id;
+                        preview.innerHTML = '<img src="' + url + '" style="width:100%;height:100%;object-fit:cover;">';
+                        if (removeBtn) removeBtn.style.display = '';
+                    });
+                    frame.open();
+                });
+            }
+            if (removeBtn) {
+                removeBtn.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    idInput.value = '0';
+                    preview.innerHTML = '<span style="color:#9ca3af;font-size:13px;">Kein Bild</span>';
+                    this.style.display = 'none';
+                });
+            }
+        })();
+        </script>
         <?php
     }
 
@@ -311,6 +381,8 @@ class TIX_CPT {
         update_post_meta($post_id, '_tix_loc_capacity',    sanitize_text_field($_POST['tix_loc_capacity'] ?? ''));
         update_post_meta($post_id, '_tix_loc_website',     esc_url_raw($_POST['tix_loc_website'] ?? ''));
         update_post_meta($post_id, '_tix_loc_description', wp_kses_post($_POST['tix_loc_description'] ?? ''));
+        update_post_meta($post_id, '_tix_loc_image_id',    absint($_POST['tix_loc_image_id'] ?? 0));
+        update_post_meta($post_id, '_tix_loc_short_desc',  sanitize_textarea_field(mb_substr($_POST['tix_loc_short_desc'] ?? '', 0, 300)));
     }
 
     // ── Veranstalter Metabox Render ──
@@ -323,11 +395,49 @@ class TIX_CPT {
         $email    = get_post_meta($post->ID, '_tix_org_email', true);
         $phone    = get_post_meta($post->ID, '_tix_org_phone', true);
         $website  = get_post_meta($post->ID, '_tix_org_website', true);
-        $desc     = get_post_meta($post->ID, '_tix_org_description', true);
-        $user_id  = intval(get_post_meta($post->ID, '_tix_org_user_id', true));
+        $desc       = get_post_meta($post->ID, '_tix_org_description', true);
+        $user_id    = intval(get_post_meta($post->ID, '_tix_org_user_id', true));
+        $org_img_id = intval(get_post_meta($post->ID, '_tix_org_image_id', true));
+        $org_short  = get_post_meta($post->ID, '_tix_org_short_desc', true);
         wp_enqueue_style('tix-admin', TIXOMAT_URL . 'assets/css/admin.css', [], TIXOMAT_VERSION);
+        wp_enqueue_media();
         ?>
         <div class="tix-app" style="background:transparent;box-shadow:none;">
+            <?php // ── Bild & Kurzbeschreibung ── ?>
+            <div class="tix-card">
+                <div class="tix-card-header">
+                    <span class="dashicons dashicons-format-image"></span>
+                    <h3>Bild &amp; Beschreibung</h3>
+                </div>
+                <div class="tix-card-body">
+                    <div class="tix-field-grid">
+                        <div class="tix-field tix-field-full">
+                            <label class="tix-field-label">Bild / Logo</label>
+                            <div style="display:flex;align-items:flex-start;gap:14px;">
+                                <?php $org_img_url = $org_img_id ? wp_get_attachment_image_url($org_img_id, 'medium') : ''; ?>
+                                <div id="tix-org-image-preview" style="width:120px;height:120px;border-radius:50%;background:#f3f4f6;display:flex;align-items:center;justify-content:center;overflow:hidden;border:2px dashed #d1d5db;flex-shrink:0;">
+                                    <?php if ($org_img_url): ?>
+                                        <img src="<?php echo esc_url($org_img_url); ?>" style="width:100%;height:100%;object-fit:cover;">
+                                    <?php else: ?>
+                                        <span style="color:#9ca3af;font-size:13px;">Kein Bild</span>
+                                    <?php endif; ?>
+                                </div>
+                                <div style="display:flex;flex-direction:column;gap:6px;">
+                                    <button type="button" class="button" id="tix-org-image-upload">Bild w&auml;hlen</button>
+                                    <button type="button" class="button" id="tix-org-image-remove" style="color:#ef4444;<?php echo $org_img_id ? '' : 'display:none;'; ?>">Entfernen</button>
+                                    <p style="font-size:11px;color:#9ca3af;margin:0;">Logo oder Foto, mind. 200&times;200px</p>
+                                </div>
+                                <input type="hidden" name="tix_org_image_id" id="tix-org-image-id" value="<?php echo esc_attr($org_img_id); ?>">
+                            </div>
+                        </div>
+                        <div class="tix-field tix-field-full">
+                            <label class="tix-field-label">Kurzbeschreibung</label>
+                            <textarea name="tix_org_short_desc" rows="2" maxlength="300" placeholder="Kurze Beschreibung des Veranstalters (max. 300 Zeichen)"><?php echo esc_textarea($org_short); ?></textarea>
+                            <p style="font-size:11px;color:#9ca3af;margin:4px 0 0;">Wird auf der Event-Seite angezeigt. Max. 300 Zeichen.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
             <div class="tix-card">
                 <div class="tix-card-header">
                     <span class="dashicons dashicons-location"></span>
@@ -501,6 +611,148 @@ class TIX_CPT {
                 </div>
             </div>
         </div>
+        <script>
+        (function(){
+            var frame;
+            var uploadBtn = document.getElementById('tix-org-image-upload');
+            var removeBtn = document.getElementById('tix-org-image-remove');
+            var idInput   = document.getElementById('tix-org-image-id');
+            var preview   = document.getElementById('tix-org-image-preview');
+            if (uploadBtn) {
+                uploadBtn.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    if (frame) { frame.open(); return; }
+                    frame = wp.media({ title: 'Veranstalter-Bild w\u00e4hlen', button: { text: 'Bild verwenden' }, multiple: false, library: { type: 'image' } });
+                    frame.on('select', function() {
+                        var att = frame.state().get('selection').first().toJSON();
+                        var url = att.sizes && att.sizes.medium ? att.sizes.medium.url : att.url;
+                        idInput.value = att.id;
+                        preview.innerHTML = '<img src="' + url + '" style="width:100%;height:100%;object-fit:cover;">';
+                        if (removeBtn) removeBtn.style.display = '';
+                    });
+                    frame.open();
+                });
+            }
+            if (removeBtn) {
+                removeBtn.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    idInput.value = '0';
+                    preview.innerHTML = '<span style="color:#9ca3af;font-size:13px;">Kein Bild</span>';
+                    this.style.display = 'none';
+                });
+            }
+        })();
+        </script>
+
+        <?php // ── Team-Mitglieder Card ── ?>
+        <?php if (class_exists('TIX_Team') && $post->ID) : ?>
+        <div style="margin-top:20px;">
+            <div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:20px;">
+                <h3 style="margin:0 0 12px;font-size:14px;font-weight:600;">Team-Mitglieder</h3>
+                <table class="widefat striped" id="tix-team-admin-table" style="margin-bottom:16px;">
+                    <thead><tr><th>Name</th><th>E-Mail</th><th>Rolle</th><th style="width:40px;"></th></tr></thead>
+                    <tbody>
+                    <?php
+                    $members = TIX_Team::get_members($post->ID);
+                    if (empty($members)) :
+                    ?>
+                        <tr class="tix-team-empty"><td colspan="4" style="color:#9ca3af;text-align:center;">Noch keine Team-Mitglieder</td></tr>
+                    <?php else :
+                        foreach ($members as $m) : ?>
+                        <tr data-user-id="<?php echo esc_attr($m['user_id']); ?>">
+                            <td><?php echo esc_html($m['name']); ?></td>
+                            <td><?php echo esc_html($m['email']); ?></td>
+                            <td>
+                                <select class="tix-team-role-sel" style="width:130px;">
+                                    <?php foreach (TIX_Team::get_roles() as $key => $label) : ?>
+                                        <option value="<?php echo esc_attr($key); ?>" <?php selected($m['role'], $key); ?>><?php echo esc_html($label); ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </td>
+                            <td><button type="button" class="button tix-team-rm" title="Entfernen">&times;</button></td>
+                        </tr>
+                    <?php endforeach; endif; ?>
+                    </tbody>
+                </table>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
+                    <input type="email" id="tix-team-new-email" placeholder="E-Mail" style="width:180px;" class="regular-text">
+                    <input type="text" id="tix-team-new-first" placeholder="Vorname" style="width:120px;" class="regular-text">
+                    <input type="text" id="tix-team-new-last" placeholder="Nachname" style="width:120px;" class="regular-text">
+                    <select id="tix-team-new-role" style="width:130px;">
+                        <?php foreach (TIX_Team::get_roles() as $key => $label) : ?>
+                            <option value="<?php echo esc_attr($key); ?>"><?php echo esc_html($label); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <button type="button" class="button button-primary" id="tix-team-add-admin">Hinzuf&uuml;gen</button>
+                </div>
+            </div>
+        </div>
+        <script>
+        (function(){
+            var nonce = '<?php echo wp_create_nonce('tix_team_nonce'); ?>';
+            var orgId = <?php echo intval($post->ID); ?>;
+            var table = document.getElementById('tix-team-admin-table');
+            var tbody = table ? table.querySelector('tbody') : null;
+
+            function ajaxTeam(action, data, cb) {
+                data.action = action;
+                data.nonce = nonce;
+                data.organizer_id = orgId;
+                jQuery.post(ajaxurl, data, function(r) {
+                    if (r.success) { cb(r.data); } else { alert(r.data && r.data.message ? r.data.message : 'Fehler'); }
+                });
+            }
+
+            // Hinzufügen
+            var addBtn = document.getElementById('tix-team-add-admin');
+            if (addBtn) addBtn.addEventListener('click', function() {
+                var email = document.getElementById('tix-team-new-email').value.trim();
+                var first = document.getElementById('tix-team-new-first').value.trim();
+                var last  = document.getElementById('tix-team-new-last').value.trim();
+                var role  = document.getElementById('tix-team-new-role').value;
+                if (!email || !first) { alert('E-Mail und Vorname sind erforderlich.'); return; }
+                ajaxTeam('tix_team_add_member', {email:email, first_name:first, last_name:last, role:role}, function(d) {
+                    // Leere Zeile entfernen
+                    var empty = tbody.querySelector('.tix-team-empty');
+                    if (empty) empty.remove();
+                    var roles = <?php echo json_encode(TIX_Team::get_roles()); ?>;
+                    var opts = '';
+                    for (var k in roles) { opts += '<option value="'+k+'"'+(k===role?' selected':'')+'>'+roles[k]+'</option>'; }
+                    var tr = document.createElement('tr');
+                    tr.setAttribute('data-user-id', d.member.user_id);
+                    tr.innerHTML = '<td>'+d.member.name+'</td><td>'+d.member.email+'</td><td><select class="tix-team-role-sel" style="width:130px;">'+opts+'</select></td><td><button type="button" class="button tix-team-rm" title="Entfernen">&times;</button></td>';
+                    tbody.appendChild(tr);
+                    document.getElementById('tix-team-new-email').value = '';
+                    document.getElementById('tix-team-new-first').value = '';
+                    document.getElementById('tix-team-new-last').value = '';
+                });
+            });
+
+            // Rolle ändern (delegiert)
+            if (tbody) tbody.addEventListener('change', function(e) {
+                var sel = e.target.closest('.tix-team-role-sel');
+                if (!sel) return;
+                var tr = sel.closest('tr');
+                ajaxTeam('tix_team_update_member', {user_id: tr.dataset.userId, role: sel.value}, function(){});
+            });
+
+            // Entfernen (delegiert)
+            if (tbody) tbody.addEventListener('click', function(e) {
+                var btn = e.target.closest('.tix-team-rm');
+                if (!btn) return;
+                if (!confirm('Team-Mitglied wirklich entfernen?')) return;
+                var tr = btn.closest('tr');
+                ajaxTeam('tix_team_remove_member', {user_id: tr.dataset.userId}, function() {
+                    tr.remove();
+                    if (!tbody.querySelector('tr')) {
+                        tbody.innerHTML = '<tr class="tix-team-empty"><td colspan="4" style="color:#9ca3af;text-align:center;">Noch keine Team-Mitglieder</td></tr>';
+                    }
+                });
+            });
+        })();
+        </script>
+        <?php endif; ?>
+
         <?php
     }
 
@@ -518,6 +770,8 @@ class TIX_CPT {
         update_post_meta($post_id, '_tix_org_phone',       sanitize_text_field($_POST['tix_org_phone'] ?? ''));
         update_post_meta($post_id, '_tix_org_website',     esc_url_raw($_POST['tix_org_website'] ?? ''));
         update_post_meta($post_id, '_tix_org_description', wp_kses_post($_POST['tix_org_description'] ?? ''));
+        update_post_meta($post_id, '_tix_org_image_id',    absint($_POST['tix_org_image_id'] ?? 0));
+        update_post_meta($post_id, '_tix_org_short_desc',  sanitize_textarea_field(mb_substr($_POST['tix_org_short_desc'] ?? '', 0, 300)));
 
         $user_id = intval($_POST['tix_org_user_id'] ?? 0);
         update_post_meta($post_id, '_tix_org_user_id', $user_id);

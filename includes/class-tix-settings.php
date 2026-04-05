@@ -520,6 +520,12 @@ class TIX_Settings {
             // ── Branding ──
             'branding_enabled'  => 1,
             'branding_url'      => 'https://mdj.events',
+            // ── Fun Mode ──
+            'fun_topbar'         => 0,
+            'fun_topbar_text'    => '{name}, du bist eine geile Sau',
+            // ── Auto-Archiv ──
+            'auto_archive_enabled' => 1,
+            'auto_archive_days'    => 0,
             // ── Sponsor (Thank-You) ──
             'sponsor_enabled'    => 0,
             'sponsor_image_url'  => '',
@@ -1222,6 +1228,14 @@ class TIX_Settings {
         // Branding
         $clean['branding_enabled'] = !empty($input['branding_enabled']) ? 1 : 0;
         $clean['branding_url']     = esc_url_raw($input['branding_url'] ?? 'https://mdj.events');
+
+        // Fun Mode
+        $clean['fun_topbar'] = !empty($input['fun_topbar']) ? 1 : 0;
+        $clean['fun_topbar_text'] = sanitize_text_field($input['fun_topbar_text'] ?? '{name}, du bist eine geile Sau');
+
+        // Auto-Archiv
+        $clean['auto_archive_enabled'] = !empty($input['auto_archive_enabled']) ? 1 : 0;
+        $clean['auto_archive_days']    = max(0, min(365, intval($input['auto_archive_days'] ?? 0)));
 
         // Sponsor (Thank-You)
         $clean['sponsor_enabled']    = !empty($input['sponsor_enabled']) ? 1 : 0;
@@ -5618,6 +5632,50 @@ class TIX_Settings {
                                             });
                                         });
                                         </script>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Fun Mode ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-smiley"></span>
+                                        <h3>Fun Mode</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('fun_topbar', 'Motivations-Topbar anzeigen', $s, 'Zeigt eine motivierende Nachricht am oberen Bildschirmrand an. Weil du es verdient hast.'); ?>
+                                            </div>
+                                            <?php self::text_row('fun_topbar_text', 'Topbar-Text', $s, '{name}, du bist eine geile Sau'); ?>
+                                            <div class="tix-field tix-field-full">
+                                                <p class="tix-settings-hint"><code>{name}</code> wird durch den Anzeigenamen des Nutzers ersetzt.</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Auto-Archiv ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-archive"></span>
+                                        <h3>Auto-Archiv</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('auto_archive_enabled', 'Abgelaufene Events automatisch archivieren', $s, 'L&auml;uft t&auml;glich und verschiebt Events, deren Enddatum vorbei ist, ins Archiv. Archivierte Events werden im Frontend nicht mehr angezeigt.'); ?>
+                                            </div>
+                                            <div class="tix-field">
+                                                <label class="tix-field-label" for="tix-auto-archive-days">Gnadenfrist (Tage)</label>
+                                                <input type="number" min="0" max="365" step="1" id="tix-auto-archive-days"
+                                                    name="tix_settings[auto_archive_days]"
+                                                    value="<?php echo esc_attr(intval($s['auto_archive_days'] ?? 0)); ?>"
+                                                    class="small-text">
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <p class="tix-settings-hint">Anzahl Tage nach dem Enddatum, bevor archiviert wird. <code>0</code> = sofort am Tag nach dem Event.</p>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
 
