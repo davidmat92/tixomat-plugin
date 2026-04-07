@@ -174,23 +174,24 @@ class TIX_Archive {
         if (!is_admin() || !$query->is_main_query()) return;
         if (($query->get('post_type') ?: '') !== 'event') return;
 
+        // Breakdance Template-Simulator läuft innerhalb is_admin(),
+        // rendert aber Frontend-Seiten — dort NICHT filtern.
+        global $pagenow;
+        if ($pagenow !== 'edit.php') return;
+
         $view = $_GET['tix_view'] ?? 'active';
-        $meta_query = $query->get('meta_query') ?: [];
 
         if ($view === 'archived') {
-            $meta_query[] = [
-                'key'     => self::META_FLAG,
-                'value'   => '1',
-                'compare' => '=',
-            ];
+            $query->set('meta_query', array_merge(
+                $query->get('meta_query') ?: [],
+                [['key' => self::META_FLAG, 'value' => '1', 'compare' => '=']]
+            ));
         } else {
-            $meta_query[] = [
-                'key'     => self::META_FLAG,
-                'compare' => 'NOT EXISTS',
-            ];
+            $query->set('meta_query', array_merge(
+                $query->get('meta_query') ?: [],
+                [['key' => self::META_FLAG, 'compare' => 'NOT EXISTS']]
+            ));
         }
-
-        $query->set('meta_query', $meta_query);
     }
 
     /* ══════════════════════════════════════════
