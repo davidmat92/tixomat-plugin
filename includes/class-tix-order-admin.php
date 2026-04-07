@@ -118,17 +118,41 @@ class TIX_Order_Admin {
             </h1>
 
             <?php // ── Filter + Suche ── ?>
+            <?php
+            // Events mit Bestellungen ermitteln
+            $ti = $wpdb->prefix . 'tix_order_items';
+            $event_ids_with_orders = $wpdb->get_col("SELECT DISTINCT event_id FROM $ti WHERE event_id > 0 ORDER BY event_id DESC");
+            $filter_events = [];
+            foreach ($event_ids_with_orders as $eid) {
+                $title = get_the_title($eid);
+                if ($title) $filter_events[$eid] = $title;
+            }
+            ?>
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px;">
-                <div style="display:flex;gap:4px;">
+                <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;">
                     <?php foreach ($statuses as $val => $label):
                         $active = ($status_filter === $val) ? 'font-weight:700;color:var(--tix-primary, #FF5500);' : '';
-                        $url = admin_url('admin.php?page=tix-orders' . ($val ? '&status=' . $val : ''));
+                        $url = admin_url('admin.php?page=tix-orders' . ($val ? '&status=' . $val : '') . ($event_filter ? '&event_id=' . $event_filter : ''));
                     ?>
                         <a href="<?php echo esc_url($url); ?>" style="padding:4px 12px;font-size:13px;text-decoration:none;border-radius:6px;<?php echo $active; ?>"><?php echo esc_html($label); ?></a>
                     <?php endforeach; ?>
+                    <?php if (!empty($filter_events)) : ?>
+                    <span style="color:#d1d5db;margin:0 4px;">|</span>
+                    <form method="get" style="display:flex;gap:4px;align-items:center;" id="tix-event-filter-form">
+                        <input type="hidden" name="page" value="tix-orders">
+                        <?php if ($status_filter) : ?><input type="hidden" name="status" value="<?php echo esc_attr($status_filter); ?>"><?php endif; ?>
+                        <select name="event_id" onchange="this.form.submit()" style="padding:4px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;max-width:220px;">
+                            <option value="">Alle Events</option>
+                            <?php foreach ($filter_events as $eid => $title) : ?>
+                                <option value="<?php echo esc_attr($eid); ?>" <?php selected($event_filter, $eid); ?>><?php echo esc_html(wp_trim_words($title, 6, '…')); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </form>
+                    <?php endif; ?>
                 </div>
                 <form method="get" style="display:flex;gap:6px;">
                     <input type="hidden" name="page" value="tix-orders">
+                    <?php if ($event_filter) : ?><input type="hidden" name="event_id" value="<?php echo esc_attr($event_filter); ?>"><?php endif; ?>
                     <input type="text" name="s" value="<?php echo esc_attr($search); ?>" placeholder="Suche nach Nr., E-Mail, Name…" style="padding:6px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;width:240px;">
                     <button type="submit" class="button">Suchen</button>
                 </form>
