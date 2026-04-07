@@ -34,8 +34,8 @@ class TIX_Archive {
         add_action('admin_action_tix_unarchive', [__CLASS__, 'handle_admin_action']);
         add_action('admin_notices',              [__CLASS__, 'admin_notices']);
 
-        // Frontend: archivierte Events aus Standard-Queries ausschließen
-        add_action('pre_get_posts',              [__CLASS__, 'filter_frontend_events']);
+        // Frontend: archivierte Events per posts_where (sicherer als pre_get_posts für Breakdance)
+        add_filter('posts_where',                [__CLASS__, 'filter_frontend_where'], 10, 2);
     }
 
     /* ══════════════════════════════════════════
@@ -252,22 +252,30 @@ class TIX_Archive {
      * ══════════════════════════════════════════ */
 
     /**
-     * Frontend-Filter: Archivierte Events aus Haupt-Queries ausschließen.
-     * Nur main_query, um Breakdance/Shortcode-interne Queries nicht zu stören.
+     * Frontend-Filter via posts_where: Archivierte Events aus Ergebnis-Queries
+     * ausschließen, ohne meta_query zu manipulieren (vermeidet Breakdance-Crash).
+     *
+     * Filtert nur Multi-Post Event-Queries, nicht Singular-Requests.
      */
-    public static function filter_frontend_events($query) {
-        if (is_admin() || !$query->is_main_query()) return;
-        // Einzelne Event-Seiten nicht filtern (Breakdance/Single-Event)
-        if ($query->is_singular()) return;
+    public static function filter_frontend_where($where, $query) {
+        if (is_admin()) return $where;
 
+        // Nur Event-Archive / Taxonomie-Listen, keine Single-Posts
         $pt = $query->get('post_type');
-        if ($pt !== 'event' && !$query->is_post_type_archive('event') && !$query->is_tax('event_category')) return;
+        $is_event_list = false;
 
-        $meta_query = $query->get('meta_query') ?: [];
-        $meta_query[] = [
-            'key'     => self::META_FLAG,
-            'compare' => 'NOT EXISTS',
-        ];
-        $query->set('meta_query', $meta_query);
+        if ($pt === 'event' && !$query->is_singular()) {
+            $is_event_list = true;
+        }
+
+        if (!$is_event_list) return $where;
+
+        global $wpdb;
+        $where .= " AND {$wpdb->posts}.ID NOT IN (
+            SELECT post_id FROM {$wpdb->postmeta}
+            WHERE meta_key = '" . esc_sql(self::META_FLAG) . "' AND meta_value = '1'
+        )";
+
+        return $where;
     }
 }
