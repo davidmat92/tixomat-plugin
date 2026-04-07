@@ -251,17 +251,15 @@ class TIX_Archive {
      * Frontend: archivierte Events ausschließen
      * ══════════════════════════════════════════ */
 
+    /**
+     * Frontend-Filter: Archivierte Events aus Haupt-Queries ausschließen.
+     * Nur main_query, um Breakdance/Shortcode-interne Queries nicht zu stören.
+     */
     public static function filter_frontend_events($query) {
-        if (is_admin()) return;
+        if (is_admin() || !$query->is_main_query()) return;
 
         $pt = $query->get('post_type');
-        $is_event_query = false;
-        if ($pt === 'event' || (is_array($pt) && in_array('event', $pt, true))) {
-            $is_event_query = true;
-        } elseif ($query->is_main_query() && ($query->is_post_type_archive('event') || $query->is_tax('event_category'))) {
-            $is_event_query = true;
-        }
-        if (!$is_event_query) return;
+        if ($pt !== 'event' && !$query->is_post_type_archive('event') && !$query->is_tax('event_category')) return;
 
         $meta_query = $query->get('meta_query') ?: [];
         $meta_query[] = [
