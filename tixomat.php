@@ -9,7 +9,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.34.247');
+define('TIXOMAT_VERSION', '1.34.248');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -1154,6 +1154,11 @@ add_action('admin_init', function() {
     if (version_compare($stored, '1.33.70', '<')) {
         require_once TIXOMAT_PATH . 'includes/class-tix-meta-pixel.php';
         TIX_Meta_Pixel::create_table();
+    }
+
+    // v1.34.247: tix_order_notes Tabelle (nachträglich)
+    if (version_compare($stored, '1.34.247', '<')) {
+        TIX_Order::create_tables();
     }
 
     update_option('tix_db_version', TIXOMAT_VERSION);
