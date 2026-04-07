@@ -1503,14 +1503,22 @@ class TIX_Settings {
         }
 
         // ── Ticket Selector Styles ──
+        // sel_*-Werte nur ausgeben wenn sie gesetzt UND abweichend vom globalen Pendant sind
         $sel_vars = [];
         if (!empty($s['sel_bg']))            $sel_vars[] = '--tix-sel-cat-bg: ' . $s['sel_bg'];
-        if (!empty($s['sel_border_color'])) {
-            $sel_vars[] = '--tix-cat-border: ' . $s['sel_border_color'];
+        $sel_brd = $s['sel_border_color'] ?? '';
+        if ($sel_brd !== '' && $sel_brd !== ($s['color_border'] ?? '')) {
+            $sel_vars[] = '--tix-cat-border: ' . $sel_brd;
         }
-        if (!empty($s['sel_active_border'])) $sel_vars[] = '--tix-sel-active-border: ' . $s['sel_active_border'];
+        $sel_act = $s['sel_active_border'] ?? '';
+        if ($sel_act !== '' && $sel_act !== ($s['color_focus'] ?? '') && $sel_act !== ($s['color_primary'] ?? '')) {
+            $sel_vars[] = '--tix-sel-active-border: ' . $sel_act;
+        }
         if (!empty($s['sel_active_bg']))     $sel_vars[] = '--tix-sel-active-bg: ' . $s['sel_active_bg'];
-        if (!empty($s['sel_hover_text']))    $sel_vars[] = '--tix-sel-hover-text: ' . $s['sel_hover_text'];
+        $sel_hvr = $s['sel_hover_text'] ?? '';
+        if ($sel_hvr !== '' && $sel_hvr !== ($s['color_border'] ?? '')) {
+            $sel_vars[] = '--tix-sel-hover-text: ' . $sel_hvr;
+        }
         if ((int)$s['sel_radius'] !== (int)$d['sel_radius']) {
             $sel_vars[] = '--tix-sel-radius: ' . intval($s['sel_radius']) . 'px';
         }
