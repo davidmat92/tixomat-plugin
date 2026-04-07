@@ -1843,10 +1843,13 @@ class TIX_Settings {
             $css_prop_map = ['color' => 'color', 'bg' => 'background-color', 'border' => 'border-color'];
             foreach ($color_classes as $cls => $vals) {
                 if (!isset($color_registry_flat[$cls]) || !is_array($vals)) continue;
+                $defaults = $color_registry_flat[$cls]['props'] ?? [];
                 $selector = $wc_selector_map[$cls] ?? '.' . $cls;
                 $props = [];
                 foreach ($css_prop_map as $key => $css_prop) {
                     if (isset($vals[$key])) {
+                        // Nur ausgeben wenn vom Default abweichend
+                        if (isset($defaults[$key]) && strtolower($vals[$key]) === strtolower($defaults[$key])) continue;
                         $props[] = $css_prop . ': ' . esc_attr($vals[$key]) . ' !important';
                     }
                 }
