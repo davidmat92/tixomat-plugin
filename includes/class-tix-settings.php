@@ -526,6 +526,8 @@ class TIX_Settings {
             // ── Auto-Archiv ──
             'auto_archive_enabled' => 1,
             'auto_archive_days'    => 0,
+            // ── Auto-Complete ──
+            'auto_complete_enabled' => 1,
             // ── Sponsor (Thank-You) ──
             'sponsor_enabled'    => 0,
             'sponsor_image_url'  => '',
@@ -1236,6 +1238,9 @@ class TIX_Settings {
         // Auto-Archiv
         $clean['auto_archive_enabled'] = !empty($input['auto_archive_enabled']) ? 1 : 0;
         $clean['auto_archive_days']    = max(0, min(365, intval($input['auto_archive_days'] ?? 0)));
+
+        // Auto-Complete
+        $clean['auto_complete_enabled'] = !empty($input['auto_complete_enabled']) ? 1 : 0;
 
         // Sponsor (Thank-You)
         $clean['sponsor_enabled']    = !empty($input['sponsor_enabled']) ? 1 : 0;
@@ -5685,6 +5690,21 @@ class TIX_Settings {
                                             </div>
                                             <div class="tix-field tix-field-full">
                                                 <p class="tix-settings-hint">Anzahl Tage nach dem Enddatum, bevor archiviert wird. <code>0</code> = sofort am Tag nach dem Event.</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Auto-Complete ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-yes-alt"></span>
+                                        <h3>Auto-Complete</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('auto_complete_enabled', 'Bestellungen bei Sofort-Zahlung automatisch abschlie&szlig;en', $s, 'Bestellungen, die mit Zahlarten wie PayPal, Mollie oder Kreditkarte bezahlt werden, werden direkt auf &bdquo;Abgeschlossen&ldquo; gesetzt. Banküberweisung bleibt auf &bdquo;Wartend&ldquo;.'); ?>
                                             </div>
                                         </div>
                                     </div>

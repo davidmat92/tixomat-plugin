@@ -9,7 +9,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.34.249');
+define('TIXOMAT_VERSION', '1.34.250');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -86,7 +86,45 @@ add_action('plugins_loaded', function() {
         if ($tix_order) return $tix_order->get_order_number();
         return $order_number;
     }, 10, 2);
+
+    // ── Auto-Complete: WC-Bestellungen bei sofortiger Zahlung direkt auf "completed" setzen ──
+    add_filter('woocommerce_payment_complete_order_status', function($status, $order_id, $order) {
+        $s = function_exists('tix_get_settings') ? tix_get_settings() : [];
+        if (empty($s['auto_complete_enabled'])) return $status;
+
+        // Nur wenn es Event-Produkte enthält (mind. 1 Ticket)
+        $has_event = false;
+        foreach ($order->get_items() as $item) {
+            $pid = $item->get_product_id();
+            if ($pid && get_post_meta($pid, '_tix_event_id', true)) {
+                $has_event = true;
+                break;
+            }
+        }
+        if (!$has_event) return $status;
+
+        // Sofort-Zahlarten → completed statt processing
+        $instant = ['mollie', 'paypal', 'ppcp-gateway', 'stripe', 'klarna'];
+        $method  = $order->get_payment_method();
+        if (in_array($method, $instant, true)) {
+            return 'completed';
+        }
+
+        return $status;
+    }, 10, 3);
 });
+
+// ── Auto-Complete: Native Bestellungen bei Sofort-Zahlung auf "completed" setzen ──
+add_action('tix_order_status_changed', function($order_id, $new_status, $old_status, $gateway) {
+    if ($new_status !== 'processing') return;
+    $s = function_exists('tix_get_settings') ? tix_get_settings() : [];
+    if (empty($s['auto_complete_enabled'])) return;
+
+    $instant = ['mollie', 'paypal', 'free'];
+    if (in_array($gateway, $instant, true)) {
+        TIX_Native_Checkout::update_order_status($order_id, 'completed', $gateway);
+    }
+}, 10, 4);
 
 // ── Event-Karten Fonts (Google Fonts, wenn nicht self-hosted) ──
 add_action('wp_enqueue_scripts', function() {
