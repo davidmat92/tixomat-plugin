@@ -49,6 +49,7 @@ class TIX_Order_Admin {
 
         $status_filter = sanitize_text_field($_GET['status'] ?? '');
         $search = sanitize_text_field($_GET['s'] ?? '');
+        $event_filter = intval($_GET['event_id'] ?? 0);
         $paged = max(1, intval($_GET['paged'] ?? 1));
         $per_page = 20;
         $offset = ($paged - 1) * $per_page;
@@ -59,6 +60,11 @@ class TIX_Order_Admin {
         if ($status_filter) {
             $where .= ' AND status = %s';
             $params[] = $status_filter;
+        }
+        if ($event_filter) {
+            $ti = $wpdb->prefix . 'tix_order_items';
+            $where .= " AND id IN (SELECT order_id FROM $ti WHERE event_id = %d)";
+            $params[] = $event_filter;
         }
         if ($search) {
             $where .= ' AND (order_number LIKE %s OR billing_email LIKE %s OR billing_last_name LIKE %s)';
@@ -103,7 +109,12 @@ class TIX_Order_Admin {
             <h1 style="display:flex;align-items:center;gap:10px;margin-bottom:20px;">
                 <span class="dashicons dashicons-cart" style="font-size:28px;width:28px;height:28px;color:var(--tix-primary, #FF5500);"></span>
                 Bestellungen
-                <span style="font-size:14px;color:#6b7280;font-weight:400;"><?php echo intval($total); ?> gesamt</span>
+                <?php if ($event_filter) : ?>
+                    <span style="font-size:14px;color:#6b7280;font-weight:400;">f&uuml;r <?php echo esc_html(get_the_title($event_filter)); ?></span>
+                    <a href="<?php echo esc_url(admin_url('admin.php?page=tix-orders')); ?>" style="font-size:12px;text-decoration:none;color:#6b7280;">&times; Filter entfernen</a>
+                <?php else : ?>
+                    <span style="font-size:14px;color:#6b7280;font-weight:400;"><?php echo intval($total); ?> gesamt</span>
+                <?php endif; ?>
             </h1>
 
             <?php // ── Filter + Suche ── ?>
@@ -217,7 +228,7 @@ class TIX_Order_Admin {
                     ?>
                         <span style="display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;font-size:13px;">…</span>
                     <?php else:
-                        $url = admin_url('admin.php?page=tix-orders&paged=' . $p . ($status_filter ? '&status=' . $status_filter : '') . ($search ? '&s=' . urlencode($search) : ''));
+                        $url = admin_url('admin.php?page=tix-orders&paged=' . $p . ($status_filter ? '&status=' . $status_filter : '') . ($search ? '&s=' . urlencode($search) : '') . ($event_filter ? '&event_id=' . $event_filter : ''));
                         $active_pg = $p === $paged ? 'background:var(--tix-primary, #FF5500);color:#fff;' : 'background:#fff;border:1px solid #e5e7eb;';
                     ?>
                         <a href="<?php echo esc_url($url); ?>" style="display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:6px;font-size:13px;text-decoration:none;<?php echo $active_pg; ?>"><?php echo $p; ?></a>

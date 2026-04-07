@@ -3,27 +3,101 @@ if (!defined('ABSPATH')) exit;
 
 class TIX_Columns {
 
+    /**
+     * Alle verfügbaren Event-Spalten.
+     * Werden in add() per User-Preference gefiltert.
+     */
+    public static function get_available_columns() {
+        $cols = [
+            'tix_image'    => 'Bild',
+            'tix_date'     => 'Zeitraum',
+            'tix_location' => 'Veranstaltungsort',
+            'tix_status'   => 'Status',
+            'tix_tickets'  => 'Tickets',
+            'tix_sold'     => 'Verkauft',
+            'tix_stock'    => 'Stock',
+            'tix_presale'  => 'Vorverkauf',
+        ];
+        if (tix_get_settings('ai_guard_enabled')) {
+            $cols['tix_ai'] = '<span title="KI-Schutz" class="dashicons dashicons-shield" style="font-size:16px;width:16px;"></span>';
+        }
+        return $cols;
+    }
+
     public static function add($columns) {
+        $available = self::get_available_columns();
+
+        // WordPress-Standard "Datum" (Erstelldatum) entfernen
+        unset($columns['date']);
+
         $new = [];
         foreach ($columns as $key => $val) {
             $new[$key] = $val;
             if ($key === 'title') {
-                $new['tix_date']     = 'Zeitraum';
-                $new['tix_location'] = 'Veranstaltungsort';
-                $new['tix_status']   = 'Status';
-                $new['tix_tickets']  = 'Tickets';
-                $new['tix_stock']    = 'Stock';
-                $new['tix_presale']  = 'Vorverkauf';
-                if (tix_get_settings('ai_guard_enabled')) {
-                    $new['tix_ai'] = '<span title="KI-Schutz" class="dashicons dashicons-shield" style="font-size:16px;width:16px;"></span>';
+                foreach ($available as $col_key => $col_label) {
+                    $new[$col_key] = $col_label;
                 }
             }
         }
         return $new;
     }
 
+    /**
+     * Standard-versteckte Spalten für neue User (die noch nichts konfiguriert haben).
+     * Stock wird standardmäßig versteckt (Verkauft-Spalte zeigt die relevantere Info).
+     */
+    public static function default_hidden($hidden, $screen) {
+        if ($screen && $screen->id === 'edit-event') {
+            $hidden = array_merge($hidden, ['tix_stock', 'tix_ai', 'tix_tickets', 'tix_presale']);
+        }
+        return $hidden;
+    }
+
+    /** Wochentag-Abkürzung (deutsch) */
+    private static function weekday_abbr($date_str) {
+        $map = ['Mon' => 'MO', 'Tue' => 'DI', 'Wed' => 'MI', 'Thu' => 'DO', 'Fri' => 'FR', 'Sat' => 'SA', 'Sun' => 'SO'];
+        $eng = date('D', strtotime($date_str));
+        return $map[$eng] ?? '';
+    }
+
     public static function render($column, $post_id) {
         switch ($column) {
+
+            case 'tix_image':
+                $thumb_id = get_post_thumbnail_id($post_id);
+                if ($thumb_id) {
+                    $url = wp_get_attachment_image_url($thumb_id, 'medium');
+                    echo '<img src="' . esc_url($url) . '" alt="" class="tix-thumb-hover" style="width:64px;height:36px;object-fit:cover;border-radius:4px;display:block;">';
+                } else {
+                    echo '<span style="display:block;width:64px;height:36px;border-radius:4px;background:#f1f5f9;"></span>';
+                }
+                // Hover-Preview JS einmalig ausgeben
+                static $hover_js_done = false;
+                if (!$hover_js_done) {
+                    $hover_js_done = true;
+                    echo '<script>document.addEventListener("DOMContentLoaded",function(){
+                        var pv=null;
+                        document.addEventListener("mouseover",function(e){
+                            var img=e.target.closest(".tix-thumb-hover");
+                            if(!img)return;
+                            if(pv)pv.remove();
+                            pv=document.createElement("img");
+                            pv.src=img.src;
+                            pv.className="tix-img-preview";
+                            pv.style.cssText="position:fixed;z-index:999999;pointer-events:none;border-radius:8px;box-shadow:0 8px 32px rgba(0,0,0,.35);object-fit:cover;width:320px;height:180px;";
+                            var r=img.getBoundingClientRect();
+                            pv.style.top=Math.max(8,r.top-90)+"px";
+                            pv.style.left=(r.right+12)+"px";
+                            document.body.appendChild(pv);
+                        });
+                        document.addEventListener("mouseout",function(e){
+                            var img=e.target.closest(".tix-thumb-hover");
+                            if(!img)return;
+                            if(pv){pv.remove();pv=null;}
+                        });
+                    });</script>';
+                }
+                break;
 
             case 'tix_date':
                 $ds = get_post_meta($post_id, '_tix_date_start', true);
@@ -42,6 +116,8 @@ class TIX_Columns {
 
                 if (!$ds) { echo '—'; break; }
 
+                $day_abbr = self::weekday_abbr($ds);
+
                 // Heute / Morgen Prefix
                 $today    = wp_date('Y-m-d');
                 $tomorrow = wp_date('Y-m-d', strtotime('+1 day'));
@@ -51,14 +127,15 @@ class TIX_Columns {
 
                 $same_day = ($ds === $de);
                 if ($same_day) {
-                    echo $prefix . esc_html(date_i18n('d.m.Y', strtotime($ds)));
+                    echo $prefix . '<strong>' . esc_html($day_abbr) . '</strong> ' . esc_html(date_i18n('d.m.Y', strtotime($ds)));
                     echo '<br><span class="tix-col-time">' . esc_html("{$ts} – {$te}") . '</span>';
                 } else {
-                    echo $prefix . esc_html(date_i18n('d.m.Y', strtotime($ds)) . ' ' . $ts);
-                    echo '<br>– ' . esc_html(date_i18n('d.m.Y', strtotime($de)) . ' ' . $te);
+                    $day_abbr_end = self::weekday_abbr($de);
+                    echo $prefix . '<strong>' . esc_html($day_abbr) . '</strong> ' . esc_html(date_i18n('d.m.Y', strtotime($ds)) . ' ' . $ts);
+                    echo '<br>– <strong>' . esc_html($day_abbr_end) . '</strong> ' . esc_html(date_i18n('d.m.Y', strtotime($de)) . ' ' . $te);
                 }
                 if ($td) {
-                    echo '<br><span class="tix-col-time">Doors: ' . esc_html($td) . '</span>';
+                    echo '<br><span class="tix-col-time">Einlass: ' . esc_html($td) . '</span>';
                 }
                 break;
 
@@ -145,10 +222,51 @@ class TIX_Columns {
                 }
                 if ($total_cap > 0) {
                     $pct = round(($total_sold / $total_cap) * 100);
-                    echo "<strong>{$total_sold}</strong>/{$total_cap}";
+                    $orders_url = admin_url('admin.php?page=tix-orders&event_id=' . $post_id);
+                    if ($total_sold > 0) {
+                        echo '<a href="' . esc_url($orders_url) . '" style="font-weight:700;text-decoration:none;">' . $total_sold . '</a>/' . $total_cap;
+                    } else {
+                        echo "<strong>{$total_sold}</strong>/{$total_cap}";
+                    }
                     echo '<br><span class="tix-col-time">' . $pct . '% verkauft</span>';
                 } else {
                     echo '—';
+                }
+                break;
+
+            case 'tix_sold':
+                $enabled = get_post_meta($post_id, '_tix_tickets_enabled', true);
+                if ($enabled !== '1') { echo '—'; break; }
+                $cats = get_post_meta($post_id, '_tix_ticket_categories', true);
+                if (!is_array($cats)) { echo '—'; break; }
+                $total_sold = 0;
+                foreach ($cats as $cat) {
+                    if (!empty($cat['offline_ticket'])) continue;
+                    if (($cat['online'] ?? '1') !== '1') continue;
+                    $pid = intval($cat['product_id'] ?? 0);
+                    $cap = intval($cat['qty'] ?? 0);
+                    if (!$pid || !function_exists('wc_get_product')) {
+                        global $wpdb;
+                        $total_sold += (int) $wpdb->get_var($wpdb->prepare(
+                            "SELECT COALESCE(SUM(quantity), 0) FROM {$wpdb->prefix}tix_order_items WHERE event_id = %d AND order_id IN (SELECT id FROM {$wpdb->prefix}tix_orders WHERE status IN ('completed','processing'))",
+                            $post_id
+                        ));
+                        continue;
+                    }
+                    $product = wc_get_product($pid);
+                    if (!$product) continue;
+                    $stk = $product->get_stock_quantity();
+                    if ($stk !== null && $product->get_manage_stock()) {
+                        $total_sold += max(0, $cap - $stk);
+                    } else {
+                        $total_sold += self::count_sold_for_product($pid);
+                    }
+                }
+                if ($total_sold > 0) {
+                    $url = admin_url('admin.php?page=tix-orders&event_id=' . $post_id);
+                    echo '<a href="' . esc_url($url) . '" style="font-weight:700;text-decoration:none;">' . $total_sold . '</a>';
+                } else {
+                    echo '<strong>0</strong>';
                 }
                 break;
 
@@ -421,6 +539,34 @@ class TIX_Columns {
         }
     }
 
+    /** Zeitraum-Spalte sortierbar machen */
+    public static function sortable_event_columns($columns) {
+        $columns['tix_date'] = ['tix_date_start', true];
+        return $columns;
+    }
+
+    /**
+     * Standard-Sortierung: nach Event-Datum (aktuellstes oben).
+     * Nur wenn der User nicht explizit eine andere Sortierung gewählt hat.
+     */
+    public static function sort_by_event_date($query) {
+        if (!is_admin() || !$query->is_main_query()) return;
+        if ($query->get('post_type') !== 'event') return;
+        // User hat manuell auf Zeitraum geklickt
+        if (isset($_GET['orderby']) && $_GET['orderby'] === 'tix_date_start') {
+            $query->set('meta_key', '_tix_date_start');
+            $query->set('orderby', 'meta_value');
+            $query->set('order', ($_GET['order'] ?? 'asc'));
+            return;
+        }
+        if (isset($_GET['orderby'])) return; // andere manuelle Sortierung
+
+        // Standard: nächstes Event oben
+        $query->set('meta_key', '_tix_date_start');
+        $query->set('orderby', 'meta_value');
+        $query->set('order', 'ASC');
+    }
+
     public static function filter_series_query($query) {
         if (!is_admin() || !$query->is_main_query()) return;
         if ($query->get('post_type') !== 'event') return;
@@ -466,6 +612,10 @@ class TIX_Columns {
 
     public static function duplicate_link($actions, $post) {
         if ($post->post_type !== 'event' || !current_user_can('edit_posts')) return $actions;
+
+        // Schnellbearbeitung entfernen
+        unset($actions['inline hide-if-no-js']);
+
         $url = wp_nonce_url(
             admin_url('admin-post.php?action=tix_duplicate_event&post=' . $post->ID),
             'tix_duplicate_' . $post->ID
