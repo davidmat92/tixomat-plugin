@@ -9,7 +9,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.34.243');
+define('TIXOMAT_VERSION', '1.34.244');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -1040,7 +1040,10 @@ add_filter('get_post_metadata', function($value, $post_id, $meta_key, $single) {
     $raw = get_post_meta($post_id, $meta_key, true);
     $bypass = false;
 
-    if ($raw && is_string($raw) && strpos($raw, '<p>') === false) {
+    // Kein String (z.B. leeres Array, null, false) → nicht eingreifen
+    if (!is_string($raw)) return $value;
+
+    if ($raw && strpos($raw, '<p>') === false) {
         $raw = wpautop($raw);
     }
 
