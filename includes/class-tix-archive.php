@@ -257,6 +257,8 @@ class TIX_Archive {
      */
     public static function filter_frontend_events($query) {
         if (is_admin() || !$query->is_main_query()) return;
+        // Einzelne Event-Seiten nicht filtern (Breakdance/Single-Event)
+        if ($query->is_singular()) return;
 
         $pt = $query->get('post_type');
         if ($pt !== 'event' && !$query->is_post_type_archive('event') && !$query->is_tax('event_category')) return;
