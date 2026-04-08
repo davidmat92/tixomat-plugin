@@ -12,7 +12,7 @@ $pad_x = intval($s['ec_pad_x'] ?? 32);
 $pad_y = intval($s['ec_pad_y'] ?? 56);
 ?>
 <div style="padding:<?php echo $pad_y; ?>px <?php echo $pad_x; ?>px;">
-    <?php echo do_shortcode('[tix_events show_header="1" show_filter="1" header_title="Alle Events" header_label="Veranstaltungen" limit="20"]'); ?>
+    <?php echo do_shortcode('[tix_events show_header="0" show_filter="1" limit="20"]'); ?>
 </div>
 <?php
 
