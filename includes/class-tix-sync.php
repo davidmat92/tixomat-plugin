@@ -72,7 +72,7 @@ class TIX_Sync {
             $image_id    = $cat_image ?: $event_thumb_id;
             $is_online   = ($cat['online'] ?? '1') === '1';
 
-            $sale_price = $cat['sale_price'];
+            $sale_price = $cat['sale_price'] ?? '';
             $has_sale   = ($sale_price !== '' && $sale_price !== null && $sale_price !== false);
 
             // ── Offline-Ticket (Abendkasse): NUR Anzeige, kein WC/TC ──
@@ -471,7 +471,7 @@ class TIX_Sync {
         foreach ($online_cats as $cat) {
             $n++;
             $price    = floatval($cat['price']);
-            $sale     = $cat['sale_price'];
+            $sale     = $cat['sale_price'] ?? '';
             $has_sale = ($sale !== '' && $sale !== null && $sale !== false);
 
             // Phase-aware: aktive Phase bestimmt den effektiven Preis
