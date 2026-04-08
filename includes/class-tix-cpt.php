@@ -150,13 +150,13 @@ class TIX_CPT {
     // ── Admin Menu ──
     public static function register_admin_menu() {
 
-        // Top-Level: Tixomat
+        // Top-Level: Tixomat → Dashboard als Startseite
         add_menu_page(
             'Tixomat',
             'Tixomat',
             'edit_posts',
             'tixomat',
-            null,
+            [TIX_Dashboard::class, 'render_page'],
             'dashicons-calendar-alt',
             26
         );
@@ -194,7 +194,7 @@ class TIX_CPT {
         $wp_admin_bar->add_node([
             'id'    => 'tixomat',
             'title' => '<span class="ab-icon dashicons dashicons-calendar-alt" style="font:normal 20px/1 dashicons;padding:4px 0;"></span> Tixomat',
-            'href'  => admin_url('edit.php?post_type=event'),
+            'href'  => admin_url('admin.php?page=tixomat'),
         ]);
 
         $wp_admin_bar->add_node([

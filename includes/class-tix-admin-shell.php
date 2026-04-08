@@ -40,6 +40,7 @@ class TIX_Admin_Shell {
 
         // Custom Admin-Seiten
         $tix_pages = [
+            'tixomat', 'tix-dashboard',
             'tix-settings', 'tix-statistics', 'tix-support', 'tix-docs',
             'tix-promoters', 'tix-marketing-export', 'tix-campaigns', 'tix-meta-ads',
             'tix-templates', 'tix-orders', 'tix-email-log', 'tix-bulk-editor',
@@ -143,6 +144,7 @@ class TIX_Admin_Shell {
         elseif ($current_page === 'tix-email-log')                              $active = 'email-log';
         elseif ($current_page === 'tix-settings')                               $active = 'settings';
         elseif ($current_page === 'tix-docs')                                   $active = 'docs';
+        elseif (in_array($current_page, ['tixomat', 'tix-dashboard'], true))     $active = 'dashboard';
 
         // ── Settings Tabs ──
         $settings_tabs = [
@@ -222,8 +224,8 @@ class TIX_Admin_Shell {
 
                 <!-- Dashboard -->
                 <div class="tix-shell-group">
-                    <a href="<?php echo admin_url('admin.php?page=tix-organizer-dashboard'); ?>"
-                       class="tix-shell-item<?php echo ($current_page === 'tix-organizer-dashboard') ? ' active' : ''; ?>">
+                    <a href="<?php echo admin_url('admin.php?page=tixomat'); ?>"
+                       class="tix-shell-item<?php echo ($active === 'dashboard') ? ' active' : ''; ?>">
                         <span class="dashicons dashicons-dashboard"></span>
                         <span>Dashboard</span>
                     </a>
@@ -337,6 +339,15 @@ class TIX_Admin_Shell {
 
             <?php else : ?>
                 <?php // ═══ ADMIN SIDEBAR (vollständig) ═══ ?>
+
+                <!-- Dashboard -->
+                <div class="tix-shell-group">
+                    <a href="<?php echo admin_url('admin.php?page=tixomat'); ?>"
+                       class="tix-shell-item<?php echo $active === 'dashboard' ? ' active' : ''; ?>">
+                        <span class="dashicons dashicons-dashboard"></span>
+                        <span>Dashboard</span>
+                    </a>
+                </div>
 
                 <!-- Events -->
                 <div class="tix-shell-group">
