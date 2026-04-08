@@ -112,15 +112,23 @@ class TIX_Dashboard {
                 headers: {'Content-Type': 'application/x-www-form-urlencoded'},
                 body: 'action=tix_dashboard_data&_wpnonce=' + nonce
             })
-            .then(function(r) { return r.json(); })
+            .then(function(r) {
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                return r.json();
+            })
             .then(function(resp) {
-                if (!resp.success) return;
+                if (!resp.success) { console.error('Dashboard:', resp); return; }
                 var d = resp.data;
                 renderKPIs(d.kpis);
                 renderChart(d.chart);
                 renderUpcoming(d.upcoming);
                 renderOrders(d.orders);
                 renderAlerts(d.alerts);
+            })
+            .catch(function(err) {
+                console.error('Dashboard AJAX Error:', err);
+                var kpis = document.getElementById('tix-db-kpis');
+                if (kpis) kpis.innerHTML = '<div style="grid-column:1/-1;padding:20px;text-align:center;color:#666;">Fehler beim Laden der Dashboard-Daten. <a href="javascript:location.reload()">Neu laden</a></div>';
             });
 
             function renderKPIs(kpis) {
@@ -282,6 +290,10 @@ class TIX_Dashboard {
 
     public static function ajax_data() {
         check_ajax_referer('tix_dashboard');
+
+        // DB-Fehler nicht als HTML ausgeben (bricht JSON)
+        global $wpdb;
+        $wpdb->suppress_errors(true);
 
         // Organizer-Kontext: nur eigene Events
         $event_ids = self::get_context_event_ids();
@@ -446,23 +458,34 @@ class TIX_Dashboard {
     private static function query_checkin_rate($t, $ti, $event_ids) {
         global $wpdb;
 
-        $event_filter = '';
+        // Check-in Status wird am tix_ticket CPT gespeichert, nicht in order_items
+        $meta_query = [
+            'relation' => 'AND',
+            ['key' => '_tix_status', 'compare' => 'EXISTS'],
+        ];
+        $args = [
+            'post_type'      => 'tix_ticket',
+            'post_status'    => 'publish',
+            'posts_per_page' => -1,
+            'fields'         => 'ids',
+        ];
         if (!empty($event_ids)) {
-            $eids = implode(',', array_map('intval', $event_ids));
-            $event_filter = "AND i.event_id IN ($eids)";
+            $args['meta_query'] = [
+                ['key' => '_tix_event_id', 'value' => $event_ids, 'compare' => 'IN', 'type' => 'NUMERIC'],
+            ];
+        }
+        $ticket_ids = get_posts($args);
+        $total = count($ticket_ids);
+        if ($total === 0) return 0;
+
+        // Zähle eingecheckte Tickets
+        $checked = 0;
+        foreach ($ticket_ids as $tid) {
+            $status = get_post_meta($tid, '_tix_status', true);
+            if ($status === 'checked_in') $checked++;
         }
 
-        $sql = "SELECT
-                    COALESCE(SUM(i.quantity), 0) as total,
-                    COALESCE(SUM(CASE WHEN i.checked_in = 1 THEN i.quantity ELSE 0 END), 0) as checked
-                FROM $ti i
-                INNER JOIN $t o ON i.order_id = o.id
-                WHERE o.status IN ('completed','processing') $event_filter";
-
-        $r = $wpdb->get_row($sql);
-        $total = intval($r->total ?? 0);
-        $checked = intval($r->checked ?? 0);
-        return $total > 0 ? round($checked / $total * 100, 1) : 0;
+        return round($checked / $total * 100, 1);
     }
 
     // ═══════════════════════════════════════════
