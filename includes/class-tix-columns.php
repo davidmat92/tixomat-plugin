@@ -1050,13 +1050,16 @@ class TIX_Columns {
         $email     = get_post_meta($ticket_id, '_tix_ticket_owner_email', true);
         $order_id  = intval(get_post_meta($ticket_id, '_tix_ticket_order_id', true));
 
-        // Download Ticket-PDF
+        // WordPress-Standard-Aktionen entfernen (Bearbeiten, Schnellbearbeitung, Papierkorb)
+        unset($actions['edit'], $actions['inline hide-if-no-js'], $actions['trash']);
+
+        // Download Ticket (PDF oder HTML je nach Template-Einstellung)
         $download_url = '';
         if (class_exists('TIX_Tickets')) {
             $download_url = TIX_Tickets::get_download_url($ticket_id);
         }
         if ($download_url) {
-            $actions['tix_download'] = '<a href="' . esc_url($download_url) . '" target="_blank" title="Ticket-PDF herunterladen">&#x2B07; Download</a>';
+            $actions['tix_download'] = '<a href="' . esc_url($download_url) . '" target="_blank" title="Ticket herunterladen">&#x2B07; Download</a>';
         }
 
         // Erneut senden (einzelnes Ticket)
@@ -1067,7 +1070,7 @@ class TIX_Columns {
             $actions['tix_resend_order'] = '<a href="#" class="tix-resend-order" data-order-id="' . $order_id . '" data-email="' . esc_attr($email) . '" title="Alle Tickets dieser Bestellung erneut senden">&#x2709; Bestellung senden</a>';
         }
 
-        // Quick Status Toggle
+        // Quick Status Toggle (Stornieren / Reaktivieren)
         if ($status === 'valid') {
             $actions['tix_cancel'] = '<a href="#" class="tix-toggle-status" data-ticket-id="' . $ticket_id . '" data-new-status="cancelled" style="color:#ef4444;" title="Ticket stornieren">&#x2715; Stornieren</a>';
         } elseif ($status === 'cancelled') {
