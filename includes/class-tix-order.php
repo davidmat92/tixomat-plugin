@@ -419,6 +419,15 @@ class TIX_Order {
             $product_id = $item->get_product_id();
             $event_id   = intval(get_post_meta($product_id, '_tix_parent_event_id', true));
 
+            // Fallback: Event-ID über Ticketkategorien suchen falls Meta fehlt
+            if (!$event_id && $product_id) {
+                $event_id = self::find_event_by_product($product_id);
+                if ($event_id) {
+                    // Meta nachträglich setzen für zukünftige Lookups
+                    update_post_meta($product_id, '_tix_parent_event_id', $event_id);
+                }
+            }
+
             $cat_name = '';
             if ($event_id) {
                 $cats = get_post_meta($event_id, '_tix_ticket_categories', true);
@@ -454,6 +463,35 @@ class TIX_Order {
 
         $row = $wpdb->get_row($wpdb->prepare("SELECT * FROM $t WHERE id = %d", $tix_order_id));
         return $row ? new self($row) : null;
+    }
+
+    /**
+     * Findet die Event-ID anhand einer WC-Product-ID über die Ticketkategorien.
+     * Fallback wenn _tix_parent_event_id am Produkt fehlt.
+     */
+    public static function find_event_by_product($product_id) {
+        global $wpdb;
+        $product_id = intval($product_id);
+        if (!$product_id) return 0;
+
+        // Suche Events deren _tix_ticket_categories das Product referenzieren
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT post_id, meta_value FROM {$wpdb->postmeta}
+             WHERE meta_key = '_tix_ticket_categories'
+               AND meta_value LIKE %s",
+            '%' . $wpdb->esc_like(strval($product_id)) . '%'
+        ));
+
+        foreach ($rows as $r) {
+            $cats = maybe_unserialize($r->meta_value);
+            if (!is_array($cats)) continue;
+            foreach ($cats as $c) {
+                if (!empty($c['product_id']) && intval($c['product_id']) === $product_id) {
+                    return intval($r->post_id);
+                }
+            }
+        }
+        return 0;
     }
 }
 
