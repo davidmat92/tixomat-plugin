@@ -307,4 +307,82 @@
     updateCountdowns();
     setInterval(updateCountdowns, 60000);
 
+    // ═══════════════════════════════════════════
+    // Dashboard: Stats-Bar CountUp Animation
+    // ═══════════════════════════════════════════
+    var statsBar = hp.querySelector('.tix-hp-stats-bar[data-animate="1"]');
+    if (statsBar) {
+        var statsAnimated = false;
+        function animateStats() {
+            if (statsAnimated) return;
+            statsAnimated = true;
+            statsBar.querySelectorAll('.tix-hp-stat-value').forEach(function(el) {
+                var target = parseInt(el.dataset.target, 10) || 0;
+                if (target === 0) { el.textContent = '0'; return; }
+                var duration = 1200;
+                var start = performance.now();
+                function step(now) {
+                    var progress = Math.min((now - start) / duration, 1);
+                    // easeOutExpo
+                    var eased = progress === 1 ? 1 : 1 - Math.pow(2, -10 * progress);
+                    el.textContent = Math.round(eased * target);
+                    if (progress < 1) requestAnimationFrame(step);
+                }
+                requestAnimationFrame(step);
+            });
+        }
+        // IntersectionObserver for viewport trigger
+        if ('IntersectionObserver' in window) {
+            var obs = new IntersectionObserver(function(entries) {
+                entries.forEach(function(e) {
+                    if (e.isIntersecting) { animateStats(); obs.disconnect(); }
+                });
+            }, { threshold: 0.3 });
+            obs.observe(statsBar);
+        } else {
+            animateStats();
+        }
+    }
+
+    // ═══════════════════════════════════════════
+    // Dashboard: Kategorie-Kacheln → Filter-Integration
+    // ═══════════════════════════════════════════
+    hp.querySelectorAll('.tix-hp-cat-tile').forEach(function(tile) {
+        tile.addEventListener('click', function(e) {
+            e.preventDefault();
+            var cat = tile.dataset.cat;
+            // Activate matching cat chip if exists
+            var matchChip = hp.querySelector('.tix-hp-cat-chip[data-cat="' + cat + '"]');
+            if (matchChip) {
+                matchChip.click();
+                // Scroll to grid
+                var gridEl = hp.querySelector('.tix-hp-grid');
+                if (gridEl) gridEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            } else {
+                // Fallback: navigate
+                window.location.href = tile.href;
+            }
+        });
+    });
+
+    // ═══════════════════════════════════════════
+    // Dashboard: Diese Woche horizontal scroll with grab
+    // ═══════════════════════════════════════════
+    hp.querySelectorAll('.tix-hp-week-scroll').forEach(function(scroll) {
+        var isDown = false, startX, scrollLeft;
+        scroll.addEventListener('mousedown', function(e) {
+            if (e.target.closest('a')) return;
+            isDown = true; scroll.style.cursor = 'grabbing';
+            startX = e.pageX - scroll.offsetLeft;
+            scrollLeft = scroll.scrollLeft;
+        });
+        scroll.addEventListener('mouseleave', function() { isDown = false; scroll.style.cursor = ''; });
+        scroll.addEventListener('mouseup', function() { isDown = false; scroll.style.cursor = ''; });
+        scroll.addEventListener('mousemove', function(e) {
+            if (!isDown) return;
+            e.preventDefault();
+            scroll.scrollLeft = scrollLeft - (e.pageX - scroll.offsetLeft - startX) * 1.5;
+        });
+    });
+
 })();

@@ -432,6 +432,13 @@ class TIX_Settings {
             'hp_max_width'           => 1200,     // Max-Breite in px
             'hp_pad_x'               => 0,        // Seitliches Padding
             'hp_pad_y'               => 0,        // Padding oben/unten
+            // Dashboard-Sektionen
+            'hp_show_stats_bar'      => 1,        // Stats-Bar anzeigen
+            'hp_show_cat_tiles'      => 1,        // Kategorie-Kacheln anzeigen
+            'hp_show_this_week'      => 1,        // "Diese Woche" Sektion
+            'hp_this_week_days'      => 7,        // Tage voraus (3-14)
+            'hp_show_locations'      => 1,        // Location-Spotlight anzeigen
+            'hp_locations_count'     => 6,        // Anzahl Locations
             // ── Globale Typografie ──
             'tix_typo_font_heading' => 'Sora',
             'tix_typo_font_body'    => 'DM Sans',
@@ -1031,6 +1038,13 @@ class TIX_Settings {
         $clean['hp_max_width']          = max(600, min(1800, intval($input['hp_max_width'] ?? 1200)));
         $clean['hp_pad_x']             = max(0, min(100, intval($input['hp_pad_x'] ?? 0)));
         $clean['hp_pad_y']             = max(0, min(120, intval($input['hp_pad_y'] ?? 0)));
+        // Dashboard-Sektionen
+        $clean['hp_show_stats_bar']    = !empty($input['hp_show_stats_bar']) ? 1 : 0;
+        $clean['hp_show_cat_tiles']    = !empty($input['hp_show_cat_tiles']) ? 1 : 0;
+        $clean['hp_show_this_week']    = !empty($input['hp_show_this_week']) ? 1 : 0;
+        $clean['hp_this_week_days']    = max(3, min(14, intval($input['hp_this_week_days'] ?? 7)));
+        $clean['hp_show_locations']    = !empty($input['hp_show_locations']) ? 1 : 0;
+        $clean['hp_locations_count']   = max(3, min(12, intval($input['hp_locations_count'] ?? 6)));
 
         // Globale Typografie (3 Regler)
         $clean['tix_typo_font_heading'] = sanitize_text_field($input['tix_typo_font_heading'] ?? 'Sora');
@@ -3741,6 +3755,68 @@ class TIX_Settings {
                                             <?php self::text_row('hp_newsletter_title', 'Titel', $s, 'Bleib auf dem Laufenden'); ?>
                                             <?php self::text_row('hp_newsletter_text', 'Text', $s, 'Erhalte die besten Events direkt in dein Postfach.'); ?>
                                             <?php self::text_row('hp_newsletter_url', 'Link / URL', $s, 'https://...'); ?>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Dashboard — Stats-Bar ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-chart-bar"></span>
+                                        <h3>Stats-Bar</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('hp_show_stats_bar', 'Stats-Bar unter dem Hero anzeigen', $s, 'Zeigt Anzahl Events, Locations, Veranstalter und Kategorien mit animiertem CountUp.'); ?>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Dashboard — Kategorie-Kacheln ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-screenoptions"></span>
+                                        <h3>Kategorie-Kacheln</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('hp_show_cat_tiles', 'Kategorie-Kacheln mit Icons anzeigen', $s, 'Visuell ansprechende Kacheln zum schnellen Filtern nach Kategorie. Nur Kategorien mit Events werden gezeigt.'); ?>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Dashboard — Diese Woche ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-calendar-alt"></span>
+                                        <h3>Diese Woche</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('hp_show_this_week', '"Bald geht\'s los" Sektion anzeigen', $s, 'Kompakte Tages-Karten mit Events der n&auml;chsten Tage. Erzeugt Dringlichkeit.'); ?>
+                                            </div>
+                                            <?php self::range_row('hp_this_week_days', 'Tage voraus', $s, 3, 14, '', 1); ?>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Dashboard — Beliebte Locations ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-location"></span>
+                                        <h3>Beliebte Locations</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('hp_show_locations', 'Location-Spotlight anzeigen', $s, 'Zeigt die beliebtesten Locations mit Anzahl kommender Events und n&auml;chstem Event.'); ?>
+                                            </div>
+                                            <?php self::range_row('hp_locations_count', 'Anzahl Locations', $s, 3, 12, '', 1); ?>
                                         </div>
                                     </div>
                                 </div>

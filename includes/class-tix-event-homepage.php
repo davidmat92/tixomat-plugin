@@ -63,6 +63,14 @@ class TIX_Event_Homepage {
         $pad_x            = intval($s['hp_pad_x'] ?? 24);
         $pad_y            = intval($s['hp_pad_y'] ?? 40);
 
+        // Dashboard-Sektionen
+        $show_stats_bar    = !empty($s['hp_show_stats_bar'] ?? 1);
+        $show_cat_tiles    = !empty($s['hp_show_cat_tiles'] ?? 1);
+        $show_this_week    = !empty($s['hp_show_this_week'] ?? 1);
+        $this_week_days    = max(3, min(14, intval($s['hp_this_week_days'] ?? 7)));
+        $show_locations    = !empty($s['hp_show_locations'] ?? 1);
+        $locations_count   = max(3, min(12, intval($s['hp_locations_count'] ?? 6)));
+
         // Tageszeit-Logik: Empfohlener Zeitfilter
         $smart_time_hint = '';
         if ($smart_time) {
@@ -126,6 +134,16 @@ class TIX_Event_Homepage {
                 <?php endif; ?>
             <?php endif; ?>
 
+            <?php // ── Stats-Bar ── ?>
+            <?php if ($show_stats_bar): ?>
+                <?php echo self::render_stats_bar($exclude_cats); ?>
+            <?php endif; ?>
+
+            <?php // ── Kategorie-Kacheln ── ?>
+            <?php if ($show_cat_tiles && !empty($categories)): ?>
+                <?php echo self::render_category_tiles($categories); ?>
+            <?php endif; ?>
+
             <?php // ── Beliebt ── ?>
             <?php if ($show_popular && !empty($popular_events)): ?>
             <div class="tix-hp-section">
@@ -141,6 +159,11 @@ class TIX_Event_Homepage {
                     <?php endforeach; ?>
                 </div>
             </div>
+            <?php endif; ?>
+
+            <?php // ── Diese Woche ── ?>
+            <?php if ($show_this_week): ?>
+                <?php echo self::render_this_week($this_week_days, $exclude_cats); ?>
             <?php endif; ?>
 
             <?php // ── Newsletter ── ?>
@@ -207,6 +230,11 @@ class TIX_Event_Homepage {
                     <p class="tix-hp-empty">Keine weiteren Events gefunden.</p>
                 <?php endif; ?>
             </div>
+
+            <?php // ── Location-Spotlight ── ?>
+            <?php if ($show_locations): ?>
+                <?php echo self::render_location_spotlight($locations_count, $exclude_cats); ?>
+            <?php endif; ?>
 
             <?php // ── Load More ── ?>
             <?php
@@ -870,6 +898,351 @@ class TIX_Event_Homepage {
         }
 
         wp_send_json_success(['html' => $html, 'found' => count($events), 'hasMore' => count($events) >= $limit]);
+    }
+
+    // ═══════════════════════════════════════════
+    // Dashboard: Stats-Bar
+    // ═══════════════════════════════════════════
+
+    private static function render_stats_bar($exclude_cats = []) {
+        $today = current_time('Y-m-d');
+
+        // Events zählen
+        $event_count = self::count_upcoming_events($exclude_cats);
+
+        // Locations mit kommenden Events
+        global $wpdb;
+        $location_count = (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(DISTINCT pm.meta_value)
+             FROM {$wpdb->posts} p
+             JOIN {$wpdb->postmeta} pm ON p.ID = pm.post_id AND pm.meta_key = '_tix_location_id'
+             JOIN {$wpdb->postmeta} ds ON p.ID = ds.post_id AND ds.meta_key = '_tix_date_start'
+             WHERE p.post_type = 'event' AND p.post_status = 'publish'
+               AND ds.meta_value >= %s AND pm.meta_value > 0",
+            $today
+        ));
+
+        // Veranstalter mit Events
+        $org_count = (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(DISTINCT pm.meta_value)
+             FROM {$wpdb->posts} p
+             JOIN {$wpdb->postmeta} pm ON p.ID = pm.post_id AND pm.meta_key = '_tix_organizer_id'
+             JOIN {$wpdb->postmeta} ds ON p.ID = ds.post_id AND ds.meta_key = '_tix_date_start'
+             WHERE p.post_type = 'event' AND p.post_status = 'publish'
+               AND ds.meta_value >= %s AND pm.meta_value > 0",
+            $today
+        ));
+
+        // Kategorien mit Events
+        $cat_count = 0;
+        $cats = get_terms(['taxonomy' => 'event_category', 'hide_empty' => true]);
+        if (!is_wp_error($cats)) $cat_count = count($cats);
+
+        // Städte (distinct _tix_city oder Location-Stadt)
+        $city_count = (int) $wpdb->get_var(
+            "SELECT COUNT(DISTINCT pm.meta_value)
+             FROM {$wpdb->posts} p
+             JOIN {$wpdb->postmeta} pm ON p.ID = pm.post_id AND pm.meta_key = '_tix_location_city'
+             WHERE p.post_type = 'tix_location' AND p.post_status = 'publish'
+               AND pm.meta_value != ''"
+        );
+        if ($city_count < 1) $city_count = 1; // Mindestens 1 Stadt
+
+        $stats = [
+            ['icon' => '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>', 'value' => $event_count, 'label' => 'Events'],
+            ['icon' => '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 1 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>', 'value' => $location_count, 'label' => 'Locations'],
+            ['icon' => '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>', 'value' => $org_count, 'label' => 'Veranstalter'],
+            ['icon' => '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>', 'value' => $cat_count, 'label' => 'Kategorien'],
+        ];
+
+        ob_start();
+        ?>
+        <div class="tix-hp-stats-bar" data-animate="1">
+            <?php foreach ($stats as $i => $stat): ?>
+                <?php if ($i > 0): ?><span class="tix-hp-stats-dot"></span><?php endif; ?>
+                <div class="tix-hp-stat">
+                    <span class="tix-hp-stat-icon"><?php echo $stat['icon']; ?></span>
+                    <span class="tix-hp-stat-value" data-target="<?php echo intval($stat['value']); ?>">0</span>
+                    <span class="tix-hp-stat-label"><?php echo esc_html($stat['label']); ?></span>
+                </div>
+            <?php endforeach; ?>
+        </div>
+        <?php
+        return ob_get_clean();
+    }
+
+    // ═══════════════════════════════════════════
+    // Dashboard: Kategorie-Kacheln
+    // ═══════════════════════════════════════════
+
+    private static function render_category_tiles($categories) {
+        $cat_icons = [
+            'konzert'    => '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>',
+            'comedy'     => '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>',
+            'festival'   => '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>',
+            'clubbing'   => '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="12" y1="18" x2="12" y2="18.01"/><path d="M8 6h8M8 10h8M8 14h8"/></svg>',
+            'workshop'   => '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>',
+            'theater'    => '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M12 8c-2.2 0-4 1.8-4 4s1.8 4 4 4"/><path d="M12 8c2.2 0 4 1.8 4 4s-1.8 4-4 4"/><circle cx="9" cy="10" r="0.5" fill="currentColor"/><circle cx="15" cy="10" r="0.5" fill="currentColor"/><path d="M9 14s1 1 3 1 3-1 3-1"/><circle cx="12" cy="12" r="10"/></svg>',
+            'sport'      => '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a15 15 0 0 1 4 10 15 15 0 0 1-4 10"/><path d="M12 2a15 15 0 0 0-4 10 15 15 0 0 0 4 10"/><path d="M2 12h20"/></svg>',
+            'networking' => '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>',
+            'sonstiges'  => '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>',
+        ];
+        $default_icon = '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>';
+
+        ob_start();
+        ?>
+        <div class="tix-hp-cat-tiles">
+            <?php foreach ($categories as $cat):
+                if ($cat->count < 1) continue;
+                $slug = $cat->slug;
+                $icon = $cat_icons[$slug] ?? $default_icon;
+                $archive_url = get_post_type_archive_link('event');
+                $url = add_query_arg('cat', $slug, $archive_url);
+            ?>
+            <a href="<?php echo esc_url($url); ?>" class="tix-hp-cat-tile" data-cat="<?php echo esc_attr($slug); ?>">
+                <span class="tix-hp-cat-tile-icon"><?php echo $icon; ?></span>
+                <span class="tix-hp-cat-tile-name"><?php echo esc_html($cat->name); ?></span>
+                <span class="tix-hp-cat-tile-count"><?php echo intval($cat->count); ?> Events</span>
+            </a>
+            <?php endforeach; ?>
+        </div>
+        <?php
+        return ob_get_clean();
+    }
+
+    // ═══════════════════════════════════════════
+    // Dashboard: Diese Woche
+    // ═══════════════════════════════════════════
+
+    private static function render_this_week($days = 7, $exclude_cats = []) {
+        $today = current_time('Y-m-d');
+        $end = date('Y-m-d', strtotime("+{$days} days", strtotime($today)));
+
+        $args = [
+            'post_type'      => 'event',
+            'post_status'    => 'publish',
+            'posts_per_page' => 20,
+            'meta_key'       => '_tix_date_start',
+            'orderby'        => 'meta_value',
+            'order'          => 'ASC',
+            'meta_query'     => [
+                ['key' => '_tix_date_start', 'value' => $today, 'compare' => '>=', 'type' => 'DATE'],
+                ['key' => '_tix_date_start', 'value' => $end, 'compare' => '<=', 'type' => 'DATE'],
+            ],
+        ];
+
+        if (!empty($exclude_cats)) {
+            $args['tax_query'] = [['taxonomy' => 'event_category', 'field' => 'slug', 'terms' => $exclude_cats, 'operator' => 'NOT IN']];
+        }
+
+        $events = get_posts($args);
+        if (empty($events)) return '';
+
+        // Nach Tag gruppieren
+        $by_day = [];
+        foreach ($events as $e) {
+            $date = get_post_meta($e->ID, '_tix_date_start', true);
+            if (!$date) continue;
+            $day_key = date('Y-m-d', strtotime($date));
+            if (!isset($by_day[$day_key])) $by_day[$day_key] = [];
+            $by_day[$day_key][] = $e;
+        }
+
+        if (empty($by_day)) return '';
+
+        // Tage-Labels
+        $day_labels = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
+        $month_labels = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
+
+        // Zeitraum-Label
+        $first_day = array_key_first($by_day);
+        $last_day = array_key_last($by_day);
+        $range_label = 'Diese Woche';
+        if ($today === $first_day) {
+            $range_label = 'Die nächsten Tage';
+        }
+
+        ob_start();
+        ?>
+        <div class="tix-hp-section tix-hp-this-week">
+            <div class="tix-hp-section-header">
+                <div>
+                    <div class="tix-hp-section-label"><?php echo esc_html($range_label); ?></div>
+                    <h2 class="tix-hp-section-title">Bald geht's los</h2>
+                </div>
+                <a href="<?php echo esc_url(get_post_type_archive_link('event')); ?>" class="tix-hp-section-link">
+                    Alle anzeigen
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+                </a>
+            </div>
+            <div class="tix-hp-week-scroll">
+                <div class="tix-hp-week-track">
+                    <?php foreach ($by_day as $day_key => $day_events):
+                        $ts = strtotime($day_key);
+                        $dow = intval(date('N', $ts)) - 1;
+                        $day_num = date('d', $ts);
+                        $month_num = intval(date('n', $ts)) - 1;
+                        $is_today = ($day_key === $today);
+                        $is_tomorrow = ($day_key === date('Y-m-d', strtotime('+1 day', strtotime($today))));
+                        $day_display = $is_today ? 'Heute' : ($is_tomorrow ? 'Morgen' : $day_labels[$dow]);
+                    ?>
+                    <div class="tix-hp-week-day <?php echo $is_today ? 'tix-hp-week-day--today' : ''; ?>">
+                        <div class="tix-hp-week-day-header">
+                            <span class="tix-hp-week-day-name"><?php echo esc_html($day_display); ?></span>
+                            <span class="tix-hp-week-day-date"><?php echo $day_num; ?>. <?php echo $month_labels[$month_num]; ?></span>
+                        </div>
+                        <div class="tix-hp-week-day-events">
+                            <?php foreach ($day_events as $e):
+                                $time_start = get_post_meta($e->ID, '_tix_time_start', true);
+                                $time_doors = get_post_meta($e->ID, '_tix_time_doors', true);
+                                $display_time = $time_start ?: $time_doors;
+                                $location = get_post_meta($e->ID, '_tix_location_short', true) ?: get_post_meta($e->ID, '_tix_location', true);
+                                $price_card = get_post_meta($e->ID, '_tix_price_card', true);
+                                $thumb = get_the_post_thumbnail_url($e->ID, 'thumbnail');
+                                $permalink = get_permalink($e->ID);
+                                $cats = get_the_terms($e->ID, 'event_category');
+                                $cat_name = ($cats && !is_wp_error($cats)) ? $cats[0]->name : '';
+                            ?>
+                            <a href="<?php echo esc_url($permalink); ?>" class="tix-hp-week-event">
+                                <?php if ($thumb): ?>
+                                <div class="tix-hp-week-event-img">
+                                    <img src="<?php echo esc_url($thumb); ?>" alt="" loading="lazy">
+                                </div>
+                                <?php endif; ?>
+                                <div class="tix-hp-week-event-info">
+                                    <div class="tix-hp-week-event-title"><?php echo esc_html(get_the_title($e->ID)); ?></div>
+                                    <div class="tix-hp-week-event-meta">
+                                        <?php if ($display_time): ?>
+                                            <span class="tix-hp-week-event-time"><?php echo esc_html($display_time); ?> Uhr</span>
+                                        <?php endif; ?>
+                                        <?php if ($location): ?>
+                                            <span class="tix-hp-week-event-loc"><?php echo esc_html($location); ?></span>
+                                        <?php endif; ?>
+                                    </div>
+                                    <?php if ($price_card): ?>
+                                        <div class="tix-hp-week-event-price"><?php echo wp_kses_post($price_card); ?></div>
+                                    <?php endif; ?>
+                                </div>
+                                <?php if ($cat_name): ?>
+                                    <span class="tix-hp-week-event-cat"><?php echo esc_html($cat_name); ?></span>
+                                <?php endif; ?>
+                            </a>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+        </div>
+        <?php
+        return ob_get_clean();
+    }
+
+    // ═══════════════════════════════════════════
+    // Dashboard: Location-Spotlight
+    // ═══════════════════════════════════════════
+
+    private static function render_location_spotlight($count = 6, $exclude_cats = []) {
+        global $wpdb;
+        $today = current_time('Y-m-d');
+
+        // Locations mit den meisten kommenden Events
+        $results = $wpdb->get_results($wpdb->prepare(
+            "SELECT pm.meta_value AS loc_id, COUNT(*) AS cnt
+             FROM {$wpdb->posts} p
+             JOIN {$wpdb->postmeta} pm ON p.ID = pm.post_id AND pm.meta_key = '_tix_location_id'
+             JOIN {$wpdb->postmeta} ds ON p.ID = ds.post_id AND ds.meta_key = '_tix_date_start'
+             WHERE p.post_type = 'event' AND p.post_status = 'publish'
+               AND ds.meta_value >= %s AND pm.meta_value > 0
+             GROUP BY pm.meta_value
+             ORDER BY cnt DESC
+             LIMIT %d",
+            $today, $count
+        ));
+
+        if (empty($results)) return '';
+
+        $locations = [];
+        foreach ($results as $row) {
+            $loc = get_post(intval($row->loc_id));
+            if (!$loc || $loc->post_type !== 'tix_location') continue;
+            $address = get_post_meta($loc->ID, '_tix_location_address', true);
+            $city = get_post_meta($loc->ID, '_tix_location_city', true);
+            $image_id = get_post_meta($loc->ID, '_tix_location_image_id', true);
+            $image_url = $image_id ? wp_get_attachment_image_url(intval($image_id), 'medium') : '';
+
+            // Nächstes Event an dieser Location
+            $next_event = get_posts([
+                'post_type' => 'event', 'post_status' => 'publish', 'posts_per_page' => 1,
+                'meta_key' => '_tix_date_start', 'orderby' => 'meta_value', 'order' => 'ASC',
+                'meta_query' => [
+                    ['key' => '_tix_date_start', 'value' => $today, 'compare' => '>=', 'type' => 'DATE'],
+                    ['key' => '_tix_location_id', 'value' => $loc->ID, 'type' => 'NUMERIC'],
+                ],
+            ]);
+            $next_title = !empty($next_event) ? get_the_title($next_event[0]->ID) : '';
+            $next_date = !empty($next_event) ? get_post_meta($next_event[0]->ID, '_tix_date_card', true) : '';
+
+            $locations[] = [
+                'id'         => $loc->ID,
+                'name'       => get_the_title($loc->ID),
+                'city'       => $city,
+                'address'    => $address,
+                'image_url'  => $image_url,
+                'count'      => intval($row->cnt),
+                'next_title' => $next_title,
+                'next_date'  => $next_date,
+            ];
+        }
+
+        if (empty($locations)) return '';
+
+        ob_start();
+        ?>
+        <div class="tix-hp-section tix-hp-locations">
+            <div class="tix-hp-section-header">
+                <div>
+                    <div class="tix-hp-section-label">Entdecken</div>
+                    <h2 class="tix-hp-section-title">Beliebte Locations</h2>
+                </div>
+            </div>
+            <div class="tix-hp-loc-grid">
+                <?php foreach ($locations as $loc): ?>
+                <div class="tix-hp-loc-card">
+                    <div class="tix-hp-loc-card-img">
+                        <?php if ($loc['image_url']): ?>
+                            <img src="<?php echo esc_url($loc['image_url']); ?>" alt="<?php echo esc_attr($loc['name']); ?>" loading="lazy">
+                        <?php else: ?>
+                            <div class="tix-hp-loc-card-placeholder">
+                                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 1 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                            </div>
+                        <?php endif; ?>
+                        <div class="tix-hp-loc-card-badge"><?php echo $loc['count']; ?> Event<?php echo $loc['count'] !== 1 ? 's' : ''; ?></div>
+                    </div>
+                    <div class="tix-hp-loc-card-body">
+                        <div class="tix-hp-loc-card-name"><?php echo esc_html($loc['name']); ?></div>
+                        <?php if ($loc['city']): ?>
+                            <div class="tix-hp-loc-card-city">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 1 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                                <?php echo esc_html($loc['city']); ?>
+                            </div>
+                        <?php endif; ?>
+                        <?php if ($loc['next_title']): ?>
+                            <div class="tix-hp-loc-card-next">
+                                <span class="tix-hp-loc-card-next-label">Nächstes Event:</span>
+                                <span class="tix-hp-loc-card-next-title"><?php echo esc_html($loc['next_title']); ?></span>
+                                <?php if ($loc['next_date']): ?>
+                                    <span class="tix-hp-loc-card-next-date"><?php echo esc_html($loc['next_date']); ?></span>
+                                <?php endif; ?>
+                            </div>
+                        <?php endif; ?>
+                    </div>
+                </div>
+                <?php endforeach; ?>
+            </div>
+        </div>
+        <?php
+        return ob_get_clean();
     }
 
     // ═══════════════════════════════════════════
