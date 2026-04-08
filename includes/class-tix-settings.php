@@ -1053,7 +1053,7 @@ class TIX_Settings {
                     $entry = [];
                     if (isset($vals['size']) && $vals['size'] !== '') {
                         $size = intval($vals['size']);
-                        if ($size >= 8 && $size <= 60) $entry['size'] = $size;
+                        if ($size >= 8 && $size <= 60 && $size !== intval($def['size'])) $entry['size'] = $size;
                     }
                     // Responsive Breakpoint Sizes
                     foreach (['size_tl', 'size_tp', 'size_pl', 'size_pp'] as $bp_key) {
@@ -1064,11 +1064,11 @@ class TIX_Settings {
                     }
                     if (isset($vals['font']) && $vals['font'] !== '') {
                         $font = sanitize_text_field($vals['font']);
-                        if (in_array($font, $allowed_fonts, true)) $entry['font'] = $font;
+                        if (in_array($font, $allowed_fonts, true) && $font !== ($def['font'] ?? '')) $entry['font'] = $font;
                     }
                     if (isset($vals['weight']) && $vals['weight'] !== '') {
                         $weight = intval($vals['weight']);
-                        if ($weight >= 100 && $weight <= 900 && $weight % 100 === 0) $entry['weight'] = $weight;
+                        if ($weight >= 100 && $weight <= 900 && $weight % 100 === 0 && $weight !== intval($def['weight'])) $entry['weight'] = $weight;
                     }
                     if (!empty($entry)) $clean['tix_typo_classes'][$cls] = $entry;
                 }
@@ -4010,16 +4010,21 @@ class TIX_Settings {
                                             var fontSelect = row.querySelectorAll('select')[0];
                                             var weightSelect = row.querySelectorAll('select')[1];
                                             var entry = {};
-                                            // Desktop size — immer senden wenn ein Wert vorhanden
-                                            if (sizeInput.value !== '') entry.size = parseInt(sizeInput.value, 10);
-                                            // Responsive breakpoint sizes
+                                            var defSize = parseInt(row.dataset.defSize, 10);
+                                            var defFont = row.dataset.defFont;
+                                            var defWeight = parseInt(row.dataset.defWeight, 10);
+                                            // Desktop size — nur senden wenn abweichend vom Default
+                                            if (sizeInput.value !== '' && parseInt(sizeInput.value, 10) !== defSize) {
+                                                entry.size = parseInt(sizeInput.value, 10);
+                                            }
+                                            // Responsive breakpoint sizes — nur senden wenn gesetzt
                                             ['size_tl', 'size_tp', 'size_pl', 'size_pp'].forEach(function(p) {
                                                 var inp = row.querySelector('input[data-prop="' + p + '"]');
                                                 if (inp && inp.value !== '') entry[p] = parseInt(inp.value, 10);
                                             });
-                                            // Font + Weight — immer senden
-                                            entry.font = fontSelect.value;
-                                            entry.weight = parseInt(weightSelect.value, 10);
+                                            // Font + Weight — nur senden wenn abweichend vom Default
+                                            if (fontSelect.value !== defFont) entry.font = fontSelect.value;
+                                            if (parseInt(weightSelect.value, 10) !== defWeight) entry.weight = parseInt(weightSelect.value, 10);
                                             if (Object.keys(entry).length > 0) overrides[cls] = entry;
                                         });
                                         document.getElementById('tix-typo-json').value = JSON.stringify(overrides);
