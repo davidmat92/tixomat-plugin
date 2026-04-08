@@ -34,6 +34,17 @@ class TIX_Dashboard {
         <div class="tix-dashboard" id="tix-dashboard">
             <style><?php echo self::get_css(); ?></style>
 
+            <!-- KPI Period Filter -->
+            <div class="tix-db-filter-bar">
+                <div class="tix-db-filter-group">
+                    <button class="tix-db-filter-btn active" data-range="month">Dieser Monat</button>
+                    <button class="tix-db-filter-btn" data-range="week">Diese Woche</button>
+                    <button class="tix-db-filter-btn" data-range="year">Dieses Jahr</button>
+                    <button class="tix-db-filter-btn" data-range="all">Gesamt</button>
+                </div>
+                <div class="tix-db-filter-label" id="tix-db-range-label"></div>
+            </div>
+
             <!-- KPI Cards -->
             <div class="tix-db-kpis" id="tix-db-kpis">
                 <div class="tix-db-kpi tix-db-skeleton"><div class="tix-db-kpi-val">&nbsp;</div><div class="tix-db-kpi-label">&nbsp;</div></div>
@@ -106,30 +117,55 @@ class TIX_Dashboard {
         (function() {
             var ajaxUrl = '<?php echo admin_url('admin-ajax.php'); ?>';
             var nonce = '<?php echo wp_create_nonce('tix_dashboard'); ?>';
+            var currentRange = 'month';
+            var chartInstance = null;
 
-            fetch(ajaxUrl, {
-                method: 'POST',
-                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-                body: 'action=tix_dashboard_data&_wpnonce=' + nonce
-            })
-            .then(function(r) {
-                if (!r.ok) throw new Error('HTTP ' + r.status);
-                return r.json();
-            })
-            .then(function(resp) {
-                if (!resp.success) { console.error('Dashboard:', resp); return; }
-                var d = resp.data;
-                renderKPIs(d.kpis);
-                renderChart(d.chart);
-                renderUpcoming(d.upcoming);
-                renderOrders(d.orders);
-                renderAlerts(d.alerts);
-            })
-            .catch(function(err) {
-                console.error('Dashboard AJAX Error:', err);
-                var kpis = document.getElementById('tix-db-kpis');
-                if (kpis) kpis.innerHTML = '<div style="grid-column:1/-1;padding:20px;text-align:center;color:#666;">Fehler beim Laden der Dashboard-Daten. <a href="javascript:location.reload()">Neu laden</a></div>';
+            // ── Initial Load ──
+            loadDashboard('month');
+
+            // ── Filter Buttons ──
+            var filterBtns = document.querySelectorAll('.tix-db-filter-btn');
+            filterBtns.forEach(function(btn) {
+                btn.addEventListener('click', function() {
+                    var range = btn.dataset.range;
+                    if (range === currentRange) return;
+                    currentRange = range;
+                    filterBtns.forEach(function(b) { b.classList.toggle('active', b.dataset.range === range); });
+                    loadDashboard(range);
+                });
             });
+
+            function loadDashboard(range) {
+                // Show skeletons for KPIs
+                var kpis = document.getElementById('tix-db-kpis');
+                kpis.querySelectorAll('.tix-db-kpi').forEach(function(k) { k.classList.add('tix-db-skeleton'); });
+
+                fetch(ajaxUrl, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                    body: 'action=tix_dashboard_data&_wpnonce=' + nonce + '&range=' + range
+                })
+                .then(function(r) {
+                    if (!r.ok) throw new Error('HTTP ' + r.status);
+                    return r.json();
+                })
+                .then(function(resp) {
+                    if (!resp.success) { console.error('Dashboard:', resp); return; }
+                    var d = resp.data;
+                    renderKPIs(d.kpis);
+                    renderChart(d.chart);
+                    renderUpcoming(d.upcoming);
+                    renderOrders(d.orders);
+                    renderAlerts(d.alerts);
+                    // Update range label
+                    var label = document.getElementById('tix-db-range-label');
+                    if (label && d.range_label) label.textContent = d.range_label;
+                })
+                .catch(function(err) {
+                    console.error('Dashboard AJAX Error:', err);
+                    kpis.innerHTML = '<div style="grid-column:1/-1;padding:20px;text-align:center;color:#666;">Fehler beim Laden. <a href="javascript:location.reload()">Neu laden</a></div>';
+                });
+            }
 
             function renderKPIs(kpis) {
                 var wrap = document.getElementById('tix-db-kpis');
@@ -157,8 +193,15 @@ class TIX_Dashboard {
                     wrap.querySelector('.tix-db-chart-container').innerHTML = '<p class="tix-db-empty">Noch keine Daten vorhanden.</p>';
                     return;
                 }
-                var ctx = document.getElementById('tix-db-chart').getContext('2d');
-                new Chart(ctx, {
+                // Destroy previous chart instance
+                if (chartInstance) { chartInstance.destroy(); chartInstance = null; }
+                var canvas = document.getElementById('tix-db-chart');
+                if (!canvas) {
+                    wrap.querySelector('.tix-db-chart-container').innerHTML = '<canvas id="tix-db-chart" height="260"></canvas>';
+                    canvas = document.getElementById('tix-db-chart');
+                }
+                var ctx = canvas.getContext('2d');
+                chartInstance = new Chart(ctx, {
                     type: 'line',
                     data: {
                         labels: chartData.labels,
@@ -298,19 +341,68 @@ class TIX_Dashboard {
         // Organizer-Kontext: nur eigene Events
         $event_ids = self::get_context_event_ids();
 
-        // Zeitraum: aktueller Monat + Vormonat für Trend
-        $now        = current_time('Y-m-d');
-        $month_from = current_time('Y-m-01');
-        $prev_from  = date('Y-m-01', strtotime('-1 month', strtotime($month_from)));
-        $prev_to    = date('Y-m-t', strtotime($prev_from));
+        // Zeitraum bestimmen aus Filter
+        $range = sanitize_text_field($_POST['range'] ?? 'month');
+        $now   = current_time('Y-m-d');
+        $ranges = self::get_date_ranges($range, $now);
+
+        // Chart-Tage je nach Range
+        $chart_days = $range === 'week' ? 7 : ($range === 'year' ? 365 : ($range === 'all' ? 365 : 30));
 
         wp_send_json_success([
-            'kpis'     => self::get_kpis($event_ids, $month_from, $now, $prev_from, $prev_to),
-            'chart'    => self::get_chart_data($event_ids, 30),
-            'upcoming' => self::get_upcoming_events($event_ids, 5),
-            'orders'   => self::get_recent_orders($event_ids, 8),
-            'alerts'   => self::get_alerts($event_ids),
+            'kpis'        => self::get_kpis($event_ids, $ranges['from'], $ranges['to'], $ranges['prev_from'], $ranges['prev_to']),
+            'chart'       => self::get_chart_data($event_ids, $chart_days),
+            'upcoming'    => self::get_upcoming_events($event_ids, 5),
+            'orders'      => self::get_recent_orders($event_ids, 8),
+            'alerts'      => self::get_alerts($event_ids),
+            'range_label' => $ranges['label'],
         ]);
+    }
+
+    /**
+     * Berechnet Datumsbereiche für KPI-Filter.
+     */
+    private static function get_date_ranges($range, $now) {
+        switch ($range) {
+            case 'week':
+                // Diese Woche (Montag bis heute)
+                $from = date('Y-m-d', strtotime('monday this week', strtotime($now)));
+                $prev_from = date('Y-m-d', strtotime('-1 week', strtotime($from)));
+                $prev_to   = date('Y-m-d', strtotime('-1 day', strtotime($from)));
+                $label = date_i18n('d.m.', strtotime($from)) . ' – ' . date_i18n('d.m.Y', strtotime($now));
+                break;
+
+            case 'year':
+                $from = date('Y-01-01', strtotime($now));
+                $prev_from = date('Y-01-01', strtotime('-1 year', strtotime($from)));
+                $prev_to   = date('Y-12-31', strtotime($prev_from));
+                $label = date('Y', strtotime($now));
+                break;
+
+            case 'all':
+                $from = '2020-01-01';
+                $prev_from = '2019-01-01';
+                $prev_to   = '2019-12-31';
+                $label = 'Gesamter Zeitraum';
+                break;
+
+            case 'month':
+            default:
+                $from = date('Y-m-01', strtotime($now));
+                $prev_from = date('Y-m-01', strtotime('-1 month', strtotime($from)));
+                $prev_to   = date('Y-m-t', strtotime($prev_from));
+                $month_names = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
+                $label = ($month_names[intval(date('m', strtotime($now))) - 1] ?? '') . ' ' . date('Y', strtotime($now));
+                break;
+        }
+
+        return [
+            'from'      => $from,
+            'to'        => $now,
+            'prev_from' => $prev_from,
+            'prev_to'   => $prev_to,
+            'label'     => $label,
+        ];
     }
 
     // ═══════════════════════════════════════════
@@ -549,6 +641,10 @@ class TIX_Dashboard {
     // ═══════════════════════════════════════════
 
     private static function get_upcoming_events($event_ids, $limit = 5) {
+        global $wpdb;
+        $t  = TIX_Order::table_name();
+        $ti = TIX_Order::items_table_name();
+
         $today = current_time('Y-m-d');
         $args = [
             'post_type'      => 'event',
@@ -566,13 +662,43 @@ class TIX_Dashboard {
         }
         $events = get_posts($args);
 
+        // Batch-Query: Verkaufte Tickets pro Event aus tix_order_items
+        $event_post_ids = wp_list_pluck($events, 'ID');
+        $sold_map = [];
+        if (!empty($event_post_ids)) {
+            $eids_str = implode(',', array_map('intval', $event_post_ids));
+            $sold_rows = $wpdb->get_results(
+                "SELECT i.event_id, COALESCE(SUM(i.quantity), 0) as sold
+                 FROM $ti i
+                 INNER JOIN $t o ON i.order_id = o.id
+                 WHERE o.status IN ('completed','processing')
+                   AND i.event_id IN ($eids_str)
+                 GROUP BY i.event_id"
+            );
+            foreach ($sold_rows as $sr) {
+                $sold_map[intval($sr->event_id)] = intval($sr->sold);
+            }
+        }
+
         $result = [];
         foreach ($events as $e) {
-            $sold     = intval(get_post_meta($e->ID, '_tix_sold_total', true));
-            $capacity = intval(get_post_meta($e->ID, '_tix_capacity_total', true));
-            $status   = get_post_meta($e->ID, '_tix_event_status', true) ?: 'available';
-            $date     = get_post_meta($e->ID, '_tix_date_card', true) ?: get_post_meta($e->ID, '_tix_date_display', true);
-            $thumb    = get_the_post_thumbnail_url($e->ID, 'thumbnail');
+            // Verkaufte Tickets aus der DB
+            $sold = $sold_map[$e->ID] ?? 0;
+
+            // Kapazität aus Ticketkategorien berechnen
+            $capacity = self::get_event_capacity($e->ID);
+
+            // Status ableiten
+            if ($capacity > 0 && $sold >= $capacity) {
+                $status = 'sold_out';
+            } elseif ($capacity > 0 && ($capacity - $sold) <= max(5, $capacity * 0.1)) {
+                $status = 'few_tickets';
+            } else {
+                $status = 'available';
+            }
+
+            $date  = get_post_meta($e->ID, '_tix_date_card', true) ?: get_post_meta($e->ID, '_tix_date_display', true);
+            $thumb = get_the_post_thumbnail_url($e->ID, 'thumbnail');
 
             $result[] = [
                 'id'       => $e->ID,
@@ -586,6 +712,21 @@ class TIX_Dashboard {
             ];
         }
         return $result;
+    }
+
+    /**
+     * Berechnet die Gesamtkapazität eines Events aus den Ticketkategorien.
+     */
+    private static function get_event_capacity($event_id) {
+        $cats = get_post_meta($event_id, '_tix_ticket_categories', true);
+        if (!is_array($cats) || empty($cats)) return 0;
+
+        $total = 0;
+        foreach ($cats as $cat) {
+            $qty = intval($cat['qty'] ?? 0);
+            if ($qty > 0) $total += $qty;
+        }
+        return $total;
     }
 
     // ═══════════════════════════════════════════
@@ -649,6 +790,10 @@ class TIX_Dashboard {
     // ═══════════════════════════════════════════
 
     private static function get_alerts($event_ids) {
+        global $wpdb;
+        $t  = TIX_Order::table_name();
+        $ti = TIX_Order::items_table_name();
+
         $today = current_time('Y-m-d');
         $tomorrow = date('Y-m-d', strtotime('+1 day', strtotime($today)));
         $alerts = [];
@@ -658,15 +803,30 @@ class TIX_Dashboard {
             'post_type'      => 'event',
             'post_status'    => 'publish',
             'posts_per_page' => -1,
+            'fields'         => 'ids',
             'meta_query'     => [
                 ['key' => '_tix_date_start', 'value' => $today, 'compare' => '>=', 'type' => 'DATE'],
             ],
         ];
         if (!empty($event_ids)) $args['post__in'] = $event_ids;
-        $events = get_posts($args);
+        $event_post_ids = get_posts($args);
 
-        foreach ($events as $e) {
-            $id = $e->ID;
+        // Batch-Query: Verkaufte Tickets
+        $sold_map = [];
+        if (!empty($event_post_ids)) {
+            $eids_str = implode(',', array_map('intval', $event_post_ids));
+            $sold_rows = $wpdb->get_results(
+                "SELECT i.event_id, COALESCE(SUM(i.quantity), 0) as sold
+                 FROM $ti i INNER JOIN $t o ON i.order_id = o.id
+                 WHERE o.status IN ('completed','processing') AND i.event_id IN ($eids_str)
+                 GROUP BY i.event_id"
+            );
+            foreach ($sold_rows as $sr) {
+                $sold_map[intval($sr->event_id)] = intval($sr->sold);
+            }
+        }
+
+        foreach ($event_post_ids as $id) {
             $title = get_the_title($id);
             $short = mb_strimwidth($title, 0, 35, '...');
             $date_start = get_post_meta($id, '_tix_date_start', true);
@@ -695,8 +855,8 @@ class TIX_Dashboard {
             }
 
             // Wenig Restkapazität (< 10%)
-            $sold = intval(get_post_meta($id, '_tix_sold_total', true));
-            $cap  = intval(get_post_meta($id, '_tix_capacity_total', true));
+            $sold = $sold_map[$id] ?? 0;
+            $cap  = self::get_event_capacity($id);
             if ($cap > 0 && $sold > 0) {
                 $remaining_pct = round(($cap - $sold) / $cap * 100, 1);
                 if ($remaining_pct <= 10 && $remaining_pct > 0) {
@@ -740,6 +900,14 @@ class TIX_Dashboard {
 .tix-db-skeleton { position:relative; overflow:hidden; }
 .tix-db-skeleton::after { content:""; position:absolute; inset:0; background:linear-gradient(90deg,transparent,rgba(0,0,0,0.03),transparent); animation:tix-db-shimmer 1.5s infinite; }
 @keyframes tix-db-shimmer { 0%{transform:translateX(-100%)} 100%{transform:translateX(100%)} }
+
+/* ── Filter Bar ── */
+.tix-db-filter-bar { display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; }
+.tix-db-filter-group { display:flex; gap:4px; background:#f3f4f6; border-radius:12px; padding:3px; }
+.tix-db-filter-btn { border:none; background:transparent; padding:7px 16px; border-radius:10px; font-family:"DM Sans",sans-serif; font-size:0.82rem; font-weight:600; color:#6b7280; cursor:pointer; transition:all .15s; }
+.tix-db-filter-btn:hover { color:#374151; }
+.tix-db-filter-btn.active { background:#fff; color:#131020; box-shadow:0 1px 3px rgba(0,0,0,0.08); }
+.tix-db-filter-label { font-size:0.8rem; font-weight:500; color:#9ca3af; }
 
 /* ── KPI Cards ── */
 .tix-db-kpis { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-bottom:24px; }
