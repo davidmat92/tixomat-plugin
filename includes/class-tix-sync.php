@@ -524,7 +524,7 @@ class TIX_Sync {
                 update_post_meta($post_id, "_tix_ticket_{$n}_image_url", $img_url ?: '');
             }
 
-            if (!empty($cat['product_id'])) {
+            if (!empty($cat['product_id']) && function_exists('wc_get_cart_url')) {
                 $url = wc_get_cart_url() . '?add-to-cart=' . intval($cat['product_id']);
                 update_post_meta($post_id, "_tix_ticket_{$n}_add_to_cart_url", $url);
                 $product_ids[] = $cat['product_id'];
@@ -639,7 +639,7 @@ class TIX_Sync {
                 $has_unlimited = true;
             }
 
-            if (!$pid) { $all_sold_out = false; continue; }
+            if (!$pid || !function_exists('wc_get_product')) { $all_sold_out = false; continue; }
             $product = wc_get_product($pid);
             if (!$product) { $all_sold_out = false; continue; }
 
