@@ -186,6 +186,7 @@ class TIX_Bulk_Editor {
             if ($cats) {
                 update_post_meta($post_id, '_tix_ticket_categories', $cats);
                 update_post_meta($post_id, '_tix_tickets_enabled', '1');
+                update_post_meta($post_id, '_tix_presale_active', '1');
             }
         }
 
