@@ -251,14 +251,17 @@ def unified_handle_callback(chat_id, callback_data, channel="telegram", ctx=None
 
     elif callback_data == "mode_tickets":
         session["mode"] = "ticket_lookup"
-        session["ticket_lookup_step"] = "ask_email"
+        session["ticket_lookup_step"] = "init"
+        # Don't respond here — route through handle_ticket_lookup
+        # which checks login state and either fetches directly or asks for email
+        resp = handle_ticket_lookup(chat_id, "meine tickets", session, channel, ctx=ctx)
+        session_manager.save(chat_id, session)
+        if resp:
+            resp.answer_callback_text = "🔍 Tickets finden!"
+            return resp
         session_manager.save(chat_id, session)
         return BotResponse(
-            text=(
-                "🔍 *Meine Tickets finden*\n\n"
-                "Klar, ich helfe dir deine Tickets zu finden!\n\n"
-                "Was ist deine E-Mail-Adresse, mit der du gebucht hast? ✉️"
-            ),
+            text="🔍 Einen Moment, ich suche deine Tickets...",
             answer_callback_text="🔍 Tickets finden!",
         )
 
@@ -273,23 +276,6 @@ def unified_handle_callback(chat_id, callback_data, channel="telegram", ctx=None
                 "ich kann z.B. Stornierungen nachschauen oder dich an unser Team weiterleiten. ✍️"
             ),
             answer_callback_text="🎧 Kundenservice!",
-        )
-
-    # --- Ticket Lookup callbacks ---
-    elif callback_data == "tl_order_id":
-        session["ticket_lookup_step"] = "verify_order_id"
-        session_manager.save(chat_id, session)
-        return BotResponse(
-            text="Bitte gib deine Bestellnummer ein (z.B. *12345*): 📋",
-            answer_callback_text="📋 Bestellnummer",
-        )
-
-    elif callback_data == "tl_last_name":
-        session["ticket_lookup_step"] = "verify_last_name"
-        session_manager.save(chat_id, session)
-        return BotResponse(
-            text="Bitte gib deinen Nachnamen ein: 👤",
-            answer_callback_text="👤 Nachname",
         )
 
     # --- Event detail callback ---

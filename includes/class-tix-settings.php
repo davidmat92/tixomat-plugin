@@ -405,6 +405,33 @@ class TIX_Settings {
             'tix_card_show_heart'        => 1,
             'tix_card_show_badges'       => 1,
             'tix_card_default_mode'      => 'light',
+            // ── Event-Homepage ──
+            'hp_enabled'             => 0,        // Homepage-Shortcode aktiv
+            'hp_hero_count'          => 5,        // Anzahl Hero-Events
+            'hp_grid_count'          => 8,        // Anfängliche Grid-Events
+            'hp_show_hero'           => 1,        // Hero-Bereich anzeigen
+            'hp_show_time_filter'    => 1,        // Zeitfilter-Bar anzeigen
+            'hp_show_cat_filter'     => 1,        // Kategorie-Chips anzeigen
+            'hp_show_load_more'      => 1,        // Mehr-laden Button
+            'hp_exclude_categories'  => '',       // Kommagetrennte Slugs zum Ausschließen
+            'hp_only_featured_hero'  => 0,        // Hero NUR Featured Events
+            'hp_hero_style'          => 'grid',   // grid | slider | fullwidth
+            'hp_show_popular'        => 1,        // "Heute beliebt" Sektion
+            'hp_popular_count'       => 4,        // Anzahl beliebte Events
+            'hp_show_countdown'      => 1,        // Countdown bei bald startenden Events
+            'hp_url_sync'            => 1,        // Filter in URL schreiben
+            'hp_show_newsletter'     => 0,        // Newsletter-Banner
+            'hp_newsletter_title'    => 'Bleib auf dem Laufenden',
+            'hp_newsletter_text'     => 'Erhalte die besten Events direkt in dein Postfach.',
+            'hp_newsletter_url'      => '',       // URL zum Newsletter-Formular
+            'hp_show_list_toggle'    => 1,        // Grid/Listen-Umschalter
+            'hp_show_spotlight'      => 0,        // Veranstalter-Spotlight
+            'hp_spotlight_org_id'    => 0,        // Veranstalter-ID (0 = automatisch)
+            'hp_spotlight_count'     => 3,        // Events im Spotlight
+            'hp_smart_time'          => 1,        // Tageszeit-basierte Filtervorauswahl
+            'hp_max_width'           => 1200,     // Max-Breite in px
+            'hp_pad_x'               => 0,        // Seitliches Padding
+            'hp_pad_y'               => 0,        // Padding oben/unten
             // ── Globale Typografie ──
             'tix_typo_font_heading' => 'Sora',
             'tix_typo_font_body'    => 'DM Sans',
@@ -976,6 +1003,34 @@ class TIX_Settings {
         $clean['tix_card_show_heart']     = !empty($input['tix_card_show_heart']) ? 1 : 0;
         $clean['tix_card_show_badges']    = !empty($input['tix_card_show_badges']) ? 1 : 0;
         $clean['tix_card_default_mode']   = in_array($input['tix_card_default_mode'] ?? 'light', ['light', 'dark']) ? $input['tix_card_default_mode'] : 'light';
+
+        // Event-Homepage
+        $clean['hp_enabled']            = !empty($input['hp_enabled']) ? 1 : 0;
+        $clean['hp_hero_count']         = max(0, min(10, intval($input['hp_hero_count'] ?? 5)));
+        $clean['hp_grid_count']         = max(4, min(24, intval($input['hp_grid_count'] ?? 8)));
+        $clean['hp_show_hero']          = !empty($input['hp_show_hero']) ? 1 : 0;
+        $clean['hp_show_time_filter']   = !empty($input['hp_show_time_filter']) ? 1 : 0;
+        $clean['hp_show_cat_filter']    = !empty($input['hp_show_cat_filter']) ? 1 : 0;
+        $clean['hp_show_load_more']     = !empty($input['hp_show_load_more']) ? 1 : 0;
+        $clean['hp_exclude_categories'] = sanitize_text_field($input['hp_exclude_categories'] ?? '');
+        $clean['hp_only_featured_hero'] = !empty($input['hp_only_featured_hero']) ? 1 : 0;
+        $clean['hp_hero_style']         = in_array($input['hp_hero_style'] ?? 'grid', ['grid', 'slider', 'fullwidth']) ? $input['hp_hero_style'] : 'grid';
+        $clean['hp_show_popular']       = !empty($input['hp_show_popular']) ? 1 : 0;
+        $clean['hp_popular_count']      = max(2, min(12, intval($input['hp_popular_count'] ?? 4)));
+        $clean['hp_show_countdown']     = !empty($input['hp_show_countdown']) ? 1 : 0;
+        $clean['hp_url_sync']           = !empty($input['hp_url_sync']) ? 1 : 0;
+        $clean['hp_show_newsletter']    = !empty($input['hp_show_newsletter']) ? 1 : 0;
+        $clean['hp_newsletter_title']   = sanitize_text_field($input['hp_newsletter_title'] ?? '');
+        $clean['hp_newsletter_text']    = sanitize_text_field($input['hp_newsletter_text'] ?? '');
+        $clean['hp_newsletter_url']     = esc_url_raw($input['hp_newsletter_url'] ?? '');
+        $clean['hp_show_list_toggle']   = !empty($input['hp_show_list_toggle']) ? 1 : 0;
+        $clean['hp_show_spotlight']     = !empty($input['hp_show_spotlight']) ? 1 : 0;
+        $clean['hp_spotlight_org_id']   = intval($input['hp_spotlight_org_id'] ?? 0);
+        $clean['hp_spotlight_count']    = max(1, min(6, intval($input['hp_spotlight_count'] ?? 3)));
+        $clean['hp_smart_time']         = !empty($input['hp_smart_time']) ? 1 : 0;
+        $clean['hp_max_width']          = max(600, min(1800, intval($input['hp_max_width'] ?? 1200)));
+        $clean['hp_pad_x']             = max(0, min(100, intval($input['hp_pad_x'] ?? 0)));
+        $clean['hp_pad_y']             = max(0, min(120, intval($input['hp_pad_y'] ?? 0)));
 
         // Globale Typografie (3 Regler)
         $clean['tix_typo_font_heading'] = sanitize_text_field($input['tix_typo_font_heading'] ?? 'Sora');
@@ -1988,6 +2043,10 @@ class TIX_Settings {
                             <button type="button" class="tix-nav-tab" data-tab="bot">
                                 <span class="dashicons dashicons-format-chat"></span>
                                 <span class="tix-nav-label">Ticket-Bot</span>
+                            </button>
+                            <button type="button" class="tix-nav-tab" data-tab="event-homepage">
+                                <span class="dashicons dashicons-admin-home"></span>
+                                <span class="tix-nav-label">Event-Homepage</span>
                             </button>
                             <button type="button" class="tix-nav-tab" data-tab="advanced">
                                 <span class="dashicons dashicons-admin-generic"></span>
@@ -3542,6 +3601,147 @@ class TIX_Settings {
                                             });
                                         })();
                                         </script>
+                                    </div>
+                                </div>
+
+                            </div>
+
+                            <?php // ═══ PANE: EVENT-HOMEPAGE ═══ ?>
+                            <div class="tix-pane" data-pane="event-homepage">
+
+                                <?php // ── Card: Layout ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-align-wide"></span>
+                                        <h3>Layout</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <p class="tix-settings-hint" style="margin:0 0 16px;">Steuert den <code>[tix_homepage]</code> Shortcode — eine Event-Startseite mit Hero, Zeitfilter und Kategorie-Chips.</p>
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('hp_enabled', 'Event-Homepage aktivieren', $s, 'Aktiviert den [tix_homepage] Shortcode.'); ?>
+                                            </div>
+                                            <?php self::range_row('hp_max_width', 'Max. Breite', $s, 600, 1800, 'px', 10); ?>
+                                            <?php self::range_row('hp_pad_x', 'Padding seitlich', $s, 0, 100, 'px'); ?>
+                                            <?php self::range_row('hp_pad_y', 'Padding oben/unten', $s, 0, 120, 'px'); ?>
+                                            <?php self::range_row('hp_grid_count', 'Events im Grid (Initial)', $s, 4, 24, '', 4); ?>
+                                            <?php self::text_row('hp_exclude_categories', 'Kategorien ausschließen', $s, 'z.B. intern,test (Kommagetrennte Slugs)'); ?>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Hero ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-cover-image"></span>
+                                        <h3>Hero-Bereich</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('hp_show_hero', 'Hero-Bereich anzeigen', $s, 'Großes Featured-Event + kleinere Events oben.'); ?>
+                                            </div>
+                                            <?php self::range_row('hp_hero_count', 'Anzahl Hero-Events', $s, 1, 8, '', 1); ?>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('hp_only_featured_hero', 'Hero nur mit Empfehlungen', $s, 'Zeigt im Hero-Bereich nur Events mit "Empfehlung"-Badge.'); ?>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <label class="tix-field-label" style="margin-bottom:8px;display:block;">Hero-Variante</label>
+                                                <div style="display:flex;gap:12px;flex-wrap:wrap;">
+                                                    <?php foreach (['grid' => 'Grid (1 groß + kleine)', 'slider' => 'Slider (Autoplay)', 'fullwidth' => 'Fullwidth (1 Event)'] as $val => $lbl): ?>
+                                                    <label style="display:flex;align-items:center;gap:6px;cursor:pointer;padding:8px 16px;border:2px solid <?php echo ($s['hp_hero_style'] ?? 'grid') === $val ? 'var(--tix-admin-accent,#FF5500)' : '#e5e7eb'; ?>;border-radius:8px;background:<?php echo ($s['hp_hero_style'] ?? 'grid') === $val ? 'rgba(255,85,0,.06)' : '#fff'; ?>;">
+                                                        <input type="radio" name="<?php echo TIX_Settings::OPTION_KEY; ?>[hp_hero_style]" value="<?php echo $val; ?>" <?php checked($s['hp_hero_style'] ?? 'grid', $val); ?> style="margin:0;">
+                                                        <span style="font-size:13px;"><?php echo $lbl; ?></span>
+                                                    </label>
+                                                    <?php endforeach; ?>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Filter & Ansicht ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-filter"></span>
+                                        <h3>Filter & Ansicht</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('hp_show_time_filter', 'Zeitfilter anzeigen (Heute/Morgen/Wochenende)', $s); ?>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('hp_show_cat_filter', 'Kategorie-Chips anzeigen', $s); ?>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('hp_show_load_more', '"Mehr Events laden" Button anzeigen', $s); ?>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('hp_show_list_toggle', 'Grid/Listen-Umschalter anzeigen', $s, 'Besucher kann zwischen Karten-Grid und kompakter Listenansicht wechseln.'); ?>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('hp_url_sync', 'Filter in URL synchronisieren', $s, 'Schreibt aktive Filter in die URL (?time=weekend&cat=konzert) zum Teilen.'); ?>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('hp_smart_time', 'Intelligente Zeitfilter-Vorauswahl', $s, 'Morgens wird "Heute", abends "Morgen" automatisch hervorgehoben.'); ?>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Sektionen ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-excerpt-view"></span>
+                                        <h3>Sektionen</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('hp_show_popular', '"Heute beliebt" Sektion', $s, 'Zeigt die meistverkauften Events als eigene Reihe.'); ?>
+                                            </div>
+                                            <?php self::range_row('hp_popular_count', 'Anzahl beliebte Events', $s, 2, 12, '', 1); ?>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('hp_show_countdown', 'Countdown bei bald startenden Events', $s, 'Zeigt "Beginnt in Xh" bei Events < 24h.'); ?>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Veranstalter-Spotlight ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-star-filled"></span>
+                                        <h3>Veranstalter-Spotlight</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('hp_show_spotlight', 'Veranstalter-Spotlight anzeigen', $s, 'Zeigt einen Veranstalter mit Logo, Beschreibung und dessen nächsten Events.'); ?>
+                                            </div>
+                                            <?php self::range_row('hp_spotlight_org_id', 'Veranstalter-ID', $s, 0, 9999, '', 1); ?>
+                                            <p class="tix-settings-hint" style="margin-top:-8px;">0 = Veranstalter mit den meisten kommenden Events. Oder Post-ID eines tix_organizer eingeben.</p>
+                                            <?php self::range_row('hp_spotlight_count', 'Anzahl Events im Spotlight', $s, 1, 6, '', 1); ?>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Newsletter-Banner ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-email-alt2"></span>
+                                        <h3>Newsletter-Banner</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('hp_show_newsletter', 'Newsletter-Banner zwischen Sektionen anzeigen', $s); ?>
+                                            </div>
+                                            <?php self::text_row('hp_newsletter_title', 'Titel', $s, 'Bleib auf dem Laufenden'); ?>
+                                            <?php self::text_row('hp_newsletter_text', 'Text', $s, 'Erhalte die besten Events direkt in dein Postfach.'); ?>
+                                            <?php self::text_row('hp_newsletter_url', 'Link / URL', $s, 'https://...'); ?>
+                                        </div>
                                     </div>
                                 </div>
 

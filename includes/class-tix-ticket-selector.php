@@ -38,8 +38,7 @@ class TIX_Ticket_Selector {
         }
 
         // Vorverkauf noch aktiv?
-        $presale = get_post_meta($post_id, '_tix_presale_active', true);
-        if ($presale !== '1') {
+        if (!self::check_presale_active($post_id)) {
             return '<div class="tix-sel"><p class="tix-sel-presale-ended">Der Vorverkauf für dieses Event ist beendet.</p></div>';
         }
 
@@ -254,17 +253,22 @@ class TIX_Ticket_Selector {
                 // Prüfe ob alle Online-Tickets ausverkauft (für Warteliste)
                 $all_online_soldout = true;
                 $has_any_online = false;
+                $has_wc = function_exists('wc_get_product');
                 foreach ($categories as $_chk_cat) {
                     $is_chk_offline = !empty($_chk_cat['offline_ticket']);
                     if (!$is_chk_offline) {
                         $has_any_online = true;
                         $chk_pid = intval($_chk_cat['product_id'] ?? 0);
-                        if ($chk_pid) {
+                        if ($chk_pid && $has_wc) {
                             $chk_p = wc_get_product($chk_pid);
                             if ($chk_p && $chk_p->is_in_stock()) {
                                 $all_online_soldout = false;
                                 break;
                             }
+                        } elseif (!$chk_pid) {
+                            // Ohne WC-Produkt (nativer Checkout): als verfügbar behandeln
+                            $qty = intval($_chk_cat['qty'] ?? 0);
+                            if ($qty <= 0) { $all_online_soldout = false; break; } // 0 = unbegrenzt
                         }
                     }
                 }
@@ -333,10 +337,10 @@ class TIX_Ticket_Selector {
                         $effective = $has_sale ? floatval($sale_price) : $price;
                     }
 
-                    // Stock-Check über WooCommerce (nur für Online-Tickets)
+                    // Stock-Check (WC oder nativ)
                     $in_stock = true;
                     $stock_qty = null;
-                    if (!$is_offline && $product_id) {
+                    if (!$is_offline && $product_id && function_exists('wc_get_product')) {
                         $product = wc_get_product($product_id);
                         if ($product) {
                             $in_stock  = $product->is_in_stock();
@@ -515,7 +519,7 @@ class TIX_Ticket_Selector {
                         $_pid = intval($_p['event_id']);
                         $_pev = get_post($_pid);
                         if (!$_pev || $_pev->post_status !== 'publish') { $_pv = false; break; }
-                        if (get_post_meta($_pid, '_tix_tickets_enabled', true) !== '1' || get_post_meta($_pid, '_tix_presale_active', true) !== '1') { $_pv = false; break; }
+                        if (get_post_meta($_pid, '_tix_tickets_enabled', true) !== '1' || !self::check_presale_active($_pid)) { $_pv = false; break; }
                         $_pcats = get_post_meta($_pid, '_tix_ticket_categories', true);
                         $_pci = intval($_p['cat_index'] ?? 0);
                         if (!is_array($_pcats) || !isset($_pcats[$_pci]) || empty($_pcats[$_pci]['product_id'])) { $_pv = false; break; }
@@ -557,8 +561,7 @@ class TIX_Ticket_Selector {
                         if (!$pev || $pev->post_status !== 'publish') { $partners_valid = false; break; }
 
                         $p_enabled = get_post_meta($pev_id, '_tix_tickets_enabled', true);
-                        $p_presale = get_post_meta($pev_id, '_tix_presale_active', true);
-                        if ($p_enabled !== '1' || $p_presale !== '1') { $partners_valid = false; break; }
+                        if ($p_enabled !== '1' || !self::check_presale_active($pev_id)) { $partners_valid = false; break; }
 
                         $p_cats = get_post_meta($pev_id, '_tix_ticket_categories', true);
                         $p_ci = intval($partner['cat_index'] ?? 0);
@@ -854,8 +857,7 @@ class TIX_Ticket_Selector {
         $enabled = get_post_meta($post_id, '_tix_tickets_enabled', true);
         if ($enabled !== '1') return '';
 
-        $presale = get_post_meta($post_id, '_tix_presale_active', true);
-        if ($presale !== '1') return '';
+        if (!self::check_presale_active($post_id)) return '';
 
         // Express Checkout muss global + Event aktiviert sein
         if (empty(tix_get_settings('express_checkout_enabled'))) return '';
@@ -975,7 +977,7 @@ class TIX_Ticket_Selector {
 
                             // Stock-Check
                             $in_stock = true;
-                            if ($product_id) {
+                            if ($product_id && function_exists('wc_get_product')) {
                                 $product = wc_get_product($product_id);
                                 if ($product) $in_stock = $product->is_in_stock();
                             }
@@ -1072,7 +1074,7 @@ class TIX_Ticket_Selector {
 
                                     // Stock
                                     $in_stock = true;
-                                    if ($product_id) {
+                                    if ($product_id && function_exists('wc_get_product')) {
                                         $product = wc_get_product($product_id);
                                         if ($product) $in_stock = $product->is_in_stock();
                                     }
@@ -1137,7 +1139,7 @@ class TIX_Ticket_Selector {
                                 foreach (($_c['partners'] ?? []) as $_p) {
                                     $_pid = intval($_p['event_id']); $_pev = get_post($_pid);
                                     if (!$_pev || $_pev->post_status !== 'publish') { $_pv = false; break; }
-                                    if (get_post_meta($_pid, '_tix_tickets_enabled', true) !== '1' || get_post_meta($_pid, '_tix_presale_active', true) !== '1') { $_pv = false; break; }
+                                    if (get_post_meta($_pid, '_tix_tickets_enabled', true) !== '1' || !self::check_presale_active($_pid)) { $_pv = false; break; }
                                     $_pcats = get_post_meta($_pid, '_tix_ticket_categories', true); $_pci = intval($_p['cat_index'] ?? 0);
                                     if (!is_array($_pcats) || !isset($_pcats[$_pci]) || empty($_pcats[$_pci]['product_id'])) { $_pv = false; break; }
                                     $_pp = wc_get_product(intval($_pcats[$_pci]['product_id']));
@@ -1177,8 +1179,7 @@ class TIX_Ticket_Selector {
                                         $pev = get_post($pev_id);
                                         if (!$pev || $pev->post_status !== 'publish') { $partners_valid = false; break; }
                                         $p_enabled = get_post_meta($pev_id, '_tix_tickets_enabled', true);
-                                        $p_presale = get_post_meta($pev_id, '_tix_presale_active', true);
-                                        if ($p_enabled !== '1' || $p_presale !== '1') { $partners_valid = false; break; }
+                                        if ($p_enabled !== '1' || !self::check_presale_active($pev_id)) { $partners_valid = false; break; }
                                         $p_cats = get_post_meta($pev_id, '_tix_ticket_categories', true);
                                         $p_ci = intval($partner['cat_index'] ?? 0);
                                         if (!is_array($p_cats) || !isset($p_cats[$p_ci])) { $partners_valid = false; break; }
@@ -1426,6 +1427,10 @@ class TIX_Ticket_Selector {
 
         $code = sanitize_text_field($_POST['coupon_code'] ?? '');
         if (!$code) wp_send_json_error(['message' => 'Bitte Gutscheincode eingeben.']);
+
+        if (!class_exists('WC_Coupon')) {
+            wp_send_json_error(['message' => 'Gutscheine sind nur mit WooCommerce verfügbar.']);
+        }
 
         $coupon = new WC_Coupon($code);
         if (!$coupon->get_id()) {
@@ -1716,6 +1721,26 @@ class TIX_Ticket_Selector {
             [],
             TIXOMAT_VERSION
         );
+    }
+
+    /**
+     * Prüft ob der Vorverkauf für ein Event aktiv ist.
+     * Berücksichtigt _tix_presale_end_computed (automatisches Ende vor Event-Beginn).
+     * Setzt _tix_presale_active auf '0' wenn die End-Zeit überschritten ist.
+     */
+    public static function check_presale_active($post_id) {
+        $active = get_post_meta($post_id, '_tix_presale_active', true);
+        if ($active !== '1') return false;
+
+        $end = get_post_meta($post_id, '_tix_presale_end_computed', true);
+        if ($end) {
+            $end_ts = strtotime(str_replace('T', ' ', $end));
+            if ($end_ts && $end_ts <= current_time('timestamp')) {
+                update_post_meta($post_id, '_tix_presale_active', '0');
+                return false;
+            }
+        }
+        return true;
     }
 
 }

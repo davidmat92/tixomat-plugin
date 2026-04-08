@@ -55,6 +55,13 @@ add_action('rest_api_init', function () {
         'callback'            => 'tixbot_customer_exists',
         'permission_callback' => 'tixbot_auth',
     ]);
+
+    // POST /tickets/my – Tickets eines eingeloggten Benutzers (kein Verifizierung noetig)
+    register_rest_route($ns, '/tickets/my', [
+        'methods'             => 'POST',
+        'callback'            => 'tixbot_my_tickets',
+        'permission_callback' => 'tixbot_auth',
+    ]);
 });
 
 // ═══════════════════════════════════════════════════
@@ -387,6 +394,122 @@ function tixbot_customer_exists(WP_REST_Request $req) {
         'ok'         => true,
         'exists'     => $has_orders,
         'first_name' => $first_name,
+    ]);
+}
+
+// ═══════════════════════════════════════════════════
+//  6. POST /tickets/my – Tickets eines eingeloggten Users
+// ═══════════════════════════════════════════════════
+
+function tixbot_my_tickets(WP_REST_Request $req) {
+    $body       = $req->get_json_params();
+    $wp_user_id = absint($body['wp_user_id'] ?? 0);
+    $email      = sanitize_email($body['email'] ?? '');
+
+    if (!$wp_user_id && !$email) {
+        return new WP_Error('tixbot_missing', 'wp_user_id oder email erforderlich.', ['status' => 400]);
+    }
+
+    // E-Mail des Users ermitteln (wp_user_id hat Prioritaet)
+    if ($wp_user_id) {
+        $user = get_user_by('ID', $wp_user_id);
+        if ($user) {
+            $email = $user->user_email;
+        }
+    }
+
+    if (!$email || !is_email($email)) {
+        return new WP_Error('tixbot_invalid', 'Kein gueltiger Benutzer.', ['status' => 400]);
+    }
+
+    $email = strtolower($email);
+
+    // ── Alle Bestellungen dieses Users (ohne Verifizierung!) ──
+    $orders = [];
+    if (function_exists('wc_get_orders')) {
+        $orders = wc_get_orders([
+            'billing_email' => $email,
+            'status'        => ['completed', 'processing'],
+            'limit'         => 50,
+            'orderby'       => 'date',
+            'order'         => 'DESC',
+        ]);
+    }
+
+    // Native Orders
+    if (class_exists('TIX_Order')) {
+        $native = TIX_Order::query([
+            'email'  => $email,
+            'status' => ['completed', 'processing'],
+            'limit'  => 50,
+        ]);
+        foreach ($native as $no) {
+            if ($no->get_meta('wc_order_id')) continue;
+            $orders[] = $no;
+        }
+    }
+
+    if (empty($orders)) {
+        return rest_ensure_response([
+            'ok'      => true,
+            'count'   => 0,
+            'tickets' => [],
+            'message' => 'Keine Bestellungen gefunden.',
+        ]);
+    }
+
+    // ── Tickets sammeln ──
+    $all_tickets = [];
+    foreach ($orders as $order) {
+        $order_id = $order->get_id();
+
+        if (class_exists('TIX_Tickets')) {
+            $tickets = TIX_Tickets::get_all_tickets_for_order($order_id);
+            foreach ($tickets as $t) {
+                if (($t['status'] ?? '') === 'cancelled') continue;
+
+                // Event-Datum laden
+                $event_date = '';
+                $event_id   = $t['event_id'] ?? 0;
+                if ($event_id) {
+                    $ds = get_post_meta($event_id, '_tix_date_start', true);
+                    if ($ds) {
+                        $event_date = date_i18n('d.m.Y', strtotime($ds));
+                    }
+                }
+
+                $all_tickets[] = [
+                    'ticket_code'  => $t['code'],
+                    'event_name'   => $t['event_name'],
+                    'event_id'     => $event_id,
+                    'event_date'   => $event_date,
+                    'category'     => $t['cat_name'],
+                    'status'       => $t['status'],
+                    'order_id'     => $t['order_id'],
+                    'order_date'   => $order->get_date_created()
+                        ? $order->get_date_created()->format('d.m.Y')
+                        : '',
+                    'download_url' => $t['download_url'] ?? '',
+                ];
+            }
+        }
+    }
+
+    // Duplikate entfernen
+    $seen   = [];
+    $unique = [];
+    foreach ($all_tickets as $t) {
+        $key = $t['ticket_code'];
+        if (!isset($seen[$key])) {
+            $seen[$key] = true;
+            $unique[]   = $t;
+        }
+    }
+
+    return rest_ensure_response([
+        'ok'      => true,
+        'count'   => count($unique),
+        'tickets' => $unique,
     ]);
 }
 

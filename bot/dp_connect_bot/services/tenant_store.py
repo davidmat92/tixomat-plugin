@@ -162,7 +162,7 @@ def get_allowed_origins() -> list[str]:
         if url.startswith("https://") and not url.startswith("https://www."):
             origins.append(url.replace("https://", "https://www."))
     # Always allow PythonAnywhere itself and localhost
-    origins.extend(["http://localhost", "https://tixomat-dpconnect.pythonanywhere.com"])
+    origins.extend(["http://localhost", "https://tixomat.pythonanywhere.com"])
     return origins
 
 

@@ -20,7 +20,8 @@ class TIX_Sync {
 
         // Ohne WooCommerce: nur Breakdance-Meta, kein Produkt-Sync
         if (!function_exists('wc_get_product')) {
-            self::save_breakdance_meta($post_id, []);
+            $cats = get_post_meta($post_id, '_tix_ticket_categories', true);
+            self::save_breakdance_meta($post_id, is_array($cats) ? $cats : []);
             return;
         }
 
@@ -512,10 +513,10 @@ class TIX_Sync {
                 delete_post_meta($post_id, "_tix_ticket_{$n}_phase_until");
             }
 
-            update_post_meta($post_id, "_tix_ticket_{$n}_qty", $cat['qty']);
-            update_post_meta($post_id, "_tix_ticket_{$n}_desc", $cat['desc']);
-            update_post_meta($post_id, "_tix_ticket_{$n}_product_id", $cat['product_id']);
-            update_post_meta($post_id, "_tix_ticket_{$n}_tc_event_id", $cat['tc_event_id']);
+            update_post_meta($post_id, "_tix_ticket_{$n}_qty", $cat['qty'] ?? 0);
+            update_post_meta($post_id, "_tix_ticket_{$n}_desc", $cat['desc'] ?? '');
+            update_post_meta($post_id, "_tix_ticket_{$n}_product_id", $cat['product_id'] ?? 0);
+            update_post_meta($post_id, "_tix_ticket_{$n}_tc_event_id", $cat['tc_event_id'] ?? 0);
 
             $img_id = intval($cat['image_id'] ?? 0) ?: get_post_thumbnail_id($post_id);
             if ($img_id) {

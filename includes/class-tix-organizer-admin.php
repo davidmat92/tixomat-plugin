@@ -11,6 +11,18 @@ if (!defined('ABSPATH')) exit;
  */
 class TIX_Organizer_Admin {
 
+    /**
+     * Nur Gästeliste-Seite + CSV-Exports registrieren (ohne Organizer-Dashboard).
+     */
+    public static function init_guestlist_only() {
+        add_action('admin_menu', function() {
+            add_submenu_page('tixomat', 'G&auml;steliste Export', 'G&auml;steliste Export', 'edit_posts', 'tix-organizer-guestlist', [__CLASS__, 'render_guestlist_page']);
+        }, 20);
+        add_action('admin_post_tix_organizer_guestlist_csv', [__CLASS__, 'export_guestlist_csv']);
+        add_action('admin_post_tix_organizer_tickets_csv', [__CLASS__, 'export_tickets_csv']);
+        add_action('admin_post_tix_organizer_combined_csv', [__CLASS__, 'export_combined_csv']);
+    }
+
     public static function init() {
         // Capabilities beim Plugin-Load sicherstellen
         add_action('admin_init', [__CLASS__, 'ensure_capabilities'], 1);
@@ -152,6 +164,12 @@ class TIX_Organizer_Admin {
         $event_org = intval(get_post_meta($post->ID, '_tix_organizer_id', true));
 
         if ($org_id && $event_org === $org_id) {
+            // Check-in Rolle: nur lesen, nicht bearbeiten/löschen
+            if (class_exists('TIX_Team') && in_array($cap, ['edit_post', 'delete_post'], true)) {
+                if (!TIX_Team::user_can($user_id, 'edit_events')) {
+                    return ['do_not_allow'];
+                }
+            }
             // Eigenes Event → erlauben
             return ['edit_posts'];
         }
@@ -348,11 +366,28 @@ class TIX_Organizer_Admin {
         if ($pagenow === 'admin.php') {
             $page = $_GET['page'] ?? '';
             $allowed_admin_pages = [
-                'tix-settings', 'tix-statistics', 'tix-docs',
-                'tix-organizer-dashboard', 'tix-organizer-orders',
-                'tix-organizer-guestlist', 'tix-organizer-email',
-                'tix-organizer-billing', 'tix-organizer-media',
+                'tix-organizer-dashboard',
+                'tix-organizer-guestlist',
             ];
+
+            // Rollen-basiert erweitern
+            $uid = get_current_user_id();
+            if (!class_exists('TIX_Team') || TIX_Team::user_can($uid, 'view_statistics')) {
+                $allowed_admin_pages[] = 'tix-statistics';
+                $allowed_admin_pages[] = 'tix-docs';
+            }
+            if (!class_exists('TIX_Team') || TIX_Team::user_can($uid, 'view_orders')) {
+                $allowed_admin_pages[] = 'tix-organizer-orders';
+            }
+            if (!class_exists('TIX_Team') || TIX_Team::user_can($uid, 'manage_billing')) {
+                $allowed_admin_pages[] = 'tix-organizer-email';
+                $allowed_admin_pages[] = 'tix-organizer-billing';
+            }
+            if (!class_exists('TIX_Team') || TIX_Team::user_can($uid, 'manage_settings')) {
+                $allowed_admin_pages[] = 'tix-settings';
+                $allowed_admin_pages[] = 'tix-organizer-media';
+            }
+
             if ($page && !in_array($page, $allowed_admin_pages, true)) {
                 wp_redirect(admin_url('admin.php?page=tix-organizer-dashboard'));
                 exit;

@@ -17,6 +17,150 @@
 }
 
 /* ═══════════════════════════════════════════
+   SETTINGS SEARCH
+   ═══════════════════════════════════════════ */
+.tix-settings-search-wrap {
+    position: relative;
+    padding: 16px 20px 0;
+    background: #fff;
+    border-radius: 16px 16px 0 0;
+}
+.tix-settings-search-wrap .tix-search-icon {
+    position: absolute;
+    left: 32px;
+    top: 50%;
+    transform: translateY(-50%);
+    margin-top: 8px;
+    font-size: 16px;
+    width: 16px;
+    height: 16px;
+    color: #94a3b8;
+    pointer-events: none;
+}
+.tix-settings-search {
+    width: 100%;
+    padding: 10px 36px 10px 40px;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    font-size: 13px;
+    font-family: inherit;
+    background: #f8fafc;
+    color: #1e293b;
+    outline: none;
+    transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
+}
+.tix-settings-search:focus {
+    border-color: var(--tix-primary, #FF5500);
+    background: #fff;
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--tix-primary, #FF5500) 12%, transparent);
+}
+.tix-settings-search::placeholder {
+    color: #94a3b8;
+}
+.tix-search-clear {
+    position: absolute;
+    right: 32px;
+    top: 50%;
+    transform: translateY(-50%);
+    margin-top: 8px;
+    font-size: 18px;
+    line-height: 1;
+    color: #94a3b8;
+    cursor: pointer;
+    display: none;
+    padding: 4px;
+}
+.tix-search-clear:hover { color: #64748b; }
+.tix-search-clear.visible { display: block; }
+
+/* Search Results Dropdown */
+.tix-search-results {
+    position: absolute;
+    left: 20px;
+    right: 20px;
+    top: calc(100% + 4px);
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.1), 0 2px 8px rgba(0,0,0,0.04);
+    max-height: 360px;
+    overflow-y: auto;
+    z-index: 100;
+    display: none;
+}
+.tix-search-results.open { display: block; }
+
+.tix-search-result {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px;
+    cursor: pointer;
+    transition: background 0.15s;
+    border-bottom: 1px solid #f1f5f9;
+}
+.tix-search-result:last-child { border-bottom: none; }
+.tix-search-result:hover,
+.tix-search-result.active {
+    background: color-mix(in srgb, var(--tix-primary, #FF5500) 6%, transparent);
+}
+.tix-search-result-icon {
+    flex-shrink: 0;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    background: #f1f5f9;
+    color: #64748b;
+}
+.tix-search-result-icon .dashicons {
+    font-size: 14px;
+    width: 14px;
+    height: 14px;
+}
+.tix-search-result-text {
+    flex: 1;
+    min-width: 0;
+}
+.tix-search-result-label {
+    font-size: 13px;
+    font-weight: 500;
+    color: #1e293b;
+    line-height: 1.3;
+}
+.tix-search-result-label mark {
+    background: color-mix(in srgb, var(--tix-primary, #FF5500) 20%, transparent);
+    color: inherit;
+    border-radius: 2px;
+    padding: 0 1px;
+}
+.tix-search-result-meta {
+    font-size: 11px;
+    color: #94a3b8;
+    line-height: 1.3;
+}
+.tix-search-no-results {
+    padding: 16px;
+    text-align: center;
+    color: #94a3b8;
+    font-size: 13px;
+}
+
+/* Highlight flash on target card/field */
+@keyframes tixSearchHighlight {
+    0%   { box-shadow: 0 0 0 3px color-mix(in srgb, var(--tix-primary, #FF5500) 40%, transparent); }
+    100% { box-shadow: 0 1px 2px rgba(0,0,0,0.04), 0 1px 3px rgba(0,0,0,0.03); }
+}
+.tix-card.tix-search-highlight {
+    animation: tixSearchHighlight 1.5s ease-out;
+}
+.tix-settings-search-wrap + .tix-nav {
+    border-radius: 0;
+}
+
+/* ═══════════════════════════════════════════
    TAB NAVIGATION
    ═══════════════════════════════════════════ */
 .tix-nav {
@@ -1212,6 +1356,30 @@ th .tix-tip-text::after {
 /* ── Admin Column ── */
 .tix-col-time { color: #64748b; font-size: 12px; }
 
+/* Event-Liste: Scroll + Layout */
+body.post-type-event .subsubsub { float: none; }
+body.post-type-event #posts-filter { overflow-x: auto; -webkit-overflow-scrolling: touch; clear: both; }
+body.post-type-event .wp-list-table { width: max-content !important; min-width: 100%; }
+body.post-type-event .wp-list-table .column-title { min-width: 220px; white-space: normal; }
+body.post-type-event .wp-list-table .column-tix_image { width: 72px; }
+body.post-type-event .wp-list-table .column-tix_image img { cursor: pointer; }
+.tix-img-preview {
+    position: fixed; z-index: 999999; pointer-events: none;
+    border-radius: 8px; box-shadow: 0 8px 32px rgba(0,0,0,.35);
+    object-fit: cover; width: 320px; height: 180px;
+    animation: tixImgIn .15s ease-out;
+}
+@keyframes tixImgIn { from { opacity: 0; transform: scale(.8); } to { opacity: 1; transform: scale(1); } }
+body.post-type-event .wp-list-table .column-tix_date { min-width: 150px; }
+body.post-type-event .wp-list-table .column-tix_location { min-width: 100px; }
+body.post-type-event .wp-list-table .column-tix_status { min-width: 90px; }
+body.post-type-event .wp-list-table .column-tix_tickets { min-width: 130px; }
+body.post-type-event .wp-list-table .column-tix_sold { min-width: 60px; }
+body.post-type-event .wp-list-table .column-tix_stock { min-width: 80px; }
+body.post-type-event .wp-list-table .column-tix_presale { min-width: 110px; }
+body.post-type-event .wp-list-table .column-taxonomy-event_category { min-width: 90px; }
+body.post-type-event .wp-list-table .column-date { min-width: 85px; }
+
 /* ── Teilnehmerliste CSV Button ── */
 .tix-csv-teilnehmer { margin-left: 8px !important; }
 
@@ -1369,14 +1537,6 @@ body:is(.post-type-event,.post-type-tix_location,.post-type-tix_organizer,.post-
 body:is(.post-type-event,.post-type-tix_location,.post-type-tix_organizer,.post-type-tix_subscriber,.post-type-tix_abandoned_cart,.post-type-tix_ticket,.taxonomy-event_category) .wp-list-table .row-actions .trash a:hover {
     color: #ef4444;
 }
-
-/* Spaltenbreiten (nur Events) */
-body.post-type-event .wp-list-table .column-tix_date { width: 140px; }
-body.post-type-event .wp-list-table .column-tix_location { width: 140px; }
-body.post-type-event .wp-list-table .column-tix_status { width: 120px; }
-body.post-type-event .wp-list-table .column-tix_tickets { width: 160px; }
-body.post-type-event .wp-list-table .column-tix_stock { width: 90px; }
-body.post-type-event .wp-list-table .column-tix_presale { width: 130px; }
 
 /* Spaltenbreiten (Tickets) */
 body.post-type-tix_ticket .wp-list-table .column-tix_t_event { width: 180px; }

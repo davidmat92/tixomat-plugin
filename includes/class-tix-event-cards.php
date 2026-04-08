@@ -195,7 +195,7 @@ class TIX_Event_Cards {
             <div class="ev-img">
                 <div class="ev-img-inner">
                     <?php if ($thumb_url): ?>
-                        <img src="<?php echo esc_url($thumb_url); ?>" alt="<?php echo esc_attr($title); ?>" style="width:100%;height:100%;object-fit:cover;">
+                        <img src="<?php echo esc_url($thumb_url); ?>" alt="<?php echo esc_attr($title); ?>" loading="lazy" style="width:100%;height:100%;object-fit:cover;">
                     <?php else: ?>
                         <?php echo self::get_placeholder($cat_slug); ?>
                     <?php endif; ?>
@@ -310,6 +310,10 @@ class TIX_Event_Cards {
     /**
      * Gespeicherte Events des Users
      */
+    public static function get_saved_events_static() {
+        return self::get_saved_events();
+    }
+
     private static function get_saved_events() {
         if (!is_user_logged_in()) return [];
         $saved = get_user_meta(get_current_user_id(), '_tix_saved_events', true);

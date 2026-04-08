@@ -17,6 +17,8 @@ class TIX_Single_Event {
         }
         // Shortcode [tix_event_page] übernehmen
         add_shortcode('tix_event_page', [__CLASS__, 'shortcode']);
+        // Shortcode [tix_cta_button] — dynamischer CTA mit Preis
+        add_shortcode('tix_cta_button', [__CLASS__, 'shortcode_cta_button']);
         // Assets nur auf Event-Singles laden
         add_action('wp_enqueue_scripts', [__CLASS__, 'maybe_enqueue']);
     }
@@ -48,6 +50,46 @@ class TIX_Single_Event {
         include TIXOMAT_PATH . 'templates/single-event-content.php';
         wp_reset_postdata();
         return ob_get_clean();
+    }
+
+    /**
+     * Shortcode [tix_cta_button] — dynamischer CTA-Button mit günstigstem Preis
+     */
+    public static function shortcode_cta_button($atts) {
+        $atts = shortcode_atts(['id' => 0, 'text' => 'Tickets kaufen'], $atts);
+        $post_id = intval($atts['id']) ?: get_the_ID();
+        if (!$post_id) return '';
+
+        $enabled = get_post_meta($post_id, '_tix_tickets_enabled', true) === '1';
+        $status  = get_post_meta($post_id, '_tix_status', true);
+        if (!$enabled || $status === 'sold_out') return '';
+
+        $categories = get_post_meta($post_id, '_tix_ticket_categories', true);
+        if (!is_array($categories) || empty($categories)) return '';
+
+        $min_price = null;
+        foreach ($categories as $cat) {
+            if (($cat['online'] ?? '1') !== '1') continue;
+            $p = floatval($cat['price'] ?? 0);
+            if (class_exists('TIX_Metabox')) {
+                $phase = TIX_Metabox::get_active_phase($cat['phases'] ?? []);
+                if ($phase) $p = floatval($phase['price']);
+            }
+            $sp = $cat['sale_price'] ?? '';
+            if ($sp !== '' && $sp !== null && floatval($sp) < $p) $p = floatval($sp);
+            if ($min_price === null || $p < $min_price) $min_price = $p;
+        }
+        if ($min_price === null) return '';
+
+        $price_fmt = number_format($min_price, 2, ',', '.') . "\u{00A0}€";
+
+        $btn_style = 'display:flex;align-items:center;justify-content:space-between;width:100%;padding:14px 20px;margin:0;background:var(--tix-btn1-bg,#6366f1);color:var(--tix-btn1-color,#fff);border:none;border-radius:var(--tix-card-radius-btn,10px);font-family:var(--tix-font-heading,Sora),sans-serif;font-weight:700;font-size:15px;text-decoration:none;cursor:pointer;box-sizing:border-box';
+        $price_style = 'font-weight:600;font-size:13px;opacity:.9';
+
+        return '<a href="#tickets" class="tse-info-cta" style="' . $btn_style . '">'
+             . '<span class="tse-info-cta-text">' . esc_html($atts['text']) . '</span>'
+             . '<span class="tse-info-cta-price" style="' . $price_style . '">ab ' . esc_html($price_fmt) . '</span>'
+             . '</a>';
     }
 
     /**
@@ -136,9 +178,10 @@ class TIX_Single_Event {
     public static function render_hero($post_id) {
         $thumb = get_the_post_thumbnail_url($post_id, 'full');
         $s = tix_get_settings();
+        $hero_auto = !empty($s['ep_hero_auto']);
         $height = intval($s['ep_hero_height'] ?? 380);
         ?>
-        <div class="tse-hero m-img" style="height:<?php echo $height; ?>px;">
+        <div class="tse-hero m-img"<?php echo $hero_auto ? '' : ' style="height:' . $height . 'px;"'; ?>>
             <?php if ($thumb): ?>
                 <img src="<?php echo esc_url($thumb); ?>" alt="<?php echo esc_attr(get_the_title($post_id)); ?>">
             <?php else: ?>
@@ -310,6 +353,39 @@ class TIX_Single_Event {
                     <span class="tse-badge tse-badge-age"><?php echo esc_html($age_display); ?></span>
                 <?php endif; ?>
             </div>
+            <?php
+            // ── Dynamischer CTA-Button mit günstigstem Preis ──
+            $tickets_enabled = get_post_meta($post_id, '_tix_tickets_enabled', true) === '1';
+            if ($tickets_enabled && $status !== 'sold_out'):
+                $categories = get_post_meta($post_id, '_tix_ticket_categories', true);
+                $min_price = null;
+                $min_label = '';
+                if (is_array($categories)) {
+                    foreach ($categories as $cat) {
+                        if (($cat['online'] ?? '1') !== '1') continue;
+                        $p = floatval($cat['price'] ?? 0);
+                        // Phase-Preis prüfen
+                        if (class_exists('TIX_Metabox')) {
+                            $phase = TIX_Metabox::get_active_phase($cat['phases'] ?? []);
+                            if ($phase) $p = floatval($phase['price']);
+                        }
+                        // Sale-Preis prüfen
+                        $sp = $cat['sale_price'] ?? '';
+                        if ($sp !== '' && $sp !== null && floatval($sp) < $p) $p = floatval($sp);
+                        if ($min_price === null || $p < $min_price) {
+                            $min_price = $p;
+                            $min_label = $cat['name'] ?? '';
+                        }
+                    }
+                }
+                if ($min_price !== null):
+                    $price_fmt = number_format($min_price, 2, ',', '.') . ' €';
+            ?>
+            <a href="#tickets" class="tse-info-cta">
+                <span class="tse-info-cta-text">Tickets kaufen</span>
+                <span class="tse-info-cta-price">ab <?php echo esc_html($price_fmt); ?></span>
+            </a>
+            <?php endif; endif; ?>
         </div>
         <?php
     }
@@ -399,14 +475,28 @@ class TIX_Single_Event {
         if (!$loc_id) return;
         $name = get_the_title($loc_id);
         $address = get_post_meta($loc_id, '_tix_loc_address', true);
+        $short_desc = get_post_meta($loc_id, '_tix_loc_short_desc', true);
+        $img_id = intval(get_post_meta($loc_id, '_tix_loc_image_id', true));
+        $img_url = $img_id ? wp_get_attachment_image_url($img_id, 'medium') : '';
+        if (!$img_url && has_post_thumbnail($loc_id)) {
+            $img_url = get_the_post_thumbnail_url($loc_id, 'medium');
+        }
         ?>
         <div class="tse-sec m-anfahrt" id="anfahrt">
             <div class="tse-sec-label">Anfahrt</div>
             <h2 class="tse-sec-title"><?php echo esc_html($name); ?></h2>
+            <?php if ($img_url): ?>
+                <div style="margin:10px 0;border-radius:12px;overflow:hidden;max-width:400px;">
+                    <img src="<?php echo esc_url($img_url); ?>" alt="<?php echo esc_attr($name); ?>" style="width:100%;height:auto;display:block;">
+                </div>
+            <?php endif; ?>
+            <?php if ($short_desc): ?>
+                <p class="tse-sec-content" style="margin-bottom:8px;"><?php echo esc_html($short_desc); ?></p>
+            <?php endif; ?>
             <?php if ($address): ?>
                 <p class="tse-location-address"><?php echo esc_html($address); ?></p>
                 <a href="https://www.google.com/maps/search/?api=1&query=<?php echo urlencode($name . ' ' . $address); ?>" target="_blank" rel="noopener" class="tse-location-link">
-                    In Google Maps öffnen →
+                    In Google Maps &ouml;ffnen &rarr;
                 </a>
             <?php endif; ?>
         </div>

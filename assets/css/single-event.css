@@ -7,19 +7,19 @@
 .tse-wrap {
     max-width: var(--ep-max-w, 1100px);
     margin: 0 auto;
-    padding: var(--tse-pad-y, 32px) var(--tse-pad-x, 32px) var(--tse-pad-y, 64px);
+    padding: var(--tse-pad-top, 32px) var(--tse-pad-x, 32px) var(--tse-pad-bottom, 64px);
     font-family: var(--tix-font-body, 'DM Sans'), sans-serif;
     font-size: var(--tix-body, 15px);
 }
 
 /* Spacing: content always has room under sticky elements */
-.tse-tabs + .tse-wrap { padding-top: var(--tse-pad-y, 32px); }
+.tse-tabs + .tse-wrap { padding-top: var(--tse-pad-top, 32px); }
 
 /* Grid: 2 Columns (default) */
 .tse-grid {
     display: grid;
-    grid-template-columns: 1fr 380px;
-    gap: var(--ep-gap, 24px) 36px;
+    grid-template-columns: var(--ep-col-split, 1fr 380px);
+    gap: var(--ep-gap, 24px) var(--ep-col-gap, 36px);
     align-items: start;
 }
 
@@ -57,9 +57,9 @@
     backdrop-filter: blur(8px);
 }
 .tse-tabs-inner {
-    max-width: 1100px;
+    max-width: var(--ep-max-w, 1100px);
     margin: 0 auto;
-    padding: 0 32px;
+    padding: 0 var(--tse-pad-x, 32px);
     display: flex;
     gap: 4px;
     overflow-x: auto;
@@ -84,13 +84,42 @@
     border-bottom-color: var(--tix-card-signal, #E8445A);
 }
 
+/* ── Karten: unabhängig von Text-Padding (Desktop 2-col) ── */
+/* Main-Column Karten: brechen LINKS aus dem Wrapper-Padding aus, RECHTS bündig mit Grid-Spalte */
+.tse-sec,
+.tse-hero {
+    margin-left: calc(-1 * var(--tse-pad-x, 32px) + var(--tse-card-gap, 0px));
+    margin-right: 0;
+}
+/* Sidebar Karten: brechen RECHTS aus dem Wrapper-Padding aus, LINKS bündig mit Grid-Spalte */
+.tse-info-card,
+.tse-countdown,
+.tse-cal-btn,
+.tse-share {
+    margin-left: 0;
+    margin-right: calc(-1 * var(--tse-pad-x, 32px) + var(--tse-card-gap, 0px));
+}
+/* 1-Column Layout: beide Seiten ausbrechen */
+.tse-layout-1col .tse-sec,
+.tse-layout-1col .tse-hero {
+    margin-right: calc(-1 * var(--tse-pad-x, 32px) + var(--tse-card-gap, 0px));
+}
+.tse-layout-1col .tse-info-card,
+.tse-layout-1col .tse-countdown,
+.tse-layout-1col .tse-cal-btn,
+.tse-layout-1col .tse-share {
+    margin-left: calc(-1 * var(--tse-pad-x, 32px) + var(--tse-card-gap, 0px));
+}
+
 /* ── Hero Image ── */
 .tse-hero {
     border-radius: var(--tix-card-radius, 16px);
     overflow: hidden;
     position: relative;
 }
-.tse-hero img { width: 100%; height: 100%; object-fit: cover; }
+.tse-hero img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* Auto-Höhe: Bild bestimmt Container-Höhe */
+.tse-hero:not([style*="height"]) img { height: auto; object-fit: initial; }
 .tse-hero-placeholder {
     width: 100%; height: 100%;
     display: flex; align-items: center; justify-content: center;
@@ -113,7 +142,15 @@
 }
 
 /* ── Intro ── */
-.tse-intro { padding: 8px 0 16px; }
+.tse-intro {
+    padding: 8px var(--tse-pad-x, 32px) 16px;
+    margin-left: calc(-1 * var(--tse-pad-x, 32px) + var(--tse-card-gap, 0px));
+    margin-right: 0;
+}
+/* 1-Column: beide Seiten ausbrechen */
+.tse-layout-1col .tse-intro {
+    margin-right: calc(-1 * var(--tse-pad-x, 32px) + var(--tse-card-gap, 0px));
+}
 .tse-intro-date {
     font-family: var(--tix-card-font-d, var(--tix-font-heading, 'Sora')), sans-serif;
     font-size: var(--tix-label, 12px); font-weight: 700;
@@ -141,7 +178,7 @@
     background: #fff;
     border: 1px solid var(--tix-card-sand, #E3DED4);
     border-radius: var(--tix-card-radius, 16px);
-    padding: 28px 32px;
+    padding: var(--tse-card-pad, 28px) var(--tse-card-pad, 28px);
 }
 .tse-sec-label {
     font-family: var(--tix-card-font-d, var(--tix-font-heading, 'Sora')), sans-serif;
@@ -164,7 +201,7 @@
     background: #fff;
     border: 1px solid var(--tix-card-sand, #E3DED4);
     border-radius: var(--tix-card-radius, 16px);
-    padding: 24px;
+    padding: var(--tse-card-pad, 24px);
 }
 .tse-info-row {
     display: flex; gap: 14px; padding: 12px 0;
@@ -185,10 +222,25 @@
 .tse-badge-soldout { background: var(--tix-card-signal, #E8445A); color: #fff; }
 .tse-badge-age { background: var(--tix-card-nacht, #131020); color: #fff; }
 
+/* ── Sidebar: CTA Button (Tickets kaufen) ── */
+a.tse-info-cta, .tse-info-cta {
+    display: flex !important; align-items: center !important; justify-content: space-between !important;
+    width: 100% !important; padding: 14px 20px !important; margin-top: 16px !important;
+    background: var(--tix-btn1-bg, #6366f1) !important; color: var(--tix-btn1-color, #fff) !important;
+    border: none !important; border-radius: var(--tix-card-radius-btn, 10px) !important;
+    font-family: var(--tix-card-font-d, var(--tix-font-heading, 'Sora')), sans-serif !important;
+    font-weight: 700 !important; font-size: 15px !important;
+    text-decoration: none !important; cursor: pointer !important;
+    transition: background 0.2s, box-shadow 0.2s !important;
+    box-sizing: border-box !important;
+}
+a.tse-info-cta:hover, .tse-info-cta:hover { background: var(--tix-btn1-hover-bg, #4f46e5) !important; color: var(--tix-btn1-hover-color, #fff) !important; box-shadow: 0 4px 12px rgba(0,0,0,0.12) !important; }
+.tse-info-cta-price { font-weight: 600 !important; font-size: 13px !important; opacity: 0.9 !important; }
+
 /* ── Sidebar: Calendar Button ── */
 .tse-cal-btn {
     display: flex; align-items: center; justify-content: center; gap: 10px;
-    width: 100%; padding: 14px;
+    width: 100%; padding: var(--tse-card-pad, 14px);
     background: #fff; border: 1.5px solid var(--tix-card-sand, #E3DED4);
     border-radius: var(--tix-card-radius-btn, 10px);
     font-family: var(--tix-card-font-d, var(--tix-font-heading, 'Sora')), sans-serif;
@@ -215,7 +267,7 @@
 .tse-countdown {
     background: var(--tix-card-nacht, #131020);
     border-radius: var(--tix-card-radius, 16px);
-    padding: 20px 24px;
+    padding: var(--tse-card-pad, 20px) var(--tse-card-pad, 24px);
     color: #fff;
 }
 .tse-countdown-label {
@@ -291,16 +343,83 @@
     .sb-share      { order: 18; }
     .m-upsell      { order: 19; grid-column: auto !important; }
 
-    .tse-hero { height: 280px !important; }
-    .tse-wrap { padding: 0 var(--tse-pad-x, 20px) 48px !important; }
-    .tse-sec { padding: 20px 24px; }
+    .tse-hero[style*="height"] { height: 280px !important; }
+    .tse-hero:not([style*="height"]) { height: auto !important; }
+    .tse-wrap { padding: var(--tse-pad-top, 20px) var(--tse-pad-x, 20px) var(--tse-pad-bottom, 48px) !important; }
+
+    /* ── ALLE Karten: volle Breite, Abstand vom Rand steuerbar ── */
+    .tse-sec,
+    .tse-info-card,
+    .tse-countdown,
+    .tse-cal-btn,
+    .tse-share,
+    .tse-hero {
+        margin-left: calc(-1 * var(--tse-pad-x, 20px) + var(--tse-card-gap, 0px));
+        margin-right: calc(-1 * var(--tse-pad-x, 20px) + var(--tse-card-gap, 0px));
+        border-radius: var(--tse-card-radius, 0px);
+        border-left: var(--tse-card-border, none);
+        border-right: var(--tse-card-border, none);
+    }
+    .tse-sec,
+    .tse-info-card,
+    .tse-countdown,
+    .tse-cal-btn,
+    .tse-share {
+        padding: var(--tse-card-pad, 20px);
+    }
+    /* width:auto verhindert dass width:100% die negative-margin-Erweiterung blockiert */
+    .tse-cal-btn { width: auto; }
+    .tse-countdown { padding: var(--tse-card-pad, 20px) var(--tse-card-pad, 20px) 24px; }
+    .tse-tabs-inner { padding: 0 var(--tse-pad-x, 20px); }
+    /* Intro: gleiche Breakout-Logik, pad-x als inneres Padding */
+    .tse-intro {
+        margin-left: calc(-1 * var(--tse-pad-x, 20px) + var(--tse-card-gap, 0px));
+        margin-right: calc(-1 * var(--tse-pad-x, 20px) + var(--tse-card-gap, 0px));
+        padding-left: var(--tse-pad-x, 20px);
+        padding-right: var(--tse-pad-x, 20px);
+    }
 }
 
 @media (max-width: 640px) {
-    .tse-hero { height: 220px !important; }
-    .tse-intro-title { font-size: 1.4rem; }
+    .tse-hero[style*="height"] { height: 220px !important; }
+    .tse-hero:not([style*="height"]) { height: auto !important; }
+    /* tse-intro-title font-size wird vom Typo-System gesteuert */
     .tse-gallery-grid { grid-template-columns: repeat(2, 1fr); }
-    .tse-tabs-inner { padding: 0 16px; }
-    .tse-wrap { padding: 0 16px 40px !important; }
-    .tse-sec { padding: 16px 20px; }
+    .tse-tabs-inner { padding: 0 var(--tse-pad-x, 16px); }
+    .tse-wrap { padding: var(--tse-pad-top, 16px) var(--tse-pad-x, 16px) var(--tse-pad-bottom, 40px) !important; }
+
+    /* ── ALLE Karten: volle Breite, Abstand vom Rand steuerbar ── */
+    .tse-sec,
+    .tse-info-card,
+    .tse-countdown,
+    .tse-cal-btn,
+    .tse-share,
+    .tse-hero {
+        margin-left: calc(-1 * var(--tse-pad-x, 16px) + var(--tse-card-gap, 0px));
+        margin-right: calc(-1 * var(--tse-pad-x, 16px) + var(--tse-card-gap, 0px));
+        border-radius: var(--tse-card-radius, 0px);
+        border-left: var(--tse-card-border, none);
+        border-right: var(--tse-card-border, none);
+    }
+    .tse-sec,
+    .tse-info-card,
+    .tse-countdown,
+    .tse-cal-btn,
+    .tse-share {
+        padding: var(--tse-card-pad, 16px);
+    }
+    .tse-cal-btn { width: auto; }
+    .tse-countdown { padding: var(--tse-card-pad, 16px) var(--tse-card-pad, 16px) 24px; }
+    .tse-intro {
+        margin-left: calc(-1 * var(--tse-pad-x, 16px) + var(--tse-card-gap, 0px));
+        margin-right: calc(-1 * var(--tse-pad-x, 16px) + var(--tse-card-gap, 0px));
+        padding-left: var(--tse-pad-x, 16px);
+        padding-right: var(--tse-pad-x, 16px);
+    }
+}
+
+/* ── Upsell: kein Overlap mit sticky Sidebar ── */
+.m-upsell {
+    position: relative;
+    z-index: 1;
 }

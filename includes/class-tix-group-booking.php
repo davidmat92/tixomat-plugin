@@ -66,7 +66,7 @@ class TIX_Group_Booking {
         if (get_post_meta($event_id, '_tix_tickets_enabled', true) !== '1') {
             wp_send_json_error(['message' => 'Ticketverkauf nicht aktiv.']);
         }
-        if (get_post_meta($event_id, '_tix_presale_active', true) !== '1') {
+        if (!TIX_Ticket_Selector::check_presale_active($event_id)) {
             wp_send_json_error(['message' => 'Vorverkauf beendet.']);
         }
 

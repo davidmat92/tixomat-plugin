@@ -196,6 +196,27 @@
     white-space: nowrap;
     margin: 0;
 }
+.tix-ci-counter {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ci-muted);
+    white-space: nowrap;
+}
+.tix-ci-counter-toggle {
+    background: none;
+    border: 1px solid var(--ci-border);
+    border-radius: 6px;
+    padding: 2px 6px;
+    font-size: 14px;
+    cursor: pointer;
+    opacity: 0.5;
+    transition: opacity .15s;
+    line-height: 1;
+}
+.tix-ci-counter-toggle:hover,
+.tix-ci-counter-toggle.active {
+    opacity: 1;
+}
 .tix-ci-search {
     flex: 1;
     min-width: 150px;
@@ -218,7 +239,34 @@
 .tix-ci-guest:hover {
     box-shadow: 0 2px 4px rgba(0,0,0,0.04), 0 4px 12px rgba(0,0,0,0.03);
 }
-.tix-ci-guest-checked { opacity: 0.5; }
+.tix-ci-guest-checked {
+    opacity: 0.7;
+    background: rgba(16,185,129,0.06);
+    border: 1px solid rgba(16,185,129,0.15);
+}
+
+/* ── Section Headers ── */
+.tix-ci-section-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 0 6px;
+    margin-top: 8px;
+    font-size: var(--tix-small, 13px);
+    font-weight: 700;
+    color: var(--ci-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.tix-ci-section-header::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--ci-border);
+}
+.tix-ci-section-checked span {
+    color: var(--ci-ok);
+}
 .tix-ci-guest-info { flex: 1; min-width: 0; }
 .tix-ci-guest-name { font-weight: 600; font-size: var(--tix-body, 15px); }
 .tix-ci-guest-plus {
@@ -439,4 +487,110 @@
     color: var(--ci-muted);
     padding: 32px;
     font-size: var(--tix-btn, 14px);
+}
+
+/* ── Fortschrittsbalken ── */
+.tix-ci-progress {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 14px;
+}
+.tix-ci-progress-bar {
+    flex: 1;
+    height: 8px;
+    background: var(--ci-border);
+    border-radius: 99px;
+    overflow: hidden;
+}
+.tix-ci-progress-fill {
+    height: 100%;
+    border-radius: 99px;
+    background: var(--ci-accent);
+    transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1), background 0.5s ease;
+    min-width: 0;
+}
+.tix-ci-progress-text {
+    font-size: var(--tix-label, 12px);
+    font-weight: 700;
+    color: var(--ci-muted);
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+/* ── Offline Banner ── */
+.tix-ci-offline-banner {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 10px 16px;
+    background: #fef3c7;
+    border: 1px solid #fbbf24;
+    border-radius: 12px;
+    margin-bottom: 16px;
+    color: #92400e;
+    font-size: var(--tix-small, 13px);
+    font-weight: 600;
+    animation: ciSlideIn 0.3s ease;
+}
+
+/* ── Alphabet Index ── */
+.tix-ci-list-wrap {
+    position: relative;
+}
+.tix-ci-alpha-index {
+    position: fixed;
+    right: 4px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+    z-index: 10;
+    padding: 4px 2px;
+    background: rgba(255,255,255,0.85);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    border-radius: 12px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+}
+.tix-ci-alpha-letter {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 18px;
+    border: none;
+    background: none;
+    color: var(--ci-accent);
+    font-size: 10px;
+    font-weight: 700;
+    cursor: pointer;
+    padding: 0;
+    transition: color 0.15s, background 0.15s;
+    border-radius: 4px;
+    line-height: 1;
+}
+.tix-ci-alpha-letter:hover:not(:disabled) {
+    background: rgba(255,85,0,0.1);
+}
+.tix-ci-alpha-letter:active:not(:disabled) {
+    background: var(--ci-accent);
+    color: #fff;
+}
+.tix-ci-alpha-letter:disabled {
+    cursor: default;
+    color: var(--ci-muted);
+}
+
+/* ── Highlight Animation (Alphabet Jump) ── */
+@keyframes ciHighlight {
+    0% { box-shadow: 0 0 0 0 rgba(255,85,0,0.4); }
+    50% { box-shadow: 0 0 0 4px rgba(255,85,0,0.15); }
+    100% { box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
+}
+.tix-ci-guest-highlight {
+    animation: ciHighlight 1.5s ease;
 }

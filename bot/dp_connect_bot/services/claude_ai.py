@@ -193,8 +193,31 @@ SUPPORT_TOOLS = [
         }
     },
     {
+        "name": "get_my_tickets",
+        "description": "Ruft die Tickets des aktuell eingeloggten Benutzers ab. Funktioniert NUR wenn der Benutzer eingeloggt ist (user_info vorhanden). Keine Verifizierung noetig! Nutze dieses Tool ZUERST wenn der Benutzer eingeloggt ist und nach seinen Tickets fragt.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+        }
+    },
+    {
+        "name": "get_tickets_by_email",
+        "description": "Ruft Tickets fuer eine E-Mail-Adresse ab – fuer NICHT eingeloggte Benutzer. Keine zusaetzliche Verifizierung noetig, da die E-Mail selbst als Identifikation reicht. Frage den Benutzer nach seiner E-Mail-Adresse bevor du dieses Tool nutzt.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string",
+                    "description": "E-Mail-Adresse des Kunden"
+                }
+            },
+            "required": ["email"]
+        }
+    },
+    {
         "name": "lookup_tickets_by_email",
-        "description": "Sucht Tickets per E-Mail-Adresse mit Verifizierung. Gibt Ticket-Codes und Download-Links zurueck. Benoetigt eine Verifizierung (Bestellnummer oder Nachname). Frage den Kunden IMMER nach der E-Mail UND einer Verifizierung bevor du dieses Tool nutzt.",
+        "description": "Sucht Tickets per E-Mail-Adresse mit Verifizierung. Gibt Ticket-Codes und Download-Links zurueck. Benoetigt eine Verifizierung (Bestellnummer oder Nachname). Frage den Kunden IMMER nach der E-Mail UND einer Verifizierung bevor du dieses Tool nutzt. Nutze get_my_tickets oder get_tickets_by_email als einfachere Alternative.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -250,13 +273,41 @@ SUPPORT_TOOLS = [
 ]
 
 
-def _execute_support_tool(tool_name, tool_input, ctx=None):
+def _execute_support_tool(tool_name, tool_input, ctx=None, session=None):
     """Execute a support tool and return the result as a dict."""
     from dp_connect_bot.services.woocommerce import wc_client
-    from dp_connect_bot.services.tixomat_api import lookup_tickets, customer_exists
+    from dp_connect_bot.services.tixomat_api import lookup_tickets, customer_exists, get_my_tickets
 
     try:
-        if tool_name == "lookup_order":
+        if tool_name == "get_my_tickets":
+            # Eingeloggter User – kein Verifizierung noetig
+            user_info = (session or {}).get("user_info", {})
+            wp_user_id = user_info.get("wp_user_id")
+            wp_email = user_info.get("wp_email")
+            if not wp_user_id and not wp_email:
+                return {"success": False, "error": "Der Benutzer ist nicht eingeloggt. Bitte frage nach der E-Mail-Adresse und nutze get_tickets_by_email."}
+            result = get_my_tickets(ctx, wp_user_id=wp_user_id, email=wp_email) if ctx else {"ok": False}
+            if result.get("ok"):
+                tickets = result.get("tickets", [])
+                if tickets:
+                    return {"success": True, "tickets": tickets, "count": len(tickets), "message": f"{len(tickets)} Ticket(s) gefunden."}
+                return {"success": True, "tickets": [], "count": 0, "message": "Keine aktiven Tickets gefunden."}
+            return {"success": False, "error": result.get("message", "Fehler beim Abrufen der Tickets.")}
+
+        elif tool_name == "get_tickets_by_email":
+            # Nicht eingeloggter User – per E-Mail ohne Verifizierung
+            email = tool_input.get("email", "")
+            if not email:
+                return {"success": False, "error": "E-Mail-Adresse fehlt."}
+            result = get_my_tickets(ctx, email=email) if ctx else {"ok": False}
+            if result.get("ok"):
+                tickets = result.get("tickets", [])
+                if tickets:
+                    return {"success": True, "tickets": tickets, "count": len(tickets), "message": f"{len(tickets)} Ticket(s) gefunden."}
+                return {"success": True, "tickets": [], "count": 0, "message": "Keine Tickets fuer diese E-Mail-Adresse gefunden."}
+            return {"success": False, "error": result.get("message", "Fehler beim Abrufen.")}
+
+        elif tool_name == "lookup_order":
             result = wc_client.lookup_order(tool_input["identifier"])
             if result:
                 return {"success": True, "order": result}
@@ -344,6 +395,25 @@ def call_claude_support(session, user_message, ctx=None):
 
     try:
         support_prompt = _build_support_prompt(ctx)
+
+        # Inject user context into prompt
+        user_info = session.get("user_info", {})
+        if user_info.get("wp_user_id"):
+            support_prompt += (
+                f"\n\n## Aktueller Benutzer\n"
+                f"Der Benutzer ist EINGELOGGT.\n"
+                f"- Name: {user_info.get('wp_display_name', 'Unbekannt')}\n"
+                f"- E-Mail: {user_info.get('wp_email', 'Unbekannt')}\n"
+                f"- WP User-ID: {user_info.get('wp_user_id')}\n\n"
+                f"Wenn dieser Benutzer nach seinen Tickets fragt, nutze SOFORT das Tool `get_my_tickets` – OHNE nach E-Mail oder Verifizierung zu fragen!"
+            )
+        else:
+            support_prompt += (
+                "\n\n## Aktueller Benutzer\n"
+                "Der Benutzer ist NICHT eingeloggt.\n"
+                "Wenn er nach seinen Tickets fragt, frage ihn nach seiner E-Mail-Adresse und nutze dann `get_tickets_by_email`."
+            )
+
         # First API call with tools
         data = _api_call(support_prompt, messages, tools=SUPPORT_TOOLS, ctx=ctx)
         if not data:
@@ -364,7 +434,7 @@ def call_claude_support(session, user_message, ctx=None):
                     tool_id = block["id"]
 
                     log.info(f"Support tool call: {tool_name}({json.dumps(tool_input, ensure_ascii=False)})")
-                    result = _execute_support_tool(tool_name, tool_input, ctx=ctx)
+                    result = _execute_support_tool(tool_name, tool_input, ctx=ctx, session=session)
                     log.info(f"Support tool result: {tool_name} -> success={result.get('success')}")
 
                     # Check for escalation

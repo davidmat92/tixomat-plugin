@@ -10,6 +10,14 @@ if (!defined('ABSPATH')) exit;
  */
 class TIX_My_Tickets {
 
+    /** Preisformatierung – Fallback wenn WooCommerce nicht aktiv. */
+    private static function format_price($price) {
+        if (function_exists('wc_price')) {
+            return wc_price($price);
+        }
+        return number_format((float) $price, 2, ',', '.') . '&nbsp;&euro;';
+    }
+
     public static function init() {
         add_shortcode('tix_my_tickets', [__CLASS__, 'render']);
         add_shortcode('tix_order_history', [__CLASS__, 'render_order_history']);
@@ -807,7 +815,7 @@ class TIX_My_Tickets {
                         <?php endforeach; ?>
                         <div class="tix-mt-combo-price">
                             <span>Kombi-Preis</span>
-                            <strong><?php echo wc_price($combo['combo_price']); ?></strong>
+                            <strong><?php echo self::format_price($combo['combo_price']); ?></strong>
                             <?php if ($combo['qty'] > 1): ?>
                                 <span class="tix-mt-combo-qty">&times; <?php echo (int) $combo['qty']; ?></span>
                             <?php endif; ?>
@@ -929,7 +937,7 @@ class TIX_My_Tickets {
                                 <span class="tix-mt-ticket-type"><?php echo esc_html($it['name']); ?></span>
                                 <span class="tix-mt-ticket-qty"><?php echo (int) $it['qty']; ?>&times; Ticket<?php echo $it['qty'] > 1 ? 's' : ''; ?></span>
                             </div>
-                            <span class="tix-mt-ticket-price"><?php echo wc_price($it['total']); ?></span>
+                            <span class="tix-mt-ticket-price"><?php echo self::format_price($it['total']); ?></span>
                         </div>
                     <?php endforeach; ?>
 

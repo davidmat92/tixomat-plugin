@@ -636,3 +636,43 @@
     .tix-od-kpi-value { font-size: 18px; }
     .tix-od-title { font-size: 18px; }
 }
+
+/* ── Team Tab ── */
+.tix-od-team-desc { color: var(--tx-muted); font-size: 14px; margin-bottom: 20px; }
+.tix-od-team-list { margin-bottom: 24px; }
+.tix-od-team-member {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 16px; background: var(--tx-surface); border: 1px solid var(--tx-border);
+    border-radius: 10px; margin-bottom: 8px; gap: 12px;
+}
+.tix-od-team-owner { border-left: 3px solid var(--tx-accent); }
+.tix-od-team-member-info { flex: 1; min-width: 0; }
+.tix-od-team-member-info strong { display: block; font-size: 15px; font-weight: 600; }
+.tix-od-team-member-email { display: block; font-size: 13px; color: var(--tx-muted); margin-top: 2px; }
+.tix-od-team-member-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.tix-od-team-member-actions select { width: 140px; }
+.tix-od-team-badge {
+    display: inline-block; padding: 4px 10px; border-radius: 6px;
+    font-size: 12px; font-weight: 600; white-space: nowrap; flex-shrink: 0;
+}
+.tix-od-team-badge-owner { background: rgba(255,85,0,.1); color: var(--tx-accent); }
+.tix-od-team-remove {
+    width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--tx-border);
+    background: var(--tx-surface); color: var(--tx-muted); font-size: 18px; line-height: 1;
+    cursor: pointer; transition: all .15s;
+}
+.tix-od-team-remove:hover { border-color: #ef4444; color: #ef4444; background: rgba(239,68,68,.06); }
+.tix-od-team-empty { color: var(--tx-muted); text-align: center; padding: 24px; }
+.tix-od-team-add { background: var(--tx-surface); border: 1px solid var(--tx-border); border-radius: 10px; padding: 20px; margin-bottom: 20px; }
+.tix-od-team-add h4 { margin: 0 0 14px; font-size: 14px; font-weight: 600; }
+.tix-od-team-add-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; margin-bottom: 14px; }
+.tix-od-team-roles-info { background: var(--tx-bg); border-radius: 10px; padding: 16px 20px; }
+.tix-od-team-roles-info h4 { margin: 0 0 10px; font-size: 14px; font-weight: 600; }
+.tix-od-team-roles-info ul { margin: 0; padding: 0; list-style: none; }
+.tix-od-team-roles-info li { padding: 4px 0; font-size: 13px; color: var(--tx-muted); }
+.tix-od-team-roles-info li strong { color: var(--tx-text); }
+@media (max-width: 600px) {
+    .tix-od-team-member { flex-direction: column; align-items: flex-start; }
+    .tix-od-team-member-actions { width: 100%; justify-content: space-between; }
+    .tix-od-team-add-row { grid-template-columns: 1fr; }
+}

@@ -111,6 +111,37 @@ def generate_checkout_url(ctx, items):
         return {"ok": False}
 
 
+def get_my_tickets(ctx, wp_user_id=None, email=None):
+    """Tickets eines eingeloggten Users abrufen – keine Verifizierung noetig.
+
+    Args:
+        ctx: TenantContext
+        wp_user_id: WordPress User-ID (bevorzugt)
+        email: Fallback E-Mail
+
+    Returns:
+        dict: {ok, count, tickets}
+    """
+    payload = {}
+    if wp_user_id:
+        payload["wp_user_id"] = int(wp_user_id)
+    if email:
+        payload["email"] = email
+
+    try:
+        resp = requests.post(
+            f"{ctx.api_url}/tickets/my",
+            headers=_headers(ctx),
+            json=payload,
+            timeout=15,
+        )
+        resp.raise_for_status()
+        return resp.json()
+    except Exception as e:
+        log.error(f"[{ctx.tenant_id}] API /tickets/my error: {e}")
+        return {"ok": False, "error": "api_error", "message": "Verbindungsfehler."}
+
+
 def customer_exists(ctx, email):
     """Check if customer exists for a tenant.
 

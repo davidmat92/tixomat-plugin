@@ -409,6 +409,18 @@
                 '</div>'
             );
         }
+
+        // Beitragsbild-Vorschlag (von URL erkannt)
+        if (d.suggested_image_url && d.suggested_image_id) {
+            $p.append(
+                '<div class="tix-re-preview-row">' +
+                    '<div class="tix-re-preview-label">Beitragsbild</div>' +
+                    '<div class="tix-re-preview-value">' +
+                        '<img src="' + d.suggested_image_url + '" style="max-width:200px;max-height:120px;border-radius:8px;border:1px solid #e5e7eb;">' +
+                    '</div>' +
+                '</div>'
+            );
+        }
     }
 
     // Sync preview edits back to eventData

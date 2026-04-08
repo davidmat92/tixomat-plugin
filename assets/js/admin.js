@@ -1986,10 +1986,12 @@
             if (f.faq && f.faq.length) {
                 items.push({ key: 'faq', label: 'FAQ (' + f.faq.length + ')', preview: f.faq.map(function(q) { return esc(q.question); }).join(', '), checked: true });
             }
-            // Beitragsbild (wenn Bild hochgeladen wurde)
+            // Beitragsbild (hochgeladenes Bild oder von URL erkanntes Bild)
             if (currentAttachmentId) {
                 var thumbSrc = $('#tix-ai-dropzone-thumb').attr('src') || '';
                 items.push({ key: 'featured_image', label: 'Beitragsbild', preview: '<img src="' + thumbSrc + '" style="width:40px;height:40px;object-fit:cover;border-radius:4px;vertical-align:middle;"> Als Beitragsbild setzen', checked: true });
+            } else if (f.suggested_image_url && f.suggested_image_id) {
+                items.push({ key: 'featured_image', label: 'Beitragsbild (von URL)', preview: '<img src="' + f.suggested_image_url + '" style="width:40px;height:40px;object-fit:cover;border-radius:4px;vertical-align:middle;"> Erkanntes Bild als Beitragsbild setzen', checked: true });
             }
 
             if (!items.length) {
@@ -2194,15 +2196,20 @@
                 filled.push(f.faq.length + ' FAQ');
             }
 
-            // Beitragsbild setzen
-            if (sel.featured_image && currentAttachmentId) {
-                var thumbUrl = $('#tix-ai-dropzone-thumb').attr('src') || '';
-                $('#tix-featured-img-id').val(currentAttachmentId);
-                var $imgPreview = $('#tix-featured-img-preview');
-                $imgPreview.show().find('img').attr('src', thumbUrl);
-                $('#tix-featured-img-set').text('Bild ändern');
-                $('#tix-featured-img-remove').show();
-                filled.push('Beitragsbild');
+            // Beitragsbild setzen (hochgeladenes oder von URL erkanntes Bild)
+            if (sel.featured_image) {
+                var imgId = currentAttachmentId || (f.suggested_image_id || 0);
+                var thumbUrl = currentAttachmentId
+                    ? ($('#tix-ai-dropzone-thumb').attr('src') || '')
+                    : (f.suggested_image_url || '');
+                if (imgId && thumbUrl) {
+                    $('#tix-featured-img-id').val(imgId);
+                    var $imgPreview = $('#tix-featured-img-preview');
+                    $imgPreview.show().find('img').attr('src', thumbUrl);
+                    $('#tix-featured-img-set').text('Bild ändern');
+                    $('#tix-featured-img-remove').show();
+                    filled.push('Beitragsbild');
+                }
             }
 
             var $status = $('#tix-ai-fill-status');

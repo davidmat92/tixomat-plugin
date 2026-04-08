@@ -79,6 +79,12 @@
     border-radius: var(--ep-radius);
     overflow: hidden;
 }
+@media (max-width: 768px) {
+    .tix-ep-hero {
+        margin-left: calc(-1 * var(--ep-pad, 16px));
+        margin-right: calc(-1 * var(--ep-pad, 16px));
+    }
+}
 .tix-ep-hero img {
     display: block;
     width: 100%;
@@ -413,6 +419,17 @@
     color: var(--ep-muted);
     font-size: var(--tix-label, 12px);
 }
+.tix-ep-organizer-desc {
+    font-size: var(--tix-small, 13px);
+    color: var(--ep-muted);
+    line-height: 1.4;
+    margin-top: 2px;
+}
+.tix-ep-location-desc {
+    font-size: var(--tix-small, 13px);
+    color: var(--ep-muted);
+    line-height: 1.4;
+}
 
 /* ══════════════════════════════════════════
    MAIN: SERIENTERMINE
@@ -508,6 +525,9 @@
 }
 .tix-ep-upsell {
     margin-top: var(--ep-gap);
+    position: relative;
+    z-index: 1;
+    clear: both;
 }
 
 /* ══════════════════════════════════════════
@@ -692,6 +712,8 @@
 @media (max-width: 768px) {
     .tix-ep {
         --ep-gap: 24px;
+        --ep-pad: 16px;
+        padding: 0 var(--ep-pad);
     }
 
     .tix-ep-grid {
@@ -723,16 +745,55 @@
     .tix-ep-gallery-grid {
         grid-template-columns: repeat(2, 1fr);
     }
+
+    /* ── Einheitliches Padding: Cards gehen bis Rand, Inhalt hat gleiches Padding ── */
+    .tix-ep-header,
+    .tix-ep-sidebar .tix-sel,
+    .tix-ep-location-card,
+    .tix-ep-organizer-card,
+    .tix-ep-charity-card,
+    .tix-ep-series-item {
+        border-radius: 0;
+        margin-left: calc(-1 * var(--ep-pad));
+        margin-right: calc(-1 * var(--ep-pad));
+        border-left: none;
+        border-right: none;
+    }
+
+    .tix-ep-header {
+        padding: 20px var(--ep-pad);
+    }
+    .tix-ep-location-card {
+        padding: 16px var(--ep-pad);
+        border-radius: 0;
+    }
+    .tix-ep-organizer-card {
+        padding: 16px var(--ep-pad);
+        border-radius: 0;
+    }
+    .tix-ep-charity-card {
+        padding: 14px var(--ep-pad);
+    }
+    .tix-ep-series-item {
+        padding: 12px var(--ep-pad);
+    }
+
+    /* Upsell: volle Breite */
+    .tix-ep-upsell {
+        position: relative;
+        z-index: 1;
+    }
 }
 
 /* ── Klein-Mobile: <= 480px ── */
 @media (max-width: 480px) {
     .tix-ep {
         --ep-gap: 20px;
-        padding: 0 12px;
+        --ep-pad: 12px;
+        padding: 0 var(--ep-pad);
     }
     .tix-ep-hero {
-        margin: 0 -12px 16px;
+        margin: 0 calc(-1 * var(--ep-pad)) 16px;
         border-radius: 0;
     }
     .tix-ep-title {
@@ -747,15 +808,6 @@
     }
     .tix-ep-gallery-grid--hero .tix-ep-gallery-item:first-child {
         grid-column: 1 / -1;
-    }
-    .tix-ep-series-item {
-        padding: 10px 12px;
-    }
-    .tix-ep-location-card {
-        padding: 12px;
-    }
-    .tix-ep-header {
-        padding: 14px;
     }
     .tix-ep-lightbox-nav {
         width: 36px;

@@ -425,4 +425,98 @@
         });
     }
 
+    /* ══════════════════════════════════════════
+     * TEAM TAB
+     * ══════════════════════════════════════════ */
+
+    var teamLoaded = false;
+
+    function loadTeam() {
+        if (teamLoaded) return;
+        teamLoaded = true;
+        ajax('tix_team_get_members', {}, function(data) {
+            renderTeamList(data);
+        });
+    }
+
+    function renderTeamList(data) {
+        var $list = $('#tix-od-team-list');
+        var html = '';
+
+        // Owner
+        if (data.owner) {
+            html += '<div class="tix-od-team-member tix-od-team-owner">';
+            html += '<div class="tix-od-team-member-info">';
+            html += '<strong>' + escHtml(data.owner.name) + '</strong>';
+            html += '<span class="tix-od-team-member-email">' + escHtml(data.owner.email) + '</span>';
+            html += '</div>';
+            html += '<span class="tix-od-team-badge tix-od-team-badge-owner">Inhaber</span>';
+            html += '</div>';
+        }
+
+        // Members
+        if (data.members && data.members.length) {
+            $.each(data.members, function(i, m) {
+                html += '<div class="tix-od-team-member" data-user-id="' + m.user_id + '">';
+                html += '<div class="tix-od-team-member-info">';
+                html += '<strong>' + escHtml(m.name) + '</strong>';
+                html += '<span class="tix-od-team-member-email">' + escHtml(m.email) + '</span>';
+                html += '</div>';
+                html += '<div class="tix-od-team-member-actions">';
+                html += '<select class="tix-od-input tix-od-team-role-sel">';
+                $.each(data.roles, function(key, label) {
+                    html += '<option value="' + key + '"' + (key === m.role ? ' selected' : '') + '>' + escHtml(label) + '</option>';
+                });
+                html += '</select>';
+                html += '<button type="button" class="tix-od-btn tix-od-team-remove" title="Entfernen">&times;</button>';
+                html += '</div>';
+                html += '</div>';
+            });
+        } else {
+            html += '<p class="tix-od-team-empty">Noch keine Team-Mitglieder hinzugef&uuml;gt.</p>';
+        }
+
+        $list.html(html);
+    }
+
+    // Tab-Wechsel: Team laden
+    $(document).on('click', '.tix-od-tab[data-tab="team"]', function() {
+        loadTeam();
+    });
+
+    // Mitglied hinzufügen
+    $(document).on('click', '#tix-od-team-add-btn', function() {
+        var email = $('#tix-od-team-email').val().trim();
+        var first = $('#tix-od-team-firstname').val().trim();
+        var last  = $('#tix-od-team-lastname').val().trim();
+        var role  = $('#tix-od-team-role').val();
+        if (!email || !first) { toast('E-Mail und Vorname sind erforderlich.', 'error'); return; }
+        ajax('tix_team_add_member', {email: email, first_name: first, last_name: last, role: role}, function(data) {
+            toast(data.message || 'Mitglied hinzugefügt.');
+            teamLoaded = false;
+            loadTeam();
+            $('#tix-od-team-email, #tix-od-team-firstname, #tix-od-team-lastname').val('');
+        });
+    });
+
+    // Rolle ändern
+    $(document).on('change', '.tix-od-team-role-sel', function() {
+        var userId = $(this).closest('.tix-od-team-member').data('user-id');
+        var role = $(this).val();
+        ajax('tix_team_update_member', {user_id: userId, role: role}, function(data) {
+            toast(data.message || 'Rolle aktualisiert.');
+        });
+    });
+
+    // Mitglied entfernen
+    $(document).on('click', '.tix-od-team-remove', function() {
+        if (!confirm('Team-Mitglied wirklich entfernen?')) return;
+        var $member = $(this).closest('.tix-od-team-member');
+        var userId = $member.data('user-id');
+        ajax('tix_team_remove_member', {user_id: userId}, function(data) {
+            $member.fadeOut(300, function() { $(this).remove(); });
+            toast(data.message || 'Mitglied entfernt.');
+        });
+    });
+
 })(jQuery);

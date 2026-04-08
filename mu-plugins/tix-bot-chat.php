@@ -7,33 +7,76 @@
 if (!defined('ABSPATH')) exit;
 
 // ============================================================
-// CONFIG
+// CONFIG – liest Hub-URL aus Plugin-Settings, Fallback auf Default
 // ============================================================
-define('TIX_CHAT_API', 'https://tixomat-dpconnect.pythonanywhere.com');
-define('TIX_CHAT_LOGO', '/wp-content/uploads/2026/03/favicon-tixomat-hell.jpg');
+$_tix_chat_hub = '';
+if (function_exists('tix_get_settings')) {
+    $_tix_chat_hub = rtrim(tix_get_settings('bot_hub_url') ?: '', '/');
+}
+if (empty($_tix_chat_hub)) {
+    $_tix_chat_hub = 'https://tixomat.pythonanywhere.com';
+}
+define('TIX_CHAT_API', $_tix_chat_hub);
 define('TIX_CHAT_BETA', true);
 
 // ============================================================
-// FARBEN
+// SETTINGS — aus tix_settings laden, Fallback auf Defaults
 // ============================================================
+$_tix_s = get_option('tix_settings', []);
+
+// Logo: Avatar aus Settings oder Legacy-Fallback
+$_tix_avatar_id = intval($_tix_s['bot_avatar_id'] ?? 0);
+$_tix_logo = '';
+if ($_tix_avatar_id && function_exists('wp_get_attachment_image_url')) {
+    $_tix_logo = wp_get_attachment_image_url($_tix_avatar_id, 'thumbnail') ?: '';
+}
+if (empty($_tix_logo)) {
+    $_tix_logo = '/wp-content/uploads/2026/03/favicon-tixomat-hell.jpg';
+}
+define('TIX_CHAT_LOGO', $_tix_logo);
+
+// Bot-Name
+define('TIX_CHAT_NAME', sanitize_text_field($_tix_s['bot_name'] ?? 'Ticket-Assistent'));
+
+// Font
+define('TIX_CHAT_FONT', sanitize_text_field($_tix_s['bot_font'] ?? 'Inter'));
+
+// ============================================================
+// FARBEN — aus Settings oder Defaults
+// ============================================================
+$_tix_c = function($key, $default) use ($_tix_s) {
+    return !empty($_tix_s[$key]) ? $_tix_s[$key] : $default;
+};
+
+$_accent     = $_tix_c('bot_color_accent', '#FF5500');
+$_accent_h   = $_tix_c('bot_color_accent_hover', '#CC4400');
+$_text       = $_tix_c('bot_color_text', '#0D0B09');
+
+// Helper: hex to rgba-Teilstring (255,85,0)
+$_hex2rgb = function($hex) {
+    $hex = ltrim($hex, '#');
+    if (strlen($hex) !== 6) return '255,85,0'; // Fallback
+    return implode(',', array_map('hexdec', str_split($hex, 2)));
+};
+
 $TIX_COLORS = [
-    'bg'            => '#FAF8F4',
-    'bg_header'     => '#ffffff',
-    'bg_input'      => '#ffffff',
-    'bg_card'       => '#ffffff',
-    'bg_input_field'=> '#F3F0EA',
-    'accent'        => '#FF5500',
-    'accent_hover'  => '#CC4400',
-    'accent_bg'     => 'rgba(255,85,0,.08)',
-    'accent_shadow' => 'rgba(255,85,0,.25)',
-    'text'          => '#0D0B09',
-    'text_muted'    => 'rgba(13,11,9,.50)',
-    'text_light'    => 'rgba(13,11,9,.35)',
-    'border'        => '#EDE9E0',
-    'border_hover'  => '#FF5500',
-    'user_bubble'   => '#FF5500',
-    'user_text'     => '#ffffff',
-    'cart_accent'   => '#FF5500',
+    'bg'            => $_tix_c('bot_color_bg', '#FAF8F4'),
+    'bg_header'     => $_tix_c('bot_color_bg_header', '#ffffff'),
+    'bg_input'      => $_tix_c('bot_color_bg_input', '#ffffff'),
+    'bg_card'       => $_tix_c('bot_color_bg_card', '#ffffff'),
+    'bg_input_field'=> $_tix_c('bot_color_bg_input_field', '#F3F0EA'),
+    'accent'        => $_accent,
+    'accent_hover'  => $_accent_h,
+    'accent_bg'     => 'rgba(' . $_hex2rgb($_accent) . ',.08)',
+    'accent_shadow' => 'rgba(' . $_hex2rgb($_accent) . ',.25)',
+    'text'          => $_text,
+    'text_muted'    => $_tix_c('bot_color_text_muted', 'rgba(13,11,9,.50)'),
+    'text_light'    => $_tix_c('bot_color_text_light', 'rgba(13,11,9,.35)'),
+    'border'        => $_tix_c('bot_color_border', '#EDE9E0'),
+    'border_hover'  => $_accent,
+    'user_bubble'   => $_tix_c('bot_color_user_bubble', '#FF5500'),
+    'user_text'     => $_tix_c('bot_color_user_text', '#ffffff'),
+    'cart_accent'   => $_accent,
 ];
 
 
@@ -116,9 +159,9 @@ function tix_ajax_clear_cart() {
 // ============================================================
 function tix_css($c, $height = '700px') {
     return '
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family='.urlencode(TIX_CHAT_FONT).':wght@400;500;600;700&display=swap");
 
-.tix-chat{font-family:"Inter",-apple-system,BlinkMacSystemFont,sans-serif;background:'.$c['bg'].';border-radius:24px;overflow:hidden;display:flex;flex-direction:column;height:'.$height.';max-height:85vh;min-height:400px;position:relative;box-shadow:0 4px 30px rgba(0,0,0,.08)}
+.tix-chat{font-family:"'.esc_attr(TIX_CHAT_FONT).'",-apple-system,BlinkMacSystemFont,sans-serif;background:'.$c['bg'].';border-radius:24px;overflow:hidden;display:flex;flex-direction:column;height:'.$height.';max-height:85vh;min-height:400px;position:relative;box-shadow:0 4px 30px rgba(0,0,0,.08)}
 .tix-chat *{margin:0;padding:0;box-sizing:border-box}
 .tix-chat.fullscreen{position:fixed!important;top:0!important;left:0!important;right:0!important;bottom:0!important;width:100%!important;height:100%!important;max-height:100%!important;border-radius:0!important;z-index:100000!important;box-shadow:none!important}
 
@@ -143,7 +186,7 @@ function tix_css($c, $height = '700px') {
 
 /* Mode selection buttons */
 .tix-mode-btns{display:flex;flex-direction:column;gap:10px}
-.tix-mode-btn{display:flex;align-items:center;gap:14px;padding:16px 18px;border-radius:16px;border:1.5px solid '.$c['border'].';background:'.$c['bg_card'].';cursor:pointer;transition:all .2s;text-align:left;font-family:"Inter",sans-serif;width:100%}
+.tix-mode-btn{display:flex;align-items:center;gap:14px;padding:16px 18px;border-radius:16px;border:1.5px solid '.$c['border'].';background:'.$c['bg_card'].';cursor:pointer;transition:all .2s;text-align:left;font-family:"'.esc_attr(TIX_CHAT_FONT).'",sans-serif;width:100%}
 .tix-mode-btn:hover{border-color:'.$c['accent'].';transform:translateY(-1px);box-shadow:0 4px 12px '.$c['accent_bg'].'}
 .tix-mode-btn:active{transform:translateY(0)}
 .tix-mode-ico{font-size:28px;flex-shrink:0}
@@ -172,7 +215,7 @@ function tix_css($c, $height = '700px') {
 @keyframes tixDot{0%,70%,100%{transform:translateY(0);opacity:.3}35%{transform:translateY(-5px);opacity:1}}
 
 .tix-kb{display:flex;flex-wrap:wrap;gap:6px;padding:6px 0;animation:tixIn .3s ease .08s both}
-.tix-kbb{padding:8px 15px;border-radius:30px;border:1.5px solid '.$c['border'].';background:'.$c['bg_card'].';color:'.$c['text'].';font-size:12.5px;font-weight:500;font-family:"Inter",sans-serif;cursor:pointer;transition:all .2s;white-space:nowrap}
+.tix-kbb{padding:8px 15px;border-radius:30px;border:1.5px solid '.$c['border'].';background:'.$c['bg_card'].';color:'.$c['text'].';font-size:12.5px;font-weight:500;font-family:"'.esc_attr(TIX_CHAT_FONT).'",sans-serif;cursor:pointer;transition:all .2s;white-space:nowrap}
 .tix-kbb:hover{border-color:'.$c['accent'].';color:'.$c['accent'].';transform:translateY(-1px)}
 .tix-kbb.sel{background:'.$c['accent'].';border-color:'.$c['accent'].';color:#fff}
 .tix-kbb.q{min-width:65px;text-align:center;font-weight:600}
@@ -181,7 +224,7 @@ function tix_css($c, $height = '700px') {
 
 /* Callback/Contact buttons */
 .tix-cb{display:flex;flex-direction:column;gap:8px;padding:8px 0;animation:tixIn .3s ease .08s both}
-.tix-cbb{padding:12px 18px;border-radius:14px;border:1.5px solid '.$c['border'].';background:'.$c['bg_card'].';color:'.$c['text'].';font-size:13px;font-weight:500;font-family:"Inter",sans-serif;cursor:pointer;transition:all .2s;text-align:left;display:flex;align-items:center;gap:10px}
+.tix-cbb{padding:12px 18px;border-radius:14px;border:1.5px solid '.$c['border'].';background:'.$c['bg_card'].';color:'.$c['text'].';font-size:13px;font-weight:500;font-family:"'.esc_attr(TIX_CHAT_FONT).'",sans-serif;cursor:pointer;transition:all .2s;text-align:left;display:flex;align-items:center;gap:10px}
 .tix-cbb:hover{border-color:'.$c['accent'].';color:'.$c['accent'].';transform:translateY(-1px)}
 
 .tix-ct{padding:12px 22px;background:'.$c['bg_header'].';border-top:1px solid '.$c['border'].';display:none;align-items:center;gap:12px;flex-shrink:0}
@@ -191,12 +234,12 @@ function tix_css($c, $height = '700px') {
 .tix-ct-cnt{font-size:13px;color:'.$c['text'].';font-weight:600}
 .tix-ct-sub{font-size:11px;color:'.$c['text_light'].'}
 .tix-ct-tot{font-size:14px;color:'.$c['cart_accent'].';font-weight:700;letter-spacing:-.02em}
-.tix-ct-btn{display:inline-flex;align-items:center;gap:6px;padding:9px 18px;border-radius:30px;background:'.$c['accent'].' !important;border:none;color:#fff !important;font-size:12px;font-weight:700;cursor:pointer;font-family:"Inter",sans-serif;transition:all .2s;text-decoration:none !important}
+.tix-ct-btn{display:inline-flex;align-items:center;gap:6px;padding:9px 18px;border-radius:30px;background:'.$c['accent'].' !important;border:none;color:#fff !important;font-size:12px;font-weight:700;cursor:pointer;font-family:"'.esc_attr(TIX_CHAT_FONT).'",sans-serif;transition:all .2s;text-decoration:none !important}
 .tix-ct-btn:hover{background:'.$c['accent_hover'].' !important;color:#fff !important;transform:translateY(-1px);text-decoration:none !important}
 .tix-ct-btn:visited,.tix-ct-btn:active,.tix-ct-btn:focus{color:#fff !important;text-decoration:none !important}
 
 .tix-ia{padding:16px 20px;background:'.$c['bg_input'].';border-top:1px solid '.$c['border'].';display:flex;gap:10px;align-items:center;flex-shrink:0}
-.tix-in{flex:1;padding:12px 18px;border-radius:30px;border:1.5px solid '.$c['border'].';background:'.$c['bg_input_field'].';color:'.$c['text'].';font-size:13.5px;font-family:"Inter",sans-serif;outline:none;transition:all .2s}
+.tix-in{flex:1;padding:12px 18px;border-radius:30px;border:1.5px solid '.$c['border'].';background:'.$c['bg_input_field'].';color:'.$c['text'].';font-size:13.5px;font-family:"'.esc_attr(TIX_CHAT_FONT).'",sans-serif;outline:none;transition:all .2s}
 .tix-in::placeholder{color:'.$c['text_light'].'}
 .tix-in:focus{border-color:'.$c['accent'].';background:#fff;box-shadow:0 0 0 3px '.$c['accent_bg'].'}
 .tix-snd{width:44px;height:44px;border-radius:50%;background:'.$c['accent'].';border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .2s;flex-shrink:0}
@@ -458,7 +501,7 @@ function tix_embed_shortcode($atts) {
 <div class="tix-chat">
   <div class="tix-hdr">
     <div class="tix-av"><img src="<?php echo esc_url($logo); ?>" alt="TX" onerror="this.remove();this.parentNode.textContent='🎫'"></div>
-    <div class="tix-hi"><div class="tix-hn">Tixomat<?php if (TIX_CHAT_BETA): ?><span class="tix-badge-beta">Beta</span><?php endif; ?></div><div class="tix-hs">Online</div></div>
+    <div class="tix-hi"><div class="tix-hn"><?php echo esc_html(TIX_CHAT_NAME); ?><?php if (TIX_CHAT_BETA): ?><span class="tix-badge-beta">Beta</span><?php endif; ?></div><div class="tix-hs">Online</div></div>
     <button class="tix-hreset" onclick="TXE.resetChat()" title="Neue Sitzung"><svg viewBox="0 0 24 24"><path d="M17.65 6.35A7.958 7.958 0 0012 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0112 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg></button>
     <?php echo tix_fs_btn_html('txe-fs'); ?>
   </div>
@@ -553,7 +596,7 @@ function tix_widget_shortcode($atts) {
 <div class="tix-chat">
   <div class="tix-hdr">
     <div class="tix-av"><img src="<?php echo esc_url($logo); ?>" alt="TX" onerror="this.remove();this.parentNode.textContent='🎫'"></div>
-    <div class="tix-hi"><div class="tix-hn">Tixomat<?php if (TIX_CHAT_BETA): ?><span class="tix-badge-beta">Beta</span><?php endif; ?></div><div class="tix-hs">Online</div></div>
+    <div class="tix-hi"><div class="tix-hn"><?php echo esc_html(TIX_CHAT_NAME); ?><?php if (TIX_CHAT_BETA): ?><span class="tix-badge-beta">Beta</span><?php endif; ?></div><div class="tix-hs">Online</div></div>
     <button class="tix-hreset" onclick="TXW.resetChat()" title="Neue Sitzung"><svg viewBox="0 0 24 24"><path d="M17.65 6.35A7.958 7.958 0 0012 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0112 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg></button>
     <?php echo tix_fs_btn_html('txw-fs'); ?>
     <button class="tix-hx" onclick="TXW.toggle()">✕</button>
@@ -614,7 +657,12 @@ function tix_widget_shortcode($atts) {
 add_shortcode('tix_chat_widget', 'tix_widget_shortcode');
 
 
-// Auto-widget
-if (get_option('tix_auto_widget', false)) {
+// Auto-widget — prüft tix_settings oder Legacy-Option
+$_tix_auto = get_option('tix_auto_widget', false);
+if (!$_tix_auto) {
+    $__s = get_option('tix_settings', []);
+    $_tix_auto = !empty($__s['bot_enabled']) && !empty($__s['bot_webchat_enabled']);
+}
+if ($_tix_auto) {
     add_action('wp_footer', function() { if (!is_admin()) echo do_shortcode('[tix_chat_widget]'); });
 }

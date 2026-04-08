@@ -257,7 +257,8 @@ class TIX_Order {
         }
 
         $allowed_cols = ['date_created', 'id', 'total', 'status', 'order_number', 'billing_email', 'billing_last_name'];
-        $order_col = in_array($args['orderby'] ?? 'date_created', $allowed_cols, true) ? $args['orderby'] : 'date_created';
+        $requested_col = $args['orderby'] ?? 'date_created';
+        $order_col = in_array($requested_col, $allowed_cols, true) ? $requested_col : 'date_created';
         $order_dir = strtoupper($args['order'] ?? 'DESC') === 'ASC' ? 'ASC' : 'DESC';
         $limit = intval($args['limit'] ?? 0);
         $offset = intval($args['offset'] ?? 0);

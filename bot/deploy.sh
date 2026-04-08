@@ -10,10 +10,10 @@
 set -e
 
 # --- Config ---
-PA_USER="dpconnect"
-PA_DOMAIN="tixomat-dpconnect.pythonanywhere.com"
+PA_USER="tixomat"
+PA_DOMAIN="tixomat.pythonanywhere.com"
 PA_API="https://www.pythonanywhere.com/api/v0/user/${PA_USER}"
-PA_REPO_DIR="/home/dpconnect/tixomat-bot"
+PA_REPO_DIR="/home/tixomat/tixomat-bot"
 
 # API Token from environment or .env file
 if [ -z "$PA_API_TOKEN" ]; then

@@ -52,7 +52,7 @@ def detect_mode(session, text, channel, ctx=None):
         lower = text.strip().lower()
         if any(kw in lower for kw in TICKET_LOOKUP_KEYWORDS):
             session["mode"] = "ticket_lookup"
-            session["ticket_lookup_step"] = "ask_email"
+            session["ticket_lookup_step"] = "init"
         elif any(kw in lower for kw in SUPPORT_KEYWORDS):
             session["mode"] = "support"
             session["support_step"] = None
@@ -71,7 +71,7 @@ def detect_mode(session, text, channel, ctx=None):
     # Detect ticket lookup signals (check first – highest priority)
     if any(kw in lower for kw in TICKET_LOOKUP_KEYWORDS):
         session["mode"] = "ticket_lookup"
-        session["ticket_lookup_step"] = "ask_email"
+        session["ticket_lookup_step"] = "init"
         return None
 
     # Detect support signals
@@ -126,14 +126,9 @@ def handle_whatsapp_mode_choice(session, text):
         )
     elif stripped == "2":
         session["mode"] = "ticket_lookup"
-        session["ticket_lookup_step"] = "ask_email"
-        return BotResponse(
-            text=(
-                "🔍 *Meine Tickets finden*\n\n"
-                "Klar, ich helfe dir deine Tickets zu finden!\n\n"
-                "Was ist deine E-Mail-Adresse, mit der du gebucht hast? ✉️"
-            )
-        )
+        session["ticket_lookup_step"] = "init"
+        # Don't show email prompt here – handle_ticket_lookup will check login state
+        return None  # Let unified handler route to handle_ticket_lookup
     elif stripped == "3":
         session["mode"] = "support"
         session["support_step"] = None

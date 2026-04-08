@@ -996,6 +996,11 @@ class TIX_Columns {
 
         if (!empty($meta_query)) {
             $query->set('meta_query', $meta_query);
+            // Explizite Sortierung erzwingen wenn kein orderby gesetzt (meta_query ändert sonst die Reihenfolge)
+            if (!$query->get('orderby')) {
+                $query->set('orderby', 'date');
+                $query->set('order', 'DESC');
+            }
         }
 
         // Sortierbare Spalten

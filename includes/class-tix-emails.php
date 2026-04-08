@@ -1386,13 +1386,18 @@ class TIX_Emails {
             $html
         );
 
-        // Admin notification (new_order)
-        $admin_html = self::build_email_html('admin_new_order', $order, 'Neue Bestellung');
-        self::send_html_mail(
-            get_option('admin_email'),
-            $brand_name . ' – Neue Bestellung #' . $order->get_id(),
-            $admin_html
-        );
+        // Admin notification (new_order) — kann per Flag unterdrückt werden
+        $skip_admin = get_transient('_tix_skip_admin_email_' . $order_id);
+        if ($skip_admin) {
+            delete_transient('_tix_skip_admin_email_' . $order_id);
+        } else {
+            $admin_html = self::build_email_html('admin_new_order', $order, 'Neue Bestellung');
+            self::send_html_mail(
+                get_option('admin_email'),
+                $brand_name . ' – Neue Bestellung #' . $order->get_id(),
+                $admin_html
+            );
+        }
 
         // Schedule reminder + followup emails for native orders
         self::schedule_native_event_emails($order);

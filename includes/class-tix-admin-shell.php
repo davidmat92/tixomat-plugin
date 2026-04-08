@@ -42,7 +42,7 @@ class TIX_Admin_Shell {
         $tix_pages = [
             'tix-settings', 'tix-statistics', 'tix-support', 'tix-docs',
             'tix-promoters', 'tix-marketing-export', 'tix-campaigns', 'tix-meta-ads',
-            'tix-templates', 'tix-orders',
+            'tix-templates', 'tix-orders', 'tix-email-log', 'tix-bulk-editor',
             'tix-organizer-dashboard', 'tix-organizer-orders',
             'tix-organizer-guestlist', 'tix-organizer-email', 'tix-organizer-billing',
             'tix-organizer-media',
@@ -138,7 +138,9 @@ class TIX_Admin_Shell {
         elseif ($current_page === 'tix-campaigns')                              $active = 'campaigns';
         elseif ($current_page === 'tix-meta-ads')                              $active = 'meta-ads';
         elseif ($current_page === 'tix-templates')                              $active = 'templates';
+        elseif ($current_page === 'tix-bulk-editor')                            $active = 'bulk-editor';
         elseif ($current_page === 'tix-orders')                                 $active = 'orders';
+        elseif ($current_page === 'tix-email-log')                              $active = 'email-log';
         elseif ($current_page === 'tix-settings')                               $active = 'settings';
         elseif ($current_page === 'tix-docs')                                   $active = 'docs';
 
@@ -157,6 +159,7 @@ class TIX_Admin_Shell {
             'bot'             => ['icon' => 'format-chat',            'label' => 'Ticket-Bot'],
             'typography'      => ['icon' => 'editor-textcolor',       'label' => 'Typografie'],
             'colors'          => ['icon' => 'admin-appearance',      'label' => 'Farben'],
+            'event-homepage'  => ['icon' => 'admin-home',             'label' => 'Event-Homepage'],
             'advanced'        => ['icon' => 'admin-generic',          'label' => 'Erweitert'],
         ];
         $settings_more = [
@@ -194,7 +197,9 @@ class TIX_Admin_Shell {
 
             <!-- ── Brand ── -->
             <div class="tix-shell-brand">
-                <img src="<?php echo esc_url($logo_url); ?>" alt="Tixomat" class="tix-shell-logo-img">
+                <a href="<?php echo esc_url(home_url('/')); ?>" style="display:inline-block;text-decoration:none;">
+                    <img src="<?php echo esc_url($logo_url); ?>" alt="Tixomat" class="tix-shell-logo-img">
+                </a>
                 <?php if (!$is_organizer) : ?>
                     <div class="tix-shell-version">v<?php echo esc_html(TIXOMAT_VERSION); ?></div>
                 <?php endif; ?>
@@ -204,7 +209,16 @@ class TIX_Admin_Shell {
             <nav class="tix-shell-nav">
 
             <?php if ($is_organizer) : ?>
-                <?php // ═══ ORGANIZER SIDEBAR ═══ ?>
+                <?php
+                // ═══ ORGANIZER SIDEBAR ═══
+                $uid = get_current_user_id();
+                $can_edit    = !class_exists('TIX_Team') || TIX_Team::user_can($uid, 'edit_events');
+                $can_tickets = !class_exists('TIX_Team') || TIX_Team::user_can($uid, 'view_tickets');
+                $can_stats   = !class_exists('TIX_Team') || TIX_Team::user_can($uid, 'view_statistics');
+                $can_billing = !class_exists('TIX_Team') || TIX_Team::user_can($uid, 'manage_billing');
+                $can_settings = !class_exists('TIX_Team') || TIX_Team::user_can($uid, 'manage_settings');
+                $can_guestlist = !class_exists('TIX_Team') || TIX_Team::user_can($uid, 'view_guestlist');
+                ?>
 
                 <!-- Dashboard -->
                 <div class="tix-shell-group">
@@ -215,6 +229,7 @@ class TIX_Admin_Shell {
                     </a>
                 </div>
 
+                <?php if ($can_edit) : ?>
                 <div class="tix-shell-group">
                     <div class="tix-shell-group-label">Meine Events</div>
                     <a href="<?php echo admin_url('edit.php?post_type=event'); ?>"
@@ -243,7 +258,9 @@ class TIX_Admin_Shell {
                         <span>Vorlagen</span>
                     </a>
                 </div>
+                <?php endif; ?>
 
+                <?php if ($can_tickets) : ?>
                 <!-- Ticketing -->
                 <div class="tix-shell-group">
                     <div class="tix-shell-group-label">Ticketing</div>
@@ -263,10 +280,12 @@ class TIX_Admin_Shell {
                         <span>Ticket-Vorlagen</span>
                     </a>
                 </div>
+                <?php endif; ?>
 
                 <!-- Verwaltung -->
                 <div class="tix-shell-group">
                     <div class="tix-shell-group-label">Verwaltung</div>
+                    <?php if ($can_stats) : ?>
                     <a href="<?php echo admin_url('admin.php?page=tix-statistics'); ?>"
                        class="tix-shell-item<?php echo $active === 'statistics' ? ' active' : ''; ?>">
                         <span class="dashicons dashicons-chart-bar"></span>
@@ -277,11 +296,15 @@ class TIX_Admin_Shell {
                         <span class="dashicons dashicons-email-alt"></span>
                         <span>Newsletter</span>
                     </a>
+                    <?php endif; ?>
+                    <?php if ($can_guestlist) : ?>
                     <a href="<?php echo admin_url('admin.php?page=tix-organizer-guestlist'); ?>"
                        class="tix-shell-item<?php echo ($current_page === 'tix-organizer-guestlist') ? ' active' : ''; ?>">
                         <span class="dashicons dashicons-download"></span>
                         <span>G&auml;steliste Export</span>
                     </a>
+                    <?php endif; ?>
+                    <?php if ($can_billing) : ?>
                     <a href="<?php echo admin_url('admin.php?page=tix-organizer-email'); ?>"
                        class="tix-shell-item<?php echo ($current_page === 'tix-organizer-email') ? ' active' : ''; ?>">
                         <span class="dashicons dashicons-email"></span>
@@ -292,8 +315,10 @@ class TIX_Admin_Shell {
                         <span class="dashicons dashicons-media-spreadsheet"></span>
                         <span>Abrechnung</span>
                     </a>
+                    <?php endif; ?>
                 </div>
 
+                <?php if ($can_settings) : ?>
                 <!-- Einstellungen -->
                 <div class="tix-shell-group">
                     <div class="tix-shell-group-label">Einstellungen</div>
@@ -308,6 +333,7 @@ class TIX_Admin_Shell {
                         <span>Mein Profil</span>
                     </a>
                 </div>
+                <?php endif; ?>
 
             <?php else : ?>
                 <?php // ═══ ADMIN SIDEBAR (vollständig) ═══ ?>
@@ -344,6 +370,11 @@ class TIX_Admin_Shell {
                        class="tix-shell-item<?php echo $active === 'templates' ? ' active' : ''; ?>">
                         <span class="dashicons dashicons-screenoptions"></span>
                         <span>Vorlagen</span>
+                    </a>
+                    <a href="<?php echo admin_url('admin.php?page=tix-bulk-editor'); ?>"
+                       class="tix-shell-item<?php echo $active === 'bulk-editor' ? ' active' : ''; ?>">
+                        <span class="dashicons dashicons-cloud-upload"></span>
+                        <span>KI-Import</span>
                     </a>
                 </div>
 
@@ -451,6 +482,11 @@ class TIX_Admin_Shell {
                        class="tix-shell-item<?php echo $active === 'meta-ads' ? ' active' : ''; ?>">
                         <span class="dashicons dashicons-share"></span>
                         <span>Social Content</span>
+                    </a>
+                    <a href="<?php echo admin_url('admin.php?page=tix-email-log'); ?>"
+                       class="tix-shell-item<?php echo $active === 'email-log' ? ' active' : ''; ?>">
+                        <span class="dashicons dashicons-email-alt2"></span>
+                        <span>E-Mail-Log</span>
                     </a>
                 </div>
 

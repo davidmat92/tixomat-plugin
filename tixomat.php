@@ -2,14 +2,14 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.34.231
+ * Version: 1.34.267
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.34.250');
+define('TIXOMAT_VERSION', '1.34.267');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -329,6 +329,10 @@ TIX_Feedback::init();
 require_once TIXOMAT_PATH . 'includes/class-tix-event-templates.php';
 TIX_Event_Templates::init();
 
+// ── Bulk Editor ──
+require_once TIXOMAT_PATH . 'includes/class-tix-bulk-editor.php';
+TIX_Bulk_Editor::init();
+
 // ── Nativer Checkout (ohne WooCommerce) ──
 require_once TIXOMAT_PATH . 'includes/class-tix-native-checkout.php';
 require_once TIXOMAT_PATH . 'includes/class-tix-gateway-free.php';
@@ -347,6 +351,10 @@ if ($use_native) {
 // ── Event-Karten Shortcode [tix_events] ──
 require_once TIXOMAT_PATH . 'includes/class-tix-event-cards.php';
 TIX_Event_Cards::init();
+
+// ── Event-Homepage [tix_homepage] ──
+require_once TIXOMAT_PATH . 'includes/class-tix-event-homepage.php';
+TIX_Event_Homepage::init();
 
 // ── Event-Einzelseite Template (Addon) ──
 require_once TIXOMAT_PATH . 'includes/class-tix-single-event.php';
@@ -461,6 +469,7 @@ register_activation_hook(__FILE__, function() {
     TIX_Table_Reservation::create_table();
     require_once TIXOMAT_PATH . 'includes/class-tix-meta-pixel.php';
     TIX_Meta_Pixel::create_table();
+    TIX_Email_Log::create_table();
 
     // Waitlist cron
     if (!wp_next_scheduled('tix_waitlist_check')) {
@@ -612,6 +621,7 @@ if (is_admin() && !wp_doing_ajax()) {
 add_filter('get_post_metadata', function($value, $post_id, $meta_key, $single) {
     if ($meta_key !== '_tix_price_label') return $value;
     if (get_post_type($post_id) !== 'event') return $value;
+    if (!class_exists('TIX_Ticket_Selector')) return $value;
     if (!TIX_Ticket_Selector::check_presale_active($post_id)) {
         // Presale nicht aktiv — prüfen ob es überhaupt Presale gab
         $had_presale = get_post_meta($post_id, '_tix_presale_end_computed', true);
@@ -1000,12 +1010,16 @@ TIX_Ticket_Template_CPT::init();
 require_once TIXOMAT_PATH . 'includes/class-tix-emails.php';
 TIX_Emails::init();
 
+// ── E-Mail-Log ──
+require_once TIXOMAT_PATH . 'includes/class-tix-email-log.php';
+TIX_Email_Log::init();
+
 // ── Support-System (CRM + Kunden-Portal) ──
 require_once TIXOMAT_PATH . 'includes/class-tix-support.php';
 TIX_Support::init();
 
 // ── WooCommerce-Integration: Frontend + AJAX (Gruppenrabatt, Dynamische Preise) ──
-if (!is_admin() || defined('DOING_AJAX')) {
+if ((!is_admin() || defined('DOING_AJAX')) && tix_has_wc()) {
     require_once TIXOMAT_PATH . 'includes/class-tix-group-discount.php';
     require_once TIXOMAT_PATH . 'includes/class-tix-dynamic-pricing.php';
     TIX_Group_Discount::init();
@@ -1197,6 +1211,16 @@ add_action('admin_init', function() {
     // v1.34.247: tix_order_notes Tabelle (nachträglich)
     if (version_compare($stored, '1.34.247', '<')) {
         TIX_Order::create_tables();
+    }
+
+    // v1.34.252: tixomat_tickets + email_log Tabellen sicherstellen
+    if (version_compare($stored, '1.34.252', '<')) {
+        if (class_exists('TIX_Ticket_DB')) {
+            TIX_Ticket_DB::create_table();
+        }
+        if (class_exists('TIX_Email_Log')) {
+            TIX_Email_Log::create_table();
+        }
     }
 
     update_option('tix_db_version', TIXOMAT_VERSION);

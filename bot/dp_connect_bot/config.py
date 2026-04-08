@@ -12,7 +12,7 @@ import logging
 # ============================================================
 
 HUB_MASTER_KEY = os.environ.get("HUB_MASTER_KEY", "")
-BOT_BASE_URL = os.environ.get("BOT_BASE_URL", "https://tixomat-dpconnect.pythonanywhere.com")
+BOT_BASE_URL = os.environ.get("BOT_BASE_URL", "https://tixomat.pythonanywhere.com")
 
 # ============================================================
 # API KEYS & EXTERNAL SERVICES
@@ -60,7 +60,7 @@ HISTORY_DB_PATH = os.path.join(_BASE_DIR, "bot_history.db")
 SESSION_FILE = os.path.join(_BASE_DIR, "sessions.json")  # Legacy, for migration only
 
 # CORS
-ALLOWED_ORIGINS = ["https://tixomat.de", "https://www.tixomat.de", "http://localhost", "https://tixomat-dpconnect.pythonanywhere.com"]
+ALLOWED_ORIGINS = ["https://tixomat.de", "https://www.tixomat.de", "http://localhost", "https://tixomat.pythonanywhere.com"]
 
 # ============================================================
 # WORD SETS

@@ -315,6 +315,7 @@ PROMPT;
         $source_content = '';
         $image_data = null;
         $media_type = null;
+        $og_image_url = '';
 
         if ($source_type === 'image') {
             // Bild als Attachment ID
@@ -372,8 +373,10 @@ PROMPT;
                     wp_send_json_error(['message' => 'Bildformat der URL nicht unterstützt.']);
                 }
             } else {
-                // HTML → Text extrahieren
-                $source_content = self::extract_text_from_html($body, $url);
+                // HTML → Text + Bild extrahieren
+                $extracted = self::extract_text_from_html($body, $url);
+                $source_content = $extracted['text'];
+                $og_image_url = $extracted['image_url'] ?? '';
                 if (empty(trim($source_content))) {
                     wp_send_json_error(['message' => 'Kein verwertbarer Inhalt auf der Seite gefunden.']);
                 }
@@ -382,8 +385,209 @@ PROMPT;
             wp_send_json_error(['message' => 'Ungültiger Quellentyp.']);
         }
 
-        // System-Prompt für Feld-Extraktion
-        $system = <<<'PROMPT'
+        $result = self::run_extraction($source_content, $image_data, $media_type, $og_image_url);
+
+        if (is_wp_error($result)) {
+            wp_send_json_error(['message' => $result->get_error_message()]);
+        }
+
+        wp_send_json_success(['fields' => $result]);
+    }
+
+    /**
+     * HTML → lesbaren Text extrahieren
+     */
+    private static function extract_text_from_html($html, $url = '') {
+        // Title
+        $title = '';
+        if (preg_match('/<title[^>]*>(.*?)<\/title>/si', $html, $m)) {
+            $title = html_entity_decode(trim($m[1]), ENT_QUOTES, 'UTF-8');
+        }
+
+        // Meta description
+        $desc = '';
+        if (preg_match('/<meta[^>]+name=["\']description["\'][^>]+content=["\'](.*?)["\']/si', $html, $m)) {
+            $desc = html_entity_decode(trim($m[1]), ENT_QUOTES, 'UTF-8');
+        }
+
+        // OG tags
+        $og = [];
+        preg_match_all('/<meta[^>]+property=["\']og:([^"\']+)["\'][^>]+content=["\'](.*?)["\']/si', $html, $matches, PREG_SET_ORDER);
+        foreach ($matches as $m) {
+            $og[$m[1]] = html_entity_decode(trim($m[2]), ENT_QUOTES, 'UTF-8');
+        }
+        // Auch umgekehrte Attribut-Reihenfolge (content vor property)
+        preg_match_all('/<meta[^>]+content=["\'](.*?)["\'][^>]+property=["\']og:([^"\']+)["\']/si', $html, $matches, PREG_SET_ORDER);
+        foreach ($matches as $m) {
+            if (!isset($og[$m[2]])) {
+                $og[$m[2]] = html_entity_decode(trim($m[1]), ENT_QUOTES, 'UTF-8');
+            }
+        }
+
+        // Body text (strip scripts, styles, nav, footer)
+        $body = $html;
+        $body = preg_replace('/<script[^>]*>.*?<\/script>/si', '', $body);
+        $body = preg_replace('/<style[^>]*>.*?<\/style>/si', '', $body);
+        $body = preg_replace('/<nav[^>]*>.*?<\/nav>/si', '', $body);
+        $body = preg_replace('/<footer[^>]*>.*?<\/footer>/si', '', $body);
+        $body = preg_replace('/<header[^>]*>.*?<\/header>/si', '', $body);
+        $body = wp_strip_all_tags($body);
+        $body = preg_replace('/\s+/', ' ', $body);
+        $body = trim($body);
+
+        $parts = [];
+        if ($url) $parts[] = "URL: {$url}";
+        if ($title) $parts[] = "Seitentitel: {$title}";
+        if ($desc) $parts[] = "Meta-Description: {$desc}";
+        if (!empty($og['title'])) $parts[] = "OG-Title: {$og['title']}";
+        if (!empty($og['description'])) $parts[] = "OG-Description: {$og['description']}";
+        if ($body) $parts[] = "Seitentext:\n" . mb_substr($body, 0, 3000);
+
+        $text = implode("\n\n", $parts);
+
+        // Bild-URL aus OG-Image oder großen <img>-Tags extrahieren
+        $image_url = '';
+        if (!empty($og['image'])) {
+            $image_url = $og['image'];
+        } else {
+            // Fallback: größtes Bild im Hero/Main-Bereich suchen
+            if (preg_match_all('/<img[^>]+src=["\']([^"\']+)["\'][^>]*>/si', $html, $img_matches)) {
+                foreach ($img_matches[1] as $src) {
+                    // Nur große Bilder (keine Icons/Logos)
+                    $src_lower = strtolower($src);
+                    if (strpos($src_lower, 'logo') !== false || strpos($src_lower, 'icon') !== false || strpos($src_lower, 'avatar') !== false) continue;
+                    if (strpos($src_lower, '.svg') !== false) continue;
+                    // Relative URLs auflösen
+                    if (strpos($src, '//') === false && $url) {
+                        $parsed = parse_url($url);
+                        $src = ($parsed['scheme'] ?? 'https') . '://' . ($parsed['host'] ?? '') . '/' . ltrim($src, '/');
+                    }
+                    $image_url = $src;
+                    break; // Erstes passendes Bild nehmen
+                }
+            }
+        }
+
+        // Relative og:image URLs auflösen
+        if ($image_url && strpos($image_url, '//') === false && $url) {
+            $parsed = parse_url($url);
+            $image_url = ($parsed['scheme'] ?? 'https') . '://' . ($parsed['host'] ?? '') . '/' . ltrim($image_url, '/');
+        }
+        // Protocol-relative URLs
+        if ($image_url && strpos($image_url, '//') === 0) {
+            $image_url = 'https:' . $image_url;
+        }
+
+        return ['text' => $text, 'image_url' => $image_url];
+    }
+
+    /**
+     * Bild von externer URL herunterladen und als WP-Attachment speichern.
+     */
+    /**
+     * URL analysieren und Event-Daten extrahieren (öffentliche Methode).
+     * Kann von anderen Klassen (z.B. Bulk Editor) aufgerufen werden.
+     *
+     * @param string $url Die zu analysierende URL
+     * @return array|WP_Error  Erfolg: sanitized fields array, Fehler: WP_Error
+     */
+    public static function analyze_url($url) {
+        $url = esc_url_raw($url);
+        if (empty($url)) return new \WP_Error('empty_url', 'Keine URL angegeben.');
+
+        // URL-Inhalt fetchen
+        $response = wp_remote_get($url, [
+            'timeout'    => 15,
+            'user-agent' => 'TixomatBot/1.0',
+        ]);
+        if (is_wp_error($response)) {
+            return new \WP_Error('fetch_error', 'URL konnte nicht geladen werden: ' . $response->get_error_message());
+        }
+
+        $body         = wp_remote_retrieve_body($response);
+        $content_type = wp_remote_retrieve_header($response, 'content-type');
+        $image_data   = null;
+        $media_type   = null;
+        $source_content = '';
+        $og_image_url   = '';
+
+        if (strpos($content_type, 'image/') === 0) {
+            $detected_mime = explode(';', $content_type)[0];
+            $allowed_types = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+            if (in_array($detected_mime, $allowed_types)) {
+                $image_data = base64_encode($body);
+                $media_type = $detected_mime;
+            } else {
+                return new \WP_Error('mime_error', 'Bildformat der URL nicht unterstützt.');
+            }
+        } else {
+            $extracted      = self::extract_text_from_html($body, $url);
+            $source_content = $extracted['text'];
+            $og_image_url   = $extracted['image_url'] ?? '';
+            if (empty(trim($source_content))) {
+                return new \WP_Error('empty_content', 'Kein verwertbarer Inhalt auf der Seite gefunden.');
+            }
+        }
+
+        return self::run_extraction($source_content, $image_data, $media_type, $og_image_url);
+    }
+
+    /**
+     * Kern-Extraktion: Text/Bild → KI → sanitized fields
+     */
+    private static function run_extraction($source_content, $image_data, $media_type, $og_image_url) {
+        $system = self::get_extraction_system_prompt();
+
+        $text_prompt = 'Extrahiere die Event-Informationen aus dieser Quelle.';
+        if ($source_content) {
+            $text_prompt .= "\n\nWebseiten-Inhalt:\n" . mb_substr($source_content, 0, 4000);
+        }
+
+        if ($image_data) {
+            $result = self::call_api_with_image($system, $text_prompt, $image_data, $media_type, 2048);
+        } else {
+            $result = self::call_api($system, $text_prompt, 2048);
+        }
+
+        if (isset($result['error'])) {
+            return new \WP_Error('ai_error', $result['error']);
+        }
+
+        $text = $result['text'];
+        if (preg_match('/```(?:json)?\s*(\{.*?\})\s*```/s', $text, $m)) {
+            $text = $m[1];
+        }
+
+        $fields = json_decode($text, true);
+        if (!is_array($fields)) {
+            return new \WP_Error('parse_error', 'KI-Antwort konnte nicht verarbeitet werden.');
+        }
+
+        $clean = self::sanitize_extracted_fields($fields);
+
+        // Location Matching
+        $clean['location_id'] = self::match_location($clean['location']);
+
+        // Kategorie Matching
+        $clean['category_ids'] = self::match_category($clean['event_type']);
+
+        // Beitragsbild sideloaden
+        if (!empty($og_image_url)) {
+            $att_id = self::sideload_image_from_url($og_image_url);
+            if ($att_id) {
+                $clean['suggested_image_id']  = $att_id;
+                $clean['suggested_image_url'] = wp_get_attachment_image_url($att_id, 'medium');
+            }
+        }
+
+        return $clean;
+    }
+
+    /**
+     * System-Prompt für Feld-Extraktion
+     */
+    private static function get_extraction_system_prompt() {
+        return <<<'PROMPT'
 Du bist ein Assistent für eine Event-Ticketing-Plattform. Deine Aufgabe ist es, aus der gegebenen Quelle (Bild eines Flyers/Plakats oder Webseiten-Text) ALLE Event-Informationen vollständig zu extrahieren.
 
 Extrahiere folgende Felder und antworte AUSSCHLIESSLICH mit einem JSON-Objekt:
@@ -422,35 +626,12 @@ REGELN:
 - tickets: Wenn Preise erkennbar sind, als Array zurückgeben. Sonst leeres Array.
 - faq: Generiere 2-3 sinnvolle FAQ basierend auf dem Event-Typ (Anfahrt, Einlass, Dresscode etc.)
 PROMPT;
+    }
 
-        $text_prompt = 'Extrahiere die Event-Informationen aus dieser Quelle.';
-        if ($source_content) {
-            $text_prompt .= "\n\nWebseiten-Inhalt:\n" . mb_substr($source_content, 0, 4000);
-        }
-
-        if ($image_data) {
-            $result = self::call_api_with_image($system, $text_prompt, $image_data, $media_type, 2048);
-        } else {
-            $result = self::call_api($system, $text_prompt, 2048);
-        }
-
-        if (isset($result['error'])) {
-            wp_send_json_error(['message' => $result['error']]);
-        }
-
-        // JSON parsen
-        $text = $result['text'];
-        // Markdown-Codeblock entfernen falls vorhanden
-        if (preg_match('/```(?:json)?\s*(\{.*?\})\s*```/s', $text, $m)) {
-            $text = $m[1];
-        }
-
-        $fields = json_decode($text, true);
-        if (!is_array($fields)) {
-            wp_send_json_error(['message' => 'KI-Antwort konnte nicht verarbeitet werden. Bitte versuche es erneut.']);
-        }
-
-        // Felder sanitizen
+    /**
+     * Felder sanitizen
+     */
+    private static function sanitize_extracted_fields($fields) {
         $clean = [
             'title'            => sanitize_text_field($fields['title'] ?? ''),
             'description'      => wp_kses_post($fields['description'] ?? ''),
@@ -471,7 +652,6 @@ PROMPT;
             'faq'              => [],
         ];
 
-        // Tickets sanitizen
         if (!empty($fields['tickets']) && is_array($fields['tickets'])) {
             foreach ($fields['tickets'] as $t) {
                 if (empty($t['name'])) continue;
@@ -483,7 +663,6 @@ PROMPT;
             }
         }
 
-        // FAQ sanitizen
         if (!empty($fields['faq']) && is_array($fields['faq'])) {
             foreach ($fields['faq'] as $f) {
                 if (empty($f['question'])) continue;
@@ -494,130 +673,106 @@ PROMPT;
             }
         }
 
-        // ── Location Matching: Fuzzy-Match gegen bestehende Locations ──
-        $clean['location_id'] = 0;
-        if ($clean['location']) {
-            $locations = get_posts([
-                'post_type'      => 'tix_location',
-                'post_status'    => 'any',
-                'posts_per_page' => -1,
-            ]);
-            $best_match = 0;
-            $best_score = 0;
-            $search = mb_strtolower($clean['location']);
-            foreach ($locations as $loc) {
-                $name = mb_strtolower($loc->post_title);
-                // Exakter Match
-                if ($name === $search) {
-                    $best_match = $loc->ID;
-                    $best_score = 100;
-                    break;
-                }
-                // Enthält den Namen
-                if (strpos($name, $search) !== false || strpos($search, $name) !== false) {
-                    $score = 80;
-                    if ($score > $best_score) {
-                        $best_match = $loc->ID;
-                        $best_score = $score;
-                    }
-                }
-                // similar_text Score
-                similar_text($name, $search, $pct);
-                if ($pct > 60 && $pct > $best_score) {
-                    $best_match = $loc->ID;
-                    $best_score = $pct;
-                }
-            }
-            if ($best_match && $best_score >= 60) {
-                $clean['location_id'] = $best_match;
-            }
-        }
-
-        // ── Event-Kategorie Matching ──
-        $clean['category_ids'] = [];
-        if ($clean['event_type']) {
-            $type_map = [
-                'konzert'    => ['konzert', 'concert', 'live', 'musik'],
-                'party'      => ['party', 'club', 'nachtleben', 'nightlife'],
-                'festival'   => ['festival', 'open air', 'openair'],
-                'workshop'   => ['workshop', 'seminar', 'kurs', 'schulung'],
-                'messe'      => ['messe', 'expo', 'ausstellung', 'exhibition'],
-                'sport'      => ['sport', 'turnier', 'marathon', 'lauf'],
-                'theater'    => ['theater', 'schauspiel', 'aufführung', 'musical'],
-                'comedy'     => ['comedy', 'stand-up', 'standup', 'kabarett'],
-                'networking' => ['networking', 'meetup', 'business', 'konferenz'],
-            ];
-            $terms = get_terms(['taxonomy' => 'event_category', 'hide_empty' => false]);
-            if (!is_wp_error($terms)) {
-                $event_type_lower = mb_strtolower($clean['event_type']);
-                foreach ($terms as $term) {
-                    $term_lower = mb_strtolower($term->name);
-                    // Direkter Match
-                    if ($term_lower === $event_type_lower || strpos($term_lower, $event_type_lower) !== false) {
-                        $clean['category_ids'][] = $term->term_id;
-                        break;
-                    }
-                    // Synonym-Match
-                    foreach ($type_map as $type => $synonyms) {
-                        if ($event_type_lower === $type || in_array($event_type_lower, $synonyms)) {
-                            foreach ($synonyms as $syn) {
-                                if (strpos($term_lower, $syn) !== false) {
-                                    $clean['category_ids'][] = $term->term_id;
-                                    break 3;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        wp_send_json_success(['fields' => $clean]);
+        return $clean;
     }
 
     /**
-     * HTML → lesbaren Text extrahieren
+     * Location fuzzy-matching
      */
-    private static function extract_text_from_html($html, $url = '') {
-        // Title
-        $title = '';
-        if (preg_match('/<title[^>]*>(.*?)<\/title>/si', $html, $m)) {
-            $title = html_entity_decode(trim($m[1]), ENT_QUOTES, 'UTF-8');
+    private static function match_location($location_name) {
+        if (empty($location_name)) return 0;
+        $locations = get_posts([
+            'post_type'      => 'tix_location',
+            'post_status'    => 'any',
+            'posts_per_page' => -1,
+        ]);
+        $best_match = 0;
+        $best_score = 0;
+        $search = mb_strtolower($location_name);
+        foreach ($locations as $loc) {
+            $name = mb_strtolower($loc->post_title);
+            if ($name === $search) return $loc->ID;
+            if (strpos($name, $search) !== false || strpos($search, $name) !== false) {
+                if (80 > $best_score) { $best_match = $loc->ID; $best_score = 80; }
+            }
+            similar_text($name, $search, $pct);
+            if ($pct > 60 && $pct > $best_score) { $best_match = $loc->ID; $best_score = $pct; }
+        }
+        return ($best_match && $best_score >= 60) ? $best_match : 0;
+    }
+
+    /**
+     * Kategorie-Matching
+     */
+    private static function match_category($event_type) {
+        if (empty($event_type)) return [];
+        $type_map = [
+            'konzert'    => ['konzert', 'concert', 'live', 'musik'],
+            'party'      => ['party', 'club', 'nachtleben', 'nightlife'],
+            'festival'   => ['festival', 'open air', 'openair'],
+            'workshop'   => ['workshop', 'seminar', 'kurs', 'schulung'],
+            'messe'      => ['messe', 'expo', 'ausstellung', 'exhibition'],
+            'sport'      => ['sport', 'turnier', 'marathon', 'lauf'],
+            'theater'    => ['theater', 'schauspiel', 'aufführung', 'musical'],
+            'comedy'     => ['comedy', 'stand-up', 'standup', 'kabarett'],
+            'networking' => ['networking', 'meetup', 'business', 'konferenz'],
+        ];
+        $terms = get_terms(['taxonomy' => 'event_category', 'hide_empty' => false]);
+        if (is_wp_error($terms)) return [];
+        $event_type_lower = mb_strtolower($event_type);
+        foreach ($terms as $term) {
+            $term_lower = mb_strtolower($term->name);
+            if ($term_lower === $event_type_lower || strpos($term_lower, $event_type_lower) !== false) {
+                return [$term->term_id];
+            }
+            foreach ($type_map as $type => $synonyms) {
+                if ($event_type_lower === $type || in_array($event_type_lower, $synonyms)) {
+                    foreach ($synonyms as $syn) {
+                        if (strpos($term_lower, $syn) !== false) return [$term->term_id];
+                    }
+                }
+            }
+        }
+        return [];
+    }
+
+    private static function sideload_image_from_url($image_url) {
+        if (empty($image_url)) return null;
+
+        require_once ABSPATH . 'wp-admin/includes/file.php';
+        require_once ABSPATH . 'wp-admin/includes/media.php';
+        require_once ABSPATH . 'wp-admin/includes/image.php';
+
+        // Bild herunterladen
+        $tmp = download_url($image_url, 15);
+        if (is_wp_error($tmp)) return null;
+
+        // Dateiname aus URL ableiten
+        $url_path = wp_parse_url($image_url, PHP_URL_PATH);
+        $filename = $url_path ? sanitize_file_name(basename($url_path)) : 'event-image.jpg';
+
+        // Sicherstellen, dass Dateiendung vorhanden
+        $ext = pathinfo($filename, PATHINFO_EXTENSION);
+        if (!in_array(strtolower($ext), ['jpg', 'jpeg', 'png', 'gif', 'webp'])) {
+            // MIME-Type vom Download prüfen
+            $mime = mime_content_type($tmp);
+            $ext_map = ['image/jpeg' => '.jpg', 'image/png' => '.png', 'image/gif' => '.gif', 'image/webp' => '.webp'];
+            $filename .= $ext_map[$mime] ?? '.jpg';
         }
 
-        // Meta description
-        $desc = '';
-        if (preg_match('/<meta[^>]+name=["\']description["\'][^>]+content=["\'](.*?)["\']/si', $html, $m)) {
-            $desc = html_entity_decode(trim($m[1]), ENT_QUOTES, 'UTF-8');
+        $file_array = [
+            'name'     => $filename,
+            'tmp_name' => $tmp,
+        ];
+
+        $attachment_id = media_handle_sideload($file_array, 0);
+
+        if (is_wp_error($attachment_id)) {
+            @unlink($tmp);
+            return null;
         }
 
-        // OG tags
-        $og = [];
-        preg_match_all('/<meta[^>]+property=["\']og:([^"\']+)["\'][^>]+content=["\'](.*?)["\']/si', $html, $matches, PREG_SET_ORDER);
-        foreach ($matches as $m) {
-            $og[$m[1]] = html_entity_decode(trim($m[2]), ENT_QUOTES, 'UTF-8');
-        }
-
-        // Body text (strip scripts, styles, nav, footer)
-        $body = $html;
-        $body = preg_replace('/<script[^>]*>.*?<\/script>/si', '', $body);
-        $body = preg_replace('/<style[^>]*>.*?<\/style>/si', '', $body);
-        $body = preg_replace('/<nav[^>]*>.*?<\/nav>/si', '', $body);
-        $body = preg_replace('/<footer[^>]*>.*?<\/footer>/si', '', $body);
-        $body = preg_replace('/<header[^>]*>.*?<\/header>/si', '', $body);
-        $body = wp_strip_all_tags($body);
-        $body = preg_replace('/\s+/', ' ', $body);
-        $body = trim($body);
-
-        $parts = [];
-        if ($url) $parts[] = "URL: {$url}";
-        if ($title) $parts[] = "Seitentitel: {$title}";
-        if ($desc) $parts[] = "Meta-Description: {$desc}";
-        if (!empty($og['title'])) $parts[] = "OG-Title: {$og['title']}";
-        if (!empty($og['description'])) $parts[] = "OG-Description: {$og['description']}";
-        if ($body) $parts[] = "Seitentext:\n" . mb_substr($body, 0, 3000);
-
-        return implode("\n\n", $parts);
+        return $attachment_id;
     }
 
     // ──────────────────────────────────────────

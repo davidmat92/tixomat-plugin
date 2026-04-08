@@ -139,7 +139,17 @@ class TIX_Organizer_Dashboard {
             'posts_per_page' => 1,
             'post_status'    => 'publish',
         ]);
-        return $orgs ? $orgs[0] : null;
+        if ($orgs) return $orgs[0];
+
+        // Team-Mitglied?
+        if (class_exists('TIX_Team')) {
+            $team_org_id = TIX_Team::get_organizer_for_user($user_id);
+            if ($team_org_id) {
+                return get_post($team_org_id);
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -148,7 +158,7 @@ class TIX_Organizer_Dashboard {
     public static function user_owns_event($user_id, $event_id) {
         $org = self::get_organizer_by_user($user_id);
         if (!$org) return false;
-        return intval(get_post_meta($event_id, '_tix_organizer_id', true)) === $org->ID;
+        return intval(get_post_meta($event_id, '_tix_organizer_id', true)) === intval($org->ID);
     }
 
     /**
@@ -202,37 +212,63 @@ class TIX_Organizer_Dashboard {
             <div class="tix-od-layout">
 
                 <!-- Sidebar Navigation -->
+                <?php
+                $uid = get_current_user_id();
+                $can_edit    = !class_exists('TIX_Team') || TIX_Team::user_can($uid, 'edit_events');
+                $can_orders  = !class_exists('TIX_Team') || TIX_Team::user_can($uid, 'view_orders');
+                $can_stats   = !class_exists('TIX_Team') || TIX_Team::user_can($uid, 'view_statistics');
+                $can_settings = !class_exists('TIX_Team') || TIX_Team::user_can($uid, 'manage_settings');
+                $can_team    = !class_exists('TIX_Team') || TIX_Team::user_can($uid, 'manage_team');
+                $can_guestlist = !class_exists('TIX_Team') || TIX_Team::user_can($uid, 'view_guestlist');
+                ?>
                 <aside class="tix-od-sidebar" role="tablist">
                     <button class="tix-od-tab active" data-tab="overview" role="tab" aria-selected="true"
                             aria-controls="tix-od-panel-overview">
                         <span class="tix-od-tab-icon dashicons dashicons-dashboard"></span>
                         <span class="tix-od-tab-label">&#220;bersicht</span>
                     </button>
+                    <?php if ($can_edit) : ?>
                     <button class="tix-od-tab" data-tab="events" role="tab" aria-selected="false"
                             aria-controls="tix-od-panel-events">
                         <span class="tix-od-tab-icon dashicons dashicons-calendar-alt"></span>
                         <span class="tix-od-tab-label">Meine Events</span>
                     </button>
+                    <?php endif; ?>
+                    <?php if ($can_orders) : ?>
                     <button class="tix-od-tab" data-tab="orders" role="tab" aria-selected="false"
                             aria-controls="tix-od-panel-orders">
                         <span class="tix-od-tab-icon dashicons dashicons-cart"></span>
                         <span class="tix-od-tab-label">Bestellungen</span>
                     </button>
+                    <?php endif; ?>
+                    <?php if ($can_guestlist) : ?>
                     <button class="tix-od-tab" data-tab="guestlist" role="tab" aria-selected="false"
                             aria-controls="tix-od-panel-guestlist">
                         <span class="tix-od-tab-icon dashicons dashicons-groups"></span>
                         <span class="tix-od-tab-label">G&#228;steliste</span>
                     </button>
+                    <?php endif; ?>
+                    <?php if ($can_stats) : ?>
                     <button class="tix-od-tab" data-tab="stats" role="tab" aria-selected="false"
                             aria-controls="tix-od-panel-stats">
                         <span class="tix-od-tab-icon dashicons dashicons-chart-area"></span>
                         <span class="tix-od-tab-label">Statistiken</span>
                     </button>
+                    <?php endif; ?>
+                    <?php if ($can_settings) : ?>
                     <button class="tix-od-tab" data-tab="settings" role="tab" aria-selected="false"
                             aria-controls="tix-od-panel-settings">
                         <span class="tix-od-tab-icon dashicons dashicons-admin-generic"></span>
                         <span class="tix-od-tab-label">Einstellungen</span>
                     </button>
+                    <?php endif; ?>
+                    <?php if ($can_team) : ?>
+                    <button class="tix-od-tab" data-tab="team" role="tab" aria-selected="false"
+                            aria-controls="tix-od-panel-team">
+                        <span class="tix-od-tab-icon dashicons dashicons-groups"></span>
+                        <span class="tix-od-tab-label">Team</span>
+                    </button>
+                    <?php endif; ?>
                 </aside>
 
                 <!-- Content Area -->
@@ -369,6 +405,57 @@ class TIX_Organizer_Dashboard {
                         <button type="button" class="tix-od-btn tix-od-btn-primary" id="tix-od-save-profile">Speichern</button>
                     </div>
                 </div>
+
+                <?php if ($can_team) : ?>
+                <!-- Team -->
+                <div class="tix-od-panel" id="tix-od-panel-team" role="tabpanel" data-tab="team">
+                    <h3 class="tix-od-section-title">Team verwalten</h3>
+                    <p class="tix-od-team-desc">F&uuml;ge Mitglieder hinzu, die Zugriff auf deine Events erhalten.</p>
+
+                    <!-- Mitglieder-Liste -->
+                    <div id="tix-od-team-list" class="tix-od-team-list"></div>
+
+                    <!-- Hinzuf&uuml;gen-Formular -->
+                    <div class="tix-od-team-add">
+                        <h4>Neues Mitglied hinzuf&uuml;gen</h4>
+                        <div class="tix-od-team-add-row">
+                            <div class="tix-od-form-group">
+                                <label class="tix-od-label">E-Mail</label>
+                                <input type="email" id="tix-od-team-email" class="tix-od-input" placeholder="name@example.com">
+                            </div>
+                            <div class="tix-od-form-group">
+                                <label class="tix-od-label">Vorname</label>
+                                <input type="text" id="tix-od-team-firstname" class="tix-od-input" placeholder="Vorname">
+                            </div>
+                            <div class="tix-od-form-group">
+                                <label class="tix-od-label">Nachname</label>
+                                <input type="text" id="tix-od-team-lastname" class="tix-od-input" placeholder="Nachname">
+                            </div>
+                            <div class="tix-od-form-group">
+                                <label class="tix-od-label">Rolle</label>
+                                <select id="tix-od-team-role" class="tix-od-input">
+                                    <option value="admin">Admin</option>
+                                    <option value="mitarbeiter">Mitarbeiter</option>
+                                    <option value="checkin" selected>Check-in</option>
+                                </select>
+                            </div>
+                        </div>
+                        <button type="button" class="tix-od-btn tix-od-btn-primary" id="tix-od-team-add-btn">
+                            <span class="dashicons dashicons-plus-alt2"></span> Hinzuf&uuml;gen
+                        </button>
+                    </div>
+
+                    <!-- Rollen-Info -->
+                    <div class="tix-od-team-roles-info">
+                        <h4>Rollen-&Uuml;bersicht</h4>
+                        <ul>
+                            <li><strong>Admin</strong> &mdash; Voller Zugriff (Events, Tickets, Statistiken, Abrechnung, Team)</li>
+                            <li><strong>Mitarbeiter</strong> &mdash; Events bearbeiten, Tickets &amp; Statistiken sehen</li>
+                            <li><strong>Check-in</strong> &mdash; Nur G&auml;steliste &amp; Check-in</li>
+                        </ul>
+                    </div>
+                </div>
+                <?php endif; ?>
 
                 </div><!-- /.tix-od-content -->
             </div><!-- /.tix-od-layout -->

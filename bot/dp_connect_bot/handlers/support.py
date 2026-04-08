@@ -6,7 +6,7 @@ Multi-tenant: accepts TenantContext (ctx) parameter.
 from dp_connect_bot.config import log
 from dp_connect_bot.models.response import BotResponse, Button, Keyboard, KeyboardType
 from dp_connect_bot.services.claude_ai import call_claude_support
-from dp_connect_bot.services.tixomat_api import customer_exists, lookup_tickets
+from dp_connect_bot.services.tixomat_api import customer_exists, lookup_tickets, get_my_tickets
 from dp_connect_bot.services.history import track_event
 
 
@@ -47,31 +47,62 @@ def handle_support_step(session, text, channel):
 def handle_ticket_lookup(chat_id, text, session, channel, ctx=None):
     """Ticket-Lookup Flow: Hilft Kunden ihre gekauften Tickets zu finden.
 
-    Steps:
-        1. ask_email: E-Mail-Adresse abfragen
-        2. verify_exists: Pruefen ob Bestellungen existieren
-        3. ask_verification: Bestellnr oder Nachname abfragen
-        4. verify_order_id / verify_last_name: Verifizierung durchfuehren
-        5. show_tickets: Tickets anzeigen
+    Eingeloggte User: Sofort Tickets abrufen (kein Email/Verifizierung noetig).
+    Nicht eingeloggte User: Email fragen, dann direkt Tickets abrufen.
     """
-    step = session.get("ticket_lookup_step", "ask_email")
+    step = session.get("ticket_lookup_step", "init")
+
+    # ── Eingeloggter User: Sofort Tickets abrufen ──
+    if step == "init":
+        user_info = session.get("user_info", {})
+        if user_info.get("wp_user_id") or user_info.get("wp_email"):
+            return _lookup_logged_in(session, ctx=ctx)
+        # Nicht eingeloggt: nach Email fragen
+        session["ticket_lookup_step"] = "ask_email"
+        return _lookup_ask_email(session, text, ctx=ctx)
 
     if step == "ask_email":
         return _lookup_ask_email(session, text, ctx=ctx)
-    elif step == "verify_exists":
-        return _lookup_verify_exists(session, text, ctx=ctx)
-    elif step == "ask_verification":
-        return _lookup_handle_verification_choice(session, text)
-    elif step == "verify_order_id":
-        return _lookup_verify_order_id(session, text, ctx=ctx)
-    elif step == "verify_last_name":
-        return _lookup_verify_last_name(session, text, ctx=ctx)
+    elif step == "ask_email_retry":
+        return _lookup_ask_email_retry(session, text, ctx=ctx)
 
     return BotResponse(text="Etwas ist schiefgelaufen. Schreib /start um neu zu beginnen.")
 
 
+def _lookup_logged_in(session, ctx=None):
+    """Eingeloggter User: Sofort Tickets abrufen."""
+    user_info = session.get("user_info", {})
+    wp_user_id = user_info.get("wp_user_id")
+    wp_email = user_info.get("wp_email")
+    name = user_info.get("wp_display_name", "")
+
+    result = get_my_tickets(ctx, wp_user_id=wp_user_id, email=wp_email) if ctx else {"ok": False}
+
+    if not result.get("ok"):
+        session["ticket_lookup_step"] = None
+        session["mode"] = None
+        return BotResponse(
+            text="❌ Da ist leider etwas schiefgelaufen. Bitte versuch es spaeter nochmal.",
+            keyboards=[Keyboard(type=KeyboardType.MODE_CHOICE)],
+        )
+
+    tickets = result.get("tickets", [])
+    session["ticket_lookup_step"] = None
+    session["mode"] = None
+
+    if not tickets:
+        greeting = f" {name}" if name else ""
+        return BotResponse(
+            text=f"Hey{greeting}! Ich konnte leider keine aktiven Tickets fuer dich finden.",
+            keyboards=[Keyboard(type=KeyboardType.MODE_CHOICE)],
+        )
+
+    track_event("ticket_lookup_success", session.get("chat_id", ""), session.get("channel", ""))
+    return _format_tickets_response(tickets, name)
+
+
 def _lookup_ask_email(session, text, ctx=None):
-    """Step 1: E-Mail abfragen oder verarbeiten."""
+    """Nicht eingeloggt: E-Mail abfragen oder verarbeiten."""
     email = text.strip().lower()
 
     if "@" not in email or "." not in email:
@@ -83,181 +114,55 @@ def _lookup_ask_email(session, text, ctx=None):
             )
         )
 
-    session["ticket_lookup_email"] = email
-    session["ticket_lookup_step"] = "verify_exists"
-
-    # Sofort pruefen ob Bestellungen existieren
-    return _lookup_verify_exists(session, email, ctx=ctx)
+    # E-Mail eingegeben -> direkt Tickets abrufen
+    return _lookup_by_email(session, email, ctx=ctx)
 
 
-def _lookup_verify_exists(session, text, ctx=None):
-    """Step 2: Pruefen ob E-Mail Bestellungen hat."""
-    email = session.get("ticket_lookup_email", "")
-    if not email:
-        session["ticket_lookup_step"] = "ask_email"
-        return BotResponse(text="Bitte gib zuerst deine E-Mail-Adresse ein: ✉️")
+def _lookup_ask_email_retry(session, text, ctx=None):
+    """Erneuter Versuch mit anderer E-Mail."""
+    email = text.strip().lower()
 
-    result = customer_exists(ctx, email) if ctx else {"ok": False}
+    if "@" not in email or "." not in email:
+        return BotResponse(text="Bitte gib eine gueltige E-Mail-Adresse ein: ✉️")
+
+    return _lookup_by_email(session, email, ctx=ctx)
+
+
+def _lookup_by_email(session, email, ctx=None):
+    """Tickets per E-Mail abrufen (kein Verifizierung)."""
+    result = get_my_tickets(ctx, email=email) if ctx else {"ok": False}
 
     if not result.get("ok"):
+        session["ticket_lookup_step"] = None
+        session["mode"] = None
         return BotResponse(
-            text=(
-                "❌ Da ist leider etwas schiefgelaufen. Bitte versuch es spaeter nochmal "
-                "oder wende dich an unseren Support."
-            ),
+            text="❌ Da ist leider etwas schiefgelaufen. Bitte versuch es spaeter nochmal.",
             keyboards=[Keyboard(type=KeyboardType.MODE_CHOICE)],
         )
 
-    if not result.get("exists"):
-        session["ticket_lookup_step"] = "ask_email"
+    tickets = result.get("tickets", [])
+
+    if not tickets:
+        session["ticket_lookup_step"] = "ask_email_retry"
         return BotResponse(
             text=(
-                f"❌ Fuer *{email}* wurden leider keine Bestellungen gefunden.\n\n"
+                f"❌ Fuer *{email}* wurden leider keine Tickets gefunden.\n\n"
                 "Hast du vielleicht mit einer anderen E-Mail-Adresse gebucht?\n"
                 "Gib eine andere E-Mail ein oder schreib /start fuer ein neues Gespraech."
             )
         )
 
-    first_name = result.get("first_name", "")
-    greeting = f" {first_name}" if first_name else ""
-
-    session["ticket_lookup_step"] = "ask_verification"
-
-    return BotResponse(
-        text=(
-            f"✅ Hey{greeting}! Bestellungen fuer *{email}* gefunden.\n\n"
-            "Zu deiner Sicherheit muss ich dich kurz verifizieren. "
-            "Wie moechtest du dich identifizieren?"
-        ),
-        keyboards=[Keyboard(
-            type=KeyboardType.LOGIN_OPTIONS,
-            buttons=[
-                Button(text="📋 Bestellnummer", callback_data="tl_order_id"),
-                Button(text="👤 Nachname", callback_data="tl_last_name"),
-            ],
-        )],
-    )
-
-
-def _lookup_handle_verification_choice(session, text):
-    """Step 3: Verifizierungsmethode waehlen (Text-Fallback)."""
-    lower = text.strip().lower()
-
-    if "bestellnummer" in lower or "bestell" in lower or "nummer" in lower or lower == "1":
-        session["ticket_lookup_step"] = "verify_order_id"
-        return BotResponse(text="Bitte gib deine Bestellnummer ein (z.B. *12345*): 📋")
-
-    if "nachname" in lower or "name" in lower or lower == "2":
-        session["ticket_lookup_step"] = "verify_last_name"
-        return BotResponse(text="Bitte gib deinen Nachnamen ein: 👤")
-
-    return BotResponse(
-        text="Bitte waehle eine Option: Bestellnummer oder Nachname.",
-        keyboards=[Keyboard(
-            type=KeyboardType.LOGIN_OPTIONS,
-            buttons=[
-                Button(text="📋 Bestellnummer", callback_data="tl_order_id"),
-                Button(text="👤 Nachname", callback_data="tl_last_name"),
-            ],
-        )],
-    )
-
-
-def _lookup_verify_order_id(session, text, ctx=None):
-    """Step 4a: Verifizierung per Bestellnummer."""
-    order_id = text.strip().replace("#", "")
-
-    if not order_id:
-        return BotResponse(text="Bitte gib deine Bestellnummer ein: 📋")
-
-    email = session.get("ticket_lookup_email", "")
-    return _do_ticket_lookup(session, email, "order_id", order_id, ctx=ctx)
-
-
-def _lookup_verify_last_name(session, text, ctx=None):
-    """Step 4b: Verifizierung per Nachname."""
-    last_name = text.strip()
-
-    if not last_name or len(last_name) < 2:
-        return BotResponse(text="Bitte gib deinen Nachnamen ein: 👤")
-
-    email = session.get("ticket_lookup_email", "")
-    return _do_ticket_lookup(session, email, "last_name", last_name, ctx=ctx)
-
-
-def _do_ticket_lookup(session, email, verification_type, verification_value, ctx=None):
-    """Fuehrt den eigentlichen Ticket-Lookup durch."""
-    result = lookup_tickets(ctx, email, verification_type, verification_value) if ctx else {"ok": False, "error": "no_ctx"}
-
-    if not result.get("ok"):
-        error = result.get("error", "")
-        message = result.get("message", "")
-
-        if error == "rate_limited":
-            session["ticket_lookup_step"] = None
-            session["mode"] = None
-            return BotResponse(
-                text=f"⏳ {message}",
-                keyboards=[Keyboard(type=KeyboardType.MODE_CHOICE)],
-            )
-
-        if error == "verification_failed":
-            if verification_type == "order_id":
-                session["ticket_lookup_step"] = "ask_verification"
-                return BotResponse(
-                    text=(
-                        "❌ Die Bestellnummer passt leider nicht zur E-Mail-Adresse.\n\n"
-                        "Moechtest du es mit dem Nachnamen versuchen?"
-                    ),
-                    keyboards=[Keyboard(
-                        type=KeyboardType.LOGIN_OPTIONS,
-                        buttons=[
-                            Button(text="👤 Nachname versuchen", callback_data="tl_last_name"),
-                            Button(text="📋 Andere Bestellnr.", callback_data="tl_order_id"),
-                        ],
-                    )],
-                )
-            else:
-                session["ticket_lookup_step"] = "ask_verification"
-                return BotResponse(
-                    text=(
-                        "❌ Der Nachname passt leider nicht zur E-Mail-Adresse.\n\n"
-                        "Moechtest du es mit der Bestellnummer versuchen?"
-                    ),
-                    keyboards=[Keyboard(
-                        type=KeyboardType.LOGIN_OPTIONS,
-                        buttons=[
-                            Button(text="📋 Bestellnummer versuchen", callback_data="tl_order_id"),
-                            Button(text="👤 Anderen Nachnamen", callback_data="tl_last_name"),
-                        ],
-                    )],
-                )
-
-        if error == "no_tickets":
-            session["ticket_lookup_step"] = None
-            session["mode"] = None
-            return BotResponse(
-                text=(
-                    "✅ Verifizierung erfolgreich, aber es wurden keine aktiven Tickets gefunden.\n\n"
-                    "Moegliche Gruende:\n"
-                    "• Die Tickets wurden noch nicht erstellt (Bestellung wird noch verarbeitet)\n"
-                    "• Die Tickets wurden bereits storniert\n\n"
-                    "Bei Fragen wende dich bitte an unseren Support."
-                ),
-                keyboards=[Keyboard(type=KeyboardType.MODE_CHOICE)],
-            )
-
-        return BotResponse(
-            text=f"❌ {message or 'Ein Fehler ist aufgetreten. Bitte versuch es spaeter nochmal.'}",
-            keyboards=[Keyboard(type=KeyboardType.MODE_CHOICE)],
-        )
-
-    # Erfolg! Tickets anzeigen
-    tickets = result.get("tickets", [])
     session["ticket_lookup_step"] = None
     session["mode"] = None
 
-    lines = [f"🎫 *Deine Tickets ({len(tickets)}):*\n"]
+    track_event("ticket_lookup_success", session.get("chat_id", ""), session.get("channel", ""))
+    return _format_tickets_response(tickets)
+
+
+def _format_tickets_response(tickets, name=""):
+    """Formatiert Ticket-Ergebnisse als BotResponse."""
+    greeting = f" Hey {name}!" if name else ""
+    lines = [f"🎫{greeting} *Deine Tickets ({len(tickets)}):*\n"]
 
     # Gruppiert nach Event
     events = {}
@@ -266,26 +171,23 @@ def _do_ticket_lookup(session, email, verification_type, verification_value, ctx
         events.setdefault(event_name, []).append(t)
 
     for event_name, event_tickets in events.items():
-        lines.append(f"\n*{event_name}*")
+        event_date = event_tickets[0].get("event_date", "")
+        date_str = f" – {event_date}" if event_date else ""
+        lines.append(f"\n*{event_name}*{date_str}")
         for t in event_tickets:
             code = t.get("ticket_code", "")
             category = t.get("category", "")
             download = t.get("download_url", "")
-            order_date = t.get("order_date", "")
 
             cat_str = f" ({category})" if category else ""
-            date_str = f" | Bestellt: {order_date}" if order_date else ""
 
             if download:
-                lines.append(f"  🎟️ {code}{cat_str}{date_str}")
+                lines.append(f"  🎟️ {code}{cat_str}")
                 lines.append(f"     📥 [Download]({download})")
             else:
-                lines.append(f"  🎟️ {code}{cat_str}{date_str}")
+                lines.append(f"  🎟️ {code}{cat_str}")
 
     lines.append("\n✅ Klicke auf die Download-Links um deine Tickets als PDF herunterzuladen.")
-    lines.append("Falls ein Download nicht funktioniert, wende dich an unseren Support.")
-
-    track_event("ticket_lookup_success", session.get("chat_id", ""), session.get("channel", ""))
 
     return BotResponse(
         text="\n".join(lines),

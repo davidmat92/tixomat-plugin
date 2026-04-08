@@ -17,6 +17,10 @@ class TIX_Order_Admin {
         add_action('wp_ajax_tix_order_export_csv', [__CLASS__, 'ajax_export_csv']);
         add_action('wp_ajax_tix_order_invoice', [__CLASS__, 'render_invoice']);
         add_action('wp_ajax_tix_order_resend_email', [__CLASS__, 'ajax_resend_email']);
+
+        // Manuelle Bestellerstellung
+        add_action('wp_ajax_tix_order_get_categories', [__CLASS__, 'ajax_get_categories']);
+        add_action('wp_ajax_tix_order_create_manual', [__CLASS__, 'ajax_create_manual']);
     }
 
     public static function register_menu() {
@@ -34,6 +38,12 @@ class TIX_Order_Admin {
         // Einzelbestellung anzeigen?
         if (isset($_GET['order_id'])) {
             self::render_detail(intval($_GET['order_id']));
+            return;
+        }
+
+        // Neue Bestellung erstellen
+        if (isset($_GET['action']) && $_GET['action'] === 'create') {
+            self::render_create_form();
             return;
         }
 
@@ -115,6 +125,7 @@ class TIX_Order_Admin {
                 <?php else : ?>
                     <span style="font-size:14px;color:#6b7280;font-weight:400;"><?php echo intval($total); ?> gesamt</span>
                 <?php endif; ?>
+                <a href="<?php echo esc_url(admin_url('admin.php?page=tix-orders&action=create')); ?>" class="page-title-action" style="margin-left:auto;background:var(--tix-primary, #FF5500);color:#fff;border:none;border-radius:6px;padding:6px 14px;font-size:13px;text-decoration:none;">+ Neue Bestellung</a>
             </h1>
 
             <?php // ── Filter + Suche ── ?>
@@ -1490,5 +1501,557 @@ window.addEventListener('load', function() {
 </html>
         <?php
         die();
+    }
+
+    // ──────────────────────────────────────────
+    // Manuelle Bestellerstellung
+    // ──────────────────────────────────────────
+
+    /**
+     * AJAX: Ticket-Kategorien eines Events laden.
+     */
+    public static function ajax_get_categories() {
+        check_ajax_referer('tix_manual_order', 'nonce');
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(['message' => 'Keine Berechtigung.']);
+        }
+
+        $event_id = intval($_POST['event_id'] ?? 0);
+        if (!$event_id || get_post_type($event_id) !== 'event') {
+            wp_send_json_error(['message' => 'Ungültiges Event.']);
+        }
+
+        $cats = get_post_meta($event_id, '_tix_ticket_categories', true);
+        if (!is_array($cats) || empty($cats)) {
+            wp_send_json_error(['message' => 'Keine Ticket-Kategorien gefunden.']);
+        }
+
+        $result = [];
+        foreach ($cats as $i => $cat) {
+            $price = floatval($cat['sale_price'] ?? 0) > 0 ? floatval($cat['sale_price']) : floatval($cat['price'] ?? 0);
+            $stock = isset($cat['stock']) ? intval($cat['stock']) : -1;
+            $result[] = [
+                'index' => $i,
+                'name'  => sanitize_text_field($cat['name'] ?? 'Ticket'),
+                'price' => $price,
+                'stock' => $stock,
+            ];
+        }
+
+        wp_send_json_success(['categories' => $result]);
+    }
+
+    /**
+     * AJAX: Manuelle Bestellung erstellen.
+     */
+    public static function ajax_create_manual() {
+        check_ajax_referer('tix_manual_order', 'nonce');
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(['message' => 'Keine Berechtigung.']);
+        }
+
+        global $wpdb;
+
+        $event_id   = intval($_POST['event_id'] ?? 0);
+        $cat_index  = intval($_POST['cat_index'] ?? 0);
+        $qty        = max(1, intval($_POST['qty'] ?? 1));
+        $first_name = sanitize_text_field($_POST['first_name'] ?? '');
+        $last_name  = sanitize_text_field($_POST['last_name'] ?? '');
+        $email      = sanitize_email($_POST['email'] ?? '');
+        $phone      = sanitize_text_field($_POST['phone'] ?? '');
+        $company    = sanitize_text_field($_POST['company'] ?? '');
+        $address_1  = sanitize_text_field($_POST['address_1'] ?? '');
+        $postcode   = sanitize_text_field($_POST['postcode'] ?? '');
+        $city       = sanitize_text_field($_POST['city'] ?? '');
+        $country    = sanitize_text_field($_POST['country'] ?? 'DE');
+        $discount   = max(0, min(100, floatval($_POST['discount'] ?? 0)));
+        $comment    = sanitize_textarea_field($_POST['comment'] ?? '');
+
+        // Validierung
+        if (!$event_id || get_post_type($event_id) !== 'event') {
+            wp_send_json_error(['message' => 'Bitte ein Event auswählen.']);
+        }
+        if (!$first_name) {
+            wp_send_json_error(['message' => 'Vorname ist ein Pflichtfeld.']);
+        }
+        if (!$email || !is_email($email)) {
+            wp_send_json_error(['message' => 'Bitte eine gültige E-Mail-Adresse eingeben.']);
+        }
+
+        // Ticket-Kategorie laden
+        $cats = get_post_meta($event_id, '_tix_ticket_categories', true);
+        if (!is_array($cats) || !isset($cats[$cat_index])) {
+            wp_send_json_error(['message' => 'Ticket-Kategorie nicht gefunden.']);
+        }
+
+        $cat = $cats[$cat_index];
+        $unit_price = floatval($cat['sale_price'] ?? 0) > 0 ? floatval($cat['sale_price']) : floatval($cat['price'] ?? 0);
+        $cat_name   = sanitize_text_field($cat['name'] ?? 'Ticket');
+        $product_id = intval($cat['product_id'] ?? 0);
+        $event_title = get_the_title($event_id);
+
+        // Preis berechnen
+        $subtotal = round($unit_price * $qty, 2);
+        $discount_amount = round($subtotal * $discount / 100, 2);
+        $total = round($subtotal - $discount_amount, 2);
+
+        // Steuer berechnen
+        $s = function_exists('tix_get_settings') ? tix_get_settings() : [];
+        $tax_enabled  = !empty($s['tax_enabled']);
+        $tax_rate     = floatval($s['tax_rate'] ?? 0);
+        $tax_inclusive = !empty($s['tax_inclusive']);
+        $tax = 0;
+
+        if ($tax_enabled && $tax_rate > 0) {
+            if ($tax_inclusive) {
+                $tax = round($total - ($total / (1 + $tax_rate / 100)), 2);
+            } else {
+                $tax = round($total * $tax_rate / 100, 2);
+                $total = $total + $tax;
+            }
+        }
+
+        // Bestellnummer generieren
+        $order_number = TIX_Order::next_order_number();
+        $order_key = 'tix_' . wp_generate_password(16, false);
+
+        // Payment method
+        $is_free = ($total <= 0);
+        $payment_method = $is_free ? 'free' : 'manual';
+        $payment_method_title = $is_free ? 'Kostenlos' : 'Manuelle Bestellung';
+
+        $t  = $wpdb->prefix . 'tix_orders';
+        $ti = $wpdb->prefix . 'tix_order_items';
+
+        // WP-User anlegen oder verknüpfen
+        $customer_id = 0;
+        $existing_user = get_user_by('email', $email);
+        if ($existing_user) {
+            $customer_id = $existing_user->ID;
+            // Userdaten aktualisieren
+            wp_update_user([
+                'ID'         => $customer_id,
+                'first_name' => $first_name,
+                'last_name'  => $last_name,
+            ]);
+        } else {
+            // Neuen User erstellen
+            $username = sanitize_user(strtolower($first_name . ($last_name ? '.' . $last_name : '')));
+            if (username_exists($username)) {
+                $username .= '.' . wp_rand(10, 999);
+            }
+            $password = wp_generate_password(16, true, true);
+            $customer_id = wp_create_user($username, $password, $email);
+            if (!is_wp_error($customer_id)) {
+                wp_update_user([
+                    'ID'           => $customer_id,
+                    'first_name'   => $first_name,
+                    'last_name'    => $last_name,
+                    'display_name' => trim($first_name . ' ' . $last_name),
+                    'role'         => 'customer',
+                ]);
+                // Willkommensmail mit Passwort-Reset-Link
+                wp_new_user_notification($customer_id, null, 'user');
+            } else {
+                $customer_id = 0;
+            }
+        }
+
+        // Billing-Daten auf WP-User synchronisieren
+        if ($customer_id) {
+            $billing_meta = [
+                'billing_first_name' => $first_name,
+                'billing_last_name'  => $last_name,
+                'billing_email'      => $email,
+                'billing_phone'      => $phone,
+                'billing_company'    => $company,
+                'billing_address_1'  => $address_1,
+                'billing_postcode'   => $postcode,
+                'billing_city'       => $city,
+                'billing_country'    => $country,
+            ];
+            foreach ($billing_meta as $meta_key => $meta_value) {
+                if ($meta_value !== '') {
+                    update_user_meta($customer_id, $meta_key, $meta_value);
+                }
+            }
+        }
+
+        // Order erstellen
+        $wpdb->insert($t, [
+            'order_number'          => $order_number,
+            'status'                => 'completed',
+            'total'                 => $total,
+            'subtotal'              => round($subtotal - $discount_amount, 2),
+            'tax'                   => $tax,
+            'discount'              => $discount_amount,
+            'payment_method'        => $payment_method,
+            'payment_method_title'  => $payment_method_title,
+            'billing_first_name'    => $first_name,
+            'billing_last_name'     => $last_name,
+            'billing_email'         => $email,
+            'billing_phone'         => $phone,
+            'billing_company'       => $company,
+            'billing_address_1'     => $address_1,
+            'billing_address_2'     => '',
+            'billing_city'          => $city,
+            'billing_postcode'      => $postcode,
+            'billing_country'       => $country,
+            'customer_id'           => $customer_id,
+            'wc_order_id'           => 0,
+            'order_key'             => $order_key,
+            'date_created'          => current_time('mysql'),
+        ]);
+
+        $order_id = $wpdb->insert_id;
+        if (!$order_id) {
+            wp_send_json_error(['message' => 'Fehler beim Erstellen der Bestellung.']);
+        }
+
+        // Order Item
+        $wpdb->insert($ti, [
+            'order_id'   => $order_id,
+            'product_id' => $product_id,
+            'event_id'   => $event_id,
+            'quantity'   => $qty,
+            'total'      => round($unit_price * $qty - $discount_amount, 2),
+            'tax'        => 0,
+            'name'       => $event_title . ' – ' . $cat_name,
+            'cat_name'   => $cat_name,
+            'meta'       => $discount > 0 ? json_encode(['discount_percent' => $discount]) : null,
+        ]);
+
+        // Stock reduzieren
+        wp_cache_delete($event_id, 'post_meta');
+        $categories = get_post_meta($event_id, '_tix_ticket_categories', true);
+        if (is_array($categories) && isset($categories[$cat_index])) {
+            $current_stock = isset($categories[$cat_index]['stock']) ? intval($categories[$cat_index]['stock']) : -1;
+            if ($current_stock >= 0) {
+                $categories[$cat_index]['stock'] = max(0, $current_stock - $qty);
+                update_post_meta($event_id, '_tix_ticket_categories', $categories);
+            }
+        }
+
+        // Notiz hinzufügen
+        $user = wp_get_current_user();
+        $note_parts = [];
+        $note_parts[] = 'Manuelle Bestellung erstellt von ' . ($user->display_name ?: 'Admin');
+        if ($discount > 0) {
+            $note_parts[] = 'Rabatt: ' . number_format($discount, 0) . '% (' . number_format($discount_amount, 2, ',', '.') . ' €)';
+        }
+        if ($comment) {
+            $note_parts[] = 'Kommentar: ' . $comment;
+        }
+        self::add_note($order_id, implode("\n", $note_parts), 'internal', $user->display_name ?: 'Admin');
+
+        // Admin-Mail unterdrücken wenn gewünscht
+        $skip_admin_mail = intval($_POST['skip_admin_mail'] ?? 0);
+        if ($skip_admin_mail) {
+            set_transient('_tix_skip_admin_email_' . $order_id, 1, 60);
+        }
+
+        // Status-Hook feuern (für Tickets etc.)
+        do_action('tix_order_status_changed', $order_id, 'completed', 'pending', $payment_method);
+        do_action('tix_order_completed', $order_id);
+
+        wp_send_json_success([
+            'message'      => 'Bestellung ' . $order_number . ' wurde erstellt.',
+            'order_id'     => $order_id,
+            'order_number' => $order_number,
+            'redirect'     => admin_url('admin.php?page=tix-orders&order_id=' . $order_id),
+        ]);
+    }
+
+    /**
+     * Formular für manuelle Bestellerstellung.
+     */
+    private static function render_create_form() {
+        $nonce = wp_create_nonce('tix_manual_order');
+
+        // Alle published Events laden
+        $events = get_posts([
+            'post_type'      => 'event',
+            'post_status'    => ['publish', 'draft', 'private'],
+            'posts_per_page' => -1,
+            'orderby'        => 'title',
+            'order'          => 'ASC',
+            'meta_query'     => [[
+                'key'     => '_tix_archived',
+                'compare' => 'NOT EXISTS',
+            ]],
+        ]);
+
+        ?>
+        <div class="wrap" style="max-width:720px;">
+            <h1 style="display:flex;align-items:center;gap:10px;margin-bottom:24px;">
+                <a href="<?php echo esc_url(admin_url('admin.php?page=tix-orders')); ?>" style="color:#6b7280;text-decoration:none;" title="Zurück">
+                    <span class="dashicons dashicons-arrow-left-alt" style="font-size:24px;width:24px;height:24px;"></span>
+                </a>
+                <span class="dashicons dashicons-plus-alt" style="font-size:28px;width:28px;height:28px;color:var(--tix-primary, #FF5500);"></span>
+                Neue Bestellung erstellen
+            </h1>
+
+            <div id="tix-create-order-form" style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:24px;">
+
+                <?php // ── Event ── ?>
+                <div style="margin-bottom:20px;">
+                    <label style="display:block;font-weight:600;font-size:13px;margin-bottom:6px;">Event <span style="color:#ef4444;">*</span></label>
+                    <select id="tix-mo-event" style="width:100%;padding:8px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;">
+                        <option value="">— Event auswählen —</option>
+                        <?php foreach ($events as $ev): ?>
+                            <option value="<?php echo $ev->ID; ?>"><?php echo esc_html($ev->post_title); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+
+                <?php // ── Ticket-Kategorie (wird per AJAX geladen) ── ?>
+                <div style="margin-bottom:20px;">
+                    <label style="display:block;font-weight:600;font-size:13px;margin-bottom:6px;">Ticket-Kategorie <span style="color:#ef4444;">*</span></label>
+                    <select id="tix-mo-cat" style="width:100%;padding:8px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;" disabled>
+                        <option value="">— Erst Event auswählen —</option>
+                    </select>
+                </div>
+
+                <?php // ── Anzahl ── ?>
+                <div style="margin-bottom:20px;">
+                    <label style="display:block;font-weight:600;font-size:13px;margin-bottom:6px;">Anzahl</label>
+                    <input type="number" id="tix-mo-qty" value="1" min="1" max="100" style="width:100px;padding:8px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;text-align:center;">
+                </div>
+
+                <hr style="border:none;border-top:1px solid #f3f4f6;margin:20px 0;">
+
+                <?php // ── Kunde ── ?>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+                    <div>
+                        <label style="display:block;font-weight:600;font-size:13px;margin-bottom:6px;">Vorname <span style="color:#ef4444;">*</span></label>
+                        <input type="text" id="tix-mo-fname" style="width:100%;padding:8px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;" placeholder="Max">
+                    </div>
+                    <div>
+                        <label style="display:block;font-weight:600;font-size:13px;margin-bottom:6px;">Nachname</label>
+                        <input type="text" id="tix-mo-lname" style="width:100%;padding:8px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;" placeholder="Mustermann">
+                    </div>
+                </div>
+
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+                    <div>
+                        <label style="display:block;font-weight:600;font-size:13px;margin-bottom:6px;">E-Mail <span style="color:#ef4444;">*</span></label>
+                        <input type="email" id="tix-mo-email" style="width:100%;padding:8px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;" placeholder="max@beispiel.de">
+                    </div>
+                    <div>
+                        <label style="display:block;font-weight:600;font-size:13px;margin-bottom:6px;">Telefon</label>
+                        <input type="text" id="tix-mo-phone" style="width:100%;padding:8px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;" placeholder="+49 170 1234567">
+                    </div>
+                </div>
+
+                <div style="margin-bottom:12px;">
+                    <label style="display:block;font-weight:600;font-size:13px;margin-bottom:6px;">Firma</label>
+                    <input type="text" id="tix-mo-company" style="width:100%;padding:8px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;" placeholder="Firma (optional)">
+                </div>
+
+                <div style="margin-bottom:12px;">
+                    <label style="display:block;font-weight:600;font-size:13px;margin-bottom:6px;">Straße / Hausnummer</label>
+                    <input type="text" id="tix-mo-address" style="width:100%;padding:8px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;" placeholder="Musterstraße 1">
+                </div>
+
+                <div style="display:grid;grid-template-columns:120px 1fr 1fr;gap:12px;margin-bottom:20px;">
+                    <div>
+                        <label style="display:block;font-weight:600;font-size:13px;margin-bottom:6px;">PLZ</label>
+                        <input type="text" id="tix-mo-postcode" style="width:100%;padding:8px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;" placeholder="12345">
+                    </div>
+                    <div>
+                        <label style="display:block;font-weight:600;font-size:13px;margin-bottom:6px;">Ort</label>
+                        <input type="text" id="tix-mo-city" style="width:100%;padding:8px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;" placeholder="Berlin">
+                    </div>
+                    <div>
+                        <label style="display:block;font-weight:600;font-size:13px;margin-bottom:6px;">Land</label>
+                        <select id="tix-mo-country" style="width:100%;padding:8px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;">
+                            <option value="DE" selected>Deutschland</option>
+                            <option value="AT">Österreich</option>
+                            <option value="CH">Schweiz</option>
+                            <option value="NL">Niederlande</option>
+                            <option value="BE">Belgien</option>
+                            <option value="LU">Luxemburg</option>
+                            <option value="FR">Frankreich</option>
+                            <option value="PL">Polen</option>
+                            <option value="DK">Dänemark</option>
+                            <option value="CZ">Tschechien</option>
+                            <option value="IT">Italien</option>
+                            <option value="ES">Spanien</option>
+                            <option value="GB">Vereinigtes Königreich</option>
+                        </select>
+                    </div>
+                </div>
+
+                <hr style="border:none;border-top:1px solid #f3f4f6;margin:20px 0;">
+
+                <?php // ── Rabatt + Kommentar ── ?>
+                <div style="display:grid;grid-template-columns:140px 1fr;gap:12px;margin-bottom:20px;">
+                    <div>
+                        <label style="display:block;font-weight:600;font-size:13px;margin-bottom:6px;">Rabatt (%)</label>
+                        <div style="position:relative;">
+                            <input type="number" id="tix-mo-discount" value="0" min="0" max="100" step="1" style="width:100%;padding:8px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;text-align:center;">
+                            <span style="position:absolute;right:12px;top:50%;transform:translateY(-50%);color:#9ca3af;font-size:14px;pointer-events:none;">%</span>
+                        </div>
+                    </div>
+                    <div>
+                        <label style="display:block;font-weight:600;font-size:13px;margin-bottom:6px;">Kommentar / Notiz</label>
+                        <textarea id="tix-mo-comment" rows="2" style="width:100%;padding:8px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;resize:vertical;" placeholder="Optionaler Kommentar zur Bestellung…"></textarea>
+                    </div>
+                </div>
+
+                <?php // ── Preisvorschau ── ?>
+                <div id="tix-mo-preview" style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:16px;margin-bottom:20px;display:none;">
+                    <div style="display:flex;justify-content:space-between;font-size:13px;color:#6b7280;margin-bottom:4px;">
+                        <span id="tix-mo-prev-line">—</span>
+                        <span id="tix-mo-prev-subtotal">0,00 €</span>
+                    </div>
+                    <div id="tix-mo-prev-discount-row" style="display:none;justify-content:space-between;font-size:13px;color:#22c55e;margin-bottom:4px;">
+                        <span>Rabatt</span>
+                        <span id="tix-mo-prev-discount">-0,00 €</span>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;font-size:16px;font-weight:700;border-top:1px solid #e5e7eb;padding-top:8px;margin-top:4px;">
+                        <span>Gesamt</span>
+                        <span id="tix-mo-prev-total">0,00 €</span>
+                    </div>
+                </div>
+
+                <?php // ── Admin-Mail Toggle ── ?>
+                <div style="margin-bottom:20px;">
+                    <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
+                        <input type="checkbox" id="tix-mo-admin-mail" checked style="width:16px;height:16px;">
+                        <span>Admin-Benachrichtigung per E-Mail senden</span>
+                    </label>
+                </div>
+
+                <?php // ── Submit ── ?>
+                <div style="display:flex;gap:12px;align-items:center;">
+                    <button type="button" id="tix-mo-submit" class="button button-primary" style="background:var(--tix-primary, #FF5500);border-color:var(--tix-primary, #FF5500);padding:8px 24px;font-size:14px;border-radius:8px;">
+                        Bestellung erstellen
+                    </button>
+                    <a href="<?php echo esc_url(admin_url('admin.php?page=tix-orders')); ?>" class="button" style="padding:8px 16px;font-size:14px;border-radius:8px;">Abbrechen</a>
+                    <span id="tix-mo-status" style="font-size:13px;color:#6b7280;"></span>
+                </div>
+            </div>
+        </div>
+
+        <script>
+        (function($){
+            var nonce = <?php echo json_encode($nonce); ?>;
+            var catData = [];
+
+            // ── Event Change → Kategorien laden ──
+            $('#tix-mo-event').on('change', function(){
+                var eid = $(this).val();
+                var catSel = $('#tix-mo-cat');
+                catSel.html('<option value="">Laden…</option>').prop('disabled', true);
+                catData = [];
+                updatePreview();
+
+                if (!eid) {
+                    catSel.html('<option value="">— Erst Event auswählen —</option>');
+                    return;
+                }
+
+                $.post(ajaxurl, {
+                    action: 'tix_order_get_categories',
+                    nonce: nonce,
+                    event_id: eid
+                }, function(r){
+                    if (!r.success) {
+                        catSel.html('<option value="">Keine Kategorien</option>');
+                        return;
+                    }
+                    catData = r.data.categories;
+                    var html = '<option value="">— Kategorie wählen —</option>';
+                    catData.forEach(function(c){
+                        var stockInfo = c.stock >= 0 ? ' (Bestand: ' + c.stock + ')' : '';
+                        html += '<option value="' + c.index + '">' + c.name + ' – ' + formatPrice(c.price) + stockInfo + '</option>';
+                    });
+                    catSel.html(html).prop('disabled', false);
+                });
+            });
+
+            // ── Preis-Preview aktualisieren ──
+            $('#tix-mo-cat, #tix-mo-qty, #tix-mo-discount').on('change input', updatePreview);
+
+            function updatePreview() {
+                var catIdx = parseInt($('#tix-mo-cat').val());
+                var qty = parseInt($('#tix-mo-qty').val()) || 1;
+                var disc = parseFloat($('#tix-mo-discount').val()) || 0;
+                var preview = $('#tix-mo-preview');
+
+                if (isNaN(catIdx)) {
+                    preview.hide();
+                    return;
+                }
+
+                var cat = null;
+                catData.forEach(function(c){ if (c.index === catIdx) cat = c; });
+                if (!cat) { preview.hide(); return; }
+
+                var subtotal = cat.price * qty;
+                var discAmount = Math.round(subtotal * disc / 100 * 100) / 100;
+                var total = Math.round((subtotal - discAmount) * 100) / 100;
+
+                $('#tix-mo-prev-line').text(qty + '× ' + cat.name + ' à ' + formatPrice(cat.price));
+                $('#tix-mo-prev-subtotal').text(formatPrice(subtotal));
+
+                if (discAmount > 0) {
+                    $('#tix-mo-prev-discount').text('-' + formatPrice(discAmount));
+                    $('#tix-mo-prev-discount-row').css('display', 'flex');
+                } else {
+                    $('#tix-mo-prev-discount-row').hide();
+                }
+
+                $('#tix-mo-prev-total').text(formatPrice(total));
+                preview.show();
+            }
+
+            function formatPrice(v) {
+                return v.toFixed(2).replace('.', ',') + ' €';
+            }
+
+            // ── Submit ──
+            $('#tix-mo-submit').on('click', function(){
+                var btn = $(this);
+                var status = $('#tix-mo-status');
+
+                btn.prop('disabled', true).text('Erstelle…');
+                status.text('').css('color', '#6b7280');
+
+                $.post(ajaxurl, {
+                    action: 'tix_order_create_manual',
+                    nonce: nonce,
+                    event_id:   $('#tix-mo-event').val(),
+                    cat_index:  $('#tix-mo-cat').val(),
+                    qty:        $('#tix-mo-qty').val(),
+                    first_name: $('#tix-mo-fname').val(),
+                    last_name:  $('#tix-mo-lname').val(),
+                    email:      $('#tix-mo-email').val(),
+                    phone:      $('#tix-mo-phone').val(),
+                    company:    $('#tix-mo-company').val(),
+                    address_1:  $('#tix-mo-address').val(),
+                    postcode:   $('#tix-mo-postcode').val(),
+                    city:       $('#tix-mo-city').val(),
+                    country:    $('#tix-mo-country').val(),
+                    discount:   $('#tix-mo-discount').val(),
+                    comment:    $('#tix-mo-comment').val(),
+                    skip_admin_mail: $('#tix-mo-admin-mail').is(':checked') ? 0 : 1
+                }, function(r){
+                    if (r.success) {
+                        status.text(r.data.message).css('color', '#22c55e');
+                        setTimeout(function(){ window.location = r.data.redirect; }, 600);
+                    } else {
+                        status.text(r.data.message || 'Fehler').css('color', '#ef4444');
+                        btn.prop('disabled', false).text('Bestellung erstellen');
+                    }
+                }).fail(function(){
+                    status.text('Netzwerkfehler').css('color', '#ef4444');
+                    btn.prop('disabled', false).text('Bestellung erstellen');
+                });
+            });
+        })(jQuery);
+        </script>
+        <?php
     }
 }

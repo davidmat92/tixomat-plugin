@@ -39,8 +39,7 @@ class TIX_Modal_Checkout {
         $enabled = get_post_meta($post_id, '_tix_tickets_enabled', true);
         if ($enabled !== '1') return '';
 
-        $presale = get_post_meta($post_id, '_tix_presale_active', true);
-        if ($presale !== '1') return '<span class="tix-mc-trigger"><span style="opacity:0.5;font-size:0.9rem;">Vorverkauf beendet</span></span>';
+        if (!TIX_Ticket_Selector::check_presale_active($post_id)) return '<span class="tix-mc-trigger"><span style="opacity:0.5;font-size:0.9rem;">Vorverkauf beendet</span></span>';
 
         $categories = get_post_meta($post_id, '_tix_ticket_categories', true);
         if (!is_array($categories) || empty($categories)) return '';
@@ -139,7 +138,7 @@ class TIX_Modal_Checkout {
 
                                 // Stock
                                 $in_stock = true;
-                                if ($product_id) {
+                                if ($product_id && function_exists('wc_get_product')) {
                                     $product = wc_get_product($product_id);
                                     if ($product) $in_stock = $product->is_in_stock();
                                 }
@@ -234,7 +233,7 @@ class TIX_Modal_Checkout {
                                         }
 
                                         $in_stock = true;
-                                        if ($product_id) {
+                                        if ($product_id && function_exists('wc_get_product')) {
                                             $product = wc_get_product($product_id);
                                             if ($product) $in_stock = $product->is_in_stock();
                                         }

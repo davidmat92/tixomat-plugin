@@ -414,8 +414,17 @@ class TIX_Event_Page {
         $maps_url = 'https://www.google.com/maps/search/?api=1&query=' . $maps_q;
 
         $thumb = '';
-        if ($loc_id && has_post_thumbnail($loc_id)) {
-            $thumb = get_the_post_thumbnail_url($loc_id, 'thumbnail');
+        $short_desc = '';
+        if ($loc_id) {
+            // Bild: erst eigenes Feld, dann Featured Image als Fallback
+            $img_id = intval(get_post_meta($loc_id, '_tix_loc_image_id', true));
+            if ($img_id) {
+                $thumb = wp_get_attachment_image_url($img_id, 'medium');
+            }
+            if (!$thumb && has_post_thumbnail($loc_id)) {
+                $thumb = get_the_post_thumbnail_url($loc_id, 'medium');
+            }
+            $short_desc = get_post_meta($loc_id, '_tix_loc_short_desc', true);
         }
         ?>
         <div class="tix-ep-location tix-ep-section">
@@ -433,6 +442,9 @@ class TIX_Event_Page {
                 <span class="tix-ep-location-info">
                     <?php if ($location): ?>
                         <span class="tix-ep-location-name"><?php echo esc_html($location); ?></span>
+                    <?php endif; ?>
+                    <?php if ($short_desc): ?>
+                        <span class="tix-ep-location-desc"><?php echo esc_html($short_desc); ?></span>
                     <?php endif; ?>
                     <?php if ($address): ?>
                         <span class="tix-ep-location-address"><?php echo esc_html($address); ?></span>
@@ -454,8 +466,17 @@ class TIX_Event_Page {
 
         $org_id = get_post_meta($id, '_tix_organizer_id', true);
         $thumb  = '';
-        if ($org_id && has_post_thumbnail($org_id)) {
-            $thumb = get_the_post_thumbnail_url($org_id, 'thumbnail');
+        $short_desc = '';
+        if ($org_id) {
+            // Bild: erst eigenes Feld, dann Featured Image als Fallback
+            $img_id = intval(get_post_meta($org_id, '_tix_org_image_id', true));
+            if ($img_id) {
+                $thumb = wp_get_attachment_image_url($img_id, 'thumbnail');
+            }
+            if (!$thumb && has_post_thumbnail($org_id)) {
+                $thumb = get_the_post_thumbnail_url($org_id, 'thumbnail');
+            }
+            $short_desc = get_post_meta($org_id, '_tix_org_short_desc', true);
         }
         ?>
         <div class="tix-ep-organizer">
@@ -470,6 +491,9 @@ class TIX_Event_Page {
                 <span class="tix-ep-organizer-info">
                     <span class="tix-ep-organizer-label">Veranstalter</span>
                     <span class="tix-ep-organizer-name"><?php echo esc_html($organizer); ?></span>
+                    <?php if ($short_desc): ?>
+                        <span class="tix-ep-organizer-desc"><?php echo esc_html($short_desc); ?></span>
+                    <?php endif; ?>
                 </span>
             </div>
         </div>

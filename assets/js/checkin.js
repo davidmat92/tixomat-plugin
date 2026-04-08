@@ -22,7 +22,10 @@
         video: null,
         canvas: null,
         ctx: null,
-        filter: 'all' // all | guest | ticket
+        filter: 'all', // all | guest | ticket
+        soundEnabled: localStorage.getItem('tix_ci_sound') !== '0',
+        offlineQueue: JSON.parse(localStorage.getItem('tix_ci_offline_queue') || '[]'),
+        isOnline: navigator.onLine
     };
 
     // ── DOM References ──
@@ -46,6 +49,170 @@
     if (!$app) return;
 
     // ══════════════════════════════════════════════
+    // DYNAMISCHE UI-ELEMENTE
+    // ══════════════════════════════════════════════
+
+    // Counter + Toggle
+    var $counter = document.createElement('span');
+    $counter.className = 'tix-ci-counter';
+    $counter.style.display = 'none';
+    var $counterToggle = document.createElement('button');
+    $counterToggle.type = 'button';
+    $counterToggle.className = 'tix-ci-counter-toggle';
+    $counterToggle.title = 'Z\u00e4hler ein-/ausblenden';
+    $counterToggle.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
+
+    // Sound-Toggle
+    var $soundToggle = document.createElement('button');
+    $soundToggle.type = 'button';
+    $soundToggle.className = 'tix-ci-counter-toggle' + (state.soundEnabled ? ' active' : '');
+    $soundToggle.title = 'Sound ein-/ausschalten';
+    $soundToggle.innerHTML = state.soundEnabled
+        ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>'
+        : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>';
+
+    if ($listTitle && $listTitle.parentNode) {
+        $listTitle.parentNode.insertBefore($counter, $listTitle.nextSibling);
+        $listTitle.parentNode.insertBefore($counterToggle, $counter.nextSibling);
+        $listTitle.parentNode.insertBefore($soundToggle, $counterToggle.nextSibling);
+    }
+
+    var statsVisible = false;
+    $counterToggle.addEventListener('click', function() {
+        statsVisible = !statsVisible;
+        $counter.style.display = statsVisible ? 'inline' : 'none';
+        $progress.style.display = statsVisible ? '' : 'none';
+        $counterToggle.classList.toggle('active', statsVisible);
+    });
+
+    $soundToggle.addEventListener('click', function() {
+        state.soundEnabled = !state.soundEnabled;
+        localStorage.setItem('tix_ci_sound', state.soundEnabled ? '1' : '0');
+        $soundToggle.classList.toggle('active', state.soundEnabled);
+        $soundToggle.innerHTML = state.soundEnabled
+            ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>'
+            : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>';
+    });
+
+    // Fortschrittsbalken (wird vor der Liste eingefügt)
+    var $progress = document.createElement('div');
+    $progress.className = 'tix-ci-progress';
+    $progress.style.display = 'none';
+    $progress.innerHTML = '<div class="tix-ci-progress-bar"><div class="tix-ci-progress-fill"></div></div><span class="tix-ci-progress-text"></span>';
+    var $listSection = $list ? $list.parentNode : null;
+    if ($listSection && $filters) {
+        $listSection.insertBefore($progress, $filters.nextSibling);
+    } else if ($listSection && $list) {
+        $listSection.insertBefore($progress, $list);
+    }
+
+    // Offline-Banner
+    var $offlineBanner = document.createElement('div');
+    $offlineBanner.className = 'tix-ci-offline-banner';
+    $offlineBanner.style.display = 'none';
+    $offlineBanner.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="1" y1="1" x2="23" y2="23"/><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"/><path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"/><path d="M10.71 5.05A16 16 0 0 1 22.56 9"/><path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg> <span>Offline \u2013 Check-ins werden gespeichert</span>';
+    if ($app.firstChild) {
+        $app.insertBefore($offlineBanner, $app.firstChild);
+    }
+
+    // Alphabet-Index (wird rechts neben der Liste positioniert)
+    var $alphaIndex = document.createElement('div');
+    $alphaIndex.className = 'tix-ci-alpha-index';
+    $alphaIndex.style.display = 'none';
+    var letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ#'.split('');
+    for (var li = 0; li < letters.length; li++) {
+        var letterBtn = document.createElement('button');
+        letterBtn.type = 'button';
+        letterBtn.className = 'tix-ci-alpha-letter';
+        letterBtn.textContent = letters[li];
+        letterBtn.setAttribute('data-letter', letters[li].toLowerCase());
+        $alphaIndex.appendChild(letterBtn);
+    }
+    if ($list && $list.parentNode) {
+        // Wrap list + index in a container
+        var $listWrap = document.createElement('div');
+        $listWrap.className = 'tix-ci-list-wrap';
+        $list.parentNode.insertBefore($listWrap, $list);
+        $listWrap.appendChild($list);
+        $listWrap.appendChild($alphaIndex);
+    }
+
+    // Alphabet-Index Click
+    $alphaIndex.addEventListener('click', function(e) {
+        var btn = e.target.closest('.tix-ci-alpha-letter');
+        if (!btn) return;
+        var letter = btn.getAttribute('data-letter');
+        var rows = $list.querySelectorAll('.tix-ci-guest');
+        for (var i = 0; i < rows.length; i++) {
+            var name = rows[i].getAttribute('data-name') || '';
+            var firstChar = name.charAt(0);
+            if (letter === '#' ? !/[a-z]/.test(firstChar) : firstChar === letter) {
+                if (rows[i].style.display !== 'none') {
+                    rows[i].scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    rows[i].classList.add('tix-ci-guest-highlight');
+                    setTimeout(function(el) { el.classList.remove('tix-ci-guest-highlight'); }, 1500, rows[i]);
+                    return;
+                }
+            }
+        }
+    });
+
+    // ══════════════════════════════════════════════
+    // OFFLINE-HANDLING
+    // ══════════════════════════════════════════════
+
+    window.addEventListener('online', function() {
+        state.isOnline = true;
+        $offlineBanner.style.display = 'none';
+        flushOfflineQueue();
+    });
+
+    window.addEventListener('offline', function() {
+        state.isOnline = false;
+        if (state.authenticated) {
+            $offlineBanner.style.display = '';
+        }
+    });
+
+    function addToOfflineQueue(code) {
+        var entry = { code: code, time: Date.now(), eventId: state.eventId, password: state.password };
+        state.offlineQueue.push(entry);
+        localStorage.setItem('tix_ci_offline_queue', JSON.stringify(state.offlineQueue));
+    }
+
+    function flushOfflineQueue() {
+        if (!state.offlineQueue.length) return;
+        var queue = state.offlineQueue.slice();
+        state.offlineQueue = [];
+        localStorage.setItem('tix_ci_offline_queue', '[]');
+
+        var synced = 0;
+        var total = queue.length;
+
+        function processNext() {
+            if (!queue.length) {
+                if (synced > 0) {
+                    showResult({
+                        success: true,
+                        data: { status: 'ok', name: synced + ' Offline-Check-ins', message: 'Erfolgreich synchronisiert.' }
+                    });
+                    refreshList();
+                }
+                return;
+            }
+            var entry = queue.shift();
+            ajax('tix_guest_validate', {
+                code: entry.code,
+                password: entry.password
+            }, function(res) {
+                if (res.success) synced++;
+                processNext();
+            });
+        }
+        processNext();
+    }
+
+    // ══════════════════════════════════════════════
     // EVENT AUSWAHL
     // ══════════════════════════════════════════════
 
@@ -56,6 +223,8 @@
         $scanner.style.display = 'none';
         $result.style.display = 'none';
         $list.innerHTML = '';
+        $progress.style.display = 'none';
+        $alphaIndex.style.display = 'none';
         if ($filters) $filters.style.display = 'none';
 
         if (state.eventId) {
@@ -108,6 +277,10 @@
                 startScanner();
                 renderCombinedList(res.data);
                 startPolling();
+                // Offline-Queue flushen
+                if (state.isOnline) flushOfflineQueue();
+                // Offline-Banner anzeigen falls offline
+                if (!state.isOnline) $offlineBanner.style.display = '';
             } else {
                 $pwError.textContent = res.data && res.data.message ? res.data.message : 'Fehler';
                 $pwError.style.display = '';
@@ -189,6 +362,17 @@
     // ══════════════════════════════════════════════
 
     function processCode(code) {
+        // Offline? → Queue
+        if (!state.isOnline) {
+            addToOfflineQueue(code);
+            vibrate([100, 50, 100]);
+            showResult({
+                success: true,
+                data: { status: 'ok', name: 'Offline gespeichert', message: 'Wird synchronisiert sobald online.' }
+            });
+            return;
+        }
+
         // Beide Formate gehen an den gleichen universalen Validator
         ajax('tix_guest_validate', {
             code: code,
@@ -197,6 +381,16 @@
             showResult(res);
             refreshList();
         });
+    }
+
+    // ══════════════════════════════════════════════
+    // VIBRATION
+    // ══════════════════════════════════════════════
+
+    function vibrate(pattern) {
+        try {
+            if (navigator.vibrate) navigator.vibrate(pattern);
+        } catch (e) { /* nicht unterstützt */ }
     }
 
     // ══════════════════════════════════════════════
@@ -212,7 +406,7 @@
         switch (status) {
             case 'ok':
                 cls = 'tix-ci-result-ok';
-                icon = '✓';
+                icon = '\u2713';
                 title = data.name || 'Eingecheckt';
                 details = [];
                 if (data.type === 'ticket') {
@@ -225,21 +419,23 @@
                 }
                 details.push(data.message || 'Willkommen!');
                 playBeep(800, 150);
+                vibrate([100]);
                 break;
 
             case 'partial':
                 cls = 'tix-ci-result-warn';
-                icon = '⚠';
+                icon = '\u26a0';
                 title = data.name || 'Teilweise eingecheckt';
                 details = [data.checked_in_count + '/' + data.total_expected + ' eingecheckt'];
                 if (data.note) details.push(data.note);
                 details.push(data.message || 'Teilweise eingecheckt.');
                 playBeep(600, 120); setTimeout(function() { playBeep(600, 120); }, 180);
+                vibrate([80, 50, 80]);
                 break;
 
             case 'already':
                 cls = 'tix-ci-result-warn';
-                icon = '⚠';
+                icon = '\u26a0';
                 title = data.name || 'Bereits eingecheckt';
                 details = [];
                 if (data.total_expected > 1) details.push(data.checked_in_count + '/' + data.total_expected + ' eingecheckt');
@@ -249,30 +445,34 @@
                     details.push('Um ' + t.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }));
                 }
                 playBeep(400, 100); setTimeout(function() { playBeep(400, 100); }, 200);
+                vibrate([50, 100, 50, 100, 50]);
                 break;
 
             case 'cancelled':
                 cls = 'tix-ci-result-err';
-                icon = '✕';
-                title = (data.name || 'Ticket') + ' — STORNIERT';
+                icon = '\u2715';
+                title = (data.name || 'Ticket') + ' \u2014 STORNIERT';
                 details = [data.message || 'Ticket wurde storniert.'];
                 playBeep(200, 300);
+                vibrate([300]);
                 break;
 
             case 'not_found':
                 cls = 'tix-ci-result-err';
-                icon = '✕';
+                icon = '\u2715';
                 title = 'Nicht gefunden';
                 details = [data.message || 'Code nicht gefunden.'];
                 playBeep(200, 300);
+                vibrate([200, 100, 200]);
                 break;
 
             default:
                 cls = 'tix-ci-result-err';
-                icon = '✕';
+                icon = '\u2715';
                 title = 'Fehler';
                 details = [data.message || 'Unbekannter Fehler.'];
                 playBeep(200, 300);
+                vibrate([200, 100, 200]);
         }
 
         $result.className = 'tix-ci-result ' + cls;
@@ -299,9 +499,32 @@
         var tCount  = data.tickets_count || 0;
         var partial = data.partial || 0;
 
-        var titleText = 'Check-in (' + checked + '/' + total + ')';
-        if (partial > 0) titleText += ' · ' + partial + ' teilweise';
-        $listTitle.textContent = titleText;
+        $listTitle.textContent = 'Check-in';
+        if ($counter) {
+            var counterText = '(' + checked + '/' + total + ')';
+            if (partial > 0) counterText += ' \u00b7 ' + partial + ' teilweise';
+            $counter.textContent = counterText;
+        }
+
+        // Fortschrittsbalken aktualisieren
+        if (total > 0) {
+            $progress.style.display = statsVisible ? '' : 'none';
+            var pct = Math.round((checked / total) * 100);
+            var fill = $progress.querySelector('.tix-ci-progress-fill');
+            var text = $progress.querySelector('.tix-ci-progress-text');
+            if (fill) {
+                fill.style.width = pct + '%';
+                // Farbe je nach Fortschritt
+                fill.style.background = pct === 100
+                    ? 'var(--ci-ok)'
+                    : pct > 50
+                        ? 'linear-gradient(90deg, var(--ci-accent), var(--ci-ok))'
+                        : 'var(--ci-accent)';
+            }
+            if (text) text.textContent = checked + ' / ' + total + ' (' + pct + '%)';
+        } else {
+            $progress.style.display = 'none';
+        }
 
         // Filter-Buttons anzeigen wenn es beides gibt
         if ($filters && (gCount > 0 && tCount > 0)) {
@@ -310,9 +533,8 @@
             for (var f = 0; f < btns.length; f++) {
                 var fType = btns[f].getAttribute('data-filter');
                 btns[f].classList.toggle('active', fType === state.filter);
-                // Zähler aktualisieren
                 if (fType === 'all') btns[f].textContent = 'Alle (' + total + ')';
-                if (fType === 'guest') btns[f].textContent = 'Gäste (' + gCount + ')';
+                if (fType === 'guest') btns[f].textContent = 'G\u00e4ste (' + gCount + ')';
                 if (fType === 'ticket') btns[f].textContent = 'Tickets (' + tCount + ')';
             }
         } else if ($filters) {
@@ -330,6 +552,10 @@
             return (a.name || '').localeCompare(b.name || '');
         });
 
+        var checkedSectionStarted = false;
+        // Track welche Buchstaben existieren (für Alphabet-Index)
+        var usedLetters = {};
+
         for (var i = 0; i < items.length; i++) {
             var item = items[i];
             var type = item.type || 'guest';
@@ -339,9 +565,29 @@
             var isFull        = item.checked_in && checkedCount >= totalExpected;
             var time          = '';
 
+            // Buchstaben tracken
+            var nameLC = (item.name || '').toLowerCase();
+            var firstChar = nameLC.charAt(0);
+            if (/[a-z]/.test(firstChar)) {
+                usedLetters[firstChar] = true;
+            } else if (firstChar) {
+                usedLetters['#'] = true;
+            }
+
             if (item.checked_in && item.checkin_time) {
                 var tt = new Date(item.checkin_time);
                 time = tt.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+            }
+
+            // Kategorie-Header "Eingecheckt" vor dem ersten vollständig eingecheckten Eintrag
+            if (isFull && !checkedSectionStarted) {
+                checkedSectionStarted = true;
+                var checkedTotal = 0;
+                for (var ci = i; ci < items.length; ci++) {
+                    var cItem = items[ci];
+                    if (cItem.checked_in && (cItem.checked_in_count || 0) >= (cItem.total_expected || 1)) checkedTotal++;
+                }
+                html += '<div class="tix-ci-section-header tix-ci-section-checked"><span>\u2713 Eingecheckt (' + checkedTotal + ')</span></div>';
             }
 
             // Filter anwenden
@@ -351,11 +597,10 @@
             if (isFull) rowCls += ' tix-ci-guest-checked';
             else if (isPartial) rowCls += ' tix-ci-guest-partial';
 
-            html += '<div class="' + rowCls + '" data-name="' + escAttr((item.name || '').toLowerCase()) + '" data-type="' + type + '"' + filterHidden + '>';
+            html += '<div class="' + rowCls + '" data-name="' + escAttr(nameLC) + '" data-type="' + type + '"' + filterHidden + '>';
 
             // Info-Bereich
             html += '<div class="tix-ci-guest-info">';
-            // Typ-Badge
             if (type === 'ticket') {
                 html += '<span class="tix-ci-badge tix-ci-badge-ticket">Ticket</span>';
             } else {
@@ -374,7 +619,6 @@
 
             // Aktions-Bereich
             if (type === 'guest') {
-                // Gast: wie bisher mit Counter-System
                 if (isFull) {
                     html += '<div class="tix-ci-guest-right">';
                     html += '<span class="tix-ci-guest-status tix-ci-guest-status-ok">\u2713 ' + checkedCount + '/' + totalExpected + ' \u00b7 ' + time + '</span>';
@@ -390,7 +634,6 @@
                     html += '<button type="button" class="tix-ci-guest-checkin" data-guest="' + escAttr(item.id) + '">Check-in</button>';
                 }
             } else {
-                // Ticket: einfacher Toggle
                 if (isFull) {
                     html += '<div class="tix-ci-guest-right">';
                     html += '<span class="tix-ci-guest-status tix-ci-guest-status-ok">\u2713 ' + time + '</span>';
@@ -405,6 +648,20 @@
         }
 
         $list.innerHTML = html || '<div class="tix-ci-empty">Keine Eintr\u00e4ge.</div>';
+
+        // Alphabet-Index: nur Buchstaben anzeigen die existieren, ab 15 Einträgen
+        if (items.length >= 15) {
+            $alphaIndex.style.display = '';
+            var letterBtns = $alphaIndex.querySelectorAll('.tix-ci-alpha-letter');
+            for (var ai = 0; ai < letterBtns.length; ai++) {
+                var l = letterBtns[ai].getAttribute('data-letter');
+                var exists = usedLetters[l] || false;
+                letterBtns[ai].style.opacity = exists ? '1' : '0.25';
+                letterBtns[ai].disabled = !exists;
+            }
+        } else {
+            $alphaIndex.style.display = 'none';
+        }
     }
 
     // ── Filter ──
@@ -414,13 +671,11 @@
             if (!btn) return;
             state.filter = btn.getAttribute('data-filter') || 'all';
 
-            // Aktiven Button markieren
             var btns = $filters.querySelectorAll('.tix-ci-filter-btn');
             for (var i = 0; i < btns.length; i++) {
                 btns[i].classList.toggle('active', btns[i] === btn);
             }
 
-            // Items ein/ausblenden
             var rows = $list.querySelectorAll('.tix-ci-guest');
             for (var j = 0; j < rows.length; j++) {
                 var rowType = rows[j].getAttribute('data-type');
@@ -534,7 +789,6 @@
             password: state.password
         }, function(res) {
             if (res.success) {
-                // DOM direkt aktualisieren (verhindert Counter-Verlust)
                 var rows = $list.querySelectorAll('.tix-ci-guest');
                 for (var i = 0; i < rows.length; i++) {
                     var btns = rows[i].querySelectorAll('.tix-ci-counter-btn');
@@ -577,6 +831,7 @@
     // ══════════════════════════════════════════════
 
     function playBeep(freq, duration) {
+        if (!state.soundEnabled) return;
         try {
             var ac = new (window.AudioContext || window.webkitAudioContext)();
             var osc = ac.createOscillator();

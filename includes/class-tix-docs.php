@@ -265,6 +265,7 @@ class TIX_Docs {
                 ['_tix_price_max_formatted', '<span class="tix-badge-bd">Breakdance</span> Formatierter H&ouml;chstpreis inkl. MwSt.-Text', 'Text'],
                 ['_tix_price_range', '<span class="tix-badge-bd">Breakdance</span> Preisspanne (z.B. &bdquo;ab 15,00 &euro;&ldquo;)', 'Text'],
                 ['_tix_price_range_full', '<span class="tix-badge-bd">Breakdance</span> Vollst&auml;ndige Preisspanne (z.B. &bdquo;15 &euro; &ndash; 50 &euro;&ldquo;)', 'Text'],
+                ['_tix_price_label', '<span class="tix-badge-bd">Breakdance</span> Preis-Label ohne MwSt. (z.B. &bdquo;Tickets ab 15,00&euro;&ldquo;)', 'Text'],
             ]);
 
             // ── Verkaufszahlen ──
