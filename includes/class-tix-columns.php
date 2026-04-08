@@ -1264,25 +1264,34 @@ class TIX_Columns {
             background:transparent !important;
         }
         body.post-type-tix_ticket .wp-list-table tbody td {
-            padding:12px 16px !important;
+            padding:8px 16px !important;
             vertical-align:middle;
             border-top:none !important;
             border-bottom:none !important;
             font-size:13px;
-            line-height:1.5;
+            line-height:1.4;
         }
         body.post-type-tix_ticket .wp-list-table .check-column {
-            padding:12px 8px !important;
+            padding:8px 8px !important;
             width:40px !important;
             border-top:none !important;
             border-bottom:none !important;
         }
         body.post-type-tix_ticket .wp-list-table tfoot { display:none; }
+        /* Row-Actions: absolute overlay → kein Extra-Höhe */
+        body.post-type-tix_ticket .wp-list-table td.column-title { position:relative; }
         body.post-type-tix_ticket .wp-list-table .column-title .row-actions {
-            visibility:visible;
+            position:absolute;
+            left:16px;
+            bottom:2px;
             opacity:0;
             transition:opacity .15s;
-            padding:2px 0 0;
+            padding:0;
+            background:#fff;
+            z-index:1;
+        }
+        body.post-type-tix_ticket .wp-list-table tbody tr:hover .column-title .row-actions {
+            background:#fafbfc;
         }
         body.post-type-tix_ticket .wp-list-table tr:hover .row-actions { opacity:1; }
         body.post-type-tix_ticket .wp-list-table .alternate { background:transparent !important; }
