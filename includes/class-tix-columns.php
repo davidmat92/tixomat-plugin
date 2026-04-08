@@ -1220,32 +1220,94 @@ class TIX_Columns {
 
         // ── Styles: Ticket-Liste identisch zu Bestellungen ──
         echo '<style>
+        /* Container max-width wie Bestellungen */
+        body.post-type-tix_ticket .wrap { max-width:1200px; }
+
         /* WP-Defaults verstecken */
-        body.post-type-tix_ticket .wrap > h1.wp-heading-inline { display:none !important; }
-        body.post-type-tix_ticket .wrap > .page-title-action { display:none !important; }
-        body.post-type-tix_ticket .wrap > hr.wp-header-end { display:none; }
-        body.post-type-tix_ticket .subsubsub { display:none !important; }
-        /* Komplett tablenav.top verstecken — eigene Filter-Zeile stattdessen */
-        body.post-type-tix_ticket .tablenav.top { display:none !important; }
+        body.post-type-tix_ticket .wrap > h1.wp-heading-inline,
+        body.post-type-tix_ticket .wrap > .page-title-action,
+        body.post-type-tix_ticket .wrap > hr.wp-header-end,
+        body.post-type-tix_ticket .subsubsub,
+        body.post-type-tix_ticket .tablenav.top,
+        body.post-type-tix_ticket .search-box { display:none !important; }
+
         /* Tabelle in Card-Style wie Bestellungen */
-        body.post-type-tix_ticket #posts-filter > .wp-list-table { border:1px solid #e5e7eb !important; border-radius:12px !important; overflow:hidden; background:#fff; }
-        body.post-type-tix_ticket .wp-list-table thead th { background:#fafafa !important; padding:12px 16px !important; font-size:13px !important; font-weight:600 !important; border-bottom:1px solid #e5e7eb; text-transform:none !important; letter-spacing:normal !important; }
-        body.post-type-tix_ticket .wp-list-table thead th a { color:inherit; text-decoration:none; }
-        body.post-type-tix_ticket .wp-list-table thead th .sorting-indicators { display:none; }
-        body.post-type-tix_ticket .wp-list-table tbody tr { border-top:1px solid #f3f4f6; }
-        body.post-type-tix_ticket .wp-list-table tbody td { padding:14px 16px; vertical-align:middle; border-bottom:none; }
-        body.post-type-tix_ticket .wp-list-table .check-column { padding:12px 8px !important; width:40px; }
+        body.post-type-tix_ticket #posts-filter > .wp-list-table {
+            border:1px solid #e5e7eb !important;
+            border-radius:12px !important;
+            overflow:hidden;
+            background:#fff;
+            border-collapse:separate !important;
+            border-spacing:0 !important;
+            box-shadow:none !important;
+        }
+        body.post-type-tix_ticket .wp-list-table thead th {
+            background:#fafafa !important;
+            padding:12px 16px !important;
+            font-size:13px !important;
+            font-weight:600 !important;
+            border-bottom:1px solid #e5e7eb !important;
+            border-top:none !important;
+            text-transform:none !important;
+            letter-spacing:normal !important;
+            line-height:1.4 !important;
+            color:#1e293b !important;
+            white-space:nowrap;
+        }
+        body.post-type-tix_ticket .wp-list-table thead th a { color:inherit !important; text-decoration:none; }
+        body.post-type-tix_ticket .wp-list-table thead th a:hover { color:inherit !important; }
+        body.post-type-tix_ticket .wp-list-table thead th .sorting-indicators,
+        body.post-type-tix_ticket .wp-list-table thead th .sorting-indicator { display:none !important; }
+        body.post-type-tix_ticket .wp-list-table thead .sorted .sorting-indicators { display:none !important; }
+        body.post-type-tix_ticket .wp-list-table tbody tr {
+            border-top:1px solid #f3f4f6;
+            background:transparent !important;
+        }
+        body.post-type-tix_ticket .wp-list-table tbody td {
+            padding:12px 16px !important;
+            vertical-align:middle;
+            border-top:none !important;
+            border-bottom:none !important;
+            font-size:13px;
+            line-height:1.5;
+        }
+        body.post-type-tix_ticket .wp-list-table .check-column {
+            padding:12px 8px !important;
+            width:40px !important;
+            border-top:none !important;
+            border-bottom:none !important;
+        }
         body.post-type-tix_ticket .wp-list-table tfoot { display:none; }
-        body.post-type-tix_ticket .wp-list-table .column-title .row-actions { visibility:visible; opacity:0; transition:opacity .15s; }
+        body.post-type-tix_ticket .wp-list-table .column-title .row-actions {
+            visibility:visible;
+            opacity:0;
+            transition:opacity .15s;
+            padding:2px 0 0;
+        }
         body.post-type-tix_ticket .wp-list-table tr:hover .row-actions { opacity:1; }
         body.post-type-tix_ticket .wp-list-table .alternate { background:transparent !important; }
         body.post-type-tix_ticket .wp-list-table tbody tr:hover { background:#fafbfc !important; }
+        body.post-type-tix_ticket .wp-list-table .row-actions .trash,
+        body.post-type-tix_ticket .wp-list-table .row-actions .inline { display:none; }
+
+        /* Keine WP-Borders auf der äußeren Tabelle */
+        body.post-type-tix_ticket .wp-list-table,
+        body.post-type-tix_ticket .wp-list-table td,
+        body.post-type-tix_ticket .wp-list-table th { box-shadow:none !important; }
+
         /* Bottom: nur Pagination, keine Bulk Actions */
-        body.post-type-tix_ticket .tablenav.bottom .actions { display:none; }
+        body.post-type-tix_ticket .tablenav.bottom .actions,
         body.post-type-tix_ticket .tablenav.bottom .displaying-num { display:none; }
         body.post-type-tix_ticket .tablenav.bottom { margin-top:12px; }
-        /* WP Search Box verstecken (eigene Suche) */
-        body.post-type-tix_ticket .search-box { display:none !important; }
+
+        /* Column-Titel (Ticket-Code) soll kein strong/bold sein */
+        body.post-type-tix_ticket .wp-list-table td.column-title strong { font-weight:600; }
+        body.post-type-tix_ticket .wp-list-table td.column-title a.row-title {
+            color:#1e293b;
+            text-decoration:none;
+            font-weight:600;
+            font-size:13px;
+        }
         </style>';
 
         // ── Custom Titel mit Icon (wie Bestellungen) ──
