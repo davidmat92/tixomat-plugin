@@ -268,7 +268,7 @@ class TIX_Dashboard {
                             '<div class="tix-db-event-date">' + ev.date + '</div>' +
                             '<div class="tix-db-event-bar-wrap">' +
                                 '<div class="tix-db-event-bar"><div class="tix-db-event-bar-fill tix-db-bar-' + statusCls + '" style="width:' + pct + '%"></div></div>' +
-                                '<span class="tix-db-event-sold">' + ev.sold + (ev.capacity > 0 ? '/' + ev.capacity : '') + '</span>' +
+                                '<span class="tix-db-event-sold">' + ev.sold + (ev.capacity > 0 ? ' / ' + ev.capacity : '') + ' Tickets verkauft</span>' +
                             '</div>' +
                         '</div>' +
                     '</a>';
@@ -1181,12 +1181,12 @@ class TIX_Dashboard {
 .tix-db-event-title { font-family:"Sora",sans-serif; font-size:0.85rem; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .tix-db-event-date { font-size:0.72rem; color:#6b7280; margin:2px 0 4px; }
 .tix-db-event-bar-wrap { display:flex; align-items:center; gap:8px; }
-.tix-db-event-bar { flex:1; height:6px; background:#f3f4f6; border-radius:3px; overflow:hidden; }
+.tix-db-event-bar { flex:1; height:8px; background:#f3f4f6; border-radius:4px; overflow:hidden; }
 .tix-db-event-bar-fill { height:100%; border-radius:3px; transition:width .3s; }
 .tix-db-bar-available { background:#10b981; }
 .tix-db-bar-few { background:#f59e0b; }
 .tix-db-bar-sold-out { background:#ef4444; }
-.tix-db-event-sold { font-size:0.7rem; font-weight:600; color:#6b7280; white-space:nowrap; }
+.tix-db-event-sold { font-size:12px; font-weight:600; color:#374151; white-space:nowrap; }
 
 /* ── Bottom Row ── */
 .tix-db-bottom { display:grid; grid-template-columns:3fr 2fr; gap:16px; }
