@@ -410,7 +410,9 @@ class TIX_Statistics {
         // 2) WC Orders
         if (function_exists('wc_get_product')) {
             $product_ids = [];
-            if (!empty($event_ids)) {
+            $filter_by_product = !empty($event_ids);
+
+            if ($filter_by_product) {
                 foreach ($event_ids as $eid) {
                     $cats = get_post_meta($eid, '_tix_ticket_categories', true);
                     if (!is_array($cats)) continue;
@@ -419,16 +421,19 @@ class TIX_Statistics {
                         if ($pid) $product_ids[] = $pid;
                     }
                 }
-            } else {
-                $product_ids = $wpdb->get_col(
-                    "SELECT DISTINCT post_id FROM {$wpdb->postmeta} WHERE meta_key = '_tix_parent_event_id' AND meta_value > 0"
-                );
+                if (empty($product_ids)) $filter_by_product = false; // Keine WC-Produkte → nichts zu zählen
             }
 
-            if (!empty($product_ids)) {
-                $pids = implode(',', array_map('intval', array_unique($product_ids)));
-                $is_hpos = class_exists('Automattic\WooCommerce\Utilities\OrderUtil')
-                    && \Automattic\WooCommerce\Utilities\OrderUtil::custom_orders_table_usage_is_enabled();
+            $is_hpos = class_exists('Automattic\WooCommerce\Utilities\OrderUtil')
+                && \Automattic\WooCommerce\Utilities\OrderUtil::custom_orders_table_usage_is_enabled();
+
+            // Nur abfragen wenn: alle Events (kein Filter) ODER spezifische Produkte gefunden
+            if (!$filter_by_product || !empty($product_ids)) {
+                $pids_clause = '';
+                if ($filter_by_product && !empty($product_ids)) {
+                    $pids = implode(',', array_map('intval', array_unique($product_ids)));
+                    $pids_clause = "INNER JOIN {$wpdb->prefix}woocommerce_order_itemmeta oip ON oi.order_item_id = oip.order_item_id AND oip.meta_key = '_product_id' AND oip.meta_value IN ($pids)";
+                }
 
                 if ($is_hpos) {
                     $wc_where = "oi.order_item_type = 'line_item' AND o.status IN ('wc-completed','wc-processing','wc-on-hold')";
@@ -438,7 +443,7 @@ class TIX_Statistics {
                     $wc_sql = "SELECT COALESCE(SUM(oim.meta_value), 0)
                         FROM {$wpdb->prefix}woocommerce_order_items oi
                         INNER JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim ON oi.order_item_id = oim.order_item_id AND oim.meta_key = '_qty'
-                        INNER JOIN {$wpdb->prefix}woocommerce_order_itemmeta oip ON oi.order_item_id = oip.order_item_id AND oip.meta_key = '_product_id' AND oip.meta_value IN ($pids)
+                        $pids_clause
                         INNER JOIN {$wpdb->prefix}wc_orders o ON oi.order_id = o.id
                         WHERE $wc_where";
                     $total += intval($wpdb->get_var(empty($wc_params) ? $wc_sql : $wpdb->prepare($wc_sql, ...$wc_params)));
@@ -450,7 +455,7 @@ class TIX_Statistics {
                     $wc_sql = "SELECT COALESCE(SUM(oim.meta_value), 0)
                         FROM {$wpdb->prefix}woocommerce_order_items oi
                         INNER JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim ON oi.order_item_id = oim.order_item_id AND oim.meta_key = '_qty'
-                        INNER JOIN {$wpdb->prefix}woocommerce_order_itemmeta oip ON oi.order_item_id = oip.order_item_id AND oip.meta_key = '_product_id' AND oip.meta_value IN ($pids)
+                        $pids_clause
                         INNER JOIN {$wpdb->posts} p ON oi.order_id = p.ID
                         WHERE $wc_where";
                     $total += intval($wpdb->get_var(empty($wc_params) ? $wc_sql : $wpdb->prepare($wc_sql, ...$wc_params)));

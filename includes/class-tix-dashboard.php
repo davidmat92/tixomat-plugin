@@ -864,53 +864,114 @@ class TIX_Dashboard {
     }
 
     /**
-     * WC Tickets für KPI (mit Datumsfilter).
+     * WC Tickets für KPI (mit Datumsfilter) — zählt aus WC Order Items.
      */
     private static function query_wc_tickets($event_ids, $from, $to) {
         global $wpdb;
 
-        // Zählen über tix_ticket CPT (zuverlässiger als order items)
-        $event_filter = '';
-        if (!empty($event_ids)) {
-            $eids = implode(',', array_map('intval', $event_ids));
-            $event_filter = "AND pm_event.meta_value IN ($eids)";
+        // Alle tixomat-Produkt-IDs sammeln (für Event-Filter)
+        $product_ids = [];
+        $filter_by_product = !empty($event_ids);
+
+        if ($filter_by_product) {
+            foreach ($event_ids as $eid) {
+                $cats = get_post_meta($eid, '_tix_ticket_categories', true);
+                if (!is_array($cats)) continue;
+                foreach ($cats as $cat) {
+                    $pid = intval($cat['product_id'] ?? 0);
+                    if ($pid) $product_ids[] = $pid;
+                }
+            }
+            if (empty($product_ids)) return 0; // Events ohne WC-Produkte
+        }
+
+        $pids_clause = '';
+        if ($filter_by_product) {
+            $pids = implode(',', array_map('intval', array_unique($product_ids)));
+            $pids_clause = "INNER JOIN {$wpdb->prefix}woocommerce_order_itemmeta oip ON oi.order_item_id = oip.order_item_id AND oip.meta_key = '_product_id' AND oip.meta_value IN ($pids)";
+        }
+
+        if (self::is_hpos()) {
+            return intval($wpdb->get_var($wpdb->prepare(
+                "SELECT COALESCE(SUM(oim.meta_value), 0)
+                 FROM {$wpdb->prefix}woocommerce_order_items oi
+                 INNER JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim ON oi.order_item_id = oim.order_item_id AND oim.meta_key = '_qty'
+                 $pids_clause
+                 INNER JOIN {$wpdb->prefix}wc_orders o ON oi.order_id = o.id AND o.status IN ('wc-completed','wc-processing','wc-on-hold')
+                 WHERE oi.order_item_type = 'line_item'
+                   AND o.date_created_gmt >= %s AND o.date_created_gmt <= %s",
+                $from, $to
+            )));
         }
 
         return intval($wpdb->get_var($wpdb->prepare(
-            "SELECT COUNT(*)
-             FROM {$wpdb->posts} p
-             INNER JOIN {$wpdb->postmeta} pm_status ON p.ID = pm_status.post_id AND pm_status.meta_key = '_tix_ticket_status'
-             INNER JOIN {$wpdb->postmeta} pm_event ON p.ID = pm_event.post_id AND pm_event.meta_key = '_tix_ticket_event_id'
-             WHERE p.post_type = 'tix_ticket' AND p.post_status = 'publish'
-               AND pm_status.meta_value IN ('valid','used','checked_in','redeemed')
-               AND p.post_date >= %s AND p.post_date <= %s $event_filter",
+            "SELECT COALESCE(SUM(oim.meta_value), 0)
+             FROM {$wpdb->prefix}woocommerce_order_items oi
+             INNER JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim ON oi.order_item_id = oim.order_item_id AND oim.meta_key = '_qty'
+             $pids_clause
+             INNER JOIN {$wpdb->posts} p ON oi.order_id = p.ID AND p.post_status IN ('wc-completed','wc-processing','wc-on-hold')
+             WHERE oi.order_item_type = 'line_item'
+               AND p.post_date >= %s AND p.post_date <= %s",
             $from, $to
         )));
     }
 
     /**
-     * WC Chart-Daten (Revenue + Tickets pro Tag).
+     * WC Chart-Daten (Tickets pro Tag aus WC Order Items).
      */
     private static function query_wc_chart_data($event_ids, $from) {
         global $wpdb;
 
-        $event_filter = '';
-        if (!empty($event_ids)) {
-            $eids = implode(',', array_map('intval', $event_ids));
-            $event_filter = "AND pm_event.meta_value IN ($eids)";
+        // Alle tixomat-Produkt-IDs sammeln (für Event-Filter)
+        $product_ids = [];
+        $filter_by_product = !empty($event_ids);
+
+        if ($filter_by_product) {
+            foreach ($event_ids as $eid) {
+                $cats = get_post_meta($eid, '_tix_ticket_categories', true);
+                if (!is_array($cats)) continue;
+                foreach ($cats as $cat) {
+                    $pid = intval($cat['product_id'] ?? 0);
+                    if ($pid) $product_ids[] = $pid;
+                }
+            }
+            if (empty($product_ids)) return [];
         }
 
-        // Tickets pro Tag über tix_ticket CPT
+        $pids_clause = '';
+        if ($filter_by_product) {
+            $pids = implode(',', array_map('intval', array_unique($product_ids)));
+            $pids_clause = "INNER JOIN {$wpdb->prefix}woocommerce_order_itemmeta oip ON oi.order_item_id = oip.order_item_id AND oip.meta_key = '_product_id' AND oip.meta_value IN ($pids)";
+        }
+
+        if (self::is_hpos()) {
+            return $wpdb->get_results($wpdb->prepare(
+                "SELECT DATE(o.date_created_gmt) as day,
+                        COALESCE(SUM(oim_total.meta_value), 0) as revenue,
+                        COALESCE(SUM(oim.meta_value), 0) as tickets
+                 FROM {$wpdb->prefix}woocommerce_order_items oi
+                 INNER JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim ON oi.order_item_id = oim.order_item_id AND oim.meta_key = '_qty'
+                 $pids_clause
+                 LEFT JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim_total ON oi.order_item_id = oim_total.order_item_id AND oim_total.meta_key = '_line_total'
+                 INNER JOIN {$wpdb->prefix}wc_orders o ON oi.order_id = o.id AND o.status IN ('wc-completed','wc-processing','wc-on-hold')
+                 WHERE oi.order_item_type = 'line_item'
+                   AND o.date_created_gmt >= %s
+                 GROUP BY DATE(o.date_created_gmt)",
+                $from
+            ));
+        }
+
         return $wpdb->get_results($wpdb->prepare(
             "SELECT DATE(p.post_date) as day,
-                    0 as revenue,
-                    COUNT(*) as tickets
-             FROM {$wpdb->posts} p
-             INNER JOIN {$wpdb->postmeta} pm_status ON p.ID = pm_status.post_id AND pm_status.meta_key = '_tix_ticket_status'
-             INNER JOIN {$wpdb->postmeta} pm_event ON p.ID = pm_event.post_id AND pm_event.meta_key = '_tix_ticket_event_id'
-             WHERE p.post_type = 'tix_ticket' AND p.post_status = 'publish'
-               AND pm_status.meta_value IN ('valid','used','checked_in','redeemed')
-               AND p.post_date >= %s $event_filter
+                    COALESCE(SUM(oim_total.meta_value), 0) as revenue,
+                    COALESCE(SUM(oim.meta_value), 0) as tickets
+             FROM {$wpdb->prefix}woocommerce_order_items oi
+             INNER JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim ON oi.order_item_id = oim.order_item_id AND oim.meta_key = '_qty'
+             $pids_clause
+             LEFT JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim_total ON oi.order_item_id = oim_total.order_item_id AND oim_total.meta_key = '_line_total'
+             INNER JOIN {$wpdb->posts} p ON oi.order_id = p.ID AND p.post_status IN ('wc-completed','wc-processing','wc-on-hold')
+             WHERE oi.order_item_type = 'line_item'
+               AND p.post_date >= %s
              GROUP BY DATE(p.post_date)",
             $from
         ));
