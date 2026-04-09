@@ -698,6 +698,23 @@ class TIX_Dashboard {
                     }
                 }
             }
+
+            // 3) Stornierte Tickets abziehen (einzeln storniert, Order bleibt bestehen)
+            $cancelled_rows = $wpdb->get_results(
+                "SELECT pm_event.meta_value AS event_id, COUNT(*) AS cnt
+                 FROM {$wpdb->posts} p
+                 INNER JOIN {$wpdb->postmeta} pm_status ON p.ID = pm_status.post_id AND pm_status.meta_key = '_tix_ticket_status' AND pm_status.meta_value = 'cancelled'
+                 INNER JOIN {$wpdb->postmeta} pm_event ON p.ID = pm_event.post_id AND pm_event.meta_key = '_tix_ticket_event_id'
+                 WHERE p.post_type = 'tix_ticket' AND p.post_status = 'publish'
+                   AND pm_event.meta_value IN ($eids_str)
+                 GROUP BY pm_event.meta_value"
+            );
+            foreach ($cancelled_rows as $cr) {
+                $eid = intval($cr->event_id);
+                if (isset($sold_map[$eid])) {
+                    $sold_map[$eid] = max(0, $sold_map[$eid] - intval($cr->cnt));
+                }
+            }
         }
 
         $result = [];
