@@ -662,27 +662,47 @@ class TIX_Dashboard {
         }
         $events = get_posts($args);
 
-        // Batch-Query: Verkaufte Tickets pro Event aus tix_order_items
+        // Batch-Query: Verkaufte Tickets pro Event
         $event_post_ids = wp_list_pluck($events, 'ID');
         $sold_map = [];
         if (!empty($event_post_ids)) {
             $eids_str = implode(',', array_map('intval', $event_post_ids));
-            $sold_rows = $wpdb->get_results(
+
+            // 1) Native tix_order_items (nicht-WC-Bestellungen: wc_order_id = 0)
+            $native_rows = $wpdb->get_results(
                 "SELECT i.event_id, COALESCE(SUM(i.quantity), 0) as sold
                  FROM $ti i
                  INNER JOIN $t o ON i.order_id = o.id
                  WHERE o.status IN ('completed','processing')
+                   AND o.wc_order_id = 0
                    AND i.event_id IN ($eids_str)
                  GROUP BY i.event_id"
             );
-            foreach ($sold_rows as $sr) {
+            foreach ($native_rows as $sr) {
                 $sold_map[intval($sr->event_id)] = intval($sr->sold);
+            }
+
+            // 2) WooCommerce-Orders: Produkte aus Ticket-Kategorien zählen
+            if (function_exists('wc_get_product')) {
+                foreach ($event_post_ids as $eid) {
+                    $cats = get_post_meta($eid, '_tix_ticket_categories', true);
+                    if (!is_array($cats)) continue;
+                    $wc_sold = 0;
+                    foreach ($cats as $cat) {
+                        $pid = intval($cat['product_id'] ?? 0);
+                        if (!$pid) continue;
+                        $wc_sold += self::count_wc_sold_for_product($pid);
+                    }
+                    if ($wc_sold > 0) {
+                        $sold_map[$eid] = ($sold_map[$eid] ?? 0) + $wc_sold;
+                    }
+                }
             }
         }
 
         $result = [];
         foreach ($events as $e) {
-            // Verkaufte Tickets aus der DB
+            // Verkaufte Tickets (native + WC)
             $sold = $sold_map[$e->ID] ?? 0;
 
             // Kapazität aus Ticketkategorien berechnen
@@ -712,6 +732,36 @@ class TIX_Dashboard {
             ];
         }
         return $result;
+    }
+
+    /**
+     * Verkaufte Menge für ein WC-Produkt (nur completed/processing/on-hold).
+     */
+    private static function count_wc_sold_for_product($product_id) {
+        global $wpdb;
+
+        if (class_exists('Automattic\WooCommerce\Utilities\OrderUtil')
+            && \Automattic\WooCommerce\Utilities\OrderUtil::custom_orders_table_usage_is_enabled()) {
+            return intval($wpdb->get_var($wpdb->prepare(
+                "SELECT COALESCE(SUM(oim.meta_value), 0)
+                 FROM {$wpdb->prefix}woocommerce_order_items oi
+                 INNER JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim ON oi.order_item_id = oim.order_item_id AND oim.meta_key = '_qty'
+                 INNER JOIN {$wpdb->prefix}woocommerce_order_itemmeta oip ON oi.order_item_id = oip.order_item_id AND oip.meta_key = '_product_id' AND oip.meta_value = %d
+                 INNER JOIN {$wpdb->prefix}wc_orders o ON oi.order_id = o.id AND o.status IN ('wc-completed','wc-processing','wc-on-hold')
+                 WHERE oi.order_item_type = 'line_item'",
+                $product_id
+            )));
+        }
+
+        return intval($wpdb->get_var($wpdb->prepare(
+            "SELECT COALESCE(SUM(oim.meta_value), 0)
+             FROM {$wpdb->prefix}woocommerce_order_items oi
+             INNER JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim ON oi.order_item_id = oim.order_item_id AND oim.meta_key = '_qty'
+             INNER JOIN {$wpdb->prefix}woocommerce_order_itemmeta oip ON oi.order_item_id = oip.order_item_id AND oip.meta_key = '_product_id' AND oip.meta_value = %d
+             INNER JOIN {$wpdb->posts} p ON oi.order_id = p.ID AND p.post_status IN ('wc-completed','wc-processing','wc-on-hold')
+             WHERE oi.order_item_type = 'line_item'",
+            $product_id
+        )));
     }
 
     /**

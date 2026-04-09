@@ -2021,16 +2021,30 @@ class TIX_Metabox {
      */
     private static function get_sold_count($product_id) {
         global $wpdb;
-        // WC HPOS-kompatibel: lookup-table oder order_itemmeta
-        $count = $wpdb->get_var($wpdb->prepare(
-            "SELECT SUM(oim.meta_value)
-             FROM {$wpdb->prefix}woocommerce_order_itemmeta oim
-             JOIN {$wpdb->prefix}woocommerce_order_items oi ON oi.order_item_id = oim.order_item_id
-             JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim2 ON oim2.order_item_id = oi.order_item_id AND oim2.meta_key = '_product_id' AND oim2.meta_value = %d
-             WHERE oim.meta_key = '_qty'
-             AND oi.order_item_type = 'line_item'",
-            $product_id
-        ));
+
+        // HPOS-kompatibel: Prüfe ob Custom Order Tables aktiv
+        if (class_exists('Automattic\WooCommerce\Utilities\OrderUtil')
+            && \Automattic\WooCommerce\Utilities\OrderUtil::custom_orders_table_usage_is_enabled()) {
+            $count = $wpdb->get_var($wpdb->prepare(
+                "SELECT COALESCE(SUM(oim.meta_value), 0)
+                 FROM {$wpdb->prefix}woocommerce_order_items oi
+                 INNER JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim ON oi.order_item_id = oim.order_item_id AND oim.meta_key = '_qty'
+                 INNER JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim2 ON oim2.order_item_id = oi.order_item_id AND oim2.meta_key = '_product_id' AND oim2.meta_value = %d
+                 INNER JOIN {$wpdb->prefix}wc_orders o ON oi.order_id = o.id AND o.status IN ('wc-completed','wc-processing','wc-on-hold')
+                 WHERE oi.order_item_type = 'line_item'",
+                $product_id
+            ));
+        } else {
+            $count = $wpdb->get_var($wpdb->prepare(
+                "SELECT COALESCE(SUM(oim.meta_value), 0)
+                 FROM {$wpdb->prefix}woocommerce_order_items oi
+                 INNER JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim ON oi.order_item_id = oim.order_item_id AND oim.meta_key = '_qty'
+                 INNER JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim2 ON oim2.order_item_id = oi.order_item_id AND oim2.meta_key = '_product_id' AND oim2.meta_value = %d
+                 INNER JOIN {$wpdb->posts} p ON oi.order_id = p.ID AND p.post_status IN ('wc-completed','wc-processing','wc-on-hold')
+                 WHERE oi.order_item_type = 'line_item'",
+                $product_id
+            ));
+        }
         return $count !== null ? intval($count) : false;
     }
 
