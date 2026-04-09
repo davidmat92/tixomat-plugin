@@ -1303,14 +1303,21 @@ class TIX_Columns {
         body.post-type-tix_ticket .tablenav.bottom .displaying-num { display:none; }
         body.post-type-tix_ticket .tablenav.bottom { margin-top:12px; }
 
-        /* Column-Titel (Ticket-Code) soll kein strong/bold sein */
-        body.post-type-tix_ticket .wp-list-table td.column-title strong { font-weight:600; }
+        /* Column-Titel (Ticket-Code) */
+        body.post-type-tix_ticket .wp-list-table td.column-title strong { font-weight:600; font-size:13px; }
         body.post-type-tix_ticket .wp-list-table td.column-title a.row-title {
             color:#1e293b;
             text-decoration:none;
             font-weight:600;
             font-size:13px;
         }
+        /* Alle Zellen + Links einheitlich 13px */
+        body.post-type-tix_ticket .wp-list-table td,
+        body.post-type-tix_ticket .wp-list-table td a,
+        body.post-type-tix_ticket .wp-list-table td span { font-size:13px; }
+        body.post-type-tix_ticket .wp-list-table td .dashicons { font-size:16px; }
+        /* Käufer E-Mail kleiner */
+        body.post-type-tix_ticket .wp-list-table td span[style*="12px"] { font-size:12px !important; }
         </style>';
 
         // ── Custom Titel mit Icon (wie Bestellungen) ──
@@ -1331,18 +1338,7 @@ class TIX_Columns {
             'cancelled' => 'Storniert',
         ];
 
-        echo '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px;">';
-
-        // Links: Status-Tabs
-        echo '<div style="display:flex;gap:4px;align-items:center;">';
-        foreach ($statuses as $val => $label) {
-            $active = ($status_filter === $val) ? 'font-weight:700;color:' . $primary . ';' : '';
-            $url = add_query_arg('tix_filter_status', $val, $base_url);
-            if ($val === '') $url = remove_query_arg('tix_filter_status', $base_url);
-            echo '<a href="' . esc_url($url) . '" style="padding:4px 12px;font-size:13px;text-decoration:none;border-radius:6px;' . $active . '">' . esc_html($label) . '</a>';
-        }
-
-        // Event-Dropdown (falls Events existieren)
+        // Event-Dropdown Daten
         $events = get_posts([
             'post_type'      => 'event',
             'posts_per_page' => -1,
@@ -1350,16 +1346,34 @@ class TIX_Columns {
             'orderby'        => 'date',
             'order'          => 'DESC',
         ]);
+
+        echo '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px;">';
+
+        // Links: Status-Tabs + Event-Dropdown
+        echo '<div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;">';
+        foreach ($statuses as $val => $label) {
+            $active = ($status_filter === $val) ? 'font-weight:700;color:' . $primary . ';' : '';
+            $url = add_query_arg('tix_filter_status', $val, $base_url);
+            if ($val === '') $url = remove_query_arg('tix_filter_status', $base_url);
+            echo '<a href="' . esc_url($url) . '" style="padding:4px 12px;font-size:13px;text-decoration:none;border-radius:6px;' . $active . '">' . esc_html($label) . '</a>';
+        }
+
         if (!empty($events)) {
             $filter_base = admin_url('edit.php?post_type=tix_ticket');
             if ($status_filter) $filter_base = add_query_arg('tix_filter_status', $status_filter, $filter_base);
-            echo '<select onchange="if(this.value){location.href=\'' . esc_url($filter_base) . '&tix_filter_event=\'+this.value}else{location.href=\'' . esc_url($filter_base) . '\'}" style="padding:4px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;margin-left:8px;">';
+
+            echo '<span style="color:#d1d5db;margin:0 4px;">|</span>';
+            echo '<form method="get" style="display:flex;gap:4px;align-items:center;">';
+            echo '<input type="hidden" name="post_type" value="tix_ticket">';
+            if ($status_filter) echo '<input type="hidden" name="tix_filter_status" value="' . esc_attr($status_filter) . '">';
+            echo '<select name="tix_filter_event" onchange="this.form.submit()" style="padding:4px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;max-width:220px;">';
             echo '<option value="">Alle Events</option>';
             foreach ($events as $ev) {
                 $sel = selected($event_id, $ev->ID, false);
-                echo '<option value="' . $ev->ID . '" ' . $sel . '>' . esc_html($ev->post_title) . '</option>';
+                echo '<option value="' . $ev->ID . '" ' . $sel . '>' . esc_html(wp_trim_words($ev->post_title, 6, '…')) . '</option>';
             }
             echo '</select>';
+            echo '</form>';
 
             // CSV-Export Button (wenn Event gewählt)
             if ($event_id) {
@@ -1367,7 +1381,7 @@ class TIX_Columns {
                     admin_url('admin-post.php?action=tix_export_tickets_csv&event_id=' . $event_id),
                     'tix_export_tickets'
                 );
-                echo ' <a href="' . esc_url($export_url) . '" class="button" style="border-radius:6px;font-size:13px;padding:4px 10px;">&#x1F4E5; CSV</a>';
+                echo '<a href="' . esc_url($export_url) . '" class="button" style="border-radius:6px;font-size:13px;padding:4px 10px;">&#x1F4E5; CSV</a>';
             }
         }
         echo '</div>';
