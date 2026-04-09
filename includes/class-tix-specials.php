@@ -840,7 +840,13 @@ class TIX_Specials {
     public static function get_sold_count($special_id, $event_id) {
         global $wpdb;
 
-        // Zähle Order-Items die dieses Special für dieses Event enthalten
+        // Zähle Order-Items die dieses Special für dieses Event enthalten (HPOS-kompatibel)
+        if (class_exists('Automattic\WooCommerce\Utilities\OrderUtil')
+            && \Automattic\WooCommerce\Utilities\OrderUtil::custom_orders_table_usage_is_enabled()) {
+            $order_join = "INNER JOIN {$wpdb->prefix}wc_orders wco ON oi.order_id = wco.id AND wco.status IN ('wc-completed','wc-processing')";
+        } else {
+            $order_join = "INNER JOIN {$wpdb->posts} p ON oi.order_id = p.ID AND p.post_status IN ('wc-completed','wc-processing')";
+        }
         $count = $wpdb->get_var($wpdb->prepare(
             "SELECT COALESCE(SUM(oim_qty.meta_value), 0)
              FROM {$wpdb->prefix}woocommerce_order_itemmeta oim_sp
@@ -853,9 +859,7 @@ class TIX_Specials {
                  AND oim_qty.meta_key = '_qty'
              INNER JOIN {$wpdb->prefix}woocommerce_order_items oi
                  ON oim_sp.order_item_id = oi.order_item_id
-             INNER JOIN {$wpdb->posts} p
-                 ON oi.order_id = p.ID
-                 AND p.post_status IN ('wc-completed', 'wc-processing')
+             $order_join
              WHERE oim_sp.meta_key = '_tix_special_id'
                AND oim_sp.meta_value = %d",
             $event_id,

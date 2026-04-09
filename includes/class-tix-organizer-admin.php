@@ -914,10 +914,14 @@ class TIX_Organizer_Admin {
         $total_tickets = 0;
         if ($product_ids) {
             $pids = implode(',', array_unique($product_ids));
+            $order_join = (class_exists('Automattic\WooCommerce\Utilities\OrderUtil') && \Automattic\WooCommerce\Utilities\OrderUtil::custom_orders_table_usage_is_enabled())
+                ? "INNER JOIN {$wpdb->prefix}wc_orders wco ON oi.order_id = wco.id AND wco.status IN ('wc-completed','wc-processing','wc-on-hold')"
+                : "INNER JOIN {$wpdb->posts} wcp ON oi.order_id = wcp.ID AND wcp.post_status IN ('wc-completed','wc-processing','wc-on-hold')";
             $r = $wpdb->get_row("
                 SELECT COALESCE(SUM(oim_total.meta_value),0) as revenue,
                        COALESCE(SUM(oim_qty.meta_value),0) as tickets
                 FROM {$wpdb->prefix}woocommerce_order_items oi
+                $order_join
                 JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim_pid ON oi.order_item_id = oim_pid.order_item_id AND oim_pid.meta_key = '_product_id' AND oim_pid.meta_value IN ($pids)
                 LEFT JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim_total ON oi.order_item_id = oim_total.order_item_id AND oim_total.meta_key = '_line_total'
                 LEFT JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim_qty ON oi.order_item_id = oim_qty.order_item_id AND oim_qty.meta_key = '_qty'
@@ -950,9 +954,13 @@ class TIX_Organizer_Admin {
         foreach ($event_products as $eid => $pids) {
             if (empty($pids)) continue;
             $pp = implode(',', $pids);
+            $oj = (class_exists('Automattic\WooCommerce\Utilities\OrderUtil') && \Automattic\WooCommerce\Utilities\OrderUtil::custom_orders_table_usage_is_enabled())
+                ? "INNER JOIN {$wpdb->prefix}wc_orders wco ON oi.order_id = wco.id AND wco.status IN ('wc-completed','wc-processing','wc-on-hold')"
+                : "INNER JOIN {$wpdb->posts} wcp ON oi.order_id = wcp.ID AND wcp.post_status IN ('wc-completed','wc-processing','wc-on-hold')";
             $r = $wpdb->get_row("
                 SELECT COALESCE(SUM(oim_total.meta_value),0) as rev, COALESCE(SUM(oim_qty.meta_value),0) as tix
                 FROM {$wpdb->prefix}woocommerce_order_items oi
+                $oj
                 JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim_pid ON oi.order_item_id = oim_pid.order_item_id AND oim_pid.meta_key = '_product_id' AND oim_pid.meta_value IN ($pp)
                 LEFT JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim_total ON oi.order_item_id = oim_total.order_item_id AND oim_total.meta_key = '_line_total'
                 LEFT JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim_qty ON oi.order_item_id = oim_qty.order_item_id AND oim_qty.meta_key = '_qty'

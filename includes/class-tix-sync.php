@@ -661,6 +661,35 @@ class TIX_Sync {
             }
         }
 
+        // Native Orders dazuzählen (Kategorien ohne WC-Produkt oder zusätzlich native)
+        if (class_exists('TIX_Order')) {
+            global $wpdb;
+            $t  = TIX_Order::table_name();
+            $ti = TIX_Order::items_table_name();
+            $native_sold = intval($wpdb->get_var($wpdb->prepare(
+                "SELECT COALESCE(SUM(i.quantity), 0)
+                 FROM $ti i
+                 INNER JOIN $t o ON i.order_id = o.id
+                 WHERE o.status IN ('completed','processing')
+                   AND o.wc_order_id = 0
+                   AND i.event_id = %d",
+                $post_id
+            )));
+            $total_sold += $native_sold;
+        }
+
+        // Stornierte Tickets abziehen
+        global $wpdb;
+        $cancelled_count = intval($wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*)
+             FROM {$wpdb->posts} p
+             INNER JOIN {$wpdb->postmeta} pm_s ON p.ID = pm_s.post_id AND pm_s.meta_key = '_tix_ticket_status' AND pm_s.meta_value = 'cancelled'
+             INNER JOIN {$wpdb->postmeta} pm_e ON p.ID = pm_e.post_id AND pm_e.meta_key = '_tix_ticket_event_id' AND pm_e.meta_value = %d
+             WHERE p.post_type = 'tix_ticket' AND p.post_status = 'publish'",
+            $post_id
+        )));
+        $total_sold = max(0, $total_sold - $cancelled_count);
+
         // Wenn keine Online-Kategorien, nicht "sold out"
         if (empty($online_cats)) $all_sold_out = false;
 

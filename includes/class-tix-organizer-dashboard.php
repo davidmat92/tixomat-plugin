@@ -571,12 +571,16 @@ class TIX_Organizer_Dashboard {
             if (!empty($product_ids)) {
                 $pp = implode(',', array_map('intval', $product_ids));
 
-                // HPOS-kompatibel: Order Items mit diesen Produkten
+                // HPOS-kompatibel: Order Items mit diesen Produkten (nur gültige Orders)
+                $oj = (class_exists('Automattic\WooCommerce\Utilities\OrderUtil') && \Automattic\WooCommerce\Utilities\OrderUtil::custom_orders_table_usage_is_enabled())
+                    ? "INNER JOIN {$wpdb->prefix}wc_orders wco ON oi.order_id = wco.id AND wco.status IN ('wc-completed','wc-processing','wc-on-hold')"
+                    : "INNER JOIN {$wpdb->posts} wcp ON oi.order_id = wcp.ID AND wcp.post_status IN ('wc-completed','wc-processing','wc-on-hold')";
                 $results = $wpdb->get_row(
                     "SELECT COUNT(DISTINCT oi.order_id) as order_count,
                             COALESCE(SUM(oim_qty.meta_value), 0) as total_qty,
                             COALESCE(SUM(oim_total.meta_value), 0) as total_revenue
                      FROM {$wpdb->prefix}woocommerce_order_items oi
+                     $oj
                      INNER JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim_pid
                          ON oi.order_item_id = oim_pid.order_item_id
                          AND oim_pid.meta_key = '_product_id'
@@ -595,12 +599,18 @@ class TIX_Organizer_Dashboard {
                     $total_revenue = floatval($results->total_revenue);
                 }
 
-                // Chart: letzte 30 Tage
+                // Chart: letzte 30 Tage (mit Order-Status-Filter)
+                $oj_chart = (class_exists('Automattic\WooCommerce\Utilities\OrderUtil') && \Automattic\WooCommerce\Utilities\OrderUtil::custom_orders_table_usage_is_enabled())
+                    ? "INNER JOIN {$wpdb->prefix}wc_orders wco ON oi.order_id = wco.id AND wco.status IN ('wc-completed','wc-processing','wc-on-hold')"
+                    : "INNER JOIN {$wpdb->posts} wcp ON oi.order_id = wcp.ID AND wcp.post_status IN ('wc-completed','wc-processing','wc-on-hold')";
+                $date_col = (class_exists('Automattic\WooCommerce\Utilities\OrderUtil') && \Automattic\WooCommerce\Utilities\OrderUtil::custom_orders_table_usage_is_enabled())
+                    ? "DATE(wco.date_created_gmt)" : "DATE(wcp.post_date)";
                 $chart_rows = $wpdb->get_results(
-                    "SELECT DATE(p.post_date) as sale_date,
+                    "SELECT $date_col as sale_date,
                             COALESCE(SUM(oim_qty.meta_value), 0) as qty,
                             COALESCE(SUM(oim_total.meta_value), 0) as revenue
                      FROM {$wpdb->prefix}woocommerce_order_items oi
+                     $oj_chart
                      INNER JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim_pid
                          ON oi.order_item_id = oim_pid.order_item_id
                          AND oim_pid.meta_key = '_product_id'
@@ -611,10 +621,9 @@ class TIX_Organizer_Dashboard {
                      LEFT JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim_total
                          ON oi.order_item_id = oim_total.order_item_id
                          AND oim_total.meta_key = '_line_total'
-                     INNER JOIN {$wpdb->posts} p ON p.ID = oi.order_id
                      WHERE oi.order_item_type = 'line_item'
-                       AND p.post_date >= DATE_SUB(NOW(), INTERVAL 30 DAY)
-                     GROUP BY DATE(p.post_date)
+                       AND $date_col >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+                     GROUP BY sale_date
                      ORDER BY sale_date ASC"
                 );
 
@@ -1596,10 +1605,14 @@ class TIX_Organizer_Dashboard {
 
             if (!empty($product_ids)) {
                 $pp = implode(',', array_map('intval', $product_ids));
+                $oj_ev = (class_exists('Automattic\WooCommerce\Utilities\OrderUtil') && \Automattic\WooCommerce\Utilities\OrderUtil::custom_orders_table_usage_is_enabled())
+                    ? "INNER JOIN {$wpdb->prefix}wc_orders wco ON oi.order_id = wco.id AND wco.status IN ('wc-completed','wc-processing','wc-on-hold')"
+                    : "INNER JOIN {$wpdb->posts} wcp ON oi.order_id = wcp.ID AND wcp.post_status IN ('wc-completed','wc-processing','wc-on-hold')";
                 $result = $wpdb->get_row(
                     "SELECT COALESCE(SUM(oim_qty.meta_value), 0) as total_qty,
                             COALESCE(SUM(oim_total.meta_value), 0) as total_revenue
                      FROM {$wpdb->prefix}woocommerce_order_items oi
+                     $oj_ev
                      INNER JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim_pid
                          ON oi.order_item_id = oim_pid.order_item_id
                          AND oim_pid.meta_key = '_product_id'
