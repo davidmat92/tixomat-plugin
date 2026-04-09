@@ -1321,7 +1321,7 @@ class TIX_Columns {
         </style>';
 
         // ── Custom Titel mit Icon (wie Bestellungen) ──
-        echo '<h1 style="display:flex;align-items:center;gap:10px;margin-bottom:20px;">';
+        echo '<h1 style="display:flex;align-items:center;gap:10px;margin-bottom:20px;font-size:23px;font-weight:400;padding-left:2px;">';
         echo '<span class="dashicons dashicons-tickets-alt" style="font-size:28px;width:28px;height:28px;color:' . $primary . ';"></span>';
         echo 'Verkaufte Tickets';
         echo '<span style="font-size:14px;color:#6b7280;font-weight:400;">' . $total . ' gesamt</span>';
@@ -1347,9 +1347,8 @@ class TIX_Columns {
             'order'          => 'DESC',
         ]);
 
+        // Zeile 1: Status-Tabs (links) + Event-Dropdown (rechts) — wie Bestellungen
         echo '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px;">';
-
-        // Links: Status-Tabs + Event-Dropdown
         echo '<div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;">';
         foreach ($statuses as $val => $label) {
             $active = ($status_filter === $val) ? 'font-weight:700;color:' . $primary . ';' : '';
@@ -1357,12 +1356,14 @@ class TIX_Columns {
             if ($val === '') $url = remove_query_arg('tix_filter_status', $base_url);
             echo '<a href="' . esc_url($url) . '" style="padding:4px 12px;font-size:13px;text-decoration:none;border-radius:6px;' . $active . '">' . esc_html($label) . '</a>';
         }
+        echo '</div>';
 
         if (!empty($events)) {
             $filter_base = admin_url('edit.php?post_type=tix_ticket');
             if ($status_filter) $filter_base = add_query_arg('tix_filter_status', $status_filter, $filter_base);
 
-            echo '<span style="color:#d1d5db;margin:0 4px;">|</span>';
+            echo '<div style="display:flex;gap:6px;align-items:center;">';
+            echo '<span style="color:#d1d5db;">|</span>';
             echo '<form method="get" style="display:flex;gap:4px;align-items:center;">';
             echo '<input type="hidden" name="post_type" value="tix_ticket">';
             if ($status_filter) echo '<input type="hidden" name="tix_filter_status" value="' . esc_attr($status_filter) . '">';
@@ -1383,10 +1384,12 @@ class TIX_Columns {
                 );
                 echo '<a href="' . esc_url($export_url) . '" class="button" style="border-radius:6px;font-size:13px;padding:4px 10px;">&#x1F4E5; CSV</a>';
             }
+            echo '</div>';
         }
         echo '</div>';
 
-        // Rechts: Suche
+        // Zeile 2: Suche links — wie Bestellungen
+        echo '<div style="margin-bottom:16px;">';
         echo '<form method="get" style="display:flex;gap:6px;">';
         echo '<input type="hidden" name="post_type" value="tix_ticket">';
         if ($event_id) echo '<input type="hidden" name="tix_filter_event" value="' . $event_id . '">';
@@ -1394,7 +1397,6 @@ class TIX_Columns {
         echo '<input type="text" name="s" value="' . esc_attr($search) . '" placeholder="Suche nach Code, E-Mail, Name…" style="padding:6px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;width:240px;">';
         echo '<button type="submit" class="button" style="border-radius:6px;">Suchen</button>';
         echo '</form>';
-
         echo '</div>';
     }
 
