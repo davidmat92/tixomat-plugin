@@ -115,7 +115,7 @@ class TIX_Order_Admin {
         ];
 
         ?>
-        <div class="wrap" style="max-width:1200px;">
+        <div class="wrap" style="max-width:100%;">
             <h1 style="display:flex;align-items:center;gap:10px;margin-bottom:20px;">
                 <span class="dashicons dashicons-cart" style="font-size:28px;width:28px;height:28px;color:var(--tix-primary, #FF5500);"></span>
                 Bestellungen

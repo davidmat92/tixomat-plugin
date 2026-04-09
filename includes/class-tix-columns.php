@@ -848,13 +848,14 @@ class TIX_Columns {
                 $new[$key] = 'Ticket-Code';
             } elseif ($key === 'date') {
                 // Datum am Ende, davor unsere Spalten — WP-Datum durch Custom ersetzen
-                $new['tix_t_event']  = 'Event';
-                $new['tix_t_owner']  = 'Käufer';
-                $new['tix_t_cat']    = 'Kategorie';
-                $new['tix_t_seat']   = 'Sitzplatz';
-                $new['tix_t_order']  = 'Bestellung';
-                $new['tix_t_status'] = 'Status';
-                $new['tix_t_date']   = 'Datum';
+                $new['tix_t_event']   = 'Event';
+                $new['tix_t_owner']   = 'Käufer';
+                $new['tix_t_cat']     = 'Kategorie';
+                $new['tix_t_seat']    = 'Sitzplatz';
+                $new['tix_t_order']   = 'Bestellung';
+                $new['tix_t_status']  = 'Status';
+                $new['tix_t_date']    = 'Datum';
+                $new['tix_t_actions'] = '';
             } else {
                 $new[$key] = $val;
             }
@@ -943,6 +944,34 @@ class TIX_Columns {
                 $post = get_post($post_id);
                 if ($post) {
                     echo '<span style="font-size:13px;color:#6b7280;">' . date_i18n('d.m.Y, H:i', strtotime($post->post_date)) . '</span>';
+                }
+                break;
+
+            case 'tix_t_actions':
+                $status = get_post_meta($post_id, '_tix_ticket_status', true) ?: 'valid';
+                $email  = esc_attr(get_post_meta($post_id, '_tix_ticket_owner_email', true));
+                $order_id = intval(get_post_meta($post_id, '_tix_ticket_order_id', true));
+
+                $icon_style = 'display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:8px;color:#6b7280;text-decoration:none;transition:all .15s;';
+
+                // Download
+                $dl_url = class_exists('TIX_Tickets') ? TIX_Tickets::get_download_url($post_id) : '';
+                if ($dl_url) {
+                    echo '<a href="' . esc_url($dl_url) . '" target="_blank" title="Ticket herunterladen" style="' . $icon_style . '" onmouseover="this.style.background=\'#f3f4f6\';this.style.color=\'#1e293b\'" onmouseout="this.style.background=\'transparent\';this.style.color=\'#6b7280\'">';
+                    echo '<span class="dashicons dashicons-download" style="font-size:16px;width:16px;height:16px;"></span></a>';
+                }
+
+                // Erneut senden
+                echo '<a href="#" class="tix-resend-ticket" data-ticket-id="' . $post_id . '" data-email="' . $email . '" title="Ticket erneut senden" style="' . $icon_style . '" onmouseover="this.style.background=\'#f3f4f6\';this.style.color=\'#1e293b\'" onmouseout="this.style.background=\'transparent\';this.style.color=\'#6b7280\'">';
+                echo '<span class="dashicons dashicons-email" style="font-size:16px;width:16px;height:16px;"></span></a>';
+
+                // Stornieren / Reaktivieren
+                if ($status === 'valid') {
+                    echo '<a href="#" class="tix-toggle-status" data-ticket-id="' . $post_id . '" data-new-status="cancelled" title="Stornieren" style="' . $icon_style . '" onmouseover="this.style.background=\'#fef2f2\';this.style.color=\'#ef4444\'" onmouseout="this.style.background=\'transparent\';this.style.color=\'#6b7280\'">';
+                    echo '<span class="dashicons dashicons-dismiss" style="font-size:16px;width:16px;height:16px;"></span></a>';
+                } elseif ($status === 'cancelled') {
+                    echo '<a href="#" class="tix-toggle-status" data-ticket-id="' . $post_id . '" data-new-status="valid" title="Reaktivieren" style="' . $icon_style . '" onmouseover="this.style.background=\'#ecfdf5\';this.style.color=\'#10b981\'" onmouseout="this.style.background=\'transparent\';this.style.color=\'#6b7280\'">';
+                    echo '<span class="dashicons dashicons-yes-alt" style="font-size:16px;width:16px;height:16px;"></span></a>';
                 }
                 break;
         }
@@ -1043,41 +1072,9 @@ class TIX_Columns {
     // ══════════════════════════════════════════════
 
     public static function ticket_row_actions($actions, $post) {
-        if ($post->post_type !== 'tix_ticket' || !current_user_can('edit_posts')) return $actions;
-
-        $ticket_id = $post->ID;
-        $status    = get_post_meta($ticket_id, '_tix_ticket_status', true) ?: 'valid';
-        $email     = get_post_meta($ticket_id, '_tix_ticket_owner_email', true);
-        $order_id  = intval(get_post_meta($ticket_id, '_tix_ticket_order_id', true));
-
-        // WordPress-Standard-Aktionen entfernen (Bearbeiten, Schnellbearbeitung, Papierkorb)
-        unset($actions['edit'], $actions['inline hide-if-no-js'], $actions['trash']);
-
-        // Download Ticket (PDF oder HTML je nach Template-Einstellung)
-        $download_url = '';
-        if (class_exists('TIX_Tickets')) {
-            $download_url = TIX_Tickets::get_download_url($ticket_id);
-        }
-        if ($download_url) {
-            $actions['tix_download'] = '<a href="' . esc_url($download_url) . '" target="_blank" title="Ticket herunterladen">&#x2B07; Download</a>';
-        }
-
-        // Erneut senden (einzelnes Ticket)
-        $actions['tix_resend'] = '<a href="#" class="tix-resend-ticket" data-ticket-id="' . $ticket_id . '" data-email="' . esc_attr($email) . '" title="Ticket per E-Mail erneut senden">&#x2709; Erneut senden</a>';
-
-        // Alle Tickets der Bestellung erneut senden
-        if ($order_id) {
-            $actions['tix_resend_order'] = '<a href="#" class="tix-resend-order" data-order-id="' . $order_id . '" data-email="' . esc_attr($email) . '" title="Alle Tickets dieser Bestellung erneut senden">&#x2709; Bestellung senden</a>';
-        }
-
-        // Quick Status Toggle (Stornieren / Reaktivieren)
-        if ($status === 'valid') {
-            $actions['tix_cancel'] = '<a href="#" class="tix-toggle-status" data-ticket-id="' . $ticket_id . '" data-new-status="cancelled" style="color:#ef4444;" title="Ticket stornieren">&#x2715; Stornieren</a>';
-        } elseif ($status === 'cancelled') {
-            $actions['tix_reactivate'] = '<a href="#" class="tix-toggle-status" data-ticket-id="' . $ticket_id . '" data-new-status="valid" style="color:#10b981;" title="Ticket reaktivieren">&#x2713; Reaktivieren</a>';
-        }
-
-        return $actions;
+        if ($post->post_type !== 'tix_ticket') return $actions;
+        // Alle Row-Actions entfernen — Aktionen sind jetzt in der Icon-Spalte
+        return [];
     }
 
     // ══════════════════════════════════════════════
@@ -1220,8 +1217,8 @@ class TIX_Columns {
 
         // ── Styles: Ticket-Liste identisch zu Bestellungen ──
         echo '<style>
-        /* Container max-width wie Bestellungen */
-        body.post-type-tix_ticket .wrap { max-width:1200px; }
+        /* Container volle Breite */
+        body.post-type-tix_ticket .wrap { max-width:100%; }
 
         /* WP-Defaults verstecken */
         body.post-type-tix_ticket .wrap > h1.wp-heading-inline,
@@ -1278,26 +1275,17 @@ class TIX_Columns {
             border-bottom:none !important;
         }
         body.post-type-tix_ticket .wp-list-table tfoot { display:none; }
-        /* Row-Actions: absolute overlay → kein Extra-Höhe */
-        body.post-type-tix_ticket .wp-list-table td.column-title { position:relative; }
-        body.post-type-tix_ticket .wp-list-table .column-title .row-actions {
-            position:absolute;
-            left:16px;
-            bottom:2px;
-            opacity:0;
-            transition:opacity .15s;
-            padding:0;
-            background:#fff;
-            z-index:1;
-        }
-        body.post-type-tix_ticket .wp-list-table tbody tr:hover .column-title .row-actions {
-            background:#fafbfc;
-        }
-        body.post-type-tix_ticket .wp-list-table tr:hover .row-actions { opacity:1; }
+        /* Row-Actions komplett verstecken (Aktionen in eigener Spalte) */
+        body.post-type-tix_ticket .wp-list-table .row-actions { display:none !important; }
         body.post-type-tix_ticket .wp-list-table .alternate { background:transparent !important; }
         body.post-type-tix_ticket .wp-list-table tbody tr:hover { background:#fafbfc !important; }
-        body.post-type-tix_ticket .wp-list-table .row-actions .trash,
-        body.post-type-tix_ticket .wp-list-table .row-actions .inline { display:none; }
+        /* Aktionen-Spalte */
+        body.post-type-tix_ticket .wp-list-table .column-tix_t_actions {
+            width:110px;
+            text-align:right;
+            white-space:nowrap;
+            padding-right:12px !important;
+        }
 
         /* Keine WP-Borders auf der äußeren Tabelle */
         body.post-type-tix_ticket .wp-list-table,
