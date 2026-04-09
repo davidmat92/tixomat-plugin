@@ -961,9 +961,15 @@ class TIX_Columns {
                     echo '<span class="dashicons dashicons-download" style="font-size:16px;width:16px;height:16px;"></span></a>';
                 }
 
-                // Erneut senden
+                // Erneut senden (einzelnes Ticket)
                 echo '<a href="#" class="tix-resend-ticket" data-ticket-id="' . $post_id . '" data-email="' . $email . '" title="Ticket erneut senden" style="' . $icon_style . '" onmouseover="this.style.background=\'#f3f4f6\';this.style.color=\'#1e293b\'" onmouseout="this.style.background=\'transparent\';this.style.color=\'#6b7280\'">';
                 echo '<span class="dashicons dashicons-email" style="font-size:16px;width:16px;height:16px;"></span></a>';
+
+                // Alle Tickets der Bestellung erneut senden
+                if ($order_id) {
+                    echo '<a href="#" class="tix-resend-order" data-order-id="' . $order_id . '" data-email="' . $email . '" title="Alle Tickets der Bestellung senden" style="' . $icon_style . '" onmouseover="this.style.background=\'#f3f4f6\';this.style.color=\'#1e293b\'" onmouseout="this.style.background=\'transparent\';this.style.color=\'#6b7280\'">';
+                    echo '<span class="dashicons dashicons-email-alt" style="font-size:16px;width:16px;height:16px;"></span></a>';
+                }
 
                 // Stornieren / Reaktivieren
                 if ($status === 'valid') {
@@ -1281,7 +1287,7 @@ class TIX_Columns {
         body.post-type-tix_ticket .wp-list-table tbody tr:hover { background:#fafbfc !important; }
         /* Aktionen-Spalte */
         body.post-type-tix_ticket .wp-list-table .column-tix_t_actions {
-            width:110px;
+            width:140px;
             text-align:right;
             white-space:nowrap;
             padding-right:12px !important;
