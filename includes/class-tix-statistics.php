@@ -384,6 +384,98 @@ class TIX_Statistics {
         return $wpdb->get_row(empty($params) ? $sql : $wpdb->prepare($sql, ...$params));
     }
 
+    /**
+     * Tickets verkauft — aus Order-Daten (zuverlässiger als CPT, da nicht alle
+     * WC-Orders tix_ticket Posts haben). Native + WC, minus stornierte.
+     */
+    private static function query_tickets_sold($from, $to, $event_ids = []) {
+        global $wpdb;
+        $t  = $wpdb->prefix . 'tix_orders';
+        $ti = $wpdb->prefix . 'tix_order_items';
+        $total = 0;
+
+        // 1) Native Orders (wc_order_id = 0)
+        $where = "o.status IN ('completed','processing') AND o.wc_order_id = 0";
+        $params = [];
+        if ($from) { $where .= " AND o.date_created >= %s"; $params[] = $from . ' 00:00:00'; }
+        if ($to)   { $where .= " AND o.date_created <= %s"; $params[] = $to   . ' 23:59:59'; }
+        if (!empty($event_ids)) {
+            $ph = implode(',', array_fill(0, count($event_ids), '%d'));
+            $where .= " AND i.event_id IN ($ph)";
+            $params = array_merge($params, $event_ids);
+        }
+        $sql = "SELECT COALESCE(SUM(i.quantity), 0) FROM $ti i INNER JOIN $t o ON i.order_id = o.id WHERE $where";
+        $total += intval($wpdb->get_var(empty($params) ? $sql : $wpdb->prepare($sql, ...$params)));
+
+        // 2) WC Orders
+        if (function_exists('wc_get_product')) {
+            $product_ids = [];
+            if (!empty($event_ids)) {
+                foreach ($event_ids as $eid) {
+                    $cats = get_post_meta($eid, '_tix_ticket_categories', true);
+                    if (!is_array($cats)) continue;
+                    foreach ($cats as $cat) {
+                        $pid = intval($cat['product_id'] ?? 0);
+                        if ($pid) $product_ids[] = $pid;
+                    }
+                }
+            } else {
+                $product_ids = $wpdb->get_col(
+                    "SELECT DISTINCT post_id FROM {$wpdb->postmeta} WHERE meta_key = '_tix_parent_event_id' AND meta_value > 0"
+                );
+            }
+
+            if (!empty($product_ids)) {
+                $pids = implode(',', array_map('intval', array_unique($product_ids)));
+                $is_hpos = class_exists('Automattic\WooCommerce\Utilities\OrderUtil')
+                    && \Automattic\WooCommerce\Utilities\OrderUtil::custom_orders_table_usage_is_enabled();
+
+                if ($is_hpos) {
+                    $wc_where = "oi.order_item_type = 'line_item' AND o.status IN ('wc-completed','wc-processing','wc-on-hold')";
+                    $wc_params = [];
+                    if ($from) { $wc_where .= " AND o.date_created_gmt >= %s"; $wc_params[] = $from . ' 00:00:00'; }
+                    if ($to)   { $wc_where .= " AND o.date_created_gmt <= %s"; $wc_params[] = $to   . ' 23:59:59'; }
+                    $wc_sql = "SELECT COALESCE(SUM(oim.meta_value), 0)
+                        FROM {$wpdb->prefix}woocommerce_order_items oi
+                        INNER JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim ON oi.order_item_id = oim.order_item_id AND oim.meta_key = '_qty'
+                        INNER JOIN {$wpdb->prefix}woocommerce_order_itemmeta oip ON oi.order_item_id = oip.order_item_id AND oip.meta_key = '_product_id' AND oip.meta_value IN ($pids)
+                        INNER JOIN {$wpdb->prefix}wc_orders o ON oi.order_id = o.id
+                        WHERE $wc_where";
+                    $total += intval($wpdb->get_var(empty($wc_params) ? $wc_sql : $wpdb->prepare($wc_sql, ...$wc_params)));
+                } else {
+                    $wc_where = "oi.order_item_type = 'line_item' AND p.post_status IN ('wc-completed','wc-processing','wc-on-hold')";
+                    $wc_params = [];
+                    if ($from) { $wc_where .= " AND p.post_date >= %s"; $wc_params[] = $from . ' 00:00:00'; }
+                    if ($to)   { $wc_where .= " AND p.post_date <= %s"; $wc_params[] = $to   . ' 23:59:59'; }
+                    $wc_sql = "SELECT COALESCE(SUM(oim.meta_value), 0)
+                        FROM {$wpdb->prefix}woocommerce_order_items oi
+                        INNER JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim ON oi.order_item_id = oim.order_item_id AND oim.meta_key = '_qty'
+                        INNER JOIN {$wpdb->prefix}woocommerce_order_itemmeta oip ON oi.order_item_id = oip.order_item_id AND oip.meta_key = '_product_id' AND oip.meta_value IN ($pids)
+                        INNER JOIN {$wpdb->posts} p ON oi.order_id = p.ID
+                        WHERE $wc_where";
+                    $total += intval($wpdb->get_var(empty($wc_params) ? $wc_sql : $wpdb->prepare($wc_sql, ...$wc_params)));
+                }
+            }
+        }
+
+        // 3) Stornierte Tickets abziehen
+        $cancel_where = "p.post_type = 'tix_ticket' AND p.post_status = 'publish'";
+        $cancel_where .= " AND ps.meta_value = 'cancelled'";
+        $cancel_params = [];
+        if (!empty($event_ids)) {
+            $ph = implode(',', array_fill(0, count($event_ids), '%d'));
+            $cancel_where .= " AND pe.meta_value IN ($ph)";
+            $cancel_params = $event_ids;
+        }
+        $cancel_sql = "SELECT COUNT(*) FROM {$wpdb->posts} p
+            INNER JOIN {$wpdb->postmeta} ps ON p.ID = ps.post_id AND ps.meta_key = '_tix_ticket_status'
+            INNER JOIN {$wpdb->postmeta} pe ON p.ID = pe.post_id AND pe.meta_key = '_tix_ticket_event_id'
+            WHERE $cancel_where";
+        $cancelled = intval($wpdb->get_var(empty($cancel_params) ? $cancel_sql : $wpdb->prepare($cancel_sql, ...$cancel_params)));
+
+        return max(0, $total - $cancelled);
+    }
+
     /** Tickets nach Kategorie */
     private static function query_tickets_by_cat($from, $to, $event_ids = []) {
         global $wpdb;
@@ -583,6 +675,7 @@ class TIX_Statistics {
         // KPIs aktuelle Periode
         $rev  = self::query_revenue($f['date_from'], $f['date_to'], $eids);
         $tix  = self::query_tickets($f['date_from'], $f['date_to'], $eids);
+        $tix_sold_cnt = self::query_tickets_sold($f['date_from'], $f['date_to'], $eids);
         $tix_ci = self::query_tickets($f['date_from'], $f['date_to'], $eids, ['checked_in','redeemed']);
 
         // Aktive Events
@@ -609,6 +702,7 @@ class TIX_Statistics {
         if ($cmp) {
             $prev_rev = self::query_revenue($f['compare_from'], $f['compare_to'], $eids);
             $prev_tix = self::query_tickets($f['compare_from'], $f['compare_to'], $eids);
+            $prev_tix_sold_cnt = self::query_tickets_sold($f['compare_from'], $f['compare_to'], $eids);
             $prev_tix_ci = self::query_tickets($f['compare_from'], $f['compare_to'], $eids, ['checked_in','redeemed']);
             $prev_avg = ($prev_rev->order_count > 0) ? $prev_rev->revenue / $prev_rev->order_count : 0;
             $prev_ci_rate = ($prev_tix->cnt > 0) ? round($prev_tix_ci->cnt / $prev_tix->cnt * 100, 1) : 0;
@@ -616,11 +710,12 @@ class TIX_Statistics {
             list($pf, $pt) = self::prev_period($f['date_from'], $f['date_to']);
             $prev_rev = self::query_revenue($pf, $pt, $eids);
             $prev_tix = self::query_tickets($pf, $pt, $eids);
+            $prev_tix_sold_cnt = self::query_tickets_sold($pf, $pt, $eids);
         }
 
         $kpis = [
             'revenue'      => ['value' => self::format_eur($rev->revenue),     'label' => 'Gesamtumsatz',       'icon' => 'dashicons-money-alt',     'trend' => self::trend($rev->revenue, $prev_rev->revenue),  'compare' => $cmp ? self::format_eur($prev_rev->revenue) : null],
-            'tickets'      => ['value' => intval($tix->cnt),                    'label' => 'Tickets verkauft',   'icon' => 'dashicons-tickets-alt',   'trend' => self::trend($tix->cnt, $prev_tix->cnt),          'compare' => $cmp ? intval($prev_tix->cnt) : null],
+            'tickets'      => ['value' => intval($tix_sold_cnt),                 'label' => 'Tickets verkauft',   'icon' => 'dashicons-tickets-alt',   'trend' => self::trend($tix_sold_cnt, $prev_tix_sold_cnt ?? $prev_tix->cnt), 'compare' => $cmp ? intval($prev_tix_sold_cnt) : null],
             'active'       => ['value' => intval($active_events),               'label' => 'Aktive Events',      'icon' => 'dashicons-calendar-alt',  'trend' => null, 'compare' => null],
             'avg_order'    => ['value' => self::format_eur($avg_order),         'label' => 'Ø Bestellwert',      'icon' => 'dashicons-cart',          'trend' => $cmp ? self::trend($avg_order, $prev_avg ?? 0) : null, 'compare' => $cmp ? self::format_eur($prev_avg ?? 0) : null],
             'utilization'  => ['value' => $utilization . '%',                   'label' => 'Auslastung',         'icon' => 'dashicons-performance',   'trend' => null, 'compare' => null],
@@ -836,10 +931,10 @@ class TIX_Statistics {
         global $wpdb;
         $eids = self::filtered_event_ids($f);
 
-        $sold      = self::query_tickets($f['date_from'], $f['date_to'], $eids, ['valid','checked_in','redeemed','used']);
+        $sold_cnt  = self::query_tickets_sold($f['date_from'], $f['date_to'], $eids);
         $cancelled = self::query_tickets($f['date_from'], $f['date_to'], $eids, ['cancelled']);
         $transferred = self::query_tickets($f['date_from'], $f['date_to'], $eids, ['transferred']);
-        $today     = self::query_tickets(current_time('Y-m-d'), current_time('Y-m-d'), $eids);
+        $today_cnt = self::query_tickets_sold(current_time('Y-m-d'), current_time('Y-m-d'), $eids);
 
         // Kapazität
         $cap_where = "p.post_type = 'event' AND p.post_status = 'publish'";
@@ -850,20 +945,20 @@ class TIX_Statistics {
 
         $cmp = $f['compare_mode'] && $f['compare_from'] && $f['compare_to'];
         if ($cmp) {
-            $prev_sold = self::query_tickets($f['compare_from'], $f['compare_to'], $eids);
+            $prev_sold_cnt = self::query_tickets_sold($f['compare_from'], $f['compare_to'], $eids);
             $prev_cancelled = self::query_tickets($f['compare_from'], $f['compare_to'], $eids, ['cancelled']);
         } else {
             list($pf, $pt) = self::prev_period($f['date_from'], $f['date_to']);
-            $prev_sold = self::query_tickets($pf, $pt, $eids);
+            $prev_sold_cnt = self::query_tickets_sold($pf, $pt, $eids);
         }
 
         $kpis = [
-            'sold'         => ['value' => intval($sold->cnt),       'label' => 'Verkauft',          'icon' => 'dashicons-tickets-alt','trend' => self::trend($sold->cnt, $prev_sold->cnt), 'compare' => $cmp ? intval($prev_sold->cnt) : null],
+            'sold'         => ['value' => $sold_cnt,                'label' => 'Verkauft',          'icon' => 'dashicons-tickets-alt','trend' => self::trend($sold_cnt, $prev_sold_cnt), 'compare' => $cmp ? $prev_sold_cnt : null],
             'cancelled'    => ['value' => intval($cancelled->cnt),  'label' => 'Storniert',         'icon' => 'dashicons-no-alt',    'trend' => $cmp ? self::trend($cancelled->cnt, $prev_cancelled->cnt ?? 0) : null, 'compare' => $cmp ? intval($prev_cancelled->cnt ?? 0) : null],
             'transferred'  => ['value' => intval($transferred->cnt),'label' => 'Übertragen',        'icon' => 'dashicons-randomize', 'trend' => null, 'compare' => null],
             'capacity'     => ['value' => intval($cap_total),       'label' => 'Gesamtkapazität',   'icon' => 'dashicons-admin-site','trend' => null, 'compare' => null],
             'sell_through' => ['value' => $sell_through . '%',      'label' => 'Sell-Through',      'icon' => 'dashicons-performance','trend' => null, 'compare' => null],
-            'today'        => ['value' => intval($today->cnt),      'label' => 'Heute verkauft',    'icon' => 'dashicons-clock',     'trend' => null, 'compare' => null],
+            'today'        => ['value' => $today_cnt,               'label' => 'Heute verkauft',    'icon' => 'dashicons-clock',     'trend' => null, 'compare' => null],
         ];
 
         $timeline = self::query_tickets_over_time($f['date_from'], $f['date_to'], $eids);
