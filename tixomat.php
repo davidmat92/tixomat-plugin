@@ -2,14 +2,14 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.36.20
+ * Version: 1.36.22
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.36.20');
+define('TIXOMAT_VERSION', '1.36.22');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -621,18 +621,33 @@ if (is_admin() && !wp_doing_ajax()) {
     });
 }
 
-// ── Price-Label: "Abendkasse geöffnet" wenn Presale beendet ──
+// ── Price-Label: "Abendkasse geöffnet" wenn Presale beendet, sonst Fallback aus _tix_price_min ──
 add_filter('get_post_metadata', function($value, $post_id, $meta_key, $single) {
     if ($meta_key !== '_tix_price_label') return $value;
     if (get_post_type($post_id) !== 'event') return $value;
-    if (!class_exists('TIX_Ticket_Selector')) return $value;
-    if (!TIX_Ticket_Selector::check_presale_active($post_id)) {
-        // Presale nicht aktiv — prüfen ob es überhaupt Presale gab
+
+    // Presale-Override: "Abendkasse geöffnet"
+    if (class_exists('TIX_Ticket_Selector') && !TIX_Ticket_Selector::check_presale_active($post_id)) {
         $had_presale = get_post_meta($post_id, '_tix_presale_end_computed', true);
         if ($had_presale) {
             return $single ? 'Abendkasse geöffnet' : ['Abendkasse geöffnet'];
         }
     }
+
+    // Fallback: Wenn Label in DB leer, dynamisch aus _tix_price_min bauen (vermeidet Rekursion via $wpdb direkt)
+    global $wpdb;
+    $stored = $wpdb->get_var($wpdb->prepare(
+        "SELECT meta_value FROM {$wpdb->postmeta} WHERE post_id = %d AND meta_key = '_tix_price_label' LIMIT 1",
+        $post_id
+    ));
+    if ($stored === null || $stored === '') {
+        $min = floatval(get_post_meta($post_id, '_tix_price_min', true));
+        if ($min > 0) {
+            $label = 'Tickets ab ' . number_format($min, 2, ',', '.') . '€';
+            return $single ? $label : [$label];
+        }
+    }
+
     return $value;
 }, 10, 4);
 
