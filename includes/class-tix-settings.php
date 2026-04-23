@@ -265,6 +265,7 @@ class TIX_Settings {
             'mt_accent_color'    => '',  // leer = globaler Accent
 
             // ── HTML-Ticket ──
+            'ht_version'         => 'v1',       // v1 = Classic | v2 = Premium (Glow + Gradient + Dashed Tear)
             'ht_logo_height'     => 44,
             'ht_header_bg'       => '#222222',
             'ht_header_text'     => '#ffffff',
@@ -1008,6 +1009,7 @@ class TIX_Settings {
         $clean['ht_logo_height']   = max(20, min(120, intval($input['ht_logo_height'] ?? 44)));
         $clean['ht_footer_text']   = sanitize_text_field($input['ht_footer_text'] ?? $d['ht_footer_text']);
         $clean['ht_logo_url']      = esc_url_raw($input['ht_logo_url'] ?? '');
+        $clean['ht_version']       = in_array($input['ht_version'] ?? 'v1', ['v1', 'v2'], true) ? $input['ht_version'] : 'v1';
 
         // Ticket-Badge (Check-in + Personenzuordnung)
         foreach (['badge_pending_bg', 'badge_pending_text', 'badge_done_bg', 'badge_done_text'] as $k) {
@@ -3128,6 +3130,29 @@ class TIX_Settings {
                                     </div>
                                     <div class="tix-card-body">
                                         <p class="tix-settings-hint" style="margin-bottom:12px;">Gestalte das HTML-Ticket (Fallback ohne Bild-Template). Diese Farben werden beim direkten Download im Browser angezeigt.</p>
+
+                                        <?php // ── Version-Auswahl (V1 = Classic, V2 = Premium) ── ?>
+                                        <div class="tix-field tix-field-full" style="margin-bottom:20px;">
+                                            <label class="tix-field-label" style="display:block;margin-bottom:8px;">Design-Version</label>
+                                            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                                                <label style="display:flex;flex-direction:column;gap:4px;padding:14px;border:2px solid <?php echo ($s['ht_version'] ?? 'v1') === 'v1' ? '#111' : '#e5e7eb'; ?>;border-radius:10px;cursor:pointer;background:<?php echo ($s['ht_version'] ?? 'v1') === 'v1' ? '#fafafa' : '#fff'; ?>;transition:all .15s;">
+                                                    <div style="display:flex;align-items:center;gap:8px;">
+                                                        <input type="radio" name="<?php echo $ok; ?>[ht_version]" value="v1" <?php checked(($s['ht_version'] ?? 'v1') === 'v1'); ?> style="margin:0;">
+                                                        <strong>V1 · Classic</strong>
+                                                    </div>
+                                                    <span style="font-size:12px;color:#666;">Clean &amp; klar. Header oben, Body mit QR + Info, Footer-Nachricht. Gro&szlig;e Tauglichkeit &uuml;ber alle Ger&auml;te.</span>
+                                                </label>
+                                                <label style="display:flex;flex-direction:column;gap:4px;padding:14px;border:2px solid <?php echo ($s['ht_version'] ?? 'v1') === 'v2' ? '#111' : '#e5e7eb'; ?>;border-radius:10px;cursor:pointer;background:<?php echo ($s['ht_version'] ?? 'v1') === 'v2' ? '#fafafa' : '#fff'; ?>;transition:all .15s;">
+                                                    <div style="display:flex;align-items:center;gap:8px;">
+                                                        <input type="radio" name="<?php echo $ok; ?>[ht_version]" value="v2" <?php checked(($s['ht_version'] ?? 'v1') === 'v2'); ?> style="margin:0;">
+                                                        <strong>V2 · Premium</strong>
+                                                        <span style="font-size:10px;background:#ede9fe;color:#5b21b6;padding:2px 6px;border-radius:6px;font-weight:700;letter-spacing:.3px;">NEU</span>
+                                                    </div>
+                                                    <span style="font-size:12px;color:#666;">Glow &amp; Gradient. Ticket-Stub mit Perforation, dekorative QR-Ecken, modernere Typografie, subtiler Shine.</span>
+                                                </label>
+                                            </div>
+                                        </div>
+
                                         <div class="tix-field-grid">
                                             <?php
                                             self::color_row('ht_header_bg',     'Header-Hintergrund', $s);
