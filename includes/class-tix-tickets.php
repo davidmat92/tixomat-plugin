@@ -2753,29 +2753,34 @@ class TIX_Tickets {
                 <?php echo esc_html($ht_footer_text); ?>
             </div>
         </div>
-
         <?php
-        // ── Sponsor-Banner für dieses Event (gleiche Logik wie Einzel-Ticket) ──
-        $bundle_sponsor_id  = intval(get_post_meta($event_id, '_tix_ticket_sponsor_image_id', true));
+            // Letztes Event für Sponsor-Banner merken (erscheint nach der Liste nur einmal)
+            $last_sponsor_event_id = $event_id;
+            $counter++;
+        } ?>
+    </div>
+
+    <?php
+    // ── Sponsor-Banner EINMAL nach allen Tickets (vom letzten Ticket/Event) ──
+    if (!empty($last_sponsor_event_id)):
+        $bundle_sponsor_id  = intval(get_post_meta($last_sponsor_event_id, '_tix_ticket_sponsor_image_id', true));
         $bundle_sponsor_url = $bundle_sponsor_id
             ? (wp_get_attachment_image_url($bundle_sponsor_id, 'large') ?: '')
-            : esc_url_raw((string) get_post_meta($event_id, '_tix_ticket_sponsor_image_url', true));
-        $bundle_sponsor_link = get_post_meta($event_id, '_tix_ticket_sponsor_link', true);
+            : esc_url_raw((string) get_post_meta($last_sponsor_event_id, '_tix_ticket_sponsor_image_url', true));
+        $bundle_sponsor_link = get_post_meta($last_sponsor_event_id, '_tix_ticket_sponsor_link', true);
         if ($bundle_sponsor_url):
-        ?>
-        <div class="tix-bundle-sponsor">
-            <div class="tix-bundle-sponsor-label">Anzeige</div>
-            <?php if ($bundle_sponsor_link): ?>
-                <a href="<?php echo esc_url($bundle_sponsor_link); ?>" target="_blank" rel="noopener">
-                    <img src="<?php echo esc_url($bundle_sponsor_url); ?>" alt="Sponsor">
-                </a>
-            <?php else: ?>
+    ?>
+    <div class="tix-bundle-sponsor">
+        <div class="tix-bundle-sponsor-label">Anzeige</div>
+        <?php if ($bundle_sponsor_link): ?>
+            <a href="<?php echo esc_url($bundle_sponsor_link); ?>" target="_blank" rel="noopener">
                 <img src="<?php echo esc_url($bundle_sponsor_url); ?>" alt="Sponsor">
-            <?php endif; ?>
-        </div>
+            </a>
+        <?php else: ?>
+            <img src="<?php echo esc_url($bundle_sponsor_url); ?>" alt="Sponsor">
         <?php endif; ?>
-        <?php $counter++; } ?>
     </div>
+    <?php endif; endif; ?>
 
     <div class="tix-modal-overlay" data-tix-modal onclick="tixAssignOverlayClose(event)">
         <div class="tix-modal" role="dialog" aria-modal="true" aria-labelledby="tix-modal-title">
