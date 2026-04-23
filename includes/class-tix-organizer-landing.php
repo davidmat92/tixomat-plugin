@@ -859,6 +859,89 @@ body.tix-org-subdomain .tix-org-brand-footer { display: block !important; }
                 </div>
             </div>
         </footer>
+
+        <?php // ── Floating Support-Icon + Modal ── ?>
+        <button type="button" class="tix-org-support-fab" aria-label="Support" onclick="tixOrgSupportToggle()" title="Hilfe / Support">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/></svg>
+        </button>
+        <div class="tix-org-support-overlay" data-tix-support-overlay onclick="tixOrgSupportClose(event)">
+            <div class="tix-org-support-modal" role="dialog" aria-modal="true" aria-labelledby="tix-org-support-title">
+                <button type="button" class="tix-org-support-close" onclick="tixOrgSupportClose()" aria-label="Schließen">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+                <h3 id="tix-org-support-title">Support &amp; Hilfe</h3>
+                <div class="tix-org-support-body">
+                    <?php echo do_shortcode('[tix_support]'); ?>
+                </div>
+            </div>
+        </div>
+
+        <style>
+            .tix-org-support-fab {
+                position: fixed; bottom: 20px; right: 20px; z-index: 9998;
+                width: 52px; height: 52px; border-radius: 50%;
+                background: var(--tix-ol-primary, #e8445a); color: #fff;
+                border: 0; cursor: pointer;
+                box-shadow: 0 8px 20px -6px rgba(0,0,0,.3), 0 4px 10px -4px rgba(0,0,0,.2);
+                display: flex; align-items: center; justify-content: center;
+                transition: transform .15s ease, box-shadow .2s ease;
+            }
+            .tix-org-support-fab:hover { transform: translateY(-2px); box-shadow: 0 12px 24px -6px rgba(0,0,0,.4); }
+            .tix-org-support-fab:active { transform: translateY(1px); }
+
+            .tix-org-support-overlay {
+                position: fixed; inset: 0; z-index: 9999;
+                background: rgba(15,23,42,.55);
+                display: none; align-items: center; justify-content: center;
+                padding: 20px;
+                backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
+            }
+            .tix-org-support-overlay.open { display: flex; }
+            .tix-org-support-modal {
+                background: #fff; border-radius: 16px;
+                max-width: 680px; width: 100%; max-height: 85vh;
+                padding: 28px 24px 24px;
+                position: relative; overflow-y: auto;
+                box-shadow: 0 20px 60px rgba(0,0,0,.35);
+                animation: tixSupportIn .25s ease;
+            }
+            @keyframes tixSupportIn {
+                from { opacity: 0; transform: translateY(12px) scale(.98); }
+                to   { opacity: 1; transform: translateY(0) scale(1); }
+            }
+            .tix-org-support-modal h3 {
+                margin: 0 0 16px; font-size: 20px; font-weight: 700; color: #111;
+            }
+            .tix-org-support-close {
+                position: absolute; top: 12px; right: 12px;
+                width: 36px; height: 36px; border-radius: 50%;
+                background: #f3f4f6; color: #111; border: 0;
+                display: flex; align-items: center; justify-content: center;
+                cursor: pointer;
+            }
+            .tix-org-support-close:hover { background: #e5e7eb; }
+            .tix-org-support-body { font-size: 14px; line-height: 1.5; color: #374151; }
+            @media (max-width: 640px) {
+                .tix-org-support-fab { bottom: 16px; right: 16px; width: 48px; height: 48px; }
+                .tix-org-support-modal { padding: 22px 18px; border-radius: 14px; }
+            }
+            @media print {
+                .tix-org-support-fab, .tix-org-support-overlay { display: none !important; }
+            }
+        </style>
+
+        <script>
+            function tixOrgSupportToggle() {
+                var o = document.querySelector('[data-tix-support-overlay]');
+                if (o) { o.classList.add('open'); document.body.style.overflow = 'hidden'; }
+            }
+            function tixOrgSupportClose(e) {
+                if (e && e.target && !e.target.hasAttribute('data-tix-support-overlay') && !e.target.closest('.tix-org-support-close')) return;
+                var o = document.querySelector('[data-tix-support-overlay]');
+                if (o) { o.classList.remove('open'); document.body.style.overflow = ''; }
+            }
+            document.addEventListener('keydown', function(ev){ if (ev.key === 'Escape') tixOrgSupportClose({target:{hasAttribute:function(){return true;}}}); });
+        </script>
         <?php
     }
 
@@ -1115,9 +1198,19 @@ body.tix-org-subdomain .tix-org-brand-footer { display: block !important; }
             background: #fff;
             border-radius: 16px;
             box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 4px 14px rgba(0,0,0,0.04);
-            padding: 14px 16px;
+            padding: 24px 28px;
             overflow: hidden;
         }
+        /* Inner-Content-Margin-Overrides für tix_account: große Leerfläche reduzieren */
+        body.tix-org-account-page .tix-account,
+        body.tix-org-account-page .tix-account-content,
+        body.tix-org-account-page .tix-account-main { margin: 0 !important; }
+        body.tix-org-account-page .tix-account-sidebar { margin: 0 !important; }
+        body.tix-org-account-page .tix-account h1,
+        body.tix-org-account-page .tix-account h2,
+        body.tix-org-account-page .tix-account h3 { margin-top: 0 !important; }
+        body.tix-org-account-page .tix-account-stats { margin: 16px 0 !important; gap: 12px !important; }
+        body.tix-org-account-page .tix-account-quick-links { margin-top: 20px !important; }
         /* Account-CSS nutzt --tix-acc-primary für Akzentfarbe → auf Landing Organizer-Primary */
         body.tix-org-account-page .tix-account { --tix-acc-primary: var(--tix-ol-primary); }
 

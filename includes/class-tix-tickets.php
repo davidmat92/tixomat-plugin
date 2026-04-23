@@ -1123,10 +1123,16 @@ class TIX_Tickets {
 
     <style>
         @media print {
-            @page { margin: 0; }
-            html, body { margin: 0 !important; padding: 10px !important; background: #fff !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            /* @page-Regel: A4 portrait + 0 margin versucht Browser-Header/Footer zu unterdrücken */
+            @page { size: A4 portrait; margin: 0; }
+            @page :first { margin: 0; }
+            @page :left  { margin: 0; }
+            @page :right { margin: 0; }
+            html, body { margin: 0 !important; padding: 12px !important; background: #fff !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; color-adjust: exact; }
             .no-print { display: none !important; }
             .ticket { box-shadow: none !important; }
+            /* Countdown/Badge/Assign-Hint/Wetter im Druck aus */
+            .tix-badge-row, .tix-shared-row, .tix-assign-hint, .tix-countdown, .tix-weather-inline, .tix-qr-hint { display: none !important; }
             /* V2/V4 Gradient-Border-Trick macht mobile Browsern Probleme → auf solid umschalten */
             html.tix-ht-v2 .ticket,
             html.tix-ht-v4 .ticket {
@@ -2676,6 +2682,20 @@ class TIX_Tickets {
                 })
                 .catch(function(){});
         }
+
+        // ── Diagnostic: Zeige welche Version + Toggles aktiv sind ──
+        console.info('%c Tixomat Ticket-Template ', 'background:#111;color:#fff;padding:2px 6px;border-radius:3px', {
+            version:    <?php echo wp_json_encode($ht_version); ?>,
+            htmlClass:  document.documentElement.className,
+            seasonal:   <?php echo !empty($ht_seasonal_enabled) ? 'true' : 'false'; ?>,
+            watermark:  <?php echo !empty($ht_watermark_enabled) ? 'true' : 'false'; ?>,
+            weather:    <?php echo !empty($ht_weather_enabled) ? 'true' : 'false'; ?>,
+            eventCover: <?php echo !empty($ht_show_event_cover) ? 'true' : 'false'; ?>,
+            countdown:  <?php echo !empty($ht_show_countdown) ? 'true' : 'false'; ?>,
+            verified:   <?php echo !empty($ht_show_verified_badge) ? 'true' : 'false'; ?>,
+            agbFooter:  <?php echo !empty($ht_show_agb_footer) ? 'true' : 'false'; ?>,
+            checkinSound: <?php echo !empty($s['ht_checkin_sound']) ? 'true' : 'false'; ?>
+        });
 
         // ── Check-in-Badge + Personen-Zuordnung ──
         window.TIX_AJAX_URL = <?php echo wp_json_encode($ajax_url); ?>;
