@@ -2885,6 +2885,9 @@ class TIX_Tickets {
             'ht_footer_text'         => 'Bitte dieses Ticket ausgedruckt oder digital zum Einlass mitbringen.',
             'ht_logo_url'            => '',
             'ht_version'             => 'v1',
+            'ht_show_event_cover'    => 0,
+            'ht_show_countdown'      => 0,
+            'ht_show_verified_badge' => 0,
             'ht_show_agb_footer'     => 1,
         ];
         foreach ($hd as $k => $v) {
@@ -3027,6 +3030,53 @@ class TIX_Tickets {
         }
         .tix-bundle-agb-footer a { color: inherit; text-decoration: underline; }
         .tix-bundle-agb-footer a:hover { opacity: .7; }
+
+        /* Bundle: Event-Cover pro Ticket (kleiner als Einzel-Ansicht) */
+        .tix-bundle-cover {
+            position: relative; overflow: hidden; width: 100%;
+            height: 180px;
+        }
+        .tix-bundle-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .tix-bundle-cover-overlay {
+            position: absolute; left: 0; right: 0; bottom: 0;
+            padding: 20px 22px;
+            background: linear-gradient(to top, rgba(0,0,0,.85) 0%, rgba(0,0,0,.5) 50%, rgba(0,0,0,0) 100%);
+            color: #fff;
+        }
+        .tix-bundle-cover-title { font-size: 22px; font-weight: 800; margin-bottom: 2px; letter-spacing: -.02em; text-shadow: 0 2px 6px rgba(0,0,0,.35); }
+        .tix-bundle-cover-cat { font-size: 13px; opacity: .92; }
+        /* Wenn Cover vorhanden: Header kompakter (Titel ist schon im Cover) */
+        .tix-bundle-card.tix-has-cover .tix-bundle-header { padding: 12px 20px; }
+        .tix-bundle-card.tix-has-cover .tix-bundle-title h2 { font-size: 13px; opacity: .8; }
+
+        /* Bundle: Countdown-Badge pro Ticket (oberhalb des Headers) */
+        .tix-bundle-countdown {
+            display: flex; align-items: center; justify-content: center; gap: 10px;
+            padding: 8px 16px;
+            background: #111827; color: #fff;
+            font-size: 12px; font-weight: 600;
+            letter-spacing: .02em;
+        }
+        .tix-bundle-countdown .tix-countdown-label { opacity: .6; text-transform: uppercase; font-size: 10px; letter-spacing: 1.5px; }
+        .tix-bundle-countdown .tix-countdown-value { font-variant-numeric: tabular-nums; font-weight: 700; }
+        .tix-bundle-countdown.tix-countdown-live { background: linear-gradient(135deg, <?php echo esc_attr($accent); ?>, color-mix(in srgb, <?php echo esc_attr($accent); ?> 70%, #000 30%)); }
+        .tix-bundle-countdown.tix-countdown-past { background: #6b7280; opacity: .7; }
+
+        /* Bundle: Verified-Badge kompakt im Header */
+        .tix-bundle-card .tix-verified-badge {
+            display: inline-flex; align-items: center; gap: 5px;
+            padding: 3px 8px; margin-top: 4px;
+            background: rgba(16,185,129,.18); color: #10b981;
+            border: 1px solid rgba(16,185,129,.35);
+            border-radius: 999px;
+            font-size: 10px; font-weight: 700;
+        }
+        .tix-bundle-card .tix-verified-badge svg { width: 11px; height: 11px; flex-shrink: 0; }
+
+        /* Bundle: Dresscode/Rules/Notes — gleiche Schreibweise wie auf Einzel-Ticket */
+        .tix-bundle-card .tix-info-dresscode .value,
+        .tix-bundle-card .tix-info-rules .value,
+        .tix-bundle-card .tix-info-notes .value { line-height: 1.5; }
         .tix-bundle-sponsor .tix-bundle-sponsor-label { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #94a3b8; margin-bottom: 5px; }
         .tix-bundle-sponsor img { max-width: 100%; height: auto; border-radius: <?php echo $ht_border_radius; ?>px; display: block; margin: 0 auto; }
 
@@ -3326,16 +3376,49 @@ class TIX_Tickets {
             $qr_url  = 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=' . urlencode($qr_data);
             $badge   = self::get_badge_state($ticket_id, $s);
             $online_url = self::get_online_view_url($ticket_id);
+
+            // Feature-Daten pro Ticket (respektieren die Einstellungs-Toggles)
+            $card_cover_url = (!empty($ht_show_event_cover) && $event_id) ? (get_the_post_thumbnail_url($event_id, 'large') ?: '') : '';
+            $card_dresscode = trim((string) get_post_meta($event_id, '_tix_info_dresscode', true));
+            $card_rules     = trim(wp_strip_all_tags((string) get_post_meta($event_id, '_tix_info_entry_rules', true)));
+            $card_notes     = trim(wp_strip_all_tags((string) get_post_meta($event_id, '_tix_info_ticket_notes', true)));
+            $card_issue_date = date_i18n('d.m.Y', strtotime(get_post($ticket_id)->post_date));
+            $card_countdown_iso = (!empty($ht_show_countdown) && $date_start) ? $date_start : '';
         ?>
         <?php $bundle_assigned = (string) get_post_meta($ticket_id, '_tix_ticket_assigned_name', true); ?>
-        <div class="tix-bundle-card" data-ticket-token="<?php echo esc_attr($token); ?>" data-ticket-id="<?php echo intval($ticket_id); ?>" data-has-assignment="<?php echo $bundle_assigned !== '' ? '1' : '0'; ?>" data-assigned-name="<?php echo esc_attr($bundle_assigned); ?>">
+        <div class="tix-bundle-card<?php if ($card_cover_url) echo ' tix-has-cover'; ?>" data-ticket-token="<?php echo esc_attr($token); ?>" data-ticket-id="<?php echo intval($ticket_id); ?>" data-has-assignment="<?php echo $bundle_assigned !== '' ? '1' : '0'; ?>" data-assigned-name="<?php echo esc_attr($bundle_assigned); ?>">
+            <?php if ($card_cover_url): ?>
+            <div class="tix-bundle-cover">
+                <img src="<?php echo esc_url($card_cover_url); ?>" alt="<?php echo esc_attr($event_name); ?>">
+                <div class="tix-bundle-cover-overlay">
+                    <h2 class="tix-bundle-cover-title"><?php echo esc_html($event_name); ?></h2>
+                    <p class="tix-bundle-cover-cat"><?php if ($cat_name): echo esc_html($cat_name); endif; ?><?php if ($price): ?> — <?php echo esc_html($price); ?><?php endif; ?></p>
+                </div>
+            </div>
+            <?php endif; ?>
+
+            <?php if ($card_countdown_iso): ?>
+            <div class="tix-bundle-countdown" data-tix-countdown="<?php echo esc_attr($card_countdown_iso); ?>">
+                <span class="tix-countdown-label">Noch</span>
+                <span class="tix-countdown-value">— · — · —</span>
+            </div>
+            <?php endif; ?>
+
             <div class="tix-bundle-header">
                 <?php if ($ht_logo_url): ?>
                     <img src="<?php echo esc_url($ht_logo_url); ?>" alt="Logo" class="tix-bundle-logo">
                 <?php endif; ?>
                 <div class="tix-bundle-title">
                     <h2>Ticket <?php echo $counter; ?> / <?php echo $total; ?></h2>
-                    <p><?php echo esc_html($event_name); ?><?php if ($cat_name): ?> · <?php echo esc_html($cat_name); ?><?php endif; ?><?php if ($price): ?> — <?php echo esc_html($price); ?><?php endif; ?></p>
+                    <?php if (!$card_cover_url): ?>
+                        <p><?php echo esc_html($event_name); ?><?php if ($cat_name): ?> · <?php echo esc_html($cat_name); ?><?php endif; ?><?php if ($price): ?> — <?php echo esc_html($price); ?><?php endif; ?></p>
+                    <?php endif; ?>
+                    <?php if (!empty($ht_show_verified_badge)): ?>
+                    <div class="tix-verified-badge" title="Offiziell ausgestelltes Ticket">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 12l2 2 4-4"/><path d="M12 2l8.5 4v6c0 5.25-3.75 9.5-8.5 10-4.75-.5-8.5-4.75-8.5-10V6L12 2z"/></svg>
+                        <span>Offizielles Ticket · <?php echo esc_html($card_issue_date); ?></span>
+                    </div>
+                    <?php endif; ?>
                 </div>
                 <div class="tix-badge" data-tix-badge style="background: <?php echo esc_attr($badge['bg']); ?>; color: <?php echo esc_attr($badge['fg']); ?>;">
                     <span class="tix-badge-label"><?php echo esc_html($badge['label']); ?></span>
@@ -3359,6 +3442,15 @@ class TIX_Tickets {
                     <?php endif; ?>
                     <?php if ($location): ?>
                         <div class="info-row"><div class="label">Location</div><div class="value"><?php echo esc_html($location); ?></div></div>
+                    <?php endif; ?>
+                    <?php if ($card_dresscode): ?>
+                        <div class="info-row tix-info-dresscode"><div class="label">Dresscode</div><div class="value"><?php echo esc_html($card_dresscode); ?></div></div>
+                    <?php endif; ?>
+                    <?php if ($card_rules): ?>
+                        <div class="info-row tix-info-rules"><div class="label">Einlassregeln</div><div class="value"><?php echo nl2br(esc_html($card_rules)); ?></div></div>
+                    <?php endif; ?>
+                    <?php if ($card_notes): ?>
+                        <div class="info-row tix-info-notes"><div class="label">Weitere Hinweise</div><div class="value"><?php echo nl2br(esc_html($card_notes)); ?></div></div>
                     <?php endif; ?>
                 </div>
                 <div class="tix-bundle-qr">
@@ -3437,6 +3529,42 @@ class TIX_Tickets {
                 try { window.ehQR.render(cvs); } catch(e){ console.warn('QR-render fehlgeschlagen', e); }
             });
         });
+
+        // Countdown-Runner pro Card
+        (function(){
+            function pad(n){ return (n < 10 ? '0' : '') + n; }
+            function tick(el) {
+                var target = new Date(el.getAttribute('data-tix-countdown').replace(' ', 'T'));
+                if (isNaN(target.getTime())) return;
+                var valEl = el.querySelector('.tix-countdown-value');
+                var diff = target.getTime() - Date.now();
+                if (diff <= 0) {
+                    el.classList.add('tix-countdown-live');
+                    var pastHours = Math.abs(diff) / (1000 * 60 * 60);
+                    if (pastHours > 6) {
+                        el.classList.add('tix-countdown-past');
+                        valEl.textContent = 'Event vorbei';
+                    } else {
+                        valEl.textContent = 'Läuft gerade — viel Spaß!';
+                    }
+                    return;
+                }
+                var d = Math.floor(diff / (1000*60*60*24));
+                var h = Math.floor((diff % (1000*60*60*24)) / (1000*60*60));
+                var m = Math.floor((diff % (1000*60*60)) / (1000*60));
+                var s = Math.floor((diff % (1000*60)) / 1000);
+                var parts = [];
+                if (d > 0) parts.push(d + ' ' + (d === 1 ? 'Tag' : 'Tage'));
+                parts.push(pad(h) + 'h');
+                parts.push(pad(m) + 'm');
+                if (d === 0) parts.push(pad(s) + 's');
+                valEl.textContent = parts.join(' · ');
+            }
+            var counters = document.querySelectorAll('[data-tix-countdown]');
+            if (!counters.length) return;
+            counters.forEach(tick);
+            setInterval(function(){ counters.forEach(tick); }, 1000);
+        })();
     </script>
 
     <div class="tix-modal-overlay" data-tix-modal onclick="tixAssignOverlayClose(event)">
