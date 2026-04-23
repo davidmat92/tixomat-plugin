@@ -2297,61 +2297,83 @@ class TIX_Tickets {
     </div>
 
     <style>
-        .tix-ticket-actions { max-width:600px; margin:20px auto 40px; padding:0 8px; display:flex; flex-direction:column; gap:10px; }
+        .tix-ticket-actions { max-width:600px; margin:20px auto 40px; padding:0 8px; display:flex; flex-direction:column; gap:16px; }
+        .tix-ticket-actions-group { display:flex; flex-direction:column; gap:10px; }
+        .tix-ticket-actions-group-heading {
+            display:flex; align-items:center; gap:10px;
+            margin:0 2px 2px;
+            font-size:11px; font-weight:700;
+            text-transform:uppercase; letter-spacing:2px;
+            color:#94a3b8;
+        }
+        .tix-ticket-actions-group-heading::after {
+            content:""; flex:1; height:1px; background:#e5e7eb;
+        }
         .tix-ticket-actions-row { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
         .tix-ticket-actions .btn-base {
             padding:12px 14px; border-radius:8px; font-size:14px; font-weight:600; cursor:pointer;
             font-family:inherit; display:inline-flex; align-items:center; justify-content:center; gap:6px;
         }
-        /* Mobile (≤767px): alle Buttons untereinander full-width */
+        /* Mobile (≤767px): Buttons untereinander full-width, Gruppen bleiben klar sichtbar */
         @media (max-width: 767px) {
-            .tix-ticket-actions { margin:14px auto 24px; padding:0; gap:8px; }
+            .tix-ticket-actions { margin:14px auto 24px; padding:0 4px; gap:14px; }
+            .tix-ticket-actions-group { gap:8px; }
             .tix-ticket-actions-row { display:flex !important; flex-direction:column !important; gap:8px !important; }
             .tix-ticket-actions .btn-base { padding:14px !important; font-size:15px !important; }
         }
     </style>
+    <?php $maps_query = urlencode(trim($location . ' ' . $address)); ?>
     <div class="no-print tix-ticket-actions">
-        <div class="tix-ticket-actions-row">
-            <button type="button" class="btn-base" onclick="tixSaveTicketImage(this)"
-                    style="background:#fff;color:#1f2937;border:1px solid #e5e7eb;">
-                &#128247; Als Bild speichern
-            </button>
-            <button type="button" class="btn-base" onclick="tixOnlineTicketAction(this, 'share')"
-                    style="background:#fff;color:#1f2937;border:1px solid #e5e7eb;">
-                &#128228; Teilen
-            </button>
-        </div>
-        <div class="tix-ticket-actions-row">
-            <button type="button" class="btn-base" onclick="tixCalendarDownload()"
-                    style="background:#fff;color:#1f2937;border:1px solid #e5e7eb;">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-                In Kalender speichern
-            </button>
-            <?php // Routing-Button: öffnet Maps mit Event-Location ?>
-            <?php $maps_query = urlencode(trim($location . ' ' . $address)); ?>
-            <?php if ($maps_query): ?>
-            <a href="https://maps.google.com/?q=<?php echo $maps_query; ?>" target="_blank" rel="noopener" class="btn-base"
-               style="background:#fff;color:#1f2937;border:1px solid #e5e7eb;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:6px;">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
-                Anfahrt planen
-            </a>
-            <?php endif; ?>
-        </div>
-        <div class="tix-ticket-actions-row">
-            <button type="button" class="btn-base" onclick="tixWalletShow('apple')"
-                    style="background:#000;color:#fff;border:none;">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M17.1 12.5c0-2.4 2-3.5 2.1-3.6-1.1-1.6-2.9-1.9-3.5-1.9-1.5-.2-2.9.9-3.7.9-.8 0-1.9-.9-3.2-.9-1.6 0-3.2 1-4 2.4-1.7 3-.4 7.5 1.3 10 .8 1.2 1.8 2.5 3 2.5 1.2 0 1.7-.8 3.1-.8 1.5 0 1.9.8 3.1.8 1.3 0 2.2-1.2 3-2.5.9-1.4 1.3-2.8 1.3-2.9-.1 0-2.5-.9-2.5-3.9zM14.6 5c.7-.8 1.1-1.9 1-3-1 0-2.1.7-2.8 1.5-.6.7-1.2 1.8-1 2.8 1.1.1 2.2-.6 2.8-1.3z"/></svg>
-                Apple Wallet
-            </button>
-            <button type="button" class="btn-base" onclick="tixWalletShow('google')"
-                    style="background:#fff;color:#1f2937;border:1px solid #e5e7eb;">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
-                Google Wallet
+
+        <?php // ── GRUPPE 1: TICKETS ── ?>
+        <div class="tix-ticket-actions-group">
+            <div class="tix-ticket-actions-group-heading">Ticket</div>
+            <div class="tix-ticket-actions-row">
+                <button type="button" class="btn-base" onclick="tixSaveTicketImage(this)"
+                        style="background:#fff;color:#1f2937;border:1px solid #e5e7eb;">
+                    &#128247; Als Bild speichern
+                </button>
+                <button type="button" class="btn-base" onclick="tixOnlineTicketAction(this, 'share')"
+                        style="background:#fff;color:#1f2937;border:1px solid #e5e7eb;">
+                    &#128228; Teilen
+                </button>
+            </div>
+            <div class="tix-ticket-actions-row">
+                <button type="button" class="btn-base" onclick="tixWalletShow('apple')"
+                        style="background:#000;color:#fff;border:none;">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M17.1 12.5c0-2.4 2-3.5 2.1-3.6-1.1-1.6-2.9-1.9-3.5-1.9-1.5-.2-2.9.9-3.7.9-.8 0-1.9-.9-3.2-.9-1.6 0-3.2 1-4 2.4-1.7 3-.4 7.5 1.3 10 .8 1.2 1.8 2.5 3 2.5 1.2 0 1.7-.8 3.1-.8 1.5 0 1.9.8 3.1.8 1.3 0 2.2-1.2 3-2.5.9-1.4 1.3-2.8 1.3-2.9-.1 0-2.5-.9-2.5-3.9zM14.6 5c.7-.8 1.1-1.9 1-3-1 0-2.1.7-2.8 1.5-.6.7-1.2 1.8-1 2.8 1.1.1 2.2-.6 2.8-1.3z"/></svg>
+                    Apple Wallet
+                </button>
+                <button type="button" class="btn-base" onclick="tixWalletShow('google')"
+                        style="background:#fff;color:#1f2937;border:1px solid #e5e7eb;">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
+                    Google Wallet
+                </button>
+            </div>
+            <button class="btn-base print-btn" onclick="window.print()" style="background:<?php echo esc_attr($ht_btn_bg); ?>;color:<?php echo esc_attr($ht_btn_text); ?>;border:none;">
+                &#128424; Ticket drucken
             </button>
         </div>
-        <button class="btn-base print-btn" onclick="window.print()" style="background:<?php echo esc_attr($ht_btn_bg); ?>;color:<?php echo esc_attr($ht_btn_text); ?>;border:none;margin-top:16px;">
-            &#128424; Ticket drucken
-        </button>
+
+        <?php // ── GRUPPE 2: SONSTIGES ── ?>
+        <div class="tix-ticket-actions-group">
+            <div class="tix-ticket-actions-group-heading">Sonstiges</div>
+            <div class="tix-ticket-actions-row">
+                <button type="button" class="btn-base" onclick="tixCalendarDownload()"
+                        style="background:#fff;color:#1f2937;border:1px solid #e5e7eb;">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                    In Kalender speichern
+                </button>
+                <?php if ($maps_query): ?>
+                <a href="https://maps.google.com/?q=<?php echo $maps_query; ?>" target="_blank" rel="noopener" class="btn-base"
+                   style="background:#fff;color:#1f2937;border:1px solid #e5e7eb;text-decoration:none;">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                    Anfahrt planen
+                </a>
+                <?php endif; ?>
+            </div>
+        </div>
+
     </div>
 
     <script src="<?php echo esc_url(TIXOMAT_URL . 'assets/js/tix-qr.js?v=' . TIXOMAT_VERSION); ?>"></script>
