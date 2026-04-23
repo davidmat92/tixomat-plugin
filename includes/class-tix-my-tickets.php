@@ -1472,6 +1472,17 @@ class TIX_My_Tickets {
         // Accent-Farben aus Settings (Header/Footer vom HTML-Ticket)
         $accent_bg  = $s['ht_header_bg']   ?? '#131020';
         $accent_fg  = $s['ht_header_text'] ?? '#ffffff';
+
+        // Badge + Share + Zuordnung (nur wenn tix_ticket-ID verfügbar)
+        $ticket_id = !empty($t['id']) ? intval($t['id']) : 0;
+        $ticket_token = '';
+        $share_url    = '';
+        if ($ticket_id && class_exists('TIX_Tickets')) {
+            $ticket_token = TIX_Tickets::ensure_download_token($ticket_id);
+            $share_url    = TIX_Tickets::get_online_view_url($ticket_id);
+            // Modal + Assets nur einmal pro Seite emittieren
+            TIX_Tickets::render_assign_modal_once();
+        }
         ?>
         <div class="tix-mt-tcard"
              data-event="<?php echo esc_attr($ev['event_name']); ?>"
@@ -1487,6 +1498,8 @@ class TIX_My_Tickets {
              data-thumb="<?php echo esc_attr($ev['thumbnail'] ?? ''); ?>"
              data-logo="<?php echo esc_attr($logo_url); ?>"
              data-sponsor="<?php echo esc_attr($sponsor_url); ?>"
+             data-share-url="<?php echo esc_attr($share_url); ?>"
+             data-ticket-token="<?php echo esc_attr($ticket_token); ?>"
              data-accent-bg="<?php echo esc_attr($accent_bg); ?>"
              data-accent-fg="<?php echo esc_attr($accent_fg); ?>">
             <div class="tix-mt-tcard-qr">
@@ -1503,6 +1516,13 @@ class TIX_My_Tickets {
                 <span class="tix-mt-tcard-event"><?php echo esc_html($ev['event_name']); ?></span>
                 <?php if (!empty($ev['date_start'])): ?>
                     <span class="tix-mt-tcard-date"><?php echo esc_html($ev['date_start']); ?></span>
+                <?php endif; ?>
+
+                <?php if ($ticket_id && class_exists('TIX_Tickets')): ?>
+                    <div class="tix-mt-tcard-badge-row" style="display:flex;flex-direction:column;gap:6px;margin:8px 0 4px;align-items:flex-start;">
+                        <?php echo TIX_Tickets::render_badge_markup($ticket_id); ?>
+                        <?php echo TIX_Tickets::render_shared_info_markup($ticket_id); ?>
+                    </div>
                 <?php endif; ?>
                 <div class="tix-mt-tcard-actions">
                     <?php if (!empty($t['download_url'])):

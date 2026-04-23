@@ -928,16 +928,25 @@ class TIX_Columns {
 
             case 'tix_t_status':
                 $status = get_post_meta($post_id, '_tix_ticket_status', true) ?: 'valid';
+                $checked_in = (bool) get_post_meta($post_id, '_tix_ticket_checked_in', true);
                 $labels = [
                     'valid'     => ['Gültig',     '#10b981'],
                     'used'      => ['Eingelöst',  tix_primary()],
                     'cancelled' => ['Storniert',  '#ef4444'],
                 ];
                 $l = $labels[$status] ?? [$status, '#64748b'];
-                echo '<span style="display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;color:' . $l[1] . ';background:color-mix(in srgb, ' . $l[1] . ' 10%, #fff);padding:3px 10px;border-radius:20px;white-space:nowrap;">'
+                echo '<span data-tix-ticket-status="' . $post_id . '" style="display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;color:' . $l[1] . ';background:color-mix(in srgb, ' . $l[1] . ' 10%, #fff);padding:3px 10px;border-radius:20px;white-space:nowrap;">'
                     . '<span style="width:7px;height:7px;border-radius:50%;background:' . $l[1] . ';flex-shrink:0;"></span>'
                     . esc_html($l[0])
                     . '</span>';
+                if ($checked_in) {
+                    $t = get_post_meta($post_id, '_tix_ticket_checkin_time', true);
+                    $when = $t ? date_i18n('d.m. H:i', strtotime($t)) : '';
+                    echo '<br><span data-tix-checkin-badge="' . $post_id . '" style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;color:#065f46;background:#ecfdf5;border:1px solid #a7f3d0;padding:2px 8px;border-radius:14px;margin-top:4px;white-space:nowrap;">'
+                        . '<span class="dashicons dashicons-yes" style="font-size:13px;width:13px;height:13px;"></span>'
+                        . 'Eingecheckt' . ($when ? ' · ' . esc_html($when) : '')
+                        . '</span>';
+                }
                 break;
 
             case 'tix_t_date':
@@ -969,6 +978,16 @@ class TIX_Columns {
                 if ($order_id) {
                     echo '<a href="#" class="tix-resend-order" data-order-id="' . $order_id . '" data-email="' . $email . '" title="Alle Tickets der Bestellung senden" style="' . $icon_style . '" onmouseover="this.style.background=\'#f3f4f6\';this.style.color=\'#1e293b\'" onmouseout="this.style.background=\'transparent\';this.style.color=\'#6b7280\'">';
                     echo '<span class="dashicons dashicons-email-alt" style="font-size:16px;width:16px;height:16px;"></span></a>';
+                }
+
+                // Check-in Toggle (synchron zum Scanner)
+                $checked_in = (bool) get_post_meta($post_id, '_tix_ticket_checked_in', true);
+                if ($checked_in) {
+                    echo '<a href="#" class="tix-admin-checkin-toggle" data-ticket-id="' . $post_id . '" data-state="1" title="Check-in zur&uuml;cksetzen" style="' . $icon_style . 'color:#10b981;" onmouseover="this.style.background=\'#ecfdf5\'" onmouseout="this.style.background=\'transparent\'">';
+                    echo '<span class="dashicons dashicons-yes" style="font-size:18px;width:18px;height:18px;"></span></a>';
+                } else {
+                    echo '<a href="#" class="tix-admin-checkin-toggle" data-ticket-id="' . $post_id . '" data-state="0" title="Manuell einchecken" style="' . $icon_style . '" onmouseover="this.style.background=\'#ecfdf5\';this.style.color=\'#10b981\'" onmouseout="this.style.background=\'transparent\';this.style.color=\'#6b7280\'">';
+                    echo '<span class="dashicons dashicons-tickets-alt" style="font-size:16px;width:16px;height:16px;"></span></a>';
                 }
 
                 // Stornieren / Reaktivieren

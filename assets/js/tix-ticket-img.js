@@ -14,7 +14,8 @@
     // ═══════════════════════════════════════
 
     window.ehTicketImg   = function(btn) { startRender(btn, 'download'); };
-    window.ehTicketShare = function(btn) { startRender(btn, 'share'); };
+    // Share teilt jetzt die URL des Tickets (nicht mehr ein Bild — dafür gibt's "Bild speichern")
+    window.ehTicketShare = function(btn) { shareTicketUrl(btn); };
 
     // ═══════════════════════════════════════
     // PIPELINE
@@ -38,13 +39,92 @@
             loadImg(d.sponsor),
         ]).then(function(imgs) {
             var c = renderCanvas(d, qrCanvas, imgs[0], imgs[1], imgs[2]);
-            if (mode === 'share') {
-                shareCanvas(c, d, btn, originalHTML);
-            } else {
-                downloadCanvas(c, d, btn, originalHTML);
-            }
+            downloadCanvas(c, d, btn, originalHTML);
         });
     }
+
+    // ═══════════════════════════════════════
+    // SHARE: nur URL + persistente Bestätigung
+    // ═══════════════════════════════════════
+
+    function shareTicketUrl(btn) {
+        var card = btn.closest('.tix-mt-tcard, .tix-bundle-card');
+        if (!card) return;
+        var url   = card.getAttribute('data-share-url') || window.location.href;
+        var token = card.getAttribute('data-ticket-token') || '';
+        var title = card.getAttribute('data-event') || 'Ticket';
+
+        var originalHTML = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '\u23F3 öffne…';
+
+        var shareData = {
+            title: title,
+            text:  'Dein Ticket für ' + title,
+            url:   url,
+        };
+
+        var finished = function(success) {
+            btn.disabled = false;
+            btn.innerHTML = originalHTML;
+            if (success && token && window.TIX_AJAX_URL) {
+                // Server-seitig Share-Event loggen (persistent)
+                var body = new FormData();
+                body.append('action', 'tix_ticket_log_share');
+                body.append('token', token);
+                fetch(window.TIX_AJAX_URL, { method: 'POST', body: body, credentials: 'same-origin' })
+                    .then(function(r){ return r.json(); })
+                    .then(function(res){
+                        if (res && res.success) updateSharedUI(card, res.data);
+                    })
+                    .catch(function(){});
+            }
+        };
+
+        if (navigator.share) {
+            navigator.share(shareData)
+                .then(function(){ finished(true); })
+                .catch(function(err){
+                    // Abbruch ist OK — bei echtem Fehler auf Copy-Fallback gehen
+                    if (err && err.name !== 'AbortError') {
+                        copyToClipboardFallback(url, btn, originalHTML);
+                    } else {
+                        finished(false);
+                    }
+                });
+        } else {
+            copyToClipboardFallback(url, btn, originalHTML, function(){ finished(true); });
+        }
+    }
+
+    function copyToClipboardFallback(url, btn, originalHTML, onSuccess) {
+        var done = function(ok) {
+            btn.disabled = false;
+            btn.innerHTML = ok ? '✓ Link kopiert' : originalHTML;
+            if (ok) {
+                setTimeout(function(){ btn.innerHTML = originalHTML; }, 1800);
+                if (typeof onSuccess === 'function') onSuccess();
+            }
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(url).then(function(){ done(true); }).catch(function(){ done(false); });
+        } else {
+            // Ultra-Legacy Fallback: Prompt
+            try { window.prompt('Ticket-Link kopieren:', url); done(true); } catch(e) { done(false); }
+        }
+    }
+
+    function updateSharedUI(card, state) {
+        // Findet das data-tix-shared-info Element in der Nähe der Karte oder im Dokument
+        var target = card.querySelector('[data-tix-shared-info]');
+        if (!target) target = document.querySelector('[data-tix-shared-info]');
+        if (!target) return;
+        target.style.display = 'inline-flex';
+        target.setAttribute('data-has-share', '1');
+        var label = target.querySelector('[data-tix-shared-label]');
+        if (label) label.textContent = state.label || 'Geteilt';
+    }
+    window.tixShareUpdateUI = updateSharedUI; // Public für Polling-Code
 
     function loadImg(src) {
         return new Promise(function(resolve) {
@@ -303,25 +383,6 @@
             alert('Fehler: ' + e.message);
             resetButton(btn, originalHTML);
         }
-    }
-
-    function shareCanvas(c, d, btn, originalHTML) {
-        c.toBlob(function(blob) {
-            if (!blob) { resetButton(btn, originalHTML); return; }
-            var file = new File([blob], 'ticket-' + (d.code || Date.now()) + '.png', { type: 'image/png' });
-
-            if (navigator.canShare && navigator.canShare({ files: [file] })) {
-                navigator.share({
-                    title: d.event || 'Mein Ticket',
-                    text: 'Mein Ticket für ' + (d.event || 'das Event'),
-                    files: [file],
-                }).catch(function(){ /* User cancel → ignore */ })
-                  .finally(function(){ resetButton(btn, originalHTML); });
-            } else {
-                // Fallback: Download statt Share
-                downloadCanvas(c, d, btn, originalHTML);
-            }
-        }, 'image/png', 0.95);
     }
 
     // ═══════════════════════════════════════
