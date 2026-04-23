@@ -1534,7 +1534,7 @@ class TIX_Tickets {
     </style>
     <div class="no-print tix-ticket-actions">
         <div class="tix-ticket-actions-row">
-            <button type="button" class="btn-base" onclick="tixOnlineTicketAction(this, 'img')"
+            <button type="button" class="btn-base" onclick="tixSaveTicketImage(this)"
                     style="background:#fff;color:#1f2937;border:1px solid #e5e7eb;">
                 &#128247; Als Bild speichern
             </button>
@@ -1571,6 +1571,79 @@ class TIX_Tickets {
                 window.ehQR.render(cvs);
             }
         });
+        // ─────────────────────────────────────────────
+        // Als Bild speichern: Screenshot des echten Ticket-DOMs
+        // (respektiert V1/V2-Styling exakt, blendet .no-print Elemente aus)
+        // ─────────────────────────────────────────────
+        function tixSaveTicketImage(btn) {
+            if (typeof html2canvas === 'function') { return tixDoSaveImage(btn); }
+            // Lazy-Load des Renderers
+            var oldHTML = btn.innerHTML;
+            btn.disabled = true; btn.innerHTML = '\u23F3 l\u00e4dt Renderer\u2026';
+            var script = document.createElement('script');
+            script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+            script.onload = function(){ btn.innerHTML = oldHTML; btn.disabled = false; tixDoSaveImage(btn); };
+            script.onerror = function(){ btn.innerHTML = oldHTML; btn.disabled = false; alert('Renderer konnte nicht geladen werden. Versuche "Ticket drucken" als Alternative.'); };
+            document.head.appendChild(script);
+        }
+        function tixDoSaveImage(btn) {
+            var ticket = document.querySelector('.ticket');
+            if (!ticket) return;
+            var oldHTML = btn.innerHTML;
+            btn.disabled = true; btn.innerHTML = '\u23F3 wird erstellt\u2026';
+
+            var qrImg = ticket.querySelector('.ticket-qr img');
+            var hiddenQRCanvas = document.querySelector('#tix-online-ticket-source canvas[data-qr]');
+            var originalQRSrc = qrImg ? qrImg.src : null;
+
+            var capture = function() {
+                var scrollY = window.scrollY;
+                window.scrollTo(0, 0);
+
+                html2canvas(ticket, {
+                    backgroundColor: null,
+                    scale: window.devicePixelRatio > 1 ? 2 : 1.75,
+                    useCORS: true,
+                    logging: false,
+                    ignoreElements: function(el) {
+                        return el.classList && el.classList.contains('no-print');
+                    }
+                }).then(function(canvas) {
+                    canvas.toBlob(function(blob) {
+                        btn.disabled = false; btn.innerHTML = oldHTML;
+                        if (qrImg && originalQRSrc) qrImg.src = originalQRSrc;
+                        window.scrollTo(0, scrollY);
+                        if (!blob) { alert('Bild konnte nicht erstellt werden.'); return; }
+                        var url = URL.createObjectURL(blob);
+                        var a = document.createElement('a');
+                        a.href = url;
+                        a.download = 'ticket-' + (TIX_TOKEN ? TIX_TOKEN.substr(0, 8) : Date.now()) + '.png';
+                        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+                        setTimeout(function(){ URL.revokeObjectURL(url); }, 2000);
+                    }, 'image/png');
+                }).catch(function(err) {
+                    console.error('html2canvas error:', err);
+                    btn.disabled = false; btn.innerHTML = oldHTML;
+                    if (qrImg && originalQRSrc) qrImg.src = originalQRSrc;
+                    window.scrollTo(0, scrollY);
+                    alert('Bild konnte nicht erstellt werden. Versuche "Ticket drucken" als Alternative.');
+                });
+            };
+
+            // QR-Bild durch lokale Canvas-Data-URL ersetzen (CORS-sicher)
+            if (qrImg && hiddenQRCanvas && hiddenQRCanvas.toDataURL) {
+                try {
+                    var dataUrl = hiddenQRCanvas.toDataURL('image/png');
+                    var tmp = new Image();
+                    tmp.onload  = function(){ qrImg.src = dataUrl; setTimeout(capture, 80); };
+                    tmp.onerror = function(){ capture(); };
+                    tmp.src = dataUrl;
+                } catch (e) { capture(); }
+            } else {
+                capture();
+            }
+        }
+
         // Image/Share auf dem versteckten Source-Element triggern
         function tixOnlineTicketAction(btn, mode) {
             var src = document.getElementById('tix-online-ticket-source');
