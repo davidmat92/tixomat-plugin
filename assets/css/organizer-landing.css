@@ -521,3 +521,235 @@ body.tix-mode-dark .tix-ol-partner:hover img { filter: brightness(0) invert(1); 
     .tix-ol-footer-grid { grid-template-columns: 1fr; gap: 32px; }
     .tix-ol-grid { grid-template-columns: 1fr; gap: 16px; }
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   LANDING DESIGN VERSIONS — V1 (Classic, Default) · V2 · V3 · V4
+   Body-Klassen: .tix-olv-v1 / .tix-olv-v2 / .tix-olv-v3 / .tix-olv-v4
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ───────────────────────────────────────────────────
+   V2 · PREMIUM — Gradient-Borders, Perforation, Shine
+   ─────────────────────────────────────────────────── */
+.tix-olv-v2 {
+    background:
+        radial-gradient(1200px circle at 5% 0%, rgba(139,92,246,.05), transparent 40%),
+        radial-gradient(1000px circle at 95% 100%, rgba(59,130,246,.04), transparent 40%),
+        var(--tix-ol-bg);
+}
+
+.tix-olv-v2 .tix-ol-card {
+    position: relative;
+    border: 2px solid transparent;
+    background:
+        linear-gradient(var(--tix-ol-bg), var(--tix-ol-bg)) padding-box,
+        linear-gradient(135deg, var(--tix-ol-accent), var(--tix-ol-primary)) border-box;
+    box-shadow: 0 18px 40px -24px rgba(17,24,39,.2), 0 6px 18px -8px rgba(17,24,39,.06);
+    transition: transform .25s ease, box-shadow .25s ease;
+}
+.tix-olv-v2 .tix-ol-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 28px 50px -20px rgba(17,24,39,.28), 0 10px 25px -10px rgba(17,24,39,.08);
+}
+/* Perforation zwischen Cover und Body (Ticket-Stub-Optik) */
+.tix-olv-v2 .tix-ol-card-body {
+    position: relative;
+    padding-top: 28px;
+}
+.tix-olv-v2 .tix-ol-card-body::before {
+    content: "";
+    position: absolute; left: 0; right: 0; top: 8px;
+    height: 2px;
+    background-image: radial-gradient(circle, var(--tix-ol-border) 1px, transparent 1.4px);
+    background-size: 10px 2px;
+    background-repeat: repeat-x;
+    background-position: center;
+}
+
+/* Hero: subtiler Shine */
+.tix-olv-v2 .tix-ol-hero-title {
+    text-shadow: 0 2px 20px rgba(0,0,0,.2);
+    letter-spacing: -.02em;
+}
+
+/* CTA-Buttons mit Gradient-Press-Feedback */
+.tix-olv-v2 .tix-ol-hero-cta,
+.tix-olv-v2 .tix-ol-nav-cta {
+    background: linear-gradient(135deg, var(--tix-ol-primary), color-mix(in srgb, var(--tix-ol-primary) 70%, #000 30%));
+    box-shadow: 0 10px 24px -12px color-mix(in srgb, var(--tix-ol-primary) 80%, transparent);
+    transition: transform .12s ease;
+}
+.tix-olv-v2 .tix-ol-hero-cta:active,
+.tix-olv-v2 .tix-ol-nav-cta:active { transform: translateY(1px); }
+
+/* ───────────────────────────────────────────────────
+   V3 · FESTIVAL — Dunkler Body, bold uppercase, Neon-Accent
+   ─────────────────────────────────────────────────── */
+.tix-olv-v3 {
+    background:
+        linear-gradient(180deg, #0f0f1a 0%, #1a1333 100%) !important;
+    min-height: 100vh;
+    color: #f5f5f7 !important;
+}
+.tix-olv-v3 .tix-ol-wrap { color: #f5f5f7; }
+.tix-olv-v3 h1, .tix-olv-v3 h2, .tix-olv-v3 h3, .tix-olv-v3 h4 { color: #fff !important; }
+
+.tix-olv-v3 .tix-ol-hero-title {
+    font-size: clamp(36px, 5.5vw, 64px) !important;
+    font-weight: 900 !important;
+    letter-spacing: .01em;
+    text-transform: uppercase;
+    text-shadow: 0 4px 30px rgba(0,0,0,.45);
+}
+.tix-olv-v3 .tix-ol-hero {
+    background-blend-mode: multiply;
+}
+
+.tix-olv-v3 .tix-ol-card {
+    background: rgba(255,255,255,.04) !important;
+    border: 1px solid rgba(255,255,255,.08);
+    box-shadow: 0 20px 40px -20px rgba(0,0,0,.5);
+    color: #f5f5f7;
+}
+.tix-olv-v3 .tix-ol-card:hover {
+    border-color: color-mix(in srgb, var(--tix-ol-primary) 70%, transparent);
+    box-shadow: 0 28px 50px -20px color-mix(in srgb, var(--tix-ol-primary) 40%, transparent);
+}
+.tix-olv-v3 .tix-ol-card-title { color: #fff !important; }
+.tix-olv-v3 .tix-ol-card-date {
+    color: var(--tix-ol-primary) !important;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    font-weight: 800;
+    font-size: 11px;
+}
+
+/* Section-Headings bigger & bolder */
+.tix-olv-v3 .tix-ol-section-heading h2 {
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    font-weight: 900;
+}
+
+/* Footer inverted */
+.tix-olv-v3 .tix-ol-footer {
+    background: #0a0a14 !important;
+    color: rgba(255,255,255,.7);
+}
+
+/* ───────────────────────────────────────────────────
+   V4 · HOLOGRAPHIC — V3 Basis + animierter Rainbow-Shimmer
+   ─────────────────────────────────────────────────── */
+.tix-olv-v4 {
+    background:
+        radial-gradient(800px circle at 20% 0%, rgba(139,92,246,.12), transparent 50%),
+        radial-gradient(700px circle at 80% 100%, rgba(59,130,246,.10), transparent 50%),
+        radial-gradient(600px circle at 50% 50%, rgba(236,72,153,.06), transparent 60%),
+        linear-gradient(180deg, #0f0f1a 0%, #1a1333 100%) !important;
+    min-height: 100vh;
+    color: #f5f5f7 !important;
+}
+.tix-olv-v4 h1, .tix-olv-v4 h2, .tix-olv-v4 h3, .tix-olv-v4 h4 { color: #fff !important; }
+
+/* Hero mit rotierendem Conic-Gradient (subtiler als Ticket-V4) */
+.tix-olv-v4 .tix-ol-hero {
+    position: relative;
+    overflow: hidden;
+}
+.tix-olv-v4 .tix-ol-hero::after {
+    content: "";
+    position: absolute; inset: -30%;
+    background: conic-gradient(from 0deg,
+        transparent 0deg,
+        rgba(236,72,153,.18) 60deg,
+        rgba(168,85,247,.22) 120deg,
+        rgba(59,130,246,.18) 180deg,
+        rgba(16,185,129,.15) 240deg,
+        rgba(245,158,11,.18) 300deg,
+        transparent 360deg);
+    animation: tixOlHoloSpin 12s linear infinite;
+    mix-blend-mode: screen;
+    pointer-events: none;
+    z-index: 1;
+}
+.tix-olv-v4 .tix-ol-hero > * { position: relative; z-index: 2; }
+@keyframes tixOlHoloSpin { to { transform: rotate(360deg); } }
+
+.tix-olv-v4 .tix-ol-hero-title {
+    background: linear-gradient(135deg, #fff, #ec4899 30%, #a855f7 60%, #3b82f6);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent !important;
+    filter: drop-shadow(0 4px 20px rgba(236,72,153,.3));
+    font-weight: 900 !important;
+    letter-spacing: -.01em;
+}
+
+.tix-olv-v4 .tix-ol-card {
+    position: relative;
+    background: rgba(255,255,255,.04) !important;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+    box-shadow: 0 20px 40px -20px rgba(0,0,0,.5);
+    overflow: hidden;
+    transition: transform .2s ease;
+}
+.tix-olv-v4 .tix-ol-card::before {
+    content: "";
+    position: absolute; inset: -2px;
+    background: conic-gradient(from 0deg, #ec4899, #a855f7, #3b82f6, #10b981, #f59e0b, #ec4899);
+    z-index: -1;
+    animation: tixOlHoloSpin 8s linear infinite;
+    border-radius: inherit;
+}
+.tix-olv-v4 .tix-ol-card:hover {
+    transform: translateY(-4px);
+}
+
+.tix-olv-v4 .tix-ol-card-title { color: #fff !important; }
+.tix-olv-v4 .tix-ol-card-date { color: #ec4899 !important; text-transform: uppercase; letter-spacing: 2px; font-weight: 800; font-size: 11px; }
+
+/* Hero CTA mit iridescentem Gradient */
+.tix-olv-v4 .tix-ol-hero-cta,
+.tix-olv-v4 .tix-ol-nav-cta {
+    background: linear-gradient(135deg, #ec4899 0%, #a855f7 50%, #3b82f6 100%) !important;
+    box-shadow: 0 10px 30px -10px rgba(168,85,247,.6);
+    position: relative;
+    overflow: hidden;
+}
+.tix-olv-v4 .tix-ol-hero-cta::after {
+    content: "";
+    position: absolute; inset: 0;
+    background: linear-gradient(115deg, transparent 30%, rgba(255,255,255,.35) 50%, transparent 70%);
+    animation: tixOlHoloShine 4s ease-in-out infinite;
+    pointer-events: none;
+}
+@keyframes tixOlHoloShine {
+    0%, 100% { transform: translateX(-120%); }
+    50%      { transform: translateX(120%); }
+}
+
+/* Footer */
+.tix-olv-v4 .tix-ol-footer {
+    background: #0a0a14 !important;
+    color: rgba(255,255,255,.7);
+    position: relative;
+}
+.tix-olv-v4 .tix-ol-footer::before {
+    content: "";
+    position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, #ec4899, #a855f7, #3b82f6, #10b981, #f59e0b, #ec4899);
+    background-size: 200% 100%;
+    animation: tixOlHoloFooterPulse 6s linear infinite;
+}
+@keyframes tixOlHoloFooterPulse {
+    0%, 100% { background-position: 0% 50%; }
+    50%      { background-position: 100% 50%; }
+}
+
+/* Reduced motion: Animationen abschalten */
+@media (prefers-reduced-motion: reduce) {
+    .tix-olv-v4 .tix-ol-hero::after,
+    .tix-olv-v4 .tix-ol-card::before,
+    .tix-olv-v4 .tix-ol-hero-cta::after,
+    .tix-olv-v4 .tix-ol-footer::before { animation: none !important; }
+}

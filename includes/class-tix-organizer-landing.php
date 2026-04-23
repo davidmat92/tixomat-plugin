@@ -1156,7 +1156,7 @@ body.tix-org-subdomain .tix-org-brand-footer { display: block !important; }
     <script src="<?php echo esc_url(TIXOMAT_URL . 'assets/js/tix-ticket-img.js?v=' . TIXOMAT_VERSION); ?>" defer></script>
     <script src="<?php echo esc_url(TIXOMAT_URL . 'assets/js/tix-wallet.js?v=' . TIXOMAT_VERSION); ?>" defer></script>
 </head>
-<body class="tix-ol tix-org-subdomain tix-org-<?php echo esc_attr($data['slug']); ?> tix-mode-<?php echo esc_attr($data['color_mode'] ?? 'light'); ?> tix-org-account-page">
+<body class="tix-ol tix-olv-<?php echo esc_attr($data['version'] ?? 'v1'); ?> tix-org-subdomain tix-org-<?php echo esc_attr($data['slug']); ?> tix-mode-<?php echo esc_attr($data['color_mode'] ?? 'light'); ?> tix-org-account-page">
 
     <?php self::inject_branded_header(); ?>
 
@@ -1254,7 +1254,7 @@ body.tix-org-subdomain .tix-org-brand-footer { display: block !important; }
     <script src="<?php echo esc_url(TIXOMAT_URL . 'assets/js/tix-ticket-img.js?v=' . TIXOMAT_VERSION); ?>" defer></script>
     <script src="<?php echo esc_url(TIXOMAT_URL . 'assets/js/tix-wallet.js?v=' . TIXOMAT_VERSION); ?>" defer></script>
 </head>
-<body class="tix-ol tix-org-subdomain tix-org-<?php echo esc_attr($data['slug']); ?> tix-mode-<?php echo esc_attr($data['color_mode'] ?? 'light'); ?> tix-org-tickets-page">
+<body class="tix-ol tix-olv-<?php echo esc_attr($data['version'] ?? 'v1'); ?> tix-org-subdomain tix-org-<?php echo esc_attr($data['slug']); ?> tix-mode-<?php echo esc_attr($data['color_mode'] ?? 'light'); ?> tix-org-tickets-page">
 
     <?php self::inject_branded_header(); ?>
 
@@ -1377,7 +1377,7 @@ a{display:inline-block;padding:12px 28px;background:#E8445A;color:#fff;border-ra
 
     <?php do_action('tix_organizer_landing_head', $org, $data); ?>
 </head>
-<body class="tix-ol tix-org-subdomain tix-org-<?php echo esc_attr($data['slug']); ?> tix-mode-<?php echo esc_attr($data['color_mode'] ?? 'light'); ?> tix-org-is-landing">
+<body class="tix-ol tix-olv-<?php echo esc_attr($data['version'] ?? 'v1'); ?> tix-org-subdomain tix-org-<?php echo esc_attr($data['slug']); ?> tix-mode-<?php echo esc_attr($data['color_mode'] ?? 'light'); ?> tix-org-is-landing">
 
     <?php self::inject_branded_header(); ?>
 
@@ -1896,6 +1896,12 @@ a{display:inline-block;padding:12px 28px;background:#E8445A;color:#fff;border-ra
         // Video-Typ erkennen: mp4/webm | youtube | vimeo
         $video_type = self::detect_video_type($video_url);
 
+        // Design-Version: per-Organizer-Override > globale Setting > 'v1'
+        $s = function_exists('tix_get_settings') ? get_option('tix_settings', []) : [];
+        $global_lv = in_array($s['landing_version'] ?? 'v1', ['v1','v2','v3','v4'], true) ? $s['landing_version'] : 'v1';
+        $org_lv    = (string) get_post_meta($org_id, '_tix_org_landing_version', true);
+        $version   = in_array($org_lv, ['v1','v2','v3','v4'], true) ? $org_lv : $global_lv;
+
         return [
             'slug'             => get_post_meta($org_id, '_tix_org_landing_slug', true),
             'logo'             => $logo,
@@ -1909,6 +1915,7 @@ a{display:inline-block;padding:12px 28px;background:#E8445A;color:#fff;border-ra
             'tagline'          => $tagline,
             'description'      => $desc,
             'color_mode'       => $color_mode,
+            'version'          => $version,
             'primary_color'    => $primary,
             'primary_light'    => $primary_light,
             'primary_dark'     => $primary_dark,
@@ -2531,6 +2538,26 @@ a{display:inline-block;padding:12px 28px;background:#E8445A;color:#fff;border-ra
                 </div>
 
                 <div class="card full">
+                    <h2>Design-Version</h2>
+                    <p class="desc">Überschreibt die globale Einstellung aus Tixomat → Einstellungen → Ticket-Vorlage → Organizer-Landing Design. Leer lassen (V1 Classic) = globale Wahl nutzen.</p>
+                    <?php
+                    $cur_ov = (string) get_post_meta($org->ID, '_tix_org_landing_version', true);
+                    $global_s = function_exists('tix_get_settings') ? get_option('tix_settings', []) : [];
+                    $global_lv = $global_s['landing_version'] ?? 'v1';
+                    $vlabels = ['v1' => 'V1 Classic', 'v2' => 'V2 Premium', 'v3' => 'V3 Festival', 'v4' => 'V4 Holographic'];
+                    ?>
+                    <div class="field">
+                        <label>Version für diese Landing</label>
+                        <select name="landing_version" style="min-width:260px;padding:8px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:13px;">
+                            <option value="" <?php selected($cur_ov, ''); ?>>Globale Einstellung (<?php echo esc_html($vlabels[$global_lv] ?? 'V1 Classic'); ?>)</option>
+                            <?php foreach ($vlabels as $vk => $vl): ?>
+                                <option value="<?php echo esc_attr($vk); ?>" <?php selected($cur_ov, $vk); ?>><?php echo esc_html($vl); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="card full">
                     <h2>Farbschema</h2>
                     <p class="desc">Wähle Light oder Dark Mode — Schriften und Layout bleiben wie auf evendis.de, nur die Farben werden ersetzt. Beide Primärfarben speichern, falls du später umschaltest.</p>
 
@@ -3148,6 +3175,14 @@ a{display:inline-block;padding:12px 28px;background:#E8445A;color:#fff;border-ra
         update_post_meta($org_id, '_tix_org_landing_hero_id',  intval($_POST['landing_hero_id']  ?? 0));
         update_post_meta($org_id, '_tix_org_landing_tagline',  sanitize_text_field($_POST['landing_tagline'] ?? ''));
         update_post_meta($org_id, '_tix_org_landing_description', wp_kses_post($_POST['landing_description'] ?? ''));
+
+        // Design-Version-Override (leer = globale Setting nutzen)
+        $lv_raw = sanitize_text_field($_POST['landing_version'] ?? '');
+        if (in_array($lv_raw, ['v1','v2','v3','v4'], true)) {
+            update_post_meta($org_id, '_tix_org_landing_version', $lv_raw);
+        } else {
+            delete_post_meta($org_id, '_tix_org_landing_version');
+        }
 
         // Farbschema
         $mode = ($_POST['landing_color_mode'] ?? 'light') === 'dark' ? 'dark' : 'light';
