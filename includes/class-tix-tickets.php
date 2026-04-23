@@ -1462,7 +1462,7 @@ class TIX_Tickets {
                 <?php endif; ?>
             </div>
             <div class="ticket-qr">
-                <img src="<?php echo esc_url($qr_url); ?>" alt="QR-Code">
+                <img src="<?php echo esc_url($qr_url); ?>" alt="QR-Code" crossorigin="anonymous">
                 <div class="code"><?php echo esc_html($code); ?></div>
             </div>
         </div>
@@ -1615,19 +1615,20 @@ class TIX_Tickets {
             var oldHTML = btn.innerHTML;
             btn.disabled = true; btn.innerHTML = '\u23F3 wird erstellt\u2026';
 
+            // QR-Bild sicherstellen dass crossorigin-anonym für CORS-Fetch gesetzt ist
+            // (Live-DOM bleibt unverändert — kein Swap mehr, kein Flackern)
             var qrImg = ticket.querySelector('.ticket-qr img');
-            var hiddenQRCanvas = document.querySelector('#tix-online-ticket-source canvas[data-qr]');
-            var originalQRSrc = qrImg ? qrImg.src : null;
+            if (qrImg && !qrImg.hasAttribute('crossorigin')) {
+                try { qrImg.setAttribute('crossorigin', 'anonymous'); } catch(e){}
+            }
 
             var handleBlob = function(blob) {
                 btn.disabled = false; btn.innerHTML = oldHTML;
-                if (qrImg && originalQRSrc) qrImg.src = originalQRSrc;
                 if (!blob) { alert('Bild konnte nicht erstellt werden.'); return; }
-
                 var filename = 'ticket-' + (TIX_TOKEN ? TIX_TOKEN.substr(0, 8) : Date.now()) + '.png';
                 var isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
 
-                // Auf Mobil: Share-Sheet öffnen (bietet "In Fotos sichern" / "Galerie")
+                // Mobil: Share-Sheet öffnen (bietet "In Fotos sichern" / "Galerie")
                 if (isMobile && navigator.canShare) {
                     try {
                         var file = new File([blob], filename, { type: 'image/png' });
@@ -1644,70 +1645,53 @@ class TIX_Tickets {
             var handleError = function(err) {
                 console.error('Ticket-Screenshot Fehler:', err);
                 btn.disabled = false; btn.innerHTML = oldHTML;
-                if (qrImg && originalQRSrc) qrImg.src = originalQRSrc;
                 alert('Bild konnte nicht erstellt werden: ' + (err && err.message ? err.message : 'Unbekannter Fehler') + '. Versuche "Ticket drucken" als Alternative.');
             };
 
-            var capture = function() {
-                // Primär: html2canvas-pro (akzeptiert moderne CSS-Features)
-                if (typeof window.html2canvas === 'function') {
-                    window.html2canvas(ticket, {
-                        backgroundColor: null,
-                        scale: window.devicePixelRatio > 1 ? 2 : 1.75,
-                        useCORS: true,
-                        allowTaint: false,
-                        logging: false,
-                        foreignObjectRendering: false,
-                        ignoreElements: function(el){ return el.classList && el.classList.contains('no-print'); }
-                    }).then(function(canvas){
-                        canvas.toBlob(function(blob){ handleBlob(blob); }, 'image/png');
-                    }).catch(function(err){
-                        console.warn('html2canvas-pro fehlgeschlagen, versuche html-to-image:', err);
-                        // Sekundär-Fallback: html-to-image
-                        if (window.htmlToImage && typeof window.htmlToImage.toBlob === 'function') {
-                            window.htmlToImage.toBlob(ticket, {
-                                pixelRatio: window.devicePixelRatio > 1 ? 2 : 1.75,
-                                cacheBust: true, skipFonts: false, backgroundColor: null,
-                                filter: function(node){
-                                    if (node && node.classList && node.classList.contains('no-print')) return false;
-                                    if (node && node.tagName === 'SCRIPT') return false;
-                                    return true;
-                                }
-                            }).then(handleBlob).catch(handleError);
-                        } else {
-                            handleError(err);
-                        }
-                    });
-                    return;
-                }
-                // Fallback wenn nur html-to-image geladen ist
-                if (window.htmlToImage && typeof window.htmlToImage.toBlob === 'function') {
-                    window.htmlToImage.toBlob(ticket, {
-                        pixelRatio: window.devicePixelRatio > 1 ? 2 : 1.75,
-                        cacheBust: true, skipFonts: false, backgroundColor: null,
-                        filter: function(node){
-                            if (node && node.classList && node.classList.contains('no-print')) return false;
-                            if (node && node.tagName === 'SCRIPT') return false;
-                            return true;
-                        }
-                    }).then(handleBlob).catch(handleError);
-                    return;
-                }
-                handleError(new Error('Kein Renderer verfügbar'));
-            };
-
-            // QR-Bild durch lokale Canvas-Data-URL ersetzen (CORS-sicher)
-            if (qrImg && hiddenQRCanvas && hiddenQRCanvas.toDataURL) {
-                try {
-                    var dataUrl = hiddenQRCanvas.toDataURL('image/png');
-                    var tmp = new Image();
-                    tmp.onload  = function(){ qrImg.src = dataUrl; setTimeout(capture, 80); };
-                    tmp.onerror = function(){ capture(); };
-                    tmp.src = dataUrl;
-                } catch (e) { capture(); }
-            } else {
-                capture();
+            // Primär: html2canvas-pro (moderne CSS-Features wie color-mix, Gradient-Border)
+            if (typeof window.html2canvas === 'function') {
+                window.html2canvas(ticket, {
+                    backgroundColor: null,
+                    scale: window.devicePixelRatio > 1 ? 2 : 1.75,
+                    useCORS: true,
+                    allowTaint: false,
+                    logging: false,
+                    foreignObjectRendering: false,
+                    ignoreElements: function(el){ return el.classList && el.classList.contains('no-print'); }
+                }).then(function(canvas){
+                    canvas.toBlob(function(blob){ handleBlob(blob); }, 'image/png');
+                }).catch(function(err){
+                    console.warn('html2canvas-pro fehlgeschlagen, versuche html-to-image:', err);
+                    if (window.htmlToImage && typeof window.htmlToImage.toBlob === 'function') {
+                        window.htmlToImage.toBlob(ticket, {
+                            pixelRatio: window.devicePixelRatio > 1 ? 2 : 1.75,
+                            cacheBust: true, skipFonts: false, backgroundColor: null,
+                            filter: function(node){
+                                if (node && node.classList && node.classList.contains('no-print')) return false;
+                                if (node && node.tagName === 'SCRIPT') return false;
+                                return true;
+                            }
+                        }).then(handleBlob).catch(handleError);
+                    } else {
+                        handleError(err);
+                    }
+                });
+                return;
             }
+            // Fallback: html-to-image
+            if (window.htmlToImage && typeof window.htmlToImage.toBlob === 'function') {
+                window.htmlToImage.toBlob(ticket, {
+                    pixelRatio: window.devicePixelRatio > 1 ? 2 : 1.75,
+                    cacheBust: true, skipFonts: false, backgroundColor: null,
+                    filter: function(node){
+                        if (node && node.classList && node.classList.contains('no-print')) return false;
+                        if (node && node.tagName === 'SCRIPT') return false;
+                        return true;
+                    }
+                }).then(handleBlob).catch(handleError);
+                return;
+            }
+            handleError(new Error('Kein Renderer verfügbar'));
         }
 
         // Image/Share auf dem versteckten Source-Element triggern
@@ -2721,6 +2705,14 @@ class TIX_Tickets {
                 $cat_name = $cats[$cat_index]['name'] ?? '';
             }
 
+            // Bezahlten Preis aus Ticket-Meta (nicht Kategorie-Preis)
+            $price = '';
+            $paid = get_post_meta($ticket_id, '_tix_ticket_price', true);
+            if ($paid !== '' && $paid !== false) {
+                $p = floatval($paid);
+                if ($p > 0) $price = number_format($p, 2, ',', '.') . ' €';
+            }
+
             $date_display = '';
             if ($date_start) {
                 $ts = strtotime($date_start);
@@ -2741,7 +2733,7 @@ class TIX_Tickets {
                 <?php endif; ?>
                 <div class="tix-bundle-title">
                     <h2>Ticket <?php echo $counter; ?> / <?php echo $total; ?></h2>
-                    <p><?php echo esc_html($event_name); ?><?php if ($cat_name): ?> · <?php echo esc_html($cat_name); ?><?php endif; ?></p>
+                    <p><?php echo esc_html($event_name); ?><?php if ($cat_name): ?> · <?php echo esc_html($cat_name); ?><?php endif; ?><?php if ($price): ?> — <?php echo esc_html($price); ?><?php endif; ?></p>
                 </div>
                 <div class="tix-badge" data-tix-badge style="background: <?php echo esc_attr($badge['bg']); ?>; color: <?php echo esc_attr($badge['fg']); ?>;">
                     <span class="tix-badge-label"><?php echo esc_html($badge['label']); ?></span>
@@ -2768,7 +2760,7 @@ class TIX_Tickets {
                     <?php endif; ?>
                 </div>
                 <div class="tix-bundle-qr">
-                    <img src="<?php echo esc_url($qr_url); ?>" alt="QR-Code">
+                    <img src="<?php echo esc_url($qr_url); ?>" alt="QR-Code" crossorigin="anonymous">
                     <div class="code"><?php echo esc_html($code); ?></div>
                 </div>
             </div>
