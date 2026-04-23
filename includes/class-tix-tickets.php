@@ -2997,10 +2997,39 @@ class TIX_Tickets {
         .tix-badge-edit svg { width: 12px; height: 12px; }
         .tix-bundle-body { padding: 16px 20px; display: flex; gap: 16px; }
         .tix-bundle-info { flex: 1; min-width: 0; }
-        .tix-bundle-qr { flex: 0 0 110px; text-align: center; }
+        .tix-bundle-qr { flex: 0 0 110px; text-align: center; cursor: zoom-in; }
         .tix-bundle-qr img { width: 110px; height: 110px; }
         .tix-bundle-qr-canvas { width: 110px; height: 110px; display: block; margin: 0 auto; image-rendering: pixelated; }
         .tix-bundle-qr .code { font-family: monospace; font-size: 11px; font-weight: bold; margin-top: 4px; letter-spacing: 1.5px; }
+        .tix-bundle-qr .tix-qr-hint { margin-top: 4px; text-align: center; font-size: 10px; color: #94a3b8; font-weight: 500; letter-spacing: .02em; }
+
+        /* Shared Zoom-Overlay (gleiche Optik wie Einzelticket) */
+        .tix-qr-zoom-overlay {
+            position: fixed; inset: 0; z-index: 100000;
+            background: #fff;
+            display: none; align-items: center; justify-content: center;
+            flex-direction: column; gap: 20px;
+            padding: 40px 20px;
+        }
+        .tix-qr-zoom-overlay.open { display: flex; }
+        .tix-qr-zoom-canvas {
+            width: min(85vw, 85vh); height: min(85vw, 85vh);
+            image-rendering: pixelated;
+        }
+        .tix-qr-zoom-code {
+            font-family: 'SF Mono', Consolas, monospace;
+            font-size: 18px; font-weight: 700;
+            letter-spacing: 3px;
+            color: #111;
+        }
+        .tix-qr-zoom-close {
+            position: absolute; top: 16px; right: 16px;
+            width: 44px; height: 44px; border-radius: 50%;
+            background: #111; color: #fff; border: 0;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer;
+        }
+        .tix-qr-zoom-close svg { width: 22px; height: 22px; }
         .info-row { margin-bottom: 10px; }
         .info-row .label { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: <?php echo esc_attr($ht_label_color); ?>; margin-bottom: 2px; }
         .info-row .value { font-size: 14px; font-weight: 600; }
@@ -3453,10 +3482,11 @@ class TIX_Tickets {
                         <div class="info-row tix-info-notes"><div class="label">Weitere Hinweise</div><div class="value"><?php echo nl2br(esc_html($card_notes)); ?></div></div>
                     <?php endif; ?>
                 </div>
-                <div class="tix-bundle-qr">
+                <div class="tix-bundle-qr" onclick="tixBundleQRZoom(this)" role="button" tabindex="0" title="QR-Code vergrößern" aria-label="QR-Code vergrößern" data-qr-code="<?php echo esc_attr($code); ?>" data-qr-data="<?php echo esc_attr($qr_data); ?>">
                     <canvas class="tix-bundle-qr-canvas" data-qr="<?php echo esc_attr($qr_data); ?>" width="300" height="300" aria-label="QR-Code"></canvas>
                     <noscript><img src="<?php echo esc_url($qr_url); ?>" alt="QR-Code"></noscript>
                     <div class="code"><?php echo esc_html($code); ?></div>
+                    <div class="tix-qr-hint no-print">Tap zum Vergrößern</div>
                 </div>
             </div>
             <?php $share_info = self::get_share_info($ticket_id); ?>
@@ -3520,6 +3550,15 @@ class TIX_Tickets {
     <div class="tix-bundle-agb-footer no-print"><?php echo implode(' · ', $bundle_legal); ?></div>
     <?php endif; endif; ?>
 
+    <?php // ── QR-Zoom Fullscreen Overlay (shared für alle Bundle-Cards) ── ?>
+    <div class="tix-qr-zoom-overlay no-print" data-tix-qr-zoom onclick="tixBundleQRZoomClose(event)">
+        <button type="button" class="tix-qr-zoom-close" onclick="tixBundleQRZoomClose()" aria-label="Schließen">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+        <canvas class="tix-qr-zoom-canvas" data-tix-zoom-canvas width="800" height="800"></canvas>
+        <div class="tix-qr-zoom-code" data-tix-zoom-code></div>
+    </div>
+
     <script src="<?php echo esc_url(TIXOMAT_URL . 'assets/js/tix-qr.js?v=' . TIXOMAT_VERSION); ?>"></script>
     <script>
         // Alle Bundle-QR-Canvases rendern
@@ -3529,6 +3568,37 @@ class TIX_Tickets {
                 try { window.ehQR.render(cvs); } catch(e){ console.warn('QR-render fehlgeschlagen', e); }
             });
         });
+
+        // QR-Zoom Fullscreen-Overlay (shared für alle Bundle-Karten)
+        function tixBundleQRZoom(qrEl) {
+            var overlay = document.querySelector('[data-tix-qr-zoom]');
+            if (!overlay) return;
+            var code = qrEl.getAttribute('data-qr-code') || '';
+            var qrData = qrEl.getAttribute('data-qr-data') || '';
+            // Code unten anzeigen
+            var codeEl = overlay.querySelector('[data-tix-zoom-code]');
+            if (codeEl) codeEl.textContent = code;
+            // QR auf Zoom-Canvas rendern
+            var zoomCanvas = overlay.querySelector('[data-tix-zoom-canvas]');
+            if (zoomCanvas && window.ehQR && typeof window.ehQR.render === 'function') {
+                zoomCanvas.setAttribute('data-qr', qrData);
+                try { window.ehQR.render(zoomCanvas); } catch(e){}
+            }
+            overlay.classList.add('open');
+            document.body.style.overflow = 'hidden';
+            // Wake Lock
+            if ('wakeLock' in navigator) {
+                try { navigator.wakeLock.request('screen').then(function(lock){ window._tixQRWakeLock = lock; }); } catch(e){}
+            }
+        }
+        function tixBundleQRZoomClose(e) {
+            if (e && e.target && !e.target.hasAttribute('data-tix-qr-zoom') && !e.target.closest('.tix-qr-zoom-close')) return;
+            var overlay = document.querySelector('[data-tix-qr-zoom]');
+            if (overlay) overlay.classList.remove('open');
+            document.body.style.overflow = '';
+            if (window._tixQRWakeLock) { try { window._tixQRWakeLock.release(); } catch(e){} window._tixQRWakeLock = null; }
+        }
+        document.addEventListener('keydown', function(e){ if (e.key === 'Escape') tixBundleQRZoomClose(); });
 
         // Countdown-Runner pro Card
         (function(){
