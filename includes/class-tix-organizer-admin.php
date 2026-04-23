@@ -159,11 +159,12 @@ class TIX_Organizer_Admin {
             return ['do_not_allow'];
         }
 
-        // Event: Ownership prüfen
+        // Event: Ownership prüfen (inkl. Co-Veranstalter)
         $org_id = self::get_organizer_id($user_id);
         $event_org = intval(get_post_meta($post->ID, '_tix_organizer_id', true));
+        $event_co_org = intval(get_post_meta($post->ID, '_tix_co_organizer_id', true));
 
-        if ($org_id && $event_org === $org_id) {
+        if ($org_id && ($event_org === $org_id || $event_co_org === $org_id)) {
             // Check-in Rolle: nur lesen, nicht bearbeiten/löschen
             if (class_exists('TIX_Team') && in_array($cap, ['edit_post', 'delete_post'], true)) {
                 if (!TIX_Team::user_can($user_id, 'edit_events')) {
@@ -197,9 +198,9 @@ class TIX_Organizer_Admin {
             if ($org_id) {
                 $meta_query = $query->get('meta_query') ?: [];
                 $meta_query[] = [
-                    'key'   => '_tix_organizer_id',
-                    'value' => $org_id,
-                    'type'  => 'NUMERIC',
+                    'relation' => 'OR',
+                    ['key' => '_tix_organizer_id', 'value' => $org_id, 'type' => 'NUMERIC'],
+                    ['key' => '_tix_co_organizer_id', 'value' => $org_id, 'type' => 'NUMERIC'],
                 ];
                 $query->set('meta_query', $meta_query);
             } else {
@@ -265,6 +266,7 @@ class TIX_Organizer_Admin {
             'tix-organizer-media',
             'tix-templates',
             'tix-orders',
+            'tix-customers',
             'tix-statistics',
             'tix-settings',
             'tix-docs',
@@ -378,6 +380,7 @@ class TIX_Organizer_Admin {
             }
             if (!class_exists('TIX_Team') || TIX_Team::user_can($uid, 'view_orders')) {
                 $allowed_admin_pages[] = 'tix-organizer-orders';
+                $allowed_admin_pages[] = 'tix-customers';
             }
             if (!class_exists('TIX_Team') || TIX_Team::user_can($uid, 'manage_billing')) {
                 $allowed_admin_pages[] = 'tix-organizer-email';
@@ -386,6 +389,7 @@ class TIX_Organizer_Admin {
             if (!class_exists('TIX_Team') || TIX_Team::user_can($uid, 'manage_settings')) {
                 $allowed_admin_pages[] = 'tix-settings';
                 $allowed_admin_pages[] = 'tix-organizer-media';
+                $allowed_admin_pages[] = 'tix-organizer-landing';
             }
 
             if ($page && !in_array($page, $allowed_admin_pages, true)) {
@@ -421,9 +425,11 @@ class TIX_Organizer_Admin {
             'posts_per_page' => -1,
             'post_status'    => 'any',
             'fields'         => 'ids',
-            'meta_key'       => '_tix_organizer_id',
-            'meta_value'     => $org_id,
-            'meta_type'      => 'NUMERIC',
+            'meta_query'     => [
+                'relation' => 'OR',
+                ['key' => '_tix_organizer_id', 'value' => $org_id, 'type' => 'NUMERIC'],
+                ['key' => '_tix_co_organizer_id', 'value' => $org_id, 'type' => 'NUMERIC'],
+            ],
         ]);
         return $events ?: [0];
     }
@@ -478,10 +484,10 @@ class TIX_Organizer_Admin {
         $paged = max(1, intval($_GET['paged'] ?? 1));
         $per_page = 25;
 
-        // Events für Filter-Dropdown
+        // Events für Filter-Dropdown (inkl. Co-Veranstalter)
         $events = get_posts([
             'post_type' => 'event', 'posts_per_page' => -1, 'post_status' => 'any',
-            'meta_key' => '_tix_organizer_id', 'meta_value' => $org_id, 'meta_type' => 'NUMERIC',
+            'meta_query' => ['relation' => 'OR', ['key' => '_tix_organizer_id', 'value' => $org_id, 'type' => 'NUMERIC'], ['key' => '_tix_co_organizer_id', 'value' => $org_id, 'type' => 'NUMERIC']],
             'orderby' => 'date', 'order' => 'DESC',
         ]);
 
@@ -633,9 +639,7 @@ class TIX_Organizer_Admin {
             'orderby' => 'date', 'order' => 'DESC',
         ];
         if (!$is_admin && $org_id) {
-            $query_args['meta_key'] = '_tix_organizer_id';
-            $query_args['meta_value'] = $org_id;
-            $query_args['meta_type'] = 'NUMERIC';
+            $query_args['meta_query'] = ['relation' => 'OR', ['key' => '_tix_organizer_id', 'value' => $org_id, 'type' => 'NUMERIC'], ['key' => '_tix_co_organizer_id', 'value' => $org_id, 'type' => 'NUMERIC']];
         }
         $events = get_posts($query_args);
         ?>
@@ -861,7 +865,9 @@ class TIX_Organizer_Admin {
         if (!$event_id) wp_die('Kein Event gewählt.');
         if (self::is_organizer()) {
             $org_id = self::get_organizer_id();
-            if (intval(get_post_meta($event_id, '_tix_organizer_id', true)) !== $org_id) wp_die('Kein Zugriff auf dieses Event.');
+            $event_org = intval(get_post_meta($event_id, '_tix_organizer_id', true));
+            $event_co_org = intval(get_post_meta($event_id, '_tix_co_organizer_id', true));
+            if ($event_org !== $org_id && $event_co_org !== $org_id) wp_die('Kein Zugriff auf dieses Event.');
         }
         return $event_id;
     }
@@ -931,11 +937,12 @@ class TIX_Organizer_Admin {
             $total_tickets = intval($r->tickets ?? 0);
         }
 
-        // Aktive Events
+        // Aktive Events (inkl. Co-Veranstalter)
+        $org_meta_q = ['relation' => 'OR', ['key' => '_tix_organizer_id', 'value' => $org_id, 'type' => 'NUMERIC'], ['key' => '_tix_co_organizer_id', 'value' => $org_id, 'type' => 'NUMERIC']];
         $active_events = get_posts([
             'post_type' => 'event', 'post_status' => 'publish', 'posts_per_page' => -1,
-            'fields' => 'ids', 'meta_key' => '_tix_organizer_id', 'meta_value' => $org_id, 'meta_type' => 'NUMERIC',
-            'meta_query' => [['key' => '_tix_start_date', 'value' => date('Y-m-d'), 'compare' => '>=']],
+            'fields' => 'ids',
+            'meta_query' => [$org_meta_q, ['key' => '_tix_start_date', 'value' => date('Y-m-d'), 'compare' => '>=']],
         ]);
 
         // Nächstes Event
@@ -943,7 +950,7 @@ class TIX_Organizer_Admin {
             'post_type' => 'event', 'post_status' => 'publish', 'posts_per_page' => 1,
             'meta_key' => '_tix_start_date', 'orderby' => 'meta_value', 'order' => 'ASC',
             'meta_query' => [
-                ['key' => '_tix_organizer_id', 'value' => $org_id, 'type' => 'NUMERIC'],
+                $org_meta_q,
                 ['key' => '_tix_start_date', 'value' => date('Y-m-d'), 'compare' => '>='],
             ],
         ]);
@@ -1025,7 +1032,7 @@ class TIX_Organizer_Admin {
         $org_id = self::get_organizer_id();
         $events = get_posts([
             'post_type' => 'event', 'posts_per_page' => -1, 'post_status' => 'publish',
-            'meta_key' => '_tix_organizer_id', 'meta_value' => $org_id, 'meta_type' => 'NUMERIC',
+            'meta_query' => ['relation' => 'OR', ['key' => '_tix_organizer_id', 'value' => $org_id, 'type' => 'NUMERIC'], ['key' => '_tix_co_organizer_id', 'value' => $org_id, 'type' => 'NUMERIC']],
             'orderby' => 'date', 'order' => 'DESC',
         ]);
         ?>
@@ -1099,10 +1106,11 @@ class TIX_Organizer_Admin {
 
         if (!$event_id || !$subject || !$message) wp_send_json_error(['message' => 'Felder fehlen.']);
 
-        // Ownership
+        // Ownership (inkl. Co-Veranstalter)
         $org_id = self::get_organizer_id();
         $event_org = intval(get_post_meta($event_id, '_tix_organizer_id', true));
-        if ($event_org !== $org_id) wp_send_json_error(['message' => 'Kein Zugriff.']);
+        $event_co_org = intval(get_post_meta($event_id, '_tix_co_organizer_id', true));
+        if ($event_org !== $org_id && $event_co_org !== $org_id) wp_send_json_error(['message' => 'Kein Zugriff.']);
 
         // Rate-Limit: max 1x pro Event pro Tag
         $today_key = '_tix_org_email_' . date('Y-m-d');
@@ -1163,7 +1171,7 @@ class TIX_Organizer_Admin {
         $org_id = self::get_organizer_id();
         $events = get_posts([
             'post_type' => 'event', 'posts_per_page' => -1, 'post_status' => 'any',
-            'meta_key' => '_tix_organizer_id', 'meta_value' => $org_id, 'meta_type' => 'NUMERIC',
+            'meta_query' => ['relation' => 'OR', ['key' => '_tix_organizer_id', 'value' => $org_id, 'type' => 'NUMERIC'], ['key' => '_tix_co_organizer_id', 'value' => $org_id, 'type' => 'NUMERIC']],
             'orderby' => 'date', 'order' => 'DESC',
         ]);
         ?>
@@ -1296,38 +1304,45 @@ class TIX_Organizer_Admin {
             $event_id = get_post_meta($product_id, '_tix_parent_event_id', true);
             if (!$event_id) continue;
 
-            $org_id = intval(get_post_meta($event_id, '_tix_organizer_id', true));
-            if (!$org_id || in_array($org_id, $notified_orgs)) continue;
+            // Beide Veranstalter (Haupt + Co) benachrichtigen
+            $org_ids_to_notify = array_filter([
+                intval(get_post_meta($event_id, '_tix_organizer_id', true)),
+                intval(get_post_meta($event_id, '_tix_co_organizer_id', true)),
+            ]);
 
-            // Organizer-User finden
-            $org_post = get_post($org_id);
-            if (!$org_post) continue;
-            $user_id = get_post_meta($org_id, '_tix_org_user_id', true);
-            if (!$user_id) continue;
-            $user = get_userdata($user_id);
-            if (!$user || !$user->user_email) continue;
+            foreach ($org_ids_to_notify as $org_id) {
+                if (!$org_id || in_array($org_id, $notified_orgs)) continue;
 
-            // Benachrichtigung senden
-            $event_title = get_the_title($event_id);
-            $buyer = trim($order->get_billing_first_name() . ' ' . $order->get_billing_last_name());
-            $total = $order->get_total();
-            $tickets = $item->get_quantity();
+                // Organizer-User finden
+                $org_post = get_post($org_id);
+                if (!$org_post) continue;
+                $user_id = get_post_meta($org_id, '_tix_org_user_id', true);
+                if (!$user_id) continue;
+                $user = get_userdata($user_id);
+                if (!$user || !$user->user_email) continue;
 
-            $html = '<div style="font-family:Inter,system-ui,sans-serif;max-width:500px;margin:0 auto;padding:20px;">'
-                  . '<h2 style="color:#0D0B09;font-size:16px;margin:0 0 12px;">Neue Bestellung</h2>'
-                  . '<p style="color:#475569;font-size:14px;line-height:1.6;margin:0 0 8px;">'
-                  . '<strong>' . esc_html($buyer) . '</strong> hat <strong>' . $tickets . ' Ticket(s)</strong> f&uuml;r <strong>' . esc_html($event_title) . '</strong> gekauft.'
-                  . '</p>'
-                  . '<p style="color:#0D0B09;font-size:18px;font-weight:700;margin:8px 0;">' . wc_price($total) . '</p>'
-                  . '<p style="color:#94a3b8;font-size:12px;margin-top:16px;">Bestellung #' . $order->get_id() . '</p>'
-                  . '</div>';
+                // Benachrichtigung senden
+                $event_title = get_the_title($event_id);
+                $buyer = trim($order->get_billing_first_name() . ' ' . $order->get_billing_last_name());
+                $total = $order->get_total();
+                $tickets = $item->get_quantity();
 
-            wp_mail($user->user_email, 'Neue Bestellung: ' . $event_title, $html, ['Content-Type: text/html; charset=UTF-8']);
+                $html = '<div style="font-family:Inter,system-ui,sans-serif;max-width:500px;margin:0 auto;padding:20px;">'
+                      . '<h2 style="color:#0D0B09;font-size:16px;margin:0 0 12px;">Neue Bestellung</h2>'
+                      . '<p style="color:#475569;font-size:14px;line-height:1.6;margin:0 0 8px;">'
+                      . '<strong>' . esc_html($buyer) . '</strong> hat <strong>' . $tickets . ' Ticket(s)</strong> f&uuml;r <strong>' . esc_html($event_title) . '</strong> gekauft.'
+                      . '</p>'
+                      . '<p style="color:#0D0B09;font-size:18px;font-weight:700;margin:8px 0;">' . wc_price($total) . '</p>'
+                      . '<p style="color:#94a3b8;font-size:12px;margin-top:16px;">Bestellung #' . $order->get_id() . '</p>'
+                      . '</div>';
 
-            $notified_orgs[] = $org_id;
+                wp_mail($user->user_email, 'Neue Bestellung: ' . $event_title, $html, ['Content-Type: text/html; charset=UTF-8']);
 
-            // Low-Stock Check
-            self::check_low_stock($event_id, $org_id, $user->user_email);
+                $notified_orgs[] = $org_id;
+
+                // Low-Stock Check
+                self::check_low_stock($event_id, $org_id, $user->user_email);
+            }
         }
 
         update_post_meta($order_id, '_tix_org_notified', 1);

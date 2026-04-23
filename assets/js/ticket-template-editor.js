@@ -177,6 +177,9 @@
             if (key === 'custom_text' && typeof field.text === 'undefined') {
                 field.text = '';
             }
+            if (key === 'logo' && typeof field.image_id === 'undefined') {
+                field.image_id = 0;
+            }
         };
 
         self.defaultFields = function() {
@@ -224,6 +227,13 @@
                 field.y = Math.round(h * 0.55) + Math.round(w * 0.18) + Math.round(h * 0.02);
                 field.width = Math.round(w * 0.22);
                 field.height = Math.round(w * 0.06);
+            }
+            if (key === 'logo') {
+                field.x = Math.round(w * 0.70);
+                field.y = Math.round(h * 0.04);
+                field.width = Math.round(w * 0.22);
+                field.height = Math.round(w * 0.08);
+                field.image_id = 0;
             }
             if (key === 'custom_text') {
                 field.text = '';
@@ -541,6 +551,24 @@
             return (defs[key] && defs[key].label) || key;
         };
 
+        // Cache: Attachment-ID → URL (für Logo-Overlay)
+        self._logoUrlCache = self._logoUrlCache || {};
+        self.getLogoUrl = function(attId, cb) {
+            attId = parseInt(attId, 10) || 0;
+            if (!attId) { cb(''); return; }
+            if (self._logoUrlCache[attId]) { cb(self._logoUrlCache[attId]); return; }
+            if (typeof wp !== 'undefined' && wp.media && wp.media.attachment) {
+                var att = wp.media.attachment(attId);
+                att.fetch().then(function() {
+                    var u = att.get('url') || '';
+                    self._logoUrlCache[attId] = u;
+                    cb(u);
+                });
+            } else {
+                cb('');
+            }
+        };
+
         self.renderOverlays = function() {
             self.$canvasInner.find('.tix-tte-field-overlay').remove();
             var defs = self.opts.fieldDefs;
@@ -553,15 +581,31 @@
 
                 var isQr = (key === 'qr_code');
                 var isBarcode = (key === 'barcode');
-                var isVisualField = (isQr || isBarcode);
+                var isLogo = (key === 'logo');
+                var isVisualField = (isQr || isBarcode || isLogo);
 
                 var $overlay = $('<div class="tix-tte-field-overlay" data-field="' + key + '"></div>');
 
-                // QR/Barcode: CSS-Muster statt Text
+                // QR/Barcode: CSS-Muster statt Text — Logo: echtes Bild als <img>
                 if (isQr) {
                     $overlay.addClass('qr-pattern');
                 } else if (isBarcode) {
                     $overlay.addClass('barcode-pattern');
+                } else if (isLogo) {
+                    $overlay.addClass('logo-overlay');
+                    if (f.image_id) {
+                        (function($o, id){
+                            self.getLogoUrl(id, function(url){
+                                if (!url) {
+                                    $o.html('<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.35);color:#fff;font-size:11px;">Logo</div>');
+                                    return;
+                                }
+                                $o.html('<img src="' + url + '" alt="Logo" style="width:100%;height:100%;object-fit:contain;pointer-events:none;">');
+                            });
+                        })($overlay, f.image_id);
+                    } else {
+                        $overlay.html('<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.15);border:1px dashed rgba(255,255,255,.6);color:#fff;font-size:11px;">Logo wählen</div>');
+                    }
                 } else {
                     // Text-Overlay mit realer Schriftvorschau
                     var previewText = self.getPreviewText(key);
@@ -667,8 +711,15 @@
             var defs = self.opts.fieldDefs;
             var label = (defs[key] && defs[key].label) || key;
             var isQr = (key === 'qr_code' || key === 'barcode');
+            var isLogo = (key === 'logo');
+            var isVisual = isQr || isLogo;
 
             self.$props.find('h4').text('Feld: ' + label);
+
+            // ── Sektion: Logo-Bild (nur Logo-Feld) ──
+            if (isLogo) {
+                self.addLogoImagePicker(f);
+            }
 
             // ── Sektion: Position ──
             self.addSectionHeading('Position');
@@ -678,13 +729,17 @@
             if (isQr) {
                 // QR/Barcode: Proportional — nur Breite änderbar, Höhe folgt automatisch
                 self.addProportionalSize(key, f);
+            } else if (isLogo) {
+                // Logo: Breite + Höhe als Slider (1–2000px), Bild wird proportional eingepasst
+                self.addProp('Breite', 'slider_number', 'width', f.width, { min: 20, max: 2000, step: 1 });
+                self.addProp('H\u00f6he', 'slider_number', 'height', f.height, { min: 20, max: 2000, step: 1 });
             } else {
                 self.addProp('Breite', 'number', 'width', f.width);
                 self.addProp('H\u00f6he', 'number', 'height', f.height);
             }
 
             // ── Sektion: Schrift (nur Text-Felder) ──
-            if (!isQr) {
+            if (!isVisual) {
                 self.addSectionHeading('Schrift');
 
                 // Schriftgröße: Slider + Number Combo
@@ -798,6 +853,85 @@
             });
             $alignField.append($btns);
             self.$propsGrid.append($alignField);
+        };
+
+        /**
+         * Logo-Bild-Picker für das Logo-Feld.
+         * Zeigt aktuelles Logo als Thumbnail + Button zum Ändern/Entfernen.
+         */
+        self.addLogoImagePicker = function(f) {
+            var key = 'logo';
+            self.addSectionHeading('Logo-Bild');
+
+            var $field = $('<div class="tix-tte-prop-field wide"></div>');
+            $field.append('<label>Bild</label>');
+
+            var $controls = $('<div class="tix-tte-logo-picker" style="display:flex;flex-direction:column;gap:8px;"></div>');
+            var $thumbWrap = $('<div class="tix-tte-logo-thumb" style="min-height:48px;max-height:80px;display:flex;align-items:center;justify-content:center;background:#f6f6f6;border:1px solid #ddd;border-radius:4px;padding:6px;"></div>');
+            var $btnRow = $('<div style="display:flex;gap:6px;"></div>');
+            var $chooseBtn = $('<button type="button" class="button button-small" style="flex:1;"><span class="dashicons dashicons-upload" style="margin-top:3px;margin-right:2px;"></span> ' + (f.image_id ? 'Bild \u00e4ndern' : 'Bild w\u00e4hlen') + '</button>');
+            var $removeBtn = $('<button type="button" class="button button-small button-link-delete">Entfernen</button>');
+
+            function updateThumb() {
+                $thumbWrap.empty();
+                if (!f.image_id) {
+                    $thumbWrap.append('<span style="color:#888;font-size:12px;">Kein Logo ausgew\u00e4hlt</span>');
+                    $removeBtn.hide();
+                    $chooseBtn.find('span').nextAll().remove();
+                    $chooseBtn.append(' Bild w\u00e4hlen');
+                    return;
+                }
+                self.getLogoUrl(f.image_id, function(url){
+                    $thumbWrap.empty();
+                    if (url) {
+                        $thumbWrap.append($('<img>').attr('src', url).css({
+                            'max-width': '100%',
+                            'max-height': '68px',
+                            'object-fit': 'contain'
+                        }));
+                    } else {
+                        $thumbWrap.append('<span style="color:#c00;font-size:12px;">Bild nicht gefunden</span>');
+                    }
+                });
+                $removeBtn.show();
+            }
+            updateThumb();
+
+            $chooseBtn.on('click', function(e){
+                e.preventDefault();
+                var frame = wp.media({
+                    title: 'Logo f\u00fcr Ticket-Vorlage w\u00e4hlen',
+                    button: { text: 'Als Logo verwenden' },
+                    multiple: false,
+                    library: { type: ['image/jpeg', 'image/png', 'image/gif'] }
+                });
+                frame.on('select', function(){
+                    var att = frame.state().get('selection').first().toJSON();
+                    self.config.fields[key].image_id = att.id;
+                    // Wenn vorhanden: Logo-Feld automatisch aktivieren
+                    self.config.fields[key].enabled = true;
+                    self.$fieldsPanel.find('[data-field="' + key + '"] input[type="checkbox"]').prop('checked', true);
+                    // URL in Cache speichern (aus Attachment direkt verf\u00fcgbar)
+                    if (att.url) self._logoUrlCache[att.id] = att.url;
+                    self.saveConfig();
+                    updateThumb();
+                    self.renderOverlays();
+                });
+                frame.open();
+            });
+
+            $removeBtn.on('click', function(e){
+                e.preventDefault();
+                self.config.fields[key].image_id = 0;
+                self.saveConfig();
+                updateThumb();
+                self.renderOverlays();
+            });
+
+            $btnRow.append($chooseBtn, $removeBtn);
+            $controls.append($thumbWrap, $btnRow);
+            $field.append($controls);
+            self.$propsGrid.append($field);
         };
 
         /**

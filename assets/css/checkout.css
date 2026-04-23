@@ -239,22 +239,32 @@
 }
 
 .tix-co-coupon-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
     padding: 10px 20px;
-    border: 1px solid var(--tix-border, #333);
-    border-radius: var(--tix-input-radius, 6px);
-    background: transparent;
-    color: inherit;
-    font-weight: 600;
-    font-size: var(--tix-btn, 14px);
-    cursor: pointer;
+    border: var(--tix-btn2-border, 1px solid currentColor);
+    border-radius: var(--tix-btn2-radius, 8px);
+    background: var(--tix-btn2-bg, transparent);
+    color: var(--tix-btn2-color, inherit);
+    font-weight: 700;
+    font-size: var(--tix-btn2-font-size, 0.9rem);
     font-family: var(--tix-font-body, inherit);
     white-space: nowrap;
-    transition: border-color 0.2s, background 0.2s;
+    cursor: pointer;
+    transition: background 0.2s, color 0.2s, border-color 0.2s, opacity 0.2s;
 }
 
-.tix-co-coupon-btn:hover {
-    border-color: var(--tix-input-focus, #c8ff00);
-    background: rgba(200, 255, 0, 0.06);
+.tix-co-coupon-btn:hover:not(:disabled) {
+    background: var(--tix-btn2-hover-bg, var(--tix-btn2-bg, transparent));
+    color: var(--tix-btn2-hover-color, var(--tix-btn2-color, inherit));
+    border-color: var(--tix-btn2-hover-bg, currentColor);
+    opacity: 0.85;
+}
+
+.tix-co-coupon-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
 }
 
 .tix-co-coupon-applied {

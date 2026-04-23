@@ -19,10 +19,182 @@ class TIX_Event_Homepage {
 
     public static function init() {
         add_shortcode('tix_homepage', [__CLASS__, 'render']);
+
+        // Event-CPT-Archive-Seite: Suche (?s=) + Standard-Sortierung nach Datum filtern
+        add_action('pre_get_posts', [__CLASS__, 'filter_archive_query']);
+
         add_action('wp_ajax_tix_homepage_filter',            [__CLASS__, 'ajax_filter']);
         add_action('wp_ajax_nopriv_tix_homepage_filter',     [__CLASS__, 'ajax_filter']);
         add_action('wp_ajax_tix_homepage_load_more',         [__CLASS__, 'ajax_load_more']);
         add_action('wp_ajax_nopriv_tix_homepage_load_more',  [__CLASS__, 'ajax_load_more']);
+        add_action('wp_ajax_tix_homepage_cards_by_ids',      [__CLASS__, 'ajax_cards_by_ids']);
+        add_action('wp_ajax_nopriv_tix_homepage_cards_by_ids',[__CLASS__, 'ajax_cards_by_ids']);
+        add_action('wp_ajax_tix_homepage_near_me',           [__CLASS__, 'ajax_near_me']);
+        add_action('wp_ajax_nopriv_tix_homepage_near_me',    [__CLASS__, 'ajax_near_me']);
+        add_action('wp_ajax_tix_homepage_calendar',          [__CLASS__, 'ajax_calendar']);
+        add_action('wp_ajax_nopriv_tix_homepage_calendar',   [__CLASS__, 'ajax_calendar']);
+
+        // Cache-Invalidierung bei Daten-Änderungen
+        add_action('save_post_event',       [__CLASS__, 'invalidate_cache']);
+        add_action('deleted_post',          [__CLASS__, 'invalidate_cache_if_event'], 10, 2);
+        add_action('trashed_post',          [__CLASS__, 'invalidate_cache_if_event']);
+        add_action('untrash_post',          [__CLASS__, 'invalidate_cache_if_event']);
+        add_action('update_option_tix_settings', [__CLASS__, 'invalidate_cache']);
+    }
+
+    /**
+     * pre_get_posts: Auf der Event-CPT-Archive-Seite (/events/) die Hauptquery
+     * mit ?s= filtern und nach Start-Datum sortieren (aufsteigend, nur kommende).
+     * Zusätzlich: Venue-Match (Events in matching Locations).
+     */
+    public static function filter_archive_query($query) {
+        if (is_admin() || !$query->is_main_query()) return;
+        if (!$query->is_post_type_archive('event')) return;
+
+        $today = current_time('Y-m-d');
+        $meta_query = $query->get('meta_query') ?: [];
+
+        // Nur kommende Events
+        $meta_query[] = [
+            'key'     => '_tix_date_start',
+            'value'   => $today,
+            'compare' => '>=',
+            'type'    => 'DATE',
+        ];
+        $query->set('meta_query', $meta_query);
+        $query->set('meta_key', '_tix_date_start');
+        $query->set('orderby', 'meta_value');
+        $query->set('order', 'ASC');
+
+        // ?s= wird von WordPress automatisch durchgereicht und filtert auf post_title + post_content.
+        // Hinweis: Wenn Suche aktiv ist, nimmt WordPress normalerweise die Sortierung aus `s`,
+        // aber unser explizites meta_key/orderby oben zwingt stabile Datum-ASC-Sortierung.
+    }
+
+    /**
+     * Cache-Invalidation: Version-Bump macht alle transients invalide.
+     * Wir nutzen eine globale "cache-generation" als Teil des Transient-Keys.
+     */
+    public static function invalidate_cache() {
+        $gen = intval(get_option('tix_hp_cache_gen', 0));
+        update_option('tix_hp_cache_gen', $gen + 1, false);
+    }
+    public static function invalidate_cache_if_event($post_id, $post = null) {
+        if ($post === null) $post = get_post($post_id);
+        if ($post && $post->post_type === 'event') self::invalidate_cache();
+    }
+
+    // ══════════════════════════════════════════════
+    // SECTION REGISTRY (Phase-1 Page-Builder)
+    // ══════════════════════════════════════════════
+
+    /**
+     * Alle verfügbaren Sektionen mit Label + Legacy-Key.
+     * Die legacy_key referenziert den bestehenden hp_show_* Toggle für Abwärtskompatibilität.
+     * default_order definiert die vordefinierte Reihenfolge für Erst-Setup.
+     */
+    public static function get_section_registry() {
+        return [
+            'greeting'       => ['label' => 'Smart-Greeting (Tageszeit)', 'icon' => 'smiley',           'legacy_key' => 'hp_show_greeting',        'default' => false],
+            'stories'        => ['label' => 'Story-Carousel (Insta-Style)', 'icon' => 'images-alt2',   'legacy_key' => 'hp_show_stories',         'default' => false],
+            'promoted'       => ['label' => 'Promoted Events (Bezahlt)', 'icon' => 'megaphone',        'legacy_key' => 'hp_show_promoted',        'default' => false],
+            'editorial'      => ['label' => 'Empfehlung der Redaktion',  'icon' => 'edit-large',       'legacy_key' => 'hp_show_editorial',       'default' => false],
+            'hero'           => ['label' => 'Hero-Bereich',             'icon' => 'cover-image',      'legacy_key' => 'hp_show_hero',            'default' => true],
+            'hero_countdown' => ['label' => 'Hero-Countdown',           'icon' => 'clock',            'legacy_key' => 'hp_show_hero_countdown',  'default' => false],
+            'favorites'      => ['label' => 'Deine Favoriten (Wishlist)', 'icon' => 'heart',          'legacy_key' => 'hp_show_favorites',       'default' => false],
+            'recent'         => ['label' => 'Kürzlich angesehen',       'icon' => 'backup',           'legacy_key' => 'hp_show_recent',          'default' => false],
+            'stats_bar'      => ['label' => 'Stats-Bar',                'icon' => 'chart-bar',        'legacy_key' => 'hp_show_stats_bar',       'default' => true],
+            'cat_tiles'      => ['label' => 'Kategorie-Kacheln',        'icon' => 'screenoptions',    'legacy_key' => 'hp_show_cat_tiles',       'default' => true],
+            'popular'        => ['label' => 'Heute beliebt',            'icon' => 'awards',           'legacy_key' => 'hp_show_popular',         'default' => true],
+            'last_chance'    => ['label' => 'Letzte Chance (FOMO)',     'icon' => 'warning',          'legacy_key' => 'hp_show_last_chance',     'default' => false],
+            'weekday_grid'   => ['label' => 'Wochentag-Grid (Mo–So)',   'icon' => 'calendar',         'legacy_key' => 'hp_show_weekday_grid',    'default' => false],
+            'this_week'      => ['label' => 'Diese Woche',              'icon' => 'calendar-alt',     'legacy_key' => 'hp_show_this_week',       'default' => true],
+            'newsletter'     => ['label' => 'Newsletter-Banner',        'icon' => 'email-alt2',       'legacy_key' => 'hp_show_newsletter',      'default' => false],
+            'voucher'        => ['label' => 'Geschenkgutschein-Banner', 'icon' => 'tickets-alt',      'legacy_key' => 'hp_show_voucher',         'default' => false],
+            'spotlight'      => ['label' => 'Veranstalter-Spotlight',   'icon' => 'star-filled',      'legacy_key' => 'hp_show_spotlight',       'default' => false],
+            'filters'        => ['label' => 'Filter (Zeit/Kategorie)',  'icon' => 'filter',           'legacy_key' => '',                        'default' => true],
+            'grid'           => ['label' => 'Event-Grid (Hauptliste)',  'icon' => 'grid-view',        'legacy_key' => '',                        'default' => true],
+            'locations'      => ['label' => 'Beliebte Locations',       'icon' => 'location',         'legacy_key' => 'hp_show_locations',       'default' => true],
+            'partners'       => ['label' => 'Partner/Presse-Logos',     'icon' => 'businesswoman',    'legacy_key' => 'hp_show_partners',        'default' => false],
+            'faq'            => ['label' => 'FAQ-Accordion',            'icon' => 'editor-help',      'legacy_key' => 'hp_show_faq',             'default' => false],
+            'load_more'      => ['label' => '"Mehr laden" Button',      'icon' => 'plus-alt',         'legacy_key' => 'hp_show_load_more',       'default' => true],
+        ];
+    }
+
+    // ═══════════════════════════════════════════
+    // Smart-Greeting: Text basierend auf Tageszeit + Wochentag
+    // ═══════════════════════════════════════════
+
+    public static function get_smart_greeting() {
+        $hour = intval(current_time('H'));
+        $dow  = intval(current_time('w')); // 0=So, 5=Fr, 6=Sa
+
+        if ($dow === 5 && $hour >= 12 && $hour < 20) {
+            return ['Wochenende ruft 🎉', 'Wo willst du heute und morgen hin?'];
+        }
+        if ($dow === 6 && $hour >= 12) {
+            return ['Was geht heute? 🔥', 'Die heißen Events für deinen Samstag.'];
+        }
+        if ($dow === 0 && $hour >= 16) {
+            return ['Noch nicht genug? 🎈', 'Diese Woche wird gut — plan deine Highlights.'];
+        }
+        if ($hour < 11) {
+            return ['Guten Morgen ☀️', 'Was steht heute Abend an?'];
+        }
+        if ($hour >= 11 && $hour < 17) {
+            return ['Bereit für Action? 🎯', 'Die besten Events in deiner Nähe.'];
+        }
+        if ($hour >= 17 && $hour < 22) {
+            return ['Heute Abend los? 🌆', 'Spontan-Tickets für heute und morgen.'];
+        }
+        return ['Noch wach? 🌙', 'Plan den nächsten Abend direkt jetzt.'];
+    }
+
+    /**
+     * Gibt die konfigurierte Sektions-Liste zurück (Reihenfolge + enabled).
+     * Fällt auf default_order zurück wenn nichts gespeichert. Führt Migrations
+     * von Legacy-hp_show_*-Flags durch, wenn hp_sections nicht gesetzt ist.
+     */
+    public static function get_sections_config() {
+        $s        = function_exists('tix_get_settings') ? tix_get_settings() : [];
+        $registry = self::get_section_registry();
+        $stored   = $s['hp_sections'] ?? null;
+
+        // Migration: wenn noch nie konfiguriert → aus Legacy-Flags ableiten
+        if (!is_array($stored) || empty($stored)) {
+            $out = [];
+            foreach ($registry as $id => $def) {
+                $enabled = $def['default'];
+                if (!empty($def['legacy_key'])) {
+                    // Legacy-Flag liest gesetzten Wert, sonst default
+                    $enabled = isset($s[$def['legacy_key']])
+                        ? !empty($s[$def['legacy_key']])
+                        : $def['default'];
+                }
+                $out[] = ['id' => $id, 'enabled' => $enabled];
+            }
+            return $out;
+        }
+
+        // Gespeicherte Reihenfolge + enabled-Flags
+        $out      = [];
+        $seen_ids = [];
+        foreach ($stored as $row) {
+            $id = is_array($row) ? ($row['id'] ?? '') : '';
+            if (!$id || !isset($registry[$id])) continue;
+            $out[] = [
+                'id'      => $id,
+                'enabled' => !empty($row['enabled']),
+                'spacing' => isset($row['spacing']) ? max(0, min(200, intval($row['spacing']))) : -1, // -1 = Default übernehmen
+            ];
+            $seen_ids[] = $id;
+        }
+        // Neue Sektionen die nach einem Update hinzugekommen sind → hinten anhängen
+        foreach ($registry as $id => $def) {
+            if (in_array($id, $seen_ids, true)) continue;
+            $out[] = ['id' => $id, 'enabled' => $def['default'], 'spacing' => -1];
+        }
+        return $out;
     }
 
     /**
@@ -30,6 +202,16 @@ class TIX_Event_Homepage {
      */
     public static function render($atts) {
         $s = function_exists('tix_get_settings') ? tix_get_settings() : [];
+
+        // Master-Toggle: Event-Homepage deaktiviert → nichts ausgeben (bzw. nur Hinweis für Admins).
+        if (empty($s['hp_enabled'])) {
+            if (current_user_can('manage_options')) {
+                return '<div style="padding:16px;border:1px dashed #cbd5e1;border-radius:8px;color:#64748b;font-size:13px;text-align:center;">'
+                     . '[tix_homepage] ist deaktiviert. Aktiviere in <em>Tixomat → Einstellungen → Event-Homepage → Layout → „Event-Homepage aktivieren"</em>.'
+                     . '<br><span style="font-size:11px;opacity:0.7;">(Dieser Hinweis ist nur für Admins sichtbar.)</span></div>';
+            }
+            return '';
+        }
 
         $atts = shortcode_atts([
             'mode'       => $s['tix_card_default_mode'] ?? 'light',
@@ -103,9 +285,13 @@ class TIX_Event_Homepage {
             $popular_ids = wp_list_pluck($popular_events, 'ID');
         }
 
-        // Grid (hero + popular IDs ausschließen)
-        $all_exclude = array_merge($hero_ids, $popular_ids);
-        $grid_events = self::query_grid_events(intval($atts['grid_count']), $all_exclude, 0, '', '', $exclude_cats);
+        // Suchparameter aus URL (?s=xyz) — wenn gesetzt: nur Hauptgrid filtern, Hero/Popular/etc. ausblenden
+        $search_query = isset($_GET['s']) ? sanitize_text_field(wp_unslash($_GET['s'])) : '';
+
+        // Grid (hero + popular IDs ausschließen — nur wenn keine Suche aktiv)
+        $all_exclude = $search_query ? [] : array_merge($hero_ids, $popular_ids);
+        $grid_count  = $search_query ? 50 : intval($atts['grid_count']); // Bei Suche mehr anzeigen
+        $grid_events = self::query_grid_events($grid_count, $all_exclude, 0, '', '', $exclude_cats, $search_query);
 
         $total_upcoming = self::count_upcoming_events($exclude_cats);
 
@@ -113,6 +299,21 @@ class TIX_Event_Homepage {
         $all_events = array_merge($hero_events, $popular_events, $grid_events);
 
         $skeleton_cols = intval($atts['columns']);
+
+        // Sektions-Kontext für den Renderer zusammenstellen
+        $ctx = compact(
+            'atts', 's', 'hero_events', 'hero_style', 'hero_ids',
+            'popular_events', 'popular_ids', 'grid_events', 'all_exclude',
+            'total_upcoming', 'categories', 'exclude_cats', 'search_query',
+            'show_heart', 'show_badges', 'saved', 'show_countdown',
+            'show_time_filter', 'show_cat_filter', 'show_list_toggle',
+            'show_load_more', 'smart_time_hint', 'skeleton_cols',
+            'nl_title', 'nl_text', 'nl_url',
+            'this_week_days', 'spotlight_org_id', 'spotlight_count',
+            'locations_count'
+        );
+
+        $sections = self::get_sections_config();
 
         ob_start();
         ?>
@@ -123,133 +324,63 @@ class TIX_Event_Homepage {
              data-url-sync="<?php echo $url_sync ? '1' : '0'; ?>"
              data-smart-time="<?php echo $smart_time_hint ? esc_attr($smart_time_hint) : ''; ?>">
 
-            <?php // ── Hero ── ?>
-            <?php if ($show_hero && !empty($hero_events)): ?>
-                <?php if ($hero_style === 'fullwidth'): ?>
-                    <?php echo self::render_hero_fullwidth($hero_events[0], $show_heart, $show_badges, $saved, $show_countdown); ?>
-                <?php elseif ($hero_style === 'slider'): ?>
-                    <?php echo self::render_hero_slider($hero_events, $show_heart, $show_badges, $saved, $show_countdown); ?>
-                <?php else: ?>
-                    <?php echo self::render_hero_grid($hero_events, $show_heart, $show_badges, $saved, $show_countdown); ?>
-                <?php endif; ?>
-            <?php endif; ?>
-
-            <?php // ── Stats-Bar ── ?>
-            <?php if ($show_stats_bar): ?>
-                <?php echo self::render_stats_bar($exclude_cats); ?>
-            <?php endif; ?>
-
-            <?php // ── Kategorie-Kacheln ── ?>
-            <?php if ($show_cat_tiles && !empty($categories)): ?>
-                <?php echo self::render_category_tiles($categories); ?>
-            <?php endif; ?>
-
-            <?php // ── Beliebt ── ?>
-            <?php if ($show_popular && !empty($popular_events)): ?>
-            <div class="tix-hp-section">
-                <div class="tix-hp-section-header">
-                    <div>
-                        <div class="tix-hp-section-label">Trending</div>
-                        <h2 class="tix-hp-section-title">Heute beliebt</h2>
-                    </div>
-                </div>
-                <div class="ev-grid tix-hp-popular" data-columns="<?php echo $skeleton_cols; ?>">
-                    <?php foreach ($popular_events as $event): ?>
-                        <?php echo TIX_Event_Cards::render_card($event, $show_heart, $show_badges, $saved); ?>
-                    <?php endforeach; ?>
-                </div>
-            </div>
-            <?php endif; ?>
-
-            <?php // ── Diese Woche ── ?>
-            <?php if ($show_this_week): ?>
-                <?php echo self::render_this_week($this_week_days, $exclude_cats); ?>
-            <?php endif; ?>
-
-            <?php // ── Newsletter ── ?>
-            <?php if ($show_newsletter && ($nl_title || $nl_text)): ?>
-            <div class="tix-hp-newsletter">
-                <div class="tix-hp-newsletter-inner">
-                    <div class="tix-hp-newsletter-content">
-                        <?php if ($nl_title): ?><h3 class="tix-hp-newsletter-title"><?php echo esc_html($nl_title); ?></h3><?php endif; ?>
-                        <?php if ($nl_text): ?><p class="tix-hp-newsletter-text"><?php echo esc_html($nl_text); ?></p><?php endif; ?>
-                    </div>
-                    <?php if ($nl_url): ?>
-                    <a href="<?php echo esc_url($nl_url); ?>" class="tix-hp-newsletter-btn">Jetzt anmelden</a>
-                    <?php endif; ?>
-                </div>
-            </div>
-            <?php endif; ?>
-
-            <?php // ── Veranstalter-Spotlight ── ?>
-            <?php if ($show_spotlight): ?>
-                <?php echo self::render_spotlight($spotlight_org_id, $spotlight_count, $show_heart, $show_badges, $saved, $exclude_cats); ?>
-            <?php endif; ?>
-
-            <?php // ── Filter ── ?>
-            <?php if ($show_time_filter || $show_cat_filter || $show_list_toggle): ?>
-            <div class="tix-hp-filters">
-                <?php if ($show_time_filter): ?>
-                <div class="tix-hp-time-filters">
-                    <button class="tix-hp-time-btn active" data-time="all">Alle</button>
-                    <button class="tix-hp-time-btn<?php echo $smart_time_hint === 'today' ? ' tix-hp-suggested' : ''; ?>" data-time="today">Heute</button>
-                    <button class="tix-hp-time-btn<?php echo $smart_time_hint === 'tomorrow' ? ' tix-hp-suggested' : ''; ?>" data-time="tomorrow">Morgen</button>
-                    <button class="tix-hp-time-btn<?php echo $smart_time_hint === 'weekend' ? ' tix-hp-suggested' : ''; ?>" data-time="weekend">Wochenende</button>
-                    <button class="tix-hp-time-btn" data-time="week">Diese Woche</button>
-                </div>
-                <?php endif; ?>
-                <div class="tix-hp-filter-row">
-                    <?php if ($show_cat_filter && !empty($categories)): ?>
-                    <div class="tix-hp-cat-chips">
-                        <button class="tix-hp-cat-chip active" data-cat="">Alle</button>
-                        <?php foreach ($categories as $cat): ?>
-                            <button class="tix-hp-cat-chip" data-cat="<?php echo esc_attr($cat->slug); ?>"><?php echo esc_html($cat->name); ?></button>
-                        <?php endforeach; ?>
-                    </div>
-                    <?php endif; ?>
-                    <?php if ($show_list_toggle): ?>
-                    <div class="tix-hp-view-toggle">
-                        <button class="tix-hp-view-btn active" data-view="grid" aria-label="Grid-Ansicht">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
-                        </button>
-                        <button class="tix-hp-view-btn" data-view="list" aria-label="Listen-Ansicht">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
-                        </button>
-                    </div>
-                    <?php endif; ?>
-                </div>
-            </div>
-            <?php endif; ?>
-
-            <?php // ── Grid ── ?>
-            <div class="tix-hp-grid ev-grid" data-columns="<?php echo $skeleton_cols; ?>">
-                <?php foreach ($grid_events as $event): ?>
-                    <?php echo TIX_Event_Cards::render_card($event, $show_heart, $show_badges, $saved); ?>
-                <?php endforeach; ?>
-                <?php if (empty($grid_events)): ?>
-                    <p class="tix-hp-empty">Keine weiteren Events gefunden.</p>
-                <?php endif; ?>
-            </div>
-
-            <?php // ── Location-Spotlight ── ?>
-            <?php if ($show_locations): ?>
-                <?php echo self::render_location_spotlight($locations_count, $exclude_cats); ?>
-            <?php endif; ?>
-
-            <?php // ── Load More ── ?>
             <?php
-            $loaded = count($all_exclude) + count($grid_events);
-            if ($show_load_more && $loaded < $total_upcoming):
+            $default_spacing = max(0, min(200, intval($s['hp_section_spacing'] ?? 40)));
+            // Cache deaktivieren wenn Suche aktiv (individuelle Ergebnisse pro Query)
+            $cache_enabled   = !empty($s['hp_cache_enabled']) && !is_user_logged_in() && empty($search_query);
+            $cache_ttl       = max(60, min(3600, intval($s['hp_cache_ttl'] ?? 600)));
+            $cache_gen       = intval(get_option('tix_hp_cache_gen', 0));
+
+            // Bei aktiver Suche: Suchergebnis-Banner + nur Grid zeigen (Hero/Popular/Stories etc. ausblenden)
+            if (!empty($search_query)) {
+                $clear_url = remove_query_arg('s');
+                $result_count = count($grid_events);
+                echo '<div class="tix-hp-search-banner" style="margin-bottom:24px;padding:20px 24px;background:var(--tix-card-sand,#F8F5EF);border-radius:14px;display:flex;flex-wrap:wrap;align-items:center;gap:16px;justify-content:space-between;">';
+                echo   '<div>';
+                echo     '<div style="font-size:12px;text-transform:uppercase;letter-spacing:.1em;color:#64748b;font-weight:700;margin-bottom:4px;">Suchergebnisse</div>';
+                echo     '<h2 style="margin:0;font-size:1.35rem;">' . $result_count . ' Event' . ($result_count !== 1 ? 's' : '') . ' für „<em>' . esc_html($search_query) . '</em>"</h2>';
+                echo   '</div>';
+                echo   '<a href="' . esc_url($clear_url) . '" style="display:inline-flex;align-items:center;gap:6px;padding:8px 16px;background:transparent;border:1.5px solid currentColor;border-radius:50px;text-decoration:none;color:inherit;font-size:0.85rem;font-weight:600;">✕ Suche aufheben</a>';
+                echo '</div>';
+            }
+
+            foreach ($sections as $sec) {
+                if (empty($sec['enabled'])) continue;
+
+                // Während aktiver Suche: Nur Grid + Load-More rendern, andere Sektionen ausblenden
+                if (!empty($search_query) && !in_array($sec['id'], ['grid', 'load_more'], true)) continue;
+
+                $html = null;
+                $cache_key = '';
+                if ($cache_enabled) {
+                    // Cache-Key: Sektions-ID + relevante Kontext-Daten (damit Filter-AJAX nicht mit Hauptrender kollidiert)
+                    $key_seed = [
+                        $sec['id'],
+                        $cache_gen,
+                        $atts['mode'] ?? 'light',
+                        $skeleton_cols,
+                        implode(',', $exclude_cats),
+                    ];
+                    $cache_key = 'tix_hp_sec_' . md5(implode('|', $key_seed));
+                    $cached = get_transient($cache_key);
+                    if ($cached !== false) $html = $cached;
+                }
+
+                if ($html === null) {
+                    $html = self::render_section($sec['id'], $ctx);
+                    if ($cache_enabled && $cache_key) {
+                        set_transient($cache_key, $html, $cache_ttl);
+                    }
+                }
+
+                if (trim($html) === '') continue;
+                // spacing > 0 = explizit gesetzt, sonst Default (0 oder -1 → Default verwenden)
+                $gap = !empty($sec['spacing']) && intval($sec['spacing']) > 0 ? intval($sec['spacing']) : $default_spacing;
+                // display:flow-root verhindert Margin-Collapse mit inneren Elementen.
+                // padding-bottom statt margin-bottom → Kollabiert nicht mit Nachbarn.
+                echo '<div class="tix-hp-sec-wrap" data-section="' . esc_attr($sec['id']) . '" style="display:flow-root;padding-bottom:' . $gap . 'px;">' . $html . '</div>';
+            }
             ?>
-            <div class="tix-hp-load-more-wrap">
-                <button class="tix-hp-load-more"
-                        data-offset="<?php echo count($grid_events); ?>"
-                        data-exclude="<?php echo esc_attr(implode(',', $all_exclude)); ?>"
-                        data-exclude-cats="<?php echo esc_attr(implode(',', $exclude_cats)); ?>">
-                    Mehr Events laden
-                </button>
-            </div>
-            <?php endif; ?>
 
         </div>
 
@@ -257,6 +388,215 @@ class TIX_Event_Homepage {
         <?php echo self::render_json_ld($all_events); ?>
 
         <?php
+        return ob_get_clean();
+    }
+
+    // ═══════════════════════════════════════════
+    // SECTION DISPATCHER (Phase-1 Page-Builder)
+    // ═══════════════════════════════════════════
+
+    /**
+     * Rendert eine einzelne Sektion anhand der ID. Nutzt den shared Context $ctx.
+     */
+    private static function render_section($id, $ctx) {
+        extract($ctx);
+
+        ob_start();
+
+        switch ($id) {
+            case 'hero':
+                if (!empty($hero_events)) {
+                    if ($hero_style === 'fullwidth') {
+                        echo self::render_hero_fullwidth($hero_events[0], $show_heart, $show_badges, $saved, $show_countdown);
+                    } elseif ($hero_style === 'slider') {
+                        echo self::render_hero_slider($hero_events, $show_heart, $show_badges, $saved, $show_countdown);
+                    } else {
+                        echo self::render_hero_grid($hero_events, $show_heart, $show_badges, $saved, $show_countdown);
+                    }
+                }
+                break;
+
+            case 'greeting':
+                echo self::render_greeting();
+                break;
+
+            case 'stories':
+                echo self::render_stories($exclude_cats);
+                break;
+
+            case 'promoted':
+                echo self::render_promoted($show_heart, $show_badges, $saved, $exclude_cats);
+                break;
+
+            case 'editorial':
+                echo self::render_editorial();
+                break;
+
+            case 'favorites':
+                echo self::render_favorites();
+                break;
+
+            case 'recent':
+                echo self::render_recent();
+                break;
+
+            case 'hero_countdown':
+                echo self::render_hero_countdown($exclude_cats);
+                break;
+
+            case 'last_chance':
+                echo self::render_last_chance($show_heart, $show_badges, $saved, $exclude_cats);
+                break;
+
+            case 'weekday_grid':
+                echo self::render_weekday_grid($exclude_cats);
+                break;
+
+            case 'voucher':
+                echo self::render_voucher_banner();
+                break;
+
+            case 'partners':
+                echo self::render_partners();
+                break;
+
+            case 'faq':
+                echo self::render_faq_accordion();
+                break;
+
+            case 'stats_bar':
+                echo self::render_stats_bar($exclude_cats);
+                break;
+
+            case 'cat_tiles':
+                if (!empty($categories)) echo self::render_category_tiles($categories);
+                break;
+
+            case 'popular':
+                if (!empty($popular_events)):
+                ?>
+                <div class="tix-hp-section">
+                    <div class="tix-hp-section-header">
+                        <div>
+                            <div class="tix-hp-section-label">Trending</div>
+                            <h2 class="tix-hp-section-title">Heute beliebt</h2>
+                        </div>
+                    </div>
+                    <div class="ev-grid tix-hp-popular" data-columns="<?php echo $skeleton_cols; ?>">
+                        <?php foreach ($popular_events as $event): ?>
+                            <?php echo TIX_Event_Cards::render_card($event, $show_heart, $show_badges, $saved); ?>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+                <?php
+                endif;
+                break;
+
+            case 'this_week':
+                echo self::render_this_week($this_week_days, $exclude_cats);
+                break;
+
+            case 'newsletter':
+                if ($nl_title || $nl_text):
+                ?>
+                <div class="tix-hp-newsletter">
+                    <div class="tix-hp-newsletter-inner">
+                        <div class="tix-hp-newsletter-content">
+                            <?php if ($nl_title): ?><h3 class="tix-hp-newsletter-title"><?php echo esc_html($nl_title); ?></h3><?php endif; ?>
+                            <?php if ($nl_text): ?><p class="tix-hp-newsletter-text"><?php echo esc_html($nl_text); ?></p><?php endif; ?>
+                        </div>
+                        <?php if ($nl_url): ?>
+                        <a href="<?php echo esc_url($nl_url); ?>" class="tix-hp-newsletter-btn">Jetzt anmelden</a>
+                        <?php endif; ?>
+                    </div>
+                </div>
+                <?php
+                endif;
+                break;
+
+            case 'spotlight':
+                echo self::render_spotlight($spotlight_org_id, $spotlight_count, $show_heart, $show_badges, $saved, $exclude_cats);
+                break;
+
+            case 'filters':
+                if ($show_time_filter || $show_cat_filter || $show_list_toggle):
+                ?>
+                <div class="tix-hp-filters">
+                    <?php if ($show_time_filter): ?>
+                    <div class="tix-hp-time-filters">
+                        <button class="tix-hp-time-btn active" data-time="all">Alle</button>
+                        <button class="tix-hp-time-btn<?php echo $smart_time_hint === 'today' ? ' tix-hp-suggested' : ''; ?>" data-time="today">Heute</button>
+                        <button class="tix-hp-time-btn<?php echo $smart_time_hint === 'tomorrow' ? ' tix-hp-suggested' : ''; ?>" data-time="tomorrow">Morgen</button>
+                        <button class="tix-hp-time-btn<?php echo $smart_time_hint === 'weekend' ? ' tix-hp-suggested' : ''; ?>" data-time="weekend">Wochenende</button>
+                        <button class="tix-hp-time-btn" data-time="week">Diese Woche</button>
+                        <button class="tix-hp-nearme-btn" title="Events in deiner Nähe finden" aria-label="Events in deiner Nähe finden">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="10" r="3"/><path d="M12 2a8 8 0 0 0-8 8c0 5.5 8 12 8 12s8-6.5 8-12a8 8 0 0 0-8-8z"/></svg>
+                            <span>In der Nähe</span>
+                        </button>
+                    </div>
+                    <?php endif; ?>
+                    <div class="tix-hp-filter-row">
+                        <?php if ($show_cat_filter && !empty($categories)): ?>
+                        <div class="tix-hp-cat-chips">
+                            <button class="tix-hp-cat-chip active" data-cat="">Alle</button>
+                            <?php foreach ($categories as $cat): ?>
+                                <button class="tix-hp-cat-chip" data-cat="<?php echo esc_attr($cat->slug); ?>"><?php echo esc_html($cat->name); ?></button>
+                            <?php endforeach; ?>
+                        </div>
+                        <?php endif; ?>
+                        <?php if ($show_list_toggle): ?>
+                        <div class="tix-hp-view-toggle">
+                            <button class="tix-hp-view-btn active" data-view="grid" aria-label="Grid-Ansicht">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+                            </button>
+                            <button class="tix-hp-view-btn" data-view="list" aria-label="Listen-Ansicht">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+                            </button>
+                            <button class="tix-hp-view-btn" data-view="calendar" aria-label="Kalender-Ansicht">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                            </button>
+                        </div>
+                        <?php endif; ?>
+                    </div>
+                </div>
+                <?php
+                endif;
+                break;
+
+            case 'grid':
+                ?>
+                <div class="tix-hp-grid ev-grid" data-columns="<?php echo $skeleton_cols; ?>">
+                    <?php foreach ($grid_events as $event): ?>
+                        <?php echo TIX_Event_Cards::render_card($event, $show_heart, $show_badges, $saved); ?>
+                    <?php endforeach; ?>
+                    <?php if (empty($grid_events)): ?>
+                        <p class="tix-hp-empty">Keine weiteren Events gefunden.</p>
+                    <?php endif; ?>
+                </div>
+                <?php
+                break;
+
+            case 'locations':
+                echo self::render_location_spotlight($locations_count, $exclude_cats);
+                break;
+
+            case 'load_more':
+                $loaded = count($all_exclude) + count($grid_events);
+                if ($show_load_more && $loaded < $total_upcoming):
+                ?>
+                <div class="tix-hp-load-more-wrap">
+                    <button class="tix-hp-load-more"
+                            data-offset="<?php echo count($grid_events); ?>"
+                            data-exclude="<?php echo esc_attr(implode(',', $all_exclude)); ?>"
+                            data-exclude-cats="<?php echo esc_attr(implode(',', $exclude_cats)); ?>">
+                        Mehr Events laden
+                    </button>
+                </div>
+                <?php
+                endif;
+                break;
+        }
+
         return ob_get_clean();
     }
 
@@ -367,10 +707,8 @@ class TIX_Event_Homepage {
         ob_start();
         ?>
         <a href="<?php echo esc_url($permalink); ?>" class="tix-hp-hero-card">
-            <div class="tix-hp-hero-img">
-                <?php if ($thumb_url): ?>
-                    <img src="<?php echo esc_url($thumb_url); ?>" alt="<?php echo esc_attr($title); ?>" loading="lazy">
-                <?php else: ?>
+            <div class="tix-hp-hero-img"<?php if ($thumb_url): ?> style="background-image:url('<?php echo esc_url($thumb_url); ?>');"<?php endif; ?> aria-label="<?php echo esc_attr($title); ?>">
+                <?php if (!$thumb_url): ?>
                     <?php echo TIX_Event_Cards::get_placeholder('default'); ?>
                 <?php endif; ?>
                 <div class="tix-hp-hero-overlay"></div>
@@ -423,10 +761,8 @@ class TIX_Event_Homepage {
         ob_start();
         ?>
         <a href="<?php echo esc_url($permalink); ?>" class="tix-hp-hero-sm">
-            <div class="tix-hp-hero-sm-img">
-                <?php if ($thumb_url): ?>
-                    <img src="<?php echo esc_url($thumb_url); ?>" alt="<?php echo esc_attr($title); ?>" loading="lazy">
-                <?php else: ?>
+            <div class="tix-hp-hero-sm-img"<?php if ($thumb_url): ?> style="background-image:url('<?php echo esc_url($thumb_url); ?>');"<?php endif; ?> aria-label="<?php echo esc_attr($title); ?>">
+                <?php if (!$thumb_url): ?>
                     <?php echo TIX_Event_Cards::get_placeholder('default'); ?>
                 <?php endif; ?>
                 <div class="tix-hp-hero-overlay"></div>
@@ -525,7 +861,7 @@ class TIX_Event_Homepage {
         return get_posts($args);
     }
 
-    private static function query_grid_events($count = 8, $exclude_ids = [], $offset = 0, $time = '', $category = '', $exclude_cats = []) {
+    private static function query_grid_events($count = 8, $exclude_ids = [], $offset = 0, $time = '', $category = '', $exclude_cats = [], $search = '') {
         $today = current_time('Y-m-d');
         $meta_query = [self::get_time_meta_query($time, $today)];
 
@@ -539,6 +875,9 @@ class TIX_Event_Homepage {
             'order'          => 'ASC',
             'meta_query'     => $meta_query,
         ];
+        if (!empty($search)) {
+            $args['s'] = $search;
+        }
         if (!empty($exclude_ids)) {
             $args['post__not_in'] = $exclude_ids;
         }
@@ -553,7 +892,29 @@ class TIX_Event_Homepage {
             if (count($tax_query) > 1) $tax_query['relation'] = 'AND';
             $args['tax_query'] = $tax_query;
         }
-        return get_posts($args);
+        $results = get_posts($args);
+
+        // Venue-Match: bei Suche zusätzlich Events in Venues finden deren Name matcht
+        if (!empty($search) && count($results) < $count) {
+            global $wpdb;
+            $loc_ids = $wpdb->get_col($wpdb->prepare(
+                "SELECT p.ID FROM {$wpdb->posts} p WHERE p.post_type = 'tix_location' AND p.post_status = 'publish' AND p.post_title LIKE %s LIMIT 10",
+                '%' . $wpdb->esc_like($search) . '%'
+            ));
+            if (!empty($loc_ids)) {
+                $existing_ids = wp_list_pluck($results, 'ID');
+                $extra_exclude = array_merge($exclude_ids, $existing_ids);
+                $venue_args = $args;
+                unset($venue_args['s']);
+                $venue_args['posts_per_page'] = $count - count($results);
+                $venue_args['post__not_in'] = $extra_exclude ?: [0];
+                $venue_args['meta_query'] = array_merge($meta_query, [['key' => '_tix_location_id', 'value' => $loc_ids, 'compare' => 'IN']]);
+                $venue_results = get_posts($venue_args);
+                $results = array_merge($results, $venue_results);
+            }
+        }
+
+        return $results;
     }
 
     private static function get_time_meta_query($time, $today = '') {
@@ -787,35 +1148,8 @@ class TIX_Event_Homepage {
         if (empty($events)) return '';
         $items = [];
         foreach ($events as $event) {
-            $id = $event->ID;
-            $date_start = get_post_meta($id, '_tix_date_start', true);
-            $location_short = get_post_meta($id, '_tix_location_short', true);
-            $price_min = floatval(get_post_meta($id, '_tix_price_min', true));
-            $thumb_url = get_the_post_thumbnail_url($id, 'large');
-
-            $item = [
-                '@type'     => 'Event',
-                'name'      => get_the_title($id),
-                'url'       => get_permalink($id),
-                'startDate' => $date_start ?: '',
-            ];
-            if ($thumb_url) $item['image'] = $thumb_url;
-            if ($location_short) {
-                $item['location'] = [
-                    '@type' => 'Place',
-                    'name'  => $location_short,
-                ];
-            }
-            if ($price_min > 0) {
-                $item['offers'] = [
-                    '@type'         => 'Offer',
-                    'price'         => number_format($price_min, 2, '.', ''),
-                    'priceCurrency' => 'EUR',
-                    'availability'  => 'https://schema.org/InStock',
-                    'url'           => get_permalink($id),
-                ];
-            }
-            $items[] = $item;
+            $item = self::build_event_schema($event);
+            if ($item) $items[] = $item;
         }
 
         $schema = [
@@ -832,6 +1166,143 @@ class TIX_Event_Homepage {
         ];
 
         return '<script type="application/ld+json">' . wp_json_encode($schema, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . '</script>';
+    }
+
+    /**
+     * Baut ein erweitertes schema.org/Event Objekt für ein Event.
+     * Inklusive: Offer(s), Place mit Address, Performer, Organizer, endDate, Bilder.
+     * Öffentlich damit auch class-tix-single-event es nutzen kann.
+     */
+    public static function build_event_schema($event) {
+        $id = $event->ID;
+        $date_start = get_post_meta($id, '_tix_date_start', true);
+        $date_end   = get_post_meta($id, '_tix_date_end', true);
+        $time_start = get_post_meta($id, '_tix_time_start', true);
+        $time_end   = get_post_meta($id, '_tix_time_end', true);
+        $time_doors = get_post_meta($id, '_tix_time_doors', true);
+
+        $location       = get_post_meta($id, '_tix_location', true);
+        $address        = get_post_meta($id, '_tix_address', true);
+        $location_id    = intval(get_post_meta($id, '_tix_location_id', true));
+        $loc_city       = $location_id ? get_post_meta($location_id, '_tix_loc_city', true) : '';
+        $loc_postcode   = $location_id ? get_post_meta($location_id, '_tix_loc_postcode', true) : '';
+        $loc_country    = $location_id ? (get_post_meta($location_id, '_tix_loc_country', true) ?: 'DE') : 'DE';
+
+        $price_min = floatval(get_post_meta($id, '_tix_price_min', true));
+        $price_max = floatval(get_post_meta($id, '_tix_price_max', true));
+        $thumb_url = get_the_post_thumbnail_url($id, 'large');
+        $thumb_sq  = get_the_post_thumbnail_url($id, 'medium_large') ?: $thumb_url;
+
+        $organizer_id   = intval(get_post_meta($id, '_tix_organizer_id', true));
+        $organizer_name = $organizer_id ? get_the_title($organizer_id) : '';
+        $organizer_url  = $organizer_id ? get_post_meta($organizer_id, '_tix_org_website', true) : '';
+
+        $description = trim(wp_strip_all_tags(get_the_excerpt($id) ?: $event->post_content));
+        if (mb_strlen($description) > 300) $description = mb_substr($description, 0, 297) . '…';
+
+        // Start/End mit Zeit zu ISO-8601
+        $start_iso = '';
+        if ($date_start) {
+            $start_iso = $date_start . ($time_start ? 'T' . substr($time_start, 0, 5) . ':00' : '');
+        }
+        $end_iso = '';
+        if ($date_end) {
+            $end_iso = $date_end . ($time_end ? 'T' . substr($time_end, 0, 5) . ':00' : '');
+        } elseif ($date_start && $time_end) {
+            // Nur Endzeit aber kein Enddatum → Startdatum als End-Tag nutzen
+            $end_iso = $date_start . 'T' . substr($time_end, 0, 5) . ':00';
+        }
+
+        $item = [
+            '@type'              => 'Event',
+            'name'               => get_the_title($id),
+            'url'                => get_permalink($id),
+            'startDate'          => $start_iso,
+            'eventStatus'        => 'https://schema.org/EventScheduled',
+            'eventAttendanceMode'=> 'https://schema.org/OfflineEventAttendanceMode',
+        ];
+        if ($end_iso) $item['endDate'] = $end_iso;
+        if ($time_doors) $item['doorTime'] = substr($time_doors, 0, 5);
+        if ($description) $item['description'] = $description;
+
+        // Bilder (multiple formats für Google)
+        if ($thumb_url) {
+            $images = array_unique(array_filter([$thumb_url, $thumb_sq]));
+            $item['image'] = count($images) === 1 ? reset($images) : array_values($images);
+        }
+
+        // Location mit strukturierter Adresse
+        if ($location) {
+            $place = [
+                '@type' => 'Place',
+                'name'  => $location,
+            ];
+            if ($address || $loc_city || $loc_postcode) {
+                $place['address'] = array_filter([
+                    '@type'           => 'PostalAddress',
+                    'streetAddress'   => $address,
+                    'addressLocality' => $loc_city,
+                    'postalCode'      => $loc_postcode,
+                    'addressCountry'  => $loc_country,
+                ]);
+            }
+            $item['location'] = $place;
+        }
+
+        // Offers — Preis-Range statt Einzelpreis
+        if ($price_min > 0) {
+            $offer = [
+                '@type'         => 'Offer',
+                'priceCurrency' => 'EUR',
+                'availability'  => 'https://schema.org/InStock',
+                'url'           => get_permalink($id),
+                'validFrom'     => date('c', current_time('timestamp')),
+            ];
+            if ($price_max > 0 && $price_max !== $price_min) {
+                $offer['lowPrice']  = number_format($price_min, 2, '.', '');
+                $offer['highPrice'] = number_format($price_max, 2, '.', '');
+                $offer['@type']     = 'AggregateOffer';
+                $offer['offerCount'] = 1;
+            } else {
+                $offer['price'] = number_format($price_min, 2, '.', '');
+            }
+            $item['offers'] = $offer;
+        } else {
+            // Eintritt frei
+            $min_val = floatval(get_post_meta($id, '_tix_price_min', true));
+            if ($min_val === 0.0 && get_post_meta($id, '_tix_tickets_enabled', true)) {
+                $item['offers'] = [
+                    '@type'         => 'Offer',
+                    'price'         => '0',
+                    'priceCurrency' => 'EUR',
+                    'availability'  => 'https://schema.org/InStock',
+                    'url'           => get_permalink($id),
+                ];
+            }
+        }
+
+        // Organizer
+        if ($organizer_name) {
+            $org = [
+                '@type' => 'Organization',
+                'name'  => $organizer_name,
+            ];
+            if ($organizer_url) $org['url'] = $organizer_url;
+            $item['organizer'] = $org;
+        }
+
+        // Performer (wenn Line-Up gesetzt ist)
+        $lineup = get_post_meta($id, '_tix_info_lineup', true);
+        if ($lineup) {
+            $performers = array_filter(array_map('trim', explode("\n", wp_strip_all_tags($lineup))));
+            if (!empty($performers)) {
+                $item['performer'] = array_map(function($p) {
+                    return ['@type' => 'PerformingGroup', 'name' => $p];
+                }, array_slice($performers, 0, 10));
+            }
+        }
+
+        return $item;
     }
 
     // ═══════════════════════════════════════════
@@ -870,6 +1341,286 @@ class TIX_Event_Homepage {
         wp_send_json_success(['html' => $html, 'found' => count($events)]);
     }
 
+    /**
+     * AJAX: Events für einen Monat als Kalender-HTML.
+     */
+    public static function ajax_calendar() {
+        $year  = intval($_POST['year']  ?? date('Y'));
+        $month = intval($_POST['month'] ?? date('n'));
+        if ($month < 1) { $month = 12; $year--; }
+        if ($month > 12) { $month = 1;  $year++; }
+
+        $first_day = sprintf('%04d-%02d-01', $year, $month);
+        $last_day  = date('Y-m-t', strtotime($first_day));
+
+        $events = get_posts([
+            'post_type'      => 'event',
+            'post_status'    => 'publish',
+            'posts_per_page' => 200,
+            'meta_key'       => '_tix_date_start',
+            'orderby'        => 'meta_value',
+            'order'          => 'ASC',
+            'meta_query'     => [[
+                'relation' => 'AND',
+                ['key' => '_tix_date_start', 'value' => $first_day, 'compare' => '>=', 'type' => 'DATE'],
+                ['key' => '_tix_date_start', 'value' => $last_day,  'compare' => '<=', 'type' => 'DATE'],
+            ]],
+        ]);
+
+        // Gruppieren nach Tag
+        $by_day = [];
+        foreach ($events as $ev) {
+            $date = get_post_meta($ev->ID, '_tix_date_start', true);
+            if (!$date) continue;
+            $day = intval(date('j', strtotime($date)));
+            $by_day[$day][] = $ev;
+        }
+
+        ob_start();
+        $month_name = date_i18n('F Y', strtotime($first_day));
+        $days_in_month = date('t', strtotime($first_day));
+        $first_dow = date('N', strtotime($first_day)); // 1=Mo, 7=So
+        $today_y = intval(current_time('Y'));
+        $today_m = intval(current_time('n'));
+        $today_d = intval(current_time('j'));
+        ?>
+        <div class="tix-hp-cal" data-year="<?php echo $year; ?>" data-month="<?php echo $month; ?>">
+            <div class="tix-hp-cal-header">
+                <button type="button" class="tix-hp-cal-nav" data-dir="-1" aria-label="Vorheriger Monat">‹</button>
+                <div class="tix-hp-cal-title"><?php echo esc_html($month_name); ?></div>
+                <button type="button" class="tix-hp-cal-nav" data-dir="1" aria-label="Nächster Monat">›</button>
+            </div>
+            <div class="tix-hp-cal-dows">
+                <?php foreach (['Mo','Di','Mi','Do','Fr','Sa','So'] as $d): ?>
+                    <div class="tix-hp-cal-dow"><?php echo $d; ?></div>
+                <?php endforeach; ?>
+            </div>
+            <div class="tix-hp-cal-grid">
+                <?php for ($i = 1; $i < $first_dow; $i++): ?>
+                    <div class="tix-hp-cal-cell tix-hp-cal-empty"></div>
+                <?php endfor; ?>
+                <?php for ($d = 1; $d <= $days_in_month; $d++):
+                    $day_events = $by_day[$d] ?? [];
+                    $is_today = ($year === $today_y && $month === $today_m && $d === $today_d);
+                    $has = !empty($day_events);
+                ?>
+                    <div class="tix-hp-cal-cell<?php echo $is_today ? ' is-today' : ''; ?><?php echo $has ? ' has-events' : ''; ?>" data-day="<?php echo $d; ?>">
+                        <div class="tix-hp-cal-num"><?php echo $d; ?></div>
+                        <?php if ($has): ?>
+                        <div class="tix-hp-cal-dots">
+                            <?php foreach (array_slice($day_events, 0, 3) as $ev):
+                                $terms = wp_get_post_terms($ev->ID, 'event_category', ['fields' => 'slugs']);
+                                $cat_class = !is_wp_error($terms) && !empty($terms) ? 'tix-hp-cal-dot-' . sanitize_html_class($terms[0]) : '';
+                            ?>
+                                <span class="tix-hp-cal-dot <?php echo $cat_class; ?>" title="<?php echo esc_attr(get_the_title($ev->ID)); ?>"></span>
+                            <?php endforeach; ?>
+                            <?php if (count($day_events) > 3): ?>
+                                <span class="tix-hp-cal-more">+<?php echo count($day_events) - 3; ?></span>
+                            <?php endif; ?>
+                        </div>
+                        <?php endif; ?>
+                    </div>
+                <?php endfor; ?>
+            </div>
+            <div class="tix-hp-cal-day-events" style="display:none;"></div>
+        </div>
+
+        <?php
+        // Event-Details pro Tag als JSON mitsenden
+        $day_data = [];
+        foreach ($by_day as $day => $day_events) {
+            $day_data[$day] = [];
+            foreach ($day_events as $ev) {
+                $time = get_post_meta($ev->ID, '_tix_time_start', true);
+                $loc  = get_post_meta($ev->ID, '_tix_location_short', true);
+                $price = get_post_meta($ev->ID, '_tix_price_card', true);
+                $thumb = get_the_post_thumbnail_url($ev->ID, 'thumbnail');
+                $day_data[$day][] = [
+                    'id'    => $ev->ID,
+                    'title' => get_the_title($ev->ID),
+                    'time'  => $time ? substr($time, 0, 5) : '',
+                    'loc'   => $loc,
+                    'price' => $price,
+                    'url'   => get_permalink($ev->ID),
+                    'thumb' => $thumb,
+                ];
+            }
+        }
+        $html = ob_get_clean();
+        wp_send_json_success(['html' => $html, 'days' => $day_data, 'month_label' => $month_name]);
+    }
+
+    /**
+     * AJAX: Events in der Nähe finden.
+     * Primär: Haversine-Distanz wenn Location lat/lng hat.
+     * Fallback: Stadt-Match via Nominatim Reverse-Geocoding.
+     */
+    public static function ajax_near_me() {
+        $lat = floatval($_POST['lat'] ?? 0);
+        $lng = floatval($_POST['lng'] ?? 0);
+        $max_km = max(5, min(500, intval($_POST['max_km'] ?? 50)));
+        $limit  = max(3, min(20, intval($_POST['limit'] ?? 8)));
+
+        if (!$lat || !$lng) {
+            wp_send_json_error(['message' => 'Keine Koordinaten erhalten.']);
+        }
+
+        // 1) Alle publizierten zukünftigen Events sammeln
+        $events = get_posts([
+            'post_type'      => 'event',
+            'post_status'    => 'publish',
+            'posts_per_page' => 100,
+            'meta_key'       => '_tix_date_start',
+            'orderby'        => 'meta_value',
+            'order'          => 'ASC',
+            'meta_query'     => [[
+                'key'     => '_tix_date_start',
+                'value'   => current_time('Y-m-d'),
+                'compare' => '>=',
+            ]],
+        ]);
+        if (empty($events)) {
+            wp_send_json_success(['html' => '', 'count' => 0]);
+        }
+
+        // 2) Ermittelt die Stadt des Users (für City-Fallback)
+        $user_city = self::reverse_geocode_city($lat, $lng);
+
+        // 3) Für jedes Event Distanz berechnen (falls lat/lng am Location-CPT verfügbar)
+        //    oder City-Match als Fallback (0.0-km „Nähe")
+        $scored = [];
+        foreach ($events as $ev) {
+            $loc_id = intval(get_post_meta($ev->ID, '_tix_location_id', true));
+            if (!$loc_id) continue;
+            $loc_lat = floatval(get_post_meta($loc_id, '_tix_loc_lat', true));
+            $loc_lng = floatval(get_post_meta($loc_id, '_tix_loc_lng', true));
+            $loc_city = strtolower(trim(get_post_meta($loc_id, '_tix_loc_city', true)));
+
+            $distance = null;
+            if ($loc_lat && $loc_lng) {
+                $distance = self::haversine_km($lat, $lng, $loc_lat, $loc_lng);
+                if ($distance > $max_km) continue;
+            } elseif ($user_city && $loc_city && strtolower($user_city) === $loc_city) {
+                $distance = 0.5; // pseudo-Nähe für Stadt-Match
+            } else {
+                continue;
+            }
+            $scored[] = ['event' => $ev, 'distance' => $distance];
+        }
+
+        if (empty($scored)) {
+            wp_send_json_success([
+                'html'  => '<p class="tix-hp-empty" style="grid-column:1/-1;text-align:center;padding:24px;color:#94a3b8;">Keine Events im Umkreis von ' . $max_km . ' km gefunden.</p>',
+                'count' => 0,
+                'city'  => $user_city,
+            ]);
+        }
+
+        // Sortieren nach Distanz
+        usort($scored, function($a, $b){ return $a['distance'] <=> $b['distance']; });
+        $scored = array_slice($scored, 0, $limit);
+
+        $s = function_exists('tix_get_settings') ? tix_get_settings() : [];
+        $show_heart  = !empty($s['tix_card_show_heart']);
+        $show_badges = !empty($s['tix_card_show_badges']);
+        $saved       = TIX_Event_Cards::get_saved_events_static();
+
+        $html = '';
+        foreach ($scored as $item) {
+            $html .= TIX_Event_Cards::render_card($item['event'], $show_heart, $show_badges, $saved);
+        }
+
+        wp_send_json_success([
+            'html'  => $html,
+            'count' => count($scored),
+            'city'  => $user_city,
+        ]);
+    }
+
+    /**
+     * Haversine-Distanzformel (km) zwischen zwei GPS-Punkten.
+     */
+    private static function haversine_km($lat1, $lng1, $lat2, $lng2) {
+        $r = 6371; // Erdradius in km
+        $dLat = deg2rad($lat2 - $lat1);
+        $dLng = deg2rad($lng2 - $lng1);
+        $a = sin($dLat/2) * sin($dLat/2) +
+             cos(deg2rad($lat1)) * cos(deg2rad($lat2)) *
+             sin($dLng/2) * sin($dLng/2);
+        $c = 2 * atan2(sqrt($a), sqrt(1-$a));
+        return $r * $c;
+    }
+
+    /**
+     * Reverse-Geocoding via Nominatim (cached per 24h).
+     */
+    private static function reverse_geocode_city($lat, $lng) {
+        $key = 'tix_geo_' . md5(round($lat, 3) . '_' . round($lng, 3));
+        $cached = get_transient($key);
+        if ($cached !== false) return $cached;
+
+        $url = 'https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=' . urlencode($lat) . '&lon=' . urlencode($lng) . '&accept-language=de';
+        $resp = wp_remote_get($url, [
+            'timeout'    => 5,
+            'user-agent' => 'Tixomat/' . TIXOMAT_VERSION . ' (WordPress Plugin)',
+        ]);
+        if (is_wp_error($resp)) { set_transient($key, '', 300); return ''; }
+
+        $body = json_decode(wp_remote_retrieve_body($resp), true);
+        $city = '';
+        if (is_array($body) && !empty($body['address'])) {
+            $a = $body['address'];
+            $city = $a['city'] ?? $a['town'] ?? $a['village'] ?? $a['municipality'] ?? '';
+        }
+        set_transient($key, $city, 86400);
+        return $city;
+    }
+
+    /**
+     * AJAX: Event-Karten per ID-Liste rendern.
+     * Wird vom Frontend genutzt für „Kürzlich angesehen" und „Favoriten" (LocalStorage).
+     */
+    public static function ajax_cards_by_ids() {
+        $ids_raw = isset($_POST['ids']) ? (array) $_POST['ids'] : [];
+        $ids = array_values(array_filter(array_map('intval', $ids_raw)));
+        $ids = array_slice($ids, 0, 12);
+        if (empty($ids)) {
+            wp_send_json_success(['html' => '', 'count' => 0]);
+        }
+
+        $only_upcoming = !empty($_POST['only_upcoming']);
+        $args = [
+            'post_type'      => 'event',
+            'post_status'    => 'publish',
+            'post__in'       => $ids,
+            'posts_per_page' => count($ids),
+            'orderby'        => 'post__in',
+        ];
+        if ($only_upcoming) {
+            $args['meta_query'] = [[
+                'key'     => '_tix_date_start',
+                'value'   => current_time('Y-m-d'),
+                'compare' => '>=',
+                'type'    => 'DATE',
+            ]];
+        }
+        $events = get_posts($args);
+        if (empty($events)) {
+            wp_send_json_success(['html' => '', 'count' => 0]);
+        }
+
+        $s = function_exists('tix_get_settings') ? tix_get_settings() : [];
+        $show_heart  = !empty($s['tix_card_show_heart']);
+        $show_badges = !empty($s['tix_card_show_badges']);
+        $saved       = TIX_Event_Cards::get_saved_events_static();
+
+        $html = '';
+        foreach ($events as $ev) {
+            $html .= TIX_Event_Cards::render_card($ev, $show_heart, $show_badges, $saved);
+        }
+        wp_send_json_success(['html' => $html, 'count' => count($events)]);
+    }
+
     public static function ajax_load_more() {
         $offset   = intval($_POST['offset'] ?? 0);
         $limit    = intval($_POST['limit'] ?? 8);
@@ -898,6 +1649,627 @@ class TIX_Event_Homepage {
         }
 
         wp_send_json_success(['html' => $html, 'found' => count($events), 'hasMore' => count($events) >= $limit]);
+    }
+
+    // ═══════════════════════════════════════════
+    // Phase-3: Smart-Greeting
+    // ═══════════════════════════════════════════
+
+    private static function render_greeting() {
+        list($title, $subtitle) = self::get_smart_greeting();
+        ob_start();
+        ?>
+        <div class="tix-hp-greeting" style="padding:8px 0 16px;">
+            <h1 style="font-size:clamp(24px,3.5vw,38px);margin:0 0 6px;line-height:1.15;"><?php echo esc_html($title); ?></h1>
+            <p style="font-size:clamp(14px,1.5vw,17px);margin:0;opacity:0.7;"><?php echo esc_html($subtitle); ?></p>
+        </div>
+        <?php
+        return ob_get_clean();
+    }
+
+    // ═══════════════════════════════════════════
+    // Phase-3: Kürzlich angesehen (LocalStorage-driven)
+    // ═══════════════════════════════════════════
+
+    private static function render_recent() {
+        ob_start();
+        ?>
+        <div class="tix-hp-section tix-hp-recent" data-tix-hp-lazy="recent" style="display:none;">
+            <div class="tix-hp-section-header">
+                <div>
+                    <div class="tix-hp-section-label">Für dich</div>
+                    <h2 class="tix-hp-section-title">Kürzlich angesehen</h2>
+                </div>
+                <button type="button" class="tix-hp-recent-clear" style="background:none;border:0;color:#94a3b8;font-size:12px;cursor:pointer;text-decoration:underline;">Verlauf löschen</button>
+            </div>
+            <div class="ev-grid tix-hp-recent-grid" data-columns="4"></div>
+        </div>
+        <?php
+        return ob_get_clean();
+    }
+
+    // ═══════════════════════════════════════════
+    // Phase-3: Favoriten/Wishlist (LocalStorage + User-Server-Sync)
+    // ═══════════════════════════════════════════
+
+    private static function render_favorites() {
+        ob_start();
+        ?>
+        <div class="tix-hp-section tix-hp-favorites" data-tix-hp-lazy="favorites" style="display:none;">
+            <div class="tix-hp-section-header">
+                <div>
+                    <div class="tix-hp-section-label">❤️ Wishlist</div>
+                    <h2 class="tix-hp-section-title">Deine Favoriten</h2>
+                </div>
+            </div>
+            <div class="ev-grid tix-hp-favorites-grid" data-columns="4"></div>
+        </div>
+        <?php
+        return ob_get_clean();
+    }
+
+    // ═══════════════════════════════════════════
+    // Phase-3: Story-Carousel (Insta-Style runde Cards)
+    // ═══════════════════════════════════════════
+
+    private static function render_stories($exclude_cats = []) {
+        $s = function_exists('tix_get_settings') ? tix_get_settings() : [];
+        $count = max(5, min(20, intval($s['hp_stories_count'] ?? 12)));
+        // Größe des Avatars (äußerer Durchmesser inklusive Gradient-Rand)
+        $size = max(50, min(160, intval($s['hp_stories_size'] ?? 72)));
+        // Ableitungen
+        $inner  = $size - 6;                                    // innerer Durchmesser (Padding 3px)
+        $label_w = max(60, $size + 8);                          // Label-Breite
+        $font_size = max(10, min(14, round($size / 6)));        // Label-Font-Size
+
+        $events = get_posts([
+            'post_type'      => 'event',
+            'post_status'    => 'publish',
+            'posts_per_page' => $count,
+            'meta_key'       => '_tix_date_start',
+            'orderby'        => 'meta_value',
+            'order'          => 'ASC',
+            'meta_query'     => [[
+                'key'     => '_tix_date_start',
+                'value'   => current_time('Y-m-d'),
+                'compare' => '>=',
+            ]],
+            'tax_query'      => !empty($exclude_cats) ? [[
+                'taxonomy' => 'event_category',
+                'field'    => 'slug',
+                'terms'    => $exclude_cats,
+                'operator' => 'NOT IN',
+            ]] : [],
+        ]);
+        if (empty($events)) return '';
+
+        ob_start();
+        ?>
+        <div class="tix-hp-stories" style="margin-bottom:4px;text-align:center;">
+            <div class="tix-hp-stories-scroll" style="display:inline-flex;gap:14px;overflow-x:auto;max-width:100%;padding:4px 2px 12px;scrollbar-width:thin;text-align:left;vertical-align:top;">
+                <?php foreach ($events as $ev):
+                    $thumb = get_the_post_thumbnail_url($ev->ID, 'medium') ?: get_the_post_thumbnail_url($ev->ID, 'thumbnail');
+                    $title = get_the_title($ev->ID);
+                    $link  = get_permalink($ev->ID);
+                ?>
+                <a href="<?php echo esc_url($link); ?>" class="tix-hp-story" style="flex-shrink:0;text-align:center;text-decoration:none;color:inherit;width:<?php echo $label_w; ?>px;" title="<?php echo esc_attr($title); ?>">
+                    <div style="width:<?php echo $size; ?>px;height:<?php echo $size; ?>px;border-radius:50%;padding:3px;background:linear-gradient(135deg,#FF5500,#8B00FF);margin:0 auto 6px;overflow:hidden;">
+                        <div style="width:100%;height:100%;border-radius:50%;background:#fff url('<?php echo esc_url($thumb); ?>') center/cover no-repeat;border:2px solid #fff;"></div>
+                    </div>
+                    <div style="font-size:<?php echo $font_size; ?>px;font-weight:600;line-height:1.2;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;"><?php echo esc_html(mb_strimwidth($title, 0, 30, '…')); ?></div>
+                </a>
+                <?php endforeach; ?>
+            </div>
+        </div>
+        <style>
+            .tix-hp-stories-scroll::-webkit-scrollbar { height: 6px; }
+            .tix-hp-stories-scroll::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); border-radius: 3px; }
+            .tix-hp-story:hover > div:first-child { transform: scale(1.05); transition: transform .2s; }
+        </style>
+        <?php
+        return ob_get_clean();
+    }
+
+    // ═══════════════════════════════════════════
+    // Phase-3: Empfehlung der Redaktion
+    // ═══════════════════════════════════════════
+
+    private static function render_editorial() {
+        $s = function_exists('tix_get_settings') ? tix_get_settings() : [];
+        $event_id = intval($s['hp_editorial_event_id'] ?? 0);
+        if (!$event_id) return '';
+
+        $event = get_post($event_id);
+        if (!$event || $event->post_type !== 'event' || $event->post_status !== 'publish') return '';
+
+        $label   = sanitize_text_field($s['hp_editorial_label'] ?? 'Empfehlung der Redaktion');
+        $title_o = sanitize_text_field($s['hp_editorial_title_override'] ?? '');
+        $text    = wp_kses_post($s['hp_editorial_text'] ?? '');
+        $byline  = sanitize_text_field($s['hp_editorial_byline'] ?? '');
+        $cta     = sanitize_text_field($s['hp_editorial_cta'] ?? 'Event ansehen');
+
+        $title       = $title_o ?: get_the_title($event_id);
+        $permalink   = get_permalink($event_id);
+        $thumb_url   = get_the_post_thumbnail_url($event_id, 'large');
+        $date_card   = get_post_meta($event_id, '_tix_date_card', true);
+        $location    = get_post_meta($event_id, '_tix_location_short', true);
+        $price_card  = get_post_meta($event_id, '_tix_price_card', true);
+
+        ob_start();
+        ?>
+        <div class="tix-hp-editorial">
+            <div class="tix-hp-editorial-inner">
+                <a href="<?php echo esc_url($permalink); ?>" class="tix-hp-editorial-img"<?php if ($thumb_url): ?> style="background-image:url('<?php echo esc_url($thumb_url); ?>');"<?php endif; ?> aria-label="<?php echo esc_attr($title); ?>">
+                    <div class="tix-hp-editorial-img-overlay"></div>
+                    <?php if ($date_card): ?>
+                        <span class="tix-hp-editorial-date-pill"><?php echo esc_html($date_card); ?></span>
+                    <?php endif; ?>
+                </a>
+                <div class="tix-hp-editorial-content">
+                    <div class="tix-hp-editorial-label">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" style="margin-right:4px;vertical-align:-1px;"><path d="M12 2L14.5 8.5 21 9.3l-5 4.7 1.5 7L12 17.8 6.5 21 8 14l-5-4.7 6.5-.8L12 2z"/></svg>
+                        <?php echo esc_html($label); ?>
+                    </div>
+                    <h2 class="tix-hp-editorial-title">
+                        <a href="<?php echo esc_url($permalink); ?>"><?php echo esc_html($title); ?></a>
+                    </h2>
+                    <?php if ($text): ?>
+                        <div class="tix-hp-editorial-text"><?php echo wp_kses_post(wpautop($text)); ?></div>
+                    <?php endif; ?>
+                    <div class="tix-hp-editorial-meta">
+                        <?php if ($location): ?>
+                            <span>📍 <?php echo esc_html($location); ?></span>
+                        <?php endif; ?>
+                        <?php if ($price_card): ?>
+                            <span class="tix-hp-editorial-price"><?php echo esc_html($price_card); ?></span>
+                        <?php endif; ?>
+                    </div>
+                    <div class="tix-hp-editorial-foot">
+                        <a href="<?php echo esc_url($permalink); ?>" class="tix-hp-editorial-cta"><?php echo esc_html($cta); ?> →</a>
+                        <?php if ($byline): ?>
+                            <span class="tix-hp-editorial-byline">— <?php echo esc_html($byline); ?></span>
+                        <?php endif; ?>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <style>
+            .tix-hp-editorial { border-radius: 16px; overflow: hidden; background: var(--tix-card-sand, #F8F5EF); }
+            .tix-hp-editorial-inner { display: grid; grid-template-columns: 1fr 1fr; min-height: 320px; }
+            .tix-hp-editorial-img { position: relative; background-size: cover; background-position: center; background-color: var(--tix-card-sand, #E3DED4); min-height: 260px; text-decoration: none; }
+            .tix-hp-editorial-img-overlay { position: absolute; inset: 0; background: linear-gradient(to top, rgba(0,0,0,0.35) 0%, rgba(0,0,0,0.05) 50%, transparent 100%); }
+            .tix-hp-editorial-date-pill { position: absolute; bottom: 16px; left: 16px; padding: 5px 12px; background: var(--tix-card-signal, #E8445A); color: #fff; border-radius: 6px; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; z-index: 2; }
+            .tix-hp-editorial-content { padding: 32px 36px; display: flex; flex-direction: column; justify-content: center; }
+            .tix-hp-editorial-label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.12em; font-weight: 700; color: var(--tix-card-signal, #E8445A); margin-bottom: 10px; display: flex; align-items: center; }
+            .tix-hp-editorial-title { font-family: var(--tix-card-font-d, var(--tix-font-heading, 'Sora')), sans-serif; font-size: clamp(22px, 2.4vw, 30px); font-weight: 800; line-height: 1.18; margin: 0 0 14px; }
+            .tix-hp-editorial-title a { color: inherit; text-decoration: none; }
+            .tix-hp-editorial-title a:hover { color: var(--tix-card-signal, #E8445A); }
+            .tix-hp-editorial-text { font-size: 0.95rem; line-height: 1.65; color: var(--tix-card-text-muted, #3A3937); margin-bottom: 18px; }
+            .tix-hp-editorial-text p:last-child { margin-bottom: 0; }
+            .tix-hp-editorial-meta { display: flex; gap: 16px; font-size: 0.88rem; margin-bottom: 18px; color: var(--tix-card-text-muted, #3A3937); flex-wrap: wrap; }
+            .tix-hp-editorial-price { font-weight: 700; color: inherit; }
+            .tix-hp-editorial-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+            .tix-hp-editorial-cta { display: inline-block; padding: 11px 22px; background: var(--tix-card-signal, #E8445A); color: #fff !important; border-radius: 8px; text-decoration: none; font-weight: 700; font-size: 0.92rem; transition: transform .2s, background .2s; }
+            .tix-hp-editorial-cta:hover { transform: translateY(-1px); background: var(--tix-card-signal-dark, #C9324A); }
+            .tix-hp-editorial-byline { font-size: 0.82rem; font-style: italic; color: var(--tix-card-text-muted, #8C8985); }
+            @media (max-width: 720px) {
+                .tix-hp-editorial-inner { grid-template-columns: 1fr; }
+                .tix-hp-editorial-img { min-height: 220px; }
+                .tix-hp-editorial-content { padding: 24px 22px; }
+            }
+            .tix-hp-dark .tix-hp-editorial { background: #221E3F; }
+            .tix-hp-dark .tix-hp-editorial-text,
+            .tix-hp-dark .tix-hp-editorial-meta { color: #D8D4D0; }
+            .tix-hp-dark .tix-hp-editorial-title { color: #fff; }
+        </style>
+        <?php
+        return ob_get_clean();
+    }
+
+    // ═══════════════════════════════════════════
+    // Phase-3: Promoted Events (bezahltes Placement)
+    // ═══════════════════════════════════════════
+
+    private static function render_promoted($show_heart = false, $show_badges = false, $saved = [], $exclude_cats = []) {
+        $now = current_time('Y-m-d');
+        $args = [
+            'post_type'      => 'event',
+            'post_status'    => 'publish',
+            'posts_per_page' => 6,
+            'meta_key'       => '_tix_promoted_priority',
+            'orderby'        => 'meta_value_num',
+            'order'          => 'DESC',
+            'meta_query'     => [
+                'relation' => 'AND',
+                ['key' => '_tix_promoted', 'value' => '1'],
+                ['key' => '_tix_date_start', 'value' => $now, 'compare' => '>=', 'type' => 'DATE'],
+                [
+                    'relation' => 'OR',
+                    ['key' => '_tix_promoted_until', 'compare' => 'NOT EXISTS'],
+                    ['key' => '_tix_promoted_until', 'value' => $now, 'compare' => '>=', 'type' => 'DATE'],
+                ],
+            ],
+        ];
+        if (!empty($exclude_cats)) {
+            $args['tax_query'] = [[
+                'taxonomy' => 'event_category',
+                'field'    => 'slug',
+                'terms'    => $exclude_cats,
+                'operator' => 'NOT IN',
+            ]];
+        }
+        $events = get_posts($args);
+        if (empty($events)) return '';
+
+        ob_start();
+        ?>
+        <div class="tix-hp-section tix-hp-promoted">
+            <div class="tix-hp-section-header">
+                <div>
+                    <div class="tix-hp-section-label" style="color:#FF5500;">✨ Highlights</div>
+                    <h2 class="tix-hp-section-title">Empfohlene Events</h2>
+                </div>
+                <span style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#94a3b8;">Anzeige</span>
+            </div>
+            <div class="ev-grid" data-columns="<?php echo min(count($events), 3); ?>">
+                <?php foreach ($events as $event): ?>
+                    <?php echo TIX_Event_Cards::render_card($event, $show_heart, $show_badges, $saved); ?>
+                <?php endforeach; ?>
+            </div>
+        </div>
+        <?php
+        return ob_get_clean();
+    }
+
+    // ═══════════════════════════════════════════
+    // Phase-2: Hero-Countdown
+    // ═══════════════════════════════════════════
+
+    private static function render_hero_countdown($exclude_cats = []) {
+        $s = function_exists('tix_get_settings') ? tix_get_settings() : [];
+        $force_event = intval($s['hp_countdown_event_id'] ?? 0);
+
+        $event = null;
+        if ($force_event) {
+            $p = get_post($force_event);
+            if ($p && $p->post_type === 'event' && $p->post_status === 'publish') $event = $p;
+        }
+        if (!$event) {
+            // Nächstes zukünftiges Event (nicht featured-only)
+            $events = self::query_hero_events(1, false, $exclude_cats);
+            $event = !empty($events) ? $events[0] : null;
+        }
+        if (!$event) return '';
+
+        $date_start = get_post_meta($event->ID, '_tix_date_start', true);
+        $time_start = get_post_meta($event->ID, '_tix_time_start', true);
+        if (!$date_start) return '';
+
+        $ts = strtotime(trim($date_start . ' ' . ($time_start ?: '20:00')));
+        if (!$ts || $ts <= time()) return '';
+
+        $image_url = get_the_post_thumbnail_url($event->ID, 'large');
+        $location  = get_post_meta($event->ID, '_tix_location', true);
+        $link      = get_permalink($event->ID);
+        $title     = get_the_title($event->ID);
+        $label     = sanitize_text_field($s['hp_countdown_label'] ?? 'Next Event');
+
+        ob_start();
+        ?>
+        <div class="tix-hp-countdown" data-target="<?php echo esc_attr($ts); ?>" style="position:relative;border-radius:16px;overflow:hidden;margin-bottom:32px;min-height:240px;background:#111;color:#fff;">
+            <?php if ($image_url): ?>
+                <div style="position:absolute;inset:0;background:url('<?php echo esc_url($image_url); ?>') center/cover no-repeat;opacity:0.45;"></div>
+                <div style="position:absolute;inset:0;background:linear-gradient(90deg,rgba(0,0,0,0.85) 0%,rgba(0,0,0,0.35) 100%);"></div>
+            <?php endif; ?>
+            <div style="position:relative;padding:32px 28px;display:grid;grid-template-columns:1fr auto;gap:20px;align-items:center;min-height:240px;">
+                <div>
+                    <div style="font-size:12px;letter-spacing:2px;text-transform:uppercase;opacity:0.7;margin-bottom:8px;"><?php echo esc_html($label); ?></div>
+                    <h2 style="font-size:clamp(22px,3vw,36px);margin:0 0 8px;line-height:1.1;"><?php echo esc_html($title); ?></h2>
+                    <?php if ($location): ?>
+                        <div style="opacity:0.8;font-size:14px;margin-bottom:16px;">📍 <?php echo esc_html($location); ?></div>
+                    <?php endif; ?>
+                    <a href="<?php echo esc_url($link); ?>" style="display:inline-block;padding:10px 22px;background:#fff;color:#111;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px;">Jetzt sichern →</a>
+                </div>
+                <div class="tix-hp-countdown-clock" style="display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end;">
+                    <?php foreach (['days'=>'T','hours'=>'Std','minutes'=>'Min','seconds'=>'Sek'] as $k=>$lbl): ?>
+                        <div style="background:rgba(255,255,255,0.12);backdrop-filter:blur(8px);padding:10px 14px;border-radius:10px;text-align:center;min-width:64px;">
+                            <div class="tix-cd-<?php echo $k; ?>" style="font-size:24px;font-weight:800;line-height:1;">00</div>
+                            <div style="font-size:10px;letter-spacing:1px;opacity:0.7;margin-top:2px;"><?php echo $lbl; ?></div>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+        </div>
+        <script>
+        (function(){
+            var el = document.currentScript.previousElementSibling;
+            var target = parseInt(el.getAttribute('data-target'), 10) * 1000;
+            function tick(){
+                var diff = target - Date.now();
+                if (diff <= 0) { el.style.display = 'none'; return; }
+                var d = Math.floor(diff/86400000);
+                var h = Math.floor(diff%86400000/3600000);
+                var m = Math.floor(diff%3600000/60000);
+                var s = Math.floor(diff%60000/1000);
+                function pad(n){ return n < 10 ? '0'+n : n; }
+                el.querySelector('.tix-cd-days').textContent = pad(d);
+                el.querySelector('.tix-cd-hours').textContent = pad(h);
+                el.querySelector('.tix-cd-minutes').textContent = pad(m);
+                el.querySelector('.tix-cd-seconds').textContent = pad(s);
+            }
+            tick();
+            setInterval(tick, 1000);
+        })();
+        </script>
+        <?php
+        return ob_get_clean();
+    }
+
+    // ═══════════════════════════════════════════
+    // Phase-2: Letzte Chance (FOMO-Karussell)
+    // ═══════════════════════════════════════════
+
+    private static function render_last_chance($show_heart = false, $show_badges = false, $saved = [], $exclude_cats = []) {
+        $s = function_exists('tix_get_settings') ? tix_get_settings() : [];
+        $hours_threshold = max(6, min(168, intval($s['hp_last_chance_hours'] ?? 48)));
+        $max_items       = max(2, min(8, intval($s['hp_last_chance_count'] ?? 4)));
+
+        $events = self::query_last_chance_events($hours_threshold, $max_items, $exclude_cats);
+        if (empty($events)) return '';
+
+        ob_start();
+        ?>
+        <div class="tix-hp-section tix-hp-last-chance">
+            <div class="tix-hp-section-header">
+                <div>
+                    <div class="tix-hp-section-label" style="color:#e11d48;">⚠️ Last Chance</div>
+                    <h2 class="tix-hp-section-title">Jetzt oder nie</h2>
+                </div>
+            </div>
+            <div class="ev-grid" data-columns="<?php echo min(count($events), 4); ?>">
+                <?php foreach ($events as $event): ?>
+                    <?php echo TIX_Event_Cards::render_card($event, $show_heart, $show_badges, $saved); ?>
+                <?php endforeach; ?>
+            </div>
+        </div>
+        <?php
+        return ob_get_clean();
+    }
+
+    /**
+     * Findet Events deren Beginn innerhalb $hours liegt.
+     */
+    private static function query_last_chance_events($hours, $limit, $exclude_cats = []) {
+        $now   = current_time('Y-m-d H:i:s');
+        $until = date('Y-m-d H:i:s', strtotime("+{$hours} hours", strtotime($now)));
+
+        $args = [
+            'post_type'      => 'event',
+            'post_status'    => 'publish',
+            'posts_per_page' => $limit,
+            'meta_key'       => '_tix_date_start',
+            'orderby'        => 'meta_value',
+            'order'          => 'ASC',
+            'meta_query'     => [
+                'relation' => 'AND',
+                ['key' => '_tix_date_start', 'value' => date('Y-m-d', strtotime($now)),   'compare' => '>='],
+                ['key' => '_tix_date_start', 'value' => date('Y-m-d', strtotime($until)), 'compare' => '<='],
+            ],
+        ];
+
+        if (!empty($exclude_cats)) {
+            $args['tax_query'] = [[
+                'taxonomy' => 'event_category',
+                'field'    => 'slug',
+                'terms'    => $exclude_cats,
+                'operator' => 'NOT IN',
+            ]];
+        }
+
+        return get_posts($args);
+    }
+
+    // ═══════════════════════════════════════════
+    // Phase-2: Wochentag-Grid (Mo-So Spalten)
+    // ═══════════════════════════════════════════
+
+    private static function render_weekday_grid($exclude_cats = []) {
+        $s = function_exists('tix_get_settings') ? tix_get_settings() : [];
+        $weeks_ahead = max(1, min(4, intval($s['hp_weekday_weeks'] ?? 2)));
+
+        // Events der nächsten X Wochen
+        $now_ts = current_time('timestamp');
+        $end_ts = strtotime("+{$weeks_ahead} weeks", $now_ts);
+
+        $args = [
+            'post_type'      => 'event',
+            'post_status'    => 'publish',
+            'posts_per_page' => 100,
+            'meta_key'       => '_tix_date_start',
+            'orderby'        => 'meta_value',
+            'order'          => 'ASC',
+            'meta_query'     => [
+                'relation' => 'AND',
+                ['key' => '_tix_date_start', 'value' => date('Y-m-d', $now_ts), 'compare' => '>='],
+                ['key' => '_tix_date_start', 'value' => date('Y-m-d', $end_ts), 'compare' => '<='],
+            ],
+        ];
+        if (!empty($exclude_cats)) {
+            $args['tax_query'] = [[
+                'taxonomy' => 'event_category',
+                'field'    => 'slug',
+                'terms'    => $exclude_cats,
+                'operator' => 'NOT IN',
+            ]];
+        }
+        $events = get_posts($args);
+        if (empty($events)) return '';
+
+        // Gruppieren nach Wochentag (0=So, 1=Mo, ..., 6=Sa)
+        $by_day = [1=>[], 2=>[], 3=>[], 4=>[], 5=>[], 6=>[], 0=>[]];
+        foreach ($events as $ev) {
+            $date = get_post_meta($ev->ID, '_tix_date_start', true);
+            if (!$date) continue;
+            $dow = intval(date('w', strtotime($date)));
+            $by_day[$dow][] = $ev;
+        }
+
+        $day_labels = [1=>'Montag', 2=>'Dienstag', 3=>'Mittwoch', 4=>'Donnerstag', 5=>'Freitag', 6=>'Samstag', 0=>'Sonntag'];
+        $day_short  = [1=>'Mo', 2=>'Di', 3=>'Mi', 4=>'Do', 5=>'Fr', 6=>'Sa', 0=>'So'];
+
+        ob_start();
+        ?>
+        <div class="tix-hp-section">
+            <div class="tix-hp-section-header">
+                <div>
+                    <div class="tix-hp-section-label">Wochenplan</div>
+                    <h2 class="tix-hp-section-title">Nach Wochentag</h2>
+                </div>
+            </div>
+            <div class="tix-hp-weekday-grid" style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:12px;overflow-x:auto;">
+                <?php foreach ($by_day as $dow => $day_events): ?>
+                    <div class="tix-hp-weekday-col" style="background:#f8fafc;border-radius:12px;padding:14px 10px;min-width:140px;">
+                        <div style="font-weight:700;font-size:13px;margin-bottom:10px;text-align:center;border-bottom:1px solid #e2e8f0;padding-bottom:8px;">
+                            <span style="display:block;font-size:11px;color:#94a3b8;text-transform:uppercase;letter-spacing:1px;"><?php echo $day_short[$dow]; ?></span>
+                            <?php echo esc_html($day_labels[$dow]); ?>
+                        </div>
+                        <?php if (empty($day_events)): ?>
+                            <div style="font-size:12px;color:#cbd5e1;text-align:center;padding:20px 0;">–</div>
+                        <?php else: ?>
+                            <?php foreach ($day_events as $ev): ?>
+                                <?php
+                                $date  = get_post_meta($ev->ID, '_tix_date_start', true);
+                                $time  = get_post_meta($ev->ID, '_tix_time_start', true);
+                                $date_display = $date ? date_i18n('d.m.', strtotime($date)) : '';
+                                ?>
+                                <a href="<?php echo esc_url(get_permalink($ev->ID)); ?>" style="display:block;background:#fff;border-radius:8px;padding:8px 10px;margin-bottom:8px;text-decoration:none;color:inherit;border:1px solid transparent;transition:border-color .2s;" onmouseover="this.style.borderColor='#FF5500'" onmouseout="this.style.borderColor='transparent'">
+                                    <div style="font-size:10px;color:#64748b;margin-bottom:2px;"><?php echo $date_display; ?><?php echo $time ? ' · ' . esc_html(substr($time, 0, 5)) : ''; ?></div>
+                                    <div style="font-size:12px;font-weight:600;line-height:1.3;"><?php echo esc_html(mb_strimwidth(get_the_title($ev->ID), 0, 36, '…')); ?></div>
+                                </a>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+        </div>
+        <style>
+            @media (max-width:900px) {
+                .tix-hp-weekday-grid { grid-template-columns:repeat(3,minmax(160px,1fr)) !important; }
+            }
+            @media (max-width:560px) {
+                .tix-hp-weekday-grid { grid-template-columns:repeat(2,minmax(160px,1fr)) !important; }
+            }
+        </style>
+        <?php
+        return ob_get_clean();
+    }
+
+    // ═══════════════════════════════════════════
+    // Phase-2: Geschenkgutschein-Banner
+    // ═══════════════════════════════════════════
+
+    private static function render_voucher_banner() {
+        $s = function_exists('tix_get_settings') ? tix_get_settings() : [];
+        $title     = sanitize_text_field($s['hp_voucher_title'] ?? 'Verschenke ein Erlebnis');
+        $text      = sanitize_text_field($s['hp_voucher_text'] ?? 'Gutscheine für jedes Event — der perfekte Geschenktipp.');
+        $btn_label = sanitize_text_field($s['hp_voucher_btn'] ?? 'Gutschein kaufen');
+        $url       = esc_url_raw($s['hp_voucher_url'] ?? '');
+        $image_id  = intval($s['hp_voucher_image_id'] ?? 0);
+        $image_url = $image_id ? wp_get_attachment_image_url($image_id, 'large') : '';
+        $bg_color  = sanitize_text_field($s['hp_voucher_bg'] ?? '#FFE066');
+        $fg_color  = sanitize_text_field($s['hp_voucher_fg'] ?? '#0D0B09');
+
+        if (!$title && !$text) return '';
+
+        ob_start();
+        ?>
+        <div class="tix-hp-voucher" style="border-radius:16px;overflow:hidden;margin-bottom:32px;background:<?php echo esc_attr($bg_color); ?>;color:<?php echo esc_attr($fg_color); ?>;display:grid;grid-template-columns:<?php echo $image_url ? '1fr 1fr' : '1fr'; ?>;gap:0;min-height:200px;">
+            <div style="padding:32px 28px;display:flex;flex-direction:column;justify-content:center;">
+                <div style="font-size:28px;margin-bottom:8px;">🎁</div>
+                <?php if ($title): ?><h3 style="font-size:clamp(20px,2.5vw,28px);margin:0 0 10px;line-height:1.15;"><?php echo esc_html($title); ?></h3><?php endif; ?>
+                <?php if ($text): ?><p style="font-size:15px;margin:0 0 18px;opacity:0.85;max-width:460px;"><?php echo esc_html($text); ?></p><?php endif; ?>
+                <?php if ($url && $btn_label): ?>
+                    <a href="<?php echo esc_url($url); ?>" style="display:inline-block;align-self:flex-start;padding:11px 24px;background:<?php echo esc_attr($fg_color); ?>;color:<?php echo esc_attr($bg_color); ?>;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px;"><?php echo esc_html($btn_label); ?></a>
+                <?php endif; ?>
+            </div>
+            <?php if ($image_url): ?>
+                <div style="background:url('<?php echo esc_url($image_url); ?>') center/cover no-repeat;min-height:180px;"></div>
+            <?php endif; ?>
+        </div>
+        <style>@media (max-width:700px){.tix-hp-voucher{grid-template-columns:1fr !important}}</style>
+        <?php
+        return ob_get_clean();
+    }
+
+    // ═══════════════════════════════════════════
+    // Phase-2: Partner/Presse-Logo-Strip
+    // ═══════════════════════════════════════════
+
+    private static function render_partners() {
+        $s = function_exists('tix_get_settings') ? tix_get_settings() : [];
+        $title = sanitize_text_field($s['hp_partners_title'] ?? 'Bekannt aus & Partner');
+        $logos = isset($s['hp_partners_logos']) && is_array($s['hp_partners_logos']) ? $s['hp_partners_logos'] : [];
+        $logos = array_values(array_filter($logos, function($l){ return !empty($l['image_id']); }));
+        if (empty($logos)) return '';
+
+        ob_start();
+        ?>
+        <div class="tix-hp-partners" style="margin:24px 0 32px;padding:22px 24px;border-radius:14px;background:#f8fafc;">
+            <?php if ($title): ?><div style="text-align:center;font-size:11px;text-transform:uppercase;letter-spacing:2px;color:#64748b;margin-bottom:16px;"><?php echo esc_html($title); ?></div><?php endif; ?>
+            <div style="display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:28px;">
+                <?php foreach ($logos as $logo):
+                    $img_id = intval($logo['image_id']);
+                    $url    = wp_get_attachment_image_url($img_id, 'medium');
+                    $link   = esc_url_raw($logo['link'] ?? '');
+                    $alt    = sanitize_text_field($logo['alt'] ?? '');
+                    if (!$url) continue;
+                    $img_html = '<img src="' . esc_url($url) . '" alt="' . esc_attr($alt) . '" style="max-height:50px;width:auto;filter:grayscale(1);opacity:0.65;transition:filter .2s,opacity .2s;" onmouseover="this.style.filter=\'none\';this.style.opacity=\'1\'" onmouseout="this.style.filter=\'grayscale(1)\';this.style.opacity=\'0.65\'">';
+                ?>
+                    <?php if ($link): ?>
+                        <a href="<?php echo esc_url($link); ?>" target="_blank" rel="noopener" style="display:inline-block;"><?php echo $img_html; ?></a>
+                    <?php else: ?>
+                        <?php echo $img_html; ?>
+                    <?php endif; ?>
+                <?php endforeach; ?>
+            </div>
+        </div>
+        <?php
+        return ob_get_clean();
+    }
+
+    // ═══════════════════════════════════════════
+    // Phase-2: FAQ-Accordion
+    // ═══════════════════════════════════════════
+
+    private static function render_faq_accordion() {
+        $s = function_exists('tix_get_settings') ? tix_get_settings() : [];
+        $title = sanitize_text_field($s['hp_faq_title'] ?? 'Häufige Fragen');
+        $items = isset($s['hp_faq_items']) && is_array($s['hp_faq_items']) ? $s['hp_faq_items'] : [];
+        $items = array_values(array_filter($items, function($f){ return !empty($f['question']) && !empty($f['answer']); }));
+        if (empty($items)) return '';
+
+        ob_start();
+        ?>
+        <div class="tix-hp-faq" style="margin:32px auto;max-width:820px;">
+            <?php if ($title): ?><h2 style="font-size:clamp(22px,2.5vw,28px);margin:0 0 18px;text-align:center;"><?php echo esc_html($title); ?></h2><?php endif; ?>
+            <div style="display:flex;flex-direction:column;gap:10px;">
+                <?php foreach ($items as $idx => $faq): ?>
+                    <details style="background:#f8fafc;border-radius:10px;padding:14px 18px;cursor:pointer;">
+                        <summary style="font-weight:600;font-size:15px;list-style:none;display:flex;justify-content:space-between;align-items:center;gap:12px;">
+                            <span><?php echo esc_html($faq['question']); ?></span>
+                            <span style="color:#94a3b8;font-weight:400;transition:transform .2s;">+</span>
+                        </summary>
+                        <div style="margin-top:10px;font-size:14px;color:#475569;line-height:1.6;"><?php echo wp_kses_post(wpautop($faq['answer'])); ?></div>
+                    </details>
+                <?php endforeach; ?>
+            </div>
+        </div>
+        <style>
+            .tix-hp-faq details[open] summary span:last-child { transform:rotate(45deg); }
+            .tix-hp-faq summary::-webkit-details-marker { display:none; }
+        </style>
+        <?php
+        return ob_get_clean();
     }
 
     // ═══════════════════════════════════════════

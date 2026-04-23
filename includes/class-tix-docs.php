@@ -62,6 +62,18 @@ class TIX_Docs {
                             <span class="dashicons dashicons-groups"></span>
                             <span class="tix-nav-label">Veranstalter</span>
                         </button>
+                        <button type="button" class="tix-nav-tab" data-tab="landing">
+                            <span class="dashicons dashicons-welcome-view-site"></span>
+                            <span class="tix-nav-label">Landingpage</span>
+                        </button>
+                        <button type="button" class="tix-nav-tab" data-tab="datamodel">
+                            <span class="dashicons dashicons-index-card"></span>
+                            <span class="tix-nav-label">Datenmodell</span>
+                        </button>
+                        <button type="button" class="tix-nav-tab" data-tab="hooks">
+                            <span class="dashicons dashicons-randomize"></span>
+                            <span class="tix-nav-label">Hooks</span>
+                        </button>
                         <button type="button" class="tix-nav-tab" data-tab="bot">
                             <span class="dashicons dashicons-format-chat"></span>
                             <span class="tix-nav-label">Ticket-Bot</span>
@@ -81,6 +93,9 @@ class TIX_Docs {
                         <?php self::render_templates_tab(); ?>
                         <?php self::render_promoter_tab(); ?>
                         <?php self::render_organizer_tab(); ?>
+                        <?php self::render_landing_tab(); ?>
+                        <?php self::render_datamodel_tab(); ?>
+                        <?php self::render_hooks_tab(); ?>
                         <?php self::render_bot_tab(); ?>
                         <?php self::render_rest_api_tab(); ?>
 
@@ -527,296 +542,159 @@ class TIX_Docs {
     // TAB 2: SHORTCODES
     // ══════════════════════════════════════
 
+
     private static function render_shortcodes_tab() {
+        global $shortcode_tags;
+        $registry = self::shortcodes_registry();
+        $tix_tags = array_filter(array_keys($shortcode_tags ?: []), function($t){
+            return strpos($t, 'tix_') === 0 || strpos($t, 'tixomat') === 0;
+        });
+        sort($tix_tags);
+        $total      = count($tix_tags);
+        $documented = count(array_intersect($tix_tags, array_keys($registry)));
         ?>
         <div class="tix-pane" data-pane="shortcodes">
 
             <p class="description">
-                <strong>Shortcodes</strong> sind kurze Platzhalter, die du in jede Seite oder jeden Beitrag einf&uuml;gen kannst.
-                WordPress ersetzt sie automatisch durch die entsprechende Funktion (z.B. eine Ticketauswahl oder einen Countdown).
-                F&uuml;ge den Shortcode einfach als Text-Block in deinen Editor ein.
+                <strong>Shortcodes</strong> werden automatisch aus <code>$shortcode_tags</code> erkannt — diese Liste ist also immer aktuell und zeigt alles, was dein aktuelles Plugin registriert hat.
+                Im Editor einfach als Text-Block einfügen.
             </p>
 
-            <?php
-            // ── tix_event_page ──
-            self::shortcode_card(
-                'tix_event_page',
-                'Zeigt eine komplette Event-Detailseite an &ndash; mit Hero-Bild, Datum/Ort/Preis, Ticket-Selektor, Beschreibung, Line-Up, Galerie (mit Lightbox), Video, FAQ, Location-Karte, Serientermine und &auml;hnliche Events. <strong>Zeigt nur Sektionen an, die auch Daten enthalten.</strong> Bettet automatisch <code>[tix_ticket_selector]</code>, <code>[tix_faq]</code>, <code>[tix_calendar]</code> und <code>[tix_upsell]</code> ein.',
-                [
-                    ['id', '(aktuelle Seite)', 'Event-ID. Wenn leer, wird automatisch das Event der aktuellen Seite verwendet.'],
-                ],
-                '[tix_event_page]',
-                '[tix_event_page id="123"]'
-            );
+            <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:10px;padding:14px 16px;margin-bottom:16px;font-size:13px;color:#075985;">
+                <strong><?php echo $total; ?> aktive Shortcodes</strong> registriert — davon <?php echo $documented; ?> mit Beschreibung, <?php echo $total - $documented; ?> ohne (Auto-Detect-Platzhalter).
+            </div>
 
-            // ── tix_ticket_selector ──
-            self::shortcode_card(
-                'tix_ticket_selector',
-                'Zeigt die komplette Ticketauswahl f&uuml;r ein Event an &ndash; mit Kategorien, Preisen, Mengenauswahl, Kombi-Deals, Gruppenrabatt und Kaufen-Button. Unterst&uuml;tzt dynamische Preisphasen (Early Bird usw.) und zeigt automatisch den aktuellen Preis.',
-                [
-                    ['id', '(aktuelle Seite)', 'Event-ID. Wenn leer, wird automatisch das Event der aktuellen Seite verwendet.'],
-                ],
-                '[tix_ticket_selector]',
-                '[tix_ticket_selector id="123"]'
-            );
-
-            // ── tix_countdown ──
-            self::shortcode_card(
-                'tix_countdown',
-                'Zeigt einen Countdown-Timer an, der bis zum Event-Start herunterz&auml;hlt (Tage, Stunden, Minuten, Sekunden). Versteckt sich automatisch, wenn das Event vorbei ist.',
-                [
-                    ['id', '(aktuelle Seite)', 'Event-ID. Wenn leer, wird automatisch das Event der aktuellen Seite verwendet.'],
-                    ['label', '(leer)', 'Optionaler Text &uuml;ber dem Countdown (z.B. &bdquo;Noch bis zum Event&ldquo;).'],
-                ],
-                '[tix_countdown]',
-                '[tix_countdown id="123" label="Countdown l&auml;uft!"]'
-            );
-
-            // ── tix_checkout ──
-            self::shortcode_card(
-                'tix_checkout',
-                'Zeigt das komplette Checkout-Formular an (Rechnungsdaten, Warenkorb, Zahlung). Ersetzt die Standard-WooCommerce-Kasse mit dem Tixomat-Design. Unterst&uuml;tzt Newsletter-Anmeldung, Countdown-Timer und AGB-Checkboxen. Zeigt automatisch Specials-Upsell und Tischreservierung (wenn f&uuml;r das Event aktiviert) auf Step 1.',
-                [
-                    ['terms_url', '(aus Einstellungen)', 'URL zu den AGB. Wenn leer, wird der Wert aus den Plugin-Einstellungen verwendet.'],
-                    ['privacy_url', '(aus Einstellungen)', 'URL zur Datenschutzerkl&auml;rung. Wenn leer, wird der Wert aus den Plugin-Einstellungen verwendet.'],
-                ],
-                '[tix_checkout]',
-                '[tix_checkout terms_url="https://meine-seite.de/agb" privacy_url="https://meine-seite.de/datenschutz"]'
-            );
-
-            // ── tix_cart ──
-            self::shortcode_card(
-                'tix_cart',
-                'Zeigt eine vollst&auml;ndige Warenkorb-Seite im Tixomat-Checkout-Design an. Ersetzt den Standard-WooCommerce-Warenkorb. Zeigt alle Artikel mit Mengensteuerung, Gutschein-Eingabe, Specials-Upsell, Tischreservierung, Zusammenfassung und &bdquo;Zur Kasse&ldquo;-Button. Design ist <strong>identisch</strong> zum Checkout-Shortcode (gleiche CSS-Variablen, gleiche Klassen).',
-                [
-                    ['checkout_url', '(WC Checkout-URL)', 'URL zur Checkout-Seite. Wenn leer, wird die WooCommerce-Standard-Checkout-URL verwendet.'],
-                ],
-                '[tix_cart]',
-                '[tix_cart checkout_url="/checkout/"]'
-            );
-
-            // ── Mini-Cart Drawer (kein Shortcode) ──
-            self::shortcode_card(
-                'Mini-Cart Drawer',
-                'Slide-in Warenkorb von rechts, wird automatisch im Footer geladen. Zeigt Artikel, Mengensteuerung, Gesamt und &bdquo;Zur Kasse&ldquo;-Button in hellem Design. <strong>Kein Shortcode n&ouml;tig</strong> &ndash; wird &uuml;ber CSS-Klasse oder Data-Attribut ausgel&ouml;st:<br><br>'
-                . '<code>&lt;a class="tix-minicart-trigger"&gt;🛒 &lt;span class="tix-minicart-count"&gt;&lt;/span&gt;&lt;/a&gt;</code><br>'
-                . 'oder: <code>&lt;div data-tix-minicart&gt;...&lt;/div&gt;</code><br><br>'
-                . 'Der <code>.tix-minicart-count</code>-Badge zeigt automatisch die Anzahl der Artikel an und wird per WooCommerce-Fragments live aktualisiert (auch bei AJAX Add-to-Cart).',
-                [],
-                'class="tix-minicart-trigger"',
-                'data-tix-minicart'
-            );
-
-            // ── tix_table_reservation ──
-            self::shortcode_card(
-                'tix_table_reservation',
-                'Zeigt den vollst&auml;ndigen Tischreservierungs-Flow als eigenst&auml;ndige SPA an: Monatskalender &rarr; Event-Detail &rarr; Tischkategorie w&auml;hlen &rarr; Buchungsformular. Zahlungsmodi pro Event konfigurierbar (Vor Ort, Anzahlung, Vollzahlung). Tischreservierung wird zus&auml;tzlich automatisch im Checkout und auf der Warenkorb-Seite angezeigt, wenn f&uuml;r das Event aktiviert.',
-                [],
-                '[tix_table_reservation]',
-                null
-            );
-
-            // ── tix_table_button ──
-            self::shortcode_card(
-                'tix_table_button',
-                '&Ouml;ffnet den Tischreservierungs-Dialog f&uuml;r ein bestimmtes Event. Ideal f&uuml;r Event-Einzelseiten.',
-                [
-                    ['event_id', '(aktueller Post)', 'Event-ID f&uuml;r die Tischreservierung.'],
-                ],
-                '[tix_table_button]',
-                '[tix_table_button event_id="123"]'
-            );
-
-            // ── tix_my_tickets ──
-            self::shortcode_card(
-                'tix_my_tickets',
-                'Zeigt dem eingeloggten Benutzer seine gekauften Tickets an &ndash; inklusive QR-Codes, Event-Details und Bestellinformationen. Ber&uuml;cksichtigt auch umgeschriebene Tickets (Ticket-Transfer). Ideal f&uuml;r eine &bdquo;Meine Tickets&ldquo;-Seite im Kundenbereich.',
-                [],
-                '[tix_my_tickets]',
-                null
-            );
-
-            // ── tix_calendar ──
-            self::shortcode_card(
-                'tix_calendar',
-                'Zeigt einen &bdquo;Zum Kalender hinzuf&uuml;gen&ldquo;-Button an, &uuml;ber den Besucher das Event in Google Calendar, Apple Kalender oder Outlook speichern k&ouml;nnen. Generiert automatisch eine ICS-Datei und einen Google-Calendar-Link.',
-                [
-                    ['id', '(aktuelle Seite)', 'Event-ID. Wenn leer, wird das Event der aktuellen Seite verwendet.'],
-                    ['class', '(leer)', 'Zus&auml;tzliche CSS-Klasse f&uuml;r eigenes Styling.'],
-                ],
-                '[tix_calendar]',
-                '[tix_calendar id="123" class="mein-style"]'
-            );
-
-            // ── tix_upsell ──
-            self::shortcode_card(
-                'tix_upsell',
-                'Zeigt &auml;hnliche oder empfohlene Events an (&bdquo;Das k&ouml;nnte dich auch interessieren&ldquo;). Nutzt die manuell zugewiesenen Events oder zeigt automatisch Events aus der gleichen Kategorie. Zeigt nur zuk&uuml;nftige, ver&ouml;ffentlichte Events.',
-                [
-                    ['id', '(aktuelle Seite)', 'Event-ID. Wenn leer, wird das aktuelle Event verwendet.'],
-                    ['count', '(aus Einstellungen)', 'Anzahl angezeigter Events. Standard: Wert aus den Plugin-Einstellungen.'],
-                    ['heading', '(leer)', '&Uuml;berschrift &uuml;ber den empfohlenen Events.'],
-                    ['exclude', '(leer)', 'Event-IDs, die nicht angezeigt werden sollen (komma-getrennt).'],
-                    ['class', '(leer)', 'Zus&auml;tzliche CSS-Klasse.'],
-                ],
-                '[tix_upsell]',
-                '[tix_upsell count="4" heading="Weitere Events" exclude="10,20"]'
-            );
-
-            // ── tix_faq ──
-            self::shortcode_card(
-                'tix_faq',
-                'Zeigt die FAQ (H&auml;ufige Fragen) eines Events als aufklappbares Akkordeon an. Die Fragen werden im Event-Editor unter dem Tab &bdquo;FAQ&ldquo; gepflegt.',
-                [
-                    ['id', '(aktuelle Seite)', 'Event-ID. Wenn leer, wird das aktuelle Event verwendet.'],
-                    ['title', 'H&auml;ufige Fragen', '&Uuml;berschrift &uuml;ber dem FAQ-Bereich.'],
-                    ['class', '(leer)', 'Zus&auml;tzliche CSS-Klasse.'],
-                    ['wide', '0', 'Auf &bdquo;1&ldquo; setzen f&uuml;r volle Breite ohne Rahmen.'],
-                ],
-                '[tix_faq]',
-                '[tix_faq id="123" title="Wichtige Fragen" wide="1"]'
-            );
-
-            // ── tix_checkin ──
-            self::shortcode_card(
-                'tix_checkin',
-                'Zeigt das Check-in-System mit QR-Code-Scanner (Kamera), manueller Code-Eingabe und G&auml;steliste an. Gesch&uuml;tzt durch ein Passwort (wird im Event-Editor eingestellt). Zeigt live, wie viele G&auml;ste bereits eingecheckt sind.',
-                [
-                    ['event_id', '(leer)', 'Event-ID zum Vorausw&auml;hlen. Wenn gesetzt, ist dieses Event im Dropdown vorausgew&auml;hlt.'],
-                ],
-                '[tix_checkin]',
-                '[tix_checkin event_id="123"]'
-            );
-
-            // ── tix_express_checkout ──
-            self::shortcode_card(
-                'tix_express_checkout',
-                'Zeigt einen Express-Checkout-Button, der ein Modal mit Ticket-Auswahl &ouml;ffnet. Im Modal k&ouml;nnen Tickets gew&auml;hlt, die Nutzungsbedingungen akzeptiert und der Kauf direkt abgeschlossen werden &ndash; ohne Warenkorb-Umweg. Wird nur f&uuml;r eingeloggte Nutzer mit gespeicherter Zahlungsmethode und aktiviertem Express-Checkout (global + pro Event) angezeigt.',
-                [
-                    ['id', '(aktuelle Seite)', 'Event-ID. Wenn leer, wird das Event der aktuellen Seite verwendet.'],
-                    ['label', 'Express-Checkout', 'Text auf dem Trigger-Button.'],
-                ],
-                '[tix_express_checkout]',
-                '[tix_express_checkout id="123" label="Jetzt kaufen"]'
-            );
-
-            // ── tix_ticket_transfer ──
-            self::shortcode_card(
-                'tix_ticket_transfer',
-                'Zeigt ein Formular zur Ticket-Umschreibung. Der K&auml;ufer gibt Bestellnummer und E-Mail ein, w&auml;hlt Tickets per Checkbox aus und tr&auml;gt den neuen Inhaber ein. Der neue Inhaber erh&auml;lt automatisch ein Konto und eine E-Mail-Benachrichtigung. Umgeschriebene Tickets erscheinen unter &bdquo;Meine Tickets&ldquo; des neuen Inhabers.',
-                [
-                    ['id', '(aktuelle Seite)', 'Event-ID. Wenn leer, wird das Event der aktuellen Seite verwendet.'],
-                ],
-                '[tix_ticket_transfer]',
-                '[tix_ticket_transfer id="123"]'
-            );
-
-            // ── tix_series_dates ──
-            self::shortcode_card(
-                'tix_series_dates',
-                'Zeigt auf einer Event-Einzelseite die Geschwister-Termine einer Eventserie an. Listet alle zuk&uuml;nftigen, ver&ouml;ffentlichten Termine der Serie mit Datum und Link zur Ticket-Seite. Wird nur auf Kind-Events (Teil einer Serie) angezeigt.',
-                [
-                    ['id', '(aktuelle Seite)', 'Event-ID. Wenn leer, wird das aktuelle Event verwendet.'],
-                ],
-                '[tix_series_dates]',
-                '[tix_series_dates id="123"]'
-            );
-
-            // ── tix_seatmap ──
-            self::shortcode_card(
-                'tix_seatmap',
-                'Zeigt einen interaktiven Saalplan (Seat Map) als Standalone-Ansicht an. Besucher sehen alle Sektionen farbcodiert mit Preisen und Verf&uuml;gbarkeit. Ideal f&uuml;r eine eigene &bdquo;Saalplan&ldquo;-Seite. F&uuml;r die volle Kauf-Integration nutze stattdessen den <code>[tix_ticket_selector]</code> mit aktiviertem Saalplan im Event.',
-                [
-                    ['id', '(aus Event-Meta)', 'Saalplan-ID. Wenn leer, wird der dem Event zugewiesene Saalplan verwendet.'],
-                    ['event', '(aktuelle Seite)', 'Event-ID. Wenn leer, wird das Event der aktuellen Seite verwendet.'],
-                ],
-                '[tix_seatmap]',
-                '[tix_seatmap event="123"]'
-            );
-
-            // ── tix_support ──
-            self::shortcode_card(
-                'tix_support',
-                'Zeigt das Kunden-Support-Portal an. Eingeloggte Benutzer werden automatisch authentifiziert und sehen ihre Anfragen. G&auml;ste geben E-Mail und Bestellnummer zur Anmeldung ein. Erm&ouml;glicht das Erstellen neuer Anfragen, Einsehen bestehender Anfragen und Antworten auf Nachrichten. Voraussetzung: Support-System muss in den Einstellungen aktiviert sein.',
-                [],
-                '[tix_support]',
-                null
-            );
-
-            // ── tix_promoter_dashboard ──
-            self::shortcode_card(
-                'tix_promoter_dashboard',
-                'Zeigt das Promoter-Dashboard im Frontend an. Promoter k&ouml;nnen hier ihre zugewiesenen Events, Verk&auml;ufe, Provisionen und Auszahlungen einsehen. Erfordert eingeloggten Benutzer mit Promoter-Status.',
-                [],
-                '[tix_promoter_dashboard]',
-                null
-            );
-
-            // ── tix_organizer_dashboard ──
-            self::shortcode_card(
-                'tix_organizer_dashboard',
-                'Zeigt das Veranstalter-Dashboard im Frontend an. Veranstalter k&ouml;nnen Events erstellen, bearbeiten und verwalten, Bestellungen einsehen, G&auml;stelisten pflegen und Statistiken abrufen &ndash; <strong>ohne wp-admin-Zugang</strong>. Erfordert eingeloggten Benutzer mit verkn&uuml;pftem <code>tix_organizer</code>-Eintrag.',
-                [],
-                '[tix_organizer_dashboard]',
-                null
-            );
-
-            // ── tix_chat ──
-            self::shortcode_card(
-                'tix_chat',
-                'Bettet den KI-Chatbot als eingebettetes Element auf der Seite ein. Ideal f&uuml;r eine dedizierte Chat-/Support-Seite. Unterst&uuml;tzt WooCommerce-Warenkorb-Integration, Ticket-Suche und Kundenservice.',
-                [
-                    ['height', '700px', 'CSS-H&ouml;he des Chat-Containers.'],
-                ],
-                '[tix_chat]',
-                '[tix_chat height="500px"]'
-            );
-
-            // ── tix_chat_widget ──
-            self::shortcode_card(
-                'tix_chat_widget',
-                'Zeigt ein schwebendes Chat-Widget (Blase) unten rechts an. Klick &ouml;ffnet ein Popup-Chat-Fenster mit voller Bot-Funktionalit&auml;t. Kann &uuml;ber die Bot-Einstellungen auch automatisch auf allen Seiten eingebunden werden (<code>Auto-Widget</code>).',
-                [],
-                '[tix_chat_widget]',
-                null
-            );
-
-            // ── tix_raffle ──
-            self::shortcode_card(
-                'tix_raffle',
-                'Zeigt das Gewinnspiel-Formular f&uuml;r ein Event an. Besucher k&ouml;nnen mit Name und E-Mail teilnehmen. Zeigt je nach Status: Teilnahmeformular mit Countdown, geschlossene Meldung oder Gewinnerliste. Wird automatisch auf der Event-Seite eingebettet, kann aber auch separat verwendet werden.',
-                [
-                    ['id', 'Aktueller Post', 'Event-Post-ID. Muss nur angegeben werden, wenn der Shortcode au&szlig;erhalb der Event-Seite verwendet wird.'],
-                ],
-                '[tix_raffle]',
-                '[tix_raffle id="123"]'
-            );
-
-            // ── tix_feedback ──
-            self::shortcode_card(
-                'tix_feedback',
-                'Zeigt das Feedback-Formular (Sterne-Bewertung + Kommentar) f&uuml;r ein Event an. Bei g&uuml;ltigem Token: Formular oder Danke-Nachricht. Ohne Token: &ouml;ffentliche Durchschnittsbewertung. Token wird &uuml;ber die Follow-Up E-Mail generiert.',
-                [
-                    ['id', 'Aktueller Post', 'Event-Post-ID. Muss nur angegeben werden, wenn der Shortcode au&szlig;erhalb der Event-Seite verwendet wird.'],
-                ],
-                '[tix_feedback]',
-                '[tix_feedback id="123"]'
-            );
-
-            // ── tix_timetable ──
-            self::shortcode_card(
-                'tix_timetable',
-                'Zeigt das mehrt&auml;gige Programm / Timetable mit B&uuml;hnen-Grid an. Desktop: CSS-Grid mit Spalten pro B&uuml;hne. Mobil: Listen-Ansicht mit B&uuml;hnen-Filter. Tages-Tabs zum Wechseln zwischen den Veranstaltungstagen. Wird automatisch auf der Event-Seite eingebettet.',
-                [
-                    ['id', 'Aktueller Post', 'Event-Post-ID. Muss nur angegeben werden, wenn der Shortcode au&szlig;erhalb der Event-Seite verwendet wird.'],
-                ],
-                '[tix_timetable]',
-                '[tix_timetable id="123"]'
-            );
-            ?>
+            <?php foreach ($tix_tags as $tag):
+                $d = $registry[$tag] ?? null;
+                if ($d) {
+                    self::shortcode_card($tag, $d['desc'], $d['params'] ?? [], $d['examples'][0] ?? "[{$tag}]", $d['examples'][1] ?? '');
+                } else {
+                    self::shortcode_card($tag,
+                        '<em style="color:#94a3b8;">Auto-erkannt aus <code>add_shortcode()</code>. Noch keine Beschreibung hinterlegt — kann in <code>TIX_Docs::shortcodes_registry()</code> ergänzt werden.</em>',
+                        [], "[{$tag}]", '');
+                }
+            endforeach; ?>
 
         </div>
         <?php
+    }
+
+    /**
+     * Registry aller bekannten Shortcodes mit Beschreibung + Parametern.
+     * Wird mit $shortcode_tags abgeglichen — fehlende Einträge fallen auf
+     * Auto-Detect-Platzhalter zurück.
+     */
+    public static function shortcodes_registry() {
+        return [
+            'tix_event_page' => [
+                'desc' => 'Komplette Event-Detailseite (Hero, Datum, Ort, Ticket-Selektor, Beschreibung, Lineup, Galerie, Video, FAQ, Map, Serien). Zeigt nur Sektionen mit Daten. Bettet <code>[tix_ticket_selector]</code>, <code>[tix_faq]</code>, <code>[tix_calendar]</code>, <code>[tix_upsell]</code> ein.',
+                'params' => [['id', '(aktuelle Seite)', 'Event-ID, optional.']],
+                'examples' => ['[tix_event_page]', '[tix_event_page id="123"]'],
+            ],
+            'tix_ticket_selector' => [
+                'desc' => 'Ticketauswahl mit Kategorien, Preisen, Mengen, Bundles, Gruppenrabatt, Phasen-Preisen (Early-Bird), Kaufen-Button.',
+                'params' => [['id', '(aktuelle Seite)', 'Event-ID.']],
+                'examples' => ['[tix_ticket_selector]', '[tix_ticket_selector id="123"]'],
+            ],
+            'tix_countdown' => [
+                'desc' => 'Live-Countdown bis zum Event-Start. Versteckt sich wenn Event vorbei ist.',
+                'params' => [
+                    ['id', '(auto)', 'Event-ID.'],
+                    ['label', '(leer)', 'Text über dem Countdown.'],
+                ],
+                'examples' => ['[tix_countdown]', '[tix_countdown id="123" label="Countdown läuft!"]'],
+            ],
+            'tix_checkout' => [
+                'desc' => 'Kompletter Checkout-Flow (Rechnungsdaten, Warenkorb, Zahlung). Ersetzt die WC-Kasse mit Tixomat-Design. Mehrstufig, mit Countdown + Newsletter-Opt-In.',
+                'params' => [],
+                'examples' => ['[tix_checkout]'],
+            ],
+            'tix_native_cart' => [
+                'desc' => 'Eigenständiger Warenkorb ohne WooCommerce. Zeigt Items, Gesamtsumme, Gutschein-Feld und "Weiter zur Kasse".',
+                'params' => [],
+                'examples' => ['[tix_native_cart]'],
+            ],
+            'tix_events' => [
+                'desc' => 'Event-Kartenraster mit Filter. Kann nach Veranstalter, Location, Datum, Kategorie einschränken.',
+                'params' => [
+                    ['count', '12', 'Anzahl Events.'],
+                    ['organizer', '', 'Organizer-ID (filtert nur auf dessen Events).'],
+                    ['location', '', 'Location-ID.'],
+                    ['category', '', 'Kategorie-Slug.'],
+                    ['show_past', 'false', '"true" = auch vergangene Events.'],
+                ],
+                'examples' => ['[tix_events count="6"]', '[tix_events organizer="128" count="3"]'],
+            ],
+            'tix_homepage' => [
+                'desc' => 'Komplette Tixomat-Homepage mit Sektionen (Hero, Empfehlungen, kommende Events, Verlauf, etc.). Konfigurierbar via Homepage-Baukasten in den Einstellungen.',
+                'params' => [],
+                'examples' => ['[tix_homepage]'],
+            ],
+            'tix_calendar' => [
+                'desc' => 'Monats-Kalender-Ansicht eines Events (Serien-Termine) oder aller kommenden Events.',
+                'params' => [['id', '(auto)', 'Event-ID für Serien, leer für alle.']],
+                'examples' => ['[tix_calendar]', '[tix_calendar id="123"]'],
+            ],
+            'tix_search' => [
+                'desc' => 'Such-Feld mit Live-Vorschlägen. Durchsucht Events, Locations, Organizer nach Volltext. Ergebnisse auf <code>/events/?s=...</code>.',
+                'params' => [
+                    ['placeholder', 'Suche...', 'Platzhaltertext.'],
+                    ['position', '', 'Positionierung (z.B. "header").'],
+                ],
+                'examples' => ['[tix_search]', '[tix_search placeholder="Event oder Ort..."]'],
+            ],
+            'tix_faq' => [
+                'desc' => 'FAQ-Liste mit Accordion. Pro Event oder global.',
+                'params' => [['id', '(auto)', 'Event-ID.']],
+                'examples' => ['[tix_faq]', '[tix_faq id="123"]'],
+            ],
+            'tix_upsell' => [
+                'desc' => 'Upsell-Produkte im Checkout (Getränke-Pauschale, VIP, Merch). Wird automatisch von <code>[tix_checkout]</code> eingebettet.',
+                'params' => [['id', '(auto)', 'Event-ID.']],
+                'examples' => ['[tix_upsell]'],
+            ],
+            'tix_seatmap' => [
+                'desc' => 'Interaktiver Saalplan zur Sitzplatz-Auswahl.',
+                'params' => [
+                    ['id', '(auto)', 'Event-ID.'],
+                    ['seatmap', '', 'Seatmap-ID falls abweichend.'],
+                ],
+                'examples' => ['[tix_seatmap]', '[tix_seatmap seatmap="42"]'],
+            ],
+            'tix_raffle' => [
+                'desc' => 'Verlosung/Gewinnspiel-Block. Teilnehmer-Formular mit Datenschutz-Opt-In.',
+                'params' => [['id', '', 'Raffle-ID.']],
+                'examples' => ['[tix_raffle id="7"]'],
+            ],
+            'tix_checkin' => [
+                'desc' => 'Tür-Einlass-App (QR-Scanner, Gästelisten-Suche). Zugriff via Event-Passwort.',
+                'params' => [['id', '(auto)', 'Event-ID.']],
+                'examples' => ['[tix_checkin]'],
+            ],
+            'tix_pos' => [
+                'desc' => 'Point-of-Sale: direkter Ticketverkauf an der Abendkasse (für Mitarbeiter). Barzahlung + sofortiger Ticket-Druck.',
+                'params' => [],
+                'examples' => ['[tix_pos]'],
+            ],
+            'tix_account'        => ['desc' => 'Kunden-Account-Bereich (Meine Daten, Tickets, Bestellungen).', 'params' => [], 'examples' => ['[tix_account]']],
+            'tix_my_tickets'     => ['desc' => 'Liste aller Tickets des eingeloggten Users mit PDF-Download.', 'params' => [], 'examples' => ['[tix_my_tickets]']],
+            'tix_order_history'  => ['desc' => 'Bestellhistorie des eingeloggten Users.', 'params' => [], 'examples' => ['[tix_order_history]']],
+            'tix_ticket_transfer' => ['desc' => 'Formular zum Übertragen eines Tickets an andere Person (Umschreibung).', 'params' => [['code', '', 'Ticket-Code.']], 'examples' => ['[tix_ticket_transfer]']],
+            'tix_timetable'      => ['desc' => 'Tages-/Stunden-Timetable eines Events (mehrere Acts/Slots).', 'params' => [['id', '(auto)', 'Event-ID.']], 'examples' => ['[tix_timetable]']],
+            'tix_support'        => ['desc' => 'Kunden-Support-Interface (Anfrage stellen, Status ansehen).', 'params' => [], 'examples' => ['[tix_support]']],
+            'tix_feedback'       => ['desc' => 'Post-Event-Feedback-Formular mit Sterne-Rating + freiem Text.', 'params' => [['id', '', 'Event-ID.']], 'examples' => ['[tix_feedback id="123"]']],
+            'tix_share'          => ['desc' => 'Share-Buttons (WhatsApp, Facebook, E-Mail, Copy-Link) für aktuelle Event-Seite.', 'params' => [], 'examples' => ['[tix_share]']],
+            'tix_cta_button'     => ['desc' => 'Call-to-Action-Button mit Tixomat-Styling. Nutzt konfigurierte Primärfarbe.', 'params' => [['text', '', 'Button-Text.'], ['url', '', 'Ziel-URL.']], 'examples' => ['[tix_cta_button text="Jetzt Tickets!" url="/events/xyz/"]']],
+            'tix_table_reservation' => ['desc' => 'Tischreservierungs-Modul (zu Event, mit Personen-Anzahl + Zusatzwünschen).', 'params' => [['id', '(auto)', 'Event-ID.']], 'examples' => ['[tix_table_reservation]']],
+            'tix_table_button'   => ['desc' => 'Button der ein Modal mit Tischreservierung öffnet.', 'params' => [['id', '(auto)', 'Event-ID.'], ['text', 'Tisch reservieren', 'Button-Text.']], 'examples' => ['[tix_table_button]']],
+            'tix_ticket_modal'   => ['desc' => 'Ticketauswahl als Modal-Popup (lazy-loaded). Ideal für Homepage oder Side-Widgets.', 'params' => [['id', '', 'Event-ID.'], ['text', 'Tickets kaufen', 'Trigger-Text.']], 'examples' => ['[tix_ticket_modal id="123"]']],
+            'tix_express_checkout' => ['desc' => 'Ein-Klick-Checkout-Button für User mit gespeicherten Daten. Bypass des regulären Formulars.', 'params' => [['id', '', 'Event-ID.']], 'examples' => ['[tix_express_checkout]']],
+            'tix_register_event' => ['desc' => 'Öffentliches Event-Registrierungs-Formular (Veranstalter-Self-Service zum Event-Einreichen).', 'params' => [], 'examples' => ['[tix_register_event]']],
+            'tix_promoter_dashboard' => ['desc' => 'Promoter-Dashboard (eigene Statistik, Payout, Verkäufe via Affiliate-Link).', 'params' => [], 'examples' => ['[tix_promoter_dashboard]']],
+            'tix_promoter_signup'    => ['desc' => 'Anmeldeformular neuer Promoter. Legt User + Promoter-Profil an.', 'params' => [], 'examples' => ['[tix_promoter_signup]']],
+            'tix_organizer_dashboard' => ['desc' => 'Frontend-Variante des Organizer-Dashboards (Statistik, Einnahmen, Gäste).', 'params' => [], 'examples' => ['[tix_organizer_dashboard]']],
+            'tix_cart' => ['desc' => 'WooCommerce-kompatible Warenkorb-Variante (Legacy). Für native Installationen lieber <code>[tix_native_cart]</code> verwenden.', 'params' => [], 'examples' => ['[tix_cart]']],
+        ];
     }
 
     private static function shortcode_card($tag, $description, $params, $example_simple, $example_full) {
@@ -1284,214 +1162,271 @@ class TIX_Docs {
     // TAB 4: AJAX & HOOKS
     // ══════════════════════════════════════
 
+
     private static function render_ajax_tab() {
+        global $wp_filter;
+        $actions = [];
+        foreach (($wp_filter ?? []) as $hook => $obj) {
+            if (strpos($hook, 'wp_ajax_tix') !== 0 && strpos($hook, 'wp_ajax_nopriv_tix') !== 0) continue;
+            $action = str_replace(['wp_ajax_nopriv_', 'wp_ajax_'], '', $hook);
+            $is_public = strpos($hook, 'wp_ajax_nopriv_') === 0;
+            $callbacks = [];
+            if (is_object($obj) && !empty($obj->callbacks)) {
+                foreach ($obj->callbacks as $prio => $cbs) {
+                    foreach ($cbs as $cb) {
+                        $fn = $cb['function'] ?? null;
+                        if (is_array($fn)) {
+                            $class = is_object($fn[0]) ? get_class($fn[0]) : $fn[0];
+                            $callbacks[] = $class . '::' . $fn[1];
+                        } elseif (is_string($fn)) {
+                            $callbacks[] = $fn;
+                        }
+                    }
+                }
+            }
+            if (!isset($actions[$action])) $actions[$action] = ['public' => false, 'private' => false, 'callbacks' => []];
+            if ($is_public) $actions[$action]['public']  = true;
+            else            $actions[$action]['private'] = true;
+            foreach ($callbacks as $c) {
+                if (!in_array($c, $actions[$action]['callbacks'], true)) $actions[$action]['callbacks'][] = $c;
+            }
+        }
+        ksort($actions);
         ?>
         <div class="tix-pane" data-pane="ajax">
-
             <p class="description">
-                <strong>AJAX-Endpoints, Admin-Post-Actions, Cron-Hooks und Transients</strong> &ndash; technische Referenz f&uuml;r Entwickler.
+                <strong>AJAX-Endpunkte</strong> werden automatisch aus <code>$wp_filter['wp_ajax_*']</code> erkannt. URL immer: <code>/wp-admin/admin-ajax.php</code> mit <code>action=&lt;name&gt;</code>.
             </p>
 
-            <?php
-            // ── AJAX Endpoints ──
-            self::meta_card('AJAX-Endpoints <small>(wp_ajax_ / wp_ajax_nopriv_)</small>', 'dashicons-rest-api', [
-                ['tix_add_to_cart', 'Ticket(s) in den WooCommerce-Warenkorb legen', 'Frontend'],
-                ['tix_validate_coupon', 'Gutschein-Code validieren', 'Frontend'],
-                ['tix_update_cart', 'Warenkorb aktualisieren (Mengen &auml;ndern)', 'Frontend'],
-                ['tix_apply_coupon', 'Gutschein anwenden', 'Frontend'],
-                ['tix_remove_coupon', 'Gutschein entfernen', 'Frontend'],
-                ['tix_countdown_clear', 'Checkout-Countdown zur&uuml;cksetzen', 'Frontend'],
-                ['tix_login', 'Login w&auml;hrend des Checkouts (nur nopriv)', 'Frontend'],
-                ['tix_capture_cart_email', 'E-Mail vor Kauf erfassen (Abandoned Cart)', 'Frontend'],
-                ['tix_express_checkout', 'Express-Checkout ausf&uuml;hren (nur ajax)', 'Frontend'],
-                ['tix_group_create', 'Gruppenbuchung-Session erstellen', 'Frontend'],
-                ['tix_group_add', 'Mitglied zur Gruppe hinzuf&uuml;gen', 'Frontend'],
-                ['tix_group_status', 'Gruppen-Status abfragen', 'Frontend'],
-                ['tix_group_remove', 'Mitglied aus Gruppe entfernen', 'Frontend'],
-                ['tix_group_checkout', 'Gruppen-Checkout abschlie&szlig;en', 'Frontend'],
-                ['tix_ics', 'ICS-Kalenderdatei generieren', 'Frontend'],
-                ['tix_guest_validate', 'G&auml;ste-QR-Code / Ticket-Code validieren &amp; einchecken (unterst&uuml;tzt Teil-Check-in)', 'Frontend'],
-                ['tix_guest_list_status', 'G&auml;steliste-Status abfragen (inkl. Teil-Check-in-Z&auml;hler)', 'Frontend'],
-                ['tix_guest_update_checkin', 'Check-in-Z&auml;hler eines Gastes anpassen (Partial Check-in &minus;/+)', 'Frontend'],
-                ['tix_guest_checkin', 'Gast einchecken', 'Admin'],
-                ['tix_guest_send_email', 'E-Mail an einzelnen Gast senden', 'Admin'],
-                ['tix_guest_send_all_emails', 'Massen-E-Mail an alle G&auml;ste', 'Admin'],
-                ['tix_teilnehmer_csv', 'Teilnehmer als CSV exportieren', 'Admin'],
-                ['tix_transfer_lookup', 'Bestellung f&uuml;r Ticket-Transfer suchen', 'Frontend'],
-                ['tix_transfer_save', 'Ticket-Transfer ausf&uuml;hren', 'Frontend'],
-                ['tix_create_location', 'Neue Location per Modal erstellen (Name, Adresse, Beschreibung)', 'Admin'],
-                ['tix_create_organizer', 'Neuen Veranstalter per Modal erstellen (Name, Adresse, Beschreibung)', 'Admin'],
-                ['tix_raffle_enter', 'Gewinnspiel-Teilnahme (Name + E-Mail)', 'Frontend'],
-                ['tix_waitlist_join', 'Warteliste / Presale-Benachrichtigung beitreten', 'Frontend'],
-                ['tix_feedback_submit', 'Feedback absenden (Sterne + Kommentar, Token-validiert)', 'Frontend'],
-            ]);
+            <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:10px;padding:14px 16px;margin-bottom:16px;font-size:13px;color:#075985;">
+                <strong><?php echo count($actions); ?> Tixomat-AJAX-Actions</strong> registriert (Stand: Live-Scan).
+                Spalte <em>Zugriff</em>: <code>Admin</code> = nur für eingeloggte User, <code>Public</code> = auch nopriv.
+            </div>
 
-            // ── Gewinnspiel AJAX ──
-            self::meta_card('Gewinnspiel-AJAX <small>(wp_ajax_)</small>', 'dashicons-tickets', [
-                ['tix_raffle_draw', 'Gewinnspiel manuell auslosen (Admin)', 'Admin'],
-            ]);
-
-            // ── Ticket-Verwaltung AJAX Endpoints ──
-            self::meta_card('Ticket-AJAX-Endpoints <small>(wp_ajax_)</small>', 'dashicons-tickets-alt', [
-                ['tix_ticket_resend', 'Einzelnes Ticket erneut per E-Mail versenden', 'Admin'],
-                ['tix_ticket_resend_order', 'Alle Tickets einer Bestellung erneut versenden', 'Admin'],
-                ['tix_ticket_toggle_status', 'Ticket-Status umschalten (valid &harr; cancelled)', 'Admin'],
-                ['tix_template_preview', 'Template-Vorschau generieren (PDF-Preview)', 'Admin'],
-                ['tix_checkin_combined_list', 'Kombinierte G&auml;ste- und Ticket-Liste f&uuml;r Check-in laden', 'Frontend'],
-                ['tix_ticket_toggle_checkin', 'Check-in-Status eines gekauften Tickets umschalten', 'Frontend'],
-            ]);
-
-            // ── Saalplan AJAX Endpoints ──
-            self::meta_card('Saalplan-AJAX-Endpoints <small>(wp_ajax_ / wp_ajax_nopriv_)</small>', 'dashicons-layout', [
-                ['tix_seatmap_save', 'Saalplan speichern + WC-Produkte pro Sektion synchronisieren', 'Admin'],
-                ['tix_seatmap_load', 'Saalplan-Daten laden', 'Admin'],
-                ['tix_seat_availability', 'Sitzplatz-Verf&uuml;gbarkeit f&uuml;r Event/Saalplan abfragen (inkl. Sektions-Preise)', 'Frontend'],
-                ['tix_reserve_seats', 'Sitzpl&auml;tze reservieren (15-Min-Session-Reservierung)', 'Frontend'],
-                ['tix_release_seats', 'Sitzplatz-Reservierungen freigeben', 'Frontend'],
-                ['tix_best_available', 'Bester verf&uuml;gbarer Platz (Parameter: event_id, seatmap_id, section_id, qty)', 'Frontend'],
-            ]);
-
-            // ── Statistik AJAX Endpoints ──
-            self::meta_card('Statistik-AJAX-Endpoints <small>(wp_ajax_)</small>', 'dashicons-chart-area', [
-                ['tix_stats_overview', 'Statistik: &Uuml;bersicht (KPIs + Charts)', 'Admin'],
-                ['tix_stats_revenue', 'Statistik: Umsatz-Analyse', 'Admin'],
-                ['tix_stats_tickets', 'Statistik: Ticket-Analyse', 'Admin'],
-                ['tix_stats_events', 'Statistik: Event-Analyse', 'Admin'],
-                ['tix_stats_checkin', 'Statistik: Check-in-Analyse', 'Admin'],
-                ['tix_stats_carts', 'Statistik: Warenk&ouml;rbe-Analyse', 'Admin'],
-                ['tix_stats_newsletter', 'Statistik: Newsletter-Analyse', 'Admin'],
-                ['tix_stats_discounts', 'Statistik: Rabatt-Analyse', 'Admin'],
-                ['tix_stats_export', 'Statistik: CSV-Export (Parameter: tab)', 'Admin'],
-            ]);
-
-            // ── Support AJAX Endpoints ──
-            self::meta_card('Support-AJAX-Endpoints <small>(wp_ajax_ / wp_ajax_nopriv_)</small>', 'dashicons-format-chat', [
-                ['tix_support_search', 'Kunden/Tickets/Bestellungen suchen (Auto-Detect: E-Mail, #Order, 12-stelliger Code)', 'Admin'],
-                ['tix_support_list', 'Anfragen-Liste mit Status-/Kategorie-Filter und Suche', 'Admin'],
-                ['tix_support_detail', 'Einzelne Anfrage mit Nachrichten-Thread laden', 'Admin'],
-                ['tix_support_reply', 'Admin-Antwort senden (+ E-Mail an Kunden)', 'Admin'],
-                ['tix_support_note', 'Interne Notiz hinzuf&uuml;gen (nur Admin-sichtbar)', 'Admin'],
-                ['tix_support_status', 'Status einer Anfrage &auml;ndern (+ E-Mail bei &rarr; gel&ouml;st)', 'Admin'],
-                ['tix_support_resend_ticket', 'Ticket-E-Mail erneut an Kunden senden', 'Admin'],
-                ['tix_support_change_owner', 'Ticketinhaber &auml;ndern (Name + E-Mail)', 'Admin'],
-                ['tix_support_create', 'Neue Support-Anfrage erstellen', 'Frontend + Admin'],
-                ['tix_support_customer_auth', 'Kunden-Authentifizierung (E-Mail + Bestellnr.)', 'Frontend'],
-                ['tix_support_customer_list', 'Eigene Anfragen laden (Frontend-Portal)', 'Frontend'],
-                ['tix_support_customer_detail', 'Einzelne eigene Anfrage laden (ohne interne Notizen)', 'Frontend'],
-                ['tix_support_customer_reply', 'Kunden-Antwort senden (+ E-Mail an Admin)', 'Frontend'],
-            ]);
-
-            // ── Sync AJAX Endpoints ──
-            self::meta_card('Sync-AJAX-Endpoints <small>(wp_ajax_)</small>', 'dashicons-update', [
-                ['tix_sync_test_connection', 'Verbindung zur externen Datenbank testen', 'Admin'],
-                ['tix_sync_all', 'Vollst&auml;ndige Synchronisierung aller Events ausl&ouml;sen', 'Admin'],
-            ]);
-
-            // ── Bot REST API ──
-            self::meta_card('Bot REST API <small>(wp-json/tix-bot/v1)</small>', 'dashicons-format-chat', [
-                ['GET /events', 'Alle kommenden Events mit Kategorien, Preisen, Verf&uuml;gbarkeit (max. 50)', 'X-Bot-Secret'],
-                ['GET /event/{id}', 'Einzelnes Event nach Post-ID', 'X-Bot-Secret'],
-                ['POST /tickets/lookup', 'Ticket-Suche: E-Mail + Verifizierung (order_id/last_name). Rate-Limit: 5/15 Min', 'X-Bot-Secret'],
-                ['POST /cart/checkout-url', 'Checkout-URL generieren (items: [{product_id, quantity}])', 'X-Bot-Secret'],
-                ['GET /customer/exists', 'Kundenexistenz pr&uuml;fen (?email=)', 'X-Bot-Secret'],
-            ]);
-
-            // ── Bot Chat AJAX ──
-            self::meta_card('Bot-Chat AJAX-Endpoints <small>(wp_ajax_ / wp_ajax_nopriv_)</small>', 'dashicons-cart', [
-                ['tix_bot_get_cart', 'Aktuellen WC-Warenkorb abfragen (items, count, total, URLs)', 'GET'],
-                ['tix_bot_add_to_cart', 'Produkt hinzuf&uuml;gen (product_id, quantity)', 'POST'],
-                ['tix_bot_add_batch', 'Mehrere Produkte hinzuf&uuml;gen (items: JSON-Array)', 'POST'],
-                ['tix_bot_remove_from_cart', 'Produkt entfernen (product_id)', 'POST'],
-                ['tix_bot_clear_cart', 'Warenkorb leeren', 'POST'],
-            ]);
-
-            // ── Bot Admin AJAX ──
-            self::meta_card('Bot-Admin AJAX-Endpoints <small>(wp_ajax_)</small>', 'dashicons-admin-network', [
-                ['txba_proxy', 'Proxy: Leitet Admin-Anfragen an Bot-Backend weiter (CORS-frei, API-Key serverseitig)', 'manage_woocommerce'],
-                ['txba_save_settings', 'Bot-Einstellungen speichern (auto_widget) + Sync mit Backend', 'manage_woocommerce'],
-            ]);
-
-            // ── Admin Post Actions ──
-            self::meta_card('Admin-Post-Actions <small>(admin_post_)</small>', 'dashicons-admin-links', [
-                ['tix_duplicate_event', 'Event komplett duplizieren (als Entwurf)', 'Admin'],
-                ['tix_force_delete_event', 'Event restlos l&ouml;schen inkl. WC-Produkte, Custom Tables, CPTs, Crons', 'Admin'],
-                ['tix_cleanup_orphans', 'Verwaiste Daten bereinigen (Events, WC-Produkte, Tickets) inkl. purge_event_data', 'Admin'],
-                ['tix_export_subscribers', 'Newsletter-Abonnenten als CSV exportieren', 'Admin'],
-                ['tix_export_tickets_csv', 'Ticket-Daten als CSV exportieren', 'Admin'],
-            ]);
-
-            // ── Cron Hooks ──
-            self::meta_card('Cron-Hooks', 'dashicons-clock', [
-                ['tix_presale_check', 'Alle 10 Min: VVK-Ablauf, vergangene Events, Preisphasen pr&uuml;fen', 'Wiederkehrend'],
-                ['tix_send_reminder_email', 'Erinnerungs-E-Mail vor dem Event versenden', 'Einzeln/Bestellung'],
-                ['tix_send_followup_email', 'Follow-up-E-Mail nach dem Event versenden', 'Einzeln/Bestellung'],
-                ['tix_cleanup_expired_seats', 'Alle 5 Min: Abgelaufene Sitzplatz-Reservierungen bereinigen', 'Wiederkehrend'],
-                ['tix_send_abandoned_cart_email', 'Verlassene-Warenkorb E-Mail versenden (Action Scheduler)', 'Einzeln/Warenkorb'],
-            ]);
-
-            // ── Transients ──
-            self::meta_card('Transients (Cache)', 'dashicons-database', [
-                ['tix_sync_log_{POST_ID}', 'Letztes Sync-Protokoll (30 Sek.)', 'Cache'],
-                ['tix_publish_error_{POST_ID}', 'Publish-Validierungsfehler (60 Sek.)', 'Admin-Notice'],
-                ['tix_publish_warning_{POST_ID}', 'Publish-Validierungswarnungen (60 Sek.)', 'Admin-Notice'],
-                ['tix_delete_blocked_{USER_ID}', 'L&ouml;sch-Schutz-Hinweis (30 Sek.)', 'Admin-Notice'],
-                ['tix_orphan_cleanup_result_{USER_ID}', 'Orphan-Bereinigungsergebnis (30 Sek.)', 'Admin-Notice'],
-                ['tix_force_delete_result_{USER_ID}', 'Force-Delete-Ergebnis (30 Sek.)', 'Admin-Notice'],
-                ['tix_ai_flag_{POST_ID}', 'KI-Schutz: Flag-Meldung oder Fehler (120 Sek.)', 'Admin-Notice'],
-                ['_tix_ai_last_error', 'Letzter KI-API-Fehler (60 Sek.)', 'Intern'],
-                ['tix_cart_transfer_{TOKEN}', 'Warenkorb-Wiederherstellungsdaten (15 Min.)', 'Cart Recovery'],
-                ['tix_group_{TOKEN}', 'Gruppenbuchung-Session (48 Std.)', 'Group Booking'],
-                ['tix_stats_{TAB}_{HASH}', 'Statistik-Daten pro Tab + Filter (10 Min.)', 'Statistik-Cache'],
-                ['tixbot_rl_{MD5(EMAIL)}', 'Bot Ticket-Lookup Rate-Limit (5 Versuche / 15 Min.)', 'Bot Rate-Limit'],
-            ]);
-
-            // ── Cart & Mini-Cart AJAX Endpoints ──
-            self::meta_card('Cart &amp; Mini-Cart AJAX <small>(wp_ajax_ / wp_ajax_nopriv_)</small>', 'dashicons-cart', [
-                ['tix_get_minicart', 'Mini-Cart HTML-Fragment laden (Artikel, Summe, Badge)', 'Frontend'],
-            ]);
-
-            // ── Tischreservierung AJAX Endpoints ──
-            self::meta_card('Tischreservierung-AJAX <small>(wp_ajax_ / wp_ajax_nopriv_)</small>', 'dashicons-welcome-widgets-menus', [
-                ['tix_table_events', 'Events mit Tischkategorien nach Monat laden (SPA)', 'Frontend'],
-                ['tix_table_event_detail', 'Event-Detail mit Tischkategorien + Verf&uuml;gbarkeit', 'Frontend'],
-                ['tix_table_submit', 'Tischreservierung abschicken (Name, E-Mail, Kategorie, G&auml;ste)', 'Frontend'],
-                ['tix_table_cancel', 'Tischreservierung stornieren', 'Frontend'],
-                ['tix_mc_table_categories', 'Tischkategorien f&uuml;r Modal-Checkout laden', 'Frontend'],
-                ['tix_mc_table_select', 'Tisch im Modal-Checkout ausw&auml;hlen', 'Frontend'],
-                ['tix_checkout_table_select', 'Tisch im Checkout/Warenkorb ausw&auml;hlen (Cart-Fee)', 'Frontend'],
-            ]);
-
-            // ── POS AJAX Endpoints ──
-            self::meta_card('POS-AJAX-Endpoints <small>(wp_ajax_)</small>', 'dashicons-store', [
-                ['tix_pos_auth', 'PIN-Login &rarr; User-Daten + Nonce', 'Admin'],
-                ['tix_pos_events', 'Events nach Filter (today/week/all) + Suche', 'Admin'],
-                ['tix_pos_event_tickets', 'Ticket-Kategorien + Bestand f&uuml;r ein Event', 'Admin'],
-                ['tix_pos_create_order', 'WC-Order erstellen &rarr; Ticket-Codes + QR-Daten', 'Admin'],
-                ['tix_pos_send_email', 'Ticket per E-Mail an Kunden senden', 'Admin'],
-                ['tix_pos_void_order', 'Storno (Order &rarr; cancelled, Stock restored)', 'Admin'],
-                ['tix_pos_daily_report', 'Tagesbericht nach Zahlungsart/Kategorie/Stunde', 'Admin'],
-                ['tix_pos_transactions', 'Transaktionsliste des Tages', 'Admin'],
-                ['tix_pos_sumup_checkout', 'SumUp EC-Zahlung initiieren', 'Admin'],
-                ['tix_pos_sumup_status', 'SumUp Zahlungsstatus abfragen', 'Admin'],
-            ]);
-
-            // ── Save-Post Hooks ──
-            self::meta_card('save_post_event Reihenfolge', 'dashicons-sort', [
-                ['Priorit&auml;t 10', 'TIX_Metabox::save() &ndash; Meta-Felder speichern + Pflichtfeld-Validierung', 'Admin'],
-                ['Priorit&auml;t 12', 'TIX_Content_Guard::check() &ndash; KI-Inhaltspruefung (wenn aktiviert)', 'Admin'],
-                ['Priorit&auml;t 20', 'TIX_Sync::sync() &ndash; WC/TC synchronisieren + Breakdance-Meta', 'Admin'],
-                ['Priorit&auml;t 25', 'TIX_Series::on_save() &ndash; Kind-Events generieren/aktualisieren', 'Admin'],
-            ]);
-            ?>
-
+            <table class="tix-tbl" style="width:100%;">
+                <thead>
+                    <tr>
+                        <th style="width:36%;">Action</th>
+                        <th style="width:12%;">Zugriff</th>
+                        <th>Callback</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($actions as $name => $info):
+                        $access = $info['public'] && $info['private'] ? 'Beides'
+                                 : ($info['public'] ? 'Public' : 'Admin');
+                        $badge  = $info['public'] ? '#10b981' : '#6366f1';
+                    ?>
+                    <tr class="tix-row">
+                        <td><code style="font-size:12px;background:rgba(37,99,235,0.06);padding:2px 6px;border-radius:4px;"><?php echo esc_html($name); ?></code></td>
+                        <td><span style="display:inline-block;padding:2px 8px;background:<?php echo $badge; ?>15;color:<?php echo $badge; ?>;font-size:11px;font-weight:600;border-radius:6px;"><?php echo $access; ?></span></td>
+                        <td style="font-family:monospace;font-size:11px;color:#475569;"><?php echo esc_html(implode(', ', $info['callbacks'])); ?></td>
+                    </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
         </div>
         <?php
     }
 
     // ══════════════════════════════════════
-    // TAB 5: TICKET-VORLAGEN
+    // TAB: LANDING (Organizer-Landingpages)
     // ══════════════════════════════════════
 
+    private static function render_landing_tab() {
+        $enabled = class_exists('TIX_Organizer_Landing') && TIX_Organizer_Landing::is_feature_enabled();
+        ?>
+        <div class="tix-pane" data-pane="landing">
+
+            <p class="description">
+                Veranstalter-Landingpages: Jeder freigeschaltete Veranstalter bekommt eine eigene, brandbare Seite mit eigener URL (Pfad <code>/v/{slug}/</code> oder Subdomain <code>{slug}.evendis.de</code>).
+            </p>
+
+            <div style="background:<?php echo $enabled ? '#ecfdf5' : '#fef3c7'; ?>;border:1px solid <?php echo $enabled ? '#6ee7b7' : '#fcd34d'; ?>;border-radius:10px;padding:14px 16px;margin-bottom:16px;font-size:13px;color:<?php echo $enabled ? '#065f46' : '#92400e'; ?>;">
+                <strong>Feature-Status:</strong> <?php echo $enabled ? '✓ aktiv auf dieser Site' : 'nicht aktiv'; ?>
+                (steuerbar über <code>tix_settings.landing_pages_enabled</code>, automatisch an auf <code>evendis.de</code>)
+            </div>
+
+            <?php // ── Architektur ── ?>
+            <div class="tix-card">
+                <div class="tix-card-header">
+                    <span class="dashicons dashicons-layout"></span>
+                    <h3>Architektur &amp; Routing</h3>
+                </div>
+                <div class="tix-card-body">
+                    <ul style="margin:0;padding-left:20px;line-height:1.8;">
+                        <li><strong>Pfad-URL</strong>: <code>https://evendis.de/v/{slug}/</code> — immer aktiv, Fallback-URL.</li>
+                        <li><strong>Subdomain</strong>: <code>https://{slug}.evendis.de/</code> — aktiv wenn <code>tix_settings.landing_use_subdomain = 1</code> und DNS-Wildcard konfiguriert.</li>
+                        <li><strong>Subdomain-Kontext</strong>: beim Request wird <code>TIX_ON_ORG_SUBDOMAIN</code> + <code>TIX_ORG_SUBDOMAIN_SLUG</code> definiert.</li>
+                        <li><strong>URL-Rewrite</strong>: <code>home_url</code>, <code>site_url</code>, <code>rest_url</code> werden auf Subdomain-Requests gefiltert → alle Permalinks bleiben auf Subdomain.</li>
+                        <li><strong>Unbekannte Subdomain</strong>: 301 zur Hauptdomain (SEO-Schutz gegen Duplicate Content).</li>
+                        <li><strong>Sub-Pfade auf Subdomain</strong>: <code>/events/{slug}/</code>, <code>/checkout/</code>, <code>/kasse/</code> funktionieren. <code>/events/</code> (Archiv) und alle anderen unbekannten Pfade → 302 zur Landing-Root.</li>
+                    </ul>
+                </div>
+            </div>
+
+            <?php // ── Meta-Felder ── ?>
+            <div class="tix-card">
+                <div class="tix-card-header">
+                    <span class="dashicons dashicons-database"></span>
+                    <h3>Meta-Felder (Post-Type <code>tix_organizer</code>)</h3>
+                </div>
+                <div class="tix-card-body">
+                    <table class="tix-tbl" style="width:100%;">
+                        <thead>
+                            <tr><th style="width:35%;">Meta-Key</th><th style="width:15%;">Typ</th><th>Beschreibung</th></tr>
+                        </thead>
+                        <tbody>
+                            <?php
+                            $metas = [
+                                '_tix_org_landing_approved'       => ['bool',     'Admin-Freischaltung. Nur mit 1 wird Landing öffentlich rendert.'],
+                                '_tix_org_landing_slug'           => ['string',   'URL-Slug (z.B. <code>kitchen-klub</code>). Unique pro Site. Reservierte Slugs (www, admin etc.) geblockt.'],
+                                '_tix_org_landing_sections'       => ['array',    'Section-Builder: Reihenfolge + Enabled. Struktur: <code>[{id, enabled}, …]</code>. IDs: <code>events, about, partners</code>.'],
+                                '_tix_org_landing_color_mode'     => ['string',   '<code>light</code> oder <code>dark</code>. Default: light.'],
+                                '_tix_org_landing_primary_light'  => ['hex',      'Primärfarbe Light Mode. Default: <code>#E8445A</code>.'],
+                                '_tix_org_landing_primary_dark'   => ['hex',      'Primärfarbe Dark Mode.'],
+                                '_tix_org_landing_bg_light'       => ['hex',      'Hintergrundfarbe Light Mode. Default: <code>#ffffff</code>.'],
+                                '_tix_org_landing_bg_dark'        => ['hex',      'Hintergrundfarbe Dark Mode. Default: <code>#0b0a12</code>.'],
+                                '_tix_org_landing_header_bg_light'   => ['hex',   'Header-BG Light (leer → BG).'],
+                                '_tix_org_landing_header_bg_dark'    => ['hex',   'Header-BG Dark.'],
+                                '_tix_org_landing_header_text_light' => ['hex',   'Header-Schrift Light.'],
+                                '_tix_org_landing_header_text_dark'  => ['hex',   'Header-Schrift Dark.'],
+                                '_tix_org_landing_footer_bg_light'   => ['hex',   'Footer-BG Light (leer → Surface).'],
+                                '_tix_org_landing_footer_bg_dark'    => ['hex',   'Footer-BG Dark.'],
+                                '_tix_org_landing_footer_text_light' => ['hex',   'Footer-Schrift Light.'],
+                                '_tix_org_landing_footer_text_dark'  => ['hex',   'Footer-Schrift Dark.'],
+                                '_tix_org_landing_logo_id'        => ['int',      'WP Attachment-ID für Logo (Header + Landing).'],
+                                '_tix_org_landing_favicon_id'     => ['int',      'Attachment-ID für Favicon.'],
+                                '_tix_org_landing_hero_id'        => ['int',      'Attachment-ID für Hero-Bild (Background).'],
+                                '_tix_org_landing_hero_video_id'  => ['int',      'Attachment-ID für MP4-Video-Upload (optional).'],
+                                '_tix_org_landing_hero_video_url' => ['url',      'Externe Video-URL (MP4/YouTube/Vimeo). Hat Vorrang vor Upload.'],
+                                '_tix_org_landing_tagline'        => ['string',   'Untertitel im Hero (max. 100 Zeichen).'],
+                                '_tix_org_landing_description'    => ['richtext', 'Text für die "Über uns"-Sektion.'],
+                                '_tix_org_landing_cta_text'       => ['string',   'Text des Hero-CTA-Buttons. Default: "Tickets sichern".'],
+                                '_tix_org_landing_cta_url'        => ['url',      'Ziel des CTA (URL oder <code>#anker</code>). Default: <code>#events</code>.'],
+                                '_tix_org_landing_countdown_enabled' => ['bool',  'Live-Countdown zum nächsten Event im Hero anzeigen.'],
+                                '_tix_org_landing_social'         => ['array',    'Social-Links. Keys: <code>website, instagram, facebook, tiktok, x, youtube, spotify</code>.'],
+                                '_tix_org_landing_contact_email'  => ['email',    'Öffentliche Kontakt-E-Mail im Footer (optional).'],
+                                '_tix_org_landing_show_past_events' => ['bool',   'Vergangene Events als ausklappbare Sektion zeigen.'],
+                                '_tix_org_landing_partners'       => ['array',    'Partner-Logo-Strip. Struktur: <code>[{name, logo_id, url}, …]</code>.'],
+                                '_tix_org_landing_partners_heading' => ['string', 'Überschrift der Partner-Sektion. Default: "Unsere Partner".'],
+                            ];
+                            foreach ($metas as $key => [$type, $desc]): ?>
+                                <tr class="tix-row">
+                                    <td><code style="font-size:11px;"><?php echo esc_html($key); ?></code></td>
+                                    <td><span style="font-size:11px;color:#6366f1;font-weight:600;"><?php echo esc_html($type); ?></span></td>
+                                    <td style="font-size:13px;color:#475569;"><?php echo wp_kses_post($desc); ?></td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <?php // ── Settings / Optionen ── ?>
+            <div class="tix-card">
+                <div class="tix-card-header">
+                    <span class="dashicons dashicons-admin-settings"></span>
+                    <h3>Globale Settings (<code>tix_settings</code> + andere)</h3>
+                </div>
+                <div class="tix-card-body">
+                    <table class="tix-tbl" style="width:100%;">
+                        <tbody>
+                            <tr class="tix-row"><td><code>tix_settings.landing_pages_enabled</code></td><td>Feature-Flag. Default an auf evendis.de.</td></tr>
+                            <tr class="tix-row"><td><code>tix_settings.landing_use_subdomain</code></td><td>Subdomain-Modus ein/aus. Braucht DNS-Wildcard + SSL.</td></tr>
+                            <tr class="tix-row"><td><code>tix_landing_footer_credit</code> (Option)</td><td>Override für Footer-Credit <code>{text, url}</code>. Leer → Site-Name + home_url.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <?php // ── Public API ── ?>
+            <div class="tix-card">
+                <div class="tix-card-header">
+                    <span class="dashicons dashicons-admin-tools"></span>
+                    <h3>Public API (<code>TIX_Organizer_Landing</code>)</h3>
+                </div>
+                <div class="tix-card-body">
+                    <table class="tix-tbl" style="width:100%;">
+                        <tbody>
+                            <tr class="tix-row"><td><code>is_feature_enabled()</code></td><td>Bool. Ist Landing-Feature auf dieser Site aktiv?</td></tr>
+                            <tr class="tix-row"><td><code>canonical_url($slug)</code></td><td>Liefert die Haupt-URL (Subdomain wenn Feature an, sonst Pfad).</td></tr>
+                            <tr class="tix-row"><td><code>get_organizer_by_slug($slug)</code></td><td>Post-Objekt oder null.</td></tr>
+                            <tr class="tix-row"><td><code>is_approved($org_id)</code></td><td>Ist Organizer-Landing freigeschaltet?</td></tr>
+                            <tr class="tix-row"><td><code>get_landing_data($org)</code></td><td>Array mit allen gesammelten Daten für Rendering (logo, hero, colors, socials, …).</td></tr>
+                            <tr class="tix-row"><td><code>sections_registry()</code></td><td>Liefert verfügbare Section-IDs + Labels.</td></tr>
+                            <tr class="tix-row"><td><code>get_sections_config($org_id)</code></td><td>Liefert die gespeicherte Reihenfolge + Enabled-State (mit Auto-Defaults).</td></tr>
+                            <tr class="tix-row"><td><code>track_view($org_id, $event_id)</code></td><td>Zeichnet einen Seitenaufruf in <code>wp_tix_landing_views</code> auf (wird automatisch gerufen).</td></tr>
+                            <tr class="tix-row"><td><code>analytics_summary($org_id, $days)</code></td><td>Views / Unique / Top-Events / Referrer / Conversions der letzten N Tage.</td></tr>
+                            <tr class="tix-row"><td><code>get_footer_credit()</code></td><td>Array <code>{text, url}</code> für "by ..."-Footer.</td></tr>
+                            <tr class="tix-row"><td><code>shade_color($hex, $amount)</code></td><td>Farbe heller/dunkler. Auto-Richtung je nach Luminanz.</td></tr>
+                            <tr class="tix-row"><td><code>detect_video_type($url)</code></td><td>Liefert <code>mp4</code>/<code>youtube</code>/<code>vimeo</code>.</td></tr>
+                            <tr class="tix-row"><td><code>get_video_embed_url($url, $type)</code></td><td>YouTube/Vimeo → Embed-iframe-URL mit Autoplay/Loop/Mute.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <?php // ── Tracking / Analytics ── ?>
+            <div class="tix-card">
+                <div class="tix-card-header">
+                    <span class="dashicons dashicons-chart-bar"></span>
+                    <h3>Analytics-Datenbank</h3>
+                </div>
+                <div class="tix-card-body">
+                    <p>Eigene Tabelle <code><?php echo esc_html($GLOBALS['wpdb']->prefix . 'tix_landing_views'); ?></code> — wird automatisch angelegt.</p>
+                    <pre style="background:#1e293b;color:#e2e8f0;padding:12px 14px;border-radius:8px;font-size:11px;overflow-x:auto;">id, org_id, slug, event_id, url_path,
+referrer, utm_source, utm_medium, utm_campaign,
+ip_hash (MD5 mit Tagesdatum = 1× pro Tag unique),
+is_bot (UA-basiert), created_at</pre>
+                    <p style="font-size:13px;color:#64748b;margin-top:10px;">
+                        <strong>Trigger:</strong> Jeder Landing-Render (<code>render_landing</code>), jeder Event-Detail-Render auf Subdomain (<code>maybe_track_event_view</code>).<br>
+                        <strong>Attribution:</strong> Cookie <code>tix_ol_src</code> (7 Tage) → speichert bei Order-Creation <code>_tix_ol_source</code> Order-Meta → Conversion-Count matched.
+                    </p>
+                </div>
+            </div>
+
+            <?php // ── Admin-Oberflächen ── ?>
+            <div class="tix-card">
+                <div class="tix-card-header">
+                    <span class="dashicons dashicons-admin-users"></span>
+                    <h3>Admin-Oberflächen</h3>
+                </div>
+                <div class="tix-card-body">
+                    <ul style="margin:0;padding-left:20px;line-height:1.8;font-size:13px;">
+                        <li><strong>Veranstalter-Edit-Seite</strong> — Block <em>Landingpage</em> direkt unter dem Titel: Admin-Freischaltung (nur <code>manage_options</code>) + Slug-Verwaltung mit Live-Check.</li>
+                        <li><strong>Tixomat → Meine Landingpage</strong> — Self-Service-Seite für den Veranstalter (sichtbar wenn <code>_tix_org_user_id</code> gesetzt oder Admin mit <code>?org=ID</code>). Logo/Hero/Farben/CTA/Social/Analytics.</li>
+                        <li><strong>Tixomat → Einstellungen → Landingpages</strong> — Admin-only. Footer-Credit-Override.</li>
+                    </ul>
+                </div>
+            </div>
+
+            <?php // ── Section-Builder Registry ── ?>
+            <?php if (class_exists('TIX_Organizer_Landing')):
+                $registry = TIX_Organizer_Landing::sections_registry(); ?>
+            <div class="tix-card">
+                <div class="tix-card-header">
+                    <span class="dashicons dashicons-schedule"></span>
+                    <h3>Section-Registry (drag&amp;drop + enable/disable)</h3>
+                </div>
+                <div class="tix-card-body">
+                    <table class="tix-tbl" style="width:100%;">
+                        <tbody>
+                            <?php foreach ($registry as $id => $meta): ?>
+                                <tr class="tix-row">
+                                    <td style="width:30%;"><code><?php echo esc_html($id); ?></code></td>
+                                    <td><?php echo esc_html($meta['icon'] . ' ' . $meta['label']); ?></td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <?php endif; ?>
+
+        </div>
+        <?php
+    }
     private static function render_templates_tab() {
         ?>
         <div class="tix-pane" data-pane="templates">
@@ -1757,6 +1692,280 @@ class TIX_Docs {
     // TAB 8: TICKET-BOT
     // ══════════════════════════════════════
 
+
+    // ══════════════════════════════════════
+    // TAB: DATENMODELL (CPTs + Taxonomien + DB-Tabellen)
+    // ══════════════════════════════════════
+
+    private static function render_datamodel_tab() {
+        // CPTs
+        $all_cpts = get_post_types(['_builtin' => false], 'objects');
+        $cpts = array_filter($all_cpts, function($pt){
+            return strpos($pt->name, 'tix_') === 0 || $pt->name === 'event';
+        });
+        // Taxonomien
+        $all_tax = get_taxonomies(['_builtin' => false], 'objects');
+        $taxes = array_filter($all_tax, function($t){
+            return strpos($t->name, 'tix_') === 0 || strpos($t->name, 'event_') === 0;
+        });
+        // DB-Tabellen
+        global $wpdb;
+        $tables = $wpdb->get_col("SHOW TABLES LIKE '{$wpdb->prefix}tix_%'");
+        sort($tables);
+        ?>
+        <div class="tix-pane" data-pane="datamodel">
+
+            <p class="description">
+                Live-Scan der registrierten Tixomat-Datentypen. Quellen: <code>get_post_types()</code>, <code>get_taxonomies()</code>, <code>SHOW TABLES</code>.
+                Immer aktuell — zeigt exakt was auf dieser Installation aktiv ist.
+            </p>
+
+            <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:10px;padding:14px 16px;margin-bottom:16px;font-size:13px;color:#075985;">
+                <strong><?php echo count($cpts); ?> Custom Post Types</strong> ·
+                <strong><?php echo count($taxes); ?> Taxonomien</strong> ·
+                <strong><?php echo count($tables); ?> DB-Tabellen</strong>
+            </div>
+
+            <?php // ── Custom Post Types ── ?>
+            <div class="tix-card">
+                <div class="tix-card-header">
+                    <span class="dashicons dashicons-admin-post"></span>
+                    <h3>Custom Post Types</h3>
+                </div>
+                <div class="tix-card-body">
+                    <table class="tix-tbl" style="width:100%;">
+                        <thead>
+                            <tr>
+                                <th style="width:20%;">Name</th>
+                                <th style="width:20%;">Label</th>
+                                <th style="width:10%;">Public</th>
+                                <th style="width:10%;">Show UI</th>
+                                <th>Supports</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($cpts as $pt):
+                                $supports = get_all_post_type_supports($pt->name);
+                            ?>
+                            <tr class="tix-row">
+                                <td><code style="font-size:11px;"><?php echo esc_html($pt->name); ?></code></td>
+                                <td style="font-size:13px;"><?php echo esc_html($pt->labels->singular_name ?? ''); ?></td>
+                                <td><?php echo $pt->public ? '✓' : '—'; ?></td>
+                                <td><?php echo $pt->show_ui ? '✓' : '—'; ?></td>
+                                <td style="font-size:11px;color:#64748b;"><?php echo esc_html(implode(', ', array_keys($supports))); ?></td>
+                            </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <?php // ── Taxonomien ── ?>
+            <?php if (!empty($taxes)): ?>
+            <div class="tix-card">
+                <div class="tix-card-header">
+                    <span class="dashicons dashicons-category"></span>
+                    <h3>Taxonomien</h3>
+                </div>
+                <div class="tix-card-body">
+                    <table class="tix-tbl" style="width:100%;">
+                        <thead>
+                            <tr>
+                                <th style="width:25%;">Name</th>
+                                <th style="width:25%;">Label</th>
+                                <th>Post Types</th>
+                                <th style="width:15%;">Hierarchisch</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($taxes as $tx): ?>
+                            <tr class="tix-row">
+                                <td><code style="font-size:11px;"><?php echo esc_html($tx->name); ?></code></td>
+                                <td style="font-size:13px;"><?php echo esc_html($tx->labels->singular_name ?? ''); ?></td>
+                                <td style="font-size:11px;color:#64748b;"><?php echo esc_html(implode(', ', (array) $tx->object_type)); ?></td>
+                                <td><?php echo $tx->hierarchical ? '✓' : '—'; ?></td>
+                            </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <?php endif; ?>
+
+            <?php // ── DB-Tabellen ── ?>
+            <div class="tix-card">
+                <div class="tix-card-header">
+                    <span class="dashicons dashicons-database"></span>
+                    <h3>Custom DB-Tabellen (<code><?php echo esc_html($wpdb->prefix); ?>tix_*</code>)</h3>
+                </div>
+                <div class="tix-card-body">
+                    <?php if (empty($tables)): ?>
+                        <p style="color:#94a3b8;">Keine Tixomat-Tabellen gefunden.</p>
+                    <?php endif; ?>
+                    <?php foreach ($tables as $t):
+                        $cols = $wpdb->get_results("DESCRIBE `" . esc_sql($t) . "`");
+                        $rows_count = intval($wpdb->get_var("SELECT COUNT(*) FROM `" . esc_sql($t) . "`"));
+                    ?>
+                    <details style="margin-bottom:12px;border:1px solid #e5e7eb;border-radius:8px;">
+                        <summary style="padding:12px 16px;cursor:pointer;user-select:none;background:#f9fafb;border-radius:8px;font-family:monospace;font-size:13px;display:flex;justify-content:space-between;">
+                            <span><strong><?php echo esc_html($t); ?></strong></span>
+                            <span style="color:#64748b;font-size:11px;"><?php echo count($cols); ?> Spalten · <?php echo number_format($rows_count, 0, ',', '.'); ?> Rows</span>
+                        </summary>
+                        <div style="padding:12px 16px;">
+                            <table class="tix-tbl" style="width:100%;font-size:12px;">
+                                <thead>
+                                    <tr>
+                                        <th style="width:25%;">Spalte</th>
+                                        <th style="width:20%;">Typ</th>
+                                        <th style="width:8%;">Null</th>
+                                        <th style="width:8%;">Key</th>
+                                        <th>Default</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php foreach ($cols as $c): ?>
+                                    <tr class="tix-row">
+                                        <td style="font-family:monospace;"><?php echo esc_html($c->Field); ?></td>
+                                        <td style="font-family:monospace;color:#6366f1;"><?php echo esc_html($c->Type); ?></td>
+                                        <td><?php echo esc_html($c->Null); ?></td>
+                                        <td><?php echo esc_html($c->Key ?: '—'); ?></td>
+                                        <td style="font-family:monospace;color:#64748b;"><?php echo esc_html($c->Default ?? 'NULL'); ?></td>
+                                    </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    </details>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+
+        </div>
+        <?php
+    }
+
+    // ══════════════════════════════════════
+    // TAB: HOOKS (Actions + Filters grep aus Source)
+    // ══════════════════════════════════════
+
+    private static function render_hooks_tab() {
+        $scan = self::scan_hooks();
+        ?>
+        <div class="tix-pane" data-pane="hooks">
+
+            <p class="description">
+                Action- und Filter-Hooks die vom Plugin <strong>emittiert</strong> werden (<code>do_action()</code> / <code>apply_filters()</code>).
+                Auto-gescannt aus den Quellcode-Dateien. Extension-Points für eigene Erweiterungen.
+            </p>
+
+            <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:10px;padding:14px 16px;margin-bottom:16px;font-size:13px;color:#075985;">
+                <strong><?php echo count($scan['actions']); ?> Actions</strong> ·
+                <strong><?php echo count($scan['filters']); ?> Filter</strong>
+                gefunden · Scan-Dauer: ~<?php echo intval($scan['duration_ms']); ?> ms · Dateien: <?php echo $scan['files_count']; ?>
+            </div>
+
+            <?php // ── Actions ── ?>
+            <div class="tix-card">
+                <div class="tix-card-header">
+                    <span class="dashicons dashicons-bell"></span>
+                    <h3>Actions (<code>do_action()</code>)</h3>
+                </div>
+                <div class="tix-card-body">
+                    <table class="tix-tbl" style="width:100%;">
+                        <thead>
+                            <tr>
+                                <th style="width:40%;">Action-Name</th>
+                                <th>Datei(en)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($scan['actions'] as $name => $files): ?>
+                            <tr class="tix-row">
+                                <td><code style="font-size:12px;background:rgba(99,102,241,0.08);padding:2px 6px;border-radius:4px;"><?php echo esc_html($name); ?></code></td>
+                                <td style="font-family:monospace;font-size:11px;color:#64748b;"><?php echo esc_html(implode(', ', $files)); ?></td>
+                            </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <?php // ── Filters ── ?>
+            <div class="tix-card">
+                <div class="tix-card-header">
+                    <span class="dashicons dashicons-filter"></span>
+                    <h3>Filter (<code>apply_filters()</code>)</h3>
+                </div>
+                <div class="tix-card-body">
+                    <table class="tix-tbl" style="width:100%;">
+                        <thead>
+                            <tr>
+                                <th style="width:40%;">Filter-Name</th>
+                                <th>Datei(en)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($scan['filters'] as $name => $files): ?>
+                            <tr class="tix-row">
+                                <td><code style="font-size:12px;background:rgba(16,185,129,0.08);padding:2px 6px;border-radius:4px;"><?php echo esc_html($name); ?></code></td>
+                                <td style="font-family:monospace;font-size:11px;color:#64748b;"><?php echo esc_html(implode(', ', $files)); ?></td>
+                            </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+        </div>
+        <?php
+    }
+
+    /** Scannt alle Plugin-Dateien nach do_action() und apply_filters() Calls */
+    private static function scan_hooks() {
+        $cache = get_transient('tix_docs_hooks_scan');
+        if ($cache && !isset($_GET['rescan'])) return $cache;
+
+        $start = microtime(true);
+        $actions = [];
+        $filters = [];
+        $files = glob(TIXOMAT_PATH . 'includes/*.php');
+        $plugin_main = TIXOMAT_PATH . 'tixomat.php';
+        if (file_exists($plugin_main)) $files[] = $plugin_main;
+
+        foreach ($files as $file) {
+            $content = @file_get_contents($file);
+            if (!$content) continue;
+            $shortname = basename($file);
+
+            if (preg_match_all('/do_action\s*\(\s*[\'"]([a-z_][a-z0-9_]*)[\'"]/i', $content, $m)) {
+                foreach ($m[1] as $name) {
+                    if (strpos($name, 'tix') !== 0 && strpos($name, 'wp_ajax') !== 0) continue;
+                    if (strpos($name, 'wp_ajax') === 0) continue; // Die sind im AJAX-Tab
+                    if (!isset($actions[$name])) $actions[$name] = [];
+                    if (!in_array($shortname, $actions[$name], true)) $actions[$name][] = $shortname;
+                }
+            }
+            if (preg_match_all('/apply_filters\s*\(\s*[\'"]([a-z_][a-z0-9_]*)[\'"]/i', $content, $m)) {
+                foreach ($m[1] as $name) {
+                    if (strpos($name, 'tix') !== 0) continue;
+                    if (!isset($filters[$name])) $filters[$name] = [];
+                    if (!in_array($shortname, $filters[$name], true)) $filters[$name][] = $shortname;
+                }
+            }
+        }
+        ksort($actions);
+        ksort($filters);
+
+        $result = [
+            'actions'     => $actions,
+            'filters'     => $filters,
+            'files_count' => count($files),
+            'duration_ms' => (microtime(true) - $start) * 1000,
+        ];
+        set_transient('tix_docs_hooks_scan', $result, HOUR_IN_SECONDS);
+        return $result;
+    }
+
     private static function render_bot_tab() {
         ?>
         <div class="tix-pane" data-pane="bot">
@@ -1937,81 +2146,114 @@ class TIX_Docs {
     // TAB 9: REST API
     // ══════════════════════════════════════
 
+
     private static function render_rest_api_tab() {
+        $routes = function_exists('rest_get_server') ? rest_get_server()->get_routes() : [];
+        $tix_routes = [];
+        foreach ($routes as $route => $handlers) {
+            // Nur Tixomat-spezifische Routes
+            if (strpos($route, '/tix/') === false
+                && strpos($route, '/tixomat/') === false
+                && strpos($route, '/wp/v2/tix_') === false
+                && strpos($route, '/wp/v2/event') === false) continue;
+            $tix_routes[$route] = $handlers;
+        }
+        ksort($tix_routes);
         ?>
         <div class="tix-pane" data-pane="rest-api">
 
-            <div class="tix-card" style="margin-bottom:20px;">
-                <div class="tix-card-header">
-                    <span class="dashicons dashicons-rest-api"></span>
-                    <h3>&Uuml;bersicht</h3>
-                </div>
-                <div class="tix-card-body">
-                    <ul style="margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:8px;font-size:13px;color:#475569;">
-                        <li><strong>Namespace:</strong> <code>tixomat/v1</code></li>
-                        <li><strong>Base-URL:</strong> <code>https://deine-domain.de/wp-json/tixomat/v1/</code></li>
-                        <li><strong>Auth (Admin/Organizer):</strong> WordPress Application Passwords &ndash; <code>Authorization: Basic base64(user:app-password)</code></li>
-                        <li><strong>Auth (Kunden):</strong> <code>X-Tix-Token: {token}</code> oder <code>Authorization: Bearer {token}</code></li>
-                        <li><strong>Seit:</strong> v1.34.0</li>
-                    </ul>
-                </div>
+            <p class="description">
+                <strong>REST-API-Endpunkte</strong> — Auto-Scan aus <code>rest_get_server()->get_routes()</code>.
+                Filtert nur Tixomat-Routes. Basis-URL: <code><?php echo esc_html(get_rest_url()); ?></code>
+            </p>
+
+            <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:10px;padding:14px 16px;margin-bottom:16px;font-size:13px;color:#075985;">
+                <strong><?php echo count($tix_routes); ?> Tixomat-REST-Endpoints</strong> registriert.
             </div>
 
-            <?php
-            // ── Discovery ──
-            self::meta_card('Discovery &amp; User', 'dashicons-info-outline', [
-                ['/info', 'GET &ndash; &ouml;ffentlich. Plugin-Version, Features, aktive Module.', 'Public'],
-                ['/me', 'GET &ndash; authentifiziert. Aktueller User (ID, Name, E-Mail, Rollen, Avatar).', 'Auth'],
-            ]);
-
-            // ── Events ──
-            self::meta_card('Events', 'dashicons-calendar-alt', [
-                ['/events', 'GET &ndash; Events des auth. Organizers. Filter: status, search, per_page, page.', 'Auth'],
-                ['/events/{id}', 'GET &ndash; Einzel-Event mit allen Meta-Daten.', 'Auth'],
-                ['/events/{id}', 'PUT &ndash; Event aktualisieren (Title, Datum, Beschreibung, etc.).', 'Auth'],
-            ]);
-
-            // ── Check-in ──
-            self::meta_card('Check-in', 'dashicons-clipboard', [
-                ['/checkin/scan', 'POST &ndash; QR-Code scannen. Body: <code>{ "code": "ABC123" }</code>. Gibt Ticket-/G&auml;ste-Info zur&uuml;ck.', 'Auth'],
-                ['/checkin/{event_id}/list', 'GET &ndash; G&auml;steliste eines Events. Filter: search, status, per_page, page.', 'Auth'],
-                ['/checkin/{event_id}/guest/{guest_id}', 'PATCH &ndash; Gast aktualisieren (Status, Notiz). Body: <code>{ "status": "checked_in" }</code>.', 'Auth'],
-                ['/checkin/ticket/{ticket_id}/toggle', 'PATCH &ndash; Ticket-Check-in toggeln (ein-/auschecken).', 'Auth'],
-            ]);
-
-            // ── Gästeliste & Tickets ──
-            self::meta_card('G&auml;steliste &amp; Tickets', 'dashicons-groups', [
-                ['/events/{id}/guestlist', 'GET &ndash; Vollst&auml;ndige G&auml;steliste mit allen G&auml;sten + Status.', 'Auth'],
-                ['/events/{id}/guestlist', 'PUT &ndash; G&auml;steliste aktualisieren (Bulk-Update).', 'Auth'],
-                ['/events/{id}/tickets', 'GET &ndash; Verkaufte Tickets f&uuml;r ein Event. Filter: status, search.', 'Auth'],
-                ['/tickets/{id}/resend-email', 'POST &ndash; Ticket-E-Mail erneut senden.', 'Auth'],
-            ]);
-
-            // ── POS ──
-            self::meta_card('POS / Abendkasse', 'dashicons-store', [
-                ['/pos/events/{id}/categories', 'GET &ndash; Ticket-Kategorien + Bestand f&uuml;r POS-Verkauf.', 'Auth'],
-                ['/pos/orders', 'POST &ndash; POS-Order erstellen. Body: Tickets, Zahlungsart, Kundendaten.', 'Auth'],
-                ['/pos/orders/{id}/email', 'POST &ndash; POS-Tickets per E-Mail an Kunden senden.', 'Auth'],
-                ['/pos/orders/{id}/void', 'POST &ndash; POS-Order stornieren (Stock restored).', 'Auth'],
-                ['/pos/report', 'GET &ndash; Tagesbericht. Filter: date, event_id.', 'Auth'],
-                ['/pos/transactions', 'GET &ndash; Transaktionsliste. Filter: date, event_id, per_page, page.', 'Auth'],
-            ]);
-
-            // ── Auth (Kunden-App) ──
-            self::meta_card('Auth <small>(Kunden-App)</small>', 'dashicons-lock', [
-                ['/auth/login', 'POST &ndash; Login mit E-Mail + Passwort. Gibt Token + User-Daten zur&uuml;ck.', 'Public'],
-                ['/auth/register', 'POST &ndash; Neuen Kunden registrieren. Body: name, email, password.', 'Public'],
-                ['/auth/profile', 'GET &ndash; Profil des auth. Kunden.', 'Token'],
-                ['/auth/profile', 'PUT &ndash; Profil aktualisieren (Name, E-Mail, Passwort).', 'Token'],
-                ['/auth/profile/avatar', 'POST &ndash; Avatar hochladen (multipart/form-data).', 'Token'],
-            ]);
-
-            // ── Customer ──
-            self::meta_card('Customer <small>(Kunden-App)</small>', 'dashicons-id', [
-                ['/customer/tickets', 'GET &ndash; Alle Tickets des auth. Kunden. Filter: status, upcoming.', 'Token'],
-                ['/customer/events', 'GET &ndash; Vergangene + kommende Events des Kunden.', 'Token'],
-            ]);
-            ?>
+            <div class="tix-card">
+                <div class="tix-card-header">
+                    <span class="dashicons dashicons-rest-api"></span>
+                    <h3>Endpoints</h3>
+                </div>
+                <div class="tix-card-body">
+                    <?php if (empty($tix_routes)): ?>
+                        <p style="color:#94a3b8;">Keine Tixomat-REST-Routes registriert. Prüfe ob <code>TIX_REST_API::init()</code> geladen ist.</p>
+                    <?php endif; ?>
+                    <?php foreach ($tix_routes as $route => $handlers):
+                        // handlers kann ein Array von Route-Definitionen sein
+                        $methods = [];
+                        $callbacks = [];
+                        $args = [];
+                        $permissions = [];
+                        foreach ($handlers as $h) {
+                            if (!empty($h['methods'])) {
+                                foreach ((array) $h['methods'] as $method => $v) {
+                                    if ($v) $methods[$method] = true;
+                                }
+                            }
+                            if (!empty($h['callback'])) {
+                                $cb = $h['callback'];
+                                if (is_array($cb)) {
+                                    $class = is_object($cb[0]) ? get_class($cb[0]) : $cb[0];
+                                    $callbacks[] = $class . '::' . $cb[1];
+                                } elseif (is_string($cb)) {
+                                    $callbacks[] = $cb;
+                                }
+                            }
+                            if (!empty($h['permission_callback'])) {
+                                $pc = $h['permission_callback'];
+                                if ($pc === '__return_true') $permissions[] = 'public';
+                                elseif (is_array($pc)) $permissions[] = (is_object($pc[0]) ? get_class($pc[0]) : $pc[0]) . '::' . $pc[1];
+                                elseif (is_string($pc)) $permissions[] = $pc;
+                            }
+                            if (!empty($h['args']) && is_array($h['args'])) {
+                                foreach ($h['args'] as $arg_name => $arg_def) {
+                                    $args[$arg_name] = $arg_def;
+                                }
+                            }
+                        }
+                    ?>
+                    <details style="margin-bottom:10px;border:1px solid #e5e7eb;border-radius:8px;">
+                        <summary style="padding:12px 14px;cursor:pointer;user-select:none;background:#f9fafb;border-radius:8px;display:flex;justify-content:space-between;align-items:center;gap:12px;">
+                            <span style="display:flex;align-items:center;gap:8px;flex:1;min-width:0;">
+                                <?php foreach (array_keys($methods) as $method):
+                                    $color = ['GET' => '#10b981', 'POST' => '#6366f1', 'PUT' => '#f59e0b', 'PATCH' => '#f59e0b', 'DELETE' => '#ef4444'][$method] ?? '#64748b';
+                                ?>
+                                    <span style="background:<?php echo $color; ?>;color:#fff;font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;"><?php echo esc_html($method); ?></span>
+                                <?php endforeach; ?>
+                                <code style="font-family:monospace;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"><?php echo esc_html($route); ?></code>
+                            </span>
+                            <span style="color:#64748b;font-size:11px;"><?php echo count($args); ?> Args</span>
+                        </summary>
+                        <div style="padding:12px 16px;font-size:12px;">
+                            <?php if (!empty($callbacks)): ?>
+                                <div style="margin-bottom:8px;"><strong>Callback:</strong> <code><?php echo esc_html(implode(', ', array_unique($callbacks))); ?></code></div>
+                            <?php endif; ?>
+                            <?php if (!empty($permissions)): ?>
+                                <div style="margin-bottom:8px;"><strong>Permission:</strong> <code><?php echo esc_html(implode(', ', array_unique($permissions))); ?></code></div>
+                            <?php endif; ?>
+                            <?php if (!empty($args)): ?>
+                                <div><strong>Args:</strong></div>
+                                <table class="tix-tbl" style="width:100%;font-size:11px;margin-top:6px;">
+                                    <thead><tr><th>Name</th><th>Typ</th><th>Required</th><th>Default</th></tr></thead>
+                                    <tbody>
+                                        <?php foreach ($args as $arg_name => $arg_def): ?>
+                                        <tr class="tix-row">
+                                            <td style="font-family:monospace;"><?php echo esc_html($arg_name); ?></td>
+                                            <td style="color:#6366f1;"><?php echo esc_html($arg_def['type'] ?? '—'); ?></td>
+                                            <td><?php echo !empty($arg_def['required']) ? '✓' : '—'; ?></td>
+                                            <td style="color:#64748b;"><?php echo isset($arg_def['default']) ? esc_html(is_bool($arg_def['default']) ? ($arg_def['default']?'true':'false') : $arg_def['default']) : '—'; ?></td>
+                                        </tr>
+                                        <?php endforeach; ?>
+                                    </tbody>
+                                </table>
+                            <?php endif; ?>
+                        </div>
+                    </details>
+                    <?php endforeach; ?>
+                </div>
+            </div>
 
         </div>
         <?php

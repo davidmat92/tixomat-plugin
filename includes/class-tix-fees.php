@@ -24,7 +24,7 @@ class TIX_Fees {
      */
     public static function wc_add_platform_fee($cart) {
         if (is_admin() && !defined('DOING_AJAX')) return;
-        if (did_action('woocommerce_cart_calculate_fees') > 1) return;
+        // KEIN did_action-Guard: WC leert Fees vor jedem Calc automatisch.
 
         // Items aus WC Cart sammeln
         $items = [];

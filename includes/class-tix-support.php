@@ -59,6 +59,19 @@ class TIX_Support {
         add_action('wp_ajax_nopriv_tix_support_customer_detail', [__CLASS__, 'ajax_customer_detail']);
         add_action('wp_ajax_tix_support_customer_auth',   [__CLASS__, 'ajax_customer_auth']);
         add_action('wp_ajax_nopriv_tix_support_customer_auth',  [__CLASS__, 'ajax_customer_auth']);
+
+        // Sidebar-Badge-Cache invalidieren wenn sich Status ändert
+        add_action('transition_post_status', [__CLASS__, 'invalidate_open_count_cache'], 10, 3);
+    }
+
+    /**
+     * Löscht den 60-s-Cache für die offenen-Anfragen-Badge-Zahl,
+     * sobald ein Support-Ticket erzeugt wird oder seinen Status ändert.
+     */
+    public static function invalidate_open_count_cache($new_status, $old_status, $post) {
+        if (!$post || $post->post_type !== 'tix_support_ticket') return;
+        if ($new_status === $old_status) return;
+        delete_transient('tix_open_support_count');
     }
 
     // ══════════════════════════════════════════════
@@ -479,13 +492,17 @@ class TIX_Support {
                 $result['support'][] = self::format_support_ticket($sp);
             }
         }
-        // ── Freitext-Suche (Name) ──
+        // ── Freitext-Suche (Name, Nachname, Teil-Email, Ticket-Betreff) ──
         else {
             $result['type'] = 'name';
-            // In Support-Tickets suchen
+            global $wpdb;
+            $like = '%' . $wpdb->esc_like($query) . '%';
+            $ticket_statuses = ['tix_open', 'tix_progress', 'tix_resolved', 'tix_closed'];
+
+            // ── 1. Support-Tickets: Betreff (post_title/content) + Email/Name-Meta (LIKE) ──
             $support_posts = get_posts([
                 'post_type'   => 'tix_support_ticket',
-                'post_status' => ['tix_open', 'tix_progress', 'tix_resolved', 'tix_closed'],
+                'post_status' => $ticket_statuses,
                 's'           => $query,
                 'numberposts' => 20,
                 'orderby'     => 'date',
@@ -495,23 +512,57 @@ class TIX_Support {
                 $result['support'][] = self::format_support_ticket($sp);
             }
 
-            // In Support-Meta suchen (Name)
-            $by_name = get_posts([
-                'post_type'   => 'tix_support_ticket',
-                'post_status' => ['tix_open', 'tix_progress', 'tix_resolved', 'tix_closed'],
-                'meta_key'    => '_tix_sp_name',
-                'meta_value'  => $query,
-                'meta_compare' => 'LIKE',
-                'numberposts' => 20,
-            ]);
-            $existing_ids = array_column($result['support'], 'id');
-            foreach ($by_name as $sp) {
-                if (!in_array($sp->ID, $existing_ids)) {
-                    $result['support'][] = self::format_support_ticket($sp);
+            // Meta-Match: Name ODER Email (beide LIKE)
+            $meta_fields = ['_tix_sp_name', '_tix_sp_email'];
+            foreach ($meta_fields as $mk) {
+                $by_meta = get_posts([
+                    'post_type'    => 'tix_support_ticket',
+                    'post_status'  => $ticket_statuses,
+                    'meta_key'     => $mk,
+                    'meta_value'   => $query,
+                    'meta_compare' => 'LIKE',
+                    'numberposts'  => 20,
+                ]);
+                $existing_ids = array_column($result['support'], 'id');
+                foreach ($by_meta as $sp) {
+                    if (!in_array($sp->ID, $existing_ids, true)) {
+                        $result['support'][] = self::format_support_ticket($sp);
+                    }
                 }
             }
 
-            // WC-Bestellungen nach Kundenname suchen
+            // ── 2. Native TIX_Orders: Email / First / Last partial LIKE ──
+            $tix_orders_table = $wpdb->prefix . 'tix_orders';
+            if ($wpdb->get_var("SHOW TABLES LIKE '$tix_orders_table'") === $tix_orders_table) {
+                $native_ids = $wpdb->get_col($wpdb->prepare(
+                    "SELECT id FROM $tix_orders_table
+                     WHERE billing_email LIKE %s
+                        OR billing_first_name LIKE %s
+                        OR billing_last_name LIKE %s
+                        OR CONCAT_WS(' ', billing_first_name, billing_last_name) LIKE %s
+                     ORDER BY date_created DESC
+                     LIMIT 20",
+                    $like, $like, $like, $like
+                ));
+                if (class_exists('TIX_Order')) {
+                    foreach ($native_ids as $oid) {
+                        $no = TIX_Order::get(intval($oid));
+                        if (!$no) continue;
+                        $result['orders'][] = [
+                            'id'     => $no->get_id(),
+                            'number' => $no->get_order_number(),
+                            'status' => $no->get_status(),
+                            'total'  => $no->get_formatted_order_total(),
+                            'date'   => $no->get_date_created() ? $no->get_date_created()->date_i18n('d.m.Y H:i') : '',
+                            'email'  => $no->get_billing_email(),
+                            'name'   => trim($no->get_billing_first_name() . ' ' . $no->get_billing_last_name()),
+                            'type'   => 'native',
+                        ];
+                    }
+                }
+            }
+
+            // ── 3. WC-Bestellungen: Built-in 's' param (deckt Email + Name intern ab) ──
             if (function_exists('wc_get_orders')) {
                 $orders = wc_get_orders([
                     's'       => $query,

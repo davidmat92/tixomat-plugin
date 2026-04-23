@@ -141,6 +141,25 @@
     background: rgba(0,0,0,0.45); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
 }
 
+/* Hero-Actions (Share + Save) oben rechts im Bild */
+.tse-hero-action {
+    position: absolute; top: 16px; z-index: 3;
+    width: 38px; height: 38px; border-radius: 50%;
+    background: rgba(255,255,255,0.18) !important;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(255,255,255,0.25);
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    color: #fff !important;
+    transition: transform 0.2s, background 0.2s;
+}
+.tse-hero-action:hover { transform: scale(1.1); background: rgba(255,255,255,0.3) !important; }
+.tse-hero-action.ev-save { right: 16px; }
+.tse-hero-action.ev-share { right: 64px; }
+.tse-hero-action.ev-save.saved { background: var(--tix-card-signal, #E8445A) !important; border-color: transparent; }
+.tse-hero-action.ev-share-copied { background: #10b981 !important; }
+
 /* ── Intro ── */
 .tse-intro {
     padding: 8px var(--tse-pad-x, 32px) 16px;

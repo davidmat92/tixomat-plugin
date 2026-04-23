@@ -471,6 +471,28 @@ body.tix-fullscreen .page-title-action:hover {
     transition: color 0.15s;
 }
 
+/* Zähler-Badge (z.B. offene Support-Anfragen) */
+.tix-shell-badge {
+    margin-left: 6px;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 5px;
+    background: #E8445A;
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 16px;
+    text-align: center;
+    border-radius: 8px;
+    display: inline-block;
+    flex-shrink: 0;
+    box-sizing: border-box;
+}
+.tix-shell-item.active .tix-shell-badge {
+    background: #fff;
+    color: #E8445A;
+}
+
 .tix-shell-item:hover {
     color: #1e293b;
     background: rgba(0,0,0,0.04);

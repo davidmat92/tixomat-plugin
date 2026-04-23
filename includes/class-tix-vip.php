@@ -145,7 +145,7 @@ class TIX_VIP {
      */
     public static function apply_vip_discount($cart) {
         if (is_admin() && !defined('DOING_AJAX')) return;
-        if (did_action('woocommerce_cart_calculate_fees') > 1) return;
+        // KEIN did_action-Guard: WC leert Fees vor jedem Calc automatisch.
 
         $user_id = get_current_user_id();
         if (!$user_id || !self::is_vip($user_id)) return;

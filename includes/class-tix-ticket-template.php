@@ -44,6 +44,7 @@ class TIX_Ticket_Template {
             'seat'          => ['label' => 'Sitzplatz',           'type' => 'text'],
             'qr_code'       => ['label' => 'QR-Code',            'type' => 'image'],
             'barcode'       => ['label' => 'Strichcode',         'type' => 'image'],
+            'logo'          => ['label' => 'Logo',               'type' => 'image'],
             'custom_text'   => ['label' => 'Eigener Text',       'type' => 'text'],
         ];
     }
@@ -89,6 +90,16 @@ class TIX_Ticket_Template {
                 $field['y']      = intval($h * 0.55) + intval($w * 0.18) + intval($h * 0.02);
                 $field['width']  = intval($w * 0.22);
                 $field['height'] = intval($w * 0.06);
+            }
+
+            // Logo: oben-rechts, standardmäßig deaktiviert (bis User Bild hochlädt)
+            if ($key === 'logo') {
+                $field['enabled']  = false;
+                $field['x']        = intval($w * 0.70);
+                $field['y']        = intval($h * 0.04);
+                $field['width']    = intval($w * 0.22);
+                $field['height']   = intval($w * 0.08);
+                $field['image_id'] = 0;
             }
 
             // Eigener Text hat zusätzliches text-Feld
@@ -236,6 +247,11 @@ class TIX_Ticket_Template {
 
             if ($key === 'custom_text') {
                 $field['text'] = sanitize_text_field($f['text'] ?? '');
+            }
+
+            // Logo: Attachment-ID speichern (0 = kein Bild)
+            if ($key === 'logo') {
+                $field['image_id'] = absint($f['image_id'] ?? 0);
             }
 
             $config['fields'][$key] = $field;
@@ -786,6 +802,78 @@ class TIX_Ticket_Template {
     }
 
     /**
+     * Logo-Bild aus WP-Attachment laden und auf Canvas zeichnen
+     *
+     * Unterstützt JPG, PNG (inkl. Transparenz) und GIF. Bild wird auf die
+     * angegebene Feldgröße skaliert (proportional passend: "contain") und
+     * zentriert in der Feldfläche platziert. Transparenz-kanal bleibt erhalten.
+     */
+    public static function render_logo_image($img, $field_cfg) {
+        if (!$field_cfg['enabled']) return;
+        $attachment_id = intval($field_cfg['image_id'] ?? 0);
+        if (!$attachment_id) return;
+
+        $file = get_attached_file($attachment_id);
+        if (!$file || !file_exists($file)) return;
+
+        $mime = wp_check_filetype($file)['type'] ?? '';
+
+        $logo = null;
+        if (strpos($mime, 'png') !== false) {
+            $logo = @imagecreatefrompng($file);
+            if ($logo) {
+                imagealphablending($logo, true);
+                imagesavealpha($logo, true);
+            }
+        } elseif (strpos($mime, 'jpeg') !== false || strpos($mime, 'jpg') !== false) {
+            $logo = @imagecreatefromjpeg($file);
+        } elseif (strpos($mime, 'gif') !== false) {
+            $logo = @imagecreatefromgif($file);
+        }
+        if (!$logo) return;
+
+        $src_w = imagesx($logo);
+        $src_h = imagesy($logo);
+        if ($src_w <= 0 || $src_h <= 0) { imagedestroy($logo); return; }
+
+        $box_w = max(10, intval($field_cfg['width']));
+        $box_h = max(10, intval($field_cfg['height']));
+
+        // Proportional in Box einpassen ("contain")
+        $scale = min($box_w / $src_w, $box_h / $src_h);
+        $dst_w = max(1, intval($src_w * $scale));
+        $dst_h = max(1, intval($src_h * $scale));
+
+        // Zentriert in Box platzieren
+        $dst_x = intval($field_cfg['x']) + intval(($box_w - $dst_w) / 2);
+        $dst_y = intval($field_cfg['y']) + intval(($box_h - $dst_h) / 2);
+
+        // Opacity-Support (0–1)
+        $opacity = isset($field_cfg['opacity']) ? floatval($field_cfg['opacity']) : 1.0;
+        $opacity = max(0.0, min(1.0, $opacity));
+
+        if ($opacity >= 1.0) {
+            imagealphablending($img, true);
+            imagecopyresampled($img, $logo, $dst_x, $dst_y, 0, 0, $dst_w, $dst_h, $src_w, $src_h);
+        } else {
+            // Mit Transparenz: über temporäre Leinwand mischen
+            $tmp = imagecreatetruecolor($dst_w, $dst_h);
+            imagealphablending($tmp, false);
+            imagesavealpha($tmp, true);
+            $transparent = imagecolorallocatealpha($tmp, 0, 0, 0, 127);
+            imagefilledrectangle($tmp, 0, 0, $dst_w, $dst_h, $transparent);
+            imagealphablending($tmp, true);
+            imagecopyresampled($tmp, $logo, 0, 0, 0, 0, $dst_w, $dst_h, $src_w, $src_h);
+
+            imagealphablending($img, true);
+            imagecopymerge($img, $tmp, $dst_x, $dst_y, 0, 0, $dst_w, $dst_h, intval($opacity * 100));
+            imagedestroy($tmp);
+        }
+
+        imagedestroy($logo);
+    }
+
+    /**
      * Vollständiges Ticket-Bild rendern
      *
      * @param int   $ticket_id  Ticket-Post-ID (0 = Vorschau)
@@ -825,6 +913,8 @@ class TIX_Ticket_Template {
                 self::render_qr_code($img, $field_cfg, $data['qr_code'] ?? '');
             } elseif ($key === 'barcode') {
                 self::render_barcode($img, $field_cfg, $data['barcode'] ?? '');
+            } elseif ($key === 'logo') {
+                self::render_logo_image($img, $field_cfg);
             } else {
                 $text = $data[$key] ?? '';
                 self::render_text_field($img, $field_cfg, $text);

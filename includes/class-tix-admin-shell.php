@@ -43,10 +43,10 @@ class TIX_Admin_Shell {
             'tixomat', 'tix-dashboard',
             'tix-settings', 'tix-statistics', 'tix-support', 'tix-docs',
             'tix-promoters', 'tix-marketing-export', 'tix-campaigns', 'tix-meta-ads',
-            'tix-templates', 'tix-orders', 'tix-email-log', 'tix-bulk-editor',
+            'tix-templates', 'tix-orders', 'tix-customers', 'tix-email-log', 'tix-bulk-editor', 'tix-settings-io',
             'tix-organizer-dashboard', 'tix-organizer-orders',
             'tix-organizer-guestlist', 'tix-organizer-email', 'tix-organizer-billing',
-            'tix-organizer-media',
+            'tix-organizer-media', 'tix-organizer-landing', 'tix-landing-settings',
         ];
         $page = $_GET['page'] ?? '';
         if (in_array($page, $tix_pages, true)) return true;
@@ -141,6 +141,7 @@ class TIX_Admin_Shell {
         elseif ($current_page === 'tix-templates')                              $active = 'templates';
         elseif ($current_page === 'tix-bulk-editor')                            $active = 'bulk-editor';
         elseif ($current_page === 'tix-orders')                                 $active = 'orders';
+        elseif ($current_page === 'tix-customers')                              $active = 'customers';
         elseif ($current_page === 'tix-email-log')                              $active = 'email-log';
         elseif ($current_page === 'tix-settings')                               $active = 'settings';
         elseif ($current_page === 'tix-docs')                                   $active = 'docs';
@@ -276,6 +277,11 @@ class TIX_Admin_Shell {
                         <span class="dashicons dashicons-cart"></span>
                         <span>Bestellungen</span>
                     </a>
+                    <a href="<?php echo admin_url('admin.php?page=tix-customers'); ?>"
+                       class="tix-shell-item<?php echo $active === 'customers' ? ' active' : ''; ?>">
+                        <span class="dashicons dashicons-groups"></span>
+                        <span>Kunden</span>
+                    </a>
                     <a href="<?php echo admin_url('edit.php?post_type=tix_ticket_tpl'); ?>"
                        class="tix-shell-item<?php echo $active === 'ticket-templates' ? ' active' : ''; ?>">
                         <span class="dashicons dashicons-media-document"></span>
@@ -329,6 +335,16 @@ class TIX_Admin_Shell {
                         <span class="dashicons dashicons-format-image"></span>
                         <span>Meine Medien</span>
                     </a>
+                    <?php
+                    // Landingpage-Link nur zeigen, wenn Feature aktiv
+                    if (class_exists('TIX_Organizer_Landing') && TIX_Organizer_Landing::is_feature_enabled()):
+                    ?>
+                    <a href="<?php echo admin_url('admin.php?page=tix-organizer-landing'); ?>"
+                       class="tix-shell-item<?php echo ($current_page === 'tix-organizer-landing') ? ' active' : ''; ?>">
+                        <span class="dashicons dashicons-welcome-view-site"></span>
+                        <span>Meine Landingpage</span>
+                    </a>
+                    <?php endif; ?>
                     <a href="<?php echo admin_url('profile.php'); ?>"
                        class="tix-shell-item">
                         <span class="dashicons dashicons-admin-users"></span>
@@ -402,6 +418,11 @@ class TIX_Admin_Shell {
                         <span class="dashicons dashicons-cart"></span>
                         <span>Bestellungen</span>
                     </a>
+                    <a href="<?php echo admin_url('admin.php?page=tix-customers'); ?>"
+                       class="tix-shell-item<?php echo $active === 'customers' ? ' active' : ''; ?>">
+                        <span class="dashicons dashicons-groups"></span>
+                        <span>Kunden</span>
+                    </a>
                     <a href="<?php echo admin_url('edit.php?post_type=tix_ticket_tpl'); ?>"
                        class="tix-shell-item<?php echo $active === 'ticket-templates' ? ' active' : ''; ?>">
                         <span class="dashicons dashicons-media-document"></span>
@@ -446,28 +467,6 @@ class TIX_Admin_Shell {
                         <span>Abgebrochene Bestellungen</span>
                     </a>
                     <?php endif; ?>
-                    <?php if (!empty($s['support_enabled'])) : ?>
-                        <?php if ($is_support) : ?>
-                            <a href="#tickets" class="tix-shell-item tix-shell-support-tab active" data-support-tab="tickets">
-                                <span class="dashicons dashicons-format-chat"></span>
-                                <span>Anfragen</span>
-                            </a>
-                            <a href="#search" class="tix-shell-item tix-shell-support-tab" data-support-tab="search">
-                                <span class="dashicons dashicons-search"></span>
-                                <span>Kunden-Suche</span>
-                            </a>
-                            <a href="#stats" class="tix-shell-item tix-shell-support-tab" data-support-tab="stats">
-                                <span class="dashicons dashicons-chart-bar"></span>
-                                <span>Statistiken</span>
-                            </a>
-                        <?php else : ?>
-                            <a href="<?php echo admin_url('admin.php?page=tix-support'); ?>"
-                               class="tix-shell-item<?php echo $active === 'support' ? ' active' : ''; ?>">
-                                <span class="dashicons dashicons-format-chat"></span>
-                                <span>Support</span>
-                            </a>
-                        <?php endif; ?>
-                    <?php endif; ?>
                     <?php if (!empty($s['promoter_enabled'])) : ?>
                     <a href="<?php echo admin_url('admin.php?page=tix-promoters'); ?>"
                        class="tix-shell-item<?php echo $active === 'promoter' ? ' active' : ''; ?>">
@@ -500,6 +499,50 @@ class TIX_Admin_Shell {
                         <span>E-Mail-Log</span>
                     </a>
                 </div>
+
+                <?php // ── Kundensupport ── ?>
+                <?php if (!empty($s['support_enabled'])) :
+                    // Offene Support-Anfragen zählen (tix_open + tix_progress), mit 60s Cache
+                    $open_count = get_transient('tix_open_support_count');
+                    if ($open_count === false) {
+                        $open_count = intval($GLOBALS['wpdb']->get_var(
+                            "SELECT COUNT(*) FROM {$GLOBALS['wpdb']->posts}
+                             WHERE post_type = 'tix_support_ticket'
+                               AND post_status IN ('tix_open','tix_progress')"
+                        ));
+                        set_transient('tix_open_support_count', $open_count, 60);
+                    }
+                ?>
+                <div class="tix-shell-group">
+                    <div class="tix-shell-group-label">Kundensupport</div>
+                    <?php if ($is_support) : ?>
+                        <a href="#tickets" class="tix-shell-item tix-shell-support-tab active" data-support-tab="tickets">
+                            <span class="dashicons dashicons-format-chat"></span>
+                            <span>Anfragen</span>
+                            <?php if ($open_count > 0): ?>
+                                <span class="tix-shell-badge"><?php echo intval($open_count); ?></span>
+                            <?php endif; ?>
+                        </a>
+                        <a href="#search" class="tix-shell-item tix-shell-support-tab" data-support-tab="search">
+                            <span class="dashicons dashicons-search"></span>
+                            <span>Kunden-Suche</span>
+                        </a>
+                        <a href="#stats" class="tix-shell-item tix-shell-support-tab" data-support-tab="stats">
+                            <span class="dashicons dashicons-chart-bar"></span>
+                            <span>Statistiken</span>
+                        </a>
+                    <?php else : ?>
+                        <a href="<?php echo admin_url('admin.php?page=tix-support'); ?>"
+                           class="tix-shell-item<?php echo $active === 'support' ? ' active' : ''; ?>">
+                            <span class="dashicons dashicons-format-chat"></span>
+                            <span>Support-&Uuml;bersicht</span>
+                            <?php if ($open_count > 0): ?>
+                                <span class="tix-shell-badge"><?php echo intval($open_count); ?></span>
+                            <?php endif; ?>
+                        </a>
+                    <?php endif; ?>
+                </div>
+                <?php endif; ?>
 
                 <!-- Einstellungen -->
                 <div class="tix-shell-group">
@@ -535,6 +578,29 @@ class TIX_Admin_Shell {
                            class="tix-shell-item<?php echo $active === 'settings' ? ' active' : ''; ?>">
                             <span class="dashicons dashicons-admin-generic"></span>
                             <span>Einstellungen</span>
+                        </a>
+                    <?php endif; ?>
+
+                    <?php
+                    // Landingpages-Link: immer sichtbar, wenn
+                    //   - Feature aktiv ist (feature_enabled = true auf evendis.de oder via Settings aktiviert), ODER
+                    //   - der Nutzer Admin ist (damit er die Einstellungen überhaupt erreicht um das Feature zu aktivieren)
+                    $show_landing_link = class_exists('TIX_Organizer_Landing') &&
+                        (TIX_Organizer_Landing::is_feature_enabled() || current_user_can('manage_options'));
+                    if ($show_landing_link) : ?>
+                        <a href="<?php echo admin_url('admin.php?page=tix-landing-settings'); ?>"
+                           class="tix-shell-item<?php echo ($current_page === 'tix-landing-settings') ? ' active' : ''; ?>">
+                            <span class="dashicons dashicons-welcome-view-site"></span>
+                            <span>Landingpages</span>
+                        </a>
+                    <?php endif; ?>
+
+                    <?php // Import/Export — nur für Admins (Plugin-Konfiguration übertragen) ?>
+                    <?php if (current_user_can('manage_options')): ?>
+                        <a href="<?php echo admin_url('admin.php?page=tix-settings-io'); ?>"
+                           class="tix-shell-item<?php echo ($current_page === 'tix-settings-io') ? ' active' : ''; ?>">
+                            <span class="dashicons dashicons-migrate"></span>
+                            <span>Import / Export</span>
                         </a>
                     <?php endif; ?>
                 </div>

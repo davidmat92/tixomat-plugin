@@ -72,6 +72,17 @@ class TIX_Dashboard {
                 </div>
             </div>
 
+            <?php // Neueste Support-Anfragen (nur wenn Feature aktiviert) ?>
+            <?php if (!empty(tix_get_settings('support_enabled'))) : ?>
+            <div class="tix-db-support tix-db-skeleton" id="tix-db-support">
+                <div class="tix-db-card-header">
+                    <h3>Neueste Anfragen</h3>
+                    <a href="<?php echo admin_url('admin.php?page=tix-support'); ?>" class="tix-db-link">Alle anzeigen &rarr;</a>
+                </div>
+                <div id="tix-db-support-list"></div>
+            </div>
+            <?php endif; ?>
+
             <!-- Bottom Row -->
             <div class="tix-db-bottom">
                 <div class="tix-db-orders tix-db-skeleton" id="tix-db-orders">
@@ -120,8 +131,28 @@ class TIX_Dashboard {
             var currentRange = 'month';
             var chartInstance = null;
 
-            // ── Initial Load ──
-            loadDashboard('month');
+            // ── Initial Load: Warten bis Chart.js (Footer) geladen ist ──
+            function whenChartReady(cb) {
+                if (typeof Chart !== 'undefined') { cb(); return; }
+                var tries = 0;
+                var timer = setInterval(function() {
+                    tries++;
+                    if (typeof Chart !== 'undefined') {
+                        clearInterval(timer);
+                        cb();
+                    } else if (tries > 100) {
+                        // 10s timeout → Fallback: trotzdem laden, renderChart gibt einfach warning aus
+                        clearInterval(timer);
+                        cb();
+                    }
+                }, 100);
+            }
+            function initDashboard(){ whenChartReady(function(){ loadDashboard('month'); }); }
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', initDashboard);
+            } else {
+                initDashboard();
+            }
 
             // ── Filter Buttons ──
             var filterBtns = document.querySelectorAll('.tix-db-filter-btn');
@@ -156,6 +187,7 @@ class TIX_Dashboard {
                     renderChart(d.chart);
                     renderUpcoming(d.upcoming);
                     renderOrders(d.orders);
+                    renderSupport(d.support);
                     renderAlerts(d.alerts);
                     // Update range label
                     var label = document.getElementById('tix-db-range-label');
@@ -191,6 +223,21 @@ class TIX_Dashboard {
                 wrap.classList.remove('tix-db-skeleton');
                 if (!chartData || !chartData.labels || chartData.labels.length === 0) {
                     wrap.querySelector('.tix-db-chart-container').innerHTML = '<p class="tix-db-empty">Noch keine Daten vorhanden.</p>';
+                    return;
+                }
+                // Falls Chart.js (noch) nicht da ist: erneut versuchen wenn verfügbar
+                if (typeof Chart === 'undefined') {
+                    var retries = 0;
+                    var wait = setInterval(function(){
+                        retries++;
+                        if (typeof Chart !== 'undefined') {
+                            clearInterval(wait);
+                            renderChart(chartData);
+                        } else if (retries > 50) {
+                            clearInterval(wait);
+                            wrap.querySelector('.tix-db-chart-container').innerHTML = '<p class="tix-db-empty">Chart-Bibliothek konnte nicht geladen werden.</p>';
+                        }
+                    }, 100);
                     return;
                 }
                 // Destroy previous chart instance
@@ -266,10 +313,8 @@ class TIX_Dashboard {
                         '<div class="tix-db-event-info">' +
                             '<div class="tix-db-event-title">' + ev.title + '</div>' +
                             '<div class="tix-db-event-date">' + ev.date + '</div>' +
-                            '<div class="tix-db-event-bar-wrap">' +
-                                '<div class="tix-db-event-bar"><div class="tix-db-event-bar-fill tix-db-bar-' + statusCls + '" style="width:' + pct + '%"></div></div>' +
-                                '<span class="tix-db-event-sold">' + ev.sold + (ev.capacity > 0 ? ' / ' + ev.capacity : '') + ' Tickets verkauft</span>' +
-                            '</div>' +
+                            '<div class="tix-db-event-bar"><div class="tix-db-event-bar-fill tix-db-bar-' + statusCls + '" style="width:' + pct + '%"></div></div>' +
+                            '<span class="tix-db-event-sold">' + ev.sold + (ev.capacity > 0 ? ' / ' + ev.capacity : '') + ' Tickets verkauft</span>' +
                         '</div>' +
                     '</a>';
                 });
@@ -288,7 +333,16 @@ class TIX_Dashboard {
                     '<th>Nr.</th><th>Kunde</th><th>Event</th><th>Tickets</th><th>Betrag</th><th>Status</th><th>Datum</th>' +
                     '</tr></thead><tbody>';
                 orders.forEach(function(o) {
-                    var statusCls = o.status === 'completed' ? 'complete' : (o.status === 'processing' ? 'processing' : (o.status === 'cancelled' ? 'cancelled' : 'pending'));
+                    var statusClsMap = {
+                        'completed':  'complete',
+                        'processing': 'processing',
+                        'cancelled':  'cancelled',
+                        'refunded':   'refunded',
+                        'pending':    'pending',
+                        'on-hold':    'pending',
+                        'failed':     'cancelled'
+                    };
+                    var statusCls = statusClsMap[o.status] || 'pending';
                     html += '<tr>' +
                         '<td><a href="' + o.url + '">' + o.number + '</a></td>' +
                         '<td>' + o.customer + '</td>' +
@@ -301,6 +355,36 @@ class TIX_Dashboard {
                 });
                 html += '</tbody></table>';
                 tbl.innerHTML = html;
+            }
+
+            function escHtml(s) {
+                return String(s == null ? '' : s)
+                    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+            }
+
+            function renderSupport(tickets) {
+                var wrap = document.getElementById('tix-db-support');
+                if (!wrap) return; // Widget nicht gerendert (Feature aus)
+                wrap.classList.remove('tix-db-skeleton');
+                var list = document.getElementById('tix-db-support-list');
+                if (!tickets || tickets.length === 0) {
+                    list.innerHTML = '<p class="tix-db-empty">Keine offenen Anfragen.</p>';
+                    return;
+                }
+                var html = '<table class="tix-db-table"><thead><tr>' +
+                    '<th>Betreff</th><th>Kunde</th><th>Status</th><th>Datum</th>' +
+                    '</tr></thead><tbody>';
+                tickets.forEach(function(t) {
+                    html += '<tr>' +
+                        '<td><a href="' + t.url + '">' + escHtml(t.subject) + '</a></td>' +
+                        '<td>' + escHtml(t.customer) + (t.email ? ' <span class="tix-db-muted">(' + escHtml(t.email) + ')</span>' : '') + '</td>' +
+                        '<td><span class="tix-db-status" style="background:' + t.status_color + '20;color:' + t.status_color + '">' + escHtml(t.status_label) + '</span></td>' +
+                        '<td>' + escHtml(t.date) + '</td>' +
+                    '</tr>';
+                });
+                html += '</tbody></table>';
+                list.innerHTML = html;
             }
 
             function renderAlerts(alerts) {
@@ -354,9 +438,56 @@ class TIX_Dashboard {
             'chart'       => self::get_chart_data($event_ids, $chart_days),
             'upcoming'    => self::get_upcoming_events($event_ids, 5),
             'orders'      => self::get_recent_orders($event_ids, 8),
+            'support'     => self::get_recent_support_tickets(6),
             'alerts'      => self::get_alerts($event_ids),
             'range_label' => $ranges['label'],
         ]);
+    }
+
+    /**
+     * Neueste Support-Anfragen für Dashboard-Widget.
+     * Liefert [] zurück, wenn Support deaktiviert.
+     */
+    private static function get_recent_support_tickets($limit = 6) {
+        if (empty(tix_get_settings('support_enabled'))) return [];
+
+        $q = new WP_Query([
+            'post_type'      => 'tix_support_ticket',
+            'post_status'    => ['tix_open', 'tix_progress', 'tix_resolved', 'tix_closed'],
+            'posts_per_page' => intval($limit),
+            'orderby'        => 'date',
+            'order'          => 'DESC',
+            'no_found_rows'  => true,
+        ]);
+
+        $status_labels = [
+            'tix_open'     => ['Offen',        '#3b82f6'],
+            'tix_progress' => ['In Bearbeitung','#f59e0b'],
+            'tix_resolved' => ['Gelöst',       '#10b981'],
+            'tix_closed'   => ['Geschlossen',  '#6b7280'],
+        ];
+
+        $rows = [];
+        foreach ($q->posts as $p) {
+            $st = $p->post_status;
+            $name  = get_post_meta($p->ID, '_tix_sp_name',  true) ?: '–';
+            $email = get_post_meta($p->ID, '_tix_sp_email', true) ?: '';
+            $last  = get_post_meta($p->ID, '_tix_sp_last_reply', true);
+            $date  = $last ?: $p->post_date;
+
+            $rows[] = [
+                'id'           => $p->ID,
+                'subject'      => $p->post_title ?: '(ohne Betreff)',
+                'customer'     => trim($name),
+                'email'        => $email,
+                'status'       => $st,
+                'status_label' => $status_labels[$st][0] ?? $st,
+                'status_color' => $status_labels[$st][1] ?? '#6b7280',
+                'date'         => wp_date('d.m.Y H:i', strtotime($date)),
+                'url'          => admin_url('admin.php?page=tix-support&ticket=' . $p->ID),
+            ];
+        }
+        return $rows;
     }
 
     /**
@@ -427,9 +558,7 @@ class TIX_Dashboard {
                         'posts_per_page' => -1,
                         'post_status'    => 'any',
                         'fields'         => 'ids',
-                        'meta_key'       => '_tix_organizer_id',
-                        'meta_value'     => $org_id,
-                        'meta_type'      => 'NUMERIC',
+                        'meta_query'     => ['relation' => 'OR', ['key' => '_tix_organizer_id', 'value' => $org_id, 'type' => 'NUMERIC'], ['key' => '_tix_co_organizer_id', 'value' => $org_id, 'type' => 'NUMERIC']],
                     ]);
                     return $ids ?: [0]; // [0] = kein Match
                 }
@@ -449,13 +578,25 @@ class TIX_Dashboard {
         $t  = TIX_Order::table_name();
         $ti = TIX_Order::items_table_name();
 
-        // Revenue aktueller Monat
-        $rev = self::query_revenue_kpi($t, $ti, $event_ids, $from, $to);
-        $prev_rev = self::query_revenue_kpi($t, $ti, $event_ids, $prev_from, $prev_to);
+        // Revenue aktueller Zeitraum (nutzt TIX_Statistics → inkl. CPT-Fallback für migrierte Sites)
+        if (class_exists('TIX_Statistics') && method_exists('TIX_Statistics', 'query_revenue')) {
+            $rev_row  = TIX_Statistics::query_revenue($from, $to, $event_ids);
+            $prev_row = TIX_Statistics::query_revenue($prev_from, $prev_to, $event_ids);
+            $rev      = $rev_row ? floatval($rev_row->revenue) : 0;
+            $prev_rev = $prev_row ? floatval($prev_row->revenue) : 0;
+        } else {
+            $rev      = self::query_revenue_kpi($t, $ti, $event_ids, $from, $to);
+            $prev_rev = self::query_revenue_kpi($t, $ti, $event_ids, $prev_from, $prev_to);
+        }
 
-        // Tickets aktueller Monat
-        $tix = self::query_tickets_kpi($t, $ti, $event_ids, $from, $to);
-        $prev_tix = self::query_tickets_kpi($t, $ti, $event_ids, $prev_from, $prev_to);
+        // Tickets aktueller Zeitraum (nutzt TIX_Statistics → inkl. CPT-Fallback)
+        if (class_exists('TIX_Statistics') && method_exists('TIX_Statistics', 'query_tickets_sold')) {
+            $tix      = intval(TIX_Statistics::query_tickets_sold($from, $to, $event_ids));
+            $prev_tix = intval(TIX_Statistics::query_tickets_sold($prev_from, $prev_to, $event_ids));
+        } else {
+            $tix      = self::query_tickets_kpi($t, $ti, $event_ids, $from, $to);
+            $prev_tix = self::query_tickets_kpi($t, $ti, $event_ids, $prev_from, $prev_to);
+        }
 
         // Aktive Events
         $today = current_time('Y-m-d');
@@ -566,33 +707,39 @@ class TIX_Dashboard {
     private static function query_checkin_rate($t, $ti, $event_ids) {
         global $wpdb;
 
-        // Check-in Status wird am tix_ticket CPT gespeichert, nicht in order_items
-        $meta_query = [
-            'relation' => 'AND',
-            ['key' => '_tix_status', 'compare' => 'EXISTS'],
-        ];
-        $args = [
-            'post_type'      => 'tix_ticket',
-            'post_status'    => 'publish',
-            'posts_per_page' => -1,
-            'fields'         => 'ids',
-        ];
+        // Check-in Rate direkt per SQL (schneller + korrekte Meta-Keys).
+        // Status-Meta: _tix_ticket_status (valid/checked_in/used/cancelled)
+        // Check-in-Flag: _tix_ticket_checked_in (1/0)
+        // Event-ID: _tix_ticket_event_id
+        $where  = "p.post_type = 'tix_ticket' AND p.post_status = 'publish'";
+        $where .= " AND (sm.meta_value IS NULL OR sm.meta_value <> 'cancelled')";
+        $params = [];
+
         if (!empty($event_ids)) {
-            $args['meta_query'] = [
-                ['key' => '_tix_event_id', 'value' => $event_ids, 'compare' => 'IN', 'type' => 'NUMERIC'],
-            ];
+            $ph = implode(',', array_fill(0, count($event_ids), '%d'));
+            $where .= " AND em.meta_value IN ($ph)";
+            $params = array_merge($params, $event_ids);
         }
-        $ticket_ids = get_posts($args);
-        $total = count($ticket_ids);
+
+        $sql = "SELECT
+                    COUNT(*) AS total,
+                    SUM(
+                        CASE
+                            WHEN (ci.meta_value = '1' OR sm.meta_value = 'checked_in' OR sm.meta_value = 'used')
+                            THEN 1 ELSE 0
+                        END
+                    ) AS checked
+                FROM {$wpdb->posts} p
+                LEFT JOIN {$wpdb->postmeta} sm ON sm.post_id = p.ID AND sm.meta_key = '_tix_ticket_status'
+                LEFT JOIN {$wpdb->postmeta} ci ON ci.post_id = p.ID AND ci.meta_key = '_tix_ticket_checked_in'
+                LEFT JOIN {$wpdb->postmeta} em ON em.post_id = p.ID AND em.meta_key = '_tix_ticket_event_id'
+                WHERE $where";
+
+        $row = $wpdb->get_row(empty($params) ? $sql : $wpdb->prepare($sql, ...$params));
+        if (!$row) return 0;
+        $total   = intval($row->total);
+        $checked = intval($row->checked);
         if ($total === 0) return 0;
-
-        // Zähle eingecheckte Tickets
-        $checked = 0;
-        foreach ($ticket_ids as $tid) {
-            $status = get_post_meta($tid, '_tix_status', true);
-            if ($status === 'checked_in') $checked++;
-        }
-
         return round($checked / $total * 100, 1);
     }
 
@@ -602,48 +749,64 @@ class TIX_Dashboard {
 
     private static function get_chart_data($event_ids, $days = 30) {
         global $wpdb;
-        $t  = TIX_Order::table_name();
-        $ti = TIX_Order::items_table_name();
 
         $from = date('Y-m-d', strtotime("-{$days} days"));
+        $to   = current_time('Y-m-d');
 
-        $event_filter = '';
-        if (!empty($event_ids)) {
-            $eids = implode(',', array_map('intval', $event_ids));
-            $event_filter = "AND i.event_id IN ($eids)";
-        }
+        $rows = [];
 
-        // Native (ohne WC-Sync)
-        $sql = $wpdb->prepare(
-            "SELECT DATE(o.date_created) as day,
-                    COALESCE(SUM(i.total), 0) as revenue,
-                    COALESCE(SUM(i.quantity), 0) as tickets
-             FROM $t o
-             INNER JOIN $ti i ON o.id = i.order_id
-             WHERE o.status IN ('completed','processing')
-               AND o.wc_order_id = 0
-               AND o.date_created >= %s $event_filter
-             GROUP BY DATE(o.date_created)
-             ORDER BY day ASC",
-            $from
-        );
+        // Bevorzugt TIX_Statistics::query_revenue_over_time verwenden.
+        // Das mergt automatisch WC + native Orders UND nutzt auf migrierten Sites
+        // den CPT-Fallback (tix_ticket-Posts) → funktioniert identisch auf allen Setups.
+        if (class_exists('TIX_Statistics') && method_exists('TIX_Statistics', 'query_revenue_over_time')) {
+            $stats_rows = TIX_Statistics::query_revenue_over_time($from, $to, $event_ids, 'day');
+            foreach ((array) $stats_rows as $r) {
+                // Normalisieren: statistics liefert "period", wir arbeiten mit "day"
+                $day = isset($r->period) ? $r->period : ($r->day ?? '');
+                $rows[] = (object) [
+                    'day'     => $day,
+                    'revenue' => floatval($r->revenue ?? 0),
+                    'tickets' => intval($r->tickets ?? 0),
+                ];
+            }
+        } else {
+            // Fallback: alte, eigene Query
+            $t  = TIX_Order::table_name();
+            $ti = TIX_Order::items_table_name();
+            $event_filter = '';
+            if (!empty($event_ids)) {
+                $eids = implode(',', array_map('intval', $event_ids));
+                $event_filter = "AND i.event_id IN ($eids)";
+            }
+            $sql = $wpdb->prepare(
+                "SELECT DATE(o.date_created) as day,
+                        COALESCE(SUM(i.total), 0) as revenue,
+                        COALESCE(SUM(i.quantity), 0) as tickets
+                 FROM $t o
+                 INNER JOIN $ti i ON o.id = i.order_id
+                 WHERE o.status IN ('completed','processing')
+                   AND o.wc_order_id = 0
+                   AND o.date_created >= %s $event_filter
+                 GROUP BY DATE(o.date_created)
+                 ORDER BY day ASC",
+                $from
+            );
+            $rows = $wpdb->get_results($sql);
 
-        $rows = $wpdb->get_results($sql);
-
-        // WC Orders dazumergen
-        if (function_exists('wc_get_product')) {
-            $wc_rows = self::query_wc_chart_data($event_ids, $from);
-            foreach ($wc_rows as $wr) {
-                $found = false;
-                foreach ($rows as $r) {
-                    if ($r->day === $wr->day) {
-                        $r->revenue = floatval($r->revenue) + floatval($wr->revenue);
-                        $r->tickets = intval($r->tickets) + intval($wr->tickets);
-                        $found = true;
-                        break;
+            if (function_exists('wc_get_product')) {
+                $wc_rows = self::query_wc_chart_data($event_ids, $from);
+                foreach ($wc_rows as $wr) {
+                    $found = false;
+                    foreach ($rows as $r) {
+                        if ($r->day === $wr->day) {
+                            $r->revenue = floatval($r->revenue) + floatval($wr->revenue);
+                            $r->tickets = intval($r->tickets) + intval($wr->tickets);
+                            $found = true;
+                            break;
+                        }
                     }
+                    if (!$found) $rows[] = $wr;
                 }
-                if (!$found) $rows[] = $wr;
             }
         }
 
@@ -698,56 +861,43 @@ class TIX_Dashboard {
         $events = get_posts($args);
 
         // Batch-Query: Verkaufte Tickets pro Event
+        // ROBUST: zählt aus tix_order_items (SUM quantity) statt tix_ticket CPT,
+        // weil die CPT-Posts nicht zuverlässig `_tix_ticket_status`-Meta tragen
+        // (manche Creation-Pfade setzen sie nicht). Order-Items ist die kanonische Quelle.
         $event_post_ids = wp_list_pluck($events, 'ID');
         $sold_map = [];
         if (!empty($event_post_ids)) {
             $eids_str = implode(',', array_map('intval', $event_post_ids));
 
-            // 1) Native tix_order_items (nicht-WC-Bestellungen: wc_order_id = 0)
-            $native_rows = $wpdb->get_results(
-                "SELECT i.event_id, COALESCE(SUM(i.quantity), 0) as sold
+            // Bezahlte Tickets pro Event aus Order-Items
+            $rows = $wpdb->get_results(
+                "SELECT i.event_id, COALESCE(SUM(i.quantity), 0) AS cnt
                  FROM $ti i
                  INNER JOIN $t o ON i.order_id = o.id
                  WHERE o.status IN ('completed','processing')
-                   AND o.wc_order_id = 0
                    AND i.event_id IN ($eids_str)
                  GROUP BY i.event_id"
             );
-            foreach ($native_rows as $sr) {
-                $sold_map[intval($sr->event_id)] = intval($sr->sold);
+            foreach ($rows as $r) {
+                $sold_map[intval($r->event_id)] = intval($r->cnt);
             }
 
-            // 2) WooCommerce-Orders: Produkte aus Ticket-Kategorien zählen
-            if (function_exists('wc_get_product')) {
-                foreach ($event_post_ids as $eid) {
-                    $cats = get_post_meta($eid, '_tix_ticket_categories', true);
-                    if (!is_array($cats)) continue;
-                    $wc_sold = 0;
-                    foreach ($cats as $cat) {
-                        $pid = intval($cat['product_id'] ?? 0);
-                        if (!$pid) continue;
-                        $wc_sold += self::count_wc_sold_for_product($pid);
-                    }
-                    if ($wc_sold > 0) {
-                        $sold_map[$eid] = ($sold_map[$eid] ?? 0) + $wc_sold;
-                    }
-                }
-            }
-
-            // 3) Stornierte Tickets abziehen (einzeln storniert, Order bleibt bestehen)
-            $cancelled_rows = $wpdb->get_results(
+            // Einzeln stornierte Tickets (CPT mit status=cancelled) abziehen
+            // LEFT JOIN robust gegen fehlende Status-Meta
+            $cancel_rows = $wpdb->get_results(
                 "SELECT pm_event.meta_value AS event_id, COUNT(*) AS cnt
                  FROM {$wpdb->posts} p
-                 INNER JOIN {$wpdb->postmeta} pm_status ON p.ID = pm_status.post_id AND pm_status.meta_key = '_tix_ticket_status' AND pm_status.meta_value = 'cancelled'
-                 INNER JOIN {$wpdb->postmeta} pm_event ON p.ID = pm_event.post_id AND pm_event.meta_key = '_tix_ticket_event_id'
-                 WHERE p.post_type = 'tix_ticket' AND p.post_status = 'publish'
+                 INNER JOIN {$wpdb->postmeta} pm_event  ON p.ID = pm_event.post_id  AND pm_event.meta_key  = '_tix_ticket_event_id'
+                 INNER JOIN {$wpdb->postmeta} pm_status ON p.ID = pm_status.post_id AND pm_status.meta_key = '_tix_ticket_status'
+                 WHERE p.post_type = 'tix_ticket'
                    AND pm_event.meta_value IN ($eids_str)
+                   AND pm_status.meta_value = 'cancelled'
                  GROUP BY pm_event.meta_value"
             );
-            foreach ($cancelled_rows as $cr) {
-                $eid = intval($cr->event_id);
+            foreach ($cancel_rows as $r) {
+                $eid = intval($r->event_id);
                 if (isset($sold_map[$eid])) {
-                    $sold_map[$eid] = max(0, $sold_map[$eid] - intval($cr->cnt));
+                    $sold_map[$eid] = max(0, $sold_map[$eid] - intval($r->cnt));
                 }
             }
         }
@@ -1022,12 +1172,31 @@ class TIX_Dashboard {
 
         $rows = $wpdb->get_results($sql);
 
+        // Auto-Repair: Wenn native Order mit WC-Order verknüpft ist aber keine Items hat, re-syncen
+        if (class_exists('TIX_Order') && function_exists('wc_get_order')) {
+            $need_refetch = false;
+            foreach ($rows as $r) {
+                if (intval($r->ticket_count) === 0 && !empty($r->wc_order_id)) {
+                    $wc_order = wc_get_order(intval($r->wc_order_id));
+                    if ($wc_order) {
+                        TIX_Order::write_items(intval($r->id), $wc_order);
+                        $need_refetch = true;
+                    }
+                }
+            }
+            if ($need_refetch) {
+                $rows = $wpdb->get_results($sql);
+            }
+        }
+
         $status_labels = [
             'completed'  => 'Abgeschlossen',
-            'processing' => 'In Bearbeitung',
+            'processing' => 'Bearbeitung',
             'pending'    => 'Ausstehend',
             'cancelled'  => 'Storniert',
             'failed'     => 'Fehlgeschlagen',
+            'refunded'   => 'Erstattet',
+            'on-hold'    => 'Wartend',
         ];
 
         $result = [];
@@ -1224,7 +1393,8 @@ class TIX_Dashboard {
 
 /* ── Middle Row ── */
 .tix-db-mid { display:grid; grid-template-columns:3fr 2fr; gap:16px; margin-bottom:24px; }
-.tix-db-chart-wrap, .tix-db-upcoming { background:#fff; border:1px solid #e5e7eb; border-radius:16px; padding:20px; }
+/* min-width:0 verhindert, dass Grid-Children (Chart/Canvas) die Spalte sprengen */
+.tix-db-chart-wrap, .tix-db-upcoming { background:#fff; border:1px solid #e5e7eb; border-radius:16px; padding:20px; min-width:0; overflow:hidden; }
 .tix-db-card-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; }
 .tix-db-card-header h3 { font-family:"Sora",sans-serif; font-size:0.95rem; font-weight:700; margin:0; color:#131020; }
 .tix-db-period { font-size:0.75rem; font-weight:500; color:#9ca3af; background:#f9fafb; padding:4px 10px; border-radius:8px; }
@@ -1233,26 +1403,26 @@ class TIX_Dashboard {
 .tix-db-chart-container { position:relative; height:260px; }
 
 /* ── Upcoming Events ── */
-.tix-db-event { display:flex; align-items:center; gap:12px; padding:10px; border-radius:12px; text-decoration:none; color:#1f2937; transition:background .15s; }
+.tix-db-upcoming-list { display:block; }
+.tix-db-event { display:grid; grid-template-columns:44px minmax(0, 1fr); align-items:center; gap:12px; padding:10px; border-radius:12px; text-decoration:none; color:#1f2937; transition:background .15s; overflow:hidden; }
 .tix-db-event:hover { background:#f9fafb; }
-.tix-db-event-img { width:44px; height:44px; border-radius:10px; object-fit:cover; flex-shrink:0; }
+.tix-db-event-img { width:44px; height:44px; border-radius:10px; object-fit:cover; display:block; }
 .tix-db-event-img-placeholder { background:#f3f4f6; display:flex; align-items:center; justify-content:center; }
 .tix-db-event-img-placeholder .dashicons { color:#d1d5db; }
-.tix-db-event-info { flex:1; min-width:0; }
+.tix-db-event-info { min-width:0; overflow:hidden; }
 .tix-db-event-title { font-family:"Sora",sans-serif; font-size:0.85rem; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.tix-db-event-date { font-size:0.72rem; color:#6b7280; margin:2px 0 4px; }
-.tix-db-event-bar-wrap { display:flex; align-items:center; gap:8px; }
-.tix-db-event-bar { flex:1; height:8px; background:#f3f4f6; border-radius:4px; overflow:hidden; }
-.tix-db-event-bar-fill { height:100%; border-radius:3px; transition:width .3s; }
+.tix-db-event-date { font-size:0.72rem; color:#6b7280; margin:2px 0 6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.tix-db-event-bar { display:block; width:100%; height:6px; background:#f3f4f6; border-radius:4px; overflow:hidden; }
+.tix-db-event-bar-fill { display:block; height:100%; border-radius:3px; transition:width .3s; }
 .tix-db-bar-available { background:#10b981; }
 .tix-db-bar-few { background:#f59e0b; }
 .tix-db-bar-sold-out { background:#ef4444; }
-.tix-db-event-sold { font-size:12px; font-weight:600; color:#374151; white-space:nowrap; }
+.tix-db-event-sold { display:block; margin-top:4px; font-size:11px; font-weight:600; color:#6b7280; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
 /* ── Bottom Row ── */
 .tix-db-bottom { display:grid; grid-template-columns:3fr 2fr; gap:16px; }
-.tix-db-orders { background:#fff; border:1px solid #e5e7eb; border-radius:16px; padding:20px; }
-.tix-db-sidebar { display:flex; flex-direction:column; gap:16px; }
+.tix-db-orders { background:#fff; border:1px solid #e5e7eb; border-radius:16px; padding:20px; min-width:0; overflow:hidden; }
+.tix-db-sidebar { display:flex; flex-direction:column; gap:16px; min-width:0; }
 
 /* ── Table ── */
 .tix-db-table { width:100%; border-collapse:collapse; font-size:0.8rem; }
@@ -1266,6 +1436,7 @@ class TIX_Dashboard {
 .tix-db-status-processing { background:#dbeafe; color:#2563eb; }
 .tix-db-status-pending { background:#fef3c7; color:#d97706; }
 .tix-db-status-cancelled { background:#fee2e2; color:#dc2626; }
+.tix-db-status-refunded { background:#ede9fe; color:#7c3aed; }
 
 /* ── Quick Actions ── */
 .tix-db-actions { background:#fff; border:1px solid #e5e7eb; border-radius:16px; padding:20px; }
@@ -1290,6 +1461,10 @@ class TIX_Dashboard {
 .tix-db-alert-info .dashicons { color:#3b82f6; }
 .tix-db-alert-urgent { background:#fef2f2; }
 .tix-db-alert-urgent .dashicons { color:#ef4444; }
+
+/* ── Support-Anfragen ── */
+.tix-db-support { background:#fff; border:1px solid #e5e7eb; border-radius:16px; padding:20px; margin-bottom:16px; }
+.tix-db-muted { color:#9ca3af; font-size:0.75rem; font-weight:400; }
 
 /* ── Empty ── */
 .tix-db-empty { text-align:center; color:#9ca3af; font-size:0.85rem; padding:24px 0; }

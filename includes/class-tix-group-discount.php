@@ -16,6 +16,25 @@ class TIX_Group_Discount {
         add_filter('woocommerce_get_item_data',       [__CLASS__, 'display_cart_item_badge'], 10, 2);
         add_filter('woocommerce_cart_item_name',       [__CLASS__, 'bundle_cart_item_name'], 10, 3);
         add_filter('woocommerce_cart_item_name',       [__CLASS__, 'combo_cart_item_name'], 10, 3);
+
+        // WICHTIG: Custom Cart-Item-Meta aus Session wiederherstellen.
+        // WooCommerce persistiert Custom-Keys nicht automatisch — ohne diesen Filter
+        // gehen _tix_bundle / _tix_combo / _tix_seats etc. bei jedem Page-Reload verloren
+        // und Rabatt-Fees werden nicht angewendet.
+        add_filter('woocommerce_get_cart_item_from_session', [__CLASS__, 'restore_cart_item_meta'], 10, 2);
+    }
+
+    /**
+     * Stellt Tixomat-spezifische Cart-Item-Meta aus der Session wieder her.
+     */
+    public static function restore_cart_item_meta($cart_item, $values) {
+        $keys = ['_tix_bundle', '_tix_combo', '_tix_seats', '_tix_seatmap_id', '_tix_special', '_tix_special_id', '_tix_event_id', '_tix_group_booking'];
+        foreach ($keys as $k) {
+            if (isset($values[$k]) && !isset($cart_item[$k])) {
+                $cart_item[$k] = $values[$k];
+            }
+        }
+        return $cart_item;
     }
 
     /**
@@ -23,7 +42,9 @@ class TIX_Group_Discount {
      */
     public static function apply_combo_deals($cart) {
         if (is_admin() && !defined('DOING_AJAX')) return;
-        if (did_action('woocommerce_cart_calculate_fees') > 1) return;
+        // Hinweis: KEIN did_action()-Guard — WC leert Fees zu Beginn jedes calculate_totals()
+        // Aufrufs selbst, daher gibt es keine Doppelung. Ein Guard auf > 1 hat zuvor bewirkt,
+        // dass beim zweiten Cart-Calc (z.B. nach add_to_cart → Render) die Fees fehlten.
 
         // Cart-Items nach Kombi-Gruppen sammeln
         $groups = [];
@@ -54,8 +75,18 @@ class TIX_Group_Discount {
 
             if ($discount <= 0) continue;
 
+            // Fee als netto übergeben, damit WC bei taxable=true nicht MwSt ON TOP packt.
+            $discount_net = $discount;
+            if (wc_prices_include_tax() && !empty($group['items'][0]['data'])) {
+                $discount_net = wc_get_price_excluding_tax($group['items'][0]['data'], [
+                    'qty'   => 1,
+                    'price' => $discount,
+                ]);
+                $discount_net = round(floatval($discount_net), 2);
+            }
+
             $fee_label = sprintf('🎫 Kombi-Rabatt: %s', $group['label']);
-            $cart->add_fee($fee_label, -$discount, true);
+            $cart->add_fee($fee_label, -$discount_net, true);
         }
     }
 
@@ -79,7 +110,9 @@ class TIX_Group_Discount {
      */
     public static function apply_bundle_deals($cart) {
         if (is_admin() && !defined('DOING_AJAX')) return;
-        if (did_action('woocommerce_cart_calculate_fees') > 1) return;
+        // Hinweis: KEIN did_action()-Guard — WC leert Fees zu Beginn jedes calculate_totals()
+        // Aufrufs selbst, daher gibt es keine Doppelung. Ein Guard auf > 1 hat zuvor bewirkt,
+        // dass beim zweiten Cart-Calc (z.B. nach add_to_cart → Render) die Fees fehlten.
 
         foreach ($cart->get_cart() as $key => $item) {
             if (empty($item['_tix_bundle'])) continue;
@@ -96,15 +129,25 @@ class TIX_Group_Discount {
             $free = floor($qty / $buy) * ($buy - $pay);
             if ($free <= 0) continue;
 
-            $price_per = floatval($item['data']->get_price());
+            $product   = $item['data'];
+            $price_per = floatval($product->get_price());
             $discount  = round($free * $price_per, 2);
 
             if ($discount <= 0) continue;
 
-            $fee_name = $label ?: $item['data']->get_name();
+            // Wenn Preise inkl. MwSt gespeichert → Fee-Betrag ist brutto.
+            // WC add_fee(taxable=true) erwartet aber netto, sonst fügt es MwSt ON TOP hinzu.
+            // Also Fee immer als netto-Äquivalent übergeben, egal ob $price_per brutto oder netto ist.
+            $discount_net = wc_get_price_excluding_tax($product, [
+                'qty'   => $free,
+                'price' => $price_per,
+            ]);
+            $discount_net = round(floatval($discount_net), 2);
+
+            $fee_name = $label ?: $product->get_name();
             $fee_label = sprintf('🎁 %s (%d für %d)', $fee_name, $buy, $pay);
 
-            $cart->add_fee($fee_label, -$discount, true);
+            $cart->add_fee($fee_label, -$discount_net, true);
         }
     }
 
@@ -130,7 +173,9 @@ class TIX_Group_Discount {
      */
     public static function apply_group_discount($cart) {
         if (is_admin() && !defined('DOING_AJAX')) return;
-        if (did_action('woocommerce_cart_calculate_fees') > 1) return;
+        // Hinweis: KEIN did_action()-Guard — WC leert Fees zu Beginn jedes calculate_totals()
+        // Aufrufs selbst, daher gibt es keine Doppelung. Ein Guard auf > 1 hat zuvor bewirkt,
+        // dass beim zweiten Cart-Calc (z.B. nach add_to_cart → Render) die Fees fehlten.
 
         // 1. Warenkorb-Items nach Event gruppieren
         $events = [];

@@ -847,6 +847,90 @@ class TIX_Sync {
     }
 
     /**
+     * Berechnet _tix_sold_total für ein Event live aus tix_order_items.
+     * WC-UNABHÄNGIG — funktioniert allein aus den nativen tix_orders-Daten.
+     * Wird bei JEDEM Order-Status-Change + bei Ticket-Stornierungen aufgerufen,
+     * damit die Meta NIE stale wird.
+     *
+     * @return int Neue Sold-Total Zahl
+     */
+    public static function recompute_event_sold_count($event_id) {
+        $event_id = intval($event_id);
+        if ($event_id <= 0) return 0;
+
+        global $wpdb;
+        $ti = $wpdb->prefix . 'tix_order_items';
+        $t  = $wpdb->prefix . 'tix_orders';
+
+        // 1. Bezahlte Tickets aus tix_order_items (native + WC-Dual-Write)
+        $paid = 0;
+        if ($wpdb->get_var("SHOW TABLES LIKE '$t'") === $t) {
+            $paid = intval($wpdb->get_var($wpdb->prepare(
+                "SELECT COALESCE(SUM(i.quantity), 0)
+                 FROM $ti i INNER JOIN $t o ON i.order_id = o.id
+                 WHERE o.status IN ('completed','processing') AND i.event_id = %d",
+                $event_id
+            )));
+        }
+
+        // 2. Einzeln stornierte Tickets abziehen (tix_ticket CPT mit _tix_ticket_status = 'cancelled')
+        $cancelled = intval($wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM {$wpdb->posts} p
+             INNER JOIN {$wpdb->postmeta} ps ON p.ID = ps.post_id AND ps.meta_key = '_tix_ticket_status' AND ps.meta_value = 'cancelled'
+             INNER JOIN {$wpdb->postmeta} pe ON p.ID = pe.post_id AND pe.meta_key = '_tix_ticket_event_id' AND pe.meta_value = %d
+             WHERE p.post_type = 'tix_ticket'",
+            $event_id
+        )));
+
+        $total_sold = max(0, $paid - $cancelled);
+
+        // Meta updaten
+        update_post_meta($event_id, '_tix_sold_total', $total_sold);
+
+        // Sold-Percent + Display aktualisieren (Kapazität aus bestehender Meta, nicht neu berechnen)
+        $total_cap = intval(get_post_meta($event_id, '_tix_capacity_total', true));
+        if ($total_cap > 0) {
+            $sold_pct = round(($total_sold / $total_cap) * 100);
+            update_post_meta($event_id, '_tix_sold_percent', $sold_pct);
+            update_post_meta($event_id, '_tix_sold_display', "{$total_sold}/{$total_cap} ({$sold_pct}%)");
+        } else {
+            update_post_meta($event_id, '_tix_sold_display', $total_sold > 0 ? "{$total_sold} verkauft" : '');
+        }
+
+        return $total_sold;
+    }
+
+    /**
+     * Recompute für alle Events einer Bestellung.
+     * Listener für tix_order_status_changed.
+     */
+    public static function on_order_status_changed($order_id, $new_status = '', $old_status = '', $gateway = '') {
+        if (!class_exists('TIX_Order')) return;
+        $order = TIX_Order::get($order_id);
+        if (!$order) return;
+
+        $event_ids = [];
+        foreach ($order->get_items() as $it) {
+            $eid = method_exists($it, 'get_event_id') ? intval($it->get_event_id()) : 0;
+            if ($eid && !in_array($eid, $event_ids, true)) $event_ids[] = $eid;
+        }
+        foreach ($event_ids as $eid) {
+            self::recompute_event_sold_count($eid);
+        }
+    }
+
+    /**
+     * Wenn ein einzelnes Ticket storniert oder re-aktiviert wird,
+     * den Sold-Count des zugehörigen Events neu berechnen.
+     */
+    public static function on_ticket_status_changed($meta_id, $post_id, $meta_key, $meta_value) {
+        if ($meta_key !== '_tix_ticket_status') return;
+        if (get_post_type($post_id) !== 'tix_ticket') return;
+        $event_id = intval(get_post_meta($post_id, '_tix_ticket_event_id', true));
+        if ($event_id) self::recompute_event_sold_count($event_id);
+    }
+
+    /**
      * Automatisch Preis-Meta aktualisieren, wenn _tix_ticket_categories gespeichert wird.
      * Fängt ALLE Codepfade ab (Metabox, REST API, Organizer-Dashboard, Serien, etc.)
      */
@@ -865,6 +949,57 @@ class TIX_Sync {
 
         self::update_price_meta($post_id, $categories);
 
+        // WC-Produkt-Preise nachziehen (wichtig wenn Kategorien geändert werden,
+        // ohne dass der volle sync() über save_post_event läuft — z.B. REST API,
+        // Organizer-Dashboard, Bulk-Update, direkte update_post_meta-Aufrufe).
+        self::sync_wc_product_prices($categories);
+
         unset($running[$post_id]);
+    }
+
+    /**
+     * Aktualisiert WC-Produkt-Preise für alle Kategorien mit product_id.
+     * Leichtgewichtig — nur Preise, keine anderen Product-Felder.
+     */
+    public static function sync_wc_product_prices($categories) {
+        if (!function_exists('wc_get_product')) return;
+        if (!is_array($categories)) return;
+
+        foreach ($categories as $cat) {
+            $product_id = intval($cat['product_id'] ?? 0);
+            if (!$product_id) continue;
+
+            $product = wc_get_product($product_id);
+            if (!$product) continue;
+
+            $price    = floatval($cat['price'] ?? 0);
+            $sale_raw = $cat['sale_price'] ?? '';
+            $has_sale = ($sale_raw !== '' && $sale_raw !== null && $sale_raw !== false);
+            $sale     = $has_sale ? floatval($sale_raw) : null;
+
+            // Phase-aware Pricing
+            $active_phase = class_exists('TIX_Metabox') ? TIX_Metabox::get_active_phase($cat['phases'] ?? []) : null;
+            if ($active_phase) {
+                $phase_price = floatval($active_phase['price']);
+                if ($phase_price < $price) {
+                    $product->set_regular_price($price);
+                    $product->set_sale_price($phase_price);
+                } else {
+                    $product->set_regular_price($phase_price);
+                    $product->set_sale_price('');
+                }
+            } else {
+                $product->set_regular_price($price);
+                if ($sale !== null) $product->set_sale_price($sale);
+                else $product->set_sale_price('');
+            }
+
+            $product->save();
+        }
+
+        // Dynamic Pricing Cache leeren
+        if (class_exists('TIX_Dynamic_Pricing')) {
+            TIX_Dynamic_Pricing::clear_cache();
+        }
     }
 }

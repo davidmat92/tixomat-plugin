@@ -34,34 +34,85 @@
     height: 100%;
     min-height: 400px;
 }
-.tix-hp-hero-card:hover .tix-hp-hero-img img { transform: scale(1.05); }
+.tix-hp-hero-card:hover .tix-hp-hero-img { transform: scale(1.05); }
 
-.tix-hp-hero-img { position: absolute; inset: 0; }
-.tix-hp-hero-img img {
-    width: 100%; height: 100%; object-fit: cover;
+.tix-hp-hero-img {
+    position: absolute;
+    /* 8% Puffer oben/unten für Parallax, damit beim Verschieben kein weißer Rand entsteht */
+    top: -8%; left: 0; right: 0; bottom: -8%;
+    background-size: cover;
+    background-position: center center;
+    background-repeat: no-repeat;
+    background-color: var(--tix-card-sand, #F0ECE4);
     transition: transform 0.5s cubic-bezier(.2,1,.3,1);
+    will-change: transform;
+}
+.tix-hp-hero-img img {
+    width: 100%; height: 100%; object-fit: cover; object-position: center center;
+    display: block;
 }
 .tix-hp-hero-overlay {
     position: absolute; inset: 0;
-    background: linear-gradient(to top, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.15) 50%, transparent 100%);
+    /* Stärkerer, höher reichender Verlauf für bessere Text-Lesbarkeit auf hellen/bunten Bildern */
+    background:
+        linear-gradient(to top,
+            rgba(0,0,0,0.92) 0%,
+            rgba(0,0,0,0.78) 18%,
+            rgba(0,0,0,0.45) 42%,
+            rgba(0,0,0,0.10) 68%,
+            transparent 100%
+        );
+    pointer-events: none;
 }
 .tix-hp-hero-badges { position: absolute; top: 16px; left: 16px; z-index: 3; display: flex; gap: 6px; align-items: center; }
 .tix-hp-hero-card .ev-save { position: absolute; top: 16px; right: 16px; z-index: 3; }
-.tix-hp-hero-content { position: absolute; bottom: 0; left: 0; right: 0; padding: 28px 24px; z-index: 2; }
+.tix-hp-hero-content {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    padding: 28px 24px;
+    z-index: 2;
+    color: #fff;
+    text-shadow: 0 1px 8px rgba(0,0,0,0.45), 0 1px 2px rgba(0,0,0,0.6);
+}
 .tix-hp-hero-date {
     font-family: var(--tix-card-font-d, var(--tix-font-heading, 'Sora')), sans-serif;
-    font-size: 0.75rem; font-weight: 700; color: var(--tix-card-signal-mid, #F2899A);
-    letter-spacing: 0.02em; margin-bottom: 6px;
+    font-size: 0.78rem; font-weight: 800; color: #fff;
+    letter-spacing: 0.06em; text-transform: uppercase;
+    margin-bottom: 8px;
+    /* Pille im Signal-Color hinter Datum für maximale Lesbarkeit */
+    display: inline-block;
+    padding: 4px 10px;
+    background: var(--tix-card-signal, #E8445A);
+    border-radius: 6px;
+    text-shadow: none;
+    box-shadow: 0 2px 8px rgba(232,68,90,0.3);
 }
-.tix-hp-hero-title {
+.tix-hp-hero-title,
+.tix-hp h2.tix-hp-hero-title,
+.tix-hp-hero-card h2.tix-hp-hero-title {
     font-family: var(--tix-card-font-d, var(--tix-font-heading, 'Sora')), sans-serif;
-    font-size: 1.5rem; font-weight: 800; line-height: 1.2; margin: 0 0 10px;
+    font-size: 1.6rem; font-weight: 800; line-height: 1.15;
+    /* !important weil Themes (Breakdance, generic) oft h2-Farbe hart überschreiben */
+    color: #fff !important;
+    margin: 0 0 10px;
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+    text-shadow: 0 2px 12px rgba(0,0,0,0.6), 0 1px 2px rgba(0,0,0,0.85);
 }
-.tix-hp-hero-meta { display: flex; align-items: center; gap: 16px; font-size: 0.85rem; opacity: 0.85; }
+.tix-hp-hero-meta {
+    display: flex; align-items: center; gap: 16px;
+    font-size: 0.9rem; font-weight: 600;
+    color: #fff; opacity: 0.95;
+}
 .tix-hp-hero-loc { display: flex; align-items: center; gap: 4px; }
 .tix-hp-hero-price {
-    font-family: var(--tix-card-font-d, var(--tix-font-heading, 'Sora')), sans-serif; font-weight: 700;
+    font-family: var(--tix-card-font-d, var(--tix-font-heading, 'Sora')), sans-serif;
+    font-weight: 800;
+    /* Preis als kleines Pille für Prominenz */
+    padding: 4px 10px;
+    background: rgba(255,255,255,0.18);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border-radius: 6px;
+    text-shadow: none;
 }
 
 /* Hero Side */
@@ -70,22 +121,88 @@
     display: block; position: relative; border-radius: var(--tix-card-radius, 20px);
     overflow: hidden; text-decoration: none; color: #fff; flex: 1; min-height: 0;
 }
-.tix-hp-hero-sm:hover .tix-hp-hero-sm-img img { transform: scale(1.05); }
-.tix-hp-hero-sm-img { position: absolute; inset: 0; }
-.tix-hp-hero-sm-img img {
-    width: 100%; height: 100%; object-fit: cover;
+.tix-hp-hero-sm:hover .tix-hp-hero-sm-img { transform: scale(1.05); }
+.tix-hp-hero-sm-img {
+    position: absolute;
+    top: -8%; left: 0; right: 0; bottom: -8%;
+    background-size: cover;
+    background-position: center center;
+    background-repeat: no-repeat;
+    background-color: var(--tix-card-sand, #F0ECE4);
     transition: transform 0.5s cubic-bezier(.2,1,.3,1);
+    will-change: transform;
+}
+.tix-hp-hero-sm-img img {
+    width: 100%; height: 100%; object-fit: cover; object-position: center center;
+    display: block;
+}
+.tix-hp-hero-sm-img ~ .tix-hp-hero-sm-content,
+.tix-hp-hero-sm .tix-hp-hero-overlay {
+    /* kein Effekt hier, rein strukturell */
 }
 .tix-hp-hero-sm-img .tix-hp-hero-overlay {
-    background: linear-gradient(to top, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0.1) 60%, transparent 100%);
+    background: linear-gradient(to top,
+        rgba(0,0,0,0.92) 0%,
+        rgba(0,0,0,0.7) 22%,
+        rgba(0,0,0,0.35) 50%,
+        transparent 90%
+    );
+    pointer-events: none;
 }
-.tix-hp-hero-sm-content { position: absolute; bottom: 0; left: 0; right: 0; padding: 16px 18px; z-index: 2; }
-.tix-hp-hero-sm-title {
+.tix-hp-hero-sm-content {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    padding: 16px 18px; z-index: 2;
+    color: #fff;
+    text-shadow: 0 1px 6px rgba(0,0,0,0.5), 0 1px 2px rgba(0,0,0,0.7);
+}
+.tix-hp-hero-sm-content .tix-hp-hero-date {
+    padding: 2px 8px;
+    font-size: 0.7rem;
+}
+.tix-hp-hero-sm-title,
+.tix-hp .tix-hp-hero-sm-title {
     font-family: var(--tix-card-font-d, var(--tix-font-heading, 'Sora')), sans-serif;
-    font-size: 0.95rem; font-weight: 700; line-height: 1.3;
+    font-size: 1rem; font-weight: 700; line-height: 1.25;
+    color: #fff !important;
+    margin: 4px 0 2px;
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+    text-shadow: 0 2px 10px rgba(0,0,0,0.7), 0 1px 2px rgba(0,0,0,0.8);
 }
-.tix-hp-hero-sm-loc { font-size: 0.75rem; opacity: 0.7; margin-top: 4px; }
+.tix-hp-hero-card, .tix-hp-hero-card * { color: #fff; }
+.tix-hp-hero-sm, .tix-hp-hero-sm * { color: #fff; }
+
+/* Hero-Buttons: transparenter Glass-Look mit weißen Icons */
+.tix-hp-hero-card .ev-save,
+.tix-hp-hero-sm .ev-save,
+.tix-hp-hero-card .ev-share,
+.tix-hp-hero-sm .ev-share {
+    background: rgba(255,255,255,0.18);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(255,255,255,0.25);
+    color: #fff;
+}
+.tix-hp-hero-card .ev-save:hover,
+.tix-hp-hero-sm .ev-save:hover,
+.tix-hp-hero-card .ev-share:hover,
+.tix-hp-hero-sm .ev-share:hover {
+    background: rgba(255,255,255,0.3);
+    color: #fff;
+}
+/* Favorisiert → gefülltes Herz in Signal-Farbe bleibt sichtbar */
+.tix-hp-hero-card .ev-save.saved,
+.tix-hp-hero-sm .ev-save.saved {
+    background: var(--tix-card-signal, #E8445A);
+    color: #fff;
+    border-color: transparent;
+}
+.tix-hp-hero-sm-loc {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: #fff;
+    opacity: 0.9;
+    margin-top: 3px;
+}
 
 /* ═══════════════════════════════════════════
    Hero: Fullwidth
@@ -171,6 +288,26 @@
 .tix-hp-section {
     margin-bottom: 40px;
 }
+
+/* ═══════════════════════════════════════════
+   Sektions-Wrapper (Baukasten — Phase 1)
+   Kontrolliert Abstand zwischen Sektionen zentral.
+   Interne margin-bottom wird zurückgesetzt, damit nur der
+   Wrapper-Abstand zählt (sonst doppelt).
+   ═══════════════════════════════════════════ */
+.tix-hp-sec-wrap { display: flow-root; }
+.tix-hp-sec-wrap > .tix-hp-section,
+.tix-hp-sec-wrap > .tix-hp-newsletter,
+.tix-hp-sec-wrap > .tix-hp-countdown,
+.tix-hp-sec-wrap > .tix-hp-voucher,
+.tix-hp-sec-wrap > .tix-hp-partners,
+.tix-hp-sec-wrap > .tix-hp-faq,
+.tix-hp-sec-wrap > .tix-hp-hero,
+.tix-hp-sec-wrap > .tix-hp-filters,
+.tix-hp-sec-wrap > .tix-hp-grid,
+.tix-hp-sec-wrap > .tix-hp-load-more-wrap {
+    margin-bottom: 0 !important;
+}
 .tix-hp-section-header {
     display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 20px;
 }
@@ -236,6 +373,81 @@
 .tix-hp-dark .tix-hp-time-btn { border-color: #332F50; color: #B8B5B0; }
 .tix-hp-dark .tix-hp-time-btn:hover { border-color: var(--tix-card-signal, #E8445A); color: var(--tix-card-signal-mid, #F2899A); }
 .tix-hp-dark .tix-hp-time-btn.active { color: #fff; }
+
+/* Near Me Button */
+.tix-hp-nearme-btn {
+    font-family: var(--tix-card-font-d, var(--tix-font-heading, 'Sora')), sans-serif;
+    font-size: 0.82rem; font-weight: 600; padding: 8px 14px; border-radius: 50px;
+    border: 1.5px solid var(--tix-card-sand, #E3DED4); background: transparent;
+    color: inherit; cursor: pointer; transition: all 0.2s;
+    display: inline-flex; align-items: center; gap: 6px;
+}
+.tix-hp-nearme-btn:hover { border-color: var(--tix-card-signal, #E8445A); color: var(--tix-card-signal, #E8445A); }
+.tix-hp-nearme-btn.active { background: var(--tix-card-signal, #E8445A); border-color: var(--tix-card-signal, #E8445A); color: #fff; }
+.tix-hp-nearme-btn.loading { opacity: 0.7; pointer-events: none; }
+.tix-hp-nearme-btn.loading svg { animation: tix-spin 1s linear infinite; }
+@keyframes tix-spin { to { transform: rotate(360deg); } }
+.tix-hp-dark .tix-hp-nearme-btn { border-color: #332F50; color: #B8B5B0; }
+
+/* ═══════════════════════════════════════════
+   Kalender-Ansicht
+   ═══════════════════════════════════════════ */
+.tix-hp-cal { background: var(--tix-card-sand, #F8F5EF); border-radius: 16px; padding: 20px; }
+.tix-hp-cal-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+.tix-hp-cal-title { font-family: var(--tix-card-font-d, var(--tix-font-heading, 'Sora')), sans-serif; font-size: 1.25rem; font-weight: 700; text-transform: capitalize; }
+.tix-hp-cal-nav { width: 36px; height: 36px; border-radius: 50%; border: 1.5px solid var(--tix-card-sand, #E3DED4); background: #fff; cursor: pointer; font-size: 18px; line-height: 1; color: inherit; transition: all .2s; }
+.tix-hp-cal-nav:hover { border-color: var(--tix-card-signal, #E8445A); color: var(--tix-card-signal, #E8445A); }
+
+.tix-hp-cal-dows { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; margin-bottom: 4px; }
+.tix-hp-cal-dow { text-align: center; font-size: 0.72rem; font-weight: 700; color: var(--tix-card-text-muted, #8C8985); text-transform: uppercase; letter-spacing: 0.04em; padding: 4px 0; }
+
+.tix-hp-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.tix-hp-cal-cell {
+    aspect-ratio: 1;
+    background: #fff;
+    border-radius: 10px;
+    padding: 6px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    min-height: 54px;
+    transition: background .15s, transform .15s;
+}
+.tix-hp-cal-cell.tix-hp-cal-empty { background: transparent; }
+.tix-hp-cal-cell.has-events { cursor: pointer; }
+.tix-hp-cal-cell.has-events:hover { background: var(--tix-card-signal, #E8445A); color: #fff; transform: translateY(-1px); }
+.tix-hp-cal-cell.has-events:hover .tix-hp-cal-dot { background: rgba(255,255,255,0.9); }
+.tix-hp-cal-cell.has-events:hover .tix-hp-cal-more { color: #fff; }
+.tix-hp-cal-cell.is-today { outline: 2px solid var(--tix-card-signal, #E8445A); outline-offset: -2px; }
+.tix-hp-cal-cell.selected { background: var(--tix-card-signal, #E8445A); color: #fff; }
+.tix-hp-cal-cell.selected .tix-hp-cal-dot { background: rgba(255,255,255,0.9); }
+
+.tix-hp-cal-num { font-family: var(--tix-card-font-d, var(--tix-font-heading, 'Sora')), sans-serif; font-size: 0.85rem; font-weight: 700; line-height: 1; }
+.tix-hp-cal-dots { display: flex; gap: 3px; flex-wrap: wrap; align-items: center; }
+.tix-hp-cal-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--tix-card-signal, #E8445A); display: inline-block; }
+.tix-hp-cal-more { font-size: 0.65rem; color: var(--tix-card-text-muted, #8C8985); font-weight: 700; line-height: 1; }
+
+.tix-hp-cal-day-events { margin-top: 20px; background: #fff; border-radius: 12px; padding: 16px; }
+.tix-hp-cal-day-header { font-weight: 700; margin-bottom: 12px; font-size: 0.9rem; }
+.tix-hp-cal-day-item { display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: 8px; text-decoration: none; color: inherit; transition: background .15s; }
+.tix-hp-cal-day-item:hover { background: var(--tix-card-sand, #F0ECE4); }
+.tix-hp-cal-day-thumb { width: 56px; height: 56px; border-radius: 8px; background-size: cover; background-position: center; background-color: var(--tix-card-sand, #F0ECE4); flex-shrink: 0; }
+.tix-hp-cal-day-info { flex: 1; min-width: 0; }
+.tix-hp-cal-day-time { font-size: 0.72rem; font-weight: 700; color: var(--tix-card-signal, #E8445A); letter-spacing: 0.02em; margin-bottom: 3px; }
+.tix-hp-cal-day-title { font-weight: 700; line-height: 1.3; margin-bottom: 2px; }
+.tix-hp-cal-day-loc { font-size: 0.8rem; color: var(--tix-card-text-muted, #8C8985); }
+.tix-hp-cal-day-price { font-family: var(--tix-card-font-d, var(--tix-font-heading, 'Sora')), sans-serif; font-weight: 700; font-size: 0.95rem; }
+
+.tix-hp-dark .tix-hp-cal { background: #221E3F; }
+.tix-hp-dark .tix-hp-cal-cell { background: #2E2A50; color: #fff; }
+.tix-hp-dark .tix-hp-cal-nav { background: #2E2A50; border-color: #332F50; color: #fff; }
+.tix-hp-dark .tix-hp-cal-day-events { background: #2E2A50; }
+
+@media (max-width: 560px) {
+    .tix-hp-cal-num { font-size: 0.75rem; }
+    .tix-hp-cal-cell { min-height: 42px; padding: 4px; }
+    .tix-hp-cal-dot { width: 5px; height: 5px; }
+}
 
 /* Category Chips */
 .tix-hp-cat-chips { display: flex; gap: 8px; flex-wrap: wrap; }

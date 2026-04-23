@@ -431,8 +431,9 @@ class TIX_REST_API {
             if ($org) {
                 $args['meta_query']   = $args['meta_query'] ?? [];
                 $args['meta_query'][] = [
-                    'key'   => '_tix_organizer_id',
-                    'value' => strval($org->ID),
+                    'relation' => 'OR',
+                    ['key' => '_tix_organizer_id', 'value' => strval($org->ID)],
+                    ['key' => '_tix_co_organizer_id', 'value' => strval($org->ID)],
                 ];
             } else {
                 return rest_ensure_response(['ok' => true, 'count' => 0, 'events' => []]);
@@ -1090,6 +1091,12 @@ class TIX_REST_API {
 
         $pw_check = self::verify_checkin_password($event_id, $req);
         if (is_wp_error($pw_check)) return $pw_check;
+
+        // Auto-Repair: Fehlende tix_ticket Posts nachgenerieren (z.B. bei gelöschten Produkten,
+        // verschobenen Tickets oder Orders bei denen on_order_completed nie gefeuert hat).
+        if (class_exists('TIX_Tickets')) {
+            TIX_Tickets::ensure_tickets_for_event($event_id);
+        }
 
         $combined = [];
         $stats    = ['total' => 0, 'checked_in' => 0, 'guests' => 0, 'tickets' => 0, 'partial' => 0];

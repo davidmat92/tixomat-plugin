@@ -61,12 +61,28 @@ class TIX_Native_Checkout {
 
     public static function init_cart_session() {
         if (is_user_logged_in()) return;
+
+        // Admin-Requests brauchen keine Frontend-Session → reduziert auch
+        // "Cannot modify header information" Warnings, wenn admin_notices
+        // vor dem init-Hook feuern
+        if (is_admin() && !wp_doing_ajax()) return;
+
+        // REST/WP-Cron/XMLRPC auch überspringen
+        if ((defined('REST_REQUEST') && REST_REQUEST)
+            || (defined('DOING_CRON') && DOING_CRON)
+            || (defined('XMLRPC_REQUEST') && XMLRPC_REQUEST)) return;
+
         $cookie_name = 'tix_cart_session';
-        if (empty($_COOKIE[$cookie_name])) {
-            $session_id = wp_generate_password(32, false);
-            setcookie($cookie_name, $session_id, time() + 7200, COOKIEPATH, COOKIE_DOMAIN, is_ssl(), true);
-            $_COOKIE[$cookie_name] = $session_id;
-        }
+        if (!empty($_COOKIE[$cookie_name])) return;
+
+        // Nur setcookie() aufrufen, wenn Headers noch nicht gesendet wurden.
+        // Verhindert "Cannot modify header information"-Warnings auf Seiten,
+        // die bereits Output produziert haben (z.B. durch ein anderes Plugin).
+        if (headers_sent()) return;
+
+        $session_id = wp_generate_password(32, false);
+        setcookie($cookie_name, $session_id, time() + 7200, COOKIEPATH, COOKIE_DOMAIN, is_ssl(), true);
+        $_COOKIE[$cookie_name] = $session_id;
     }
 
     private static function cart_key() {
@@ -109,6 +125,53 @@ class TIX_Native_Checkout {
         } else {
             delete_transient('tix_cart_' . $key);
         }
+    }
+
+    /**
+     * Generiert einen eindeutigen Username aus Vor- und Nachname.
+     * Format: "vorname.nachname", bei Duplikaten ".2", ".3", …
+     * Umlaute werden transliteriert (ä→ae, ö→oe, ü→ue, ß→ss).
+     *
+     * Fallback wenn Name leer / zu kurz: Teil vor dem @ der E-Mail.
+     * Letzter Fallback: "kunde_<6 random hex>".
+     */
+    public static function generate_username($first, $last, $email = '') {
+        $first = sanitize_text_field((string) $first);
+        $last  = sanitize_text_field((string) $last);
+
+        $parts = array_filter([$first, $last], 'strlen');
+        $base  = '';
+        if (!empty($parts)) {
+            $base = strtolower(implode('.', array_map('sanitize_title', $parts)));
+        }
+
+        // sanitize_title entfernt schon Umlaute/Sonderzeichen — aber wir wollen .-Trenner erhalten
+        $base = preg_replace('/[^a-z0-9.\-]/', '', $base);
+        $base = trim($base, '.-');
+
+        // Fallback: E-Mail-Localpart
+        if (strlen($base) < 2 && $email) {
+            $local = strstr($email, '@', true);
+            if ($local) $base = strtolower(sanitize_user($local, true));
+        }
+
+        // Absoluter Fallback
+        if (strlen($base) < 2) {
+            $base = 'kunde_' . substr(bin2hex(random_bytes(4)), 0, 6);
+        }
+
+        // Eindeutigkeit sicherstellen
+        $username = $base;
+        $i = 2;
+        while (username_exists($username)) {
+            $username = $base . '.' . $i;
+            $i++;
+            if ($i > 9999) { // Safety
+                $username = $base . '.' . substr(bin2hex(random_bytes(3)), 0, 5);
+                break;
+            }
+        }
+        return $username;
     }
 
     public static function cart_total() {
@@ -329,11 +392,29 @@ class TIX_Native_Checkout {
             return $url;
         }
 
-        // Search for page containing the shortcode
         global $wpdb;
+
+        // 1) Suche im post_content (Classic/Gutenberg-Pages)
         $page_id = $wpdb->get_var(
-            "SELECT ID FROM {$wpdb->posts} WHERE post_type = 'page' AND post_status = 'publish' AND post_content LIKE '%[tix_checkout]%' LIMIT 1"
+            "SELECT ID FROM {$wpdb->posts}
+             WHERE post_type = 'page' AND post_status = 'publish'
+               AND post_content LIKE '%[tix_checkout%'
+             LIMIT 1"
         );
+
+        // 2) Fallback: Suche in Pagebuilder-Meta (Breakdance, Elementor, etc.)
+        //    Shortcode kann in _breakdance_data, _elementor_data oder ähnlichen JSON-Feldern stecken.
+        if (!$page_id) {
+            $page_id = $wpdb->get_var(
+                "SELECT p.ID FROM {$wpdb->posts} p
+                 INNER JOIN {$wpdb->postmeta} pm ON pm.post_id = p.ID
+                 WHERE p.post_type = 'page' AND p.post_status = 'publish'
+                   AND pm.meta_key IN ('_breakdance_data', '_elementor_data', '_et_pb_post_content', 'panels_data', '_fl_builder_data', '_oxygen_data', 'bricks_page_content_2')
+                   AND pm.meta_value LIKE '%tix_checkout%'
+                 LIMIT 1"
+            );
+        }
+
         if ($page_id) {
             update_option('tix_checkout_page_id', $page_id, false);
             $url = get_permalink($page_id);
@@ -611,8 +692,11 @@ class TIX_Native_Checkout {
                             <label class="tix-co-check-label">
                                 <input type="checkbox" name="createaccount" class="tix-co-check" value="1">
                                 <span class="tix-co-check-custom"></span>
-                                <span>Meine Daten für die nächste Buchung speichern</span>
+                                <span>Konto anlegen — meine Daten für die nächste Buchung speichern</span>
                             </label>
+                            <p class="tix-co-create-account-hint" style="margin:8px 0 0 28px;font-size:12px;color:#64748b;line-height:1.5;">
+                                Nach deiner Bestellung bekommst du eine E-Mail an <strong>diese Adresse</strong>, um dein Passwort zu vergeben und dein Konto zu aktivieren. Danach kannst du jederzeit auf deine Tickets zugreifen.
+                            </p>
                         </div>
                         <?php endif; ?>
                     </div>
@@ -741,6 +825,11 @@ class TIX_Native_Checkout {
     public static function ajax_process_checkout() {
         check_ajax_referer('tix_native_checkout', 'nonce');
 
+        // Rate-Limit: max 10 Checkout-Versuche pro 5 Minuten pro IP
+        if (class_exists('TIX_Rate_Limit')) {
+            TIX_Rate_Limit::check('native_checkout', 10, 300, 'ajax');
+        }
+
         // Idempotency: Prevent double-submit
         $token = sanitize_text_field($_POST['idempotency_token'] ?? '');
         if (!$token || !get_transient('tix_checkout_token_' . $token)) {
@@ -765,17 +854,34 @@ class TIX_Native_Checkout {
             wp_send_json_error(['message' => 'Bitte eine gültige E-Mail-Adresse angeben.']);
         }
 
-        // Account creation for guests
-        $create_account = !is_user_logged_in() && !empty($_POST['createaccount']);
+        // Account creation for guests — Checkbox „Konto anlegen"
+        $create_account     = !is_user_logged_in() && !empty($_POST['createaccount']);
+        $created_user_id    = 0; // speichern für spätere Activation-Mail
+        $existing_user_id   = 0; // falls User schon existiert (Rolle evtl. anpassen)
         if ($create_account && $email) {
-            if (!email_exists($email) && !username_exists($email)) {
+            if (!email_exists($email)) {
                 // Save guest cart before switching user context
                 $guest_cart = self::get_cart();
 
-                $password = wp_generate_password(12, true);
-                $user_id = wp_create_user($email, $password, $email);
+                // Username aus Vor- + Nachname generieren (statt E-Mail)
+                $username = self::generate_username($first_name, $last_name, $email);
+
+                // Random-Passwort als Platzhalter — User setzt eigenes via Activation-Email
+                $password = wp_generate_password(24, true, true);
+                $user_id  = wp_create_user($username, $password, $email);
                 if (!is_wp_error($user_id)) {
-                    wp_update_user(['ID' => $user_id, 'first_name' => $first_name, 'last_name' => $last_name]);
+                    wp_update_user([
+                        'ID'           => $user_id,
+                        'first_name'   => $first_name,
+                        'last_name'    => $last_name,
+                        'display_name' => trim($first_name . ' ' . $last_name) ?: $username,
+                    ]);
+
+                    // Kunden-Rolle zuweisen (statt Default „subscriber")
+                    if (class_exists('TIX_Customer_Role')) {
+                        TIX_Customer_Role::assign_to_user($user_id);
+                    }
+
                     wp_set_current_user($user_id);
                     wp_set_auth_cookie($user_id, true, is_ssl());
 
@@ -783,6 +889,15 @@ class TIX_Native_Checkout {
                     if (!empty($guest_cart['items'])) {
                         self::save_cart($guest_cart);
                     }
+
+                    $created_user_id = $user_id;
+                }
+            } else {
+                // User existiert bereits — ggf. auf Kunden-Rolle heben wenn noch subscriber
+                $existing_user = get_user_by('email', $email);
+                if ($existing_user && class_exists('TIX_Customer_Role')) {
+                    TIX_Customer_Role::assign_to_user($existing_user->ID);
+                    $existing_user_id = $existing_user->ID;
                 }
             }
         }
@@ -858,6 +973,11 @@ class TIX_Native_Checkout {
 
         if (!$order_id) {
             wp_send_json_error(['message' => 'Bestellung konnte nicht erstellt werden.']);
+        }
+
+        // ── Kontoaktivierung per Email (nur wenn frisch angelegt) ──
+        if ($created_user_id && class_exists('TIX_Account_Activation')) {
+            TIX_Account_Activation::trigger_activation($created_user_id, $order_id);
         }
 
         // Newsletter opt-in
@@ -1314,8 +1434,8 @@ class TIX_Native_Checkout {
         add_action('wp_head', function() use ($primary, $btn_bg, $btn_color) {
             ?>
             <style>
-            .tix-ty-wrap { max-width:640px; margin:40px auto; padding:0 20px; }
-            .tix-ty-status { text-align:center; padding:40px 20px; background:#fff; border-radius:16px; box-shadow:0 1px 3px rgba(0,0,0,0.06); margin-bottom:20px; }
+            .tix-ty-wrap { max-width:640px; margin:20px auto; padding:0 20px 40px; }
+            .tix-ty-status { text-align:center; padding:28px 20px; background:#fff; border-radius:16px; box-shadow:0 1px 3px rgba(0,0,0,0.06); margin-bottom:16px; }
             .tix-ty-check { width:60px; height:60px; border-radius:50%; background:<?php echo esc_attr($primary); ?>; color:#fff; display:flex; align-items:center; justify-content:center; margin:0 auto 16px; font-size:28px; }
             .tix-ty-status h1 { font-size:22px; margin-bottom:4px; }
             .tix-ty-status p { color:#6b7280; font-size:14px; }
@@ -1396,8 +1516,10 @@ class TIX_Native_Checkout {
                                 <strong><?php echo esc_html(get_the_title($event_id)); ?></strong>
                                 <div class="tix-ty-ticket-code"><?php echo esc_html($code); ?></div>
                             </div>
-                            <?php if ($dl_url): ?>
-                                <a href="<?php echo esc_url($dl_url); ?>" class="tix-ty-dl-btn">PDF ↓</a>
+                            <?php if ($dl_url):
+                                $dl_label = class_exists('TIX_Tickets') ? TIX_Tickets::ticket_type_label($ticket->ID) : 'Ticket';
+                            ?>
+                                <a href="<?php echo esc_url($dl_url); ?>" class="tix-ty-dl-btn" target="_blank"><?php echo esc_html($dl_label); ?> ↓</a>
                             <?php endif; ?>
                         </div>
                     <?php endforeach; ?>

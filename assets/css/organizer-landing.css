@@ -1,0 +1,523 @@
+/* ═══════════════════════════════════════════════════════════════════
+   TIX Organizer Landing — Standalone-Layout, minimal-modern
+   Branding über CSS-Variablen --tix-ol-primary / --tix-ol-accent
+   ═══════════════════════════════════════════════════════════════════ */
+
+:root {
+    --tix-ol-primary: #E8445A;
+    --tix-ol-accent:  #131020;
+    --tix-ol-bg:      #fafaf9;
+    --tix-ol-text:    #1f2937;
+    --tix-ol-muted:   #6b7280;
+    --tix-ol-border:  #e5e7eb;
+
+    /* Einheitliche Abstände für alle Landing-Sektionen */
+    --tix-ol-max-w:       1100px;   /* matched --ep-max-w aus Single-Event */
+    --tix-ol-pad-y:       80px;     /* Desktop Section-Padding vertikal */
+    --tix-ol-pad-y-mob:   56px;     /* Mobile */
+    --tix-ol-pad-x:       24px;     /* Container-Innenpadding horizontal */
+    --tix-ol-pad-x-mob:   20px;     /* Mobile */
+    --tix-ol-heading-gap: 48px;     /* Abstand Heading → Content */
+}
+
+* { box-sizing: border-box; }
+
+html, body { margin:0; padding:0; }
+
+.tix-ol {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", "DM Sans", sans-serif;
+    background: var(--tix-ol-bg);
+    color: var(--tix-ol-text);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+}
+
+.tix-ol img { max-width: 100%; display: block; }
+
+.tix-ol a { color: var(--tix-ol-primary); text-decoration: none; }
+.tix-ol a:hover { text-decoration: underline; }
+
+.tix-ol h1, .tix-ol h2, .tix-ol h3, .tix-ol h4 {
+    font-family: "Sora", -apple-system, sans-serif;
+    font-weight: 700;
+    color: var(--tix-ol-accent);
+    margin: 0;
+}
+
+.tix-ol-wrap { max-width: var(--tix-ol-max-w); margin: 0 auto; padding: 0 var(--tix-ol-pad-x); }
+
+/* ─── HERO ─── Kompakter, klarer, moderner */
+.tix-ol-hero {
+    position: relative;
+    min-height: 480px;
+    padding-bottom: 60px;
+    background-size: cover;
+    background-position: center center;
+    background-color: #131020;
+    display: flex;
+    flex-direction: column;
+    color: #fff;
+    overflow: hidden;
+}
+/* Hero-Video: deckt den Hintergrund cover */
+.tix-ol-hero-video {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    object-fit: cover;
+    pointer-events: none;
+    z-index: 0;
+}
+/* Hero-Embed (YouTube/Vimeo): iframe auf volle Fläche skalieren */
+.tix-ol-hero-embed-wrap {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    overflow: hidden;
+    pointer-events: none;
+    z-index: 0;
+}
+.tix-ol-hero-embed {
+    position: absolute;
+    top: 50%; left: 50%;
+    /* 16:9-Aspect — so groß dass es den Hero-Bereich voll ausfüllt */
+    width: 177.78vh;  /* 16/9 von 100vh */
+    height: 56.25vw;  /* 9/16 von 100vw */
+    min-width: 100%;
+    min-height: 100%;
+    transform: translate(-50%, -50%);
+    border: 0;
+}
+
+/* Countdown im Hero */
+.tix-ol-hero-countdown {
+    position: relative; z-index: 2;
+    margin: 0 0 24px;
+    text-align: center;
+}
+.tix-ol-cd-label {
+    font-size: 12px; text-transform: uppercase; letter-spacing: 0.1em;
+    color: rgba(255,255,255,0.75); margin-bottom: 10px; font-weight: 600;
+}
+.tix-ol-cd-values {
+    display: flex; justify-content: center; gap: 14px; margin-bottom: 8px;
+}
+.tix-ol-cd-values > div {
+    display: flex; flex-direction: column; align-items: center;
+    min-width: 60px; padding: 10px 12px;
+    background: rgba(255,255,255,0.1); backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid rgba(255,255,255,0.15); border-radius: 10px;
+}
+.tix-ol-cd-values strong {
+    font-family: "Sora", sans-serif; font-size: 22px; font-weight: 800;
+    color: #fff; line-height: 1;
+}
+.tix-ol-cd-values span {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em;
+    color: rgba(255,255,255,0.6); margin-top: 4px;
+}
+.tix-ol-cd-event {
+    font-size: 13px; color: rgba(255,255,255,0.85);
+    font-weight: 500;
+}
+
+/* View-Toggle (Liste / Kalender) */
+.tix-ol-events-head {
+    display: flex; justify-content: space-between; align-items: center;
+    gap: 16px; flex-wrap: wrap; margin-bottom: 24px;
+}
+.tix-ol-events-head .tix-ol-section-heading { margin: 0; text-align: left; }
+.tix-ol-view-toggle {
+    display: inline-flex; background: rgba(0,0,0,0.05);
+    border-radius: 999px; padding: 4px;
+}
+body.tix-mode-dark .tix-ol-view-toggle { background: rgba(255,255,255,0.08); }
+.tix-ol-view-btn {
+    background: transparent; border: 0; padding: 8px 14px;
+    border-radius: 999px; cursor: pointer; font-weight: 600; font-size: 13px;
+    color: var(--tix-ol-text-muted, #6b7280);
+    display: inline-flex; align-items: center; gap: 6px;
+    transition: background .15s, color .15s;
+}
+.tix-ol-view-btn:hover { color: var(--tix-ol-text, #131020); }
+.tix-ol-view-btn.active {
+    background: var(--tix-ol-bg, #fff);
+    color: var(--tix-ol-primary);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+}
+.tix-ol-view-panel:not(.active) { display: none; }
+.tix-ol-view-panel.active { display: grid; }
+.tix-ol-view-panel.tix-ol-view-calendar.active { display: block; }
+
+/* Kalender */
+.tix-ol-cal-wrap { display: flex; flex-direction: column; gap: 32px; }
+.tix-ol-cal { background: var(--tix-ol-surface, #f9fafb); border-radius: 16px; padding: 20px; }
+.tix-ol-cal-header {
+    font-family: "Sora", sans-serif; font-weight: 700; font-size: 18px;
+    margin-bottom: 12px; text-align: center; color: var(--tix-ol-text);
+}
+.tix-ol-cal-weekdays {
+    display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px;
+    font-size: 11px; font-weight: 700; text-transform: uppercase;
+    color: var(--tix-ol-text-muted); text-align: center; padding: 8px 0;
+}
+.tix-ol-cal-grid {
+    display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px;
+}
+.tix-ol-cal-day {
+    min-height: 72px; padding: 6px; border-radius: 8px;
+    background: var(--tix-ol-bg, #fff); border: 1px solid var(--tix-ol-border, rgba(0,0,0,0.06));
+    font-size: 12px; display: flex; flex-direction: column; gap: 4px;
+    position: relative;
+}
+.tix-ol-cal-empty { background: transparent; border: none; }
+.tix-ol-cal-num { font-weight: 600; color: var(--tix-ol-text-muted); }
+.tix-ol-cal-day.has-events .tix-ol-cal-num { color: var(--tix-ol-primary); }
+.tix-ol-cal-events { display: flex; flex-direction: column; gap: 2px; flex: 1; overflow: hidden; }
+.tix-ol-cal-event {
+    display: flex; align-items: center; gap: 4px; padding: 3px 5px;
+    background: var(--tix-ol-primary); color: #fff !important;
+    border-radius: 4px; font-size: 10px; font-weight: 600;
+    text-decoration: none; line-height: 1.2;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.tix-ol-cal-event:hover { opacity: 0.9; text-decoration: none; }
+.tix-ol-cal-dot { display: none; } /* nicht gebraucht in dieser Variante */
+.tix-ol-cal-title { overflow: hidden; text-overflow: ellipsis; }
+
+@media (max-width: 640px) {
+    .tix-ol-cal-day { min-height: 48px; font-size: 10px; }
+    .tix-ol-cal-event { font-size: 9px; padding: 2px 4px; }
+    .tix-ol-cd-values { gap: 8px; }
+    .tix-ol-cd-values > div { min-width: 48px; padding: 8px; }
+    .tix-ol-cd-values strong { font-size: 18px; }
+}
+.tix-ol-hero-overlay {
+    position: absolute;
+    inset: 0;
+    /* Gleichmäßiger + stärkerer Dunkel-Overlay für bessere Lesbarkeit
+       der weißen Typografie. Oben etwas heller, unten richtig dunkel.
+       Zusätzlicher radialer Akzent in der Mitte, damit das Motiv nicht ganz
+       verschwindet. */
+    background:
+        radial-gradient(ellipse at center, rgba(19,16,32,0.35) 0%, rgba(19,16,32,0.62) 60%, rgba(19,16,32,0.82) 100%),
+        linear-gradient(180deg, rgba(19,16,32,0.30) 0%, rgba(19,16,32,0.55) 50%, rgba(19,16,32,0.92) 100%);
+    pointer-events: none;
+    z-index: 1;
+}
+.tix-ol-nav {
+    position: relative;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 32px;
+    max-width: 1400px;
+    margin: 0 auto;
+    width: 100%;
+}
+.tix-ol-nav-logo { height: 32px; width: auto; }
+.tix-ol-nav-name { font-family: "Sora", sans-serif; font-weight: 700; font-size: 16px; color: #fff; letter-spacing: -0.01em; }
+.tix-ol-nav-cta {
+    display: inline-block;
+    padding: 8px 16px;
+    background: rgba(255,255,255,0.12);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 999px;
+    color: #fff;
+    font-weight: 600;
+    font-size: 13px;
+    transition: all .15s;
+}
+.tix-ol-nav-cta:hover {
+    background: rgba(255,255,255,0.2);
+    border-color: rgba(255,255,255,0.35);
+    text-decoration: none;
+}
+.tix-ol-hero-inner {
+    position: relative;
+    z-index: 2;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    padding: 48px 24px 32px;
+    max-width: 720px;
+    margin: 0 auto;
+    width: 100%;
+}
+.tix-ol-hero-logo {
+    height: 64px;
+    width: auto;
+    max-width: 160px;
+    margin-bottom: 18px;
+    object-fit: contain;
+    filter: drop-shadow(0 4px 16px rgba(0,0,0,0.25));
+}
+.tix-ol-hero-title {
+    font-size: clamp(28px, 4.5vw, 48px);
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+    color: #fff !important;
+    margin: 0 0 12px;
+    font-weight: 700;
+}
+.tix-ol-hero-tagline {
+    font-size: clamp(15px, 1.6vw, 17px);
+    font-weight: 400;
+    max-width: 560px;
+    color: rgba(255,255,255,0.82);
+    line-height: 1.55;
+    margin: 0 0 28px;
+}
+.tix-ol-hero-cta {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 24px;
+    background: var(--tix-ol-primary);
+    border-radius: 999px;
+    color: #fff !important;
+    font-weight: 600;
+    font-size: 14px;
+    letter-spacing: 0.01em;
+    transition: transform .2s, box-shadow .2s, background .2s;
+}
+.tix-ol-hero-cta:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 24px rgba(232,68,90,0.35);
+    text-decoration: none;
+}
+.tix-ol-hero-cta-arrow { transition: transform .2s; font-size: 12px; }
+.tix-ol-hero-cta:hover .tix-ol-hero-cta-arrow { transform: translateY(2px); }
+
+/* Scroll-Hint entfernt — war zu viel visual noise */
+.tix-ol-scroll-hint { display: none; }
+
+/* ─── PARTNERS ─── */
+.tix-ol-partners { padding: var(--tix-ol-pad-y) 0; background: var(--tix-ol-bg, #fff); }
+.tix-ol-partners-strip {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 40px;
+    flex-wrap: wrap;
+    max-width: 960px;
+    margin: 0 auto;
+}
+.tix-ol-partner {
+    height: 56px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 16px;
+    opacity: 0.6;
+    transition: opacity .2s, transform .2s;
+    text-decoration: none;
+    color: var(--tix-ol-text-muted);
+    font-weight: 600;
+    font-size: 14px;
+}
+.tix-ol-partner:hover { opacity: 1; transform: translateY(-2px); text-decoration: none; }
+.tix-ol-partner img {
+    max-height: 50px;
+    max-width: 140px;
+    width: auto;
+    object-fit: contain;
+    filter: grayscale(1);
+    transition: filter .2s;
+}
+.tix-ol-partner:hover img { filter: grayscale(0); }
+body.tix-mode-dark .tix-ol-partner img { filter: grayscale(1) brightness(0) invert(1); }
+body.tix-mode-dark .tix-ol-partner:hover img { filter: brightness(0) invert(1); }
+
+/* ─── ABOUT ─── */
+.tix-ol-about { padding: var(--tix-ol-pad-y) 0; background: #fff; }
+.tix-ol-about-text {
+    max-width: 720px;
+    margin: 24px auto 0;
+    font-size: 17px;
+    line-height: 1.7;
+    color: var(--tix-ol-text);
+}
+.tix-ol-about-text p { margin: 0 0 16px; }
+.tix-ol-about-text p:last-child { margin-bottom: 0; }
+
+/* ─── EVENTS ─── */
+.tix-ol-events { padding: var(--tix-ol-pad-y) 0; }
+.tix-ol-section-heading {
+    font-size: clamp(28px, 4vw, 40px);
+    text-align: center;
+    margin-bottom: var(--tix-ol-heading-gap);
+    letter-spacing: -0.01em;
+}
+.tix-ol-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 20px;
+}
+.tix-ol-empty {
+    text-align: center;
+    color: var(--tix-ol-muted);
+    padding: 48px 0;
+    font-size: 15px;
+}
+
+/* Minimal-Fallback-Card (nur wenn TIX_Event_Cards nicht verfügbar) */
+.tix-ol-card {
+    background: #fff;
+    border-radius: 16px;
+    overflow: hidden;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.06);
+    text-decoration: none;
+    color: var(--tix-ol-text);
+    display: block;
+    transition: transform .2s, box-shadow .2s;
+}
+.tix-ol-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 12px 32px rgba(0,0,0,0.12);
+    text-decoration: none;
+}
+.tix-ol-card-img {
+    aspect-ratio: 16 / 10;
+    background-size: cover;
+    background-position: center;
+    background-color: #e5e7eb;
+}
+.tix-ol-card-body { padding: 18px 20px 22px; }
+.tix-ol-card-date {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--tix-ol-primary);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 8px;
+}
+.tix-ol-card-title {
+    font-size: 17px;
+    line-height: 1.3;
+    margin: 0;
+}
+.tix-ol-card.is-past { opacity: 0.7; }
+
+.tix-ol-past-details { margin-top: 48px; }
+.tix-ol-past-details summary {
+    cursor: pointer;
+    padding: 12px 20px;
+    background: #fff;
+    border-radius: 12px;
+    display: inline-block;
+    color: var(--tix-ol-muted);
+    font-weight: 600;
+    font-size: 14px;
+    border: 1px solid var(--tix-ol-border);
+    list-style: none;
+}
+.tix-ol-past-details summary::-webkit-details-marker { display: none; }
+.tix-ol-past-details summary:hover { background: #f9fafb; }
+.tix-ol-past-details[open] summary { margin-bottom: 24px; }
+
+/* ─── FOOTER ─── */
+.tix-ol-footer {
+    background: var(--tix-ol-accent);
+    color: #fff;
+    padding: 64px 0 24px;
+}
+.tix-ol-footer h4 {
+    font-size: 13px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: rgba(255,255,255,0.6);
+    margin: 0 0 16px;
+}
+.tix-ol-footer-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 40px;
+    margin-bottom: 48px;
+}
+.tix-ol-footer-col strong {
+    display: block;
+    font-family: "Sora", sans-serif;
+    font-size: 18px;
+    color: #fff;
+    margin-top: 8px;
+}
+.tix-ol-footer-logo { height: 48px; margin-bottom: 12px; }
+.tix-ol-footer-tagline {
+    color: rgba(255,255,255,0.7);
+    font-size: 13px;
+    margin: 8px 0 0;
+}
+.tix-ol-footer-link {
+    color: rgba(255,255,255,0.8);
+    font-size: 13px;
+    margin-top: 12px;
+    display: inline-block;
+}
+.tix-ol-footer-link:hover { color: #fff; }
+.tix-ol-footer-links {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+.tix-ol-footer-links li { margin-bottom: 8px; }
+.tix-ol-footer-links a {
+    color: rgba(255,255,255,0.75);
+    font-size: 14px;
+}
+.tix-ol-footer-links a:hover { color: #fff; text-decoration: none; }
+
+.tix-ol-socials {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+}
+.tix-ol-socials a {
+    width: 38px;
+    height: 38px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.1);
+    color: #fff;
+    transition: all .15s;
+}
+.tix-ol-socials a:hover {
+    background: var(--tix-ol-primary);
+    transform: translateY(-2px);
+    text-decoration: none;
+}
+.tix-ol-socials svg { width: 16px; height: 16px; }
+
+.tix-ol-footer-meta {
+    padding-top: 24px;
+    border-top: 1px solid rgba(255,255,255,0.1);
+    text-align: center;
+    font-size: 12px;
+    color: rgba(255,255,255,0.5);
+}
+.tix-ol-footer-meta a { color: rgba(255,255,255,0.8); }
+
+/* ─── Responsive ─── */
+@media (max-width: 768px) {
+    .tix-ol-nav { padding: 16px 20px; }
+    .tix-ol-nav-cta { padding: 8px 14px; font-size: 12px; }
+    .tix-ol-hero { min-height: 80vh; }
+    .tix-ol-hero-logo { height: 72px; }
+    /* Alle Sektionen greifen auf dieselbe Mobile-Skala zurück */
+    .tix-ol-about,
+    .tix-ol-events,
+    .tix-ol-partners { padding: var(--tix-ol-pad-y-mob) 0; }
+    .tix-ol-wrap { padding: 0 var(--tix-ol-pad-x-mob); }
+    .tix-ol-section-heading { margin-bottom: 32px; }
+    .tix-ol-footer-grid { grid-template-columns: 1fr; gap: 32px; }
+    .tix-ol-grid { grid-template-columns: 1fr; gap: 16px; }
+}

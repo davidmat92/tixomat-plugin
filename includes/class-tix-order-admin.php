@@ -97,7 +97,7 @@ class TIX_Order_Admin {
         $statuses = [
             ''           => 'Alle',
             'completed'  => 'Abgeschlossen',
-            'processing' => 'In Bearbeitung',
+            'processing' => 'Bearbeitung',
             'pending'    => 'Ausstehend',
             'on-hold'    => 'Wartend (Banküberweisung)',
             'cancelled'  => 'Storniert',
@@ -380,7 +380,7 @@ class TIX_Order_Admin {
 
         $statuses = [
             'completed'  => ['label' => 'Abgeschlossen',  'color' => '#22c55e'],
-            'processing' => ['label' => 'In Bearbeitung',  'color' => '#3b82f6'],
+            'processing' => ['label' => 'Bearbeitung',  'color' => '#3b82f6'],
             'pending'    => ['label' => 'Ausstehend',      'color' => '#f59e0b'],
             'on-hold'    => ['label' => 'Wartend',          'color' => '#f97316'],
             'cancelled'  => ['label' => 'Storniert',       'color' => '#6b7280'],
@@ -405,7 +405,27 @@ class TIX_Order_Admin {
                         <?php echo esc_html($s['label']); ?>
                     </span>
                 </h1>
-                <div style="display:flex;gap:6px;">
+                <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+                    <?php
+                    // Quick-Confirm für Bank-/Warten-Bestellungen: direkt als bezahlt markieren
+                    $is_waiting       = in_array($order->status, ['on-hold', 'pending'], true);
+                    $is_bank_transfer = in_array($order->payment_method, ['bank', 'bacs'], true);
+                    if ($is_waiting):
+                    ?>
+                        <button type="button" id="tix-order-confirm-bank-btn"
+                                style="background:#16a34a;border:1px solid #16a34a;color:#fff;padding:7px 14px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:6px;"
+                                onclick="
+                                    if (!confirm('Bestellung als <?php echo $is_bank_transfer ? 'Zahlungseingang' : 'bezahlt'; ?> bestätigen und abschließen?\n\nTickets werden automatisch generiert und per E-Mail versendet.')) return;
+                                    this.disabled = true; this.innerHTML = 'Bestätige…';
+                                    fetch(ajaxurl, {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:'action=tix_order_update_status&nonce=<?php echo $nonce; ?>&order_id=<?php echo $order_id; ?>&status=completed'})
+                                    .then(function(r){return r.json()})
+                                    .then(function(r){if(r.success)location.reload(); else{alert(r.data.message||'Fehler'); this.disabled=false;}}.bind(this));
+                                ">
+                            <span class="dashicons dashicons-yes-alt" style="width:16px;height:16px;font-size:16px;"></span>
+                            <?php echo $is_bank_transfer ? 'Zahlungseingang bestätigen' : 'Als bezahlt markieren'; ?>
+                        </button>
+                    <?php endif; ?>
+
                     <select id="tix-order-status-select" style="font-size:13px;padding:6px 10px;border-radius:6px;border:1px solid #d1d5db;">
                         <?php foreach ($statuses as $val => $info): ?>
                             <option value="<?php echo esc_attr($val); ?>" <?php selected($order->status, $val); ?>><?php echo esc_html($info['label']); ?></option>
@@ -653,8 +673,10 @@ class TIX_Order_Admin {
                                 <?php else: ?>
                                     <span style="font-size:11px;color:#9ca3af;">Nicht eingecheckt</span>
                                 <?php endif; ?>
-                                <?php if ($token): ?>
-                                    <a href="<?php echo esc_url(add_query_arg('tix_dl', $token, home_url('/'))); ?>" class="button" style="font-size:11px;padding:2px 8px;">PDF</a>
+                                <?php if ($token):
+                                    $ticket_label = class_exists('TIX_Tickets') ? TIX_Tickets::ticket_type_label($ticket->ID) : 'Ticket';
+                                ?>
+                                    <a href="<?php echo esc_url(add_query_arg('tix_dl', $token, home_url('/'))); ?>" class="button" style="font-size:11px;padding:2px 8px;" target="_blank"><?php echo esc_html($ticket_label); ?></a>
                                 <?php endif; ?>
                             </div>
                         </div>
@@ -1007,7 +1029,7 @@ class TIX_Order_Admin {
 
         $statuses = [
             'completed'  => 'Abgeschlossen',
-            'processing' => 'In Bearbeitung',
+            'processing' => 'Bearbeitung',
             'pending'    => 'Ausstehend',
             'on-hold'    => 'Wartend',
             'cancelled'  => 'Storniert',
@@ -1106,7 +1128,7 @@ class TIX_Order_Admin {
 
         $statuses_map = [
             'completed'  => 'Bezahlt',
-            'processing' => 'In Bearbeitung',
+            'processing' => 'Bearbeitung',
             'pending'    => 'Ausstehend',
             'on-hold'    => 'Wartend',
             'cancelled'  => 'Storniert',

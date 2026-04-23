@@ -119,6 +119,8 @@ class TIX_Settings {
             'ec_page_enabled'    => 0,        // Automatische /events/ Seite
             'ec_pad_x'           => 32,
             'ec_pad_y'           => 56,
+            'ec_max_width'       => 1200,
+            'ec_show_search'     => 1,
             'ep_radius'          => 12,
             'ep_bg'              => '',       // leer = #fff
             'ep_text'            => '',       // leer = #1a1a1a
@@ -439,6 +441,48 @@ class TIX_Settings {
             'hp_this_week_days'      => 7,        // Tage voraus (3-14)
             'hp_show_locations'      => 1,        // Location-Spotlight anzeigen
             'hp_locations_count'     => 6,        // Anzahl Locations
+            'hp_sections'            => [],       // Homepage-Baukasten (Reihenfolge + Enabled) — Migration bei erstem Lesen
+            'hp_section_spacing'     => 40,       // Standard-Abstand zwischen Sektionen (px)
+            'hp_cache_enabled'       => 0,        // Homepage-Sektionen-Caching
+            'hp_cache_ttl'           => 600,      // Cache-TTL (Sekunden)
+            // ── Phase-2 Sektionen ──
+            'hp_show_hero_countdown' => 0,
+            'hp_countdown_event_id'  => 0,
+            'hp_countdown_label'     => 'Next Event',
+            'hp_show_last_chance'    => 0,
+            'hp_last_chance_hours'   => 48,
+            'hp_last_chance_count'   => 4,
+            'hp_show_weekday_grid'   => 0,
+            'hp_weekday_weeks'       => 2,
+            'hp_show_voucher'        => 0,
+            'hp_voucher_title'       => 'Verschenke ein Erlebnis',
+            'hp_voucher_text'        => 'Gutscheine für jedes Event — der perfekte Geschenktipp.',
+            'hp_voucher_btn'         => 'Gutschein kaufen',
+            'hp_voucher_url'         => '',
+            'hp_voucher_image_id'    => 0,
+            'hp_voucher_bg'          => '#FFE066',
+            'hp_voucher_fg'          => '#0D0B09',
+            'hp_show_partners'       => 0,
+            'hp_partners_title'      => 'Bekannt aus & Partner',
+            'hp_partners_logos'      => [],
+            'hp_show_faq'            => 0,
+            'hp_faq_title'           => 'Häufige Fragen',
+            'hp_faq_items'           => [],
+            // ── Phase-3 Sektionen ──
+            'hp_show_greeting'       => 0,
+            'hp_show_stories'        => 0,
+            'hp_stories_count'       => 12,
+            'hp_stories_size'        => 72,
+            'hp_show_promoted'       => 0,
+            'hp_show_favorites'      => 0,
+            'hp_show_recent'         => 0,
+            'hp_show_editorial'      => 0,
+            'hp_editorial_event_id'  => 0,
+            'hp_editorial_label'     => 'Empfehlung der Redaktion',
+            'hp_editorial_title_override' => '',
+            'hp_editorial_text'      => '',
+            'hp_editorial_byline'    => '',
+            'hp_editorial_cta'       => 'Event ansehen',
             // ── Globale Typografie ──
             'tix_typo_font_heading' => 'Sora',
             'tix_typo_font_body'    => 'DM Sans',
@@ -627,6 +671,89 @@ class TIX_Settings {
         // Export / Import AJAX
         add_action('wp_ajax_tix_export_settings', [__CLASS__, 'ajax_export']);
         add_action('wp_ajax_tix_import_settings', [__CLASS__, 'ajax_import']);
+
+        // PayPal-Verbindungstest (AJAX + URL-Fallback)
+        add_action('wp_ajax_tix_paypal_test',     [__CLASS__, 'ajax_paypal_test']);
+        add_action('admin_init',                  [__CLASS__, 'maybe_handle_paypal_test_url']);
+    }
+
+    /**
+     * URL-basierter PayPal-Test (Fallback, umgeht admin-ajax.php).
+     * Trigger: /wp-admin/admin.php?page=tix-settings&tix_paypal_test=1&_wpnonce=XYZ
+     * Setzt Ergebnis in Transient → wird auf Settings-Seite als Notice gerendert.
+     */
+    public static function maybe_handle_paypal_test_url() {
+        if (empty($_GET['tix_paypal_test']) || ($_GET['page'] ?? '') !== 'tix-settings') return;
+        if (!current_user_can('manage_options')) return;
+        if (!wp_verify_nonce($_GET['_wpnonce'] ?? '', 'tix_paypal_test_url')) {
+            set_transient('tix_paypal_test_result_' . get_current_user_id(), [
+                'success' => false,
+                'message' => 'Nonce ungültig – bitte den Button erneut klicken (nicht die URL aus der Historie).',
+            ], 60);
+            wp_safe_redirect(admin_url('admin.php?page=tix-settings#tix-paypal-test-result'));
+            exit;
+        }
+
+        if (!class_exists('TIX_Gateway_PayPal')) {
+            set_transient('tix_paypal_test_result_' . get_current_user_id(), [
+                'success' => false,
+                'message' => 'PayPal-Gateway nicht geladen.',
+            ], 60);
+            wp_safe_redirect(admin_url('admin.php?page=tix-settings#tix-paypal-test-result'));
+            exit;
+        }
+
+        $ref = new ReflectionClass('TIX_Gateway_PayPal');
+        $m = $ref->getMethod('get_access_token');
+        $m->setAccessible(true);
+        $token = $m->invoke(null);
+
+        $s = get_option(self::OPTION_KEY, []);
+        $mode = !empty($s['paypal_sandbox']) ? 'Sandbox' : 'Live';
+
+        set_transient('tix_paypal_test_result_' . get_current_user_id(), [
+            'success' => (bool) $token,
+            'message' => $token
+                ? $mode . ' – Authentifizierung erfolgreich'
+                : (TIX_Gateway_PayPal::get_last_auth_error() ?: 'Authentifizierung fehlgeschlagen'),
+        ], 60);
+
+        wp_safe_redirect(admin_url('admin.php?page=tix-settings#tix-paypal-test-result'));
+        exit;
+    }
+
+    /**
+     * AJAX: PayPal-Zugangsdaten gegen die API testen.
+     * Nutzt die zuletzt gespeicherten Keys aus tix_settings.
+     */
+    public static function ajax_paypal_test() {
+        // Akzeptiere beide Nonce-Param-Varianten (robust gegen Security-Plugins,
+        // die _wpnonce in POST als Form-Submit interpretieren)
+        if (!check_ajax_referer('tix_paypal_test', 'nonce', false) &&
+            !check_ajax_referer('tix_paypal_test', '_wpnonce', false)) {
+            wp_send_json_error(['message' => 'Nonce ungültig oder abgelaufen – Seite neu laden.'], 403);
+        }
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(['message' => 'Keine Berechtigung.']);
+        }
+        if (!class_exists('TIX_Gateway_PayPal')) {
+            wp_send_json_error(['message' => 'PayPal-Gateway nicht geladen.']);
+        }
+
+        // Protected get_access_token via Reflection aufrufen
+        $ref = new ReflectionClass('TIX_Gateway_PayPal');
+        $m = $ref->getMethod('get_access_token');
+        $m->setAccessible(true);
+        $token = $m->invoke(null);
+
+        if ($token) {
+            $s = get_option(self::OPTION_KEY, []);
+            $mode = !empty($s['paypal_sandbox']) ? 'Sandbox' : 'Live';
+            wp_send_json_success(['message' => $mode . ' – Authentifizierung erfolgreich']);
+        }
+
+        $err = TIX_Gateway_PayPal::get_last_auth_error();
+        wp_send_json_error(['message' => $err ?: 'Authentifizierung fehlgeschlagen']);
     }
 
     /**
@@ -797,6 +924,8 @@ class TIX_Settings {
         $clean['ec_page_enabled'] = !empty($input['ec_page_enabled']) ? 1 : 0;
         $clean['ec_pad_x'] = max(0, min(80, intval($input['ec_pad_x'] ?? 32)));
         $clean['ec_pad_y'] = max(0, min(120, intval($input['ec_pad_y'] ?? 56)));
+        $clean['ec_max_width']   = max(600, min(2000, intval($input['ec_max_width'] ?? 1200)));
+        $clean['ec_show_search'] = !empty($input['ec_show_search']) ? 1 : 0;
         // Event-Seite Zahlen
         $clean['ep_max_width'] = max(400, min(1600, intval($input['ep_max_width'] ?? 1100)));
         $clean['ep_col_split'] = max(50, min(80, intval($input['ep_col_split'] ?? 65)));
@@ -1045,6 +1174,115 @@ class TIX_Settings {
         $clean['hp_this_week_days']    = max(3, min(14, intval($input['hp_this_week_days'] ?? 7)));
         $clean['hp_show_locations']    = !empty($input['hp_show_locations']) ? 1 : 0;
         $clean['hp_locations_count']   = max(3, min(12, intval($input['hp_locations_count'] ?? 6)));
+        $clean['hp_section_spacing']   = max(0, min(200, intval($input['hp_section_spacing'] ?? 40)));
+        $clean['hp_cache_enabled']     = !empty($input['hp_cache_enabled']) ? 1 : 0;
+        $clean['hp_cache_ttl']         = max(60, min(3600, intval($input['hp_cache_ttl'] ?? 600)));
+
+        // ── Phase-2 Sektionen ──
+        $clean['hp_show_hero_countdown'] = !empty($input['hp_show_hero_countdown']) ? 1 : 0;
+        $clean['hp_countdown_event_id']  = max(0, intval($input['hp_countdown_event_id'] ?? 0));
+        $clean['hp_countdown_label']     = sanitize_text_field($input['hp_countdown_label'] ?? 'Next Event');
+
+        $clean['hp_show_last_chance']  = !empty($input['hp_show_last_chance']) ? 1 : 0;
+        $clean['hp_last_chance_hours'] = max(6, min(168, intval($input['hp_last_chance_hours'] ?? 48)));
+        $clean['hp_last_chance_count'] = max(2, min(8, intval($input['hp_last_chance_count'] ?? 4)));
+
+        $clean['hp_show_weekday_grid'] = !empty($input['hp_show_weekday_grid']) ? 1 : 0;
+        $clean['hp_weekday_weeks']     = max(1, min(4, intval($input['hp_weekday_weeks'] ?? 2)));
+
+        $clean['hp_show_voucher']     = !empty($input['hp_show_voucher']) ? 1 : 0;
+        $clean['hp_voucher_title']    = sanitize_text_field($input['hp_voucher_title'] ?? '');
+        $clean['hp_voucher_text']     = sanitize_text_field($input['hp_voucher_text'] ?? '');
+        $clean['hp_voucher_btn']      = sanitize_text_field($input['hp_voucher_btn'] ?? 'Gutschein kaufen');
+        $clean['hp_voucher_url']      = esc_url_raw($input['hp_voucher_url'] ?? '');
+        $clean['hp_voucher_image_id'] = max(0, intval($input['hp_voucher_image_id'] ?? 0));
+        $clean['hp_voucher_bg']       = self::sanitize_color($input['hp_voucher_bg'] ?? '') ?: '#FFE066';
+        $clean['hp_voucher_fg']       = self::sanitize_color($input['hp_voucher_fg'] ?? '') ?: '#0D0B09';
+
+        $clean['hp_show_partners']  = !empty($input['hp_show_partners']) ? 1 : 0;
+        $clean['hp_partners_title'] = sanitize_text_field($input['hp_partners_title'] ?? '');
+        $clean['hp_partners_logos'] = [];
+        $logos_json = $input['hp_partners_logos_json'] ?? '';
+        if (!empty($logos_json)) {
+            $logos_data = json_decode(wp_unslash($logos_json), true);
+            if (is_array($logos_data)) {
+                foreach ($logos_data as $logo) {
+                    if (!is_array($logo) || empty($logo['image_id'])) continue;
+                    $clean['hp_partners_logos'][] = [
+                        'image_id' => max(0, intval($logo['image_id'])),
+                        'link'     => esc_url_raw($logo['link'] ?? ''),
+                        'alt'      => sanitize_text_field($logo['alt'] ?? ''),
+                    ];
+                }
+            }
+        }
+
+        // ── Phase-3 Sektionen ──
+        $clean['hp_show_greeting']  = !empty($input['hp_show_greeting']) ? 1 : 0;
+        $clean['hp_show_stories']   = !empty($input['hp_show_stories']) ? 1 : 0;
+        $clean['hp_stories_count']  = max(5, min(20, intval($input['hp_stories_count'] ?? 12)));
+        $clean['hp_stories_size']   = max(50, min(160, intval($input['hp_stories_size'] ?? 72)));
+        $clean['hp_show_promoted']  = !empty($input['hp_show_promoted']) ? 1 : 0;
+        $clean['hp_show_favorites'] = !empty($input['hp_show_favorites']) ? 1 : 0;
+        $clean['hp_show_recent']    = !empty($input['hp_show_recent']) ? 1 : 0;
+
+        $clean['hp_show_editorial']         = !empty($input['hp_show_editorial']) ? 1 : 0;
+        $clean['hp_editorial_event_id']     = max(0, intval($input['hp_editorial_event_id'] ?? 0));
+        $clean['hp_editorial_label']        = sanitize_text_field($input['hp_editorial_label'] ?? 'Empfehlung der Redaktion');
+        $clean['hp_editorial_title_override'] = sanitize_text_field($input['hp_editorial_title_override'] ?? '');
+        $clean['hp_editorial_text']         = wp_kses_post($input['hp_editorial_text'] ?? '');
+        $clean['hp_editorial_byline']       = sanitize_text_field($input['hp_editorial_byline'] ?? '');
+        $clean['hp_editorial_cta']          = sanitize_text_field($input['hp_editorial_cta'] ?? 'Event ansehen');
+
+        $clean['hp_show_faq']  = !empty($input['hp_show_faq']) ? 1 : 0;
+        $clean['hp_faq_title'] = sanitize_text_field($input['hp_faq_title'] ?? 'Häufige Fragen');
+        $clean['hp_faq_items'] = [];
+        $faq_json = $input['hp_faq_items_json'] ?? '';
+        if (!empty($faq_json)) {
+            $faq_data = json_decode(wp_unslash($faq_json), true);
+            if (is_array($faq_data)) {
+                foreach ($faq_data as $faq) {
+                    if (!is_array($faq)) continue;
+                    $q = sanitize_text_field($faq['question'] ?? '');
+                    $a = wp_kses_post($faq['answer'] ?? '');
+                    if (!$q || !$a) continue;
+                    $clean['hp_faq_items'][] = ['question' => $q, 'answer' => $a];
+                }
+            }
+        }
+
+        // Homepage-Baukasten: Sektions-Reihenfolge + Enabled-Flags (via JSON hidden input)
+        $clean['hp_sections'] = [];
+        $sec_json = $input['hp_sections_json'] ?? '';
+        if (!empty($sec_json)) {
+            $sec_data = json_decode(wp_unslash($sec_json), true);
+            if (is_array($sec_data) && class_exists('TIX_Event_Homepage')) {
+                $registry = TIX_Event_Homepage::get_section_registry();
+                $seen = [];
+                foreach ($sec_data as $row) {
+                    if (!is_array($row)) continue;
+                    $id = sanitize_key($row['id'] ?? '');
+                    if (!$id || !isset($registry[$id]) || in_array($id, $seen, true)) continue;
+                    $seen[] = $id;
+                    $sp = isset($row['spacing']) ? intval($row['spacing']) : -1;
+                    if ($sp !== -1) $sp = max(0, min(200, $sp));
+                    $clean['hp_sections'][] = [
+                        'id'      => $id,
+                        'enabled' => !empty($row['enabled']),
+                        'spacing' => $sp,
+                    ];
+                }
+                // Legacy-Flags spiegeln, damit die bestehenden Cards (Hero-Bereich, Sektionen, etc.)
+                // im Einklang mit dem Baukasten bleiben.
+                foreach ($clean['hp_sections'] as $row) {
+                    $id = $row['id'];
+                    $legacy = $registry[$id]['legacy_key'] ?? '';
+                    if ($legacy) {
+                        $clean[$legacy] = $row['enabled'] ? 1 : 0;
+                    }
+                }
+            }
+        }
 
         // Globale Typografie (3 Regler)
         $clean['tix_typo_font_heading'] = sanitize_text_field($input['tix_typo_font_heading'] ?? 'Sora');
@@ -1356,6 +1594,21 @@ class TIX_Settings {
         $existing_s = get_option('tix_settings', []);
         $clean['bot_registered']        = intval($input['bot_registered'] ?? $existing_s['bot_registered'] ?? 0);
         $clean['bot_tenant_id']         = sanitize_text_field($input['bot_tenant_id'] ?? $existing_s['bot_tenant_id'] ?? '');
+
+        // Veranstalter-Landing Feature-Flags (werden auch von separater Admin-Seite gesetzt,
+        // dürfen nicht durch Settings-Save gestrippt werden)
+        $clean['landing_pages_enabled'] = !empty($input['landing_pages_enabled']) ? 1 : (intval($existing_s['landing_pages_enabled'] ?? 0));
+        $clean['landing_use_subdomain'] = !empty($input['landing_use_subdomain']) ? 1 : (intval($existing_s['landing_use_subdomain'] ?? 0));
+        $clean['stats_source']          = sanitize_text_field($input['stats_source'] ?? $existing_s['stats_source'] ?? 'auto');
+
+        // Preserve unknown keys (forward-compat): alle Werte aus existing_s die nicht in $clean landeten
+        if (is_array($existing_s)) {
+            foreach ($existing_s as $k => $v) {
+                if (!array_key_exists($k, $clean) && strpos($k, 'landing_') === 0) {
+                    $clean[$k] = $v;
+                }
+            }
+        }
 
         // LiteSpeed Cache purgen damit CSS-Änderungen sofort greifen
         if (class_exists('LiteSpeed\Purge')) {
@@ -2608,7 +2861,26 @@ class TIX_Settings {
                                             <?php self::text_row('paypal_secret', 'PayPal Secret', $s, 'E...'); ?>
                                             <div class="tix-field tix-field-full">
                                                 <?php self::checkbox_row('paypal_sandbox', 'PayPal Sandbox', $s); ?>
-                                                <p class="tix-settings-hint"><a href="https://developer.paypal.com/dashboard/applications" target="_blank">PayPal Dashboard →</a></p>
+                                                <?php
+                                                // Test-Ergebnis aus vorherigem Klick anzeigen
+                                                $pp_test_result = get_transient('tix_paypal_test_result_' . get_current_user_id());
+                                                if ($pp_test_result) delete_transient('tix_paypal_test_result_' . get_current_user_id());
+                                                $test_url = wp_nonce_url(
+                                                    admin_url('admin.php?page=tix-settings&tix_paypal_test=1'),
+                                                    'tix_paypal_test_url'
+                                                );
+                                                ?>
+                                                <p class="tix-settings-hint">
+                                                    <a href="https://developer.paypal.com/dashboard/applications" target="_blank">PayPal Dashboard →</a>
+                                                    &nbsp;·&nbsp;
+                                                    <a href="<?php echo esc_url($test_url); ?>" class="button" id="tix-paypal-test-result" style="margin-left:8px;">Verbindung testen</a>
+                                                    <?php if ($pp_test_result): ?>
+                                                        <span style="margin-left:10px; color: <?php echo $pp_test_result['success'] ? '#10b981' : '#ef4444'; ?>; font-weight:600;">
+                                                            <?php echo $pp_test_result['success'] ? '✓' : '✗'; ?>
+                                                            <?php echo esc_html($pp_test_result['message']); ?>
+                                                        </span>
+                                                    <?php endif; ?>
+                                                </p>
                                             </div>
                                         </div>
                                     </div>
@@ -3515,8 +3787,12 @@ class TIX_Settings {
                                             <div class="tix-field tix-field-full">
                                                 <?php self::checkbox_row('ec_page_enabled', 'Automatische /events/ Seite erstellen', $s, 'Erstellt eine Archivseite unter /events/ die alle Events als Karten anzeigt. Alternativ: Shortcode [tix_events] manuell einbetten.'); ?>
                                             </div>
+                                            <?php self::range_row('ec_max_width', 'Maximale Breite', $s, 600, 2000, 'px', 50); ?>
                                             <?php self::range_row('ec_pad_x', 'Padding seitlich', $s, 0, 80, 'px'); ?>
                                             <?php self::range_row('ec_pad_y', 'Padding oben/unten', $s, 0, 120, 'px'); ?>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('ec_show_search', 'Suchfeld anzeigen', $s, 'Zeigt die Suchleiste über dem Event-Grid. Deaktiviere, wenn du die Suche bereits anderswo (z.B. im Header) platziert hast.'); ?>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -3622,6 +3898,168 @@ class TIX_Settings {
 
                             <?php // ═══ PANE: EVENT-HOMEPAGE ═══ ?>
                             <div class="tix-pane" data-pane="event-homepage">
+
+                                <?php // ── Card: Homepage-Baukasten (Sektions-Reihenfolge & Sichtbarkeit) ── ?>
+                                <?php
+                                $hp_sections_config = class_exists('TIX_Event_Homepage') ? TIX_Event_Homepage::get_sections_config() : [];
+                                $hp_section_registry = class_exists('TIX_Event_Homepage') ? TIX_Event_Homepage::get_section_registry() : [];
+                                ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-sort"></span>
+                                        <h3>Baukasten — Reihenfolge & Sichtbarkeit</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <p class="tix-settings-hint" style="margin:0 0 12px;">Ziehe die Sektionen in deine Wunsch-Reihenfolge. Per Checkbox ein-/ausblenden. Pro Sektion kannst du den Abstand zur nächsten Sektion individuell setzen — leer lassen nutzt den Default unten.</p>
+
+                                        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;padding:10px 14px;background:#fef3c7;border-radius:8px;">
+                                            <span class="dashicons dashicons-editor-expand" style="color:#92400e;"></span>
+                                            <label style="font-size:13px;color:#92400e;">
+                                                <strong>Standard-Abstand</strong> zwischen Sektionen:
+                                                <input type="number" name="<?php echo TIX_Settings::OPTION_KEY; ?>[hp_section_spacing]" value="<?php echo esc_attr(intval($s['hp_section_spacing'] ?? 40)); ?>" min="0" max="200" style="width:70px;padding:4px 8px;margin-left:6px;"> px
+                                            </label>
+                                        </div>
+
+                                        <ul id="tix-hp-sections-sortable" style="list-style:none;margin:0;padding:0;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;background:#fff;">
+                                            <?php foreach ($hp_sections_config as $row):
+                                                $id = $row['id'];
+                                                $def = $hp_section_registry[$id] ?? null;
+                                                if (!$def) continue;
+                                                // spacing > 0 = explizit gesetzt; 0/-1/fehlt → Feld leer zeigen (Default aktiv)
+                                                $spacing_val = !empty($row['spacing']) && intval($row['spacing']) > 0 ? intval($row['spacing']) : '';
+                                            ?>
+                                            <li class="tix-hp-sec-item" data-id="<?php echo esc_attr($id); ?>" data-legacy-key="<?php echo esc_attr($def['legacy_key'] ?? ''); ?>" style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-bottom:1px solid #f1f5f9;background:#fff;">
+                                                <span class="tix-hp-sec-handle" title="Zum Verschieben ziehen" style="cursor:grab;color:#94a3b8;font-size:18px;user-select:none;">☰</span>
+                                                <span class="dashicons dashicons-<?php echo esc_attr($def['icon']); ?>" style="color:#64748b;"></span>
+                                                <span style="flex:1;font-weight:600;font-size:14px;"><?php echo esc_html($def['label']); ?></span>
+                                                <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:#64748b;" title="Abstand nach dieser Sektion (leer = Default)">
+                                                    <input type="number" class="tix-hp-sec-spacing" value="<?php echo esc_attr($spacing_val); ?>" min="0" max="200" placeholder="–" style="width:52px;padding:3px 6px;font-size:12px;">
+                                                    <span>px</span>
+                                                </label>
+                                                <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#64748b;cursor:pointer;">
+                                                    <input type="checkbox" class="tix-hp-sec-enabled" <?php checked($row['enabled']); ?>>
+                                                    Anzeigen
+                                                </label>
+                                            </li>
+                                            <?php endforeach; ?>
+                                        </ul>
+                                        <input type="hidden" name="<?php echo TIX_Settings::OPTION_KEY; ?>[hp_sections_json]" id="tix-hp-sections-json" value="<?php echo esc_attr(wp_json_encode($hp_sections_config)); ?>">
+
+                                        <script>
+                                        (function(){
+                                            var list = document.getElementById('tix-hp-sections-sortable');
+                                            var hidden = document.getElementById('tix-hp-sections-json');
+                                            if (!list || !hidden) return;
+
+                                            function syncJson(){
+                                                var rows = [];
+                                                list.querySelectorAll('.tix-hp-sec-item').forEach(function(el){
+                                                    var sp = el.querySelector('.tix-hp-sec-spacing');
+                                                    var spVal = sp && sp.value !== '' ? parseInt(sp.value, 10) : -1;
+                                                    rows.push({
+                                                        id: el.getAttribute('data-id'),
+                                                        enabled: el.querySelector('.tix-hp-sec-enabled').checked,
+                                                        spacing: spVal
+                                                    });
+                                                });
+                                                hidden.value = JSON.stringify(rows);
+                                            }
+
+                                            // Bidirektionaler Sync mit Legacy-Checkboxen
+                                            function findLegacyInput(key){
+                                                if (!key) return null;
+                                                return document.querySelector('input[name$="[' + key + ']"]');
+                                            }
+                                            function syncLegacyFromSection(item){
+                                                var key = item.getAttribute('data-legacy-key');
+                                                var legacy = findLegacyInput(key);
+                                                if (!legacy) return;
+                                                var checked = item.querySelector('.tix-hp-sec-enabled').checked;
+                                                if (legacy.checked !== checked) legacy.checked = checked;
+                                            }
+                                            // Initial Legacy → Baukasten
+                                            list.querySelectorAll('.tix-hp-sec-item').forEach(function(item){
+                                                var key = item.getAttribute('data-legacy-key');
+                                                var legacy = findLegacyInput(key);
+                                                if (!legacy) return;
+                                                // Legacy-Toggle ändert Baukasten-Checkbox
+                                                legacy.addEventListener('change', function(){
+                                                    var cb = item.querySelector('.tix-hp-sec-enabled');
+                                                    if (cb.checked !== legacy.checked) {
+                                                        cb.checked = legacy.checked;
+                                                        syncJson();
+                                                    }
+                                                });
+                                            });
+
+                                            // Checkbox-Änderungen im Baukasten tracken
+                                            list.addEventListener('change', function(e){
+                                                if (e.target && e.target.classList.contains('tix-hp-sec-enabled')) {
+                                                    var item = e.target.closest('.tix-hp-sec-item');
+                                                    if (item) syncLegacyFromSection(item);
+                                                    syncJson();
+                                                }
+                                                if (e.target && e.target.classList.contains('tix-hp-sec-spacing')) {
+                                                    syncJson();
+                                                }
+                                            });
+                                            list.addEventListener('input', function(e){
+                                                if (e.target && e.target.classList.contains('tix-hp-sec-spacing')) {
+                                                    syncJson();
+                                                }
+                                            });
+
+                                            // Drag & Drop (vanilla, ohne externe Libs)
+                                            var dragEl = null;
+                                            list.querySelectorAll('.tix-hp-sec-item').forEach(function(item){
+                                                item.setAttribute('draggable', 'true');
+                                                item.addEventListener('dragstart', function(e){
+                                                    dragEl = item;
+                                                    item.style.opacity = '0.4';
+                                                    e.dataTransfer.effectAllowed = 'move';
+                                                });
+                                                item.addEventListener('dragend', function(){
+                                                    item.style.opacity = '';
+                                                    syncJson();
+                                                });
+                                                item.addEventListener('dragover', function(e){
+                                                    e.preventDefault();
+                                                    if (dragEl === item) return;
+                                                    var rect = item.getBoundingClientRect();
+                                                    var mid = rect.top + rect.height / 2;
+                                                    if (e.clientY < mid) {
+                                                        item.parentNode.insertBefore(dragEl, item);
+                                                    } else {
+                                                        item.parentNode.insertBefore(dragEl, item.nextSibling);
+                                                    }
+                                                });
+                                            });
+
+                                            // Initial sync (falls sich nichts geändert hat, haben wir den Current-State)
+                                            syncJson();
+                                        })();
+                                        </script>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Performance / Caching ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-performance"></span>
+                                        <h3>Performance &amp; Caching</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('hp_cache_enabled', 'Sektionen-Cache aktivieren', $s, 'Cached gerenderte Homepage-Sektionen per Transient. Nur für anonyme Besucher aktiv. Bei Event-Änderungen automatisch invalidiert.'); ?>
+                                            </div>
+                                            <?php self::range_row('hp_cache_ttl', 'Cache-Dauer (Sekunden)', $s, 60, 3600, 's', 60); ?>
+                                            <div class="tix-field tix-field-full">
+                                                <p class="tix-settings-hint" style="margin:0;">Empfehlung: 600s (10 min) für die meisten Seiten. Länger = mehr Performance, kürzer = aktueller. Wird bei jedem Event-Save automatisch geleert.</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
 
                                 <?php // ── Card: Layout ── ?>
                                 <div class="tix-card">
@@ -3820,6 +4258,419 @@ class TIX_Settings {
                                         </div>
                                     </div>
                                 </div>
+
+                                <?php // ═══ PHASE-2: NEUE SEKTIONEN ═══ ?>
+
+                                <?php // ── Card: Hero-Countdown ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-clock"></span>
+                                        <h3>Hero-Countdown</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('hp_show_hero_countdown', 'Countdown-Banner anzeigen', $s, 'Großer Banner mit Live-Countdown zu einem Highlight-Event.'); ?>
+                                            </div>
+                                            <?php self::text_row('hp_countdown_label', 'Label (über dem Titel)', $s, 'z.B. Next Event, Mega-Party, Sommer-Finale'); ?>
+                                            <?php self::range_row('hp_countdown_event_id', 'Event-ID (0 = nächstes Event automatisch)', $s, 0, 99999, '', 1); ?>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Letzte Chance ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-warning"></span>
+                                        <h3>Letzte Chance (FOMO)</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('hp_show_last_chance', '"Jetzt oder nie" Sektion anzeigen', $s, 'Zeigt Events, die innerhalb der nächsten Stunden stattfinden — erzeugt Dringlichkeit.'); ?>
+                                            </div>
+                                            <?php self::range_row('hp_last_chance_hours', 'Zeitfenster (Stunden voraus)', $s, 6, 168, 'h', 6); ?>
+                                            <?php self::range_row('hp_last_chance_count', 'Max. Anzahl Events', $s, 2, 8, '', 1); ?>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Wochentag-Grid ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-calendar"></span>
+                                        <h3>Wochentag-Grid (Mo–So)</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('hp_show_weekday_grid', 'Wochentag-Grid anzeigen', $s, 'Kompakte Spalten je Wochentag — ideal für Club/Bar-Kalender.'); ?>
+                                            </div>
+                                            <?php self::range_row('hp_weekday_weeks', 'Wochen voraus', $s, 1, 4, '', 1); ?>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Geschenkgutschein-Banner ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-tickets-alt"></span>
+                                        <h3>Geschenkgutschein-Banner</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('hp_show_voucher', 'Gutschein-Banner anzeigen', $s, 'Auffälliger Banner mit CTA zum Gutschein-Kauf — ideal für saisonale Promos.'); ?>
+                                            </div>
+                                            <?php self::text_row('hp_voucher_title', 'Titel', $s, 'Verschenke ein Erlebnis'); ?>
+                                            <?php self::text_row('hp_voucher_text', 'Text', $s, 'Gutscheine für jedes Event — der perfekte Geschenktipp.'); ?>
+                                            <?php self::text_row('hp_voucher_btn', 'Button-Text', $s, 'Gutschein kaufen'); ?>
+                                            <?php self::text_row('hp_voucher_url', 'Link / URL', $s, 'https://...'); ?>
+                                            <?php
+                                            // Bild-Picker
+                                            $voucher_img_id  = intval($s['hp_voucher_image_id'] ?? 0);
+                                            $voucher_img_url = $voucher_img_id ? wp_get_attachment_image_url($voucher_img_id, 'medium') : '';
+                                            ?>
+                                            <div class="tix-field tix-field-full">
+                                                <label class="tix-field-label" style="display:block;margin-bottom:6px;">Banner-Bild (optional)</label>
+                                                <div class="tix-hp-imgpick" style="display:flex;align-items:center;gap:12px;">
+                                                    <div class="tix-hp-imgpick-box <?php echo $voucher_img_url ? 'has-img' : ''; ?>" data-target="hp_voucher_image_id" style="width:120px;height:80px;border:2px dashed #cbd5e1;border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer;overflow:hidden;background:#f8fafc;">
+                                                        <?php if ($voucher_img_url): ?>
+                                                            <img src="<?php echo esc_url($voucher_img_url); ?>" style="max-width:100%;max-height:100%;object-fit:cover;">
+                                                        <?php else: ?>
+                                                            <span class="dashicons dashicons-format-image" style="font-size:28px;width:28px;height:28px;color:#94a3b8;"></span>
+                                                        <?php endif; ?>
+                                                    </div>
+                                                    <input type="hidden" name="<?php echo TIX_Settings::OPTION_KEY; ?>[hp_voucher_image_id]" id="hp_voucher_image_id" value="<?php echo $voucher_img_id ?: ''; ?>">
+                                                    <?php if ($voucher_img_url): ?><a href="#" class="tix-hp-imgpick-clear" data-target="hp_voucher_image_id" style="font-size:12px;">Bild entfernen</a><?php endif; ?>
+                                                </div>
+                                            </div>
+                                            <div class="tix-field">
+                                                <label class="tix-field-label" style="display:block;margin-bottom:4px;">Hintergrundfarbe</label>
+                                                <input type="color" name="<?php echo TIX_Settings::OPTION_KEY; ?>[hp_voucher_bg]" value="<?php echo esc_attr($s['hp_voucher_bg'] ?? '#FFE066'); ?>">
+                                            </div>
+                                            <div class="tix-field">
+                                                <label class="tix-field-label" style="display:block;margin-bottom:4px;">Textfarbe</label>
+                                                <input type="color" name="<?php echo TIX_Settings::OPTION_KEY; ?>[hp_voucher_fg]" value="<?php echo esc_attr($s['hp_voucher_fg'] ?? '#0D0B09'); ?>">
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Partner/Presse-Logos ── ?>
+                                <?php $partners_logos = isset($s['hp_partners_logos']) && is_array($s['hp_partners_logos']) ? $s['hp_partners_logos'] : []; ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-businesswoman"></span>
+                                        <h3>Partner/Presse-Logos</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('hp_show_partners', 'Logo-Strip anzeigen', $s, 'Zentriert ausgerichtete Logos als Social Proof / Trust-Element.'); ?>
+                                            </div>
+                                            <?php self::text_row('hp_partners_title', 'Überschrift (optional)', $s, 'Bekannt aus & Partner'); ?>
+                                            <div class="tix-field tix-field-full">
+                                                <label class="tix-field-label" style="display:block;margin-bottom:6px;">Logos</label>
+                                                <div id="tix-hp-partners-list" style="display:flex;flex-direction:column;gap:10px;"></div>
+                                                <button type="button" class="button" id="tix-hp-partners-add" style="margin-top:10px;">+ Logo hinzufügen</button>
+                                                <input type="hidden" name="<?php echo TIX_Settings::OPTION_KEY; ?>[hp_partners_logos_json]" id="hp_partners_logos_json" value="<?php echo esc_attr(wp_json_encode($partners_logos)); ?>">
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ═══ PHASE-3: WISHLIST / RECENT / PROMOTED / STORIES / GREETING ═══ ?>
+
+                                <?php // ── Card: Smart-Greeting ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-smiley"></span>
+                                        <h3>Smart-Greeting (Tageszeit-Text)</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('hp_show_greeting', 'Dynamischen Begrüßungstext anzeigen', $s, 'Zeigt je nach Tageszeit/Wochentag passende Texte wie „Guten Morgen, was steht heute Abend an?" oder „Wochenende ruft 🎉".'); ?>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Story-Carousel ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-images-alt2"></span>
+                                        <h3>Story-Carousel (Insta-Style)</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('hp_show_stories', 'Story-Reihe anzeigen', $s, 'Horizontal scrollbare runde Cover-Bilder mit Gradient-Rand. Führt direkt auf Event-Detailseiten. Automatisch zentriert, scrollt erst wenn zu viele.'); ?>
+                                            </div>
+                                            <?php self::range_row('hp_stories_count', 'Anzahl Stories', $s, 5, 20, '', 1); ?>
+                                            <?php self::range_row('hp_stories_size', 'Story-Größe (Durchmesser)', $s, 50, 160, 'px', 2); ?>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Favoriten / Kürzlich ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-heart"></span>
+                                        <h3>Wishlist &amp; Kürzlich angesehen</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('hp_show_favorites', '„Deine Favoriten" Sektion anzeigen', $s, 'Zeigt Events, die der Besucher per Herz-Icon markiert hat. Wird per LocalStorage persistent gespeichert (auch für Gäste ohne Login).'); ?>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('hp_show_recent', '„Kürzlich angesehen" Sektion anzeigen', $s, 'Zeigt die letzten ~10 Events, die der Besucher angeklickt hat. Nur sichtbar wenn Browsing-Verlauf vorhanden.'); ?>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <p class="tix-settings-hint" style="margin:0;">💡 Beide Sektionen blenden sich automatisch aus, wenn keine Daten vorhanden sind. Werden erst lazy-loaded via AJAX, wenn der Besucher was gespeichert hat.</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Promoted Events ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-megaphone"></span>
+                                        <h3>Promoted Events (bezahltes Placement)</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('hp_show_promoted', '„Empfohlene Events" Sektion anzeigen', $s, 'Events, die als Promoted markiert sind (Metabox im Event-Editor), werden hier mit „Anzeige"-Label dargestellt. Ideal für neuen Revenue-Stream.'); ?>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <p class="tix-settings-hint" style="margin:0;">💡 Einzelne Events als Promoted markieren: Event bearbeiten → Sidebar „✨ Promoted Event" (nur für Admins sichtbar).</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Empfehlung der Redaktion ── ?>
+                                <?php
+                                $editorial_event_id = intval($s['hp_editorial_event_id'] ?? 0);
+                                $event_choices = get_posts([
+                                    'post_type'      => 'event',
+                                    'post_status'    => 'publish',
+                                    'posts_per_page' => 100,
+                                    'orderby'        => 'title',
+                                    'order'          => 'ASC',
+                                ]);
+                                ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-edit-large"></span>
+                                        <h3>Empfehlung der Redaktion</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('hp_show_editorial', '„Empfehlung der Redaktion" Sektion anzeigen', $s, 'Ein kuratiertes Highlight-Event mit redaktionellem Fließtext. Baut Kompetenz &amp; Vertrauen auf („Warum du unbedingt hin musst").'); ?>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <label class="tix-field-label" style="display:block;margin-bottom:6px;">Event auswählen <span style="color:#dc2626;">*</span></label>
+                                                <select name="<?php echo TIX_Settings::OPTION_KEY; ?>[hp_editorial_event_id]" style="width:100%;padding:8px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;">
+                                                    <option value="0">— Kein Event ausgewählt —</option>
+                                                    <?php foreach ($event_choices as $ev):
+                                                        $date = get_post_meta($ev->ID, '_tix_date_start', true);
+                                                        $label = get_the_title($ev->ID);
+                                                        if ($date) $label .= ' · ' . date_i18n('d.m.Y', strtotime($date));
+                                                    ?>
+                                                        <option value="<?php echo intval($ev->ID); ?>" <?php selected($editorial_event_id, $ev->ID); ?>><?php echo esc_html($label); ?></option>
+                                                    <?php endforeach; ?>
+                                                </select>
+                                            </div>
+                                            <?php self::text_row('hp_editorial_label', 'Label (klein, über Titel)', $s, 'Empfehlung der Redaktion'); ?>
+                                            <?php self::text_row('hp_editorial_title_override', 'Titel-Override (optional)', $s, 'Leer = Event-Titel'); ?>
+                                            <div class="tix-field tix-field-full">
+                                                <label class="tix-field-label" style="display:block;margin-bottom:6px;">Redaktioneller Text</label>
+                                                <?php
+                                                wp_editor(
+                                                    $s['hp_editorial_text'] ?? '',
+                                                    'hp_editorial_text_editor',
+                                                    [
+                                                        'textarea_name' => TIX_Settings::OPTION_KEY . '[hp_editorial_text]',
+                                                        'textarea_rows' => 6,
+                                                        'media_buttons' => false,
+                                                        'teeny'         => true,
+                                                        'tinymce'       => ['toolbar1' => 'bold,italic,underline,link,unlink,bullist,numlist,undo,redo'],
+                                                    ]
+                                                );
+                                                ?>
+                                                <p class="tix-settings-hint" style="margin:6px 0 0;">Empfohlene Länge: 60–180 Wörter. Erzählend schreiben, wie in einer Zeitschrift — warum dieses Event besonders ist.</p>
+                                            </div>
+                                            <?php self::text_row('hp_editorial_byline', 'Autor / Byline (optional)', $s, 'z.B. Anna · Events-Redaktion'); ?>
+                                            <?php self::text_row('hp_editorial_cta', 'CTA-Button-Text', $s, 'Event ansehen'); ?>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: FAQ-Accordion ── ?>
+                                <?php $faq_items = isset($s['hp_faq_items']) && is_array($s['hp_faq_items']) ? $s['hp_faq_items'] : []; ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-editor-help"></span>
+                                        <h3>FAQ-Accordion</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('hp_show_faq', 'FAQ-Sektion anzeigen', $s, 'Aufklappbare Fragen & Antworten.'); ?>
+                                            </div>
+                                            <?php self::text_row('hp_faq_title', 'Überschrift', $s, 'Häufige Fragen'); ?>
+                                            <div class="tix-field tix-field-full">
+                                                <label class="tix-field-label" style="display:block;margin-bottom:6px;">Einträge</label>
+                                                <div id="tix-hp-faq-list" style="display:flex;flex-direction:column;gap:10px;"></div>
+                                                <button type="button" class="button" id="tix-hp-faq-add" style="margin-top:10px;">+ Frage hinzufügen</button>
+                                                <input type="hidden" name="<?php echo TIX_Settings::OPTION_KEY; ?>[hp_faq_items_json]" id="hp_faq_items_json" value="<?php echo esc_attr(wp_json_encode($faq_items)); ?>">
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <script>
+                                (function($){
+                                    // ── Image-Picker (Gutschein-Banner u.a.) ──
+                                    $(document).on('click', '.tix-hp-imgpick-box', function(e){
+                                        e.preventDefault();
+                                        var $box = $(this);
+                                        var target = $box.data('target');
+                                        var frame = wp.media({ title: 'Bild wählen', button: { text: 'Einfügen' }, multiple: false, library: { type: 'image' } });
+                                        frame.on('select', function(){
+                                            var att = frame.state().get('selection').first().toJSON();
+                                            $('#' + target).val(att.id);
+                                            var url = (att.sizes && att.sizes.medium) ? att.sizes.medium.url : att.url;
+                                            $box.addClass('has-img').html('<img src="' + url + '" style="max-width:100%;max-height:100%;object-fit:cover;">');
+                                            if (!$box.siblings('.tix-hp-imgpick-clear').length) {
+                                                $box.siblings('input[type=hidden]').after('<a href="#" class="tix-hp-imgpick-clear" data-target="' + target + '" style="font-size:12px;">Bild entfernen</a>');
+                                            }
+                                        });
+                                        frame.open();
+                                    });
+                                    $(document).on('click', '.tix-hp-imgpick-clear', function(e){
+                                        e.preventDefault();
+                                        var target = $(this).data('target');
+                                        $('#' + target).val('');
+                                        $(this).closest('.tix-hp-imgpick').find('.tix-hp-imgpick-box').removeClass('has-img').html('<span class="dashicons dashicons-format-image" style="font-size:28px;width:28px;height:28px;color:#94a3b8;"></span>');
+                                        $(this).remove();
+                                    });
+
+                                    // ── Partners Logo-Liste ──
+                                    function renderPartners(){
+                                        var data = [];
+                                        try { data = JSON.parse($('#hp_partners_logos_json').val() || '[]'); } catch(e){ data = []; }
+                                        var $list = $('#tix-hp-partners-list').empty();
+                                        data.forEach(function(row, i){
+                                            var imgUrl = row.image_url || '';
+                                            var html = '<div class="tix-hp-partner-row" data-i="' + i + '" style="display:flex;gap:10px;align-items:center;padding:10px;border:1px solid #e5e7eb;border-radius:8px;background:#fff;">'
+                                                + '<div class="tix-hp-partner-img" style="width:80px;height:50px;border:1px dashed #cbd5e1;border-radius:6px;display:flex;align-items:center;justify-content:center;cursor:pointer;overflow:hidden;background:#f8fafc;">'
+                                                + (row.image_id ? '<img data-id="' + row.image_id + '" src="" style="max-width:100%;max-height:100%;object-fit:contain;">' : '<span class="dashicons dashicons-format-image" style="color:#94a3b8;"></span>')
+                                                + '</div>'
+                                                + '<input type="text" class="tix-hp-partner-alt" placeholder="Alt-Text" value="' + (row.alt || '').replace(/"/g,'&quot;') + '" style="width:140px;">'
+                                                + '<input type="url" class="tix-hp-partner-link" placeholder="Link (optional)" value="' + (row.link || '').replace(/"/g,'&quot;') + '" style="flex:1;">'
+                                                + '<button type="button" class="tix-hp-partner-remove button-link-delete" style="color:#b00;">Entfernen</button>'
+                                                + '</div>';
+                                            $list.append(html);
+                                        });
+                                        // Load image URLs async
+                                        $list.find('img[data-id]').each(function(){
+                                            var $img = $(this);
+                                            var id = $img.data('id');
+                                            if (!id) return;
+                                            wp.media.attachment(id).fetch().then(function(){
+                                                var att = wp.media.attachment(id).toJSON();
+                                                var url = (att.sizes && att.sizes.thumbnail) ? att.sizes.thumbnail.url : att.url;
+                                                $img.attr('src', url);
+                                            });
+                                        });
+                                    }
+                                    function saveP(){
+                                        var data = [];
+                                        $('#tix-hp-partners-list .tix-hp-partner-row').each(function(){
+                                            var $r = $(this);
+                                            var imgId = $r.find('.tix-hp-partner-img img').data('id') || 0;
+                                            data.push({
+                                                image_id: imgId,
+                                                alt: $r.find('.tix-hp-partner-alt').val(),
+                                                link: $r.find('.tix-hp-partner-link').val(),
+                                            });
+                                        });
+                                        $('#hp_partners_logos_json').val(JSON.stringify(data));
+                                    }
+                                    $('#tix-hp-partners-add').on('click', function(){
+                                        var data = [];
+                                        try { data = JSON.parse($('#hp_partners_logos_json').val() || '[]'); } catch(e){}
+                                        data.push({ image_id: 0, alt: '', link: '' });
+                                        $('#hp_partners_logos_json').val(JSON.stringify(data));
+                                        renderPartners();
+                                    });
+                                    $(document).on('click', '.tix-hp-partner-img', function(){
+                                        var $img = $(this);
+                                        var frame = wp.media({ title: 'Logo wählen', button: { text: 'Einfügen' }, multiple: false, library: { type: 'image' } });
+                                        frame.on('select', function(){
+                                            var att = frame.state().get('selection').first().toJSON();
+                                            var url = (att.sizes && att.sizes.thumbnail) ? att.sizes.thumbnail.url : att.url;
+                                            $img.html('<img data-id="' + att.id + '" src="' + url + '" style="max-width:100%;max-height:100%;object-fit:contain;">');
+                                            saveP();
+                                        });
+                                        frame.open();
+                                    });
+                                    $(document).on('click', '.tix-hp-partner-remove', function(){
+                                        $(this).closest('.tix-hp-partner-row').remove();
+                                        saveP();
+                                    });
+                                    $(document).on('input change', '.tix-hp-partner-alt, .tix-hp-partner-link', saveP);
+
+                                    // ── FAQ-Liste ──
+                                    function renderFaq(){
+                                        var data = [];
+                                        try { data = JSON.parse($('#hp_faq_items_json').val() || '[]'); } catch(e){ data = []; }
+                                        var $list = $('#tix-hp-faq-list').empty();
+                                        data.forEach(function(row, i){
+                                            var html = '<div class="tix-hp-faq-row" data-i="' + i + '" style="display:flex;flex-direction:column;gap:6px;padding:12px;border:1px solid #e5e7eb;border-radius:8px;background:#fff;">'
+                                                + '<input type="text" class="tix-hp-faq-q" placeholder="Frage" value="' + (row.question || '').replace(/"/g,'&quot;') + '" style="font-weight:600;">'
+                                                + '<textarea class="tix-hp-faq-a" placeholder="Antwort" rows="3" style="resize:vertical;">' + (row.answer || '').replace(/</g,'&lt;') + '</textarea>'
+                                                + '<button type="button" class="tix-hp-faq-remove button-link-delete" style="align-self:flex-start;color:#b00;">Entfernen</button>'
+                                                + '</div>';
+                                            $list.append(html);
+                                        });
+                                    }
+                                    function saveF(){
+                                        var data = [];
+                                        $('#tix-hp-faq-list .tix-hp-faq-row').each(function(){
+                                            var $r = $(this);
+                                            data.push({
+                                                question: $r.find('.tix-hp-faq-q').val(),
+                                                answer:   $r.find('.tix-hp-faq-a').val(),
+                                            });
+                                        });
+                                        $('#hp_faq_items_json').val(JSON.stringify(data));
+                                    }
+                                    $('#tix-hp-faq-add').on('click', function(){
+                                        var data = [];
+                                        try { data = JSON.parse($('#hp_faq_items_json').val() || '[]'); } catch(e){}
+                                        data.push({ question: '', answer: '' });
+                                        $('#hp_faq_items_json').val(JSON.stringify(data));
+                                        renderFaq();
+                                    });
+                                    $(document).on('click', '.tix-hp-faq-remove', function(){
+                                        $(this).closest('.tix-hp-faq-row').remove();
+                                        saveF();
+                                    });
+                                    $(document).on('input change', '.tix-hp-faq-q, .tix-hp-faq-a', saveF);
+
+                                    // Initial Render
+                                    renderPartners();
+                                    renderFaq();
+                                })(jQuery);
+                                </script>
 
                             </div>
 
@@ -8255,6 +9106,19 @@ class TIX_Settings {
                 'tix-re-legal'         => ['label' => 'Rechtliches',     'size' => 13, 'font' => 'body', 'weight' => 400],
                 'tix-re-btn-primary'   => ['label' => 'Haupt-Button',    'size' => 14, 'font' => 'body', 'weight' => 600],
                 'tix-re-error'         => ['label' => 'Fehler-Meldung',  'size' => 14, 'font' => 'body', 'weight' => 400],
+            ],
+            'Veranstalter-Landing' => [
+                'tix-brand-name'                 => ['label' => 'Header-Veranstaltername', 'size' => 16, 'font' => 'heading', 'weight' => 700],
+                'tix-org-brand-header-back'      => ['label' => 'Header "Zurück"-Button',  'size' => 13, 'font' => 'heading', 'weight' => 600],
+                'tix-ol-hero-title'              => ['label' => 'Hero-Titel',              'size' => 40, 'font' => 'heading', 'weight' => 700],
+                'tix-ol-hero-tagline'            => ['label' => 'Hero-Untertitel',         'size' => 17, 'font' => 'body',    'weight' => 400],
+                'tix-ol-hero-cta'                => ['label' => 'Hero-CTA-Button',         'size' => 14, 'font' => 'heading', 'weight' => 600],
+                'tix-ol-section-heading'         => ['label' => 'Sektions-Überschrift',    'size' => 32, 'font' => 'heading', 'weight' => 700],
+                'tix-ol-about-text'              => ['label' => 'Über-uns-Text',           'size' => 16, 'font' => 'body',    'weight' => 400],
+                'tix-ol-empty'                   => ['label' => 'Leere-Liste-Hinweis',     'size' => 15, 'font' => 'body',    'weight' => 400],
+                'tix-ol-past-details'            => ['label' => 'Vergangene-Events-Toggle','size' => 14, 'font' => 'heading', 'weight' => 600],
+                'tix-org-brand-footer-links'     => ['label' => 'Footer-Links',            'size' => 14, 'font' => 'heading', 'weight' => 500],
+                'tix-org-brand-footer-meta'      => ['label' => 'Footer-Credit (unten)',   'size' => 11, 'font' => 'body',    'weight' => 400],
             ],
         ];
     }

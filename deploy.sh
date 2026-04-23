@@ -37,6 +37,11 @@ echo ""
 echo "▸ Deploy → evendis..."
 rsync $RSYNC_OPTS "$PLUGIN_DIR/" "$REMOTE_SERVER:/home/runcloud/webapps/evendis/wp-content/plugins/tixomat/"
 
+# 6. Deploy mallorca-festival-xxl (Staging für Tickera-Migration)
+echo ""
+echo "▸ Deploy → mallorca-festival-xxl..."
+rsync $RSYNC_OPTS "$PLUGIN_DIR/" "$REMOTE_SERVER:/home/runcloud/webapps/mallorca-festival-xxl/wp-content/plugins/tixomat/"
+
 # 6. OPcache reset
 echo ""
 echo "▸ OPcache reset..."

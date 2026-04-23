@@ -322,30 +322,61 @@ class TIX_Order {
     // ══════════════════════════════════════
 
     public static function init() {
-        // Frontend-Checkout
-        add_action('woocommerce_checkout_order_processed', [__CLASS__, 'on_wc_order_created'], 5, 1);
-        // Backend-Order (manuell erstellt) + HPOS
-        add_action('woocommerce_new_order', [__CLASS__, 'on_wc_order_created'], 5, 1);
-        add_action('woocommerce_checkout_order_created', function($order) {
+        // Frontend-Checkout (items sind hier garantiert vorhanden)
+        add_action('woocommerce_checkout_order_processed', [__CLASS__, 'on_wc_order_created'], 20, 1);
+        // Blocks-Checkout
+        add_action('woocommerce_store_api_checkout_order_processed', function($order) {
             self::on_wc_order_created($order->get_id());
-        }, 5, 1);
-        // Status-Sync
+        }, 20, 1);
+        // Backend-Save (manuelle Orders, nach Items-Add)
+        add_action('woocommerce_process_shop_order_meta', [__CLASS__, 'on_wc_order_created'], 99, 1);
+        // Fallback: woocommerce_new_order feuert VOR Items — nutzen wir trotzdem als Initial-Create.
+        // Items werden per Status-Change oder späterem Hook nachgezogen (idempotent).
+        add_action('woocommerce_new_order', [__CLASS__, 'on_wc_order_created'], 99, 1);
+        // Thank-You Seite: letzte Re-Sync Chance
+        add_action('woocommerce_thankyou', [__CLASS__, 'on_wc_order_created'], 99, 1);
+        // Status-Sync (auch Items re-syncen, falls leer)
         add_action('woocommerce_order_status_changed', [__CLASS__, 'on_wc_status_changed'], 10, 3);
     }
 
     public static function on_wc_order_created($order_id) {
         $wc_order = wc_get_order($order_id);
         if (!$wc_order) return;
-        if (get_post_meta($order_id, '_tix_order_id', true)) return;
-        self::create_from_wc_order($wc_order);
+        // Idempotent: legt an oder synct Items nach (wenn fehlend)
+        self::create_or_update_from_wc_order($wc_order);
     }
 
     public static function on_wc_status_changed($order_id, $old_status, $new_status) {
         global $wpdb;
-        $tix_id = get_post_meta($order_id, '_tix_order_id', true);
-        if (!$tix_id) return;
-        $wpdb->update(self::table_name(), ['status' => $new_status], ['id' => $tix_id]);
+        $tix_id = intval(get_post_meta($order_id, '_tix_order_id', true));
+
+        // Falls keine native Order existiert, jetzt erst anlegen
+        if (!$tix_id) {
+            $wc_order = wc_get_order($order_id);
+            if ($wc_order) {
+                $created = self::create_or_update_from_wc_order($wc_order);
+                $tix_id = $created ? $created->get_id() : 0;
+            }
+            if (!$tix_id) return;
+        } else {
+            // Re-sync items falls bei Initial-Write leer geblieben
+            $wc_order = wc_get_order($order_id);
+            if ($wc_order) self::resync_items_if_empty($tix_id, $wc_order);
+            $wpdb->update(self::table_name(), ['status' => $new_status], ['id' => $tix_id]);
+        }
+
         do_action('tix_order_status_changed', $tix_id, $new_status, $old_status, 'woocommerce');
+    }
+
+    /**
+     * Prüft ob native Order-Items leer sind und synct sie vom WC-Order nach.
+     */
+    public static function resync_items_if_empty($tix_order_id, $wc_order) {
+        global $wpdb;
+        $ti = self::items_table_name();
+        $count = intval($wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM $ti WHERE order_id = %d", $tix_order_id)));
+        if ($count > 0) return;
+        self::write_items($tix_order_id, $wc_order);
     }
 
     /**
@@ -375,16 +406,17 @@ class TIX_Order {
         return $prefix . str_pad($seq, $digits, '0', STR_PAD_LEFT) . $suffix;
     }
 
-    public static function create_from_wc_order($wc_order) {
+    /**
+     * Legt eine neue native Order an ODER aktualisiert eine existierende (inkl. Items re-sync).
+     * Idempotent — kann mehrmals aufgerufen werden.
+     */
+    public static function create_or_update_from_wc_order($wc_order) {
         global $wpdb;
         $t = self::table_name();
         $ti = self::items_table_name();
 
-        $order_number = self::next_order_number();
         $dc = $wc_order->get_date_created();
-
-        $wpdb->insert($t, [
-            'order_number'          => $order_number,
+        $data = [
             'status'                => $wc_order->get_status(),
             'total'                 => $wc_order->get_total(),
             'subtotal'              => $wc_order->get_subtotal(),
@@ -406,16 +438,62 @@ class TIX_Order {
             'wc_order_id'           => $wc_order->get_id(),
             'order_key'             => $wc_order->get_order_key(),
             'date_created'          => $dc ? $dc->format('Y-m-d H:i:s') : current_time('mysql'),
-        ]);
+        ];
 
-        $tix_order_id = $wpdb->insert_id;
-        if (!$tix_order_id) return null;
+        $existing_tix_id = intval(get_post_meta($wc_order->get_id(), '_tix_order_id', true));
 
-        // Bidirektionale Referenz
-        update_post_meta($wc_order->get_id(), '_tix_order_id', $tix_order_id);
+        if ($existing_tix_id) {
+            // Verify row still exists
+            $exists = $wpdb->get_var($wpdb->prepare("SELECT id FROM $t WHERE id = %d", $existing_tix_id));
+            if ($exists) {
+                $wpdb->update($t, $data, ['id' => $existing_tix_id]);
+                $tix_order_id = $existing_tix_id;
+                // Re-sync items falls leer (z.B. bei Erstanlage via woocommerce_new_order)
+                self::resync_items_if_empty($tix_order_id, $wc_order);
+            } else {
+                // Meta zeigt auf gelöschte Zeile → neu anlegen
+                $data['order_number'] = self::next_order_number();
+                $wpdb->insert($t, $data);
+                $tix_order_id = $wpdb->insert_id;
+                if (!$tix_order_id) return null;
+                update_post_meta($wc_order->get_id(), '_tix_order_id', $tix_order_id);
+                self::write_items($tix_order_id, $wc_order);
+            }
+        } else {
+            $data['order_number'] = self::next_order_number();
+            $wpdb->insert($t, $data);
+            $tix_order_id = $wpdb->insert_id;
+            if (!$tix_order_id) return null;
+            update_post_meta($wc_order->get_id(), '_tix_order_id', $tix_order_id);
+            self::write_items($tix_order_id, $wc_order);
+        }
 
-        // Order Items
-        foreach ($wc_order->get_items() as $item) {
+        $row = $wpdb->get_row($wpdb->prepare("SELECT * FROM $t WHERE id = %d", $tix_order_id));
+        return $row ? new self($row) : null;
+    }
+
+    /**
+     * Legacy-Alias.
+     */
+    public static function create_from_wc_order($wc_order) {
+        return self::create_or_update_from_wc_order($wc_order);
+    }
+
+    /**
+     * Schreibt WC-Order-Items in die tix_order_items Tabelle.
+     * Löscht vorher bestehende Items für diese Order (idempotent).
+     */
+    public static function write_items($tix_order_id, $wc_order) {
+        global $wpdb;
+        $ti = self::items_table_name();
+
+        $items = $wc_order->get_items();
+        if (empty($items)) return; // Nichts zu schreiben — Hook feuerte zu früh
+
+        // Alte Items entfernen
+        $wpdb->delete($ti, ['order_id' => $tix_order_id]);
+
+        foreach ($items as $item) {
             $product_id = $item->get_product_id();
             $event_id   = intval(get_post_meta($product_id, '_tix_parent_event_id', true));
 
@@ -460,9 +538,6 @@ class TIX_Order {
                 'meta'       => $meta ? json_encode($meta) : null,
             ]);
         }
-
-        $row = $wpdb->get_row($wpdb->prepare("SELECT * FROM $t WHERE id = %d", $tix_order_id));
-        return $row ? new self($row) : null;
     }
 
     /**

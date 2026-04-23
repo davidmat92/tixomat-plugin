@@ -1568,6 +1568,11 @@ class TIX_Checkout {
             wp_send_json_error(['message' => 'Sicherheitsprüfung fehlgeschlagen.']);
         }
 
+        // Rate-Limit: max 10 Checkout-Versuche pro 5 Minuten pro IP
+        if (class_exists('TIX_Rate_Limit')) {
+            TIX_Rate_Limit::check('express_checkout', 10, 300, 'ajax');
+        }
+
         if (!is_user_logged_in()) {
             wp_send_json_error(['message' => 'Bitte einloggen.']);
         }

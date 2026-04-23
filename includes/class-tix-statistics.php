@@ -223,26 +223,66 @@ class TIX_Statistics {
     }
 
     /** Revenue aus WC Orders (HPOS-kompatibel) */
-    private static function query_revenue($from, $to, $event_ids = []) {
+    public static function query_revenue($from, $to, $event_ids = []) {
+        global $wpdb;
+
+        // Pure Migrations-Sites (Tickera etc. ohne tix_orders): aus tix_ticket CPT summieren
+        if (self::should_count_from_cpt()) {
+            return self::query_revenue_from_cpt($from, $to, $event_ids);
+        }
+
+        // Native-first: tix_orders ist die kanonische Quelle (native + WC-synced).
+        // WC-Orders werden über den WC-Sync automatisch gespiegelt mit wc_order_id > 0.
+        $t  = $wpdb->prefix . 'tix_orders';
+        $ti = $wpdb->prefix . 'tix_order_items';
+
+        $where  = "o.status IN ('completed','processing')";
+        $params = [];
+        if ($from) { $where .= " AND o.date_created >= %s"; $params[] = $from . ' 00:00:00'; }
+        if ($to)   { $where .= " AND o.date_created <= %s"; $params[] = $to   . ' 23:59:59'; }
+        if (!empty($event_ids)) {
+            $ph = implode(',', array_fill(0, count($event_ids), '%d'));
+            $where .= " AND EXISTS (SELECT 1 FROM $ti i WHERE i.order_id = o.id AND i.event_id IN ($ph))";
+            $params = array_merge($params, $event_ids);
+        }
+
+        $sql = "SELECT COALESCE(SUM(o.total), 0) as revenue,
+                       COUNT(DISTINCT o.id)     as order_count
+                FROM $t o WHERE $where";
+
+        $result = $wpdb->get_row(empty($params) ? $sql : $wpdb->prepare($sql, ...$params));
+
+        // Fallback: Falls tix_orders-Tabelle leer ist (z.B. auf WC-only Sites ohne Sync),
+        // direkt aus WC summieren — behält Kompatibilität für reine WC-Setups.
+        if (!$result || floatval($result->revenue) <= 0) {
+            $wc = self::query_revenue_wc_fallback($from, $to, $event_ids);
+            if ($wc && floatval($wc->revenue) > 0) return $wc;
+        }
+
+        return $result;
+    }
+
+    /**
+     * Fallback: WC-Orders direkt summieren, wenn tix_orders-Sync fehlt.
+     * Nur genutzt als Backup zum neuen tix_orders-basierten Hauptpfad.
+     */
+    private static function query_revenue_wc_fallback($from, $to, $event_ids = []) {
         global $wpdb;
         $hpos = self::is_hpos();
-        $ot   = $hpos ? "{$wpdb->prefix}wc_orders" : $wpdb->posts;
         $oj   = $hpos
             ? "INNER JOIN {$wpdb->prefix}wc_orders o ON oi.order_id = o.id AND o.status IN ('wc-completed','wc-processing')"
             : "INNER JOIN {$wpdb->posts} o ON oi.order_id = o.ID AND o.post_status IN ('wc-completed','wc-processing')";
         $dc   = $hpos ? 'o.date_created_gmt' : 'o.post_date';
 
-        $where = "oi.order_item_type = 'line_item'";
+        $where  = "oi.order_item_type = 'line_item'";
         $params = [];
         if ($from) { $where .= " AND $dc >= %s"; $params[] = $from . ' 00:00:00'; }
         if ($to)   { $where .= " AND $dc <= %s"; $params[] = $to   . ' 23:59:59'; }
-
-        // Event-Filter über product_id → _tix_parent_event_id
         if (!empty($event_ids)) {
-            $placeholders = implode(',', array_fill(0, count($event_ids), '%d'));
+            $ph = implode(',', array_fill(0, count($event_ids), '%d'));
             $where .= " AND EXISTS (
                 SELECT 1 FROM {$wpdb->prefix}woocommerce_order_itemmeta oim_pid
-                INNER JOIN {$wpdb->postmeta} evm ON CAST(oim_pid.meta_value AS UNSIGNED) = evm.post_id AND evm.meta_key = '_tix_parent_event_id' AND evm.meta_value IN ($placeholders)
+                INNER JOIN {$wpdb->postmeta} evm ON CAST(oim_pid.meta_value AS UNSIGNED) = evm.post_id AND evm.meta_key = '_tix_parent_event_id' AND evm.meta_value IN ($ph)
                 WHERE oim_pid.order_item_id = oi.order_item_id AND oim_pid.meta_key = '_product_id'
             )";
             $params = array_merge($params, $event_ids);
@@ -255,106 +295,67 @@ class TIX_Statistics {
                 $oj
                 WHERE $where";
 
-        $result = $wpdb->get_row(empty($params) ? $sql : $wpdb->prepare($sql, ...$params));
-
-        // Add native order revenue (tix_orders where wc_order_id = 0 to avoid double-counting)
-        if (class_exists('TIX_Order')) {
-            $native_where = "o.status IN ('completed','processing') AND o.wc_order_id = 0";
-            $native_params = [];
-            if ($from) { $native_where .= " AND o.date_created >= %s"; $native_params[] = $from . ' 00:00:00'; }
-            if ($to)   { $native_where .= " AND o.date_created <= %s"; $native_params[] = $to   . ' 23:59:59'; }
-            if (!empty($event_ids)) {
-                $eid_ph = implode(',', array_fill(0, count($event_ids), '%d'));
-                $native_where .= " AND oi_n.event_id IN ($eid_ph)";
-                $native_params = array_merge($native_params, $event_ids);
-            }
-            $native_sql = "SELECT COALESCE(SUM(oi_n.total), 0) as revenue,
-                                  COUNT(DISTINCT o.id) as order_count
-                           FROM {$wpdb->prefix}tix_order_items oi_n
-                           INNER JOIN {$wpdb->prefix}tix_orders o ON oi_n.order_id = o.id
-                           WHERE $native_where";
-            $native = $wpdb->get_row(empty($native_params) ? $native_sql : $wpdb->prepare($native_sql, ...$native_params));
-            if ($native) {
-                $result->revenue     = floatval($result->revenue) + floatval($native->revenue);
-                $result->order_count = intval($result->order_count) + intval($native->order_count);
-            }
-        }
-
-        return $result;
+        return $wpdb->get_row(empty($params) ? $sql : $wpdb->prepare($sql, ...$params));
     }
 
     /** Revenue über Zeit (für Line-Charts) */
-    private static function query_revenue_over_time($from, $to, $event_ids = [], $group = 'day') {
+    public static function query_revenue_over_time($from, $to, $event_ids = [], $group = 'day') {
         global $wpdb;
-        $hpos = self::is_hpos();
-        $oj   = $hpos
-            ? "INNER JOIN {$wpdb->prefix}wc_orders o ON oi.order_id = o.id AND o.status IN ('wc-completed','wc-processing')"
-            : "INNER JOIN {$wpdb->posts} o ON oi.order_id = o.ID AND o.post_status IN ('wc-completed','wc-processing')";
-        $dc   = $hpos ? 'o.date_created_gmt' : 'o.post_date';
-        $df   = $group === 'month' ? '%Y-%m' : ($group === 'week' ? '%x-W%v' : '%Y-%m-%d');
 
-        $where = "oi.order_item_type = 'line_item'";
+        // Migrations-Sites (reine Tickera-Ähnliche, kein tix_orders): Timeline aus tix_ticket CPT
+        if (self::should_count_from_cpt()) {
+            return self::query_revenue_over_time_from_cpt($from, $to, $event_ids, $group);
+        }
+
+        // Native-first: tix_orders ist kanonische Quelle (native + WC-synced)
+        $df = $group === 'month' ? '%Y-%m' : ($group === 'week' ? '%x-W%v' : '%Y-%m-%d');
+
+        $where  = "o.status IN ('completed','processing')";
         $params = [$df];
-        if ($from) { $where .= " AND $dc >= %s"; $params[] = $from . ' 00:00:00'; }
-        if ($to)   { $where .= " AND $dc <= %s"; $params[] = $to   . ' 23:59:59'; }
-
+        if ($from) { $where .= " AND o.date_created >= %s"; $params[] = $from . ' 00:00:00'; }
+        if ($to)   { $where .= " AND o.date_created <= %s"; $params[] = $to   . ' 23:59:59'; }
         if (!empty($event_ids)) {
-            $placeholders = implode(',', array_fill(0, count($event_ids), '%d'));
-            $where .= " AND EXISTS (
-                SELECT 1 FROM {$wpdb->prefix}woocommerce_order_itemmeta oim_pid
-                INNER JOIN {$wpdb->postmeta} evm ON CAST(oim_pid.meta_value AS UNSIGNED) = evm.post_id AND evm.meta_key = '_tix_parent_event_id' AND evm.meta_value IN ($placeholders)
-                WHERE oim_pid.order_item_id = oi.order_item_id AND oim_pid.meta_key = '_product_id'
-            )";
+            $ph = implode(',', array_fill(0, count($event_ids), '%d'));
+            $where .= " AND EXISTS (SELECT 1 FROM {$wpdb->prefix}tix_order_items i WHERE i.order_id = o.id AND i.event_id IN ($ph))";
             $params = array_merge($params, $event_ids);
         }
 
-        $sql = "SELECT DATE_FORMAT($dc, %s) as period,
-                       COALESCE(SUM(CAST(oim.meta_value AS DECIMAL(10,2))), 0) as revenue,
-                       COUNT(DISTINCT oi.order_id) as orders,
-                       SUM(CAST(oim_qty.meta_value AS UNSIGNED)) as tickets
-                FROM {$wpdb->prefix}woocommerce_order_items oi
-                INNER JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim ON oi.order_item_id = oim.order_item_id AND oim.meta_key = '_line_total'
-                LEFT JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim_qty ON oi.order_item_id = oim_qty.order_item_id AND oim_qty.meta_key = '_qty'
-                $oj
+        $sql = "SELECT DATE_FORMAT(o.date_created, %s) as period,
+                       COALESCE(SUM(o.total), 0) as revenue,
+                       COUNT(DISTINCT o.id) as orders,
+                       COALESCE((SELECT SUM(i.quantity)
+                                   FROM {$wpdb->prefix}tix_order_items i
+                                   WHERE i.order_id = o.id), 0) as tickets
+                FROM {$wpdb->prefix}tix_orders o
                 WHERE $where
                 GROUP BY period ORDER BY period";
 
         $results = $wpdb->get_results($wpdb->prepare($sql, ...$params));
 
-        // Merge native order revenue over time (wc_order_id = 0 to avoid double-counting)
-        if (class_exists('TIX_Order')) {
-            $native_where = "o.status IN ('completed','processing') AND o.wc_order_id = 0";
-            $native_params = [$df];
-            if ($from) { $native_where .= " AND o.date_created >= %s"; $native_params[] = $from . ' 00:00:00'; }
-            if ($to)   { $native_where .= " AND o.date_created <= %s"; $native_params[] = $to   . ' 23:59:59'; }
-            if (!empty($event_ids)) {
-                $eid_ph = implode(',', array_fill(0, count($event_ids), '%d'));
-                $native_where .= " AND oi_n.event_id IN ($eid_ph)";
-                $native_params = array_merge($native_params, $event_ids);
-            }
-            $native_sql = "SELECT DATE_FORMAT(o.date_created, %s) as period,
-                                  COALESCE(SUM(oi_n.total), 0) as revenue,
-                                  COUNT(DISTINCT o.id) as orders,
-                                  SUM(oi_n.quantity) as tickets
-                           FROM {$wpdb->prefix}tix_order_items oi_n
-                           INNER JOIN {$wpdb->prefix}tix_orders o ON oi_n.order_id = o.id
-                           WHERE $native_where
-                           GROUP BY period ORDER BY period";
-            $native_rows = $wpdb->get_results($wpdb->prepare($native_sql, ...$native_params));
-            // Merge native into WC results by period
-            $period_map = [];
-            foreach ($results as $r) $period_map[$r->period] = $r;
-            foreach ($native_rows as $nr) {
-                if (isset($period_map[$nr->period])) {
-                    $period_map[$nr->period]->revenue = floatval($period_map[$nr->period]->revenue) + floatval($nr->revenue);
-                    $period_map[$nr->period]->orders  = intval($period_map[$nr->period]->orders) + intval($nr->orders);
-                    $period_map[$nr->period]->tickets = intval($period_map[$nr->period]->tickets) + intval($nr->tickets);
-                } else {
-                    $period_map[$nr->period] = $nr;
-                }
-            }
-            ksort($period_map);
-            $results = array_values($period_map);
+        // Fallback: Wenn tix_orders leer ist, direkt aus WC
+        if (empty($results)) {
+            $hpos = self::is_hpos();
+            $oj   = $hpos
+                ? "INNER JOIN {$wpdb->prefix}wc_orders o ON oi.order_id = o.id AND o.status IN ('wc-completed','wc-processing')"
+                : "INNER JOIN {$wpdb->posts} o ON oi.order_id = o.ID AND o.post_status IN ('wc-completed','wc-processing')";
+            $dc = $hpos ? 'o.date_created_gmt' : 'o.post_date';
+
+            $wc_where  = "oi.order_item_type = 'line_item'";
+            $wc_params = [$df];
+            if ($from) { $wc_where .= " AND $dc >= %s"; $wc_params[] = $from . ' 00:00:00'; }
+            if ($to)   { $wc_where .= " AND $dc <= %s"; $wc_params[] = $to   . ' 23:59:59'; }
+
+            $wc_sql = "SELECT DATE_FORMAT($dc, %s) as period,
+                              COALESCE(SUM(CAST(oim.meta_value AS DECIMAL(10,2))), 0) as revenue,
+                              COUNT(DISTINCT oi.order_id) as orders,
+                              SUM(CAST(oim_qty.meta_value AS UNSIGNED)) as tickets
+                       FROM {$wpdb->prefix}woocommerce_order_items oi
+                       INNER JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim ON oi.order_item_id = oim.order_item_id AND oim.meta_key = '_line_total'
+                       LEFT JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim_qty ON oi.order_item_id = oim_qty.order_item_id AND oim_qty.meta_key = '_qty'
+                       $oj
+                       WHERE $wc_where
+                       GROUP BY period ORDER BY period";
+            $results = $wpdb->get_results($wpdb->prepare($wc_sql, ...$wc_params));
         }
 
         return $results;
@@ -385,17 +386,186 @@ class TIX_Statistics {
     }
 
     /**
+     * Entscheidet ob wir primär aus tix_ticket CPT zählen sollen.
+     * Kriterium: Site hat viele tix_ticket-Posts UND keine Events mit verknüpften WC-Produkten.
+     * Das ist typisch nach einer Tickera/CSV-Migration, wo Tickets als CPT existieren,
+     * aber nicht an WC-Produkte gebunden sind.
+     */
+    private static function should_count_from_cpt() {
+        static $cache = null;
+        if ($cache !== null) return $cache;
+
+        // Explizite Option respektieren
+        $s = function_exists('tix_get_settings') ? tix_get_settings() : [];
+        $mode = $s['stats_source'] ?? 'auto';
+        if ($mode === 'cpt') { $cache = true; return true; }
+        if ($mode === 'orders') { $cache = false; return false; }
+
+        // Auto-Detect: CPT-Modus nur für "echte" Tickera/CSV-Migrationen,
+        // bei denen Tickets als CPT existieren UND in sich einen Preis tragen.
+        global $wpdb;
+        $ticket_count = intval($wpdb->get_var(
+            "SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_type = 'tix_ticket' AND post_status = 'publish'"
+        ));
+        if ($ticket_count < 100) { $cache = false; return false; } // kleine Sites → order-basiert
+
+        // Haben die Tickets selbst einen Preis am CPT? (Pflicht für CPT-Revenue)
+        // Ohne Preise am CPT macht der CPT-Modus Umsatz = 0 → dann Orders-Modus erzwingen.
+        $tickets_with_price = intval($wpdb->get_var(
+            "SELECT COUNT(*) FROM {$wpdb->postmeta}
+             WHERE meta_key = '_tix_ticket_price' AND CAST(meta_value AS DECIMAL(10,2)) > 0"
+        ));
+        if ($tickets_with_price === 0) { $cache = false; return false; }
+
+        // Existieren native tix_orders (neue Checkouts) → Orders-Modus bevorzugen
+        if (class_exists('TIX_Order')) {
+            $order_count = intval($wpdb->get_var(
+                "SELECT COUNT(*) FROM {$wpdb->prefix}tix_orders WHERE status IN ('completed','processing')"
+            ));
+            if ($order_count > 0) { $cache = false; return false; }
+        }
+
+        // Sonst: CPT-Modus (reine Migrations-Sites ohne eigene Orders)
+        $cache = true;
+        return true;
+    }
+
+    /**
+     * Revenue-Timeline aus tix_ticket CPT.
+     */
+    private static function query_revenue_over_time_from_cpt($from, $to, $event_ids = [], $group = 'day') {
+        global $wpdb;
+        $df = $group === 'month' ? '%Y-%m' : ($group === 'week' ? '%x-W%v' : '%Y-%m-%d');
+
+        $where_parts = [
+            "p.post_type = 'tix_ticket'",
+            "p.post_status = 'publish'",
+            "NOT EXISTS (SELECT 1 FROM {$wpdb->postmeta} pm_c
+                         WHERE pm_c.post_id = p.ID
+                           AND pm_c.meta_key = '_tix_ticket_status'
+                           AND pm_c.meta_value = 'cancelled')",
+        ];
+        $params = [$df];
+
+        if ($from) { $where_parts[] = "p.post_date >= %s"; $params[] = $from . ' 00:00:00'; }
+        if ($to)   { $where_parts[] = "p.post_date <= %s"; $params[] = $to   . ' 23:59:59'; }
+
+        if (!empty($event_ids)) {
+            $ph = implode(',', array_fill(0, count($event_ids), '%d'));
+            $where_parts[] = "EXISTS (SELECT 1 FROM {$wpdb->postmeta} pm_e
+                                      WHERE pm_e.post_id = p.ID
+                                        AND pm_e.meta_key = '_tix_ticket_event_id'
+                                        AND pm_e.meta_value IN ($ph))";
+            $params = array_merge($params, $event_ids);
+        }
+
+        $where = implode(' AND ', $where_parts);
+
+        $sql = "SELECT DATE_FORMAT(p.post_date, %s) as period,
+                       COALESCE(SUM(CAST(pm_price.meta_value AS DECIMAL(10,2))), 0) as revenue,
+                       COUNT(DISTINCT CAST(pm_oid.meta_value AS UNSIGNED)) as orders,
+                       COUNT(*) as tickets
+                FROM {$wpdb->posts} p
+                LEFT JOIN {$wpdb->postmeta} pm_price ON pm_price.post_id = p.ID AND pm_price.meta_key = '_tix_ticket_price'
+                LEFT JOIN {$wpdb->postmeta} pm_oid   ON pm_oid.post_id = p.ID AND pm_oid.meta_key = '_tix_ticket_order_id'
+                WHERE $where
+                GROUP BY period ORDER BY period";
+
+        return $wpdb->get_results($wpdb->prepare($sql, ...$params));
+    }
+
+    /**
+     * Umsatz-Berechnung aus tix_ticket CPT (für migrierte Sites).
+     * Summiert _tix_ticket_price über alle nicht-stornierten Tickets.
+     */
+    private static function query_revenue_from_cpt($from, $to, $event_ids = []) {
+        global $wpdb;
+
+        $where_parts = [
+            "p.post_type = 'tix_ticket'",
+            "p.post_status = 'publish'",
+            "NOT EXISTS (SELECT 1 FROM {$wpdb->postmeta} pm_c
+                         WHERE pm_c.post_id = p.ID
+                           AND pm_c.meta_key = '_tix_ticket_status'
+                           AND pm_c.meta_value = 'cancelled')",
+        ];
+        $params = [];
+
+        if ($from) { $where_parts[] = "p.post_date >= %s"; $params[] = $from . ' 00:00:00'; }
+        if ($to)   { $where_parts[] = "p.post_date <= %s"; $params[] = $to   . ' 23:59:59'; }
+
+        if (!empty($event_ids)) {
+            $ph = implode(',', array_fill(0, count($event_ids), '%d'));
+            $where_parts[] = "EXISTS (SELECT 1 FROM {$wpdb->postmeta} pm_e
+                                      WHERE pm_e.post_id = p.ID
+                                        AND pm_e.meta_key = '_tix_ticket_event_id'
+                                        AND pm_e.meta_value IN ($ph))";
+            $params = array_merge($params, $event_ids);
+        }
+
+        $where = implode(' AND ', $where_parts);
+
+        $sql = "SELECT
+                    COALESCE(SUM(CAST(pm_price.meta_value AS DECIMAL(10,2))), 0) as revenue,
+                    COUNT(DISTINCT CAST(pm_oid.meta_value AS UNSIGNED)) as order_count
+                FROM {$wpdb->posts} p
+                LEFT JOIN {$wpdb->postmeta} pm_price ON pm_price.post_id = p.ID AND pm_price.meta_key = '_tix_ticket_price'
+                LEFT JOIN {$wpdb->postmeta} pm_oid   ON pm_oid.post_id = p.ID AND pm_oid.meta_key = '_tix_ticket_order_id'
+                WHERE $where";
+
+        $row = $wpdb->get_row(empty($params) ? $sql : $wpdb->prepare($sql, ...$params));
+        if (!$row) $row = (object)['revenue' => 0, 'order_count' => 0];
+        return $row;
+    }
+
+    /**
+     * Zählt verkaufte Tickets direkt aus tix_ticket CPT (für migrierte Sites).
+     */
+    private static function query_tickets_sold_from_cpt($from, $to, $event_ids = []) {
+        global $wpdb;
+
+        $where = "p.post_type = 'tix_ticket' AND p.post_status = 'publish'
+                  AND EXISTS (SELECT 1 FROM {$wpdb->postmeta} pm_s
+                              WHERE pm_s.post_id = p.ID
+                                AND pm_s.meta_key = '_tix_ticket_status'
+                                AND pm_s.meta_value != 'cancelled')";
+
+        $params = [];
+        if ($from) { $where .= " AND p.post_date >= %s"; $params[] = $from . ' 00:00:00'; }
+        if ($to)   { $where .= " AND p.post_date <= %s"; $params[] = $to   . ' 23:59:59'; }
+
+        if (!empty($event_ids)) {
+            $ph = implode(',', array_fill(0, count($event_ids), '%d'));
+            $where .= " AND EXISTS (SELECT 1 FROM {$wpdb->postmeta} pm_e
+                                    WHERE pm_e.post_id = p.ID
+                                      AND pm_e.meta_key = '_tix_ticket_event_id'
+                                      AND pm_e.meta_value IN ($ph))";
+            $params = array_merge($params, $event_ids);
+        }
+
+        $sql = "SELECT COUNT(*) FROM {$wpdb->posts} p WHERE $where";
+        return intval($wpdb->get_var(empty($params) ? $sql : $wpdb->prepare($sql, ...$params)));
+    }
+
+    /**
      * Tickets verkauft — aus Order-Daten (zuverlässiger als CPT, da nicht alle
      * WC-Orders tix_ticket Posts haben). Native + WC, minus stornierte.
+     *
+     * Ausnahme: Bei migrierten Sites (viele tix_ticket Posts, keine WC-Produkt-Verknüpfung)
+     * würde WC-Counting nicht-ticket Produkte mitzählen → wir fallen auf CPT-Counting zurück.
      */
-    private static function query_tickets_sold($from, $to, $event_ids = []) {
+    public static function query_tickets_sold($from, $to, $event_ids = []) {
         global $wpdb;
         $t  = $wpdb->prefix . 'tix_orders';
         $ti = $wpdb->prefix . 'tix_order_items';
-        $total = 0;
 
-        // 1) Native Orders (wc_order_id = 0)
-        $where = "o.status IN ('completed','processing') AND o.wc_order_id = 0";
+        // Pure Migrations-Sites (Tickera etc.): direkt tix_ticket CPT zählen
+        if (self::should_count_from_cpt()) {
+            return self::query_tickets_sold_from_cpt($from, $to, $event_ids);
+        }
+
+        // Native-first: tix_orders / tix_order_items deckt native + WC-synced gemeinsam ab
+        $where  = "o.status IN ('completed','processing')";
         $params = [];
         if ($from) { $where .= " AND o.date_created >= %s"; $params[] = $from . ' 00:00:00'; }
         if ($to)   { $where .= " AND o.date_created <= %s"; $params[] = $to   . ' 23:59:59'; }
@@ -405,72 +575,17 @@ class TIX_Statistics {
             $params = array_merge($params, $event_ids);
         }
         $sql = "SELECT COALESCE(SUM(i.quantity), 0) FROM $ti i INNER JOIN $t o ON i.order_id = o.id WHERE $where";
-        $total += intval($wpdb->get_var(empty($params) ? $sql : $wpdb->prepare($sql, ...$params)));
+        $total = intval($wpdb->get_var(empty($params) ? $sql : $wpdb->prepare($sql, ...$params)));
 
-        // 2) WC Orders
-        if (function_exists('wc_get_product')) {
-            $product_ids = [];
-            $filter_by_product = !empty($event_ids);
-
-            if ($filter_by_product) {
-                foreach ($event_ids as $eid) {
-                    $cats = get_post_meta($eid, '_tix_ticket_categories', true);
-                    if (!is_array($cats)) continue;
-                    foreach ($cats as $cat) {
-                        $pid = intval($cat['product_id'] ?? 0);
-                        if ($pid) $product_ids[] = $pid;
-                    }
-                }
-                if (empty($product_ids)) $filter_by_product = false; // Keine WC-Produkte → nichts zu zählen
-            }
-
-            $is_hpos = class_exists('Automattic\WooCommerce\Utilities\OrderUtil')
-                && \Automattic\WooCommerce\Utilities\OrderUtil::custom_orders_table_usage_is_enabled();
-
-            // Nur abfragen wenn: alle Events (kein Filter) ODER spezifische Produkte gefunden
-            if (!$filter_by_product || !empty($product_ids)) {
-                $pids_clause = '';
-                if ($filter_by_product && !empty($product_ids)) {
-                    $pids = implode(',', array_map('intval', array_unique($product_ids)));
-                    $pids_clause = "INNER JOIN {$wpdb->prefix}woocommerce_order_itemmeta oip ON oi.order_item_id = oip.order_item_id AND oip.meta_key = '_product_id' AND oip.meta_value IN ($pids)";
-                }
-
-                if ($is_hpos) {
-                    $wc_where = "oi.order_item_type = 'line_item' AND o.status IN ('wc-completed','wc-processing','wc-on-hold')";
-                    $wc_params = [];
-                    if ($from) { $wc_where .= " AND o.date_created_gmt >= %s"; $wc_params[] = $from . ' 00:00:00'; }
-                    if ($to)   { $wc_where .= " AND o.date_created_gmt <= %s"; $wc_params[] = $to   . ' 23:59:59'; }
-                    $wc_sql = "SELECT COALESCE(SUM(oim.meta_value), 0)
-                        FROM {$wpdb->prefix}woocommerce_order_items oi
-                        INNER JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim ON oi.order_item_id = oim.order_item_id AND oim.meta_key = '_qty'
-                        $pids_clause
-                        INNER JOIN {$wpdb->prefix}wc_orders o ON oi.order_id = o.id
-                        WHERE $wc_where";
-                    $total += intval($wpdb->get_var(empty($wc_params) ? $wc_sql : $wpdb->prepare($wc_sql, ...$wc_params)));
-                } else {
-                    $wc_where = "oi.order_item_type = 'line_item' AND p.post_status IN ('wc-completed','wc-processing','wc-on-hold')";
-                    $wc_params = [];
-                    if ($from) { $wc_where .= " AND p.post_date >= %s"; $wc_params[] = $from . ' 00:00:00'; }
-                    if ($to)   { $wc_where .= " AND p.post_date <= %s"; $wc_params[] = $to   . ' 23:59:59'; }
-                    $wc_sql = "SELECT COALESCE(SUM(oim.meta_value), 0)
-                        FROM {$wpdb->prefix}woocommerce_order_items oi
-                        INNER JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim ON oi.order_item_id = oim.order_item_id AND oim.meta_key = '_qty'
-                        $pids_clause
-                        INNER JOIN {$wpdb->posts} p ON oi.order_id = p.ID
-                        WHERE $wc_where";
-                    $total += intval($wpdb->get_var(empty($wc_params) ? $wc_sql : $wpdb->prepare($wc_sql, ...$wc_params)));
-                }
-            }
-        }
-
-        // 3) Stornierte Tickets abziehen
-        $cancel_where = "p.post_type = 'tix_ticket' AND p.post_status = 'publish'";
-        $cancel_where .= " AND ps.meta_value = 'cancelled'";
+        // Stornierte Tickets (einzeln storniert) abziehen
+        $cancel_where = "p.post_type = 'tix_ticket' AND p.post_status = 'publish' AND ps.meta_value = 'cancelled'";
         $cancel_params = [];
+        if ($from) { $cancel_where .= " AND p.post_date >= %s"; $cancel_params[] = $from . ' 00:00:00'; }
+        if ($to)   { $cancel_where .= " AND p.post_date <= %s"; $cancel_params[] = $to   . ' 23:59:59'; }
         if (!empty($event_ids)) {
             $ph = implode(',', array_fill(0, count($event_ids), '%d'));
             $cancel_where .= " AND pe.meta_value IN ($ph)";
-            $cancel_params = $event_ids;
+            $cancel_params = array_merge($cancel_params, $event_ids);
         }
         $cancel_sql = "SELECT COUNT(*) FROM {$wpdb->posts} p
             INNER JOIN {$wpdb->postmeta} ps ON p.ID = ps.post_id AND ps.meta_key = '_tix_ticket_status'

@@ -33,20 +33,61 @@ class TIX_Gateway_PayPal {
 
     /**
      * Access Token holen (Client Credentials)
+     *
+     * @return string|null Access-Token oder null. Bei Fehler wird zusätzlich
+     *                     die Ursache in einer statischen Variable + error_log abgelegt.
      */
+    private static $last_auth_error = '';
+    public static function get_last_auth_error() { return self::$last_auth_error; }
+
     private static function get_access_token() {
+        self::$last_auth_error = '';
+
+        $cid = self::get_client_id();
+        $sec = self::get_secret();
+
+        if (empty($cid) || empty($sec)) {
+            self::$last_auth_error = empty($cid) && empty($sec)
+                ? 'Client-ID und Secret fehlen'
+                : (empty($cid) ? 'Client-ID fehlt' : 'Secret fehlt');
+            error_log('[TIX PayPal] ' . self::$last_auth_error);
+            return null;
+        }
+
         $response = wp_remote_post(self::api_url() . '/v1/oauth2/token', [
             'timeout' => 10,
             'headers' => [
-                'Authorization' => 'Basic ' . base64_encode(self::get_client_id() . ':' . self::get_secret()),
+                'Authorization' => 'Basic ' . base64_encode($cid . ':' . $sec),
                 'Content-Type'  => 'application/x-www-form-urlencoded',
             ],
             'body' => 'grant_type=client_credentials',
         ]);
 
-        if (is_wp_error($response)) return null;
+        if (is_wp_error($response)) {
+            self::$last_auth_error = 'Netzwerkfehler: ' . $response->get_error_message();
+            error_log('[TIX PayPal] ' . self::$last_auth_error);
+            return null;
+        }
+
+        $code = wp_remote_retrieve_response_code($response);
         $body = json_decode(wp_remote_retrieve_body($response), true);
-        return $body['access_token'] ?? null;
+
+        if (!empty($body['access_token'])) {
+            return $body['access_token'];
+        }
+
+        // Fehler detailliert loggen (invalid_client, sandbox-vs-live-mismatch, rate-limit, …)
+        $err  = $body['error'] ?? 'unknown_error';
+        $desc = $body['error_description'] ?? '';
+        self::$last_auth_error = 'HTTP ' . $code . ' – ' . $err . (($desc) ? ' (' . $desc . ')' : '');
+
+        // Sandbox/Live-Mismatch-Hinweis
+        if ($err === 'invalid_client') {
+            self::$last_auth_error .= ' – prüfe Client-ID/Secret UND ob der Sandbox-Schalter zur Kontoart passt.';
+        }
+
+        error_log('[TIX PayPal] Auth fehlgeschlagen: ' . self::$last_auth_error);
+        return null;
     }
 
     /**
@@ -54,7 +95,10 @@ class TIX_Gateway_PayPal {
      */
     public static function process($order_id) {
         $token = self::get_access_token();
-        if (!$token) return ['error' => 'PayPal-Authentifizierung fehlgeschlagen.'];
+        if (!$token) {
+            $detail = self::$last_auth_error ? ' (' . self::$last_auth_error . ')' : '';
+            return ['error' => 'PayPal-Authentifizierung fehlgeschlagen.' . $detail];
+        }
 
         global $wpdb;
         $order = $wpdb->get_row($wpdb->prepare(
@@ -293,7 +337,10 @@ class TIX_Gateway_PayPal {
      */
     private static function capture($pp_order_id, $tix_order_id) {
         $token = self::get_access_token();
-        if (!$token) return false;
+        if (!$token) {
+            error_log('[TIX PayPal] capture(' . $tix_order_id . '): kein Access-Token');
+            return false;
+        }
 
         $response = wp_remote_post(self::api_url() . '/v2/checkout/orders/' . $pp_order_id . '/capture', [
             'timeout' => 15,
@@ -304,9 +351,14 @@ class TIX_Gateway_PayPal {
             'body' => '{}',
         ]);
 
-        if (is_wp_error($response)) return false;
+        if (is_wp_error($response)) {
+            error_log('[TIX PayPal] capture(' . $tix_order_id . '): Netzwerkfehler ' . $response->get_error_message());
+            return false;
+        }
 
-        $body = json_decode(wp_remote_retrieve_body($response), true);
+        $code = wp_remote_retrieve_response_code($response);
+        $raw  = wp_remote_retrieve_body($response);
+        $body = json_decode($raw, true);
         $status = $body['status'] ?? '';
 
         if ($status === 'COMPLETED') {
@@ -319,7 +371,47 @@ class TIX_Gateway_PayPal {
             return true;
         }
 
+        // Fehler protokollieren — PayPal-Fehler ausführlich loggen und als Order-Notiz speichern
+        $issue    = $body['details'][0]['issue']       ?? ($body['name'] ?? 'UNKNOWN_ERROR');
+        $desc     = $body['details'][0]['description'] ?? ($body['message'] ?? '');
+        $debug_id = $body['debug_id']                  ?? '';
+
+        $note = 'PayPal Capture fehlgeschlagen: HTTP ' . $code . ' – ' . $issue
+              . ($desc ? ' (' . $desc . ')' : '')
+              . ($debug_id ? ' [debug_id: ' . $debug_id . ']' : '');
+
+        error_log('[TIX PayPal] capture(' . $tix_order_id . '): ' . $note);
+
+        // Order-Notiz schreiben, damit Admin den Fehler im Order-Admin sieht
+        if (class_exists('TIX_Order') && method_exists('TIX_Order', 'add_note')) {
+            TIX_Order::add_note($tix_order_id, $note, false);
+        } else {
+            global $wpdb;
+            $notes_table = $wpdb->prefix . 'tix_order_notes';
+            if ($wpdb->get_var("SHOW TABLES LIKE '{$notes_table}'") === $notes_table) {
+                $wpdb->insert($notes_table, [
+                    'order_id'     => $tix_order_id,
+                    'note'         => $note,
+                    'date_created' => current_time('mysql'),
+                ]);
+            }
+        }
+
+        // Für User-Feedback: Fehler an Transient hängen, die thank-you/checkout-Seite kann lesen
+        set_transient('tix_paypal_error_' . $tix_order_id, [
+            'issue'    => $issue,
+            'message'  => $desc ?: $issue,
+            'debug_id' => $debug_id,
+        ], 3600);
+
         return false;
+    }
+
+    /**
+     * Hole letzten PayPal-Fehler einer Order (für Anzeige auf Thank-You/Checkout)
+     */
+    public static function get_last_error($tix_order_id) {
+        return get_transient('tix_paypal_error_' . $tix_order_id);
     }
 
     /**
@@ -337,7 +429,8 @@ class TIX_Gateway_PayPal {
 
         $token = self::get_access_token();
         if (!$token) {
-            return ['error' => 'PayPal-Authentifizierung fehlgeschlagen.'];
+            $detail = self::$last_auth_error ? ' (' . self::$last_auth_error . ')' : '';
+            return ['error' => 'PayPal-Authentifizierung fehlgeschlagen.' . $detail];
         }
 
         $body = new stdClass();

@@ -1556,8 +1556,9 @@ class TIX_Columns {
 
     /**
      * Hilfsfunktion: Alle Tickets einer Bestellung per E-Mail senden
+     * (public seit v1.37.24 — wird auch vom Guest-Resend in [tix_my_tickets] genutzt)
      */
-    private static function send_order_tickets_email($order_id, $email) {
+    public static function send_order_tickets_email($order_id, $email) {
         if (!class_exists('TIX_Tickets')) return 0;
 
         $tickets = TIX_Tickets::get_tickets_by_order($order_id);

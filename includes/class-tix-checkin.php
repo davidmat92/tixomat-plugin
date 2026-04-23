@@ -693,6 +693,11 @@ class TIX_Checkin {
             wp_send_json_error(['message' => 'Falsches Passwort.', 'status' => 'unauthorized']);
         }
 
+        // Auto-Repair: Fehlende tix_ticket Posts nachgenerieren
+        if (class_exists('TIX_Tickets')) {
+            TIX_Tickets::ensure_tickets_for_event($event_id);
+        }
+
         $combined = [];
         $stats    = ['total' => 0, 'checked_in' => 0, 'guests' => 0, 'tickets' => 0, 'partial' => 0];
 

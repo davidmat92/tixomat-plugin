@@ -352,7 +352,7 @@ class TIX_Ticket_Selector {
                     <div class="tix-sel-cat <?php echo $is_offline ? 'tix-sel-offline' : (!$in_stock ? 'tix-sel-soldout' : ''); ?>"
                          data-product-id="<?php echo $is_offline ? '0' : $product_id; ?>"
                          data-price="<?php echo $is_offline ? '0' : $effective; ?>"
-                         data-index="<?php echo $n; ?>"
+                         data-index="<?php echo $i; ?>"
                          data-has-phase="<?php echo $active_phase ? '1' : '0'; ?>">
 
                         <div class="tix-sel-cat-info">
@@ -458,7 +458,7 @@ class TIX_Ticket_Selector {
                     <div class="tix-sel-cat tix-sel-bundle"
                          data-product-id="<?php echo $product_id; ?>"
                          data-price="<?php echo $b_total; ?>"
-                         data-index="<?php echo $n; ?>b"
+                         data-index="<?php echo $i; ?>b"
                          data-bundle="1"
                          data-bundle-buy="<?php echo $bundle_buy; ?>"
                          data-bundle-pay="<?php echo $bundle_pay; ?>"
@@ -1290,6 +1290,11 @@ class TIX_Ticket_Selector {
 
         check_ajax_referer('tix_add_to_cart', 'nonce');
 
+        // Rate-Limit: max 20 Add-to-Cart pro Minute pro IP (Bot-Schutz)
+        if (class_exists('TIX_Rate_Limit')) {
+            TIX_Rate_Limit::check('add_to_cart', 20, 60, 'ajax');
+        }
+
         $items = json_decode(stripslashes($_POST['items'] ?? '[]'), true);
 
         if (empty($items)) {
@@ -1303,6 +1308,25 @@ class TIX_Ticket_Selector {
                 return;
             }
             wp_send_json_error(['message' => 'Shop nicht verfügbar.']);
+        }
+
+        // Auto-Detect nativ: Wenn keines der Items eine WC-Produkt-ID hat
+        // (z.B. nach Migration / rein native Konfiguration), nativen Checkout nutzen –
+        // auch wenn WooCommerce installiert/aktiv ist.
+        $has_wc_product = false;
+        foreach ($items as $itm) {
+            if (!empty($itm['combo'])) {
+                foreach (($itm['products'] ?? []) as $p) {
+                    if (intval($p['product_id'] ?? 0) > 0) { $has_wc_product = true; break 2; }
+                }
+            } elseif (intval($itm['product_id'] ?? 0) > 0) {
+                $has_wc_product = true;
+                break;
+            }
+        }
+        if (!$has_wc_product && class_exists('TIX_Native_Checkout')) {
+            TIX_Native_Checkout::ajax_add_to_cart();
+            return;
         }
 
         $added = 0;

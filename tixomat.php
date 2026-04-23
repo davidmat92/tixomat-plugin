@@ -2,14 +2,14 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.36.22
+ * Version: 1.37.48
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.36.22');
+define('TIXOMAT_VERSION', '1.37.48');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -337,6 +337,17 @@ TIX_Event_Templates::init();
 require_once TIXOMAT_PATH . 'includes/class-tix-bulk-editor.php';
 TIX_Bulk_Editor::init();
 
+// ── Rate Limiter (wird in Checkout/Cart-AJAX genutzt) ──
+require_once TIXOMAT_PATH . 'includes/class-tix-rate-limit.php';
+
+// ── Event-Revisionen (Änderungsverlauf) ──
+require_once TIXOMAT_PATH . 'includes/class-tix-event-revisions.php';
+TIX_Event_Revisions::init();
+
+// ── Promoted Events (bezahltes Placement auf der Homepage) ──
+require_once TIXOMAT_PATH . 'includes/class-tix-promoted-events.php';
+TIX_Promoted_Events::init();
+
 // ── Nativer Checkout (ohne WooCommerce) ──
 require_once TIXOMAT_PATH . 'includes/class-tix-native-checkout.php';
 require_once TIXOMAT_PATH . 'includes/class-tix-gateway-free.php';
@@ -384,6 +395,18 @@ if (!empty(tix_get_settings('bot_enabled'))) {
 // ── Bestellverwaltung (native Orders) ──
 require_once TIXOMAT_PATH . 'includes/class-tix-order-admin.php';
 TIX_Order_Admin::init();
+
+// ── Kunden-Rolle + Kontoaktivierung + CRM (brauchen Admin-Zugriff, nicht nur Frontend) ──
+require_once TIXOMAT_PATH . 'includes/class-tix-customer-role.php';
+require_once TIXOMAT_PATH . 'includes/class-tix-account-activation.php';
+require_once TIXOMAT_PATH . 'includes/class-tix-crm.php';
+require_once TIXOMAT_PATH . 'includes/class-tix-organizer-notifications.php';
+require_once TIXOMAT_PATH . 'includes/class-tix-settings-io.php';
+add_action('init', ['TIX_Customer_Role',            'init']);
+add_action('init', ['TIX_Account_Activation',       'init']);
+add_action('init', ['TIX_CRM',                      'init']);
+add_action('init', ['TIX_Organizer_Notifications',  'init']);
+TIX_Settings_IO::init();
 
 // ── KI-Schutz (Content Guard) ──
 require_once TIXOMAT_PATH . 'includes/class-tix-content-guard.php';
@@ -475,6 +498,10 @@ register_activation_hook(__FILE__, function() {
     TIX_Meta_Pixel::create_table();
     TIX_Email_Log::create_table();
 
+    // Kunden-Rolle anlegen
+    require_once TIXOMAT_PATH . 'includes/class-tix-customer-role.php';
+    TIX_Customer_Role::on_activate();
+
     // Waitlist cron
     if (!wp_next_scheduled('tix_waitlist_check')) {
         wp_schedule_event(time(), 'tix_every_10min', 'tix_waitlist_check');
@@ -522,6 +549,10 @@ if (tix_get_settings('organizer_dashboard_enabled')) {
     TIX_Organizer_Admin::init_guestlist_only();
 }
 
+// ── Veranstalter-Landingpage (öffentlich) ──
+require_once TIXOMAT_PATH . 'includes/class-tix-organizer-landing.php';
+TIX_Organizer_Landing::init();
+
 // ── Custom URLs (Login + Veranstalter) ──
 require_once TIXOMAT_PATH . 'includes/class-tix-custom-urls.php';
 TIX_Custom_URLs::init();
@@ -533,6 +564,12 @@ if (!class_exists('TIX_Sync')) {
 }
 add_action('updated_postmeta', ['TIX_Sync', 'auto_update_price_on_meta_change'], 10, 4);
 add_action('added_post_meta',  ['TIX_Sync', 'auto_update_price_on_meta_change'], 10, 4);
+
+// ── Live-Aktualisierung von _tix_sold_total (WC-unabhängig) ──
+// Jeder Order-Status-Wechsel + jede Ticket-Stornierung triggert Neuberechnung
+add_action('tix_order_status_changed', ['TIX_Sync', 'on_order_status_changed'], 15, 4);
+add_action('updated_postmeta',         ['TIX_Sync', 'on_ticket_status_changed'], 10, 4);
+add_action('added_post_meta',          ['TIX_Sync', 'on_ticket_status_changed'], 10, 4);
 
 // ── Nur Admin (nicht AJAX) ──
 if (is_admin() && !wp_doing_ajax()) {
@@ -620,6 +657,51 @@ if (is_admin() && !wp_doing_ajax()) {
         echo '</ul></div>';
     });
 }
+
+// ── Price-Min/Max/Card: Live-Fallback aus _tix_ticket_categories ──
+// Wenn stored-Meta 0/leer ist (Sync nicht gelaufen, _tix_tickets_enabled nicht gesetzt,
+// Import ohne Sync, etc.), berechnen wir den Preis direkt aus den Ticket-Kategorien.
+// Damit wird NIE fälschlich "Eintritt frei" angezeigt, wenn Kategorien mit Preis > 0 existieren.
+// WooCommerce-unabhängig — rein auf Kategorie-Daten basierend.
+add_filter('get_post_metadata', function($value, $post_id, $meta_key, $single) {
+    static $price_keys = ['_tix_price_min' => 'min', '_tix_price_max' => 'max', '_tix_price_card' => 'card'];
+    if (!isset($price_keys[$meta_key])) return $value;
+    if (get_post_type($post_id) !== 'event') return $value;
+
+    // Rekursion vermeiden (compute_price_from_cats ruft selber kein Meta auf, aber
+    // _tix_ticket_categories-Read läuft durch diesen Filter nicht → safe).
+    static $running = [];
+    if (!empty($running[$post_id . ':' . $meta_key])) return $value;
+
+    // Direkt aus DB lesen (bypasst Filter für Konsistenz)
+    global $wpdb;
+    $stored = $wpdb->get_var($wpdb->prepare(
+        "SELECT meta_value FROM {$wpdb->postmeta} WHERE post_id = %d AND meta_key = %s LIMIT 1",
+        $post_id, $meta_key
+    ));
+
+    // Falls stored-Wert vorhanden & > 0 (bzw. bei card: nicht leer) → nichts tun
+    if ($meta_key === '_tix_price_card') {
+        if ($stored !== null && $stored !== '') return $value;
+    } else {
+        if ($stored !== null && floatval($stored) > 0) return $value;
+    }
+
+    // Live-Berechnung aus Kategorien
+    $running[$post_id . ':' . $meta_key] = true;
+    $cats = get_post_meta($post_id, '_tix_ticket_categories', true);
+    unset($running[$post_id . ':' . $meta_key]);
+
+    if (!is_array($cats) || empty($cats) || !class_exists('TIX_Event_Cards')) {
+        return $value;
+    }
+
+    $calc = TIX_Event_Cards::compute_price_from_cats($cats);
+    if (!$calc['has_paid']) return $value;
+
+    $resolved = $calc[$price_keys[$meta_key]];
+    return $single ? $resolved : [$resolved];
+}, 10, 4);
 
 // ── Price-Label: "Abendkasse geöffnet" wenn Presale beendet, sonst Fallback aus _tix_price_min ──
 add_filter('get_post_metadata', function($value, $post_id, $meta_key, $single) {
@@ -838,6 +920,7 @@ if (!is_admin() || wp_doing_ajax()) {
     require_once TIXOMAT_PATH . 'includes/class-tix-upsell.php';
     require_once TIXOMAT_PATH . 'includes/class-tix-my-tickets.php';
     require_once TIXOMAT_PATH . 'includes/class-tix-my-account.php';
+    // Kunden-Rolle, Kontoaktivierung, CRM: werden schon global geladen (Admin + Frontend)
     require_once TIXOMAT_PATH . 'includes/class-tix-event-page.php';
     require_once TIXOMAT_PATH . 'includes/class-tix-share.php';
 
@@ -852,6 +935,7 @@ if (!is_admin() || wp_doing_ajax()) {
     add_action('init', ['TIX_Upsell', 'init']);
     add_action('init', ['TIX_My_Tickets', 'init']);
     add_action('init', ['TIX_My_Account', 'init']);
+    // TIX_Customer_Role / TIX_Account_Activation / TIX_CRM laufen schon global — kein erneutes init nötig
     // TIX_Event_Page: Shortcode [tix_event_page] wird jetzt von TIX_Single_Event übernommen
     add_action('init', ['TIX_Share', 'init']);
     add_action('init', ['TIX_Group_Booking', 'init']);
@@ -1040,12 +1124,16 @@ require_once TIXOMAT_PATH . 'includes/class-tix-support.php';
 TIX_Support::init();
 
 // ── WooCommerce-Integration: Frontend + AJAX (Gruppenrabatt, Dynamische Preise) ──
-if ((!is_admin() || defined('DOING_AJAX')) && tix_has_wc()) {
+// WICHTIG: Auf plugins_loaded warten, damit WooCommerce garantiert verfügbar ist —
+// sonst wird der Block bei ungünstiger Plugin-Reihenfolge komplett übersprungen.
+add_action('plugins_loaded', function() {
+    if (is_admin() && !defined('DOING_AJAX') && !defined('WP_CLI')) return;
+    if (!tix_has_wc()) return;
     require_once TIXOMAT_PATH . 'includes/class-tix-group-discount.php';
     require_once TIXOMAT_PATH . 'includes/class-tix-dynamic-pricing.php';
     TIX_Group_Discount::init();
     TIX_Dynamic_Pricing::init();
-}
+}, 20);
 
 // ── Cron: Intervall global registrieren (auch für wp-cron.php) ──
 add_filter('cron_schedules', function($schedules) {

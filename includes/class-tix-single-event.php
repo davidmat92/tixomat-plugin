@@ -217,6 +217,23 @@ class TIX_Single_Event {
                     <?php endif; ?>
                 </div>
             <?php endif; ?>
+
+            <?php
+            // Save + Share Buttons (Glass-Look, identisch zu Cards)
+            $saved_list = class_exists('TIX_Event_Cards') ? TIX_Event_Cards::get_saved_events_static() : [];
+            $is_saved = in_array($post_id, $saved_list);
+            $heart_default = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/></svg>';
+            $heart_saved   = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/></svg>';
+            $share_title = esc_attr(get_the_title($post_id));
+            $share_url   = esc_url(get_permalink($post_id));
+            $share_text  = esc_attr(get_post_meta($post_id, '_tix_date_display', true) ?: '');
+            ?>
+            <button type="button" class="ev-share tse-hero-action" data-url="<?php echo $share_url; ?>" data-title="<?php echo $share_title; ?>" data-text="<?php echo $share_text; ?>" aria-label="Event teilen" onclick="if(window.tixShareEvent){tixShareEvent(this);}">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+            </button>
+            <button type="button" class="ev-save tse-hero-action <?php echo $is_saved ? 'saved' : ''; ?>" data-event-id="<?php echo intval($post_id); ?>" aria-label="Zu Favoriten hinzufügen" onclick="if(window.tixToggleSave){tixToggleSave(this);}">
+                <?php echo $is_saved ? $heart_saved : $heart_default; ?>
+            </button>
         </div>
         <?php
     }
@@ -327,7 +344,7 @@ class TIX_Single_Event {
             <?php endif; ?>
             <?php if ($price_range): ?>
                 <div class="tse-info-row">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 5a8 8 0 100 14"/><line x1="4" y1="10" x2="13" y2="10"/><line x1="4" y1="14" x2="13" y2="14"/></svg>
                     <div>
                         <div class="tse-info-label">Preis</div>
                         <div class="tse-info-value"><?php echo wp_kses_post($price_range); ?></div>

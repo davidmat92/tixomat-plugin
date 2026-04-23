@@ -14,8 +14,11 @@ class TIX_Event_Cards {
         add_shortcode('tix_search', [__CLASS__, 'render_search']);
 
         // Automatische /events/ Archive-Seite
+        // Auf `wp` Hook entscheiden wir, WELCHEN template_include-Filter wir nutzen:
+        //   - Wenn Breakdance aktiv: deren Filter ersetzen + eigenen Renderer
+        //   - Sonst: normaler template_include mit archive-event.php
         if (function_exists('tix_get_settings') && tix_get_settings('ec_page_enabled')) {
-            add_filter('archive_template', [__CLASS__, 'archive_template']);
+            add_action('wp', [__CLASS__, 'setup_archive_rendering'], 0);
         }
         add_action('wp_ajax_tix_toggle_save_event',        [__CLASS__, 'ajax_toggle_save']);
         add_action('wp_ajax_nopriv_tix_toggle_save_event', [__CLASS__, 'ajax_toggle_save_nopriv']);
@@ -23,6 +26,80 @@ class TIX_Event_Cards {
         add_action('wp_ajax_nopriv_tix_filter_events',     [__CLASS__, 'ajax_filter']);
         add_action('wp_ajax_tix_search_events',            [__CLASS__, 'ajax_search']);
         add_action('wp_ajax_nopriv_tix_search_events',     [__CLASS__, 'ajax_search']);
+
+        // Safety-Net: bei jedem Event-Save _tix_price_min/_tix_price_card aus _tix_ticket_categories
+        // neu berechnen, falls der Haupt-Sync nicht gelaufen ist (WC-unabhängig).
+        add_action('save_post_event', [__CLASS__, 'ensure_price_meta_on_save'], 99, 2);
+    }
+
+    /**
+     * Berechnet min/max/card-text LIVE aus _tix_ticket_categories.
+     * Unabhängig von _tix_tickets_enabled, unabhängig von WooCommerce, unabhängig von Sync-Status.
+     *
+     * Nur Online- + Offline-Kategorien mit Preis > 0 werden berücksichtigt.
+     * "Gratis" Kategorien (price=0) werden ignoriert für min/max, da eine Zero-Kategorie
+     * den Preis verschleiern würde. Nur wenn ALLE Preise 0 sind → $has_paid = false.
+     *
+     * @return array{min:float, max:float, has_paid:bool, card:string}
+     */
+    public static function compute_price_from_cats($cats) {
+        $prices = [];
+        if (is_array($cats)) {
+            foreach ($cats as $cat) {
+                // Aktive Phase hat Vorrang vor cat.price (analog zu Sync-Logik)
+                $price = floatval($cat['price'] ?? 0);
+                $sale  = $cat['sale_price'] ?? '';
+                $effective = ($sale !== '' && $sale !== null && $sale !== false)
+                    ? floatval($sale) : $price;
+
+                if (class_exists('TIX_Metabox') && !empty($cat['phases'])) {
+                    $active = TIX_Metabox::get_active_phase($cat['phases']);
+                    if ($active && isset($active['price'])) {
+                        $effective = floatval($active['price']);
+                    }
+                }
+
+                if ($effective > 0) $prices[] = $effective;
+            }
+        }
+
+        if (empty($prices)) {
+            return ['min' => 0.0, 'max' => 0.0, 'has_paid' => false, 'card' => ''];
+        }
+
+        $min = min($prices);
+        $max = max($prices);
+        $card = ($min === $max)
+            ? number_format($min, 2, ',', '.') . ' €'
+            : 'Ab ' . number_format($min, 2, ',', '.') . ' €';
+
+        return ['min' => $min, 'max' => $max, 'has_paid' => true, 'card' => $card];
+    }
+
+    /**
+     * Safety-Net auf save_post_event: Preis-Meta immer aus Kategorien neu berechnen.
+     * Fängt Fälle ab, wo TIX_Sync::sync() nicht greift (z.B. _tix_tickets_enabled leer,
+     * Events ohne WC, Imports, REST-API-Writes).
+     */
+    public static function ensure_price_meta_on_save($post_id, $post) {
+        if (defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) return;
+        if (wp_is_post_revision($post_id)) return;
+        if (!$post || $post->post_type !== 'event') return;
+        if ($post->post_status === 'auto-draft' || $post->post_status === 'trash') return;
+
+        $cats = get_post_meta($post_id, '_tix_ticket_categories', true);
+        if (!is_array($cats) || empty($cats)) return;
+
+        $calc = self::compute_price_from_cats($cats);
+        if (!$calc['has_paid']) return; // echt gratis — nichts überschreiben
+
+        // Nur setzen wenn stored-Wert fehlt oder 0 ist (Sync darf gewinnen)
+        $stored_min = floatval(get_post_meta($post_id, '_tix_price_min', true));
+        if ($stored_min <= 0) {
+            update_post_meta($post_id, '_tix_price_min', $calc['min']);
+            update_post_meta($post_id, '_tix_price_max', $calc['max']);
+            update_post_meta($post_id, '_tix_price_card', $calc['card']);
+        }
     }
 
     /**
@@ -34,6 +111,46 @@ class TIX_Event_Cards {
             if (file_exists($plugin_tpl)) return $plugin_tpl;
         }
         return $template;
+    }
+
+    /**
+     * Entscheidet auf `wp` welcher template-Filter genutzt wird.
+     */
+    public static function setup_archive_rendering() {
+        if (!is_post_type_archive('event') && !is_tax('event_category')) return;
+
+        $has_breakdance = function_exists('Breakdance\Render\getWordPressHtmlOutputWithHeaderAndFooterDependenciesAddedAndDisplayIt');
+
+        if ($has_breakdance) {
+            // Breakdance-Flow: deren Filter ersetzen durch unseren Render-Wrapper
+            remove_filter('template_include', 'Breakdance\ActionsFilters\template_include', 1000000);
+            add_filter('template_include', [__CLASS__, 'render_with_breakdance'], 1000000);
+        } else {
+            // Plain WP / anderes Theme: normales template_include mit get_header/get_footer
+            add_filter('template_include', [__CLASS__, 'archive_template'], PHP_INT_MAX);
+        }
+    }
+
+    /**
+     * Reicht unser inneres Template an Breakdance's Renderer weiter.
+     */
+    public static function render_with_breakdance($file_to_include) {
+        // Verhindern dass wir mehrfach rendern (z.B. falls der Filter aus mehreren Quellen feuert)
+        static $rendered = false;
+        if ($rendered) return null;
+        $rendered = true;
+
+        $our_tpl = TIXOMAT_PATH . 'templates/archive-event-inner.php';
+        if (!file_exists($our_tpl)) return $file_to_include;
+
+        // Breakdance Template-System initialisieren (analog zu deren eigenem template_include Handler),
+        // damit get_breakdance_header/footer_template_for_request() funktionieren.
+        if (function_exists('bdox_run_action')) {
+            bdox_run_action('breakdance_register_template_types_and_conditions');
+        }
+
+        \Breakdance\Render\getWordPressHtmlOutputWithHeaderAndFooterDependenciesAddedAndDisplayIt($our_tpl);
+        return null;
     }
 
     /**
@@ -125,6 +242,17 @@ class TIX_Event_Cards {
         $sold_tickets = intval($sold_display);
         $remaining = max(0, $total_tickets - $sold_tickets);
 
+        // ── Preis-Fallback: LIVE aus _tix_ticket_categories neu berechnen,
+        //    falls stored _tix_price_min = 0 ist (Sync nicht gelaufen, tickets_enabled nicht gesetzt,
+        //    Import ohne Sync, etc.). Damit wird NIE fälschlich "Eintritt frei" angezeigt.
+        if ($price_min <= 0 && is_array($cats) && !empty($cats)) {
+            $calc = self::compute_price_from_cats($cats);
+            if ($calc['has_paid']) {
+                $price_min  = $calc['min'];
+                if (empty($price_card)) $price_card = $calc['card'];
+            }
+        }
+
         $is_past = $date_start && strtotime($date_start) < current_time('timestamp');
         $is_soldout = ($total_tickets > 0 && $remaining <= 0) || $is_past;
         $is_free = ($price_min <= 0);
@@ -211,6 +339,15 @@ class TIX_Event_Cards {
                     <?php echo $is_saved ? $heart_saved : $heart_default; ?>
                 </button>
                 <?php endif; ?>
+                <?php
+                // Share-Button (Web-Share-API mit Copy-Link-Fallback)
+                $share_url   = esc_url(get_permalink($id));
+                $share_title = esc_attr($title);
+                $share_text  = esc_attr(trim(($date_card ?: '') . ($location_short ? ' · ' . $location_short : '')));
+                ?>
+                <button type="button" class="ev-share" data-url="<?php echo $share_url; ?>" data-title="<?php echo $share_title; ?>" data-text="<?php echo $share_text; ?>" aria-label="Event teilen" onclick="event.preventDefault();event.stopPropagation();tixShareEvent(this);">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+                </button>
             </div>
             <div class="ev-body">
                 <div class="ev-date"><?php echo esc_html($date_card ?: $date_start); ?></div>
@@ -279,10 +416,16 @@ class TIX_Event_Cards {
      * Events abfragen
      */
     public static function query_events($atts) {
+        // Suche aus URL (?s=) oder Shortcode-Attribut
+        $search = isset($atts['search']) ? trim((string) $atts['search']) : '';
+        if (!$search && isset($_GET['s'])) {
+            $search = sanitize_text_field(wp_unslash($_GET['s']));
+        }
+
         $args = [
             'post_type'      => 'event',
             'post_status'    => 'publish',
-            'posts_per_page' => intval($atts['limit']),
+            'posts_per_page' => $search ? 100 : intval($atts['limit']),
             'meta_key'       => '_tix_date_start',
             'orderby'        => 'meta_value',
             'order'          => 'ASC',
@@ -296,6 +439,10 @@ class TIX_Event_Cards {
             ],
         ];
 
+        if ($search !== '') {
+            $args['s'] = $search;
+        }
+
         if (!empty($atts['category'])) {
             $args['tax_query'] = [['taxonomy' => 'event_category', 'field' => 'slug', 'terms' => $atts['category']]];
         }
@@ -304,7 +451,44 @@ class TIX_Event_Cards {
             $args['meta_query'][] = ['key' => '_tix_is_featured', 'value' => '1'];
         }
 
-        return get_posts($args);
+        $results = get_posts($args);
+
+        // Erweiterte Suche über Venue- und Organizer-Namen
+        if ($search !== '') {
+            global $wpdb;
+            $like = '%' . $wpdb->esc_like($search) . '%';
+
+            // Venue-Match: Locations deren Titel matcht
+            $loc_ids = $wpdb->get_col($wpdb->prepare(
+                "SELECT ID FROM {$wpdb->posts} WHERE post_type = 'tix_location' AND post_status = 'publish' AND post_title LIKE %s LIMIT 20",
+                $like
+            ));
+            // Organizer-Match: Organizer-CPTs deren Titel matcht
+            $org_ids = $wpdb->get_col($wpdb->prepare(
+                "SELECT ID FROM {$wpdb->posts} WHERE post_type = 'tix_organizer' AND post_status = 'publish' AND post_title LIKE %s LIMIT 20",
+                $like
+            ));
+
+            $meta_or = ['relation' => 'OR'];
+            if (!empty($loc_ids)) $meta_or[] = ['key' => '_tix_location_id', 'value' => $loc_ids, 'compare' => 'IN'];
+            if (!empty($org_ids)) {
+                $meta_or[] = ['key' => '_tix_organizer_id', 'value' => $org_ids, 'compare' => 'IN'];
+                $meta_or[] = ['key' => '_tix_co_organizer_id', 'value' => $org_ids, 'compare' => 'IN'];
+            }
+
+            if (count($meta_or) > 1) {
+                $existing_ids = wp_list_pluck($results, 'ID');
+                $related_args = $args;
+                unset($related_args['s']);
+                $related_args['post__not_in'] = $existing_ids ?: [0];
+                $related_args['meta_query'] = array_merge($args['meta_query'], [$meta_or]);
+                $related_args['posts_per_page'] = 100;
+                $related_results = get_posts($related_args);
+                $results = array_merge($results, $related_results);
+            }
+        }
+
+        return $results;
     }
 
     /**
@@ -420,7 +604,8 @@ class TIX_Event_Cards {
     }
 
     /**
-     * AJAX: Live-Suche
+     * AJAX: Live-Suche — matcht Title/Content + Venue-Namen + Organizer-Namen.
+     * Zeigt ausschließlich KOMMENDE Events (keine vergangenen).
      */
     public static function ajax_search() {
         $q     = sanitize_text_field($_POST['q'] ?? '');
@@ -430,6 +615,22 @@ class TIX_Event_Cards {
             wp_send_json_success(['html' => '', 'count' => 0]);
         }
 
+        $today = current_time('Y-m-d');
+
+        global $wpdb;
+        $like = '%' . $wpdb->esc_like($q) . '%';
+
+        // Verwandte Venue + Organizer IDs einsammeln
+        $loc_ids = $wpdb->get_col($wpdb->prepare(
+            "SELECT ID FROM {$wpdb->posts} WHERE post_type = 'tix_location' AND post_status = 'publish' AND post_title LIKE %s LIMIT 10",
+            $like
+        ));
+        $org_ids = $wpdb->get_col($wpdb->prepare(
+            "SELECT ID FROM {$wpdb->posts} WHERE post_type = 'tix_organizer' AND post_status = 'publish' AND post_title LIKE %s LIMIT 10",
+            $like
+        ));
+
+        // 1. Kommende Events mit Title/Content-Match
         $events = get_posts([
             'post_type'      => 'event',
             'post_status'    => 'publish',
@@ -440,11 +641,48 @@ class TIX_Event_Cards {
             'order'          => 'ASC',
             'meta_query'     => [[
                 'key'     => '_tix_date_start',
-                'value'   => current_time('Y-m-d'),
+                'value'   => $today,
                 'compare' => '>=',
                 'type'    => 'DATE',
             ]],
         ]);
+
+        // 2. Venue/Organizer-Match bei kommenden Events ergänzen
+        //    Matched auf lokale Location/Organizer-Posts (IDs) UND Klartext-Strings
+        //    (_tix_location, _tix_organizer) — letzteres wichtig für syndicated Events,
+        //    wo die Location als String gespeichert ist, aber keine lokale Post-ID existiert.
+        if (count($events) < $limit) {
+            $meta_or = ['relation' => 'OR'];
+            if (!empty($loc_ids)) $meta_or[] = ['key' => '_tix_location_id', 'value' => $loc_ids, 'compare' => 'IN'];
+            if (!empty($org_ids)) {
+                $meta_or[] = ['key' => '_tix_organizer_id', 'value' => $org_ids, 'compare' => 'IN'];
+                $meta_or[] = ['key' => '_tix_co_organizer_id', 'value' => $org_ids, 'compare' => 'IN'];
+            }
+            // String-Match auf Klartext-Meta (funktioniert auch ohne lokale Post-IDs)
+            $meta_or[] = ['key' => '_tix_location',       'value' => $q, 'compare' => 'LIKE'];
+            $meta_or[] = ['key' => '_tix_location_short', 'value' => $q, 'compare' => 'LIKE'];
+            $meta_or[] = ['key' => '_tix_location_full',  'value' => $q, 'compare' => 'LIKE'];
+            $meta_or[] = ['key' => '_tix_organizer',      'value' => $q, 'compare' => 'LIKE'];
+
+            $existing_ids = wp_list_pluck($events, 'ID');
+            $extra = get_posts([
+                'post_type'      => 'event',
+                'post_status'    => 'publish',
+                'posts_per_page' => $limit - count($events),
+                'post__not_in'   => $existing_ids ?: [0],
+                'meta_key'       => '_tix_date_start',
+                'orderby'        => 'meta_value',
+                'order'          => 'ASC',
+                'meta_query'     => [
+                    'relation' => 'AND',
+                    ['key' => '_tix_date_start', 'value' => $today, 'compare' => '>=', 'type' => 'DATE'],
+                    $meta_or,
+                ],
+            ]);
+            $events = array_merge($events, $extra);
+        }
+
+        $events = array_slice($events, 0, $limit);
 
         if (empty($events)) {
             wp_send_json_success([

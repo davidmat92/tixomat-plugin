@@ -1,12 +1,9 @@
 <?php
 /**
- * Tixomat Archive Event Template — /events/
- * Automatische Event-Übersichtsseite mit [tix_events] Karten.
- * Unterstützt ?s=Suchbegriff für Live-Suchergebnisse.
+ * Tixomat Archive Event — Content via Breakdance's Render-Flow.
+ * Mimicked nach breakdance-no-template.php: Global Header + Content + Global Footer.
  */
 if (!defined('ABSPATH')) exit;
-
-get_header();
 
 $s = function_exists('tix_get_settings') ? tix_get_settings() : [];
 $pad_x        = intval($s['ec_pad_x'] ?? 32);
@@ -15,16 +12,27 @@ $max_width    = max(600, min(2000, intval($s['ec_max_width'] ?? 1200)));
 $show_search  = !empty($s['ec_show_search'] ?? 1);
 
 $search_query = isset($_GET['s']) ? sanitize_text_field(wp_unslash($_GET['s'])) : '';
+
+// Breakdance Header/Footer rendern (wie breakdance-no-template.php)
+$rendered_header = '';
+$rendered_footer = '';
+if (function_exists('Breakdance\Themeless\get_breakdance_header_template_for_request')) {
+    $rendered_header = \Breakdance\Themeless\get_breakdance_header_template_for_request();
+}
+if (function_exists('Breakdance\Themeless\get_breakdance_footer_template_for_request')) {
+    $rendered_footer = \Breakdance\Themeless\get_breakdance_footer_template_for_request();
+}
+
+// Unseren Content als String vorbereiten
+ob_start();
 ?>
 <style>
-    /* Aus Theme-Wrapper ausbrechen damit unsere max-width greift */
-    .tix-archive-wrap { width: 100vw !important; max-width: 100vw !important; margin-left: calc(50% - 50vw) !important; margin-right: calc(50% - 50vw) !important; box-sizing: border-box; }
+    .tix-archive-wrap { width: 100%; max-width: 100%; box-sizing: border-box; }
     .tix-archive-inner { max-width: <?php echo $max_width; ?>px; margin: 0 auto; width: 100%; box-sizing: border-box; }
-    /* Event-Cards Section: harte 1200px max-width wird durch unsere Breite ersetzt */
     body .tix-archive-inner .section { max-width: none !important; padding-left: 0 !important; padding-right: 0 !important; }
     body .tix-archive-inner .section > .section-inner { max-width: <?php echo $max_width; ?>px !important; width: 100% !important; padding-left: 0 !important; padding-right: 0 !important; }
 </style>
-<div class="tix-archive-wrap" style="padding:<?php echo $pad_y; ?>px <?php echo $pad_x; ?>px;">
+<main class="tix-archive-wrap" style="padding:<?php echo $pad_y; ?>px <?php echo $pad_x; ?>px;">
     <div class="tix-archive-inner">
         <?php if ($search_query !== ''): ?>
             <?php
@@ -46,12 +54,39 @@ $search_query = isset($_GET['s']) ? sanitize_text_field(wp_unslash($_GET['s'])) 
         <?php endif; ?>
 
         <?php
-        // Filter-Bar nur zeigen wenn Setting aktiv UND keine Suche läuft
         $render_filter = ($show_search && !$search_query) ? '1' : '0';
         echo do_shortcode('[tix_events show_header="0" show_filter="' . $render_filter . '" limit="20"]');
         ?>
     </div>
-</div>
+</main>
 <?php
+$content = ob_get_clean();
 
-get_footer();
+// outputHeadHtml mimicked: HTML-Shell + wp_head + Placeholders für Breakdance-Dependencies
+if (function_exists('Breakdance\Themeless\outputHeadHtml')) {
+    \Breakdance\Themeless\outputHeadHtml();
+} else {
+    // Fallback
+    ?>
+    <!doctype html>
+    <html <?php language_attributes(); ?>>
+    <head>
+        <meta charset="<?php bloginfo('charset'); ?>">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <?php wp_head(); ?>
+    </head>
+    <body <?php body_class(); ?>>
+    <?php if (function_exists('wp_body_open')) wp_body_open();
+}
+
+echo $rendered_header;
+echo $content;
+echo $rendered_footer;
+
+if (!function_exists('Breakdance\Themeless\outputHeadHtml')) {
+    ?>
+    <?php wp_footer(); ?>
+    </body>
+    </html>
+    <?php
+}

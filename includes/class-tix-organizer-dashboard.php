@@ -158,20 +158,27 @@ class TIX_Organizer_Dashboard {
     public static function user_owns_event($user_id, $event_id) {
         $org = self::get_organizer_by_user($user_id);
         if (!$org) return false;
-        return intval(get_post_meta($event_id, '_tix_organizer_id', true)) === intval($org->ID);
+        $oid = intval($org->ID);
+        if (intval(get_post_meta($event_id, '_tix_organizer_id', true)) === $oid) return true;
+        if (intval(get_post_meta($event_id, '_tix_co_organizer_id', true)) === $oid) return true;
+        return false;
     }
 
     /**
-     * Alle Event-IDs eines Organizers.
+     * Alle Event-IDs eines Organizers (inkl. Co-Veranstalter).
      */
     private static function get_organizer_event_ids($org_id) {
+        $org_id = intval($org_id);
         return get_posts([
             'post_type'      => 'event',
-            'meta_key'       => '_tix_organizer_id',
-            'meta_value'     => strval(intval($org_id)),
             'post_status'    => ['publish', 'draft', 'pending'],
             'posts_per_page' => -1,
             'fields'         => 'ids',
+            'meta_query'     => [
+                'relation' => 'OR',
+                ['key' => '_tix_organizer_id', 'value' => $org_id, 'type' => 'NUMERIC'],
+                ['key' => '_tix_co_organizer_id', 'value' => $org_id, 'type' => 'NUMERIC'],
+            ],
         ]);
     }
 
@@ -559,14 +566,26 @@ class TIX_Organizer_Dashboard {
         if (!empty($event_ids) && class_exists('WooCommerce')) {
             global $wpdb;
 
-            // Produkt-IDs fuer diese Events
-            $placeholders = implode(',', array_fill(0, count($event_ids), '%d'));
-            $product_ids = $wpdb->get_col($wpdb->prepare(
-                "SELECT post_id FROM {$wpdb->postmeta}
-                 WHERE meta_key = '_tix_parent_event_id'
-                 AND meta_value IN ($placeholders)",
-                ...$event_ids
-            ));
+            // Produkt-IDs fuer diese Events: Primary via _tix_ticket_categories, Fallback via _tix_parent_event_id
+            $product_ids = [];
+            foreach ($event_ids as $eid) {
+                $cats = get_post_meta($eid, '_tix_ticket_categories', true);
+                if (is_array($cats)) {
+                    foreach ($cats as $cat) {
+                        if (!empty($cat['product_id'])) $product_ids[] = intval($cat['product_id']);
+                    }
+                }
+            }
+            if (empty($product_ids)) {
+                $placeholders = implode(',', array_fill(0, count($event_ids), '%d'));
+                $product_ids = $wpdb->get_col($wpdb->prepare(
+                    "SELECT post_id FROM {$wpdb->postmeta}
+                     WHERE meta_key = '_tix_parent_event_id'
+                     AND meta_value IN ($placeholders)",
+                    ...$event_ids
+                ));
+            }
+            $product_ids = array_unique(array_map('intval', $product_ids));
 
             if (!empty($product_ids)) {
                 $pp = implode(',', array_map('intval', $product_ids));
@@ -718,12 +737,11 @@ class TIX_Organizer_Dashboard {
 
         $events = get_posts([
             'post_type'      => 'event',
-            'meta_key'       => '_tix_organizer_id',
-            'meta_value'     => strval($org->ID),
             'post_status'    => ['publish', 'draft', 'pending'],
             'posts_per_page' => -1,
             'orderby'        => 'date',
             'order'          => 'DESC',
+            'meta_query'     => ['relation' => 'OR', ['key' => '_tix_organizer_id', 'value' => $org->ID, 'type' => 'NUMERIC'], ['key' => '_tix_co_organizer_id', 'value' => $org->ID, 'type' => 'NUMERIC']],
         ]);
 
         $rows = [];
@@ -1180,14 +1198,26 @@ class TIX_Organizer_Dashboard {
 
         global $wpdb;
 
-        // Produkt-IDs fuer diese Events
-        $placeholders = implode(',', array_fill(0, count($event_ids), '%d'));
-        $product_ids = $wpdb->get_col($wpdb->prepare(
-            "SELECT post_id FROM {$wpdb->postmeta}
-             WHERE meta_key = '_tix_parent_event_id'
-             AND meta_value IN ($placeholders)",
-            ...$event_ids
-        ));
+        // Produkt-IDs fuer diese Events: Primary via _tix_ticket_categories, Fallback via _tix_parent_event_id
+        $product_ids = [];
+        foreach ($event_ids as $eid) {
+            $cats = get_post_meta($eid, '_tix_ticket_categories', true);
+            if (is_array($cats)) {
+                foreach ($cats as $cat) {
+                    if (!empty($cat['product_id'])) $product_ids[] = intval($cat['product_id']);
+                }
+            }
+        }
+        if (empty($product_ids)) {
+            $placeholders = implode(',', array_fill(0, count($event_ids), '%d'));
+            $product_ids = $wpdb->get_col($wpdb->prepare(
+                "SELECT post_id FROM {$wpdb->postmeta}
+                 WHERE meta_key = '_tix_parent_event_id'
+                 AND meta_value IN ($placeholders)",
+                ...$event_ids
+            ));
+        }
+        $product_ids = array_unique(array_map('intval', $product_ids));
 
         if (empty($product_ids)) {
             wp_send_json_success(['orders' => []]);
@@ -1201,17 +1231,31 @@ class TIX_Organizer_Dashboard {
         $date_to   = sanitize_text_field($_POST['date_to'] ?? '');
         $filter_event = intval($_POST['filter_event'] ?? 0);
 
-        $where = "WHERE oi.order_item_type = 'line_item'
-                  AND oim_pid.meta_value IN ($pp)";
+        // HPOS-kompatibles Join: wc_orders wenn aktiviert, sonst wp_posts
+        $hpos = (class_exists('Automattic\WooCommerce\Utilities\OrderUtil') && \Automattic\WooCommerce\Utilities\OrderUtil::custom_orders_table_usage_is_enabled());
+        if ($hpos) {
+            $order_join = "INNER JOIN {$wpdb->prefix}wc_orders wco ON wco.id = oi.order_id";
+            $date_col = 'wco.date_created_gmt';
+            $status_col = 'wco.status';
+        } else {
+            $order_join = "INNER JOIN {$wpdb->posts} wco ON wco.ID = oi.order_id";
+            $date_col = 'wco.post_date';
+            $status_col = 'wco.post_status';
+        }
 
-        if ($date_from) $where .= $wpdb->prepare(" AND p.post_date >= %s", $date_from . ' 00:00:00');
-        if ($date_to)   $where .= $wpdb->prepare(" AND p.post_date <= %s", $date_to . ' 23:59:59');
+        $where = "WHERE oi.order_item_type = 'line_item'
+                  AND oim_pid.meta_value IN ($pp)
+                  AND $status_col IN ('wc-completed','wc-processing','wc-on-hold','completed','processing','on-hold')";
+
+        if ($date_from) $where .= $wpdb->prepare(" AND $date_col >= %s", $date_from . ' 00:00:00');
+        if ($date_to)   $where .= $wpdb->prepare(" AND $date_col <= %s", $date_to . ' 23:59:59');
 
         $rows = $wpdb->get_results(
             "SELECT oi.order_id,
-                    p.post_date as order_date,
-                    p.post_status as order_status,
+                    $date_col as order_date,
+                    $status_col as order_status,
                     oi.order_item_name,
+                    oim_pid.meta_value as product_id,
                     oim_qty.meta_value as qty,
                     oim_total.meta_value as line_total,
                     oim_eid.meta_value as event_id
@@ -1229,17 +1273,36 @@ class TIX_Organizer_Dashboard {
              LEFT JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim_eid
                  ON oi.order_item_id = oim_eid.order_item_id
                  AND oim_eid.meta_key = '_tix_event_id'
-             INNER JOIN {$wpdb->posts} p ON p.ID = oi.order_id
+             $order_join
              $where
-             ORDER BY p.post_date DESC
+             ORDER BY $date_col DESC
              LIMIT 200"
         );
+
+        // Build product -> event fallback map (for legacy orders without _tix_event_id on line item)
+        $product_to_event = [];
+        foreach ($event_ids as $eid) {
+            $cats = get_post_meta($eid, '_tix_ticket_categories', true);
+            if (is_array($cats)) {
+                foreach ($cats as $cat) {
+                    if (!empty($cat['product_id'])) {
+                        $product_to_event[intval($cat['product_id'])] = intval($eid);
+                    }
+                }
+            }
+        }
 
         $orders = [];
         $seen = [];
         foreach ($rows as $row) {
             $oid = intval($row->order_id);
             $eid = intval($row->event_id);
+            $pid = intval($row->product_id);
+
+            // Fallback: event_id via product_id
+            if (!$eid && $pid && isset($product_to_event[$pid])) {
+                $eid = $product_to_event[$pid];
+            }
 
             // Event-Filter
             if ($filter_event && $eid !== $filter_event) continue;
@@ -1422,13 +1485,28 @@ class TIX_Organizer_Dashboard {
         $sold = [];
         if (class_exists('WooCommerce')) {
             global $wpdb;
-            $product_ids = $wpdb->get_col($wpdb->prepare(
-                "SELECT post_id FROM {$wpdb->postmeta}
-                 WHERE meta_key = '_tix_parent_event_id' AND meta_value = %d",
-                $event_id
-            ));
+            // Primary: _tix_ticket_categories (source of truth), Fallback: _tix_parent_event_id meta
+            $product_ids = [];
+            $cats = get_post_meta($event_id, '_tix_ticket_categories', true);
+            if (is_array($cats)) {
+                foreach ($cats as $cat) {
+                    if (!empty($cat['product_id'])) $product_ids[] = intval($cat['product_id']);
+                }
+            }
+            if (empty($product_ids)) {
+                $product_ids = $wpdb->get_col($wpdb->prepare(
+                    "SELECT post_id FROM {$wpdb->postmeta}
+                     WHERE meta_key = '_tix_parent_event_id' AND meta_value = %d",
+                    $event_id
+                ));
+            }
             if (!empty($product_ids)) {
-                $pp = implode(',', array_map('intval', $product_ids));
+                $pp = implode(',', array_map('intval', array_unique($product_ids)));
+                // HPOS-aware join
+                $hpos = (class_exists('Automattic\WooCommerce\Utilities\OrderUtil') && \Automattic\WooCommerce\Utilities\OrderUtil::custom_orders_table_usage_is_enabled());
+                $order_join = $hpos
+                    ? "INNER JOIN {$wpdb->prefix}wc_orders wco ON wco.id = oi.order_id AND wco.status IN ('wc-processing','wc-completed','processing','completed')"
+                    : "INNER JOIN {$wpdb->posts} wco ON wco.ID = oi.order_id AND wco.post_status IN ('wc-processing','wc-completed')";
                 $rows = $wpdb->get_results(
                     "SELECT oi.order_id, oim_qty.meta_value as qty
                      FROM {$wpdb->prefix}woocommerce_order_items oi
@@ -1439,8 +1517,7 @@ class TIX_Organizer_Dashboard {
                      LEFT JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim_qty
                          ON oi.order_item_id = oim_qty.order_item_id
                          AND oim_qty.meta_key = '_qty'
-                     INNER JOIN {$wpdb->posts} p ON p.ID = oi.order_id
-                         AND p.post_status IN ('wc-processing', 'wc-completed')
+                     $order_join
                      WHERE oi.order_item_type = 'line_item'"
                 );
                 foreach ($rows as $row) {
@@ -1595,13 +1672,26 @@ class TIX_Organizer_Dashboard {
 
         if (!empty($event_ids) && class_exists('WooCommerce')) {
             global $wpdb;
-            $placeholders = implode(',', array_fill(0, count($event_ids), '%d'));
-            $product_ids = $wpdb->get_col($wpdb->prepare(
-                "SELECT post_id FROM {$wpdb->postmeta}
-                 WHERE meta_key = '_tix_parent_event_id'
-                 AND meta_value IN ($placeholders)",
-                ...$event_ids
-            ));
+            // Primary: _tix_ticket_categories, Fallback: _tix_parent_event_id
+            $product_ids = [];
+            foreach ($event_ids as $eid) {
+                $cats = get_post_meta($eid, '_tix_ticket_categories', true);
+                if (is_array($cats)) {
+                    foreach ($cats as $cat) {
+                        if (!empty($cat['product_id'])) $product_ids[] = intval($cat['product_id']);
+                    }
+                }
+            }
+            if (empty($product_ids)) {
+                $placeholders = implode(',', array_fill(0, count($event_ids), '%d'));
+                $product_ids = $wpdb->get_col($wpdb->prepare(
+                    "SELECT post_id FROM {$wpdb->postmeta}
+                     WHERE meta_key = '_tix_parent_event_id'
+                     AND meta_value IN ($placeholders)",
+                    ...$event_ids
+                ));
+            }
+            $product_ids = array_unique(array_map('intval', $product_ids));
 
             if (!empty($product_ids)) {
                 $pp = implode(',', array_map('intval', $product_ids));

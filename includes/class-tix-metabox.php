@@ -610,6 +610,7 @@ class TIX_Metabox {
         $time_doors = get_post_meta($post->ID, '_tix_time_doors', true);
         $location_id = intval(get_post_meta($post->ID, '_tix_location_id', true));
         $organizer_id = intval(get_post_meta($post->ID, '_tix_organizer_id', true));
+        $co_organizer_id = intval(get_post_meta($post->ID, '_tix_co_organizer_id', true));
 
         // CPT-Listen laden
         $locations = get_posts(['post_type' => 'tix_location', 'posts_per_page' => -1, 'orderby' => 'title', 'order' => 'ASC', 'post_status' => 'publish']);
@@ -718,6 +719,25 @@ class TIX_Metabox {
                                 <?php endforeach; ?>
                             </select>
                             <button type="button" class="tix-add-new-link" data-modal="tix-modal-organizer">+ Neuer Veranstalter</button>
+                        <?php endif; ?>
+                    </div>
+                    <div class="tix-field tix-field-full">
+                        <?php if ($is_org_user) : ?>
+                            <?php if ($co_organizer_id) : ?>
+                                <label class="tix-field-label">Co-Veranstalter</label>
+                                <div style="padding:8px 14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;font-size:14px;color:#1e293b;">
+                                    <?php echo esc_html(get_the_title($co_organizer_id)); ?>
+                                </div>
+                            <?php endif; ?>
+                            <input type="hidden" name="tix_co_organizer_id" value="<?php echo esc_attr($co_organizer_id); ?>">
+                        <?php else : ?>
+                            <label class="tix-field-label" for="tix_co_organizer_id">Co-Veranstalter <?php self::tip('Optional: Zweiter Veranstalter, der ebenfalls Zugriff auf das Event hat.'); ?></label>
+                            <select id="tix_co_organizer_id" name="tix_co_organizer_id" class="tix-cpt-select">
+                                <option value="">— Kein Co-Veranstalter —</option>
+                                <?php foreach ($organizers as $org): ?>
+                                    <option value="<?php echo $org->ID; ?>" <?php selected($co_organizer_id, $org->ID); ?>><?php echo esc_html($org->post_title); ?></option>
+                                <?php endforeach; ?>
+                            </select>
                         <?php endif; ?>
                     </div>
                 </div>
@@ -1692,6 +1712,11 @@ class TIX_Metabox {
         $tt_tpl_id = intval(get_post_meta($post->ID, '_tix_ticket_template_id', true));
         $has_global = !empty(TIX_Ticket_Template::get_global_config());
 
+        // Sponsor-/Werbe-Banner fürs Ticket
+        $sponsor_id  = intval(get_post_meta($post->ID, '_tix_ticket_sponsor_image_id', true));
+        $sponsor_url = $sponsor_id ? wp_get_attachment_image_url($sponsor_id, 'medium') : '';
+        $sponsor_link = get_post_meta($post->ID, '_tix_ticket_sponsor_link', true);
+
         // Verfügbare Ticket-Vorlagen (CPT)
         $templates = [];
         if (class_exists('TIX_Ticket_Template_CPT')) {
@@ -1743,6 +1768,56 @@ class TIX_Metabox {
 
                 <div id="tix-tte-metabox-editor-wrap" class="tix-tte-wrap" style="<?php echo $tt_mode !== 'custom' ? 'display:none;' : ''; ?>"></div>
                 <input type="hidden" name="tix_ticket_template" id="tix-tte-metabox-input" value="<?php echo esc_attr($tt_json); ?>">
+
+                <hr style="margin:24px 0 20px;border:none;border-top:1px solid #e2e8f0;">
+
+                <h4 style="margin:0 0 6px;font-size:14px;">Sponsor-Banner (Werbung unter dem Ticket)</h4>
+                <p class="description" style="margin:0 0 12px;">Optionales Bild, das unter dem HTML-Ticket als Werbefläche angezeigt wird (z.B. Sponsor-Logo). Wird nur im HTML-Ticket-Modus angezeigt.</p>
+
+                <div class="tix-img-wrap tix-sponsor-picker" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+                    <div class="tix-img-box tix-sponsor-box <?php echo $sponsor_url ? 'has-img' : ''; ?>" style="width:120px;height:80px;border:2px dashed #cbd5e1;border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer;overflow:hidden;background:#f8fafc;">
+                        <?php if ($sponsor_url): ?>
+                            <img src="<?php echo esc_url($sponsor_url); ?>" style="max-width:100%;max-height:100%;object-fit:contain;">
+                        <?php else: ?>
+                            <span class="dashicons dashicons-format-image" style="font-size:28px;width:28px;height:28px;color:#94a3b8;"></span>
+                        <?php endif; ?>
+                    </div>
+                    <input type="hidden" name="tix_ticket_sponsor_image_id" class="tix-img-val tix-sponsor-val" value="<?php echo $sponsor_id ?: ''; ?>">
+                    <div style="flex:1;min-width:220px;">
+                        <label style="display:block;font-size:12px;color:#475569;margin-bottom:4px;">Link (optional, beim Klick auf das Bild)</label>
+                        <input type="url" name="tix_ticket_sponsor_link" value="<?php echo esc_attr($sponsor_link); ?>" placeholder="https://sponsor.example.com" style="width:100%;padding:8px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
+                        <?php if ($sponsor_url): ?>
+                            <a href="#" class="tix-img-clear tix-sponsor-clear" style="display:inline-block;margin-top:6px;font-size:12px;">Banner entfernen</a>
+                        <?php endif; ?>
+                    </div>
+                </div>
+
+                <script>
+                (function($){
+                    $(document).on('click', '.tix-sponsor-box', function(e){
+                        e.preventDefault();
+                        var $wrap = $(this).closest('.tix-sponsor-picker');
+                        var frame = wp.media({ title: 'Sponsor-Banner wählen', button: { text: 'Einfügen' }, multiple: false, library: { type: 'image' } });
+                        frame.on('select', function(){
+                            var att = frame.state().get('selection').first().toJSON();
+                            $wrap.find('.tix-sponsor-val').val(att.id);
+                            var url = (att.sizes && att.sizes.medium) ? att.sizes.medium.url : att.url;
+                            $wrap.find('.tix-sponsor-box').addClass('has-img').html('<img src="' + url + '" style="max-width:100%;max-height:100%;object-fit:contain;">');
+                            if (!$wrap.find('.tix-sponsor-clear').length) {
+                                $wrap.find('input[name="tix_ticket_sponsor_link"]').after('<a href="#" class="tix-img-clear tix-sponsor-clear" style="display:inline-block;margin-top:6px;font-size:12px;">Banner entfernen</a>');
+                            }
+                        });
+                        frame.open();
+                    });
+                    $(document).on('click', '.tix-sponsor-clear', function(e){
+                        e.preventDefault();
+                        var $wrap = $(this).closest('.tix-sponsor-picker');
+                        $wrap.find('.tix-sponsor-val').val('');
+                        $wrap.find('.tix-sponsor-box').removeClass('has-img').html('<span class="dashicons dashicons-format-image" style="font-size:28px;width:28px;height:28px;color:#94a3b8;"></span>');
+                        $(this).remove();
+                    });
+                })(jQuery);
+                </script>
             </div>
         </div>
         <?php
@@ -3662,6 +3737,16 @@ class TIX_Metabox {
             update_post_meta($post_id, '_tix_organizer', '');
         }
 
+        // Co-Veranstalter
+        $co_org_id = intval($_POST['tix_co_organizer_id'] ?? 0);
+        if ($co_org_id && $co_org_id !== $org_id) {
+            update_post_meta($post_id, '_tix_co_organizer_id', $co_org_id);
+            update_post_meta($post_id, '_tix_co_organizer', get_the_title($co_org_id));
+        } else {
+            delete_post_meta($post_id, '_tix_co_organizer_id');
+            delete_post_meta($post_id, '_tix_co_organizer');
+        }
+
         // Event-Informationen (Sektionen + Labels)
         $sections = self::info_sections();
         $info_data = $_POST['tix_info'] ?? [];
@@ -4215,6 +4300,21 @@ class TIX_Metabox {
                 $tt_config = TIX_Ticket_Template::sanitize_config($raw_tt);
                 update_post_meta($post_id, '_tix_ticket_template', wp_json_encode($tt_config));
             }
+        }
+
+        // ── Sponsor-Banner (Werbung unter dem Ticket) ──
+        $sponsor_id   = intval($_POST['tix_ticket_sponsor_image_id'] ?? 0);
+        $sponsor_link = esc_url_raw($_POST['tix_ticket_sponsor_link'] ?? '');
+        if ($sponsor_id) {
+            update_post_meta($post_id, '_tix_ticket_sponsor_image_id', $sponsor_id);
+            if ($sponsor_link) {
+                update_post_meta($post_id, '_tix_ticket_sponsor_link', $sponsor_link);
+            } else {
+                delete_post_meta($post_id, '_tix_ticket_sponsor_link');
+            }
+        } else {
+            delete_post_meta($post_id, '_tix_ticket_sponsor_image_id');
+            delete_post_meta($post_id, '_tix_ticket_sponsor_link');
         }
 
         // ── Erweitert: Per-Event-Toggles ──

@@ -1,392 +1,388 @@
 /**
- * Tixomat – Ticket als Bild speichern
- * Rendert ein Ticket-Bild (Canvas) mit Event-Bild, QR-Code,
- * Kaeuferinfo, Event-Infos und Ticket-Code.
+ * Tixomat – Ticket als Bild speichern / teilen
+ *
+ * Rendert ein Portrait-Ticket-Bild, das optisch am Online-Ticket-HTML-Template
+ * orientiert ist (Header mit Logo, Event-Info, großer QR-Code, Sponsor-Footer).
+ * Ein einziger Render-Pfad, entweder Download oder Web-Share.
  */
-function ehTicketImg(btn) {
-    var card = btn.closest('.tix-mt-tcard');
-    if (!card) return;
 
-    btn.disabled = true;
-    btn.textContent = '\u23F3 Wird erstellt\u2026';
+(function(){
+    'use strict';
 
-    var d = card.dataset;
-    var qrCanvas = card.querySelector('.tix-mt-qr-canvas');
+    // ═══════════════════════════════════════
+    // PUBLIC
+    // ═══════════════════════════════════════
 
-    // Event-Bild vorladen, dann rendern
-    if (d.thumb) {
-        var img = new Image();
-        img.crossOrigin = 'anonymous';
-        img.onload = function() { renderTicket(d, qrCanvas, img, btn); };
-        img.onerror = function() { renderTicket(d, qrCanvas, null, btn); };
-        img.src = d.thumb;
-    } else {
-        renderTicket(d, qrCanvas, null, btn);
-    }
-}
+    window.ehTicketImg   = function(btn) { startRender(btn, 'download'); };
+    window.ehTicketShare = function(btn) { startRender(btn, 'share'); };
 
-function renderTicket(d, qrCanvas, eventImg, btn) {
-    var W = 960, H = 1500;
-    var pad = 64;
-    var c = document.createElement('canvas');
-    c.width = W; c.height = H;
-    var ctx = c.getContext('2d');
-    var font = '-apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
-    var mono = '"SF Mono", "Fira Code", Consolas, "Courier New", monospace';
+    // ═══════════════════════════════════════
+    // PIPELINE
+    // ═══════════════════════════════════════
 
-    // Weisser Hintergrund
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, W, H);
+    function startRender(btn, mode) {
+        var card = btn.closest('.tix-mt-tcard');
+        if (!card) return;
 
-    var y = 0;
+        var originalHTML = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '\u23F3 wird erstellt…';
 
-    /* ── EVENT-BILD HEADER ── */
-    var headerH = 260;
-    if (eventImg) {
-        var iw = eventImg.naturalWidth, ih = eventImg.naturalHeight;
-        var scale = Math.max(W / iw, headerH / ih);
-        var sw = iw * scale, sh = ih * scale;
-        var sx = (W - sw) / 2, sy = (headerH - sh) / 2;
-        ctx.save();
-        ctx.beginPath();
-        ctx.rect(0, 0, W, headerH);
-        ctx.clip();
-        ctx.drawImage(eventImg, sx, sy, sw, sh);
-        var grad = ctx.createLinearGradient(0, headerH * 0.3, 0, headerH);
-        grad.addColorStop(0, 'rgba(0,0,0,0)');
-        grad.addColorStop(0.6, 'rgba(0,0,0,0.45)');
-        grad.addColorStop(1, 'rgba(0,0,0,0.8)');
-        ctx.fillStyle = grad;
-        ctx.fillRect(0, 0, W, headerH);
-        ctx.restore();
-    } else {
-        var grad = ctx.createLinearGradient(0, 0, W, headerH);
-        grad.addColorStop(0, '#1a1a1a');
-        grad.addColorStop(1, '#333333');
-        ctx.fillStyle = grad;
-        ctx.fillRect(0, 0, W, headerH);
-    }
+        var d = card.dataset;
+        var qrCanvas = card.querySelector('.tix-mt-qr-canvas');
 
-    // Akzent-Linie oben
-    ctx.fillStyle = '#c8ff00';
-    ctx.fillRect(0, 0, W, 6);
-
-    // Ticket-Nummer auf Header
-    ctx.fillStyle = 'rgba(255,255,255,0.5)';
-    ctx.font = '600 13px ' + font;
-    ctx.textAlign = 'left';
-    ctx.letterSpacing = '3px';
-    ctx.fillText(('TICKET ' + (d.num || '1')).toUpperCase(), pad, headerH - 80);
-    ctx.letterSpacing = '0px';
-
-    // Event-Name auf Header
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 32px ' + font;
-    var nameLines = wrapText(ctx, d.event || '', W - pad * 2);
-    var ny = headerH - 50;
-    for (var i = nameLines.length - 1; i >= 0; i--) {
-        ctx.fillText(nameLines[i], pad, ny);
-        ny -= 40;
-    }
-
-    y = headerH;
-
-    /* ── INFO-BEREICH ── */
-    y += 32;
-
-    // Ticket-Typ
-    if (d.type) {
-        ctx.fillStyle = '#1a1a1a';
-        ctx.font = 'bold 24px ' + font;
-        ctx.textAlign = 'center';
-        ctx.fillText(d.type, W / 2, y);
-        y += 14;
-    }
-
-    // Kaeufername
-    y += 24;
-    ctx.textAlign = 'center';
-    if (d.buyer) {
-        ctx.fillStyle = '#444444';
-        ctx.font = '500 19px ' + font;
-        ctx.fillText(d.buyer, W / 2, y);
-        y += 26;
-    }
-
-    // E-Mail
-    if (d.email) {
-        ctx.fillStyle = '#888888';
-        ctx.font = '400 16px ' + font;
-        ctx.fillText(d.email, W / 2, y);
-        y += 12;
-    }
-
-    // Trennlinie
-    y += 24;
-    dashedLine(ctx, pad, y, W - pad, y);
-
-    /* ── QR-CODE ── */
-    y += 36;
-    var qrSize = 380;
-    var qrX = (W - qrSize) / 2;
-
-    if (qrCanvas && qrCanvas.width > 0) {
-        ctx.drawImage(qrCanvas, qrX, y, qrSize, qrSize);
-    }
-
-    // Ticket-Code
-    y += qrSize + 42;
-    ctx.fillStyle = '#999999';
-    ctx.font = '700 22px ' + mono;
-    ctx.textAlign = 'center';
-    ctx.letterSpacing = '4px';
-    ctx.fillText(d.code || '', W / 2, y);
-    ctx.letterSpacing = '0px';
-
-    // Trennlinie
-    y += 36;
-    dashedLine(ctx, pad, y, W - pad, y);
-
-    /* ── EVENT-DETAILS ── */
-    y += 34;
-    ctx.textAlign = 'left';
-
-    var details = [];
-    if (d.date) details.push(['\uD83D\uDCC5', d.date]);
-    if (d.doors) details.push(['\uD83D\uDEAA', d.doors]);
-    if (d.time) details.push(['\uD83D\uDD50', d.time]);
-    if (d.location) details.push(['\uD83D\uDCCD', d.location]);
-
-    for (var j = 0; j < details.length; j++) {
-        ctx.fillStyle = '#444444';
-        ctx.font = '400 20px ' + font;
-        ctx.fillText(details[j][0] + '  ' + details[j][1], pad + 10, y);
-        y += 36;
-    }
-
-    /* ── FOOTER ── */
-    var footerY = H - 60;
-    ctx.strokeStyle = '#eeeeee';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(pad, footerY - 16);
-    ctx.lineTo(W - pad, footerY - 16);
-    ctx.stroke();
-
-    ctx.fillStyle = '#bbbbbb';
-    ctx.font = '400 14px ' + font;
-    ctx.textAlign = 'center';
-    ctx.fillText('Bitte dieses Ticket beim Einlass vorzeigen', W / 2, footerY);
-
-    // Export
-    exportTicketImage(c, d, btn);
-}
-
-/* ── Share ── */
-function ehTicketShare(btn) {
-    var card = btn.closest('.tix-mt-tcard');
-    if (!card) return;
-
-    btn.disabled = true;
-    btn.textContent = '\u23F3 Wird erstellt\u2026';
-
-    var d = card.dataset;
-    var qrCanvas = card.querySelector('.tix-mt-qr-canvas');
-
-    if (d.thumb) {
-        var img = new Image();
-        img.crossOrigin = 'anonymous';
-        img.onload = function() { renderAndShare(d, qrCanvas, img, btn); };
-        img.onerror = function() { renderAndShare(d, qrCanvas, null, btn); };
-        img.src = d.thumb;
-    } else {
-        renderAndShare(d, qrCanvas, null, btn);
-    }
-}
-
-function renderAndShare(d, qrCanvas, eventImg, btn) {
-    // Reuse renderTicket but override export to force share
-    var W = 960, H = 1500;
-    var pad = 64;
-    var c = document.createElement('canvas');
-    c.width = W; c.height = H;
-    var ctx = c.getContext('2d');
-    var font = '-apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
-    var mono = '"SF Mono", "Fira Code", Consolas, "Courier New", monospace';
-
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, W, H);
-
-    var y = 0;
-    var headerH = 260;
-    if (eventImg) {
-        var iw = eventImg.naturalWidth, ih = eventImg.naturalHeight;
-        var scale = Math.max(W / iw, headerH / ih);
-        var sw = iw * scale, sh = ih * scale;
-        var sx = (W - sw) / 2, sy = (headerH - sh) / 2;
-        ctx.save();
-        ctx.beginPath(); ctx.rect(0, 0, W, headerH); ctx.clip();
-        ctx.drawImage(eventImg, sx, sy, sw, sh);
-        var grad = ctx.createLinearGradient(0, headerH * 0.3, 0, headerH);
-        grad.addColorStop(0, 'rgba(0,0,0,0)');
-        grad.addColorStop(0.6, 'rgba(0,0,0,0.45)');
-        grad.addColorStop(1, 'rgba(0,0,0,0.8)');
-        ctx.fillStyle = grad; ctx.fillRect(0, 0, W, headerH);
-        ctx.restore();
-    } else {
-        var grad = ctx.createLinearGradient(0, 0, W, headerH);
-        grad.addColorStop(0, '#1a1a1a'); grad.addColorStop(1, '#333333');
-        ctx.fillStyle = grad; ctx.fillRect(0, 0, W, headerH);
-    }
-    ctx.fillStyle = '#c8ff00'; ctx.fillRect(0, 0, W, 6);
-    ctx.fillStyle = 'rgba(255,255,255,0.5)';
-    ctx.font = '600 13px ' + font; ctx.textAlign = 'left';
-    ctx.letterSpacing = '3px';
-    ctx.fillText(('TICKET ' + (d.num || '1')).toUpperCase(), pad, headerH - 80);
-    ctx.letterSpacing = '0px';
-    ctx.fillStyle = '#ffffff'; ctx.font = 'bold 32px ' + font;
-    var nameLines = wrapText(ctx, d.event || '', W - pad * 2);
-    var ny = headerH - 50;
-    for (var i = nameLines.length - 1; i >= 0; i--) { ctx.fillText(nameLines[i], pad, ny); ny -= 40; }
-    y = headerH + 32;
-    if (d.type) { ctx.fillStyle = '#1a1a1a'; ctx.font = 'bold 24px ' + font; ctx.textAlign = 'center'; ctx.fillText(d.type, W / 2, y); y += 14; }
-    y += 24; ctx.textAlign = 'center';
-    if (d.buyer) { ctx.fillStyle = '#444444'; ctx.font = '500 19px ' + font; ctx.fillText(d.buyer, W / 2, y); y += 26; }
-    if (d.email) { ctx.fillStyle = '#888888'; ctx.font = '400 16px ' + font; ctx.fillText(d.email, W / 2, y); y += 12; }
-    y += 24; dashedLine(ctx, pad, y, W - pad, y);
-    y += 36; var qrSize = 380, qrX = (W - qrSize) / 2;
-    if (qrCanvas && qrCanvas.width > 0) {
-        ctx.drawImage(qrCanvas, qrX, y, qrSize, qrSize);
-    }
-    y += qrSize + 42; ctx.fillStyle = '#999999'; ctx.font = '700 22px ' + mono;
-    ctx.textAlign = 'center'; ctx.letterSpacing = '4px';
-    ctx.fillText(d.code || '', W / 2, y); ctx.letterSpacing = '0px';
-    y += 36; dashedLine(ctx, pad, y, W - pad, y);
-    y += 34; ctx.textAlign = 'left';
-    var details = [];
-    if (d.date) details.push(['\uD83D\uDCC5', d.date]);
-    if (d.doors) details.push(['\uD83D\uDEAA', d.doors]);
-    if (d.time) details.push(['\uD83D\uDD50', d.time]);
-    if (d.location) details.push(['\uD83D\uDCCD', d.location]);
-    for (var j = 0; j < details.length; j++) { ctx.fillStyle = '#444444'; ctx.font = '400 20px ' + font; ctx.fillText(details[j][0] + '  ' + details[j][1], pad + 10, y); y += 36; }
-    var footerY = H - 60;
-    ctx.strokeStyle = '#eeeeee'; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(pad, footerY - 16); ctx.lineTo(W - pad, footerY - 16); ctx.stroke();
-    ctx.fillStyle = '#bbbbbb'; ctx.font = '400 14px ' + font; ctx.textAlign = 'center';
-    ctx.fillText('Bitte dieses Ticket beim Einlass vorzeigen', W / 2, footerY);
-
-    // Share
-    var filename = 'ticket-' + (d.code || 'unknown').replace(/[^a-zA-Z0-9\-]/g, '_') + '.png';
-    c.toBlob(function(blob) {
-        if (!blob) { resetShareBtn(btn); return; }
-        if (navigator.share && navigator.canShare) {
-            var file = new File([blob], filename, { type: 'image/png' });
-            if (navigator.canShare({ files: [file] })) {
-                navigator.share({
-                    files: [file],
-                    title: (d.event || 'Ticket') + ' – ' + (d.code || ''),
-                    text: 'Mein Ticket: ' + (d.event || '') + (d.type ? ' (' + d.type + ')' : '') + '\n' + (d.date || '')
-                }).then(function() { resetShareBtn(btn); })
-                  .catch(function() { resetShareBtn(btn); });
-                return;
+        // Bilder parallel vorladen (Event-Bild, Logo, Sponsor)
+        Promise.all([
+            loadImg(d.thumb),
+            loadImg(d.logo),
+            loadImg(d.sponsor),
+        ]).then(function(imgs) {
+            var c = renderCanvas(d, qrCanvas, imgs[0], imgs[1], imgs[2]);
+            if (mode === 'share') {
+                shareCanvas(c, d, btn, originalHTML);
+            } else {
+                downloadCanvas(c, d, btn, originalHTML);
             }
-        }
-        // Fallback: clipboard or download
-        downloadBlob(blob, filename);
-        resetShareBtn(btn);
-    }, 'image/png');
-}
+        });
+    }
 
-function resetShareBtn(btn) {
-    btn.disabled = false;
-    btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v7a2 2 0 002 2h12a2 2 0 002-2v-7"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg> Teilen';
-}
+    function loadImg(src) {
+        return new Promise(function(resolve) {
+            if (!src) return resolve(null);
+            var img = new Image();
+            img.crossOrigin = 'anonymous';
+            img.onload = function() { resolve(img); };
+            img.onerror = function() { resolve(null); };
+            img.src = src;
+        });
+    }
 
-/* ── Export ── */
-function exportTicketImage(canvas, data, btn) {
-    var filename = 'ticket-' + (data.code || 'unknown').replace(/[^a-zA-Z0-9\-]/g, '_') + '.png';
+    function resetButton(btn, original) {
+        btn.disabled = false;
+        btn.innerHTML = original;
+    }
 
-    canvas.toBlob(function(blob) {
-        if (!blob) { resetBtn(btn); return; }
+    // ═══════════════════════════════════════
+    // RENDER CANVAS (konsistent mit Online-Ticket-Layout)
+    // ═══════════════════════════════════════
 
-        if (navigator.share && navigator.canShare) {
-            var file = new File([blob], filename, { type: 'image/png' });
-            if (navigator.canShare({ files: [file] })) {
-                navigator.share({
-                    files: [file],
-                    title: data.event || 'Ticket',
-                    text: 'Ticket ' + (data.code || '')
-                }).then(function() { resetBtn(btn); })
-                  .catch(function() {
-                    downloadBlob(blob, filename);
-                    resetBtn(btn);
-                });
-                return;
-            }
-        }
+    function renderCanvas(d, qrCanvas, eventImg, logoImg, sponsorImg) {
+        // Portrait-Format — QR-Code dominiert die Fläche
+        var W = 900;
+        var H = sponsorImg ? 1500 : 1380;     // +120px für Sponsor, Hauptlayout bleibt identisch
+        var pad = 56;
 
-        downloadBlob(blob, filename);
-        resetBtn(btn);
-    }, 'image/png');
-}
+        var accentBg = d.accentBg || '#131020';
+        var accentFg = d.accentFg || '#ffffff';
 
-function resetBtn(btn) {
-    btn.disabled = false;
-    btn.innerHTML = '&#128247; Als Bild speichern';
-}
+        var c = document.createElement('canvas');
+        c.width = W; c.height = H;
+        var ctx = c.getContext('2d');
+        var font = '-apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+        var mono = '"SF Mono", "Fira Code", Consolas, "Courier New", monospace';
 
-function downloadBlob(blob, filename) {
-    var url = URL.createObjectURL(blob);
-    var a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(function() { URL.revokeObjectURL(url); }, 5000);
-}
+        // Hintergrund: neutraler Rand, weiße Ticket-Karte innen
+        ctx.fillStyle = '#f0f0f0';
+        ctx.fillRect(0, 0, W, H);
+        var cardX = 20, cardY = 20;
+        var cardW = W - 40;
+        var cardH = H - 40;
+        var radius = 20;
+        drawRoundedRect(ctx, cardX, cardY, cardW, cardH, radius);
+        ctx.fillStyle = '#ffffff';
+        ctx.fill();
 
-function wrapText(ctx, text, maxWidth) {
-    var words = text.split(' ');
-    var lines = [];
-    var line = '';
-    for (var i = 0; i < words.length; i++) {
-        var test = line ? line + ' ' + words[i] : words[i];
-        if (ctx.measureText(test).width > maxWidth && line) {
-            lines.push(line);
-            line = words[i];
+        // ── HEADER (Logo + Event-Name, Accent-Farbe) ──
+        var headerH = 120;
+        drawRoundedRect(ctx, cardX, cardY, cardW, headerH, radius, { topOnly: true });
+        ctx.fillStyle = accentBg;
+        ctx.fill();
+
+        var headerInsetX = cardX + 30;
+        var headerInsetY = cardY + 30;
+        var headerInnerW = cardW - 60;
+
+        if (logoImg) {
+            // Logo links, max 56px Höhe
+            var logoMaxH = 56;
+            var logoRatio = logoImg.naturalWidth / logoImg.naturalHeight;
+            var logoH = Math.min(logoMaxH, logoImg.naturalHeight);
+            var logoW = logoH * logoRatio;
+            ctx.drawImage(logoImg, headerInsetX, headerInsetY + (logoMaxH - logoH) / 2, logoW, logoH);
         } else {
-            line = test;
+            // Kein Logo: Brand-Name als Text
+            ctx.fillStyle = accentFg;
+            ctx.font = '700 26px ' + font;
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('TICKET', headerInsetX, headerInsetY + 28);
+        }
+
+        // Ticket-Nummer rechts im Header
+        ctx.fillStyle = accentFg;
+        ctx.globalAlpha = 0.65;
+        ctx.font = '600 14px ' + font;
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('TICKET ' + (d.num || '1'), cardX + cardW - 30, headerInsetY + 28);
+        ctx.globalAlpha = 1.0;
+
+        // ── EVENT-BILD unter dem Header ──
+        var imgY = cardY + headerH;
+        var imgH = 280;
+        if (eventImg) {
+            var iw = eventImg.naturalWidth, ih = eventImg.naturalHeight;
+            var scale = Math.max(cardW / iw, imgH / ih);
+            var sw = iw * scale, sh = ih * scale;
+            var sx = cardX + (cardW - sw) / 2, sy = imgY + (imgH - sh) / 2;
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(cardX, imgY, cardW, imgH);
+            ctx.clip();
+            ctx.drawImage(eventImg, sx, sy, sw, sh);
+            var grad = ctx.createLinearGradient(0, imgY + imgH * 0.4, 0, imgY + imgH);
+            grad.addColorStop(0, 'rgba(0,0,0,0)');
+            grad.addColorStop(1, 'rgba(0,0,0,0.55)');
+            ctx.fillStyle = grad;
+            ctx.fillRect(cardX, imgY, cardW, imgH);
+            ctx.restore();
+
+            // Event-Titel auf dem Bild
+            ctx.fillStyle = '#ffffff';
+            ctx.font = '700 32px ' + font;
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'bottom';
+            var eventText = (d.event || 'Event').toUpperCase();
+            drawWrappedText(ctx, eventText, cardX + 30, imgY + imgH - 20, cardW - 60, 36, 2);
+        } else {
+            // Fallback: Event-Titel als großer Text auf neutralem Grund
+            ctx.fillStyle = '#f8f8f8';
+            ctx.fillRect(cardX, imgY, cardW, imgH);
+            ctx.fillStyle = '#131020';
+            ctx.font = '700 36px ' + font;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            drawWrappedText(ctx, (d.event || 'Event'), cardX + cardW / 2, imgY + imgH / 2, cardW - 80, 42, 2, 'center');
+        }
+
+        // ── QR-CODE (groß, dominant) ──
+        var qrSize = 420;
+        var qrY = imgY + imgH + 40;
+        var qrX = cardX + (cardW - qrSize) / 2;
+
+        if (qrCanvas) {
+            // Scharf skalieren durch imageSmoothingEnabled=false
+            ctx.imageSmoothingEnabled = false;
+            ctx.drawImage(qrCanvas, qrX, qrY, qrSize, qrSize);
+            ctx.imageSmoothingEnabled = true;
+        }
+
+        // Ticket-Code unter QR
+        if (d.code) {
+            ctx.fillStyle = '#131020';
+            ctx.font = '700 28px ' + mono;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'top';
+            ctx.fillText(d.code, cardX + cardW / 2, qrY + qrSize + 18);
+        }
+
+        // ── INFO-BLOCK (2 Spalten: Datum/Ort | Inhaber) ──
+        var infoY = qrY + qrSize + 70;
+        var colW = (cardW - 80) / 2;
+        var col1X = cardX + 30;
+        var col2X = cardX + cardW / 2 + 10;
+
+        var infoEntries = [];
+        if (d.date) {
+            infoEntries.push(['Datum', d.date + (d.doors ? ' · ' + d.doors : '')]);
+        }
+        if (d.location) {
+            infoEntries.push(['Ort', d.location]);
+        }
+        if (d.type) {
+            infoEntries.push(['Kategorie', d.type]);
+        }
+        if (d.buyer) {
+            infoEntries.push(['Inhaber:in', d.buyer]);
+        }
+
+        var rowH = 42;
+        var col = 0;
+        infoEntries.forEach(function(row, i) {
+            var x = col === 0 ? col1X : col2X;
+            var y = infoY + Math.floor(i / 2) * rowH;
+
+            ctx.fillStyle = '#9ca3af';
+            ctx.font = '600 11px ' + font;
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'top';
+            ctx.fillText(row[0].toUpperCase(), x, y);
+
+            ctx.fillStyle = '#131020';
+            ctx.font = '600 15px ' + font;
+            ctx.textBaseline = 'top';
+            ctx.fillText(truncate(row[1], 30), x, y + 16);
+
+            col = col === 0 ? 1 : 0;
+        });
+
+        // ── SPONSOR (falls vorhanden) ──
+        if (sponsorImg) {
+            var sponsorMaxH = 100;
+            var sponsorPadTop = 40;
+            var sponsorY = cardY + cardH - sponsorMaxH - 40;
+
+            // Divider
+            ctx.strokeStyle = '#e5e7eb';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(cardX + 30, sponsorY - 20);
+            ctx.lineTo(cardX + cardW - 30, sponsorY - 20);
+            ctx.setLineDash([4, 6]);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            // Sponsor-Label
+            ctx.fillStyle = '#9ca3af';
+            ctx.font = '600 10px ' + font;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'top';
+            ctx.fillText('IN KOOPERATION MIT', cardX + cardW / 2, sponsorY - 10);
+
+            // Sponsor-Logo zentriert
+            var spRatio = sponsorImg.naturalWidth / sponsorImg.naturalHeight;
+            var spH = Math.min(sponsorMaxH, sponsorImg.naturalHeight);
+            var spW = spH * spRatio;
+            var maxSpW = cardW - 80;
+            if (spW > maxSpW) {
+                spW = maxSpW;
+                spH = spW / spRatio;
+            }
+            ctx.drawImage(
+                sponsorImg,
+                cardX + (cardW - spW) / 2,
+                sponsorY + 10,
+                spW,
+                spH
+            );
+        } else {
+            // Ohne Sponsor: kleiner Footer-Hinweis
+            ctx.fillStyle = '#9ca3af';
+            ctx.font = '400 12px ' + font;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'bottom';
+            ctx.fillText(
+                'Bitte dieses Ticket ausgedruckt oder digital zum Einlass mitbringen.',
+                cardX + cardW / 2,
+                cardY + cardH - 30
+            );
+        }
+
+        return c;
+    }
+
+    // ═══════════════════════════════════════
+    // EXPORT (Download oder Share)
+    // ═══════════════════════════════════════
+
+    function downloadCanvas(c, d, btn, originalHTML) {
+        try {
+            c.toBlob(function(blob) {
+                if (!blob) { alert('Bild konnte nicht erstellt werden.'); resetButton(btn, originalHTML); return; }
+                var url = URL.createObjectURL(blob);
+                var a = document.createElement('a');
+                a.href = url;
+                a.download = 'ticket-' + (d.code || Date.now()) + '.png';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                setTimeout(function(){ URL.revokeObjectURL(url); }, 2000);
+                resetButton(btn, originalHTML);
+            }, 'image/png', 0.95);
+        } catch (e) {
+            alert('Fehler: ' + e.message);
+            resetButton(btn, originalHTML);
         }
     }
-    if (line) lines.push(line);
-    return lines.length ? lines : [text];
-}
 
-function dashedLine(ctx, x1, y1, x2, y2) {
-    ctx.save();
-    ctx.setLineDash([8, 6]);
-    ctx.strokeStyle = '#e0e0e0';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(x1, y1);
-    ctx.lineTo(x2, y2);
-    ctx.stroke();
-    ctx.restore();
-}
+    function shareCanvas(c, d, btn, originalHTML) {
+        c.toBlob(function(blob) {
+            if (!blob) { resetButton(btn, originalHTML); return; }
+            var file = new File([blob], 'ticket-' + (d.code || Date.now()) + '.png', { type: 'image/png' });
 
-function roundRect(ctx, x, y, w, h, r, fill, stroke) {
-    ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.lineTo(x + w - r, y);
-    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-    ctx.lineTo(x + w, y + h - r);
-    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-    ctx.lineTo(x + r, y + h);
-    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
-    ctx.lineTo(x, y + r);
-    ctx.quadraticCurveTo(x, y, x + r, y);
-    ctx.closePath();
-    if (fill) ctx.fill();
-    if (stroke) ctx.stroke();
-}
+            if (navigator.canShare && navigator.canShare({ files: [file] })) {
+                navigator.share({
+                    title: d.event || 'Mein Ticket',
+                    text: 'Mein Ticket für ' + (d.event || 'das Event'),
+                    files: [file],
+                }).catch(function(){ /* User cancel → ignore */ })
+                  .finally(function(){ resetButton(btn, originalHTML); });
+            } else {
+                // Fallback: Download statt Share
+                downloadCanvas(c, d, btn, originalHTML);
+            }
+        }, 'image/png', 0.95);
+    }
+
+    // ═══════════════════════════════════════
+    // HELPERS
+    // ═══════════════════════════════════════
+
+    function drawRoundedRect(ctx, x, y, w, h, r, opts) {
+        opts = opts || {};
+        ctx.beginPath();
+        ctx.moveTo(x + r, y);
+        ctx.lineTo(x + w - r, y);
+        ctx.arcTo(x + w, y, x + w, y + r, r);
+        if (opts.topOnly) {
+            ctx.lineTo(x + w, y + h);
+            ctx.lineTo(x, y + h);
+        } else {
+            ctx.lineTo(x + w, y + h - r);
+            ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+            ctx.lineTo(x + r, y + h);
+            ctx.arcTo(x, y + h, x, y + h - r, r);
+        }
+        ctx.lineTo(x, y + r);
+        ctx.arcTo(x, y, x + r, y, r);
+        ctx.closePath();
+    }
+
+    function drawWrappedText(ctx, text, x, y, maxW, lineH, maxLines, align) {
+        align = align || ctx.textAlign || 'left';
+        var words = text.split(' ');
+        var lines = [];
+        var line = '';
+        for (var i = 0; i < words.length; i++) {
+            var test = line ? line + ' ' + words[i] : words[i];
+            if (ctx.measureText(test).width > maxW && line) {
+                lines.push(line);
+                line = words[i];
+            } else {
+                line = test;
+            }
+        }
+        if (line) lines.push(line);
+        if (maxLines && lines.length > maxLines) {
+            lines = lines.slice(0, maxLines);
+            var last = lines[maxLines - 1];
+            while (ctx.measureText(last + '…').width > maxW && last.length > 1) last = last.slice(0, -1);
+            lines[maxLines - 1] = last + '…';
+        }
+        // zeichnen von UNTEN nach oben wenn Baseline bottom → Reihenfolge umdrehen
+        var startY = y;
+        if (ctx.textBaseline === 'bottom') {
+            startY = y - (lines.length - 1) * lineH;
+        }
+        for (var j = 0; j < lines.length; j++) {
+            ctx.fillText(lines[j], x, startY + j * lineH);
+        }
+    }
+
+    function truncate(str, max) {
+        if (!str) return '';
+        if (str.length <= max) return str;
+        return str.slice(0, max - 1) + '…';
+    }
+
+})();
