@@ -265,11 +265,15 @@ class TIX_Settings {
             'mt_accent_color'    => '',  // leer = globaler Accent
 
             // ── HTML-Ticket ──
-            'ht_version'             => 'v1',   // v1 Classic | v2 Premium | v3 Festival | v4 Holographic
+            'ht_version'             => 'v1',   // v1 Classic | v2 Premium | v3 Festival | v4 Holographic | v5 Cyberpunk | v6 Retro
             'ht_show_event_cover'    => 0,      // Event-Bild als Hero oben im Ticket (nur wenn gesetzt)
             'ht_show_countdown'      => 0,      // Countdown zum Event oben
             'ht_show_verified_badge' => 0,      // "✓ Offizielles Ticket"-Badge im Header
             'ht_show_agb_footer'     => 1,      // AGB/Rückerstattung-Link im Footer
+            'ht_seasonal_enabled'    => 0,      // Saison-Overlays (Weihnachten/Halloween/Valentin) über V1-V6
+            'ht_watermark_enabled'   => 0,      // Diagonal-Wasserzeichen mit Ticket-ID
+            'ht_weather_enabled'     => 0,      // Live-Wetter am Event-Tag
+            'ht_checkin_sound'       => 1,      // Audio-Feedback beim Check-in
             'ht_logo_height'     => 44,
             'ht_header_bg'       => '#222222',
             'ht_header_text'     => '#ffffff',
@@ -1013,7 +1017,11 @@ class TIX_Settings {
         $clean['ht_logo_height']   = max(20, min(120, intval($input['ht_logo_height'] ?? 44)));
         $clean['ht_footer_text']   = sanitize_text_field($input['ht_footer_text'] ?? $d['ht_footer_text']);
         $clean['ht_logo_url']      = esc_url_raw($input['ht_logo_url'] ?? '');
-        $clean['ht_version']             = in_array($input['ht_version'] ?? 'v1', ['v1', 'v2', 'v3', 'v4'], true) ? $input['ht_version'] : 'v1';
+        $clean['ht_version']             = in_array($input['ht_version'] ?? 'v1', ['v1','v2','v3','v4','v5','v6'], true) ? $input['ht_version'] : 'v1';
+        $clean['ht_seasonal_enabled']    = !empty($input['ht_seasonal_enabled']) ? 1 : 0;
+        $clean['ht_watermark_enabled']   = !empty($input['ht_watermark_enabled']) ? 1 : 0;
+        $clean['ht_weather_enabled']     = !empty($input['ht_weather_enabled']) ? 1 : 0;
+        $clean['ht_checkin_sound']       = !empty($input['ht_checkin_sound']) ? 1 : 0;
         $clean['ht_show_event_cover']    = !empty($input['ht_show_event_cover']) ? 1 : 0;
         $clean['ht_show_countdown']      = !empty($input['ht_show_countdown']) ? 1 : 0;
         $clean['ht_show_verified_badge'] = !empty($input['ht_show_verified_badge']) ? 1 : 0;
@@ -3156,8 +3164,10 @@ class TIX_Settings {
                                             <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
                                                 <?php $vrow('v1', 'V1 · Classic', 'Clean &amp; klar. Header, Body mit QR + Info, Footer-Nachricht. Groß tauglich über alle Geräte.'); ?>
                                                 <?php $vrow('v2', 'V2 · Premium', 'Glow &amp; Gradient. Perforation, QR-Corner-Brackets, moderne Typografie, subtiler Shine.'); ?>
-                                                <?php $vrow('v3', 'V3 · Festival', 'Event-Cover als Hero oben, Event-Titel überlagert, minimalistischer Body. Voller Impact.', 'NEU'); ?>
-                                                <?php $vrow('v4', 'V4 · Holographic', 'V2-Basis mit animiertem Conic-Gradient-Shine. Premium-Optik mit Hologramm-Effekt.', 'NEU'); ?>
+                                                <?php $vrow('v3', 'V3 · Festival', 'Event-Cover als Hero oben, Event-Titel überlagert, minimalistischer Body. Voller Impact.'); ?>
+                                                <?php $vrow('v4', 'V4 · Holographic', 'V2-Basis mit animiertem Conic-Gradient-Shine. Premium-Optik mit Hologramm-Effekt.'); ?>
+                                                <?php $vrow('v5', 'V5 · Cyberpunk', 'Neon-Grid, Glitch-Text, Cyan/Magenta. Dystopian-Club-Feeling für Techno &amp; elektronische Musik.', 'NEU'); ?>
+                                                <?php $vrow('v6', 'V6 · Retro/Vintage', 'Aged Paper, Typewriter-Font, Sepia. Hollywood-Cinema-Ticket-Feeling für Theater &amp; Kino.', 'NEU'); ?>
                                             </div>
                                         </div>
 
@@ -3180,6 +3190,22 @@ class TIX_Settings {
                                                 <label style="display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid #e5e7eb;border-radius:8px;cursor:pointer;">
                                                     <input type="checkbox" name="<?php echo $ok; ?>[ht_show_agb_footer]" value="1" <?php checked(!empty($s['ht_show_agb_footer'])); ?>>
                                                     <span style="font-size:13px;"><strong>AGB-Footer</strong> · Link zu AGB &amp; Widerruf</span>
+                                                </label>
+                                                <label style="display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid #e5e7eb;border-radius:8px;cursor:pointer;">
+                                                    <input type="checkbox" name="<?php echo $ok; ?>[ht_seasonal_enabled]" value="1" <?php checked(!empty($s['ht_seasonal_enabled'])); ?>>
+                                                    <span style="font-size:13px;"><strong>🎄 Saison-Overlays</strong> · Weihnachten/Halloween/Valentin</span>
+                                                </label>
+                                                <label style="display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid #e5e7eb;border-radius:8px;cursor:pointer;">
+                                                    <input type="checkbox" name="<?php echo $ok; ?>[ht_watermark_enabled]" value="1" <?php checked(!empty($s['ht_watermark_enabled'])); ?>>
+                                                    <span style="font-size:13px;"><strong>💧 Wasserzeichen</strong> · Diagonale Ticket-ID (Anti-Fake)</span>
+                                                </label>
+                                                <label style="display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid #e5e7eb;border-radius:8px;cursor:pointer;">
+                                                    <input type="checkbox" name="<?php echo $ok; ?>[ht_weather_enabled]" value="1" <?php checked(!empty($s['ht_weather_enabled'])); ?>>
+                                                    <span style="font-size:13px;"><strong>☁️ Live-Wetter</strong> · Prognose am Event-Tag</span>
+                                                </label>
+                                                <label style="display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid #e5e7eb;border-radius:8px;cursor:pointer;">
+                                                    <input type="checkbox" name="<?php echo $ok; ?>[ht_checkin_sound]" value="1" <?php checked(!empty($s['ht_checkin_sound'])); ?>>
+                                                    <span style="font-size:13px;"><strong>🔊 Check-in-Sound</strong> · Ton + Vibration beim Scan</span>
                                                 </label>
                                             </div>
                                         </div>

@@ -1075,8 +1075,23 @@ class TIX_Tickets {
         $site_name = get_bloginfo('name');
 
         ?>
+<?php
+    // Saison-Klasse berechnen (nur wenn Toggle aktiv)
+    $season_class = '';
+    if (!empty($ht_seasonal_enabled)) {
+        $ref_date = $date_start ? strtotime($date_start) : time();
+        $md = (int) date('md', $ref_date); // 0101 .. 1231
+        if ($md >= 1215 && $md <= 1231) $season_class = 'tix-seasonal-christmas';
+        elseif ($md >= 101 && $md <= 103) $season_class = 'tix-seasonal-christmas';
+        elseif ($md >= 1024 && $md <= 1101) $season_class = 'tix-seasonal-halloween';
+        elseif ($md >= 210 && $md <= 215) $season_class = 'tix-seasonal-valentine';
+    }
+    $html_classes = 'tix-ht-' . esc_attr($ht_version);
+    if (!empty($event_cover_url) && $ht_version === 'v3') $html_classes .= ' tix-has-cover';
+    if (!empty($ht_watermark_enabled)) $html_classes .= ' tix-watermark-on';
+    ?>
 <!DOCTYPE html>
-<html lang="de" class="tix-ht-<?php echo esc_attr($ht_version); ?><?php if (!empty($event_cover_url) && in_array($ht_version, ['v3'], true)) echo ' tix-has-cover'; ?>">
+<html lang="de" class="<?php echo $html_classes; ?>">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -1673,6 +1688,236 @@ class TIX_Tickets {
         }
 
         /* ═══════════════════════════════════════
+           V5 · CYBERPUNK — Neon-Grid, Glitch-Text, Cyan/Magenta
+           ═══════════════════════════════════════ */
+        html.tix-ht-v5 body {
+            background: #05030e;
+            background-image:
+                linear-gradient(rgba(0,255,255,.04) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255,0,200,.04) 1px, transparent 1px),
+                radial-gradient(circle at 20% 30%, rgba(0,255,255,.12), transparent 50%),
+                radial-gradient(circle at 80% 70%, rgba(255,0,200,.12), transparent 50%);
+            background-size: 40px 40px, 40px 40px, auto, auto;
+            color: #e0f7ff;
+            min-height: 100vh;
+        }
+        html.tix-ht-v5 .ticket {
+            background: rgba(10, 8, 24, .92);
+            border: 2px solid transparent;
+            background:
+                linear-gradient(rgba(10,8,24,.92), rgba(10,8,24,.92)) padding-box,
+                linear-gradient(135deg, #00ffff, #ff00c8) border-box;
+            box-shadow: 0 0 60px -10px rgba(0,255,255,.25), 0 0 40px -10px rgba(255,0,200,.25);
+            color: #e0f7ff;
+            position: relative;
+            overflow: hidden;
+        }
+        html.tix-ht-v5 .ticket-header {
+            background: linear-gradient(135deg, #0a0818 0%, #150826 100%) !important;
+            color: #e0f7ff !important;
+            position: relative;
+            overflow: hidden;
+            border-bottom: 1px solid rgba(0,255,255,.3);
+        }
+        html.tix-ht-v5 .ticket-header::after {
+            content: "";
+            position: absolute; left: 0; right: 0; bottom: 0;
+            height: 2px;
+            background: linear-gradient(90deg, #00ffff, #ff00c8, #00ffff);
+            animation: tixCyberScan 3s linear infinite;
+        }
+        @keyframes tixCyberScan { to { background-position: 400% 0; } }
+        html.tix-ht-v5 .ticket-header h1 {
+            color: #fff !important;
+            text-transform: uppercase;
+            letter-spacing: .05em;
+            font-weight: 900;
+            text-shadow: 0 0 10px #00ffff, 0 0 20px rgba(0,255,255,.5), 2px 0 #ff00c8;
+        }
+        html.tix-ht-v5 .ticket-header p { color: #00ffff !important; text-transform: uppercase; letter-spacing: 2px; font-size: 11px; }
+        html.tix-ht-v5 .info-row .label { color: #ff00c8 !important; text-transform: uppercase; letter-spacing: 2.5px; font-weight: 700; font-size: 10px; }
+        html.tix-ht-v5 .info-row .value { color: #e0f7ff !important; font-family: 'SF Mono', 'Fira Code', Consolas, monospace; font-size: 14px; }
+        html.tix-ht-v5 .ticket-qr .tix-ticket-qr-canvas,
+        html.tix-ht-v5 .ticket-qr img {
+            padding: 8px;
+            background: #fff;
+            border-radius: 4px;
+            box-shadow: 0 0 20px rgba(0,255,255,.4), 0 0 40px rgba(255,0,200,.3);
+        }
+        html.tix-ht-v5 .ticket-qr .code {
+            color: #00ffff !important;
+            font-family: 'SF Mono', Consolas, monospace;
+            text-shadow: 0 0 8px #00ffff;
+            letter-spacing: 3px;
+        }
+        html.tix-ht-v5 .ticket-footer {
+            background: #0a0818 !important;
+            color: rgba(224,247,255,.5) !important;
+            border-top: 1px solid rgba(0,255,255,.3);
+        }
+
+        /* ═══════════════════════════════════════
+           V6 · RETRO / VINTAGE — Aged Paper, Typewriter, Sepia
+           ═══════════════════════════════════════ */
+        html.tix-ht-v6 body {
+            background-color: #ead6b2;
+            background-image:
+                radial-gradient(ellipse at top, rgba(139, 94, 60, 0.08), transparent 60%),
+                radial-gradient(ellipse at bottom, rgba(139, 94, 60, 0.12), transparent 60%),
+                repeating-linear-gradient(0deg, transparent 0px, transparent 3px, rgba(139, 94, 60, 0.025) 3px, rgba(139, 94, 60, 0.025) 4px);
+            color: #3b2a14;
+            min-height: 100vh;
+        }
+        html.tix-ht-v6 .ticket {
+            background: #f5e9ce !important;
+            border: 3px double #8b5e3c !important;
+            color: #3b2a14 !important;
+            box-shadow: 0 12px 30px -10px rgba(60, 40, 20, .4);
+            position: relative;
+        }
+        html.tix-ht-v6 .ticket::before {
+            content: "";
+            position: absolute; inset: 8px;
+            border: 1px dashed rgba(139, 94, 60, .45);
+            pointer-events: none;
+            z-index: 1;
+        }
+        html.tix-ht-v6 .ticket > * { position: relative; z-index: 2; }
+        html.tix-ht-v6 .ticket-header {
+            background: #3b2a14 !important;
+            color: #f5e9ce !important;
+            border-bottom: 3px double #8b5e3c;
+        }
+        html.tix-ht-v6 .ticket-header h1 {
+            font-family: 'Courier New', 'Courier Prime', Courier, monospace !important;
+            text-transform: uppercase;
+            letter-spacing: .04em;
+            color: #f5e9ce !important;
+        }
+        html.tix-ht-v6 .ticket-header p {
+            font-family: 'Courier New', Courier, monospace !important;
+            color: #d4a373 !important;
+            letter-spacing: 1.5px;
+        }
+        html.tix-ht-v6 .info-row .label,
+        html.tix-ht-v6 .info-row .value {
+            font-family: 'Courier New', Courier, monospace !important;
+            color: #3b2a14 !important;
+        }
+        html.tix-ht-v6 .info-row .label { text-transform: uppercase; letter-spacing: 2px; color: #8b5e3c !important; }
+        html.tix-ht-v6 .ticket-qr .tix-ticket-qr-canvas,
+        html.tix-ht-v6 .ticket-qr img {
+            background: #fff !important;
+            padding: 8px;
+            border: 2px solid #8b5e3c;
+        }
+        html.tix-ht-v6 .ticket-qr .code {
+            font-family: 'Courier New', Courier, monospace !important;
+            color: #3b2a14 !important;
+            letter-spacing: 3px;
+        }
+        html.tix-ht-v6 .ticket-footer {
+            background: #e8d4a8 !important;
+            color: #6b4924 !important;
+            font-family: 'Courier New', Courier, monospace !important;
+            font-size: 11px !important;
+            border-top: 2px dashed #8b5e3c;
+        }
+
+        /* ═══════════════════════════════════════
+           WATERMARK — Diagonales Ticket-ID über das Ticket
+           ═══════════════════════════════════════ */
+        html.tix-watermark-on .ticket {
+            position: relative;
+        }
+        html.tix-watermark-on .ticket .tix-watermark {
+            position: absolute; inset: 0;
+            display: flex; align-items: center; justify-content: center;
+            pointer-events: none;
+            overflow: hidden;
+            z-index: 3;
+        }
+        html.tix-watermark-on .ticket .tix-watermark span {
+            position: absolute;
+            font-family: 'SF Mono', Consolas, monospace;
+            font-size: 48px;
+            font-weight: 900;
+            color: rgba(0,0,0,.035);
+            white-space: nowrap;
+            transform: rotate(-24deg);
+            letter-spacing: 8px;
+            user-select: none;
+        }
+        html.tix-watermark-on.tix-ht-v3 .ticket .tix-watermark span,
+        html.tix-watermark-on.tix-ht-v4 .ticket .tix-watermark span,
+        html.tix-watermark-on.tix-ht-v5 .ticket .tix-watermark span { color: rgba(255,255,255,.05); }
+
+        /* ═══════════════════════════════════════
+           SEASONAL OVERLAYS — Weihnachten / Halloween / Valentin
+           ═══════════════════════════════════════ */
+        .tix-seasonal-overlay {
+            position: fixed; inset: 0; pointer-events: none; z-index: 50;
+            overflow: hidden;
+        }
+        /* Weihnachten: Schnee-Partikel */
+        .tix-seasonal-christmas::before {
+            content: "";
+            position: absolute; inset: -20px;
+            background-image: radial-gradient(circle, #fff 1.5px, transparent 2px);
+            background-size: 60px 60px;
+            background-position: 0 0;
+            opacity: .7;
+            animation: tixSnowFall 8s linear infinite;
+        }
+        .tix-seasonal-christmas::after {
+            content: "";
+            position: absolute; inset: -20px;
+            background-image: radial-gradient(circle, #fff 2px, transparent 2.5px);
+            background-size: 90px 90px;
+            background-position: 30px 30px;
+            opacity: .5;
+            animation: tixSnowFall 14s linear infinite;
+        }
+        @keyframes tixSnowFall {
+            0%   { transform: translateY(-100vh); }
+            100% { transform: translateY(100vh); }
+        }
+        /* Halloween: Orange-Violett-Gradient-Fade */
+        .tix-seasonal-halloween {
+            background: linear-gradient(180deg, rgba(255,94,0,.08) 0%, transparent 25%, transparent 75%, rgba(94,0,128,.10) 100%);
+        }
+        /* Valentin: fließende Herzen */
+        .tix-seasonal-valentine::before {
+            content: "♥  ♥  ♥";
+            position: absolute; top: 10%; left: 5%; right: 5%;
+            font-size: 28px; color: rgba(236,72,153,.35);
+            display: flex; justify-content: space-around;
+            animation: tixValentinePulse 3s ease-in-out infinite;
+        }
+        @keyframes tixValentinePulse {
+            0%, 100% { transform: translateY(0) scale(1); opacity: .35; }
+            50%      { transform: translateY(-10px) scale(1.1); opacity: .5; }
+        }
+        /* Print & Save-as-Image: Seasonal aus */
+        @media print { .tix-seasonal-overlay { display: none !important; } }
+        .tix-snapshot .tix-seasonal-overlay { display: none !important; }
+
+        /* ═══════════════════════════════════════
+           LIVE-WETTER-BADGE (auf Info-Row Datum)
+           ═══════════════════════════════════════ */
+        .tix-weather-inline {
+            display: inline-flex; align-items: center; gap: 5px;
+            margin-left: 8px;
+            padding: 3px 10px;
+            background: rgba(59,130,246,.1); color: #1e40af;
+            border: 1px solid rgba(59,130,246,.25);
+            border-radius: 999px;
+            font-size: 11px; font-weight: 600;
+            vertical-align: middle;
+        }
+        .tix-weather-inline .tix-weather-icon { font-size: 13px; }
+
+        /* ═══════════════════════════════════════
            SNAPSHOT-MODE: Animationen + mix-blend-mode beim Capture ausblenden
            (wird von tixDoSaveImage() kurzzeitig gesetzt)
            ═══════════════════════════════════════ */
@@ -1724,6 +1969,8 @@ class TIX_Tickets {
         /* QR-Border auf solid (V4 hatte animierten Conic-Rainbow-Border) */
         .tix-snapshot .ticket-qr .tix-ticket-qr-canvas,
         .tix-snapshot .ticket-qr img { border: 2px solid #e5e7eb !important; background: #fff !important; animation: none !important; }
+        /* Watermark im Screenshot sichtbarer + solid render */
+        .tix-snapshot .tix-watermark span { color: rgba(0,0,0,.08) !important; }
     </style>
 </head>
 <body>
@@ -1773,7 +2020,16 @@ class TIX_Tickets {
     </div>
     <?php endif; ?>
 
+    <?php if ($season_class): ?>
+    <div class="tix-seasonal-overlay <?php echo esc_attr($season_class); ?> no-print"></div>
+    <?php endif; ?>
+
     <div class="ticket">
+        <?php if (!empty($ht_watermark_enabled)): ?>
+        <div class="tix-watermark" aria-hidden="true">
+            <span><?php echo esc_html(str_repeat($code . ' · ', 20)); ?></span>
+        </div>
+        <?php endif; ?>
         <?php if ($event_cover_url && !empty($ht_show_event_cover)): ?>
         <div class="ticket-cover">
             <img src="<?php echo esc_url($event_cover_url); ?>" alt="<?php echo esc_attr($event_name); ?>">
@@ -1810,7 +2066,12 @@ class TIX_Tickets {
                 <?php if ($date_display): ?>
                 <div class="info-row">
                     <div class="label">Datum</div>
-                    <div class="value"><?php echo esc_html($date_display); ?></div>
+                    <div class="value">
+                        <?php echo esc_html($date_display); ?>
+                        <?php if (!empty($ht_weather_enabled)): ?>
+                            <span class="tix-weather-inline" data-tix-weather-placeholder style="display:none;"></span>
+                        <?php endif; ?>
+                    </div>
                 </div>
                 <?php endif; ?>
 
@@ -1968,6 +2229,22 @@ class TIX_Tickets {
                     style="background:#fff;color:#1f2937;border:1px solid #e5e7eb;">
                 &#128228; Teilen
             </button>
+        </div>
+        <div class="tix-ticket-actions-row">
+            <button type="button" class="btn-base" onclick="tixCalendarDownload()"
+                    style="background:#fff;color:#1f2937;border:1px solid #e5e7eb;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                In Kalender speichern
+            </button>
+            <?php // Routing-Button: öffnet Maps mit Event-Location ?>
+            <?php $maps_query = urlencode(trim($location . ' ' . $address)); ?>
+            <?php if ($maps_query): ?>
+            <a href="https://maps.google.com/?q=<?php echo $maps_query; ?>" target="_blank" rel="noopener" class="btn-base"
+               style="background:#fff;color:#1f2937;border:1px solid #e5e7eb;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:6px;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                Anfahrt planen
+            </a>
+            <?php endif; ?>
         </div>
         <div class="tix-ticket-actions-row">
             <button type="button" class="btn-base" onclick="tixWalletShow('apple')"
@@ -2289,6 +2566,155 @@ class TIX_Tickets {
         window.TIX_AJAX_URL = <?php echo wp_json_encode($ajax_url); ?>;
         var TIX_AJAX_URL = window.TIX_AJAX_URL;
         var TIX_TOKEN    = <?php echo wp_json_encode($online_token); ?>;
+        <?php
+        // Location-Koordinaten für Wetter (aus Location-CPT falls referenziert)
+        $loc_lat = ''; $loc_lng = '';
+        $loc_ref = intval(get_post_meta($event_id, '_tix_location_id', true));
+        if ($loc_ref) {
+            $loc_lat = (string) get_post_meta($loc_ref, '_tix_loc_lat', true);
+            $loc_lng = (string) get_post_meta($loc_ref, '_tix_loc_lng', true);
+        }
+        ?>
+        var TIX_EVENT = {
+            name:      <?php echo wp_json_encode($event_name); ?>,
+            startISO:  <?php echo wp_json_encode($date_start); ?>,
+            endISO:    <?php echo wp_json_encode(get_post_meta($event_id, '_tix_date_end', true) ?: ''); ?>,
+            timeStart: <?php echo wp_json_encode($time_start); ?>,
+            timeDoors: <?php echo wp_json_encode($time_doors); ?>,
+            location:  <?php echo wp_json_encode(trim($location . ' ' . $address)); ?>,
+            address:   <?php echo wp_json_encode($address); ?>,
+            lat:       <?php echo wp_json_encode($loc_lat); ?>,
+            lng:       <?php echo wp_json_encode($loc_lng); ?>,
+            code:      <?php echo wp_json_encode($code); ?>,
+            url:       <?php echo wp_json_encode(self::get_online_view_url($ticket_id)); ?>,
+            checkinSound:   <?php echo !empty($s['ht_checkin_sound'])   ? 'true' : 'false'; ?>,
+            weatherOn:      <?php echo !empty($s['ht_weather_enabled']) ? 'true' : 'false'; ?>
+        };
+
+        // ── Live-Wetter am Event-Tag (Open-Meteo, keine API-Key-Anforderung) ──
+        (function(){
+            if (!TIX_EVENT.weatherOn || !TIX_EVENT.startISO) return;
+            var placeholder = document.querySelector('[data-tix-weather-placeholder]');
+            if (!placeholder) return;
+
+            // Nur fürs Event am selben Tag oder bis 14 Tage in der Zukunft (Open-Meteo-Range)
+            var evDate = new Date(TIX_EVENT.startISO.replace(' ', 'T'));
+            if (isNaN(evDate.getTime())) return;
+            var daysAhead = (evDate.getTime() - Date.now()) / (1000*60*60*24);
+            if (daysAhead < -1 || daysAhead > 14) return; // Event bereits vorbei oder zu weit weg
+
+            function renderWeather(temp, code) {
+                // WMO weather codes → emoji
+                var map = {
+                    0:'☀️', 1:'🌤️', 2:'⛅', 3:'☁️',
+                    45:'🌫️', 48:'🌫️',
+                    51:'🌦️', 53:'🌦️', 55:'🌧️',
+                    61:'🌧️', 63:'🌧️', 65:'🌧️',
+                    71:'🌨️', 73:'🌨️', 75:'❄️', 77:'❄️',
+                    80:'🌦️', 81:'🌧️', 82:'⛈️',
+                    85:'🌨️', 86:'❄️',
+                    95:'⛈️', 96:'⛈️', 99:'⛈️'
+                };
+                var icon = map[code] || '🌡️';
+                placeholder.innerHTML = '<span class="tix-weather-icon">' + icon + '</span><span>' + Math.round(temp) + '°C</span>';
+                placeholder.style.display = 'inline-flex';
+            }
+
+            function fetchWeather(lat, lng) {
+                var dateStr = TIX_EVENT.startISO.split(' ')[0].split('T')[0];
+                var url = 'https://api.open-meteo.com/v1/forecast?latitude=' + lat + '&longitude=' + lng +
+                          '&daily=weathercode,temperature_2m_max&timezone=auto&start_date=' + dateStr + '&end_date=' + dateStr;
+                fetch(url).then(function(r){ return r.json(); }).then(function(data){
+                    if (!data || !data.daily) return;
+                    var temp = (data.daily.temperature_2m_max && data.daily.temperature_2m_max[0]);
+                    var code = (data.daily.weathercode && data.daily.weathercode[0]);
+                    if (temp != null) renderWeather(temp, code);
+                }).catch(function(){});
+            }
+
+            // Koordinaten vorhanden → direkt nutzen, sonst via Geocoding-API von Open-Meteo
+            if (TIX_EVENT.lat && TIX_EVENT.lng) {
+                fetchWeather(parseFloat(TIX_EVENT.lat), parseFloat(TIX_EVENT.lng));
+            } else if (TIX_EVENT.address || TIX_EVENT.location) {
+                var query = TIX_EVENT.address || TIX_EVENT.location;
+                var gcUrl = 'https://geocoding-api.open-meteo.com/v1/search?name=' + encodeURIComponent(query) + '&count=1&language=de';
+                fetch(gcUrl).then(function(r){ return r.json(); }).then(function(data){
+                    if (data && data.results && data.results[0]) {
+                        fetchWeather(data.results[0].latitude, data.results[0].longitude);
+                    }
+                }).catch(function(){});
+            }
+        })();
+
+        // ── Kalender-Download (.ics generieren und downloaden) ──
+        function tixCalendarDownload() {
+            if (!TIX_EVENT.startISO) { alert('Kein Event-Datum vorhanden.'); return; }
+            // Start: Datum + optional Zeit
+            function toICS(dateStr, timeStr) {
+                if (!dateStr) return '';
+                var d = new Date(dateStr.replace(' ', 'T'));
+                if (isNaN(d.getTime())) return '';
+                if (timeStr) {
+                    var parts = timeStr.split(':');
+                    d.setHours(parseInt(parts[0],10)||0, parseInt(parts[1],10)||0, 0, 0);
+                }
+                // UTC-Format: YYYYMMDDTHHMMSSZ
+                var pad = function(n){ return (n<10?'0':'')+n; };
+                return d.getUTCFullYear() + pad(d.getUTCMonth()+1) + pad(d.getUTCDate()) + 'T' +
+                       pad(d.getUTCHours()) + pad(d.getUTCMinutes()) + pad(d.getUTCSeconds()) + 'Z';
+            }
+            var dtStart = toICS(TIX_EVENT.startISO, TIX_EVENT.timeStart || TIX_EVENT.timeDoors);
+            var dtEnd   = TIX_EVENT.endISO ? toICS(TIX_EVENT.endISO, TIX_EVENT.timeStart) : '';
+            if (!dtEnd && dtStart) {
+                // Fallback: +4h nach Start
+                var d2 = new Date(TIX_EVENT.startISO.replace(' ', 'T'));
+                if (TIX_EVENT.timeStart) {
+                    var ts = TIX_EVENT.timeStart.split(':');
+                    d2.setHours(parseInt(ts[0],10)||0, parseInt(ts[1],10)||0, 0, 0);
+                }
+                d2.setHours(d2.getHours() + 4);
+                var pad = function(n){ return (n<10?'0':'')+n; };
+                dtEnd = d2.getUTCFullYear() + pad(d2.getUTCMonth()+1) + pad(d2.getUTCDate()) + 'T' +
+                        pad(d2.getUTCHours()) + pad(d2.getUTCMinutes()) + pad(d2.getUTCSeconds()) + 'Z';
+            }
+            var now = new Date();
+            var pad2 = function(n){ return (n<10?'0':'')+n; };
+            var dtStamp = now.getUTCFullYear() + pad2(now.getUTCMonth()+1) + pad2(now.getUTCDate()) + 'T' +
+                          pad2(now.getUTCHours()) + pad2(now.getUTCMinutes()) + pad2(now.getUTCSeconds()) + 'Z';
+            var escICS = function(s) { return (s||'').replace(/\\/g, '\\\\').replace(/,/g, '\\,').replace(/;/g, '\\;').replace(/\n/g, '\\n'); };
+            var ics = [
+                'BEGIN:VCALENDAR',
+                'VERSION:2.0',
+                'PRODID:-//Tixomat//Ticket//DE',
+                'CALSCALE:GREGORIAN',
+                'METHOD:PUBLISH',
+                'BEGIN:VEVENT',
+                'UID:' + TIX_EVENT.code + '@tixomat',
+                'DTSTAMP:' + dtStamp,
+                'DTSTART:' + dtStart,
+                'DTEND:'   + dtEnd,
+                'SUMMARY:' + escICS(TIX_EVENT.name),
+                'LOCATION:' + escICS(TIX_EVENT.location),
+                'DESCRIPTION:' + escICS('Ticket-Code: ' + TIX_EVENT.code + '\\n\\nDein Online-Ticket: ' + TIX_EVENT.url),
+                'URL:' + TIX_EVENT.url,
+                'BEGIN:VALARM',
+                'TRIGGER:-PT2H',
+                'ACTION:DISPLAY',
+                'DESCRIPTION:' + escICS(TIX_EVENT.name + ' startet in 2 Stunden'),
+                'END:VALARM',
+                'END:VEVENT',
+                'END:VCALENDAR'
+            ].join('\r\n');
+            var blob = new Blob([ics], { type: 'text/calendar;charset=utf-8' });
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement('a');
+            a.href = url;
+            a.download = 'ticket-' + (TIX_EVENT.code || 'event') + '.ics';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(function(){ URL.revokeObjectURL(url); }, 2000);
+        }
 
         function tixApplyBadge(state) {
             var badge = document.querySelector('[data-tix-badge]');
@@ -2380,14 +2806,50 @@ class TIX_Tickets {
         document.addEventListener('keydown', function(e){
             if (e.key === 'Escape') tixAssignClose();
         });
+        var TIX_WAS_CHECKED_IN = <?php echo $badge['checked_in'] ? 'true' : 'false'; ?>;
         function tixPollStatus() {
             var body = new FormData();
             body.append('action', 'tix_ticket_status');
             body.append('token', TIX_TOKEN);
             fetch(TIX_AJAX_URL, { method: 'POST', body: body, credentials: 'same-origin' })
                 .then(function(r){ return r.json(); })
-                .then(function(res){ if (res && res.success) tixApplyBadge(res.data); })
+                .then(function(res){
+                    if (!res || !res.success) return;
+                    // Transition: noch nicht → eingecheckt? → Audio + Vibration
+                    if (res.data.checked_in && !TIX_WAS_CHECKED_IN) {
+                        tixPlayCheckinFeedback();
+                    }
+                    TIX_WAS_CHECKED_IN = !!res.data.checked_in;
+                    tixApplyBadge(res.data);
+                })
                 .catch(function(){});
+        }
+
+        // ── Audio + Vibration beim Check-in ──
+        function tixPlayCheckinFeedback() {
+            if (!TIX_EVENT.checkinSound) return;
+            try {
+                if (navigator.vibrate) navigator.vibrate([80, 40, 120]);
+                var AudioCtx = window.AudioContext || window.webkitAudioContext;
+                if (!AudioCtx) return;
+                var ctx = new AudioCtx();
+                // 2-Tone: C5 (523) → E5 (659) "Willkommen"-Sound
+                var playTone = function(freq, start, duration) {
+                    var osc = ctx.createOscillator();
+                    var gain = ctx.createGain();
+                    osc.type = 'sine';
+                    osc.frequency.value = freq;
+                    gain.gain.setValueAtTime(0, ctx.currentTime + start);
+                    gain.gain.linearRampToValueAtTime(0.25, ctx.currentTime + start + 0.02);
+                    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + duration);
+                    osc.connect(gain);
+                    gain.connect(ctx.destination);
+                    osc.start(ctx.currentTime + start);
+                    osc.stop(ctx.currentTime + start + duration);
+                };
+                playTone(523.25, 0,    0.18);
+                playTone(659.25, 0.15, 0.28);
+            } catch (e) { /* still */ }
         }
         // Alle 12s Status abfragen (für Live-Badge nach Scan am Einlass)
         setInterval(tixPollStatus, 12000);
