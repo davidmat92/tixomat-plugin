@@ -2168,12 +2168,15 @@ class TIX_Tickets {
             'ht_logo_height'   => 44,
             'ht_footer_text'   => 'Bitte dieses Ticket ausgedruckt oder digital zum Einlass mitbringen.',
             'ht_logo_url'      => '',
+            'ht_version'       => 'v1',
         ];
         foreach ($hd as $k => $v) {
             $$k = isset($s[$k]) && $s[$k] !== '' ? $s[$k] : $v;
         }
         $ht_border_radius = intval($ht_border_radius);
         $ht_logo_height   = intval($ht_logo_height);
+        $ht_version       = in_array($ht_version, ['v1', 'v2'], true) ? $ht_version : 'v1';
+        $accent           = $s['color_accent'] ?? '#c8ff00';
 
         $total = count($tickets);
         $buyer_name  = get_post_meta($tickets[0]->ID, '_tix_ticket_owner_name', true);
@@ -2181,7 +2184,7 @@ class TIX_Tickets {
 
         header('Content-Type: text/html; charset=utf-8');
         ?><!DOCTYPE html>
-<html lang="de">
+<html lang="de" class="tix-ht-<?php echo esc_attr($ht_version); ?>">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -2309,6 +2312,131 @@ class TIX_Tickets {
             .tix-bundle-qr { flex: 0 0 auto; }
             .tix-bundle-info { width: 100%; }
             .tix-bundle-header { justify-content: center; text-align: center; }
+        }
+
+        /* ═══════════════════════════════════════
+           V2 · PREMIUM DESIGN (Override-Layer Bundle)
+           ═══════════════════════════════════════ */
+        html.tix-ht-v2 body {
+            background: radial-gradient(circle at 20% 0%, rgba(139,92,246,.08), transparent 50%),
+                        radial-gradient(circle at 80% 100%, rgba(59,130,246,.06), transparent 50%),
+                        #f7f7f8;
+            min-height: 100vh;
+        }
+        html.tix-ht-v2 .tix-bundle-head h1 {
+            font-size: 24px; font-weight: 800; letter-spacing: -.02em;
+        }
+        html.tix-ht-v2 .tix-bundle-card {
+            position: relative;
+            box-shadow: 0 18px 40px -18px rgba(17,24,39,.18),
+                        0 8px 20px -8px rgba(17,24,39,.06),
+                        0 0 0 1px rgba(17,24,39,.04);
+            overflow: hidden;
+            background:
+                linear-gradient(<?php echo esc_attr($ht_body_bg); ?>, <?php echo esc_attr($ht_body_bg); ?>) padding-box,
+                linear-gradient(135deg, <?php echo esc_attr($ht_header_bg); ?> 0%, <?php echo esc_attr($accent); ?> 100%) border-box;
+            border: 2px solid transparent;
+        }
+        /* Accent-Strip am Header-Rand (nur unten gerundet, innerhalb des Tickets) */
+        html.tix-ht-v2 .tix-bundle-card::before {
+            content: "";
+            position: absolute; left: 14%; right: 14%; top: 0; height: 3px;
+            background: linear-gradient(90deg, transparent, <?php echo esc_attr($accent); ?>, transparent);
+            border-radius: 0 0 999px 999px;
+            opacity: .7;
+            z-index: 2;
+            pointer-events: none;
+        }
+        html.tix-ht-v2 .tix-bundle-header {
+            background: linear-gradient(135deg,
+                <?php echo esc_attr($ht_header_bg); ?> 0%,
+                <?php echo esc_attr($ht_header_bg); ?> 60%,
+                color-mix(in srgb, <?php echo esc_attr($ht_header_bg); ?> 82%, <?php echo esc_attr($accent); ?> 18%) 100%);
+            padding: 20px 22px;
+            position: relative;
+            overflow: hidden;
+        }
+        html.tix-ht-v2 .tix-bundle-header::after {
+            content: "";
+            position: absolute; inset: 0;
+            background: radial-gradient(ellipse at top right, rgba(255,255,255,.10), transparent 55%);
+            pointer-events: none;
+        }
+        html.tix-ht-v2 .tix-bundle-title h2 {
+            font-size: 18px; font-weight: 800;
+            letter-spacing: -.015em;
+            text-shadow: 0 1px 0 rgba(0,0,0,.1);
+        }
+        html.tix-ht-v2 .tix-bundle-title p {
+            font-size: 12px; font-weight: 500;
+            opacity: .85; letter-spacing: .02em;
+        }
+
+        /* Perforation zwischen Header und Body */
+        html.tix-ht-v2 .tix-bundle-body {
+            position: relative;
+            padding-top: 28px;
+        }
+        html.tix-ht-v2 .tix-bundle-body::before {
+            content: "";
+            position: absolute; left: 0; right: 0; top: 10px;
+            height: 2px;
+            background-image: radial-gradient(circle, <?php echo esc_attr($ht_divider_color); ?> 1px, transparent 1.4px);
+            background-size: 10px 2px;
+            background-repeat: repeat-x;
+            background-position: center;
+        }
+
+        html.tix-ht-v2 .info-row .label {
+            font-size: 9.5px; letter-spacing: 1.4px; font-weight: 700;
+            color: color-mix(in srgb, <?php echo esc_attr($ht_label_color); ?> 88%, <?php echo esc_attr($accent); ?> 12%);
+        }
+        html.tix-ht-v2 .info-row .value {
+            font-size: 14px; font-weight: 600; letter-spacing: -.005em;
+        }
+
+        /* QR mit Corner-Brackets (kompakter als Einzelticket-V2) */
+        html.tix-ht-v2 .tix-bundle-qr {
+            position: relative;
+            padding: 8px;
+            background: #fff;
+            border-radius: 10px;
+            box-shadow: 0 4px 10px -6px rgba(17,24,39,.08), 0 0 0 1px rgba(17,24,39,.05);
+        }
+        html.tix-ht-v2 .tix-bundle-qr::before,
+        html.tix-ht-v2 .tix-bundle-qr::after {
+            content: "";
+            position: absolute;
+            width: 11px; height: 11px;
+            border: 2px solid <?php echo esc_attr($accent); ?>;
+        }
+        html.tix-ht-v2 .tix-bundle-qr::before {
+            top: -3px; left: -3px;
+            border-right: 0; border-bottom: 0;
+            border-radius: 3px 0 0 0;
+        }
+        html.tix-ht-v2 .tix-bundle-qr::after {
+            bottom: -3px; right: -3px;
+            border-left: 0; border-top: 0;
+            border-radius: 0 0 3px 0;
+        }
+        html.tix-ht-v2 .tix-bundle-qr .code {
+            font-family: 'SF Mono', 'Fira Code', Consolas, monospace;
+            letter-spacing: 2px; font-weight: 700;
+        }
+
+        html.tix-ht-v2 .tix-bundle-actions button,
+        html.tix-ht-v2 .tix-bundle-actions a {
+            border-radius: 8px;
+            transition: transform .12s ease, background .15s ease;
+            font-weight: 600;
+        }
+        html.tix-ht-v2 .tix-bundle-actions button:active,
+        html.tix-ht-v2 .tix-bundle-actions a:active { transform: translateY(1px); }
+
+        html.tix-ht-v2 .tix-bundle-footer {
+            background: color-mix(in srgb, <?php echo esc_attr($ht_body_bg); ?> 94%, <?php echo esc_attr($ht_border_color); ?> 6%);
+            font-size: 11px; font-weight: 500; letter-spacing: .01em;
         }
     </style>
 </head>
