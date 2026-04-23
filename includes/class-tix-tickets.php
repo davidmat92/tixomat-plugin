@@ -1483,7 +1483,7 @@ class TIX_Tickets {
 
         .tix-info-dresscode .value,
         .tix-info-rules .value,
-        .tix-info-notes .value { font-style: italic; line-height: 1.5; }
+        .tix-info-notes .value { line-height: 1.5; }
 
         .tix-entry-rules {
             max-width: 600px; margin: 8px auto 0;
@@ -2085,12 +2085,17 @@ class TIX_Tickets {
                 try { qrImg.setAttribute('crossorigin', 'anonymous'); } catch(e){}
             }
 
-            // Snapshot-Modus aktivieren: deaktiviert Animationen + mix-blend-mode
-            // damit html2canvas-pro V3/V4 sauber rendern kann
-            document.documentElement.classList.add('tix-snapshot');
+            // Snapshot-Modus aktivieren: V3/V4 temporär auf V1-Rendering umstellen
+            // damit html2canvas-pro keine color-mix/conic-gradient/mix-blend-mode Probleme hat.
+            // Live-Design wird nach Capture wiederhergestellt.
+            var htmlEl = document.documentElement;
+            var originalClass = htmlEl.className;
+            // tix-ht-v* komplett auf tix-ht-v1 umschreiben
+            htmlEl.className = originalClass.replace(/\btix-ht-v[1-4]\b/g, 'tix-ht-v1');
+            htmlEl.classList.add('tix-snapshot');
 
             var finishUI = function() {
-                document.documentElement.classList.remove('tix-snapshot');
+                htmlEl.className = originalClass;
                 btn.disabled = false; btn.innerHTML = oldHTML;
             };
 
