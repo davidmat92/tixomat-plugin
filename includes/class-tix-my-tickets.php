@@ -1536,13 +1536,6 @@ class TIX_My_Tickets {
                     ?>
                         <a href="<?php echo esc_url($t['download_url']); ?>" class="tix-mt-tcard-dl" target="_blank">&#8595; <?php echo esc_html($dl_label); ?></a>
                     <?php endif; ?>
-                    <?php
-                    $online_view_url = (class_exists('TIX_Tickets') && !empty($t['id']))
-                        ? TIX_Tickets::get_online_view_url($t['id']) : '';
-                    if ($online_view_url):
-                    ?>
-                        <a href="<?php echo esc_url($online_view_url); ?>" class="tix-mt-tcard-online" target="_blank" style="background:#f5f3ff;color:#5b21b6;border:1px solid #ddd6fe;text-decoration:none;">&#128187; Online-Ansicht</a>
-                    <?php endif; ?>
                     <button type="button" class="tix-mt-tcard-save" onclick="ehTicketImg(this)">&#128247; Als Bild speichern</button>
                     <button type="button" class="tix-mt-tcard-share" onclick="ehTicketShare(this)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v7a2 2 0 002 2h12a2 2 0 002-2v-7"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg> Teilen</button>
                 </div>
