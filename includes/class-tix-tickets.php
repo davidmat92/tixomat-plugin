@@ -1011,9 +1011,9 @@ class TIX_Tickets {
         $ht_border_radius = intval($ht_border_radius);
         $ht_logo_height   = intval($ht_logo_height);
         $ht_version       = in_array($ht_version, ['v1', 'v2'], true) ? $ht_version : 'v1';
-        // V2 verwendet die Ticket-Rahmen-Farbe als Akzent (vom User in den
-        // HTML-Ticket-Design-Settings konfiguriert) — NICHT die globale Akzentfarbe.
-        $accent = $ht_border_color;
+        // V2 verwendet die Primärfarbe aus den Tixomat-Einstellungen (Design-Tab,
+        // color_primary) — gleiche Marken-Identität überall.
+        $accent = !empty($s['color_primary']) ? $s['color_primary'] : '#FF5500';
 
         $qr_data = 'GL-' . $event_id . '-' . $code;
         $qr_url  = 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=' . urlencode($qr_data);
@@ -2178,9 +2178,9 @@ class TIX_Tickets {
         $ht_border_radius = intval($ht_border_radius);
         $ht_logo_height   = intval($ht_logo_height);
         $ht_version       = in_array($ht_version, ['v1', 'v2'], true) ? $ht_version : 'v1';
-        // V2 verwendet die Ticket-Rahmen-Farbe als Akzent (vom User in den
-        // HTML-Ticket-Design-Settings konfiguriert) — NICHT die globale Akzentfarbe.
-        $accent = $ht_border_color;
+        // V2 verwendet die Primärfarbe aus den Tixomat-Einstellungen (Design-Tab,
+        // color_primary) — gleiche Marken-Identität überall.
+        $accent = !empty($s['color_primary']) ? $s['color_primary'] : '#FF5500';
 
         $total = count($tickets);
         $buyer_name  = get_post_meta($tickets[0]->ID, '_tix_ticket_owner_name', true);
