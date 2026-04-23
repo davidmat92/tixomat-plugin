@@ -1124,9 +1124,32 @@ class TIX_Tickets {
     <style>
         @media print {
             @page { margin: 0; }
-            body { margin: 0 !important; padding: 10px !important; background: #fff !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            html, body { margin: 0 !important; padding: 10px !important; background: #fff !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
             .no-print { display: none !important; }
             .ticket { box-shadow: none !important; }
+            /* V2/V4 Gradient-Border-Trick macht mobile Browsern Probleme → auf solid umschalten */
+            html.tix-ht-v2 .ticket,
+            html.tix-ht-v4 .ticket {
+                background: <?php echo esc_attr($ht_body_bg); ?> !important;
+                border: 2px solid <?php echo esc_attr($ht_border_color); ?> !important;
+            }
+            /* V4 fancy-Layers aus */
+            html.tix-ht-v4 .ticket::before,
+            html.tix-ht-v4 .ticket-header::before,
+            html.tix-ht-v4 .ticket-header::after,
+            html.tix-ht-v4 .ticket-qr canvas { animation: none !important; }
+            html.tix-ht-v4 .ticket::before,
+            html.tix-ht-v4 .ticket-header::before,
+            html.tix-ht-v4 .ticket-header::after { display: none !important; }
+            html.tix-ht-v4 .ticket-header { background: <?php echo esc_attr($ht_header_bg); ?> !important; }
+            /* V3 dunkler Body → im Print weiß */
+            html.tix-ht-v3 body,
+            html.tix-ht-v4 body,
+            html.tix-ht-v5 body,
+            html.tix-ht-v6 body { background: #fff !important; }
+            /* V5/V6 Ticket auf hellen BG (der User hat ggf. dunkel gewählt — aber Druck = Papier) */
+            /* Seasonal Overlays aus */
+            .tix-seasonal-overlay { display: none !important; }
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f0f0f0; padding: 20px; color: <?php echo esc_attr($ht_text_color); ?>; }
@@ -1698,102 +1721,149 @@ class TIX_Tickets {
            V5 · CYBERPUNK — Neon-Grid, Glitch-Text, Cyan/Magenta
            ═══════════════════════════════════════ */
         html.tix-ht-v5 body {
-            background: #05030e;
+            background-color: #030108 !important;
             background-image:
-                linear-gradient(rgba(0,255,255,.04) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(255,0,200,.04) 1px, transparent 1px),
-                radial-gradient(circle at 20% 30%, rgba(0,255,255,.12), transparent 50%),
-                radial-gradient(circle at 80% 70%, rgba(255,0,200,.12), transparent 50%);
-            background-size: 40px 40px, 40px 40px, auto, auto;
-            color: #e0f7ff;
+                linear-gradient(rgba(0,255,255,.08) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255,0,200,.08) 1px, transparent 1px),
+                radial-gradient(circle at 20% 20%, rgba(0,255,255,.25), transparent 55%),
+                radial-gradient(circle at 80% 80%, rgba(255,0,200,.22), transparent 55%) !important;
+            background-size: 44px 44px, 44px 44px, auto, auto !important;
+            color: #e0f7ff !important;
             min-height: 100vh;
         }
         html.tix-ht-v5 .ticket {
-            background: rgba(10, 8, 24, .92);
-            border: 2px solid transparent;
             background:
-                linear-gradient(rgba(10,8,24,.92), rgba(10,8,24,.92)) padding-box,
-                linear-gradient(135deg, #00ffff, #ff00c8) border-box;
-            box-shadow: 0 0 60px -10px rgba(0,255,255,.25), 0 0 40px -10px rgba(255,0,200,.25);
-            color: #e0f7ff;
+                linear-gradient(rgba(10,8,24,.95), rgba(10,8,24,.95)) padding-box,
+                linear-gradient(135deg, #00ffff 0%, #ff00c8 50%, #00ffff 100%) border-box !important;
+            border: 2.5px solid transparent !important;
+            box-shadow: 0 0 80px -10px rgba(0,255,255,.4), 0 0 50px -10px rgba(255,0,200,.35), 0 0 0 1px rgba(0,255,255,.15) !important;
+            color: #e0f7ff !important;
             position: relative;
             overflow: hidden;
         }
         html.tix-ht-v5 .ticket-header {
-            background: linear-gradient(135deg, #0a0818 0%, #150826 100%) !important;
+            background: linear-gradient(135deg, #0a0818 0%, #1a0838 50%, #0a0818 100%) !important;
             color: #e0f7ff !important;
             position: relative;
             overflow: hidden;
-            border-bottom: 1px solid rgba(0,255,255,.3);
+            border-bottom: 1px solid rgba(0,255,255,.4) !important;
         }
+        /* Scan-Line oben */
+        html.tix-ht-v5 .ticket-header::before {
+            content: ""; position: absolute; left: 0; right: 0; top: 0; height: 2px;
+            background: linear-gradient(90deg, transparent 0%, #00ffff 50%, transparent 100%);
+            animation: tixCyberScanTop 2s ease-in-out infinite;
+        }
+        /* Scan-Line unten (dauerhaft animiert) */
         html.tix-ht-v5 .ticket-header::after {
             content: "";
             position: absolute; left: 0; right: 0; bottom: 0;
-            height: 2px;
-            background: linear-gradient(90deg, #00ffff, #ff00c8, #00ffff);
+            height: 3px;
+            background: linear-gradient(90deg, #00ffff 0%, #ff00c8 50%, #00ffff 100%);
+            background-size: 200% 100%;
             animation: tixCyberScan 3s linear infinite;
+            box-shadow: 0 0 12px #00ffff, 0 0 20px rgba(255,0,200,.6);
         }
-        @keyframes tixCyberScan { to { background-position: 400% 0; } }
+        @keyframes tixCyberScan     { to { background-position: 200% 0; } }
+        @keyframes tixCyberScanTop  { 0%,100% { opacity: .3; } 50% { opacity: 1; } }
         html.tix-ht-v5 .ticket-header h1 {
             color: #fff !important;
             text-transform: uppercase;
-            letter-spacing: .05em;
+            letter-spacing: .06em;
             font-weight: 900;
-            text-shadow: 0 0 10px #00ffff, 0 0 20px rgba(0,255,255,.5), 2px 0 #ff00c8;
+            text-shadow:
+                0 0 10px #00ffff,
+                0 0 25px rgba(0,255,255,.6),
+                0 0 40px rgba(0,255,255,.3),
+                2px 0 #ff00c8,
+                -2px 0 #00ffff;
+            animation: tixCyberGlitch 4s infinite;
         }
-        html.tix-ht-v5 .ticket-header p { color: #00ffff !important; text-transform: uppercase; letter-spacing: 2px; font-size: 11px; }
-        html.tix-ht-v5 .info-row .label { color: #ff00c8 !important; text-transform: uppercase; letter-spacing: 2.5px; font-weight: 700; font-size: 10px; }
-        html.tix-ht-v5 .info-row .value { color: #e0f7ff !important; font-family: 'SF Mono', 'Fira Code', Consolas, monospace; font-size: 14px; }
+        @keyframes tixCyberGlitch {
+            0%, 92%, 100% { transform: translate(0); }
+            93%           { transform: translate(-2px, 1px); text-shadow: 0 0 10px #00ffff, 3px 0 #ff00c8, -3px 0 #00ffff; }
+            94%           { transform: translate(2px, -1px); }
+            95%           { transform: translate(-1px, -1px); }
+        }
+        html.tix-ht-v5 .ticket-header p {
+            color: #00ffff !important;
+            text-transform: uppercase;
+            letter-spacing: 2.5px;
+            font-size: 11px;
+            text-shadow: 0 0 6px rgba(0,255,255,.5);
+        }
+        html.tix-ht-v5 .info-row .label {
+            color: #ff00c8 !important;
+            text-transform: uppercase;
+            letter-spacing: 3px;
+            font-weight: 700;
+            font-size: 10px;
+            text-shadow: 0 0 4px rgba(255,0,200,.4);
+        }
+        html.tix-ht-v5 .info-row .value {
+            color: #e0f7ff !important;
+            font-family: 'SF Mono', 'Fira Code', Consolas, monospace !important;
+            font-size: 14px;
+        }
         html.tix-ht-v5 .ticket-qr .tix-ticket-qr-canvas,
         html.tix-ht-v5 .ticket-qr img {
-            padding: 8px;
-            background: #fff;
-            border-radius: 4px;
-            box-shadow: 0 0 20px rgba(0,255,255,.4), 0 0 40px rgba(255,0,200,.3);
+            padding: 10px !important;
+            background: #fff !important;
+            border-radius: 4px !important;
+            border: 2px solid #00ffff !important;
+            box-shadow: 0 0 25px rgba(0,255,255,.5), 0 0 50px rgba(255,0,200,.35), inset 0 0 0 1px #ff00c8 !important;
         }
         html.tix-ht-v5 .ticket-qr .code {
             color: #00ffff !important;
-            font-family: 'SF Mono', Consolas, monospace;
-            text-shadow: 0 0 8px #00ffff;
-            letter-spacing: 3px;
+            font-family: 'SF Mono', Consolas, monospace !important;
+            text-shadow: 0 0 10px #00ffff, 0 0 20px rgba(0,255,255,.6) !important;
+            letter-spacing: 3px !important;
         }
         html.tix-ht-v5 .ticket-footer {
-            background: #0a0818 !important;
-            color: rgba(224,247,255,.5) !important;
-            border-top: 1px solid rgba(0,255,255,.3);
+            background: linear-gradient(135deg, #0a0818 0%, #1a0838 100%) !important;
+            color: rgba(224,247,255,.6) !important;
+            border-top: 1px solid rgba(0,255,255,.4) !important;
+            text-shadow: 0 0 5px rgba(0,255,255,.3);
         }
 
         /* ═══════════════════════════════════════
            V6 · RETRO / VINTAGE — Aged Paper, Typewriter, Sepia
            ═══════════════════════════════════════ */
         html.tix-ht-v6 body {
-            background-color: #ead6b2;
+            background-color: #d9c194 !important;
             background-image:
-                radial-gradient(ellipse at top, rgba(139, 94, 60, 0.08), transparent 60%),
-                radial-gradient(ellipse at bottom, rgba(139, 94, 60, 0.12), transparent 60%),
-                repeating-linear-gradient(0deg, transparent 0px, transparent 3px, rgba(139, 94, 60, 0.025) 3px, rgba(139, 94, 60, 0.025) 4px);
-            color: #3b2a14;
+                radial-gradient(ellipse at top left,  rgba(92, 60, 25, .22), transparent 65%),
+                radial-gradient(ellipse at bottom right, rgba(92, 60, 25, .28), transparent 65%),
+                radial-gradient(ellipse at center, transparent 40%, rgba(60, 38, 15, .18)),
+                repeating-linear-gradient(0deg,    transparent 0px, transparent 2px, rgba(92, 60, 25, .04) 2px, rgba(92, 60, 25, .04) 3px),
+                repeating-linear-gradient(90deg,   transparent 0px, transparent 2px, rgba(92, 60, 25, .03) 2px, rgba(92, 60, 25, .03) 3px) !important;
+            color: #2a1a0a !important;
             min-height: 100vh;
         }
         html.tix-ht-v6 .ticket {
-            background: #f5e9ce !important;
-            border: 3px double #8b5e3c !important;
-            color: #3b2a14 !important;
-            box-shadow: 0 12px 30px -10px rgba(60, 40, 20, .4);
+            background: #f3e4c0 !important;
+            background-image:
+                radial-gradient(ellipse at 30% 20%, rgba(139, 94, 60, .05), transparent 40%),
+                radial-gradient(ellipse at 70% 80%, rgba(139, 94, 60, .08), transparent 40%) !important;
+            border: 4px double #6b4924 !important;
+            color: #2a1a0a !important;
+            box-shadow:
+                0 18px 40px -14px rgba(60, 40, 20, .5),
+                inset 0 0 60px rgba(139, 94, 60, .12) !important;
             position: relative;
         }
         html.tix-ht-v6 .ticket::before {
             content: "";
-            position: absolute; inset: 8px;
-            border: 1px dashed rgba(139, 94, 60, .45);
+            position: absolute; inset: 10px;
+            border: 1.5px dashed rgba(107, 73, 36, .55);
             pointer-events: none;
             z-index: 1;
         }
         html.tix-ht-v6 .ticket > * { position: relative; z-index: 2; }
         html.tix-ht-v6 .ticket-header {
-            background: #3b2a14 !important;
-            color: #f5e9ce !important;
-            border-bottom: 3px double #8b5e3c;
+            background: linear-gradient(180deg, #2a1a0a 0%, #3b2a14 100%) !important;
+            color: #f3e4c0 !important;
+            border-bottom: 4px double #6b4924 !important;
         }
         html.tix-ht-v6 .ticket-header h1 {
             font-family: 'Courier New', 'Courier Prime', Courier, monospace !important;
@@ -1832,32 +1902,41 @@ class TIX_Tickets {
         }
 
         /* ═══════════════════════════════════════
-           WATERMARK — Diagonales Ticket-ID über das Ticket
+           WATERMARK — Diagonales Ticket-ID-Pattern über das Ticket
            ═══════════════════════════════════════ */
-        html.tix-watermark-on .ticket {
-            position: relative;
-        }
-        html.tix-watermark-on .ticket .tix-watermark {
-            position: absolute; inset: 0;
-            display: flex; align-items: center; justify-content: center;
+        html.tix-watermark-on .ticket { position: relative; isolation: isolate; }
+        html.tix-watermark-on .tix-watermark {
+            position: absolute;
+            inset: -40%;                   /* über den Rand hinaus, um bei Rotation alles abzudecken */
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            gap: 14px;
             pointer-events: none;
             overflow: hidden;
-            z-index: 3;
-        }
-        html.tix-watermark-on .ticket .tix-watermark span {
-            position: absolute;
-            font-family: 'SF Mono', Consolas, monospace;
-            font-size: 48px;
-            font-weight: 900;
-            color: rgba(0,0,0,.035);
-            white-space: nowrap;
+            z-index: 0;
             transform: rotate(-24deg);
-            letter-spacing: 8px;
-            user-select: none;
+            transform-origin: center center;
         }
-        html.tix-watermark-on.tix-ht-v3 .ticket .tix-watermark span,
-        html.tix-watermark-on.tix-ht-v4 .ticket .tix-watermark span,
-        html.tix-watermark-on.tix-ht-v5 .ticket .tix-watermark span { color: rgba(255,255,255,.05); }
+        html.tix-watermark-on .tix-watermark span {
+            display: block;
+            font-family: 'SF Mono', Consolas, monospace;
+            font-size: 38px;
+            font-weight: 900;
+            color: rgba(0,0,0,.07);
+            white-space: nowrap;
+            letter-spacing: 6px;
+            user-select: none;
+            text-align: center;
+        }
+        /* Dark-Versionen: hellere Schrift + stärkere Opacity */
+        html.tix-watermark-on.tix-ht-v3 .tix-watermark span,
+        html.tix-watermark-on.tix-ht-v4 .tix-watermark span,
+        html.tix-watermark-on.tix-ht-v5 .tix-watermark span,
+        html.tix-watermark-on.tix-ht-v6 .tix-watermark span { color: rgba(255,255,255,.08); }
+        /* Content MUSS über Watermark liegen */
+        html.tix-watermark-on .ticket > *:not(.tix-watermark) { position: relative; z-index: 1; }
 
         /* ═══════════════════════════════════════
            SEASONAL OVERLAYS — Weihnachten / Halloween / Valentin
@@ -2034,7 +2113,12 @@ class TIX_Tickets {
     <div class="ticket">
         <?php if (!empty($ht_watermark_enabled)): ?>
         <div class="tix-watermark" aria-hidden="true">
-            <span><?php echo esc_html(str_repeat($code . ' · ', 20)); ?></span>
+            <?php
+            $wm_line = str_repeat($code . ' · ', 6);
+            for ($wi = 0; $wi < 14; $wi++) {
+                echo '<span>' . esc_html($wm_line) . '</span>';
+            }
+            ?>
         </div>
         <?php endif; ?>
         <?php if ($event_cover_url && !empty($ht_show_event_cover)): ?>
@@ -2600,18 +2684,20 @@ class TIX_Tickets {
 
         // ── Live-Wetter am Event-Tag (Open-Meteo, keine API-Key-Anforderung) ──
         (function(){
-            if (!TIX_EVENT.weatherOn || !TIX_EVENT.startISO) return;
+            if (!TIX_EVENT.weatherOn) { return; }
+            if (!TIX_EVENT.startISO)  { console.info('[Wetter] Kein Event-Datum'); return; }
             var placeholder = document.querySelector('[data-tix-weather-placeholder]');
-            if (!placeholder) return;
+            if (!placeholder) { console.info('[Wetter] Platzhalter nicht gefunden'); return; }
 
-            // Nur fürs Event am selben Tag oder bis 14 Tage in der Zukunft (Open-Meteo-Range)
             var evDate = new Date(TIX_EVENT.startISO.replace(' ', 'T'));
-            if (isNaN(evDate.getTime())) return;
+            if (isNaN(evDate.getTime())) { console.info('[Wetter] Ungültiges Datum'); return; }
             var daysAhead = (evDate.getTime() - Date.now()) / (1000*60*60*24);
-            if (daysAhead < -1 || daysAhead > 14) return; // Event bereits vorbei oder zu weit weg
+            if (daysAhead < -1 || daysAhead > 14) {
+                console.info('[Wetter] Event liegt außerhalb 14-Tage-Prognose ('+ daysAhead.toFixed(1) +' Tage)');
+                return;
+            }
 
             function renderWeather(temp, code) {
-                // WMO weather codes → emoji
                 var map = {
                     0:'☀️', 1:'🌤️', 2:'⛅', 3:'☁️',
                     45:'🌫️', 48:'🌫️',
@@ -2631,26 +2717,46 @@ class TIX_Tickets {
                 var dateStr = TIX_EVENT.startISO.split(' ')[0].split('T')[0];
                 var url = 'https://api.open-meteo.com/v1/forecast?latitude=' + lat + '&longitude=' + lng +
                           '&daily=weathercode,temperature_2m_max&timezone=auto&start_date=' + dateStr + '&end_date=' + dateStr;
+                console.info('[Wetter] Fetch:', url);
                 fetch(url).then(function(r){ return r.json(); }).then(function(data){
+                    console.info('[Wetter] Response:', data);
                     if (!data || !data.daily) return;
                     var temp = (data.daily.temperature_2m_max && data.daily.temperature_2m_max[0]);
                     var code = (data.daily.weathercode && data.daily.weathercode[0]);
                     if (temp != null) renderWeather(temp, code);
-                }).catch(function(){});
+                }).catch(function(err){ console.warn('[Wetter] Fehler:', err); });
             }
 
-            // Koordinaten vorhanden → direkt nutzen, sonst via Geocoding-API von Open-Meteo
+            // 1) Koordinaten direkt
             if (TIX_EVENT.lat && TIX_EVENT.lng) {
+                console.info('[Wetter] Nutze Koordinaten aus Location-CPT');
                 fetchWeather(parseFloat(TIX_EVENT.lat), parseFloat(TIX_EVENT.lng));
-            } else if (TIX_EVENT.address || TIX_EVENT.location) {
-                var query = TIX_EVENT.address || TIX_EVENT.location;
-                var gcUrl = 'https://geocoding-api.open-meteo.com/v1/search?name=' + encodeURIComponent(query) + '&count=1&language=de';
-                fetch(gcUrl).then(function(r){ return r.json(); }).then(function(data){
-                    if (data && data.results && data.results[0]) {
-                        fetchWeather(data.results[0].latitude, data.results[0].longitude);
-                    }
-                }).catch(function(){});
+                return;
             }
+
+            // 2) Geocoding: Nur Stadtname (PLZ + Stadt extrahieren — ohne Straße klappt Open-Meteo besser)
+            var raw = (TIX_EVENT.address || TIX_EVENT.location || '').trim();
+            if (!raw) { console.info('[Wetter] Keine Adresse/Location verfügbar'); return; }
+            // Versuche PLZ-Stadt zu extrahieren: "Straße X, 12345 Stadt" → "12345 Stadt"
+            var m = raw.match(/(\d{4,5})\s+([A-Za-zÄÖÜäöüß\-\s]+)/);
+            var query = m ? (m[1] + ' ' + m[2].trim()) : raw.split(',').pop().trim();
+            if (!query) query = raw;
+
+            var gcUrl = 'https://geocoding-api.open-meteo.com/v1/search?name=' + encodeURIComponent(query) + '&count=1&language=de';
+            console.info('[Wetter] Geocoding:', query, '→', gcUrl);
+            fetch(gcUrl).then(function(r){ return r.json(); }).then(function(data){
+                console.info('[Wetter] Geo-Response:', data);
+                if (data && data.results && data.results[0]) {
+                    fetchWeather(data.results[0].latitude, data.results[0].longitude);
+                } else {
+                    // Fallback: ganzen String
+                    var fallbackUrl = 'https://geocoding-api.open-meteo.com/v1/search?name=' + encodeURIComponent(raw) + '&count=1&language=de';
+                    fetch(fallbackUrl).then(function(r2){ return r2.json(); }).then(function(d2){
+                        if (d2 && d2.results && d2.results[0]) fetchWeather(d2.results[0].latitude, d2.results[0].longitude);
+                        else console.warn('[Wetter] Geocoding fand keine Location für:', raw);
+                    }).catch(function(){});
+                }
+            }).catch(function(err){ console.warn('[Wetter] Geo-Fehler:', err); });
         })();
 
         // ── Kalender-Download (.ics generieren und downloaden) ──
