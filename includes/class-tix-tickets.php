@@ -1605,10 +1605,17 @@ class TIX_Tickets {
         html.tix-ht-v4 .ticket {
             position: relative;
             box-shadow: 0 30px 60px -25px rgba(17,24,39,.22),
-                        0 12px 30px -12px rgba(17,24,39,.08);
+                        0 12px 30px -12px rgba(17,24,39,.08),
+                        0 0 0 1px rgba(17,24,39,.03);
             overflow: hidden;
-            background: <?php echo esc_attr($ht_body_bg); ?>;
-            border: none;
+            /* Dezenterer Gradient-Border (wie V2, aber weicher): Border-Gradient nutzt
+               Body-BG gemischt mit Accent statt vollem Accent, 1.5px statt 2px */
+            background:
+                linear-gradient(<?php echo esc_attr($ht_body_bg); ?>, <?php echo esc_attr($ht_body_bg); ?>) padding-box,
+                linear-gradient(135deg,
+                    color-mix(in srgb, <?php echo esc_attr($ht_header_bg); ?> 55%, <?php echo esc_attr($ht_body_bg); ?> 45%) 0%,
+                    color-mix(in srgb, <?php echo esc_attr($accent); ?> 65%, <?php echo esc_attr($ht_body_bg); ?> 35%) 100%) border-box;
+            border: 1.5px solid transparent;
         }
         html.tix-ht-v4 .ticket::before {
             content: "";
