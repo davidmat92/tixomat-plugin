@@ -270,7 +270,6 @@ class TIX_Settings {
             'ht_show_countdown'      => 0,      // Countdown zum Event oben
             'ht_show_verified_badge' => 0,      // "✓ Offizielles Ticket"-Badge im Header
             'ht_show_agb_footer'     => 1,      // AGB/Rückerstattung-Link im Footer
-            'landing_version'        => 'v1',   // Organizer-Landing Design: v1 Classic / v2 Premium / v3 Festival / v4 Holographic
             'ht_logo_height'     => 44,
             'ht_header_bg'       => '#222222',
             'ht_header_text'     => '#ffffff',
@@ -1015,7 +1014,6 @@ class TIX_Settings {
         $clean['ht_footer_text']   = sanitize_text_field($input['ht_footer_text'] ?? $d['ht_footer_text']);
         $clean['ht_logo_url']      = esc_url_raw($input['ht_logo_url'] ?? '');
         $clean['ht_version']             = in_array($input['ht_version'] ?? 'v1', ['v1', 'v2', 'v3', 'v4'], true) ? $input['ht_version'] : 'v1';
-        $clean['landing_version']        = in_array($input['landing_version'] ?? 'v1', ['v1', 'v2', 'v3', 'v4'], true) ? $input['landing_version'] : 'v1';
         $clean['ht_show_event_cover']    = !empty($input['ht_show_event_cover']) ? 1 : 0;
         $clean['ht_show_countdown']      = !empty($input['ht_show_countdown']) ? 1 : 0;
         $clean['ht_show_verified_badge'] = !empty($input['ht_show_verified_badge']) ? 1 : 0;
@@ -3357,36 +3355,6 @@ class TIX_Settings {
                                             $(document).on('change input', '[name^="tix_settings[badge_"]', renderBadgePreview);
                                         });
                                         </script>
-                                    </div>
-                                </div>
-
-                                <?php // ── Card: Landing-Version (V1-V4 für Organizer-Landingpages) ── ?>
-                                <div class="tix-card">
-                                    <div class="tix-card-header">
-                                        <span class="dashicons dashicons-admin-site-alt3"></span>
-                                        <h3>Organizer-Landing Design</h3>
-                                    </div>
-                                    <div class="tix-card-body">
-                                        <p class="tix-settings-hint" style="margin-bottom:16px;">Wähle die Design-Version für alle Organizer-Landingpages (z.B. dpconnect.evendis.de). Einzelne Organizer können diese Wahl überschreiben (im jeweiligen Veranstalter-Edit).</p>
-                                        <?php
-                                        $cur_lv = $s['landing_version'] ?? 'v1';
-                                        $lvrow = function($v, $title, $desc, $badge = '') use ($ok, $cur_lv) { ?>
-                                            <label style="display:flex;flex-direction:column;gap:4px;padding:14px;border:2px solid <?php echo $cur_lv === $v ? '#111' : '#e5e7eb'; ?>;border-radius:10px;cursor:pointer;background:<?php echo $cur_lv === $v ? '#fafafa' : '#fff'; ?>;transition:all .15s;">
-                                                <div style="display:flex;align-items:center;gap:8px;">
-                                                    <input type="radio" name="<?php echo $ok; ?>[landing_version]" value="<?php echo esc_attr($v); ?>" <?php checked($cur_lv === $v); ?> style="margin:0;">
-                                                    <strong><?php echo esc_html($title); ?></strong>
-                                                    <?php if ($badge): ?><span style="font-size:10px;background:#ede9fe;color:#5b21b6;padding:2px 6px;border-radius:6px;font-weight:700;letter-spacing:.3px;"><?php echo esc_html($badge); ?></span><?php endif; ?>
-                                                </div>
-                                                <span style="font-size:12px;color:#666;line-height:1.4;"><?php echo $desc; ?></span>
-                                            </label>
-                                        <?php };
-                                        ?>
-                                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-                                            <?php $lvrow('v1', 'V1 · Classic', 'Clean &amp; klar. Weißer Background, Standard Event-Cards, solide Borders.'); ?>
-                                            <?php $lvrow('v2', 'V2 · Premium', 'Gradient-Borders, Perforations-Trennlinie in Cards, subtiler Shine, Press-Feedback.', 'NEU'); ?>
-                                            <?php $lvrow('v3', 'V3 · Festival', 'Dunkler Gradient-BG, Uppercase Bold, Neon-Akzente, Club-/Festival-Feel.', 'NEU'); ?>
-                                            <?php $lvrow('v4', 'V4 · Holographic', 'V3 + animierter Rainbow-Conic-Shimmer, Gradient-Text, iridescente CTAs.', 'NEU'); ?>
-                                        </div>
                                     </div>
                                 </div>
 
