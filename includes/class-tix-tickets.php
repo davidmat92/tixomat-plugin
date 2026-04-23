@@ -1236,18 +1236,21 @@ class TIX_Tickets {
             box-shadow: 0 30px 60px -25px rgba(17,24,39,.22),
                         0 12px 30px -12px rgba(17,24,39,.08),
                         0 0 0 1px rgba(17,24,39,.04);
-            overflow: visible;
+            overflow: hidden; /* Kinder (Header) respektieren border-radius */
             background:
                 linear-gradient(<?php echo esc_attr($ht_body_bg); ?>, <?php echo esc_attr($ht_body_bg); ?>) padding-box,
                 linear-gradient(135deg, <?php echo esc_attr($ht_header_bg); ?> 0%, <?php echo esc_attr($accent); ?> 100%) border-box;
             border: 2px solid transparent;
         }
-        /* Accent-Strip ganz oben */
+        /* Accent-Shine: innen auf dem Header, NICHT außerhalb des Tickets */
         html.tix-ht-v2 .ticket::before {
             content: "";
-            position: absolute; left: 12%; right: 12%; top: -1px; height: 4px;
+            position: absolute; left: 12%; right: 12%; top: 0; height: 3px;
             background: linear-gradient(90deg, transparent, <?php echo esc_attr($accent); ?>, transparent);
-            border-radius: 999px;
+            border-radius: 0 0 999px 999px;
+            opacity: .7;
+            z-index: 2;
+            pointer-events: none;
         }
         html.tix-ht-v2 .ticket-header {
             background: linear-gradient(135deg,
