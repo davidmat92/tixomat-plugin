@@ -1627,18 +1627,15 @@ class TIX_Tickets {
         }
         html.tix-ht-v4 .ticket {
             position: relative;
-            box-shadow: 0 30px 60px -25px rgba(17,24,39,.22),
-                        0 12px 30px -12px rgba(17,24,39,.08),
-                        0 0 0 1px rgba(17,24,39,.03);
+            box-shadow: 0 30px 60px -25px rgba(17,24,39,.25),
+                        0 12px 30px -12px rgba(17,24,39,.10),
+                        0 0 0 1px rgba(17,24,39,.04);
             overflow: hidden;
-            /* Dezenterer Gradient-Border (wie V2, aber weicher): Border-Gradient nutzt
-               Body-BG gemischt mit Accent statt vollem Accent, 1.5px statt 2px */
+            /* Dicker Gradient-Border wie V2: 3px mit vollem Farb-Gradient */
             background:
                 linear-gradient(<?php echo esc_attr($ht_body_bg); ?>, <?php echo esc_attr($ht_body_bg); ?>) padding-box,
-                linear-gradient(135deg,
-                    color-mix(in srgb, <?php echo esc_attr($ht_header_bg); ?> 55%, <?php echo esc_attr($ht_body_bg); ?> 45%) 0%,
-                    color-mix(in srgb, <?php echo esc_attr($accent); ?> 65%, <?php echo esc_attr($ht_body_bg); ?> 35%) 100%) border-box;
-            border: 1.5px solid transparent;
+                linear-gradient(135deg, <?php echo esc_attr($ht_header_bg); ?> 0%, <?php echo esc_attr($accent); ?> 100%) border-box;
+            border: 3px solid transparent;
         }
         html.tix-ht-v4 .ticket::before {
             content: "";
@@ -1720,18 +1717,21 @@ class TIX_Tickets {
         /* ═══════════════════════════════════════
            V5 · CYBERPUNK — Neon-Grid, Glitch-Text, Cyan/Magenta
            ═══════════════════════════════════════ */
+        html.tix-ht-v5,
         html.tix-ht-v5 body {
             background-color: #030108 !important;
             background-image:
-                linear-gradient(rgba(0,255,255,.08) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(255,0,200,.08) 1px, transparent 1px),
-                radial-gradient(circle at 20% 20%, rgba(0,255,255,.25), transparent 55%),
-                radial-gradient(circle at 80% 80%, rgba(255,0,200,.22), transparent 55%) !important;
+                linear-gradient(rgba(0,255,255,.12) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255,0,200,.12) 1px, transparent 1px),
+                radial-gradient(circle at 20% 20%, rgba(0,255,255,.3), transparent 55%),
+                radial-gradient(circle at 80% 80%, rgba(255,0,200,.28), transparent 55%) !important;
             background-size: 44px 44px, 44px 44px, auto, auto !important;
             color: #e0f7ff !important;
             min-height: 100vh;
         }
         html.tix-ht-v5 .ticket {
+            /* Base-Regel komplett überschreiben */
+            border-radius: <?php echo $ht_border_radius; ?>px !important;
             background:
                 linear-gradient(rgba(10,8,24,.95), rgba(10,8,24,.95)) padding-box,
                 linear-gradient(135deg, #00ffff 0%, #ff00c8 50%, #00ffff 100%) border-box !important;
@@ -1829,6 +1829,7 @@ class TIX_Tickets {
         /* ═══════════════════════════════════════
            V6 · RETRO / VINTAGE — Aged Paper, Typewriter, Sepia
            ═══════════════════════════════════════ */
+        html.tix-ht-v6,
         html.tix-ht-v6 body {
             background-color: #d9c194 !important;
             background-image:
@@ -1907,7 +1908,7 @@ class TIX_Tickets {
         html.tix-watermark-on .ticket { position: relative; isolation: isolate; }
         html.tix-watermark-on .tix-watermark {
             position: absolute;
-            inset: -40%;                   /* über den Rand hinaus, um bei Rotation alles abzudecken */
+            inset: -40%;
             display: flex;
             flex-direction: column;
             justify-content: center;
@@ -1915,7 +1916,7 @@ class TIX_Tickets {
             gap: 14px;
             pointer-events: none;
             overflow: hidden;
-            z-index: 0;
+            z-index: 2;                 /* über V4 ::before conic-gradient (z:0) */
             transform: rotate(-24deg);
             transform-origin: center center;
         }
@@ -1930,13 +1931,14 @@ class TIX_Tickets {
             user-select: none;
             text-align: center;
         }
-        /* Dark-Versionen: hellere Schrift + stärkere Opacity */
         html.tix-watermark-on.tix-ht-v3 .tix-watermark span,
         html.tix-watermark-on.tix-ht-v4 .tix-watermark span,
         html.tix-watermark-on.tix-ht-v5 .tix-watermark span,
-        html.tix-watermark-on.tix-ht-v6 .tix-watermark span { color: rgba(255,255,255,.08); }
+        html.tix-watermark-on.tix-ht-v6 .tix-watermark span { color: rgba(255,255,255,.10); }
         /* Content MUSS über Watermark liegen */
-        html.tix-watermark-on .ticket > *:not(.tix-watermark) { position: relative; z-index: 1; }
+        html.tix-watermark-on .ticket > *:not(.tix-watermark) { position: relative; z-index: 3; }
+        html.tix-watermark-on .ticket-qr .tix-ticket-qr-canvas,
+        html.tix-watermark-on .ticket-qr img { position: relative; z-index: 4; }
 
         /* ═══════════════════════════════════════
            SEASONAL OVERLAYS — Weihnachten / Halloween / Valentin
@@ -2706,20 +2708,22 @@ class TIX_Tickets {
 
         // ── Live-Wetter am Event-Tag (Open-Meteo, keine API-Key-Anforderung) ──
         (function(){
-            if (!TIX_EVENT.weatherOn) { return; }
+            console.info('[Wetter] TIX_EVENT:', TIX_EVENT);
+            if (!TIX_EVENT.weatherOn) { console.info('[Wetter] Toggle ausgeschaltet'); return; }
             if (!TIX_EVENT.startISO)  { console.info('[Wetter] Kein Event-Datum'); return; }
+
             var placeholder = document.querySelector('[data-tix-weather-placeholder]');
-            if (!placeholder) { console.info('[Wetter] Platzhalter nicht gefunden'); return; }
+            console.info('[Wetter] Placeholder-Element:', placeholder);
+            if (!placeholder) { console.warn('[Wetter] data-tix-weather-placeholder nicht im DOM'); return; }
 
             var evDate = new Date(TIX_EVENT.startISO.replace(' ', 'T'));
-            if (isNaN(evDate.getTime())) { console.info('[Wetter] Ungültiges Datum'); return; }
+            if (isNaN(evDate.getTime())) { console.warn('[Wetter] Ungültiges Datum:', TIX_EVENT.startISO); return; }
             var daysAhead = (evDate.getTime() - Date.now()) / (1000*60*60*24);
-            if (daysAhead < -1 || daysAhead > 14) {
-                console.info('[Wetter] Event liegt außerhalb 14-Tage-Prognose ('+ daysAhead.toFixed(1) +' Tage)');
-                return;
-            }
+            console.info('[Wetter] Tage bis Event:', daysAhead.toFixed(1));
+            // Open-Meteo-Prognose: bis 16 Tage — aber auch historische Daten sind OK
+            // (API liefert für vergangene Tage die tatsächliche Temperatur)
 
-            function renderWeather(temp, code) {
+            function renderWeather(temp, code, lat, lng) {
                 var map = {
                     0:'☀️', 1:'🌤️', 2:'⛅', 3:'☁️',
                     45:'🌫️', 48:'🌫️',
@@ -2733,6 +2737,7 @@ class TIX_Tickets {
                 var icon = map[code] || '🌡️';
                 placeholder.innerHTML = '<span class="tix-weather-icon">' + icon + '</span><span>' + Math.round(temp) + '°C</span>';
                 placeholder.style.display = 'inline-flex';
+                console.info('[Wetter] ✓ Gerendert:', temp + '°C', code, 'bei', lat + ',' + lng);
             }
 
             function fetchWeather(lat, lng) {
@@ -2740,45 +2745,62 @@ class TIX_Tickets {
                 var url = 'https://api.open-meteo.com/v1/forecast?latitude=' + lat + '&longitude=' + lng +
                           '&daily=weathercode,temperature_2m_max&timezone=auto&start_date=' + dateStr + '&end_date=' + dateStr;
                 console.info('[Wetter] Fetch:', url);
-                fetch(url).then(function(r){ return r.json(); }).then(function(data){
-                    console.info('[Wetter] Response:', data);
-                    if (!data || !data.daily) return;
+                fetch(url).then(function(r){
+                    console.info('[Wetter] Status:', r.status);
+                    return r.json();
+                }).then(function(data){
+                    console.info('[Wetter] Forecast-Response:', data);
+                    if (!data || !data.daily) { console.warn('[Wetter] Keine daily-Daten'); return; }
                     var temp = (data.daily.temperature_2m_max && data.daily.temperature_2m_max[0]);
                     var code = (data.daily.weathercode && data.daily.weathercode[0]);
-                    if (temp != null) renderWeather(temp, code);
-                }).catch(function(err){ console.warn('[Wetter] Fehler:', err); });
+                    if (temp == null) { console.warn('[Wetter] temp null — evtl. Datum außerhalb verfügbarer Daten'); return; }
+                    renderWeather(temp, code, lat, lng);
+                }).catch(function(err){ console.error('[Wetter] Forecast-Fehler:', err); });
             }
 
             // 1) Koordinaten direkt
-            if (TIX_EVENT.lat && TIX_EVENT.lng) {
-                console.info('[Wetter] Nutze Koordinaten aus Location-CPT');
+            if (TIX_EVENT.lat && TIX_EVENT.lng && !isNaN(parseFloat(TIX_EVENT.lat))) {
+                console.info('[Wetter] Koordinaten aus Location-CPT:', TIX_EVENT.lat, TIX_EVENT.lng);
                 fetchWeather(parseFloat(TIX_EVENT.lat), parseFloat(TIX_EVENT.lng));
                 return;
             }
 
-            // 2) Geocoding: Nur Stadtname (PLZ + Stadt extrahieren — ohne Straße klappt Open-Meteo besser)
+            // 2) Geocoding mit mehreren Fallbacks
             var raw = (TIX_EVENT.address || TIX_EVENT.location || '').trim();
-            if (!raw) { console.info('[Wetter] Keine Adresse/Location verfügbar'); return; }
-            // Versuche PLZ-Stadt zu extrahieren: "Straße X, 12345 Stadt" → "12345 Stadt"
-            var m = raw.match(/(\d{4,5})\s+([A-Za-zÄÖÜäöüß\-\s]+)/);
-            var query = m ? (m[1] + ' ' + m[2].trim()) : raw.split(',').pop().trim();
-            if (!query) query = raw;
+            if (!raw) { console.warn('[Wetter] Weder Koordinaten noch Adresse vorhanden — abbruch'); return; }
+            console.info('[Wetter] Geocoding benötigt, Roh-Input:', raw);
 
-            var gcUrl = 'https://geocoding-api.open-meteo.com/v1/search?name=' + encodeURIComponent(query) + '&count=1&language=de';
-            console.info('[Wetter] Geocoding:', query, '→', gcUrl);
-            fetch(gcUrl).then(function(r){ return r.json(); }).then(function(data){
-                console.info('[Wetter] Geo-Response:', data);
-                if (data && data.results && data.results[0]) {
-                    fetchWeather(data.results[0].latitude, data.results[0].longitude);
-                } else {
-                    // Fallback: ganzen String
-                    var fallbackUrl = 'https://geocoding-api.open-meteo.com/v1/search?name=' + encodeURIComponent(raw) + '&count=1&language=de';
-                    fetch(fallbackUrl).then(function(r2){ return r2.json(); }).then(function(d2){
-                        if (d2 && d2.results && d2.results[0]) fetchWeather(d2.results[0].latitude, d2.results[0].longitude);
-                        else console.warn('[Wetter] Geocoding fand keine Location für:', raw);
-                    }).catch(function(){});
-                }
-            }).catch(function(err){ console.warn('[Wetter] Geo-Fehler:', err); });
+            // Queries in Prio-Reihenfolge
+            var queries = [];
+            var plzMatch = raw.match(/(\d{4,5})\s+([A-Za-zÄÖÜäöüß\-\s\.]+)/);
+            if (plzMatch) queries.push(plzMatch[1] + ' ' + plzMatch[2].trim());
+            // Nur Stadt (nach dem letzten Komma)
+            var cityOnly = raw.split(',').pop().trim();
+            if (cityOnly && queries.indexOf(cityOnly) === -1) queries.push(cityOnly);
+            // Rohstring
+            if (queries.indexOf(raw) === -1) queries.push(raw);
+
+            console.info('[Wetter] Geocoding-Queries (in Reihenfolge):', queries);
+
+            function tryGeocode(i) {
+                if (i >= queries.length) { console.warn('[Wetter] Alle Geocoding-Versuche fehlgeschlagen'); return; }
+                var q = queries[i];
+                var gcUrl = 'https://geocoding-api.open-meteo.com/v1/search?name=' + encodeURIComponent(q) + '&count=1&language=de';
+                console.info('[Wetter] Geocoding-Versuch ' + (i+1) + ':', q);
+                fetch(gcUrl).then(function(r){ return r.json(); }).then(function(data){
+                    if (data && data.results && data.results[0]) {
+                        console.info('[Wetter] Geocoding-Treffer:', data.results[0]);
+                        fetchWeather(data.results[0].latitude, data.results[0].longitude);
+                    } else {
+                        console.info('[Wetter] Kein Treffer für "' + q + '", nächster Versuch…');
+                        tryGeocode(i + 1);
+                    }
+                }).catch(function(err){
+                    console.warn('[Wetter] Geocoding-Fehler:', err);
+                    tryGeocode(i + 1);
+                });
+            }
+            tryGeocode(0);
         })();
 
         // ── Kalender-Download (.ics generieren und downloaden) ──
