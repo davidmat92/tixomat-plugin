@@ -1575,6 +1575,13 @@ class TIX_Tickets {
         // Als Bild speichern: Screenshot des echten Ticket-DOMs
         // (respektiert V1/V2-Styling exakt, blendet .no-print Elemente aus)
         // ─────────────────────────────────────────────
+        function tixTriggerDownload(blob, filename) {
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement('a');
+            a.href = url; a.download = filename;
+            document.body.appendChild(a); a.click(); document.body.removeChild(a);
+            setTimeout(function(){ URL.revokeObjectURL(url); }, 2000);
+        }
         function tixSaveTicketImage(btn) {
             if (typeof html2canvas === 'function') { return tixDoSaveImage(btn); }
             // Lazy-Load des Renderers
@@ -1614,12 +1621,30 @@ class TIX_Tickets {
                         if (qrImg && originalQRSrc) qrImg.src = originalQRSrc;
                         window.scrollTo(0, scrollY);
                         if (!blob) { alert('Bild konnte nicht erstellt werden.'); return; }
-                        var url = URL.createObjectURL(blob);
-                        var a = document.createElement('a');
-                        a.href = url;
-                        a.download = 'ticket-' + (TIX_TOKEN ? TIX_TOKEN.substr(0, 8) : Date.now()) + '.png';
-                        document.body.appendChild(a); a.click(); document.body.removeChild(a);
-                        setTimeout(function(){ URL.revokeObjectURL(url); }, 2000);
+
+                        var filename = 'ticket-' + (TIX_TOKEN ? TIX_TOKEN.substr(0, 8) : Date.now()) + '.png';
+                        var isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+
+                        // Auf Mobil: Share-Sheet öffnen (bietet "In Fotos sichern" / "Galerie")
+                        if (isMobile && navigator.canShare) {
+                            try {
+                                var file = new File([blob], filename, { type: 'image/png' });
+                                if (navigator.canShare({ files: [file] })) {
+                                    navigator.share({
+                                        files: [file],
+                                        title: document.title || 'Mein Ticket',
+                                        text:  'Mein Ticket'
+                                    }).catch(function(err){
+                                        // Fallback nur bei echtem Fehler (AbortError = User hat abgebrochen — dann nichts tun)
+                                        if (err && err.name !== 'AbortError') tixTriggerDownload(blob, filename);
+                                    });
+                                    return;
+                                }
+                            } catch (e) { /* fällt auf Download zurück */ }
+                        }
+
+                        // Desktop / Fallback: direkter Download
+                        tixTriggerDownload(blob, filename);
                     }, 'image/png');
                 }).catch(function(err) {
                     console.error('html2canvas error:', err);
