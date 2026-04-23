@@ -1584,12 +1584,12 @@ class TIX_Tickets {
             setTimeout(function(){ URL.revokeObjectURL(url); }, 2000);
         }
         function tixSaveTicketImage(btn) {
-            if (typeof html2canvas === 'function') { return tixDoSaveImage(btn); }
-            // Lazy-Load des Renderers
+            if (typeof window.htmlToImage === 'object' && window.htmlToImage) { return tixDoSaveImage(btn); }
+            // Lazy-Load des Renderers (html-to-image — moderne CSS-Unterstützung)
             var oldHTML = btn.innerHTML;
             btn.disabled = true; btn.innerHTML = '\u23F3 l\u00e4dt Renderer\u2026';
             var script = document.createElement('script');
-            script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+            script.src = 'https://cdn.jsdelivr.net/npm/html-to-image@1.11.11/dist/html-to-image.min.js';
             script.onload = function(){ btn.innerHTML = oldHTML; btn.disabled = false; tixDoSaveImage(btn); };
             script.onerror = function(){ btn.innerHTML = oldHTML; btn.disabled = false; alert('Renderer konnte nicht geladen werden. Versuche "Ticket drucken" als Alternative.'); };
             document.head.appendChild(script);
@@ -1608,51 +1608,52 @@ class TIX_Tickets {
                 var scrollY = window.scrollY;
                 window.scrollTo(0, 0);
 
-                html2canvas(ticket, {
+                var opts = {
+                    pixelRatio: window.devicePixelRatio > 1 ? 2 : 1.75,
+                    cacheBust: true,
+                    skipFonts: false,
                     backgroundColor: null,
-                    scale: window.devicePixelRatio > 1 ? 2 : 1.75,
-                    useCORS: true,
-                    logging: false,
-                    ignoreElements: function(el) {
-                        return el.classList && el.classList.contains('no-print');
+                    filter: function(node) {
+                        // Alle .no-print Elemente ignorieren (Scroll-Btn, Badges, Modal…)
+                        if (node && node.classList && node.classList.contains('no-print')) return false;
+                        // Script-Tags weglassen
+                        if (node && node.tagName === 'SCRIPT') return false;
+                        return true;
                     }
-                }).then(function(canvas) {
-                    canvas.toBlob(function(blob) {
-                        btn.disabled = false; btn.innerHTML = oldHTML;
-                        if (qrImg && originalQRSrc) qrImg.src = originalQRSrc;
-                        window.scrollTo(0, scrollY);
-                        if (!blob) { alert('Bild konnte nicht erstellt werden.'); return; }
+                };
 
-                        var filename = 'ticket-' + (TIX_TOKEN ? TIX_TOKEN.substr(0, 8) : Date.now()) + '.png';
-                        var isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
-
-                        // Auf Mobil: Share-Sheet öffnen (bietet "In Fotos sichern" / "Galerie")
-                        if (isMobile && navigator.canShare) {
-                            try {
-                                var file = new File([blob], filename, { type: 'image/png' });
-                                if (navigator.canShare({ files: [file] })) {
-                                    navigator.share({
-                                        files: [file],
-                                        title: document.title || 'Mein Ticket',
-                                        text:  'Mein Ticket'
-                                    }).catch(function(err){
-                                        // Fallback nur bei echtem Fehler (AbortError = User hat abgebrochen — dann nichts tun)
-                                        if (err && err.name !== 'AbortError') tixTriggerDownload(blob, filename);
-                                    });
-                                    return;
-                                }
-                            } catch (e) { /* fällt auf Download zurück */ }
-                        }
-
-                        // Desktop / Fallback: direkter Download
-                        tixTriggerDownload(blob, filename);
-                    }, 'image/png');
-                }).catch(function(err) {
-                    console.error('html2canvas error:', err);
+                window.htmlToImage.toBlob(ticket, opts).then(function(blob) {
                     btn.disabled = false; btn.innerHTML = oldHTML;
                     if (qrImg && originalQRSrc) qrImg.src = originalQRSrc;
                     window.scrollTo(0, scrollY);
-                    alert('Bild konnte nicht erstellt werden. Versuche "Ticket drucken" als Alternative.');
+                    if (!blob) { alert('Bild konnte nicht erstellt werden.'); return; }
+
+                    var filename = 'ticket-' + (TIX_TOKEN ? TIX_TOKEN.substr(0, 8) : Date.now()) + '.png';
+                    var isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+
+                    // Auf Mobil: Share-Sheet öffnen (bietet "In Fotos sichern" / "Galerie")
+                    if (isMobile && navigator.canShare) {
+                        try {
+                            var file = new File([blob], filename, { type: 'image/png' });
+                            if (navigator.canShare({ files: [file] })) {
+                                navigator.share({
+                                    files: [file],
+                                    title: document.title || 'Mein Ticket',
+                                    text:  'Mein Ticket'
+                                }).catch(function(err){
+                                    if (err && err.name !== 'AbortError') tixTriggerDownload(blob, filename);
+                                });
+                                return;
+                            }
+                        } catch (e) { /* fällt auf Download zurück */ }
+                    }
+                    tixTriggerDownload(blob, filename);
+                }).catch(function(err) {
+                    console.error('html-to-image error:', err);
+                    btn.disabled = false; btn.innerHTML = oldHTML;
+                    if (qrImg && originalQRSrc) qrImg.src = originalQRSrc;
+                    window.scrollTo(0, scrollY);
+                    alert('Bild konnte nicht erstellt werden: ' + (err && err.message ? err.message : 'Unbekannter Fehler') + '. Versuche "Ticket drucken" als Alternative.');
                 });
             };
 
@@ -2442,6 +2443,10 @@ class TIX_Tickets {
         .tix-bundle-actions button:hover { background: #e5e7eb; }
         .tix-bundle-footer { padding: 10px 20px; font-size: 11px; color: <?php echo esc_attr($ht_footer_color); ?>; text-align: center; border-top: 1px dashed <?php echo esc_attr($ht_divider_color); ?>; }
 
+        .tix-bundle-sponsor { text-align: center; margin: 12px auto 0; }
+        .tix-bundle-sponsor .tix-bundle-sponsor-label { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #94a3b8; margin-bottom: 5px; }
+        .tix-bundle-sponsor img { max-width: 100%; height: auto; border-radius: <?php echo $ht_border_radius; ?>px; display: block; margin: 0 auto; }
+
         .tix-shared-info {
             display: none;
             align-items: center; justify-content: center; gap: 6px;
@@ -2740,6 +2745,27 @@ class TIX_Tickets {
                 <?php echo esc_html($ht_footer_text); ?>
             </div>
         </div>
+
+        <?php
+        // ── Sponsor-Banner für dieses Event (gleiche Logik wie Einzel-Ticket) ──
+        $bundle_sponsor_id  = intval(get_post_meta($event_id, '_tix_ticket_sponsor_image_id', true));
+        $bundle_sponsor_url = $bundle_sponsor_id
+            ? (wp_get_attachment_image_url($bundle_sponsor_id, 'large') ?: '')
+            : esc_url_raw((string) get_post_meta($event_id, '_tix_ticket_sponsor_image_url', true));
+        $bundle_sponsor_link = get_post_meta($event_id, '_tix_ticket_sponsor_link', true);
+        if ($bundle_sponsor_url):
+        ?>
+        <div class="tix-bundle-sponsor">
+            <div class="tix-bundle-sponsor-label">Anzeige</div>
+            <?php if ($bundle_sponsor_link): ?>
+                <a href="<?php echo esc_url($bundle_sponsor_link); ?>" target="_blank" rel="noopener">
+                    <img src="<?php echo esc_url($bundle_sponsor_url); ?>" alt="Sponsor">
+                </a>
+            <?php else: ?>
+                <img src="<?php echo esc_url($bundle_sponsor_url); ?>" alt="Sponsor">
+            <?php endif; ?>
+        </div>
+        <?php endif; ?>
         <?php $counter++; } ?>
     </div>
 
