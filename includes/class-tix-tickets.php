@@ -1037,10 +1037,12 @@ class TIX_Tickets {
         $entry_rules_raw = (string) get_post_meta($event_id, '_tix_info_entry_rules', true);
         $entry_rules = trim(wp_strip_all_tags($entry_rules_raw)); // einfacher Text für Accordion
 
-        // AGB + Widerruf aus Checkout-Settings (identisch zu TIX_Checkout)
+        // Rechtliches: AGB + Widerruf + Datenschutz + Impressum
         $agb_url        = ($s['terms_url']      ?? '') ?: apply_filters('tix_checkout_terms_url', '');
         $privacy_url    = ($s['privacy_url']    ?? '') ?: apply_filters('tix_checkout_privacy_url', get_privacy_policy_url() ?: '');
         $revocation_url = ($s['revocation_url'] ?? '') ?: apply_filters('tix_checkout_revocation_url', '');
+        // Impressum: Setting 'imprint_url' → Fallback /impressum/ auf eigener Domain
+        $imprint_url    = ($s['imprint_url']    ?? '') ?: apply_filters('tix_checkout_imprint_url', home_url('/impressum/'));
 
         // Issue-Datum für Verified-Badge
         $issue_date = date_i18n('d.m.Y', strtotime($code ? get_post($ticket_id)->post_date : 'now'));
@@ -1057,13 +1059,53 @@ class TIX_Tickets {
         $display_name = $assigned_raw !== '' ? $assigned_raw : $owner_name;
         $ajax_url     = admin_url('admin-ajax.php');
 
+        // Open-Graph Daten
+        $og_image = get_the_post_thumbnail_url($event_id, 'large')
+                    ?: (get_the_post_thumbnail_url($event_id, 'full') ?: '');
+        // Fallback: Tixomat-Logo / Site-Logo
+        if (!$og_image && !empty($s['ht_logo_url'])) $og_image = $s['ht_logo_url'];
+        $og_title = $event_name ? $event_name : 'Mein Ticket';
+        $og_desc_parts = [];
+        if ($date_display) $og_desc_parts[] = $date_display;
+        if ($time_start)   $og_desc_parts[] = $time_start . ' Uhr';
+        if ($location)     $og_desc_parts[] = $location;
+        if ($cat_name)     $og_desc_parts[] = $cat_name;
+        $og_desc = implode(' · ', $og_desc_parts) ?: 'Mein Ticket';
+        $og_url  = esc_url_raw((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https://' : 'http://') . ($_SERVER['HTTP_HOST'] ?? '') . ($_SERVER['REQUEST_URI'] ?? ''));
+        $site_name = get_bloginfo('name');
+
         ?>
 <!DOCTYPE html>
 <html lang="de" class="tix-ht-<?php echo esc_attr($ht_version); ?><?php if (!empty($event_cover_url) && in_array($ht_version, ['v3'], true)) echo ' tix-has-cover'; ?>">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ticket: <?php echo esc_html($event_name); ?></title>
+    <title><?php echo esc_html($og_title); ?> — Ticket</title>
+    <meta name="description" content="<?php echo esc_attr($og_desc); ?>">
+    <meta name="robots" content="noindex,nofollow">
+
+    <?php // ── Open Graph ── ?>
+    <meta property="og:type"        content="website">
+    <meta property="og:title"       content="<?php echo esc_attr($og_title); ?>">
+    <meta property="og:description" content="<?php echo esc_attr($og_desc); ?>">
+    <meta property="og:url"         content="<?php echo esc_attr($og_url); ?>">
+    <meta property="og:site_name"   content="<?php echo esc_attr($site_name); ?>">
+    <meta property="og:locale"      content="de_DE">
+    <?php if ($og_image): ?>
+        <meta property="og:image"        content="<?php echo esc_attr($og_image); ?>">
+        <meta property="og:image:alt"    content="<?php echo esc_attr($og_title); ?>">
+        <meta property="og:image:width"  content="1200">
+        <meta property="og:image:height" content="630">
+    <?php endif; ?>
+
+    <?php // ── Twitter Card ── ?>
+    <meta name="twitter:card"        content="<?php echo $og_image ? 'summary_large_image' : 'summary'; ?>">
+    <meta name="twitter:title"       content="<?php echo esc_attr($og_title); ?>">
+    <meta name="twitter:description" content="<?php echo esc_attr($og_desc); ?>">
+    <?php if ($og_image): ?>
+        <meta name="twitter:image" content="<?php echo esc_attr($og_image); ?>">
+    <?php endif; ?>
+
     <style>
         @media print {
             @page { margin: 0; }
@@ -1440,6 +1482,7 @@ class TIX_Tickets {
         .ticket-cover-cat { font-size: 14px; opacity: .9; }
 
         .tix-info-dresscode .value { font-style: italic; }
+        .tix-info-rules .value { font-weight: 400; font-size: 13px; line-height: 1.55; }
 
         .tix-entry-rules {
             max-width: 600px; margin: 8px auto 0;
@@ -1470,7 +1513,12 @@ class TIX_Tickets {
         .tix-agb-footer a:hover { opacity: .7; }
 
         .ticket-qr { cursor: zoom-in; }
-        .tix-ticket-qr-canvas { width: 160px; height: 160px; display: block; margin: 0 auto; }
+        .tix-ticket-qr-canvas { width: 160px; height: 160px; display: block; margin: 0 auto; image-rendering: pixelated; }
+        .tix-qr-hint {
+            margin-top: 6px; text-align: center;
+            font-size: 11px; color: #94a3b8; font-weight: 500;
+            letter-spacing: .02em;
+        }
 
         /* QR-Zoom Overlay */
         .tix-qr-zoom-overlay {
@@ -1720,35 +1768,34 @@ class TIX_Tickets {
                     <div class="value"><?php echo esc_html($dresscode); ?></div>
                 </div>
                 <?php endif; ?>
+
+                <?php if ($entry_rules): ?>
+                <div class="info-row tix-info-rules">
+                    <div class="label">Einlassregeln</div>
+                    <div class="value"><?php echo nl2br(esc_html($entry_rules)); ?></div>
+                </div>
+                <?php endif; ?>
             </div>
             <div class="ticket-qr" onclick="tixQRZoom()" role="button" tabindex="0" title="QR-Code vergrößern" aria-label="QR-Code vergrößern">
                 <canvas class="tix-ticket-qr-canvas" data-qr="<?php echo esc_attr($qr_data); ?>" width="400" height="400" aria-label="QR-Code"></canvas>
                 <noscript><img src="<?php echo esc_url($qr_url); ?>" alt="QR-Code"></noscript>
                 <div class="code"><?php echo esc_html($code); ?></div>
+                <div class="tix-qr-hint no-print">Tap zum Vergrößern</div>
             </div>
         </div>
 
-        <?php if ($entry_rules): ?>
-        <details class="tix-entry-rules">
-            <summary>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-                Einlassregeln anzeigen
-            </summary>
-            <div class="tix-entry-rules-body"><?php echo nl2br(esc_html($entry_rules)); ?></div>
-        </details>
-        <?php endif; ?>
-
         <div class="ticket-footer">
             <?php echo esc_html($ht_footer_text); ?>
-            <?php if (!empty($ht_show_agb_footer) && ($agb_url || $privacy_url || $revocation_url)): ?>
-            <div class="tix-agb-footer no-print">
-                <?php if ($agb_url): ?><a href="<?php echo esc_url($agb_url); ?>" target="_blank" rel="noopener">AGB</a><?php endif; ?>
-                <?php if ($agb_url && $revocation_url): ?> · <?php endif; ?>
-                <?php if ($revocation_url): ?><a href="<?php echo esc_url($revocation_url); ?>" target="_blank" rel="noopener">Widerrufsrecht</a><?php endif; ?>
-                <?php if (($agb_url || $revocation_url) && $privacy_url): ?> · <?php endif; ?>
-                <?php if ($privacy_url): ?><a href="<?php echo esc_url($privacy_url); ?>" target="_blank" rel="noopener">Datenschutz</a><?php endif; ?>
-            </div>
-            <?php endif; ?>
+            <?php if (!empty($ht_show_agb_footer)):
+                $legal_links = [];
+                if ($agb_url)        $legal_links[] = '<a href="' . esc_url($agb_url) . '" target="_blank" rel="noopener">AGB</a>';
+                if ($revocation_url) $legal_links[] = '<a href="' . esc_url($revocation_url) . '" target="_blank" rel="noopener">Widerrufsrecht</a>';
+                if ($privacy_url)    $legal_links[] = '<a href="' . esc_url($privacy_url) . '" target="_blank" rel="noopener">Datenschutz</a>';
+                if ($imprint_url)    $legal_links[] = '<a href="' . esc_url($imprint_url) . '" target="_blank" rel="noopener">Impressum</a>';
+                if (!empty($legal_links)):
+            ?>
+            <div class="tix-agb-footer no-print"><?php echo implode(' · ', $legal_links); ?></div>
+            <?php endif; endif; ?>
         </div>
     </div>
 
@@ -2775,14 +2822,24 @@ class TIX_Tickets {
         $ht_version       = in_array($ht_version, ['v1', 'v2', 'v3', 'v4'], true) ? $ht_version : 'v1';
         $accent           = !empty($s['color_primary']) ? $s['color_primary'] : '#FF5500';
 
-        // AGB/Widerruf aus Checkout-Settings
+        // AGB/Widerruf/Datenschutz/Impressum aus Checkout-Settings
         $bundle_agb_url        = ($s['terms_url']      ?? '') ?: apply_filters('tix_checkout_terms_url', '');
         $bundle_privacy_url    = ($s['privacy_url']    ?? '') ?: apply_filters('tix_checkout_privacy_url', get_privacy_policy_url() ?: '');
         $bundle_revocation_url = ($s['revocation_url'] ?? '') ?: apply_filters('tix_checkout_revocation_url', '');
+        $bundle_imprint_url    = ($s['imprint_url']    ?? '') ?: apply_filters('tix_checkout_imprint_url', home_url('/impressum/'));
 
         $total = count($tickets);
         $buyer_name  = get_post_meta($tickets[0]->ID, '_tix_ticket_owner_name', true);
         $buyer_email = get_post_meta($tickets[0]->ID, '_tix_ticket_owner_email', true);
+
+        // Open Graph Daten (Event-Bild des ersten Tickets)
+        $bundle_first_event_id = intval(get_post_meta($tickets[0]->ID, '_tix_ticket_event_id', true));
+        $bundle_og_image = $bundle_first_event_id ? (get_the_post_thumbnail_url($bundle_first_event_id, 'large') ?: '') : '';
+        if (!$bundle_og_image && !empty($s['ht_logo_url'])) $bundle_og_image = $s['ht_logo_url'];
+        $bundle_og_title = 'Meine Tickets (#' . intval($order_id) . ')';
+        $bundle_og_desc  = $total . ' ' . ($total === 1 ? 'Ticket' : 'Tickets') . ' für ' . ($buyer_name ?: $buyer_email);
+        $bundle_og_url   = esc_url_raw((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https://' : 'http://') . ($_SERVER['HTTP_HOST'] ?? '') . ($_SERVER['REQUEST_URI'] ?? ''));
+        $bundle_site_name = get_bloginfo('name');
 
         nocache_headers();
         header('Content-Type: text/html; charset=utf-8');
@@ -2791,7 +2848,31 @@ class TIX_Tickets {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Tickets zur Bestellung #<?php echo intval($order_id); ?></title>
+    <title><?php echo esc_html($bundle_og_title); ?> — <?php echo esc_html($bundle_site_name); ?></title>
+    <meta name="description" content="<?php echo esc_attr($bundle_og_desc); ?>">
+    <meta name="robots" content="noindex,nofollow">
+
+    <?php // ── Open Graph ── ?>
+    <meta property="og:type"        content="website">
+    <meta property="og:title"       content="<?php echo esc_attr($bundle_og_title); ?>">
+    <meta property="og:description" content="<?php echo esc_attr($bundle_og_desc); ?>">
+    <meta property="og:url"         content="<?php echo esc_attr($bundle_og_url); ?>">
+    <meta property="og:site_name"   content="<?php echo esc_attr($bundle_site_name); ?>">
+    <meta property="og:locale"      content="de_DE">
+    <?php if ($bundle_og_image): ?>
+        <meta property="og:image"        content="<?php echo esc_attr($bundle_og_image); ?>">
+        <meta property="og:image:alt"    content="<?php echo esc_attr($bundle_og_title); ?>">
+        <meta property="og:image:width"  content="1200">
+        <meta property="og:image:height" content="630">
+    <?php endif; ?>
+
+    <?php // ── Twitter Card ── ?>
+    <meta name="twitter:card"        content="<?php echo $bundle_og_image ? 'summary_large_image' : 'summary'; ?>">
+    <meta name="twitter:title"       content="<?php echo esc_attr($bundle_og_title); ?>">
+    <meta name="twitter:description" content="<?php echo esc_attr($bundle_og_desc); ?>">
+    <?php if ($bundle_og_image): ?>
+        <meta name="twitter:image" content="<?php echo esc_attr($bundle_og_image); ?>">
+    <?php endif; ?>
     <style>
         @media print {
             @page { margin: 0; }
@@ -3263,15 +3344,16 @@ class TIX_Tickets {
     </div>
     <?php endif; endif; ?>
 
-    <?php if (!empty($ht_show_agb_footer) && ($bundle_agb_url || $bundle_privacy_url || $bundle_revocation_url)): ?>
-    <div class="tix-bundle-agb-footer no-print">
-        <?php if ($bundle_agb_url): ?><a href="<?php echo esc_url($bundle_agb_url); ?>" target="_blank" rel="noopener">AGB</a><?php endif; ?>
-        <?php if ($bundle_agb_url && $bundle_revocation_url): ?> · <?php endif; ?>
-        <?php if ($bundle_revocation_url): ?><a href="<?php echo esc_url($bundle_revocation_url); ?>" target="_blank" rel="noopener">Widerrufsrecht</a><?php endif; ?>
-        <?php if (($bundle_agb_url || $bundle_revocation_url) && $bundle_privacy_url): ?> · <?php endif; ?>
-        <?php if ($bundle_privacy_url): ?><a href="<?php echo esc_url($bundle_privacy_url); ?>" target="_blank" rel="noopener">Datenschutz</a><?php endif; ?>
-    </div>
-    <?php endif; ?>
+    <?php if (!empty($ht_show_agb_footer)):
+        $bundle_legal = [];
+        if ($bundle_agb_url)        $bundle_legal[] = '<a href="' . esc_url($bundle_agb_url) . '" target="_blank" rel="noopener">AGB</a>';
+        if ($bundle_revocation_url) $bundle_legal[] = '<a href="' . esc_url($bundle_revocation_url) . '" target="_blank" rel="noopener">Widerrufsrecht</a>';
+        if ($bundle_privacy_url)    $bundle_legal[] = '<a href="' . esc_url($bundle_privacy_url) . '" target="_blank" rel="noopener">Datenschutz</a>';
+        if ($bundle_imprint_url)    $bundle_legal[] = '<a href="' . esc_url($bundle_imprint_url) . '" target="_blank" rel="noopener">Impressum</a>';
+        if (!empty($bundle_legal)):
+    ?>
+    <div class="tix-bundle-agb-footer no-print"><?php echo implode(' · ', $bundle_legal); ?></div>
+    <?php endif; endif; ?>
 
     <script src="<?php echo esc_url(TIXOMAT_URL . 'assets/js/tix-qr.js?v=' . TIXOMAT_VERSION); ?>"></script>
     <script>
