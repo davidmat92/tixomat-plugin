@@ -2443,6 +2443,13 @@ class TIX_Tickets {
         .tix-bundle-actions button:hover { background: #e5e7eb; }
         .tix-bundle-footer { padding: 10px 20px; font-size: 11px; color: <?php echo esc_attr($ht_footer_color); ?>; text-align: center; border-top: 1px dashed <?php echo esc_attr($ht_divider_color); ?>; }
 
+        .tix-bundle-assign-hint {
+            padding: 10px 20px;
+            font-size: 11px; color: #64748b; text-align: center;
+            background: #fafafa;
+            border-bottom: 1px dashed <?php echo esc_attr($ht_divider_color); ?>;
+        }
+
         .tix-bundle-sponsor { text-align: center; margin: 12px auto 0; }
         .tix-bundle-sponsor .tix-bundle-sponsor-label { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #94a3b8; margin-bottom: 5px; }
         .tix-bundle-sponsor img { max-width: 100%; height: auto; border-radius: <?php echo $ht_border_radius; ?>px; display: block; margin: 0 auto; }
@@ -2707,6 +2714,7 @@ class TIX_Tickets {
                     </button>
                 </div>
             </div>
+            <div class="tix-bundle-assign-hint">Ordne das Ticket einer bestimmten Person zu - freiwillig zur Übersicht.</div>
             <div class="tix-bundle-body">
                 <div class="tix-bundle-info">
                     <?php if ($date_display): ?>
@@ -2768,8 +2776,6 @@ class TIX_Tickets {
         <?php endif; ?>
         <?php $counter++; } ?>
     </div>
-
-    <div class="tix-assign-hint">Ordne das Ticket einer bestimmten Person zu - freiwillig zur Übersicht.</div>
 
     <div class="tix-modal-overlay" data-tix-modal onclick="tixAssignOverlayClose(event)">
         <div class="tix-modal" role="dialog" aria-modal="true" aria-labelledby="tix-modal-title">
