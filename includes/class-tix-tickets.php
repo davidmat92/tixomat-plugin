@@ -1032,10 +1032,10 @@ class TIX_Tickets {
             $event_start_iso = $date_start; // wird clientseitig in Date geparst
         }
 
-        // Dresscode + Einlassregeln (Event-Meta)
-        $dresscode  = trim((string) get_post_meta($event_id, '_tix_info_dresscode', true));
-        $entry_rules_raw = (string) get_post_meta($event_id, '_tix_info_entry_rules', true);
-        $entry_rules = trim(wp_strip_all_tags($entry_rules_raw)); // einfacher Text für Accordion
+        // Dresscode + Einlassregeln + Weitere Hinweise (Event-Meta, Ticket-Gruppe)
+        $dresscode     = trim((string) get_post_meta($event_id, '_tix_info_dresscode', true));
+        $entry_rules   = trim(wp_strip_all_tags((string) get_post_meta($event_id, '_tix_info_entry_rules', true)));
+        $ticket_notes  = trim(wp_strip_all_tags((string) get_post_meta($event_id, '_tix_info_ticket_notes', true)));
 
         // Rechtliches: AGB + Widerruf + Datenschutz + Impressum
         $agb_url        = ($s['terms_url']      ?? '') ?: apply_filters('tix_checkout_terms_url', '');
@@ -1481,8 +1481,9 @@ class TIX_Tickets {
         .ticket-cover-title { font-size: 26px; font-weight: 800; margin-bottom: 3px; letter-spacing: -.02em; text-shadow: 0 2px 8px rgba(0,0,0,.35); }
         .ticket-cover-cat { font-size: 14px; opacity: .9; }
 
-        .tix-info-dresscode .value { font-style: italic; }
-        .tix-info-rules .value { font-weight: 400; font-size: 13px; line-height: 1.55; }
+        .tix-info-dresscode .value,
+        .tix-info-rules .value,
+        .tix-info-notes .value { font-style: italic; line-height: 1.5; }
 
         .tix-entry-rules {
             max-width: 600px; margin: 8px auto 0;
@@ -1617,19 +1618,45 @@ class TIX_Tickets {
         html.tix-ht-v4 .ticket-header {
             background: linear-gradient(135deg,
                 <?php echo esc_attr($ht_header_bg); ?> 0%,
-                color-mix(in srgb, <?php echo esc_attr($ht_header_bg); ?> 75%, <?php echo esc_attr($accent); ?> 25%) 100%);
+                color-mix(in srgb, <?php echo esc_attr($ht_header_bg); ?> 60%, <?php echo esc_attr($accent); ?> 40%) 100%);
             position: relative; overflow: hidden;
         }
+        /* Rainbow-Conic-Gradient als permanente Basis-Ebene am Header */
+        html.tix-ht-v4 .ticket-header::before {
+            content: "";
+            position: absolute; inset: 0;
+            background:
+                radial-gradient(ellipse at 20% 0%, rgba(236,72,153,.55), transparent 55%),
+                radial-gradient(ellipse at 80% 0%, rgba(168,85,247,.45), transparent 55%),
+                radial-gradient(ellipse at 50% 100%, rgba(59,130,246,.35), transparent 60%),
+                conic-gradient(from 180deg at 50% -20%, rgba(236,72,153,.25), rgba(168,85,247,.25), rgba(59,130,246,.25), rgba(16,185,129,.2), rgba(245,158,11,.25), rgba(236,72,153,.25));
+            mix-blend-mode: screen;
+            animation: tixHoloHeaderPulse 6s ease-in-out infinite;
+            pointer-events: none;
+            z-index: 0;
+        }
+        /* Animierter Shine-Sweep darüber (stärker + schneller) */
         html.tix-ht-v4 .ticket-header::after {
             content: "";
             position: absolute; inset: 0;
-            background: linear-gradient(115deg, transparent 30%, rgba(255,255,255,.35) 50%, transparent 70%);
-            animation: tixHoloShine 4s ease-in-out infinite;
+            background: linear-gradient(115deg,
+                transparent 20%,
+                rgba(255,255,255,.55) 45%,
+                rgba(255,255,255,.8)  50%,
+                rgba(255,255,255,.55) 55%,
+                transparent 80%);
+            animation: tixHoloShine 3.2s ease-in-out infinite;
             pointer-events: none;
+            z-index: 1;
         }
+        html.tix-ht-v4 .ticket-header > * { position: relative; z-index: 2; }
         @keyframes tixHoloShine {
-            0%, 100% { transform: translateX(-120%); }
-            50% { transform: translateX(120%); }
+            0%, 100% { transform: translateX(-130%); }
+            50% { transform: translateX(130%); }
+        }
+        @keyframes tixHoloHeaderPulse {
+            0%, 100% { opacity: .85; transform: rotate(0deg) scale(1); }
+            50%      { opacity: 1;   transform: rotate(15deg) scale(1.08); }
         }
         html.tix-ht-v4 .ticket-qr .tix-ticket-qr-canvas,
         html.tix-ht-v4 .ticket-qr img {
@@ -1644,6 +1671,26 @@ class TIX_Tickets {
         @keyframes tixHoloQRPulse {
             to { filter: hue-rotate(360deg); }
         }
+
+        /* ═══════════════════════════════════════
+           SNAPSHOT-MODE: Animationen + mix-blend-mode beim Capture ausblenden
+           (wird von tixDoSaveImage() kurzzeitig gesetzt)
+           ═══════════════════════════════════════ */
+        .tix-snapshot *,
+        .tix-snapshot *::before,
+        .tix-snapshot *::after { animation: none !important; transition: none !important; }
+        .tix-snapshot .ticket::before,
+        .tix-snapshot .ticket-header::before,
+        .tix-snapshot .ticket-header::after,
+        .tix-snapshot .tix-bundle-card::before,
+        .tix-snapshot .tix-bundle-header::before,
+        .tix-snapshot .tix-bundle-header::after { display: none !important; }
+        .tix-snapshot html.tix-ht-v4 .ticket-header,
+        .tix-snapshot html.tix-ht-v4 .tix-bundle-header {
+            background: <?php echo esc_attr($ht_header_bg); ?> !important;
+        }
+        .tix-snapshot .ticket-qr .tix-ticket-qr-canvas,
+        .tix-snapshot .ticket-qr img { border: 2px solid #e5e7eb !important; background: #fff !important; animation: none !important; }
     </style>
 </head>
 <body>
@@ -1773,6 +1820,13 @@ class TIX_Tickets {
                 <div class="info-row tix-info-rules">
                     <div class="label">Einlassregeln</div>
                     <div class="value"><?php echo nl2br(esc_html($entry_rules)); ?></div>
+                </div>
+                <?php endif; ?>
+
+                <?php if ($ticket_notes): ?>
+                <div class="info-row tix-info-notes">
+                    <div class="label">Weitere Hinweise</div>
+                    <div class="value"><?php echo nl2br(esc_html($ticket_notes)); ?></div>
                 </div>
                 <?php endif; ?>
             </div>
@@ -2031,8 +2085,17 @@ class TIX_Tickets {
                 try { qrImg.setAttribute('crossorigin', 'anonymous'); } catch(e){}
             }
 
-            var handleBlob = function(blob) {
+            // Snapshot-Modus aktivieren: deaktiviert Animationen + mix-blend-mode
+            // damit html2canvas-pro V3/V4 sauber rendern kann
+            document.documentElement.classList.add('tix-snapshot');
+
+            var finishUI = function() {
+                document.documentElement.classList.remove('tix-snapshot');
                 btn.disabled = false; btn.innerHTML = oldHTML;
+            };
+
+            var handleBlob = function(blob) {
+                finishUI();
                 if (!blob) { alert('Bild konnte nicht erstellt werden.'); return; }
                 var filename = 'ticket-' + (TIX_TOKEN ? TIX_TOKEN.substr(0, 8) : Date.now()) + '.png';
                 var isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
@@ -2075,11 +2138,13 @@ class TIX_Tickets {
 
             var handleError = function(err) {
                 console.error('Ticket-Screenshot Fehler:', err);
-                btn.disabled = false; btn.innerHTML = oldHTML;
+                finishUI();
                 alert('Bild konnte nicht erstellt werden: ' + (err && err.message ? err.message : 'Unbekannter Fehler') + '. Versuche "Ticket drucken" als Alternative.');
             };
 
             // Primär: html2canvas-pro (moderne CSS-Features wie color-mix, Gradient-Border)
+            // requestAnimationFrame: CSS-Klasse '.tix-snapshot' muss erst gerendert sein
+            var runCapture = function() {
             if (typeof window.html2canvas === 'function') {
                 window.html2canvas(ticket, {
                     backgroundColor: null,
@@ -2123,6 +2188,9 @@ class TIX_Tickets {
                 return;
             }
             handleError(new Error('Kein Renderer verfügbar'));
+            };
+            // Zweimal rAF: Style anwenden + 1 Paint abwarten → dann capturen
+            requestAnimationFrame(function(){ requestAnimationFrame(runCapture); });
         }
 
         // Image/Share auf dem versteckten Source-Element triggern

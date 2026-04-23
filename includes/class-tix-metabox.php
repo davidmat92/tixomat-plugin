@@ -842,9 +842,11 @@ class TIX_Metabox {
             'lineup'      => ['label' => 'Line-Up',                'type' => 'textarea'],
             'specials'    => ['label' => 'Specials',               'type' => 'textarea'],
             'age_limit'   => ['label' => 'Altersbegrenzung',       'type' => 'number'],
-            'dresscode'   => ['label' => 'Dresscode',              'type' => 'text'],
-            'entry_rules' => ['label' => 'Einlassregeln',          'type' => 'textarea'],
             'extra_info'  => ['label' => 'Weitere Informationen',  'type' => 'textarea'],
+            // ── Ticket-Anzeige-Gruppe (erscheint auf dem Ticket) ──
+            'dresscode'   => ['label' => 'Dresscode',              'type' => 'text',     'group' => 'ticket'],
+            'entry_rules' => ['label' => 'Einlassregeln',          'type' => 'textarea', 'group' => 'ticket'],
+            'ticket_notes'=> ['label' => 'Weitere Hinweise',       'type' => 'textarea', 'group' => 'ticket'],
         ];
     }
 
@@ -856,10 +858,29 @@ class TIX_Metabox {
             Klicke auf die graue Überschrift um sie umzubenennen. Leere Felder werden im Frontend nicht angezeigt.
         </p>
         <div class="tix-info-sections">
-        <?php foreach ($sections as $key => $def):
+        <?php
+        $current_group = '';
+        foreach ($sections as $key => $def):
             $label   = get_post_meta($post->ID, "_tix_info_{$key}_label", true) ?: $def['label'];
             $content = get_post_meta($post->ID, "_tix_info_{$key}", true);
-            ?>
+            $group   = $def['group'] ?? '';
+
+            // Wenn neue Gruppe beginnt → Trenner + Überschrift ausgeben
+            if ($group !== $current_group && $group === 'ticket'):
+        ?>
+            <div class="tix-info-group-heading" style="margin:24px 0 8px;padding:10px 14px;background:linear-gradient(135deg,#f5f3ff,#ede9fe);border-left:4px solid #8b5cf6;border-radius:6px;">
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <span class="dashicons dashicons-tickets-alt" style="color:#6d28d9;"></span>
+                    <strong style="color:#4c1d95;font-size:13px;">Wird auf dem Ticket angezeigt</strong>
+                </div>
+                <p style="margin:4px 0 0 26px;font-size:11px;color:#6b7280;line-height:1.5;">
+                    Diese drei Felder erscheinen zusätzlich auf dem Online-Ticket (Dresscode, Einlassregeln, Weitere Hinweise). Leer lassen = nicht anzeigen.
+                </p>
+            </div>
+        <?php
+                $current_group = $group;
+            endif;
+        ?>
             <div class="tix-info-section">
                 <div class="tix-info-header" style="display:flex;align-items:center;">
                     <input type="text" name="tix_info_labels[<?php echo $key; ?>]"
