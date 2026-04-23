@@ -1473,10 +1473,11 @@ class TIX_Tickets {
     <?php
     // ── Sponsor-Banner (Werbung unter dem Ticket) ──
     $sponsor_id  = intval(get_post_meta($event_id, '_tix_ticket_sponsor_image_id', true));
-    if ($sponsor_id):
-        $sponsor_url  = wp_get_attachment_image_url($sponsor_id, 'large');
-        $sponsor_link = get_post_meta($event_id, '_tix_ticket_sponsor_link', true);
-        if ($sponsor_url):
+    $sponsor_url = $sponsor_id
+        ? wp_get_attachment_image_url($sponsor_id, 'large')
+        : esc_url_raw((string) get_post_meta($event_id, '_tix_ticket_sponsor_image_url', true));
+    $sponsor_link = get_post_meta($event_id, '_tix_ticket_sponsor_link', true);
+    if ($sponsor_url):
     ?>
     <div class="ticket-sponsor" style="max-width:600px;margin:16px auto 0;text-align:center;">
         <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#94a3b8;margin-bottom:6px;">Anzeige</div>
@@ -1488,7 +1489,7 @@ class TIX_Tickets {
             <img src="<?php echo esc_url($sponsor_url); ?>" alt="Sponsor" style="max-width:100%;height:auto;border-radius:<?php echo $ht_border_radius; ?>px;display:block;margin:0 auto;">
         <?php endif; ?>
     </div>
-    <?php endif; endif; ?>
+    <?php endif; ?>
 
     <?php
     // ── Hidden Data-Container für Canvas-Renderer (Als Bild speichern / Teilen) ──

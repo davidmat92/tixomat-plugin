@@ -1467,7 +1467,12 @@ class TIX_My_Tickets {
         $sponsor_url = '';
         if (!empty($ev['event_id'])) {
             $sponsor_id = intval(get_post_meta($ev['event_id'], '_tix_ticket_sponsor_image_id', true));
-            if ($sponsor_id) $sponsor_url = wp_get_attachment_url($sponsor_id) ?: '';
+            if ($sponsor_id) {
+                $sponsor_url = wp_get_attachment_url($sponsor_id) ?: '';
+            } else {
+                // Fallback: externe URL, falls kein Attachment gewählt
+                $sponsor_url = esc_url_raw((string) get_post_meta($ev['event_id'], '_tix_ticket_sponsor_image_url', true));
+            }
         }
         // Accent-Farben aus Settings (Header/Footer vom HTML-Ticket)
         $accent_bg  = $s['ht_header_bg']   ?? '#131020';

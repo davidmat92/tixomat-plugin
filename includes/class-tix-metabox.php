@@ -1713,8 +1713,11 @@ class TIX_Metabox {
         $has_global = !empty(TIX_Ticket_Template::get_global_config());
 
         // Sponsor-/Werbe-Banner fürs Ticket
-        $sponsor_id  = intval(get_post_meta($post->ID, '_tix_ticket_sponsor_image_id', true));
-        $sponsor_url = $sponsor_id ? wp_get_attachment_image_url($sponsor_id, 'medium') : '';
+        $sponsor_id       = intval(get_post_meta($post->ID, '_tix_ticket_sponsor_image_id', true));
+        $sponsor_url_meta = (string) get_post_meta($post->ID, '_tix_ticket_sponsor_image_url', true);
+        $sponsor_url = $sponsor_id
+            ? (wp_get_attachment_image_url($sponsor_id, 'medium') ?: '')
+            : $sponsor_url_meta;
         $sponsor_link = get_post_meta($post->ID, '_tix_ticket_sponsor_link', true);
 
         // Verfügbare Ticket-Vorlagen (CPT)
@@ -1774,8 +1777,8 @@ class TIX_Metabox {
                 <h4 style="margin:0 0 6px;font-size:14px;">Sponsor-Banner (Werbung unter dem Ticket)</h4>
                 <p class="description" style="margin:0 0 12px;">Optionales Bild, das unter dem HTML-Ticket als Werbefläche angezeigt wird (z.B. Sponsor-Logo). Wird nur im HTML-Ticket-Modus angezeigt.</p>
 
-                <div class="tix-img-wrap tix-sponsor-picker" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-                    <div class="tix-img-box tix-sponsor-box <?php echo $sponsor_url ? 'has-img' : ''; ?>" style="width:120px;height:80px;border:2px dashed #cbd5e1;border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer;overflow:hidden;background:#f8fafc;">
+                <div class="tix-img-wrap tix-sponsor-picker" style="display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap;">
+                    <div class="tix-img-box tix-sponsor-box <?php echo $sponsor_url ? 'has-img' : ''; ?>" style="width:120px;height:80px;border:2px dashed #cbd5e1;border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer;overflow:hidden;background:#f8fafc;flex-shrink:0;">
                         <?php if ($sponsor_url): ?>
                             <img src="<?php echo esc_url($sponsor_url); ?>" style="max-width:100%;max-height:100%;object-fit:contain;">
                         <?php else: ?>
@@ -1783,17 +1786,37 @@ class TIX_Metabox {
                         <?php endif; ?>
                     </div>
                     <input type="hidden" name="tix_ticket_sponsor_image_id" class="tix-img-val tix-sponsor-val" value="<?php echo $sponsor_id ?: ''; ?>">
-                    <div style="flex:1;min-width:220px;">
-                        <label style="display:block;font-size:12px;color:#475569;margin-bottom:4px;">Link (optional, beim Klick auf das Bild)</label>
-                        <input type="url" name="tix_ticket_sponsor_link" value="<?php echo esc_attr($sponsor_link); ?>" placeholder="https://sponsor.example.com" style="width:100%;padding:8px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
+                    <div style="flex:1;min-width:260px;display:flex;flex-direction:column;gap:8px;">
+                        <div>
+                            <label style="display:block;font-size:12px;color:#475569;margin-bottom:4px;">Bild-URL (alternativ zur Mediathek)</label>
+                            <input type="url" name="tix_ticket_sponsor_image_url" class="tix-sponsor-url-input" value="<?php echo esc_attr($sponsor_url_meta); ?>" placeholder="https://beispiel.de/sponsor.jpg" style="width:100%;padding:8px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;" <?php echo $sponsor_id ? 'disabled' : ''; ?>>
+                            <p class="description" style="margin:4px 0 0;font-size:11px;color:#64748b;">Einfügen oder "Bild wählen" tippen — bei externer URL wird die Mediathek ignoriert.</p>
+                        </div>
+                        <div>
+                            <label style="display:block;font-size:12px;color:#475569;margin-bottom:4px;">Link (optional, beim Klick auf das Bild)</label>
+                            <input type="url" name="tix_ticket_sponsor_link" value="<?php echo esc_attr($sponsor_link); ?>" placeholder="https://sponsor.example.com" style="width:100%;padding:8px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
+                        </div>
                         <?php if ($sponsor_url): ?>
-                            <a href="#" class="tix-img-clear tix-sponsor-clear" style="display:inline-block;margin-top:6px;font-size:12px;">Banner entfernen</a>
+                            <a href="#" class="tix-img-clear tix-sponsor-clear" style="display:inline-block;font-size:12px;">Banner entfernen</a>
                         <?php endif; ?>
                     </div>
                 </div>
 
                 <script>
                 (function($){
+                    function sponsorSetPreview($wrap, url) {
+                        if (url) {
+                            $wrap.find('.tix-sponsor-box').addClass('has-img').html('<img src="' + url + '" style="max-width:100%;max-height:100%;object-fit:contain;">');
+                            if (!$wrap.find('.tix-sponsor-clear').length) {
+                                $wrap.find('> div').last().append('<a href="#" class="tix-img-clear tix-sponsor-clear" style="display:inline-block;font-size:12px;">Banner entfernen</a>');
+                            }
+                        } else {
+                            $wrap.find('.tix-sponsor-box').removeClass('has-img').html('<span class="dashicons dashicons-format-image" style="font-size:28px;width:28px;height:28px;color:#94a3b8;"></span>');
+                            $wrap.find('.tix-sponsor-clear').remove();
+                        }
+                    }
+
+                    // Media-Picker: Attachment wählen
                     $(document).on('click', '.tix-sponsor-box', function(e){
                         e.preventDefault();
                         var $wrap = $(this).closest('.tix-sponsor-picker');
@@ -1801,20 +1824,33 @@ class TIX_Metabox {
                         frame.on('select', function(){
                             var att = frame.state().get('selection').first().toJSON();
                             $wrap.find('.tix-sponsor-val').val(att.id);
+                            // URL-Feld leeren + deaktivieren (Attachment hat Vorrang)
+                            $wrap.find('.tix-sponsor-url-input').val('').prop('disabled', true);
                             var url = (att.sizes && att.sizes.medium) ? att.sizes.medium.url : att.url;
-                            $wrap.find('.tix-sponsor-box').addClass('has-img').html('<img src="' + url + '" style="max-width:100%;max-height:100%;object-fit:contain;">');
-                            if (!$wrap.find('.tix-sponsor-clear').length) {
-                                $wrap.find('input[name="tix_ticket_sponsor_link"]').after('<a href="#" class="tix-img-clear tix-sponsor-clear" style="display:inline-block;margin-top:6px;font-size:12px;">Banner entfernen</a>');
-                            }
+                            sponsorSetPreview($wrap, url);
                         });
                         frame.open();
                     });
+
+                    // URL-Input: externes Bild einfügen
+                    $(document).on('input change', '.tix-sponsor-url-input', function(){
+                        var $wrap = $(this).closest('.tix-sponsor-picker');
+                        var url = $.trim($(this).val());
+                        // Nur gültige http(s)-URLs oder data: URLs
+                        if (url && /^(https?:\/\/|data:image\/)/i.test(url)) {
+                            sponsorSetPreview($wrap, url);
+                        } else if (!url) {
+                            sponsorSetPreview($wrap, '');
+                        }
+                    });
+
+                    // Banner entfernen
                     $(document).on('click', '.tix-sponsor-clear', function(e){
                         e.preventDefault();
                         var $wrap = $(this).closest('.tix-sponsor-picker');
                         $wrap.find('.tix-sponsor-val').val('');
-                        $wrap.find('.tix-sponsor-box').removeClass('has-img').html('<span class="dashicons dashicons-format-image" style="font-size:28px;width:28px;height:28px;color:#94a3b8;"></span>');
-                        $(this).remove();
+                        $wrap.find('.tix-sponsor-url-input').val('').prop('disabled', false);
+                        sponsorSetPreview($wrap, '');
                     });
                 })(jQuery);
                 </script>
@@ -4303,17 +4339,30 @@ class TIX_Metabox {
         }
 
         // ── Sponsor-Banner (Werbung unter dem Ticket) ──
-        $sponsor_id   = intval($_POST['tix_ticket_sponsor_image_id'] ?? 0);
+        $sponsor_id  = intval($_POST['tix_ticket_sponsor_image_id'] ?? 0);
+        $sponsor_url = esc_url_raw($_POST['tix_ticket_sponsor_image_url'] ?? '');
         $sponsor_link = esc_url_raw($_POST['tix_ticket_sponsor_link'] ?? '');
+
         if ($sponsor_id) {
+            // Attachment aus Mediathek hat Vorrang → URL-Meta löschen
             update_post_meta($post_id, '_tix_ticket_sponsor_image_id', $sponsor_id);
+            delete_post_meta($post_id, '_tix_ticket_sponsor_image_url');
+        } elseif ($sponsor_url) {
+            // Externes Bild via URL
+            update_post_meta($post_id, '_tix_ticket_sponsor_image_url', $sponsor_url);
+            delete_post_meta($post_id, '_tix_ticket_sponsor_image_id');
+        } else {
+            delete_post_meta($post_id, '_tix_ticket_sponsor_image_id');
+            delete_post_meta($post_id, '_tix_ticket_sponsor_image_url');
+        }
+
+        if ($sponsor_id || $sponsor_url) {
             if ($sponsor_link) {
                 update_post_meta($post_id, '_tix_ticket_sponsor_link', $sponsor_link);
             } else {
                 delete_post_meta($post_id, '_tix_ticket_sponsor_link');
             }
         } else {
-            delete_post_meta($post_id, '_tix_ticket_sponsor_image_id');
             delete_post_meta($post_id, '_tix_ticket_sponsor_link');
         }
 
