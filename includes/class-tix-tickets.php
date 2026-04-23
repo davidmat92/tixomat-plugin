@@ -1584,6 +1584,17 @@ class TIX_Tickets {
             document.body.appendChild(a); a.click(); document.body.removeChild(a);
             setTimeout(function(){ URL.revokeObjectURL(url); }, 2000);
         }
+        // Renderer VORAB laden (iOS: User-Gesture-Fenster ist nur ~5s lang ab Klick —
+        // wenn wir hier die 100-300ms CDN-Latency vermeiden, bleibt der Share-Aufruf
+        // innerhalb der Aktivierungs-Zeit)
+        document.addEventListener('DOMContentLoaded', function(){
+            if (typeof window.html2canvas === 'function') return;
+            var s = document.createElement('script');
+            s.src = 'https://cdn.jsdelivr.net/npm/html2canvas-pro@1.5.8/dist/html2canvas-pro.min.js';
+            s.async = true;
+            document.head.appendChild(s);
+        });
+
         // Robuster Ticket-Screenshot mit Fallback-Chain:
         //   1) html2canvas-pro (bester Support für moderne CSS-Features wie color-mix, Gradient-Border)
         //   2) html-to-image (SVG-foreignObject-basiert, anders gelagert — manchmal klappt es wo html2canvas-pro scheitert)
@@ -1627,17 +1638,39 @@ class TIX_Tickets {
                 if (!blob) { alert('Bild konnte nicht erstellt werden.'); return; }
                 var filename = 'ticket-' + (TIX_TOKEN ? TIX_TOKEN.substr(0, 8) : Date.now()) + '.png';
                 var isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+                var isIOS    = /iPhone|iPad|iPod/i.test(navigator.userAgent);
 
-                // Mobil: Share-Sheet öffnen (bietet "In Fotos sichern" / "Galerie")
-                if (isMobile && navigator.canShare) {
+                // Mobil: Share-Sheet öffnen (iOS: "In Fotos sichern" / Android: "Galerie")
+                // iOS Safari ist wählerisch — canShare() lügt manchmal, also einfach
+                // share direkt versuchen und beim Fehler auf Download fallen.
+                if (isMobile && typeof navigator.share === 'function') {
                     try {
                         var file = new File([blob], filename, { type: 'image/png' });
-                        if (navigator.canShare({ files: [file] })) {
-                            navigator.share({ files: [file], title: document.title || 'Mein Ticket', text: 'Mein Ticket' })
-                                .catch(function(err){ if (err && err.name !== 'AbortError') tixTriggerDownload(blob, filename); });
+                        // iOS: nur { files: [...] }, keine title/text-Felder (verwirren iOS)
+                        var shareData = isIOS ? { files: [file] } : { files: [file], title: 'Mein Ticket' };
+
+                        // canShare-Check nur als Zusatz-Prüfung, nicht blockierend
+                        var canShareOK = true;
+                        if (typeof navigator.canShare === 'function') {
+                            try { canShareOK = navigator.canShare(shareData); } catch(e) { canShareOK = true; }
+                        }
+
+                        if (canShareOK) {
+                            navigator.share(shareData).then(function(){
+                                // OK — User hat geshared oder in Fotos gespeichert
+                            }).catch(function(err){
+                                console.warn('navigator.share error:', err);
+                                // User abgebrochen (AbortError) → nichts tun
+                                // Anderer Fehler → klassischer Download
+                                if (!err || err.name !== 'AbortError') {
+                                    tixTriggerDownload(blob, filename);
+                                }
+                            });
                             return;
                         }
-                    } catch (e) { /* fällt auf Download zurück */ }
+                    } catch (e) {
+                        console.warn('Share-Setup fehlgeschlagen:', e);
+                    }
                 }
                 tixTriggerDownload(blob, filename);
             };
