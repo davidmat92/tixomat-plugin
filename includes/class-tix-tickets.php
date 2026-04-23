@@ -991,6 +991,7 @@ class TIX_Tickets {
             $date_display = date_i18n('l, d. F Y', $ts);
         }
 
+        nocache_headers();
         header('Content-Type: text/html; charset=utf-8');
 
         // Design-Settings laden
@@ -1583,17 +1584,31 @@ class TIX_Tickets {
             document.body.appendChild(a); a.click(); document.body.removeChild(a);
             setTimeout(function(){ URL.revokeObjectURL(url); }, 2000);
         }
+        // Robuster Ticket-Screenshot mit Fallback-Chain:
+        //   1) html2canvas-pro (bester Support für moderne CSS-Features wie color-mix, Gradient-Border)
+        //   2) html-to-image (SVG-foreignObject-basiert, anders gelagert — manchmal klappt es wo html2canvas-pro scheitert)
         function tixSaveTicketImage(btn) {
-            if (typeof window.htmlToImage === 'object' && window.htmlToImage) { return tixDoSaveImage(btn); }
-            // Lazy-Load des Renderers (html-to-image — moderne CSS-Unterstützung)
+            // Falls Renderer schon geladen → direkt los
+            if (typeof window.html2canvas === 'function' || (typeof window.htmlToImage === 'object' && window.htmlToImage)) {
+                return tixDoSaveImage(btn);
+            }
             var oldHTML = btn.innerHTML;
             btn.disabled = true; btn.innerHTML = '\u23F3 l\u00e4dt Renderer\u2026';
+            // Primär: html2canvas-pro (1.5.8 — aktiv gewartet, unterstützt color-mix etc.)
             var script = document.createElement('script');
-            script.src = 'https://cdn.jsdelivr.net/npm/html-to-image@1.11.11/dist/html-to-image.min.js';
+            script.src = 'https://cdn.jsdelivr.net/npm/html2canvas-pro@1.5.8/dist/html2canvas-pro.min.js';
             script.onload = function(){ btn.innerHTML = oldHTML; btn.disabled = false; tixDoSaveImage(btn); };
-            script.onerror = function(){ btn.innerHTML = oldHTML; btn.disabled = false; alert('Renderer konnte nicht geladen werden. Versuche "Ticket drucken" als Alternative.'); };
+            script.onerror = function(){
+                // Fallback: html-to-image
+                var fb = document.createElement('script');
+                fb.src = 'https://cdn.jsdelivr.net/npm/html-to-image@1.11.11/dist/html-to-image.min.js';
+                fb.onload = function(){ btn.innerHTML = oldHTML; btn.disabled = false; tixDoSaveImage(btn); };
+                fb.onerror = function(){ btn.innerHTML = oldHTML; btn.disabled = false; alert('Renderer konnte nicht geladen werden. Versuche "Ticket drucken" als Alternative.'); };
+                document.head.appendChild(fb);
+            };
             document.head.appendChild(script);
         }
+
         function tixDoSaveImage(btn) {
             var ticket = document.querySelector('.ticket');
             if (!ticket) return;
@@ -1604,57 +1619,81 @@ class TIX_Tickets {
             var hiddenQRCanvas = document.querySelector('#tix-online-ticket-source canvas[data-qr]');
             var originalQRSrc = qrImg ? qrImg.src : null;
 
+            var handleBlob = function(blob) {
+                btn.disabled = false; btn.innerHTML = oldHTML;
+                if (qrImg && originalQRSrc) qrImg.src = originalQRSrc;
+                if (!blob) { alert('Bild konnte nicht erstellt werden.'); return; }
+
+                var filename = 'ticket-' + (TIX_TOKEN ? TIX_TOKEN.substr(0, 8) : Date.now()) + '.png';
+                var isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+
+                // Auf Mobil: Share-Sheet öffnen (bietet "In Fotos sichern" / "Galerie")
+                if (isMobile && navigator.canShare) {
+                    try {
+                        var file = new File([blob], filename, { type: 'image/png' });
+                        if (navigator.canShare({ files: [file] })) {
+                            navigator.share({ files: [file], title: document.title || 'Mein Ticket', text: 'Mein Ticket' })
+                                .catch(function(err){ if (err && err.name !== 'AbortError') tixTriggerDownload(blob, filename); });
+                            return;
+                        }
+                    } catch (e) { /* fällt auf Download zurück */ }
+                }
+                tixTriggerDownload(blob, filename);
+            };
+
+            var handleError = function(err) {
+                console.error('Ticket-Screenshot Fehler:', err);
+                btn.disabled = false; btn.innerHTML = oldHTML;
+                if (qrImg && originalQRSrc) qrImg.src = originalQRSrc;
+                alert('Bild konnte nicht erstellt werden: ' + (err && err.message ? err.message : 'Unbekannter Fehler') + '. Versuche "Ticket drucken" als Alternative.');
+            };
+
             var capture = function() {
-                var scrollY = window.scrollY;
-                window.scrollTo(0, 0);
-
-                var opts = {
-                    pixelRatio: window.devicePixelRatio > 1 ? 2 : 1.75,
-                    cacheBust: true,
-                    skipFonts: false,
-                    backgroundColor: null,
-                    filter: function(node) {
-                        // Alle .no-print Elemente ignorieren (Scroll-Btn, Badges, Modal…)
-                        if (node && node.classList && node.classList.contains('no-print')) return false;
-                        // Script-Tags weglassen
-                        if (node && node.tagName === 'SCRIPT') return false;
-                        return true;
-                    }
-                };
-
-                window.htmlToImage.toBlob(ticket, opts).then(function(blob) {
-                    btn.disabled = false; btn.innerHTML = oldHTML;
-                    if (qrImg && originalQRSrc) qrImg.src = originalQRSrc;
-                    window.scrollTo(0, scrollY);
-                    if (!blob) { alert('Bild konnte nicht erstellt werden.'); return; }
-
-                    var filename = 'ticket-' + (TIX_TOKEN ? TIX_TOKEN.substr(0, 8) : Date.now()) + '.png';
-                    var isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
-
-                    // Auf Mobil: Share-Sheet öffnen (bietet "In Fotos sichern" / "Galerie")
-                    if (isMobile && navigator.canShare) {
-                        try {
-                            var file = new File([blob], filename, { type: 'image/png' });
-                            if (navigator.canShare({ files: [file] })) {
-                                navigator.share({
-                                    files: [file],
-                                    title: document.title || 'Mein Ticket',
-                                    text:  'Mein Ticket'
-                                }).catch(function(err){
-                                    if (err && err.name !== 'AbortError') tixTriggerDownload(blob, filename);
-                                });
-                                return;
-                            }
-                        } catch (e) { /* fällt auf Download zurück */ }
-                    }
-                    tixTriggerDownload(blob, filename);
-                }).catch(function(err) {
-                    console.error('html-to-image error:', err);
-                    btn.disabled = false; btn.innerHTML = oldHTML;
-                    if (qrImg && originalQRSrc) qrImg.src = originalQRSrc;
-                    window.scrollTo(0, scrollY);
-                    alert('Bild konnte nicht erstellt werden: ' + (err && err.message ? err.message : 'Unbekannter Fehler') + '. Versuche "Ticket drucken" als Alternative.');
-                });
+                // Primär: html2canvas-pro (akzeptiert moderne CSS-Features)
+                if (typeof window.html2canvas === 'function') {
+                    window.html2canvas(ticket, {
+                        backgroundColor: null,
+                        scale: window.devicePixelRatio > 1 ? 2 : 1.75,
+                        useCORS: true,
+                        allowTaint: false,
+                        logging: false,
+                        foreignObjectRendering: false,
+                        ignoreElements: function(el){ return el.classList && el.classList.contains('no-print'); }
+                    }).then(function(canvas){
+                        canvas.toBlob(function(blob){ handleBlob(blob); }, 'image/png');
+                    }).catch(function(err){
+                        console.warn('html2canvas-pro fehlgeschlagen, versuche html-to-image:', err);
+                        // Sekundär-Fallback: html-to-image
+                        if (window.htmlToImage && typeof window.htmlToImage.toBlob === 'function') {
+                            window.htmlToImage.toBlob(ticket, {
+                                pixelRatio: window.devicePixelRatio > 1 ? 2 : 1.75,
+                                cacheBust: true, skipFonts: false, backgroundColor: null,
+                                filter: function(node){
+                                    if (node && node.classList && node.classList.contains('no-print')) return false;
+                                    if (node && node.tagName === 'SCRIPT') return false;
+                                    return true;
+                                }
+                            }).then(handleBlob).catch(handleError);
+                        } else {
+                            handleError(err);
+                        }
+                    });
+                    return;
+                }
+                // Fallback wenn nur html-to-image geladen ist
+                if (window.htmlToImage && typeof window.htmlToImage.toBlob === 'function') {
+                    window.htmlToImage.toBlob(ticket, {
+                        pixelRatio: window.devicePixelRatio > 1 ? 2 : 1.75,
+                        cacheBust: true, skipFonts: false, backgroundColor: null,
+                        filter: function(node){
+                            if (node && node.classList && node.classList.contains('no-print')) return false;
+                            if (node && node.tagName === 'SCRIPT') return false;
+                            return true;
+                        }
+                    }).then(handleBlob).catch(handleError);
+                    return;
+                }
+                handleError(new Error('Kein Renderer verfügbar'));
             };
 
             // QR-Bild durch lokale Canvas-Data-URL ersetzen (CORS-sicher)
@@ -2373,6 +2412,7 @@ class TIX_Tickets {
         $buyer_name  = get_post_meta($tickets[0]->ID, '_tix_ticket_owner_name', true);
         $buyer_email = get_post_meta($tickets[0]->ID, '_tix_ticket_owner_email', true);
 
+        nocache_headers();
         header('Content-Type: text/html; charset=utf-8');
         ?><!DOCTYPE html>
 <html lang="de" class="tix-ht-<?php echo esc_attr($ht_version); ?>">
