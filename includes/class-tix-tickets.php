@@ -1685,10 +1685,43 @@ class TIX_Tickets {
         .tix-snapshot .tix-bundle-card::before,
         .tix-snapshot .tix-bundle-header::before,
         .tix-snapshot .tix-bundle-header::after { display: none !important; }
-        .tix-snapshot html.tix-ht-v4 .ticket-header,
-        .tix-snapshot html.tix-ht-v4 .tix-bundle-header {
-            background: <?php echo esc_attr($ht_header_bg); ?> !important;
+        /* .ticket: solide Darstellung — keine fancy Gradient-Borders oder Overflow-Tricks */
+        .tix-snapshot .ticket {
+            border: 2px solid <?php echo esc_attr($ht_border_color); ?> !important;
+            background: <?php echo esc_attr($ht_body_bg); ?> !important;
+            overflow: hidden !important;
+            box-shadow: none !important;
         }
+        /* .ticket-header IMMER sichtbar + solide Farbe (V4 hatte Gradient, kippt beim Capture) */
+        .tix-snapshot .ticket-header,
+        .tix-snapshot .tix-bundle-header {
+            background: <?php echo esc_attr($ht_header_bg); ?> !important;
+            color: <?php echo esc_attr($ht_header_text); ?> !important;
+            display: flex !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+            position: relative !important;
+            z-index: 2 !important;
+        }
+        .tix-snapshot .ticket-header > *,
+        .tix-snapshot .tix-bundle-header > * {
+            position: relative !important;
+            z-index: 3 !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+        }
+        .tix-snapshot .ticket-header h1,
+        .tix-snapshot .ticket-header p,
+        .tix-snapshot .ticket-header-text,
+        .tix-snapshot .tix-bundle-title,
+        .tix-snapshot .tix-bundle-title h2,
+        .tix-snapshot .tix-bundle-title p {
+            display: block !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+            color: inherit !important;
+        }
+        /* QR-Border auf solid (V4 hatte animierten Conic-Rainbow-Border) */
         .tix-snapshot .ticket-qr .tix-ticket-qr-canvas,
         .tix-snapshot .ticket-qr img { border: 2px solid #e5e7eb !important; background: #fff !important; animation: none !important; }
     </style>
@@ -2150,14 +2183,26 @@ class TIX_Tickets {
             // Primär: html2canvas-pro (moderne CSS-Features wie color-mix, Gradient-Border)
             // requestAnimationFrame: CSS-Klasse '.tix-snapshot' muss erst gerendert sein
             var runCapture = function() {
+            // Zum Seitenanfang scrollen — html2canvas captured ab aktuellem Viewport
+            window.scrollTo(0, 0);
+
+            // Tatsächliche Ticket-Dimension nach dem Layout-Reflow
+            var rect = ticket.getBoundingClientRect();
+            var tWidth  = Math.max(ticket.offsetWidth, rect.width);
+            var tHeight = Math.max(ticket.offsetHeight, rect.height, ticket.scrollHeight);
+
             if (typeof window.html2canvas === 'function') {
                 window.html2canvas(ticket, {
                     backgroundColor: null,
-                    scale: window.devicePixelRatio > 1 ? 2 : 1.75,
+                    scale: 3,              // immer hohe Qualität — Bild darf größer sein
                     useCORS: true,
                     allowTaint: false,
                     logging: false,
                     foreignObjectRendering: false,
+                    width:  tWidth,
+                    height: tHeight,
+                    windowWidth:  Math.max(document.documentElement.clientWidth, tWidth),
+                    windowHeight: Math.max(document.documentElement.clientHeight, tHeight),
                     ignoreElements: function(el){ return el.classList && el.classList.contains('no-print'); }
                 }).then(function(canvas){
                     canvas.toBlob(function(blob){ handleBlob(blob); }, 'image/png');
@@ -2182,7 +2227,7 @@ class TIX_Tickets {
             // Fallback: html-to-image
             if (window.htmlToImage && typeof window.htmlToImage.toBlob === 'function') {
                 window.htmlToImage.toBlob(ticket, {
-                    pixelRatio: window.devicePixelRatio > 1 ? 2 : 1.75,
+                    pixelRatio: 3,
                     cacheBust: true, skipFonts: false, backgroundColor: null,
                     filter: function(node){
                         if (node && node.classList && node.classList.contains('no-print')) return false;
@@ -3441,12 +3486,6 @@ class TIX_Tickets {
                     <h2>Ticket <?php echo $counter; ?> / <?php echo $total; ?></h2>
                     <?php if (!$card_cover_url): ?>
                         <p><?php echo esc_html($event_name); ?><?php if ($cat_name): ?> · <?php echo esc_html($cat_name); ?><?php endif; ?><?php if ($price): ?> — <?php echo esc_html($price); ?><?php endif; ?></p>
-                    <?php endif; ?>
-                    <?php if (!empty($ht_show_verified_badge)): ?>
-                    <div class="tix-verified-badge" title="Offiziell ausgestelltes Ticket">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 12l2 2 4-4"/><path d="M12 2l8.5 4v6c0 5.25-3.75 9.5-8.5 10-4.75-.5-8.5-4.75-8.5-10V6L12 2z"/></svg>
-                        <span>Offizielles Ticket · <?php echo esc_html($card_issue_date); ?></span>
-                    </div>
                     <?php endif; ?>
                 </div>
                 <div class="tix-badge" data-tix-badge style="background: <?php echo esc_attr($badge['bg']); ?>; color: <?php echo esc_attr($badge['fg']); ?>;">
