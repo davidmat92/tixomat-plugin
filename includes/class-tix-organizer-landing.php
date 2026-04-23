@@ -994,6 +994,7 @@ body.tix-org-subdomain .tix-org-brand-footer { display: block !important; }
         $trigger_keys = [
             'tix_thankyou', 'tix_payment_return', 'tix_payment_cancel',
             'tix_dl', 'tix_ticket_code', 'tix_ticket_key',
+            'tix_bundle', 'tix_view',
             'tix_mt_token', 'tix_recover_cart', 'tix_feedback',
             'tix_guest', 'tix_paypal_test', 'tix_preview', 'tix_embed',
             'tix_activate',

@@ -280,6 +280,12 @@ class TIX_Settings {
             'ht_footer_text'     => 'Bitte dieses Ticket ausgedruckt oder digital zum Einlass mitbringen.',
             'ht_logo_url'        => '',
 
+            // ── Ticket-Badge (Check-in-Status + Personenzuordnung) ──
+            'badge_pending_bg'   => '#6366f1',   // Hintergrund: Noch nicht eingecheckt
+            'badge_pending_text' => '#ffffff',   // Schrift: Noch nicht eingecheckt
+            'badge_done_bg'      => '#10b981',   // Hintergrund: Eingecheckt
+            'badge_done_text'    => '#ffffff',   // Schrift: Eingecheckt
+
             // ── E-Mail ──
             'email_logo_url'     => '',       // URL zum Logo-Bild
             'email_logo_height'  => 40,       // Logo-Höhe in px
@@ -1002,6 +1008,11 @@ class TIX_Settings {
         $clean['ht_logo_height']   = max(20, min(120, intval($input['ht_logo_height'] ?? 44)));
         $clean['ht_footer_text']   = sanitize_text_field($input['ht_footer_text'] ?? $d['ht_footer_text']);
         $clean['ht_logo_url']      = esc_url_raw($input['ht_logo_url'] ?? '');
+
+        // Ticket-Badge (Check-in + Personenzuordnung)
+        foreach (['badge_pending_bg', 'badge_pending_text', 'badge_done_bg', 'badge_done_text'] as $k) {
+            $clean[$k] = self::sanitize_color($input[$k] ?? '') ?: $d[$k];
+        }
 
         // E-Mail
         $clean['email_logo_url']     = esc_url_raw($input['email_logo_url'] ?? '');
@@ -3230,6 +3241,62 @@ class TIX_Settings {
                                                 e.preventDefault();
                                                 renderHtPreview();
                                             });
+                                        });
+                                        </script>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Ticket-Badge (Check-in-Status) ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-shield-alt"></span>
+                                        <h3>Ticket-Badge</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <p class="tix-settings-hint" style="margin-bottom:12px;">Farben f&uuml;r das Check-in-Badge auf der Online-Ticket-Ansicht. Das Badge zeigt den Check-in-Status + die zugewiesene Person und aktualisiert sich live w&auml;hrend des Einlasses.</p>
+                                        <div class="tix-field-grid">
+                                            <?php
+                                            self::color_row('badge_pending_bg',   'Badge-Farbe (nicht eingecheckt)',       $s);
+                                            self::color_row('badge_pending_text', 'Schriftfarbe (nicht eingecheckt)',       $s);
+                                            self::color_row('badge_done_bg',      'Badge-Farbe (eingecheckt)',              $s);
+                                            self::color_row('badge_done_text',    'Schriftfarbe (eingecheckt)',             $s);
+                                            ?>
+                                        </div>
+
+                                        <?php // ── Live-Vorschau ── ?>
+                                        <div style="margin-top:20px;border-top:1px solid #e5e7eb;padding-top:20px;">
+                                            <h4 style="margin:0 0 12px;font-size:14px;font-weight:600;color:#374151;">Vorschau</h4>
+                                            <div id="tix-badge-preview" style="display:flex;flex-direction:column;gap:10px;align-items:flex-start;"></div>
+                                        </div>
+
+                                        <script>
+                                        jQuery(function($){
+                                            function bv(id) {
+                                                var el = document.querySelector('[name="tix_settings[' + id + ']"]');
+                                                return el ? el.value : '';
+                                            }
+                                            function renderBadgePreview() {
+                                                var pbg = bv('badge_pending_bg') || '#6366f1',
+                                                    pfg = bv('badge_pending_text') || '#ffffff',
+                                                    dbg = bv('badge_done_bg') || '#10b981',
+                                                    dfg = bv('badge_done_text') || '#ffffff';
+                                                var editIcon = '<svg style="width:12px;height:12px;display:inline-block;vertical-align:middle;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.828 2.828 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>';
+                                                $('#tix-badge-preview').html(
+                                                    '<div style="background:' + pbg + ';color:' + pfg + ';display:inline-flex;align-items:center;gap:8px;padding:10px 14px 10px 16px;border-radius:999px;font-size:14px;font-weight:600;box-shadow:0 2px 6px rgba(0,0,0,.15);">' +
+                                                        '<span>Noch nicht eingecheckt</span>' +
+                                                        '<span style="opacity:.55;">\u00b7</span>' +
+                                                        '<span style="font-weight:700;">Max Mustermann</span>' +
+                                                        '<span style="display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;background:rgba(0,0,0,.1);margin-left:4px;">' + editIcon + '</span>' +
+                                                    '</div>' +
+                                                    '<div style="background:' + dbg + ';color:' + dfg + ';display:inline-flex;align-items:center;gap:8px;padding:10px 14px 10px 16px;border-radius:999px;font-size:14px;font-weight:600;box-shadow:0 2px 6px rgba(0,0,0,.15);">' +
+                                                        '<span>Eingecheckt \u2713 \u00b7 19:42</span>' +
+                                                        '<span style="opacity:.55;">\u00b7</span>' +
+                                                        '<span style="font-weight:700;">Max Mustermann</span>' +
+                                                    '</div>'
+                                                );
+                                            }
+                                            renderBadgePreview();
+                                            $(document).on('change input', '[name^="tix_settings[badge_"]', renderBadgePreview);
                                         });
                                         </script>
                                     </div>

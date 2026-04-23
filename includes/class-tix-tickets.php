@@ -1136,7 +1136,7 @@ class TIX_Tickets {
             margin: 0 0 16px; font-size: 13px; color: #666; line-height: 1.45;
         }
         .tix-modal-input {
-            width: 100%; padding: 12px 14px; font-size: 15px;
+            width: 100%; padding: 12px 14px; font-size: 16px;
             border: 1px solid #d1d5db; border-radius: 10px;
             font-family: inherit; margin-bottom: 14px;
             box-sizing: border-box;
@@ -1407,8 +1407,7 @@ class TIX_Tickets {
             var modal = document.querySelector('[data-tix-modal]');
             if (!modal) return;
             modal.classList.add('open');
-            var i = modal.querySelector('[data-tix-modal-input]');
-            if (i) setTimeout(function(){ i.focus(); i.select(); }, 50);
+            // Auto-Focus bewusst deaktiviert — verhindert Mobile-Zoom beim Keyboard-Öffnen
             document.body.style.overflow = 'hidden';
         }
         function tixAssignClose() {
@@ -1482,15 +1481,11 @@ class TIX_Tickets {
     public static function get_badge_state($ticket_id, $settings = null) {
         $s = $settings ?: (function_exists('tix_get_settings') ? get_option('tix_settings', []) : []);
 
-        // Pending-Badge = Akzentfarbe der Tixomat-Einstellungen
-        $bg_pending = !empty($s['color_accent'])      ? $s['color_accent']      : '#c8ff00';
-        $fg_pending = !empty($s['color_accent_text']) ? $s['color_accent_text'] : '#000000';
-
-        // Check-in-Badge = Erfolgsfarbe (oder explizite Badge-Farbe)
-        $bg_done = !empty($s['badge_color_done'])
-            ? $s['badge_color_done']
-            : (!empty($s['color_success']) ? $s['color_success'] : '#10b981');
-        $fg_done = '#ffffff';
+        // Eigene Badge-Farben (Settings → Design → Ticket-Badge)
+        $bg_pending = !empty($s['badge_pending_bg'])   ? $s['badge_pending_bg']   : '#6366f1'; // Indigo
+        $fg_pending = !empty($s['badge_pending_text']) ? $s['badge_pending_text'] : '#ffffff';
+        $bg_done    = !empty($s['badge_done_bg'])      ? $s['badge_done_bg']      : '#10b981'; // Emerald
+        $fg_done    = !empty($s['badge_done_text'])    ? $s['badge_done_text']    : '#ffffff';
 
         $checked = (bool) get_post_meta($ticket_id, '_tix_ticket_checked_in', true);
         $time    = (string) get_post_meta($ticket_id, '_tix_ticket_checkin_time', true);
@@ -1506,12 +1501,12 @@ class TIX_Tickets {
                 if ($ts) $when = ' · ' . date_i18n('H:i', $ts);
             }
             $label = 'Eingecheckt ✓' . $when;
-            $bg = $bg_done;
-            $fg = $fg_done;
+            $bg    = $bg_done;
+            $fg    = $fg_done;
         } else {
             $label = 'Noch nicht eingecheckt';
-            $bg = $bg_pending;
-            $fg = $fg_pending;
+            $bg    = $bg_pending;
+            $fg    = $fg_pending;
         }
 
         return [
@@ -1850,7 +1845,7 @@ class TIX_Tickets {
         input.value = currentName;
         modal.classList.add('open');
         document.body.style.overflow = 'hidden';
-        setTimeout(function(){ input.focus(); input.select(); }, 50);
+        // Auto-Focus bewusst deaktiviert — verhindert Mobile-Zoom beim Keyboard-Öffnen
     }
     function tixAssignClose() {
         var modal = document.querySelector('[data-tix-modal]');
