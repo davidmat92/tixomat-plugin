@@ -1081,44 +1081,90 @@ class TIX_Tickets {
         /* ── Check-in Badge ── */
         .tix-badge-row {
             max-width: 600px; margin: 12px auto 0;
-            display: flex; align-items: center; justify-content: space-between;
-            flex-wrap: wrap; gap: 10px;
+            display: flex; align-items: center; justify-content: center;
             padding: 0 4px;
         }
         .tix-badge {
             display: inline-flex; align-items: center; gap: 8px;
-            padding: 10px 16px; border-radius: 999px;
+            padding: 10px 14px 10px 16px; border-radius: 999px;
             font-size: 14px; font-weight: 600;
-            color: #fff; transition: background .35s ease;
+            transition: background .35s ease, color .35s ease;
             box-shadow: 0 2px 6px rgba(0,0,0,.15);
         }
         .tix-badge .tix-badge-name { font-weight: 700; }
         .tix-badge .tix-badge-sep { opacity: .55; margin: 0 2px; }
-        .tix-assign-btn {
-            background: transparent; border: 1px solid rgba(0,0,0,.15);
-            color: #555; padding: 6px 12px; border-radius: 999px;
-            font-size: 12px; cursor: pointer; font-family: inherit;
+        .tix-badge-edit {
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 26px; height: 26px; border-radius: 50%;
+            margin-left: 4px; padding: 0; border: 0;
+            background: rgba(0,0,0,.1); color: inherit;
+            cursor: pointer; transition: background .2s ease;
+            flex-shrink: 0;
         }
-        .tix-assign-btn:hover { background: rgba(0,0,0,.05); }
-        .tix-assign-form {
-            max-width: 600px; margin: 10px auto 0;
-            display: none; gap: 8px; flex-wrap: wrap; padding: 0 4px;
+        .tix-badge-edit:hover { background: rgba(0,0,0,.2); }
+        .tix-badge-edit svg { width: 13px; height: 13px; }
+        .tix-assign-hint {
+            max-width: 600px; margin: 0 auto;
+            padding: 12px 4px; /* gleiches Padding oben + unten */
+            font-size: 12px; color: #666;
+            text-align: center;
         }
-        .tix-assign-form.open { display: flex; }
-        .tix-assign-form input[type="text"] {
-            flex: 1; min-width: 160px; padding: 10px 12px; font-size: 14px;
-            border: 1px solid #d1d5db; border-radius: 8px; font-family: inherit;
+
+        /* ── Modal Overlay ── */
+        .tix-modal-overlay {
+            position: fixed; inset: 0;
+            background: rgba(15, 23, 42, 0.55);
+            display: none; align-items: center; justify-content: center;
+            z-index: 99999; padding: 20px;
+            backdrop-filter: blur(3px);
+            -webkit-backdrop-filter: blur(3px);
         }
-        .tix-assign-form button {
-            padding: 10px 16px; font-size: 13px; border-radius: 8px; border: 0;
-            background: #111827; color: #fff; cursor: pointer; font-weight: 600;
+        .tix-modal-overlay.open { display: flex; }
+        .tix-modal {
+            background: #fff; border-radius: 16px; max-width: 440px; width: 100%;
+            padding: 24px; box-shadow: 0 20px 60px rgba(0,0,0,.35);
+            animation: tixModalIn .25s ease;
+        }
+        @keyframes tixModalIn {
+            from { opacity: 0; transform: translateY(12px) scale(.98); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        .tix-modal h3 {
+            margin: 0 0 4px; font-size: 18px; font-weight: 700; color: #111;
+        }
+        .tix-modal p.tix-modal-desc {
+            margin: 0 0 16px; font-size: 13px; color: #666; line-height: 1.45;
+        }
+        .tix-modal-input {
+            width: 100%; padding: 12px 14px; font-size: 15px;
+            border: 1px solid #d1d5db; border-radius: 10px;
+            font-family: inherit; margin-bottom: 14px;
+            box-sizing: border-box;
+        }
+        .tix-modal-input:focus {
+            outline: none; border-color: #111;
+            box-shadow: 0 0 0 3px rgba(17,24,39,.08);
+        }
+        .tix-modal-actions {
+            display: flex; gap: 8px; justify-content: flex-end;
+        }
+        .tix-modal-actions button {
+            padding: 10px 18px; font-size: 14px; border-radius: 10px;
+            font-weight: 600; cursor: pointer; border: 0;
             font-family: inherit;
         }
-        .tix-assign-form button.tix-assign-cancel { background: #f3f4f6; color: #111; border: 1px solid #e5e7eb; }
-        .tix-assign-hint { max-width: 600px; margin: 6px auto 0; font-size: 11px; color: #777; padding: 0 4px; }
+        .tix-modal-cancel {
+            background: #f3f4f6; color: #111; border: 1px solid #e5e7eb;
+        }
+        .tix-modal-save {
+            background: #111827; color: #fff;
+        }
+        .tix-modal-save:hover { background: #000; }
+
         @media (max-width: 640px) {
-            .tix-badge-row { flex-direction: column; align-items: stretch; }
-            .tix-badge { justify-content: center; }
+            .tix-modal { padding: 20px; border-radius: 14px; }
+            .tix-modal-actions { flex-direction: column-reverse; }
+            .tix-modal-actions button { width: 100%; }
         }
     </style>
 </head>
@@ -1130,15 +1176,24 @@ class TIX_Tickets {
                 <span class="tix-badge-sep">·</span>
                 <span class="tix-badge-name"><?php echo esc_html($badge['name']); ?></span>
             <?php endif; ?>
+            <button type="button" class="tix-badge-edit" onclick="tixAssignOpen()" aria-label="Namen ändern" title="Namen ändern">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.828 2.828 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
+            </button>
         </div>
-        <button type="button" class="tix-assign-btn" onclick="tixAssignToggle()">Namen ändern</button>
     </div>
-    <div class="tix-assign-form no-print" data-tix-assign-form>
-        <input type="text" maxlength="80" placeholder="Name der Person (leer = zurücksetzen)" value="<?php echo esc_attr($assigned_raw); ?>">
-        <button type="button" onclick="tixAssignSave()">Speichern</button>
-        <button type="button" class="tix-assign-cancel" onclick="tixAssignToggle(true)">Abbrechen</button>
+    <div class="tix-assign-hint no-print">Ordne das Ticket einer bestimmten Person zu - freiwillig zur Übersicht.</div>
+
+    <div class="tix-modal-overlay no-print" data-tix-modal onclick="tixAssignOverlayClose(event)">
+        <div class="tix-modal" role="dialog" aria-modal="true" aria-labelledby="tix-modal-title">
+            <h3 id="tix-modal-title">Ticket einer Person zuordnen</h3>
+            <p class="tix-modal-desc">Ordne das Ticket einer bestimmten Person zu - freiwillig zur Übersicht. Leer lassen, um die Zuordnung zu entfernen.</p>
+            <input type="text" class="tix-modal-input" maxlength="80" placeholder="Name der Person" value="<?php echo esc_attr($assigned_raw); ?>" data-tix-modal-input>
+            <div class="tix-modal-actions">
+                <button type="button" class="tix-modal-cancel" onclick="tixAssignClose()">Abbrechen</button>
+                <button type="button" class="tix-modal-save" onclick="tixAssignSave()">Speichern</button>
+            </div>
+        </div>
     </div>
-    <div class="tix-assign-hint no-print">Ordne das Ticket einer bestimmten Person zu — der Name erscheint im Badge.</div>
 
     <div class="ticket">
         <div class="ticket-header">
@@ -1326,13 +1381,17 @@ class TIX_Tickets {
             badge.style.color = state.fg;
             var label = badge.querySelector('.tix-badge-label');
             if (label) label.textContent = state.label;
+            var editBtn = badge.querySelector('.tix-badge-edit');
             var nameEl = badge.querySelector('.tix-badge-name');
             var sep = badge.querySelector('.tix-badge-sep');
             if (state.name) {
+                if (!sep) {
+                    sep = document.createElement('span'); sep.className = 'tix-badge-sep'; sep.textContent = '·';
+                    if (editBtn) badge.insertBefore(sep, editBtn); else badge.appendChild(sep);
+                }
                 if (!nameEl) {
-                    if (!sep) { sep = document.createElement('span'); sep.className = 'tix-badge-sep'; sep.textContent = '·'; badge.appendChild(sep); }
                     nameEl = document.createElement('span'); nameEl.className = 'tix-badge-name';
-                    badge.appendChild(nameEl);
+                    if (editBtn) badge.insertBefore(nameEl, editBtn); else badge.appendChild(nameEl);
                 }
                 nameEl.textContent = state.name;
             } else {
@@ -1344,20 +1403,28 @@ class TIX_Tickets {
             if (nameValue && state.name) nameValue.textContent = state.name;
         }
 
-        function tixAssignToggle(close) {
-            var form = document.querySelector('[data-tix-assign-form]');
-            if (!form) return;
-            if (close) { form.classList.remove('open'); return; }
-            form.classList.toggle('open');
-            if (form.classList.contains('open')) {
-                var i = form.querySelector('input[type="text"]');
-                if (i) { i.focus(); i.select(); }
-            }
+        function tixAssignOpen() {
+            var modal = document.querySelector('[data-tix-modal]');
+            if (!modal) return;
+            modal.classList.add('open');
+            var i = modal.querySelector('[data-tix-modal-input]');
+            if (i) setTimeout(function(){ i.focus(); i.select(); }, 50);
+            document.body.style.overflow = 'hidden';
+        }
+        function tixAssignClose() {
+            var modal = document.querySelector('[data-tix-modal]');
+            if (!modal) return;
+            modal.classList.remove('open');
+            document.body.style.overflow = '';
+        }
+        function tixAssignOverlayClose(e) {
+            // Nur schließen wenn direkt auf das Overlay geklickt wurde
+            if (e.target && e.target.hasAttribute('data-tix-modal')) tixAssignClose();
         }
         function tixAssignSave() {
-            var form = document.querySelector('[data-tix-assign-form]');
-            var input = form.querySelector('input[type="text"]');
-            var saveBtn = form.querySelector('button');
+            var modal = document.querySelector('[data-tix-modal]');
+            var input = modal.querySelector('[data-tix-modal-input]');
+            var saveBtn = modal.querySelector('.tix-modal-save');
             saveBtn.disabled = true; var oldText = saveBtn.textContent; saveBtn.textContent = 'Speichert…';
             var body = new FormData();
             body.append('action', 'tix_ticket_assign');
@@ -1367,10 +1434,14 @@ class TIX_Tickets {
                 .then(function(r){ return r.json(); })
                 .then(function(res){
                     saveBtn.disabled = false; saveBtn.textContent = oldText;
-                    if (res && res.success) { tixApplyBadge(res.data); form.classList.remove('open'); }
+                    if (res && res.success) { tixApplyBadge(res.data); tixAssignClose(); }
                 })
                 .catch(function(){ saveBtn.disabled = false; saveBtn.textContent = oldText; });
         }
+        // ESC schließt Modal
+        document.addEventListener('keydown', function(e){
+            if (e.key === 'Escape') tixAssignClose();
+        });
         function tixPollStatus() {
             var body = new FormData();
             body.append('action', 'tix_ticket_status');
@@ -1410,8 +1481,16 @@ class TIX_Tickets {
      */
     public static function get_badge_state($ticket_id, $settings = null) {
         $s = $settings ?: (function_exists('tix_get_settings') ? get_option('tix_settings', []) : []);
-        $bg_pending = !empty($s['badge_color_pending']) ? $s['badge_color_pending'] : '#6366f1'; // Indigo
-        $bg_done    = !empty($s['badge_color_done'])    ? $s['badge_color_done']    : '#10b981'; // Emerald
+
+        // Pending-Badge = Akzentfarbe der Tixomat-Einstellungen
+        $bg_pending = !empty($s['color_accent'])      ? $s['color_accent']      : '#c8ff00';
+        $fg_pending = !empty($s['color_accent_text']) ? $s['color_accent_text'] : '#000000';
+
+        // Check-in-Badge = Erfolgsfarbe (oder explizite Badge-Farbe)
+        $bg_done = !empty($s['badge_color_done'])
+            ? $s['badge_color_done']
+            : (!empty($s['color_success']) ? $s['color_success'] : '#10b981');
+        $fg_done = '#ffffff';
 
         $checked = (bool) get_post_meta($ticket_id, '_tix_ticket_checked_in', true);
         $time    = (string) get_post_meta($ticket_id, '_tix_ticket_checkin_time', true);
@@ -1428,9 +1507,11 @@ class TIX_Tickets {
             }
             $label = 'Eingecheckt ✓' . $when;
             $bg = $bg_done;
+            $fg = $fg_done;
         } else {
             $label = 'Noch nicht eingecheckt';
             $bg = $bg_pending;
+            $fg = $fg_pending;
         }
 
         return [
@@ -1440,7 +1521,7 @@ class TIX_Tickets {
             'time'       => $time,
             'label'      => $label,
             'bg'         => $bg,
-            'fg'         => '#ffffff',
+            'fg'         => $fg,
         ];
     }
 
@@ -1557,6 +1638,11 @@ class TIX_Tickets {
         .tix-bundle-head { max-width: 600px; margin: 0 auto 18px; text-align: center; }
         .tix-bundle-head h1 { font-size: 22px; margin-bottom: 4px; }
         .tix-bundle-head p { color: #555; font-size: 14px; }
+        .tix-assign-hint {
+            max-width: 600px; margin: 0 auto;
+            padding: 12px 4px; /* gleiches Padding oben + unten */
+            font-size: 12px; color: #666; text-align: center;
+        }
 
         .tix-bundle-list { max-width: 600px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px; }
 
@@ -1568,13 +1654,23 @@ class TIX_Tickets {
 
         .tix-badge {
             display: inline-flex; align-items: center; gap: 8px;
-            padding: 8px 14px; border-radius: 999px;
+            padding: 8px 12px 8px 14px; border-radius: 999px;
             font-size: 13px; font-weight: 600;
-            color: #fff; transition: background .3s;
+            transition: background .3s, color .3s;
             box-shadow: 0 1px 3px rgba(0,0,0,.15);
         }
         .tix-badge .tix-badge-name { font-weight: 700; }
         .tix-badge .tix-badge-sep { opacity: .6; margin: 0 2px; }
+        .tix-badge-edit {
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 24px; height: 24px; border-radius: 50%;
+            margin-left: 2px; padding: 0; border: 0;
+            background: rgba(0,0,0,.12); color: inherit;
+            cursor: pointer; transition: background .2s;
+            flex-shrink: 0;
+        }
+        .tix-badge-edit:hover { background: rgba(0,0,0,.22); }
+        .tix-badge-edit svg { width: 12px; height: 12px; }
         .tix-bundle-body { padding: 16px 20px; display: flex; gap: 16px; }
         .tix-bundle-info { flex: 1; min-width: 0; }
         .tix-bundle-qr { flex: 0 0 110px; text-align: center; }
@@ -1592,19 +1688,40 @@ class TIX_Tickets {
         .tix-bundle-actions button:hover { background: #e5e7eb; }
         .tix-bundle-footer { padding: 10px 20px; font-size: 11px; color: <?php echo esc_attr($ht_footer_color); ?>; text-align: center; border-top: 1px dashed <?php echo esc_attr($ht_divider_color); ?>; }
 
-        .tix-assign-form {
-            display: none; margin-top: 8px; gap: 6px; flex-wrap: wrap;
+        /* ── Modal ── */
+        .tix-modal-overlay {
+            position: fixed; inset: 0;
+            background: rgba(15, 23, 42, 0.55);
+            display: none; align-items: center; justify-content: center;
+            z-index: 99999; padding: 20px;
+            backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
         }
-        .tix-assign-form.open { display: flex; }
-        .tix-assign-form input[type="text"] {
-            flex: 1; min-width: 140px; padding: 6px 10px; font-size: 13px;
-            border: 1px solid #d1d5db; border-radius: 5px;
+        .tix-modal-overlay.open { display: flex; }
+        .tix-modal {
+            background: #fff; border-radius: 16px; max-width: 440px; width: 100%;
+            padding: 24px; box-shadow: 0 20px 60px rgba(0,0,0,.35);
+            animation: tixModalIn .25s ease;
         }
-        .tix-assign-form button {
-            padding: 6px 12px; font-size: 12px; border-radius: 5px; border: 0;
-            background: #111827; color: #fff; cursor: pointer;
+        @keyframes tixModalIn {
+            from { opacity: 0; transform: translateY(12px) scale(.98); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
         }
-        .tix-assign-form button.tix-assign-cancel { background: #f3f4f6; color: #111; border: 1px solid #e5e7eb; }
+        .tix-modal h3 { margin: 0 0 4px; font-size: 18px; font-weight: 700; color: #111; }
+        .tix-modal p.tix-modal-desc { margin: 0 0 16px; font-size: 13px; color: #666; line-height: 1.45; }
+        .tix-modal-input {
+            width: 100%; padding: 12px 14px; font-size: 15px;
+            border: 1px solid #d1d5db; border-radius: 10px;
+            font-family: inherit; margin-bottom: 14px; box-sizing: border-box;
+        }
+        .tix-modal-input:focus { outline: none; border-color: #111; box-shadow: 0 0 0 3px rgba(17,24,39,.08); }
+        .tix-modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+        .tix-modal-actions button {
+            padding: 10px 18px; font-size: 14px; border-radius: 10px;
+            font-weight: 600; cursor: pointer; border: 0; font-family: inherit;
+        }
+        .tix-modal-cancel { background: #f3f4f6; color: #111; border: 1px solid #e5e7eb; }
+        .tix-modal-save { background: #111827; color: #fff; }
+        .tix-modal-save:hover { background: #000; }
 
         @media (max-width: 640px) {
             .tix-bundle-body { flex-direction: column; align-items: center; text-align: center; }
@@ -1670,6 +1787,9 @@ class TIX_Tickets {
                         <span class="tix-badge-sep">·</span>
                         <span class="tix-badge-name"><?php echo esc_html($badge['name']); ?></span>
                     <?php endif; ?>
+                    <button type="button" class="tix-badge-edit" onclick="tixAssignOpen(this)" aria-label="Namen ändern" title="Namen ändern">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.828 2.828 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
+                    </button>
                 </div>
             </div>
             <div class="tix-bundle-body">
@@ -1692,12 +1812,6 @@ class TIX_Tickets {
             <div class="tix-bundle-actions no-print">
                 <a href="<?php echo esc_url($online_url); ?>" target="_blank">Einzel-Ansicht</a>
                 <a href="<?php echo esc_url(self::get_download_url($ticket_id)); ?>" target="_blank">Download</a>
-                <button type="button" onclick="tixAssignToggle(this)">Namen ändern</button>
-                <div class="tix-assign-form" data-tix-assign-form>
-                    <input type="text" maxlength="80" placeholder="Name der Person (leer = zurücksetzen)" value="<?php echo esc_attr(get_post_meta($ticket_id, '_tix_ticket_assigned_name', true)); ?>">
-                    <button type="button" onclick="tixAssignSave(this)">Speichern</button>
-                    <button type="button" class="tix-assign-cancel" onclick="tixAssignToggle(this, true)">Abbrechen</button>
-                </div>
             </div>
             <div class="tix-bundle-footer">
                 <?php echo esc_html($ht_footer_text); ?>
@@ -1706,41 +1820,69 @@ class TIX_Tickets {
         <?php $counter++; } ?>
     </div>
 
+    <div class="tix-assign-hint">Ordne das Ticket einer bestimmten Person zu - freiwillig zur Übersicht.</div>
+
+    <div class="tix-modal-overlay" data-tix-modal onclick="tixAssignOverlayClose(event)">
+        <div class="tix-modal" role="dialog" aria-modal="true" aria-labelledby="tix-modal-title">
+            <h3 id="tix-modal-title">Ticket einer Person zuordnen</h3>
+            <p class="tix-modal-desc">Ordne das Ticket einer bestimmten Person zu - freiwillig zur Übersicht. Leer lassen, um die Zuordnung zu entfernen.</p>
+            <input type="text" class="tix-modal-input" maxlength="80" placeholder="Name der Person" data-tix-modal-input>
+            <div class="tix-modal-actions">
+                <button type="button" class="tix-modal-cancel" onclick="tixAssignClose()">Abbrechen</button>
+                <button type="button" class="tix-modal-save" onclick="tixAssignSave()">Speichern</button>
+            </div>
+        </div>
+    </div>
+
     <script>
     var TIX_AJAX = <?php echo wp_json_encode(admin_url('admin-ajax.php')); ?>;
+    var TIX_ACTIVE_CARD = null;
 
-    function tixAssignToggle(btn, close) {
+    function tixAssignOpen(btn) {
         var card = btn.closest('.tix-bundle-card');
-        var form = card.querySelector('[data-tix-assign-form]');
-        if (!form) return;
-        if (close) { form.classList.remove('open'); return; }
-        form.classList.toggle('open');
-        if (form.classList.contains('open')) {
-            var i = form.querySelector('input[type="text"]');
-            if (i) { i.focus(); i.select(); }
-        }
+        if (!card) return;
+        TIX_ACTIVE_CARD = card;
+        var modal = document.querySelector('[data-tix-modal]');
+        var input = modal.querySelector('[data-tix-modal-input]');
+        var currentName = '';
+        var nameEl = card.querySelector('.tix-badge-name');
+        if (nameEl) currentName = nameEl.textContent;
+        input.value = currentName;
+        modal.classList.add('open');
+        document.body.style.overflow = 'hidden';
+        setTimeout(function(){ input.focus(); input.select(); }, 50);
     }
-    function tixAssignSave(btn) {
-        var card = btn.closest('.tix-bundle-card');
-        var form = btn.closest('[data-tix-assign-form]');
-        var input = form.querySelector('input[type="text"]');
+    function tixAssignClose() {
+        var modal = document.querySelector('[data-tix-modal]');
+        if (modal) modal.classList.remove('open');
+        document.body.style.overflow = '';
+        TIX_ACTIVE_CARD = null;
+    }
+    function tixAssignOverlayClose(e) {
+        if (e.target && e.target.hasAttribute('data-tix-modal')) tixAssignClose();
+    }
+    function tixAssignSave() {
+        if (!TIX_ACTIVE_CARD) return;
+        var card = TIX_ACTIVE_CARD;
+        var modal = document.querySelector('[data-tix-modal]');
+        var input = modal.querySelector('[data-tix-modal-input]');
+        var saveBtn = modal.querySelector('.tix-modal-save');
         var token = card.getAttribute('data-ticket-token');
-        var name = input.value;
-        btn.disabled = true; var oldText = btn.textContent; btn.textContent = 'Speichert…';
+        saveBtn.disabled = true; var oldText = saveBtn.textContent; saveBtn.textContent = 'Speichert…';
         var body = new FormData();
         body.append('action', 'tix_ticket_assign');
         body.append('token', token);
-        body.append('name', name);
+        body.append('name', input.value);
         fetch(TIX_AJAX, { method: 'POST', body: body, credentials: 'same-origin' })
             .then(function(r){ return r.json(); })
             .then(function(res){
-                btn.disabled = false; btn.textContent = oldText;
+                saveBtn.disabled = false; saveBtn.textContent = oldText;
                 if (res && res.success) {
                     tixApplyBadge(card, res.data);
-                    form.classList.remove('open');
+                    tixAssignClose();
                 }
             })
-            .catch(function(){ btn.disabled = false; btn.textContent = oldText; });
+            .catch(function(){ saveBtn.disabled = false; saveBtn.textContent = oldText; });
     }
     function tixApplyBadge(card, state) {
         var badge = card.querySelector('[data-tix-badge]');
@@ -1749,14 +1891,17 @@ class TIX_Tickets {
         badge.style.color = state.fg;
         var label = badge.querySelector('.tix-badge-label');
         if (label) label.textContent = state.label;
-        // Name-Slot aufbauen/entfernen
+        var editBtn = badge.querySelector('.tix-badge-edit');
         var nameEl = badge.querySelector('.tix-badge-name');
         var sep = badge.querySelector('.tix-badge-sep');
         if (state.name) {
+            if (!sep) {
+                sep = document.createElement('span'); sep.className = 'tix-badge-sep'; sep.textContent = '·';
+                if (editBtn) badge.insertBefore(sep, editBtn); else badge.appendChild(sep);
+            }
             if (!nameEl) {
-                if (!sep) { sep = document.createElement('span'); sep.className = 'tix-badge-sep'; sep.textContent = '·'; badge.appendChild(sep); }
                 nameEl = document.createElement('span'); nameEl.className = 'tix-badge-name';
-                badge.appendChild(nameEl);
+                if (editBtn) badge.insertBefore(nameEl, editBtn); else badge.appendChild(nameEl);
             }
             nameEl.textContent = state.name;
         } else {
@@ -1779,6 +1924,7 @@ class TIX_Tickets {
         });
     }
     setInterval(tixPollAll, 12000);
+    document.addEventListener('keydown', function(e){ if (e.key === 'Escape') tixAssignClose(); });
     </script>
 </body>
 </html>
