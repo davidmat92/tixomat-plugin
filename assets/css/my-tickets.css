@@ -383,13 +383,25 @@
 
 .tix-mt-tcard-dl,
 .tix-mt-tcard-save,
-.tix-mt-tcard-share {
+.tix-mt-tcard-share,
+.tix-mt-tcard-online {
     flex: 1 1 0;
     text-align: center;
     justify-content: center;
     align-items: center;
     box-sizing: border-box;
 }
+
+.tix-mt-tcard-online {
+    display: inline-flex;
+    padding: 8px 16px;
+    border-radius: var(--_radius);
+    font-weight: 600;
+    font-size: var(--tix-small, 13px);
+    gap: 5px;
+    cursor: pointer;
+}
+.tix-mt-tcard-online:hover { opacity: 0.85; }
 
 .tix-mt-tcard-save,
 .tix-mt-tcard-share {

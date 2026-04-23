@@ -36,6 +36,12 @@ class TIX_Tickets {
 
         // Ticket-Stornierung bei nativen Orders (ohne WC)
         add_action('tix_order_cancelled', [__CLASS__, 'on_native_order_cancelled']);
+
+        // Online-Ticket AJAX-Endpoints (Badge-Polling + Personen-Zuordnung)
+        add_action('wp_ajax_tix_ticket_status',        [__CLASS__, 'ajax_ticket_status']);
+        add_action('wp_ajax_nopriv_tix_ticket_status', [__CLASS__, 'ajax_ticket_status']);
+        add_action('wp_ajax_tix_ticket_assign',        [__CLASS__, 'ajax_ticket_assign']);
+        add_action('wp_ajax_nopriv_tix_ticket_assign', [__CLASS__, 'ajax_ticket_assign']);
     }
 
     // ══════════════════════════════════════════════
@@ -80,11 +86,58 @@ class TIX_Tickets {
             $vars[] = 'tix_ticket_key';
             $vars[] = 'download_ticket';
             $vars[] = 'tix_dl';
+            $vars[] = 'tix_bundle';
+            $vars[] = 'tix_view';
             return $vars;
         });
     }
 
     public static function handle_download() {
+        // ── Sammel-Ansicht: alle Tickets einer Bestellung (tix_bundle=<ticket-token>) ──
+        if (!empty($_GET['tix_bundle'])) {
+            $token = sanitize_text_field($_GET['tix_bundle']);
+            if (!preg_match('/^[0-9a-f]{64}$/', $token)) {
+                wp_die('Ungültiger Bundle-Link.', 'Fehler', ['response' => 404]);
+            }
+            $results = get_posts([
+                'post_type'      => 'tix_ticket',
+                'post_status'    => 'publish',
+                'posts_per_page' => 1,
+                'meta_query'     => [
+                    ['key' => '_tix_ticket_download_token', 'value' => $token],
+                ],
+            ]);
+            if (empty($results)) {
+                wp_die('Bestellung nicht gefunden oder Link abgelaufen.', 'Fehler', ['response' => 404]);
+            }
+            $order_id = intval(get_post_meta($results[0]->ID, '_tix_ticket_order_id', true));
+            if (!$order_id) wp_die('Bestellung nicht gefunden.', 'Fehler', ['response' => 404]);
+            self::render_bundle_html($order_id);
+            exit;
+        }
+
+        // ── Online-Ansicht: Einzeltick immer als HTML-Online-Ticket (tix_view=<token>) ──
+        // Unterscheidet zu tix_dl: tix_dl ist PDF wenn Template existiert, tix_view ist immer HTML
+        if (!empty($_GET['tix_view'])) {
+            $token = sanitize_text_field($_GET['tix_view']);
+            if (!preg_match('/^[0-9a-f]{64}$/', $token)) {
+                wp_die('Ungültiger Link.', 'Fehler', ['response' => 404]);
+            }
+            $results = get_posts([
+                'post_type'      => 'tix_ticket',
+                'post_status'    => 'publish',
+                'posts_per_page' => 1,
+                'meta_query'     => [
+                    ['key' => '_tix_ticket_download_token', 'value' => $token],
+                ],
+            ]);
+            if (empty($results)) {
+                wp_die('Ticket nicht gefunden.', 'Fehler', ['response' => 404]);
+            }
+            self::render_legacy_html($results[0]->ID);
+            exit;
+        }
+
         // ── Format 0: Kryptische Token-URL (tix_dl) ──
         if (!empty($_GET['tix_dl'])) {
             $token = sanitize_text_field($_GET['tix_dl']);
@@ -777,6 +830,38 @@ class TIX_Tickets {
     }
 
     /**
+     * Token eines Tickets (lazy) — intern genutzt von Bundle/Online-View URLs.
+     */
+    public static function ensure_download_token($ticket_id) {
+        $token = get_post_meta($ticket_id, '_tix_ticket_download_token', true);
+        if (!$token) {
+            $token = bin2hex(random_bytes(32));
+            update_post_meta($ticket_id, '_tix_ticket_download_token', $token);
+        }
+        return $token;
+    }
+
+    /**
+     * URL für die Sammel-Ansicht aller Tickets einer Bestellung.
+     * Nutzt den Download-Token eines beliebigen Tickets der Order.
+     */
+    public static function get_bundle_url($order_id) {
+        $tickets = self::get_tickets_by_order($order_id);
+        if (empty($tickets)) return '';
+        $token = self::ensure_download_token($tickets[0]->ID);
+        return add_query_arg(['tix_bundle' => $token], home_url('/'));
+    }
+
+    /**
+     * URL für die Online-Ansicht eines einzelnen Tickets (HTML, immer —
+     * unabhängig von PDF-Template).
+     */
+    public static function get_online_view_url($ticket_id) {
+        $token = self::ensure_download_token($ticket_id);
+        return add_query_arg(['tix_view' => $token], home_url('/'));
+    }
+
+    /**
      * Prüft ob für dieses Ticket ein PDF-Template konfiguriert ist (echtes PDF)
      * oder ob nur eine HTML-Ansicht generiert wird (Online-Ticket).
      *
@@ -924,6 +1009,13 @@ class TIX_Tickets {
         $qr_data = 'GL-' . $event_id . '-' . $code;
         $qr_url  = 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=' . urlencode($qr_data);
 
+        // Badge-State + Token für Live-Updates / Personen-Zuordnung
+        $badge        = self::get_badge_state($ticket_id, $s);
+        $online_token = self::ensure_download_token($ticket_id);
+        $assigned_raw = trim((string) get_post_meta($ticket_id, '_tix_ticket_assigned_name', true));
+        $display_name = $assigned_raw !== '' ? $assigned_raw : $owner_name;
+        $ajax_url     = admin_url('admin-ajax.php');
+
         ?>
 <!DOCTYPE html>
 <html lang="de">
@@ -985,9 +1077,69 @@ class TIX_Tickets {
         .info-row .value { font-size: 16px; font-weight: 600; }
         .ticket-footer { border-top: 1px dashed <?php echo esc_attr($ht_divider_color); ?>; padding: 16px 30px; font-size: 12px; color: <?php echo esc_attr($ht_footer_color); ?>; text-align: center; }
         .print-btn:hover { opacity: .85; }
+
+        /* ── Check-in Badge ── */
+        .tix-badge-row {
+            max-width: 600px; margin: 12px auto 0;
+            display: flex; align-items: center; justify-content: space-between;
+            flex-wrap: wrap; gap: 10px;
+            padding: 0 4px;
+        }
+        .tix-badge {
+            display: inline-flex; align-items: center; gap: 8px;
+            padding: 10px 16px; border-radius: 999px;
+            font-size: 14px; font-weight: 600;
+            color: #fff; transition: background .35s ease;
+            box-shadow: 0 2px 6px rgba(0,0,0,.15);
+        }
+        .tix-badge .tix-badge-name { font-weight: 700; }
+        .tix-badge .tix-badge-sep { opacity: .55; margin: 0 2px; }
+        .tix-assign-btn {
+            background: transparent; border: 1px solid rgba(0,0,0,.15);
+            color: #555; padding: 6px 12px; border-radius: 999px;
+            font-size: 12px; cursor: pointer; font-family: inherit;
+        }
+        .tix-assign-btn:hover { background: rgba(0,0,0,.05); }
+        .tix-assign-form {
+            max-width: 600px; margin: 10px auto 0;
+            display: none; gap: 8px; flex-wrap: wrap; padding: 0 4px;
+        }
+        .tix-assign-form.open { display: flex; }
+        .tix-assign-form input[type="text"] {
+            flex: 1; min-width: 160px; padding: 10px 12px; font-size: 14px;
+            border: 1px solid #d1d5db; border-radius: 8px; font-family: inherit;
+        }
+        .tix-assign-form button {
+            padding: 10px 16px; font-size: 13px; border-radius: 8px; border: 0;
+            background: #111827; color: #fff; cursor: pointer; font-weight: 600;
+            font-family: inherit;
+        }
+        .tix-assign-form button.tix-assign-cancel { background: #f3f4f6; color: #111; border: 1px solid #e5e7eb; }
+        .tix-assign-hint { max-width: 600px; margin: 6px auto 0; font-size: 11px; color: #777; padding: 0 4px; }
+        @media (max-width: 640px) {
+            .tix-badge-row { flex-direction: column; align-items: stretch; }
+            .tix-badge { justify-content: center; }
+        }
     </style>
 </head>
 <body>
+    <div class="tix-badge-row no-print" data-ticket-token="<?php echo esc_attr($online_token); ?>">
+        <div class="tix-badge" data-tix-badge style="background: <?php echo esc_attr($badge['bg']); ?>; color: <?php echo esc_attr($badge['fg']); ?>;">
+            <span class="tix-badge-label"><?php echo esc_html($badge['label']); ?></span>
+            <?php if (!empty($badge['name'])): ?>
+                <span class="tix-badge-sep">·</span>
+                <span class="tix-badge-name"><?php echo esc_html($badge['name']); ?></span>
+            <?php endif; ?>
+        </div>
+        <button type="button" class="tix-assign-btn" onclick="tixAssignToggle()">Namen ändern</button>
+    </div>
+    <div class="tix-assign-form no-print" data-tix-assign-form>
+        <input type="text" maxlength="80" placeholder="Name der Person (leer = zurücksetzen)" value="<?php echo esc_attr($assigned_raw); ?>">
+        <button type="button" onclick="tixAssignSave()">Speichern</button>
+        <button type="button" class="tix-assign-cancel" onclick="tixAssignToggle(true)">Abbrechen</button>
+    </div>
+    <div class="tix-assign-hint no-print">Ordne das Ticket einer bestimmten Person zu — der Name erscheint im Badge.</div>
+
     <div class="ticket">
         <div class="ticket-header">
             <?php if ($ht_logo_url): ?>
@@ -1028,10 +1180,10 @@ class TIX_Tickets {
                 </div>
                 <?php endif; ?>
 
-                <?php if ($owner_name): ?>
+                <?php if ($display_name): ?>
                 <div class="info-row">
-                    <div class="label">Name</div>
-                    <div class="value"><?php echo esc_html($owner_name); ?></div>
+                    <div class="label"><?php echo $assigned_raw !== '' ? 'Person' : 'Name'; ?></div>
+                    <div class="value" data-tix-name><?php echo esc_html($display_name); ?></div>
                 </div>
                 <?php endif; ?>
             </div>
@@ -1162,6 +1314,471 @@ class TIX_Tickets {
             }
             setTimeout(function() { btn.disabled = false; btn.innerHTML = oldHTML; fakeBtn.remove(); }, 3000);
         }
+
+        // ── Check-in-Badge + Personen-Zuordnung ──
+        var TIX_AJAX_URL = <?php echo wp_json_encode($ajax_url); ?>;
+        var TIX_TOKEN    = <?php echo wp_json_encode($online_token); ?>;
+
+        function tixApplyBadge(state) {
+            var badge = document.querySelector('[data-tix-badge]');
+            if (!badge) return;
+            badge.style.background = state.bg;
+            badge.style.color = state.fg;
+            var label = badge.querySelector('.tix-badge-label');
+            if (label) label.textContent = state.label;
+            var nameEl = badge.querySelector('.tix-badge-name');
+            var sep = badge.querySelector('.tix-badge-sep');
+            if (state.name) {
+                if (!nameEl) {
+                    if (!sep) { sep = document.createElement('span'); sep.className = 'tix-badge-sep'; sep.textContent = '·'; badge.appendChild(sep); }
+                    nameEl = document.createElement('span'); nameEl.className = 'tix-badge-name';
+                    badge.appendChild(nameEl);
+                }
+                nameEl.textContent = state.name;
+            } else {
+                if (nameEl) nameEl.remove();
+                if (sep) sep.remove();
+            }
+            // Name-Value im Info-Bereich synchronisieren
+            var nameValue = document.querySelector('[data-tix-name]');
+            if (nameValue && state.name) nameValue.textContent = state.name;
+        }
+
+        function tixAssignToggle(close) {
+            var form = document.querySelector('[data-tix-assign-form]');
+            if (!form) return;
+            if (close) { form.classList.remove('open'); return; }
+            form.classList.toggle('open');
+            if (form.classList.contains('open')) {
+                var i = form.querySelector('input[type="text"]');
+                if (i) { i.focus(); i.select(); }
+            }
+        }
+        function tixAssignSave() {
+            var form = document.querySelector('[data-tix-assign-form]');
+            var input = form.querySelector('input[type="text"]');
+            var saveBtn = form.querySelector('button');
+            saveBtn.disabled = true; var oldText = saveBtn.textContent; saveBtn.textContent = 'Speichert…';
+            var body = new FormData();
+            body.append('action', 'tix_ticket_assign');
+            body.append('token', TIX_TOKEN);
+            body.append('name', input.value);
+            fetch(TIX_AJAX_URL, { method: 'POST', body: body, credentials: 'same-origin' })
+                .then(function(r){ return r.json(); })
+                .then(function(res){
+                    saveBtn.disabled = false; saveBtn.textContent = oldText;
+                    if (res && res.success) { tixApplyBadge(res.data); form.classList.remove('open'); }
+                })
+                .catch(function(){ saveBtn.disabled = false; saveBtn.textContent = oldText; });
+        }
+        function tixPollStatus() {
+            var body = new FormData();
+            body.append('action', 'tix_ticket_status');
+            body.append('token', TIX_TOKEN);
+            fetch(TIX_AJAX_URL, { method: 'POST', body: body, credentials: 'same-origin' })
+                .then(function(r){ return r.json(); })
+                .then(function(res){ if (res && res.success) tixApplyBadge(res.data); })
+                .catch(function(){});
+        }
+        // Alle 12s Status abfragen (für Live-Badge nach Scan am Einlass)
+        setInterval(tixPollStatus, 12000);
+    </script>
+</body>
+</html>
+        <?php
+    }
+
+    // ══════════════════════════════════════════════
+    // ONLINE-TICKET: PERSONEN-ZUORDNUNG + CHECKIN-STATUS
+    // ══════════════════════════════════════════════
+
+    /**
+     * Effektiver Anzeige-Name für ein Ticket: Zugewiesene Person (falls gesetzt)
+     * sonst Käufer.
+     */
+    public static function get_effective_holder_name($ticket_id) {
+        $assigned = trim((string) get_post_meta($ticket_id, '_tix_ticket_assigned_name', true));
+        if ($assigned !== '') return $assigned;
+        return (string) get_post_meta($ticket_id, '_tix_ticket_owner_name', true);
+    }
+
+    /**
+     * Liefert den Status-Payload für Badge-Rendering (Badge-Label, Farbe, Name).
+     *
+     * @return array ['checked_in'=>bool, 'name'=>string, 'assigned'=>bool,
+     *                'time'=>string, 'label'=>string, 'bg'=>string, 'fg'=>string]
+     */
+    public static function get_badge_state($ticket_id, $settings = null) {
+        $s = $settings ?: (function_exists('tix_get_settings') ? get_option('tix_settings', []) : []);
+        $bg_pending = !empty($s['badge_color_pending']) ? $s['badge_color_pending'] : '#6366f1'; // Indigo
+        $bg_done    = !empty($s['badge_color_done'])    ? $s['badge_color_done']    : '#10b981'; // Emerald
+
+        $checked = (bool) get_post_meta($ticket_id, '_tix_ticket_checked_in', true);
+        $time    = (string) get_post_meta($ticket_id, '_tix_ticket_checkin_time', true);
+        $assigned_raw = trim((string) get_post_meta($ticket_id, '_tix_ticket_assigned_name', true));
+        $owner   = (string) get_post_meta($ticket_id, '_tix_ticket_owner_name', true);
+        $name    = $assigned_raw !== '' ? $assigned_raw : $owner;
+        $assigned = $assigned_raw !== '';
+
+        if ($checked) {
+            $when = '';
+            if ($time) {
+                $ts = strtotime($time);
+                if ($ts) $when = ' · ' . date_i18n('H:i', $ts);
+            }
+            $label = 'Eingecheckt ✓' . $when;
+            $bg = $bg_done;
+        } else {
+            $label = 'Noch nicht eingecheckt';
+            $bg = $bg_pending;
+        }
+
+        return [
+            'checked_in' => $checked,
+            'name'       => $name,
+            'assigned'   => $assigned,
+            'time'       => $time,
+            'label'      => $label,
+            'bg'         => $bg,
+            'fg'         => '#ffffff',
+        ];
+    }
+
+    /**
+     * AJAX: Live-Status eines Tickets (für Badge-Polling).
+     * Erwartet token (Download-Token) im POST. Public-accessible (Online-Ticket-Seite).
+     */
+    public static function ajax_ticket_status() {
+        $token = isset($_REQUEST['token']) ? sanitize_text_field($_REQUEST['token']) : '';
+        if (!preg_match('/^[0-9a-f]{64}$/', $token)) {
+            wp_send_json_error(['message' => 'invalid_token'], 400);
+        }
+        $results = get_posts([
+            'post_type'      => 'tix_ticket',
+            'post_status'    => 'publish',
+            'posts_per_page' => 1,
+            'meta_query'     => [
+                ['key' => '_tix_ticket_download_token', 'value' => $token],
+            ],
+        ]);
+        if (empty($results)) wp_send_json_error(['message' => 'not_found'], 404);
+
+        $state = self::get_badge_state($results[0]->ID);
+        wp_send_json_success($state);
+    }
+
+    /**
+     * AJAX: Ticket einer Person zuordnen (Name speichern).
+     * Erwartet token + name. Öffentlich — Token = Besitz-Nachweis.
+     */
+    public static function ajax_ticket_assign() {
+        $token = isset($_REQUEST['token']) ? sanitize_text_field($_REQUEST['token']) : '';
+        $name  = isset($_REQUEST['name'])  ? sanitize_text_field(wp_unslash($_REQUEST['name'])) : '';
+        if (!preg_match('/^[0-9a-f]{64}$/', $token)) {
+            wp_send_json_error(['message' => 'invalid_token'], 400);
+        }
+        // Name: max 80 Zeichen, HTML entfernen
+        $name = mb_substr(wp_strip_all_tags($name), 0, 80);
+
+        $results = get_posts([
+            'post_type'      => 'tix_ticket',
+            'post_status'    => 'publish',
+            'posts_per_page' => 1,
+            'meta_query'     => [
+                ['key' => '_tix_ticket_download_token', 'value' => $token],
+            ],
+        ]);
+        if (empty($results)) wp_send_json_error(['message' => 'not_found'], 404);
+
+        $ticket_id = $results[0]->ID;
+        if ($name === '') {
+            delete_post_meta($ticket_id, '_tix_ticket_assigned_name');
+        } else {
+            update_post_meta($ticket_id, '_tix_ticket_assigned_name', $name);
+        }
+
+        $state = self::get_badge_state($ticket_id);
+        wp_send_json_success($state);
+    }
+
+    // ══════════════════════════════════════════════
+    // SAMMEL-ONLINE-TICKET (alle Tickets einer Bestellung)
+    // ══════════════════════════════════════════════
+
+    /**
+     * Rendert eine HTML-Seite mit allen Tickets einer Bestellung.
+     * Jedes Ticket bekommt denselben Badge + Personen-Zuordnungs-UI wie die
+     * Einzelansicht.
+     */
+    public static function render_bundle_html($order_id) {
+        $tickets = self::get_tickets_by_order($order_id);
+        if (empty($tickets)) wp_die('Keine Tickets gefunden.', 'Fehler', ['response' => 404]);
+
+        // Design-Settings laden
+        $s = function_exists('tix_get_settings') ? get_option('tix_settings', []) : [];
+        $hd = [
+            'ht_header_bg'     => '#222222', 'ht_header_text'   => '#ffffff',
+            'ht_body_bg'       => '#ffffff', 'ht_text_color'    => '#1a1a1a',
+            'ht_label_color'   => '#888888', 'ht_border_color'  => '#222222',
+            'ht_footer_color'  => '#888888', 'ht_divider_color' => '#cccccc',
+            'ht_btn_bg'        => '#222222', 'ht_btn_text'      => '#ffffff',
+            'ht_border_radius' => 12,
+            'ht_logo_height'   => 44,
+            'ht_footer_text'   => 'Bitte dieses Ticket ausgedruckt oder digital zum Einlass mitbringen.',
+            'ht_logo_url'      => '',
+        ];
+        foreach ($hd as $k => $v) {
+            $$k = isset($s[$k]) && $s[$k] !== '' ? $s[$k] : $v;
+        }
+        $ht_border_radius = intval($ht_border_radius);
+        $ht_logo_height   = intval($ht_logo_height);
+
+        $total = count($tickets);
+        $buyer_name  = get_post_meta($tickets[0]->ID, '_tix_ticket_owner_name', true);
+        $buyer_email = get_post_meta($tickets[0]->ID, '_tix_ticket_owner_email', true);
+
+        header('Content-Type: text/html; charset=utf-8');
+        ?><!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tickets zur Bestellung #<?php echo intval($order_id); ?></title>
+    <style>
+        @media print {
+            @page { margin: 0; }
+            body { margin: 0 !important; padding: 10px !important; background: #fff !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            .no-print { display: none !important; }
+            .tix-bundle-card { box-shadow: none !important; page-break-after: always; }
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f0f0f0; padding: 20px; color: <?php echo esc_attr($ht_text_color); ?>; }
+
+        .tix-bundle-head { max-width: 600px; margin: 0 auto 18px; text-align: center; }
+        .tix-bundle-head h1 { font-size: 22px; margin-bottom: 4px; }
+        .tix-bundle-head p { color: #555; font-size: 14px; }
+
+        .tix-bundle-list { max-width: 600px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px; }
+
+        .tix-bundle-card { background: <?php echo esc_attr($ht_body_bg); ?>; border: 2px solid <?php echo esc_attr($ht_border_color); ?>; border-radius: <?php echo $ht_border_radius; ?>px; overflow: hidden; }
+        .tix-bundle-header { background: <?php echo esc_attr($ht_header_bg); ?>; color: <?php echo esc_attr($ht_header_text); ?>; padding: 16px 20px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+        .tix-bundle-logo { max-height: <?php echo $ht_logo_height; ?>px; width: auto; flex-shrink: 0; }
+        .tix-bundle-title h2 { font-size: 17px; margin-bottom: 2px; }
+        .tix-bundle-title p { font-size: 12px; opacity: .75; }
+
+        .tix-badge {
+            display: inline-flex; align-items: center; gap: 8px;
+            padding: 8px 14px; border-radius: 999px;
+            font-size: 13px; font-weight: 600;
+            color: #fff; transition: background .3s;
+            box-shadow: 0 1px 3px rgba(0,0,0,.15);
+        }
+        .tix-badge .tix-badge-name { font-weight: 700; }
+        .tix-badge .tix-badge-sep { opacity: .6; margin: 0 2px; }
+        .tix-bundle-body { padding: 16px 20px; display: flex; gap: 16px; }
+        .tix-bundle-info { flex: 1; min-width: 0; }
+        .tix-bundle-qr { flex: 0 0 110px; text-align: center; }
+        .tix-bundle-qr img { width: 110px; height: 110px; }
+        .tix-bundle-qr .code { font-family: monospace; font-size: 11px; font-weight: bold; margin-top: 4px; letter-spacing: 1.5px; }
+        .info-row { margin-bottom: 10px; }
+        .info-row .label { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: <?php echo esc_attr($ht_label_color); ?>; margin-bottom: 2px; }
+        .info-row .value { font-size: 14px; font-weight: 600; }
+        .tix-bundle-actions { padding: 10px 20px; display: flex; flex-wrap: wrap; gap: 8px; border-top: 1px dashed <?php echo esc_attr($ht_divider_color); ?>; }
+        .tix-bundle-actions button, .tix-bundle-actions a {
+            font-size: 12px; padding: 7px 12px; border-radius: 6px;
+            background: #f3f4f6; border: 1px solid #e5e7eb; color: #111827;
+            cursor: pointer; text-decoration: none;
+        }
+        .tix-bundle-actions button:hover { background: #e5e7eb; }
+        .tix-bundle-footer { padding: 10px 20px; font-size: 11px; color: <?php echo esc_attr($ht_footer_color); ?>; text-align: center; border-top: 1px dashed <?php echo esc_attr($ht_divider_color); ?>; }
+
+        .tix-assign-form {
+            display: none; margin-top: 8px; gap: 6px; flex-wrap: wrap;
+        }
+        .tix-assign-form.open { display: flex; }
+        .tix-assign-form input[type="text"] {
+            flex: 1; min-width: 140px; padding: 6px 10px; font-size: 13px;
+            border: 1px solid #d1d5db; border-radius: 5px;
+        }
+        .tix-assign-form button {
+            padding: 6px 12px; font-size: 12px; border-radius: 5px; border: 0;
+            background: #111827; color: #fff; cursor: pointer;
+        }
+        .tix-assign-form button.tix-assign-cancel { background: #f3f4f6; color: #111; border: 1px solid #e5e7eb; }
+
+        @media (max-width: 640px) {
+            .tix-bundle-body { flex-direction: column; align-items: center; text-align: center; }
+            .tix-bundle-qr { flex: 0 0 auto; }
+            .tix-bundle-info { width: 100%; }
+            .tix-bundle-header { justify-content: center; text-align: center; }
+        }
+    </style>
+</head>
+<body>
+    <div class="tix-bundle-head">
+        <h1>Tickets zur Bestellung #<?php echo intval($order_id); ?></h1>
+        <p><?php echo intval($total); ?> <?php echo $total === 1 ? 'Ticket' : 'Tickets'; ?> für <?php echo esc_html($buyer_name ?: $buyer_email); ?></p>
+    </div>
+
+    <div class="tix-bundle-list">
+        <?php
+        $counter = 1;
+        foreach ($tickets as $t) {
+            $ticket_id = $t->ID;
+            $code       = get_post_meta($ticket_id, '_tix_ticket_code', true);
+            $event_id   = intval(get_post_meta($ticket_id, '_tix_ticket_event_id', true));
+            $cat_index  = intval(get_post_meta($ticket_id, '_tix_ticket_cat_index', true));
+
+            $event = get_post($event_id);
+            if (!$event) { $counter++; continue; }
+            $event_name = $event->post_title;
+            $date_start = get_post_meta($event_id, '_tix_date_start', true);
+            $time_start = get_post_meta($event_id, '_tix_time_start', true);
+            $time_doors = get_post_meta($event_id, '_tix_time_doors', true);
+            $location   = get_post_meta($event_id, '_tix_location', true);
+
+            $cats     = get_post_meta($event_id, '_tix_ticket_categories', true);
+            $cat_name = '';
+            if (is_array($cats) && isset($cats[$cat_index])) {
+                $cat_name = $cats[$cat_index]['name'] ?? '';
+            }
+
+            $date_display = '';
+            if ($date_start) {
+                $ts = strtotime($date_start);
+                if ($ts) $date_display = date_i18n('l, d. F Y', $ts);
+            }
+
+            $token   = self::ensure_download_token($ticket_id);
+            $qr_data = 'GL-' . $event_id . '-' . $code;
+            $qr_url  = 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=' . urlencode($qr_data);
+            $badge   = self::get_badge_state($ticket_id, $s);
+            $online_url = self::get_online_view_url($ticket_id);
+        ?>
+        <div class="tix-bundle-card" data-ticket-token="<?php echo esc_attr($token); ?>" data-ticket-id="<?php echo intval($ticket_id); ?>">
+            <div class="tix-bundle-header">
+                <?php if ($ht_logo_url): ?>
+                    <img src="<?php echo esc_url($ht_logo_url); ?>" alt="Logo" class="tix-bundle-logo">
+                <?php endif; ?>
+                <div class="tix-bundle-title">
+                    <h2>Ticket <?php echo $counter; ?> / <?php echo $total; ?></h2>
+                    <p><?php echo esc_html($event_name); ?><?php if ($cat_name): ?> · <?php echo esc_html($cat_name); ?><?php endif; ?></p>
+                </div>
+                <div class="tix-badge" data-tix-badge style="background: <?php echo esc_attr($badge['bg']); ?>; color: <?php echo esc_attr($badge['fg']); ?>;">
+                    <span class="tix-badge-label"><?php echo esc_html($badge['label']); ?></span>
+                    <?php if (!empty($badge['name'])): ?>
+                        <span class="tix-badge-sep">·</span>
+                        <span class="tix-badge-name"><?php echo esc_html($badge['name']); ?></span>
+                    <?php endif; ?>
+                </div>
+            </div>
+            <div class="tix-bundle-body">
+                <div class="tix-bundle-info">
+                    <?php if ($date_display): ?>
+                        <div class="info-row"><div class="label">Datum</div><div class="value"><?php echo esc_html($date_display); ?></div></div>
+                    <?php endif; ?>
+                    <?php if ($time_start): ?>
+                        <div class="info-row"><div class="label"><?php echo $time_doors ? 'Einlass / Beginn' : 'Beginn'; ?></div><div class="value"><?php if ($time_doors): echo esc_html($time_doors) . ' / '; endif; echo esc_html($time_start); ?> Uhr</div></div>
+                    <?php endif; ?>
+                    <?php if ($location): ?>
+                        <div class="info-row"><div class="label">Location</div><div class="value"><?php echo esc_html($location); ?></div></div>
+                    <?php endif; ?>
+                </div>
+                <div class="tix-bundle-qr">
+                    <img src="<?php echo esc_url($qr_url); ?>" alt="QR-Code">
+                    <div class="code"><?php echo esc_html($code); ?></div>
+                </div>
+            </div>
+            <div class="tix-bundle-actions no-print">
+                <a href="<?php echo esc_url($online_url); ?>" target="_blank">Einzel-Ansicht</a>
+                <a href="<?php echo esc_url(self::get_download_url($ticket_id)); ?>" target="_blank">Download</a>
+                <button type="button" onclick="tixAssignToggle(this)">Namen ändern</button>
+                <div class="tix-assign-form" data-tix-assign-form>
+                    <input type="text" maxlength="80" placeholder="Name der Person (leer = zurücksetzen)" value="<?php echo esc_attr(get_post_meta($ticket_id, '_tix_ticket_assigned_name', true)); ?>">
+                    <button type="button" onclick="tixAssignSave(this)">Speichern</button>
+                    <button type="button" class="tix-assign-cancel" onclick="tixAssignToggle(this, true)">Abbrechen</button>
+                </div>
+            </div>
+            <div class="tix-bundle-footer">
+                <?php echo esc_html($ht_footer_text); ?>
+            </div>
+        </div>
+        <?php $counter++; } ?>
+    </div>
+
+    <script>
+    var TIX_AJAX = <?php echo wp_json_encode(admin_url('admin-ajax.php')); ?>;
+
+    function tixAssignToggle(btn, close) {
+        var card = btn.closest('.tix-bundle-card');
+        var form = card.querySelector('[data-tix-assign-form]');
+        if (!form) return;
+        if (close) { form.classList.remove('open'); return; }
+        form.classList.toggle('open');
+        if (form.classList.contains('open')) {
+            var i = form.querySelector('input[type="text"]');
+            if (i) { i.focus(); i.select(); }
+        }
+    }
+    function tixAssignSave(btn) {
+        var card = btn.closest('.tix-bundle-card');
+        var form = btn.closest('[data-tix-assign-form]');
+        var input = form.querySelector('input[type="text"]');
+        var token = card.getAttribute('data-ticket-token');
+        var name = input.value;
+        btn.disabled = true; var oldText = btn.textContent; btn.textContent = 'Speichert…';
+        var body = new FormData();
+        body.append('action', 'tix_ticket_assign');
+        body.append('token', token);
+        body.append('name', name);
+        fetch(TIX_AJAX, { method: 'POST', body: body, credentials: 'same-origin' })
+            .then(function(r){ return r.json(); })
+            .then(function(res){
+                btn.disabled = false; btn.textContent = oldText;
+                if (res && res.success) {
+                    tixApplyBadge(card, res.data);
+                    form.classList.remove('open');
+                }
+            })
+            .catch(function(){ btn.disabled = false; btn.textContent = oldText; });
+    }
+    function tixApplyBadge(card, state) {
+        var badge = card.querySelector('[data-tix-badge]');
+        if (!badge) return;
+        badge.style.background = state.bg;
+        badge.style.color = state.fg;
+        var label = badge.querySelector('.tix-badge-label');
+        if (label) label.textContent = state.label;
+        // Name-Slot aufbauen/entfernen
+        var nameEl = badge.querySelector('.tix-badge-name');
+        var sep = badge.querySelector('.tix-badge-sep');
+        if (state.name) {
+            if (!nameEl) {
+                if (!sep) { sep = document.createElement('span'); sep.className = 'tix-badge-sep'; sep.textContent = '·'; badge.appendChild(sep); }
+                nameEl = document.createElement('span'); nameEl.className = 'tix-badge-name';
+                badge.appendChild(nameEl);
+            }
+            nameEl.textContent = state.name;
+        } else {
+            if (nameEl) nameEl.remove();
+            if (sep) sep.remove();
+        }
+    }
+    function tixPollAll() {
+        var cards = document.querySelectorAll('.tix-bundle-card[data-ticket-token]');
+        cards.forEach(function(card){
+            var token = card.getAttribute('data-ticket-token');
+            if (!token) return;
+            var body = new FormData();
+            body.append('action', 'tix_ticket_status');
+            body.append('token', token);
+            fetch(TIX_AJAX, { method: 'POST', body: body, credentials: 'same-origin' })
+                .then(function(r){ return r.json(); })
+                .then(function(res){ if (res && res.success) tixApplyBadge(card, res.data); })
+                .catch(function(){});
+        });
+    }
+    setInterval(tixPollAll, 12000);
     </script>
 </body>
 </html>

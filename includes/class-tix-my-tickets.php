@@ -1289,6 +1289,15 @@ class TIX_My_Tickets {
                     </div>
 
                     <?php if (!empty($combo['all_tickets']) && $is_paid): ?>
+                        <?php
+                        $bundle_url_combo = class_exists('TIX_Tickets') ? TIX_Tickets::get_bundle_url($od['order_id']) : '';
+                        if ($bundle_url_combo):
+                        ?>
+                            <a href="<?php echo esc_url($bundle_url_combo); ?>" target="_blank" class="tix-mt-bundle-link" style="display:inline-flex;align-items:center;gap:8px;margin-bottom:12px;padding:10px 14px;background:#f5f3ff;border:1px solid #ddd6fe;border-radius:8px;color:#5b21b6;font-size:13px;font-weight:600;text-decoration:none;">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="4" rx="1"/><rect x="3" y="10" width="18" height="4" rx="1"/><rect x="3" y="16" width="18" height="4" rx="1"/></svg>
+                                Alle Tickets dieser Bestellung in einer Ansicht öffnen →
+                            </a>
+                        <?php endif; ?>
                         <div class="tix-mt-tickets-grid">
                             <?php
                             $ticket_num = 0;
@@ -1408,6 +1417,15 @@ class TIX_My_Tickets {
                     <?php endforeach; ?>
 
                     <?php if (!empty($ev['tickets']) && $is_paid): ?>
+                        <?php
+                        $bundle_url = class_exists('TIX_Tickets') ? TIX_Tickets::get_bundle_url($od['order_id']) : '';
+                        if ($bundle_url && count($ev['tickets']) > 1):
+                        ?>
+                            <a href="<?php echo esc_url($bundle_url); ?>" target="_blank" class="tix-mt-bundle-link" style="display:inline-flex;align-items:center;gap:8px;margin-bottom:12px;padding:10px 14px;background:#f5f3ff;border:1px solid #ddd6fe;border-radius:8px;color:#5b21b6;font-size:13px;font-weight:600;text-decoration:none;">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="4" rx="1"/><rect x="3" y="10" width="18" height="4" rx="1"/><rect x="3" y="16" width="18" height="4" rx="1"/></svg>
+                                Alle Tickets dieser Bestellung in einer Ansicht öffnen →
+                            </a>
+                        <?php endif; ?>
                         <div class="tix-mt-tickets-grid">
                             <?php $ticket_num = 0; foreach ($ev['tickets'] as $t): $ticket_num++; ?>
                                 <?php self::render_ticket_card($t, $ev, $ticket_num, $od); ?>
@@ -1493,6 +1511,13 @@ class TIX_My_Tickets {
                             : 'Ticket';
                     ?>
                         <a href="<?php echo esc_url($t['download_url']); ?>" class="tix-mt-tcard-dl" target="_blank">&#8595; <?php echo esc_html($dl_label); ?></a>
+                    <?php endif; ?>
+                    <?php
+                    $online_view_url = (class_exists('TIX_Tickets') && !empty($t['id']))
+                        ? TIX_Tickets::get_online_view_url($t['id']) : '';
+                    if ($online_view_url):
+                    ?>
+                        <a href="<?php echo esc_url($online_view_url); ?>" class="tix-mt-tcard-online" target="_blank" style="background:#f5f3ff;color:#5b21b6;border:1px solid #ddd6fe;text-decoration:none;">&#128187; Online-Ansicht</a>
                     <?php endif; ?>
                     <button type="button" class="tix-mt-tcard-save" onclick="ehTicketImg(this)">&#128247; Als Bild speichern</button>
                     <button type="button" class="tix-mt-tcard-share" onclick="ehTicketShare(this)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v7a2 2 0 002 2h12a2 2 0 002-2v-7"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg> Teilen</button>
