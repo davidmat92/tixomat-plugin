@@ -44,6 +44,8 @@ class TIX_Tickets {
         add_action('wp_ajax_nopriv_tix_ticket_assign', [__CLASS__, 'ajax_ticket_assign']);
         add_action('wp_ajax_tix_ticket_log_share',        [__CLASS__, 'ajax_ticket_log_share']);
         add_action('wp_ajax_nopriv_tix_ticket_log_share', [__CLASS__, 'ajax_ticket_log_share']);
+        add_action('wp_ajax_tix_ticket_clear_share',        [__CLASS__, 'ajax_ticket_clear_share']);
+        add_action('wp_ajax_nopriv_tix_ticket_clear_share', [__CLASS__, 'ajax_ticket_clear_share']);
         // Admin: manueller Check-in aus "Verkaufte Tickets" (gleicher Backend-Pfad wie Scanner)
         add_action('wp_ajax_tix_admin_checkin_toggle', [__CLASS__, 'ajax_admin_checkin_toggle']);
     }
@@ -1087,10 +1089,10 @@ class TIX_Tickets {
         .ticket-footer { border-top: 1px dashed <?php echo esc_attr($ht_divider_color); ?>; padding: 16px 30px; font-size: 12px; color: <?php echo esc_attr($ht_footer_color); ?>; text-align: center; }
         .print-btn:hover { opacity: .85; }
 
-        /* Mobile Scroll-to-Actions — nur ≤767px sichtbar */
+        /* Mobile Scroll-to-Actions — nur ≤767px sichtbar; sitzt direkt über dem Datum */
         .tix-mobile-scroll-btn {
             display: none;
-            width: calc(100% - 24px); margin: 0 12px 12px;
+            width: 100%; margin: 0 0 14px;
             padding: 12px 14px; gap: 8px;
             align-items: center; justify-content: center;
             background: <?php echo esc_attr($ht_btn_bg); ?>;
@@ -1152,14 +1154,24 @@ class TIX_Tickets {
         .tix-shared-info {
             display: none;
             align-items: center; justify-content: center; gap: 6px;
-            padding: 7px 14px;
+            padding: 6px 5px 6px 14px;
             background: #ecfdf5; color: #065f46;
             border: 1px solid #a7f3d0; border-radius: 999px;
             font-size: 12px; font-weight: 600;
             width: fit-content;
         }
         .tix-shared-info[data-has-share="1"] { display: inline-flex; }
-        .tix-shared-info svg { width: 14px; height: 14px; }
+        .tix-shared-info .tix-shared-check { width: 14px; height: 14px; }
+        .tix-shared-clear {
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 20px; height: 20px; border-radius: 50%;
+            margin-left: 2px; padding: 0; border: 0;
+            background: rgba(6,95,70,.12); color: inherit;
+            cursor: pointer; transition: background .15s ease;
+            flex-shrink: 0;
+        }
+        .tix-shared-clear:hover { background: rgba(6,95,70,.25); }
+        .tix-shared-clear svg { width: 11px; height: 11px; }
 
         /* ── Modal Overlay ── */
         .tix-modal-overlay {
@@ -1375,8 +1387,11 @@ class TIX_Tickets {
     ?>
     <div class="tix-shared-row no-print">
         <div class="tix-shared-info" data-tix-shared-info data-has-share="<?php echo $share_info['has'] ? '1' : '0'; ?>">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            <svg class="tix-shared-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
             <span data-tix-shared-label><?php echo esc_html($share_info['label'] ?: 'Geteilt'); ?></span>
+            <button type="button" class="tix-shared-clear" onclick="tixShareClear()" aria-label="Geteilt-Markierung entfernen" title="Entfernen">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
         </div>
     </div>
     <div class="tix-assign-hint no-print">Ordne das Ticket einer bestimmten Person zu - freiwillig zur Übersicht.</div>
@@ -1406,6 +1421,10 @@ class TIX_Tickets {
         </div>
         <div class="ticket-body">
             <div class="ticket-info">
+                <button type="button" class="tix-mobile-scroll-btn no-print" onclick="tixScrollToActions()" aria-label="Zu den Aktionen scrollen">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>
+                    Teilen, drucken &amp; mehr
+                </button>
                 <?php if ($date_display): ?>
                 <div class="info-row">
                     <div class="label">Datum</div>
@@ -1446,10 +1465,6 @@ class TIX_Tickets {
                 <div class="code"><?php echo esc_html($code); ?></div>
             </div>
         </div>
-        <button type="button" class="tix-mobile-scroll-btn no-print" onclick="tixScrollToActions()" aria-label="Zu den Aktionen scrollen">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>
-            Teilen, drucken &amp; mehr
-        </button>
         <div class="ticket-footer">
             <?php echo esc_html($ht_footer_text); ?>
         </div>
@@ -1580,6 +1595,22 @@ class TIX_Tickets {
             var target = document.querySelector('.tix-ticket-actions');
             if (!target) return;
             target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
+        // ── Geteilt-Badge entfernen (X-Button) ──
+        function tixShareClear() {
+            var body = new FormData();
+            body.append('action', 'tix_ticket_clear_share');
+            body.append('token', TIX_TOKEN);
+            fetch(TIX_AJAX_URL, { method: 'POST', body: body, credentials: 'same-origin' })
+                .then(function(r){ return r.json(); })
+                .then(function(res){
+                    if (res && res.success) {
+                        var shared = document.querySelector('[data-tix-shared-info]');
+                        if (shared) shared.setAttribute('data-has-share', '0');
+                    }
+                })
+                .catch(function(){});
         }
 
         // ── Check-in-Badge + Personen-Zuordnung ──
@@ -1776,9 +1807,12 @@ class TIX_Tickets {
             .tix-badge-edit { display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;margin-left:2px;padding:0;border:0;background:rgba(0,0,0,.12);color:inherit;cursor:pointer;transition:background .2s;flex-shrink:0; }
             .tix-badge-edit:hover { background:rgba(0,0,0,.22); }
             .tix-badge-edit svg { width:12px;height:12px; }
-            .tix-shared-info { display:none;align-items:center;gap:6px;padding:6px 12px;background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0;border-radius:999px;font-size:11px;font-weight:600;width:fit-content; }
+            .tix-shared-info { display:none;align-items:center;gap:6px;padding:5px 4px 5px 11px;background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0;border-radius:999px;font-size:11px;font-weight:600;width:fit-content; }
             .tix-shared-info[data-has-share="1"] { display:inline-flex; }
-            .tix-shared-info svg { width:12px;height:12px; }
+            .tix-shared-info .tix-shared-check { width:12px;height:12px; }
+            .tix-shared-clear { display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;margin-left:2px;padding:0;border:0;background:rgba(6,95,70,.12);color:inherit;cursor:pointer;transition:background .15s;flex-shrink:0; }
+            .tix-shared-clear:hover { background:rgba(6,95,70,.25); }
+            .tix-shared-clear svg { width:10px;height:10px; }
 
             .tix-modal-overlay { position:fixed;inset:0;background:rgba(15,23,42,.55);display:none;align-items:center;justify-content:center;z-index:99999;padding:20px;backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px); }
             .tix-modal-overlay.open { display:flex; }
@@ -1914,10 +1948,32 @@ class TIX_Tickets {
                     .catch(function(){ triggerBtn.disabled = false; triggerBtn.textContent = oldText; });
             }
 
-            // Delegation: Edit-Button-Klick
+            // Delegation: Edit-Button-Klick + Shared-Clear
             document.addEventListener('click', function(e){
                 var editBtn = e.target.closest('[data-tix-badge-edit]');
                 if (editBtn) { e.preventDefault(); var c = findCard(editBtn); if (c) openModal(c); return; }
+
+                var clearBtn = e.target.closest('[data-tix-shared-clear]');
+                if (clearBtn) {
+                    e.preventDefault();
+                    var card = clearBtn.closest('[data-ticket-token]');
+                    if (!card) return;
+                    var token = card.getAttribute('data-ticket-token');
+                    var body = new FormData();
+                    body.append('action', 'tix_ticket_clear_share');
+                    body.append('token', token);
+                    fetch(window.TIX_AJAX_URL, { method:'POST', body:body, credentials:'same-origin' })
+                        .then(function(r){ return r.json(); })
+                        .then(function(res){
+                            if (res && res.success) {
+                                var shared = card.querySelector('[data-tix-shared-info]');
+                                if (shared) shared.setAttribute('data-has-share', '0');
+                            }
+                        })
+                        .catch(function(){});
+                    return;
+                }
+
                 if (e.target === modal) { closeModal(); return; }
                 if (e.target.hasAttribute && e.target.hasAttribute('data-tix-modal-cancel')) { closeModal(); return; }
                 if (e.target.hasAttribute && e.target.hasAttribute('data-tix-modal-save')) {
@@ -1970,13 +2026,17 @@ class TIX_Tickets {
 
     /**
      * Gibt shared-info Badge-Markup zurück (zeigt sich nur wenn has_share).
+     * Enthält einen X-Button zum Entfernen der Share-Info.
      */
     public static function render_shared_info_markup($ticket_id) {
         $info = self::get_share_info($ticket_id);
         $has  = $info['has'] ? '1' : '0';
         $html  = '<div class="tix-shared-info" data-tix-shared-info data-has-share="' . $has . '">';
-        $html .= '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+        $html .= '<svg class="tix-shared-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
         $html .= '<span data-tix-shared-label>' . esc_html($info['label'] ?: 'Geteilt') . '</span>';
+        $html .= '<button type="button" class="tix-shared-clear" data-tix-shared-clear aria-label="Geteilt-Markierung entfernen" title="Entfernen">';
+        $html .= '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+        $html .= '</button>';
         $html .= '</div>';
         return $html;
     }
@@ -2034,6 +2094,33 @@ class TIX_Tickets {
         $count = intval(get_post_meta($ticket_id, '_tix_ticket_shared_count', true)) + 1;
         update_post_meta($ticket_id, '_tix_ticket_shared_count', $count);
         if ($to !== '') update_post_meta($ticket_id, '_tix_ticket_shared_to', $to);
+
+        wp_send_json_success(self::get_share_info($ticket_id));
+    }
+
+    /**
+     * AJAX: Share-Info löschen (X-Button im Geteilt-Badge).
+     * Entfernt _tix_ticket_shared_at/_to/_count — Badge verschwindet.
+     */
+    public static function ajax_ticket_clear_share() {
+        $token = isset($_REQUEST['token']) ? sanitize_text_field($_REQUEST['token']) : '';
+        if (!preg_match('/^[0-9a-f]{64}$/', $token)) {
+            wp_send_json_error(['message' => 'invalid_token'], 400);
+        }
+        $results = get_posts([
+            'post_type'      => 'tix_ticket',
+            'post_status'    => 'publish',
+            'posts_per_page' => 1,
+            'meta_query'     => [
+                ['key' => '_tix_ticket_download_token', 'value' => $token],
+            ],
+        ]);
+        if (empty($results)) wp_send_json_error(['message' => 'not_found'], 404);
+        $ticket_id = $results[0]->ID;
+
+        delete_post_meta($ticket_id, '_tix_ticket_shared_at');
+        delete_post_meta($ticket_id, '_tix_ticket_shared_to');
+        delete_post_meta($ticket_id, '_tix_ticket_shared_count');
 
         wp_send_json_success(self::get_share_info($ticket_id));
     }
@@ -2259,13 +2346,23 @@ class TIX_Tickets {
         .tix-shared-info {
             display: none;
             align-items: center; justify-content: center; gap: 6px;
-            padding: 5px 11px; background: #ecfdf5; color: #065f46;
+            padding: 5px 4px 5px 11px; background: #ecfdf5; color: #065f46;
             border: 1px solid #a7f3d0; border-radius: 999px;
             font-size: 11px; font-weight: 600;
             width: fit-content;
         }
         .tix-shared-info[data-has-share="1"] { display: inline-flex; }
-        .tix-shared-info svg { width: 11px; height: 11px; }
+        .tix-shared-info .tix-shared-check { width: 11px; height: 11px; }
+        .tix-shared-clear {
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 18px; height: 18px; border-radius: 50%;
+            margin-left: 2px; padding: 0; border: 0;
+            background: rgba(6,95,70,.12); color: inherit;
+            cursor: pointer; transition: background .15s ease;
+            flex-shrink: 0;
+        }
+        .tix-shared-clear:hover { background: rgba(6,95,70,.25); }
+        .tix-shared-clear svg { width: 10px; height: 10px; }
         .tix-bundle-shared-row { display: flex; justify-content: center; padding: 0 20px 10px; }
         .tix-bundle-shared-row:has(.tix-shared-info[data-has-share="0"]) { display: none; }
 
@@ -2533,8 +2630,11 @@ class TIX_Tickets {
             </div>
             <div class="tix-bundle-shared-row">
                 <div class="tix-shared-info" data-tix-shared-info data-has-share="<?php echo $share_info['has'] ? '1' : '0'; ?>">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                    <svg class="tix-shared-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
                     <span data-tix-shared-label><?php echo esc_html($share_info['label'] ?: 'Geteilt'); ?></span>
+                    <button type="button" class="tix-shared-clear" onclick="tixBundleShareClear(this)" aria-label="Geteilt-Markierung entfernen" title="Entfernen">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                    </button>
                 </div>
             </div>
             <div class="tix-bundle-footer">
@@ -2563,6 +2663,25 @@ class TIX_Tickets {
     var TIX_AJAX = <?php echo wp_json_encode(admin_url('admin-ajax.php')); ?>;
     window.TIX_AJAX_URL = TIX_AJAX;
     var TIX_ACTIVE_CARD = null;
+
+    // Geteilt-Badge per X-Button entfernen
+    function tixBundleShareClear(btn) {
+        var card = btn.closest('.tix-bundle-card');
+        if (!card) return;
+        var token = card.getAttribute('data-ticket-token');
+        var body = new FormData();
+        body.append('action', 'tix_ticket_clear_share');
+        body.append('token', token);
+        fetch(TIX_AJAX, { method: 'POST', body: body, credentials: 'same-origin' })
+            .then(function(r){ return r.json(); })
+            .then(function(res){
+                if (res && res.success) {
+                    var shared = card.querySelector('[data-tix-shared-info]');
+                    if (shared) shared.setAttribute('data-has-share', '0');
+                }
+            })
+            .catch(function(){});
+    }
 
     // Share: URL der Sammel-Ansicht oder Einzel-Ansicht teilen
     function tixBundleShare(btn) {
