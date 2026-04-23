@@ -842,6 +842,8 @@ class TIX_Metabox {
             'lineup'      => ['label' => 'Line-Up',                'type' => 'textarea'],
             'specials'    => ['label' => 'Specials',               'type' => 'textarea'],
             'age_limit'   => ['label' => 'Altersbegrenzung',       'type' => 'number'],
+            'dresscode'   => ['label' => 'Dresscode',              'type' => 'text'],
+            'entry_rules' => ['label' => 'Einlassregeln',          'type' => 'textarea'],
             'extra_info'  => ['label' => 'Weitere Informationen',  'type' => 'textarea'],
         ];
     }
@@ -892,6 +894,19 @@ class TIX_Metabox {
                                class="tix-info-number"
                                placeholder="z.B. 18">
                         <span class="description">Jahre (leer = keine Begrenzung, Standard: 18)</span>
+                    </div>
+                <?php elseif ($def['type'] === 'text'): ?>
+                    <div style="padding:12px 16px;">
+                        <input type="text" name="tix_info[<?php echo $key; ?>]"
+                               value="<?php echo esc_attr($content); ?>"
+                               maxlength="120"
+                               placeholder="<?php echo $key === 'dresscode' ? 'z.B. Smart Casual, All Black, Elegant' : ''; ?>"
+                               style="width:100%;padding:10px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:13px;">
+                        <span class="description" style="font-size:11px;display:block;margin-top:6px;">
+                            <?php if ($key === 'dresscode'): ?>
+                                Erscheint als eigener Block auf dem Ticket, falls gesetzt.
+                            <?php endif; ?>
+                        </span>
                     </div>
                 <?php endif; ?>
             </div>
@@ -3801,6 +3816,8 @@ class TIX_Metabox {
             $content = $info_data[$key] ?? '';
             if ($def['type'] === 'number') {
                 $content = $content !== '' ? intval($content) : '';
+            } elseif ($def['type'] === 'text') {
+                $content = sanitize_text_field($content);
             } else {
                 $content = wp_kses_post($content);
             }

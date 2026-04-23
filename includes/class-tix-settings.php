@@ -265,7 +265,11 @@ class TIX_Settings {
             'mt_accent_color'    => '',  // leer = globaler Accent
 
             // ── HTML-Ticket ──
-            'ht_version'         => 'v1',       // v1 = Classic | v2 = Premium (Glow + Gradient + Dashed Tear)
+            'ht_version'             => 'v1',   // v1 Classic | v2 Premium | v3 Festival | v4 Holographic
+            'ht_show_event_cover'    => 0,      // Event-Bild als Hero oben im Ticket (nur wenn gesetzt)
+            'ht_show_countdown'      => 0,      // Countdown zum Event oben
+            'ht_show_verified_badge' => 0,      // "✓ Offizielles Ticket"-Badge im Header
+            'ht_show_agb_footer'     => 1,      // AGB/Rückerstattung-Link im Footer
             'ht_logo_height'     => 44,
             'ht_header_bg'       => '#222222',
             'ht_header_text'     => '#ffffff',
@@ -1009,7 +1013,11 @@ class TIX_Settings {
         $clean['ht_logo_height']   = max(20, min(120, intval($input['ht_logo_height'] ?? 44)));
         $clean['ht_footer_text']   = sanitize_text_field($input['ht_footer_text'] ?? $d['ht_footer_text']);
         $clean['ht_logo_url']      = esc_url_raw($input['ht_logo_url'] ?? '');
-        $clean['ht_version']       = in_array($input['ht_version'] ?? 'v1', ['v1', 'v2'], true) ? $input['ht_version'] : 'v1';
+        $clean['ht_version']             = in_array($input['ht_version'] ?? 'v1', ['v1', 'v2', 'v3', 'v4'], true) ? $input['ht_version'] : 'v1';
+        $clean['ht_show_event_cover']    = !empty($input['ht_show_event_cover']) ? 1 : 0;
+        $clean['ht_show_countdown']      = !empty($input['ht_show_countdown']) ? 1 : 0;
+        $clean['ht_show_verified_badge'] = !empty($input['ht_show_verified_badge']) ? 1 : 0;
+        $clean['ht_show_agb_footer']     = !empty($input['ht_show_agb_footer']) ? 1 : 0;
 
         // Ticket-Badge (Check-in + Personenzuordnung)
         foreach (['badge_pending_bg', 'badge_pending_text', 'badge_done_bg', 'badge_done_text'] as $k) {
@@ -3131,24 +3139,47 @@ class TIX_Settings {
                                     <div class="tix-card-body">
                                         <p class="tix-settings-hint" style="margin-bottom:12px;">Gestalte das HTML-Ticket (Fallback ohne Bild-Template). Diese Farben werden beim direkten Download im Browser angezeigt.</p>
 
-                                        <?php // ── Version-Auswahl (V1 = Classic, V2 = Premium) ── ?>
+                                        <?php // ── Version-Auswahl (V1/V2/V3/V4) ── ?>
+                                        <?php $cur_version = $s['ht_version'] ?? 'v1';
+                                              $vrow = function($v, $title, $desc, $badge = '') use ($ok, $cur_version) { ?>
+                                            <label style="display:flex;flex-direction:column;gap:4px;padding:14px;border:2px solid <?php echo $cur_version === $v ? '#111' : '#e5e7eb'; ?>;border-radius:10px;cursor:pointer;background:<?php echo $cur_version === $v ? '#fafafa' : '#fff'; ?>;transition:all .15s;">
+                                                <div style="display:flex;align-items:center;gap:8px;">
+                                                    <input type="radio" name="<?php echo $ok; ?>[ht_version]" value="<?php echo esc_attr($v); ?>" <?php checked($cur_version === $v); ?> style="margin:0;">
+                                                    <strong><?php echo esc_html($title); ?></strong>
+                                                    <?php if ($badge): ?><span style="font-size:10px;background:#ede9fe;color:#5b21b6;padding:2px 6px;border-radius:6px;font-weight:700;letter-spacing:.3px;"><?php echo esc_html($badge); ?></span><?php endif; ?>
+                                                </div>
+                                                <span style="font-size:12px;color:#666;line-height:1.4;"><?php echo $desc; ?></span>
+                                            </label>
+                                        <?php }; ?>
                                         <div class="tix-field tix-field-full" style="margin-bottom:20px;">
                                             <label class="tix-field-label" style="display:block;margin-bottom:8px;">Design-Version</label>
                                             <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-                                                <label style="display:flex;flex-direction:column;gap:4px;padding:14px;border:2px solid <?php echo ($s['ht_version'] ?? 'v1') === 'v1' ? '#111' : '#e5e7eb'; ?>;border-radius:10px;cursor:pointer;background:<?php echo ($s['ht_version'] ?? 'v1') === 'v1' ? '#fafafa' : '#fff'; ?>;transition:all .15s;">
-                                                    <div style="display:flex;align-items:center;gap:8px;">
-                                                        <input type="radio" name="<?php echo $ok; ?>[ht_version]" value="v1" <?php checked(($s['ht_version'] ?? 'v1') === 'v1'); ?> style="margin:0;">
-                                                        <strong>V1 · Classic</strong>
-                                                    </div>
-                                                    <span style="font-size:12px;color:#666;">Clean &amp; klar. Header oben, Body mit QR + Info, Footer-Nachricht. Gro&szlig;e Tauglichkeit &uuml;ber alle Ger&auml;te.</span>
+                                                <?php $vrow('v1', 'V1 · Classic', 'Clean &amp; klar. Header, Body mit QR + Info, Footer-Nachricht. Groß tauglich über alle Geräte.'); ?>
+                                                <?php $vrow('v2', 'V2 · Premium', 'Glow &amp; Gradient. Perforation, QR-Corner-Brackets, moderne Typografie, subtiler Shine.'); ?>
+                                                <?php $vrow('v3', 'V3 · Festival', 'Event-Cover als Hero oben, Event-Titel überlagert, minimalistischer Body. Voller Impact.', 'NEU'); ?>
+                                                <?php $vrow('v4', 'V4 · Holographic', 'V2-Basis mit animiertem Conic-Gradient-Shine. Premium-Optik mit Hologramm-Effekt.', 'NEU'); ?>
+                                            </div>
+                                        </div>
+
+                                        <?php // ── Feature-Toggles ── ?>
+                                        <div class="tix-field tix-field-full" style="margin-bottom:20px;">
+                                            <label class="tix-field-label" style="display:block;margin-bottom:8px;">Ticket-Features</label>
+                                            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+                                                <label style="display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid #e5e7eb;border-radius:8px;cursor:pointer;">
+                                                    <input type="checkbox" name="<?php echo $ok; ?>[ht_show_event_cover]" value="1" <?php checked(!empty($s['ht_show_event_cover'])); ?>>
+                                                    <span style="font-size:13px;"><strong>Event-Cover</strong> · Event-Bild als Hero oben</span>
                                                 </label>
-                                                <label style="display:flex;flex-direction:column;gap:4px;padding:14px;border:2px solid <?php echo ($s['ht_version'] ?? 'v1') === 'v2' ? '#111' : '#e5e7eb'; ?>;border-radius:10px;cursor:pointer;background:<?php echo ($s['ht_version'] ?? 'v1') === 'v2' ? '#fafafa' : '#fff'; ?>;transition:all .15s;">
-                                                    <div style="display:flex;align-items:center;gap:8px;">
-                                                        <input type="radio" name="<?php echo $ok; ?>[ht_version]" value="v2" <?php checked(($s['ht_version'] ?? 'v1') === 'v2'); ?> style="margin:0;">
-                                                        <strong>V2 · Premium</strong>
-                                                        <span style="font-size:10px;background:#ede9fe;color:#5b21b6;padding:2px 6px;border-radius:6px;font-weight:700;letter-spacing:.3px;">NEU</span>
-                                                    </div>
-                                                    <span style="font-size:12px;color:#666;">Glow &amp; Gradient. Ticket-Stub mit Perforation, dekorative QR-Ecken, modernere Typografie, subtiler Shine.</span>
+                                                <label style="display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid #e5e7eb;border-radius:8px;cursor:pointer;">
+                                                    <input type="checkbox" name="<?php echo $ok; ?>[ht_show_countdown]" value="1" <?php checked(!empty($s['ht_show_countdown'])); ?>>
+                                                    <span style="font-size:13px;"><strong>Countdown</strong> · "Noch 2 Tage · 14 Std…"</span>
+                                                </label>
+                                                <label style="display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid #e5e7eb;border-radius:8px;cursor:pointer;">
+                                                    <input type="checkbox" name="<?php echo $ok; ?>[ht_show_verified_badge]" value="1" <?php checked(!empty($s['ht_show_verified_badge'])); ?>>
+                                                    <span style="font-size:13px;"><strong>Verified-Badge</strong> · "✓ Offizielles Ticket"</span>
+                                                </label>
+                                                <label style="display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid #e5e7eb;border-radius:8px;cursor:pointer;">
+                                                    <input type="checkbox" name="<?php echo $ok; ?>[ht_show_agb_footer]" value="1" <?php checked(!empty($s['ht_show_agb_footer'])); ?>>
+                                                    <span style="font-size:13px;"><strong>AGB-Footer</strong> · Link zu AGB &amp; Widerruf</span>
                                                 </label>
                                             </div>
                                         </div>

@@ -1004,22 +1004,51 @@ class TIX_Tickets {
             'ht_btn_bg'        => '#222222', 'ht_btn_text'      => '#ffffff',
             'ht_border_radius' => 12,
             'ht_logo_height'   => 44,
-            'ht_footer_text'   => 'Bitte dieses Ticket ausgedruckt oder digital zum Einlass mitbringen.',
-            'ht_logo_url'      => '',
-            'ht_version'       => 'v1',
+            'ht_footer_text'         => 'Bitte dieses Ticket ausgedruckt oder digital zum Einlass mitbringen.',
+            'ht_logo_url'            => '',
+            'ht_version'             => 'v1',
+            'ht_show_event_cover'    => 0,
+            'ht_show_countdown'      => 0,
+            'ht_show_verified_badge' => 0,
+            'ht_show_agb_footer'     => 1,
         ];
         foreach ($hd as $k => $v) {
             $$k = isset($s[$k]) && $s[$k] !== '' ? $s[$k] : $v;
         }
         $ht_border_radius = intval($ht_border_radius);
         $ht_logo_height   = intval($ht_logo_height);
-        $ht_version       = in_array($ht_version, ['v1', 'v2'], true) ? $ht_version : 'v1';
-        // V2 verwendet die Primärfarbe aus den Tixomat-Einstellungen (Design-Tab,
-        // color_primary) — gleiche Marken-Identität überall.
-        $accent = !empty($s['color_primary']) ? $s['color_primary'] : '#FF5500';
+        $ht_version       = in_array($ht_version, ['v1', 'v2', 'v3', 'v4'], true) ? $ht_version : 'v1';
+        $accent           = !empty($s['color_primary']) ? $s['color_primary'] : '#FF5500';
+
+        // Event-Cover-URL (nur wenn Toggle aktiv)
+        $event_cover_url = '';
+        if (!empty($ht_show_event_cover)) {
+            $event_cover_url = get_the_post_thumbnail_url($event_id, 'large') ?: '';
+        }
+
+        // Countdown-Ziel (Event-Start ISO-String für JS)
+        $event_start_iso = '';
+        if (!empty($ht_show_countdown) && $date_start) {
+            $event_start_iso = $date_start; // wird clientseitig in Date geparst
+        }
+
+        // Dresscode + Einlassregeln (Event-Meta)
+        $dresscode  = trim((string) get_post_meta($event_id, '_tix_info_dresscode', true));
+        $entry_rules_raw = (string) get_post_meta($event_id, '_tix_info_entry_rules', true);
+        $entry_rules = trim(wp_strip_all_tags($entry_rules_raw)); // einfacher Text für Accordion
+
+        // AGB + Widerruf aus Checkout-Settings (identisch zu TIX_Checkout)
+        $agb_url        = ($s['terms_url']      ?? '') ?: apply_filters('tix_checkout_terms_url', '');
+        $privacy_url    = ($s['privacy_url']    ?? '') ?: apply_filters('tix_checkout_privacy_url', get_privacy_policy_url() ?: '');
+        $revocation_url = ($s['revocation_url'] ?? '') ?: apply_filters('tix_checkout_revocation_url', '');
+
+        // Issue-Datum für Verified-Badge
+        $issue_date = date_i18n('d.m.Y', strtotime($code ? get_post($ticket_id)->post_date : 'now'));
 
         $qr_data = 'GL-' . $event_id . '-' . $code;
-        $qr_url  = 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=' . urlencode($qr_data);
+        // Lokale QR-Generierung via Canvas (wird clientseitig von tix-qr.js gerendert)
+        // Fallback-URL falls JS nicht lädt
+        $qr_url  = 'https://api.qrserver.com/v1/create-qr-code/?size=400x400&margin=0&data=' . urlencode($qr_data);
 
         // Badge-State + Token für Live-Updates / Personen-Zuordnung
         $badge        = self::get_badge_state($ticket_id, $s);
@@ -1030,7 +1059,7 @@ class TIX_Tickets {
 
         ?>
 <!DOCTYPE html>
-<html lang="de" class="tix-ht-<?php echo esc_attr($ht_version); ?>">
+<html lang="de" class="tix-ht-<?php echo esc_attr($ht_version); ?><?php if (!empty($event_cover_url) && in_array($ht_version, ['v3'], true)) echo ' tix-has-cover'; ?>">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -1368,6 +1397,205 @@ class TIX_Tickets {
             html.tix-ht-v2 .ticket-body { padding-top: 32px !important; }
             html.tix-ht-v2 .ticket-body::before { top: 10px; }
         }
+
+        /* ═══════════════════════════════════════
+           COUNTDOWN · VERIFIED · COVER · DRESSCODE · RULES · AGB · QR-ZOOM
+           ═══════════════════════════════════════ */
+        .tix-countdown {
+            max-width: 600px; margin: 12px auto 0;
+            display: flex; align-items: center; justify-content: center; gap: 10px;
+            padding: 10px 16px;
+            background: #111827; color: #fff;
+            border-radius: 12px;
+            font-size: 14px; font-weight: 600;
+            letter-spacing: .02em;
+        }
+        .tix-countdown-label { opacity: .6; text-transform: uppercase; font-size: 11px; letter-spacing: 1.5px; }
+        .tix-countdown-value { font-variant-numeric: tabular-nums; font-weight: 700; }
+        .tix-countdown.tix-countdown-live { background: linear-gradient(135deg, <?php echo esc_attr($accent); ?>, color-mix(in srgb, <?php echo esc_attr($accent); ?> 70%, #000 30%)); color: #fff; }
+        .tix-countdown.tix-countdown-past { background: #6b7280; opacity: .7; }
+
+        .tix-verified-badge {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 5px 10px; margin-top: 6px;
+            background: rgba(16,185,129,.15); color: #10b981;
+            border: 1px solid rgba(16,185,129,.35);
+            border-radius: 999px;
+            font-size: 11px; font-weight: 700;
+            letter-spacing: .02em;
+        }
+        .tix-verified-badge svg { width: 13px; height: 13px; flex-shrink: 0; }
+
+        .ticket-cover {
+            position: relative; overflow: hidden; width: 100%; height: 240px;
+        }
+        .ticket-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .ticket-cover-overlay {
+            position: absolute; left: 0; right: 0; bottom: 0;
+            padding: 24px 30px;
+            background: linear-gradient(to top, rgba(0,0,0,.85) 0%, rgba(0,0,0,.5) 50%, rgba(0,0,0,0) 100%);
+            color: #fff;
+        }
+        .ticket-cover-title { font-size: 26px; font-weight: 800; margin-bottom: 3px; letter-spacing: -.02em; text-shadow: 0 2px 8px rgba(0,0,0,.35); }
+        .ticket-cover-cat { font-size: 14px; opacity: .9; }
+
+        .tix-info-dresscode .value { font-style: italic; }
+
+        .tix-entry-rules {
+            max-width: 600px; margin: 8px auto 0;
+            background: #fff; border: 1px solid #e5e7eb; border-radius: 10px;
+            overflow: hidden;
+        }
+        .tix-entry-rules summary {
+            padding: 12px 18px;
+            font-size: 13px; font-weight: 600;
+            color: #374151;
+            cursor: pointer;
+            list-style: none;
+            display: flex; align-items: center; gap: 8px;
+            user-select: none;
+        }
+        .tix-entry-rules summary::-webkit-details-marker { display: none; }
+        .tix-entry-rules summary svg { width: 16px; height: 16px; flex-shrink: 0; color: <?php echo esc_attr($accent); ?>; }
+        .tix-entry-rules[open] summary { border-bottom: 1px solid #e5e7eb; }
+        .tix-entry-rules-body { padding: 14px 18px 16px; font-size: 13px; line-height: 1.55; color: #4b5563; }
+
+        .tix-agb-footer {
+            margin-top: 10px;
+            padding-top: 8px;
+            border-top: 1px dashed rgba(0,0,0,.15);
+            font-size: 10px; color: <?php echo esc_attr($ht_footer_color); ?>;
+        }
+        .tix-agb-footer a { color: inherit; text-decoration: underline; }
+        .tix-agb-footer a:hover { opacity: .7; }
+
+        .ticket-qr { cursor: zoom-in; }
+        .tix-ticket-qr-canvas { width: 160px; height: 160px; display: block; margin: 0 auto; }
+
+        /* QR-Zoom Overlay */
+        .tix-qr-zoom-overlay {
+            position: fixed; inset: 0; z-index: 100000;
+            background: #fff; /* Weiß → Display-Backlight automatisch hoch */
+            display: none; align-items: center; justify-content: center;
+            flex-direction: column; gap: 20px;
+            padding: 40px 20px;
+        }
+        .tix-qr-zoom-overlay.open { display: flex; }
+        .tix-qr-zoom-canvas {
+            width: min(85vw, 85vh); height: min(85vw, 85vh);
+            image-rendering: pixelated;
+        }
+        .tix-qr-zoom-code {
+            font-family: 'SF Mono', Consolas, monospace;
+            font-size: 18px; font-weight: 700;
+            letter-spacing: 3px;
+            color: #111;
+        }
+        .tix-qr-zoom-close {
+            position: absolute; top: 16px; right: 16px;
+            width: 44px; height: 44px; border-radius: 50%;
+            background: #111; color: #fff; border: 0;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer;
+        }
+        .tix-qr-zoom-close svg { width: 22px; height: 22px; }
+
+        /* ═══════════════════════════════════════
+           V3 · FESTIVAL (Cover-Hero + minimalistic Body)
+           ═══════════════════════════════════════ */
+        html.tix-ht-v3 body {
+            background: linear-gradient(180deg, #0f0f1a 0%, #1a1333 100%);
+            min-height: 100vh;
+        }
+        html.tix-ht-v3 .ticket {
+            border: none; box-shadow: 0 40px 80px -30px rgba(0,0,0,.5);
+            position: relative;
+            background: <?php echo esc_attr($ht_body_bg); ?>;
+        }
+        html.tix-ht-v3 .ticket-cover { height: 280px; }
+        html.tix-ht-v3 .ticket-cover-title { font-size: 30px; text-transform: uppercase; letter-spacing: .02em; }
+        html.tix-ht-v3 .ticket-cover-overlay {
+            background: linear-gradient(to top,
+                <?php echo esc_attr($ht_header_bg); ?> 0%,
+                color-mix(in srgb, <?php echo esc_attr($ht_header_bg); ?> 70%, transparent 30%) 60%,
+                transparent 100%);
+        }
+        /* Header ausblenden wenn Cover aktiv (Titel ist schon im Cover) */
+        html.tix-ht-v3.tix-has-cover .ticket-header { padding: 12px 20px; }
+        html.tix-ht-v3.tix-has-cover .ticket-header h1,
+        html.tix-ht-v3.tix-has-cover .ticket-header p { display: none; }
+        html.tix-ht-v3 .ticket-body { padding: 28px; }
+        html.tix-ht-v3 .info-row .label { font-size: 9px; letter-spacing: 2px; color: <?php echo esc_attr($accent); ?>; font-weight: 800; }
+        html.tix-ht-v3 .info-row .value { font-size: 15px; font-weight: 600; }
+        html.tix-ht-v3 .ticket-qr .tix-ticket-qr-canvas,
+        html.tix-ht-v3 .ticket-qr img { border: 4px solid <?php echo esc_attr($accent); ?>; padding: 8px; background: #fff; border-radius: 8px; }
+
+        /* ═══════════════════════════════════════
+           V4 · HOLOGRAPHIC (V2 Basis + Conic-Gradient-Shine)
+           ═══════════════════════════════════════ */
+        html.tix-ht-v4 body {
+            background: radial-gradient(circle at 20% 0%, rgba(139,92,246,.08), transparent 50%),
+                        radial-gradient(circle at 80% 100%, rgba(59,130,246,.06), transparent 50%),
+                        #f7f7f8;
+        }
+        html.tix-ht-v4 .ticket {
+            position: relative;
+            box-shadow: 0 30px 60px -25px rgba(17,24,39,.22),
+                        0 12px 30px -12px rgba(17,24,39,.08);
+            overflow: hidden;
+            background: <?php echo esc_attr($ht_body_bg); ?>;
+            border: none;
+        }
+        html.tix-ht-v4 .ticket::before {
+            content: "";
+            position: absolute; inset: -50%;
+            background: conic-gradient(from 0deg,
+                transparent 0deg,
+                rgba(236, 72, 153, .15) 60deg,
+                rgba(168, 85, 247, .18) 120deg,
+                rgba(59, 130, 246, .15) 180deg,
+                rgba(16, 185, 129, .12) 240deg,
+                rgba(245, 158, 11, .14) 300deg,
+                transparent 360deg);
+            animation: tixHoloSpin 8s linear infinite;
+            pointer-events: none;
+            z-index: 0;
+            mix-blend-mode: overlay;
+        }
+        html.tix-ht-v4 .ticket > * { position: relative; z-index: 1; }
+        @keyframes tixHoloSpin {
+            to { transform: rotate(360deg); }
+        }
+        html.tix-ht-v4 .ticket-header {
+            background: linear-gradient(135deg,
+                <?php echo esc_attr($ht_header_bg); ?> 0%,
+                color-mix(in srgb, <?php echo esc_attr($ht_header_bg); ?> 75%, <?php echo esc_attr($accent); ?> 25%) 100%);
+            position: relative; overflow: hidden;
+        }
+        html.tix-ht-v4 .ticket-header::after {
+            content: "";
+            position: absolute; inset: 0;
+            background: linear-gradient(115deg, transparent 30%, rgba(255,255,255,.35) 50%, transparent 70%);
+            animation: tixHoloShine 4s ease-in-out infinite;
+            pointer-events: none;
+        }
+        @keyframes tixHoloShine {
+            0%, 100% { transform: translateX(-120%); }
+            50% { transform: translateX(120%); }
+        }
+        html.tix-ht-v4 .ticket-qr .tix-ticket-qr-canvas,
+        html.tix-ht-v4 .ticket-qr img {
+            border: 3px solid transparent;
+            background:
+                linear-gradient(white, white) padding-box,
+                conic-gradient(from 45deg, #ec4899, #a855f7, #3b82f6, #10b981, #f59e0b, #ec4899) border-box;
+            padding: 6px;
+            border-radius: 10px;
+            animation: tixHoloQRPulse 6s linear infinite;
+        }
+        @keyframes tixHoloQRPulse {
+            to { filter: hue-rotate(360deg); }
+        }
     </style>
 </head>
 <body>
@@ -1410,14 +1638,39 @@ class TIX_Tickets {
         </div>
     </div>
 
+    <?php if (!empty($event_start_iso) && !empty($ht_show_countdown)): ?>
+    <div class="tix-countdown no-print" data-tix-countdown="<?php echo esc_attr($event_start_iso); ?>">
+        <span class="tix-countdown-label">Noch</span>
+        <span class="tix-countdown-value">— · — · —</span>
+    </div>
+    <?php endif; ?>
+
     <div class="ticket">
+        <?php if ($event_cover_url && !empty($ht_show_event_cover)): ?>
+        <div class="ticket-cover">
+            <img src="<?php echo esc_url($event_cover_url); ?>" alt="<?php echo esc_attr($event_name); ?>">
+            <div class="ticket-cover-overlay">
+                <h1 class="ticket-cover-title"><?php echo esc_html($event_name); ?></h1>
+                <?php if ($cat_name): ?><p class="ticket-cover-cat"><?php echo esc_html($cat_name); ?><?php if ($price): ?> — <?php echo esc_html($price); ?><?php endif; ?></p><?php endif; ?>
+            </div>
+        </div>
+        <?php endif; ?>
+
         <div class="ticket-header">
             <?php if ($ht_logo_url): ?>
                 <img src="<?php echo esc_url($ht_logo_url); ?>" alt="Logo" class="ticket-logo">
             <?php endif; ?>
             <div class="ticket-header-text" style="text-align:right;">
-                <h1><?php echo esc_html($event_name); ?></h1>
-                <p><?php echo esc_html($cat_name); ?><?php if ($price): ?> — <?php echo esc_html($price); ?><?php endif; ?></p>
+                <?php if (!($event_cover_url && !empty($ht_show_event_cover))): ?>
+                    <h1><?php echo esc_html($event_name); ?></h1>
+                    <p><?php echo esc_html($cat_name); ?><?php if ($price): ?> — <?php echo esc_html($price); ?><?php endif; ?></p>
+                <?php endif; ?>
+                <?php if (!empty($ht_show_verified_badge)): ?>
+                <div class="tix-verified-badge" title="Offiziell ausgestelltes Ticket">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 12l2 2 4-4"/><path d="M12 2l8.5 4v6c0 5.25-3.75 9.5-8.5 10-4.75-.5-8.5-4.75-8.5-10V6L12 2z"/></svg>
+                    <span>Offizielles Ticket · <?php echo esc_html($issue_date); ?></span>
+                </div>
+                <?php endif; ?>
             </div>
         </div>
         <div class="ticket-body">
@@ -1460,15 +1713,52 @@ class TIX_Tickets {
                     <div class="value" data-tix-name><?php echo esc_html($display_name); ?></div>
                 </div>
                 <?php endif; ?>
+
+                <?php if ($dresscode): ?>
+                <div class="info-row tix-info-dresscode">
+                    <div class="label">Dresscode</div>
+                    <div class="value"><?php echo esc_html($dresscode); ?></div>
+                </div>
+                <?php endif; ?>
             </div>
-            <div class="ticket-qr">
-                <img src="<?php echo esc_url($qr_url); ?>" alt="QR-Code" crossorigin="anonymous">
+            <div class="ticket-qr" onclick="tixQRZoom()" role="button" tabindex="0" title="QR-Code vergrößern" aria-label="QR-Code vergrößern">
+                <canvas class="tix-ticket-qr-canvas" data-qr="<?php echo esc_attr($qr_data); ?>" width="400" height="400" aria-label="QR-Code"></canvas>
+                <noscript><img src="<?php echo esc_url($qr_url); ?>" alt="QR-Code"></noscript>
                 <div class="code"><?php echo esc_html($code); ?></div>
             </div>
         </div>
+
+        <?php if ($entry_rules): ?>
+        <details class="tix-entry-rules">
+            <summary>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                Einlassregeln anzeigen
+            </summary>
+            <div class="tix-entry-rules-body"><?php echo nl2br(esc_html($entry_rules)); ?></div>
+        </details>
+        <?php endif; ?>
+
         <div class="ticket-footer">
             <?php echo esc_html($ht_footer_text); ?>
+            <?php if (!empty($ht_show_agb_footer) && ($agb_url || $privacy_url || $revocation_url)): ?>
+            <div class="tix-agb-footer no-print">
+                <?php if ($agb_url): ?><a href="<?php echo esc_url($agb_url); ?>" target="_blank" rel="noopener">AGB</a><?php endif; ?>
+                <?php if ($agb_url && $revocation_url): ?> · <?php endif; ?>
+                <?php if ($revocation_url): ?><a href="<?php echo esc_url($revocation_url); ?>" target="_blank" rel="noopener">Widerrufsrecht</a><?php endif; ?>
+                <?php if (($agb_url || $revocation_url) && $privacy_url): ?> · <?php endif; ?>
+                <?php if ($privacy_url): ?><a href="<?php echo esc_url($privacy_url); ?>" target="_blank" rel="noopener">Datenschutz</a><?php endif; ?>
+            </div>
+            <?php endif; ?>
         </div>
+    </div>
+
+    <?php // ── QR-Zoom Fullscreen Overlay ── ?>
+    <div class="tix-qr-zoom-overlay no-print" data-tix-qr-zoom onclick="tixQRZoomClose(event)">
+        <button type="button" class="tix-qr-zoom-close" onclick="tixQRZoomClose()" aria-label="Schließen">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+        <canvas class="tix-qr-zoom-canvas" data-qr="<?php echo esc_attr($qr_data); ?>" width="800" height="800"></canvas>
+        <div class="tix-qr-zoom-code"><?php echo esc_html($code); ?></div>
     </div>
 
     <?php
@@ -1566,13 +1856,74 @@ class TIX_Tickets {
     <script src="<?php echo esc_url(TIXOMAT_URL . 'assets/js/tix-ticket-img.js?v=' . TIXOMAT_VERSION); ?>"></script>
     <script src="<?php echo esc_url(TIXOMAT_URL . 'assets/js/tix-wallet.js?v=' . TIXOMAT_VERSION); ?>"></script>
     <script>
-        // QR-Code auf Canvas rendern, damit tix-ticket-img.js ihn als Bild mitrendern kann
+        // QR-Codes auf Canvas rendern (sichtbarer QR + versteckte Source + Zoom-QR)
         document.addEventListener('DOMContentLoaded', function() {
-            var cvs = document.querySelector('#tix-online-ticket-source canvas[data-qr]');
-            if (cvs && window.ehQR && typeof window.ehQR.render === 'function') {
-                window.ehQR.render(cvs);
-            }
+            if (!(window.ehQR && typeof window.ehQR.render === 'function')) return;
+            document.querySelectorAll('canvas[data-qr]').forEach(function(cvs){
+                try { window.ehQR.render(cvs); } catch(e){ console.warn('QR-render fehlgeschlagen', e); }
+            });
         });
+
+        // ── Countdown zum Event ──
+        (function(){
+            var el = document.querySelector('[data-tix-countdown]');
+            if (!el) return;
+            var target = new Date(el.getAttribute('data-tix-countdown').replace(' ', 'T'));
+            if (isNaN(target.getTime())) return;
+            var valEl = el.querySelector('.tix-countdown-value');
+            function pad(n){ return (n < 10 ? '0' : '') + n; }
+            function tick() {
+                var diff = target.getTime() - Date.now();
+                if (diff <= 0) {
+                    el.classList.add('tix-countdown-live');
+                    el.classList.remove('tix-countdown-past');
+                    // In der Event-Phase: bis 6h nach Start als "läuft gerade", danach "vorbei"
+                    var pastHours = Math.abs(diff) / (1000 * 60 * 60);
+                    if (pastHours > 6) {
+                        el.classList.add('tix-countdown-past');
+                        valEl.textContent = 'Event vorbei';
+                    } else {
+                        valEl.textContent = 'Läuft gerade — viel Spaß!';
+                    }
+                    return;
+                }
+                var d = Math.floor(diff / (1000*60*60*24));
+                var h = Math.floor((diff % (1000*60*60*24)) / (1000*60*60));
+                var m = Math.floor((diff % (1000*60*60)) / (1000*60));
+                var s = Math.floor((diff % (1000*60)) / 1000);
+                var parts = [];
+                if (d > 0) parts.push(d + ' ' + (d === 1 ? 'Tag' : 'Tage'));
+                parts.push(pad(h) + 'h');
+                parts.push(pad(m) + 'm');
+                if (d === 0) parts.push(pad(s) + 's');
+                valEl.textContent = parts.join(' · ');
+            }
+            tick();
+            setInterval(tick, 1000);
+        })();
+
+        // ── QR-Zoom Fullscreen-Overlay ──
+        function tixQRZoom() {
+            var overlay = document.querySelector('[data-tix-qr-zoom]');
+            if (!overlay) return;
+            overlay.classList.add('open');
+            document.body.style.overflow = 'hidden';
+            // Screen Wake Lock — hält Display an (soweit verfügbar)
+            if ('wakeLock' in navigator) {
+                try { navigator.wakeLock.request('screen').then(function(lock){ window._tixQRWakeLock = lock; }); } catch(e){}
+            }
+        }
+        function tixQRZoomClose(e) {
+            if (e && e.target && e.target !== e.currentTarget && !e.target.closest('.tix-qr-zoom-close')) {
+                // Nur bei Klick auf Overlay-Background oder Close-Button schließen
+                if (!e.target.hasAttribute('data-tix-qr-zoom')) return;
+            }
+            var overlay = document.querySelector('[data-tix-qr-zoom]');
+            if (overlay) overlay.classList.remove('open');
+            document.body.style.overflow = '';
+            if (window._tixQRWakeLock) { try { window._tixQRWakeLock.release(); } catch(e){} window._tixQRWakeLock = null; }
+        }
+        document.addEventListener('keydown', function(e){ if (e.key === 'Escape') tixQRZoomClose(); });
         // ─────────────────────────────────────────────
         // Als Bild speichern: Screenshot des echten Ticket-DOMs
         // (respektiert V1/V2-Styling exakt, blendet .no-print Elemente aus)
@@ -2411,19 +2762,23 @@ class TIX_Tickets {
             'ht_btn_bg'        => '#222222', 'ht_btn_text'      => '#ffffff',
             'ht_border_radius' => 12,
             'ht_logo_height'   => 44,
-            'ht_footer_text'   => 'Bitte dieses Ticket ausgedruckt oder digital zum Einlass mitbringen.',
-            'ht_logo_url'      => '',
-            'ht_version'       => 'v1',
+            'ht_footer_text'         => 'Bitte dieses Ticket ausgedruckt oder digital zum Einlass mitbringen.',
+            'ht_logo_url'            => '',
+            'ht_version'             => 'v1',
+            'ht_show_agb_footer'     => 1,
         ];
         foreach ($hd as $k => $v) {
             $$k = isset($s[$k]) && $s[$k] !== '' ? $s[$k] : $v;
         }
         $ht_border_radius = intval($ht_border_radius);
         $ht_logo_height   = intval($ht_logo_height);
-        $ht_version       = in_array($ht_version, ['v1', 'v2'], true) ? $ht_version : 'v1';
-        // V2 verwendet die Primärfarbe aus den Tixomat-Einstellungen (Design-Tab,
-        // color_primary) — gleiche Marken-Identität überall.
-        $accent = !empty($s['color_primary']) ? $s['color_primary'] : '#FF5500';
+        $ht_version       = in_array($ht_version, ['v1', 'v2', 'v3', 'v4'], true) ? $ht_version : 'v1';
+        $accent           = !empty($s['color_primary']) ? $s['color_primary'] : '#FF5500';
+
+        // AGB/Widerruf aus Checkout-Settings
+        $bundle_agb_url        = ($s['terms_url']      ?? '') ?: apply_filters('tix_checkout_terms_url', '');
+        $bundle_privacy_url    = ($s['privacy_url']    ?? '') ?: apply_filters('tix_checkout_privacy_url', get_privacy_policy_url() ?: '');
+        $bundle_revocation_url = ($s['revocation_url'] ?? '') ?: apply_filters('tix_checkout_revocation_url', '');
 
         $total = count($tickets);
         $buyer_name  = get_post_meta($tickets[0]->ID, '_tix_ticket_owner_name', true);
@@ -2487,6 +2842,7 @@ class TIX_Tickets {
         .tix-bundle-info { flex: 1; min-width: 0; }
         .tix-bundle-qr { flex: 0 0 110px; text-align: center; }
         .tix-bundle-qr img { width: 110px; height: 110px; }
+        .tix-bundle-qr-canvas { width: 110px; height: 110px; display: block; margin: 0 auto; image-rendering: pixelated; }
         .tix-bundle-qr .code { font-family: monospace; font-size: 11px; font-weight: bold; margin-top: 4px; letter-spacing: 1.5px; }
         .info-row { margin-bottom: 10px; }
         .info-row .label { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: <?php echo esc_attr($ht_label_color); ?>; margin-bottom: 2px; }
@@ -2508,6 +2864,15 @@ class TIX_Tickets {
         }
 
         .tix-bundle-sponsor { text-align: center; margin: 12px auto 0; }
+
+        .tix-bundle-agb-footer {
+            max-width: 600px; margin: 16px auto 0;
+            text-align: center;
+            font-size: 10px; color: #94a3b8;
+            padding: 8px 4px;
+        }
+        .tix-bundle-agb-footer a { color: inherit; text-decoration: underline; }
+        .tix-bundle-agb-footer a:hover { opacity: .7; }
         .tix-bundle-sponsor .tix-bundle-sponsor-label { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #94a3b8; margin-bottom: 5px; }
         .tix-bundle-sponsor img { max-width: 100%; height: auto; border-radius: <?php echo $ht_border_radius; ?>px; display: block; margin: 0 auto; }
 
@@ -2707,6 +3072,56 @@ class TIX_Tickets {
             background: color-mix(in srgb, <?php echo esc_attr($ht_body_bg); ?> 94%, <?php echo esc_attr($ht_border_color); ?> 6%);
             font-size: 11px; font-weight: 500; letter-spacing: .01em;
         }
+
+        /* V3 Festival — Bundle (dunkler Body-Background + hervorgehobene Cards) */
+        html.tix-ht-v3 body {
+            background: linear-gradient(180deg, #0f0f1a 0%, #1a1333 100%);
+            min-height: 100vh;
+        }
+        html.tix-ht-v3 .tix-bundle-head h1 { color: #fff; font-size: 24px; font-weight: 800; }
+        html.tix-ht-v3 .tix-bundle-head p { color: rgba(255,255,255,.7); }
+        html.tix-ht-v3 .tix-bundle-card {
+            border: none; box-shadow: 0 18px 40px -18px rgba(0,0,0,.4);
+        }
+        html.tix-ht-v3 .tix-bundle-header {
+            background: linear-gradient(135deg, <?php echo esc_attr($ht_header_bg); ?> 0%, color-mix(in srgb, <?php echo esc_attr($ht_header_bg); ?> 70%, <?php echo esc_attr($accent); ?> 30%) 100%);
+        }
+        html.tix-ht-v3 .info-row .label { font-size: 9px; letter-spacing: 2px; color: <?php echo esc_attr($accent); ?>; font-weight: 800; }
+
+        /* V4 Holographic — Bundle (Conic-Shimmer pro Card) */
+        html.tix-ht-v4 body {
+            background: radial-gradient(circle at 20% 0%, rgba(139,92,246,.08), transparent 50%),
+                        radial-gradient(circle at 80% 100%, rgba(59,130,246,.06), transparent 50%),
+                        #f7f7f8;
+        }
+        html.tix-ht-v4 .tix-bundle-card {
+            position: relative; overflow: hidden;
+            box-shadow: 0 18px 40px -18px rgba(17,24,39,.2);
+        }
+        html.tix-ht-v4 .tix-bundle-card::before {
+            content: "";
+            position: absolute; inset: -30%;
+            background: conic-gradient(from 0deg, transparent 0deg, rgba(236,72,153,.1) 60deg, rgba(168,85,247,.12) 120deg, rgba(59,130,246,.1) 180deg, rgba(16,185,129,.08) 240deg, rgba(245,158,11,.1) 300deg, transparent 360deg);
+            animation: tixHoloSpin 10s linear infinite;
+            pointer-events: none; z-index: 0; mix-blend-mode: overlay;
+        }
+        html.tix-ht-v4 .tix-bundle-card > * { position: relative; z-index: 1; }
+        @keyframes tixHoloSpin { to { transform: rotate(360deg); } }
+        html.tix-ht-v4 .tix-bundle-header {
+            background: linear-gradient(135deg, <?php echo esc_attr($ht_header_bg); ?> 0%, color-mix(in srgb, <?php echo esc_attr($ht_header_bg); ?> 75%, <?php echo esc_attr($accent); ?> 25%) 100%);
+            position: relative; overflow: hidden;
+        }
+        html.tix-ht-v4 .tix-bundle-header::after {
+            content: "";
+            position: absolute; inset: 0;
+            background: linear-gradient(115deg, transparent 30%, rgba(255,255,255,.25) 50%, transparent 70%);
+            animation: tixHoloShine 5s ease-in-out infinite;
+            pointer-events: none;
+        }
+        @keyframes tixHoloShine {
+            0%, 100% { transform: translateX(-120%); }
+            50% { transform: translateX(120%); }
+        }
     </style>
 </head>
 <body>
@@ -2793,7 +3208,8 @@ class TIX_Tickets {
                     <?php endif; ?>
                 </div>
                 <div class="tix-bundle-qr">
-                    <img src="<?php echo esc_url($qr_url); ?>" alt="QR-Code" crossorigin="anonymous">
+                    <canvas class="tix-bundle-qr-canvas" data-qr="<?php echo esc_attr($qr_data); ?>" width="300" height="300" aria-label="QR-Code"></canvas>
+                    <noscript><img src="<?php echo esc_url($qr_url); ?>" alt="QR-Code"></noscript>
                     <div class="code"><?php echo esc_html($code); ?></div>
                 </div>
             </div>
@@ -2846,6 +3262,27 @@ class TIX_Tickets {
         <?php endif; ?>
     </div>
     <?php endif; endif; ?>
+
+    <?php if (!empty($ht_show_agb_footer) && ($bundle_agb_url || $bundle_privacy_url || $bundle_revocation_url)): ?>
+    <div class="tix-bundle-agb-footer no-print">
+        <?php if ($bundle_agb_url): ?><a href="<?php echo esc_url($bundle_agb_url); ?>" target="_blank" rel="noopener">AGB</a><?php endif; ?>
+        <?php if ($bundle_agb_url && $bundle_revocation_url): ?> · <?php endif; ?>
+        <?php if ($bundle_revocation_url): ?><a href="<?php echo esc_url($bundle_revocation_url); ?>" target="_blank" rel="noopener">Widerrufsrecht</a><?php endif; ?>
+        <?php if (($bundle_agb_url || $bundle_revocation_url) && $bundle_privacy_url): ?> · <?php endif; ?>
+        <?php if ($bundle_privacy_url): ?><a href="<?php echo esc_url($bundle_privacy_url); ?>" target="_blank" rel="noopener">Datenschutz</a><?php endif; ?>
+    </div>
+    <?php endif; ?>
+
+    <script src="<?php echo esc_url(TIXOMAT_URL . 'assets/js/tix-qr.js?v=' . TIXOMAT_VERSION); ?>"></script>
+    <script>
+        // Alle Bundle-QR-Canvases rendern
+        document.addEventListener('DOMContentLoaded', function() {
+            if (!(window.ehQR && typeof window.ehQR.render === 'function')) return;
+            document.querySelectorAll('canvas[data-qr]').forEach(function(cvs){
+                try { window.ehQR.render(cvs); } catch(e){ console.warn('QR-render fehlgeschlagen', e); }
+            });
+        });
+    </script>
 
     <div class="tix-modal-overlay" data-tix-modal onclick="tixAssignOverlayClose(event)">
         <div class="tix-modal" role="dialog" aria-modal="true" aria-labelledby="tix-modal-title">
