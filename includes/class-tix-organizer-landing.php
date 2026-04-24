@@ -1299,7 +1299,6 @@ body.tix-org-subdomain .tix-org-brand-footer { display: block !important; }
     <?php self::inject_branded_header(); ?>
 
     <main class="tix-org-support-main">
-        <h1>Kontakt</h1>
         <div class="tix-org-support-card">
             <?php echo do_shortcode('[tix_support]'); ?>
         </div>
