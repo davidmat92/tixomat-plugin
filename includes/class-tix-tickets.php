@@ -1305,8 +1305,21 @@ class TIX_Tickets {
         }
         .tix-badge .tix-badge-name { font-weight: 700; }
         .tix-badge .tix-badge-sep { opacity: .55; margin: 0 2px; }
+        /* Mobile (≤767px): Badge volle Breite, damit Status + Name sicher reinpassen */
+        @media (max-width: 767px) {
+            .tix-badge-row { padding: 0 8px; }
+            .tix-badge {
+                display: flex;
+                width: 100%;
+                justify-content: center;
+                flex-wrap: nowrap;
+                padding: 9px 14px;
+            }
+            .tix-badge-label,
+            .tix-badge-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        }
         @media (max-width: 420px) {
-            .tix-badge { font-size: 11.5px; padding: 7px 10px 7px 12px; gap: 6px; }
+            .tix-badge { font-size: 11.5px; padding: 8px 12px; gap: 6px; }
             .tix-badge-edit { width: 22px; height: 22px; }
             .tix-badge-edit svg { width: 11px; height: 11px; }
         }
@@ -3420,7 +3433,7 @@ class TIX_Tickets {
                         ciEl.textContent = '✓ Eingecheckt' + (d.checkin_display ? ' · ' + d.checkin_display : '');
                         ciEl.className = 'tix-verify-cell-value done';
                     } else {
-                        ciEl.textContent = '○ Noch nicht eingecheckt';
+                        ciEl.textContent = '○ Nicht eingecheckt';
                         ciEl.className = 'tix-verify-cell-value pending';
                     }
                     // Signatur-Refresh (auch bei Re-Fetch)
@@ -3653,7 +3666,7 @@ class TIX_Tickets {
             $bg    = $bg_done;
             $fg    = $fg_done;
         } else {
-            $label = 'Noch nicht eingecheckt';
+            $label = 'Nicht eingecheckt';
             $bg    = $bg_pending;
             $fg    = $fg_pending;
         }

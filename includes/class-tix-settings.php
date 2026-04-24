@@ -3448,7 +3448,7 @@ class TIX_Settings {
                                                 var editIcon = '<svg style="width:12px;height:12px;display:inline-block;vertical-align:middle;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.828 2.828 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>';
                                                 $('#tix-badge-preview').html(
                                                     '<div style="background:' + pbg + ';color:' + pfg + ';display:inline-flex;align-items:center;gap:8px;padding:10px 14px 10px 16px;border-radius:999px;font-size:14px;font-weight:600;box-shadow:0 2px 6px rgba(0,0,0,.15);">' +
-                                                        '<span>Noch nicht eingecheckt</span>' +
+                                                        '<span>Nicht eingecheckt</span>' +
                                                         '<span style="opacity:.55;">\u00b7</span>' +
                                                         '<span style="font-weight:700;">Max Mustermann</span>' +
                                                         '<span style="display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;background:rgba(0,0,0,.1);margin-left:4px;">' + editIcon + '</span>' +
