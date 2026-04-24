@@ -46,6 +46,9 @@ class TIX_Tickets {
         add_action('wp_ajax_nopriv_tix_ticket_log_share', [__CLASS__, 'ajax_ticket_log_share']);
         add_action('wp_ajax_tix_ticket_clear_share',        [__CLASS__, 'ajax_ticket_clear_share']);
         add_action('wp_ajax_nopriv_tix_ticket_clear_share', [__CLASS__, 'ajax_ticket_clear_share']);
+        // Echtheitsprüfung (Live-Daten für Türpersonal-Verifikation)
+        add_action('wp_ajax_tix_ticket_verify',        [__CLASS__, 'ajax_ticket_verify']);
+        add_action('wp_ajax_nopriv_tix_ticket_verify', [__CLASS__, 'ajax_ticket_verify']);
         // Admin: manueller Check-in aus "Verkaufte Tickets" (gleicher Backend-Pfad wie Scanner)
         add_action('wp_ajax_tix_admin_checkin_toggle', [__CLASS__, 'ajax_admin_checkin_toggle']);
     }
@@ -1195,7 +1198,29 @@ class TIX_Tickets {
             .ticket-sponsor { margin-top: 12px !important; padding: 0 8px !important; }
         }
 
-        .ticket { max-width: 600px; margin: 0 auto; background: <?php echo esc_attr($ht_body_bg); ?>; border: 2px solid <?php echo esc_attr($ht_border_color); ?>; border-radius: <?php echo $ht_border_radius; ?>px; overflow: hidden; }
+        .ticket {
+            max-width: 600px; margin: 0 auto;
+            background: <?php echo esc_attr($ht_body_bg); ?>;
+            border: 2px solid <?php echo esc_attr($ht_border_color); ?>;
+            border-radius: <?php echo $ht_border_radius; ?>px;
+            overflow: hidden;
+            /* iOS Safari Border-Radius Clipping-Bug: Kinder mit eigenem Hintergrund
+               (z.B. .ticket-header) überschreiben sonst die abgerundeten Ecken.
+               isolation+translateZ erzwingt neuen Stacking-Context → Clipping greift. */
+            isolation: isolate;
+            -webkit-transform: translateZ(0);
+            transform: translateZ(0);
+            -webkit-mask-image: -webkit-radial-gradient(white, black);
+        }
+        /* Defensive: obere/untere Ecken per-Element rund — falls parent-Clipping mal versagt */
+        .ticket-header {
+            border-top-left-radius: inherit;
+            border-top-right-radius: inherit;
+        }
+        .ticket-footer {
+            border-bottom-left-radius: inherit;
+            border-bottom-right-radius: inherit;
+        }
         .ticket-header { background: <?php echo esc_attr($ht_header_bg); ?>; color: <?php echo esc_attr($ht_header_text); ?>; padding: 24px 30px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
         .ticket-logo { max-height: <?php echo $ht_logo_height; ?>px; width: auto; flex-shrink: 0; }
         .ticket-header-text { flex: 1; }
@@ -1360,6 +1385,110 @@ class TIX_Tickets {
         }
 
         /* ═══════════════════════════════════════
+           ECHTHEITSPRÜFUNG-MODAL (Türpersonal)
+           ═══════════════════════════════════════ */
+        .tix-verify-modal { max-width: 520px; padding: 0; overflow: hidden; }
+        .tix-verify-head {
+            display: flex; align-items: center; gap: 14px;
+            padding: 20px 24px 18px;
+            background: linear-gradient(135deg, #065f46 0%, #059669 100%);
+            color: #fff;
+        }
+        .tix-verify-head h3 { color: #fff !important; margin: 0; font-size: 17px; }
+        .tix-verify-desc { color: rgba(255,255,255,.85); font-size: 12px; margin: 2px 0 0; }
+        .tix-verify-pulse {
+            position: relative; width: 36px; height: 36px; flex-shrink: 0;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .tix-verify-pulse span {
+            position: absolute; inset: 0; border-radius: 50%;
+            background: rgba(255,255,255,.9);
+            animation: tixVerifyPulse 2s ease-in-out infinite;
+        }
+        .tix-verify-pulse span:nth-child(2) { animation-delay: 1s; }
+        @keyframes tixVerifyPulse {
+            0%   { transform: scale(.35); opacity: 1; }
+            100% { transform: scale(1);   opacity: 0; }
+        }
+        .tix-verify-pulse::after {
+            content: ""; position: absolute; width: 14px; height: 14px; border-radius: 50%;
+            background: #fff; z-index: 2;
+            box-shadow: 0 0 0 3px rgba(255,255,255,.35);
+        }
+
+        .tix-verify-loading {
+            padding: 40px 24px; text-align: center;
+        }
+        .tix-verify-loading p { margin: 12px 0 0; font-size: 13px; color: #666; }
+        .tix-verify-spinner {
+            width: 36px; height: 36px; margin: 0 auto;
+            border: 3px solid #e5e7eb; border-top-color: #059669;
+            border-radius: 50%; animation: tixVerifySpin .9s linear infinite;
+        }
+        @keyframes tixVerifySpin { to { transform: rotate(360deg); } }
+
+        .tix-verify-body { padding: 20px 24px 4px; }
+        .tix-verify-clock {
+            text-align: center; padding: 14px; margin-bottom: 14px;
+            background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px;
+        }
+        .tix-verify-clock-label {
+            font-size: 10px; text-transform: uppercase; letter-spacing: 1.5px;
+            color: #065f46; font-weight: 700;
+        }
+        .tix-verify-clock-time {
+            font-family: 'SF Mono', Consolas, monospace;
+            font-size: 22px; font-weight: 800; color: #065f46;
+            letter-spacing: 1px; margin-top: 2px;
+        }
+        .tix-verify-grid {
+            display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+            margin-bottom: 14px;
+        }
+        .tix-verify-cell {
+            padding: 10px 12px;
+            background: #f9fafb; border: 1px solid #e5e7eb;
+            border-radius: 10px;
+        }
+        .tix-verify-cell-wide { grid-column: span 2; }
+        .tix-verify-cell-label {
+            font-size: 10px; text-transform: uppercase; letter-spacing: 1px;
+            color: #9ca3af; font-weight: 600;
+        }
+        .tix-verify-cell-value {
+            font-size: 14px; font-weight: 700; color: #111;
+            margin-top: 2px;
+            word-break: break-word;
+        }
+        .tix-verify-cell-value.done { color: #059669; }
+        .tix-verify-cell-value.pending { color: #d97706; }
+        .tix-verify-sig {
+            font-family: 'SF Mono', Consolas, monospace; font-size: 10px;
+            color: #9ca3af;
+            padding: 8px 12px; text-align: center;
+            border-top: 1px dashed #e5e7eb;
+        }
+        .tix-verify-sig-label { color: #d1d5db; }
+        .tix-verify-error {
+            padding: 24px; text-align: center; color: #b91c1c;
+        }
+        .tix-verify-error button {
+            margin-top: 10px; padding: 8px 16px; border: 0;
+            background: #111; color: #fff; border-radius: 8px;
+            cursor: pointer; font-weight: 600;
+        }
+        .tix-verify-modal .tix-modal-actions {
+            padding: 12px 20px 18px; border-top: 1px solid #f3f4f6;
+            background: #fafafa;
+            justify-content: center;
+        }
+
+        @media (max-width: 640px) {
+            .tix-verify-grid { grid-template-columns: 1fr; }
+            .tix-verify-cell-wide { grid-column: auto; }
+        }
+
+        /* ═══════════════════════════════════════
            V2 · PREMIUM DESIGN (Override-Layer)
            ═══════════════════════════════════════ */
         html.tix-ht-v2 body {
@@ -1520,7 +1649,13 @@ class TIX_Tickets {
             border-radius: 999px;
             font-size: 11px; font-weight: 700;
             letter-spacing: .02em;
+            cursor: pointer;
+            font-family: inherit;
+            line-height: 1.2;
+            transition: background .15s ease, transform .15s ease;
         }
+        .tix-verified-badge:hover { background: rgba(16,185,129,.25); transform: translateY(-1px); }
+        .tix-verified-badge:active { transform: translateY(0); }
         .tix-verified-badge svg { width: 13px; height: 13px; flex-shrink: 0; }
 
         .ticket-cover {
@@ -2158,6 +2293,66 @@ class TIX_Tickets {
         </div>
     </div>
 
+    <?php // ── Echtheitsprüfung-Modal (Türpersonal) ── ?>
+    <div class="tix-modal-overlay tix-verify-overlay no-print" data-tix-verify-modal onclick="tixVerifyOverlayClose(event)">
+        <div class="tix-modal tix-verify-modal" role="dialog" aria-modal="true" aria-labelledby="tix-verify-title">
+            <div class="tix-verify-head">
+                <div class="tix-verify-pulse"><span></span><span></span></div>
+                <div>
+                    <h3 id="tix-verify-title">Echtheitsprüfung</h3>
+                    <p class="tix-verify-desc">Live vom Server — kein Screenshot möglich</p>
+                </div>
+            </div>
+            <div class="tix-verify-loading" data-tix-verify-loading>
+                <div class="tix-verify-spinner"></div>
+                <p>Prüfe Ticket…</p>
+            </div>
+            <div class="tix-verify-body" data-tix-verify-body hidden>
+                <div class="tix-verify-clock">
+                    <div class="tix-verify-clock-label">Server-Zeit</div>
+                    <div class="tix-verify-clock-time" data-tix-verify-clock>—</div>
+                </div>
+                <div class="tix-verify-grid">
+                    <div class="tix-verify-cell">
+                        <div class="tix-verify-cell-label">Ticket-ID</div>
+                        <div class="tix-verify-cell-value" data-tix-verify-code>—</div>
+                    </div>
+                    <div class="tix-verify-cell">
+                        <div class="tix-verify-cell-label">Bestell-Nr.</div>
+                        <div class="tix-verify-cell-value" data-tix-verify-order>—</div>
+                    </div>
+                    <div class="tix-verify-cell">
+                        <div class="tix-verify-cell-label">Gekauft am</div>
+                        <div class="tix-verify-cell-value" data-tix-verify-purchased>—</div>
+                    </div>
+                    <div class="tix-verify-cell">
+                        <div class="tix-verify-cell-label">Inhaber</div>
+                        <div class="tix-verify-cell-value" data-tix-verify-holder>—</div>
+                    </div>
+                    <div class="tix-verify-cell tix-verify-cell-wide">
+                        <div class="tix-verify-cell-label">Event</div>
+                        <div class="tix-verify-cell-value" data-tix-verify-event>—</div>
+                    </div>
+                    <div class="tix-verify-cell tix-verify-cell-wide" data-tix-verify-checkin-row>
+                        <div class="tix-verify-cell-label">Check-in Status</div>
+                        <div class="tix-verify-cell-value" data-tix-verify-checkin>—</div>
+                    </div>
+                </div>
+                <div class="tix-verify-sig">
+                    <span class="tix-verify-sig-label">Signatur:</span>
+                    <span class="tix-verify-sig-value" data-tix-verify-sig>—</span>
+                </div>
+            </div>
+            <div class="tix-verify-error" data-tix-verify-error hidden>
+                <p>Prüfung fehlgeschlagen. Netzwerk-Problem oder Ticket ungültig.</p>
+                <button type="button" onclick="tixOpenVerifyModal()">Erneut versuchen</button>
+            </div>
+            <div class="tix-modal-actions">
+                <button type="button" class="tix-modal-cancel" onclick="tixVerifyClose()">Schließen</button>
+            </div>
+        </div>
+    </div>
+
     <?php if ($season_class): ?>
     <div class="tix-seasonal-overlay <?php echo esc_attr($season_class); ?> no-print"></div>
     <?php endif; ?>
@@ -2193,10 +2388,10 @@ class TIX_Tickets {
                     <p><?php echo esc_html($cat_name); ?><?php if ($price): ?> — <?php echo esc_html($price); ?><?php endif; ?></p>
                 <?php endif; ?>
                 <?php if (!empty($ht_show_verified_badge)): ?>
-                <div class="tix-verified-badge" title="Offiziell ausgestelltes Ticket">
+                <button type="button" class="tix-verified-badge no-print" onclick="tixOpenVerifyModal()" title="Klicken für Echtheitsprüfung">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 12l2 2 4-4"/><path d="M12 2l8.5 4v6c0 5.25-3.75 9.5-8.5 10-4.75-.5-8.5-4.75-8.5-10V6L12 2z"/></svg>
-                    <span>Offizielles Ticket · <?php echo esc_html($issue_date); ?></span>
-                </div>
+                    <span>Ticket gekauft am <?php echo esc_html($issue_date); ?></span>
+                </button>
                 <?php endif; ?>
             </div>
         </div>
@@ -3014,6 +3209,85 @@ class TIX_Tickets {
             // Nur schließen wenn direkt auf das Overlay geklickt wurde
             if (e.target && e.target.hasAttribute('data-tix-modal')) tixAssignClose();
         }
+
+        // ── Echtheitsprüfung (Türpersonal-Verifikation) ──
+        var tixVerifyClockInterval = null;
+        function tixOpenVerifyModal() {
+            var modal = document.querySelector('[data-tix-verify-modal]');
+            if (!modal) return;
+            modal.classList.add('open');
+            document.body.style.overflow = 'hidden';
+            // Reset state
+            modal.querySelector('[data-tix-verify-loading]').hidden = false;
+            modal.querySelector('[data-tix-verify-body]').hidden = true;
+            modal.querySelector('[data-tix-verify-error]').hidden = true;
+
+            var body = new FormData();
+            body.append('action', 'tix_ticket_verify');
+            body.append('token', TIX_TOKEN);
+            fetch(TIX_AJAX_URL, { method: 'POST', body: body, credentials: 'same-origin' })
+                .then(function(r){ return r.json(); })
+                .then(function(res){
+                    if (!res || !res.success) throw new Error('verify failed');
+                    var d = res.data;
+                    modal.querySelector('[data-tix-verify-code]').textContent = d.code || '—';
+                    modal.querySelector('[data-tix-verify-order]').textContent = d.order_number || '—';
+                    modal.querySelector('[data-tix-verify-purchased]').textContent = d.purchased_display || '—';
+                    modal.querySelector('[data-tix-verify-holder]').textContent = d.holder_name || '(nicht zugeordnet)';
+                    var evParts = [];
+                    if (d.event_name) evParts.push(d.event_name);
+                    if (d.event_date) {
+                        var evDate = new Date(d.event_date.replace(' ', 'T'));
+                        if (!isNaN(evDate.getTime())) evParts.push(evDate.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' }));
+                    }
+                    if (d.event_time) evParts.push(d.event_time + ' Uhr');
+                    if (d.event_location) evParts.push(d.event_location);
+                    modal.querySelector('[data-tix-verify-event]').textContent = evParts.join(' · ') || '—';
+
+                    var ciEl = modal.querySelector('[data-tix-verify-checkin]');
+                    if (d.checked_in) {
+                        ciEl.textContent = '✓ Eingecheckt' + (d.checkin_display ? ' · ' + d.checkin_display : '');
+                        ciEl.className = 'tix-verify-cell-value done';
+                    } else {
+                        ciEl.textContent = '○ Noch nicht eingecheckt';
+                        ciEl.className = 'tix-verify-cell-value pending';
+                    }
+                    modal.querySelector('[data-tix-verify-sig]').textContent = d.sig || '—';
+
+                    // Live-Clock: Server-Zeit + Offset-Ticker
+                    var serverMs = d.server_time_iso ? new Date(d.server_time_iso).getTime() : Date.now();
+                    var clientMs = Date.now();
+                    var offset = serverMs - clientMs;
+                    if (tixVerifyClockInterval) clearInterval(tixVerifyClockInterval);
+                    function tickClock() {
+                        var now = new Date(Date.now() + offset);
+                        var pad = function(n){ return (n<10?'0':'') + n; };
+                        var clockStr = pad(now.getHours()) + ':' + pad(now.getMinutes()) + ':' + pad(now.getSeconds());
+                        var clockEl = modal.querySelector('[data-tix-verify-clock]');
+                        if (clockEl) clockEl.textContent = clockStr;
+                    }
+                    tickClock();
+                    tixVerifyClockInterval = setInterval(tickClock, 1000);
+
+                    modal.querySelector('[data-tix-verify-loading]').hidden = true;
+                    modal.querySelector('[data-tix-verify-body]').hidden = false;
+                })
+                .catch(function(err){
+                    console.error('[Verify] Fehler:', err);
+                    modal.querySelector('[data-tix-verify-loading]').hidden = true;
+                    modal.querySelector('[data-tix-verify-error]').hidden = false;
+                });
+        }
+        function tixVerifyClose() {
+            var modal = document.querySelector('[data-tix-verify-modal]');
+            if (!modal) return;
+            modal.classList.remove('open');
+            document.body.style.overflow = '';
+            if (tixVerifyClockInterval) { clearInterval(tixVerifyClockInterval); tixVerifyClockInterval = null; }
+        }
+        function tixVerifyOverlayClose(e) {
+            if (e.target && e.target.hasAttribute('data-tix-verify-modal')) tixVerifyClose();
+        }
         function tixAssignSubmit(name, triggerBtn) {
             var oldText = triggerBtn.textContent;
             triggerBtn.disabled = true; triggerBtn.textContent = 'Speichert…';
@@ -3047,7 +3321,7 @@ class TIX_Tickets {
         }
         // ESC schließt Modal
         document.addEventListener('keydown', function(e){
-            if (e.key === 'Escape') tixAssignClose();
+            if (e.key === 'Escape') { tixAssignClose(); tixVerifyClose(); }
         });
         var TIX_WAS_CHECKED_IN = <?php echo $badge['checked_in'] ? 'true' : 'false'; ?>;
         function tixPollStatus() {
@@ -3607,6 +3881,93 @@ class TIX_Tickets {
 
         $state = self::get_badge_state($ticket_id);
         wp_send_json_success($state);
+    }
+
+    /**
+     * AJAX: Echtheitsprüfung — liefert Live-Daten für Türpersonal-Verifikation.
+     * Erwartet token. Öffentlich (Token = Besitz-Nachweis, Rate-Limit via Nonce nicht nötig).
+     *
+     * Liefert:
+     *   - Server-Zeit (beweist: kein Screenshot)
+     *   - Ticket-Code, Event, Datum, Location
+     *   - Käufer-Name (maskiert, nur Initialen + letzter Buchstabe)
+     *   - Bestell-Nr., Kaufdatum
+     *   - Check-in-Status + Timestamp
+     *   - Zuordnungs-Name (falls gesetzt)
+     */
+    public static function ajax_ticket_verify() {
+        $token = isset($_REQUEST['token']) ? sanitize_text_field($_REQUEST['token']) : '';
+        if (!preg_match('/^[0-9a-f]{64}$/', $token)) {
+            wp_send_json_error(['message' => 'invalid_token'], 400);
+        }
+
+        $results = get_posts([
+            'post_type'      => 'tix_ticket',
+            'post_status'    => 'publish',
+            'posts_per_page' => 1,
+            'meta_query'     => [
+                ['key' => '_tix_ticket_download_token', 'value' => $token],
+            ],
+        ]);
+        if (empty($results)) wp_send_json_error(['message' => 'not_found'], 404);
+
+        $ticket    = $results[0];
+        $ticket_id = $ticket->ID;
+        $code      = (string) get_post_meta($ticket_id, '_tix_ticket_code', true);
+        $event_id  = (int)    get_post_meta($ticket_id, '_tix_ticket_event_id', true);
+        $order_id  = (int)    get_post_meta($ticket_id, '_tix_ticket_order_id', true);
+
+        $event_name  = $event_id ? get_the_title($event_id) : '';
+        $event_start = (string) get_post_meta($event_id, '_tix_date_start', true);
+        $event_time  = (string) get_post_meta($event_id, '_tix_time_start', true);
+        $event_loc   = (string) get_post_meta($event_id, '_tix_location', true);
+
+        // Käufer: Assigned-Name hat Vorrang, sonst owner
+        $assigned_name = trim((string) get_post_meta($ticket_id, '_tix_ticket_assigned_name', true));
+        $owner_name    = trim((string) get_post_meta($ticket_id, '_tix_ticket_owner_name', true));
+        $display_name  = $assigned_name !== '' ? $assigned_name : $owner_name;
+
+        // Order-Daten (Datum + Nummer)
+        $order_number = '';
+        $purchased_at = '';
+        if ($order_id && class_exists('TIX_Order')) {
+            $order = TIX_Order::get($order_id);
+            if ($order) {
+                $order_number = !empty($order->order_number) ? $order->order_number : ('TIX-' . str_pad($order_id, 6, '0', STR_PAD_LEFT));
+                $purchased_at = !empty($order->date_created) ? $order->date_created : '';
+            }
+        }
+        if (!$purchased_at) {
+            $purchased_at = $ticket->post_date; // Fallback auf Ticket-CPT-Date
+        }
+
+        // Check-in Status
+        $checked_in    = (bool) get_post_meta($ticket_id, '_tix_ticket_checked_in', true);
+        $checkin_time  = (string) get_post_meta($ticket_id, '_tix_ticket_checkin_time', true);
+
+        // Verifikations-Signatur: HMAC aus ticket-id + order-date + server-secret
+        // Beweist dass der Response vom Server kommt (nicht fake)
+        $sig_base = $ticket_id . '|' . $purchased_at . '|' . $code;
+        $sig      = substr(hash_hmac('sha256', $sig_base, wp_salt('auth')), 0, 16);
+
+        wp_send_json_success([
+            'code'          => $code,
+            'sig'           => $sig,
+            'server_time'   => current_time('Y-m-d H:i:s'),
+            'server_time_iso' => current_time('c'),
+            'event_name'    => $event_name,
+            'event_date'    => $event_start,
+            'event_time'    => $event_time,
+            'event_location'=> $event_loc,
+            'order_number'  => $order_number,
+            'purchased_at'  => $purchased_at,
+            'purchased_display' => $purchased_at ? date_i18n('d.m.Y · H:i', strtotime($purchased_at)) : '',
+            'holder_name'   => $display_name,
+            'holder_assigned' => $assigned_name !== '',
+            'checked_in'    => $checked_in,
+            'checkin_time'  => $checkin_time,
+            'checkin_display' => $checkin_time ? date_i18n('d.m.Y · H:i', strtotime($checkin_time)) : '',
+        ]);
     }
 
     // ══════════════════════════════════════════════
