@@ -24,8 +24,10 @@ class TIX_Custom_URLs {
     }
 
     private static function get_request_path() {
-        $path = trim(parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH), '/');
-        $home_path = trim(parse_url(home_url(), PHP_URL_PATH) ?: '', '/');
+        // parse_url kann null liefern (z.B. bei CLI-Aufrufen ohne REQUEST_URI)
+        // → ?? '' statt direkt in trim() pushen (PHP 8.1+ Deprecation-Warning)
+        $path = trim((string) (parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH) ?? ''), '/');
+        $home_path = trim((string) (parse_url(home_url(), PHP_URL_PATH) ?? ''), '/');
         if ($home_path && strpos($path, $home_path) === 0) {
             $path = trim(substr($path, strlen($home_path)), '/');
         }
