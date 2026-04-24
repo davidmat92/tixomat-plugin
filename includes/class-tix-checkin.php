@@ -61,9 +61,43 @@ class TIX_Checkin {
                 'posts_per_page' => 100,
                 'orderby'        => 'meta_value',
                 'meta_key'       => '_tix_date_start',
-                'order'          => 'DESC',
+                'order'          => 'ASC', // nächstes Event zuerst
             ]);
         }
+
+        // Vergangene Events ausblenden: Event-Ende + 3h Kulanz.
+        // Club-Events laufen oft über Mitternacht (z.B. 22:00 → 05:00), darum
+        // wenn time_end < time_start ohne date_end → nächster Tag als Ende.
+        $now_ts = current_time('timestamp');
+        $grace  = 3 * 3600; // 3 Stunden
+        $events = array_values(array_filter($events, function($ev) use ($now_ts, $grace) {
+            $date_start = get_post_meta($ev->ID, '_tix_date_start', true);
+            $time_start = get_post_meta($ev->ID, '_tix_time_start', true);
+            $date_end   = get_post_meta($ev->ID, '_tix_date_end',   true);
+            $time_end   = get_post_meta($ev->ID, '_tix_time_end',   true);
+
+            if ($date_end && $time_end) {
+                $end_ts = strtotime($date_end . ' ' . $time_end);
+            } elseif ($date_end) {
+                $end_ts = strtotime($date_end . ' 23:59:59');
+            } elseif ($time_end && $date_start) {
+                // Kein explizites Ende-Datum: wenn time_end ≤ time_start → über Mitternacht (Folgetag)
+                $end_ts = strtotime($date_start . ' ' . $time_end);
+                if ($end_ts && $time_start && strtotime($time_end) <= strtotime($time_start)) {
+                    $end_ts = strtotime('+1 day', $end_ts);
+                }
+            } elseif ($date_start && $time_start) {
+                // Nur Start bekannt → 6h nach Start als Default-Ende
+                $end_ts = strtotime($date_start . ' ' . $time_start) + 6 * 3600;
+            } elseif ($date_start) {
+                $end_ts = strtotime($date_start . ' 23:59:59');
+            } else {
+                return true; // Kein Datum → sicherheitshalber behalten
+            }
+
+            if (!$end_ts) return true;
+            return $now_ts < ($end_ts + $grace);
+        }));
 
         ob_start();
         ?>
