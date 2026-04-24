@@ -1278,7 +1278,21 @@ body.tix-org-subdomain .tix-org-brand-footer { display: block !important; }
 
     <script>
         window.ajaxurl = <?php echo wp_json_encode(admin_url('admin-ajax.php')); ?>;
+        // tixSupport-Objekt für support.js (wie wp_localize_script, aber manuell
+        // weil wir wp_head/wp_footer nicht aufrufen)
+        window.tixSupport = {
+            ajax:       <?php echo wp_json_encode(admin_url('admin-ajax.php')); ?>,
+            nonce:      <?php echo wp_json_encode(wp_create_nonce('tix_support_action')); ?>,
+            statuses:   <?php echo wp_json_encode(class_exists('TIX_Support') ? TIX_Support::get_statuses() : []); ?>,
+            categories: <?php echo wp_json_encode(class_exists('TIX_Support') ? TIX_Support::get_categories() : []); ?>,
+            isAdmin:    false,
+            isFrontend: true,
+            userEmail:  <?php echo wp_json_encode(is_user_logged_in() ? wp_get_current_user()->user_email : ''); ?>,
+            userName:   <?php echo wp_json_encode(is_user_logged_in() ? wp_get_current_user()->display_name : ''); ?>
+        };
     </script>
+    <script src="<?php echo esc_url(includes_url('js/jquery/jquery.min.js')); ?>"></script>
+    <script src="<?php echo esc_url(TIXOMAT_URL . 'assets/js/support.js?v=' . TIXOMAT_VERSION); ?>" defer></script>
 </head>
 <body class="tix-ol tix-org-subdomain tix-org-<?php echo esc_attr($data['slug']); ?> tix-mode-<?php echo esc_attr($data['color_mode'] ?? 'light'); ?> tix-org-support-page">
 
