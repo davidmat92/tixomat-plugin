@@ -1488,18 +1488,23 @@ class TIX_Tickets {
            COUNTDOWN · VERIFIED · COVER · DRESSCODE · RULES · AGB · QR-ZOOM
            ═══════════════════════════════════════ */
         .tix-countdown {
-            max-width: 600px; margin: 12px auto 0;
-            display: flex; align-items: center; justify-content: center; gap: 10px;
-            padding: 10px 16px;
-            background: #111827; color: #fff;
-            border-radius: 12px;
-            font-size: 14px; font-weight: 600;
-            letter-spacing: .02em;
+            display: flex; align-items: center; justify-content: center; gap: 7px;
+            width: fit-content;
+            margin: 8px auto 0;
+            padding: 5px 12px;
+            background: transparent; color: #6b7280;
+            border: 1px solid #e5e7eb; border-radius: 999px;
+            font-size: 11px; font-weight: 500;
         }
-        .tix-countdown-label { opacity: .6; text-transform: uppercase; font-size: 11px; letter-spacing: 1.5px; }
-        .tix-countdown-value { font-variant-numeric: tabular-nums; font-weight: 700; }
-        .tix-countdown.tix-countdown-live { background: linear-gradient(135deg, <?php echo esc_attr($accent); ?>, color-mix(in srgb, <?php echo esc_attr($accent); ?> 70%, #000 30%)); color: #fff; }
-        .tix-countdown.tix-countdown-past { background: #6b7280; opacity: .7; }
+        .tix-countdown-label { opacity: .7; text-transform: uppercase; font-size: 10px; letter-spacing: 1.2px; }
+        .tix-countdown-value { font-variant-numeric: tabular-nums; font-weight: 600; color: #374151; }
+        .tix-countdown.tix-countdown-live {
+            background: color-mix(in srgb, <?php echo esc_attr($accent); ?> 10%, transparent);
+            border-color: color-mix(in srgb, <?php echo esc_attr($accent); ?> 40%, transparent);
+            color: <?php echo esc_attr($accent); ?>;
+        }
+        .tix-countdown.tix-countdown-live .tix-countdown-value { color: <?php echo esc_attr($accent); ?>; }
+        .tix-countdown.tix-countdown-past { opacity: .55; }
 
         .tix-verified-badge {
             display: inline-flex; align-items: center; gap: 6px;
@@ -3764,16 +3769,23 @@ class TIX_Tickets {
 
         /* Bundle: Countdown-Badge pro Ticket (oberhalb des Headers) */
         .tix-bundle-countdown {
-            display: flex; align-items: center; justify-content: center; gap: 10px;
-            padding: 8px 16px;
-            background: #111827; color: #fff;
-            font-size: 12px; font-weight: 600;
-            letter-spacing: .02em;
+            display: flex; align-items: center; justify-content: center; gap: 7px;
+            width: fit-content;
+            margin: 8px auto 0;
+            padding: 5px 12px;
+            background: transparent; color: #6b7280;
+            border: 1px solid #e5e7eb; border-radius: 999px;
+            font-size: 10px; font-weight: 500;
         }
-        .tix-bundle-countdown .tix-countdown-label { opacity: .6; text-transform: uppercase; font-size: 10px; letter-spacing: 1.5px; }
-        .tix-bundle-countdown .tix-countdown-value { font-variant-numeric: tabular-nums; font-weight: 700; }
-        .tix-bundle-countdown.tix-countdown-live { background: linear-gradient(135deg, <?php echo esc_attr($accent); ?>, color-mix(in srgb, <?php echo esc_attr($accent); ?> 70%, #000 30%)); }
-        .tix-bundle-countdown.tix-countdown-past { background: #6b7280; opacity: .7; }
+        .tix-bundle-countdown .tix-countdown-label { opacity: .7; text-transform: uppercase; font-size: 10px; letter-spacing: 1.2px; }
+        .tix-bundle-countdown .tix-countdown-value { font-variant-numeric: tabular-nums; font-weight: 600; color: #374151; }
+        .tix-bundle-countdown.tix-countdown-live {
+            background: color-mix(in srgb, <?php echo esc_attr($accent); ?> 10%, transparent);
+            border-color: color-mix(in srgb, <?php echo esc_attr($accent); ?> 40%, transparent);
+            color: <?php echo esc_attr($accent); ?>;
+        }
+        .tix-bundle-countdown.tix-countdown-live .tix-countdown-value { color: <?php echo esc_attr($accent); ?>; }
+        .tix-bundle-countdown.tix-countdown-past { opacity: .55; }
 
         /* Bundle: Verified-Badge kompakt im Header */
         .tix-bundle-card .tix-verified-badge {
