@@ -1214,9 +1214,10 @@ class TIX_Tickets {
                 align-items: center !important;
                 gap: 16px !important;
             }
-            .ticket-qr { flex: 0 0 auto !important; }
+            /* QR nach oben auf Mobile: sofort scanbar ohne Scrollen */
+            .ticket-qr   { flex: 0 0 auto !important; order: 1 !important; }
+            .ticket-info { width: 100% !important;   order: 2 !important; }
             .ticket-qr img { width: 180px !important; height: 180px !important; }
-            .ticket-info { width: 100% !important; }
             .info-row { margin-bottom: 10px !important; }
             .info-row .value { font-size: 15px !important; }
             .ticket-footer { padding: 12px 14px !important; font-size: 11px !important; }
@@ -1295,14 +1296,20 @@ class TIX_Tickets {
             padding: 0 4px;
         }
         .tix-badge {
-            display: inline-flex; align-items: center; gap: 8px;
-            padding: 10px 14px 10px 16px; border-radius: 999px;
-            font-size: 14px; font-weight: 600;
+            display: inline-flex; align-items: center; gap: 7px;
+            padding: 8px 12px 8px 14px; border-radius: 999px;
+            font-size: 12.5px; font-weight: 600;
+            line-height: 1.25;
             transition: background .35s ease, color .35s ease;
             box-shadow: 0 2px 6px rgba(0,0,0,.15);
         }
         .tix-badge .tix-badge-name { font-weight: 700; }
         .tix-badge .tix-badge-sep { opacity: .55; margin: 0 2px; }
+        @media (max-width: 420px) {
+            .tix-badge { font-size: 11.5px; padding: 7px 10px 7px 12px; gap: 6px; }
+            .tix-badge-edit { width: 22px; height: 22px; }
+            .tix-badge-edit svg { width: 11px; height: 11px; }
+        }
         .tix-badge-edit {
             display: inline-flex; align-items: center; justify-content: center;
             width: 26px; height: 26px; border-radius: 50%;
@@ -4574,8 +4581,9 @@ class TIX_Tickets {
 
         @media (max-width: 640px) {
             .tix-bundle-body { flex-direction: column; align-items: center; text-align: center; }
-            .tix-bundle-qr { flex: 0 0 auto; }
-            .tix-bundle-info { width: 100%; }
+            /* QR nach oben auf Mobile — sofort scanbar ohne scrollen */
+            .tix-bundle-qr   { flex: 0 0 auto; order: 1; }
+            .tix-bundle-info { width: 100%;    order: 2; }
             .tix-bundle-header { justify-content: center; text-align: center; }
         }
 
