@@ -1021,6 +1021,9 @@ class TIX_Tickets {
             'ht_watermark_color'     => '',
             'ht_weather_enabled'     => 0,
             'ht_checkin_sound'       => 1,
+            'ht_action_save_image'   => 1,  // "Als Bild speichern"-Button
+            'ht_action_wallets'      => 1,  // Apple/Google Wallet Buttons
+            'ht_action_print'        => 1,  // "Ticket drucken"-Button
         ];
         foreach ($hd as $k => $v) {
             $$k = isset($s[$k]) && $s[$k] !== '' ? $s[$k] : $v;
@@ -2692,15 +2695,18 @@ class TIX_Tickets {
         <div class="tix-ticket-actions-group">
             <div class="tix-ticket-actions-group-heading">Ticket</div>
             <div class="tix-ticket-actions-row">
+                <?php if (!empty($ht_action_save_image)): ?>
                 <button type="button" class="btn-base" onclick="tixSaveTicketImage(this)"
                         style="background:#fff;color:#1f2937;border:1px solid #e5e7eb;">
                     &#128247; Als Bild speichern
                 </button>
+                <?php endif; ?>
                 <button type="button" class="btn-base" onclick="tixOnlineTicketAction(this, 'share')"
                         style="background:#fff;color:#1f2937;border:1px solid #e5e7eb;">
                     &#128228; Teilen
                 </button>
             </div>
+            <?php if (!empty($ht_action_wallets)): ?>
             <div class="tix-ticket-actions-row">
                 <button type="button" class="btn-base" onclick="tixWalletShow('apple')"
                         style="background:#000;color:#fff;border:none;">
@@ -2713,9 +2719,12 @@ class TIX_Tickets {
                     Google Wallet
                 </button>
             </div>
+            <?php endif; ?>
+            <?php if (!empty($ht_action_print)): ?>
             <button class="btn-base print-btn" onclick="window.print()" style="background:<?php echo esc_attr($ht_btn_bg); ?>;color:<?php echo esc_attr($ht_btn_text); ?>;border:none;">
                 &#128424; Ticket drucken
             </button>
+            <?php endif; ?>
         </div>
 
         <?php // ── GRUPPE 2: SONSTIGES ── ?>
@@ -4174,6 +4183,9 @@ class TIX_Tickets {
             'ht_watermark_color'     => '',
             'ht_weather_enabled'     => 0,
             'ht_checkin_sound'       => 1,
+            'ht_action_save_image'   => 1,  // "Als Bild speichern"-Button
+            'ht_action_wallets'      => 1,  // Apple/Google Wallet Buttons
+            'ht_action_print'        => 1,  // "Ticket drucken"-Button
         ];
         foreach ($hd as $k => $v) {
             $$k = isset($s[$k]) && $s[$k] !== '' ? $s[$k] : $v;

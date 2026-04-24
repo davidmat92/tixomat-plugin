@@ -274,6 +274,9 @@ class TIX_Settings {
             'ht_watermark_enabled'   => 0,      // Diagonal-Wasserzeichen mit Ticket-ID
             'ht_watermark_color'     => '',     // Wasserzeichen-Farbe (leer = Version-Defaults)
             'ht_weather_enabled'     => 0,      // Live-Wetter am Event-Tag
+            'ht_action_save_image'   => 1,      // Button "Als Bild speichern"
+            'ht_action_wallets'      => 1,      // Apple/Google Wallet Buttons
+            'ht_action_print'        => 1,      // Button "Ticket drucken"
             'ht_checkin_sound'       => 1,      // Audio-Feedback beim Check-in
             'ht_logo_height'     => 44,
             'ht_header_bg'       => '#222222',
@@ -1024,6 +1027,11 @@ class TIX_Settings {
         $clean['ht_watermark_color']     = self::sanitize_color($input['ht_watermark_color'] ?? '') ?: '';
         $clean['ht_weather_enabled']     = !empty($input['ht_weather_enabled']) ? 1 : 0;
         $clean['ht_checkin_sound']       = !empty($input['ht_checkin_sound']) ? 1 : 0;
+        // Action-Buttons — default 1 (an) bei Fresh-Install, aber beim Save kommt nur was gecheckt ist;
+        // Wir interpretieren "nicht im Input" beim ersten Save auch als "nicht an", daher strict 0/1.
+        $clean['ht_action_save_image']   = !empty($input['ht_action_save_image']) ? 1 : 0;
+        $clean['ht_action_wallets']      = !empty($input['ht_action_wallets']) ? 1 : 0;
+        $clean['ht_action_print']        = !empty($input['ht_action_print']) ? 1 : 0;
         $clean['ht_show_event_cover']    = !empty($input['ht_show_event_cover']) ? 1 : 0;
         $clean['ht_show_countdown']      = !empty($input['ht_show_countdown']) ? 1 : 0;
         $clean['ht_show_verified_badge'] = !empty($input['ht_show_verified_badge']) ? 1 : 0;
@@ -3215,6 +3223,25 @@ class TIX_Settings {
                                                     <input type="checkbox" name="<?php echo $ok; ?>[ht_checkin_sound]" value="1" <?php checked(!empty($s['ht_checkin_sound'])); ?>>
                                                     <span style="font-size:13px;"><strong>🔊 Check-in-Sound</strong> · Ton + Vibration beim Scan</span>
                                                 </label>
+                                            </div>
+
+                                            <?php // ── Action-Button-Toggles (default: alle an) ── ?>
+                                            <div style="margin-top:20px;padding-top:16px;border-top:1px solid #e5e7eb;">
+                                                <div style="font-size:12px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:.04em;margin-bottom:10px;">Aktions-Buttons auf der Ticket-Seite</div>
+                                                <div class="tix-field-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+                                                    <label style="display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid #e5e7eb;border-radius:8px;cursor:pointer;">
+                                                        <input type="checkbox" name="<?php echo $ok; ?>[ht_action_save_image]" value="1" <?php checked(!empty($s['ht_action_save_image'])); ?>>
+                                                        <span style="font-size:13px;"><strong>📷 Als Bild speichern</strong></span>
+                                                    </label>
+                                                    <label style="display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid #e5e7eb;border-radius:8px;cursor:pointer;">
+                                                        <input type="checkbox" name="<?php echo $ok; ?>[ht_action_wallets]" value="1" <?php checked(!empty($s['ht_action_wallets'])); ?>>
+                                                        <span style="font-size:13px;"><strong>👝 Apple / Google Wallet</strong></span>
+                                                    </label>
+                                                    <label style="display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid #e5e7eb;border-radius:8px;cursor:pointer;">
+                                                        <input type="checkbox" name="<?php echo $ok; ?>[ht_action_print]" value="1" <?php checked(!empty($s['ht_action_print'])); ?>>
+                                                        <span style="font-size:13px;"><strong>🖨️ Ticket drucken</strong></span>
+                                                    </label>
+                                                </div>
                                             </div>
                                         </div>
 
