@@ -1947,10 +1947,12 @@ class TIX_Tickets {
             user-select: none;
             text-align: center;
         }
-        html.tix-watermark-on.tix-ht-v3 .tix-watermark span,
-        html.tix-watermark-on.tix-ht-v4 .tix-watermark span,
-        html.tix-watermark-on.tix-ht-v5 .tix-watermark span,
-        html.tix-watermark-on.tix-ht-v6 .tix-watermark span { color: rgba(255,255,255,.10); }
+        /* Nur V5 (Cyberpunk) hat wirklich dunklen Ticket-Body → dort weißes Watermark.
+           V3/V4/V6 haben hellen Ticket-Body → dunkles Watermark (default oben). */
+        html.tix-watermark-on.tix-ht-v5 .tix-watermark span { color: rgba(255,255,255,.10); }
+        /* V4 (bunter Holo-Hintergrund) + V6 (parchment): etwas stärkeres dunkles Watermark */
+        html.tix-watermark-on.tix-ht-v4 .tix-watermark span { color: rgba(17,24,39,.09); }
+        html.tix-watermark-on.tix-ht-v6 .tix-watermark span { color: rgba(74,46,20,.12); }
         /* Content MUSS über Watermark liegen */
         html.tix-watermark-on .ticket > *:not(.tix-watermark) { position: relative; z-index: 3; }
         html.tix-watermark-on .ticket-qr .tix-ticket-qr-canvas,
@@ -2010,16 +2012,47 @@ class TIX_Tickets {
            LIVE-WETTER-BADGE (auf Info-Row Datum)
            ═══════════════════════════════════════ */
         .tix-weather-inline {
-            display: inline-flex; align-items: center; gap: 5px;
+            display: inline-flex !important; align-items: center; gap: 5px;
             margin-left: 8px;
             padding: 3px 10px;
-            background: rgba(59,130,246,.1); color: #1e40af;
-            border: 1px solid rgba(59,130,246,.25);
+            background: rgba(59,130,246,.14); color: #1e3a8a !important;
+            border: 1px solid rgba(59,130,246,.4);
             border-radius: 999px;
-            font-size: 11px; font-weight: 600;
+            font-size: 11px; font-weight: 700;
+            font-family: "DM Sans", -apple-system, BlinkMacSystemFont, sans-serif !important;
+            letter-spacing: 0 !important;
+            text-transform: none !important;
             vertical-align: middle;
+            line-height: 1;
+            white-space: nowrap;
+            /* Immer über Holo-Overlays (V4 ::before conic z:0 / ::after shine) */
+            position: relative;
+            z-index: 5;
+            text-shadow: none !important;
         }
-        .tix-weather-inline .tix-weather-icon { font-size: 13px; }
+        .tix-weather-inline .tix-weather-icon { font-size: 13px; line-height: 1; }
+        /* V4 (bunter Holo-BG mit mix-blend-mode overlay): solide weißer Grund damit die Badge klar lesbar ist */
+        html.tix-ht-v4 .tix-weather-inline {
+            background: #ffffff !important;
+            border: 1.5px solid #3b82f6 !important;
+            color: #1e3a8a !important;
+            box-shadow: 0 1px 3px rgba(30,58,138,.18);
+        }
+        /* V5 (dark Cyberpunk): Neon-Cyan Badge */
+        html.tix-ht-v5 .tix-weather-inline {
+            background: rgba(0,255,255,.1) !important;
+            border: 1px solid #00ffff !important;
+            color: #00ffff !important;
+            box-shadow: 0 0 10px rgba(0,255,255,.35);
+            text-shadow: 0 0 6px rgba(0,255,255,.5) !important;
+        }
+        /* V6 (Retro-Parchment): bronzefarbene Badge */
+        html.tix-ht-v6 .tix-weather-inline {
+            background: rgba(139,94,60,.12) !important;
+            border: 1.5px solid #8b5e3c !important;
+            color: #3b2a14 !important;
+            font-family: "Courier New", Courier, monospace !important;
+        }
 
         /* ═══════════════════════════════════════
            SNAPSHOT-MODE: Animationen + mix-blend-mode beim Capture ausblenden
