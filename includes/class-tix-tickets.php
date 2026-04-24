@@ -1488,9 +1488,8 @@ class TIX_Tickets {
            COUNTDOWN · VERIFIED · COVER · DRESSCODE · RULES · AGB · QR-ZOOM
            ═══════════════════════════════════════ */
         .tix-countdown {
-            display: flex; align-items: center; justify-content: center; gap: 7px;
-            width: fit-content;
-            margin: 8px auto 0;
+            display: inline-flex; align-items: center; gap: 7px;
+            margin-top: 8px;
             padding: 5px 12px;
             background: transparent; color: #6b7280;
             border: 1px solid #e5e7eb; border-radius: 999px;
@@ -2112,13 +2111,6 @@ class TIX_Tickets {
         </div>
     </div>
 
-    <?php if (!empty($event_start_iso) && !empty($ht_show_countdown)): ?>
-    <div class="tix-countdown no-print" data-tix-countdown="<?php echo esc_attr($event_start_iso); ?>">
-        <span class="tix-countdown-label">Noch</span>
-        <span class="tix-countdown-value">— · — · —</span>
-    </div>
-    <?php endif; ?>
-
     <?php if ($season_class): ?>
     <div class="tix-seasonal-overlay <?php echo esc_attr($season_class); ?> no-print"></div>
     <?php endif; ?>
@@ -2176,6 +2168,12 @@ class TIX_Tickets {
                             <span class="tix-weather-inline" data-tix-weather-placeholder style="display:none;"></span>
                         <?php endif; ?>
                     </div>
+                    <?php if (!empty($event_start_iso) && !empty($ht_show_countdown)): ?>
+                    <div class="tix-countdown no-print" data-tix-countdown="<?php echo esc_attr($event_start_iso); ?>">
+                        <span class="tix-countdown-label">Noch</span>
+                        <span class="tix-countdown-value">— · — · —</span>
+                    </div>
+                    <?php endif; ?>
                 </div>
                 <?php endif; ?>
 
