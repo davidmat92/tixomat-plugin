@@ -1070,356 +1070,229 @@ body.tix-org-subdomain .tix-org-brand-footer { display: block !important; }
     }
 
     /**
-     * Rendert die „Mein Konto"-Seite auf der Subdomain:
-     * gebrandete Header/Footer + [tix_account] Shortcode.
-     * Verhält sich konsistent zu render_tickets_page.
+     * Einheitlicher Shell-Renderer für alle 3 Subpages (/account/, /tickets/, /kontakt/).
+     * Garantiert identische Struktur, Padding, Margins, Card-Optik und CSS-Variablen.
+     *
+     * $cfg = [
+     *   'page_key'    => 'account' | 'tickets' | 'support',
+     *   'title'       => 'Mein Konto',
+     *   'shortcode'   => '[tix_account]',
+     *   'extra_css'   => [Pfad relativ zu assets/css],
+     *   'extra_head'  => Closure für weitere <head>-Inhalte (scripts etc.)
+     *   'extra_style' => String mit zusätzlichem CSS (shortcode-spezifische Overrides)
+     * ]
+     */
+    private static function render_branded_subpage($org, array $cfg) {
+        while (ob_get_level() > 0) ob_end_clean();
+
+        $data      = self::get_landing_data($org);
+        $page_key  = $cfg['page_key'];
+        $title     = $cfg['title'];
+        $shortcode = $cfg['shortcode'];
+        $extra_css     = $cfg['extra_css']     ?? [];
+        $extra_style   = $cfg['extra_style']   ?? '';
+        $extra_head_fn = $cfg['extra_head']    ?? null;
+
+        status_header(200);
+        nocache_headers();
+        header('Content-Type: text/html; charset=utf-8');
+
+        $mode       = $data['color_mode'] ?? 'light';
+        $surface_l  = self::shade_color($data['bg_light'], 0.03);
+        $surface_d  = self::shade_color($data['bg_dark'],  0.08);
+        $surface    = ($mode === 'dark') ? $surface_d : $surface_l;
+        ?><!DOCTYPE html>
+<html <?php language_attributes(); ?>>
+<head>
+    <meta charset="<?php bloginfo('charset'); ?>">
+    <meta name="viewport" content="width=device-width,initial-scale=1.0">
+    <title><?php echo esc_html($title); ?> – <?php echo esc_html($org->post_title); ?></title>
+    <meta name="robots" content="noindex,nofollow">
+
+    <link rel="stylesheet" href="<?php echo esc_url(TIXOMAT_URL . 'assets/css/event-cards.css?v=' . TIXOMAT_VERSION); ?>">
+    <link rel="stylesheet" href="<?php echo esc_url(TIXOMAT_URL . 'assets/css/organizer-landing.css?v=' . TIXOMAT_VERSION); ?>">
+    <?php foreach ($extra_css as $css): ?>
+    <link rel="stylesheet" href="<?php echo esc_url(TIXOMAT_URL . 'assets/css/' . $css . '?v=' . TIXOMAT_VERSION); ?>">
+    <?php endforeach; ?>
+
+    <style>
+        /* ═══ Identische Shell-Styles für alle 3 Subpages ═══ */
+        :root {
+            --tix-ol-primary:    <?php echo esc_attr($data['primary_color']); ?>;
+            --tix-ol-accent:     <?php echo esc_attr($data['accent_color']); ?>;
+            --tix-ol-bg:         <?php echo esc_attr($data['bg_color']); ?>;
+            --tix-ol-surface:    <?php echo esc_attr($surface); ?>;
+            <?php if ($mode === 'dark'): ?>
+            --tix-ol-text:       #f5f5f7;
+            --tix-ol-text-muted: #a0a0a8;
+            --tix-ol-border:     rgba(255,255,255,0.08);
+            <?php else: ?>
+            --tix-ol-text:       #131020;
+            --tix-ol-text-muted: #6b7280;
+            --tix-ol-border:     rgba(0,0,0,0.08);
+            <?php endif; ?>
+        }
+        body.tix-ol { background: var(--tix-ol-bg); color: var(--tix-ol-text); }
+
+        /* Outer Main-Container: identische Breite, Padding + Margin-Verhalten */
+        .tix-org-subpage-main {
+            max-width: var(--tix-ol-max-w, 1100px);
+            margin: 0 auto;
+            padding: 50px var(--tix-ol-pad-x, 24px);
+            box-sizing: border-box;
+        }
+        /* Weiße Card: identisches Padding, Margin, Radius, Shadow */
+        .tix-org-subpage-card {
+            background: #fff;
+            border-radius: 16px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 4px 14px rgba(0,0,0,0.04);
+            padding: 24px 28px;
+            margin-top: 20px;
+            margin-bottom: 20px;
+            overflow: hidden;
+            box-sizing: border-box;
+        }
+
+        @media (max-width: 768px) {
+            .tix-org-subpage-main { padding: 32px 12px; }
+            .tix-org-subpage-card { padding: 20px 18px; border-radius: 12px; }
+        }
+        @media (max-width: 480px) {
+            .tix-org-subpage-main { padding: 24px 12px; }
+        }
+
+        <?php echo $extra_style; ?>
+    </style>
+
+    <link rel="icon" type="image/x-icon" href="<?php echo esc_url($data['favicon'] ?: (get_site_icon_url() ?: '/favicon.ico')); ?>">
+
+    <?php self::inject_branded_css(); ?>
+    <?php if (class_exists('TIX_Settings') && method_exists('TIX_Settings', 'output_css')): TIX_Settings::output_css(); endif; ?>
+
+    <script>window.ajaxurl = <?php echo wp_json_encode(admin_url('admin-ajax.php')); ?>;</script>
+
+    <?php if (is_callable($extra_head_fn)) $extra_head_fn(); ?>
+</head>
+<body class="tix-ol tix-org-subdomain tix-org-<?php echo esc_attr($data['slug']); ?> tix-mode-<?php echo esc_attr($mode); ?> tix-org-<?php echo esc_attr($page_key); ?>-page tix-org-subpage">
+
+    <?php self::inject_branded_header(); ?>
+
+    <main class="tix-org-subpage-main">
+        <div class="tix-org-subpage-card">
+            <?php echo do_shortcode($shortcode); ?>
+        </div>
+    </main>
+
+    <?php self::inject_branded_footer(); ?>
+</body>
+</html><?php
+    }
+
+    /**
+     * „Mein Konto"-Seite auf der Subdomain.
      */
     private static function render_account_page($org) {
-        while (ob_get_level() > 0) ob_end_clean();
-
-        $data = self::get_landing_data($org);
-
-        status_header(200);
-        nocache_headers();
-        header('Content-Type: text/html; charset=utf-8');
-
-        ?><!DOCTYPE html>
-<html <?php language_attributes(); ?>>
-<head>
-    <meta charset="<?php bloginfo('charset'); ?>">
-    <meta name="viewport" content="width=device-width,initial-scale=1.0">
-    <title>Mein Konto – <?php echo esc_html($org->post_title); ?></title>
-    <meta name="robots" content="noindex,nofollow">
-
-    <link rel="stylesheet" href="<?php echo esc_url(TIXOMAT_URL . 'assets/css/event-cards.css?v=' . TIXOMAT_VERSION); ?>">
-    <link rel="stylesheet" href="<?php echo esc_url(TIXOMAT_URL . 'assets/css/organizer-landing.css?v=' . TIXOMAT_VERSION); ?>">
-    <link rel="stylesheet" href="<?php echo esc_url(TIXOMAT_URL . 'assets/css/tix-account.css?v=' . TIXOMAT_VERSION); ?>">
-    <link rel="stylesheet" href="<?php echo esc_url(TIXOMAT_URL . 'assets/css/my-tickets.css?v=' . TIXOMAT_VERSION); ?>">
-
-    <style>
-        <?php
-        $mode       = $data['color_mode'] ?? 'light';
-        $bg         = $data['bg_color'];
-        $surface_l  = self::shade_color($data['bg_light'], 0.03);
-        $surface_d  = self::shade_color($data['bg_dark'],  0.08);
-        $surface    = ($mode === 'dark') ? $surface_d : $surface_l;
-        ?>
-        :root {
-            --tix-ol-primary:    <?php echo esc_attr($data['primary_color']); ?>;
-            --tix-ol-accent:     <?php echo esc_attr($data['accent_color']); ?>;
-            --tix-ol-bg:         <?php echo esc_attr($bg); ?>;
-            --tix-ol-surface:    <?php echo esc_attr($surface); ?>;
-            <?php if ($mode === 'dark'): ?>
-            --tix-ol-text:       #f5f5f7;
-            --tix-ol-text-muted: #a0a0a8;
-            --tix-ol-border:     rgba(255,255,255,0.08);
-            <?php else: ?>
-            --tix-ol-text:       #131020;
-            --tix-ol-text-muted: #6b7280;
-            --tix-ol-border:     rgba(0,0,0,0.08);
-            <?php endif; ?>
-        }
-        body.tix-ol { background: var(--tix-ol-bg); color: var(--tix-ol-text); }
-        /* Konsistenz zum Checkout + /tickets/-Page: identisches padding */
-        .tix-org-account-main {
-            max-width: var(--tix-ol-max-w, 1100px);
-            margin: 0 auto;
-            padding: 50px var(--tix-ol-pad-x, 24px);
-        }
-        /* Weißes Card-Feld um den Account-Inhalt, wie beim Checkout */
-        .tix-org-account-card {
-            background: #fff;
-            border-radius: 16px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 4px 14px rgba(0,0,0,0.04);
-            padding: 24px 28px;
-            margin-top: 20px;
-            margin-bottom: 20px;
-            overflow: hidden;
-        }
-        /* Inner-Content-Margin-Overrides für tix_account: große Leerfläche reduzieren */
-        body.tix-org-account-page .tix-account,
-        body.tix-org-account-page .tix-account-content,
-        body.tix-org-account-page .tix-account-main { margin: 0 !important; }
-        body.tix-org-account-page .tix-account-sidebar { margin: 0 !important; }
-        body.tix-org-account-page .tix-account h1,
-        body.tix-org-account-page .tix-account h2,
-        body.tix-org-account-page .tix-account h3 { margin-top: 0 !important; }
-        body.tix-org-account-page .tix-account-stats { margin: 16px 0 !important; gap: 12px !important; }
-        body.tix-org-account-page .tix-account-quick-links { margin-top: 20px !important; }
-        /* Account-CSS nutzt --tix-acc-primary für Akzentfarbe → auf Landing Organizer-Primary */
-        body.tix-org-account-page .tix-account { --tix-acc-primary: var(--tix-ol-primary); }
-
-        /* Meine-Tickets innerhalb des Account-Shortcodes: CARD-Layout */
-        body.tix-org-account-page .tix-account-content {
-            padding: 0 !important;
-        }
-        body.tix-org-account-page .tix-mt { padding: 0; background: transparent; max-width: none; }
-        body.tix-org-account-page .tix-mt-card {
-            background: #fafaf9 !important;
-            border: 1px solid var(--tix-ol-border, #e5e7eb);
-            border-radius: 12px;
-            overflow: hidden;
-            margin-bottom: 14px;
-        }
-
-        @media (max-width: 768px) {
-            .tix-org-account-main { padding: 32px 12px; }
-        }
-        @media (max-width: 480px) {
-            .tix-org-account-main { padding: 24px 12px; }
-            .tix-org-account-card { padding: 20px 18px; border-radius: 12px; }
-        }
-    </style>
-
-    <link rel="icon" type="image/x-icon" href="<?php echo esc_url($data['favicon'] ?: (get_site_icon_url() ?: '/favicon.ico')); ?>">
-
-    <?php self::inject_branded_css(); ?>
-    <?php if (class_exists('TIX_Settings') && method_exists('TIX_Settings', 'output_css')): TIX_Settings::output_css(); endif; ?>
-
-    <script>
-        window.ajaxurl = <?php echo wp_json_encode(admin_url('admin-ajax.php')); ?>;
-        window.tixMyTickets = {
-            ajax:  <?php echo wp_json_encode(admin_url('admin-ajax.php')); ?>,
-            nonce: <?php echo wp_json_encode(wp_create_nonce('tix_mt_guest_resend')); ?>
-        };
-    </script>
-    <script src="<?php echo esc_url(TIXOMAT_URL . 'assets/js/tix-qr.js?v=' . TIXOMAT_VERSION); ?>" defer></script>
-    <script src="<?php echo esc_url(TIXOMAT_URL . 'assets/js/tix-ticket-img.js?v=' . TIXOMAT_VERSION); ?>" defer></script>
-    <script src="<?php echo esc_url(TIXOMAT_URL . 'assets/js/tix-wallet.js?v=' . TIXOMAT_VERSION); ?>" defer></script>
-</head>
-<body class="tix-ol tix-org-subdomain tix-org-<?php echo esc_attr($data['slug']); ?> tix-mode-<?php echo esc_attr($data['color_mode'] ?? 'light'); ?> tix-org-account-page">
-
-    <?php self::inject_branded_header(); ?>
-
-    <main class="tix-org-account-main">
-        <div class="tix-org-account-card">
-            <?php echo do_shortcode('[tix_account]'); ?>
-        </div>
-    </main>
-
-    <?php self::inject_branded_footer(); ?>
-</body>
-</html><?php
+        $extra_style = '
+            /* Account-Shortcode-Integration: Margins + CSS-Variablen */
+            body.tix-org-account-page .tix-account,
+            body.tix-org-account-page .tix-account-content,
+            body.tix-org-account-page .tix-account-main { margin: 0 !important; }
+            body.tix-org-account-page .tix-account-sidebar { margin: 0 !important; }
+            body.tix-org-account-page .tix-account h1,
+            body.tix-org-account-page .tix-account h2,
+            body.tix-org-account-page .tix-account h3 { margin-top: 0 !important; }
+            body.tix-org-account-page .tix-account-stats { margin: 16px 0 !important; gap: 12px !important; }
+            body.tix-org-account-page .tix-account-quick-links { margin-top: 20px !important; }
+            body.tix-org-account-page .tix-account { --tix-acc-primary: var(--tix-ol-primary); }
+            body.tix-org-account-page .tix-account-content { padding: 0 !important; }
+            body.tix-org-account-page .tix-mt { padding: 0; background: transparent; max-width: none; }
+            body.tix-org-account-page .tix-mt-card {
+                background: #fafaf9 !important;
+                border: 1px solid var(--tix-ol-border, #e5e7eb);
+                border-radius: 12px;
+                overflow: hidden;
+                margin-bottom: 14px;
+            }
+        ';
+        self::render_branded_subpage($org, [
+            'page_key'    => 'account',
+            'title'       => 'Mein Konto',
+            'shortcode'   => '[tix_account]',
+            'extra_css'   => ['tix-account.css', 'my-tickets.css'],
+            'extra_style' => $extra_style,
+            'extra_head'  => function() {
+                ?>
+                <script>
+                    window.tixMyTickets = {
+                        ajax:  <?php echo wp_json_encode(admin_url('admin-ajax.php')); ?>,
+                        nonce: <?php echo wp_json_encode(wp_create_nonce('tix_mt_guest_resend')); ?>
+                    };
+                </script>
+                <script src="<?php echo esc_url(TIXOMAT_URL . 'assets/js/tix-qr.js?v=' . TIXOMAT_VERSION); ?>" defer></script>
+                <script src="<?php echo esc_url(TIXOMAT_URL . 'assets/js/tix-ticket-img.js?v=' . TIXOMAT_VERSION); ?>" defer></script>
+                <script src="<?php echo esc_url(TIXOMAT_URL . 'assets/js/tix-wallet.js?v=' . TIXOMAT_VERSION); ?>" defer></script>
+                <?php
+            },
+        ]);
     }
 
     /**
-     * Rendert die „Kontakt / Support"-Seite auf der Subdomain:
-     * gebrandete Header/Footer + [tix_support] Shortcode.
-     * Verhält sich konsistent zu render_account_page.
-     */
-    private static function render_support_page($org) {
-        while (ob_get_level() > 0) ob_end_clean();
-
-        $data = self::get_landing_data($org);
-
-        status_header(200);
-        nocache_headers();
-        header('Content-Type: text/html; charset=utf-8');
-
-        ?><!DOCTYPE html>
-<html <?php language_attributes(); ?>>
-<head>
-    <meta charset="<?php bloginfo('charset'); ?>">
-    <meta name="viewport" content="width=device-width,initial-scale=1.0">
-    <title>Kontakt – <?php echo esc_html($org->post_title); ?></title>
-    <meta name="robots" content="noindex,nofollow">
-
-    <link rel="stylesheet" href="<?php echo esc_url(TIXOMAT_URL . 'assets/css/event-cards.css?v=' . TIXOMAT_VERSION); ?>">
-    <link rel="stylesheet" href="<?php echo esc_url(TIXOMAT_URL . 'assets/css/organizer-landing.css?v=' . TIXOMAT_VERSION); ?>">
-    <link rel="stylesheet" href="<?php echo esc_url(TIXOMAT_URL . 'assets/css/support.css?v=' . TIXOMAT_VERSION); ?>">
-
-    <style>
-        <?php
-        $mode       = $data['color_mode'] ?? 'light';
-        $bg         = $data['bg_color'];
-        $surface_l  = self::shade_color($data['bg_light'], 0.03);
-        $surface_d  = self::shade_color($data['bg_dark'],  0.08);
-        $surface    = ($mode === 'dark') ? $surface_d : $surface_l;
-        ?>
-        :root {
-            --tix-ol-primary:    <?php echo esc_attr($data['primary_color']); ?>;
-            --tix-ol-accent:     <?php echo esc_attr($data['accent_color']); ?>;
-            --tix-ol-bg:         <?php echo esc_attr($bg); ?>;
-            --tix-ol-surface:    <?php echo esc_attr($surface); ?>;
-            <?php if ($mode === 'dark'): ?>
-            --tix-ol-text:       #f5f5f7;
-            --tix-ol-text-muted: #a0a0a8;
-            --tix-ol-border:     rgba(255,255,255,0.08);
-            <?php else: ?>
-            --tix-ol-text:       #131020;
-            --tix-ol-text-muted: #6b7280;
-            --tix-ol-border:     rgba(0,0,0,0.08);
-            <?php endif; ?>
-        }
-        body.tix-ol { background: var(--tix-ol-bg); color: var(--tix-ol-text); }
-        .tix-org-support-main {
-            max-width: var(--tix-ol-max-w, 1100px);
-            margin: 0 auto;
-            padding: 50px var(--tix-ol-pad-x, 24px);
-        }
-        .tix-org-support-main h1 {
-            font-size: 32px; font-weight: 800; letter-spacing: -.02em;
-            margin: 0 0 24px;
-        }
-        .tix-org-support-card {
-            background: #fff;
-            border-radius: 16px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 4px 14px rgba(0,0,0,0.04);
-            padding: 24px 28px;
-            margin-top: 20px;
-            margin-bottom: 20px;
-            overflow: hidden;
-        }
-        body.tix-org-support-page .tix-support { --tix-support-primary: var(--tix-ol-primary); }
-        @media (max-width: 768px) {
-            .tix-org-support-main { padding: 32px 12px; }
-            .tix-org-support-main h1 { font-size: 24px; margin-bottom: 16px; }
-            .tix-org-support-card { padding: 20px 18px; border-radius: 12px; }
-        }
-        @media (max-width: 480px) {
-            .tix-org-support-main { padding: 24px 12px; }
-        }
-    </style>
-
-    <link rel="icon" type="image/x-icon" href="<?php echo esc_url($data['favicon'] ?: (get_site_icon_url() ?: '/favicon.ico')); ?>">
-
-    <?php self::inject_branded_css(); ?>
-    <?php if (class_exists('TIX_Settings') && method_exists('TIX_Settings', 'output_css')): TIX_Settings::output_css(); endif; ?>
-
-    <script>
-        window.ajaxurl = <?php echo wp_json_encode(admin_url('admin-ajax.php')); ?>;
-        // tixSupport-Objekt für support.js (wie wp_localize_script, aber manuell
-        // weil wir wp_head/wp_footer nicht aufrufen)
-        window.tixSupport = {
-            ajax:       <?php echo wp_json_encode(admin_url('admin-ajax.php')); ?>,
-            nonce:      <?php echo wp_json_encode(wp_create_nonce('tix_support_action')); ?>,
-            statuses:   <?php echo wp_json_encode(class_exists('TIX_Support') ? TIX_Support::get_statuses() : []); ?>,
-            categories: <?php echo wp_json_encode(class_exists('TIX_Support') ? TIX_Support::get_categories() : []); ?>,
-            isAdmin:    false,
-            isFrontend: true,
-            userEmail:  <?php echo wp_json_encode(is_user_logged_in() ? wp_get_current_user()->user_email : ''); ?>,
-            userName:   <?php echo wp_json_encode(is_user_logged_in() ? wp_get_current_user()->display_name : ''); ?>
-        };
-    </script>
-    <script src="<?php echo esc_url(includes_url('js/jquery/jquery.min.js')); ?>"></script>
-    <script src="<?php echo esc_url(TIXOMAT_URL . 'assets/js/support.js?v=' . TIXOMAT_VERSION); ?>" defer></script>
-</head>
-<body class="tix-ol tix-org-subdomain tix-org-<?php echo esc_attr($data['slug']); ?> tix-mode-<?php echo esc_attr($data['color_mode'] ?? 'light'); ?> tix-org-support-page">
-
-    <?php self::inject_branded_header(); ?>
-
-    <main class="tix-org-support-main">
-        <div class="tix-org-support-card">
-            <?php echo do_shortcode('[tix_support]'); ?>
-        </div>
-    </main>
-
-    <?php self::inject_branded_footer(); ?>
-</body>
-</html><?php
-    }
-
-    /**
-     * Rendert die „Meine Tickets"-Seite auf der Subdomain:
-     * gebrandete Header/Footer + [tix_my_tickets] Shortcode.
-     * Funktioniert für eingeloggte User UND für Gäste (Magic-Link-Token, Formular).
+     * „Meine Tickets"-Seite auf der Subdomain.
      */
     private static function render_tickets_page($org) {
-        while (ob_get_level() > 0) ob_end_clean();
+        self::render_branded_subpage($org, [
+            'page_key'    => 'tickets',
+            'title'       => 'Meine Tickets',
+            'shortcode'   => '[tix_my_tickets]',
+            'extra_css'   => ['my-tickets.css'],
+            'extra_head'  => function() {
+                ?>
+                <script>
+                    window.tixMyTickets = {
+                        ajax:  <?php echo wp_json_encode(admin_url('admin-ajax.php')); ?>,
+                        nonce: <?php echo wp_json_encode(wp_create_nonce('tix_mt_guest_resend')); ?>
+                    };
+                </script>
+                <script src="<?php echo esc_url(TIXOMAT_URL . 'assets/js/tix-qr.js?v=' . TIXOMAT_VERSION); ?>" defer></script>
+                <script src="<?php echo esc_url(TIXOMAT_URL . 'assets/js/tix-ticket-img.js?v=' . TIXOMAT_VERSION); ?>" defer></script>
+                <script src="<?php echo esc_url(TIXOMAT_URL . 'assets/js/tix-wallet.js?v=' . TIXOMAT_VERSION); ?>" defer></script>
+                <?php
+            },
+        ]);
+    }
 
-        $data = self::get_landing_data($org);
-
-        status_header(200);
-        nocache_headers();
-        header('Content-Type: text/html; charset=utf-8');
-
-        ?><!DOCTYPE html>
-<html <?php language_attributes(); ?>>
-<head>
-    <meta charset="<?php bloginfo('charset'); ?>">
-    <meta name="viewport" content="width=device-width,initial-scale=1.0">
-    <title>Meine Tickets – <?php echo esc_html($org->post_title); ?></title>
-    <meta name="robots" content="noindex,nofollow">
-
-    <link rel="stylesheet" href="<?php echo esc_url(TIXOMAT_URL . 'assets/css/event-cards.css?v=' . TIXOMAT_VERSION); ?>">
-    <link rel="stylesheet" href="<?php echo esc_url(TIXOMAT_URL . 'assets/css/organizer-landing.css?v=' . TIXOMAT_VERSION); ?>">
-    <link rel="stylesheet" href="<?php echo esc_url(TIXOMAT_URL . 'assets/css/my-tickets.css?v=' . TIXOMAT_VERSION); ?>">
-
-    <style>
-        <?php
-        $mode       = $data['color_mode'] ?? 'light';
-        $bg         = $data['bg_color'];
-        $surface_l  = self::shade_color($data['bg_light'], 0.03);
-        $surface_d  = self::shade_color($data['bg_dark'],  0.08);
-        $surface    = ($mode === 'dark') ? $surface_d : $surface_l;
-        ?>
-        :root {
-            --tix-ol-primary:    <?php echo esc_attr($data['primary_color']); ?>;
-            --tix-ol-accent:     <?php echo esc_attr($data['accent_color']); ?>;
-            --tix-ol-bg:         <?php echo esc_attr($bg); ?>;
-            --tix-ol-surface:    <?php echo esc_attr($surface); ?>;
-            <?php if ($mode === 'dark'): ?>
-            --tix-ol-text:       #f5f5f7;
-            --tix-ol-text-muted: #a0a0a8;
-            --tix-ol-border:     rgba(255,255,255,0.08);
-            <?php else: ?>
-            --tix-ol-text:       #131020;
-            --tix-ol-text-muted: #6b7280;
-            --tix-ol-border:     rgba(0,0,0,0.08);
-            <?php endif; ?>
-        }
-        body.tix-ol { background: var(--tix-ol-bg); color: var(--tix-ol-text); }
-        /* Konsistent mit Landing-Sektionen (gleicher --tix-ol-max-w + pad-x) */
-        .tix-org-tickets-main {
-            max-width: var(--tix-ol-max-w, 1100px);
-            margin: 0 auto;
-            padding: 50px var(--tix-ol-pad-x, 24px);
-        }
-        .tix-org-tickets-card {
-            background: #fff;
-            border-radius: 16px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 4px 14px rgba(0,0,0,0.04);
-            padding: 24px 28px;
-            margin-top: 20px;
-            margin-bottom: 20px;
-        }
-        @media (max-width: 768px) {
-            .tix-org-tickets-main { padding: 32px 12px; }
-            .tix-org-tickets-card { padding: 20px 18px; border-radius: 12px; }
-        }
-        @media (max-width: 480px) {
-            .tix-org-tickets-main { padding: 24px 12px; }
-        }
-    </style>
-
-    <link rel="icon" type="image/x-icon" href="<?php echo esc_url($data['favicon'] ?: (get_site_icon_url() ?: '/favicon.ico')); ?>">
-
-    <?php self::inject_branded_css(); ?>
-    <?php if (class_exists('TIX_Settings') && method_exists('TIX_Settings', 'output_css')): TIX_Settings::output_css(); endif; ?>
-
-    <script>
-        window.tixMyTickets = {
-            ajax:  <?php echo wp_json_encode(admin_url('admin-ajax.php')); ?>,
-            nonce: <?php echo wp_json_encode(wp_create_nonce('tix_mt_guest_resend')); ?>
-        };
-    </script>
-    <script src="<?php echo esc_url(TIXOMAT_URL . 'assets/js/tix-qr.js?v=' . TIXOMAT_VERSION); ?>" defer></script>
-    <script src="<?php echo esc_url(TIXOMAT_URL . 'assets/js/tix-ticket-img.js?v=' . TIXOMAT_VERSION); ?>" defer></script>
-    <script src="<?php echo esc_url(TIXOMAT_URL . 'assets/js/tix-wallet.js?v=' . TIXOMAT_VERSION); ?>" defer></script>
-</head>
-<body class="tix-ol tix-org-subdomain tix-org-<?php echo esc_attr($data['slug']); ?> tix-mode-<?php echo esc_attr($data['color_mode'] ?? 'light'); ?> tix-org-tickets-page">
-
-    <?php self::inject_branded_header(); ?>
-
-    <main class="tix-org-tickets-main">
-        <div class="tix-org-tickets-card">
-            <?php echo do_shortcode('[tix_my_tickets]'); ?>
-        </div>
-    </main>
-
-    <?php self::inject_branded_footer(); ?>
-</body>
-</html><?php
+    /**
+     * „Kontakt / Support"-Seite auf der Subdomain.
+     */
+    private static function render_support_page($org) {
+        $extra_style = '
+            body.tix-org-support-page .tix-support { --tix-support-primary: var(--tix-ol-primary); }
+        ';
+        self::render_branded_subpage($org, [
+            'page_key'    => 'support',
+            'title'       => 'Kontakt',
+            'shortcode'   => '[tix_support]',
+            'extra_css'   => ['support.css'],
+            'extra_style' => $extra_style,
+            'extra_head'  => function() {
+                ?>
+                <script>
+                    window.tixSupport = {
+                        ajax:       <?php echo wp_json_encode(admin_url('admin-ajax.php')); ?>,
+                        nonce:      <?php echo wp_json_encode(wp_create_nonce('tix_support_action')); ?>,
+                        statuses:   <?php echo wp_json_encode(class_exists('TIX_Support') ? TIX_Support::get_statuses() : []); ?>,
+                        categories: <?php echo wp_json_encode(class_exists('TIX_Support') ? TIX_Support::get_categories() : []); ?>,
+                        isAdmin:    false,
+                        isFrontend: true,
+                        userEmail:  <?php echo wp_json_encode(is_user_logged_in() ? wp_get_current_user()->user_email : ''); ?>,
+                        userName:   <?php echo wp_json_encode(is_user_logged_in() ? wp_get_current_user()->display_name : ''); ?>
+                    };
+                </script>
+                <script src="<?php echo esc_url(includes_url('js/jquery/jquery.min.js')); ?>"></script>
+                <script src="<?php echo esc_url(TIXOMAT_URL . 'assets/js/support.js?v=' . TIXOMAT_VERSION); ?>" defer></script>
+                <?php
+            },
+        ]);
     }
 
     /** Robuster 404 ohne Theme-Template-Abhängigkeit */
