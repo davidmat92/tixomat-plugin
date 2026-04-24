@@ -740,6 +740,12 @@ class TIX_Metabox {
                             </select>
                         <?php endif; ?>
                     </div>
+
+                    <?php // Check-in Passwort (gilt für Ticket-Check-in UND Gästeliste) ?>
+                    <div class="tix-field tix-field-full">
+                        <label class="tix-field-label" for="tix_checkin_password">Check-in Passwort <?php self::tip('Schützt die /checkin/-Seite. Türpersonal gibt dieses Passwort einmalig ein — danach Kamera-Scan. Leer lassen = kein Passwort-Schutz.'); ?></label>
+                        <input type="text" id="tix_checkin_password" name="tix_checkin_password" value="<?php echo esc_attr(get_post_meta($post->ID, '_tix_checkin_password', true)); ?>" placeholder="z.B. tuer2026" autocomplete="off" style="max-width:300px;">
+                    </div>
                 </div>
             </div>
         </div>
@@ -2399,7 +2405,6 @@ class TIX_Metabox {
     // ──────────────────────────────────────────
     public static function render_guestlist($post) {
         $enabled  = get_post_meta($post->ID, '_tix_guest_list_enabled', true);
-        $password = get_post_meta($post->ID, '_tix_checkin_password', true);
         $guests   = get_post_meta($post->ID, '_tix_guest_list', true);
         if (!is_array($guests)) $guests = [];
 
@@ -2428,12 +2433,7 @@ class TIX_Metabox {
                         Gästeliste aktivieren
                     </label>
                 </div>
-                <div id="tix-gl-panel" style="<?php echo $enabled !== '1' ? 'display:none;' : ''; ?>margin-top:16px;">
-                    <div class="tix-field" style="max-width:300px;">
-                        <label class="tix-field-label">Check-in Passwort <?php self::tip('Dieses Passwort wird vom Türpersonal auf der Check-in-Seite eingegeben. Kein WordPress-Login nötig.'); ?></label>
-                        <input type="text" name="tix_checkin_password" value="<?php echo esc_attr($password); ?>" placeholder="z.B. tuer2026" autocomplete="off">
-                    </div>
-                </div>
+                <?php // Check-in-Passwort wurde in "Ort & Veranstalter" verschoben ?>
             </div>
         </div>
 
