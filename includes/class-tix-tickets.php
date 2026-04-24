@@ -1385,9 +1385,97 @@ class TIX_Tickets {
         }
 
         /* ═══════════════════════════════════════
-           ECHTHEITSPRÜFUNG-MODAL (Türpersonal)
+           ECHTHEITSPRÜFUNG-MODAL (Türpersonal, Anti-Screenshot)
            ═══════════════════════════════════════ */
-        .tix-verify-modal { max-width: 520px; padding: 0; overflow: hidden; }
+        .tix-verify-modal { max-width: 520px; padding: 0; overflow: hidden; position: relative; }
+
+        /* Continuously moving scan-line — Screenshot = stillstehend */
+        .tix-verify-scan {
+            position: absolute; top: 0; left: 0; right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, transparent 0%, #10b981 50%, transparent 100%);
+            z-index: 10;
+            pointer-events: none;
+            animation: tixVerifyScan 2.2s linear infinite;
+        }
+        @keyframes tixVerifyScan {
+            0%   { transform: translateX(-100%); }
+            100% { transform: translateX(100%); }
+        }
+
+        /* LIVE-Indicator mit pulsing dot */
+        .tix-verify-live-indicator {
+            display: inline-flex; align-items: center; gap: 6px;
+            font-size: 11px; font-weight: 800; letter-spacing: 2px;
+            color: #ef4444;
+            margin-bottom: 6px;
+        }
+        .tix-verify-live-dot {
+            width: 8px; height: 8px; border-radius: 50%;
+            background: #ef4444;
+            animation: tixVerifyLiveDot 1.2s ease-in-out infinite;
+            box-shadow: 0 0 0 0 rgba(239,68,68,.7);
+        }
+        @keyframes tixVerifyLiveDot {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(239,68,68,.7); transform: scale(1); }
+            50%      { box-shadow: 0 0 0 8px rgba(239,68,68,0); transform: scale(1.15); }
+        }
+
+        /* Rotierender Code (4 Zeichen, wechselt alle 2s) */
+        .tix-verify-rotating {
+            margin-top: 10px; font-size: 10px; color: #065f46;
+            text-transform: uppercase; letter-spacing: .8px;
+        }
+        .tix-verify-rot {
+            display: inline-block;
+            font-family: 'SF Mono', Consolas, monospace;
+            font-size: 14px; font-weight: 800;
+            letter-spacing: 3px;
+            color: #065f46;
+            background: #fff;
+            padding: 2px 8px; border-radius: 6px;
+            margin-left: 4px;
+            border: 1px solid #bbf7d0;
+            animation: tixVerifyRotFade .4s ease;
+        }
+        @keyframes tixVerifyRotFade {
+            from { opacity: .3; transform: scale(.9); }
+            to   { opacity: 1;  transform: scale(1); }
+        }
+
+        /* Re-Fetch Alter */
+        .tix-verify-refresh {
+            margin-top: 8px; font-size: 11px;
+            color: #059669;
+        }
+        .tix-verify-refresh.stale {
+            color: #d97706;
+            font-weight: 700;
+        }
+        .tix-verify-refresh.danger {
+            color: #dc2626;
+            font-weight: 700;
+        }
+
+        /* Kontinuierlich laufender Progress-Balken */
+        .tix-verify-progress {
+            margin: 0 24px 12px;
+            height: 4px;
+            background: #e5e7eb;
+            border-radius: 2px;
+            overflow: hidden;
+        }
+        .tix-verify-progress-fill {
+            height: 100%;
+            width: 30%;
+            background: linear-gradient(90deg, #10b981, #059669, #10b981);
+            animation: tixVerifyProgress 1.8s ease-in-out infinite;
+        }
+        @keyframes tixVerifyProgress {
+            0%   { transform: translateX(-100%); }
+            100% { transform: translateX(400%); }
+        }
+
         .tix-verify-head {
             display: flex; align-items: center; gap: 14px;
             padding: 20px 24px 18px;
@@ -1791,7 +1879,11 @@ class TIX_Tickets {
         }
         html.tix-ht-v4 .ticket::before {
             content: "";
-            position: absolute; inset: -50%;
+            position: absolute;
+            /* Inset matches border width → bleibt strikt INNERHALB des Gradient-Borders,
+               sonst blend'et overlay mit der Border-Gradient-Farbe → unsaubere Ecken */
+            inset: 3px;
+            border-radius: calc(<?php echo $ht_border_radius; ?>px - 2px);
             background: conic-gradient(from 0deg,
                 transparent 0deg,
                 rgba(236, 72, 153, .15) 60deg,
@@ -1800,6 +1892,8 @@ class TIX_Tickets {
                 rgba(16, 185, 129, .12) 240deg,
                 rgba(245, 158, 11, .14) 300deg,
                 transparent 360deg);
+            /* Scale>1 verhindert Dead-Corners beim Rotieren (sonst fehlen Ecken) */
+            transform: scale(1.6) rotate(0deg);
             animation: tixHoloSpin 8s linear infinite;
             pointer-events: none;
             z-index: 0;
@@ -1807,7 +1901,7 @@ class TIX_Tickets {
         }
         html.tix-ht-v4 .ticket > * { position: relative; z-index: 1; }
         @keyframes tixHoloSpin {
-            to { transform: rotate(360deg); }
+            to { transform: scale(1.6) rotate(360deg); }
         }
         html.tix-ht-v4 .ticket-header {
             background: linear-gradient(135deg,
@@ -2293,24 +2387,37 @@ class TIX_Tickets {
         </div>
     </div>
 
-    <?php // ── Echtheitsprüfung-Modal (Türpersonal) ── ?>
+    <?php // ── Echtheitsprüfung-Modal (Türpersonal) — mehrfach Anti-Screenshot-Signale ── ?>
     <div class="tix-modal-overlay tix-verify-overlay no-print" data-tix-verify-modal onclick="tixVerifyOverlayClose(event)">
         <div class="tix-modal tix-verify-modal" role="dialog" aria-modal="true" aria-labelledby="tix-verify-title">
             <div class="tix-verify-head">
                 <div class="tix-verify-pulse"><span></span><span></span></div>
                 <div>
                     <h3 id="tix-verify-title">Echtheitsprüfung</h3>
-                    <p class="tix-verify-desc">Live vom Server — kein Screenshot möglich</p>
+                    <p class="tix-verify-desc">Live — Screenshot nicht möglich (Elemente bewegen sich)</p>
                 </div>
             </div>
+            <?php // Scanning-Line (CSS-only, bewegt sich immer — Screenshot = stillstehend) ?>
+            <div class="tix-verify-scan" aria-hidden="true"></div>
             <div class="tix-verify-loading" data-tix-verify-loading>
                 <div class="tix-verify-spinner"></div>
                 <p>Prüfe Ticket…</p>
             </div>
             <div class="tix-verify-body" data-tix-verify-body hidden>
                 <div class="tix-verify-clock">
-                    <div class="tix-verify-clock-label">Server-Zeit</div>
+                    <div class="tix-verify-live-indicator">
+                        <span class="tix-verify-live-dot"></span>
+                        <span>LIVE</span>
+                    </div>
+                    <div class="tix-verify-clock-label">Server-Zeit (tickt jede Sekunde)</div>
                     <div class="tix-verify-clock-time" data-tix-verify-clock>—</div>
+                    <div class="tix-verify-refresh" data-tix-verify-refresh>
+                        Letzte Server-Prüfung vor <span data-tix-verify-age>0</span>s
+                    </div>
+                    <?php // Rotierender Code — ändert sich alle 2s, Screenshot = fix ?>
+                    <div class="tix-verify-rotating">
+                        Ändert sich alle 2 Sekunden: <span class="tix-verify-rot" data-tix-verify-rot>—</span>
+                    </div>
                 </div>
                 <div class="tix-verify-grid">
                     <div class="tix-verify-cell">
@@ -2342,6 +2449,8 @@ class TIX_Tickets {
                     <span class="tix-verify-sig-label">Signatur:</span>
                     <span class="tix-verify-sig-value" data-tix-verify-sig>—</span>
                 </div>
+                <?php // Continuously moving progress bar (Screenshot = fixed position) ?>
+                <div class="tix-verify-progress"><div class="tix-verify-progress-fill"></div></div>
             </div>
             <div class="tix-verify-error" data-tix-verify-error hidden>
                 <p>Prüfung fehlgeschlagen. Netzwerk-Problem oder Ticket ungültig.</p>
@@ -3210,8 +3319,58 @@ class TIX_Tickets {
             if (e.target && e.target.hasAttribute('data-tix-modal')) tixAssignClose();
         }
 
-        // ── Echtheitsprüfung (Türpersonal-Verifikation) ──
+        // ── Echtheitsprüfung (Türpersonal-Verifikation, Anti-Screenshot) ──
         var tixVerifyClockInterval = null;
+        var tixVerifyRotInterval = null;
+        var tixVerifyRefreshInterval = null;
+        var tixVerifyAgeInterval = null;
+        var tixVerifyLastFetch = 0;
+        var tixVerifyOffset = 0;
+
+        function tixVerifyFetch(modal, firstRun) {
+            var body = new FormData();
+            body.append('action', 'tix_ticket_verify');
+            body.append('token', TIX_TOKEN);
+            return fetch(TIX_AJAX_URL, { method: 'POST', body: body, credentials: 'same-origin' })
+                .then(function(r){ return r.json(); })
+                .then(function(res){
+                    if (!res || !res.success) throw new Error('verify failed');
+                    var d = res.data;
+                    if (firstRun) {
+                        modal.querySelector('[data-tix-verify-code]').textContent = d.code || '—';
+                        modal.querySelector('[data-tix-verify-order]').textContent = d.order_number || '—';
+                        modal.querySelector('[data-tix-verify-purchased]').textContent = d.purchased_display || '—';
+                        modal.querySelector('[data-tix-verify-holder]').textContent = d.holder_name || '(nicht zugeordnet)';
+                        var evParts = [];
+                        if (d.event_name) evParts.push(d.event_name);
+                        if (d.event_date) {
+                            var evDate = new Date(d.event_date.replace(' ', 'T'));
+                            if (!isNaN(evDate.getTime())) evParts.push(evDate.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' }));
+                        }
+                        if (d.event_time) evParts.push(d.event_time + ' Uhr');
+                        if (d.event_location) evParts.push(d.event_location);
+                        modal.querySelector('[data-tix-verify-event]').textContent = evParts.join(' · ') || '—';
+                    }
+                    // Check-in-Status bei jedem Re-Fetch aktualisieren
+                    var ciEl = modal.querySelector('[data-tix-verify-checkin]');
+                    if (d.checked_in) {
+                        ciEl.textContent = '✓ Eingecheckt' + (d.checkin_display ? ' · ' + d.checkin_display : '');
+                        ciEl.className = 'tix-verify-cell-value done';
+                    } else {
+                        ciEl.textContent = '○ Noch nicht eingecheckt';
+                        ciEl.className = 'tix-verify-cell-value pending';
+                    }
+                    // Signatur-Refresh (auch bei Re-Fetch)
+                    modal.querySelector('[data-tix-verify-sig]').textContent = d.sig || '—';
+
+                    // Clock-Offset setzen
+                    var serverMs = d.server_time_iso ? new Date(d.server_time_iso).getTime() : Date.now();
+                    tixVerifyOffset = serverMs - Date.now();
+                    tixVerifyLastFetch = Date.now();
+                    return true;
+                });
+        }
+
         function tixOpenVerifyModal() {
             var modal = document.querySelector('[data-tix-verify-modal]');
             if (!modal) return;
@@ -3222,68 +3381,77 @@ class TIX_Tickets {
             modal.querySelector('[data-tix-verify-body]').hidden = true;
             modal.querySelector('[data-tix-verify-error]').hidden = true;
 
-            var body = new FormData();
-            body.append('action', 'tix_ticket_verify');
-            body.append('token', TIX_TOKEN);
-            fetch(TIX_AJAX_URL, { method: 'POST', body: body, credentials: 'same-origin' })
-                .then(function(r){ return r.json(); })
-                .then(function(res){
-                    if (!res || !res.success) throw new Error('verify failed');
-                    var d = res.data;
-                    modal.querySelector('[data-tix-verify-code]').textContent = d.code || '—';
-                    modal.querySelector('[data-tix-verify-order]').textContent = d.order_number || '—';
-                    modal.querySelector('[data-tix-verify-purchased]').textContent = d.purchased_display || '—';
-                    modal.querySelector('[data-tix-verify-holder]').textContent = d.holder_name || '(nicht zugeordnet)';
-                    var evParts = [];
-                    if (d.event_name) evParts.push(d.event_name);
-                    if (d.event_date) {
-                        var evDate = new Date(d.event_date.replace(' ', 'T'));
-                        if (!isNaN(evDate.getTime())) evParts.push(evDate.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' }));
-                    }
-                    if (d.event_time) evParts.push(d.event_time + ' Uhr');
-                    if (d.event_location) evParts.push(d.event_location);
-                    modal.querySelector('[data-tix-verify-event]').textContent = evParts.join(' · ') || '—';
+            tixVerifyFetch(modal, true).then(function(){
+                // 1) Clock tickt jede Sekunde
+                function tickClock() {
+                    var now = new Date(Date.now() + tixVerifyOffset);
+                    var pad = function(n){ return (n<10?'0':'') + n; };
+                    var clockStr = pad(now.getHours()) + ':' + pad(now.getMinutes()) + ':' + pad(now.getSeconds());
+                    var clockEl = modal.querySelector('[data-tix-verify-clock]');
+                    if (clockEl) clockEl.textContent = clockStr;
+                }
+                tickClock();
+                if (tixVerifyClockInterval) clearInterval(tixVerifyClockInterval);
+                tixVerifyClockInterval = setInterval(tickClock, 1000);
 
-                    var ciEl = modal.querySelector('[data-tix-verify-checkin]');
-                    if (d.checked_in) {
-                        ciEl.textContent = '✓ Eingecheckt' + (d.checkin_display ? ' · ' + d.checkin_display : '');
-                        ciEl.className = 'tix-verify-cell-value done';
-                    } else {
-                        ciEl.textContent = '○ Noch nicht eingecheckt';
-                        ciEl.className = 'tix-verify-cell-value pending';
-                    }
-                    modal.querySelector('[data-tix-verify-sig]').textContent = d.sig || '—';
+                // 2) Rotierender Code: ändert sich alle 2s (beweist Live-View)
+                function rotTick() {
+                    var rotEl = modal.querySelector('[data-tix-verify-rot]');
+                    if (!rotEl) return;
+                    // 4-char alphanumerisch, seeded aus Uhrzeit (damit nachvollziehbar nach Sekunde)
+                    var seed = Math.floor((Date.now() + tixVerifyOffset) / 2000);
+                    var chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+                    var code = '';
+                    var x = seed;
+                    for (var i = 0; i < 4; i++) { code += chars[x % chars.length]; x = Math.floor(x / chars.length) + seed + i * 31; }
+                    rotEl.textContent = code;
+                    // Trigger fade animation via class-reapply
+                    rotEl.style.animation = 'none';
+                    void rotEl.offsetWidth;
+                    rotEl.style.animation = '';
+                }
+                rotTick();
+                if (tixVerifyRotInterval) clearInterval(tixVerifyRotInterval);
+                tixVerifyRotInterval = setInterval(rotTick, 2000);
 
-                    // Live-Clock: Server-Zeit + Offset-Ticker
-                    var serverMs = d.server_time_iso ? new Date(d.server_time_iso).getTime() : Date.now();
-                    var clientMs = Date.now();
-                    var offset = serverMs - clientMs;
-                    if (tixVerifyClockInterval) clearInterval(tixVerifyClockInterval);
-                    function tickClock() {
-                        var now = new Date(Date.now() + offset);
-                        var pad = function(n){ return (n<10?'0':'') + n; };
-                        var clockStr = pad(now.getHours()) + ':' + pad(now.getMinutes()) + ':' + pad(now.getSeconds());
-                        var clockEl = modal.querySelector('[data-tix-verify-clock]');
-                        if (clockEl) clockEl.textContent = clockStr;
-                    }
-                    tickClock();
-                    tixVerifyClockInterval = setInterval(tickClock, 1000);
+                // 3) Age-Ticker: zeigt wie alt die letzte Server-Prüfung ist
+                function ageTick() {
+                    var refreshEl = modal.querySelector('[data-tix-verify-refresh]');
+                    var ageEl = modal.querySelector('[data-tix-verify-age]');
+                    if (!refreshEl || !ageEl) return;
+                    var age = Math.floor((Date.now() - tixVerifyLastFetch) / 1000);
+                    ageEl.textContent = age;
+                    refreshEl.classList.remove('stale', 'danger');
+                    if (age > 20)      refreshEl.classList.add('danger');
+                    else if (age > 12) refreshEl.classList.add('stale');
+                }
+                ageTick();
+                if (tixVerifyAgeInterval) clearInterval(tixVerifyAgeInterval);
+                tixVerifyAgeInterval = setInterval(ageTick, 1000);
 
-                    modal.querySelector('[data-tix-verify-loading]').hidden = true;
-                    modal.querySelector('[data-tix-verify-body]').hidden = false;
-                })
-                .catch(function(err){
-                    console.error('[Verify] Fehler:', err);
-                    modal.querySelector('[data-tix-verify-loading]').hidden = true;
-                    modal.querySelector('[data-tix-verify-error]').hidden = false;
-                });
+                // 4) Periodisches Re-Fetch vom Server (alle 8s) — prüft Check-in-Status live + neues sig
+                if (tixVerifyRefreshInterval) clearInterval(tixVerifyRefreshInterval);
+                tixVerifyRefreshInterval = setInterval(function(){
+                    tixVerifyFetch(modal, false).catch(function(){ /* silent, age-warning zeigt es */ });
+                }, 8000);
+
+                modal.querySelector('[data-tix-verify-loading]').hidden = true;
+                modal.querySelector('[data-tix-verify-body]').hidden = false;
+            }).catch(function(err){
+                console.error('[Verify] Fehler:', err);
+                modal.querySelector('[data-tix-verify-loading]').hidden = true;
+                modal.querySelector('[data-tix-verify-error]').hidden = false;
+            });
         }
         function tixVerifyClose() {
             var modal = document.querySelector('[data-tix-verify-modal]');
             if (!modal) return;
             modal.classList.remove('open');
             document.body.style.overflow = '';
-            if (tixVerifyClockInterval) { clearInterval(tixVerifyClockInterval); tixVerifyClockInterval = null; }
+            if (tixVerifyClockInterval)   { clearInterval(tixVerifyClockInterval); tixVerifyClockInterval = null; }
+            if (tixVerifyRotInterval)     { clearInterval(tixVerifyRotInterval); tixVerifyRotInterval = null; }
+            if (tixVerifyRefreshInterval) { clearInterval(tixVerifyRefreshInterval); tixVerifyRefreshInterval = null; }
+            if (tixVerifyAgeInterval)     { clearInterval(tixVerifyAgeInterval); tixVerifyAgeInterval = null; }
         }
         function tixVerifyOverlayClose(e) {
             if (e.target && e.target.hasAttribute('data-tix-verify-modal')) tixVerifyClose();
