@@ -1191,7 +1191,14 @@ class TIX_Tickets {
         /* ── Mobile (≤767px): fast 100% Viewport-Breite, Ticket vertikal, kompakte Paddings ── */
         @media (max-width: 767px) {
             body { padding: 8px !important; }
-            .ticket { border-radius: 10px !important; border-width: 1px !important; }
+            .ticket {
+                border-radius: 10px !important;
+                border-width: 1px !important;
+                -webkit-clip-path: inset(0 round 10px) !important;
+                clip-path: inset(0 round 10px) !important;
+            }
+            /* V4: Gradient-Ring dünner (3px → 2px) auf Mobile */
+            html.tix-ht-v4 .ticket::after { padding: 2px !important; }
             .ticket-header {
                 padding: 16px 14px !important;
                 flex-direction: column !important;
@@ -4469,6 +4476,18 @@ class TIX_Tickets {
         }
         .tix-bundle-countdown.tix-countdown-live .tix-countdown-value { color: <?php echo esc_attr($accent); ?>; }
         .tix-bundle-countdown.tix-countdown-past { opacity: .55; }
+
+        /* ── Mobile (≤767px): dünnerer Border + kompaktere Radien ── */
+        @media (max-width: 767px) {
+            .tix-bundle-card {
+                border-width: 1px !important;
+                border-radius: 10px !important;
+                -webkit-clip-path: inset(0 round 10px) !important;
+                clip-path: inset(0 round 10px) !important;
+            }
+            /* V4: Gradient-Ring dünner (3px → 2px) auf Mobile */
+            html.tix-ht-v4 .tix-bundle-card::after { padding: 2px !important; }
+        }
 
         /* Bundle: Verified-Badge kompakt im Header */
         .tix-bundle-card .tix-verified-badge {
