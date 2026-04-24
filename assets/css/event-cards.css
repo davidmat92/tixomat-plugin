@@ -37,15 +37,15 @@
     display: flex;
     flex-direction: column;
 }
-/* Gradient-Border bei Hover (CSS-Mask-Trick) */
+/* Gradient-Border bei Hover (CSS-Mask-Trick) — Akzentfarbe wie V4-Ticket */
 .ev::after {
     content: "";
     position: absolute; inset: 0;
     border-radius: inherit;
     padding: 1.5px;
     background: linear-gradient(135deg,
-        var(--tix-card-signal, #E8445A),
-        var(--tix-card-nacht, #131020));
+        var(--tix-card-nacht, #131020) 0%,
+        var(--tix-primary, #FF5500) 100%);
     -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
     -webkit-mask-composite: xor;
             mask-composite: exclude;
