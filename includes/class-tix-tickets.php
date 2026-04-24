@@ -1024,6 +1024,8 @@ class TIX_Tickets {
             'ht_action_save_image'   => 1,  // "Als Bild speichern"-Button
             'ht_action_wallets'      => 1,  // Apple/Google Wallet Buttons
             'ht_action_print'        => 1,  // "Ticket drucken"-Button
+            'ht_share_image'         => '', // Eigenes OG-Bild für Ticket-Shares (statt Event-Cover)
+            'ht_qr_bright_mode'      => 1,  // Bei QR-Tap: Fullscreen + Wake-Lock für max. Helligkeit
         ];
         foreach ($hd as $k => $v) {
             $$k = isset($s[$k]) && $s[$k] !== '' ? $s[$k] : $v;
@@ -1073,9 +1075,14 @@ class TIX_Tickets {
         $ajax_url     = admin_url('admin-ajax.php');
 
         // Open-Graph Daten — MUSS klar als Ticket erkennbar sein (nicht als Event!)
-        $og_image = get_the_post_thumbnail_url($event_id, 'large')
-                    ?: (get_the_post_thumbnail_url($event_id, 'full') ?: '');
-        // Fallback: Tixomat-Logo / Site-Logo
+        // 1. Prio: eigenes Ticket-Share-Bild aus Settings (ht_share_image)
+        // 2. Fallback: Event-Cover
+        // 3. Fallback: Ticket-Logo aus Settings
+        $og_image = !empty($ht_share_image) ? $ht_share_image : '';
+        if (!$og_image) {
+            $og_image = get_the_post_thumbnail_url($event_id, 'large')
+                        ?: (get_the_post_thumbnail_url($event_id, 'full') ?: '');
+        }
         if (!$og_image && !empty($s['ht_logo_url'])) $og_image = $s['ht_logo_url'];
         // Titel: "🎟️ Ticket: [Event]" damit beim Share klar wird es ist ein Ticket, nicht das Event
         $og_title = $event_name
@@ -2316,6 +2323,7 @@ class TIX_Tickets {
         .tix-snapshot .ticket-header::before,
         .tix-snapshot .ticket-header::after,
         .tix-snapshot .tix-bundle-card::before,
+        .tix-snapshot .tix-bundle-card::after,
         .tix-snapshot .tix-bundle-header::before,
         .tix-snapshot .tix-bundle-header::after { display: none !important; }
         /* .ticket: solide Darstellung — keine fancy Gradient-Borders oder Overflow-Tricks */
@@ -2805,14 +2813,31 @@ class TIX_Tickets {
         })();
 
         // ── QR-Zoom Fullscreen-Overlay ──
+        var TIX_QR_BRIGHT_MODE = <?php echo !empty($ht_qr_bright_mode) ? 'true' : 'false'; ?>;
         function tixQRZoom() {
             var overlay = document.querySelector('[data-tix-qr-zoom]');
             if (!overlay) return;
             overlay.classList.add('open');
             document.body.style.overflow = 'hidden';
-            // Screen Wake Lock — hält Display an (soweit verfügbar)
-            if ('wakeLock' in navigator) {
-                try { navigator.wakeLock.request('screen').then(function(lock){ window._tixQRWakeLock = lock; }); } catch(e){}
+            if (TIX_QR_BRIGHT_MODE) {
+                // 1) Screen Wake Lock — hält Display an (soweit verfügbar)
+                if ('wakeLock' in navigator) {
+                    try { navigator.wakeLock.request('screen').then(function(lock){ window._tixQRWakeLock = lock; }); } catch(e){}
+                }
+                // 2) Fullscreen-Request (macht OS-UI weg + mehr weißer Bildschirm-Anteil
+                //    → iOS/Android Ambient-Sensor dreht auto-brightness hoch)
+                var fs = overlay.requestFullscreen || overlay.webkitRequestFullscreen || overlay.msRequestFullscreen;
+                if (fs) {
+                    try {
+                        var p = fs.call(overlay);
+                        if (p && p.catch) p.catch(function(){ /* User-Geste fehlt / nicht erlaubt — still */ });
+                    } catch(e){}
+                }
+                // 3) iOS Theme-Color auf weiß zwingen (Statusbar-Hintergrund)
+                var tc = document.querySelector('meta[name="theme-color"]');
+                if (!tc) { tc = document.createElement('meta'); tc.name = 'theme-color'; document.head.appendChild(tc); }
+                tc.dataset.tixPrev = tc.content || '';
+                tc.content = '#ffffff';
             }
         }
         function tixQRZoomClose(e) {
@@ -2824,6 +2849,14 @@ class TIX_Tickets {
             if (overlay) overlay.classList.remove('open');
             document.body.style.overflow = '';
             if (window._tixQRWakeLock) { try { window._tixQRWakeLock.release(); } catch(e){} window._tixQRWakeLock = null; }
+            // Fullscreen verlassen
+            if (document.fullscreenElement || document.webkitFullscreenElement) {
+                var ef = document.exitFullscreen || document.webkitExitFullscreen || document.msExitFullscreen;
+                if (ef) { try { ef.call(document); } catch(e){} }
+            }
+            // Theme-Color zurücksetzen
+            var tc = document.querySelector('meta[name="theme-color"]');
+            if (tc && 'tixPrev' in tc.dataset) { tc.content = tc.dataset.tixPrev || ''; delete tc.dataset.tixPrev; }
         }
         document.addEventListener('keydown', function(e){ if (e.key === 'Escape') tixQRZoomClose(); });
         // ─────────────────────────────────────────────
@@ -4192,6 +4225,8 @@ class TIX_Tickets {
             'ht_action_save_image'   => 1,  // "Als Bild speichern"-Button
             'ht_action_wallets'      => 1,  // Apple/Google Wallet Buttons
             'ht_action_print'        => 1,  // "Ticket drucken"-Button
+            'ht_share_image'         => '', // Eigenes OG-Bild für Ticket-Shares (statt Event-Cover)
+            'ht_qr_bright_mode'      => 1,  // Bei QR-Tap: Fullscreen + Wake-Lock für max. Helligkeit
         ];
         foreach ($hd as $k => $v) {
             $$k = isset($s[$k]) && $s[$k] !== '' ? $s[$k] : $v;
@@ -4214,7 +4249,11 @@ class TIX_Tickets {
         // Open Graph Daten — MUSS klar als Ticket erkennbar sein (nicht als Event!)
         $bundle_first_event_id = intval(get_post_meta($tickets[0]->ID, '_tix_ticket_event_id', true));
         $bundle_event_name     = $bundle_first_event_id ? get_the_title($bundle_first_event_id) : '';
-        $bundle_og_image = $bundle_first_event_id ? (get_the_post_thumbnail_url($bundle_first_event_id, 'large') ?: '') : '';
+        // 1. Prio: eigenes Ticket-Share-Bild aus Settings (ht_share_image)
+        $bundle_og_image = !empty($s['ht_share_image']) ? $s['ht_share_image'] : '';
+        if (!$bundle_og_image && $bundle_first_event_id) {
+            $bundle_og_image = get_the_post_thumbnail_url($bundle_first_event_id, 'large') ?: '';
+        }
         if (!$bundle_og_image && !empty($s['ht_logo_url'])) $bundle_og_image = $s['ht_logo_url'];
         $bundle_og_title = '🎟️ ' . $total . ' ' . ($total === 1 ? 'Ticket' : 'Tickets')
                            . ($bundle_event_name ? ': ' . $bundle_event_name : '');
@@ -4283,7 +4322,27 @@ class TIX_Tickets {
 
         .tix-bundle-list { max-width: 600px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px; }
 
-        .tix-bundle-card { background: <?php echo esc_attr($ht_body_bg); ?>; border: 2px solid <?php echo esc_attr($ht_border_color); ?>; border-radius: <?php echo $ht_border_radius; ?>px; overflow: hidden; }
+        .tix-bundle-card {
+            background: <?php echo esc_attr($ht_body_bg); ?>;
+            border: 2px solid <?php echo esc_attr($ht_border_color); ?>;
+            border-radius: <?php echo $ht_border_radius; ?>px;
+            overflow: hidden;
+            /* Gleicher iOS-Clipping-Fix wie bei .ticket — header/footer mit eigenem BG respektieren so die rounded corners */
+            isolation: isolate;
+            -webkit-transform: translateZ(0);
+            transform: translateZ(0);
+            -webkit-clip-path: inset(0 round <?php echo $ht_border_radius; ?>px);
+            clip-path: inset(0 round <?php echo $ht_border_radius; ?>px);
+        }
+        /* Defensive: innere Segmente erben die Rundung */
+        .tix-bundle-header {
+            border-top-left-radius: inherit;
+            border-top-right-radius: inherit;
+        }
+        .tix-bundle-footer {
+            border-bottom-left-radius: inherit;
+            border-bottom-right-radius: inherit;
+        }
         .tix-bundle-header { background: <?php echo esc_attr($ht_header_bg); ?>; color: <?php echo esc_attr($ht_header_text); ?>; padding: 16px 20px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
         .tix-bundle-logo { max-height: <?php echo $ht_logo_height; ?>px; width: auto; flex-shrink: 0; }
         .tix-bundle-title h2 { font-size: 17px; margin-bottom: 2px; }
@@ -4648,18 +4707,42 @@ class TIX_Tickets {
                         #f7f7f8;
         }
         html.tix-ht-v4 .tix-bundle-card {
-            position: relative; overflow: hidden;
+            position: relative;
             box-shadow: 0 18px 40px -18px rgba(17,24,39,.2);
+            /* Kein padding-box/border-box Trick — solid BG + ::after für perfekten Gradient-Border */
+            background: <?php echo esc_attr($ht_body_bg); ?>;
+            border: 0;
+        }
+        /* Gradient-Border via mask-composite (selber saubere Ansatz wie Einzelticket V4) */
+        html.tix-ht-v4 .tix-bundle-card::after {
+            content: "";
+            position: absolute; inset: 0;
+            padding: 3px;
+            border-radius: inherit;
+            background: linear-gradient(135deg,
+                <?php echo esc_attr($ht_header_bg); ?> 0%,
+                <?php echo esc_attr($accent); ?> 50%,
+                <?php echo esc_attr($ht_header_bg); ?> 100%);
+            -webkit-mask:
+                linear-gradient(#000 0 0) content-box,
+                linear-gradient(#000 0 0);
+            -webkit-mask-composite: xor;
+                    mask-composite: exclude;
+            pointer-events: none;
+            z-index: 5;
         }
         html.tix-ht-v4 .tix-bundle-card::before {
             content: "";
-            position: absolute; inset: -30%;
+            position: absolute;
+            inset: 0;
+            border-radius: inherit;
             background: conic-gradient(from 0deg, transparent 0deg, rgba(236,72,153,.1) 60deg, rgba(168,85,247,.12) 120deg, rgba(59,130,246,.1) 180deg, rgba(16,185,129,.08) 240deg, rgba(245,158,11,.1) 300deg, transparent 360deg);
+            transform: scale(1.6) rotate(0deg);
             animation: tixHoloSpin 10s linear infinite;
             pointer-events: none; z-index: 0; mix-blend-mode: overlay;
         }
         html.tix-ht-v4 .tix-bundle-card > * { position: relative; z-index: 1; }
-        @keyframes tixHoloSpin { to { transform: rotate(360deg); } }
+        @keyframes tixHoloSpin { to { transform: scale(1.6) rotate(360deg); } }
         html.tix-ht-v4 .tix-bundle-header {
             background: linear-gradient(135deg, <?php echo esc_attr($ht_header_bg); ?> 0%, color-mix(in srgb, <?php echo esc_attr($ht_header_bg); ?> 75%, <?php echo esc_attr($accent); ?> 25%) 100%);
             position: relative; overflow: hidden;
@@ -4900,9 +4983,16 @@ class TIX_Tickets {
             }
             overlay.classList.add('open');
             document.body.style.overflow = 'hidden';
-            // Wake Lock
-            if ('wakeLock' in navigator) {
-                try { navigator.wakeLock.request('screen').then(function(lock){ window._tixQRWakeLock = lock; }); } catch(e){}
+            if (TIX_QR_BRIGHT_MODE) {
+                if ('wakeLock' in navigator) {
+                    try { navigator.wakeLock.request('screen').then(function(lock){ window._tixQRWakeLock = lock; }); } catch(e){}
+                }
+                var fs = overlay.requestFullscreen || overlay.webkitRequestFullscreen || overlay.msRequestFullscreen;
+                if (fs) { try { var p = fs.call(overlay); if (p && p.catch) p.catch(function(){}); } catch(e){} }
+                var tc = document.querySelector('meta[name="theme-color"]');
+                if (!tc) { tc = document.createElement('meta'); tc.name = 'theme-color'; document.head.appendChild(tc); }
+                tc.dataset.tixPrev = tc.content || '';
+                tc.content = '#ffffff';
             }
         }
         function tixBundleQRZoomClose(e) {
@@ -4911,7 +5001,14 @@ class TIX_Tickets {
             if (overlay) overlay.classList.remove('open');
             document.body.style.overflow = '';
             if (window._tixQRWakeLock) { try { window._tixQRWakeLock.release(); } catch(e){} window._tixQRWakeLock = null; }
+            if (document.fullscreenElement || document.webkitFullscreenElement) {
+                var ef = document.exitFullscreen || document.webkitExitFullscreen || document.msExitFullscreen;
+                if (ef) { try { ef.call(document); } catch(e){} }
+            }
+            var tc = document.querySelector('meta[name="theme-color"]');
+            if (tc && 'tixPrev' in tc.dataset) { tc.content = tc.dataset.tixPrev || ''; delete tc.dataset.tixPrev; }
         }
+        var TIX_QR_BRIGHT_MODE = <?php echo !empty($ht_qr_bright_mode) ? 'true' : 'false'; ?>;
         document.addEventListener('keydown', function(e){ if (e.key === 'Escape') tixBundleQRZoomClose(); });
 
         // Countdown-Runner pro Card

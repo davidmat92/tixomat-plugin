@@ -277,6 +277,8 @@ class TIX_Settings {
             'ht_action_save_image'   => 1,      // Button "Als Bild speichern"
             'ht_action_wallets'      => 1,      // Apple/Google Wallet Buttons
             'ht_action_print'        => 1,      // Button "Ticket drucken"
+            'ht_share_image'         => '',     // Eigenes OG-Bild für Ticket-Shares (statt Event-Cover)
+            'ht_qr_bright_mode'      => 1,      // Bei QR-Tap: Fullscreen + Wake-Lock für max. Helligkeit
             'ht_checkin_sound'       => 1,      // Audio-Feedback beim Check-in
             'ht_logo_height'     => 44,
             'ht_header_bg'       => '#222222',
@@ -1032,6 +1034,8 @@ class TIX_Settings {
         $clean['ht_action_save_image']   = !empty($input['ht_action_save_image']) ? 1 : 0;
         $clean['ht_action_wallets']      = !empty($input['ht_action_wallets']) ? 1 : 0;
         $clean['ht_action_print']        = !empty($input['ht_action_print']) ? 1 : 0;
+        $clean['ht_share_image']         = esc_url_raw($input['ht_share_image'] ?? '');
+        $clean['ht_qr_bright_mode']      = !empty($input['ht_qr_bright_mode']) ? 1 : 0;
         $clean['ht_show_event_cover']    = !empty($input['ht_show_event_cover']) ? 1 : 0;
         $clean['ht_show_countdown']      = !empty($input['ht_show_countdown']) ? 1 : 0;
         $clean['ht_show_verified_badge'] = !empty($input['ht_show_verified_badge']) ? 1 : 0;
@@ -3223,6 +3227,10 @@ class TIX_Settings {
                                                     <input type="checkbox" name="<?php echo $ok; ?>[ht_checkin_sound]" value="1" <?php checked(!empty($s['ht_checkin_sound'])); ?>>
                                                     <span style="font-size:13px;"><strong>🔊 Check-in-Sound</strong> · Ton + Vibration beim Scan</span>
                                                 </label>
+                                                <label style="display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid #e5e7eb;border-radius:8px;cursor:pointer;">
+                                                    <input type="checkbox" name="<?php echo $ok; ?>[ht_qr_bright_mode]" value="1" <?php checked(!empty($s['ht_qr_bright_mode'])); ?>>
+                                                    <span style="font-size:13px;"><strong>☀️ QR-Max-Helligkeit</strong> · Fullscreen + Wake-Lock beim QR-Tap</span>
+                                                </label>
                                             </div>
 
                                             <?php // ── Action-Button-Toggles (default: alle an) ── ?>
@@ -3280,6 +3288,25 @@ class TIX_Settings {
                                                 <?php endif; ?>
                                                 <p class="tix-field-hint">Logo im Ticket-Header (links neben dem Titel). Empfohlen: transparentes PNG oder wei&szlig;es Logo, max. 200px breit.</p>
                                             </div>
+
+                                            <?php // ── Share-Bild (Open Graph) ── ?>
+                                            <div class="tix-field tix-field-full" style="margin-top:12px;">
+                                                <label class="tix-field-label">Ticket-Share-Bild (Open Graph)</label>
+                                                <div style="display:flex;gap:12px;align-items:center;">
+                                                    <input type="text" name="<?php echo $ok; ?>[ht_share_image]" id="tix-ht-share-url"
+                                                           value="<?php echo esc_attr($s['ht_share_image'] ?? ''); ?>"
+                                                           class="regular-text" placeholder="Bild-URL eingeben oder Bild w&auml;hlen"
+                                                           style="flex:1;">
+                                                    <button type="button" class="button" id="tix-ht-share-btn">Bild w&auml;hlen</button>
+                                                </div>
+                                                <?php if (!empty($s['ht_share_image'])) : ?>
+                                                    <div style="margin-top:8px;" id="tix-ht-share-preview">
+                                                        <img src="<?php echo esc_url($s['ht_share_image']); ?>" style="max-width:200px;height:auto;border:1px solid #e5e7eb;border-radius:6px;">
+                                                        <button type="button" class="button-link" style="color:#ef4444;margin-left:8px;vertical-align:top;" onclick="document.getElementById('tix-ht-share-url').value='';document.getElementById('tix-ht-share-preview').remove();">Entfernen</button>
+                                                    </div>
+                                                <?php endif; ?>
+                                                <p class="tix-field-hint">Wird angezeigt wenn Kunden das Ticket teilen (WhatsApp, Messenger, etc.). Empfohlen: 1200&times;630 px, mit „🎟️ Ticket"-Branding damit Empf&auml;nger nicht denken, es sei ein Event-Kauf-Link. <strong>Leer</strong> = Event-Cover wird genutzt.</p>
+                                            </div>
                                         </div>
                                         <?php // ── Live-Vorschau ── ?>
                                         <div style="margin-top:20px;border-top:1px solid #e5e7eb;padding-top:20px;">
@@ -3299,6 +3326,27 @@ class TIX_Settings {
                                                     var url = frame.state().get('selection').first().toJSON().url;
                                                     $('#tix-ht-logo-url').val(url);
                                                     renderHtPreview();
+                                                });
+                                                frame.open();
+                                            });
+
+                                            $('#tix-ht-share-btn').on('click',function(e){
+                                                e.preventDefault();
+                                                var frame = wp.media({title:'Ticket-Share-Bild w\u00e4hlen',multiple:false,library:{type:'image'}});
+                                                frame.on('select',function(){
+                                                    var url = frame.state().get('selection').first().toJSON().url;
+                                                    $('#tix-ht-share-url').val(url);
+                                                    var $prev = $('#tix-ht-share-preview');
+                                                    if ($prev.length) {
+                                                        $prev.find('img').attr('src', url);
+                                                    } else {
+                                                        $('#tix-ht-share-url').closest('.tix-field').append(
+                                                            '<div style="margin-top:8px;" id="tix-ht-share-preview">' +
+                                                            '<img src="' + url + '" style="max-width:200px;height:auto;border:1px solid #e5e7eb;border-radius:6px;">' +
+                                                            '<button type="button" class="button-link" style="color:#ef4444;margin-left:8px;vertical-align:top;" onclick="document.getElementById(\'tix-ht-share-url\').value=\'\';document.getElementById(\'tix-ht-share-preview\').remove();">Entfernen</button>' +
+                                                            '</div>'
+                                                        );
+                                                    }
                                                 });
                                                 frame.open();
                                             });
