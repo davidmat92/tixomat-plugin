@@ -1095,6 +1095,8 @@ body.tix-org-subdomain .tix-org-brand-footer { display: block !important; }
 
         status_header(200);
         nocache_headers();
+        header('X-LiteSpeed-Cache-Control: no-cache');
+        header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0, private');
         header('Content-Type: text/html; charset=utf-8');
 
         $mode       = $data['color_mode'] ?? 'light';
@@ -1339,6 +1341,9 @@ a{display:inline-block;padding:12px 28px;background:#E8445A;color:#fff;border-ra
         self::track_view($org->ID, 0);
 
         status_header(200);
+        nocache_headers();
+        header('X-LiteSpeed-Cache-Control: no-cache');
+        header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0, private');
         header('Content-Type: text/html; charset=utf-8');
 
         ?><!DOCTYPE html>

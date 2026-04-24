@@ -992,6 +992,8 @@ class TIX_Tickets {
         }
 
         nocache_headers();
+        header('X-LiteSpeed-Cache-Control: no-cache');
+        header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0, private');
         header('Content-Type: text/html; charset=utf-8');
 
         // Design-Settings laden
@@ -3613,6 +3615,8 @@ class TIX_Tickets {
         $bundle_site_name = get_bloginfo('name');
 
         nocache_headers();
+        header('X-LiteSpeed-Cache-Control: no-cache');
+        header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0, private');
         header('Content-Type: text/html; charset=utf-8');
         ?><!DOCTYPE html>
 <html lang="de" class="tix-ht-<?php echo esc_attr($ht_version); ?>">
