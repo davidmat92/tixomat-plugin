@@ -1288,7 +1288,7 @@ class TIX_Tickets {
         .tix-badge-edit svg { width: 13px; height: 13px; }
         .tix-assign-hint {
             max-width: 600px; margin: 0 auto;
-            padding: 12px 4px; /* gleiches Padding oben + unten */
+            padding: 2px 4px 12px; /* top um 10px reduziert */
             font-size: 12px; color: #666;
             text-align: center;
         }
@@ -4082,7 +4082,7 @@ class TIX_Tickets {
         .tix-bundle-head p { color: #555; font-size: 14px; }
         .tix-assign-hint {
             max-width: 600px; margin: 0 auto;
-            padding: 12px 4px; /* gleiches Padding oben + unten */
+            padding: 2px 4px 12px; /* top um 10px reduziert */
             font-size: 12px; color: #666; text-align: center;
         }
 

@@ -3197,14 +3197,16 @@ class TIX_Settings {
                                                     <input type="checkbox" name="<?php echo $ok; ?>[ht_seasonal_enabled]" value="1" <?php checked(!empty($s['ht_seasonal_enabled'])); ?>>
                                                     <span style="font-size:13px;"><strong>🎄 Saison-Overlays</strong> · Weihnachten/Halloween/Valentin</span>
                                                 </label>
-                                                <label style="display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid #e5e7eb;border-radius:8px;cursor:pointer;">
-                                                    <input type="checkbox" name="<?php echo $ok; ?>[ht_watermark_enabled]" value="1" <?php checked(!empty($s['ht_watermark_enabled'])); ?>>
-                                                    <span style="font-size:13px;"><strong>💧 Wasserzeichen</strong> · Diagonale Ticket-ID (Anti-Fake)</span>
-                                                    <span style="margin-left:auto;display:inline-flex;align-items:center;gap:6px;" onclick="event.preventDefault();">
+                                                <div style="display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid #e5e7eb;border-radius:8px;">
+                                                    <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;flex:1;">
+                                                        <input type="checkbox" name="<?php echo $ok; ?>[ht_watermark_enabled]" value="1" <?php checked(!empty($s['ht_watermark_enabled'])); ?>>
+                                                        <span style="font-size:13px;"><strong>💧 Wasserzeichen</strong> · Diagonale Ticket-ID (Anti-Fake)</span>
+                                                    </label>
+                                                    <span style="display:inline-flex;align-items:center;gap:6px;">
                                                         <span style="font-size:11px;color:#6b7280;">Farbe:</span>
                                                         <input type="color" name="<?php echo $ok; ?>[ht_watermark_color]" value="<?php echo esc_attr(!empty($s['ht_watermark_color']) ? $s['ht_watermark_color'] : '#fafafa'); ?>" style="width:34px;height:26px;border:1px solid #d1d5db;border-radius:4px;padding:0;cursor:pointer;" title="Wasserzeichen-Farbe">
                                                     </span>
-                                                </label>
+                                                </div>
                                                 <label style="display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid #e5e7eb;border-radius:8px;cursor:pointer;">
                                                     <input type="checkbox" name="<?php echo $ok; ?>[ht_weather_enabled]" value="1" <?php checked(!empty($s['ht_weather_enabled'])); ?>>
                                                     <span style="font-size:13px;"><strong>☁️ Live-Wetter</strong> · Prognose am Event-Tag</span>
