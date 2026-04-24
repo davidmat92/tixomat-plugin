@@ -328,17 +328,39 @@
         state.canvas = $canvas;
         state.ctx = $canvas.getContext('2d', { willReadFrequently: true });
 
-        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return;
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            console.warn('[tix-checkin] getUserMedia nicht verfügbar');
+            return;
+        }
 
+        console.info('[tix-checkin] Starte Scanner…');
         navigator.mediaDevices.getUserMedia({
-            video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } }
+            video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
         }).then(function(stream) {
             state.video = $video;
             $video.srcObject = stream;
-            $video.play();
-            state.scanning = true;
-            requestAnimationFrame(scanFrame);
-        }).catch(function() { /* Kamera nicht verfügbar */ });
+            var playPromise = $video.play();
+            if (playPromise && playPromise.catch) playPromise.catch(function(e){ console.warn('[tix-checkin] video.play failed', e); });
+
+            // Scanner erst starten wenn tatsächlich Video-Frames da sind
+            $video.addEventListener('loadeddata', function onLoaded() {
+                $video.removeEventListener('loadeddata', onLoaded);
+                console.info('[tix-checkin] Video ready:', $video.videoWidth + 'x' + $video.videoHeight, '— jsQR:', typeof jsQR);
+                state.scanning = true;
+                requestAnimationFrame(scanFrame);
+            }, { once: true });
+
+            // Fallback: Falls loadeddata nicht feuert, nach 1.5s trotzdem starten
+            setTimeout(function(){
+                if (!state.scanning) {
+                    console.info('[tix-checkin] Fallback-Start nach 1.5s');
+                    state.scanning = true;
+                    requestAnimationFrame(scanFrame);
+                }
+            }, 1500);
+        }).catch(function(err) {
+            console.warn('[tix-checkin] Kamera-Fehler:', err && err.name, err && err.message);
+        });
     }
 
     function stopScanner() {
@@ -359,19 +381,31 @@
             var imageData = state.ctx.getImageData(0, 0, $canvas.width, $canvas.height);
 
             if (typeof jsQR !== 'undefined') {
-                var qr = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'dontInvert' });
+                // attemptBoth = auch invertierte QR (weiß-auf-schwarz oder Display-Reflektionen)
+                var qr = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'attemptBoth' });
                 if (qr && qr.data) {
                     var code = qr.data.toUpperCase();
                     var now = Date.now();
                     if (code !== state.lastScanned || now - state.lastScanTime > 3000) {
                         state.lastScanned = code;
                         state.lastScanTime = now;
+                        // Sofortiger "QR erkannt"-Impuls — BEVOR wir die Server-Antwort haben
+                        vibrate([60]);
+                        flashScannerBorder();
                         processCode(code);
                     }
                 }
             }
         }
         requestAnimationFrame(scanFrame);
+    }
+
+    // Kurzes grünes Blinken am Scan-Rahmen wenn QR erkannt wurde
+    function flashScannerBorder() {
+        var wrap = document.querySelector('.tix-ci-camera-wrap');
+        if (!wrap) return;
+        wrap.classList.add('tix-ci-scan-hit');
+        setTimeout(function(){ wrap.classList.remove('tix-ci-scan-hit'); }, 400);
     }
 
     // ══════════════════════════════════════════════
@@ -449,7 +483,8 @@
                 }
                 details.push(data.message || 'Willkommen!');
                 playBeep(800, 150);
-                vibrate([100]);
+                // Erfolg: langer + deutlicher Doppel-Impuls
+                vibrate([400, 80, 200]);
                 break;
 
             case 'partial':
@@ -460,7 +495,7 @@
                 if (data.note) details.push(data.note);
                 details.push(data.message || 'Teilweise eingecheckt.');
                 playBeep(600, 120); setTimeout(function() { playBeep(600, 120); }, 180);
-                vibrate([80, 50, 80]);
+                vibrate([250, 80, 250, 80, 250]);
                 break;
 
             case 'already':
@@ -475,7 +510,7 @@
                     details.push('Um ' + t.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }));
                 }
                 playBeep(400, 100); setTimeout(function() { playBeep(400, 100); }, 200);
-                vibrate([50, 100, 50, 100, 50]);
+                vibrate([120, 60, 120, 60, 120, 60, 120, 60, 120]);
                 break;
 
             case 'cancelled':
@@ -484,7 +519,7 @@
                 title = (data.name || 'Ticket') + ' \u2014 STORNIERT';
                 details = [data.message || 'Ticket wurde storniert.'];
                 playBeep(200, 300);
-                vibrate([300]);
+                vibrate([500, 100, 500]);
                 break;
 
             case 'not_found':
@@ -493,7 +528,7 @@
                 title = 'Nicht gefunden';
                 details = [data.message || 'Code nicht gefunden.'];
                 playBeep(200, 300);
-                vibrate([200, 100, 200]);
+                vibrate([400, 80, 400]);
                 break;
 
             default:
@@ -502,7 +537,7 @@
                 title = 'Fehler';
                 details = [data.message || 'Unbekannter Fehler.'];
                 playBeep(200, 300);
-                vibrate([200, 100, 200]);
+                vibrate([400, 80, 400]);
         }
 
         $result.className = 'tix-ci-result ' + cls;

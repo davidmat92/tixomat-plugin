@@ -116,6 +116,21 @@
     overflow: hidden;
     margin-bottom: 16px;
     box-shadow: 0 4px 6px rgba(0,0,0,0.04), 0 10px 24px rgba(0,0,0,0.06);
+    transition: box-shadow .2s ease;
+}
+/* Scan-Hit: kurzes grünes Aufleuchten wenn jsQR einen Code erkennt */
+.tix-ci-camera-wrap.tix-ci-scan-hit {
+    box-shadow: 0 0 0 6px #10b981, 0 0 40px rgba(16,185,129,.8);
+}
+.tix-ci-camera-wrap.tix-ci-scan-hit .tix-ci-crosshair {
+    border-color: #10b981 !important;
+    box-shadow: 0 0 0 9999px rgba(16,185,129,.25) !important;
+    animation: tixCiScanPulse .4s ease;
+}
+@keyframes tixCiScanPulse {
+    0%   { transform: scale(.9); }
+    50%  { transform: scale(1.08); }
+    100% { transform: scale(1); }
 }
 .tix-ci-video {
     width: 100%;
@@ -136,6 +151,7 @@
     border: 2px solid rgba(255,85,0,0.6);
     border-radius: 16px;
     box-shadow: 0 0 0 9999px rgba(0,0,0,0.35);
+    transition: border-color .2s ease, box-shadow .2s ease;
 }
 
 /* ── Manual Input ── */
