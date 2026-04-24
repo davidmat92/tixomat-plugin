@@ -1072,18 +1072,23 @@ class TIX_Tickets {
         $display_name = $assigned_raw !== '' ? $assigned_raw : $owner_name;
         $ajax_url     = admin_url('admin-ajax.php');
 
-        // Open-Graph Daten
+        // Open-Graph Daten — MUSS klar als Ticket erkennbar sein (nicht als Event!)
         $og_image = get_the_post_thumbnail_url($event_id, 'large')
                     ?: (get_the_post_thumbnail_url($event_id, 'full') ?: '');
         // Fallback: Tixomat-Logo / Site-Logo
         if (!$og_image && !empty($s['ht_logo_url'])) $og_image = $s['ht_logo_url'];
-        $og_title = $event_name ? $event_name : 'Mein Ticket';
+        // Titel: "🎟️ Ticket: [Event]" damit beim Share klar wird es ist ein Ticket, nicht das Event
+        $og_title = $event_name
+            ? '🎟️ Ticket: ' . $event_name
+            : '🎟️ Mein Ticket';
+        // Description: "Gültiges Ticket" als Prefix + Inhaber-Name damit klar: das ist NICHT der Event-Kauf-Link
         $og_desc_parts = [];
+        $og_desc_parts[] = 'Gültiges Ticket';
+        if (!empty($display_name)) $og_desc_parts[] = 'für ' . $display_name;
         if ($date_display) $og_desc_parts[] = $date_display;
         if ($time_start)   $og_desc_parts[] = $time_start . ' Uhr';
         if ($location)     $og_desc_parts[] = $location;
-        if ($cat_name)     $og_desc_parts[] = $cat_name;
-        $og_desc = implode(' · ', $og_desc_parts) ?: 'Mein Ticket';
+        $og_desc = implode(' · ', $og_desc_parts);
         $og_url  = esc_url_raw((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https://' : 'http://') . ($_SERVER['HTTP_HOST'] ?? '') . ($_SERVER['REQUEST_URI'] ?? ''));
         $site_name = get_bloginfo('name');
 
@@ -1108,20 +1113,21 @@ class TIX_Tickets {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?php echo esc_html($og_title); ?> — Ticket</title>
+    <title><?php echo esc_html($og_title); ?></title>
     <meta name="description" content="<?php echo esc_attr($og_desc); ?>">
     <meta name="robots" content="noindex,nofollow">
 
-    <?php // ── Open Graph ── ?>
-    <meta property="og:type"        content="website">
+    <?php // ── Open Graph (als Ticket-Artikel gekennzeichnet, nicht als Event) ── ?>
+    <meta property="og:type"        content="article">
     <meta property="og:title"       content="<?php echo esc_attr($og_title); ?>">
     <meta property="og:description" content="<?php echo esc_attr($og_desc); ?>">
     <meta property="og:url"         content="<?php echo esc_attr($og_url); ?>">
     <meta property="og:site_name"   content="<?php echo esc_attr($site_name); ?>">
     <meta property="og:locale"      content="de_DE">
+    <meta property="article:section" content="Ticket">
     <?php if ($og_image): ?>
         <meta property="og:image"        content="<?php echo esc_attr($og_image); ?>">
-        <meta property="og:image:alt"    content="<?php echo esc_attr($og_title); ?>">
+        <meta property="og:image:alt"    content="Ticket für <?php echo esc_attr($event_name); ?>">
         <meta property="og:image:width"  content="1200">
         <meta property="og:image:height" content="630">
     <?php endif; ?>
@@ -4205,12 +4211,19 @@ class TIX_Tickets {
         $buyer_name  = get_post_meta($tickets[0]->ID, '_tix_ticket_owner_name', true);
         $buyer_email = get_post_meta($tickets[0]->ID, '_tix_ticket_owner_email', true);
 
-        // Open Graph Daten (Event-Bild des ersten Tickets)
+        // Open Graph Daten — MUSS klar als Ticket erkennbar sein (nicht als Event!)
         $bundle_first_event_id = intval(get_post_meta($tickets[0]->ID, '_tix_ticket_event_id', true));
+        $bundle_event_name     = $bundle_first_event_id ? get_the_title($bundle_first_event_id) : '';
         $bundle_og_image = $bundle_first_event_id ? (get_the_post_thumbnail_url($bundle_first_event_id, 'large') ?: '') : '';
         if (!$bundle_og_image && !empty($s['ht_logo_url'])) $bundle_og_image = $s['ht_logo_url'];
-        $bundle_og_title = 'Meine Tickets (#' . intval($order_id) . ')';
-        $bundle_og_desc  = $total . ' ' . ($total === 1 ? 'Ticket' : 'Tickets') . ' für ' . ($buyer_name ?: $buyer_email);
+        $bundle_og_title = '🎟️ ' . $total . ' ' . ($total === 1 ? 'Ticket' : 'Tickets')
+                           . ($bundle_event_name ? ': ' . $bundle_event_name : '');
+        $bundle_og_desc_parts = [];
+        $bundle_og_desc_parts[] = 'Gültige ' . ($total === 1 ? 'Eintrittskarte' : 'Eintrittskarten');
+        if ($buyer_name)  $bundle_og_desc_parts[] = 'für ' . $buyer_name;
+        if ($bundle_event_name) $bundle_og_desc_parts[] = $bundle_event_name;
+        $bundle_og_desc_parts[] = 'Bestell-Nr. #' . intval($order_id);
+        $bundle_og_desc  = implode(' · ', $bundle_og_desc_parts);
         $bundle_og_url   = esc_url_raw((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https://' : 'http://') . ($_SERVER['HTTP_HOST'] ?? '') . ($_SERVER['REQUEST_URI'] ?? ''));
         $bundle_site_name = get_bloginfo('name');
 
@@ -4227,13 +4240,14 @@ class TIX_Tickets {
     <meta name="description" content="<?php echo esc_attr($bundle_og_desc); ?>">
     <meta name="robots" content="noindex,nofollow">
 
-    <?php // ── Open Graph ── ?>
-    <meta property="og:type"        content="website">
+    <?php // ── Open Graph (als Ticket-Artikel gekennzeichnet, nicht als Event) ── ?>
+    <meta property="og:type"        content="article">
     <meta property="og:title"       content="<?php echo esc_attr($bundle_og_title); ?>">
     <meta property="og:description" content="<?php echo esc_attr($bundle_og_desc); ?>">
     <meta property="og:url"         content="<?php echo esc_attr($bundle_og_url); ?>">
     <meta property="og:site_name"   content="<?php echo esc_attr($bundle_site_name); ?>">
     <meta property="og:locale"      content="de_DE">
+    <meta property="article:section" content="Tickets">
     <?php if ($bundle_og_image): ?>
         <meta property="og:image"        content="<?php echo esc_attr($bundle_og_image); ?>">
         <meta property="og:image:alt"    content="<?php echo esc_attr($bundle_og_title); ?>">
