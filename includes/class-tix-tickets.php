@@ -1297,7 +1297,7 @@ class TIX_Tickets {
         }
         .tix-badge {
             display: inline-flex; align-items: center; gap: 7px;
-            padding: 8px 12px 8px 14px; border-radius: 999px;
+            padding: 3px 12px 3px 14px; border-radius: 999px;
             font-size: 12.5px; font-weight: 600;
             line-height: 1.25;
             transition: background .35s ease, color .35s ease;
@@ -1313,13 +1313,13 @@ class TIX_Tickets {
                 width: 100%;
                 justify-content: center;
                 flex-wrap: nowrap;
-                padding: 9px 14px;
+                padding: 4px 14px;
             }
             .tix-badge-label,
             .tix-badge-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         }
         @media (max-width: 420px) {
-            .tix-badge { font-size: 11.5px; padding: 8px 12px; gap: 6px; }
+            .tix-badge { font-size: 11.5px; padding: 3px 12px; gap: 6px; }
             .tix-badge-edit { width: 22px; height: 22px; }
             .tix-badge-edit svg { width: 11px; height: 11px; }
         }
