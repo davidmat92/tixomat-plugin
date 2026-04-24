@@ -1015,6 +1015,7 @@ class TIX_Tickets {
             'ht_show_agb_footer'     => 1,
             'ht_seasonal_enabled'    => 0,
             'ht_watermark_enabled'   => 0,
+            'ht_watermark_color'     => '',
             'ht_weather_enabled'     => 0,
             'ht_checkin_sound'       => 1,
         ];
@@ -1947,13 +1948,15 @@ class TIX_Tickets {
             user-select: none;
             text-align: center;
         }
-        /* Nur V5 (Cyberpunk) hat wirklich dunklen Ticket-Body → dort weißes Watermark.
-           V3/V4/V6 haben hellen Ticket-Body → dunkles Watermark (default oben). */
+        <?php if (!empty($ht_watermark_color)): ?>
+        /* User-gesetzte Wasserzeichen-Farbe (Settings) — überschreibt alle Version-Defaults */
+        html.tix-watermark-on .tix-watermark span { color: <?php echo esc_attr($ht_watermark_color); ?> !important; }
+        <?php else: ?>
+        /* Version-spezifische Defaults wenn keine Farbe in den Settings gewählt ist */
         html.tix-watermark-on.tix-ht-v5 .tix-watermark span { color: rgba(255,255,255,.10); }
-        /* V4 (bunter Holo-Hintergrund): helles off-white Watermark #fafafa */
         html.tix-watermark-on.tix-ht-v4 .tix-watermark span { color: #fafafa; }
-        /* V6 (parchment): bronzebraun */
         html.tix-watermark-on.tix-ht-v6 .tix-watermark span { color: rgba(74,46,20,.12); }
+        <?php endif; ?>
         /* Content MUSS über Watermark liegen */
         html.tix-watermark-on .ticket > *:not(.tix-watermark) { position: relative; z-index: 3; }
         html.tix-watermark-on .ticket-qr .tix-ticket-qr-canvas,
@@ -2787,8 +2790,12 @@ class TIX_Tickets {
             if (isNaN(evDate.getTime())) { console.warn('[Wetter] Ungültiges Datum:', TIX_EVENT.startISO); return; }
             var daysAhead = (evDate.getTime() - Date.now()) / (1000*60*60*24);
             console.info('[Wetter] Tage bis Event:', daysAhead.toFixed(1));
-            // Open-Meteo-Prognose: bis 16 Tage — aber auch historische Daten sind OK
-            // (API liefert für vergangene Tage die tatsächliche Temperatur)
+            // Nur anzeigen wenn Event in den nächsten 7 Tagen (Prognose davor ist zu ungenau)
+            // Vergangenes Event (daysAhead < 0) wird noch angezeigt — dann ist's die historische Temperatur
+            if (daysAhead > 7) {
+                console.info('[Wetter] Event > 7 Tage entfernt — Prognose ausgeblendet');
+                return;
+            }
 
             function renderWeather(temp, code, lat, lng) {
                 var map = {
@@ -3634,6 +3641,7 @@ class TIX_Tickets {
             'ht_show_agb_footer'     => 1,
             'ht_seasonal_enabled'    => 0,
             'ht_watermark_enabled'   => 0,
+            'ht_watermark_color'     => '',
             'ht_weather_enabled'     => 0,
             'ht_checkin_sound'       => 1,
         ];

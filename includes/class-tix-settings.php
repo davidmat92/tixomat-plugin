@@ -272,6 +272,7 @@ class TIX_Settings {
             'ht_show_agb_footer'     => 1,      // AGB/Rückerstattung-Link im Footer
             'ht_seasonal_enabled'    => 0,      // Saison-Overlays (Weihnachten/Halloween/Valentin) über V1-V6
             'ht_watermark_enabled'   => 0,      // Diagonal-Wasserzeichen mit Ticket-ID
+            'ht_watermark_color'     => '',     // Wasserzeichen-Farbe (leer = Version-Defaults)
             'ht_weather_enabled'     => 0,      // Live-Wetter am Event-Tag
             'ht_checkin_sound'       => 1,      // Audio-Feedback beim Check-in
             'ht_logo_height'     => 44,
@@ -1020,6 +1021,7 @@ class TIX_Settings {
         $clean['ht_version']             = in_array($input['ht_version'] ?? 'v1', ['v1','v2','v3','v4','v5','v6'], true) ? $input['ht_version'] : 'v1';
         $clean['ht_seasonal_enabled']    = !empty($input['ht_seasonal_enabled']) ? 1 : 0;
         $clean['ht_watermark_enabled']   = !empty($input['ht_watermark_enabled']) ? 1 : 0;
+        $clean['ht_watermark_color']     = self::sanitize_color($input['ht_watermark_color'] ?? '') ?: '';
         $clean['ht_weather_enabled']     = !empty($input['ht_weather_enabled']) ? 1 : 0;
         $clean['ht_checkin_sound']       = !empty($input['ht_checkin_sound']) ? 1 : 0;
         $clean['ht_show_event_cover']    = !empty($input['ht_show_event_cover']) ? 1 : 0;
@@ -3198,6 +3200,10 @@ class TIX_Settings {
                                                 <label style="display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid #e5e7eb;border-radius:8px;cursor:pointer;">
                                                     <input type="checkbox" name="<?php echo $ok; ?>[ht_watermark_enabled]" value="1" <?php checked(!empty($s['ht_watermark_enabled'])); ?>>
                                                     <span style="font-size:13px;"><strong>💧 Wasserzeichen</strong> · Diagonale Ticket-ID (Anti-Fake)</span>
+                                                    <span style="margin-left:auto;display:inline-flex;align-items:center;gap:6px;" onclick="event.preventDefault();">
+                                                        <span style="font-size:11px;color:#6b7280;">Farbe:</span>
+                                                        <input type="color" name="<?php echo $ok; ?>[ht_watermark_color]" value="<?php echo esc_attr(!empty($s['ht_watermark_color']) ? $s['ht_watermark_color'] : '#fafafa'); ?>" style="width:34px;height:26px;border:1px solid #d1d5db;border-radius:4px;padding:0;cursor:pointer;" title="Wasserzeichen-Farbe">
+                                                    </span>
                                                 </label>
                                                 <label style="display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid #e5e7eb;border-radius:8px;cursor:pointer;">
                                                     <input type="checkbox" name="<?php echo $ok; ?>[ht_weather_enabled]" value="1" <?php checked(!empty($s['ht_weather_enabled'])); ?>>
