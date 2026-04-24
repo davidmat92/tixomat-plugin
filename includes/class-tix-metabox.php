@@ -74,7 +74,8 @@ class TIX_Metabox {
 
         wp_enqueue_style('dashicons');
         wp_enqueue_style('tix-admin',  TIXOMAT_URL . 'assets/css/admin.css', ['tix-google-fonts'], TIXOMAT_VERSION);
-        wp_enqueue_script('tix-qr', TIXOMAT_URL . 'assets/js/tix-qr.js', [], TIXOMAT_VERSION, true);
+        wp_enqueue_script('tix-qrcode-generator', TIXOMAT_URL . 'assets/js/qrcode-generator.js', [], TIXOMAT_VERSION, true);
+        wp_enqueue_script('tix-qr', TIXOMAT_URL . 'assets/js/tix-qr.js', ['tix-qrcode-generator'], TIXOMAT_VERSION, true);
 
         // Google Places API VOR admin.js laden (damit google global bei Modal-Init verfügbar ist)
         $google_api_key = function_exists('tix_get_settings') ? tix_get_settings('google_api_key') : '';

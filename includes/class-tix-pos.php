@@ -54,7 +54,8 @@ class TIX_POS {
         wp_enqueue_script('tix-pos', TIXOMAT_URL . 'assets/js/pos.js', [], TIXOMAT_VERSION, true);
 
         // QR library
-        wp_enqueue_script('tix-qr', TIXOMAT_URL . 'assets/js/tix-qr.js', [], TIXOMAT_VERSION, true);
+        wp_enqueue_script('tix-qrcode-generator', TIXOMAT_URL . 'assets/js/qrcode-generator.js', [], TIXOMAT_VERSION, true);
+        wp_enqueue_script('tix-qr', TIXOMAT_URL . 'assets/js/tix-qr.js', ['tix-qrcode-generator'], TIXOMAT_VERSION, true);
 
         wp_localize_script('tix-pos', 'tixPOS', [
             'ajaxUrl'          => admin_url('admin-ajax.php'),

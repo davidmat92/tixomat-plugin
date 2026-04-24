@@ -38,9 +38,16 @@ class TIX_My_Tickets {
             TIXOMAT_VERSION
         );
         wp_enqueue_script(
+            'tix-qrcode-generator',
+            TIXOMAT_URL . 'assets/js/qrcode-generator.js',
+            [],
+            TIXOMAT_VERSION,
+            true
+        );
+        wp_enqueue_script(
             'tix-qr',
             TIXOMAT_URL . 'assets/js/tix-qr.js',
-            [],
+            ['tix-qrcode-generator'],
             TIXOMAT_VERSION,
             true
         );

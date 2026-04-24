@@ -2791,6 +2791,7 @@ class TIX_Tickets {
 
     </div>
 
+    <script src="<?php echo esc_url(TIXOMAT_URL . 'assets/js/qrcode-generator.js?v=' . TIXOMAT_VERSION); ?>"></script>
     <script src="<?php echo esc_url(TIXOMAT_URL . 'assets/js/tix-qr.js?v=' . TIXOMAT_VERSION); ?>"></script>
     <script src="<?php echo esc_url(TIXOMAT_URL . 'assets/js/tix-ticket-img.js?v=' . TIXOMAT_VERSION); ?>"></script>
     <script src="<?php echo esc_url(TIXOMAT_URL . 'assets/js/tix-wallet.js?v=' . TIXOMAT_VERSION); ?>"></script>
@@ -4993,6 +4994,7 @@ class TIX_Tickets {
         <div class="tix-qr-zoom-code" data-tix-zoom-code></div>
     </div>
 
+    <script src="<?php echo esc_url(TIXOMAT_URL . 'assets/js/qrcode-generator.js?v=' . TIXOMAT_VERSION); ?>"></script>
     <script src="<?php echo esc_url(TIXOMAT_URL . 'assets/js/tix-qr.js?v=' . TIXOMAT_VERSION); ?>"></script>
     <script>
         // Alle Bundle-QR-Canvases rendern

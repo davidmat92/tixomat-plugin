@@ -534,6 +534,7 @@ class TIX_Checkin {
         $location   = get_post_meta($event_id, '_tix_location', true);
         $date_fmt   = $date_start ? date_i18n('l, d. F Y', strtotime($date_start)) : '';
 
+        $qrgen_js_url = TIXOMAT_URL . 'assets/js/qrcode-generator.js';
         $qr_js_url  = TIXOMAT_URL . 'assets/js/tix-qr.js';
 
         // Farben aus Einstellungen
@@ -610,6 +611,7 @@ class TIX_Checkin {
         <div class="hint">Bitte diesen QR-Code am Einlass vorzeigen.</div>
     </div>
 
+    <script src="<?php echo esc_url($qrgen_js_url); ?>"></script>
     <script src="<?php echo esc_url($qr_js_url); ?>"></script>
     <script>
         if (window.ehQR) {
