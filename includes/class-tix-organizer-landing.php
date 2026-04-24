@@ -1124,7 +1124,7 @@ body.tix-org-subdomain .tix-org-brand-footer { display: block !important; }
         .tix-org-account-main {
             max-width: var(--tix-ol-max-w, 1100px);
             margin: 0 auto;
-            padding: 28px var(--tix-ol-pad-x, 24px) 56px;
+            padding: 50px var(--tix-ol-pad-x, 24px);
         }
         /* Weißes Card-Feld um den Account-Inhalt, wie beim Checkout */
         .tix-org-account-card {
@@ -1161,7 +1161,10 @@ body.tix-org-subdomain .tix-org-brand-footer { display: block !important; }
         }
 
         @media (max-width: 768px) {
-            .tix-org-account-main { padding: 20px 12px 40px; }
+            .tix-org-account-main { padding: 32px 12px; }
+        }
+        @media (max-width: 480px) {
+            .tix-org-account-main { padding: 24px 12px; }
             .tix-org-account-card { padding: 10px 12px; border-radius: 12px; }
         }
     </style>
@@ -1250,7 +1253,7 @@ body.tix-org-subdomain .tix-org-brand-footer { display: block !important; }
         .tix-org-support-main {
             max-width: var(--tix-ol-max-w, 1100px);
             margin: 0 auto;
-            padding: 28px var(--tix-ol-pad-x, 24px) 56px;
+            padding: 50px var(--tix-ol-pad-x, 24px);
         }
         .tix-org-support-main h1 {
             font-size: 32px; font-weight: 800; letter-spacing: -.02em;
@@ -1265,9 +1268,12 @@ body.tix-org-subdomain .tix-org-brand-footer { display: block !important; }
         }
         body.tix-org-support-page .tix-support { --tix-support-primary: var(--tix-ol-primary); }
         @media (max-width: 768px) {
-            .tix-org-support-main { padding: 20px 12px 40px; }
+            .tix-org-support-main { padding: 32px 12px; }
             .tix-org-support-main h1 { font-size: 24px; margin-bottom: 16px; }
             .tix-org-support-card { padding: 20px 18px; border-radius: 12px; }
+        }
+        @media (max-width: 480px) {
+            .tix-org-support-main { padding: 24px 12px; }
         }
     </style>
 
@@ -1363,7 +1369,7 @@ body.tix-org-subdomain .tix-org-brand-footer { display: block !important; }
         .tix-org-tickets-main {
             max-width: var(--tix-ol-max-w, 1100px);
             margin: 0 auto;
-            padding: 28px var(--tix-ol-pad-x, 24px) 56px;
+            padding: 50px var(--tix-ol-pad-x, 24px);
         }
         .tix-org-tickets-card {
             background: #fff;
@@ -1372,8 +1378,11 @@ body.tix-org-subdomain .tix-org-brand-footer { display: block !important; }
             padding: 14px 16px;
         }
         @media (max-width: 768px) {
-            .tix-org-tickets-main { padding: 20px 12px 40px; }
+            .tix-org-tickets-main { padding: 32px 12px; }
             .tix-org-tickets-card { padding: 10px 12px; border-radius: 12px; }
+        }
+        @media (max-width: 480px) {
+            .tix-org-tickets-main { padding: 24px 12px; }
         }
     </style>
 

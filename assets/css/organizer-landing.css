@@ -375,13 +375,30 @@ body.tix-mode-dark .tix-ol-partner:hover img { filter: brightness(0) invert(1); 
     text-decoration: none;
     color: var(--tix-ol-text);
     display: block;
+    position: relative;
     transition: transform .2s, box-shadow .2s;
+}
+/* Gradient-Border bei Hover (CSS-Mask-Trick) */
+.tix-ol-card::after {
+    content: "";
+    position: absolute; inset: 0;
+    border-radius: inherit;
+    padding: 1.5px;
+    background: linear-gradient(135deg, var(--tix-ol-primary), var(--tix-ol-accent));
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+            mask-composite: exclude;
+    opacity: 0;
+    transition: opacity .3s ease;
+    pointer-events: none;
+    z-index: 3;
 }
 .tix-ol-card:hover {
     transform: translateY(-4px);
     box-shadow: 0 12px 32px rgba(0,0,0,0.12);
     text-decoration: none;
 }
+.tix-ol-card:hover::after { opacity: 1; }
 .tix-ol-card-img {
     aspect-ratio: 16 / 10;
     background-size: cover;
