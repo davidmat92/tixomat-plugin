@@ -1299,10 +1299,12 @@ class TIX_Tickets {
             display: inline-flex; align-items: center; gap: 7px;
             padding: 3px 12px 3px 14px; border-radius: 999px;
             font-size: 12.5px; font-weight: 600;
-            line-height: 1.25;
+            line-height: 1;
             transition: background .35s ease, color .35s ease;
             box-shadow: 0 2px 6px rgba(0,0,0,.15);
         }
+        .tix-badge .tix-badge-label,
+        .tix-badge .tix-badge-name { line-height: 1; }
         .tix-badge .tix-badge-name { font-weight: 700; }
         .tix-badge .tix-badge-sep { opacity: .55; margin: 0 2px; }
         /* Mobile (≤767px): Badge volle Breite, damit Status + Name sicher reinpassen */
@@ -1320,19 +1322,19 @@ class TIX_Tickets {
         }
         @media (max-width: 420px) {
             .tix-badge { font-size: 11.5px; padding: 3px 12px; gap: 6px; }
-            .tix-badge-edit { width: 22px; height: 22px; }
-            .tix-badge-edit svg { width: 11px; height: 11px; }
+            .tix-badge-edit { width: 20px; height: 20px; }
+            .tix-badge-edit svg { width: 10px; height: 10px; }
         }
         .tix-badge-edit {
             display: inline-flex; align-items: center; justify-content: center;
-            width: 26px; height: 26px; border-radius: 50%;
+            width: 22px; height: 22px; border-radius: 50%;
             margin-left: 4px; padding: 0; border: 0;
             background: rgba(0,0,0,.1); color: inherit;
             cursor: pointer; transition: background .2s ease;
             flex-shrink: 0;
         }
         .tix-badge-edit:hover { background: rgba(0,0,0,.2); }
-        .tix-badge-edit svg { width: 13px; height: 13px; }
+        .tix-badge-edit svg { width: 12px; height: 12px; }
         .tix-assign-hint {
             max-width: 600px; margin: 0 auto;
             padding: 2px 4px 12px; /* top um 10px reduziert */
