@@ -1950,8 +1950,9 @@ class TIX_Tickets {
         /* Nur V5 (Cyberpunk) hat wirklich dunklen Ticket-Body → dort weißes Watermark.
            V3/V4/V6 haben hellen Ticket-Body → dunkles Watermark (default oben). */
         html.tix-watermark-on.tix-ht-v5 .tix-watermark span { color: rgba(255,255,255,.10); }
-        /* V4 (bunter Holo-Hintergrund) + V6 (parchment): etwas stärkeres dunkles Watermark */
-        html.tix-watermark-on.tix-ht-v4 .tix-watermark span { color: rgba(17,24,39,.09); }
+        /* V4 (bunter Holo-Hintergrund): helles off-white Watermark #fafafa */
+        html.tix-watermark-on.tix-ht-v4 .tix-watermark span { color: #fafafa; }
+        /* V6 (parchment): bronzebraun */
         html.tix-watermark-on.tix-ht-v6 .tix-watermark span { color: rgba(74,46,20,.12); }
         /* Content MUSS über Watermark liegen */
         html.tix-watermark-on .ticket > *:not(.tix-watermark) { position: relative; z-index: 3; }
@@ -2012,7 +2013,8 @@ class TIX_Tickets {
            LIVE-WETTER-BADGE (auf Info-Row Datum)
            ═══════════════════════════════════════ */
         .tix-weather-inline {
-            display: inline-flex !important; align-items: center; gap: 5px;
+            /* KEIN !important auf display — damit inline style="display:none" (Initial-State, bevor JS Daten hat) greift */
+            display: inline-flex; align-items: center; gap: 5px;
             margin-left: 8px;
             padding: 3px 10px;
             background: rgba(59,130,246,.14); color: #1e3a8a !important;
@@ -2030,6 +2032,9 @@ class TIX_Tickets {
             z-index: 5;
             text-shadow: none !important;
         }
+        /* Sicherheits-Fallback: Leerer Placeholder (kein Inhalt) immer versteckt —
+           schützt vor leerem Pill falls display irgendwo per CSS überschrieben wird. */
+        .tix-weather-inline:empty { display: none !important; }
         .tix-weather-inline .tix-weather-icon { font-size: 13px; line-height: 1; }
         /* V4 (bunter Holo-BG mit mix-blend-mode overlay): solide weißer Grund damit die Badge klar lesbar ist */
         html.tix-ht-v4 .tix-weather-inline {
@@ -2832,14 +2837,26 @@ class TIX_Tickets {
             if (!raw) { console.warn('[Wetter] Weder Koordinaten noch Adresse vorhanden — abbruch'); return; }
             console.info('[Wetter] Geocoding benötigt, Roh-Input:', raw);
 
-            // Queries in Prio-Reihenfolge
+            // Queries in Prio-Reihenfolge (Open-Meteo Geocoding unterstützt KEINE PLZ → pure Stadtnamen zuerst)
             var queries = [];
             var plzMatch = raw.match(/(\d{4,5})\s+([A-Za-zÄÖÜäöüß\-\s\.]+)/);
-            if (plzMatch) queries.push(plzMatch[1] + ' ' + plzMatch[2].trim());
-            // Nur Stadt (nach dem letzten Komma)
-            var cityOnly = raw.split(',').pop().trim();
-            if (cityOnly && queries.indexOf(cityOnly) === -1) queries.push(cityOnly);
-            // Rohstring
+            // 1) Reiner Stadtname (z.B. "Wuppertal" aus "42103 Wuppertal")
+            if (plzMatch && plzMatch[2]) {
+                var cityClean = plzMatch[2].trim().split(',')[0].trim();
+                if (cityClean) queries.push(cityClean);
+            }
+            // 2) Letztes Komma-Segment, ggf. mit gestripperer PLZ
+            var lastPart = raw.split(',').pop().trim();
+            var cleanLast = lastPart.replace(/^\d{4,5}\s+/, '').trim();
+            if (cleanLast && queries.indexOf(cleanLast) === -1) queries.push(cleanLast);
+            // 3) PLZ + Stadt (falls die API das mal doch unterstützt)
+            if (plzMatch) {
+                var plzCity = plzMatch[1] + ' ' + plzMatch[2].trim().split(',')[0].trim();
+                if (queries.indexOf(plzCity) === -1) queries.push(plzCity);
+            }
+            // 4) cityOnly (letztes Segment wie es ist)
+            if (lastPart && queries.indexOf(lastPart) === -1) queries.push(lastPart);
+            // 5) Rohstring
             if (queries.indexOf(raw) === -1) queries.push(raw);
 
             console.info('[Wetter] Geocoding-Queries (in Reihenfolge):', queries);
