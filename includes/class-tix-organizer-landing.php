@@ -798,10 +798,12 @@ body.tix-org-subdomain .tix-org-brand-footer { display: block !important; }
         // Sub-Path-URLs auf derselben Subdomain
         $tickets_url = 'https://' . TIX_ON_ORG_SUBDOMAIN . '/tickets/';
         $account_url = 'https://' . TIX_ON_ORG_SUBDOMAIN . '/account/';
+        $support_url = 'https://' . TIX_ON_ORG_SUBDOMAIN . '/kontakt/';
         $req_path = strtok($_SERVER['REQUEST_URI'] ?? '/', '?');
         $req_trim = trim((string) $req_path, '/');
         $is_tickets_page = in_array($req_trim, ['tickets', 'meine-tickets', 'my-tickets'], true);
         $is_account_page = in_array($req_trim, ['account', 'mein-konto', 'konto'], true);
+        $is_support_page = in_array($req_trim, ['kontakt', 'support', 'hilfe', 'contact'], true);
         ?>
         <header class="tix-org-brand-header">
             <div class="tix-org-brand-header-inner">
@@ -827,13 +829,12 @@ body.tix-org-subdomain .tix-org-brand-footer { display: block !important; }
                         <span class="tix-org-brand-header-tickets-label">Meine Tickets</span>
                     </a>
 
-                    <button type="button"
-                            class="tix-org-brand-header-account tix-org-brand-header-support"
-                            onclick="tixOrgSupportToggle()"
-                            aria-label="Hilfe &amp; Support"
-                            title="Hilfe &amp; Support">
+                    <a href="<?php echo esc_url($support_url); ?>"
+                       class="tix-org-brand-header-account<?php echo $is_support_page ? ' is-active' : ''; ?>"
+                       aria-label="Hilfe &amp; Kontakt"
+                       title="Kontakt">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-                    </button>
+                    </a>
 
                     <a href="<?php echo esc_url($account_url); ?>"
                        class="tix-org-brand-header-account<?php echo $is_account_page ? ' is-active' : ''; ?>"
@@ -868,80 +869,6 @@ body.tix-org-subdomain .tix-org-brand-footer { display: block !important; }
             </div>
         </footer>
 
-        <?php // ── Support-Modal (Toggle via Header-Button) ── ?>
-        <div class="tix-org-support-overlay" data-tix-support-overlay onclick="tixOrgSupportClose(event)">
-            <div class="tix-org-support-modal" role="dialog" aria-modal="true" aria-labelledby="tix-org-support-title">
-                <button type="button" class="tix-org-support-close" onclick="tixOrgSupportClose()" aria-label="Schließen">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                </button>
-                <h3 id="tix-org-support-title">Support &amp; Hilfe</h3>
-                <div class="tix-org-support-body">
-                    <?php echo do_shortcode('[tix_support]'); ?>
-                </div>
-            </div>
-        </div>
-
-        <style>
-            /* Support-Button im Header: Icon-Only wie Account (nutzt tix-org-brand-header-account Styles) */
-            .tix-org-brand-header-support {
-                cursor: pointer;
-                padding: 0;
-                font-family: inherit;
-            }
-
-            .tix-org-support-overlay {
-                position: fixed; inset: 0; z-index: 9999;
-                background: rgba(15,23,42,.55);
-                display: none; align-items: center; justify-content: center;
-                padding: 20px;
-                backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
-            }
-            .tix-org-support-overlay.open { display: flex; }
-            .tix-org-support-modal {
-                background: #fff; border-radius: 16px;
-                max-width: 680px; width: 100%; max-height: 85vh;
-                padding: 28px 24px 24px;
-                position: relative; overflow-y: auto;
-                box-shadow: 0 20px 60px rgba(0,0,0,.35);
-                animation: tixSupportIn .25s ease;
-            }
-            @keyframes tixSupportIn {
-                from { opacity: 0; transform: translateY(12px) scale(.98); }
-                to   { opacity: 1; transform: translateY(0) scale(1); }
-            }
-            .tix-org-support-modal h3 {
-                margin: 0 0 16px; font-size: 20px; font-weight: 700; color: #111;
-            }
-            .tix-org-support-close {
-                position: absolute; top: 12px; right: 12px;
-                width: 36px; height: 36px; border-radius: 50%;
-                background: #f3f4f6; color: #111; border: 0;
-                display: flex; align-items: center; justify-content: center;
-                cursor: pointer;
-            }
-            .tix-org-support-close:hover { background: #e5e7eb; }
-            .tix-org-support-body { font-size: 14px; line-height: 1.5; color: #374151; }
-            @media (max-width: 640px) {
-                .tix-org-support-fab { bottom: 16px; right: 16px; width: 48px; height: 48px; }
-                .tix-org-support-modal { padding: 22px 18px; border-radius: 14px; }
-            }
-            @media print {
-                .tix-org-brand-header-support, .tix-org-support-overlay { display: none !important; }
-            }
-        </style>
-
-        <script>
-            function tixOrgSupportToggle() {
-                var o = document.querySelector('[data-tix-support-overlay]');
-                if (o) { o.classList.add('open'); document.body.style.overflow = 'hidden'; }
-            }
-            function tixOrgSupportClose(e) {
-                if (e && e.target && !e.target.hasAttribute('data-tix-support-overlay') && !e.target.closest('.tix-org-support-close')) return;
-                var o = document.querySelector('[data-tix-support-overlay]');
-                if (o) { o.classList.remove('open'); document.body.style.overflow = ''; }
-            }
-            document.addEventListener('keydown', function(ev){ if (ev.key === 'Escape') tixOrgSupportClose({target:{hasAttribute:function(){return true;}}}); });
-        </script>
         <?php
     }
 
@@ -1115,6 +1042,10 @@ body.tix-org-subdomain .tix-org-brand-footer { display: block !important; }
                 // Virtueller Sub-Pfad /account/ — rendert [tix_account] im Branding
                 $slug = TIX_ORG_SUBDOMAIN_SLUG;
                 $view = 'account';
+            } elseif (in_array($trimmed, ['kontakt', 'support', 'hilfe', 'contact'], true)) {
+                // Virtueller Sub-Pfad /kontakt/ — rendert [tix_support] im Branding
+                $slug = TIX_ORG_SUBDOMAIN_SLUG;
+                $view = 'support';
             }
         }
 
@@ -1130,6 +1061,8 @@ body.tix-org-subdomain .tix-org-brand-footer { display: block !important; }
             self::render_tickets_page($org);
         } elseif ($view === 'account') {
             self::render_account_page($org);
+        } elseif ($view === 'support') {
+            self::render_support_page($org);
         } else {
             self::render_landing($org);
         }
@@ -1256,6 +1189,105 @@ body.tix-org-subdomain .tix-org-brand-footer { display: block !important; }
     <main class="tix-org-account-main">
         <div class="tix-org-account-card">
             <?php echo do_shortcode('[tix_account]'); ?>
+        </div>
+    </main>
+
+    <?php self::inject_branded_footer(); ?>
+</body>
+</html><?php
+    }
+
+    /**
+     * Rendert die „Kontakt / Support"-Seite auf der Subdomain:
+     * gebrandete Header/Footer + [tix_support] Shortcode.
+     * Verhält sich konsistent zu render_account_page.
+     */
+    private static function render_support_page($org) {
+        while (ob_get_level() > 0) ob_end_clean();
+
+        $data = self::get_landing_data($org);
+
+        status_header(200);
+        nocache_headers();
+        header('Content-Type: text/html; charset=utf-8');
+
+        ?><!DOCTYPE html>
+<html <?php language_attributes(); ?>>
+<head>
+    <meta charset="<?php bloginfo('charset'); ?>">
+    <meta name="viewport" content="width=device-width,initial-scale=1.0">
+    <title>Kontakt – <?php echo esc_html($org->post_title); ?></title>
+    <meta name="robots" content="noindex,nofollow">
+
+    <link rel="stylesheet" href="<?php echo esc_url(TIXOMAT_URL . 'assets/css/event-cards.css?v=' . TIXOMAT_VERSION); ?>">
+    <link rel="stylesheet" href="<?php echo esc_url(TIXOMAT_URL . 'assets/css/organizer-landing.css?v=' . TIXOMAT_VERSION); ?>">
+    <link rel="stylesheet" href="<?php echo esc_url(TIXOMAT_URL . 'assets/css/support.css?v=' . TIXOMAT_VERSION); ?>">
+
+    <style>
+        <?php
+        $mode       = $data['color_mode'] ?? 'light';
+        $bg         = $data['bg_color'];
+        $surface_l  = self::shade_color($data['bg_light'], 0.03);
+        $surface_d  = self::shade_color($data['bg_dark'],  0.08);
+        $surface    = ($mode === 'dark') ? $surface_d : $surface_l;
+        ?>
+        :root {
+            --tix-ol-primary:    <?php echo esc_attr($data['primary_color']); ?>;
+            --tix-ol-accent:     <?php echo esc_attr($data['accent_color']); ?>;
+            --tix-ol-bg:         <?php echo esc_attr($bg); ?>;
+            --tix-ol-surface:    <?php echo esc_attr($surface); ?>;
+            <?php if ($mode === 'dark'): ?>
+            --tix-ol-text:       #f5f5f7;
+            --tix-ol-text-muted: #a0a0a8;
+            --tix-ol-border:     rgba(255,255,255,0.08);
+            <?php else: ?>
+            --tix-ol-text:       #131020;
+            --tix-ol-text-muted: #6b7280;
+            --tix-ol-border:     rgba(0,0,0,0.08);
+            <?php endif; ?>
+        }
+        body.tix-ol { background: var(--tix-ol-bg); color: var(--tix-ol-text); }
+        .tix-org-support-main {
+            max-width: var(--tix-ol-max-w, 1100px);
+            margin: 0 auto;
+            padding: 28px var(--tix-ol-pad-x, 24px) 56px;
+        }
+        .tix-org-support-main h1 {
+            font-size: 32px; font-weight: 800; letter-spacing: -.02em;
+            margin: 0 0 24px;
+        }
+        .tix-org-support-card {
+            background: #fff;
+            border-radius: 16px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 4px 14px rgba(0,0,0,0.04);
+            padding: 28px 32px;
+            overflow: hidden;
+        }
+        body.tix-org-support-page .tix-support { --tix-support-primary: var(--tix-ol-primary); }
+        @media (max-width: 768px) {
+            .tix-org-support-main { padding: 20px 12px 40px; }
+            .tix-org-support-main h1 { font-size: 24px; margin-bottom: 16px; }
+            .tix-org-support-card { padding: 20px 18px; border-radius: 12px; }
+        }
+    </style>
+
+    <link rel="icon" type="image/x-icon" href="<?php echo esc_url($data['favicon'] ?: (get_site_icon_url() ?: '/favicon.ico')); ?>">
+
+    <?php self::inject_branded_css(); ?>
+    <?php if (class_exists('TIX_Settings') && method_exists('TIX_Settings', 'output_css')): TIX_Settings::output_css(); endif; ?>
+
+    <script>
+        window.ajaxurl = <?php echo wp_json_encode(admin_url('admin-ajax.php')); ?>;
+    </script>
+</head>
+<body class="tix-ol tix-org-subdomain tix-org-<?php echo esc_attr($data['slug']); ?> tix-mode-<?php echo esc_attr($data['color_mode'] ?? 'light'); ?> tix-org-support-page">
+
+    <?php self::inject_branded_header(); ?>
+
+    <main class="tix-org-support-main">
+        <h1>Kontakt</h1>
+        <div class="tix-org-support-card">
+            <?php echo do_shortcode('[tix_support]'); ?>
         </div>
     </main>
 
