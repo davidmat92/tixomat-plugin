@@ -1132,6 +1132,8 @@ body.tix-org-subdomain .tix-org-brand-footer { display: block !important; }
             border-radius: 16px;
             box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 4px 14px rgba(0,0,0,0.04);
             padding: 24px 28px;
+            margin-top: 20px;
+            margin-bottom: 20px;
             overflow: hidden;
         }
         /* Inner-Content-Margin-Overrides für tix_account: große Leerfläche reduzieren */
@@ -1165,7 +1167,7 @@ body.tix-org-subdomain .tix-org-brand-footer { display: block !important; }
         }
         @media (max-width: 480px) {
             .tix-org-account-main { padding: 24px 12px; }
-            .tix-org-account-card { padding: 10px 12px; border-radius: 12px; }
+            .tix-org-account-card { padding: 20px 18px; border-radius: 12px; }
         }
     </style>
 
@@ -1263,7 +1265,9 @@ body.tix-org-subdomain .tix-org-brand-footer { display: block !important; }
             background: #fff;
             border-radius: 16px;
             box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 4px 14px rgba(0,0,0,0.04);
-            padding: 28px 32px;
+            padding: 24px 28px;
+            margin-top: 20px;
+            margin-bottom: 20px;
             overflow: hidden;
         }
         body.tix-org-support-page .tix-support { --tix-support-primary: var(--tix-ol-primary); }
@@ -1375,11 +1379,13 @@ body.tix-org-subdomain .tix-org-brand-footer { display: block !important; }
             background: #fff;
             border-radius: 16px;
             box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 4px 14px rgba(0,0,0,0.04);
-            padding: 14px 16px;
+            padding: 24px 28px;
+            margin-top: 20px;
+            margin-bottom: 20px;
         }
         @media (max-width: 768px) {
             .tix-org-tickets-main { padding: 32px 12px; }
-            .tix-org-tickets-card { padding: 10px 12px; border-radius: 12px; }
+            .tix-org-tickets-card { padding: 20px 18px; border-radius: 12px; }
         }
         @media (max-width: 480px) {
             .tix-org-tickets-main { padding: 24px 12px; }

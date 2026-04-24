@@ -378,12 +378,12 @@ body.tix-mode-dark .tix-ol-partner:hover img { filter: brightness(0) invert(1); 
     position: relative;
     transition: transform .2s, box-shadow .2s;
 }
-/* Gradient-Border bei Hover (CSS-Mask-Trick) — Akzentfarbe wie V4-Ticket */
+/* Gradient-Border bei Hover (CSS-Mask-Trick) — dezent */
 .tix-ol-card::after {
     content: "";
     position: absolute; inset: 0;
     border-radius: inherit;
-    padding: 1.5px;
+    padding: 1px;
     background: linear-gradient(135deg,
         var(--tix-ol-accent, var(--tix-ol-text, #131020)) 0%,
         var(--tix-ol-primary, #E8445A) 100%);
@@ -400,7 +400,7 @@ body.tix-mode-dark .tix-ol-partner:hover img { filter: brightness(0) invert(1); 
     box-shadow: 0 12px 32px rgba(0,0,0,0.12);
     text-decoration: none;
 }
-.tix-ol-card:hover::after { opacity: 1; }
+.tix-ol-card:hover::after { opacity: .55; }
 .tix-ol-card-img {
     aspect-ratio: 16 / 10;
     background-size: cover;

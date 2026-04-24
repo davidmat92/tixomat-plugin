@@ -37,12 +37,12 @@
     display: flex;
     flex-direction: column;
 }
-/* Gradient-Border bei Hover (CSS-Mask-Trick) — Akzentfarbe wie V4-Ticket */
+/* Gradient-Border bei Hover (CSS-Mask-Trick) — dezent */
 .ev::after {
     content: "";
     position: absolute; inset: 0;
     border-radius: inherit;
-    padding: 1.5px;
+    padding: 1px;
     background: linear-gradient(135deg,
         var(--tix-card-nacht, #131020) 0%,
         var(--tix-primary, #FF5500) 100%);
@@ -55,7 +55,7 @@
     z-index: 3;
 }
 .ev:hover { transform: translateY(-5px); box-shadow: 0 16px 44px rgba(0,0,0,0.1); border-color: transparent; }
-.ev:hover::after { opacity: 1; }
+.ev:hover::after { opacity: .55; }
 .section-dark .ev { background: var(--tix-card-nacht-soft, #1C1831); border-color: #332F50; }
 .section-dark .ev:hover { box-shadow: 0 16px 44px rgba(0,0,0,0.4); border-color: #272340; }
 
