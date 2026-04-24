@@ -1151,10 +1151,12 @@ class TIX_Tickets {
             }
             /* V4 fancy-Layers aus */
             html.tix-ht-v4 .ticket::before,
+            html.tix-ht-v4 .ticket::after,
             html.tix-ht-v4 .ticket-header::before,
             html.tix-ht-v4 .ticket-header::after,
             html.tix-ht-v4 .ticket-qr canvas { animation: none !important; }
             html.tix-ht-v4 .ticket::before,
+            html.tix-ht-v4 .ticket::after,
             html.tix-ht-v4 .ticket-header::before,
             html.tix-ht-v4 .ticket-header::after { display: none !important; }
             html.tix-ht-v4 .ticket-header { background: <?php echo esc_attr($ht_header_bg); ?> !important; }
@@ -1206,11 +1208,13 @@ class TIX_Tickets {
             overflow: hidden;
             /* iOS Safari Border-Radius Clipping-Bug: Kinder mit eigenem Hintergrund
                (z.B. .ticket-header) überschreiben sonst die abgerundeten Ecken.
-               isolation+translateZ erzwingt neuen Stacking-Context → Clipping greift. */
+               isolation+translateZ erzwingt neuen Stacking-Context → Clipping greift.
+               clip-path mit hard-edge inset für sauberes Corner-Rendering (kein fade wie mask-image). */
             isolation: isolate;
             -webkit-transform: translateZ(0);
             transform: translateZ(0);
-            -webkit-mask-image: -webkit-radial-gradient(white, black);
+            -webkit-clip-path: inset(0 round <?php echo $ht_border_radius; ?>px);
+            clip-path: inset(0 round <?php echo $ht_border_radius; ?>px);
         }
         /* Defensive: obere/untere Ecken per-Element rund — falls parent-Clipping mal versagt */
         .ticket-header {
@@ -1385,14 +1389,19 @@ class TIX_Tickets {
         }
 
         /* ═══════════════════════════════════════
-           ECHTHEITSPRÜFUNG-MODAL (Türpersonal, Anti-Screenshot)
+           ECHTHEITSPRÜFUNG-MODAL (Türpersonal, kompakt, dezente Anti-Screenshot-Signale)
            ═══════════════════════════════════════ */
-        .tix-verify-modal { max-width: 520px; padding: 0; overflow: hidden; position: relative; }
+        .tix-verify-modal {
+            max-width: 480px; padding: 0; overflow: hidden;
+            position: relative;
+            max-height: 90vh;
+            display: flex; flex-direction: column;
+        }
 
-        /* Continuously moving scan-line — Screenshot = stillstehend */
+        /* Kontinuierliche Scan-Line (Screenshot = stillstehend) */
         .tix-verify-scan {
             position: absolute; top: 0; left: 0; right: 0;
-            height: 3px;
+            height: 2px;
             background: linear-gradient(90deg, transparent 0%, #10b981 50%, transparent 100%);
             z-index: 10;
             pointer-events: none;
@@ -1403,71 +1412,38 @@ class TIX_Tickets {
             100% { transform: translateX(100%); }
         }
 
-        /* LIVE-Indicator mit pulsing dot */
-        .tix-verify-live-indicator {
-            display: inline-flex; align-items: center; gap: 6px;
-            font-size: 11px; font-weight: 800; letter-spacing: 2px;
-            color: #ef4444;
-            margin-bottom: 6px;
-        }
-        .tix-verify-live-dot {
-            width: 8px; height: 8px; border-radius: 50%;
-            background: #ef4444;
-            animation: tixVerifyLiveDot 1.2s ease-in-out infinite;
-            box-shadow: 0 0 0 0 rgba(239,68,68,.7);
-        }
-        @keyframes tixVerifyLiveDot {
-            0%, 100% { box-shadow: 0 0 0 0 rgba(239,68,68,.7); transform: scale(1); }
-            50%      { box-shadow: 0 0 0 8px rgba(239,68,68,0); transform: scale(1.15); }
-        }
-
-        /* Rotierender Code (4 Zeichen, wechselt alle 2s) */
-        .tix-verify-rotating {
-            margin-top: 10px; font-size: 10px; color: #065f46;
-            text-transform: uppercase; letter-spacing: .8px;
-        }
+        /* Rotierender 2s-Code — klein, inline */
         .tix-verify-rot {
             display: inline-block;
             font-family: 'SF Mono', Consolas, monospace;
-            font-size: 14px; font-weight: 800;
-            letter-spacing: 3px;
+            font-size: 12px; font-weight: 800;
+            letter-spacing: 2px;
             color: #065f46;
             background: #fff;
-            padding: 2px 8px; border-radius: 6px;
-            margin-left: 4px;
+            padding: 1px 6px; border-radius: 4px;
             border: 1px solid #bbf7d0;
             animation: tixVerifyRotFade .4s ease;
+            min-width: 48px;
+            text-align: center;
         }
         @keyframes tixVerifyRotFade {
             from { opacity: .3; transform: scale(.9); }
             to   { opacity: 1;  transform: scale(1); }
         }
 
-        /* Re-Fetch Alter */
-        .tix-verify-refresh {
-            margin-top: 8px; font-size: 11px;
-            color: #059669;
-        }
-        .tix-verify-refresh.stale {
-            color: #d97706;
-            font-weight: 700;
-        }
-        .tix-verify-refresh.danger {
-            color: #dc2626;
-            font-weight: 700;
-        }
+        .tix-verify-refresh { font-size: 11px; color: #059669; }
+        .tix-verify-refresh.stale  { color: #d97706; font-weight: 700; }
+        .tix-verify-refresh.danger { color: #dc2626; font-weight: 700; }
 
-        /* Kontinuierlich laufender Progress-Balken */
+        /* Kontinuierlich laufender Progress-Balken (dezent, als Bottom-Linie) */
         .tix-verify-progress {
-            margin: 0 24px 12px;
-            height: 4px;
+            height: 2px;
             background: #e5e7eb;
-            border-radius: 2px;
             overflow: hidden;
+            margin: 0;
         }
         .tix-verify-progress-fill {
-            height: 100%;
-            width: 30%;
+            height: 100%; width: 30%;
             background: linear-gradient(90deg, #10b981, #059669, #10b981);
             animation: tixVerifyProgress 1.8s ease-in-out infinite;
         }
@@ -1477,15 +1453,16 @@ class TIX_Tickets {
         }
 
         .tix-verify-head {
-            display: flex; align-items: center; gap: 14px;
-            padding: 20px 24px 18px;
+            display: flex; align-items: center; gap: 12px;
+            padding: 14px 20px;
             background: linear-gradient(135deg, #065f46 0%, #059669 100%);
             color: #fff;
+            flex-shrink: 0;
         }
-        .tix-verify-head h3 { color: #fff !important; margin: 0; font-size: 17px; }
-        .tix-verify-desc { color: rgba(255,255,255,.85); font-size: 12px; margin: 2px 0 0; }
+        .tix-verify-head h3 { color: #fff !important; margin: 0; font-size: 16px; }
+        .tix-verify-desc { color: rgba(255,255,255,.85); font-size: 11px; margin: 1px 0 0; }
         .tix-verify-pulse {
-            position: relative; width: 36px; height: 36px; flex-shrink: 0;
+            position: relative; width: 28px; height: 28px; flex-shrink: 0;
             display: flex; align-items: center; justify-content: center;
         }
         .tix-verify-pulse span {
@@ -1499,81 +1476,93 @@ class TIX_Tickets {
             100% { transform: scale(1);   opacity: 0; }
         }
         .tix-verify-pulse::after {
-            content: ""; position: absolute; width: 14px; height: 14px; border-radius: 50%;
+            content: ""; position: absolute; width: 10px; height: 10px; border-radius: 50%;
             background: #fff; z-index: 2;
-            box-shadow: 0 0 0 3px rgba(255,255,255,.35);
+            box-shadow: 0 0 0 2px rgba(255,255,255,.35);
         }
 
-        .tix-verify-loading {
-            padding: 40px 24px; text-align: center;
-        }
+        .tix-verify-loading { padding: 32px 20px; text-align: center; }
         .tix-verify-loading p { margin: 12px 0 0; font-size: 13px; color: #666; }
         .tix-verify-spinner {
-            width: 36px; height: 36px; margin: 0 auto;
+            width: 32px; height: 32px; margin: 0 auto;
             border: 3px solid #e5e7eb; border-top-color: #059669;
             border-radius: 50%; animation: tixVerifySpin .9s linear infinite;
         }
         @keyframes tixVerifySpin { to { transform: rotate(360deg); } }
 
-        .tix-verify-body { padding: 20px 24px 4px; }
+        .tix-verify-body { padding: 12px 16px 0; overflow-y: auto; flex: 1; min-height: 0; }
+
+        /* Kompakte Clock-Zeile: Uhr links, Meta rechts (Age + 2s-Code) */
         .tix-verify-clock {
-            text-align: center; padding: 14px; margin-bottom: 14px;
-            background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px;
-        }
-        .tix-verify-clock-label {
-            font-size: 10px; text-transform: uppercase; letter-spacing: 1.5px;
-            color: #065f46; font-weight: 700;
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 12px;
+            padding: 10px 12px; margin-bottom: 10px;
+            background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 10px;
         }
         .tix-verify-clock-time {
             font-family: 'SF Mono', Consolas, monospace;
-            font-size: 22px; font-weight: 800; color: #065f46;
-            letter-spacing: 1px; margin-top: 2px;
+            font-size: 20px; font-weight: 800; color: #065f46;
+            letter-spacing: 1px; line-height: 1;
         }
+        .tix-verify-clock-meta {
+            display: flex; flex-direction: column; align-items: flex-end; gap: 2px;
+            font-size: 10px;
+        }
+        .tix-verify-rot-wrap {
+            display: inline-flex; align-items: center; gap: 5px;
+        }
+        .tix-verify-rot-sub { font-size: 9px; color: #065f46; text-transform: uppercase; letter-spacing: .5px; }
+
         .tix-verify-grid {
-            display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
-            margin-bottom: 14px;
+            display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
+            margin-bottom: 8px;
         }
         .tix-verify-cell {
-            padding: 10px 12px;
+            padding: 7px 10px;
             background: #f9fafb; border: 1px solid #e5e7eb;
-            border-radius: 10px;
+            border-radius: 8px;
         }
         .tix-verify-cell-wide { grid-column: span 2; }
         .tix-verify-cell-label {
-            font-size: 10px; text-transform: uppercase; letter-spacing: 1px;
+            font-size: 9px; text-transform: uppercase; letter-spacing: 1px;
             color: #9ca3af; font-weight: 600;
         }
         .tix-verify-cell-value {
-            font-size: 14px; font-weight: 700; color: #111;
-            margin-top: 2px;
-            word-break: break-word;
+            font-size: 13px; font-weight: 700; color: #111;
+            margin-top: 1px;
+            word-break: break-word; line-height: 1.3;
         }
         .tix-verify-cell-value.done { color: #059669; }
         .tix-verify-cell-value.pending { color: #d97706; }
-        .tix-verify-sig {
-            font-family: 'SF Mono', Consolas, monospace; font-size: 10px;
-            color: #9ca3af;
-            padding: 8px 12px; text-align: center;
-            border-top: 1px dashed #e5e7eb;
+
+        .tix-verify-footer-line {
+            display: flex; justify-content: center; gap: 4px;
+            padding: 6px 0 4px;
+            font-family: 'SF Mono', Consolas, monospace;
+            font-size: 10px; color: #9ca3af;
         }
         .tix-verify-sig-label { color: #d1d5db; }
-        .tix-verify-error {
-            padding: 24px; text-align: center; color: #b91c1c;
-        }
+
+        .tix-verify-error { padding: 20px; text-align: center; color: #b91c1c; }
         .tix-verify-error button {
             margin-top: 10px; padding: 8px 16px; border: 0;
             background: #111; color: #fff; border-radius: 8px;
             cursor: pointer; font-weight: 600;
         }
         .tix-verify-modal .tix-modal-actions {
-            padding: 12px 20px 18px; border-top: 1px solid #f3f4f6;
-            background: #fafafa;
+            padding: 8px 16px 12px;
+            background: #fff;
             justify-content: center;
+            flex-shrink: 0;
         }
+        .tix-verify-modal .tix-modal-actions button { padding: 8px 18px; font-size: 13px; }
 
-        @media (max-width: 640px) {
+        @media (max-width: 480px) {
             .tix-verify-grid { grid-template-columns: 1fr; }
             .tix-verify-cell-wide { grid-column: auto; }
+            .tix-verify-clock-time { font-size: 18px; }
+            .tix-verify-head { padding: 12px 16px; }
+            .tix-verify-head h3 { font-size: 15px; }
         }
 
         /* ═══════════════════════════════════════
@@ -1871,19 +1860,34 @@ class TIX_Tickets {
                         0 12px 30px -12px rgba(17,24,39,.10),
                         0 0 0 1px rgba(17,24,39,.04);
             overflow: hidden;
-            /* Dicker Gradient-Border wie V2: 3px mit vollem Farb-Gradient */
-            background:
-                linear-gradient(<?php echo esc_attr($ht_body_bg); ?>, <?php echo esc_attr($ht_body_bg); ?>) padding-box,
-                linear-gradient(135deg, <?php echo esc_attr($ht_header_bg); ?> 0%, <?php echo esc_attr($accent); ?> 100%) border-box;
-            border: 3px solid transparent;
+            /* KEINE padding-box/border-box Trick mehr — rendert an Ecken unsauber.
+               Solide Background + ::after für perfekten Gradient-Border via mask-composite. */
+            background: <?php echo esc_attr($ht_body_bg); ?>;
+            border: 0;
+        }
+        /* Gradient-Border via mask-composite: rendert pixel-perfekt an rounded corners */
+        html.tix-ht-v4 .ticket::after {
+            content: "";
+            position: absolute; inset: 0;
+            padding: 3px;
+            border-radius: inherit;
+            background: linear-gradient(135deg,
+                <?php echo esc_attr($ht_header_bg); ?> 0%,
+                <?php echo esc_attr($accent); ?> 50%,
+                <?php echo esc_attr($ht_header_bg); ?> 100%);
+            -webkit-mask:
+                linear-gradient(#000 0 0) content-box,
+                linear-gradient(#000 0 0);
+            -webkit-mask-composite: xor;
+                    mask-composite: exclude;
+            pointer-events: none;
+            z-index: 5;
         }
         html.tix-ht-v4 .ticket::before {
             content: "";
             position: absolute;
-            /* Inset matches border width → bleibt strikt INNERHALB des Gradient-Borders,
-               sonst blend'et overlay mit der Border-Gradient-Farbe → unsaubere Ecken */
-            inset: 3px;
-            border-radius: calc(<?php echo $ht_border_radius; ?>px - 2px);
+            inset: 0;
+            border-radius: inherit;
             background: conic-gradient(from 0deg,
                 transparent 0deg,
                 rgba(236, 72, 153, .15) 60deg,
@@ -2299,6 +2303,7 @@ class TIX_Tickets {
         .tix-snapshot *::before,
         .tix-snapshot *::after { animation: none !important; transition: none !important; }
         .tix-snapshot .ticket::before,
+        .tix-snapshot .ticket::after,
         .tix-snapshot .ticket-header::before,
         .tix-snapshot .ticket-header::after,
         .tix-snapshot .tix-bundle-card::before,
@@ -2387,36 +2392,32 @@ class TIX_Tickets {
         </div>
     </div>
 
-    <?php // ── Echtheitsprüfung-Modal (Türpersonal) — mehrfach Anti-Screenshot-Signale ── ?>
+    <?php // ── Echtheitsprüfung-Modal (Türpersonal) — kompakt mit unsichtbaren Anti-Screenshot-Signalen ── ?>
     <div class="tix-modal-overlay tix-verify-overlay no-print" data-tix-verify-modal onclick="tixVerifyOverlayClose(event)">
         <div class="tix-modal tix-verify-modal" role="dialog" aria-modal="true" aria-labelledby="tix-verify-title">
             <div class="tix-verify-head">
                 <div class="tix-verify-pulse"><span></span><span></span></div>
                 <div>
                     <h3 id="tix-verify-title">Echtheitsprüfung</h3>
-                    <p class="tix-verify-desc">Live — Screenshot nicht möglich (Elemente bewegen sich)</p>
+                    <p class="tix-verify-desc">Live vom Server — kein Screenshot</p>
                 </div>
             </div>
-            <?php // Scanning-Line (CSS-only, bewegt sich immer — Screenshot = stillstehend) ?>
+            <?php // Scan-Line (CSS, bewegt sich kontinuierlich) ?>
             <div class="tix-verify-scan" aria-hidden="true"></div>
             <div class="tix-verify-loading" data-tix-verify-loading>
                 <div class="tix-verify-spinner"></div>
                 <p>Prüfe Ticket…</p>
             </div>
             <div class="tix-verify-body" data-tix-verify-body hidden>
+                <?php // Kompakte Clock-Zeile: Zeit + Age + Rot-Code alles auf einer Höhe ?>
                 <div class="tix-verify-clock">
-                    <div class="tix-verify-live-indicator">
-                        <span class="tix-verify-live-dot"></span>
-                        <span>LIVE</span>
-                    </div>
-                    <div class="tix-verify-clock-label">Server-Zeit (tickt jede Sekunde)</div>
                     <div class="tix-verify-clock-time" data-tix-verify-clock>—</div>
-                    <div class="tix-verify-refresh" data-tix-verify-refresh>
-                        Letzte Server-Prüfung vor <span data-tix-verify-age>0</span>s
-                    </div>
-                    <?php // Rotierender Code — ändert sich alle 2s, Screenshot = fix ?>
-                    <div class="tix-verify-rotating">
-                        Ändert sich alle 2 Sekunden: <span class="tix-verify-rot" data-tix-verify-rot>—</span>
+                    <div class="tix-verify-clock-meta">
+                        <span class="tix-verify-refresh" data-tix-verify-refresh>Server vor <span data-tix-verify-age>0</span>s</span>
+                        <span class="tix-verify-rot-wrap">
+                            <span class="tix-verify-rot" data-tix-verify-rot>—</span>
+                            <span class="tix-verify-rot-sub">2s-Code</span>
+                        </span>
                     </div>
                 </div>
                 <div class="tix-verify-grid">
@@ -2445,12 +2446,12 @@ class TIX_Tickets {
                         <div class="tix-verify-cell-value" data-tix-verify-checkin>—</div>
                     </div>
                 </div>
-                <div class="tix-verify-sig">
+                <?php // Footer-Zeile: Signatur (kompakt) + kontinuierlicher Progress-Bar als dezente Linie ?>
+                <div class="tix-verify-footer-line">
                     <span class="tix-verify-sig-label">Signatur:</span>
                     <span class="tix-verify-sig-value" data-tix-verify-sig>—</span>
                 </div>
-                <?php // Continuously moving progress bar (Screenshot = fixed position) ?>
-                <div class="tix-verify-progress"><div class="tix-verify-progress-fill"></div></div>
+                <div class="tix-verify-progress" aria-hidden="true"><div class="tix-verify-progress-fill"></div></div>
             </div>
             <div class="tix-verify-error" data-tix-verify-error hidden>
                 <p>Prüfung fehlgeschlagen. Netzwerk-Problem oder Ticket ungültig.</p>
