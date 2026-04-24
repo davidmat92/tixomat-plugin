@@ -233,9 +233,10 @@
                 state.password = savedPw;
                 authenticate();
             } else {
-                $auth.style.display = '';
-                $pwInput.value = '';
-                $pwInput.focus();
+                // Erst mit leerem Passwort probieren — falls Event kein PW hat,
+                // startet Scanner sofort. Bei falschem PW zeigen wir die Auth-Form.
+                state.password = '';
+                authenticateWithFallback();
             }
         } else {
             $auth.style.display = 'none';
@@ -254,9 +255,38 @@
 
     $pwSubmit.addEventListener('click', function() {
         state.password = $pwInput.value.trim();
-        if (!state.password) return;
+        // Leeres Passwort bewusst erlaubt — Server entscheidet
         authenticate();
     });
+
+    /**
+     * Wie authenticate(), aber bei "unauthorized" die Auth-Form zeigen
+     * statt stumm zu sein. Wird beim Event-Select verwendet.
+     */
+    function authenticateWithFallback() {
+        ajax('tix_checkin_combined_list', {
+            event_id: state.eventId,
+            password: state.password
+        }, function(res) {
+            if (res.success) {
+                state.authenticated = true;
+                sessionStorage.setItem('tix_ci_pw_' + state.eventId, state.password);
+                $auth.style.display = 'none';
+                $pwError.style.display = 'none';
+                $scanner.style.display = '';
+                startScanner();
+                renderCombinedList(res.data);
+                startPolling();
+                if (state.isOnline) flushOfflineQueue();
+                if (!state.isOnline) $offlineBanner.style.display = '';
+            } else {
+                // Passwort nötig → Auth-Form anzeigen
+                $auth.style.display = '';
+                $pwInput.value = '';
+                $pwInput.focus();
+            }
+        });
+    }
 
     $pwInput.addEventListener('keydown', function(e) {
         if (e.key === 'Enter') { e.preventDefault(); $pwSubmit.click(); }
