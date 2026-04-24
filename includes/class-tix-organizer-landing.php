@@ -827,6 +827,14 @@ body.tix-org-subdomain .tix-org-brand-footer { display: block !important; }
                         <span class="tix-org-brand-header-tickets-label">Meine Tickets</span>
                     </a>
 
+                    <button type="button"
+                            class="tix-org-brand-header-account tix-org-brand-header-support"
+                            onclick="tixOrgSupportToggle()"
+                            aria-label="Hilfe &amp; Support"
+                            title="Hilfe &amp; Support">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                    </button>
+
                     <a href="<?php echo esc_url($account_url); ?>"
                        class="tix-org-brand-header-account<?php echo $is_account_page ? ' is-active' : ''; ?>"
                        aria-label="Mein Konto">
@@ -860,10 +868,7 @@ body.tix-org-subdomain .tix-org-brand-footer { display: block !important; }
             </div>
         </footer>
 
-        <?php // ── Floating Support-Icon + Modal ── ?>
-        <button type="button" class="tix-org-support-fab" aria-label="Support" onclick="tixOrgSupportToggle()" title="Hilfe / Support">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/></svg>
-        </button>
+        <?php // ── Support-Modal (Toggle via Header-Button) ── ?>
         <div class="tix-org-support-overlay" data-tix-support-overlay onclick="tixOrgSupportClose(event)">
             <div class="tix-org-support-modal" role="dialog" aria-modal="true" aria-labelledby="tix-org-support-title">
                 <button type="button" class="tix-org-support-close" onclick="tixOrgSupportClose()" aria-label="Schließen">
@@ -877,17 +882,12 @@ body.tix-org-subdomain .tix-org-brand-footer { display: block !important; }
         </div>
 
         <style>
-            .tix-org-support-fab {
-                position: fixed; bottom: 20px; right: 20px; z-index: 9998;
-                width: 52px; height: 52px; border-radius: 50%;
-                background: var(--tix-ol-primary, #e8445a); color: #fff;
-                border: 0; cursor: pointer;
-                box-shadow: 0 8px 20px -6px rgba(0,0,0,.3), 0 4px 10px -4px rgba(0,0,0,.2);
-                display: flex; align-items: center; justify-content: center;
-                transition: transform .15s ease, box-shadow .2s ease;
+            /* Support-Button im Header: Icon-Only wie Account (nutzt tix-org-brand-header-account Styles) */
+            .tix-org-brand-header-support {
+                cursor: pointer;
+                padding: 0;
+                font-family: inherit;
             }
-            .tix-org-support-fab:hover { transform: translateY(-2px); box-shadow: 0 12px 24px -6px rgba(0,0,0,.4); }
-            .tix-org-support-fab:active { transform: translateY(1px); }
 
             .tix-org-support-overlay {
                 position: fixed; inset: 0; z-index: 9999;
@@ -926,7 +926,7 @@ body.tix-org-subdomain .tix-org-brand-footer { display: block !important; }
                 .tix-org-support-modal { padding: 22px 18px; border-radius: 14px; }
             }
             @media print {
-                .tix-org-support-fab, .tix-org-support-overlay { display: none !important; }
+                .tix-org-brand-header-support, .tix-org-support-overlay { display: none !important; }
             }
         </style>
 
