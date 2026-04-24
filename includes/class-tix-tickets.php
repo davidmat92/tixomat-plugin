@@ -4871,12 +4871,7 @@ class TIX_Tickets {
             </div>
             <?php endif; ?>
 
-            <?php if ($card_countdown_iso): ?>
-            <div class="tix-bundle-countdown" data-tix-countdown="<?php echo esc_attr($card_countdown_iso); ?>">
-                <span class="tix-countdown-label">Noch</span>
-                <span class="tix-countdown-value">— · — · —</span>
-            </div>
-            <?php endif; ?>
+            <?php // Countdown bewusst nur in der Einzelansicht — Bundle bleibt übersichtlich ?>
 
             <div class="tix-bundle-header">
                 <?php if ($ht_logo_url): ?>
