@@ -333,6 +333,19 @@
             return;
         }
 
+        // Native BarcodeDetector (iOS 17+, Chrome/Edge) — deutlich robuster als jsQR
+        state.barcodeDetector = null;
+        if ('BarcodeDetector' in window) {
+            try {
+                state.barcodeDetector = new window.BarcodeDetector({ formats: ['qr_code'] });
+                console.info('[tix-checkin] Native BarcodeDetector aktiv');
+            } catch(e) {
+                console.warn('[tix-checkin] BarcodeDetector init failed, nutze jsQR-Fallback', e);
+            }
+        } else {
+            console.info('[tix-checkin] BarcodeDetector nicht verfügbar → jsQR-Fallback');
+        }
+
         console.info('[tix-checkin] Starte Scanner…');
         navigator.mediaDevices.getUserMedia({
             video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
@@ -342,25 +355,82 @@
             var playPromise = $video.play();
             if (playPromise && playPromise.catch) playPromise.catch(function(e){ console.warn('[tix-checkin] video.play failed', e); });
 
-            // Scanner erst starten wenn tatsächlich Video-Frames da sind
-            $video.addEventListener('loadeddata', function onLoaded() {
-                $video.removeEventListener('loadeddata', onLoaded);
-                console.info('[tix-checkin] Video ready:', $video.videoWidth + 'x' + $video.videoHeight, '— jsQR:', typeof jsQR);
+            function onVideoReady() {
+                if (state.scanning) return;
+                if ($video.videoWidth === 0) return; // Frames noch nicht da
+                console.info('[tix-checkin] Video ready:', $video.videoWidth + 'x' + $video.videoHeight,
+                             '— detector:', state.barcodeDetector ? 'native' : (typeof jsQR !== 'undefined' ? 'jsQR' : 'NONE'));
                 state.scanning = true;
-                requestAnimationFrame(scanFrame);
-            }, { once: true });
+                scanLoop();
+            }
 
-            // Fallback: Falls loadeddata nicht feuert, nach 1.5s trotzdem starten
-            setTimeout(function(){
-                if (!state.scanning) {
-                    console.info('[tix-checkin] Fallback-Start nach 1.5s');
-                    state.scanning = true;
-                    requestAnimationFrame(scanFrame);
-                }
-            }, 1500);
+            $video.addEventListener('loadeddata', onVideoReady, { once: true });
+            $video.addEventListener('playing',     onVideoReady, { once: true });
+
+            // Fallback: 2s Polling falls Events nicht feuern
+            var startGuard = setInterval(function(){
+                if (state.scanning) { clearInterval(startGuard); return; }
+                if ($video.videoWidth > 0) { clearInterval(startGuard); onVideoReady(); }
+            }, 200);
+            setTimeout(function(){ clearInterval(startGuard); }, 5000);
         }).catch(function(err) {
             console.warn('[tix-checkin] Kamera-Fehler:', err && err.name, err && err.message);
+            alert('Kamera nicht verfügbar: ' + (err && err.name ? err.name : '') + '\nBitte Kamera-Zugriff in den Browser-Einstellungen erlauben.');
         });
+    }
+
+    /**
+     * Scan-Loop: nutzt BarcodeDetector (nativ) oder jsQR als Fallback.
+     * Läuft mit ~10fps (setTimeout 100ms), weniger CPU-Last als requestAnimationFrame@60fps.
+     */
+    function scanLoop() {
+        if (!state.scanning) return;
+        if ($video.readyState < 2 || $video.videoWidth === 0) {
+            setTimeout(scanLoop, 150);
+            return;
+        }
+
+        if (state.barcodeDetector) {
+            // Native: direkt Video-Element scannen, kein Canvas nötig
+            state.barcodeDetector.detect($video).then(function(barcodes) {
+                if (barcodes && barcodes.length > 0 && barcodes[0].rawValue) {
+                    handleDetectedCode(barcodes[0].rawValue);
+                }
+            }).catch(function(err){
+                console.warn('[tix-checkin] BarcodeDetector error:', err);
+            }).finally(function(){
+                if (state.scanning) setTimeout(scanLoop, 100);
+            });
+        } else if (typeof jsQR !== 'undefined') {
+            // jsQR-Fallback
+            try {
+                $canvas.width  = $video.videoWidth;
+                $canvas.height = $video.videoHeight;
+                state.ctx.drawImage($video, 0, 0, $canvas.width, $canvas.height);
+                var imageData = state.ctx.getImageData(0, 0, $canvas.width, $canvas.height);
+                var qr = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'attemptBoth' });
+                if (qr && qr.data) handleDetectedCode(qr.data);
+            } catch(e) {
+                console.warn('[tix-checkin] jsQR error:', e);
+            }
+            if (state.scanning) setTimeout(scanLoop, 100);
+        } else {
+            console.warn('[tix-checkin] Kein Scanner verfügbar!');
+            if (state.scanning) setTimeout(scanLoop, 1000);
+        }
+    }
+
+    function handleDetectedCode(raw) {
+        var code = String(raw).toUpperCase();
+        var now = Date.now();
+        if (code !== state.lastScanned || now - state.lastScanTime > 3000) {
+            state.lastScanned = code;
+            state.lastScanTime = now;
+            console.info('[tix-checkin] QR erkannt:', code);
+            vibrate([60]);
+            flashScannerBorder();
+            processCode(code);
+        }
     }
 
     function stopScanner() {
@@ -370,34 +440,6 @@
             state.video.srcObject = null;
         }
         if (state.pollTimer) { clearInterval(state.pollTimer); state.pollTimer = null; }
-    }
-
-    function scanFrame() {
-        if (!state.scanning) return;
-        if ($video.readyState === $video.HAVE_ENOUGH_DATA) {
-            $canvas.width = $video.videoWidth;
-            $canvas.height = $video.videoHeight;
-            state.ctx.drawImage($video, 0, 0, $canvas.width, $canvas.height);
-            var imageData = state.ctx.getImageData(0, 0, $canvas.width, $canvas.height);
-
-            if (typeof jsQR !== 'undefined') {
-                // attemptBoth = auch invertierte QR (weiß-auf-schwarz oder Display-Reflektionen)
-                var qr = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'attemptBoth' });
-                if (qr && qr.data) {
-                    var code = qr.data.toUpperCase();
-                    var now = Date.now();
-                    if (code !== state.lastScanned || now - state.lastScanTime > 3000) {
-                        state.lastScanned = code;
-                        state.lastScanTime = now;
-                        // Sofortiger "QR erkannt"-Impuls — BEVOR wir die Server-Antwort haben
-                        vibrate([60]);
-                        flashScannerBorder();
-                        processCode(code);
-                    }
-                }
-            }
-        }
-        requestAnimationFrame(scanFrame);
     }
 
     // Kurzes grünes Blinken am Scan-Rahmen wenn QR erkannt wurde
