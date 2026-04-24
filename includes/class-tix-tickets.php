@@ -1011,13 +1011,17 @@ class TIX_Tickets {
             'ht_show_countdown'      => 0,
             'ht_show_verified_badge' => 0,
             'ht_show_agb_footer'     => 1,
+            'ht_seasonal_enabled'    => 0,
+            'ht_watermark_enabled'   => 0,
+            'ht_weather_enabled'     => 0,
+            'ht_checkin_sound'       => 1,
         ];
         foreach ($hd as $k => $v) {
             $$k = isset($s[$k]) && $s[$k] !== '' ? $s[$k] : $v;
         }
         $ht_border_radius = intval($ht_border_radius);
         $ht_logo_height   = intval($ht_logo_height);
-        $ht_version       = in_array($ht_version, ['v1', 'v2', 'v3', 'v4'], true) ? $ht_version : 'v1';
+        $ht_version       = in_array($ht_version, ['v1','v2','v3','v4','v5','v6'], true) ? $ht_version : 'v1';
         $accent           = !empty($s['color_primary']) ? $s['color_primary'] : '#FF5500';
 
         // Event-Cover-URL (nur wenn Toggle aktiv)
@@ -3576,13 +3580,17 @@ class TIX_Tickets {
             'ht_show_countdown'      => 0,
             'ht_show_verified_badge' => 0,
             'ht_show_agb_footer'     => 1,
+            'ht_seasonal_enabled'    => 0,
+            'ht_watermark_enabled'   => 0,
+            'ht_weather_enabled'     => 0,
+            'ht_checkin_sound'       => 1,
         ];
         foreach ($hd as $k => $v) {
             $$k = isset($s[$k]) && $s[$k] !== '' ? $s[$k] : $v;
         }
         $ht_border_radius = intval($ht_border_radius);
         $ht_logo_height   = intval($ht_logo_height);
-        $ht_version       = in_array($ht_version, ['v1', 'v2', 'v3', 'v4'], true) ? $ht_version : 'v1';
+        $ht_version       = in_array($ht_version, ['v1','v2','v3','v4','v5','v6'], true) ? $ht_version : 'v1';
         $accent           = !empty($s['color_primary']) ? $s['color_primary'] : '#FF5500';
 
         // AGB/Widerruf/Datenschutz/Impressum aus Checkout-Settings

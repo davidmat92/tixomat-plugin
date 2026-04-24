@@ -1193,7 +1193,9 @@ body.tix-org-subdomain .tix-org-brand-footer { display: block !important; }
      */
     private static function render_account_page($org) {
         $extra_style = '
-            /* Account-Shortcode-Integration: Margins + CSS-Variablen */
+            /* Account-Shortcode-Integration: Breite, Margins, CSS-Variablen */
+            /* Breite 100% (statt 960px max) damit account-card so breit wie tickets/support ist */
+            body.tix-org-account-page .tix-account { max-width: none !important; width: 100% !important; }
             body.tix-org-account-page .tix-account,
             body.tix-org-account-page .tix-account-content,
             body.tix-org-account-page .tix-account-main { margin: 0 !important; }
