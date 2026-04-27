@@ -480,6 +480,90 @@ class TIX_Order {
     }
 
     /**
+     * Legacy-Order direkt anlegen (ohne WC-Abhängigkeit) — für Migrations-Tool.
+     * Ignoriert wc_order_id, schreibt order_data + items in 1 Schritt.
+     *
+     * @param array $data  Order-Daten (status, total, billing_*, payment_*, dates...)
+     * @param array $items [['event_id'=>X, 'cat_index'=>Y, 'name'=>'...', 'price'=>9.99, 'qty'=>1], ...]
+     * @return int|false Order-ID oder false
+     */
+    public static function create_legacy($data, $items) {
+        global $wpdb;
+        $t  = self::table_name();
+        $ti = self::items_table_name();
+
+        // Order-Number generieren (oder aus $data übernehmen falls gesetzt)
+        $order_number = $data['order_number'] ?? '';
+        if ($order_number === '') {
+            $order_number = self::generate_order_number();
+        }
+
+        $row = [
+            'wc_order_id'          => 0, // native legacy
+            'order_number'         => $order_number,
+            'order_key'            => 'tix_legacy_' . wp_generate_password(13, false),
+            'status'               => $data['status'] ?? 'completed',
+            'total'                => floatval($data['total'] ?? 0),
+            'subtotal'             => floatval($data['subtotal'] ?? $data['total'] ?? 0),
+            'tax'                  => floatval($data['tax'] ?? 0),
+            'discount'             => floatval($data['discount'] ?? 0),
+            'currency'             => $data['currency'] ?? 'EUR',
+            'date_created'         => $data['date_created'] ?: current_time('mysql'),
+            'date_paid'            => $data['date_paid'] ?: null,
+            'payment_method'       => $data['payment_method'] ?? '',
+            'payment_method_title' => $data['payment_method_title'] ?? '',
+            'transaction_id'       => $data['transaction_id'] ?? '',
+            'billing_first_name'   => $data['billing_first_name'] ?? '',
+            'billing_last_name'    => $data['billing_last_name']  ?? '',
+            'billing_email'        => $data['billing_email']      ?? '',
+            'billing_phone'        => $data['billing_phone']      ?? '',
+            'billing_company'      => $data['billing_company']    ?? '',
+            'billing_address_1'    => $data['billing_address_1']  ?? '',
+            'billing_postcode'     => $data['billing_postcode']   ?? '',
+            'billing_city'         => $data['billing_city']       ?? '',
+            'billing_country'      => $data['billing_country']    ?? 'DE',
+            'user_id'              => intval($data['user_id'] ?? 0),
+        ];
+
+        $insert = $wpdb->insert($t, $row);
+        if ($insert === false) return false;
+        $order_id = $wpdb->insert_id;
+
+        // Items
+        foreach ($items as $it) {
+            $event_id = intval($it['event_id'] ?? 0);
+            $cat_idx  = intval($it['cat_index'] ?? 0);
+            $qty      = max(1, intval($it['qty'] ?? 1));
+            $price    = floatval($it['price'] ?? 0);
+
+            $wpdb->insert($ti, [
+                'order_id'   => $order_id,
+                'product_id' => 0,
+                'event_id'   => $event_id,
+                'quantity'   => $qty,
+                'total'      => $price * $qty,
+                'tax'        => 0,
+                'name'       => $it['name'] ?? 'Ticket',
+                'cat_name'   => $it['cat_name'] ?? '',
+                'meta'       => json_encode(['cat_index' => $cat_idx, 'legacy' => true]),
+            ]);
+        }
+
+        return $order_id;
+    }
+
+    /**
+     * Order-Nummer im konfigurierten Format generieren
+     */
+    private static function generate_order_number() {
+        $s = function_exists('tix_get_settings') ? tix_get_settings() : [];
+        $prefix = $s['order_number_prefix'] ?? 'TIX-';
+        $next = intval(get_option('tix_next_legacy_order', 1));
+        update_option('tix_next_legacy_order', $next + 1);
+        return $prefix . str_pad($next, 6, '0', STR_PAD_LEFT) . '-LEG';
+    }
+
+    /**
      * Schreibt WC-Order-Items in die tix_order_items Tabelle.
      * Löscht vorher bestehende Items für diese Order (idempotent).
      */

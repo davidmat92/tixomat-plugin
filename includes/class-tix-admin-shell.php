@@ -44,7 +44,7 @@ class TIX_Admin_Shell {
             'tix-settings', 'tix-statistics', 'tix-support', 'tix-docs',
             'tix-promoters', 'tix-marketing-export', 'tix-campaigns', 'tix-meta-ads',
             'tix-templates', 'tix-orders', 'tix-customers', 'tix-email-log', 'tix-bulk-editor', 'tix-settings-io',
-            'tix-legal', 'tix-quotes', 'tix-coupons',
+            'tix-legal', 'tix-quotes', 'tix-coupons', 'tix-migration',
             'tix-organizer-dashboard', 'tix-organizer-orders',
             'tix-organizer-guestlist', 'tix-organizer-email', 'tix-organizer-billing',
             'tix-organizer-media', 'tix-organizer-landing', 'tix-landing-settings',
