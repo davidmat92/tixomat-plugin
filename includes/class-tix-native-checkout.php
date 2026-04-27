@@ -632,9 +632,9 @@ class TIX_Native_Checkout {
                         <a href="<?php echo esc_url(get_post_type_archive_link('event') ?: home_url('/events/')); ?>" class="tix-co-btn-more">+ Weitere Tickets kaufen</a>
 
                         <?php // ── Coupon Input ── ?>
-                        <div class="tix-co-coupon" style="margin-top:12px;display:flex;gap:8px;align-items:center;">
-                            <input type="text" id="tix-co-coupon-input" placeholder="Gutscheincode" class="tix-co-input" style="flex:1;" value="<?php echo esc_attr($coupon_code); ?>">
-                            <button type="button" id="tix-co-coupon-btn" class="button">Einlösen</button>
+                        <div class="tix-co-coupon" style="margin-top:12px;display:flex;gap:8px;align-items:stretch;">
+                            <input type="text" id="tix-co-coupon-input" placeholder="Gutscheincode" class="tix-co-input" style="flex:1;text-transform:uppercase;letter-spacing:1px;" value="<?php echo esc_attr($coupon_code); ?>">
+                            <button type="button" id="tix-co-coupon-btn" class="tix-co-btn-more" style="margin-top:0;white-space:nowrap;">Einlösen</button>
                         </div>
                         <div id="tix-co-coupon-msg" style="font-size:13px;margin-top:4px;"></div>
                     </div>
