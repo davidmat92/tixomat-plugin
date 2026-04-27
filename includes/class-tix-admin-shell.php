@@ -429,6 +429,16 @@ class TIX_Admin_Shell {
                         <span class="dashicons dashicons-cart"></span>
                         <span>Bestellungen</span>
                     </a>
+                    <a href="<?php echo admin_url('admin.php?page=tix-quotes'); ?>"
+                       class="tix-shell-item<?php echo ($current_page === 'tix-quotes') ? ' active' : ''; ?>">
+                        <span class="dashicons dashicons-cart"></span>
+                        <span>Vorbestellungen</span>
+                    </a>
+                    <a href="<?php echo admin_url('admin.php?page=tix-coupons'); ?>"
+                       class="tix-shell-item<?php echo ($current_page === 'tix-coupons') ? ' active' : ''; ?>">
+                        <span class="dashicons dashicons-tag"></span>
+                        <span>Gutscheine</span>
+                    </a>
                     <a href="<?php echo admin_url('admin.php?page=tix-customers'); ?>"
                        class="tix-shell-item<?php echo $active === 'customers' ? ' active' : ''; ?>">
                         <span class="dashicons dashicons-groups"></span>
