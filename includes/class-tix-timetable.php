@@ -32,8 +32,17 @@ class TIX_Timetable {
         $timetable = get_post_meta($post_id, '_tix_timetable', true);
         $times_tba = get_post_meta($post_id, '_tix_timetable_times_tba', true) === '1';
 
-        if (!is_array($stages) || empty($stages) || !is_array($timetable) || empty($timetable)) {
+        // Ohne Timetable-Inhalt nichts anzeigen
+        if (!is_array($timetable) || empty($timetable)) {
             return '';
+        }
+
+        // Fallback: Wenn Timetable existiert aber keine Bühnen angelegt sind,
+        // erzeugen wir eine Default-Bühne damit das Programm trotzdem rendert.
+        if (!is_array($stages) || empty($stages)) {
+            $stages = [
+                ['name' => 'Programm', 'color' => '#FF5500'],
+            ];
         }
 
         self::enqueue();
