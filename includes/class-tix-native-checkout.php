@@ -113,6 +113,8 @@ class TIX_Native_Checkout {
         if (!empty($cart['items']) && class_exists('TIX_Dynamic_Pricing')) {
             foreach ($cart['items'] as &$it) {
                 if (empty($it['event_id']) || !isset($it['cat_index'])) continue;
+                // Locked-Price (z.B. Quote/Vorbestellung mit Sonderpreis): NICHT überschreiben
+                if (!empty($it['locked_price'])) continue;
                 // Bundle/Combo/Special: feste Preise, nicht nachjustieren
                 if (!empty($it['meta']['bundle']) || !empty($it['meta']['combo']) || !empty($it['meta']['special'])) continue;
                 $dyn = TIX_Dynamic_Pricing::get_dynamic_price(intval($it['event_id']), intval($it['cat_index']));
@@ -933,6 +935,12 @@ class TIX_Native_Checkout {
         foreach ($cart['items'] as &$cart_item) {
             $event_id  = intval($cart_item['event_id'] ?? 0);
             $cat_index = intval($cart_item['cat_index'] ?? 0);
+
+            // Locked-Price (Vorbestellung/Quote mit Sonderpreis) → übernehmen, nicht überschreiben
+            if (!empty($cart_item['locked_price'])) {
+                $validated_total += floatval($cart_item['price']) * intval($cart_item['qty']);
+                continue;
+            }
 
             // Use dynamic pricing if available (respects phases + sale prices)
             if (class_exists('TIX_Dynamic_Pricing')) {

@@ -44,7 +44,7 @@ class TIX_Admin_Shell {
             'tix-settings', 'tix-statistics', 'tix-support', 'tix-docs',
             'tix-promoters', 'tix-marketing-export', 'tix-campaigns', 'tix-meta-ads',
             'tix-templates', 'tix-orders', 'tix-customers', 'tix-email-log', 'tix-bulk-editor', 'tix-settings-io',
-            'tix-legal',
+            'tix-legal', 'tix-quotes',
             'tix-organizer-dashboard', 'tix-organizer-orders',
             'tix-organizer-guestlist', 'tix-organizer-email', 'tix-organizer-billing',
             'tix-organizer-media', 'tix-organizer-landing', 'tix-landing-settings',
@@ -607,6 +607,11 @@ class TIX_Admin_Shell {
                            class="tix-shell-item<?php echo ($current_page === 'tix-legal') ? ' active' : ''; ?>">
                             <span class="dashicons dashicons-shield"></span>
                             <span>Rechtstexte</span>
+                        </a>
+                        <a href="<?php echo admin_url('admin.php?page=tix-quotes'); ?>"
+                           class="tix-shell-item<?php echo ($current_page === 'tix-quotes') ? ' active' : ''; ?>">
+                            <span class="dashicons dashicons-tickets-alt"></span>
+                            <span>Vorbestellungen</span>
                         </a>
                     <?php endif; ?>
                 </div>
