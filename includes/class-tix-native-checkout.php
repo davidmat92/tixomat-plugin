@@ -106,7 +106,23 @@ class TIX_Native_Checkout {
         } else {
             $cart = get_transient('tix_cart_' . $key);
         }
-        return is_array($cart) ? $cart : ['items' => [], 'coupon' => null];
+        if (!is_array($cart)) return ['items' => [], 'coupon' => null];
+
+        // Preise live nachziehen — falls sich Phase / Sale-Preis nach Hinzufügen geändert hat
+        // (Early-Bird läuft ab, neue Phase startet, Sale aktiviert etc.)
+        if (!empty($cart['items']) && class_exists('TIX_Dynamic_Pricing')) {
+            foreach ($cart['items'] as &$it) {
+                if (empty($it['event_id']) || !isset($it['cat_index'])) continue;
+                // Bundle/Combo/Special: feste Preise, nicht nachjustieren
+                if (!empty($it['meta']['bundle']) || !empty($it['meta']['combo']) || !empty($it['meta']['special'])) continue;
+                $dyn = TIX_Dynamic_Pricing::get_dynamic_price(intval($it['event_id']), intval($it['cat_index']));
+                if ($dyn !== null) {
+                    $it['price'] = floatval($dyn);
+                }
+            }
+            unset($it);
+        }
+        return $cart;
     }
 
     public static function save_cart($cart) {
@@ -260,7 +276,14 @@ class TIX_Native_Checkout {
             }
 
             $cat = $categories[$cat_index];
-            $price = floatval($cat['price'] ?? 0);
+            // Dynamic Pricing: Phase- oder Sale-Preis nutzen falls aktiv (Early-Bird etc.)
+            // Fallback auf Basispreis wenn TIX_Dynamic_Pricing nicht geladen ist.
+            if (class_exists('TIX_Dynamic_Pricing')) {
+                $dyn = TIX_Dynamic_Pricing::get_dynamic_price($event_id, $cat_index);
+                $price = $dyn !== null ? floatval($dyn) : floatval($cat['price'] ?? 0);
+            } else {
+                $price = floatval($cat['price'] ?? 0);
+            }
             $name = sanitize_text_field($cat['name'] ?? 'Ticket');
             $event_title = get_the_title($event_id);
 

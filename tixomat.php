@@ -2,14 +2,14 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.38.25
+ * Version: 1.38.26
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.38.25');
+define('TIXOMAT_VERSION', '1.38.26');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -1162,13 +1162,16 @@ require_once TIXOMAT_PATH . 'includes/class-tix-support.php';
 TIX_Support::init();
 
 // ── WooCommerce-Integration: Frontend + AJAX (Gruppenrabatt, Dynamische Preise) ──
-// WICHTIG: Auf plugins_loaded warten, damit WooCommerce garantiert verfügbar ist —
-// sonst wird der Block bei ungünstiger Plugin-Reihenfolge komplett übersprungen.
+// Dynamic-Pricing-Klasse IMMER laden (auch ohne WC) — der native Checkout nutzt
+// TIX_Dynamic_Pricing::get_dynamic_price() um Phasen-/Sale-Preise zu berechnen.
+// Nur die WC-Filter-Registrierung (init) läuft conditional.
+require_once TIXOMAT_PATH . 'includes/class-tix-dynamic-pricing.php';
+
+// WC-spezifische Hooks: nur wenn WooCommerce aktiv ist
 add_action('plugins_loaded', function() {
     if (is_admin() && !defined('DOING_AJAX') && !defined('WP_CLI')) return;
     if (!tix_has_wc()) return;
     require_once TIXOMAT_PATH . 'includes/class-tix-group-discount.php';
-    require_once TIXOMAT_PATH . 'includes/class-tix-dynamic-pricing.php';
     TIX_Group_Discount::init();
     TIX_Dynamic_Pricing::init();
 }, 20);
