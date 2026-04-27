@@ -49,16 +49,225 @@ class TIX_Migration {
         if (!current_user_can('manage_options')) wp_die('Keine Berechtigung.');
         check_admin_referer(self::NONCE_KEY);
         @set_time_limit(0);
-        @ini_set('memory_limit', '512M');
-        $data = self::build_export();
+        @ini_set('memory_limit', '1024M');
+        // Output buffer leeren — wir streamen direkt
+        while (ob_get_level()) ob_end_clean();
+
         $filename = 'tixomat-migration-' . sanitize_file_name(parse_url(home_url(), PHP_URL_HOST)) . '-' . date('Y-m-d-His') . '.json';
-        $json = wp_json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         nocache_headers();
         header('Content-Type: application/json; charset=utf-8');
         header('Content-Disposition: attachment; filename="' . $filename . '"');
-        header('Content-Length: ' . strlen($json));
-        echo $json;
+        header('X-Accel-Buffering: no'); // Nginx-Buffering aus
+        self::stream_export();
         exit;
+    }
+
+    /**
+     * Streamt das gesamte Export-JSON Section für Section direkt in den Output.
+     * Nutzt ein einzelnes "echo + flush" pro Datensatz — niemals mehr als ein
+     * Record gleichzeitig im Speicher. Verhindert Memory-Exhausted bei großen Sites.
+     */
+    private static function stream_export() {
+        global $wpdb;
+
+        $first = true;
+        $emit_array_open = function($key) use (&$first) {
+            if (!$first) echo ",\n"; $first = false;
+            echo '"' . $key . '": [';
+        };
+        $sep_first = true;
+        $emit_record = function($obj) use (&$sep_first) {
+            if (!$sep_first) echo ',';
+            $sep_first = false;
+            echo wp_json_encode($obj, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            flush();
+        };
+        $emit_array_close = function() use (&$sep_first) {
+            echo "]";
+            $sep_first = true;
+        };
+
+        // ── meta ──
+        $meta = [
+            'version' => self::EXPORT_VERSION,
+            'source_url' => home_url(),
+            'source_blog' => get_bloginfo('name'),
+            'exported_at' => current_time('mysql'),
+            'wp_version' => get_bloginfo('version'),
+            'tixomat_version' => defined('TIXOMAT_VERSION') ? TIXOMAT_VERSION : '?',
+            'has_wc' => function_exists('wc_get_orders'),
+        ];
+        echo "{\n";
+        echo '"meta": ' . wp_json_encode($meta, JSON_UNESCAPED_UNICODE) . ",\n";
+        $first = false;
+
+        // ── users ──
+        $emit_array_open('users');
+        $batch = 200; $offset = 0;
+        do {
+            $rows = $wpdb->get_results($wpdb->prepare("SELECT ID, user_login, user_pass, user_email, user_registered, display_name, user_nicename FROM {$wpdb->users} ORDER BY ID ASC LIMIT %d OFFSET %d", $batch, $offset));
+            foreach ($rows as $u) {
+                $umeta = [];
+                $mrows = $wpdb->get_results($wpdb->prepare("SELECT meta_key, meta_value FROM {$wpdb->usermeta} WHERE user_id = %d", $u->ID));
+                foreach ($mrows as $m) {
+                    if (in_array($m->meta_key, ['session_tokens', 'wp_user-settings', 'wp_user-settings-time', 'closedpostboxes_event'], true)) continue;
+                    $umeta[$m->meta_key] = maybe_unserialize($m->meta_value);
+                }
+                $caps = get_user_meta($u->ID, $wpdb->prefix . 'capabilities', true);
+                $emit_record([
+                    'id' => intval($u->ID),
+                    'login' => $u->user_login,
+                    'pass'  => $u->user_pass,
+                    'email' => $u->user_email,
+                    'registered' => $u->user_registered,
+                    'display_name' => $u->display_name,
+                    'nicename' => $u->user_nicename,
+                    'roles' => is_array($caps) ? array_keys($caps) : [],
+                    'meta'  => $umeta,
+                ]);
+            }
+            $offset += $batch;
+        } while (count($rows) === $batch);
+        $emit_array_close();
+
+        // ── events ──
+        $emit_array_open('events');
+        $offset = 0;
+        do {
+            $evs = get_posts([
+                'post_type' => 'event', 'post_status' => ['publish', 'draft', 'private', 'trash'],
+                'posts_per_page' => $batch, 'offset' => $offset, 'no_found_rows' => true,
+            ]);
+            foreach ($evs as $ev) {
+                $emit_record([
+                    'id' => $ev->ID, 'title' => $ev->post_title, 'slug' => $ev->post_name,
+                    'date_start' => get_post_meta($ev->ID, '_tix_date_start', true),
+                ]);
+                wp_cache_delete($ev->ID, 'posts');
+            }
+            $offset += $batch;
+        } while (count($evs) === $batch);
+        $emit_array_close();
+
+        // ── products ──
+        $emit_array_open('products');
+        if (function_exists('wc_get_products')) {
+            $offset = 0;
+            do {
+                $prods = wc_get_products(['limit' => $batch, 'offset' => $offset, 'status' => ['publish', 'draft', 'private']]);
+                foreach ($prods as $p) {
+                    $emit_record([
+                        'id' => $p->get_id(), 'name' => $p->get_name(), 'price' => floatval($p->get_price()),
+                        'sku' => $p->get_sku(),
+                        'event_id'  => intval(get_post_meta($p->get_id(), '_tix_parent_event_id', true)),
+                        'cat_index' => intval(get_post_meta($p->get_id(), '_tix_ticket_cat_index', true)),
+                    ]);
+                    wp_cache_delete($p->get_id(), 'posts');
+                    wp_cache_delete($p->get_id(), 'post_meta');
+                }
+                $offset += $batch;
+            } while (count($prods) === $batch);
+        }
+        $emit_array_close();
+
+        // ── wc_orders ──
+        $emit_array_open('wc_orders');
+        if (function_exists('wc_get_orders')) {
+            $offset = 0;
+            do {
+                $orders = wc_get_orders([
+                    'status' => array_keys(wc_get_order_statuses()),
+                    'limit'  => $batch, 'offset' => $offset, 'orderby' => 'ID', 'order' => 'ASC',
+                ]);
+                foreach ($orders as $o) {
+                    $items = [];
+                    foreach ($o->get_items() as $item) {
+                        $pid = $item->get_product_id();
+                        $items[] = [
+                            'product_id' => $pid, 'product_name' => $item->get_name(),
+                            'qty' => $item->get_quantity(), 'total' => floatval($item->get_total()),
+                            'event_id' => intval(get_post_meta($pid, '_tix_parent_event_id', true)),
+                            'cat_index' => intval(get_post_meta($pid, '_tix_ticket_cat_index', true)),
+                        ];
+                    }
+                    $emit_record([
+                        'wc_id' => $o->get_id(), 'order_number' => $o->get_order_number(),
+                        'status' => $o->get_status(), 'currency' => $o->get_currency(),
+                        'total' => floatval($o->get_total()), 'tax' => floatval($o->get_total_tax()),
+                        'date_created' => $o->get_date_created() ? $o->get_date_created()->date('Y-m-d H:i:s') : '',
+                        'date_paid' => $o->get_date_paid() ? $o->get_date_paid()->date('Y-m-d H:i:s') : '',
+                        'payment_method' => $o->get_payment_method(),
+                        'payment_method_title' => $o->get_payment_method_title(),
+                        'transaction_id' => $o->get_transaction_id(), 'customer_id' => $o->get_customer_id(),
+                        'billing' => [
+                            'first_name' => $o->get_billing_first_name(), 'last_name' => $o->get_billing_last_name(),
+                            'email' => $o->get_billing_email(), 'phone' => $o->get_billing_phone(),
+                            'company' => $o->get_billing_company(), 'address_1' => $o->get_billing_address_1(),
+                            'postcode' => $o->get_billing_postcode(), 'city' => $o->get_billing_city(),
+                            'country' => $o->get_billing_country(),
+                        ],
+                        'items' => $items,
+                    ]);
+                    wp_cache_delete($o->get_id(), 'posts');
+                }
+                $offset += $batch;
+            } while (count($orders) === $batch);
+        }
+        $emit_array_close();
+
+        // ── tix_orders ──
+        $emit_array_open('tix_orders');
+        if (class_exists('TIX_Order')) {
+            $offset = 0;
+            do {
+                $rows = $wpdb->get_results($wpdb->prepare(
+                    "SELECT * FROM " . TIX_Order::table_name() . " ORDER BY id ASC LIMIT %d OFFSET %d",
+                    $batch, $offset
+                ), ARRAY_A);
+                foreach ($rows as $r) {
+                    $items = $wpdb->get_results($wpdb->prepare(
+                        "SELECT * FROM " . TIX_Order::items_table_name() . " WHERE order_id = %d",
+                        $r['id']
+                    ), ARRAY_A);
+                    $emit_record(['order' => $r, 'items' => $items]);
+                }
+                $offset += $batch;
+            } while (count($rows) === $batch);
+        }
+        $emit_array_close();
+
+        // ── tickets ──
+        $emit_array_open('tickets');
+        $offset = 0;
+        do {
+            $tps = get_posts([
+                'post_type' => 'tix_ticket', 'post_status' => ['publish', 'draft'],
+                'posts_per_page' => $batch, 'offset' => $offset, 'no_found_rows' => true,
+            ]);
+            foreach ($tps as $t) {
+                $emit_record([
+                    'id' => $t->ID, 'title' => $t->post_title, 'date' => $t->post_date,
+                    'code' => get_post_meta($t->ID, '_tix_ticket_code', true),
+                    'event_id' => intval(get_post_meta($t->ID, '_tix_ticket_event_id', true)),
+                    'order_id' => intval(get_post_meta($t->ID, '_tix_ticket_order_id', true)),
+                    'cat_index' => intval(get_post_meta($t->ID, '_tix_ticket_cat_index', true)),
+                    'product_id' => intval(get_post_meta($t->ID, '_tix_ticket_product_id', true)),
+                    'owner_name' => get_post_meta($t->ID, '_tix_ticket_owner_name', true),
+                    'owner_email' => get_post_meta($t->ID, '_tix_ticket_owner_email', true),
+                    'status' => get_post_meta($t->ID, '_tix_ticket_status', true) ?: 'valid',
+                    'checked_in' => get_post_meta($t->ID, '_tix_ticket_checked_in', true) ? 1 : 0,
+                    'checkin_time' => get_post_meta($t->ID, '_tix_ticket_checkin_time', true),
+                    'assigned_name' => get_post_meta($t->ID, '_tix_ticket_assigned_name', true),
+                    'seat_id' => get_post_meta($t->ID, '_tix_ticket_seat_id', true),
+                ]);
+                wp_cache_delete($t->ID, 'posts');
+                wp_cache_delete($t->ID, 'post_meta');
+            }
+            $offset += $batch;
+        } while (count($tps) === $batch);
+        $emit_array_close();
+
+        echo "\n}";
     }
 
     private static function build_export() {
