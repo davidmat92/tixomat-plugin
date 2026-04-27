@@ -238,4 +238,18 @@
         });
     });
 
+    // Gutschein entfernen via × Button neben Rabatt-Zeile
+    $(document).on('click', '.tix-co-remove-coupon', function() {
+        var $btn = $(this);
+        $btn.prop('disabled', true).text('…');
+        $.post(ajax, {
+            action: 'tix_native_remove_coupon',
+            nonce: nonce
+        }, function() {
+            location.reload();
+        }).fail(function() {
+            $btn.prop('disabled', false).text('×');
+        });
+    });
+
 })(jQuery);

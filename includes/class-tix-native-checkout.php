@@ -36,6 +36,8 @@ class TIX_Native_Checkout {
         // AJAX: Coupon
         add_action('wp_ajax_tix_native_apply_coupon',        [__CLASS__, 'ajax_apply_coupon']);
         add_action('wp_ajax_nopriv_tix_native_apply_coupon', [__CLASS__, 'ajax_apply_coupon']);
+        add_action('wp_ajax_tix_native_remove_coupon',        [__CLASS__, 'ajax_remove_coupon']);
+        add_action('wp_ajax_nopriv_tix_native_remove_coupon', [__CLASS__, 'ajax_remove_coupon']);
 
         // Shortcodes — [tix_checkout] übernehmen wenn WC nicht aktiv
         add_shortcode('tix_checkout', function() { return self::render_checkout(); });
@@ -643,7 +645,16 @@ class TIX_Native_Checkout {
                     <div class="tix-co-section">
                         <div class="tix-co-summary tix-co-summary-mini">
                             <?php if ($coupon_discount > 0): ?>
-                            <div class="tix-co-summary-row"><span>Rabatt (<?php echo esc_html($coupon_code); ?>)</span><span style="color:#22c55e;">-<?php echo number_format($coupon_discount, 2, ',', '.'); ?>&nbsp;&euro;</span></div>
+                            <div class="tix-co-summary-row tix-co-coupon-row">
+                                <span style="display:inline-flex;align-items:center;gap:6px;">
+                                    Rabatt (<?php echo esc_html($coupon_code); ?>)
+                                    <button type="button" class="tix-co-remove-coupon" title="Gutschein entfernen" aria-label="Gutschein entfernen"
+                                        style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;border:0;background:rgba(0,0,0,.08);color:#6b7280;cursor:pointer;font-size:12px;line-height:1;padding:0;transition:background .15s,color .15s;"
+                                        onmouseover="this.style.background='#ef4444';this.style.color='#fff';"
+                                        onmouseout="this.style.background='rgba(0,0,0,.08)';this.style.color='#6b7280';">×</button>
+                                </span>
+                                <span style="color:#22c55e;">-<?php echo number_format($coupon_discount, 2, ',', '.'); ?>&nbsp;&euro;</span>
+                            </div>
                             <?php endif; ?>
                             <?php if ($customer_fee_line > 0): ?>
                             <div class="tix-co-summary-row tix-co-fee-row"><span><?php echo esc_html($fee_label); ?></span><span><?php echo number_format($customer_fee_line, 2, ',', '.'); ?>&nbsp;&euro;</span></div>
@@ -785,7 +796,16 @@ class TIX_Native_Checkout {
                         <div class="tix-co-summary">
                             <div class="tix-co-summary-row"><span>Zwischensumme</span><span><?php echo number_format(self::cart_total(), 2, ',', '.'); ?>&nbsp;&euro;</span></div>
                             <?php if ($coupon_discount > 0): ?>
-                            <div class="tix-co-summary-row"><span>Rabatt (<?php echo esc_html($coupon_code); ?>)</span><span style="color:#22c55e;">-<?php echo number_format($coupon_discount, 2, ',', '.'); ?>&nbsp;&euro;</span></div>
+                            <div class="tix-co-summary-row tix-co-coupon-row">
+                                <span style="display:inline-flex;align-items:center;gap:6px;">
+                                    Rabatt (<?php echo esc_html($coupon_code); ?>)
+                                    <button type="button" class="tix-co-remove-coupon" title="Gutschein entfernen" aria-label="Gutschein entfernen"
+                                        style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;border:0;background:rgba(0,0,0,.08);color:#6b7280;cursor:pointer;font-size:12px;line-height:1;padding:0;transition:background .15s,color .15s;"
+                                        onmouseover="this.style.background='#ef4444';this.style.color='#fff';"
+                                        onmouseout="this.style.background='rgba(0,0,0,.08)';this.style.color='#6b7280';">×</button>
+                                </span>
+                                <span style="color:#22c55e;">-<?php echo number_format($coupon_discount, 2, ',', '.'); ?>&nbsp;&euro;</span>
+                            </div>
                             <?php endif; ?>
                             <?php if ($customer_fee_line > 0): ?>
                             <div class="tix-co-summary-row tix-co-fee-row"><span><?php echo esc_html($fee_label); ?></span><span><?php echo number_format($customer_fee_line, 2, ',', '.'); ?>&nbsp;&euro;</span></div>
@@ -1350,6 +1370,22 @@ class TIX_Native_Checkout {
             'discount'  => $discount,
             'new_total' => $new_total,
             'code'      => $found_key,
+        ]);
+    }
+
+    /**
+     * AJAX: Gutschein vom Cart entfernen
+     */
+    public static function ajax_remove_coupon() {
+        if (!wp_verify_nonce($_POST['nonce'] ?? '', 'tix_native_checkout')) {
+            check_ajax_referer('tix_add_to_cart', 'nonce');
+        }
+        $cart = self::get_cart();
+        $cart['coupon'] = null;
+        self::save_cart($cart);
+        wp_send_json_success([
+            'message'   => 'Gutschein entfernt.',
+            'new_total' => self::cart_total(),
         ]);
     }
 
