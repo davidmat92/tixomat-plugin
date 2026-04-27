@@ -1081,8 +1081,14 @@ class TIX_My_Tickets {
             }
         }
 
+        // Order-Number (konfigurierte Nummer) + Legacy-Nummer für migrierte Bestellungen
+        $order_number = method_exists($order, 'get_order_number') ? $order->get_order_number() : (string) $order_id;
+        $legacy_wc_number = get_post_meta($order_id, '_tix_legacy_wc_order_number', true);
+
         return [
             'order_id'       => $order_id,
+            'order_number'   => $order_number,
+            'legacy_wc_number' => $legacy_wc_number ?: '',
             'order_date'     => self::format_order_date($order),
             'status'         => $status,
             'status_label'   => isset($status_labels[$status]) ? $status_labels[$status] : ucfirst($status),
@@ -1326,7 +1332,11 @@ class TIX_My_Tickets {
                         <span class="tix-mt-order-ref">&#128260; Umgeschrieben am <?php echo esc_html($od['order_date']); ?></span>
                     <?php else: ?>
                         <span class="tix-mt-order-ref">
-                            Bestellung #<?php echo (int) $od['order_id']; ?> &middot; <?php echo esc_html($od['order_date']); ?>
+                            Bestellung <?php echo esc_html($od['order_number'] ?? '#' . (int) $od['order_id']); ?>
+                            <?php if (!empty($od['legacy_wc_number'])): ?>
+                                <small style="opacity:.7;">(ehemals #<?php echo esc_html($od['legacy_wc_number']); ?>)</small>
+                            <?php endif; ?>
+                            &middot; <?php echo esc_html($od['order_date']); ?>
                             <?php if (!empty($od['payment_method'])): ?>
                                 &middot; <?php echo esc_html($od['payment_method']); ?>
                             <?php endif; ?>
@@ -1449,7 +1459,11 @@ class TIX_My_Tickets {
                         <span class="tix-mt-order-ref">&#128260; Umgeschrieben am <?php echo esc_html($od['order_date']); ?></span>
                     <?php else: ?>
                         <span class="tix-mt-order-ref">
-                            Bestellung #<?php echo (int) $od['order_id']; ?> &middot; <?php echo esc_html($od['order_date']); ?>
+                            Bestellung <?php echo esc_html($od['order_number'] ?? '#' . (int) $od['order_id']); ?>
+                            <?php if (!empty($od['legacy_wc_number'])): ?>
+                                <small style="opacity:.7;">(ehemals #<?php echo esc_html($od['legacy_wc_number']); ?>)</small>
+                            <?php endif; ?>
+                            &middot; <?php echo esc_html($od['order_date']); ?>
                             <?php if (!empty($od['payment_method'])): ?>
                                 &middot; <?php echo esc_html($od['payment_method']); ?>
                             <?php endif; ?>
@@ -1615,7 +1629,7 @@ class TIX_My_Tickets {
                         <?php endforeach; ?>
                         <div class="tix-mt-bank-ref">
                             <span class="tix-mt-bank-label">Verwendungszweck</span>
-                            <span class="tix-mt-bank-value tix-mt-bank-ref-value">Bestellung #<?php echo (int) $od['order_id']; ?></span>
+                            <span class="tix-mt-bank-value tix-mt-bank-ref-value">Bestellung <?php echo esc_html($od['order_number'] ?? '#' . (int) $od['order_id']); ?></span>
                         </div>
                         <div class="tix-mt-bank-amount">
                             <span class="tix-mt-bank-label">Betrag</span>
@@ -1697,6 +1711,7 @@ class TIX_My_Tickets {
         <div class="tix-order-history" style="max-width:800px;">
         <?php foreach ($orders as $order) :
             $order_num = method_exists($order, 'get_order_number') ? $order->get_order_number() : $order->get_id();
+            $legacy_wc = get_post_meta($order->get_id(), '_tix_legacy_wc_order_number', true);
             $date = method_exists($order, 'get_date_created') && $order->get_date_created()
                 ? $order->get_date_created()->format('d.m.Y H:i') : '';
             $status_labels = [
@@ -1712,7 +1727,12 @@ class TIX_My_Tickets {
         ?>
             <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:20px;margin-bottom:16px;">
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-                    <strong style="font-size:16px;">Bestellung #<?php echo esc_html($order_num); ?></strong>
+                    <div>
+                        <strong style="font-size:16px;">Bestellung <?php echo esc_html($order_num); ?></strong>
+                        <?php if ($legacy_wc): ?>
+                            <small style="color:#9ca3af;font-weight:400;">&middot; ehemals #<?php echo esc_html($legacy_wc); ?></small>
+                        <?php endif; ?>
+                    </div>
                     <span style="font-size:13px;color:#6b7280;"><?php echo esc_html($date); ?></span>
                 </div>
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">

@@ -77,11 +77,17 @@ class TIX_Order_Admin {
             $params[] = $event_filter;
         }
         if ($search) {
-            $where .= ' AND (order_number LIKE %s OR billing_email LIKE %s OR billing_last_name LIKE %s)';
+            // Auch nach Legacy-WC-Order-Nummer suchen (für migrierte Bestellungen)
+            $pm = $wpdb->postmeta;
+            $clean = ltrim($search, '#');
+            $where .= " AND (order_number LIKE %s OR billing_email LIKE %s OR billing_last_name LIKE %s
+                          OR id IN (SELECT post_id FROM $pm WHERE meta_key IN ('_tix_legacy_wc_order_number','_tix_legacy_wc_order_id') AND meta_value LIKE %s))";
             $like = '%' . $wpdb->esc_like($search) . '%';
+            $like_clean = '%' . $wpdb->esc_like($clean) . '%';
             $params[] = $like;
             $params[] = $like;
             $params[] = $like;
+            $params[] = $like_clean;
         }
 
         $total = $wpdb->get_var($params
@@ -212,6 +218,11 @@ class TIX_Order_Admin {
                                     <a href="<?php echo esc_url($detail_url); ?>" style="font-weight:600;color:#1e293b;text-decoration:none;">
                                         <?php echo esc_html($o->order_number); ?>
                                     </a>
+                                    <?php
+                                    $legacy_wc = get_post_meta($o->id, '_tix_legacy_wc_order_number', true);
+                                    if ($legacy_wc): ?>
+                                        <div style="font-size:11px;color:#9ca3af;margin-top:2px;">ehemals #<?php echo esc_html($legacy_wc); ?></div>
+                                    <?php endif; ?>
                                 </td>
                                 <td style="padding:12px 16px;font-size:13px;color:#6b7280;">
                                     <?php echo date_i18n('d.m.Y, H:i', strtotime($o->date_created)); ?>
@@ -398,8 +409,13 @@ class TIX_Order_Admin {
             </a>
 
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
-                <h1 style="margin:0;display:flex;align-items:center;gap:12px;">
+                <h1 style="margin:0;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
                     <?php echo esc_html($order->order_number); ?>
+                    <?php
+                    $legacy_wc = get_post_meta($order->id, '_tix_legacy_wc_order_number', true);
+                    if ($legacy_wc): ?>
+                        <span style="font-size:13px;font-weight:500;color:#9ca3af;background:#f3f4f6;padding:3px 10px;border-radius:8px;">ehemals #<?php echo esc_html($legacy_wc); ?></span>
+                    <?php endif; ?>
                     <span style="display:inline-flex;align-items:center;gap:5px;font-size:13px;font-weight:600;color:<?php echo $s['color']; ?>;background:color-mix(in srgb, <?php echo $s['color']; ?> 10%, #fff);padding:4px 12px;border-radius:20px;">
                         <span style="width:8px;height:8px;border-radius:50%;background:<?php echo $s['color']; ?>;"></span>
                         <?php echo esc_html($s['label']); ?>
