@@ -2779,7 +2779,7 @@ class TIX_Settings {
                                                 <?php self::checkbox_row('show_company_field', 'Firma-Feld im Checkout anzeigen (optional aufklappbar)', $s); ?>
                                             </div>
                                             <div class="tix-field tix-field-full">
-                                                <label class="tix-field-label" for="tix-account-redirect">Redirect nach Account-Aktivierung <?php self::tip('Pfad oder URL — wohin der Kunde geleitet wird, nachdem er sein Passwort gesetzt hat. Default: /tickets/. Beispiele: /account/, /mein-konto/, https://example.com/dashboard'); ?></label>
+                                                <label class="tix-field-label" for="tix-account-redirect">Redirect nach Account-Aktivierung</label>
                                                 <input type="text" id="tix-account-redirect"
                                                        name="<?php echo self::OPTION_KEY; ?>[account_activation_redirect]"
                                                        value="<?php echo esc_attr($s['account_activation_redirect'] ?? '/tickets/'); ?>"

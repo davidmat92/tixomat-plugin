@@ -44,7 +44,7 @@ class TIX_Admin_Shell {
             'tix-settings', 'tix-statistics', 'tix-support', 'tix-docs',
             'tix-promoters', 'tix-marketing-export', 'tix-campaigns', 'tix-meta-ads',
             'tix-templates', 'tix-orders', 'tix-customers', 'tix-email-log', 'tix-bulk-editor', 'tix-settings-io',
-            'tix-legal', 'tix-quotes',
+            'tix-legal', 'tix-quotes', 'tix-coupons',
             'tix-organizer-dashboard', 'tix-organizer-orders',
             'tix-organizer-guestlist', 'tix-organizer-email', 'tix-organizer-billing',
             'tix-organizer-media', 'tix-organizer-landing', 'tix-landing-settings',
@@ -277,6 +277,16 @@ class TIX_Admin_Shell {
                        class="tix-shell-item<?php echo ($current_page === 'tix-organizer-orders') ? ' active' : ''; ?>">
                         <span class="dashicons dashicons-cart"></span>
                         <span>Bestellungen</span>
+                    </a>
+                    <a href="<?php echo admin_url('admin.php?page=tix-quotes'); ?>"
+                       class="tix-shell-item<?php echo ($current_page === 'tix-quotes') ? ' active' : ''; ?>">
+                        <span class="dashicons dashicons-cart"></span>
+                        <span>Vorbestellungen</span>
+                    </a>
+                    <a href="<?php echo admin_url('admin.php?page=tix-coupons'); ?>"
+                       class="tix-shell-item<?php echo ($current_page === 'tix-coupons') ? ' active' : ''; ?>">
+                        <span class="dashicons dashicons-tag"></span>
+                        <span>Gutscheine</span>
                     </a>
                     <a href="<?php echo admin_url('admin.php?page=tix-customers'); ?>"
                        class="tix-shell-item<?php echo $active === 'customers' ? ' active' : ''; ?>">
@@ -607,11 +617,6 @@ class TIX_Admin_Shell {
                            class="tix-shell-item<?php echo ($current_page === 'tix-legal') ? ' active' : ''; ?>">
                             <span class="dashicons dashicons-shield"></span>
                             <span>Rechtstexte</span>
-                        </a>
-                        <a href="<?php echo admin_url('admin.php?page=tix-quotes'); ?>"
-                           class="tix-shell-item<?php echo ($current_page === 'tix-quotes') ? ' active' : ''; ?>">
-                            <span class="dashicons dashicons-tickets-alt"></span>
-                            <span>Vorbestellungen</span>
                         </a>
                     <?php endif; ?>
                 </div>
