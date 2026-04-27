@@ -2,14 +2,14 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.38.24
+ * Version: 1.38.25
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.38.24');
+define('TIXOMAT_VERSION', '1.38.25');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -38,10 +38,11 @@ add_filter('get_post_metadata', function($value, $object_id, $meta_key, $single,
     ];
     if (!$single || !in_array($meta_key, $array_keys, true)) return $value;
 
-    // Backtrace: NUR wenn der direkte Aufrufer Breakdance's PostCustomField-Handler ist
-    // (vorher hat ein zu breiter Check Tixomat-Shortcodes wie [tix_timetable] mit-blockiert,
-    // wenn die innerhalb einer Breakdance-Render-Pipeline liefen)
-    $trace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 5);
+    // Backtrace: NUR wenn Breakdance's PostCustomField-Handler im Stack ist
+    // (vorher hat ein zu breiter Check Tixomat-Shortcodes wie [tix_timetable] mit-blockiert)
+    // limit=10 weil zwischen unserem Filter und dem Aufrufer mehrere WP-interne Frames liegen
+    // (apply_filters → get_metadata_raw → get_metadata → get_post_meta → handler)
+    $trace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 10);
     foreach ($trace as $frame) {
         if (!empty($frame['file']) && strpos($frame['file'], '/dynamic-data/fields/post/post-custom-field.php') !== false) {
             return ''; // Nur dieser eine Breakdance-Handler bekommt leer — kein TypeError mehr
