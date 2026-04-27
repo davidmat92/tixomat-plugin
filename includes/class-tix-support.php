@@ -398,18 +398,58 @@ class TIX_Support {
                 }
             }
         }
-        // ── Auto-Detect: Bestellnummer ──
-        elseif (preg_match('/^#?(\d+)$/', $query, $m)) {
+        // ── Auto-Detect: Bestellnummer (numerisch oder mit Prefix wie MFXXL-0042) ──
+        elseif (preg_match('/^#?[A-Za-z0-9_\-]+$/', $query)) {
             $result['type'] = 'order';
-            $order_id = intval($m[1]);
-            $order = function_exists('wc_get_order') ? wc_get_order($order_id) : false;
-            if (!$order && class_exists('TIX_Order')) {
-                $order = TIX_Order::get($order_id);
+            $clean = ltrim($query, '#');
+            $order = null;
+            $order_id = 0;
+
+            // 1) Direkte numerische ID → WC oder native
+            if (ctype_digit($clean)) {
+                $order_id = intval($clean);
+                if (function_exists('wc_get_order')) $order = wc_get_order($order_id);
+                if (!$order && class_exists('TIX_Order')) $order = TIX_Order::get($order_id);
             }
+
+            // 2) Lookup über aktuelle TIX_Order order_number-Spalte
+            if (!$order && class_exists('TIX_Order')) {
+                $matches = TIX_Order::query(['order_number' => $clean, 'limit' => 1]);
+                if (!empty($matches)) { $order = $matches[0]; $order_id = $order->get_id(); }
+            }
+
+            // 3) Lookup über Legacy-WC-Order-Number (für migrierte Bestellungen)
+            if (!$order) {
+                $hits = get_posts([
+                    'post_type'   => 'any',
+                    'meta_key'    => '_tix_legacy_wc_order_number',
+                    'meta_value'  => $clean,
+                    'posts_per_page' => 1,
+                    'fields'      => 'ids',
+                ]);
+                if (!empty($hits) && class_exists('TIX_Order')) {
+                    $order = TIX_Order::get(intval($hits[0]));
+                    if ($order) $order_id = $order->get_id();
+                }
+                // Auch numerisch: alte WC-ID
+                if (!$order && ctype_digit($clean)) {
+                    $hits = get_posts([
+                        'post_type'   => 'any',
+                        'meta_key'    => '_tix_legacy_wc_order_id',
+                        'meta_value'  => intval($clean),
+                        'posts_per_page' => 1,
+                        'fields'      => 'ids',
+                    ]);
+                    if (!empty($hits) && class_exists('TIX_Order')) {
+                        $order = TIX_Order::get(intval($hits[0]));
+                        if ($order) $order_id = $order->get_id();
+                    }
+                }
+            }
+
             if ($order) {
                 $result['orders'][] = self::format_order($order);
                 $result['customer'] = self::format_customer_from_order($order);
-                // Tickets für diese Bestellung
                 if (class_exists('TIX_Tickets')) {
                     $tickets = TIX_Tickets::get_all_tickets_for_order($order_id);
                     foreach ($tickets as $t) {
