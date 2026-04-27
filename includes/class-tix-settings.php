@@ -241,6 +241,7 @@ class TIX_Settings {
             // ── Verhalten ──
             'skip_cart'            => 1,
             'force_email_shipping' => 1,
+            'account_activation_redirect' => '/tickets/', // Wohin nach Account-Aktivierung (Passwort gesetzt)
             'enable_bacs'          => 0,
             'enable_cod'           => 0,
             'show_company_field'   => 0,
@@ -995,6 +996,10 @@ class TIX_Settings {
         // Toggles
         $clean['skip_cart']            = !empty($input['skip_cart']) ? 1 : 0;
         $clean['force_email_shipping'] = !empty($input['force_email_shipping']) ? 1 : 0;
+        // Redirect-Ziel: relativer Pfad oder absolute URL
+        $redir = trim((string) ($input['account_activation_redirect'] ?? '/tickets/'));
+        if ($redir === '') $redir = '/tickets/';
+        $clean['account_activation_redirect'] = (strpos($redir, 'http') === 0) ? esc_url_raw($redir) : $redir;
         $clean['enable_bacs']          = !empty($input['enable_bacs']) ? 1 : 0;
         $clean['enable_cod']           = !empty($input['enable_cod']) ? 1 : 0;
         $clean['show_company_field']   = !empty($input['show_company_field']) ? 1 : 0;
@@ -2772,6 +2777,16 @@ class TIX_Settings {
                                             </div>
                                             <div class="tix-field tix-field-full">
                                                 <?php self::checkbox_row('show_company_field', 'Firma-Feld im Checkout anzeigen (optional aufklappbar)', $s); ?>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <label class="tix-field-label" for="tix-account-redirect">Redirect nach Account-Aktivierung <?php self::tip('Pfad oder URL — wohin der Kunde geleitet wird, nachdem er sein Passwort gesetzt hat. Default: /tickets/. Beispiele: /account/, /mein-konto/, https://example.com/dashboard'); ?></label>
+                                                <input type="text" id="tix-account-redirect"
+                                                       name="<?php echo self::OPTION_KEY; ?>[account_activation_redirect]"
+                                                       value="<?php echo esc_attr($s['account_activation_redirect'] ?? '/tickets/'); ?>"
+                                                       class="regular-text"
+                                                       placeholder="/tickets/"
+                                                       style="max-width:400px;font-family:monospace;">
+                                                <p class="tix-field-hint">Relativer Pfad (z.B. <code>/account/</code>) oder absolute URL. Greift wenn ein Kunde nach dem Kauf sein Passwort über den Aktivierungs-Link in der Bestätigungsmail setzt.</p>
                                             </div>
                                             <div class="tix-field">
                                                 <label class="tix-field-label">Button-Variante</label>

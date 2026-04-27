@@ -222,8 +222,19 @@ class TIX_Account_Activation {
         wp_set_current_user($user->ID);
         wp_set_auth_cookie($user->ID, true, is_ssl());
 
-        // Redirect zur Tickets-Seite (auf Subdomain bleibt Subdomain, sonst Haupt-Site)
-        $target = home_url('/tickets/');
+        // Konfigurierbares Redirect-Ziel nach Aktivierung
+        // Setting: account_activation_redirect (Default: /tickets/)
+        $s = function_exists('tix_get_settings') ? tix_get_settings() : [];
+        $redirect = !empty($s['account_activation_redirect'])
+            ? $s['account_activation_redirect']
+            : '/tickets/';
+
+        // Wenn relative Pfad → home_url() davorhängen, sonst absolute URL erlauben
+        if (strpos($redirect, 'http') !== 0) {
+            $target = home_url($redirect);
+        } else {
+            $target = esc_url_raw($redirect);
+        }
         wp_safe_redirect($target);
         exit;
     }
