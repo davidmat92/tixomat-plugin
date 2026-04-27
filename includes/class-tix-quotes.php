@@ -136,23 +136,18 @@ class TIX_Quotes {
             wp_die('Vorbestellung enthält keine gültigen Tickets.', 'Vorbestellung', ['response' => 400]);
         }
 
-        // Customer-Daten in transient für Checkout-Prefill
+        // Customer-Daten direkt in den Cart packen — der Checkout liest das beim Render
+        // (zuverlässiger als Transient mit session_id, das hatte Race-Conditions)
         $customer = get_post_meta($quote->ID, self::META_CUSTOMER, true);
         $note     = (string) get_post_meta($quote->ID, self::META_NOTE, true);
-        if (is_array($customer)) {
-            // 30 Min ist genug für den Checkout
-            set_transient('tix_quote_prefill_' . session_id_safe(), [
-                'customer' => $customer,
-                'note'     => $note,
-                'token'    => $token,
-            ], 30 * MINUTE_IN_SECONDS);
-        }
 
         TIX_Native_Checkout::save_cart([
-            'items'         => $cart_items,
-            'coupon'        => null,
-            'quote_token'   => $token,
-            'quote_post_id' => $quote->ID,
+            'items'          => $cart_items,
+            'coupon'         => null,
+            'quote_token'    => $token,
+            'quote_post_id'  => $quote->ID,
+            'quote_customer' => is_array($customer) ? $customer : [],
+            'quote_note'     => $note,
         ]);
 
         wp_safe_redirect(TIX_Native_Checkout::checkout_url());

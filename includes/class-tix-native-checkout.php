@@ -518,6 +518,19 @@ class TIX_Native_Checkout {
         $user = wp_get_current_user();
         $is_logged = is_user_logged_in();
 
+        // Quote-Prefill: wenn der Kunde via /?tix_quote=<token> kam, hat der Cart
+        // die Customer-Daten dabei — diese überschreiben die User-Defaults
+        $cart_for_prefill = self::get_cart();
+        $quote_customer = isset($cart_for_prefill['quote_customer']) && is_array($cart_for_prefill['quote_customer'])
+            ? $cart_for_prefill['quote_customer']
+            : [];
+        $quote_note = $cart_for_prefill['quote_note'] ?? '';
+
+        $prefill_first = $quote_customer['first_name'] ?? ($user->first_name ?? '');
+        $prefill_last  = $quote_customer['last_name']  ?? ($user->last_name  ?? '');
+        $prefill_email = $quote_customer['email']      ?? ($user->user_email ?? '');
+        $prefill_phone = $quote_customer['phone']      ?? '';
+
         // Settings
         $use_steps     = !empty($s['checkout_steps']);
         $use_countdown = !empty($s['checkout_countdown']);
@@ -657,11 +670,11 @@ class TIX_Native_Checkout {
                         <div class="tix-co-fields">
                             <div class="tix-co-field tix-co-field-half">
                                 <label class="tix-co-label">Vorname <abbr class="tix-co-req">*</abbr></label>
-                                <input type="text" class="tix-co-input" name="billing_first_name" required autocomplete="given-name" value="<?php echo esc_attr($user->first_name ?? ''); ?>">
+                                <input type="text" class="tix-co-input" name="billing_first_name" required autocomplete="given-name" value="<?php echo esc_attr($prefill_first); ?>">
                             </div>
                             <div class="tix-co-field tix-co-field-half">
                                 <label class="tix-co-label">Nachname <abbr class="tix-co-req">*</abbr></label>
-                                <input type="text" class="tix-co-input" name="billing_last_name" required autocomplete="family-name" value="<?php echo esc_attr($user->last_name ?? ''); ?>">
+                                <input type="text" class="tix-co-input" name="billing_last_name" required autocomplete="family-name" value="<?php echo esc_attr($prefill_last); ?>">
                             </div>
                             <?php if ($show_company): ?>
                             <div class="tix-co-field tix-co-field-full tix-co-company-wrap">
@@ -704,11 +717,11 @@ class TIX_Native_Checkout {
                             </div>
                             <div class="tix-co-field tix-co-field-full">
                                 <label class="tix-co-label">E-Mail-Adresse <abbr class="tix-co-req">*</abbr></label>
-                                <input type="email" class="tix-co-input" name="billing_email" required autocomplete="email" value="<?php echo esc_attr($user->user_email ?? ''); ?>">
+                                <input type="email" class="tix-co-input" name="billing_email" required autocomplete="email" value="<?php echo esc_attr($prefill_email); ?>">
                             </div>
                             <div class="tix-co-field tix-co-field-full">
                                 <label class="tix-co-label">Telefon</label>
-                                <input type="tel" class="tix-co-input" name="billing_phone" autocomplete="tel">
+                                <input type="tel" class="tix-co-input" name="billing_phone" autocomplete="tel" value="<?php echo esc_attr($prefill_phone); ?>">
                             </div>
                         </div>
 
