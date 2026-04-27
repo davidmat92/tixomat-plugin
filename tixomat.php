@@ -2,14 +2,14 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.38.23
+ * Version: 1.38.24
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.38.23');
+define('TIXOMAT_VERSION', '1.38.24');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -38,11 +38,13 @@ add_filter('get_post_metadata', function($value, $object_id, $meta_key, $single,
     ];
     if (!$single || !in_array($meta_key, $array_keys, true)) return $value;
 
-    // Backtrace prüfen: Sind wir in Breakdance Dynamic Data?
-    $trace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 8);
+    // Backtrace: NUR wenn der direkte Aufrufer Breakdance's PostCustomField-Handler ist
+    // (vorher hat ein zu breiter Check Tixomat-Shortcodes wie [tix_timetable] mit-blockiert,
+    // wenn die innerhalb einer Breakdance-Render-Pipeline liefen)
+    $trace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 5);
     foreach ($trace as $frame) {
-        if (!empty($frame['file']) && strpos($frame['file'], '/breakdance/plugin/dynamic-data/') !== false) {
-            return ''; // Breakdance bekommt leeren String → kein TypeError mehr
+        if (!empty($frame['file']) && strpos($frame['file'], '/dynamic-data/fields/post/post-custom-field.php') !== false) {
+            return ''; // Nur dieser eine Breakdance-Handler bekommt leer — kein TypeError mehr
         }
     }
     return $value;
