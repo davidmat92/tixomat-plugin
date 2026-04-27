@@ -2,16 +2,51 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.38.22
+ * Version: 1.38.23
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.38.22');
+define('TIXOMAT_VERSION', '1.38.23');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
+
+/**
+ * Schutz gegen Breakdance Dynamic-Data Bug:
+ *
+ * Breakdance's "Post Custom Field"-Widget ruft `get_post_meta(id, key, true)`
+ * und reicht das Ergebnis direkt an `StringData::fromString()` weiter — ohne
+ * is_array-Check. Tixomat speichert diverse Meta-Felder als Arrays (z.B.
+ * _tix_ticket_categories, _tix_timetable, _tix_table_reservation). Wenn ein
+ * Breakdance-Template versehentlich auf so einen Key referenziert → TypeError.
+ *
+ * Fix: Wenn Breakdance unsere Array-Keys liest, geben wir leeren String zurück
+ * statt das Array. Tixomat-eigener Code (der Arrays erwartet) bleibt unbetroffen,
+ * weil wir nur bei Breakdance-Aufrufen eingreifen.
+ */
+add_filter('get_post_metadata', function($value, $object_id, $meta_key, $single, $meta_type) {
+    // Nur Tixomat-Array-Felder
+    static $array_keys = [
+        '_tix_faq', '_tix_stages', '_tix_timetable', '_tix_ticket_categories',
+        '_tix_group_discount', '_tix_gallery', '_tix_upsell_events',
+        '_tix_discount_codes', '_tix_combo_deals', '_tix_guest_list',
+        '_tix_specials', '_tix_table_reservation', '_tix_seatmap',
+        '_tix_seatmap_seats', '_tix_seatmap_categories', '_tix_partners',
+        '_tix_event_homepage_sections', '_tix_dynamic_pricing',
+    ];
+    if (!$single || !in_array($meta_key, $array_keys, true)) return $value;
+
+    // Backtrace prüfen: Sind wir in Breakdance Dynamic Data?
+    $trace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 8);
+    foreach ($trace as $frame) {
+        if (!empty($frame['file']) && strpos($frame['file'], '/breakdance/plugin/dynamic-data/') !== false) {
+            return ''; // Breakdance bekommt leeren String → kein TypeError mehr
+        }
+    }
+    return $value;
+}, 10, 5);
 
 /**
  * Prüft ob WooCommerce aktiv und geladen ist.
