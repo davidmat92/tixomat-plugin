@@ -623,6 +623,12 @@ class TIX_Admin_Shell {
                             <span class="dashicons dashicons-migrate"></span>
                             <span>Import / Export</span>
                         </a>
+                        <a href="<?php echo admin_url('admin.php?page=tix-migration'); ?>"
+                           class="tix-shell-item<?php echo ($current_page === 'tix-migration') ? ' active' : ''; ?>"
+                           style="padding-left:38px;">
+                            <span class="dashicons dashicons-database-export"></span>
+                            <span>Migration</span>
+                        </a>
                         <a href="<?php echo admin_url('admin.php?page=tix-legal'); ?>"
                            class="tix-shell-item<?php echo ($current_page === 'tix-legal') ? ' active' : ''; ?>">
                             <span class="dashicons dashicons-shield"></span>

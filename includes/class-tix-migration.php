@@ -41,6 +41,28 @@ class TIX_Migration {
     private static function token_key($token) { return 'tix_migration_data_' . preg_replace('/[^a-z0-9]/i', '', $token); }
     private static function map_key($token)   { return 'tix_migration_map_'  . preg_replace('/[^a-z0-9]/i', '', $token); }
 
+    /**
+     * Pfad zur temporären Migration-Datei auf Disk.
+     * (Statt Transient, weil Transient bei großen Datenmengen via wp_options
+     * an max_allowed_packet o.ä. scheitert — silent fail.)
+     */
+    private static function file_path($token) {
+        $clean = preg_replace('/[^a-z0-9]/i', '', $token);
+        $upload = wp_upload_dir();
+        $dir = trailingslashit($upload['basedir']) . 'tix-migration';
+        if (!is_dir($dir)) wp_mkdir_p($dir);
+        return $dir . '/migration-' . $clean . '.json';
+    }
+
+    private static function load_data($token) {
+        $path = self::file_path($token);
+        if (!file_exists($path)) return null;
+        $json = file_get_contents($path);
+        if (!$json) return null;
+        $data = json_decode($json, true);
+        return is_array($data) ? $data : null;
+    }
+
     // ════════════════════════════════════════════════════════════
     // EXPORT (alte Site)
     // ════════════════════════════════════════════════════════════
@@ -471,11 +493,16 @@ class TIX_Migration {
             exit;
         }
 
-        // Token + Transient
+        // Token + Datei auf Disk speichern (statt Transient — sonst silent fail bei >16MB)
         $token = bin2hex(random_bytes(8));
-        set_transient(self::token_key($token), $data, HOUR_IN_SECONDS);
+        $path = self::file_path($token);
+        $written = file_put_contents($path, $json);
+        if (!$written) {
+            wp_redirect(add_query_arg(['page' => 'tix-migration', 'msg' => 'cant_write'], admin_url('admin.php')));
+            exit;
+        }
 
-        // Auto-Mapping initial: aus Event-Mapping ableiten
+        // Auto-Mapping (klein) bleibt im Transient
         $event_map   = self::build_event_map($data['events'] ?? []);
         $product_map = [];
         foreach (($data['products'] ?? []) as $p) {
@@ -500,7 +527,8 @@ class TIX_Migration {
         check_admin_referer(self::NONCE_KEY);
         $token = sanitize_text_field($_REQUEST['token'] ?? '');
         if ($token) {
-            delete_transient(self::token_key($token));
+            $path = self::file_path($token);
+            if (file_exists($path)) @unlink($path);
             delete_transient(self::map_key($token));
         }
         wp_redirect(add_query_arg(['page' => 'tix-migration', 'tab' => 'import'], admin_url('admin.php')));
@@ -518,7 +546,7 @@ class TIX_Migration {
         @ini_set('memory_limit', '512M');
 
         $token = sanitize_text_field($_POST['token'] ?? '');
-        $data  = $token ? get_transient(self::token_key($token)) : null;
+        $data  = $token ? self::load_data($token) : null;
         if (!$data) {
             wp_redirect(add_query_arg(['page' => 'tix-migration', 'msg' => 'expired'], admin_url('admin.php')));
             exit;
@@ -776,7 +804,7 @@ class TIX_Migration {
         $tab = $_GET['tab'] ?? 'export';
         $msg = $_GET['msg'] ?? '';
         $token = sanitize_text_field($_GET['token'] ?? '');
-        $data  = $token ? get_transient(self::token_key($token)) : null;
+        $data  = $token ? self::load_data($token) : null;
         $map   = $token ? get_transient(self::map_key($token))   : null;
         $report = get_transient('tix_migration_report_' . get_current_user_id());
         if ($report) delete_transient('tix_migration_report_' . get_current_user_id());
