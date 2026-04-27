@@ -825,7 +825,8 @@ class TIX_Sync {
             $prices[] = $effective;
         }
 
-        // Preisrange aktualisieren
+        // Preisrange aktualisieren — IDENTISCH zu save_breakdance_meta() halten,
+        // sonst entstehen Inkonsistenzen wenn nur eine der beiden Funktionen läuft
         if (!empty($prices)) {
             $min = min($prices);
             $max = max($prices);
@@ -835,14 +836,26 @@ class TIX_Sync {
             update_post_meta($post_id, '_tix_price_max_formatted', self::fmt_price($max));
 
             if ($min === $max && $min > 0) {
-                update_post_meta($post_id, '_tix_price_range', self::fmt_price($min));
-                update_post_meta($post_id, '_tix_price_card', number_format($min, 2, ',', '.') . ' €');
+                update_post_meta($post_id, '_tix_price_range',      self::fmt_price($min));
+                update_post_meta($post_id, '_tix_price_range_full', self::fmt_price($min));
+                update_post_meta($post_id, '_tix_price_card',  number_format($min, 2, ',', '.') . ' €');
                 update_post_meta($post_id, '_tix_price_label', 'Tickets ab ' . number_format($min, 2, ',', '.') . '€');
             } elseif ($min > 0) {
-                update_post_meta($post_id, '_tix_price_range', 'ab ' . self::fmt_price($min));
-                update_post_meta($post_id, '_tix_price_card', 'Ab ' . number_format($min, 2, ',', '.') . ' €');
+                update_post_meta($post_id, '_tix_price_range',      'ab ' . self::fmt_price($min));
+                update_post_meta($post_id, '_tix_price_range_full', number_format($min, 2, ',', '.') . ' € – ' . self::fmt_price($max));
+                update_post_meta($post_id, '_tix_price_card',  'Ab ' . number_format($min, 2, ',', '.') . ' €');
                 update_post_meta($post_id, '_tix_price_label', 'Tickets ab ' . number_format($min, 2, ',', '.') . '€');
             }
+        } else {
+            // Keine Online-Cats → alle Preisfelder leeren (sonst bleiben stale-Werte)
+            update_post_meta($post_id, '_tix_price_min', 0);
+            update_post_meta($post_id, '_tix_price_max', 0);
+            update_post_meta($post_id, '_tix_price_min_formatted', '');
+            update_post_meta($post_id, '_tix_price_max_formatted', '');
+            update_post_meta($post_id, '_tix_price_range', '');
+            update_post_meta($post_id, '_tix_price_range_full', '');
+            update_post_meta($post_id, '_tix_price_card', '');
+            update_post_meta($post_id, '_tix_price_label', '');
         }
     }
 
