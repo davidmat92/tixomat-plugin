@@ -918,12 +918,41 @@ class TIX_Columns {
 
             case 'tix_t_order':
                 $order_id = intval(get_post_meta($post_id, '_tix_ticket_order_id', true));
-                if ($order_id) {
-                    $order_url = admin_url('post.php?post=' . $order_id . '&action=edit');
-                    echo '<a href="' . esc_url($order_url) . '">#' . $order_id . '</a>';
-                } else {
-                    echo '—';
+                if (!$order_id) { echo '—'; break; }
+
+                // 1) TIX_Order (native + WC-synced) → eigene Bestellnummer + Admin-Link
+                if (class_exists('TIX_Order')) {
+                    $order = TIX_Order::get($order_id);
+                    if ($order) {
+                        $num = $order->get_order_number() ?: ('#' . $order_id);
+                        $url = admin_url('admin.php?page=tix-orders&order_id=' . $order_id);
+                        echo '<a href="' . esc_url($url) . '">' . esc_html($num) . '</a>';
+                        break;
+                    }
+                    // Vielleicht ist $order_id eine WC-Order-ID, die in TIX_Order verlinkt ist
+                    if (function_exists('wc_get_order')) {
+                        $tix_order = TIX_Order::get_by_wc_order($order_id);
+                        if ($tix_order) {
+                            $num = $tix_order->get_order_number() ?: ('#' . $order_id);
+                            $url = admin_url('admin.php?page=tix-orders&order_id=' . $tix_order->get_id());
+                            echo '<a href="' . esc_url($url) . '">' . esc_html($num) . '</a>';
+                            break;
+                        }
+                    }
                 }
+
+                // 2) Reine WC-Order ohne TIX_Order-Sync → WC-Bestellnummer
+                if (function_exists('wc_get_order')) {
+                    $wc_order = wc_get_order($order_id);
+                    if ($wc_order) {
+                        $url = admin_url('post.php?post=' . $order_id . '&action=edit');
+                        echo '<a href="' . esc_url($url) . '">' . esc_html($wc_order->get_order_number()) . '</a>';
+                        break;
+                    }
+                }
+
+                // 3) Fallback: rohe ID
+                echo '<span style="color:#9ca3af;">#' . $order_id . '</span>';
                 break;
 
             case 'tix_t_status':
