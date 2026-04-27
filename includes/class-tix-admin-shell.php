@@ -44,6 +44,7 @@ class TIX_Admin_Shell {
             'tix-settings', 'tix-statistics', 'tix-support', 'tix-docs',
             'tix-promoters', 'tix-marketing-export', 'tix-campaigns', 'tix-meta-ads',
             'tix-templates', 'tix-orders', 'tix-customers', 'tix-email-log', 'tix-bulk-editor', 'tix-settings-io',
+            'tix-legal',
             'tix-organizer-dashboard', 'tix-organizer-orders',
             'tix-organizer-guestlist', 'tix-organizer-email', 'tix-organizer-billing',
             'tix-organizer-media', 'tix-organizer-landing', 'tix-landing-settings',
@@ -601,6 +602,11 @@ class TIX_Admin_Shell {
                            class="tix-shell-item<?php echo ($current_page === 'tix-settings-io') ? ' active' : ''; ?>">
                             <span class="dashicons dashicons-migrate"></span>
                             <span>Import / Export</span>
+                        </a>
+                        <a href="<?php echo admin_url('admin.php?page=tix-legal'); ?>"
+                           class="tix-shell-item<?php echo ($current_page === 'tix-legal') ? ' active' : ''; ?>">
+                            <span class="dashicons dashicons-shield"></span>
+                            <span>Rechtstexte</span>
                         </a>
                     <?php endif; ?>
                 </div>
