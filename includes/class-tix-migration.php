@@ -98,7 +98,8 @@ class TIX_Migration {
             'has_wc' => function_exists('wc_get_orders'),
         ];
         echo "{\n";
-        echo '"meta": ' . wp_json_encode($meta, JSON_UNESCAPED_UNICODE) . ",\n";
+        echo '"meta": ' . wp_json_encode($meta, JSON_UNESCAPED_UNICODE);
+        // KEIN ",\n" hier — emit_array_open() fügt das Komma vor jedem Folge-Key ein
         $first = false;
 
         // ── users ──
@@ -435,14 +436,37 @@ class TIX_Migration {
         if (!current_user_can('manage_options')) wp_die('Keine Berechtigung.');
         check_admin_referer(self::NONCE_KEY);
 
+        @set_time_limit(0);
+        @ini_set('memory_limit', '1024M');
+
         if (empty($_FILES['migration_file']['tmp_name'])) {
-            wp_redirect(add_query_arg(['page' => 'tix-migration', 'msg' => 'no_file'], admin_url('admin.php')));
+            // Detail-Diagnose: was war das Problem?
+            $err = $_FILES['migration_file']['error'] ?? UPLOAD_ERR_NO_FILE;
+            $err_map = [
+                UPLOAD_ERR_INI_SIZE   => 'too_big_php',  // > upload_max_filesize
+                UPLOAD_ERR_FORM_SIZE  => 'too_big_form',
+                UPLOAD_ERR_PARTIAL    => 'partial',
+                UPLOAD_ERR_NO_FILE    => 'no_file',
+                UPLOAD_ERR_NO_TMP_DIR => 'no_tmp',
+                UPLOAD_ERR_CANT_WRITE => 'cant_write',
+            ];
+            $msg = $err_map[$err] ?? 'no_file';
+            wp_redirect(add_query_arg(['page' => 'tix-migration', 'msg' => $msg], admin_url('admin.php')));
             exit;
         }
 
         $json = file_get_contents($_FILES['migration_file']['tmp_name']);
+        $size = strlen($json);
+
         $data = json_decode($json, true);
         if (!is_array($data) || empty($data['meta'])) {
+            $err_msg = function_exists('json_last_error_msg') ? json_last_error_msg() : 'unknown';
+            // In Transient stecken damit es auf der Page angezeigt werden kann
+            set_transient('tix_migration_upload_err_' . get_current_user_id(), [
+                'json_err' => $err_msg,
+                'size'     => $size,
+                'preview'  => substr($json, 0, 200) . (strlen($json) > 200 ? '…' : ''),
+            ], 5 * MINUTE_IN_SECONDS);
             wp_redirect(add_query_arg(['page' => 'tix-migration', 'msg' => 'invalid_json'], admin_url('admin.php')));
             exit;
         }
@@ -770,7 +794,24 @@ class TIX_Migration {
             <?php if ($msg === 'imported'): ?><div class="notice notice-success"><p>Import abgeschlossen — siehe Bericht unten.</p></div>
             <?php elseif ($msg === 'dry_run_done'): ?><div class="notice notice-info"><p>Dry-Run abgeschlossen — NICHTS wurde geschrieben. Siehe Bericht unten.</p></div>
             <?php elseif ($msg === 'no_file'): ?><div class="notice notice-error"><p>Bitte JSON-Datei auswählen.</p></div>
-            <?php elseif ($msg === 'invalid_json'): ?><div class="notice notice-error"><p>Ungültige JSON-Datei.</p></div>
+            <?php elseif ($msg === 'too_big_php'): ?><div class="notice notice-error"><p>Datei größer als <code>upload_max_filesize</code> in der PHP-Config (typisch 2&nbsp;MB). Erhöhe <code>upload_max_filesize</code> und <code>post_max_size</code> in der php.ini bzw. .user.ini auf z.B. 100M.</p></div>
+            <?php elseif ($msg === 'too_big_form'): ?><div class="notice notice-error"><p>Datei größer als das HTML-Formular-Limit. Server-Konfiguration prüfen.</p></div>
+            <?php elseif ($msg === 'partial'): ?><div class="notice notice-error"><p>Upload unterbrochen — bitte erneut versuchen.</p></div>
+            <?php elseif ($msg === 'no_tmp'): ?><div class="notice notice-error"><p>Server-Konfigurationsfehler: kein /tmp Verzeichnis verfügbar.</p></div>
+            <?php elseif ($msg === 'cant_write'): ?><div class="notice notice-error"><p>Server-Berechtigungsfehler beim Upload.</p></div>
+            <?php elseif ($msg === 'invalid_json'):
+                $err_data = get_transient('tix_migration_upload_err_' . get_current_user_id());
+                if ($err_data) delete_transient('tix_migration_upload_err_' . get_current_user_id());
+            ?>
+                <div class="notice notice-error">
+                    <p><strong>Ungültige JSON-Datei.</strong>
+                    <?php if ($err_data): ?>
+                        <br>JSON-Fehler: <code><?php echo esc_html($err_data['json_err']); ?></code>
+                        <br>Datei-Größe: <?php echo number_format($err_data['size']); ?> Bytes
+                        <br>Anfang der Datei: <code style="font-size:11px;background:#f3f4f6;padding:4px 8px;border-radius:4px;display:inline-block;max-width:100%;overflow:auto;"><?php echo esc_html($err_data['preview']); ?></code>
+                    <?php endif; ?>
+                    </p>
+                </div>
             <?php elseif ($msg === 'expired'): ?><div class="notice notice-warning"><p>Session abgelaufen — bitte neu hochladen.</p></div>
             <?php endif; ?>
 
