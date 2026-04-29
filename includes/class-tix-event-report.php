@@ -644,8 +644,17 @@ class TIX_Event_Report {
         // BOM für Excel-Umlaute
         fprintf($out, chr(0xEF) . chr(0xBB) . chr(0xBF));
 
+        // Aussteller-Block ganz oben (Steuerberater-freundlich)
+        $issuer = self::format_issuer_block();
+        if (!empty($issuer)) {
+            fputcsv($out, ['AUSSTELLER'], ';');
+            foreach ($issuer as $line) fputcsv($out, [$line], ';');
+            fputcsv($out, [], ';');
+        }
+
         // Event-Header
         fputcsv($out, ['Event:', $event ? $event->post_title : ''], ';');
+        fputcsv($out, ['Datum (Leistung):', $event ? (get_post_meta($event->ID, '_tix_date_start', true) ?: '') : ''], ';');
         fputcsv($out, ['Bericht erstellt:', date_i18n('d.m.Y H:i')], ';');
         fputcsv($out, [], ';');
 
@@ -656,6 +665,21 @@ class TIX_Event_Report {
         fputcsv($out, ['Check-in Rate',    $data['kpis']['checkin_rate'] . '%'], ';');
         fputcsv($out, ['Brutto-Umsatz',    number_format($data['kpis']['revenue_gross'], 2, ',', '.') . ' EUR'], ';');
         fputcsv($out, ['Netto-Umsatz',     number_format($data['kpis']['revenue_net'], 2, ',', '.') . ' EUR'], ';');
+        fputcsv($out, [], ';');
+
+        // Steueraufschlüsselung
+        $vat_rate = floatval($data['kpis']['vat_rate'] ?: 19);
+        $brutto   = floatval($data['kpis']['revenue_gross']);
+        $netto    = floatval($data['kpis']['revenue_net']);
+        $vat_amt  = round($brutto - $netto, 2);
+        fputcsv($out, ['STEUERLICHE AUFSCHLÜSSELUNG'], ';');
+        fputcsv($out, ['Steuersatz', 'Netto EUR', 'USt-Betrag EUR', 'Brutto EUR'], ';');
+        fputcsv($out, [
+            number_format($vat_rate, 0, ',', '.') . '%',
+            number_format($netto, 2, ',', '.'),
+            number_format($vat_amt, 2, ',', '.'),
+            number_format($brutto, 2, ',', '.'),
+        ], ';');
         fputcsv($out, [], ';');
 
         // Kategorien
@@ -691,6 +715,10 @@ class TIX_Event_Report {
             ], ';');
         }
 
+        // Compliance-Hinweis
+        fputcsv($out, [], ';');
+        fputcsv($out, ['Hinweis: Aufbewahrungspflicht 10 Jahre gemäß § 147 AO / GoBD. Dieser Bericht ist eine Auswertung — keine einzelne Rechnung.'], ';');
+
         fclose($out);
     }
 
@@ -704,9 +732,19 @@ class TIX_Event_Report {
             return;
         }
 
-        // Daten zusammenstellen: Header + KPIs + Kategorien + Tickets in einem Sheet
+        // Daten zusammenstellen: Aussteller + Header + KPIs + Steuer + Kategorien + Tickets
         $rows = [];
+
+        // Aussteller-Block (Steuerberater liest's zuerst)
+        $issuer = self::format_issuer_block();
+        if (!empty($issuer)) {
+            $rows[] = ['AUSSTELLER'];
+            foreach ($issuer as $line) $rows[] = [$line];
+            $rows[] = [];
+        }
+
         $rows[] = ['Event-Bericht: ' . ($event ? $event->post_title : '')];
+        $rows[] = ['Datum (Leistung): ' . ($event ? (get_post_meta($event->ID, '_tix_date_start', true) ?: '') : '')];
         $rows[] = ['Erstellt am ' . date_i18n('d.m.Y H:i')];
         $rows[] = [];
         $rows[] = ['Kennzahl', 'Wert'];
@@ -714,8 +752,23 @@ class TIX_Event_Report {
         $rows[] = ['Storniert',          $data['kpis']['cancelled']];
         $rows[] = ['Eingecheckt',        $data['kpis']['checked_in']];
         $rows[] = ['Check-in Rate',      $data['kpis']['checkin_rate'] . '%'];
-        $rows[] = ['Brutto-Umsatz EUR',  $data['kpis']['revenue_gross']];
-        $rows[] = ['Netto-Umsatz EUR',   $data['kpis']['revenue_net']];
+        $rows[] = ['Brutto-Umsatz EUR',  round($data['kpis']['revenue_gross'], 2)];
+        $rows[] = ['Netto-Umsatz EUR',   round($data['kpis']['revenue_net'], 2)];
+        $rows[] = [];
+
+        // Steueraufschlüsselung
+        $vat_rate = floatval($data['kpis']['vat_rate'] ?: 19);
+        $brutto   = floatval($data['kpis']['revenue_gross']);
+        $netto    = floatval($data['kpis']['revenue_net']);
+        $vat_amt  = round($brutto - $netto, 2);
+        $rows[] = ['STEUERLICHE AUFSCHLÜSSELUNG'];
+        $rows[] = ['Steuersatz', 'Netto EUR', 'USt-Betrag EUR', 'Brutto EUR'];
+        $rows[] = [
+            number_format($vat_rate, 0, ',', '.') . '%',
+            round($netto, 2),
+            $vat_amt,
+            round($brutto, 2),
+        ];
         $rows[] = [];
 
         $rows[] = ['KATEGORIEN'];
@@ -748,6 +801,10 @@ class TIX_Event_Report {
                 $t['checkin_time'],
             ];
         }
+
+        // Compliance-Hinweis am Ende
+        $rows[] = [];
+        $rows[] = ['Hinweis: Aufbewahrungspflicht 10 Jahre gemäß § 147 AO / GoBD. Dieser Bericht ist eine Auswertung — keine einzelne Rechnung.'];
 
         // XLSX = ZIP mit XML-Files
         $tmp = wp_tempnam('tix-xlsx-');
@@ -982,10 +1039,82 @@ class TIX_Event_Report {
                 $share . '%',
             ], $cat_widths, 36, $y);
             $y -= 16;
-            if ($y < 80) {
+            if ($y < 200) {
                 $pdf->add_page();
                 $y = $page_h - 50;
             }
+        }
+
+        // ── Steueraufschlüsselung + Aussteller-Block ──
+        $y -= 30; // Gap nach Kategorien-Tabelle
+
+        // Falls zu wenig Platz: neue Seite
+        if ($y < 220) {
+            $pdf->add_page();
+            $y = $page_h - 50;
+        }
+
+        $vat_rate = floatval($data['kpis']['vat_rate'] ?: 19);
+        $brutto   = floatval($data['kpis']['revenue_gross']);
+        $netto    = floatval($data['kpis']['revenue_net']);
+        $vat_amt  = round($brutto - $netto, 2);
+
+        $pdf->set_font('Helvetica-Bold', 12);
+        $pdf->set_color(0, 0, 0);
+        $pdf->text(36, $y, 'Steuerliche Aufschlüsselung');
+        $y -= 20;
+
+        $tax_headers = ['Steuersatz', 'Netto', 'USt-Betrag', 'Brutto'];
+        $tax_widths  = [120, 140, 140, 160];
+        $pdf->draw_table_header($tax_headers, $tax_widths, 36, $y);
+        $y -= 22;
+
+        $pdf->set_font('Helvetica', 10);
+        $pdf->draw_table_row([
+            number_format($vat_rate, 0, ',', '.') . ' %',
+            number_format($netto, 2, ',', '.') . ' EUR',
+            number_format($vat_amt, 2, ',', '.') . ' EUR',
+            number_format($brutto, 2, ',', '.') . ' EUR',
+        ], $tax_widths, 36, $y);
+        $y -= 18;
+
+        // Summen-Linie
+        $pdf->set_color(0.85, 0.85, 0.87);
+        $pdf->rect(36, $y + 8, array_sum($tax_widths), 0.5, true);
+        $y -= 4;
+        $pdf->set_color(0, 0, 0);
+        $pdf->set_font('Helvetica-Bold', 10);
+        $pdf->draw_table_row([
+            'Gesamt',
+            number_format($netto, 2, ',', '.') . ' EUR',
+            number_format($vat_amt, 2, ',', '.') . ' EUR',
+            number_format($brutto, 2, ',', '.') . ' EUR',
+        ], $tax_widths, 36, $y);
+        $y -= 28;
+
+        // ── Aussteller-Block ──
+        $issuer = self::format_issuer_block();
+        if (!empty($issuer)) {
+            // Falls zu wenig Platz: neue Seite
+            $needed = 14 + count($issuer) * 13 + 25;
+            if ($y < 50 + $needed) {
+                $pdf->add_page();
+                $y = $page_h - 50;
+            }
+            $pdf->set_font('Helvetica-Bold', 11);
+            $pdf->set_color(0, 0, 0);
+            $pdf->text(36, $y, 'Aussteller');
+            $y -= 16;
+            $pdf->set_font('Helvetica', 9);
+            $pdf->set_color(0.25, 0.25, 0.28);
+            foreach ($issuer as $line) {
+                $pdf->text(36, $y, $line);
+                $y -= 13;
+            }
+            $y -= 8;
+            $pdf->set_font('Helvetica', 8);
+            $pdf->set_color(0.55, 0.55, 0.55);
+            $pdf->text(36, $y, 'Aufbewahrungspflicht: 10 Jahre gemäß § 147 AO / GoBD. Dieses Dokument ist eine Auswertung — keine einzelne Rechnung.');
         }
 
         // ── Detail-Tickets (neue Seite) ──
@@ -1051,6 +1180,66 @@ class TIX_Event_Report {
         header('Content-Disposition: attachment; filename="' . $filename . '"');
         header('Content-Length: ' . strlen($bytes));
         echo $bytes;
+    }
+
+    /**
+     * Aussteller-Block aus den Settings als Array von Zeilen zurückgeben.
+     * Wird im PDF-Bericht (steuerliche Aufschlüsselung) und CSV/XLSX-Header verwendet.
+     * Returns: ['Firmenname', 'Straße + PLZ Ort', 'Steuernr.: ... · USt-IdNr.: ...', ...]
+     */
+    private static function format_issuer_block() {
+        $name      = trim((string) tix_get_settings('invoice_company_name'));
+        $address   = trim((string) tix_get_settings('invoice_company_address'));
+        $tax_id    = trim((string) tix_get_settings('invoice_company_tax_id'));
+        $ust_id    = trim((string) tix_get_settings('invoice_company_ust_id'));
+        $director  = trim((string) tix_get_settings('invoice_managing_director'));
+        $court     = trim((string) tix_get_settings('invoice_register_court'));
+        $reg_no    = trim((string) tix_get_settings('invoice_register_number'));
+        $email     = trim((string) tix_get_settings('invoice_email'));
+        $phone     = trim((string) tix_get_settings('invoice_phone'));
+        $footer    = trim((string) tix_get_settings('invoice_footer_text'));
+
+        if (!$name && !$address && !$tax_id && !$ust_id) return [];
+
+        $lines = [];
+        if ($name) $lines[] = $name;
+        if ($address) {
+            // Mehrzeilige Adresse einzeln einsetzen
+            foreach (preg_split('/\r\n|\r|\n/', $address) as $ln) {
+                $ln = trim($ln);
+                if ($ln) $lines[] = $ln;
+            }
+        }
+
+        // Steuernummer + USt-IdNr.
+        $tax_line = [];
+        if ($tax_id) $tax_line[] = 'Steuernr.: ' . $tax_id;
+        if ($ust_id) $tax_line[] = 'USt-IdNr.: ' . $ust_id;
+        if (!empty($tax_line)) $lines[] = implode(' · ', $tax_line);
+
+        // Geschäftsführung + Register
+        $rep_line = [];
+        if ($director) $rep_line[] = 'Geschäftsführer: ' . $director;
+        if ($court && $reg_no) $rep_line[] = $court . ' ' . $reg_no;
+        elseif ($court) $rep_line[] = $court;
+        elseif ($reg_no) $rep_line[] = $reg_no;
+        if (!empty($rep_line)) $lines[] = implode(' · ', $rep_line);
+
+        // Kontakt
+        $contact = [];
+        if ($email) $contact[] = $email;
+        if ($phone) $contact[] = $phone;
+        if (!empty($contact)) $lines[] = implode(' · ', $contact);
+
+        // Optionaler Custom-Footer
+        if ($footer) {
+            foreach (preg_split('/\r\n|\r|\n/', $footer) as $ln) {
+                $ln = trim($ln);
+                if ($ln) $lines[] = $ln;
+            }
+        }
+
+        return $lines;
     }
 
     private static function trunc($str, $max) {

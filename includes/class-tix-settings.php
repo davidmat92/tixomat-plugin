@@ -617,11 +617,17 @@ class TIX_Settings {
             'airtable_api_key'   => '',
             'airtable_base_id'   => '',
             'airtable_table'     => 'Tickets',
-            // ── Rechnungen ──
+            // ── Rechnungen / Steuerlich relevante Aussteller-Daten ──
             'invoice_company_name'    => '',
-            'invoice_company_address' => '',
-            'invoice_company_tax_id'  => '',
-            'invoice_footer_text'     => '',
+            'invoice_company_address' => '',     // Mehrzeilige Anschrift (Straße, PLZ Ort, Land)
+            'invoice_company_tax_id'  => '',     // Steuernummer (vom Finanzamt vergeben)
+            'invoice_company_ust_id'  => '',     // USt-IdNr. (DE...)
+            'invoice_managing_director' => '',   // Geschäftsführer-Name
+            'invoice_register_court'  => '',     // Amtsgericht (z.B. "Amtsgericht Köln")
+            'invoice_register_number' => '',     // Handelsregister-Nr (z.B. "HRB 12345")
+            'invoice_email'           => '',     // Geschäfts-Email
+            'invoice_phone'           => '',     // Geschäfts-Telefon
+            'invoice_footer_text'     => '',     // Optionaler eigener Footer-Hinweis
             // ── Branding ──
             'branding_enabled'  => 1,
             'branding_url'      => 'https://mdj.events',
@@ -1618,7 +1624,13 @@ class TIX_Settings {
         }
 
         // Rechnungen
-        $clean['invoice_company_name']    = sanitize_text_field($input['invoice_company_name'] ?? '');
+        $clean['invoice_company_name']      = sanitize_text_field($input['invoice_company_name'] ?? '');
+        $clean['invoice_company_ust_id']    = sanitize_text_field($input['invoice_company_ust_id'] ?? '');
+        $clean['invoice_managing_director'] = sanitize_text_field($input['invoice_managing_director'] ?? '');
+        $clean['invoice_register_court']    = sanitize_text_field($input['invoice_register_court'] ?? '');
+        $clean['invoice_register_number']   = sanitize_text_field($input['invoice_register_number'] ?? '');
+        $clean['invoice_email']             = sanitize_email($input['invoice_email'] ?? '');
+        $clean['invoice_phone']             = sanitize_text_field($input['invoice_phone'] ?? '');
         $clean['invoice_company_address'] = sanitize_textarea_field($input['invoice_company_address'] ?? '');
         $clean['invoice_company_tax_id']  = sanitize_text_field($input['invoice_company_tax_id'] ?? '');
         $clean['invoice_footer_text']     = sanitize_textarea_field($input['invoice_footer_text'] ?? '');
@@ -7030,27 +7042,36 @@ class TIX_Settings {
                                     </div>
                                 </div>
 
-                                <?php // ── Card: Rechnungen ── ?>
+                                <?php // ── Card: Rechnungen / Aussteller-Daten ── ?>
                                 <div class="tix-card">
                                     <div class="tix-card-header">
                                         <span class="dashicons dashicons-media-document"></span>
-                                        <h3>Rechnungen</h3>
+                                        <h3>Rechnungen / Aussteller-Daten</h3>
                                     </div>
                                     <div class="tix-card-body">
+                                        <p class="tix-settings-hint" style="margin:0 0 14px;background:#fef3c7;border-left:3px solid #f59e0b;padding:10px 14px;border-radius:6px;">
+                                            <strong>📋 Wichtig f&uuml;r Steuerberater &amp; Finanzamt:</strong> Diese Daten erscheinen im Event-Bericht-PDF (Aussteller-Block). Vollst&auml;ndige Angaben sind Pflicht nach &sect;14 UStG f&uuml;r rechtssichere Abrechnungen.
+                                        </p>
                                         <div class="tix-field-grid">
-                                            <?php self::text_row('invoice_company_name', 'Firmenname', $s, 'Meine Firma GmbH'); ?>
+                                            <?php self::text_row('invoice_company_name', 'Firmenname / Aussteller', $s, 'MDJ Veranstaltungs UG (haftungsbeschränkt)'); ?>
                                             <div class="tix-field tix-field-full">
-                                                <label class="tix-field-label">Firmenadresse</label>
+                                                <label class="tix-field-label">Firmenadresse (Stra&szlig;e + PLZ Ort)</label>
                                                 <textarea name="<?php echo self::OPTION_KEY; ?>[invoice_company_address]" rows="3" class="large-text" style="width:100%;padding:8px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;resize:vertical;" placeholder="Musterstra&szlig;e 1&#10;12345 Berlin&#10;Deutschland"><?php echo esc_textarea($s['invoice_company_address'] ?? ''); ?></textarea>
                                             </div>
-                                            <?php self::text_row('invoice_company_tax_id', 'USt-IdNr. / Steuernummer', $s, 'DE123456789'); ?>
+                                            <?php self::text_row('invoice_company_tax_id', 'Steuernummer (vom Finanzamt)', $s, '123/456/78901'); ?>
+                                            <?php self::text_row('invoice_company_ust_id', 'USt-IdNr.', $s, 'DE123456789'); ?>
+                                            <?php self::text_row('invoice_managing_director', 'Gesch&auml;ftsf&uuml;hrer/in', $s, 'Max Mustermann'); ?>
+                                            <?php self::text_row('invoice_register_court', 'Amtsgericht / Registergericht', $s, 'Amtsgericht Köln'); ?>
+                                            <?php self::text_row('invoice_register_number', 'Handelsregister-Nr.', $s, 'HRB 12345'); ?>
+                                            <?php self::text_row('invoice_email', 'Gesch&auml;fts-Email', $s, 'office@meine-firma.de'); ?>
+                                            <?php self::text_row('invoice_phone', 'Gesch&auml;fts-Telefon', $s, '+49 30 12345678'); ?>
                                             <div class="tix-field tix-field-full">
-                                                <label class="tix-field-label">Fu&szlig;zeile</label>
-                                                <textarea name="<?php echo self::OPTION_KEY; ?>[invoice_footer_text]" rows="2" class="large-text" style="width:100%;padding:8px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;resize:vertical;" placeholder="Gesch&auml;ftsf&uuml;hrer: Max Mustermann | Amtsgericht Berlin HRB 12345"><?php echo esc_textarea($s['invoice_footer_text'] ?? ''); ?></textarea>
+                                                <label class="tix-field-label">Optionale Fu&szlig;zeile (zus&auml;tzlicher Text)</label>
+                                                <textarea name="<?php echo self::OPTION_KEY; ?>[invoice_footer_text]" rows="2" class="large-text" style="width:100%;padding:8px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;resize:vertical;" placeholder="Bankverbindung: IBAN DE12... · BIC ..."><?php echo esc_textarea($s['invoice_footer_text'] ?? ''); ?></textarea>
                                             </div>
                                             <div class="tix-field tix-field-full">
-                                                <p class="tix-settings-hint">
-                                                    Diese Daten erscheinen auf der Rechnung, die &uuml;ber die Bestelldetails generiert werden kann.
+                                                <p class="tix-settings-hint" style="font-size:12px;">
+                                                    💡 Diese Daten erscheinen im Aussteller-Block des Event-Bericht-PDFs (Steueraufschl&uuml;sselung mit Steuersatz aus dem &bdquo;Steuern&ldquo;-Tab) und auf eventuell sp&auml;ter generierten Einzelrechnungen.
                                                 </p>
                                             </div>
                                         </div>
