@@ -1163,12 +1163,12 @@ class TIX_Event_Report {
         $pdf->set_footer($brand . ' · Event-Bericht · Seite {p}/{n}');
 
         // Dezentes Logo unten rechts auf jeder Seite — so groß wie möglich, ganz rechts.
-        // - right_anchor_x = page_w - 10 (10pt Margin zur rechten Kante)
-        // - y = 4 (4pt Abstand zur Unterkante)
-        // - max_h = 38pt (über dem Footer-Text bei y=20, Logo darf bis y=42 reichen)
+        // - right_anchor_x = page_w - 24 (24pt Padding zur rechten Kante)
+        // - y = 8 (8pt Abstand zur Unterkante)
+        // - max_h = 38pt (über dem Footer-Text bei y=20, Logo darf bis y=46 reichen)
         // - max_w = 110pt (Hard-Cap damit breite Logos nicht ins Footer-Text rein laufen)
         if ($logo_loaded) {
-            $pdf->set_footer_logo($page_w - 10, 4, 110, 38);
+            $pdf->set_footer_logo($page_w - 24, 8, 110, 38);
         }
 
         $bytes = $pdf->output();
