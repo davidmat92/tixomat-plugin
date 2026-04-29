@@ -40,6 +40,71 @@ class TIX_Email_Log {
     // DB-Tabelle
     // ══════════════════════════════════════
 
+    /**
+     * Holt die E-Mails für eine Email-Adresse.
+     * Optional via $since auf Bestellungs-Zeitraum eingrenzen.
+     */
+    public static function get_for_email($email, $limit = 20, $since = null) {
+        global $wpdb;
+        $t = self::table_name();
+        if (!$email) return [];
+
+        $sql = "SELECT id, subject, status, source, date_created FROM $t WHERE to_email = %s";
+        $args = [$email];
+        if ($since) {
+            $sql .= " AND date_created >= %s";
+            $args[] = $since;
+        }
+        $sql .= " ORDER BY date_created DESC LIMIT %d";
+        $args[] = intval($limit);
+
+        return $wpdb->get_results($wpdb->prepare($sql, ...$args));
+    }
+
+    /**
+     * Inline-Render: Email-Liste für Order-Detail / Customer-Detail.
+     * Nimmt Array von Rows aus get_for_email().
+     */
+    public static function render_inline($rows, $email_for_filter = '') {
+        if (empty($rows)) {
+            echo '<p style="margin:0;color:#9ca3af;font-size:12px;font-style:italic;">Noch keine E-Mails an diese Adresse versendet.</p>';
+            return;
+        }
+
+        $status_colors = [
+            'sent'   => '#10b981',
+            'failed' => '#ef4444',
+            'queued' => '#f59e0b',
+        ];
+
+        echo '<table style="width:100%;font-size:12px;border-collapse:collapse;">';
+        echo '<thead><tr style="background:#f9fafb;">';
+        echo '<th style="text-align:left;padding:6px 8px;font-weight:600;color:#6b7280;font-size:11px;text-transform:uppercase;letter-spacing:0.04em;">Datum</th>';
+        echo '<th style="text-align:left;padding:6px 8px;font-weight:600;color:#6b7280;font-size:11px;text-transform:uppercase;letter-spacing:0.04em;">Betreff</th>';
+        echo '<th style="text-align:left;padding:6px 8px;font-weight:600;color:#6b7280;font-size:11px;text-transform:uppercase;letter-spacing:0.04em;">Status</th>';
+        echo '<th></th>';
+        echo '</tr></thead><tbody>';
+
+        foreach ($rows as $row) {
+            $color = $status_colors[$row->status] ?? '#6b7280';
+            $date  = $row->date_created ? date_i18n('d.m. H:i', strtotime($row->date_created)) : '';
+            $log_url = admin_url('admin.php?page=tix-email-log&log_id=' . $row->id);
+
+            echo '<tr style="border-bottom:1px solid #f3f4f6;">';
+            echo '<td style="padding:8px;color:#6b7280;white-space:nowrap;">' . esc_html($date) . '</td>';
+            echo '<td style="padding:8px;color:#0f172a;">' . esc_html($row->subject) . ($row->source ? ' <span style="font-size:10px;color:#9ca3af;">(' . esc_html($row->source) . ')</span>' : '') . '</td>';
+            echo '<td style="padding:8px;"><span style="display:inline-block;padding:1px 7px;border-radius:8px;font-size:10px;font-weight:600;background:' . $color . '15;color:' . $color . ';">' . esc_html(strtoupper($row->status)) . '</span></td>';
+            echo '<td style="padding:8px;text-align:right;"><a href="' . esc_url($log_url) . '" style="color:#0284c7;text-decoration:none;font-size:11px;" title="Im Log öffnen">→</a></td>';
+            echo '</tr>';
+        }
+        echo '</tbody></table>';
+
+        if ($email_for_filter) {
+            $list_url = admin_url('admin.php?page=tix-email-log&search=' . urlencode($email_for_filter));
+            echo '<p style="margin:10px 0 0;font-size:12px;"><a href="' . esc_url($list_url) . '" style="color:#0284c7;text-decoration:none;">→ Alle E-Mails an ' . esc_html($email_for_filter) . ' im Log anzeigen</a></p>';
+        }
+    }
+
     public static function table_name() {
         global $wpdb;
         return $wpdb->prefix . self::TABLE_SUFFIX;

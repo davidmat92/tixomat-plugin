@@ -1347,21 +1347,55 @@ class TIX_Support {
     }
 
     private static function format_order($order) {
+        // Erkennt automatisch WC-Order vs TIX_Order (native) — verwendet die jeweils richtige API
+        $is_wc = class_exists('WC_Order') && $order instanceof \WC_Order;
+
+        if ($is_wc) {
+            return [
+                'id'       => $order->get_id(),
+                'status'   => $order->get_status(),
+                'total'    => floatval($order->get_total()),
+                'currency' => $order->get_currency(),
+                'date'     => $order->get_date_created() ? $order->get_date_created()->format('d.m.Y H:i') : '',
+                'email'    => $order->get_billing_email(),
+                'name'     => trim($order->get_billing_first_name() . ' ' . $order->get_billing_last_name()),
+                'items'    => array_map(function($item) {
+                    return ['name' => $item->get_name(), 'qty' => $item->get_quantity()];
+                }, $order->get_items()),
+                'edit_url' => admin_url('post.php?post=' . $order->get_id() . '&action=edit'),
+            ];
+        }
+
+        // Native TIX_Order
+        global $wpdb;
+        $order_id = method_exists($order, 'get_id') ? $order->get_id() : 0;
+        $items_table = $wpdb->prefix . 'tix_order_items';
+        $items_rows = $order_id ? $wpdb->get_results($wpdb->prepare(
+            "SELECT item_name, quantity FROM $items_table WHERE order_id = %d", $order_id
+        )) : [];
+
         return [
-            'id'       => $order->get_id(),
-            'status'   => $order->get_status(),
-            'total'    => $order->get_total(),
-            'currency' => $order->get_currency(),
-            'date'     => $order->get_date_created() ? $order->get_date_created()->format('d.m.Y H:i') : '',
-            'email'    => $order->get_billing_email(),
-            'name'     => $order->get_billing_first_name() . ' ' . $order->get_billing_last_name(),
-            'items'    => array_map(function($item) {
-                return [
-                    'name' => $item->get_name(),
-                    'qty'  => $item->get_quantity(),
-                ];
-            }, $order->get_items()),
-            'edit_url' => admin_url('post.php?post=' . $order->get_id() . '&action=edit'),
+            'id'       => $order_id,
+            'status'   => method_exists($order, 'get_status') ? $order->get_status() : '',
+            'total'    => method_exists($order, 'get_total') ? floatval($order->get_total()) : 0,
+            'currency' => 'EUR',
+            'date'     => method_exists($order, 'get_date_created')
+                ? (function() use ($order) {
+                    $d = $order->get_date_created();
+                    if (!$d) return '';
+                    if (is_object($d) && method_exists($d, 'format')) return $d->format('d.m.Y H:i');
+                    if (is_string($d)) return wp_date('d.m.Y H:i', strtotime($d));
+                    return '';
+                })() : '',
+            'email'    => method_exists($order, 'get_billing_email') ? $order->get_billing_email() : '',
+            'name'     => trim(
+                (method_exists($order, 'get_billing_first_name') ? $order->get_billing_first_name() : '') . ' ' .
+                (method_exists($order, 'get_billing_last_name')  ? $order->get_billing_last_name()  : '')
+            ),
+            'items'    => array_map(function($it) {
+                return ['name' => $it->item_name ?: 'Ticket', 'qty' => intval($it->quantity)];
+            }, $items_rows),
+            'edit_url' => admin_url('admin.php?page=tix-orders&order_id=' . $order_id),
         ];
     }
 

@@ -375,6 +375,21 @@ class TIX_CRM {
                         <?php endif; ?>
                     </div>
 
+                    <?php // ── E-Mail-Log für diesen Kunden ── ?>
+                    <?php if (class_exists('TIX_Email_Log')):
+                        $email_rows = TIX_Email_Log::get_for_email($email, 30);
+                        if (!empty($email_rows)):
+                    ?>
+                    <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:20px;margin-bottom:20px;">
+                        <h3 style="margin:0 0 14px;font-size:15px;display:flex;align-items:center;gap:8px;">
+                            <span class="dashicons dashicons-email"></span>
+                            E-Mail-Log
+                            <span style="font-size:11px;color:#9ca3af;font-weight:500;">(<?php echo count($email_rows); ?> E-Mail<?php echo count($email_rows) === 1 ? '' : 's'; ?>)</span>
+                        </h3>
+                        <?php TIX_Email_Log::render_inline($email_rows, $email); ?>
+                    </div>
+                    <?php endif; endif; ?>
+
                     <?php // Events besucht ?>
                     <?php if (!empty($data['events'])): ?>
                     <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:20px;margin-bottom:20px;">

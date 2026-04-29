@@ -846,6 +846,23 @@ class TIX_Order_Admin {
                 </table>
             </div>
 
+            <?php // ── E-Mail-Log für diesen Käufer (ab Bestelldatum) ── ?>
+            <?php if (class_exists('TIX_Email_Log') && !empty($order->billing_email)):
+                // Cutoff: 1 Tag VOR Bestelldatum, damit auch direkte Pre-Order-Mails (Cart-Recovery etc.) sichtbar sind
+                $email_cutoff = $order->date_created ? date('Y-m-d H:i:s', strtotime($order->date_created . ' -1 day')) : '';
+                $email_rows = TIX_Email_Log::get_for_email($order->billing_email, 15, $email_cutoff);
+                if (!empty($email_rows)):
+            ?>
+                <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:20px 22px;margin-top:16px;">
+                    <h3 style="margin:0 0 14px;font-size:14px;color:#374151;display:flex;align-items:center;gap:8px;">
+                        <span class="dashicons dashicons-email"></span>
+                        E-Mail-Log
+                        <span style="font-size:11px;color:#9ca3af;font-weight:500;">(<?php echo count($email_rows); ?> E-Mail<?php echo count($email_rows) === 1 ? '' : 's'; ?> an <?php echo esc_html($order->billing_email); ?> ab Bestelldatum)</span>
+                    </h3>
+                    <?php TIX_Email_Log::render_inline($email_rows, $order->billing_email); ?>
+                </div>
+            <?php endif; endif; ?>
+
             <?php // ── Auto-Heal Hinweis ── ?>
             <?php if (!empty($auto_healed)): ?>
             <div style="background:#dcfce7;border:1px solid #86efac;border-radius:12px;padding:14px 18px;margin-top:16px;color:#166534;display:flex;align-items:center;gap:10px;">
