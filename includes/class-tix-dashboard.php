@@ -1352,8 +1352,48 @@ class TIX_Dashboard {
             }
         }
 
+        // ── GHOST-ORDER-ALERT: completed/processing Orders ohne Tickets ──
+        // Nur Admin sieht das (nicht Organizer-Sub-Accounts)
+        if (current_user_can('manage_options')) {
+            $ghost = self::count_ghost_orders();
+            if ($ghost > 0) {
+                $alerts[] = [
+                    'type' => 'critical',
+                    'icon' => 'warning',
+                    'text' => '<strong>' . $ghost . ' Bestellung' . ($ghost > 1 ? 'en' : '') . ' ohne Tickets</strong> — completed/processing aber ohne Ticket-Generierung. Wird automatisch alle 60 Min korrigiert.',
+                    'url'  => admin_url('admin.php?page=tix-orders&filter=ghost'),
+                    'link_text' => 'Anzeigen',
+                ];
+            }
+        }
+
         // Maximal 8 Alerts zeigen
         return array_slice($alerts, 0, 8);
+    }
+
+    /**
+     * Zählt Geister-Bestellungen: completed/processing native Orders ohne Tickets
+     * (in den letzten 30 Tagen — älter ist Migration-Legacy).
+     */
+    private static function count_ghost_orders() {
+        global $wpdb;
+        $t  = $wpdb->prefix . 'tix_orders';
+        $ti = $wpdb->prefix . 'tix_order_items';
+        $pm = $wpdb->prefix . 'postmeta';
+        $p  = $wpdb->prefix . 'posts';
+        $cutoff = gmdate('Y-m-d H:i:s', time() - 30 * DAY_IN_SECONDS);
+        $count = $wpdb->get_var($wpdb->prepare("
+            SELECT COUNT(DISTINCT o.id)
+            FROM $t o
+            INNER JOIN $ti i ON i.order_id = o.id
+            LEFT JOIN $p tp ON tp.post_type = 'tix_ticket'
+            LEFT JOIN $pm tpm ON tpm.post_id = tp.ID AND tpm.meta_key = '_tix_ticket_order_id' AND tpm.meta_value = CAST(o.id AS CHAR)
+            WHERE o.status IN ('completed','processing')
+              AND o.wc_order_id = 0
+              AND o.date_created >= %s
+              AND tpm.post_id IS NULL
+        ", $cutoff));
+        return intval($count);
     }
 
     // ═══════════════════════════════════════════

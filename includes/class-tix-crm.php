@@ -196,6 +196,7 @@ class TIX_CRM {
                                 ['last_order',   'Letzte Bestellung'],
                                 [null,           'Quelle'],
                                 [null,           'Rolle'],
+                                [null,           'Aktion'],
                             ];
                             foreach ($cols as [$key, $label]):
                                 $sort_url = '';
@@ -217,7 +218,7 @@ class TIX_CRM {
                     </thead>
                     <tbody>
                         <?php if (empty($rows)): ?>
-                            <tr><td colspan="7" style="padding:40px;text-align:center;color:#6b7280;">Keine Kunden gefunden.</td></tr>
+                            <tr><td colspan="8" style="padding:40px;text-align:center;color:#6b7280;">Keine Kunden gefunden.</td></tr>
                         <?php endif; ?>
                         <?php foreach ($rows as $r):
                             $detail_url = admin_url('admin.php?page=' . self::PAGE_SLUG . '&email=' . urlencode($r['email']));
@@ -243,6 +244,17 @@ class TIX_CRM {
                                 </td>
                                 <td style="padding:12px 14px;font-size:12px;color:#6b7280;">
                                     <?php echo $r['user_id'] ? esc_html($r['user_roles']) : '<em>Gast</em>'; ?>
+                                </td>
+                                <td style="padding:12px 14px;text-align:right;">
+                                    <?php if ($r['user_id'] && class_exists('TIX_User_Switch')):
+                                        $u = get_user_by('id', $r['user_id']);
+                                        if ($u && !user_can($u, 'manage_options')):
+                                            $switch_url = TIX_User_Switch::get_switch_url($r['user_id']);
+                                    ?>
+                                        <a href="<?php echo esc_url($switch_url); ?>" title="Als diesen Kunden einloggen (Support-Modus)" style="display:inline-flex;align-items:center;gap:4px;background:#fef3c7;color:#92400e;padding:5px 10px;border-radius:6px;text-decoration:none;font-size:12px;font-weight:600;border:1px solid #fde68a;">
+                                            🎭 Login
+                                        </a>
+                                    <?php endif; endif; ?>
                                 </td>
                             </tr>
                         <?php endforeach; ?>
@@ -436,6 +448,17 @@ class TIX_CRM {
                         <p style="margin:0 0 4px;font-size:13px;"><strong>User:</strong> <?php echo esc_html($data['username']); ?></p>
                         <p style="margin:0 0 4px;font-size:13px;"><strong>Rolle:</strong> <?php echo esc_html($data['user_roles']); ?></p>
                         <p style="margin:0 0 8px;font-size:13px;"><strong>Registriert:</strong> <?php echo esc_html($data['user_registered']); ?></p>
+                        <?php if (class_exists('TIX_User_Switch')):
+                            $u = get_user_by('id', $data['user_id']);
+                            if ($u && !user_can($u, 'manage_options')):
+                                $switch_url = TIX_User_Switch::get_switch_url($data['user_id']);
+                        ?>
+                            <a href="<?php echo esc_url($switch_url); ?>"
+                               style="display:flex;align-items:center;justify-content:center;gap:6px;background:linear-gradient(90deg,#FF5500,#dc2626);color:#fff;padding:10px 14px;border-radius:8px;text-decoration:none;font-weight:600;font-size:13px;width:100%;margin-top:8px;">
+                                🎭 Als diesen Kunden einloggen
+                            </a>
+                            <p style="margin:6px 0 0;font-size:11px;color:#6b7280;text-align:center;">Support-Modus — du wirst temporär als dieser Kunde eingeloggt.</p>
+                        <?php endif; endif; ?>
                     </div>
                     <?php else: ?>
                     <div style="background:#fef3c7;border:1px solid #fde68a;border-radius:12px;padding:14px 16px;margin-bottom:16px;color:#92400e;font-size:13px;">

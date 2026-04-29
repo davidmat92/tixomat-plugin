@@ -2,14 +2,14 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.38.44
+ * Version: 1.38.86
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.38.44');
+define('TIXOMAT_VERSION', '1.38.86');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -58,6 +58,74 @@ add_filter('get_post_metadata', function($value, $object_id, $meta_key, $single,
 function tix_has_wc() {
     return class_exists('WooCommerce');
 }
+
+/**
+ * Admin-Bar für Kunden (tix_customer) komplett ausblenden.
+ * Subscriber/Customer/Veranstalter haben im Frontend nichts vom WP-Admin-Bar
+ * — das ist nur für Admins/Editor sinnvoll. Außerdem für reine tix_customer
+ * Accounts der Zugang zum WP-Backend (/wp-admin) sperren.
+ */
+add_filter('show_admin_bar', function($show) {
+    if (!is_user_logged_in()) return $show;
+    if (current_user_can('manage_options') || current_user_can('edit_posts')) return $show;
+    $u = wp_get_current_user();
+    if (!$u || empty($u->roles)) return $show;
+    // Nur Admins, Editor, Author, Contributor, Veranstalter und Promoter sehen die Bar
+    $allow_roles = ['administrator', 'editor', 'author', 'contributor', 'tix_organizer', 'tix_promoter', 'shop_manager'];
+    foreach ($u->roles as $role) {
+        if (in_array($role, $allow_roles, true)) return $show;
+    }
+    return false; // tix_customer, customer, subscriber etc. → keine Admin-Bar
+});
+
+// Verhindere dass tix_customer ins WP-Admin können (nur Profil-Page erlaubt)
+add_action('admin_init', function() {
+    if (wp_doing_ajax() || wp_doing_cron()) return;
+    if (!is_user_logged_in()) return;
+    if (current_user_can('manage_options') || current_user_can('edit_posts')) return;
+    $u = wp_get_current_user();
+    if (!$u || empty($u->roles)) return;
+    $blocked_roles = ['tix_customer', 'customer', 'subscriber'];
+    $is_blocked = false;
+    foreach ($u->roles as $role) {
+        if (in_array($role, $blocked_roles, true)) { $is_blocked = true; break; }
+    }
+    if (!$is_blocked) return;
+    // Profil-Page (admin-ajax) und admin-post.php nicht blockieren
+    $req = $_SERVER['REQUEST_URI'] ?? '';
+    if (strpos($req, 'admin-ajax.php') !== false) return;
+    if (strpos($req, 'admin-post.php') !== false) return;
+    // → Redirect zu Frontend
+    wp_safe_redirect(home_url('/'));
+    exit;
+}, 1);
+
+/**
+ * Global Fix: Breakdance Inline-SVG-Sprites ohne width/height rendern default
+ * 300×150px und erzeugen Leerraum oben auf der Seite (insbesondere auf
+ * Plugin-Pages wie Thank-You, Custom-Login, Organizer-Landing usw.).
+ *
+ * Wenn Breakdance aktiv ist, injizieren wir global ein hidden-CSS für die
+ * SVG-Sprite — auf jeder Frontend- und Login-Seite. Priority 1 damit's noch
+ * VOR der Sprite-Injection durch Breakdance geladen wird.
+ */
+function tix_breakdance_svg_sprite_fix() {
+    if (!defined('__BREAKDANCE_VERSION')) return;
+    echo "\n<style id=\"tix-breakdance-svg-fix\">\n"
+       . "/* Tixomat: Breakdance Inline-SVG-Sprites verstecken (sonst 150px Leerraum) */\n"
+       . "svg.breakdance-global-gradients-sprite,\n"
+       . "svg[class*=\"breakdance-global\"][aria-hidden=\"true\"]:not([width]):not([height]) {\n"
+       . "    position: absolute !important;\n"
+       . "    width: 0 !important;\n"
+       . "    height: 0 !important;\n"
+       . "    overflow: hidden !important;\n"
+       . "    pointer-events: none !important;\n"
+       . "}\n"
+       . "</style>\n";
+}
+add_action('wp_head', 'tix_breakdance_svg_sprite_fix', 1);
+add_action('login_head', 'tix_breakdance_svg_sprite_fix', 1);
+add_action('admin_head', 'tix_breakdance_svg_sprite_fix', 1);
 
 // ── Emojis aus Slugs entfernen (global, umfassend) ──
 add_filter('sanitize_title', function($title, $raw_title, $context) {
@@ -456,10 +524,20 @@ require_once TIXOMAT_PATH . 'includes/class-tix-account-activation.php';
 require_once TIXOMAT_PATH . 'includes/class-tix-crm.php';
 require_once TIXOMAT_PATH . 'includes/class-tix-organizer-notifications.php';
 require_once TIXOMAT_PATH . 'includes/class-tix-settings-io.php';
+// User-Switch GLOBAL laden — Button wird im Admin (CRM-Liste/Detail) generiert,
+// AJAX-Endpoint via admin-post läuft im Admin-Kontext, Cookie-Check muss überall greifen.
+require_once TIXOMAT_PATH . 'includes/class-tix-user-switch.php';
+// Wallet (Apple/Google) — generiert .pkpass / Google-Save-JWT on-the-fly
+require_once TIXOMAT_PATH . 'includes/class-tix-wallet.php';
+// Event-Report — Detail-Bericht pro Event mit CSV/XLSX/PDF-Export
+require_once TIXOMAT_PATH . 'includes/class-tix-event-report.php';
 add_action('init', ['TIX_Customer_Role',            'init']);
 add_action('init', ['TIX_Account_Activation',       'init']);
 add_action('init', ['TIX_CRM',                      'init']);
 add_action('init', ['TIX_Organizer_Notifications',  'init']);
+add_action('init', ['TIX_User_Switch',              'init']);
+add_action('init', ['TIX_Wallet',                   'init']);
+add_action('init', ['TIX_Event_Report',             'init']);
 TIX_Settings_IO::init();
 
 // ── KI-Schutz (Content Guard) ──
@@ -974,7 +1052,7 @@ if (!is_admin() || wp_doing_ajax()) {
     require_once TIXOMAT_PATH . 'includes/class-tix-upsell.php';
     require_once TIXOMAT_PATH . 'includes/class-tix-my-tickets.php';
     require_once TIXOMAT_PATH . 'includes/class-tix-my-account.php';
-    // Kunden-Rolle, Kontoaktivierung, CRM: werden schon global geladen (Admin + Frontend)
+    // Kunden-Rolle, Kontoaktivierung, CRM, User-Switch: werden schon global geladen (Admin + Frontend)
     require_once TIXOMAT_PATH . 'includes/class-tix-event-page.php';
     require_once TIXOMAT_PATH . 'includes/class-tix-share.php';
 
@@ -989,7 +1067,7 @@ if (!is_admin() || wp_doing_ajax()) {
     add_action('init', ['TIX_Upsell', 'init']);
     add_action('init', ['TIX_My_Tickets', 'init']);
     add_action('init', ['TIX_My_Account', 'init']);
-    // TIX_Customer_Role / TIX_Account_Activation / TIX_CRM laufen schon global — kein erneutes init nötig
+    // TIX_Customer_Role / TIX_Account_Activation / TIX_CRM / TIX_User_Switch laufen schon global — kein erneutes init nötig
     // TIX_Event_Page: Shortcode [tix_event_page] wird jetzt von TIX_Single_Event übernommen
     add_action('init', ['TIX_Share', 'init']);
     add_action('init', ['TIX_Group_Booking', 'init']);
@@ -1018,12 +1096,14 @@ if (!is_admin() || wp_doing_ajax()) {
     require_once TIXOMAT_PATH . 'includes/class-tix-fees.php';
     TIX_Fees::init();
 
-    // Checkout + Cart: nur wenn WC aktiv
+    // Checkout: TIX_Checkout enthält Abandoned-Cart-Recovery (WC-unabhängig)
+    // → immer laden. Die WC-spezifischen Filter werden intern bedingt registriert.
     add_action('init', function() {
-        if (class_exists('WooCommerce')) {
-            require_once TIXOMAT_PATH . 'includes/class-tix-checkout.php';
-            TIX_Checkout::init();
+        require_once TIXOMAT_PATH . 'includes/class-tix-checkout.php';
+        TIX_Checkout::init();
 
+        // Cart-Shortcode/Mini-Cart: nur wenn WC aktiv (renderer nutzt WC()->cart)
+        if (class_exists('WooCommerce')) {
             require_once TIXOMAT_PATH . 'includes/class-tix-cart.php';
             TIX_Cart::init();
         }

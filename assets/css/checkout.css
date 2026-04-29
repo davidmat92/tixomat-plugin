@@ -352,11 +352,18 @@
 
 .tix-co-textarea { min-height: 80px; resize: vertical; }
 
-/* ── Konto erstellen ── */
+/* ── Konto erstellen ── (gleicher Card-Stil wie Login-Section) */
 .tix-co-create-account {
     margin-top: 16px;
-    padding-top: 16px;
-    border-top: 1px solid rgba(255,255,255,0.06);
+    padding: 14px 16px;
+    border: 1px solid var(--tix-border, #333);
+    border-radius: var(--tix-radius, 8px);
+}
+.tix-co-create-account-hint {
+    margin: 8px 0 0 30px !important;
+    font-size: 13px;
+    opacity: 0.65;
+    line-height: 1.5;
 }
 
 /* Custom Checkbox */
@@ -1439,4 +1446,28 @@
 .tix-co-table-status-err {
     background: rgba(239, 83, 80, 0.1);
     color: var(--tix-sale-color, #ef5350);
+}
+
+/* ─── iOS Safari Auto-Zoom Fix ───────────────────────────────────────
+ * iOS Safari zoomt beim Focus automatisch in Inputs hinein wenn deren
+ * font-size kleiner als 16px ist. Wir setzen daher ALLE Eingabefelder
+ * im Tixomat-Checkout auf min. 16px (nur Mobile, Desktop bleibt klein).
+ * Wirkt auch in Breakdance-/Page-Builder-Templates, da !important.
+ * ───────────────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+    .tix-co input[type="text"],
+    .tix-co input[type="email"],
+    .tix-co input[type="tel"],
+    .tix-co input[type="number"],
+    .tix-co input[type="password"],
+    .tix-co input[type="url"],
+    .tix-co input[type="search"],
+    .tix-co input[type="date"],
+    .tix-co select,
+    .tix-co textarea,
+    .tix-co-input,
+    .tix-co-select,
+    .tix-co-textarea {
+        font-size: 16px !important;
+    }
 }

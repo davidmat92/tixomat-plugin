@@ -200,6 +200,15 @@ class TIX_Custom_URLs {
                 </label>
                 <button type="submit" class="tix-login-submit">Anmelden</button>
             </form>
+            <?php // Magic-Link-Login: konsistenter Block auf jeder Login-Seite ?>
+            <?php if (class_exists('TIX_My_Tickets')): ?>
+                <?php echo TIX_My_Tickets::render_magic_link_block([
+                    'heading' => 'Login per E-Mail-Link',
+                    'text'    => 'Kein Passwort zur Hand? Wir schicken dir einen einmaligen Link, mit dem du dich direkt einloggen kannst.',
+                    'btn'     => 'Magic-Link senden',
+                    'id'      => 'tix-magic-anmelden',
+                ]); ?>
+            <?php endif; ?>
         </div>
         <div class="tix-login-footer">
             <a href="<?php echo esc_url(site_url('wp-login.php?action=lostpassword')); ?>">Passwort vergessen?</a>

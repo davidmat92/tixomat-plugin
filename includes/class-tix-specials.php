@@ -110,9 +110,12 @@ class TIX_Specials {
             .tix-sp-hint { background: #f0f6fc; border: 1px solid #c8d6e5; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; font-size: 13px; line-height: 1.5; }
         </style>
 
+        <?php $has_wc = class_exists('WC_Product_Simple'); ?>
         <div class="tix-sp-hint">
             Specials sind wiederverwendbare Zusatzprodukte, die beliebig vielen Events zugewiesen werden k&ouml;nnen.
-            Jedes Special braucht ein WooCommerce-Produkt f&uuml;r die Warenkorb-Integration.
+            <?php if (!$has_wc): ?>
+                <br><strong>WooCommerce ist nicht aktiv</strong> — Specials laufen direkt &uuml;ber den nativen Checkout. Es wird automatisch ein Ticket pro verkauftem Special ausgestellt.
+            <?php endif; ?>
         </div>
 
         <div class="tix-sp-grid">
@@ -130,12 +133,16 @@ class TIX_Specials {
                 <span class="description">Tats&auml;chlicher Wert &ndash; f&uuml;r &ldquo;Spare X%&rdquo;-Anzeige.</span>
             </div>
 
+            <?php if ($has_wc): ?>
             <div class="tix-sp-field">
                 <label for="tix_special_product_id">WC Product ID</label>
                 <input type="number" id="tix_special_product_id" name="tix_special_product_id"
                        value="<?php echo esc_attr($product_id); ?>" min="0" placeholder="z.B. 456">
                 <span class="description">ID des WooCommerce Simple Product. Wird f&uuml;r alle Events wiederverwendet.</span>
             </div>
+            <?php else: ?>
+            <input type="hidden" name="tix_special_product_id" value="<?php echo esc_attr($product_id); ?>">
+            <?php endif; ?>
 
             <div class="tix-sp-field">
                 <label for="tix_special_qty">Standard-Mengenlimit</label>
@@ -840,31 +847,55 @@ class TIX_Specials {
     public static function get_sold_count($special_id, $event_id) {
         global $wpdb;
 
-        // Zähle Order-Items die dieses Special für dieses Event enthalten (HPOS-kompatibel)
-        if (class_exists('Automattic\WooCommerce\Utilities\OrderUtil')
-            && \Automattic\WooCommerce\Utilities\OrderUtil::custom_orders_table_usage_is_enabled()) {
-            $order_join = "INNER JOIN {$wpdb->prefix}wc_orders wco ON oi.order_id = wco.id AND wco.status IN ('wc-completed','wc-processing')";
-        } else {
-            $order_join = "INNER JOIN {$wpdb->posts} p ON oi.order_id = p.ID AND p.post_status IN ('wc-completed','wc-processing')";
+        $count = 0;
+
+        // 1) WC-Orders (nur wenn WC-Tabellen existieren)
+        if (function_exists('wc_get_orders')) {
+            if (class_exists('Automattic\WooCommerce\Utilities\OrderUtil')
+                && \Automattic\WooCommerce\Utilities\OrderUtil::custom_orders_table_usage_is_enabled()) {
+                $order_join = "INNER JOIN {$wpdb->prefix}wc_orders wco ON oi.order_id = wco.id AND wco.status IN ('wc-completed','wc-processing')";
+            } else {
+                $order_join = "INNER JOIN {$wpdb->posts} p ON oi.order_id = p.ID AND p.post_status IN ('wc-completed','wc-processing')";
+            }
+            $wc_count = $wpdb->get_var($wpdb->prepare(
+                "SELECT COALESCE(SUM(oim_qty.meta_value), 0)
+                 FROM {$wpdb->prefix}woocommerce_order_itemmeta oim_sp
+                 INNER JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim_ev
+                     ON oim_sp.order_item_id = oim_ev.order_item_id
+                     AND oim_ev.meta_key = '_tix_event_id'
+                     AND oim_ev.meta_value = %d
+                 INNER JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim_qty
+                     ON oim_sp.order_item_id = oim_qty.order_item_id
+                     AND oim_qty.meta_key = '_qty'
+                 INNER JOIN {$wpdb->prefix}woocommerce_order_items oi
+                     ON oim_sp.order_item_id = oi.order_item_id
+                 $order_join
+                 WHERE oim_sp.meta_key = '_tix_special_id'
+                   AND oim_sp.meta_value = %d",
+                $event_id,
+                $special_id
+            ));
+            $count += intval($wc_count);
         }
-        $count = $wpdb->get_var($wpdb->prepare(
-            "SELECT COALESCE(SUM(oim_qty.meta_value), 0)
-             FROM {$wpdb->prefix}woocommerce_order_itemmeta oim_sp
-             INNER JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim_ev
-                 ON oim_sp.order_item_id = oim_ev.order_item_id
-                 AND oim_ev.meta_key = '_tix_event_id'
-                 AND oim_ev.meta_value = %d
-             INNER JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim_qty
-                 ON oim_sp.order_item_id = oim_qty.order_item_id
-                 AND oim_qty.meta_key = '_qty'
-             INNER JOIN {$wpdb->prefix}woocommerce_order_items oi
-                 ON oim_sp.order_item_id = oi.order_item_id
-             $order_join
-             WHERE oim_sp.meta_key = '_tix_special_id'
-               AND oim_sp.meta_value = %d",
-            $event_id,
-            $special_id
-        ));
+
+        // 2) Native tix_orders / tix_order_items — Special-ID liegt im JSON-Feld `meta`
+        // wc_order_id=0 → echte native Order; wc_order_id>0 → schon in WC-Block oben gezählt (kein Doppelcount)
+        if (class_exists('TIX_Order')) {
+            $native_count = $wpdb->get_var($wpdb->prepare(
+                "SELECT COALESCE(SUM(oi.quantity), 0)
+                 FROM {$wpdb->prefix}tix_order_items oi
+                 INNER JOIN {$wpdb->prefix}tix_orders o ON oi.order_id = o.id
+                 WHERE o.status IN ('completed','processing')
+                   AND (o.wc_order_id = 0 OR o.wc_order_id IS NULL)
+                   AND oi.event_id = %d
+                   AND oi.meta LIKE %s
+                   AND oi.meta LIKE %s",
+                $event_id,
+                '%' . $wpdb->esc_like('"special":1') . '%',
+                '%' . $wpdb->esc_like('"special_id":' . intval($special_id)) . '%'
+            ));
+            $count += intval($native_count);
+        }
 
         return intval($count);
     }

@@ -694,10 +694,19 @@ class TIX_Checkin {
             // Fehler bei Custom-DB darf Check-in-Response nicht blockieren
         }
 
-        // Kategorie-Name
-        $cat_index = intval(get_post_meta($ticket->ID, '_tix_ticket_cat_index', true));
-        $cats      = get_post_meta($event_id, '_tix_ticket_categories', true);
-        $cat_name  = (is_array($cats) && isset($cats[$cat_index])) ? ($cats[$cat_index]['name'] ?? '') : '';
+        // Kategorie-Name: bevorzugt aus Meta `_tix_ticket_cat_name` (zuverlässig),
+        // Fallback per cat_index in Event-Categories
+        $cat_name = get_post_meta($ticket->ID, '_tix_ticket_cat_name', true);
+        if (!$cat_name) {
+            $cat_index_raw = get_post_meta($ticket->ID, '_tix_ticket_cat_index', true);
+            if ($cat_index_raw !== '' && $cat_index_raw !== false && $cat_index_raw !== null) {
+                $cat_index = intval($cat_index_raw);
+                $cats      = get_post_meta($event_id, '_tix_ticket_categories', true);
+                if (is_array($cats) && isset($cats[$cat_index])) {
+                    $cat_name = $cats[$cat_index]['name'] ?? '';
+                }
+            }
+        }
 
         wp_send_json_success([
             'status'          => 'ok',
@@ -782,10 +791,18 @@ class TIX_Checkin {
                 $checked_in = (bool) get_post_meta($t->ID, '_tix_ticket_checked_in', true);
                 $code       = get_post_meta($t->ID, '_tix_ticket_code', true);
 
-                // Kategorie
-                $cat_index = intval(get_post_meta($t->ID, '_tix_ticket_cat_index', true));
-                $cats      = get_post_meta($event_id, '_tix_ticket_categories', true);
-                $cat_name  = (is_array($cats) && isset($cats[$cat_index])) ? ($cats[$cat_index]['name'] ?? '') : '';
+                // Kategorie: bevorzugt cat_name-Meta, Fallback per cat_index
+                $cat_name = get_post_meta($t->ID, '_tix_ticket_cat_name', true);
+                if (!$cat_name) {
+                    $cat_index_raw = get_post_meta($t->ID, '_tix_ticket_cat_index', true);
+                    if ($cat_index_raw !== '' && $cat_index_raw !== false && $cat_index_raw !== null) {
+                        $cat_index = intval($cat_index_raw);
+                        $cats      = get_post_meta($event_id, '_tix_ticket_categories', true);
+                        if (is_array($cats) && isset($cats[$cat_index])) {
+                            $cat_name = $cats[$cat_index]['name'] ?? '';
+                        }
+                    }
+                }
 
                 $combined[] = [
                     'id'              => $t->ID,

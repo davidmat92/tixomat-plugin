@@ -292,11 +292,31 @@ class TIX_Gateway_PayPal {
             if ($order_id && $order_key) {
                 // Verify order exists and key matches
                 global $wpdb;
-                $valid = $wpdb->get_var($wpdb->prepare(
-                    "SELECT id FROM {$wpdb->prefix}tix_orders WHERE id = %d AND order_key = %s",
+                $row = $wpdb->get_row($wpdb->prepare(
+                    "SELECT id, status FROM {$wpdb->prefix}tix_orders WHERE id = %d AND order_key = %s",
                     $order_id, $order_key
-                ));
-                if ($valid) {
+                ), ARRAY_A);
+                if ($row) {
+                    // ── KRITISCHER STATUS-CHECK ──
+                    // Wenn die Bestellung bereits via PayPal-Webhook completed wurde (Race-Condition:
+                    // Webhook trifft Cancel-Return zeitlich überlappend ein), NICHT cancellen!
+                    // PayPal hat das Geld bereits captured — wir würden eine bezahlte Order stornieren.
+                    if (in_array($row['status'], ['completed', 'processing'], true)) {
+                        // Order ist bereits bezahlt → NICHT cancellen, stattdessen zur Thank-You-Page
+                        if (class_exists('TIX_Order_Admin') && method_exists('TIX_Order_Admin', 'add_note')) {
+                            TIX_Order_Admin::add_note(
+                                $order_id,
+                                '🛡️ Cancel-Return abgewiesen: Bestellung bereits via Webhook als ' . $row['status'] . ' bestätigt — PayPal hat Zahlung captured. Keine Stornierung durchgeführt.',
+                                'system'
+                            );
+                        }
+                        $thanks_url = class_exists('TIX_Native_Checkout') && method_exists('TIX_Native_Checkout', 'thanks_url')
+                            ? TIX_Native_Checkout::thanks_url($order_id, $order_key)
+                            : home_url('/thank-you/?order_id=' . $order_id . '&order_key=' . $order_key);
+                        wp_safe_redirect($thanks_url);
+                        exit;
+                    }
+                    // Status ist pending/on-hold → tatsächlich cancellen
                     TIX_Native_Checkout::update_order_status($order_id, 'cancelled', 'paypal');
                 }
             }

@@ -17,6 +17,7 @@ class TIX_Order_Admin {
         add_action('wp_ajax_tix_order_export_csv', [__CLASS__, 'ajax_export_csv']);
         add_action('wp_ajax_tix_order_invoice', [__CLASS__, 'render_invoice']);
         add_action('wp_ajax_tix_order_resend_email', [__CLASS__, 'ajax_resend_email']);
+        add_action('wp_ajax_tix_order_regen_tickets', [__CLASS__, 'ajax_regen_tickets']);
 
         // Manuelle Bestellerstellung
         add_action('wp_ajax_tix_order_get_categories', [__CLASS__, 'ajax_get_categories']);
@@ -234,8 +235,14 @@ class TIX_Order_Admin {
                                     </span>
                                 </td>
                                 <td style="padding:12px 16px;font-size:13px;">
-                                    <?php echo esc_html($o->billing_first_name . ' ' . $o->billing_last_name); ?>
-                                    <br><span style="color:#9ca3af;font-size:12px;"><?php echo esc_html($o->billing_email); ?></span>
+                                    <?php
+                                    $customer_url = admin_url('admin.php?page=tix-customers&email=' . urlencode($o->billing_email));
+                                    $customer_name = trim($o->billing_first_name . ' ' . $o->billing_last_name) ?: '(ohne Namen)';
+                                    ?>
+                                    <a href="<?php echo esc_url($customer_url); ?>" style="color:#0f172a;font-weight:600;text-decoration:none;border-bottom:1px dotted #cbd5e1;">
+                                        <?php echo esc_html($customer_name); ?>
+                                    </a>
+                                    <br><a href="<?php echo esc_url($customer_url); ?>" style="color:#9ca3af;font-size:12px;text-decoration:none;"><?php echo esc_html($o->billing_email); ?></a>
                                 </td>
                                 <td style="padding:12px 16px;font-size:13px;color:#6b7280;">
                                     <?php echo esc_html($o->payment_method_title ?: $o->payment_method ?: '—'); ?>
@@ -388,6 +395,46 @@ class TIX_Order_Admin {
             'meta_key'       => '_tix_ticket_order_id',
             'meta_value'     => $order_id,
         ]);
+
+        // ── AUTO-HEAL: Order completed/processing + Items > 0 + 0 Tickets → on-the-fly nachgenerieren ──
+        // Defensiv: Schützt vor "Geister-Bestellungen" wo Hook nicht gefeuert hat
+        // (PayPal-IPN-Race-Condition, Class-Loading-Bug, Crash mid-process etc.)
+        // Versendet automatisch die Bestätigungsmail mit den neuen Tickets — ABER nur wenn
+        // sie noch nie versendet wurde (verhindert Doppel-Mails wenn Admin schon manuell gesendet hat).
+        $auto_healed = false;
+        $auto_mailed = false;
+        if (empty($tickets)
+            && in_array($order->status, ['completed', 'processing'], true)
+            && !empty($items)
+            && class_exists('TIX_Tickets')
+            && method_exists('TIX_Tickets', 'on_native_order_completed')
+        ) {
+            // Nur native Orders heilen (wc_order_id == 0) — WC-Orders haben eigenen Pfad
+            if (intval($order->wc_order_id) === 0) {
+                TIX_Tickets::on_native_order_completed($order_id);
+                // Tickets erneut laden
+                $tickets = get_posts([
+                    'post_type'      => 'tix_ticket',
+                    'post_status'    => 'any',
+                    'posts_per_page' => -1,
+                    'meta_key'       => '_tix_ticket_order_id',
+                    'meta_value'     => $order_id,
+                ]);
+                if (!empty($tickets)) {
+                    $auto_healed = true;
+                    self::add_note($order_id, '🩹 Auto-Heal: ' . count($tickets) . ' Tickets nachgeneriert beim Öffnen der Bestellung.', 'system');
+
+                    // Bestätigungsmail nur senden wenn bisher noch keine versendet wurde.
+                    // Marker `_tix_completed_email_sent` wird von TIX_Emails::send_native_completed gesetzt.
+                    $email_already_sent = get_post_meta($order_id, '_tix_completed_email_sent', true);
+                    if (!$email_already_sent && class_exists('TIX_Emails') && method_exists('TIX_Emails', 'send_native_completed')) {
+                        TIX_Emails::send_native_completed($order_id);
+                        $auto_mailed = true;
+                        self::add_note($order_id, '📧 Bestätigungsmail mit neugenerierten Tickets automatisch versendet.', 'email');
+                    }
+                }
+            }
+        }
 
         $statuses = [
             'completed'  => ['label' => 'Abgeschlossen',  'color' => '#22c55e'],
@@ -594,9 +641,15 @@ class TIX_Order_Admin {
 
                 <?php // ── Rechnungsadresse ── ?>
                 <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:20px;">
-                    <h3 style="margin:0 0 14px;font-size:14px;color:#374151;">Rechnungsadresse</h3>
+                    <?php $customer_url = admin_url('admin.php?page=tix-customers&email=' . urlencode($order->billing_email)); ?>
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin:0 0 14px;">
+                        <h3 style="margin:0;font-size:14px;color:#374151;">Rechnungsadresse</h3>
+                        <a href="<?php echo esc_url($customer_url); ?>" style="font-size:12px;color:#0284c7;text-decoration:none;font-weight:600;">→ Kunde öffnen</a>
+                    </div>
                     <div style="font-size:13px;line-height:1.6;">
-                        <strong><?php echo esc_html($order->billing_first_name . ' ' . $order->billing_last_name); ?></strong><br>
+                        <a href="<?php echo esc_url($customer_url); ?>" style="color:#0f172a;font-weight:700;text-decoration:none;border-bottom:1px dotted #cbd5e1;">
+                            <?php echo esc_html(trim($order->billing_first_name . ' ' . $order->billing_last_name) ?: '(ohne Namen)'); ?>
+                        </a><br>
                         <?php if ($order->billing_company): ?><?php echo esc_html($order->billing_company); ?><br><?php endif; ?>
                         <?php if ($order->billing_address_1): ?><?php echo esc_html($order->billing_address_1); ?><br><?php endif; ?>
                         <?php if ($order->billing_postcode || $order->billing_city): ?><?php echo esc_html($order->billing_postcode . ' ' . $order->billing_city); ?><br><?php endif; ?>
@@ -667,10 +720,66 @@ class TIX_Order_Admin {
                 </table>
             </div>
 
+            <?php // ── Auto-Heal Hinweis ── ?>
+            <?php if (!empty($auto_healed)): ?>
+            <div style="background:#dcfce7;border:1px solid #86efac;border-radius:12px;padding:14px 18px;margin-top:16px;color:#166534;display:flex;align-items:center;gap:10px;">
+                <span style="font-size:20px;">🩹</span>
+                <div style="flex:1;font-size:13px;line-height:1.5;">
+                    <strong>Tickets wurden nachträglich generiert.</strong>
+                    Beim Öffnen der Bestellung wurden <?php echo count($tickets); ?> fehlende Tickets erkannt und automatisch erstellt.
+                    <?php if ($auto_mailed): ?>
+                        ✉️ Die Bestätigungsmail mit den neuen Tickets wurde automatisch an den Kunden gesendet.
+                    <?php else: ?>
+                        Eine Bestätigungsmail wurde bereits zuvor versendet — falls neue Tickets nötig sind, klick "E-Mail erneut senden" rechts oben.
+                    <?php endif; ?>
+                </div>
+            </div>
+            <?php endif; ?>
+
             <?php // ── Tickets ── ?>
+            <?php if (empty($tickets) && in_array($order->status, ['completed', 'processing'], true) && !empty($items)): ?>
+                <?php // ⚠️ Bestellung completed aber keine Tickets — Warning + manueller Re-Generate-Button ?>
+                <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:12px;padding:18px 20px;margin-top:16px;">
+                    <div style="display:flex;align-items:flex-start;gap:12px;">
+                        <span style="font-size:24px;line-height:1;">⚠️</span>
+                        <div style="flex:1;">
+                            <strong style="color:#991b1b;font-size:14px;display:block;margin-bottom:4px;">Keine Tickets vorhanden</strong>
+                            <p style="margin:0 0 12px;font-size:13px;color:#7f1d1d;line-height:1.5;">
+                                Diese Bestellung ist als <strong><?php echo esc_html($s['label']); ?></strong> markiert, hat aber keine Tickets.
+                                Das passiert bei Race-Conditions im Zahlungsprozess (z.B. PayPal-IPN-Timing).
+                            </p>
+                            <button type="button" id="tix-order-regen-tickets-btn"
+                                    style="background:#dc2626;border:none;color:#fff;padding:8px 16px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:6px;"
+                                    onclick="
+                                        if (!confirm('Tickets für diese Bestellung jetzt erstellen?\n\nDanach kannst du die Bestätigungs-E-Mail manuell erneut versenden.')) return;
+                                        this.disabled = true; this.innerHTML = 'Erstelle…';
+                                        fetch(ajaxurl, {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:'action=tix_order_regen_tickets&nonce=<?php echo $nonce; ?>&order_id=<?php echo $order_id; ?>'})
+                                        .then(function(r){return r.json()})
+                                        .then(function(r){if(r.success)location.reload(); else{alert(r.data.message||'Fehler'); this.disabled=false; this.innerHTML='Tickets jetzt erstellen';}}.bind(this));
+                                    ">
+                                <span class="dashicons dashicons-tickets-alt" style="width:16px;height:16px;font-size:16px;"></span>
+                                Tickets jetzt erstellen
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            <?php endif; ?>
+
             <?php if (!empty($tickets)): ?>
             <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:20px;margin-top:16px;">
-                <h3 style="margin:0 0 14px;font-size:14px;color:#374151;">Tickets (<?php echo count($tickets); ?>)</h3>
+                <h3 style="margin:0 0 14px;font-size:14px;color:#374151;display:flex;align-items:center;justify-content:space-between;gap:8px;">
+                    <span>Tickets (<?php echo count($tickets); ?>)</span>
+                    <button type="button" id="tix-order-regen-extra-btn"
+                            style="background:#f3f4f6;border:1px solid #e5e7eb;color:#475569;padding:4px 10px;border-radius:6px;font-size:11px;font-weight:500;cursor:pointer;"
+                            title="Vorsicht: Erzeugt nur Tickets falls welche fehlen — vorhandene werden nicht dupliziert"
+                            onclick="
+                                if (!confirm('Fehlende Tickets nachgenerieren?\n\nVorhandene Tickets werden NICHT dupliziert. Diese Aktion ist nur sinnvoll wenn die Anzahl der Tickets nicht zur Bestellmenge passt.')) return;
+                                this.disabled = true;
+                                fetch(ajaxurl, {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:'action=tix_order_regen_tickets&nonce=<?php echo $nonce; ?>&order_id=<?php echo $order_id; ?>'})
+                                .then(function(r){return r.json()})
+                                .then(function(r){if(r.success)location.reload(); else{alert(r.data.message||'Keine fehlenden Tickets gefunden.'); this.disabled=false;}}.bind(this));
+                            ">↻ Prüfen</button>
+                </h3>
                 <div style="display:flex;flex-direction:column;gap:8px;">
                     <?php foreach ($tickets as $ticket):
                         $code = get_post_meta($ticket->ID, '_tix_ticket_code', true);
@@ -868,6 +977,58 @@ class TIX_Order_Admin {
         }
 
         wp_send_json_success(['message' => 'E-Mail wurde erneut gesendet.']);
+    }
+
+    // ──────────────────────────────────────────
+    // AJAX: Tickets nachgenerieren (für Geister-Bestellungen)
+    // ──────────────────────────────────────────
+    public static function ajax_regen_tickets() {
+        check_ajax_referer('tix_order_action', 'nonce');
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(['message' => 'Keine Berechtigung.']);
+        }
+        $order_id = intval($_POST['order_id'] ?? 0);
+        if (!$order_id) wp_send_json_error(['message' => 'Ungültige Bestellnummer.']);
+
+        global $wpdb;
+        $t  = $wpdb->prefix . 'tix_orders';
+        $order = $wpdb->get_row($wpdb->prepare("SELECT * FROM $t WHERE id = %d", $order_id));
+        if (!$order) wp_send_json_error(['message' => 'Bestellung nicht gefunden.']);
+
+        // Tickets vorher zählen
+        $before = (new WP_Query([
+            'post_type'      => 'tix_ticket',
+            'post_status'    => 'any',
+            'posts_per_page' => -1,
+            'fields'         => 'ids',
+            'meta_key'       => '_tix_ticket_order_id',
+            'meta_value'     => $order_id,
+        ]))->found_posts;
+
+        if (!class_exists('TIX_Tickets') || !method_exists('TIX_Tickets', 'on_native_order_completed')) {
+            wp_send_json_error(['message' => 'TIX_Tickets nicht verfügbar.']);
+        }
+
+        // Generation triggern (Guard im Code verhindert Duplikate wenn bereits Tickets vorhanden)
+        TIX_Tickets::on_native_order_completed($order_id);
+
+        // Tickets nachher zählen
+        $after = (new WP_Query([
+            'post_type'      => 'tix_ticket',
+            'post_status'    => 'any',
+            'posts_per_page' => -1,
+            'fields'         => 'ids',
+            'meta_key'       => '_tix_ticket_order_id',
+            'meta_value'     => $order_id,
+        ]))->found_posts;
+
+        $created = $after - $before;
+        if ($created > 0) {
+            self::add_note($order_id, '🎫 ' . $created . ' Tickets manuell nachgeneriert (Re-Generate-Button).', 'system');
+            wp_send_json_success(['message' => $created . ' Tickets erstellt.', 'created' => $created]);
+        } else {
+            wp_send_json_error(['message' => 'Keine fehlenden Tickets — alle bereits vorhanden.']);
+        }
     }
 
     // ──────────────────────────────────────────

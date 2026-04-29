@@ -13,6 +13,7 @@ class TIX_My_Account {
     private static $tabs = [
         'dashboard' => ['label' => 'Dashboard',          'icon' => 'dashicons-admin-home'],
         'tickets'   => ['label' => 'Meine Tickets',      'icon' => 'dashicons-tickets-alt'],
+        'orders'    => ['label' => 'Meine Bestellungen', 'icon' => 'dashicons-cart'],
         'profile'   => ['label' => 'Profil bearbeiten',  'icon' => 'dashicons-admin-users'],
         'password'  => ['label' => 'Passwort ändern',    'icon' => 'dashicons-lock'],
         'privacy'   => ['label' => 'Datenschutz',        'icon' => 'dashicons-shield'],
@@ -88,6 +89,9 @@ class TIX_My_Account {
                 switch ($current_tab) {
                     case 'tickets':
                         self::render_tickets();
+                        break;
+                    case 'orders':
+                        self::render_orders($user);
                         break;
                     case 'profile':
                         self::render_profile($user);
@@ -188,6 +192,16 @@ class TIX_My_Account {
                         Noch kein Konto? <a href="<?php echo esc_url(wp_registration_url()); ?>">Jetzt registrieren</a>
                     </p>
                 <?php endif; ?>
+
+                <?php // Magic-Link-Login: konsistenter Block auf jeder Login-Seite ?>
+                <?php if (class_exists('TIX_My_Tickets')): ?>
+                    <?php echo TIX_My_Tickets::render_magic_link_block([
+                        'heading' => 'Login per E-Mail-Link',
+                        'text'    => 'Kein Passwort zur Hand? Wir schicken dir einen einmaligen Link, mit dem du dich direkt einloggen kannst — egal ob als bestehender Kunde oder als Gast (du siehst dann deine Tickets ohne Konto).',
+                        'btn'     => 'Magic-Link senden',
+                        'id'      => 'tix-magic-account',
+                    ]); ?>
+                <?php endif; ?>
             </div>
         </div>
         <?php
@@ -255,11 +269,11 @@ class TIX_My_Account {
                     <span class="tix-account-stat-value"><?php echo $ticket_count; ?></span>
                     <span class="tix-account-stat-label">Tickets</span>
                 </a>
-                <div class="tix-account-stat">
+                <a href="<?php echo esc_url(add_query_arg('tix_tab', 'orders', $page_url)); ?>" class="tix-account-stat">
                     <span class="dashicons dashicons-cart"></span>
                     <span class="tix-account-stat-value"><?php echo $order_count; ?></span>
                     <span class="tix-account-stat-label">Bestellungen</span>
-                </div>
+                </a>
                 <div class="tix-account-stat">
                     <span class="dashicons dashicons-calendar-alt"></span>
                     <span class="tix-account-stat-value"><?php echo $upcoming; ?></span>
@@ -272,6 +286,9 @@ class TIX_My_Account {
                 <div class="tix-account-links-grid">
                     <a href="<?php echo esc_url(add_query_arg('tix_tab', 'tickets', $page_url)); ?>" class="tix-account-link">
                         <span class="dashicons dashicons-tickets-alt"></span> Meine Tickets ansehen
+                    </a>
+                    <a href="<?php echo esc_url(add_query_arg('tix_tab', 'orders', $page_url)); ?>" class="tix-account-link">
+                        <span class="dashicons dashicons-cart"></span> Meine Bestellungen
                     </a>
                     <a href="<?php echo esc_url(add_query_arg('tix_tab', 'profile', $page_url)); ?>" class="tix-account-link">
                         <span class="dashicons dashicons-admin-users"></span> Profil bearbeiten
@@ -295,6 +312,258 @@ class TIX_My_Account {
         } else {
             echo '<p>Ticket-Ansicht ist nicht verfügbar.</p>';
         }
+    }
+
+    // ══════════════════════════════════════
+    // TAB: MEINE BESTELLUNGEN
+    // ══════════════════════════════════════
+
+    private static function render_orders($user) {
+        global $wpdb;
+        $email = $user->user_email;
+
+        // Native TIX_Orders + WC-Orders zusammen sammeln
+        $orders = [];
+
+        if (class_exists('TIX_Order')) {
+            // Beide Quellen laden + dedupen (Customer-ID UND Email — z.B. Gast-Bestellung
+            // mit später erstelltem Konto bleibt sonst unsichtbar)
+            $native_by_id    = TIX_Order::query(['customer_id' => $user->ID, 'limit' => 50]);
+            $native_by_email = TIX_Order::query(['email' => $email, 'limit' => 50]);
+            $seen_ids = [];
+            foreach (array_merge((array) $native_by_id, (array) $native_by_email) as $o) {
+                $oid = $o->get_id();
+                if (isset($seen_ids[$oid])) continue;
+                $seen_ids[$oid] = true;
+                $orders[] = self::map_native_order($o);
+            }
+
+            // Bonus: Gast-Bestellungen (customer_id=0) jetzt rückwirkend dem User zuordnen,
+            // damit beim nächsten Aufruf nur eine Query nötig ist.
+            global $wpdb;
+            $wpdb->query($wpdb->prepare(
+                "UPDATE " . TIX_Order::table_name() . "
+                 SET customer_id = %d
+                 WHERE customer_id = 0 AND billing_email = %s",
+                $user->ID, $email
+            ));
+        }
+
+        if (function_exists('wc_get_orders')) {
+            $wc_orders = wc_get_orders([
+                'customer' => $user->ID,
+                'limit'    => 50,
+                'orderby'  => 'date',
+                'order'    => 'DESC',
+            ]);
+            foreach ((array) $wc_orders as $wo) {
+                // Doppelung mit native (wc_order_id) ausschließen
+                $skip = false;
+                foreach ($orders as $existing) {
+                    if (!empty($existing['wc_order_id']) && intval($existing['wc_order_id']) === $wo->get_id()) { $skip = true; break; }
+                }
+                if (!$skip) $orders[] = self::map_wc_order($wo);
+            }
+        }
+
+        // Sort: neueste zuerst
+        usort($orders, fn($a, $b) => strcmp($b['date_raw'], $a['date_raw']));
+        ?>
+        <h2>Meine Bestellungen</h2>
+        <p class="tix-account-subtitle">Eine Übersicht über alle deine Bestellungen — abgeschlossene wie auch noch offene Zahlungen.</p>
+
+        <?php if (empty($orders)): ?>
+            <div class="tix-account-empty">
+                <span class="dashicons dashicons-cart"></span>
+                <p>Du hast noch keine Bestellungen aufgegeben.</p>
+            </div>
+        <?php else: ?>
+            <div class="tix-account-orders">
+                <?php foreach ($orders as $od): ?>
+                    <div class="tix-account-order tix-account-order-<?php echo esc_attr($od['status']); ?>">
+                        <div class="tix-account-order-head">
+                            <div>
+                                <span class="tix-account-order-number">Bestellung <?php echo esc_html($od['order_number']); ?></span>
+                                <span class="tix-account-order-date"><?php echo esc_html($od['date_display']); ?></span>
+                            </div>
+                            <span class="tix-account-order-status tix-account-status-<?php echo esc_attr($od['status']); ?>">
+                                <?php echo esc_html($od['status_label']); ?>
+                            </span>
+                        </div>
+
+                        <?php if (!empty($od['items'])): ?>
+                        <ul class="tix-account-order-items">
+                            <?php foreach ($od['items'] as $it): ?>
+                                <li>
+                                    <span class="tix-account-order-item-name"><?php echo esc_html($it['name']); ?></span>
+                                    <span class="tix-account-order-item-qty">×&nbsp;<?php echo intval($it['qty']); ?></span>
+                                    <span class="tix-account-order-item-price"><?php echo esc_html($it['price']); ?></span>
+                                </li>
+                            <?php endforeach; ?>
+                        </ul>
+                        <?php endif; ?>
+
+                        <div class="tix-account-order-total">
+                            <span>Gesamt</span>
+                            <strong><?php echo esc_html($od['total_formatted']); ?></strong>
+                        </div>
+
+                        <?php // Bei pending/on-hold + Banküberweisung: Bankdaten zeigen ?>
+                        <?php
+                        $needs_payment = in_array($od['status'], ['pending', 'on-hold'], true);
+                        $is_bank = in_array($od['payment_method_id'] ?? '', ['bacs', 'bank'], true);
+                        if ($needs_payment && $is_bank):
+                            $bacs = class_exists('TIX_My_Tickets') ? TIX_My_Tickets::get_bacs_details() : [];
+                            $s = function_exists('tix_get_settings') ? tix_get_settings() : [];
+                        ?>
+                            <div class="tix-account-pay-box">
+                                <div class="tix-account-pay-heading">⏳ Zahlung ausstehend — bitte überweise:</div>
+                                <table class="tix-account-pay-table">
+                                    <?php foreach ($bacs as $acc): ?>
+                                        <?php if (!empty($acc['account_name'])): ?><tr><td>Kontoinhaber</td><td><?php echo esc_html($acc['account_name']); ?></td></tr><?php endif; ?>
+                                        <?php if (!empty($acc['iban'])):         ?><tr><td>IBAN</td>        <td><?php echo esc_html($acc['iban']); ?></td></tr><?php endif; ?>
+                                        <?php if (!empty($acc['bic'])):          ?><tr><td>BIC</td>         <td><?php echo esc_html($acc['bic']); ?></td></tr><?php endif; ?>
+                                        <?php if (!empty($acc['bank_name'])):    ?><tr><td>Bank</td>        <td><?php echo esc_html($acc['bank_name']); ?></td></tr><?php endif; ?>
+                                    <?php endforeach; ?>
+                                    <tr><td>Betrag</td><td><?php echo esc_html($od['total_formatted']); ?></td></tr>
+                                    <tr><td>Verwendungszweck</td><td><?php echo esc_html($od['order_number']); ?></td></tr>
+                                </table>
+                                <?php if (!empty($s['bank_reference'])): ?>
+                                    <p class="tix-account-pay-hint"><?php echo esc_html($s['bank_reference']); ?></p>
+                                <?php endif; ?>
+                            </div>
+                        <?php elseif ($needs_payment): ?>
+                            <div class="tix-account-pay-box">
+                                <div class="tix-account-pay-heading">⏳ Zahlung wird verarbeitet</div>
+                                <p class="tix-account-pay-hint">Sobald die Zahlung eingegangen ist, werden deine Tickets automatisch freigeschaltet und du erhältst eine Bestätigungs-E-Mail.</p>
+                            </div>
+                        <?php endif; ?>
+
+                        <?php if (!empty($od['view_tickets_url'])): ?>
+                            <a href="<?php echo esc_url($od['view_tickets_url']); ?>" class="tix-account-order-link">
+                                <span class="dashicons dashicons-tickets-alt"></span> Tickets ansehen
+                            </a>
+                        <?php endif; ?>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+        <?php endif; ?>
+
+        <style>
+            .tix-account-empty { text-align:center; padding:40px 20px; color:#94a3b8; }
+            .tix-account-empty .dashicons { font-size:48px; width:48px; height:48px; opacity:.4; }
+            .tix-account-orders { display:flex; flex-direction:column; gap:14px; }
+            .tix-account-order { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:18px 20px; }
+            .tix-account-order-head { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; margin-bottom:14px; }
+            .tix-account-order-number { display:block; font-weight:700; font-size:15px; color:#0f172a; }
+            .tix-account-order-date { display:block; font-size:12px; color:#94a3b8; margin-top:2px; }
+            .tix-account-order-status { display:inline-block; padding:4px 12px; border-radius:20px; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; white-space:nowrap; flex-shrink:0; }
+            .tix-account-status-completed, .tix-account-status-processing { background:#dcfce7; color:#166534; }
+            .tix-account-status-pending,   .tix-account-status-on-hold     { background:#fef3c7; color:#92400e; }
+            .tix-account-status-cancelled, .tix-account-status-failed,
+            .tix-account-status-refunded                                   { background:#fee2e2; color:#991b1b; }
+            .tix-account-order-items { list-style:none; padding:0; margin:0 0 12px; }
+            .tix-account-order-items li { display:flex; gap:10px; padding:6px 0; font-size:14px; border-bottom:1px solid #f1f5f9; }
+            .tix-account-order-items li:last-child { border-bottom:none; }
+            .tix-account-order-item-name { flex:1; font-weight:500; }
+            .tix-account-order-item-qty { color:#94a3b8; font-size:13px; }
+            .tix-account-order-item-price { font-weight:600; min-width:80px; text-align:right; }
+            .tix-account-order-total { display:flex; justify-content:space-between; padding:10px 0; border-top:2px solid #e5e7eb; margin-bottom:12px; font-size:15px; }
+            .tix-account-order-total strong { font-size:17px; color:#0f172a; }
+            .tix-account-pay-box { background:#fffbeb; border:1px solid #fde68a; border-radius:10px; padding:14px 16px; margin:12px 0; }
+            .tix-account-pay-heading { font-weight:700; font-size:14px; color:#92400e; margin-bottom:10px; }
+            .tix-account-pay-table { width:100%; font-size:13px; border-collapse:collapse; }
+            .tix-account-pay-table td { padding:5px 0; vertical-align:top; }
+            .tix-account-pay-table td:first-child { color:#92400e; padding-right:14px; white-space:nowrap; width:140px; }
+            .tix-account-pay-table td:last-child { font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-weight:600; color:#0f172a; word-break:break-word; }
+            .tix-account-pay-hint { margin:10px 0 0; font-size:12px; color:#78350f; line-height:1.5; }
+            .tix-account-order-link { display:inline-flex; align-items:center; gap:6px; padding:8px 14px; background:#f1f5f9; border-radius:8px; text-decoration:none; color:#475569 !important; font-size:13px; font-weight:600; }
+            .tix-account-order-link:hover { background:#e2e8f0; color:#0f172a !important; }
+            .tix-account-order-link .dashicons { font-size:16px; width:16px; height:16px; }
+            @media (max-width:540px) {
+                .tix-account-pay-table td:first-child { width:auto; }
+                .tix-account-order-items li { flex-wrap:wrap; }
+            }
+        </style>
+        <?php
+    }
+
+    /**
+     * Native TIX_Order in einheitliches Format mappen
+     */
+    private static function map_native_order($o) {
+        $items_raw = method_exists($o, 'get_items') ? $o->get_items() : [];
+        $items = [];
+        foreach ($items_raw as $i) {
+            $items[] = [
+                'name'  => $i->name ?? 'Ticket',
+                'qty'   => intval($i->quantity ?? 1),
+                'price' => number_format(floatval($i->total ?? 0), 2, ',', '.') . ' €',
+            ];
+        }
+        $page_url = get_permalink();
+        $tickets_url = $page_url ? add_query_arg('tix_tab', 'tickets', $page_url) : '';
+        $status      = $o->get_status();
+        $status_lbl  = self::status_label($status);
+
+        return [
+            'order_number'      => $o->get_order_number(),
+            'order_id'          => $o->get_id(),
+            'wc_order_id'       => method_exists($o, 'get_wc_order_id') ? $o->get_wc_order_id() : 0,
+            'date_raw'          => method_exists($o, 'get_date_created') && $o->get_date_created() ? $o->get_date_created()->format('Y-m-d H:i:s') : '',
+            'date_display'      => method_exists($o, 'get_date_created') && $o->get_date_created() ? $o->get_date_created()->format('d.m.Y, H:i') . ' Uhr' : '',
+            'total_formatted'   => method_exists($o, 'get_formatted_order_total') ? wp_strip_all_tags($o->get_formatted_order_total()) : (number_format(floatval($o->total ?? 0), 2, ',', '.') . ' €'),
+            'status'            => $status,
+            'status_label'      => $status_lbl,
+            'payment_method_id' => $o->get_payment_method() ?? '',
+            'items'             => $items,
+            'view_tickets_url'  => $tickets_url,
+        ];
+    }
+
+    /**
+     * WooCommerce-Order in einheitliches Format mappen
+     */
+    private static function map_wc_order($wo) {
+        $items_raw = $wo->get_items();
+        $items = [];
+        foreach ($items_raw as $i) {
+            $items[] = [
+                'name'  => $i->get_name(),
+                'qty'   => $i->get_quantity(),
+                'price' => wp_strip_all_tags(wc_price($i->get_total())),
+            ];
+        }
+        $status = $wo->get_status();
+        $page_url = get_permalink();
+        $tickets_url = $page_url ? add_query_arg('tix_tab', 'tickets', $page_url) : '';
+
+        return [
+            'order_number'      => $wo->get_order_number(),
+            'order_id'          => $wo->get_id(),
+            'wc_order_id'       => $wo->get_id(),
+            'date_raw'          => $wo->get_date_created() ? $wo->get_date_created()->format('Y-m-d H:i:s') : '',
+            'date_display'      => $wo->get_date_created() ? $wo->get_date_created()->format('d.m.Y, H:i') . ' Uhr' : '',
+            'total_formatted'   => wp_strip_all_tags($wo->get_formatted_order_total()),
+            'status'            => $status,
+            'status_label'      => self::status_label($status),
+            'payment_method_id' => $wo->get_payment_method(),
+            'items'             => $items,
+            'view_tickets_url'  => $tickets_url,
+        ];
+    }
+
+    private static function status_label($status) {
+        $map = [
+            'completed'  => 'Abgeschlossen',
+            'processing' => 'In Bearbeitung',
+            'pending'    => 'Zahlung ausstehend',
+            'on-hold'    => 'Wartet auf Zahlung',
+            'cancelled'  => 'Storniert',
+            'failed'     => 'Fehlgeschlagen',
+            'refunded'   => 'Erstattet',
+        ];
+        return $map[$status] ?? ucfirst($status);
     }
 
     // ══════════════════════════════════════

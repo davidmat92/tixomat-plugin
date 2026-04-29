@@ -1,0 +1,1134 @@
+<?php
+/**
+ * TIX_Event_Report — Detail-Bericht pro Event mit Export (CSV/XLSX/PDF)
+ *
+ * Admin-Seite: Tixomat → Event-Bericht
+ * URL: /wp-admin/admin.php?page=tix-event-report&event_id=X
+ *
+ * Features:
+ *  - Event-Auswahl (Filter: alle / vergangen / kommend)
+ *  - KPIs: Tickets verkauft, Umsatz, Check-in-Rate, Refunds
+ *  - Pro-Kategorie-Aufschlüsselung
+ *  - Detail-Tabelle aller verkauften Tickets (sortier-/filterbar)
+ *  - Export: CSV, XLSX (nativer Writer), PDF (nativer Writer mit A4 quer)
+ */
+if (!defined('ABSPATH')) exit;
+
+class TIX_Event_Report {
+
+    public static function init() {
+        add_action('admin_menu', [__CLASS__, 'register_menu']);
+        add_action('admin_post_tix_event_report_export', [__CLASS__, 'handle_export']);
+    }
+
+    public static function register_menu() {
+        add_submenu_page(
+            'tixomat',
+            'Event-Bericht',
+            'Event-Bericht',
+            'manage_options',
+            'tix-event-report',
+            [__CLASS__, 'render_page']
+        );
+    }
+
+    // ═══════════════════════════════════════════
+    // Rendering
+    // ═══════════════════════════════════════════
+
+    public static function render_page() {
+        $event_id    = intval($_GET['event_id'] ?? 0);
+        $time_filter = sanitize_text_field($_GET['time_filter'] ?? 'all');
+        $events      = self::get_events_for_picker($time_filter);
+
+        ?>
+        <div class="wrap" style="max-width:1300px;">
+            <h1 style="display:flex;align-items:center;gap:10px;">
+                <span class="dashicons dashicons-chart-bar" style="font-size:28px;width:28px;height:28px;color:#FF5500;"></span>
+                Event-Bericht
+            </h1>
+            <p style="color:#6b7280;font-size:13px;margin:4px 0 20px;">
+                Detaillierter Verkaufsbericht pro Event mit Pro-Ticket-Aufschlüsselung. Export als CSV, Excel oder PDF.
+            </p>
+
+            <?php // ── Event-Auswahl ── ?>
+            <form method="get" style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:18px 22px;margin-bottom:20px;display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap;">
+                <input type="hidden" name="page" value="tix-event-report">
+                <div>
+                    <label style="display:block;font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:5px;">Zeitraum</label>
+                    <select name="time_filter" style="padding:7px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;min-width:140px;" onchange="this.form.submit()">
+                        <option value="all"      <?php selected($time_filter, 'all'); ?>>Alle Events</option>
+                        <option value="past"     <?php selected($time_filter, 'past'); ?>>Nur vergangene</option>
+                        <option value="upcoming" <?php selected($time_filter, 'upcoming'); ?>>Nur kommende</option>
+                    </select>
+                </div>
+                <div style="flex:1;min-width:280px;">
+                    <label style="display:block;font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:5px;">Event auswählen</label>
+                    <select name="event_id" style="padding:7px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;width:100%;" onchange="this.form.submit()">
+                        <option value="0">— Bitte Event wählen —</option>
+                        <?php foreach ($events as $ev): ?>
+                            <option value="<?php echo $ev['id']; ?>" <?php selected($event_id, $ev['id']); ?>>
+                                <?php echo esc_html($ev['date_label'] . ' · ' . $ev['title']); ?>
+                                <?php if ($ev['is_past']): ?> · vergangen<?php endif; ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+            </form>
+
+            <?php if ($event_id > 0): ?>
+                <?php self::render_report($event_id); ?>
+            <?php else: ?>
+                <div style="background:#f9fafb;border:1px dashed #d1d5db;border-radius:12px;padding:60px 20px;text-align:center;color:#6b7280;">
+                    <span class="dashicons dashicons-arrow-up" style="font-size:32px;width:32px;height:32px;color:#9ca3af;"></span>
+                    <p style="margin:10px 0 0;font-size:14px;">Wähle oben ein Event, um den Detailbericht anzuzeigen.</p>
+                </div>
+            <?php endif; ?>
+        </div>
+        <?php
+    }
+
+    private static function render_report($event_id) {
+        $event = get_post($event_id);
+        if (!$event || $event->post_type !== 'event') {
+            echo '<div class="notice notice-error"><p>Event nicht gefunden.</p></div>';
+            return;
+        }
+
+        $data = self::get_event_data($event_id);
+
+        $date_start = get_post_meta($event_id, '_tix_date_start', true);
+        $time_start = get_post_meta($event_id, '_tix_time_start', true);
+        $loc_id     = intval(get_post_meta($event_id, '_tix_location_id', true));
+        $loc_name   = $loc_id ? get_the_title($loc_id) : '–';
+
+        $date_label = $date_start ? date_i18n('l, d. F Y', strtotime($date_start)) : '–';
+
+        // Export-URLs
+        $export_base = admin_url('admin-post.php?action=tix_event_report_export&event_id=' . $event_id);
+        $nonce = wp_create_nonce('tix_event_report_export_' . $event_id);
+
+        ?>
+        <?php // ── Event-Header ── ?>
+        <div style="background:linear-gradient(135deg,#0f172a,#1e293b);color:#fff;border-radius:14px;padding:24px 28px;margin-bottom:18px;display:flex;justify-content:space-between;align-items:center;gap:20px;flex-wrap:wrap;">
+            <div style="flex:1;min-width:260px;">
+                <h2 style="margin:0 0 6px;color:#fff;font-size:22px;line-height:1.2;"><?php echo esc_html($event->post_title); ?></h2>
+                <div style="font-size:13px;color:#cbd5e1;display:flex;gap:16px;flex-wrap:wrap;">
+                    <span><span class="dashicons dashicons-calendar-alt" style="vertical-align:middle;"></span> <?php echo esc_html($date_label); ?><?php if ($time_start): ?> · <?php echo esc_html($time_start); ?> Uhr<?php endif; ?></span>
+                    <span><span class="dashicons dashicons-location" style="vertical-align:middle;"></span> <?php echo esc_html($loc_name); ?></span>
+                </div>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <a href="<?php echo esc_url(add_query_arg(['format' => 'csv', '_wpnonce' => $nonce], $export_base)); ?>"
+                   style="background:#fff;color:#0f172a;padding:9px 16px;border-radius:8px;text-decoration:none;font-weight:600;font-size:13px;display:inline-flex;align-items:center;gap:6px;">
+                    <span class="dashicons dashicons-media-spreadsheet" style="font-size:16px;width:16px;height:16px;"></span> CSV
+                </a>
+                <a href="<?php echo esc_url(add_query_arg(['format' => 'xlsx', '_wpnonce' => $nonce], $export_base)); ?>"
+                   style="background:#10b981;color:#fff;padding:9px 16px;border-radius:8px;text-decoration:none;font-weight:600;font-size:13px;display:inline-flex;align-items:center;gap:6px;">
+                    <span class="dashicons dashicons-media-spreadsheet" style="font-size:16px;width:16px;height:16px;"></span> Excel
+                </a>
+                <a href="<?php echo esc_url(add_query_arg(['format' => 'pdf', '_wpnonce' => $nonce], $export_base)); ?>"
+                   style="background:#dc2626;color:#fff;padding:9px 16px;border-radius:8px;text-decoration:none;font-weight:600;font-size:13px;display:inline-flex;align-items:center;gap:6px;">
+                    <span class="dashicons dashicons-media-document" style="font-size:16px;width:16px;height:16px;"></span> PDF
+                </a>
+            </div>
+        </div>
+
+        <?php // ── KPI-Karten ── ?>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:18px;">
+            <?php
+            $kpis = [
+                ['Tickets verkauft', number_format($data['kpis']['sold'], 0, ',', '.'),                 '#3b82f6', 'tickets-alt'],
+                ['Brutto-Umsatz',    number_format($data['kpis']['revenue_gross'], 2, ',', '.') . ' €', '#10b981', 'money-alt'],
+                ['Netto (ohne MwSt.)', number_format($data['kpis']['revenue_net'], 2, ',', '.') . ' €', '#8b5cf6', 'chart-line'],
+                ['Check-in Rate',    $data['kpis']['checkin_rate'] . '%',                               '#f59e0b', 'groups'],
+                ['Storniert',        number_format($data['kpis']['cancelled'], 0, ',', '.'),           '#6b7280', 'no-alt'],
+            ];
+            foreach ($kpis as [$label, $value, $color, $icon]):
+            ?>
+                <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:16px 18px;">
+                    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+                        <span class="dashicons dashicons-<?php echo esc_attr($icon); ?>" style="color:<?php echo esc_attr($color); ?>;"></span>
+                        <span style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:0.05em;font-weight:600;"><?php echo esc_html($label); ?></span>
+                    </div>
+                    <div style="font-size:22px;font-weight:700;color:#0f172a;line-height:1;"><?php echo esc_html($value); ?></div>
+                </div>
+            <?php endforeach; ?>
+        </div>
+
+        <?php // ── Pro-Kategorie-Aufschlüsselung ── ?>
+        <?php if (!empty($data['categories'])): ?>
+        <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:20px 22px;margin-bottom:18px;">
+            <h3 style="margin:0 0 14px;font-size:14px;color:#0f172a;display:flex;align-items:center;gap:8px;">
+                <span class="dashicons dashicons-category"></span>
+                Aufschlüsselung nach Kategorie
+            </h3>
+            <table class="widefat striped" style="border:none;">
+                <thead>
+                    <tr style="background:#f9fafb;">
+                        <th>Kategorie</th>
+                        <th style="text-align:right;">Verkauft</th>
+                        <th style="text-align:right;">Eingecheckt</th>
+                        <th style="text-align:right;">Ø Preis</th>
+                        <th style="text-align:right;">Brutto-Umsatz</th>
+                        <th style="text-align:right;">Anteil</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($data['categories'] as $cat):
+                        $share = $data['kpis']['revenue_gross'] > 0
+                            ? round($cat['revenue'] / $data['kpis']['revenue_gross'] * 100, 1) : 0;
+                    ?>
+                    <tr>
+                        <td><strong><?php echo esc_html($cat['name']); ?></strong></td>
+                        <td style="text-align:right;"><?php echo number_format($cat['sold'], 0, ',', '.'); ?></td>
+                        <td style="text-align:right;color:#10b981;font-weight:600;"><?php echo number_format($cat['checked_in'], 0, ',', '.'); ?></td>
+                        <td style="text-align:right;"><?php echo number_format($cat['avg_price'], 2, ',', '.'); ?> €</td>
+                        <td style="text-align:right;font-weight:600;"><?php echo number_format($cat['revenue'], 2, ',', '.'); ?> €</td>
+                        <td style="text-align:right;color:#6b7280;"><?php echo $share; ?>%</td>
+                    </tr>
+                    <?php endforeach; ?>
+                    <tr style="background:#f3f4f6;font-weight:700;">
+                        <td>SUMME</td>
+                        <td style="text-align:right;"><?php echo number_format($data['kpis']['sold'], 0, ',', '.'); ?></td>
+                        <td style="text-align:right;color:#10b981;"><?php echo number_format($data['kpis']['checked_in'], 0, ',', '.'); ?></td>
+                        <td style="text-align:right;">—</td>
+                        <td style="text-align:right;"><?php echo number_format($data['kpis']['revenue_gross'], 2, ',', '.'); ?> €</td>
+                        <td style="text-align:right;">100%</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <?php endif; ?>
+
+        <?php // ── Detail-Tabelle aller Tickets ── ?>
+        <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:20px 22px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:10px;">
+                <h3 style="margin:0;font-size:14px;color:#0f172a;display:flex;align-items:center;gap:8px;">
+                    <span class="dashicons dashicons-tickets-alt"></span>
+                    Verkaufte Tickets (<?php echo count($data['tickets']); ?>)
+                </h3>
+                <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+                    <input type="text" id="tix-er-search" placeholder="Suchen (Name, Email, Code)…"
+                           style="padding:7px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;width:240px;">
+                    <select id="tix-er-cat-filter" style="padding:7px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
+                        <option value="">Alle Kategorien</option>
+                        <?php foreach ($data['categories'] as $c): ?>
+                            <option value="<?php echo esc_attr($c['name']); ?>"><?php echo esc_html($c['name']); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <select id="tix-er-checkin-filter" style="padding:7px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
+                        <option value="">Alle Tickets</option>
+                        <option value="checked">Nur eingecheckt</option>
+                        <option value="not_checked">Nur nicht eingecheckt</option>
+                        <option value="cancelled">Nur storniert</option>
+                    </select>
+                </div>
+            </div>
+
+            <div style="overflow-x:auto;">
+            <table class="widefat striped" id="tix-er-tickets-table" style="border:none;font-size:13px;">
+                <thead>
+                    <tr style="background:#f9fafb;">
+                        <th>Code</th>
+                        <th>Käufer</th>
+                        <th>Email</th>
+                        <th>Kategorie</th>
+                        <th style="text-align:right;">Preis</th>
+                        <th>Bestellt am</th>
+                        <th>Bestell-Nr.</th>
+                        <th>Sitzplatz</th>
+                        <th>Status</th>
+                        <th>Check-in</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($data['tickets'] as $t): ?>
+                        <tr data-cat="<?php echo esc_attr($t['category']); ?>"
+                            data-checkin="<?php echo $t['checked_in'] ? 'checked' : 'not_checked'; ?>"
+                            data-status="<?php echo esc_attr($t['status']); ?>"
+                            data-search="<?php echo esc_attr(strtolower(($t['code'] ?? '') . ' ' . ($t['owner_name'] ?? '') . ' ' . ($t['owner_email'] ?? ''))); ?>">
+                            <td><code style="font-size:11px;"><?php echo esc_html($t['code']); ?></code></td>
+                            <td><?php echo esc_html($t['owner_name'] ?: '–'); ?></td>
+                            <td style="color:#6b7280;font-size:12px;"><?php echo esc_html($t['owner_email']); ?></td>
+                            <td><?php echo esc_html($t['category']); ?></td>
+                            <td style="text-align:right;"><?php echo number_format($t['price'], 2, ',', '.'); ?> €</td>
+                            <td style="color:#6b7280;"><?php echo esc_html($t['order_date']); ?></td>
+                            <td>
+                                <?php if (!empty($t['order_id'])): ?>
+                                    <a href="<?php echo esc_url(admin_url('admin.php?page=tix-orders&order_id=' . $t['order_id'])); ?>"><?php echo esc_html($t['order_number']); ?></a>
+                                <?php else: ?>—<?php endif; ?>
+                            </td>
+                            <td><?php echo esc_html($t['seat'] ?: '–'); ?></td>
+                            <td>
+                                <?php if ($t['status'] === 'cancelled'): ?>
+                                    <span style="color:#ef4444;font-weight:600;">Storniert</span>
+                                <?php else: ?>
+                                    <span style="color:#10b981;">Gültig</span>
+                                <?php endif; ?>
+                            </td>
+                            <td>
+                                <?php if ($t['checked_in']): ?>
+                                    <span style="color:#10b981;font-weight:600;">✓ <?php echo esc_html($t['checkin_time']); ?></span>
+                                <?php else: ?>
+                                    <span style="color:#9ca3af;">–</span>
+                                <?php endif; ?>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                    <?php if (empty($data['tickets'])): ?>
+                        <tr><td colspan="10" style="text-align:center;padding:30px;color:#9ca3af;">Keine Tickets verkauft.</td></tr>
+                    <?php endif; ?>
+                </tbody>
+            </table>
+            </div>
+        </div>
+
+        <script>
+        (function(){
+            var search = document.getElementById('tix-er-search');
+            var catSel = document.getElementById('tix-er-cat-filter');
+            var ciSel  = document.getElementById('tix-er-checkin-filter');
+            var rows   = document.querySelectorAll('#tix-er-tickets-table tbody tr[data-search]');
+
+            function applyFilter(){
+                var q = (search.value || '').toLowerCase().trim();
+                var cat = catSel.value;
+                var ci  = ciSel.value;
+                rows.forEach(function(r){
+                    var hay = r.getAttribute('data-search') || '';
+                    var rcat = r.getAttribute('data-cat') || '';
+                    var rci  = r.getAttribute('data-checkin') || '';
+                    var rstat = r.getAttribute('data-status') || '';
+                    var ok = true;
+                    if (q && hay.indexOf(q) === -1) ok = false;
+                    if (cat && rcat !== cat) ok = false;
+                    if (ci === 'checked' && rci !== 'checked') ok = false;
+                    if (ci === 'not_checked' && rci !== 'not_checked') ok = false;
+                    if (ci === 'cancelled' && rstat !== 'cancelled') ok = false;
+                    r.style.display = ok ? '' : 'none';
+                });
+            }
+            search.addEventListener('input', applyFilter);
+            catSel.addEventListener('change', applyFilter);
+            ciSel.addEventListener('change', applyFilter);
+        })();
+        </script>
+        <?php
+    }
+
+    // ═══════════════════════════════════════════
+    // Datenquelle
+    // ═══════════════════════════════════════════
+
+    private static function get_events_for_picker($time_filter = 'all') {
+        $today = current_time('Y-m-d');
+        $args = [
+            'post_type'      => 'event',
+            'posts_per_page' => -1,
+            'post_status'    => ['publish', 'draft', 'private'],
+            'meta_key'       => '_tix_date_start',
+            'orderby'        => 'meta_value',
+            'order'          => 'DESC',
+        ];
+
+        if ($time_filter === 'past') {
+            $args['meta_query'] = [['key' => '_tix_date_start', 'value' => $today, 'compare' => '<', 'type' => 'DATE']];
+        } elseif ($time_filter === 'upcoming') {
+            $args['meta_query'] = [['key' => '_tix_date_start', 'value' => $today, 'compare' => '>=', 'type' => 'DATE']];
+            $args['order'] = 'ASC';
+        }
+
+        $posts = get_posts($args);
+        $list = [];
+        foreach ($posts as $p) {
+            $date = get_post_meta($p->ID, '_tix_date_start', true);
+            $list[] = [
+                'id'         => $p->ID,
+                'title'      => $p->post_title,
+                'date'       => $date,
+                'date_label' => $date ? date_i18n('d.m.Y', strtotime($date)) : '—',
+                'is_past'    => $date && $date < $today,
+            ];
+        }
+        return $list;
+    }
+
+    /**
+     * Zentrales Daten-Aggregat für ein Event.
+     * Returns: ['kpis' => [...], 'categories' => [...], 'tickets' => [...]]
+     */
+    public static function get_event_data($event_id) {
+        global $wpdb;
+
+        // Tickets aus tix_ticket CPT laden (mit zugehörigen Order-Daten)
+        $tickets_q = new WP_Query([
+            'post_type'      => 'tix_ticket',
+            'post_status'    => 'any',
+            'posts_per_page' => -1,
+            'meta_query'     => [
+                ['key' => '_tix_ticket_event_id', 'value' => $event_id],
+            ],
+            'orderby'        => 'date',
+            'order'          => 'DESC',
+            'no_found_rows'  => true,
+        ]);
+
+        $tickets    = [];
+        $cat_stats  = [];
+        $sold       = 0;
+        $cancelled  = 0;
+        $checked_in = 0;
+        $revenue    = 0.0;
+
+        foreach ($tickets_q->posts as $tp) {
+            $tid = $tp->ID;
+            $code      = get_post_meta($tid, '_tix_ticket_code', true);
+            $status    = get_post_meta($tid, '_tix_ticket_status', true) ?: 'valid';
+            $cat_name  = get_post_meta($tid, '_tix_ticket_cat_name', true);
+            $cat_index = get_post_meta($tid, '_tix_ticket_cat_index', true);
+            $price     = floatval(get_post_meta($tid, '_tix_ticket_price', true));
+            $owner_n   = get_post_meta($tid, '_tix_ticket_owner_name', true);
+            $owner_e   = get_post_meta($tid, '_tix_ticket_owner_email', true);
+            $checked   = (bool) get_post_meta($tid, '_tix_ticket_checked_in', true);
+            $ci_time   = get_post_meta($tid, '_tix_ticket_checkin_time', true);
+            $seat_id   = get_post_meta($tid, '_tix_ticket_seat_id', true);
+            $order_id  = intval(get_post_meta($tid, '_tix_ticket_order_id', true));
+
+            // Fallback: cat_name aus Index suchen
+            if (!$cat_name && $cat_index !== '' && $cat_index !== false) {
+                $cats = get_post_meta($event_id, '_tix_ticket_categories', true);
+                $idx = intval($cat_index);
+                if (is_array($cats) && isset($cats[$idx])) {
+                    $cat_name = $cats[$idx]['name'] ?? '';
+                }
+            }
+            if (!$cat_name) $cat_name = '–';
+
+            // Order-Datum + Bestell-Nr. aus tix_orders
+            $order_date    = '';
+            $order_number  = '';
+            if ($order_id) {
+                $row = $wpdb->get_row($wpdb->prepare(
+                    "SELECT order_number, date_created FROM {$wpdb->prefix}tix_orders WHERE id = %d",
+                    $order_id
+                ));
+                if ($row) {
+                    $order_number = $row->order_number;
+                    $order_date   = $row->date_created ? date_i18n('d.m.Y H:i', strtotime($row->date_created)) : '';
+                }
+            }
+            if (!$order_date) {
+                $order_date = $tp->post_date ? date_i18n('d.m.Y H:i', strtotime($tp->post_date)) : '';
+            }
+
+            // Sitzplatz menschenlesbar
+            $seat_label = '';
+            if ($seat_id) {
+                $seat_label = is_numeric($seat_id) ? get_post_meta(intval($seat_id), '_tix_seat_label', true) : (string) $seat_id;
+                if (!$seat_label) $seat_label = (string) $seat_id;
+            }
+
+            $is_cancelled = ($status === 'cancelled');
+
+            // KPIs
+            if ($is_cancelled) {
+                $cancelled++;
+            } else {
+                $sold++;
+                $revenue += $price;
+                if ($checked) $checked_in++;
+            }
+
+            // Kategorie-Stats (nur gültige Tickets zählen)
+            if (!isset($cat_stats[$cat_name])) {
+                $cat_stats[$cat_name] = ['name' => $cat_name, 'sold' => 0, 'checked_in' => 0, 'revenue' => 0.0];
+            }
+            if (!$is_cancelled) {
+                $cat_stats[$cat_name]['sold']++;
+                $cat_stats[$cat_name]['revenue'] += $price;
+                if ($checked) $cat_stats[$cat_name]['checked_in']++;
+            }
+
+            $tickets[] = [
+                'id'           => $tid,
+                'code'         => $code,
+                'owner_name'   => $owner_n,
+                'owner_email'  => $owner_e,
+                'category'     => $cat_name,
+                'price'        => $price,
+                'order_id'     => $order_id,
+                'order_number' => $order_number ?: ('—'),
+                'order_date'   => $order_date,
+                'seat'         => $seat_label,
+                'status'       => $status,
+                'checked_in'   => $checked,
+                'checkin_time' => $ci_time ? date_i18n('d.m. H:i', strtotime($ci_time)) : '',
+            ];
+        }
+
+        // Kategorie-Liste finalisieren (avg_price + sortieren nach Umsatz absteigend)
+        $cat_list = [];
+        foreach ($cat_stats as $c) {
+            $c['avg_price'] = $c['sold'] > 0 ? $c['revenue'] / $c['sold'] : 0;
+            $cat_list[] = $c;
+        }
+        usort($cat_list, fn($a, $b) => $b['revenue'] <=> $a['revenue']);
+
+        // MwSt aus Settings (Fallback 19%)
+        $vat_rate = floatval(tix_get_settings('vat_rate') ?: 19);
+        $revenue_net = $revenue / (1 + $vat_rate / 100);
+
+        $checkin_rate = $sold > 0 ? round($checked_in / $sold * 100, 1) : 0;
+
+        return [
+            'event_id'   => $event_id,
+            'kpis'       => [
+                'sold'          => $sold,
+                'cancelled'     => $cancelled,
+                'checked_in'    => $checked_in,
+                'checkin_rate'  => $checkin_rate,
+                'revenue_gross' => round($revenue, 2),
+                'revenue_net'   => round($revenue_net, 2),
+                'vat_rate'      => $vat_rate,
+            ],
+            'categories' => $cat_list,
+            'tickets'    => $tickets,
+        ];
+    }
+
+    // ═══════════════════════════════════════════
+    // Export Router
+    // ═══════════════════════════════════════════
+
+    public static function handle_export() {
+        if (!current_user_can('manage_options')) wp_die('Keine Berechtigung.');
+        $event_id = intval($_GET['event_id'] ?? 0);
+        $format   = sanitize_text_field($_GET['format'] ?? 'csv');
+        $nonce    = sanitize_text_field($_GET['_wpnonce'] ?? '');
+
+        if (!wp_verify_nonce($nonce, 'tix_event_report_export_' . $event_id)) {
+            wp_die('Ungültige Sicherheitsprüfung.');
+        }
+
+        $data  = self::get_event_data($event_id);
+        $event = get_post($event_id);
+        $title = $event ? $event->post_title : 'Event';
+        $slug  = sanitize_file_name(strtolower(str_replace(' ', '-', $title)));
+        $datestr = date('Y-m-d');
+
+        switch ($format) {
+            case 'xlsx':
+                self::export_xlsx($data, $event, "tix-bericht-{$slug}-{$datestr}.xlsx");
+                break;
+            case 'pdf':
+                self::export_pdf($data, $event, "tix-bericht-{$slug}-{$datestr}.pdf");
+                break;
+            case 'csv':
+            default:
+                self::export_csv($data, $event, "tix-bericht-{$slug}-{$datestr}.csv");
+                break;
+        }
+        exit;
+    }
+
+    // ═══════════════════════════════════════════
+    // CSV Export
+    // ═══════════════════════════════════════════
+
+    private static function export_csv($data, $event, $filename) {
+        nocache_headers();
+        header('Content-Type: text/csv; charset=utf-8');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+
+        $out = fopen('php://output', 'w');
+        // BOM für Excel-Umlaute
+        fprintf($out, chr(0xEF) . chr(0xBB) . chr(0xBF));
+
+        // Event-Header
+        fputcsv($out, ['Event:', $event ? $event->post_title : ''], ';');
+        fputcsv($out, ['Bericht erstellt:', date_i18n('d.m.Y H:i')], ';');
+        fputcsv($out, [], ';');
+
+        // KPIs
+        fputcsv($out, ['Tickets verkauft', $data['kpis']['sold']], ';');
+        fputcsv($out, ['Storniert',        $data['kpis']['cancelled']], ';');
+        fputcsv($out, ['Eingecheckt',      $data['kpis']['checked_in']], ';');
+        fputcsv($out, ['Check-in Rate',    $data['kpis']['checkin_rate'] . '%'], ';');
+        fputcsv($out, ['Brutto-Umsatz',    number_format($data['kpis']['revenue_gross'], 2, ',', '.') . ' EUR'], ';');
+        fputcsv($out, ['Netto-Umsatz',     number_format($data['kpis']['revenue_net'], 2, ',', '.') . ' EUR'], ';');
+        fputcsv($out, [], ';');
+
+        // Kategorien
+        fputcsv($out, ['KATEGORIEN'], ';');
+        fputcsv($out, ['Kategorie', 'Verkauft', 'Eingecheckt', 'Ø Preis EUR', 'Brutto-Umsatz EUR'], ';');
+        foreach ($data['categories'] as $c) {
+            fputcsv($out, [
+                $c['name'],
+                $c['sold'],
+                $c['checked_in'],
+                number_format($c['avg_price'], 2, ',', '.'),
+                number_format($c['revenue'], 2, ',', '.'),
+            ], ';');
+        }
+        fputcsv($out, [], ';');
+
+        // Detail-Tickets
+        fputcsv($out, ['DETAILS — VERKAUFTE TICKETS'], ';');
+        fputcsv($out, ['Ticket-Code', 'Käufer', 'Email', 'Kategorie', 'Preis EUR', 'Bestellt am', 'Bestell-Nr.', 'Sitzplatz', 'Status', 'Check-in', 'Check-in Zeit'], ';');
+        foreach ($data['tickets'] as $t) {
+            fputcsv($out, [
+                $t['code'],
+                $t['owner_name'],
+                $t['owner_email'],
+                $t['category'],
+                number_format($t['price'], 2, ',', '.'),
+                $t['order_date'],
+                $t['order_number'],
+                $t['seat'],
+                $t['status'] === 'cancelled' ? 'Storniert' : 'Gültig',
+                $t['checked_in'] ? 'Ja' : 'Nein',
+                $t['checkin_time'],
+            ], ';');
+        }
+
+        fclose($out);
+    }
+
+    // ═══════════════════════════════════════════
+    // XLSX Export — nativer Writer (ohne Library)
+    // ═══════════════════════════════════════════
+
+    private static function export_xlsx($data, $event, $filename) {
+        if (!class_exists('ZipArchive')) {
+            self::export_csv($data, $event, str_replace('.xlsx', '.csv', $filename));
+            return;
+        }
+
+        // Daten zusammenstellen: Header + KPIs + Kategorien + Tickets in einem Sheet
+        $rows = [];
+        $rows[] = ['Event-Bericht: ' . ($event ? $event->post_title : '')];
+        $rows[] = ['Erstellt am ' . date_i18n('d.m.Y H:i')];
+        $rows[] = [];
+        $rows[] = ['Kennzahl', 'Wert'];
+        $rows[] = ['Tickets verkauft',   $data['kpis']['sold']];
+        $rows[] = ['Storniert',          $data['kpis']['cancelled']];
+        $rows[] = ['Eingecheckt',        $data['kpis']['checked_in']];
+        $rows[] = ['Check-in Rate',      $data['kpis']['checkin_rate'] . '%'];
+        $rows[] = ['Brutto-Umsatz EUR',  $data['kpis']['revenue_gross']];
+        $rows[] = ['Netto-Umsatz EUR',   $data['kpis']['revenue_net']];
+        $rows[] = [];
+
+        $rows[] = ['KATEGORIEN'];
+        $rows[] = ['Kategorie', 'Verkauft', 'Eingecheckt', 'Ø Preis EUR', 'Brutto-Umsatz EUR'];
+        foreach ($data['categories'] as $c) {
+            $rows[] = [
+                $c['name'],
+                $c['sold'],
+                $c['checked_in'],
+                round($c['avg_price'], 2),
+                round($c['revenue'], 2),
+            ];
+        }
+        $rows[] = [];
+
+        $rows[] = ['DETAILS - VERKAUFTE TICKETS'];
+        $rows[] = ['Ticket-Code', 'Käufer', 'Email', 'Kategorie', 'Preis EUR', 'Bestellt am', 'Bestell-Nr.', 'Sitzplatz', 'Status', 'Check-in', 'Check-in Zeit'];
+        foreach ($data['tickets'] as $t) {
+            $rows[] = [
+                $t['code'],
+                $t['owner_name'],
+                $t['owner_email'],
+                $t['category'],
+                round($t['price'], 2),
+                $t['order_date'],
+                $t['order_number'],
+                $t['seat'],
+                $t['status'] === 'cancelled' ? 'Storniert' : 'Gültig',
+                $t['checked_in'] ? 'Ja' : 'Nein',
+                $t['checkin_time'],
+            ];
+        }
+
+        // XLSX = ZIP mit XML-Files
+        $tmp = wp_tempnam('tix-xlsx-');
+        $zip = new ZipArchive();
+        if ($zip->open($tmp, ZipArchive::OVERWRITE) !== true) {
+            self::export_csv($data, $event, str_replace('.xlsx', '.csv', $filename));
+            return;
+        }
+
+        // [Content_Types].xml
+        $zip->addFromString('[Content_Types].xml',
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' .
+            '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' .
+            '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' .
+            '<Default Extension="xml" ContentType="application/xml"/>' .
+            '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>' .
+            '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>' .
+            '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>' .
+            '<Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/>' .
+            '</Types>');
+
+        // _rels/.rels
+        $zip->addFromString('_rels/.rels',
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' .
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' .
+            '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>' .
+            '</Relationships>');
+
+        // xl/_rels/workbook.xml.rels
+        $zip->addFromString('xl/_rels/workbook.xml.rels',
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' .
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' .
+            '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>' .
+            '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>' .
+            '<Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings" Target="sharedStrings.xml"/>' .
+            '</Relationships>');
+
+        // xl/workbook.xml
+        $zip->addFromString('xl/workbook.xml',
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' .
+            '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">' .
+            '<sheets><sheet name="Bericht" sheetId="1" r:id="rId1"/></sheets>' .
+            '</workbook>');
+
+        // xl/styles.xml — minimal: 0=normal, 1=bold, 2=currency
+        $zip->addFromString('xl/styles.xml',
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' .
+            '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' .
+            '<numFmts count="1"><numFmt numFmtId="164" formatCode="#,##0.00\ &quot;€&quot;"/></numFmts>' .
+            '<fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts>' .
+            '<fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>' .
+            '<borders count="1"><border/></borders>' .
+            '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0"/></cellStyleXfs>' .
+            '<cellXfs count="3">' .
+                '<xf numFmtId="0" fontId="0"/>' .
+                '<xf numFmtId="0" fontId="1" applyFont="1"/>' .
+                '<xf numFmtId="164" fontId="0" applyNumberFormat="1"/>' .
+            '</cellXfs>' .
+            '</styleSheet>');
+
+        // Strings → SharedStrings sammeln
+        $strings_index = [];
+        $strings_list  = [];
+        $get_string_idx = function($s) use (&$strings_index, &$strings_list) {
+            $s = (string) $s;
+            if (!isset($strings_index[$s])) {
+                $strings_index[$s] = count($strings_list);
+                $strings_list[] = $s;
+            }
+            return $strings_index[$s];
+        };
+
+        // sheet1.xml
+        $sheet_xml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' .
+            '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' .
+            '<sheetData>';
+        foreach ($rows as $ri => $row) {
+            $r = $ri + 1;
+            $sheet_xml .= '<row r="' . $r . '">';
+            foreach ($row as $ci => $val) {
+                $col = self::xlsx_col_letter($ci + 1);
+                $ref = $col . $r;
+                if (is_numeric($val) && !is_string($val) && $val !== '' && !preg_match('/^0\d/', (string) $val)) {
+                    // Numerisch: direkt schreiben (Style 2 für €-Formate setzen wir nur bei Spalten Preis/Umsatz)
+                    $is_money = self::is_money_column($ri, $ci, $row);
+                    $style = $is_money ? ' s="2"' : '';
+                    $sheet_xml .= '<c r="' . $ref . '"' . $style . '><v>' . $val . '</v></c>';
+                } else {
+                    // String → SharedString-Index
+                    $idx = $get_string_idx($val);
+                    // Bold-Style für komplette Header-Zeilen
+                    $bold = (strpos($val, 'KATEGORIEN') === 0 || strpos($val, 'DETAILS') === 0 || strpos($val, 'Event-Bericht') === 0 || strpos($val, 'Kennzahl') === 0)
+                        ? ' s="1"' : '';
+                    $sheet_xml .= '<c r="' . $ref . '" t="s"' . $bold . '><v>' . $idx . '</v></c>';
+                }
+            }
+            $sheet_xml .= '</row>';
+        }
+        $sheet_xml .= '</sheetData></worksheet>';
+        $zip->addFromString('xl/worksheets/sheet1.xml', $sheet_xml);
+
+        // sharedStrings.xml
+        $ss_xml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' .
+            '<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="' . count($strings_list) . '" uniqueCount="' . count($strings_list) . '">';
+        foreach ($strings_list as $s) {
+            $ss_xml .= '<si><t xml:space="preserve">' . htmlspecialchars($s, ENT_XML1 | ENT_QUOTES, 'UTF-8') . '</t></si>';
+        }
+        $ss_xml .= '</sst>';
+        $zip->addFromString('xl/sharedStrings.xml', $ss_xml);
+
+        $zip->close();
+
+        $bytes = file_get_contents($tmp);
+        @unlink($tmp);
+
+        nocache_headers();
+        header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        header('Content-Length: ' . strlen($bytes));
+        echo $bytes;
+    }
+
+    private static function xlsx_col_letter($n) {
+        $s = '';
+        while ($n > 0) {
+            $r = ($n - 1) % 26;
+            $s = chr(65 + $r) . $s;
+            $n = intdiv($n - 1, 26);
+        }
+        return $s;
+    }
+
+    private static function is_money_column($row_idx, $col_idx, $row) {
+        // Heuristik: Header-Zeilen mit "EUR" → die nachfolgenden numerischen Werte mit Money-Format
+        // Konservativ: nur Cells in den bekannten Money-Spalten der Detail-Tabelle (Preis, Umsatz)
+        return false; // keep simple — Standard-Number genügt; Excel zeigt sauber an
+    }
+
+    // ═══════════════════════════════════════════
+    // PDF Export — nativer Writer (Helvetica)
+    // ═══════════════════════════════════════════
+
+    private static function export_pdf($data, $event, $filename) {
+        // A4 Querformat: 842 x 595 Points
+        $page_w = 842;
+        $page_h = 595;
+        $margin_x = 36;
+        $margin_y = 40;
+
+        $pdf = new TIX_Simple_PDF($page_w, $page_h, $margin_x, $margin_y);
+
+        // Titel
+        $brand = tix_get_settings('email_brand_name') ?: get_bloginfo('name');
+        $title = $event ? $event->post_title : 'Event-Bericht';
+        $date_label = $event ? (get_post_meta($event->ID, '_tix_date_start', true) ?: '') : '';
+        if ($date_label) $date_label = date_i18n('l, d. F Y', strtotime($date_label));
+
+        $pdf->add_page();
+
+        // Header-Block
+        $pdf->set_font('Helvetica-Bold', 18);
+        $pdf->text(36, 555, 'Event-Bericht');
+        $pdf->set_font('Helvetica', 10);
+        $pdf->set_color(0.4, 0.4, 0.4);
+        $pdf->text(36, 540, $brand . ' · erstellt am ' . date_i18n('d.m.Y H:i'));
+
+        $pdf->set_color(0, 0, 0);
+        $pdf->set_font('Helvetica-Bold', 14);
+        $pdf->text(36, 515, $title);
+        $pdf->set_font('Helvetica', 10);
+        $pdf->set_color(0.3, 0.3, 0.3);
+        if ($date_label) $pdf->text(36, 500, $date_label);
+
+        // KPIs (5 Boxen nebeneinander)
+        $box_y = 460;
+        $box_h = 50;
+        $box_w = 150;
+        $box_x = 36;
+        $kpi_items = [
+            ['Tickets verkauft', number_format($data['kpis']['sold'], 0, ',', '.')],
+            ['Brutto-Umsatz',    number_format($data['kpis']['revenue_gross'], 2, ',', '.') . ' EUR'],
+            ['Netto-Umsatz',     number_format($data['kpis']['revenue_net'], 2, ',', '.') . ' EUR'],
+            ['Check-in Rate',    $data['kpis']['checkin_rate'] . '%'],
+            ['Storniert',        number_format($data['kpis']['cancelled'], 0, ',', '.')],
+        ];
+        foreach ($kpi_items as $i => $kpi) {
+            $x = $box_x + ($box_w + 8) * $i;
+            $pdf->set_color(0.95, 0.95, 0.97);
+            $pdf->rect($x, $box_y, $box_w, $box_h, true);
+            $pdf->set_color(0.4, 0.4, 0.4);
+            $pdf->set_font('Helvetica', 8);
+            $pdf->text($x + 8, $box_y + $box_h - 12, strtoupper($kpi[0]));
+            $pdf->set_color(0, 0, 0);
+            $pdf->set_font('Helvetica-Bold', 13);
+            $pdf->text($x + 8, $box_y + 12, $kpi[1]);
+        }
+
+        // Kategorien-Tabelle
+        $y = $box_y - 30;
+        $pdf->set_color(0, 0, 0);
+        $pdf->set_font('Helvetica-Bold', 11);
+        $pdf->text(36, $y, 'Aufschlüsselung nach Kategorie');
+        $y -= 18;
+
+        $cat_headers = ['Kategorie', 'Verkauft', 'Check-in', 'Ø Preis', 'Umsatz', 'Anteil'];
+        $cat_widths  = [180, 80, 80, 80, 100, 80];
+        $pdf->draw_table_header($cat_headers, $cat_widths, 36, $y);
+        $y -= 18;
+
+        $pdf->set_font('Helvetica', 10);
+        foreach ($data['categories'] as $cat) {
+            $share = $data['kpis']['revenue_gross'] > 0 ? round($cat['revenue'] / $data['kpis']['revenue_gross'] * 100, 1) : 0;
+            $pdf->draw_table_row([
+                $cat['name'],
+                number_format($cat['sold'], 0, ',', '.'),
+                number_format($cat['checked_in'], 0, ',', '.'),
+                number_format($cat['avg_price'], 2, ',', '.') . ' EUR',
+                number_format($cat['revenue'], 2, ',', '.') . ' EUR',
+                $share . '%',
+            ], $cat_widths, 36, $y);
+            $y -= 16;
+            if ($y < 80) {
+                $pdf->add_page();
+                $y = $page_h - 50;
+            }
+        }
+
+        // Detail-Tickets (neue Seite)
+        $pdf->add_page();
+        $y = $page_h - 50;
+        $pdf->set_font('Helvetica-Bold', 14);
+        $pdf->text(36, $y, 'Verkaufte Tickets — Detailliste');
+        $y -= 8;
+        $pdf->set_font('Helvetica', 9);
+        $pdf->set_color(0.4, 0.4, 0.4);
+        $pdf->text(36, $y, count($data['tickets']) . ' Tickets · Event: ' . $title);
+        $y -= 14;
+
+        $headers = ['Code', 'Käufer', 'Email', 'Kat.', 'Preis', 'Bestellt', 'Bestell-Nr.', 'Status', 'Check-in'];
+        $widths  = [78, 110, 140, 60, 50, 70, 95, 50, 50];
+        $pdf->set_color(0, 0, 0);
+        $pdf->draw_table_header($headers, $widths, 36, $y);
+        $y -= 16;
+
+        $pdf->set_font('Helvetica', 8);
+        foreach ($data['tickets'] as $t) {
+            // Truncate für lange Werte
+            $row = [
+                self::trunc($t['code'], 12),
+                self::trunc($t['owner_name'] ?: '–', 18),
+                self::trunc($t['owner_email'], 24),
+                self::trunc($t['category'], 9),
+                number_format($t['price'], 2, ',', '.'),
+                self::trunc($t['order_date'], 12),
+                self::trunc($t['order_number'], 16),
+                $t['status'] === 'cancelled' ? 'Storno' : 'Gültig',
+                $t['checked_in'] ? 'Ja' : '–',
+            ];
+            $pdf->draw_table_row($row, $widths, 36, $y);
+            $y -= 13;
+            if ($y < 40) {
+                $pdf->add_page();
+                $y = $page_h - 40;
+                $pdf->set_font('Helvetica-Bold', 11);
+                $pdf->text(36, $y, 'Verkaufte Tickets (Fortsetzung)');
+                $y -= 18;
+                $pdf->draw_table_header($headers, $widths, 36, $y);
+                $y -= 16;
+                $pdf->set_font('Helvetica', 8);
+            }
+        }
+
+        // Footer auf jeder Seite
+        $pdf->set_footer($brand . ' · Event-Bericht · Seite {p}/{n}');
+
+        $bytes = $pdf->output();
+
+        nocache_headers();
+        header('Content-Type: application/pdf');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        header('Content-Length: ' . strlen($bytes));
+        echo $bytes;
+    }
+
+    private static function trunc($str, $max) {
+        $str = (string) $str;
+        if (mb_strlen($str) <= $max) return $str;
+        return mb_substr($str, 0, $max - 1) . '…';
+    }
+}
+
+/**
+ * Minimaler PDF-Writer — schreibt direkt PDF-Bytecode mit den 14 Standard-Fonts.
+ * Keine externen Libraries nötig. Unterstützt Text, Linien, Rechtecke, Tabellen.
+ */
+class TIX_Simple_PDF {
+    private $w, $h, $mx, $my;
+    private $pages = [];
+    private $current = '';
+    private $current_color_text = '0 0 0 rg';
+    private $current_color_fill = '0.95 0.95 0.97 rg';
+    private $current_font = 'F1';
+    private $current_size = 10;
+    private $footer_text = '';
+
+    public function __construct($w, $h, $mx, $my) {
+        $this->w = $w;
+        $this->h = $h;
+        $this->mx = $mx;
+        $this->my = $my;
+    }
+
+    public function add_page() {
+        if ($this->current !== '') {
+            $this->pages[] = $this->current;
+        }
+        $this->current = '';
+    }
+
+    public function set_font($name, $size) {
+        $map = [
+            'Helvetica'      => 'F1',
+            'Helvetica-Bold' => 'F2',
+        ];
+        $this->current_font = $map[$name] ?? 'F1';
+        $this->current_size = $size;
+    }
+
+    public function set_color($r, $g, $b) {
+        $this->current_color_text = sprintf('%.2f %.2f %.2f rg', $r, $g, $b);
+        $this->current_color_fill = sprintf('%.2f %.2f %.2f rg', $r, $g, $b);
+    }
+
+    public function text($x, $y, $str) {
+        $str = $this->encode($str);
+        $this->current .= sprintf("q %s BT /%s %d Tf %d %d Td (%s) Tj ET Q\n",
+            $this->current_color_text, $this->current_font, $this->current_size, $x, $y, $str);
+    }
+
+    public function rect($x, $y, $w, $h, $fill = false) {
+        $op = $fill ? 'f' : 'S';
+        $this->current .= sprintf("q %s %d %d %d %d re %s Q\n",
+            $this->current_color_fill, $x, $y, $w, $h, $op);
+    }
+
+    public function draw_table_header(array $headers, array $widths, $x, $y) {
+        // Hintergrund-Bar
+        $total_w = array_sum($widths);
+        $this->set_color(0.94, 0.94, 0.96);
+        $this->rect($x, $y - 3, $total_w, 16, true);
+        $this->set_color(0, 0, 0);
+        $this->set_font('Helvetica-Bold', 9);
+        $cx = $x + 4;
+        foreach ($headers as $i => $h) {
+            $this->text($cx, $y + 4, $h);
+            $cx += $widths[$i];
+        }
+    }
+
+    public function draw_table_row(array $cells, array $widths, $x, $y) {
+        $cx = $x + 4;
+        foreach ($cells as $i => $c) {
+            $this->text($cx, $y, (string) $c);
+            $cx += $widths[$i];
+        }
+    }
+
+    public function set_footer($text) { $this->footer_text = $text; }
+
+    private function encode($s) {
+        // PDF braucht Latin-1 oder PDFDocEncoding für Standard-Fonts.
+        // UTF-8 → Latin-1 konvertieren, € durch "EUR" ersetzen (Helvetica hat kein €-Glyph in Latin-1 bei nicht WinAnsi).
+        $s = (string) $s;
+        $s = str_replace(['€', '–', '—', '…', '✓', '✗'], ['EUR', '-', '-', '...', 'X', 'X'], $s);
+        // UTF-8 → CP1252 (Latin-1 Erweiterung mit den meisten Sonderzeichen)
+        if (function_exists('iconv')) {
+            $conv = @iconv('UTF-8', 'CP1252//IGNORE', $s);
+            if ($conv !== false) $s = $conv;
+        } elseif (function_exists('mb_convert_encoding')) {
+            $s = @mb_convert_encoding($s, 'CP1252', 'UTF-8');
+        }
+        // PDF-Escapes
+        return str_replace(['\\', '(', ')', "\r", "\n"], ['\\\\', '\\(', '\\)', '\\r', '\\n'], $s);
+    }
+
+    public function output() {
+        // Letzte aktive Seite committen
+        if ($this->current !== '') {
+            $this->pages[] = $this->current;
+            $this->current = '';
+        }
+        if (empty($this->pages)) $this->pages[] = '';
+
+        $n_pages = count($this->pages);
+
+        // Footer auf jede Seite anhängen (nach pages-Sammlung)
+        if ($this->footer_text) {
+            foreach ($this->pages as $i => $content) {
+                $this->set_color(0.5, 0.5, 0.5);
+                $foot_text = str_replace(['{p}', '{n}'], [$i + 1, $n_pages], $this->footer_text);
+                $foot_str  = $this->encode($foot_text);
+                // 11pt Helvetica
+                $content .= sprintf("q 0.5 0.5 0.5 rg BT /F1 9 Tf %d 20 Td (%s) Tj ET Q\n",
+                    $this->mx, $foot_str);
+                $this->pages[$i] = $content;
+            }
+        }
+
+        // PDF zusammenbauen
+        $pdf = "%PDF-1.4\n%\xE2\xE3\xCF\xD3\n";
+        $offsets = [];
+        $obj_id = 0;
+
+        $write_obj = function($content) use (&$pdf, &$offsets, &$obj_id) {
+            $obj_id++;
+            $offsets[$obj_id] = strlen($pdf);
+            $pdf .= $obj_id . " 0 obj\n" . $content . "\nendobj\n";
+            return $obj_id;
+        };
+
+        // Reservation (3 oben pro Seite + 2 fonts + catalog + pages)
+        // Order: 1=Catalog, 2=Pages-Tree, 3+=PageObjs/Contents, then Fonts
+        $catalog_id = ++$obj_id;
+        $pages_id   = ++$obj_id;
+
+        $page_ids = [];
+        $content_ids = [];
+        for ($i = 0; $i < $n_pages; $i++) {
+            $page_ids[]    = ++$obj_id;
+            $content_ids[] = ++$obj_id;
+        }
+
+        $font1_id = ++$obj_id;
+        $font2_id = ++$obj_id;
+
+        // Reset to write in correct order
+        $pdf = "%PDF-1.4\n%\xE2\xE3\xCF\xD3\n";
+        $offsets = [];
+
+        // 1: Catalog
+        $offsets[$catalog_id] = strlen($pdf);
+        $pdf .= $catalog_id . " 0 obj\n<< /Type /Catalog /Pages " . $pages_id . " 0 R >>\nendobj\n";
+
+        // 2: Pages-Tree
+        $offsets[$pages_id] = strlen($pdf);
+        $kids = implode(' ', array_map(fn($id) => $id . ' 0 R', $page_ids));
+        $pdf .= $pages_id . " 0 obj\n<< /Type /Pages /Kids [$kids] /Count $n_pages >>\nendobj\n";
+
+        // 3+: Page-Objs + Contents
+        foreach ($this->pages as $i => $content) {
+            $page_id    = $page_ids[$i];
+            $content_id = $content_ids[$i];
+            $offsets[$page_id] = strlen($pdf);
+            $pdf .= $page_id . " 0 obj\n<< /Type /Page /Parent " . $pages_id . " 0 R "
+                . "/MediaBox [0 0 " . $this->w . " " . $this->h . "] "
+                . "/Resources << /Font << /F1 " . $font1_id . " 0 R /F2 " . $font2_id . " 0 R >> >> "
+                . "/Contents " . $content_id . " 0 R >>\nendobj\n";
+
+            $offsets[$content_id] = strlen($pdf);
+            $pdf .= $content_id . " 0 obj\n<< /Length " . strlen($content) . " >>\nstream\n" . $content . "endstream\nendobj\n";
+        }
+
+        // Fonts: Standard-PDF-Fonts (Helvetica + Helvetica-Bold)
+        $offsets[$font1_id] = strlen($pdf);
+        $pdf .= $font1_id . " 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>\nendobj\n";
+        $offsets[$font2_id] = strlen($pdf);
+        $pdf .= $font2_id . " 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>\nendobj\n";
+
+        // xref
+        $xref_offset = strlen($pdf);
+        $total_objs = $obj_id + 1; // +1 for the implicit object 0
+        $pdf .= "xref\n0 " . $total_objs . "\n";
+        $pdf .= "0000000000 65535 f \n";
+        for ($i = 1; $i < $total_objs; $i++) {
+            $pdf .= sprintf("%010d 00000 n \n", $offsets[$i] ?? 0);
+        }
+
+        // trailer
+        $pdf .= "trailer\n<< /Size " . $total_objs . " /Root " . $catalog_id . " 0 R >>\nstartxref\n" . $xref_offset . "\n%%EOF";
+
+        return $pdf;
+    }
+}

@@ -175,6 +175,23 @@ class TIX_Gateway_Mollie {
             wp_die('No change', '', 200);
         }
 
+        // ── DOWNGRADE-SCHUTZ ──
+        // Niemals von completed/processing → cancelled/failed downgraden.
+        // Schützt vor zeitlich-überlappenden Webhooks (paid + expired in falscher Reihenfolge).
+        // Refund/Storno muss manuell im Admin gemacht werden.
+        if (in_array($old_status, ['completed', 'processing'], true)
+            && in_array($tix_status, ['cancelled', 'failed'], true)) {
+            if (class_exists('TIX_Order_Admin')) {
+                TIX_Order_Admin::add_note(
+                    $order_id,
+                    '🛡️ Mollie-Webhook-Downgrade abgewiesen: Status ' . $old_status . ' bleibt erhalten (Mollie meldete: ' . $status . '). Manuelle Storno-Aktion notwendig falls echter Refund.',
+                    'system'
+                );
+            }
+            delete_transient($lock_key);
+            wp_die('Downgrade blocked', '', 200);
+        }
+
         TIX_Native_Checkout::update_order_status($order_id, $tix_status, 'mollie');
 
         delete_transient($lock_key);

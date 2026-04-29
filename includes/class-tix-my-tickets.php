@@ -30,7 +30,7 @@ class TIX_My_Tickets {
     /**
      * Assets laden (nur wenn Shortcode genutzt wird)
      */
-    private static function enqueue() {
+    public static function enqueue() {
         wp_enqueue_style(
             'tix-my-tickets',
             TIXOMAT_URL . 'assets/css/my-tickets.css',
@@ -93,11 +93,21 @@ class TIX_My_Tickets {
             $u = get_userdata($user_id);
             $email = $u ? $u->user_email : '';
         } else {
-            // Guest-Token-Flow (Magic Link aus Email)
+            // Magic-Link-Flow (per Email)
             $token = isset($_GET['tix_mt_token']) ? sanitize_text_field(wp_unslash($_GET['tix_mt_token'])) : '';
             if ($token) {
                 $verified_email = self::verify_guest_token($token);
                 if ($verified_email) {
+                    // Existiert ein User-Account für diese Email? → automatisch einloggen
+                    $existing_user = get_user_by('email', $verified_email);
+                    if ($existing_user) {
+                        wp_set_current_user($existing_user->ID);
+                        wp_set_auth_cookie($existing_user->ID, true);
+                        // Reload Page ohne Token (sauberer URL + Auth-Cookie greift)
+                        wp_safe_redirect(remove_query_arg('tix_mt_token'));
+                        exit;
+                    }
+                    // Kein Account → Gast-Modus
                     $email = $verified_email;
                     $is_guest = true;
                 } else {
@@ -395,23 +405,13 @@ class TIX_My_Tickets {
                     <span>oder</span>
                 </div>
 
-                <div class="tix-mt-guest">
-                    <h3 class="tix-mt-guest-title">Tickets ohne Konto abrufen</h3>
-                    <p class="tix-mt-guest-text">Du hast ohne Konto bestellt? Gib die E-Mail-Adresse ein, mit der du bestellt hast. Wir schicken dir einen Link, über den du alle deine Tickets ansehen und herunterladen kannst.</p>
-
-                    <form class="tix-mt-guest-form" id="tix-mt-guest-form" autocomplete="on" novalidate>
-                        <label for="tix-mt-guest-email" class="screen-reader-text">E-Mail-Adresse</label>
-                        <input type="email"
-                               id="tix-mt-guest-email"
-                               name="email"
-                               placeholder="deine@email.de"
-                               autocomplete="email"
-                               required>
-                        <button type="submit" class="tix-mt-guest-btn">Link zusenden</button>
-                    </form>
-
-                    <div class="tix-mt-guest-result" id="tix-mt-guest-result" hidden></div>
-                </div>
+                <?php // Konsistenter Magic-Link-Block (3 Szenarien: Konto, Gast, nicht gefunden) ?>
+                <?php echo self::render_magic_link_block([
+                    'heading' => 'Tickets per E-Mail-Link',
+                    'text'    => 'Hast du ohne Konto bestellt oder Passwort vergessen? Wir schicken dir einen einmaligen Link.',
+                    'btn'     => 'Link senden',
+                    'id'      => 'tix-magic-mtpage',
+                ]); ?>
             </div>
         </div>
 
@@ -501,69 +501,6 @@ class TIX_My_Tickets {
                 color: #991b1b;
             }
         </style>
-
-        <script>
-        (function(){
-            var form = document.getElementById('tix-mt-guest-form');
-            if (!form || !window.tixMyTickets) return;
-            var result = document.getElementById('tix-mt-guest-result');
-            var input  = document.getElementById('tix-mt-guest-email');
-            var btn    = form.querySelector('.tix-mt-guest-btn');
-
-            function showResult(msg, isSuccess) {
-                result.textContent = msg;
-                result.hidden = false;
-                result.className = 'tix-mt-guest-result ' + (isSuccess ? 'is-success' : 'is-error');
-            }
-
-            form.addEventListener('submit', function(e) {
-                e.preventDefault();
-                var email = (input.value || '').trim();
-                if (!email || email.indexOf('@') === -1) {
-                    showResult('Bitte eine gültige E-Mail-Adresse eingeben.', false);
-                    return;
-                }
-                btn.disabled = true;
-                var origLabel = btn.textContent;
-                btn.textContent = 'Sende…';
-                result.hidden = true;
-
-                var body = new URLSearchParams();
-                body.append('action', 'tix_mt_guest_resend');
-                body.append('nonce',  tixMyTickets.nonce);
-                body.append('email',  email);
-
-                fetch(tixMyTickets.ajax, {
-                    method: 'POST',
-                    credentials: 'same-origin',
-                    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-                    body: body.toString()
-                })
-                .then(function(r){ return r.json(); })
-                .then(function(json){
-                    btn.disabled = false;
-                    btn.textContent = origLabel;
-                    if (json && json.success) {
-                        showResult(json.data && json.data.message
-                            ? json.data.message
-                            : 'Falls Bestellungen mit dieser E-Mail existieren, haben wir dir einen Link geschickt. Prüfe auch den Spam-Ordner. Der Link ist 30 Minuten gültig.',
-                            true);
-                        input.value = '';
-                    } else {
-                        var msg = (json && json.data && json.data.message)
-                            ? json.data.message
-                            : 'Vorgang fehlgeschlagen. Bitte später erneut versuchen.';
-                        showResult(msg, false);
-                    }
-                })
-                .catch(function(){
-                    btn.disabled = false;
-                    btn.textContent = origLabel;
-                    showResult('Netzwerkfehler. Bitte erneut versuchen.', false);
-                });
-            });
-        })();
-        </script>
         <?php
         return ob_get_clean();
     }
@@ -595,25 +532,38 @@ class TIX_My_Tickets {
             wp_send_json_error(['message' => 'Bitte eine gültige E-Mail-Adresse eingeben.']);
         }
 
-        // Generische Antwort — egal ob wir was gefunden haben oder nicht (anti-enumeration)
-        $generic_success = 'Falls Bestellungen mit dieser E-Mail existieren, haben wir dir einen Link geschickt. Prüfe auch den Spam-Ordner. Der Link ist 30 Minuten gültig.';
+        // Drei Szenarien differenzieren:
+        // 1. Email hat Account → Magic-Link loggt automatisch in Account ein
+        // 2. Email hat Bestellungen aber kein Account → Gast-Ansicht der Tickets
+        // 3. Email gar nicht im System → klare Fehlermeldung mit Support-Hinweis
+        $has_account = (bool) get_user_by('email', $email);
+        $has_orders  = self::email_has_orders($email);
 
-        // Existiert eine Bestellung mit dieser Email? (ohne Details zu leaken)
-        $has_orders = self::email_has_orders($email);
-
-        if (!$has_orders) {
-            // Kein Leak: gleiches Ergebnis wie wenn es funktioniert hätte
-            wp_send_json_success(['message' => $generic_success]);
+        if (!$has_account && !$has_orders) {
+            // Szenario 3: nichts gefunden → Support-Hinweis
+            $support_email = get_bloginfo('admin_email');
+            wp_send_json_success([
+                'scenario' => 'not_found',
+                'email'    => $email,
+                'support_email' => $support_email,
+                'message'  => 'Wir konnten keine Bestellung oder Konto mit dieser E-Mail-Adresse finden.',
+            ]);
         }
 
         // Token generieren + Magic-Link-Mail senden
         $token     = self::generate_guest_token($email);
-        $landing   = self::get_tickets_page_url(); // auto-erkannt oder Referer
+        $landing   = self::get_tickets_page_url();
         $magic_url = add_query_arg('tix_mt_token', $token, $landing);
-
         self::send_magic_link_email($email, $magic_url);
 
-        wp_send_json_success(['message' => $generic_success]);
+        $scenario = $has_account ? 'has_account' : 'has_orders';
+        wp_send_json_success([
+            'scenario' => $scenario,
+            'email'    => $email,
+            'message'  => $has_account
+                ? 'Wir haben dir einen Link geschickt mit dem du dich direkt in dein Konto einloggen kannst.'
+                : 'Wir haben dir einen Link geschickt mit dem du deine Tickets ohne Konto ansehen kannst.',
+        ]);
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -676,7 +626,240 @@ class TIX_My_Tickets {
      * 2. Configurable tix_my_tickets_page_id option
      * 3. /tickets/ als default
      */
-    private static function get_tickets_page_url() {
+    /**
+     * Standalone Magic-Link-Block — kann auf jeder Login-Seite eingebunden werden.
+     * Rendert: Heading + Form + Status-Box + Modal + CSS + JS.
+     * Modal/CSS/JS werden nur EINMAL pro Page-Render ausgegeben (static-flag).
+     */
+    public static function render_magic_link_block($atts = []) {
+        $atts = wp_parse_args($atts, [
+            'heading' => 'Login per E-Mail-Link',
+            'text'    => 'Wir schicken dir einen einmaligen Link, mit dem du dich ohne Passwort einloggen kannst — perfekt wenn du dein Passwort vergessen hast oder ohne Konto bestellt hast.',
+            'btn'     => 'Magic-Link senden',
+            'id'      => 'tix-magic',
+        ]);
+        self::enqueue();
+        ob_start();
+        ?>
+        <div class="tix-magic-block" id="<?php echo esc_attr($atts['id']); ?>-block">
+            <h3 class="tix-magic-title"><?php echo esc_html($atts['heading']); ?></h3>
+            <p class="tix-magic-text"><?php echo esc_html($atts['text']); ?></p>
+            <form class="tix-magic-form" id="<?php echo esc_attr($atts['id']); ?>-form" method="post" autocomplete="on" novalidate>
+                <input type="email" name="email" placeholder="deine@email.de" autocomplete="email" required class="tix-magic-input">
+                <button type="submit" class="tix-magic-btn"><?php echo esc_html($atts['btn']); ?></button>
+            </form>
+            <div class="tix-magic-result" id="<?php echo esc_attr($atts['id']); ?>-result" hidden></div>
+        </div>
+        <?php self::render_magic_link_assets_once(); ?>
+        <script>
+        (function(){
+            var form = document.getElementById('<?php echo esc_js($atts['id']); ?>-form');
+            if (!form) return;
+            // tixMyTickets sicher setzen falls noch nicht vorhanden
+            if (!window.tixMyTickets) {
+                window.tixMyTickets = <?php echo wp_json_encode([
+                    'ajax'  => admin_url('admin-ajax.php'),
+                    'nonce' => wp_create_nonce('tix_mt_guest_resend'),
+                ]); ?>;
+            }
+            var input = form.querySelector('input[name="email"]');
+            var btn   = form.querySelector('button');
+            var result= document.getElementById('<?php echo esc_js($atts['id']); ?>-result');
+
+            form.addEventListener('submit', function(e) {
+                e.preventDefault();
+                var email = (input.value || '').trim();
+                if (!email || email.indexOf('@') === -1) {
+                    if (result) { result.textContent = 'Bitte eine gültige E-Mail-Adresse eingeben.'; result.hidden = false; result.className = 'tix-magic-result is-error'; }
+                    return;
+                }
+                btn.disabled = true;
+                var orig = btn.textContent; btn.textContent = 'Sende…';
+                if (result) result.hidden = true;
+
+                var body = new URLSearchParams();
+                body.append('action', 'tix_mt_guest_resend');
+                body.append('nonce', window.tixMyTickets.nonce);
+                body.append('email', email);
+
+                fetch(window.tixMyTickets.ajax, {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                    body: body.toString()
+                })
+                .then(function(r){ return r.json(); })
+                .then(function(json){
+                    btn.disabled = false; btn.textContent = orig;
+                    if (json && json.success) {
+                        var data = json.data || {};
+                        var scenario = data.scenario || 'has_orders';
+                        if (typeof window.tixMagicShowModal === 'function') {
+                            window.tixMagicShowModal(scenario, email, data.support_email || '');
+                        } else {
+                            alert(data.message || 'E-Mail mit Link gesendet.');
+                        }
+                        // Input nur leeren wenn Mail gefunden — bei not_found behalten damit user die Adresse sieht
+                        if (scenario !== 'not_found') input.value = '';
+                    } else {
+                        var msg = (json && json.data && json.data.message) || 'Fehler. Bitte später erneut versuchen.';
+                        if (result) { result.textContent = msg; result.hidden = false; result.className = 'tix-magic-result is-error'; }
+                    }
+                })
+                .catch(function(){
+                    btn.disabled = false; btn.textContent = orig;
+                    if (result) { result.textContent = 'Netzwerkfehler. Bitte erneut versuchen.'; result.hidden = false; result.className = 'tix-magic-result is-error'; }
+                });
+            });
+        })();
+        </script>
+        <?php
+        return ob_get_clean();
+    }
+
+    /**
+     * Modal + CSS + Modal-JS — wird nur ein Mal pro Page-Render ausgegeben.
+     */
+    private static function render_magic_link_assets_once() {
+        static $done = false;
+        if ($done) return;
+        $done = true;
+        ?>
+        <div class="tix-magic-modal" id="tix-magic-modal" hidden role="dialog" aria-modal="true" aria-labelledby="tix-magic-modal-title">
+            <div class="tix-magic-modal-backdrop" data-magic-close></div>
+            <div class="tix-magic-modal-content">
+                <button type="button" class="tix-magic-modal-x" aria-label="Schließen" data-magic-close>&times;</button>
+
+                <?php // Variante: Account vorhanden — direktes Login ?>
+                <div class="tix-magic-modal-variant" data-variant="has_account" hidden>
+                    <div class="tix-magic-modal-icon" style="background:#dcfce7;color:#16a34a;">
+                        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 11-7.778 7.778 5.5 5.5 0 017.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+                    </div>
+                    <h2 class="tix-magic-modal-title">Konto gefunden — Link gesendet</h2>
+                    <p class="tix-magic-modal-text">
+                        Wir haben dir einen Link an <strong class="tix-magic-modal-email"></strong> geschickt. Klick darauf, um dich automatisch in dein Konto einzuloggen — ohne Passwort.
+                    </p>
+                    <p class="tix-magic-modal-hint">
+                        📥 Falls die Mail nicht in den nächsten Minuten ankommt: prüfe bitte auch deinen <strong>Spam-Ordner</strong>. Der Link ist 30 Minuten gültig.
+                    </p>
+                </div>
+
+                <?php // Variante: Bestellungen vorhanden, kein Account — Gast-Ansicht ?>
+                <div class="tix-magic-modal-variant" data-variant="has_orders" hidden>
+                    <div class="tix-magic-modal-icon" style="background:#e0f2fe;color:#0284c7;">
+                        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+                    </div>
+                    <h2 class="tix-magic-modal-title">E-Mail wurde versendet</h2>
+                    <p class="tix-magic-modal-text">
+                        Wir haben dir einen Link an <strong class="tix-magic-modal-email"></strong> geschickt. Über diesen Link kommst du direkt zu allen Tickets dieser E-Mail-Adresse — ganz ohne Konto.
+                    </p>
+                    <p class="tix-magic-modal-hint">
+                        📥 Falls die Mail nicht in den nächsten Minuten ankommt: prüfe bitte auch deinen <strong>Spam-Ordner</strong>. Der Link ist 30 Minuten gültig.
+                    </p>
+                </div>
+
+                <?php // Variante: Email gar nicht gefunden — Support-Hinweis ?>
+                <div class="tix-magic-modal-variant" data-variant="not_found" hidden>
+                    <div class="tix-magic-modal-icon" style="background:#fee2e2;color:#dc2626;">
+                        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                    </div>
+                    <h2 class="tix-magic-modal-title">E-Mail nicht gefunden</h2>
+                    <p class="tix-magic-modal-text">
+                        Mit der Adresse <strong class="tix-magic-modal-email"></strong> haben wir keine Bestellung und kein Konto im System.
+                    </p>
+                    <p class="tix-magic-modal-hint" style="background:#fef3c7;border-color:#fde68a;color:#92400e;">
+                        💡 Vielleicht hast du mit einer <strong>anderen E-Mail-Adresse</strong> bestellt? Probier es noch einmal mit der Adresse, die du beim Kauf angegeben hast.
+                    </p>
+                    <p class="tix-magic-modal-text" style="font-size:13px;margin-top:14px;">
+                        Du benötigst Hilfe? Schreib uns an <a class="tix-magic-modal-support" href="#" style="color:#0284c7;font-weight:600;">support</a> — wir helfen dir gern weiter.
+                    </p>
+                </div>
+
+                <button type="button" class="tix-magic-modal-btn" data-magic-close>Alles klar</button>
+            </div>
+        </div>
+        <style>
+            .tix-magic-block { background:#fff; border:1px solid #e2e8f0; border-radius:14px; padding:20px 24px; margin-top:16px; }
+            .tix-magic-title { font-size:15px; font-weight:700; color:#0f172a; margin:0 0 6px; display:flex; align-items:center; gap:8px; }
+            .tix-magic-title::before { content:"🔗"; font-size:18px; }
+            .tix-magic-text { font-size:13px; color:#64748b; margin:0 0 14px; line-height:1.5; }
+            .tix-magic-form { display:flex; flex-direction:column; gap:10px; }
+            .tix-magic-input { width:100%; min-width:0; padding:11px 14px; border:1px solid #cbd5e1; border-radius:10px; font-size:14px; background:#fff; color:#0f172a; font-family:inherit; box-sizing:border-box; }
+            /* iOS Safari Auto-Zoom: Inputs < 16px lösen Auto-Zoom aus → Mobile auf 16px bumpen */
+            @media (max-width: 768px) { .tix-magic-input { font-size:16px !important; } }
+            .tix-magic-input:focus { outline:none; border-color:#0284c7; box-shadow:0 0 0 3px rgba(2,132,199,.15); }
+            .tix-magic-btn { width:100%; padding:11px 20px; background:#0284c7; color:#fff; border:none; border-radius:10px; font-size:14px; font-weight:600; cursor:pointer; font-family:inherit; transition:background .15s, opacity .15s; white-space:nowrap; box-sizing:border-box; }
+            .tix-magic-btn:hover { filter:brightness(1.1); }
+            .tix-magic-btn:disabled { opacity:.6; cursor:wait; }
+            .tix-magic-result { margin-top:12px; padding:10px 14px; border-radius:8px; font-size:13px; line-height:1.5; }
+            .tix-magic-result.is-error { background:#fef2f2; color:#991b1b; border:1px solid #fecaca; }
+            .tix-magic-result.is-success { background:#f0fdf4; color:#166534; border:1px solid #bbf7d0; }
+            /* Modal */
+            .tix-magic-modal { position:fixed; inset:0; z-index:99999; display:flex; align-items:center; justify-content:center; padding:20px; }
+            .tix-magic-modal[hidden] { display:none !important; }
+            .tix-magic-modal-backdrop { position:absolute; inset:0; background:rgba(15,23,42,.6); animation:tixMagFadeIn .2s ease; }
+            .tix-magic-modal-content { position:relative; background:#fff; border-radius:18px; padding:32px 28px 24px; max-width:440px; width:100%; box-shadow:0 24px 60px rgba(0,0,0,.25); animation:tixMagScaleIn .25s cubic-bezier(.4,0,.2,1); text-align:center; }
+            .tix-magic-modal-x { position:absolute; top:14px; right:14px; background:none; border:none; font-size:28px; line-height:1; color:#94a3b8; cursor:pointer; padding:4px 8px; border-radius:8px; }
+            .tix-magic-modal-x:hover { background:#f1f5f9; color:#1e293b; }
+            .tix-magic-modal-icon { width:72px; height:72px; margin:0 auto 18px; border-radius:50%; background:#e0f2fe; color:#0284c7; display:flex; align-items:center; justify-content:center; }
+            .tix-magic-modal-title { font-size:20px; font-weight:700; color:#0f172a; margin:0 0 12px; }
+            .tix-magic-modal-text { font-size:14px; color:#475569; line-height:1.55; margin:0 0 14px; }
+            .tix-magic-modal-text strong { color:#0f172a; word-break:break-all; }
+            .tix-magic-modal-hint { font-size:13px; color:#64748b; line-height:1.5; margin:0 0 22px; padding:12px 14px; background:#f8fafc; border-radius:10px; border:1px solid #e2e8f0; }
+            .tix-magic-modal-btn { background:#0284c7; color:#fff; border:none; padding:12px 28px; border-radius:10px; font-size:14px; font-weight:600; cursor:pointer; font-family:inherit; }
+            .tix-magic-modal-btn:hover { background:#0369a1; }
+            @keyframes tixMagFadeIn { from { opacity:0; } to { opacity:1; } }
+            @keyframes tixMagScaleIn { from { opacity:0; transform:scale(.92); } to { opacity:1; transform:scale(1); } }
+        </style>
+        <script>
+        (function(){
+            var modal = document.getElementById('tix-magic-modal');
+            // window.tixMagicShowModal(scenario, email, supportEmail)
+            //   scenario: 'has_account' | 'has_orders' | 'not_found'
+            window.tixMagicShowModal = function(scenario, email, supportEmail) {
+                if (!modal) {
+                    var msg = scenario === 'not_found'
+                        ? 'Keine Bestellung mit ' + email + ' gefunden.'
+                        : 'E-Mail mit Link an ' + email + ' geschickt.';
+                    alert(msg);
+                    return;
+                }
+                // Alle Varianten verstecken, dann die richtige zeigen
+                var variants = modal.querySelectorAll('.tix-magic-modal-variant');
+                variants.forEach(function(v){ v.hidden = true; });
+                var active = modal.querySelector('[data-variant="' + scenario + '"]');
+                if (!active) active = modal.querySelector('[data-variant="has_orders"]'); // Fallback
+                active.hidden = false;
+                // Email-Placeholder befüllen
+                active.querySelectorAll('.tix-magic-modal-email').forEach(function(el){ el.textContent = email; });
+                // Support-Link befüllen (nur not_found)
+                if (scenario === 'not_found' && supportEmail) {
+                    active.querySelectorAll('.tix-magic-modal-support').forEach(function(el){
+                        el.setAttribute('href', 'mailto:' + supportEmail);
+                        el.textContent = supportEmail;
+                    });
+                }
+                modal.removeAttribute('hidden');
+                modal.style.display = 'flex';
+                document.body.style.overflow = 'hidden';
+            };
+            function close() { if (!modal) return; modal.setAttribute('hidden',''); modal.style.display=''; document.body.style.overflow=''; }
+            if (modal) {
+                modal.addEventListener('click', function(e){ if (e.target.hasAttribute('data-magic-close')) close(); });
+                document.addEventListener('keydown', function(e){ if (e.key === 'Escape' && !modal.hasAttribute('hidden')) close(); });
+            }
+        })();
+        </script>
+        <?php
+    }
+
+    public static function get_tickets_page_url() {
+        // 0. Settings-Override (gilt überall — Thank-You, Magic-Link, Email-CTA etc.)
+        $tys = function_exists('tix_get_settings') ? tix_get_settings() : [];
+        if (!empty($tys['ty_my_tickets_url'])) {
+            return $tys['ty_my_tickets_url'];
+        }
+        // 1. Referer wenn Host passt (Kunde ist dort gelandet)
         $ref = isset($_SERVER['HTTP_REFERER']) ? esc_url_raw(wp_unslash($_SERVER['HTTP_REFERER'])) : '';
         if ($ref) {
             $ref_host = wp_parse_url($ref, PHP_URL_HOST);
@@ -687,11 +870,18 @@ class TIX_My_Tickets {
                 if ($p) return $p;
             }
         }
+        // 2. Configurable tix_my_tickets_page_id Option (legacy)
         $page_id = intval(get_option('tix_my_tickets_page_id', 0));
         if ($page_id) {
             $u = get_permalink($page_id);
             if ($u) return $u;
         }
+        // 3. Page-Slug "meine-tickets" oder "tickets" automatisch finden
+        foreach (['meine-tickets', 'tickets'] as $slug) {
+            $page = get_page_by_path($slug);
+            if ($page) return get_permalink($page->ID);
+        }
+        // 4. Fallback
         return home_url('/tickets/');
     }
 
@@ -756,27 +946,32 @@ class TIX_My_Tickets {
 
         // -- Native TIX_Order --
         if (class_exists('TIX_Order')) {
+            // Beide Quellen laden + dedupen — wichtig wenn Gast-Bestellung mit später
+            // erstelltem Konto existiert (customer_id=0 + matching email).
             $natives = [];
-
+            $seen = [];
+            $sources = [];
             if ($user_id > 0) {
-                $natives = TIX_Order::query([
+                $sources[] = TIX_Order::query([
                     'customer_id' => $user_id,
                     'status'      => ['completed', 'processing'],
                     'limit'       => 50,
                 ]);
-                if (empty($natives) && $email) {
-                    $natives = TIX_Order::query([
-                        'email'  => $email,
-                        'status' => ['completed', 'processing'],
-                        'limit'  => 50,
-                    ]);
-                }
-            } elseif ($email) {
-                $natives = TIX_Order::query([
+            }
+            if ($email) {
+                $sources[] = TIX_Order::query([
                     'email'  => $email,
                     'status' => ['completed', 'processing'],
                     'limit'  => 50,
                 ]);
+            }
+            foreach ($sources as $batch) {
+                foreach ((array) $batch as $o) {
+                    $oid = $o->get_id();
+                    if (isset($seen[$oid])) continue;
+                    $seen[$oid] = true;
+                    $natives[] = $o;
+                }
             }
 
             if (!empty($natives)) {
@@ -786,6 +981,17 @@ class TIX_My_Tickets {
                     if ($wc_id && in_array($wc_id, $wc_order_ids)) continue; // Dual-Write
                     $orders[] = $native;
                 }
+            }
+
+            // Bonus: Gast-Bestellungen (customer_id=0) rückwirkend zuordnen
+            if ($user_id > 0 && $email) {
+                global $wpdb;
+                $wpdb->query($wpdb->prepare(
+                    "UPDATE " . TIX_Order::table_name() . "
+                     SET customer_id = %d
+                     WHERE customer_id = 0 AND billing_email = %s",
+                    $user_id, $email
+                ));
             }
         }
 
@@ -1481,7 +1687,7 @@ class TIX_My_Tickets {
     /**
      * Einzelne Ticket-Karte rendern
      */
-    private static function render_ticket_card($t, $ev, $ticket_num, $od) {
+    public static function render_ticket_card($t, $ev, $ticket_num, $od) {
         // Logo + Sponsor aus Settings / Event-Meta ziehen (für Canvas-Render)
         $s = function_exists('tix_get_settings') ? tix_get_settings() : [];
         $logo_url = $s['ht_logo_url'] ?? '';
@@ -1565,15 +1771,23 @@ class TIX_My_Tickets {
                     <button type="button" class="tix-mt-tcard-save" onclick="ehTicketImg(this)">&#128247; Als Bild speichern</button>
                     <button type="button" class="tix-mt-tcard-share" onclick="ehTicketShare(this)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v7a2 2 0 002 2h12a2 2 0 002-2v-7"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg> Teilen</button>
                 </div>
+                <?php
+                // Wallet-Buttons: immer zeigen (Default-Marketing). Echter Download nur wenn ready.
+                $_w_apple_ok  = class_exists('TIX_Wallet') && TIX_Wallet::is_apple_ready();
+                $_w_google_ok = class_exists('TIX_Wallet') && TIX_Wallet::is_google_ready();
+                $_tid = !empty($ticket_id) ? intval($ticket_id) : 0;
+                $_apple_href  = ($_w_apple_ok  && $_tid) ? TIX_Wallet::get_apple_pass_url($_tid)  : '';
+                $_google_href = ($_w_google_ok && $_tid) ? TIX_Wallet::get_google_save_url($_tid) : '';
+                ?>
                 <div class="tix-mt-tcard-wallets" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px;">
                     <button type="button" class="tix-mt-tcard-wallet tix-mt-tcard-wallet-apple"
-                            onclick="tixWalletShow('apple')"
+                            onclick="tixWalletShow('apple', this)" data-ticket-id="<?php echo esc_attr($_tid); ?>"<?php if ($_apple_href): ?> data-href="<?php echo esc_url($_apple_href); ?>"<?php endif; ?>
                             style="display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:8px 10px;background:#000;color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M17.1 12.5c0-2.4 2-3.5 2.1-3.6-1.1-1.6-2.9-1.9-3.5-1.9-1.5-.2-2.9.9-3.7.9-.8 0-1.9-.9-3.2-.9-1.6 0-3.2 1-4 2.4-1.7 3-.4 7.5 1.3 10 .8 1.2 1.8 2.5 3 2.5 1.2 0 1.7-.8 3.1-.8 1.5 0 1.9.8 3.1.8 1.3 0 2.2-1.2 3-2.5.9-1.4 1.3-2.8 1.3-2.9-.1 0-2.5-.9-2.5-3.9zM14.6 5c.7-.8 1.1-1.9 1-3-1 0-2.1.7-2.8 1.5-.6.7-1.2 1.8-1 2.8 1.1.1 2.2-.6 2.8-1.3z"/></svg>
                         Apple Wallet
                     </button>
                     <button type="button" class="tix-mt-tcard-wallet tix-mt-tcard-wallet-google"
-                            onclick="tixWalletShow('google')"
+                            onclick="tixWalletShow('google', this)" data-ticket-id="<?php echo esc_attr($_tid); ?>"<?php if ($_google_href): ?> data-href="<?php echo esc_url($_google_href); ?>"<?php endif; ?>
                             style="display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:8px 10px;background:#fff;color:#1f2937;border:1px solid #e5e7eb;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
                         Google Wallet
@@ -1594,7 +1808,7 @@ class TIX_My_Tickets {
                 &#9203; Tickets werden nach Zahlungseingang freigeschaltet.
             </div>
 
-            <?php if ($od['payment_method_id'] === 'bacs'): ?>
+            <?php if (in_array($od['payment_method_id'] ?? '', ['bacs', 'bank'], true)): ?>
                 <?php $bacs = self::get_bacs_details(); ?>
                 <?php if (!empty($bacs)): ?>
                     <div class="tix-mt-bank-details">
@@ -1648,21 +1862,33 @@ class TIX_My_Tickets {
     }
 
     /**
-     * BACS-Bankdaten aus WooCommerce laden
+     * Bankdaten laden — funktioniert mit + ohne WooCommerce.
+     * Priorität:
+     *   1. Tixomat-Settings (bank_holder/iban/bic/name) — native Quelle
+     *   2. WooCommerce BACS-Accounts (Legacy)
      */
-    private static function get_bacs_details() {
+    public static function get_bacs_details() {
+        // 1. Native Tixomat-Settings
+        $s = function_exists('tix_get_settings') ? tix_get_settings() : [];
+        if (!empty($s['bank_iban']) || !empty($s['bank_holder'])) {
+            return [[
+                'account_name' => $s['bank_holder'] ?? '',
+                'bank_name'    => $s['bank_name']   ?? '',
+                'iban'         => $s['bank_iban']   ?? '',
+                'bic'          => $s['bank_bic']    ?? '',
+            ]];
+        }
+        // 2. WooCommerce BACS — nur wenn WC aktiv
+        if (!function_exists('WC') || !function_exists('wc_get_orders')) return [];
         $gateways = WC()->payment_gateways();
         if (!$gateways) return [];
-
         $all = $gateways->payment_gateways();
         $bacs = isset($all['bacs']) ? $all['bacs'] : null;
         if (!$bacs) return [];
-
         $accounts = isset($bacs->account_details) ? $bacs->account_details : [];
         if (empty($accounts)) {
             $accounts = get_option('woocommerce_bacs_accounts', []);
         }
-
         return is_array($accounts) ? $accounts : [];
     }
 

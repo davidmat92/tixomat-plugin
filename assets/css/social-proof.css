@@ -12,8 +12,17 @@
     background: var(--tix-card-bg, #fff);
     border: 1px solid var(--tix-border, #e5e7eb);
     border-radius: var(--tix-radius, 8px);
-    transition: opacity 0.4s ease, transform 0.4s ease;
+    transition: opacity 0.3s ease, transform 0.3s ease;
+    /* Initial unsichtbar UND außerhalb des Layouts (verhindert leeren Platzhalter) */
+    opacity: 0;
     transform: translateY(-4px);
+    pointer-events: none;
+}
+
+.tix-sp.tix-sp--visible {
+    opacity: 1;
+    transform: translateY(0);
+    pointer-events: auto;
 }
 
 .tix-sp__icon {

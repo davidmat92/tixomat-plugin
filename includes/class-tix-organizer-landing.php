@@ -769,10 +769,9 @@ body.tix-org-subdomain .tix-ty-wrap {
 body.tix-org-subdomain .tix-ty-wrap {
     padding: 20px var(--tix-ol-pad-x, 20px) 40px !important;
 }
-/* Breakdance inline SVG-Sprites (gradients etc.) sind ohne Dimensionen → rendern
-   default 300×150px und erzeugen Leerraum. Muss immer versteckt sein. */
-body.tix-org-subdomain .breakdance-global-gradients-sprite,
-body.tix-org-subdomain svg[class*="breakdance-global"],
+/* Breakdance-SVG-Sprite-Fix → global in tixomat.php registriert.
+   Hier nur noch organizer-landing-spezifischer Sonderfall: weitere generische
+   aria-hidden SVGs ohne width/height auf der Subdomain blockieren (außer Hero-CTA-Pfeil). */
 body.tix-org-subdomain svg[aria-hidden="true"]:not(.tix-ol-hero-cta-arrow):not([width]):not([height]) {
     position: absolute !important;
     width: 0 !important;

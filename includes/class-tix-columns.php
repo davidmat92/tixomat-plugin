@@ -240,27 +240,33 @@ class TIX_Columns {
                 $cats = get_post_meta($post_id, '_tix_ticket_categories', true);
                 if (!is_array($cats)) { echo '—'; break; }
                 $total_sold = 0;
+                $any_wc_product = false;
                 foreach ($cats as $cat) {
                     if (!empty($cat['offline_ticket'])) continue;
                     if (($cat['online'] ?? '1') !== '1') continue;
                     $pid = intval($cat['product_id'] ?? 0);
                     $cap = intval($cat['qty'] ?? 0);
-                    if (!$pid || !function_exists('wc_get_product')) {
-                        global $wpdb;
-                        $total_sold += (int) $wpdb->get_var($wpdb->prepare(
-                            "SELECT COALESCE(SUM(quantity), 0) FROM {$wpdb->prefix}tix_order_items WHERE event_id = %d AND order_id IN (SELECT id FROM {$wpdb->prefix}tix_orders WHERE status IN ('completed','processing'))",
-                            $post_id
-                        ));
-                        continue;
-                    }
+                    if (!$pid || !function_exists('wc_get_product')) continue; // Native-Pfad unten
                     $product = wc_get_product($pid);
                     if (!$product) continue;
+                    $any_wc_product = true;
                     $stk = $product->get_stock_quantity();
                     if ($stk !== null && $product->get_manage_stock()) {
                         $total_sold += max(0, $cap - $stk);
                     } else {
                         $total_sold += self::count_sold_for_product($pid);
                     }
+                }
+                // Native-Pfad: ohne WC-Produkte einmalig pro Event aggregieren
+                // (vorher pro Kategorie addiert → Doppelzählung bei mehreren Cats)
+                if (!$any_wc_product) {
+                    global $wpdb;
+                    $total_sold = (int) $wpdb->get_var($wpdb->prepare(
+                        "SELECT COALESCE(SUM(quantity), 0) FROM {$wpdb->prefix}tix_order_items
+                         WHERE event_id = %d
+                           AND order_id IN (SELECT id FROM {$wpdb->prefix}tix_orders WHERE status IN ('completed','processing'))",
+                        $post_id
+                    ));
                 }
                 if ($total_sold > 0) {
                     $url = admin_url('admin.php?page=tix-orders&event_id=' . $post_id);
@@ -883,11 +889,16 @@ class TIX_Columns {
             case 'tix_t_owner':
                 $name  = get_post_meta($post_id, '_tix_ticket_owner_name', true);
                 $email = get_post_meta($post_id, '_tix_ticket_owner_email', true);
-                if ($name) {
+                if ($email) {
+                    $cust_url = admin_url('admin.php?page=tix-customers&email=' . urlencode($email));
+                    if ($name) {
+                        echo '<a href="' . esc_url($cust_url) . '" style="color:#0f172a;font-weight:700;text-decoration:none;border-bottom:1px dotted #cbd5e1;">' . esc_html($name) . '</a>';
+                        echo '<br><a href="' . esc_url($cust_url) . '" style="color:#64748b;font-size:12px;text-decoration:none;">' . esc_html($email) . '</a>';
+                    } else {
+                        echo '<a href="' . esc_url($cust_url) . '" style="color:#0f172a;text-decoration:none;border-bottom:1px dotted #cbd5e1;">' . esc_html($email) . '</a>';
+                    }
+                } elseif ($name) {
                     echo '<strong>' . esc_html($name) . '</strong>';
-                    if ($email) echo '<br><span style="color:#64748b;font-size:12px;">' . esc_html($email) . '</span>';
-                } elseif ($email) {
-                    echo esc_html($email);
                 } else {
                     echo '—';
                 }

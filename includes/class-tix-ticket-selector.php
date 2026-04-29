@@ -359,7 +359,33 @@ class TIX_Ticket_Selector {
                             <div class="tix-sel-cat-name">
                                 <?php echo $name; ?>
                                 <?php if ($active_phase): ?>
-                                    <span class="tix-sel-phase-badge"><?php echo esc_html($active_phase['name']); ?></span>
+                                    <?php
+                                    // Aktive Phase mit Endzeitpunkt im Badge — dezent als Suffix.
+                                    // Zeigt ein Countdown wenn ≤ 3 Tage übrig (Urgency-Hint), sonst Datum.
+                                    $phase_until_raw = $active_phase['until'] ?? '';
+                                    $phase_until_label = '';
+                                    if ($phase_until_raw) {
+                                        $now_ts   = current_time('timestamp');
+                                        $until_ts = strtotime($phase_until_raw . ' 23:59:59');
+                                        if ($until_ts) {
+                                            $diff = $until_ts - $now_ts;
+                                            if ($diff > 0 && $diff <= 86400 * 3) {
+                                                // ≤ 3 Tage → Countdown-Style
+                                                $hours = (int) floor($diff / 3600);
+                                                if ($hours < 24)      $phase_until_label = 'noch ' . $hours . ' Std.';
+                                                else                  $phase_until_label = 'noch ' . (int) floor($hours / 24) . ' Tage';
+                                            } else {
+                                                $phase_until_label = 'bis ' . date_i18n('d.m.', $until_ts);
+                                            }
+                                        }
+                                    }
+                                    ?>
+                                    <span class="tix-sel-phase-badge">
+                                        <?php echo esc_html($active_phase['name']); ?>
+                                        <?php if ($phase_until_label): ?>
+                                            <span class="tix-sel-phase-badge-until"> · <?php echo esc_html($phase_until_label); ?></span>
+                                        <?php endif; ?>
+                                    </span>
                                 <?php endif; ?>
                             </div>
                             <?php if ($desc): ?>

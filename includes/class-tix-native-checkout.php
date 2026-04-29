@@ -244,6 +244,67 @@ class TIX_Native_Checkout {
             $event_id  = intval($item['event_id'] ?? 0);
             $cat_index = intval($item['cat_index'] ?? $item['category_index'] ?? 0);
             $qty       = max(1, intval($item['quantity'] ?? 1));
+            $is_special = !empty($item['special']);
+            $special_id = intval($item['special_id'] ?? 0);
+
+            // ─── SPECIAL: separater Pfad (kein cat_index, eigener Preis/Name) ───
+            if ($is_special && $special_id && class_exists('TIX_Specials')) {
+                $special_post = get_post($special_id);
+                if (!$special_post || $special_post->post_status !== 'publish') continue;
+                if (!$event_id) continue;
+
+                $price = floatval(TIX_Specials::get_effective_price($special_id, $event_id));
+                if ($price <= 0) continue;
+                $name = sanitize_text_field($special_post->post_title);
+                $event_title = get_the_title($event_id);
+
+                // Stock prüfen
+                $base_qty = intval(get_post_meta($special_id, '_tix_special_qty', true));
+                $event_specials = get_post_meta($event_id, '_tix_specials', true);
+                if (is_array($event_specials)) {
+                    foreach ($event_specials as $es) {
+                        if (intval($es['special_id'] ?? 0) === $special_id && !empty($es['qty_override'])) {
+                            $base_qty = intval($es['qty_override']);
+                        }
+                    }
+                }
+                if ($base_qty > 0) {
+                    $sold = TIX_Specials::get_sold_count($special_id, $event_id);
+                    if ($sold + $qty > $base_qty) {
+                        wp_send_json_error(['message' => 'Special "' . esc_html($name) . '" ist ausverkauft.']);
+                    }
+                }
+
+                // Im Cart suchen — match per special_id+event_id (nicht cat_index)
+                $found = false;
+                foreach ($cart['items'] as &$ci) {
+                    if (!empty($ci['meta']['special_id'])
+                        && intval($ci['meta']['special_id']) === $special_id
+                        && intval($ci['event_id']) === $event_id) {
+                        $ci['qty'] += $qty;
+                        $found = true;
+                        break;
+                    }
+                }
+                unset($ci);
+
+                if (!$found) {
+                    $cart['items'][] = [
+                        'event_id'    => $event_id,
+                        'cat_index'   => -1, // -1 = kein Kategorie-Slot, ist ein Special
+                        'name'        => $name,
+                        'event_title' => $event_title,
+                        'price'       => $price,
+                        'qty'         => $qty,
+                        'meta'        => [
+                            'special'    => 1,
+                            'special_id' => $special_id,
+                        ],
+                    ];
+                }
+                continue; // Nächstes Item, Special-Pfad fertig
+            }
+            // ─── Ende Special-Pfad ───
 
             // Fallback: product_id → event_id + cat_index auflösen
             if (!$event_id && !empty($item['product_id'])) {
@@ -294,7 +355,7 @@ class TIX_Native_Checkout {
             // Prüfe ob schon im Cart → Menge erhöhen
             $found = false;
             foreach ($cart['items'] as &$ci) {
-                if ($ci['event_id'] === $event_id && $ci['cat_index'] === $cat_index) {
+                if ($ci['event_id'] === $event_id && $ci['cat_index'] === $cat_index && empty($ci['meta']['special'])) {
                     $ci['qty'] += $qty;
                     $found = true;
                     break;
@@ -315,13 +376,13 @@ class TIX_Native_Checkout {
                         'seatmap_id' => $item['seatmap_id'] ?? null,
                         'bundle'     => $item['bundle'] ?? null,
                         'combo'      => $item['combo'] ?? null,
-                        'special'    => $item['special'] ?? null,
-                        'special_id' => $item['special_id'] ?? null,
                     ]),
                 ];
             }
         }
 
+        // Coupon-Rabatt neu berechnen (falls aktiv) — gleicher Mechanismus wie bei Update/Remove
+        self::recalc_coupon_discount($cart);
         self::save_cart($cart);
 
         $checkout_url = self::checkout_url();
@@ -347,6 +408,7 @@ class TIX_Native_Checkout {
 
         if (isset($cart['items'][$index])) {
             array_splice($cart['items'], $index, 1);
+            self::recalc_coupon_discount($cart);
             self::save_cart($cart);
         }
 
@@ -366,6 +428,7 @@ class TIX_Native_Checkout {
 
         if (isset($cart['items'][$index])) {
             $cart['items'][$index]['qty'] = max(1, min(20, $cart['items'][$index]['qty'] + $delta));
+            self::recalc_coupon_discount($cart);
             self::save_cart($cart);
         }
 
@@ -373,6 +436,87 @@ class TIX_Native_Checkout {
             'cart_count' => self::cart_count(),
             'cart_total' => self::cart_total(),
         ]);
+    }
+
+    /**
+     * Berechnet den Coupon-Rabatt basierend auf dem aktuellen Cart-Total neu.
+     * Mutiert den übergebenen $cart by-reference. Entfernt den Coupon wenn:
+     * - Cart leer ist
+     * - Coupon nicht mehr existiert (gelöscht in den Settings)
+     * - Coupon abgelaufen ist
+     * - max_uses überschritten
+     *
+     * Wird nach jeder Cart-Mutation aufgerufen (Add, Update-Qty, Remove).
+     */
+    private static function recalc_coupon_discount(array &$cart) {
+        if (empty($cart['coupon']) || empty($cart['coupon']['code'])) return;
+
+        // Cart-Total ohne Coupon (= Summe aller Items)
+        $items_total = 0.0;
+        if (!empty($cart['items']) && is_array($cart['items'])) {
+            foreach ($cart['items'] as $item) {
+                $price = floatval($item['price'] ?? 0);
+                $qty   = max(1, intval($item['qty'] ?? 1));
+                $items_total += $price * $qty;
+            }
+        }
+
+        // Cart leer → Coupon entfernen
+        if ($items_total <= 0) {
+            $cart['coupon'] = null;
+            return;
+        }
+
+        $code = $cart['coupon']['code'];
+        $coupons = get_option('tix_coupons', []);
+
+        // Case-insensitive Lookup
+        $found_key = null;
+        foreach ((array) $coupons as $k => $v) {
+            if (strtolower($k) === strtolower($code)) {
+                $found_key = $k;
+                break;
+            }
+        }
+
+        if (!$found_key) {
+            // Coupon-Definition existiert nicht mehr → entfernen
+            $cart['coupon'] = null;
+            return;
+        }
+
+        $coupon = $coupons[$found_key];
+
+        // Expiry-Check
+        if (!empty($coupon['expires'])) {
+            $expires = strtotime($coupon['expires']);
+            if ($expires && $expires < time()) {
+                $cart['coupon'] = null;
+                return;
+            }
+        }
+
+        // Max-Uses-Check
+        $used = intval($coupon['used'] ?? 0);
+        $max_uses = intval($coupon['max_uses'] ?? 0);
+        if ($max_uses > 0 && $used >= $max_uses) {
+            $cart['coupon'] = null;
+            return;
+        }
+
+        // Rabatt neu berechnen auf Basis des aktuellen Items-Totals
+        $discount_type  = $coupon['discount_type'] ?? 'percent';
+        $discount_value = floatval($coupon['value'] ?? 0);
+
+        if ($discount_type === 'percent') {
+            $discount = round($items_total * $discount_value / 100, 2);
+        } else {
+            // Fest-€-Coupon: nicht mehr als der Warenkorb-Wert
+            $discount = min($items_total, $discount_value);
+        }
+        $discount = max(0, round($discount, 2));
+
+        $cart['coupon']['discount'] = $discount;
     }
 
     /**
@@ -737,13 +881,13 @@ class TIX_Native_Checkout {
                         </div>
 
                         <?php if (!$is_logged): ?>
-                        <div class="tix-co-create-account" style="margin-top:16px;">
+                        <div class="tix-co-create-account">
                             <label class="tix-co-check-label">
                                 <input type="checkbox" name="createaccount" class="tix-co-check" value="1">
                                 <span class="tix-co-check-custom"></span>
                                 <span>Konto anlegen — meine Daten für die nächste Buchung speichern</span>
                             </label>
-                            <p class="tix-co-create-account-hint" style="margin:8px 0 0 28px;font-size:12px;color:#64748b;line-height:1.5;">
+                            <p class="tix-co-create-account-hint">
                                 Nach deiner Bestellung bekommst du eine E-Mail an <strong>diese Adresse</strong>, um dein Passwort zu vergeben und dein Konto zu aktivieren. Danach kannst du jederzeit auf deine Tickets zugreifen.
                             </p>
                         </div>
@@ -1268,10 +1412,13 @@ class TIX_Native_Checkout {
         }
 
         // Decrement stock for each ticket category (cache-busted for freshness)
+        // Specials (cat_index === -1) haben eigenen Stock — der wird via get_sold_count berechnet,
+        // nicht über _tix_ticket_categories. Daher hier überspringen.
         foreach ($data['items'] as $item) {
             $event_id  = intval($item['event_id']);
             $cat_index = intval($item['cat_index']);
             $qty       = intval($item['qty']);
+            if ($cat_index < 0) continue; // Special / Bundle / Combo / Custom-Item
 
             wp_cache_delete($event_id, 'post_meta');
             $categories = get_post_meta($event_id, '_tix_ticket_categories', true);
@@ -1399,6 +1546,25 @@ class TIX_Native_Checkout {
 
         $old_status = $wpdb->get_var($wpdb->prepare("SELECT status FROM $t WHERE id = %d", $order_id));
 
+        // ── DOWNGRADE-PROTECTION ──
+        // Schützt zentral vor versehentlichen Downgrades durch Gateway-Race-Conditions.
+        // Bezahlte Bestellungen (completed/processing) dürfen nicht durch automatische Hooks
+        // auf cancelled/failed/refunded gesetzt werden — nur durch Admin-Aktionen.
+        // Admin-Aktionen kommen ohne $gateway-Parameter (oder mit gateway='admin').
+        $is_automated = !empty($gateway) && $gateway !== 'admin';
+        if ($is_automated
+            && in_array($old_status, ['completed', 'processing'], true)
+            && in_array($new_status, ['cancelled', 'failed', 'refunded'], true)) {
+            if (class_exists('TIX_Order_Admin') && method_exists('TIX_Order_Admin', 'add_note')) {
+                TIX_Order_Admin::add_note(
+                    $order_id,
+                    '🛡️ Status-Downgrade abgewiesen: ' . $old_status . ' → ' . $new_status . ' (von ' . $gateway . '). Bezahlte Bestellungen können nur manuell vom Admin storniert/erstattet werden.',
+                    'system'
+                );
+            }
+            return false;
+        }
+
         $wpdb->update($t, ['status' => $new_status], ['id' => $order_id]);
 
         // Auto-add order note on status change
@@ -1421,6 +1587,33 @@ class TIX_Native_Checkout {
         // Spezifische Hooks
         if ($new_status === 'completed') {
             do_action('tix_order_completed', $order_id);
+
+            // ── SICHERHEITSNETZ ──
+            // Race-Condition-Schutz: Falls TIX_Tickets::on_native_order_completed
+            // beim Hook-Feuer nicht registriert war (Plugin-Reload, OPcache, fatal),
+            // generieren wir die Tickets jetzt nochmal direkt. Der eingebaute Guard
+            // verhindert Duplikate falls bereits Tickets existieren.
+            if (class_exists('TIX_Tickets') && method_exists('TIX_Tickets', 'on_native_order_completed')) {
+                $existing = (new WP_Query([
+                    'post_type'      => 'tix_ticket',
+                    'post_status'    => 'any',
+                    'posts_per_page' => 1,
+                    'fields'         => 'ids',
+                    'meta_key'       => '_tix_ticket_order_id',
+                    'meta_value'     => $order_id,
+                ]))->found_posts;
+                if ($existing === 0) {
+                    // Hook hat keine Tickets erstellt → direkt nachholen
+                    TIX_Tickets::on_native_order_completed($order_id);
+                    if (class_exists('TIX_Order_Admin')) {
+                        TIX_Order_Admin::add_note(
+                            $order_id,
+                            '🛡️ Sicherheitsnetz aktiv: Tickets via direkter Fallback-Generierung erstellt (Hook hatte nicht funktioniert).',
+                            'system'
+                        );
+                    }
+                }
+            }
         } elseif ($new_status === 'cancelled' || $new_status === 'failed') {
             do_action('tix_order_cancelled', $order_id);
         }
@@ -1514,6 +1707,7 @@ class TIX_Native_Checkout {
         add_action('wp_head', function() use ($primary, $btn_bg, $btn_color) {
             ?>
             <style>
+            /* Breakdance-SVG-Sprite-Fix wird global in tixomat.php registriert */
             .tix-ty-wrap { max-width:640px; margin:20px auto; padding:0 20px 40px; }
             .tix-ty-status { text-align:center; padding:28px 20px; background:#fff; border-radius:16px; box-shadow:0 1px 3px rgba(0,0,0,0.06); margin-bottom:16px; }
             .tix-ty-check { width:60px; height:60px; border-radius:50%; background:<?php echo esc_attr($primary); ?>; color:#fff; display:flex; align-items:center; justify-content:center; margin:0 auto 16px; font-size:28px; }
@@ -1524,12 +1718,39 @@ class TIX_Native_Checkout {
             .tix-ty-item { display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid #f0f0f0; font-size:14px; }
             .tix-ty-item:last-child { border:none; }
             .tix-ty-total { display:flex; justify-content:space-between; padding:12px 0 0; font-size:16px; font-weight:600; border-top:2px solid #e5e7eb; }
-            .tix-ty-ticket { display:flex; align-items:center; justify-content:space-between; padding:12px; border:1px solid #e5e7eb; border-radius:8px; margin-bottom:8px; }
-            .tix-ty-ticket-code { font-family:monospace; font-size:13px; color:#6b7280; }
+            .tix-ty-ticket { display:flex; align-items:center; justify-content:space-between; gap:24px; padding:14px 16px; border:1px solid #e5e7eb; border-radius:8px; margin-bottom:8px; }
+            .tix-ty-ticket > div:first-child { flex:1; min-width:0; }
+            .tix-ty-ticket > div:first-child strong { display:block; }
+            .tix-ty-ticket-code { font-family:monospace; font-size:13px; color:#6b7280; margin-top:2px; }
+            .tix-ty-ticket .tix-ty-dl-btn { flex-shrink:0; white-space:nowrap; }
+            @media (max-width:540px) {
+                .tix-ty-ticket { flex-direction:column; align-items:stretch; gap:12px; }
+                .tix-ty-ticket .tix-ty-dl-btn { text-align:center; }
+            }
             .tix-ty-dl-btn { background:<?php echo esc_attr($btn_bg); ?>; color:<?php echo esc_attr($btn_color); ?>; padding:8px 16px; border-radius:8px; text-decoration:none; font-size:13px; font-weight:600; display:inline-block; }
             .tix-ty-dl-btn:hover { opacity:0.9; color:<?php echo esc_attr($btn_color); ?>; }
             .tix-ty-pending { background:#fef3c7; border:1px solid #f59e0b; border-radius:8px; padding:12px 16px; font-size:13px; color:#92400e; margin-bottom:16px; }
             .tix-ty-back { display:block; text-align:center; margin-top:24px; color:#6b7280; font-size:14px; }
+            /* Info-Box: Mail verschickt + Meine-Tickets-Hinweis */
+            .tix-ty-info-box { display:flex; gap:14px; align-items:flex-start; background:#f0f9ff; border:1px solid #bae6fd; border-radius:12px; padding:16px 18px; margin-bottom:16px; }
+            .tix-ty-info-icon { color:<?php echo esc_attr($primary); ?>; flex-shrink:0; margin-top:2px; }
+            .tix-ty-info-content strong { display:block; font-size:14px; color:#0c4a6e; margin-bottom:4px; }
+            .tix-ty-info-content p { font-size:13px; color:#475569; margin:0; line-height:1.5; }
+            .tix-ty-info-content a { color:<?php echo esc_attr($primary); ?>; text-decoration:none; }
+            .tix-ty-info-content a:hover { text-decoration:underline; }
+            /* Bundle-Link: Alle Tickets dieser Bestellung in einer Ansicht */
+            .tix-ty-bundle-link { display:inline-flex; align-items:center; gap:8px; margin-bottom:16px; padding:10px 14px; background:#f5f3ff; border:1px solid #ddd6fe; border-radius:8px; color:#5b21b6 !important; font-size:13px; font-weight:600; text-decoration:none; }
+            .tix-ty-bundle-link:hover { background:#ede9fe; }
+            /* Bankverbindungs-Tabelle: alle Werte in Monospace + bold (wie IBAN) */
+            .tix-ty-bank-table { width:100%; font-size:14px; border-collapse:collapse; }
+            .tix-ty-bank-table td { padding:6px 0; vertical-align:top; }
+            .tix-ty-bank-table td:first-child { color:#6b7280; padding-right:16px; white-space:nowrap; width:180px; }
+            .tix-ty-bank-table td:last-child { font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-weight:600; color:#0f172a; word-break:break-word; }
+            .tix-ty-bank-note { margin-top:12px; font-size:13px; color:#6b7280; }
+            @media (max-width:540px) {
+                .tix-ty-bank-table td:first-child { width:auto; }
+                .tix-ty-bank-table td:last-child { font-size:13px; }
+            }
             </style>
             <?php
         }, 99);
@@ -1557,18 +1778,18 @@ class TIX_Native_Checkout {
                 <?php if ($order->payment_method === 'bank'):
                     $bs = tix_get_settings();
                 ?>
-                    <div class="tix-ty-card">
+                    <div class="tix-ty-card tix-ty-bank">
                         <h3 class="tix-ty-card-title">Bankverbindung</h3>
-                        <table style="width:100%;font-size:14px;">
-                            <?php if (!empty($bs['bank_holder'])): ?><tr><td style="padding:4px 0;color:#6b7280;">Kontoinhaber</td><td style="padding:4px 0;font-weight:600;"><?php echo esc_html($bs['bank_holder']); ?></td></tr><?php endif; ?>
-                            <?php if (!empty($bs['bank_iban'])): ?><tr><td style="padding:4px 0;color:#6b7280;">IBAN</td><td style="padding:4px 0;font-weight:600;font-family:monospace;"><?php echo esc_html($bs['bank_iban']); ?></td></tr><?php endif; ?>
-                            <?php if (!empty($bs['bank_bic'])): ?><tr><td style="padding:4px 0;color:#6b7280;">BIC</td><td style="padding:4px 0;"><?php echo esc_html($bs['bank_bic']); ?></td></tr><?php endif; ?>
-                            <?php if (!empty($bs['bank_name'])): ?><tr><td style="padding:4px 0;color:#6b7280;">Bank</td><td style="padding:4px 0;"><?php echo esc_html($bs['bank_name']); ?></td></tr><?php endif; ?>
-                            <tr><td style="padding:4px 0;color:#6b7280;">Betrag</td><td style="padding:4px 0;font-weight:700;font-size:16px;"><?php echo number_format($order->total, 2, ',', '.'); ?> &euro;</td></tr>
-                            <tr><td style="padding:4px 0;color:#6b7280;">Verwendungszweck</td><td style="padding:4px 0;font-weight:600;"><?php echo esc_html($order->order_number); ?></td></tr>
+                        <table class="tix-ty-bank-table">
+                            <?php if (!empty($bs['bank_holder'])): ?><tr><td>Kontoinhaber</td><td><?php echo esc_html($bs['bank_holder']); ?></td></tr><?php endif; ?>
+                            <?php if (!empty($bs['bank_iban'])): ?><tr><td>IBAN</td><td><?php echo esc_html($bs['bank_iban']); ?></td></tr><?php endif; ?>
+                            <?php if (!empty($bs['bank_bic'])): ?><tr><td>BIC</td><td><?php echo esc_html($bs['bank_bic']); ?></td></tr><?php endif; ?>
+                            <?php if (!empty($bs['bank_name'])): ?><tr><td>Bank</td><td><?php echo esc_html($bs['bank_name']); ?></td></tr><?php endif; ?>
+                            <tr><td>Betrag</td><td><?php echo number_format($order->total, 2, ',', '.'); ?>&nbsp;€</td></tr>
+                            <tr><td>Verwendungszweck</td><td><?php echo esc_html($order->order_number); ?></td></tr>
                         </table>
                         <?php if (!empty($bs['bank_reference'])): ?>
-                            <p style="margin-top:12px;font-size:13px;color:#6b7280;"><?php echo esc_html($bs['bank_reference']); ?></p>
+                            <p class="tix-ty-bank-note"><?php echo esc_html($bs['bank_reference']); ?></p>
                         <?php endif; ?>
                     </div>
                 <?php else: ?>
@@ -1582,9 +1803,37 @@ class TIX_Native_Checkout {
                 </div>
             <?php endif; ?>
 
-            <?php if (!empty($tickets)): ?>
+            <?php if (!empty($tickets) && ($order->status === 'completed' || $order->status === 'processing')):
+                $bundle_url = class_exists('TIX_Tickets') ? TIX_Tickets::get_bundle_url($order->id) : '';
+
+                // Meine-Tickets-URL: Custom-Setting > Auto-Detection
+                $tys_link = tix_get_settings();
+                $my_tickets_url = !empty($tys_link['ty_my_tickets_url']) ? $tys_link['ty_my_tickets_url'] : '';
+                if (!$my_tickets_url && class_exists('TIX_My_Tickets')) {
+                    $my_tickets_url = TIX_My_Tickets::get_tickets_page_url();
+                }
+            ?>
+                <?php // Hinweis-Box: Mail verschickt + Meine-Tickets-Bereich ?>
+                <div class="tix-ty-info-box">
+                    <div class="tix-ty-info-icon">
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+                    </div>
+                    <div class="tix-ty-info-content">
+                        <strong>Bestätigung &amp; Tickets per E-Mail verschickt</strong>
+                        <p>Wir haben dir alle Tickets soeben an <strong><?php echo esc_html($order->billing_email); ?></strong> geschickt.<?php if ($my_tickets_url): ?> Du kannst sie außerdem jederzeit in deinem <a href="<?php echo esc_url($my_tickets_url); ?>"><strong>„Meine Tickets"-Bereich</strong></a> einsehen und herunterladen.<?php endif; ?></p>
+                    </div>
+                </div>
+
                 <div class="tix-ty-card">
                     <h3 class="tix-ty-card-title">Deine Tickets</h3>
+
+                    <?php if ($bundle_url): ?>
+                    <a href="<?php echo esc_url($bundle_url); ?>" target="_blank" class="tix-ty-bundle-link">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="4" rx="1"/><rect x="3" y="10" width="18" height="4" rx="1"/><rect x="3" y="16" width="18" height="4" rx="1"/></svg>
+                        Alle Tickets dieser Bestellung in einer Ansicht öffnen →
+                    </a>
+                    <?php endif; ?>
+
                     <?php foreach ($tickets as $ticket):
                         $code = get_post_meta($ticket->ID, '_tix_ticket_code', true);
                         $token = get_post_meta($ticket->ID, '_tix_ticket_download_token', true);
@@ -1620,7 +1869,16 @@ class TIX_Native_Checkout {
                 </div>
             </div>
 
-            <a href="<?php echo esc_url(home_url('/events/')); ?>" class="tix-ty-back">&larr; Zurück zu den Events</a>
+            <?php
+            // Konfigurierbarer Back-Link (Settings → Checkout → Thank-You-Page)
+            $tys = tix_get_settings();
+            $show_back = !isset($tys['ty_back_link_show']) || !empty($tys['ty_back_link_show']);
+            if ($show_back):
+                $back_text = !empty($tys['ty_back_link_text']) ? $tys['ty_back_link_text'] : '← Zurück zu den Events';
+                $back_url  = !empty($tys['ty_back_link_url'])  ? $tys['ty_back_link_url']  : home_url('/events/');
+            ?>
+            <a href="<?php echo esc_url($back_url); ?>" class="tix-ty-back"><?php echo esc_html($back_text); ?></a>
+            <?php endif; ?>
         </div>
         <?php
         get_footer();

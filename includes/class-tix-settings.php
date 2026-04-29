@@ -549,6 +549,11 @@ class TIX_Settings {
             'exit_intent_button_text'  => 'Jetzt einl&ouml;sen',
             'exit_intent_cookie_days'  => 7,
             'exit_intent_delay'        => 5,
+            // Thank-You-Page
+            'ty_back_link_text'        => '← Zurück zu den Events',
+            'ty_back_link_url'         => '',  // leer = home_url('/events/'); ansonsten z.B. https://example.com/programm/
+            'ty_back_link_show'        => 1,
+            'ty_my_tickets_url'        => '',  // leer = Auto-Detection via TIX_My_Tickets::get_tickets_page_url()
             // Kampagnen-Tracking
             'campaign_tracking_enabled'  => 0,
             'campaign_cookie_days'       => 30,
@@ -668,6 +673,37 @@ class TIX_Settings {
             'bot_webchat_enabled'    => 1,
             'bot_registered'         => 0,
             'bot_tenant_id'          => '',
+
+            // ─────────────────────────────────────────
+            // Wallet-Integration (Apple Wallet + Google Wallet)
+            // Buttons existieren bereits als Platzhalter — Settings hier
+            // werden gefüllt sobald Apple-/Google-Accounts angelegt sind.
+            // ─────────────────────────────────────────
+            'wallet_enabled'                 => 0,        // Master-Switch (beide gleichzeitig aus)
+            // Apple Wallet (.pkpass)
+            'wallet_apple_enabled'           => 0,
+            'wallet_apple_pass_type_id'      => '',       // z.B. pass.de.tixomat.ticket
+            'wallet_apple_team_id'           => '',       // 10-stellige Apple Team-ID
+            'wallet_apple_org_name'          => '',       // Organisations-Name (oben auf Pass)
+            'wallet_apple_cert_path'         => '',       // Pfad zur .p12-Datei (auf Server)
+            'wallet_apple_cert_password'     => '',       // Passwort für .p12
+            'wallet_apple_wwdr_path'         => '',       // Pfad zur WWDR-Cert (.pem)
+            'wallet_apple_logo_url'          => '',       // 160×50 PNG (transparent)
+            'wallet_apple_icon_url'          => '',       // 29×29 PNG
+            'wallet_apple_strip_url'         => '',       // 320×123 PNG (optional, Hintergrundbild oben)
+            'wallet_apple_bg_color'          => '#0f172a',
+            'wallet_apple_fg_color'          => '#ffffff',
+            'wallet_apple_label_color'       => '#cbd5e1',
+            'wallet_apple_relevant_radius'   => 200,      // Meter — Push am Venue
+            // Google Wallet (Save-to-Wallet API)
+            'wallet_google_enabled'          => 0,
+            'wallet_google_issuer_id'        => '',       // Numerische Issuer-ID
+            'wallet_google_service_email'    => '',       // service@xyz.iam.gserviceaccount.com
+            'wallet_google_service_key'      => '',       // Private Key (PEM, mehrzeilig)
+            'wallet_google_class_suffix'     => 'tixomat-event-ticket',  // ID-Suffix (zusammen mit Issuer)
+            'wallet_google_logo_url'         => '',
+            'wallet_google_hero_url'         => '',
+            'wallet_google_bg_color'         => '#0f172a',
         ];
     }
 
@@ -1455,6 +1491,11 @@ class TIX_Settings {
         $clean['exit_intent_button_text'] = sanitize_text_field($input['exit_intent_button_text'] ?? '');
         $clean['exit_intent_cookie_days'] = max(1, intval($input['exit_intent_cookie_days'] ?? 7));
         $clean['exit_intent_delay']       = max(0, intval($input['exit_intent_delay'] ?? 5));
+        // Thank-You-Page
+        $clean['ty_back_link_text']       = sanitize_text_field($input['ty_back_link_text'] ?? '← Zurück zu den Events');
+        $clean['ty_back_link_url']        = esc_url_raw($input['ty_back_link_url'] ?? '');
+        $clean['ty_back_link_show']       = !empty($input['ty_back_link_show']) ? 1 : 0;
+        $clean['ty_my_tickets_url']       = esc_url_raw($input['ty_my_tickets_url'] ?? '');
         // Kampagnen-Tracking
         $clean['campaign_tracking_enabled']  = !empty($input['campaign_tracking_enabled']) ? 1 : 0;
         $clean['campaign_cookie_days']       = max(1, min(365, intval($input['campaign_cookie_days'] ?? 30)));
@@ -1642,6 +1683,42 @@ class TIX_Settings {
         $existing_s = get_option('tix_settings', []);
         $clean['bot_registered']        = intval($input['bot_registered'] ?? $existing_s['bot_registered'] ?? 0);
         $clean['bot_tenant_id']         = sanitize_text_field($input['bot_tenant_id'] ?? $existing_s['bot_tenant_id'] ?? '');
+
+        // ── Wallet (Apple + Google) ──
+        $clean['wallet_enabled']               = !empty($input['wallet_enabled']) ? 1 : 0;
+        // Apple
+        $clean['wallet_apple_enabled']         = !empty($input['wallet_apple_enabled']) ? 1 : 0;
+        $clean['wallet_apple_pass_type_id']    = sanitize_text_field($input['wallet_apple_pass_type_id'] ?? '');
+        $clean['wallet_apple_team_id']         = sanitize_text_field($input['wallet_apple_team_id'] ?? '');
+        $clean['wallet_apple_org_name']        = sanitize_text_field($input['wallet_apple_org_name'] ?? '');
+        // Pfade NICHT mit esc_url_raw, das sind Filesystem-Pfade
+        $clean['wallet_apple_cert_path']       = sanitize_text_field($input['wallet_apple_cert_path'] ?? '');
+        // Passwort: NICHT trimmen/escapen (kann Sonderzeichen enthalten); nur Längenlimit gegen Müll
+        $cert_pw = (string) ($input['wallet_apple_cert_password'] ?? '');
+        if (strlen($cert_pw) > 256) $cert_pw = substr($cert_pw, 0, 256);
+        $clean['wallet_apple_cert_password']   = $cert_pw;
+        $clean['wallet_apple_wwdr_path']       = sanitize_text_field($input['wallet_apple_wwdr_path'] ?? '');
+        $clean['wallet_apple_logo_url']        = esc_url_raw($input['wallet_apple_logo_url'] ?? '');
+        $clean['wallet_apple_icon_url']        = esc_url_raw($input['wallet_apple_icon_url'] ?? '');
+        $clean['wallet_apple_strip_url']       = esc_url_raw($input['wallet_apple_strip_url'] ?? '');
+        $clean['wallet_apple_bg_color']        = self::sanitize_color($input['wallet_apple_bg_color'] ?? '') ?: '#0f172a';
+        $clean['wallet_apple_fg_color']        = self::sanitize_color($input['wallet_apple_fg_color'] ?? '') ?: '#ffffff';
+        $clean['wallet_apple_label_color']     = self::sanitize_color($input['wallet_apple_label_color'] ?? '') ?: '#cbd5e1';
+        $clean['wallet_apple_relevant_radius'] = max(50, min(2000, intval($input['wallet_apple_relevant_radius'] ?? 200)));
+        // Google
+        $clean['wallet_google_enabled']        = !empty($input['wallet_google_enabled']) ? 1 : 0;
+        $clean['wallet_google_issuer_id']      = preg_replace('/[^0-9]/', '', (string)($input['wallet_google_issuer_id'] ?? ''));
+        $clean['wallet_google_service_email']  = sanitize_email($input['wallet_google_service_email'] ?? '');
+        // Private Key: Mehrzeilig, KEIN sanitize (zerlegt PEM-Format). Nur Längenlimit + CR-Normalisierung.
+        $pk = (string) ($input['wallet_google_service_key'] ?? '');
+        $pk = str_replace("\r\n", "\n", $pk);
+        $pk = str_replace("\r", "\n", $pk);
+        if (strlen($pk) > 16384) $pk = substr($pk, 0, 16384);
+        $clean['wallet_google_service_key']    = $pk;
+        $clean['wallet_google_class_suffix']   = sanitize_key($input['wallet_google_class_suffix'] ?? 'tixomat-event-ticket');
+        $clean['wallet_google_logo_url']       = esc_url_raw($input['wallet_google_logo_url'] ?? '');
+        $clean['wallet_google_hero_url']       = esc_url_raw($input['wallet_google_hero_url'] ?? '');
+        $clean['wallet_google_bg_color']       = self::sanitize_color($input['wallet_google_bg_color'] ?? '') ?: '#0f172a';
 
         // Veranstalter-Landing Feature-Flags (werden auch von separater Admin-Seite gesetzt,
         // dürfen nicht durch Settings-Save gestrippt werden)
@@ -2289,6 +2366,24 @@ class TIX_Settings {
         <div class="wrap tix-settings-wrap">
             <h1>Tixomat – Einstellungen <span style="font-size:12px;font-weight:400;opacity:0.5;">v<?php echo TIXOMAT_VERSION; ?></span></h1>
 
+            <?php // ── Permanent-Banner für Wallet (NEU) — bis konfiguriert ── ?>
+            <?php if (empty($s['wallet_enabled'])): ?>
+            <div id="tix-wallet-promo-banner" style="background:linear-gradient(90deg,#0f172a,#1e293b);color:#fff;padding:14px 20px;border-radius:12px;margin:12px 0 16px;display:flex;align-items:center;gap:14px;box-shadow:0 4px 12px rgba(15,23,42,0.15);">
+                <div style="font-size:32px;line-height:1;">🪪</div>
+                <div style="flex:1;min-width:0;">
+                    <div style="font-size:14px;font-weight:700;margin-bottom:2px;">
+                        <span style="background:#FF5500;color:#fff;font-size:9px;padding:2px 6px;border-radius:6px;letter-spacing:0.05em;margin-right:6px;vertical-align:middle;">NEU</span>
+                        Apple Wallet &amp; Google Wallet sind jetzt einrichtbar
+                    </div>
+                    <div style="font-size:12px;opacity:0.75;line-height:1.5;">Tickets als Pass auf iPhone &amp; Android — Lock-Screen-Push, Geo-Reminder, kein PDF-Download mehr nötig.</div>
+                </div>
+                <button type="button" onclick="document.querySelector('.tix-nav-tab[data-tab=wallet]').click(); document.getElementById('tix-wallet-promo-banner').scrollIntoView({behavior:'smooth',block:'start'});"
+                        style="background:#FF5500;color:#fff;border:none;padding:10px 18px;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;white-space:nowrap;">
+                    🚀 Jetzt einrichten
+                </button>
+            </div>
+            <?php endif; ?>
+
             <form method="post" action="options.php" id="tix-settings-form">
                 <?php settings_fields('tix_settings_group'); ?>
 
@@ -2307,6 +2402,11 @@ class TIX_Settings {
 
                         <?php // ── TAB NAVIGATION ── ?>
                         <nav class="tix-nav">
+                            <button type="button" class="tix-nav-tab" data-tab="wallet" style="position:relative;">
+                                <span class="dashicons dashicons-id-alt"></span>
+                                <span class="tix-nav-label">Wallet</span>
+                                <span style="position:absolute;top:-4px;right:-4px;background:#FF5500;color:#fff;font-size:9px;font-weight:700;padding:2px 5px;border-radius:8px;line-height:1;letter-spacing:0.04em;">NEU</span>
+                            </button>
                             <button type="button" class="tix-nav-tab active" data-tab="design">
                                 <span class="dashicons dashicons-art"></span>
                                 <span class="tix-nav-label">Design</span>
@@ -2960,6 +3060,37 @@ class TIX_Settings {
                                             <?php self::text_row('bank_bic', 'BIC', $s, 'COBADEFFXXX'); ?>
                                             <?php self::text_row('bank_name', 'Bank', $s, 'Commerzbank'); ?>
                                             <?php self::text_row('bank_reference', 'Verwendungszweck-Hinweis', $s, 'Bestellnummer angeben'); ?>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Thank-You-Page ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-yes-alt"></span>
+                                        <h3>Thank-You-Page (Bestellbestätigung)</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <p class="tix-settings-hint" style="margin-top:0;">
+                                            Konfiguration der Seite die nach erfolgreicher Bestellung angezeigt wird.
+                                        </p>
+                                        <div class="tix-field-grid">
+                                            <?php self::text_row('ty_my_tickets_url', '"Meine Tickets"-Link (Hinweisbox)', $s, 'https://example.com/meine-tickets/'); ?>
+                                            <div class="tix-field tix-field-full">
+                                                <p class="tix-settings-hint">
+                                                    Wird in der hellblauen Hinweisbox auf der Thank-You-Page als „Meine Tickets-Bereich" verlinkt. Leer lassen → automatisch ermittelt (Page mit <code>[tix_my_tickets]</code>-Shortcode).
+                                                </p>
+                                            </div>
+                                            <div class="tix-field tix-field-full" style="border-top:1px solid #e5e7eb; padding-top:12px; margin-top:8px;">
+                                                <?php self::checkbox_row('ty_back_link_show', 'Zurück-Link am Ende der Seite anzeigen', $s, 'Zeigt unten einen Link zurück z.B. zur Eventliste oder Startseite.'); ?>
+                                            </div>
+                                            <?php self::text_row('ty_back_link_text', 'Zurück-Link-Text', $s, '← Zurück zu den Events'); ?>
+                                            <?php self::text_row('ty_back_link_url',  'Zurück-Link-URL', $s, 'https://example.com/programm/'); ?>
+                                            <div class="tix-field tix-field-full">
+                                                <p class="tix-settings-hint">
+                                                    URL leer lassen → führt zu <code>/events/</code>. Falls du keine Event-Übersichtsseite hast, eigene Ziel-URL angeben.
+                                                </p>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -7777,6 +7908,444 @@ class TIX_Settings {
 
                             </div>
 
+                            <?php // ═══ PANE: WALLET (Apple + Google) ═══ ?>
+                            <div class="tix-pane" data-pane="wallet">
+
+                                <?php // ── Status / Hinweis ── ?>
+                                <div class="tix-card" style="margin-bottom:16px;background:linear-gradient(135deg,#fef3c7,#fde68a);border-color:#f59e0b;">
+                                    <div class="tix-card-body" style="padding:16px 20px;">
+                                        <div style="display:flex;align-items:center;gap:12px;">
+                                            <span style="font-size:28px;">🚧</span>
+                                            <div>
+                                                <strong style="color:#78350f;display:block;margin-bottom:2px;">Funktion in Vorbereitung</strong>
+                                                <span style="color:#92400e;font-size:13px;">Die Wallet-Generierung ist noch nicht aktiv. Du kannst hier bereits alle Zugangsdaten und Branding-Optionen eintragen — sobald deine Apple- und Google-Accounts angelegt sind, lässt sich die Funktion ohne weitere Code-Änderungen scharfschalten.</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Master-Switch ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-id-alt"></span>
+                                        <h3>Wallet-Buttons</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <?php self::checkbox_row('wallet_enabled', 'Wallet-Funktion aktivieren', $s, 'Wenn aktiviert, werden die "Apple Wallet" / "Google Wallet"-Buttons auf den Tickets angezeigt. Beide Anbieter können separat aktiviert werden.'); ?>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Apple Wallet ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header" style="background:linear-gradient(90deg,#000,#1f2937);color:#fff;">
+                                        <span class="dashicons dashicons-smartphone" style="color:#fff;"></span>
+                                        <h3 style="color:#fff;">Apple Wallet (.pkpass)</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+
+                                        <details style="margin-bottom:16px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 14px;">
+                                            <summary style="cursor:pointer;font-weight:600;color:#0f172a;">📋 Voraussetzungen — was du vorher anlegen musst</summary>
+                                            <ol style="margin:10px 0 0 18px;font-size:13px;line-height:1.7;color:#475569;">
+                                                <li>Apple Developer Account ($99/Jahr) unter <a href="https://developer.apple.com/programs/" target="_blank">developer.apple.com</a></li>
+                                                <li>Pass Type ID erstellen unter <em>Certificates → Identifiers → Pass Type IDs</em> (z.B. <code>pass.de.deinedomain.ticket</code>)</li>
+                                                <li>Pass-Zertifikat erzeugen → <code>.cer</code> herunterladen → in Schlüsselbund importieren → als <code>.p12</code> exportieren</li>
+                                                <li>Apple WWDR Cert von <a href="https://www.apple.com/certificateauthority/" target="_blank">apple.com/certificateauthority</a> als <code>.pem</code> herunterladen</li>
+                                                <li>Beide Dateien per FTP/SSH in einen privaten Ordner auf den Server kopieren (NICHT in <code>/uploads/</code>!) — z.B. <code>/wp-content/tixomat-secrets/</code></li>
+                                            </ol>
+                                        </details>
+
+                                        <div class="tix-field-grid">
+                                            <?php self::checkbox_row('wallet_apple_enabled', 'Apple Wallet aktivieren', $s, 'Zeigt den Apple-Wallet-Button auf iOS-Geräten an.'); ?>
+                                        </div>
+
+                                        <h4 style="margin:18px 0 10px;font-size:13px;text-transform:uppercase;letter-spacing:0.04em;color:#6b7280;">Apple Developer Account</h4>
+                                        <div class="tix-field-grid">
+                                            <?php self::text_row('wallet_apple_pass_type_id', 'Pass Type Identifier', $s, 'pass.de.tixomat.ticket'); ?>
+                                            <?php self::text_row('wallet_apple_team_id', 'Apple Team Identifier', $s, 'ABC1234567'); ?>
+                                            <?php self::text_row('wallet_apple_org_name', 'Organisations-Name', $s, 'Tixomat GmbH'); ?>
+                                        </div>
+
+                                        <h4 style="margin:18px 0 10px;font-size:13px;text-transform:uppercase;letter-spacing:0.04em;color:#6b7280;">Zertifikate (Server-Pfade)</h4>
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <label class="tix-field-label">Pass-Zertifikat (.p12) Pfad</label>
+                                                <input type="text" name="<?php echo $ok; ?>[wallet_apple_cert_path]" value="<?php echo esc_attr($s['wallet_apple_cert_path'] ?? ''); ?>" class="regular-text" style="width:100%;font-family:monospace;" placeholder="/home/runcloud/webapps/.../wp-content/tixomat-secrets/pass.p12">
+                                                <p class="tix-field-hint">Absoluter Pfad zur exportierten <code>.p12</code>-Datei. <strong>Niemals in <code>/uploads/</code> ablegen</strong> — der Ordner ist öffentlich erreichbar.</p>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <label class="tix-field-label">Zertifikat-Passwort</label>
+                                                <input type="password" name="<?php echo $ok; ?>[wallet_apple_cert_password]" value="<?php echo esc_attr($s['wallet_apple_cert_password'] ?? ''); ?>" class="regular-text" style="width:100%;" placeholder="Passwort beim .p12-Export gesetzt" autocomplete="new-password">
+                                                <p class="tix-field-hint">Das Passwort, das du beim Exportieren der <code>.p12</code> aus dem Schlüsselbund vergeben hast.</p>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <label class="tix-field-label">WWDR-Zertifikat (.pem) Pfad</label>
+                                                <input type="text" name="<?php echo $ok; ?>[wallet_apple_wwdr_path]" value="<?php echo esc_attr($s['wallet_apple_wwdr_path'] ?? ''); ?>" class="regular-text" style="width:100%;font-family:monospace;" placeholder="/home/runcloud/webapps/.../wp-content/tixomat-secrets/wwdr.pem">
+                                                <p class="tix-field-hint">Apple Worldwide Developer Relations Certificate (Apple's Intermediate-Cert für Pass-Signaturen).</p>
+                                            </div>
+                                        </div>
+
+                                        <h4 style="margin:18px 0 10px;font-size:13px;text-transform:uppercase;letter-spacing:0.04em;color:#6b7280;">Branding</h4>
+                                        <div class="tix-field-grid">
+                                            <?php
+                                            self::media_url_row('wallet_apple_logo_url', 'Logo (160×50 PNG)', $s, 'Transparentes PNG, max. 160px breit. Wird oben links auf dem Pass angezeigt.');
+                                            self::media_url_row('wallet_apple_icon_url', 'Icon (29×29 PNG)', $s, 'Quadratisches Icon, wird in iOS-Notifications & Lock-Screen-Vorschau angezeigt.');
+                                            self::media_url_row('wallet_apple_strip_url', 'Strip-Bild (320×123 PNG, optional)', $s, 'Großflächiges Header-Bild. Leer = nur Hintergrundfarbe.');
+                                            ?>
+                                            <div class="tix-field-row">
+                                                <label class="tix-field-label">Hintergrundfarbe</label>
+                                                <div class="tix-field-input">
+                                                    <input type="color" name="<?php echo $ok; ?>[wallet_apple_bg_color]" value="<?php echo esc_attr($s['wallet_apple_bg_color'] ?? '#0f172a'); ?>" style="width:60px;height:36px;cursor:pointer;">
+                                                    <input type="text" value="<?php echo esc_attr($s['wallet_apple_bg_color'] ?? '#0f172a'); ?>" style="width:90px;font-family:monospace;" oninput="this.previousElementSibling.value=this.value">
+                                                </div>
+                                            </div>
+                                            <div class="tix-field-row">
+                                                <label class="tix-field-label">Textfarbe</label>
+                                                <div class="tix-field-input">
+                                                    <input type="color" name="<?php echo $ok; ?>[wallet_apple_fg_color]" value="<?php echo esc_attr($s['wallet_apple_fg_color'] ?? '#ffffff'); ?>" style="width:60px;height:36px;cursor:pointer;">
+                                                    <input type="text" value="<?php echo esc_attr($s['wallet_apple_fg_color'] ?? '#ffffff'); ?>" style="width:90px;font-family:monospace;" oninput="this.previousElementSibling.value=this.value">
+                                                </div>
+                                            </div>
+                                            <div class="tix-field-row">
+                                                <label class="tix-field-label">Label-Farbe</label>
+                                                <div class="tix-field-input">
+                                                    <input type="color" name="<?php echo $ok; ?>[wallet_apple_label_color]" value="<?php echo esc_attr($s['wallet_apple_label_color'] ?? '#cbd5e1'); ?>" style="width:60px;height:36px;cursor:pointer;">
+                                                    <input type="text" value="<?php echo esc_attr($s['wallet_apple_label_color'] ?? '#cbd5e1'); ?>" style="width:90px;font-family:monospace;" oninput="this.previousElementSibling.value=this.value">
+                                                    <p class="tix-field-desc">Farbe der kleinen Beschriftungen (z.B. "DATUM", "EINLASS").</p>
+                                                </div>
+                                            </div>
+                                            <div class="tix-field-row">
+                                                <label class="tix-field-label">Geo-Push-Radius</label>
+                                                <div class="tix-field-input">
+                                                    <input type="number" name="<?php echo $ok; ?>[wallet_apple_relevant_radius]" value="<?php echo esc_attr($s['wallet_apple_relevant_radius'] ?? 200); ?>" min="50" max="2000" step="50" style="width:90px;"> Meter
+                                                    <p class="tix-field-desc">Innerhalb dieses Radius um den Venue erscheint das Ticket automatisch auf dem Lock-Screen (z.B. 200m).</p>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <?php // ── Live-Vorschau Apple Wallet ── ?>
+                                        <h4 style="margin:24px 0 10px;font-size:13px;text-transform:uppercase;letter-spacing:0.04em;color:#6b7280;">Live-Vorschau</h4>
+                                        <div style="display:flex;justify-content:center;padding:30px 20px;background:linear-gradient(135deg,#f1f5f9,#e2e8f0);border-radius:14px;">
+                                            <div id="tix-apple-pass-preview" style="width:320px;max-width:100%;background:<?php echo esc_attr($s['wallet_apple_bg_color'] ?? '#0f172a'); ?>;color:<?php echo esc_attr($s['wallet_apple_fg_color'] ?? '#ffffff'); ?>;border-radius:14px;padding:14px 18px 18px;box-shadow:0 8px 24px rgba(0,0,0,0.18);font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text',sans-serif;position:relative;overflow:hidden;">
+                                                <!-- Header: Logo + Logo Text -->
+                                                <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+                                                    <?php if (!empty($s['wallet_apple_logo_url'])): ?>
+                                                        <img id="tix-aw-pv-logo" src="<?php echo esc_url($s['wallet_apple_logo_url']); ?>" style="max-height:30px;max-width:120px;width:auto;">
+                                                    <?php else: ?>
+                                                        <div id="tix-aw-pv-logo" style="height:30px;width:80px;background:rgba(255,255,255,0.12);border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:10px;color:<?php echo esc_attr($s['wallet_apple_label_color'] ?? '#cbd5e1'); ?>;">LOGO</div>
+                                                    <?php endif; ?>
+                                                    <div style="margin-left:auto;text-align:right;font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;opacity:0.85;" id="tix-aw-pv-org"><?php echo esc_html($s['wallet_apple_org_name'] ?? 'Tixomat'); ?></div>
+                                                </div>
+
+                                                <!-- Strip Image (optional) -->
+                                                <?php if (!empty($s['wallet_apple_strip_url'])): ?>
+                                                <div id="tix-aw-pv-strip-wrap" style="margin:0 -18px 12px;">
+                                                    <img id="tix-aw-pv-strip" src="<?php echo esc_url($s['wallet_apple_strip_url']); ?>" style="width:100%;height:auto;display:block;">
+                                                </div>
+                                                <?php else: ?>
+                                                <div id="tix-aw-pv-strip-wrap" style="display:none;margin:0 -18px 12px;">
+                                                    <img id="tix-aw-pv-strip" src="" style="width:100%;height:auto;display:block;">
+                                                </div>
+                                                <?php endif; ?>
+
+                                                <!-- Header Field: Event-Name -->
+                                                <div style="margin-bottom:14px;">
+                                                    <div style="font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;color:<?php echo esc_attr($s['wallet_apple_label_color'] ?? '#cbd5e1'); ?>;margin-bottom:2px;" class="tix-aw-pv-label">EVENT</div>
+                                                    <div style="font-size:18px;font-weight:600;line-height:1.15;">Mallorca Festival XXL</div>
+                                                </div>
+
+                                                <!-- Primary Field: Datum (groß) -->
+                                                <div style="margin-bottom:18px;">
+                                                    <div style="font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;color:<?php echo esc_attr($s['wallet_apple_label_color'] ?? '#cbd5e1'); ?>;margin-bottom:2px;" class="tix-aw-pv-label">DATUM</div>
+                                                    <div style="font-size:26px;font-weight:600;line-height:1;">Sa, 12. Sep</div>
+                                                </div>
+
+                                                <!-- Secondary fields row -->
+                                                <div style="display:flex;justify-content:space-between;gap:12px;margin-bottom:12px;">
+                                                    <div>
+                                                        <div style="font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;color:<?php echo esc_attr($s['wallet_apple_label_color'] ?? '#cbd5e1'); ?>;margin-bottom:1px;" class="tix-aw-pv-label">EINLASS</div>
+                                                        <div style="font-size:15px;font-weight:500;">19:00</div>
+                                                    </div>
+                                                    <div>
+                                                        <div style="font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;color:<?php echo esc_attr($s['wallet_apple_label_color'] ?? '#cbd5e1'); ?>;margin-bottom:1px;" class="tix-aw-pv-label">VENUE</div>
+                                                        <div style="font-size:15px;font-weight:500;">Megapark</div>
+                                                    </div>
+                                                </div>
+
+                                                <!-- Auxiliary fields row -->
+                                                <div style="display:flex;justify-content:space-between;gap:12px;margin-bottom:14px;">
+                                                    <div>
+                                                        <div style="font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;color:<?php echo esc_attr($s['wallet_apple_label_color'] ?? '#cbd5e1'); ?>;margin-bottom:1px;" class="tix-aw-pv-label">KATEGORIE</div>
+                                                        <div style="font-size:13px;font-weight:500;">VIP-Ticket</div>
+                                                    </div>
+                                                    <div>
+                                                        <div style="font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;color:<?php echo esc_attr($s['wallet_apple_label_color'] ?? '#cbd5e1'); ?>;margin-bottom:1px;" class="tix-aw-pv-label">NAME</div>
+                                                        <div style="font-size:13px;font-weight:500;">M. Mustermann</div>
+                                                    </div>
+                                                </div>
+
+                                                <!-- QR Code Placeholder -->
+                                                <div style="background:#fff;padding:10px;border-radius:6px;display:flex;align-items:center;justify-content:center;">
+                                                    <svg width="120" height="120" viewBox="0 0 120 120" style="display:block;">
+                                                        <rect width="120" height="120" fill="#fff"/>
+                                                        <g fill="#000">
+                                                            <!-- Korner-Detection-Pattern simulation -->
+                                                            <rect x="8" y="8" width="24" height="24"/><rect x="14" y="14" width="12" height="12" fill="#fff"/><rect x="18" y="18" width="4" height="4" fill="#000"/>
+                                                            <rect x="88" y="8" width="24" height="24"/><rect x="94" y="14" width="12" height="12" fill="#fff"/><rect x="98" y="18" width="4" height="4" fill="#000"/>
+                                                            <rect x="8" y="88" width="24" height="24"/><rect x="14" y="94" width="12" height="12" fill="#fff"/><rect x="18" y="98" width="4" height="4" fill="#000"/>
+                                                            <!-- Random data pattern -->
+                                                            <rect x="40" y="12" width="4" height="4"/><rect x="48" y="12" width="4" height="4"/><rect x="56" y="12" width="4" height="4"/><rect x="68" y="12" width="4" height="4"/><rect x="76" y="12" width="4" height="4"/>
+                                                            <rect x="40" y="20" width="4" height="4"/><rect x="52" y="20" width="4" height="4"/><rect x="64" y="20" width="4" height="4"/><rect x="80" y="20" width="4" height="4"/>
+                                                            <rect x="44" y="28" width="4" height="4"/><rect x="56" y="28" width="4" height="4"/><rect x="72" y="28" width="4" height="4"/><rect x="80" y="28" width="4" height="4"/>
+                                                            <rect x="40" y="40" width="4" height="4"/><rect x="48" y="40" width="4" height="4"/><rect x="56" y="40" width="4" height="4"/><rect x="64" y="40" width="4" height="4"/><rect x="76" y="40" width="4" height="4"/><rect x="84" y="40" width="4" height="4"/><rect x="92" y="40" width="4" height="4"/>
+                                                            <rect x="44" y="48" width="4" height="4"/><rect x="52" y="48" width="4" height="4"/><rect x="60" y="48" width="4" height="4"/><rect x="68" y="48" width="4" height="4"/><rect x="80" y="48" width="4" height="4"/><rect x="100" y="48" width="4" height="4"/>
+                                                            <rect x="40" y="56" width="4" height="4"/><rect x="56" y="56" width="4" height="4"/><rect x="72" y="56" width="4" height="4"/><rect x="84" y="56" width="4" height="4"/><rect x="92" y="56" width="4" height="4"/>
+                                                            <rect x="48" y="64" width="4" height="4"/><rect x="56" y="64" width="4" height="4"/><rect x="64" y="64" width="4" height="4"/><rect x="76" y="64" width="4" height="4"/><rect x="88" y="64" width="4" height="4"/>
+                                                            <rect x="40" y="72" width="4" height="4"/><rect x="52" y="72" width="4" height="4"/><rect x="68" y="72" width="4" height="4"/><rect x="80" y="72" width="4" height="4"/><rect x="96" y="72" width="4" height="4"/>
+                                                            <rect x="44" y="80" width="4" height="4"/><rect x="60" y="80" width="4" height="4"/><rect x="72" y="80" width="4" height="4"/><rect x="84" y="80" width="4" height="4"/><rect x="92" y="80" width="4" height="4"/><rect x="100" y="80" width="4" height="4"/>
+                                                            <rect x="40" y="92" width="4" height="4"/><rect x="48" y="92" width="4" height="4"/><rect x="68" y="92" width="4" height="4"/><rect x="80" y="92" width="4" height="4"/><rect x="100" y="92" width="4" height="4"/>
+                                                            <rect x="48" y="100" width="4" height="4"/><rect x="56" y="100" width="4" height="4"/><rect x="64" y="100" width="4" height="4"/><rect x="76" y="100" width="4" height="4"/><rect x="92" y="100" width="4" height="4"/>
+                                                        </g>
+                                                    </svg>
+                                                </div>
+                                                <div style="text-align:center;font-size:10px;font-family:Menlo,monospace;margin-top:6px;opacity:0.7;letter-spacing:0.1em;">TIX-A1B2-C3D4-E5F6</div>
+                                            </div>
+                                        </div>
+                                        <p class="tix-settings-hint" style="text-align:center;margin-top:10px;font-size:12px;">↑ So sieht dein Pass auf dem iPhone Lock-Screen aus (vereinfachte Vorschau)</p>
+
+                                        <script>
+                                        (function(){
+                                            // Live-Update der Apple-Wallet-Vorschau
+                                            var pv = document.getElementById('tix-apple-pass-preview');
+                                            if (!pv) return;
+                                            function getInput(name) { return document.querySelector('[name="<?php echo $ok; ?>['+name+']"]'); }
+                                            function bind(name, cb){
+                                                var el = getInput(name);
+                                                if (!el) return;
+                                                el.addEventListener('input', function(){ cb(el.value); });
+                                                el.addEventListener('change', function(){ cb(el.value); });
+                                            }
+                                            bind('wallet_apple_bg_color', function(v){ pv.style.background = v; });
+                                            bind('wallet_apple_fg_color', function(v){ pv.style.color = v; });
+                                            bind('wallet_apple_label_color', function(v){
+                                                pv.querySelectorAll('.tix-aw-pv-label').forEach(function(el){ el.style.color = v; });
+                                            });
+                                            bind('wallet_apple_org_name', function(v){
+                                                var el = document.getElementById('tix-aw-pv-org'); if (el) el.textContent = v || 'Tixomat';
+                                            });
+                                            bind('wallet_apple_logo_url', function(v){
+                                                var el = document.getElementById('tix-aw-pv-logo'); if (!el) return;
+                                                if (v) {
+                                                    var img = document.createElement('img');
+                                                    img.id = 'tix-aw-pv-logo';
+                                                    img.src = v; img.style.cssText = 'max-height:30px;max-width:120px;width:auto;';
+                                                    el.replaceWith(img);
+                                                } else {
+                                                    var div = document.createElement('div');
+                                                    div.id = 'tix-aw-pv-logo';
+                                                    div.style.cssText = 'height:30px;width:80px;background:rgba(255,255,255,0.12);border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:10px;';
+                                                    div.textContent = 'LOGO';
+                                                    el.replaceWith(div);
+                                                }
+                                            });
+                                            bind('wallet_apple_strip_url', function(v){
+                                                var wrap = document.getElementById('tix-aw-pv-strip-wrap');
+                                                var img  = document.getElementById('tix-aw-pv-strip');
+                                                if (!wrap || !img) return;
+                                                if (v) { img.src = v; wrap.style.display = 'block'; }
+                                                else   { img.src = ''; wrap.style.display = 'none'; }
+                                            });
+                                        })();
+                                        </script>
+
+                                    </div>
+                                </div>
+
+                                <?php // ── Google Wallet ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header" style="background:linear-gradient(90deg,#1a73e8,#4285f4);color:#fff;">
+                                        <span class="dashicons dashicons-cloud" style="color:#fff;"></span>
+                                        <h3 style="color:#fff;">Google Wallet</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+
+                                        <details style="margin-bottom:16px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 14px;">
+                                            <summary style="cursor:pointer;font-weight:600;color:#0f172a;">📋 Voraussetzungen — was du vorher anlegen musst</summary>
+                                            <ol style="margin:10px 0 0 18px;font-size:13px;line-height:1.7;color:#475569;">
+                                                <li>Google Cloud Console Account → Projekt erstellen unter <a href="https://console.cloud.google.com/" target="_blank">console.cloud.google.com</a></li>
+                                                <li>Google Wallet API aktivieren (im Projekt → APIs &amp; Services → Library → "Google Wallet API")</li>
+                                                <li>Service Account erstellen (IAM &amp; Admin → Service Accounts) → JSON-Key herunterladen</li>
+                                                <li>Issuer-Account beantragen unter <a href="https://wallet.google.com/business/issuersignup" target="_blank">wallet.google.com/business/issuersignup</a> (kostenlos, 1–3 Tage Wartezeit)</li>
+                                                <li>Service-Account-E-Mail beim Issuer als Berechtigter hinterlegen</li>
+                                                <li>Aus der heruntergeladenen JSON-Datei die Felder <code>client_email</code> und <code>private_key</code> hier eintragen</li>
+                                            </ol>
+                                        </details>
+
+                                        <div class="tix-field-grid">
+                                            <?php self::checkbox_row('wallet_google_enabled', 'Google Wallet aktivieren', $s, 'Zeigt den Google-Wallet-Button auf Android-/Chrome-Geräten an.'); ?>
+                                        </div>
+
+                                        <h4 style="margin:18px 0 10px;font-size:13px;text-transform:uppercase;letter-spacing:0.04em;color:#6b7280;">Google Cloud Service Account</h4>
+                                        <div class="tix-field-grid">
+                                            <?php self::text_row('wallet_google_issuer_id', 'Issuer ID', $s, '3388000000022000000'); ?>
+                                            <?php self::text_row('wallet_google_service_email', 'Service-Account E-Mail', $s, 'wallet@projekt-xyz.iam.gserviceaccount.com'); ?>
+                                            <div class="tix-field tix-field-full">
+                                                <label class="tix-field-label">Private Key (PEM)</label>
+                                                <textarea name="<?php echo $ok; ?>[wallet_google_service_key]" rows="8" class="regular-text" style="width:100%;font-family:monospace;font-size:11px;" placeholder="-----BEGIN PRIVATE KEY-----&#10;MIIEvQIBADAN...&#10;-----END PRIVATE KEY-----" autocomplete="off"><?php echo esc_textarea($s['wallet_google_service_key'] ?? ''); ?></textarea>
+                                                <p class="tix-field-hint">Aus der heruntergeladenen JSON-Datei das Feld <code>private_key</code> komplett kopieren (inkl. <code>-----BEGIN/END-----</code>-Zeilen). <strong>Niemals weitergeben.</strong></p>
+                                            </div>
+                                            <?php self::text_row('wallet_google_class_suffix', 'Class-ID Suffix', $s, 'tixomat-event-ticket'); ?>
+                                        </div>
+
+                                        <h4 style="margin:18px 0 10px;font-size:13px;text-transform:uppercase;letter-spacing:0.04em;color:#6b7280;">Branding</h4>
+                                        <div class="tix-field-grid">
+                                            <?php
+                                            self::media_url_row('wallet_google_logo_url', 'Logo (660×660 PNG)', $s, 'Quadratisches Logo, wird klein im Pass angezeigt.');
+                                            self::media_url_row('wallet_google_hero_url', 'Hero-Bild (1860×600 PNG)', $s, 'Großflächiges Header-Bild oben im Pass.');
+                                            ?>
+                                            <div class="tix-field-row">
+                                                <label class="tix-field-label">Hintergrundfarbe</label>
+                                                <div class="tix-field-input">
+                                                    <input type="color" name="<?php echo $ok; ?>[wallet_google_bg_color]" value="<?php echo esc_attr($s['wallet_google_bg_color'] ?? '#0f172a'); ?>" style="width:60px;height:36px;cursor:pointer;">
+                                                    <input type="text" value="<?php echo esc_attr($s['wallet_google_bg_color'] ?? '#0f172a'); ?>" style="width:90px;font-family:monospace;" oninput="this.previousElementSibling.value=this.value">
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <?php // ── Live-Vorschau Google Wallet ── ?>
+                                        <h4 style="margin:24px 0 10px;font-size:13px;text-transform:uppercase;letter-spacing:0.04em;color:#6b7280;">Live-Vorschau</h4>
+                                        <div style="display:flex;justify-content:center;padding:30px 20px;background:linear-gradient(135deg,#f1f5f9,#e2e8f0);border-radius:14px;">
+                                            <div id="tix-google-pass-preview" style="width:340px;max-width:100%;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 8px 24px rgba(0,0,0,0.18);font-family:'Google Sans','Roboto',-apple-system,sans-serif;">
+                                                <!-- Header bar with bg color -->
+                                                <div id="tix-gw-pv-header" style="background:<?php echo esc_attr($s['wallet_google_bg_color'] ?? '#0f172a'); ?>;padding:14px 18px;display:flex;align-items:center;gap:12px;">
+                                                    <?php if (!empty($s['wallet_google_logo_url'])): ?>
+                                                        <img id="tix-gw-pv-logo" src="<?php echo esc_url($s['wallet_google_logo_url']); ?>" style="width:36px;height:36px;border-radius:50%;background:#fff;object-fit:contain;padding:4px;">
+                                                    <?php else: ?>
+                                                        <div id="tix-gw-pv-logo" style="width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,0.18);display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px;font-weight:600;">T</div>
+                                                    <?php endif; ?>
+                                                    <div style="color:#fff;flex:1;min-width:0;">
+                                                        <div style="font-size:11px;opacity:0.7;text-transform:uppercase;letter-spacing:0.04em;">Event-Ticket</div>
+                                                        <div style="font-size:14px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" id="tix-gw-pv-orgline">Tixomat</div>
+                                                    </div>
+                                                </div>
+
+                                                <!-- Hero image (optional) -->
+                                                <?php if (!empty($s['wallet_google_hero_url'])): ?>
+                                                    <img id="tix-gw-pv-hero" src="<?php echo esc_url($s['wallet_google_hero_url']); ?>" style="width:100%;height:120px;object-fit:cover;display:block;">
+                                                <?php else: ?>
+                                                    <img id="tix-gw-pv-hero" src="" style="width:100%;height:120px;object-fit:cover;display:none;">
+                                                <?php endif; ?>
+
+                                                <!-- Body content -->
+                                                <div style="padding:16px 18px;color:#202124;">
+                                                    <div style="font-size:11px;color:#5f6368;text-transform:uppercase;letter-spacing:0.05em;font-weight:500;">Event</div>
+                                                    <div style="font-size:18px;font-weight:500;color:#202124;line-height:1.2;margin-bottom:14px;">Mallorca Festival XXL</div>
+
+                                                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;">
+                                                        <div>
+                                                            <div style="font-size:11px;color:#5f6368;font-weight:500;">DATUM</div>
+                                                            <div style="font-size:14px;color:#202124;">Sa, 12.09.</div>
+                                                        </div>
+                                                        <div>
+                                                            <div style="font-size:11px;color:#5f6368;font-weight:500;">EINLASS</div>
+                                                            <div style="font-size:14px;color:#202124;">19:00 Uhr</div>
+                                                        </div>
+                                                        <div>
+                                                            <div style="font-size:11px;color:#5f6368;font-weight:500;">VENUE</div>
+                                                            <div style="font-size:14px;color:#202124;">Megapark</div>
+                                                        </div>
+                                                        <div>
+                                                            <div style="font-size:11px;color:#5f6368;font-weight:500;">KATEGORIE</div>
+                                                            <div style="font-size:14px;color:#202124;">VIP-Ticket</div>
+                                                        </div>
+                                                    </div>
+
+                                                    <!-- Barcode area -->
+                                                    <div style="border-top:1px solid #e8eaed;margin-top:6px;padding-top:14px;display:flex;flex-direction:column;align-items:center;">
+                                                        <svg width="190" height="58" viewBox="0 0 190 58" style="display:block;">
+                                                            <rect width="190" height="58" fill="#fff"/>
+                                                            <g fill="#202124">
+                                                                <rect x="2" y="6" width="2" height="46"/><rect x="6" y="6" width="1" height="46"/><rect x="9" y="6" width="3" height="46"/>
+                                                                <rect x="14" y="6" width="1" height="46"/><rect x="17" y="6" width="2" height="46"/><rect x="22" y="6" width="3" height="46"/>
+                                                                <rect x="27" y="6" width="1" height="46"/><rect x="30" y="6" width="2" height="46"/><rect x="34" y="6" width="1" height="46"/>
+                                                                <rect x="37" y="6" width="3" height="46"/><rect x="42" y="6" width="2" height="46"/><rect x="46" y="6" width="1" height="46"/>
+                                                                <rect x="49" y="6" width="2" height="46"/><rect x="53" y="6" width="3" height="46"/><rect x="58" y="6" width="1" height="46"/>
+                                                                <rect x="61" y="6" width="2" height="46"/><rect x="65" y="6" width="3" height="46"/><rect x="70" y="6" width="1" height="46"/>
+                                                                <rect x="73" y="6" width="2" height="46"/><rect x="77" y="6" width="1" height="46"/><rect x="80" y="6" width="3" height="46"/>
+                                                                <rect x="85" y="6" width="2" height="46"/><rect x="89" y="6" width="1" height="46"/><rect x="92" y="6" width="3" height="46"/>
+                                                                <rect x="97" y="6" width="1" height="46"/><rect x="100" y="6" width="2" height="46"/><rect x="104" y="6" width="3" height="46"/>
+                                                                <rect x="109" y="6" width="1" height="46"/><rect x="112" y="6" width="2" height="46"/><rect x="116" y="6" width="1" height="46"/>
+                                                                <rect x="119" y="6" width="3" height="46"/><rect x="124" y="6" width="2" height="46"/><rect x="128" y="6" width="1" height="46"/>
+                                                                <rect x="131" y="6" width="2" height="46"/><rect x="135" y="6" width="3" height="46"/><rect x="140" y="6" width="1" height="46"/>
+                                                                <rect x="143" y="6" width="2" height="46"/><rect x="147" y="6" width="3" height="46"/><rect x="152" y="6" width="1" height="46"/>
+                                                                <rect x="155" y="6" width="2" height="46"/><rect x="159" y="6" width="1" height="46"/><rect x="162" y="6" width="3" height="46"/>
+                                                                <rect x="167" y="6" width="2" height="46"/><rect x="171" y="6" width="3" height="46"/><rect x="176" y="6" width="1" height="46"/>
+                                                                <rect x="179" y="6" width="2" height="46"/><rect x="183" y="6" width="3" height="46"/>
+                                                            </g>
+                                                        </svg>
+                                                        <div style="font-size:11px;font-family:'Roboto Mono',monospace;color:#5f6368;margin-top:6px;letter-spacing:0.08em;">TIX-A1B2-C3D4-E5F6</div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <p class="tix-settings-hint" style="text-align:center;margin-top:10px;font-size:12px;">↑ So sieht dein Pass in Google Wallet aus (vereinfachte Vorschau)</p>
+
+                                        <script>
+                                        (function(){
+                                            var pv = document.getElementById('tix-google-pass-preview');
+                                            if (!pv) return;
+                                            function getInput(name) { return document.querySelector('[name="<?php echo $ok; ?>['+name+']"]'); }
+                                            function bind(name, cb){
+                                                var el = getInput(name);
+                                                if (!el) return;
+                                                el.addEventListener('input', function(){ cb(el.value); });
+                                                el.addEventListener('change', function(){ cb(el.value); });
+                                            }
+                                            bind('wallet_google_bg_color', function(v){
+                                                var h = document.getElementById('tix-gw-pv-header');
+                                                if (h) h.style.background = v;
+                                            });
+                                            bind('wallet_google_logo_url', function(v){
+                                                var el = document.getElementById('tix-gw-pv-logo'); if (!el) return;
+                                                if (v) {
+                                                    var img = document.createElement('img');
+                                                    img.id = 'tix-gw-pv-logo';
+                                                    img.src = v;
+                                                    img.style.cssText = 'width:36px;height:36px;border-radius:50%;background:#fff;object-fit:contain;padding:4px;';
+                                                    el.replaceWith(img);
+                                                } else {
+                                                    var div = document.createElement('div');
+                                                    div.id = 'tix-gw-pv-logo';
+                                                    div.style.cssText = 'width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,0.18);display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px;font-weight:600;';
+                                                    div.textContent = 'T';
+                                                    el.replaceWith(div);
+                                                }
+                                            });
+                                            bind('wallet_google_hero_url', function(v){
+                                                var el = document.getElementById('tix-gw-pv-hero');
+                                                if (!el) return;
+                                                if (v) { el.src = v; el.style.display = 'block'; }
+                                                else   { el.src = ''; el.style.display = 'none'; }
+                                            });
+                                        })();
+                                        </script>
+
+                                    </div>
+                                </div>
+
+                                <?php // ── Bottom-Hinweis ── ?>
+                                <div class="tix-card" style="background:#f0f9ff;border-color:#bae6fd;">
+                                    <div class="tix-card-body">
+                                        <p style="margin:0;font-size:13px;color:#075985;line-height:1.6;">
+                                            <span style="font-size:18px;vertical-align:middle;">💡</span>
+                                            <strong>Was passiert wenn das aktiv ist?</strong> Auf jedem Ticket erscheint je ein Button für Apple bzw. Google Wallet. Klick → das Plugin generiert ein signiertes Pass-Paket (<code>.pkpass</code> bzw. JWT-Save-Link), das der Nutzer ohne Konto in seine Wallet hinzufügen kann. Dort sind QR-Code, Datum, Venue, Sitzplatz und dein Branding sofort verfügbar — auch offline am Eingang.
+                                        </p>
+                                    </div>
+                                </div>
+
+                            </div>
+
                         </div><?php // .tix-content ?>
 
                         <div class="tix-settings-submit">
@@ -7811,14 +8380,33 @@ class TIX_Settings {
                 }.bind(tab));
             });
 
-            // Restore saved tab
-            if (window.sessionStorage) {
-                var saved = sessionStorage.getItem('tix_settings_tab');
-                if (saved) {
-                    var btn = app.querySelector('.tix-nav-tab[data-tab="' + saved + '"]');
-                    if (btn) btn.click();
+            // Restore saved tab — URL-Hash (#wallet) hat Vorrang vor sessionStorage
+            (function() {
+                var hash = (window.location.hash || '').replace(/^#/, '');
+                if (hash) {
+                    var hashBtn = app.querySelector('.tix-nav-tab[data-tab="' + hash + '"]');
+                    if (hashBtn) {
+                        hashBtn.click();
+                        // Sicherstellen dass der "Mehr"-Bereich aufklappt falls Tab dort liegt
+                        var moreTabs = document.getElementById('tix-settings-more-tabs');
+                        if (moreTabs && moreTabs.contains(hashBtn) && !moreTabs.classList.contains('tix-settings-more-open')) {
+                            var moreBtn = document.getElementById('tix-settings-more-btn');
+                            moreTabs.classList.add('tix-settings-more-open');
+                            if (moreBtn) moreBtn.classList.add('active');
+                        }
+                        // Smoothscroll zum Tab
+                        try { hashBtn.scrollIntoView({behavior: 'smooth', block: 'nearest', inline: 'center'}); } catch(e) {}
+                        return;
+                    }
                 }
-            }
+                if (window.sessionStorage) {
+                    var saved = sessionStorage.getItem('tix_settings_tab');
+                    if (saved) {
+                        var btn = app.querySelector('.tix-nav-tab[data-tab="' + saved + '"]');
+                        if (btn) btn.click();
+                    }
+                }
+            })();
 
             // ══════════════════════════════════════
             // Share-Kanäle Checkboxen → Hidden-Field
@@ -8977,6 +9565,70 @@ class TIX_Settings {
         <?php endif;
     }
 
+    /**
+     * Bild-URL-Feld mit Media-Library-Picker und Vorschau.
+     * Ergänzt automatisch JS für den Picker — globaler Helper, eindeutig per key.
+     */
+    private static function media_url_row($key, $label, $s, $hint = '') {
+        $val  = $s[$key] ?? '';
+        $name = self::OPTION_KEY . "[$key]";
+        $field_id = 'tix-media-' . sanitize_key($key);
+        ?>
+        <div class="tix-field tix-field-full">
+            <label class="tix-field-label"><?php echo esc_html($label); ?></label>
+            <div style="display:flex;gap:8px;align-items:center;">
+                <input type="text" id="<?php echo esc_attr($field_id); ?>" name="<?php echo esc_attr($name); ?>"
+                       value="<?php echo esc_attr($val); ?>"
+                       class="regular-text" style="flex:1;" placeholder="https://...">
+                <button type="button" class="button" data-tix-media-pick="<?php echo esc_attr($field_id); ?>">Bild wählen</button>
+                <?php if ($val): ?><button type="button" class="button-link" style="color:#ef4444;" data-tix-media-clear="<?php echo esc_attr($field_id); ?>">Entfernen</button><?php endif; ?>
+            </div>
+            <?php if ($val): ?>
+                <div style="margin-top:8px;" id="<?php echo esc_attr($field_id); ?>-preview">
+                    <img src="<?php echo esc_url($val); ?>" style="max-height:60px;width:auto;background:#0f172a;padding:6px 10px;border-radius:6px;">
+                </div>
+            <?php endif; ?>
+            <?php if ($hint): ?><p class="tix-field-hint"><?php echo $hint; ?></p><?php endif; ?>
+        </div>
+        <script>
+        (function(){
+            if (window.tixMediaPickerInit) return;
+            window.tixMediaPickerInit = true;
+            jQuery(document).on('click', '[data-tix-media-pick]', function(e){
+                e.preventDefault();
+                var fieldId = this.getAttribute('data-tix-media-pick');
+                var input = document.getElementById(fieldId);
+                if (!input) return;
+                var frame = wp.media({title:'Bild wählen',multiple:false,library:{type:'image'}});
+                frame.on('select', function(){
+                    var url = frame.state().get('selection').first().toJSON().url;
+                    input.value = url;
+                    var prev = document.getElementById(fieldId + '-preview');
+                    if (prev) {
+                        prev.innerHTML = '<img src="' + url + '" style="max-height:60px;width:auto;background:#0f172a;padding:6px 10px;border-radius:6px;">';
+                    } else {
+                        var d = document.createElement('div');
+                        d.id = fieldId + '-preview';
+                        d.style.marginTop = '8px';
+                        d.innerHTML = '<img src="' + url + '" style="max-height:60px;width:auto;background:#0f172a;padding:6px 10px;border-radius:6px;">';
+                        input.parentNode.parentNode.appendChild(d);
+                    }
+                });
+                frame.open();
+            });
+            jQuery(document).on('click', '[data-tix-media-clear]', function(e){
+                e.preventDefault();
+                var fieldId = this.getAttribute('data-tix-media-clear');
+                var input = document.getElementById(fieldId);
+                if (input) input.value = '';
+                var prev = document.getElementById(fieldId + '-preview');
+                if (prev) prev.remove();
+            });
+        })();
+        </script>
+        <?php
+    }
+
     // ═══════════════════════════════════════════════════════════
     // Per-Class Typografie Registry
     // ═══════════════════════════════════════════════════════════
@@ -10039,6 +10691,13 @@ class TIX_Settings {
                 'tix-up-badge-postponed'   => ['label' => 'Badge: Verschoben',  'props' => ['bg' => 'rgba(59,130,246,0.85)']],
                 'tix-up-card-img'       => ['label' => 'Karten-Bild',           'props' => ['bg' => 'rgba(255,255,255,0.03)']],
                 'tix-up-card-noimg'     => ['label' => 'Kein-Bild-Icon',        'props' => ['color' => 'rgba(255,255,255,0.2)']],
+            ],
+            'Magic-Link Login' => [
+                'tix-magic-block'        => ['label' => 'Box',                  'props' => ['bg' => '#ffffff', 'border' => '#e2e8f0']],
+                'tix-magic-title'        => ['label' => 'Überschrift',          'props' => ['color' => '#0f172a']],
+                'tix-magic-text'         => ['label' => 'Beschreibungstext',    'props' => ['color' => '#64748b']],
+                'tix-magic-input'        => ['label' => 'Eingabefeld',          'props' => ['bg' => '#ffffff', 'color' => '#0f172a', 'border' => '#cbd5e1']],
+                'tix-magic-btn'          => ['label' => 'Button',               'props' => ['bg' => '#0284c7', 'color' => '#ffffff']],
             ],
         ];
     }

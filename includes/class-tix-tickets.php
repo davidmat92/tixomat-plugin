@@ -51,6 +51,90 @@ class TIX_Tickets {
         add_action('wp_ajax_nopriv_tix_ticket_verify', [__CLASS__, 'ajax_ticket_verify']);
         // Admin: manueller Check-in aus "Verkaufte Tickets" (gleicher Backend-Pfad wie Scanner)
         add_action('wp_ajax_tix_admin_checkin_toggle', [__CLASS__, 'ajax_admin_checkin_toggle']);
+
+        // ── GHOST-ORDER-SWEEP (Hourly Cron) ──
+        // Watchdog: scannt completed/processing Orders der letzten 7 Tage und heilt
+        // jene ohne Tickets. Schickt Bestätigungsmail mit, falls noch keine versendet.
+        add_action('tix_heal_ghost_orders', [__CLASS__, 'cron_heal_ghost_orders']);
+        if (!wp_next_scheduled('tix_heal_ghost_orders')) {
+            wp_schedule_event(time() + 600, 'hourly', 'tix_heal_ghost_orders');
+        }
+    }
+
+    /**
+     * Cron-Sweep: findet Geister-Bestellungen (completed/processing aber ohne Tickets)
+     * der letzten 7 Tage und heilt sie. Sendet Bestätigungsmail mit, falls Marker fehlt.
+     *
+     * Läuft stündlich via WP-Cron. Idempotent — keine Duplikate dank Guard
+     * in on_native_order_completed.
+     */
+    public static function cron_heal_ghost_orders() {
+        global $wpdb;
+        $t  = $wpdb->prefix . 'tix_orders';
+        $ti = $wpdb->prefix . 'tix_order_items';
+        $pm = $wpdb->prefix . 'postmeta';
+        $p  = $wpdb->prefix . 'posts';
+
+        // Bestellungen der letzten 7 Tage, completed/processing, mit Items, OHNE Tickets, native (wc_order_id=0)
+        $cutoff = gmdate('Y-m-d H:i:s', time() - 7 * DAY_IN_SECONDS);
+        $rows = $wpdb->get_results($wpdb->prepare("
+            SELECT o.id, o.billing_email, o.order_number
+            FROM $t o
+            INNER JOIN $ti i ON i.order_id = o.id
+            LEFT JOIN $p tickets_p
+                ON tickets_p.post_type = 'tix_ticket'
+            LEFT JOIN $pm tickets_pm
+                ON tickets_pm.post_id = tickets_p.ID
+                AND tickets_pm.meta_key = '_tix_ticket_order_id'
+                AND tickets_pm.meta_value = CAST(o.id AS CHAR)
+            WHERE o.status IN ('completed','processing')
+              AND o.wc_order_id = 0
+              AND o.date_created >= %s
+            GROUP BY o.id
+            HAVING COUNT(DISTINCT tickets_pm.post_id) = 0
+            LIMIT 50
+        ", $cutoff));
+
+        // Telemetrie: jeden Sweep-Run loggen (auch wenn 0 gefunden)
+        update_option('tix_heal_sweep_last_run', current_time('mysql'));
+
+        if (empty($rows)) {
+            update_option('tix_heal_sweep_last_count', 0);
+            return;
+        }
+
+        foreach ($rows as $row) {
+            $order_id = intval($row->id);
+            // Tickets erstellen (Guard verhindert Duplikate)
+            self::on_native_order_completed($order_id);
+
+            // Prüfen ob es geklappt hat
+            $created = (new WP_Query([
+                'post_type'      => 'tix_ticket',
+                'post_status'    => 'any',
+                'posts_per_page' => 1,
+                'fields'         => 'ids',
+                'meta_key'       => '_tix_ticket_order_id',
+                'meta_value'     => $order_id,
+            ]))->found_posts;
+
+            if ($created > 0) {
+                if (class_exists('TIX_Order_Admin')) {
+                    TIX_Order_Admin::add_note($order_id, '🤖 Cron-Sweep: Geister-Bestellung erkannt und geheilt — Tickets nachgeneriert.', 'system');
+                }
+                // Bestätigungsmail nur senden wenn noch nicht versendet
+                $email_sent = get_post_meta($order_id, '_tix_completed_email_sent', true);
+                if (!$email_sent && class_exists('TIX_Emails') && method_exists('TIX_Emails', 'send_native_completed')) {
+                    TIX_Emails::send_native_completed($order_id);
+                    if (class_exists('TIX_Order_Admin')) {
+                        TIX_Order_Admin::add_note($order_id, '📧 Cron-Sweep: Bestätigungsmail mit nachgenerierten Tickets versendet.', 'email');
+                    }
+                }
+            }
+        }
+
+        // Telemetrie: Anzahl geheilte Orders speichern (last_run schon oben gesetzt)
+        update_option('tix_heal_sweep_last_count', count($rows));
     }
 
     // ══════════════════════════════════════════════
@@ -958,10 +1042,15 @@ class TIX_Tickets {
      * Legacy HTML-Ticket (Fallback ohne Template)
      */
     private static function render_legacy_html($ticket_id) {
-        $code       = get_post_meta($ticket_id, '_tix_ticket_code', true);
-        $event_id   = intval(get_post_meta($ticket_id, '_tix_ticket_event_id', true));
-        $cat_index  = intval(get_post_meta($ticket_id, '_tix_ticket_cat_index', true));
-        $owner_name = get_post_meta($ticket_id, '_tix_ticket_owner_name', true);
+        $code         = get_post_meta($ticket_id, '_tix_ticket_code', true);
+        $event_id     = intval(get_post_meta($ticket_id, '_tix_ticket_event_id', true));
+        $cat_index_raw = get_post_meta($ticket_id, '_tix_ticket_cat_index', true);
+        // -1 = "noch nicht ermittelt" (leerer Meta-Wert würde sonst auf Index 0 = Standard fallen)
+        $cat_index    = ($cat_index_raw === '' || $cat_index_raw === false || $cat_index_raw === null)
+            ? -1
+            : intval($cat_index_raw);
+        $cat_name_meta = get_post_meta($ticket_id, '_tix_ticket_cat_name', true);
+        $owner_name   = get_post_meta($ticket_id, '_tix_ticket_owner_name', true);
 
         $event = get_post($event_id);
         if (!$event) wp_die('Event nicht gefunden.', 'Fehler', ['response' => 404]);
@@ -973,11 +1062,13 @@ class TIX_Tickets {
         $location   = get_post_meta($event_id, '_tix_location', true);
         $address    = get_post_meta($event_id, '_tix_address', true);
 
-        // Kategorie-Name + tatsächlich bezahlter Preis
+        // Kategorie-Name: bevorzugt aus Meta `_tix_ticket_cat_name`, sonst per cat_index aus Event-Categories
         $cats     = get_post_meta($event_id, '_tix_ticket_categories', true);
         $cat_name = '';
         $price    = '';
-        if (is_array($cats) && isset($cats[$cat_index])) {
+        if ($cat_name_meta) {
+            $cat_name = $cat_name_meta;
+        } elseif (is_array($cats) && $cat_index >= 0 && isset($cats[$cat_index])) {
             $cat_name = $cats[$cat_index]['name'] ?? '';
         }
         // Bezahlten Preis vom Ticket-Post holen (nicht Kategoriepreis)
@@ -2749,14 +2840,23 @@ class TIX_Tickets {
                     &#128228; Teilen
                 </button>
             </div>
+            <?php
+            // Wallet-Buttons: immer anzeigen (wenn ht_action_wallets an).
+            // Wenn TIX_Wallet ready → echter Pass-Download / Save-Link.
+            // Wenn nicht konfiguriert → JS-Fallback zeigt "Bald verfügbar"-Modal.
+            $_w_apple_ready  = class_exists('TIX_Wallet') && TIX_Wallet::is_apple_ready();
+            $_w_google_ready = class_exists('TIX_Wallet') && TIX_Wallet::is_google_ready();
+            $_apple_href  = ($_w_apple_ready  && !empty($ticket_id)) ? TIX_Wallet::get_apple_pass_url($ticket_id)  : '';
+            $_google_href = ($_w_google_ready && !empty($ticket_id)) ? TIX_Wallet::get_google_save_url($ticket_id) : '';
+            ?>
             <?php if (!empty($ht_action_wallets)): ?>
             <div class="tix-ticket-actions-row">
-                <button type="button" class="btn-base" onclick="tixWalletShow('apple')"
+                <button type="button" class="btn-base" onclick="tixWalletShow('apple', this)" data-ticket-id="<?php echo esc_attr($ticket_id ?? 0); ?>"<?php if ($_apple_href): ?> data-href="<?php echo esc_url($_apple_href); ?>"<?php endif; ?>
                         style="background:#000;color:#fff;border:none;">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M17.1 12.5c0-2.4 2-3.5 2.1-3.6-1.1-1.6-2.9-1.9-3.5-1.9-1.5-.2-2.9.9-3.7.9-.8 0-1.9-.9-3.2-.9-1.6 0-3.2 1-4 2.4-1.7 3-.4 7.5 1.3 10 .8 1.2 1.8 2.5 3 2.5 1.2 0 1.7-.8 3.1-.8 1.5 0 1.9.8 3.1.8 1.3 0 2.2-1.2 3-2.5.9-1.4 1.3-2.8 1.3-2.9-.1 0-2.5-.9-2.5-3.9zM14.6 5c.7-.8 1.1-1.9 1-3-1 0-2.1.7-2.8 1.5-.6.7-1.2 1.8-1 2.8 1.1.1 2.2-.6 2.8-1.3z"/></svg>
                     Apple Wallet
                 </button>
-                <button type="button" class="btn-base" onclick="tixWalletShow('google')"
+                <button type="button" class="btn-base" onclick="tixWalletShow('google', this)" data-ticket-id="<?php echo esc_attr($ticket_id ?? 0); ?>"<?php if ($_google_href): ?> data-href="<?php echo esc_url($_google_href); ?>"<?php endif; ?>
                         style="background:#fff;color:#1f2937;border:1px solid #e5e7eb;">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
                     Google Wallet
@@ -5441,6 +5541,26 @@ class TIX_Tickets {
             $seatmap_id = intval($meta['seatmap_id'] ?? 0);
             $has_seats  = is_array($seat_ids) && !empty($seat_ids);
 
+            // Special-Erkennung
+            $is_special = !empty($meta['special']);
+            $special_id = intval($meta['special_id'] ?? 0);
+            $cat_index  = isset($item->cat_index) && $item->cat_index !== null && $item->cat_index !== ''
+                ? intval($item->cat_index)
+                : -1;
+
+            // Fallback: wenn cat_index nicht in DB-Spalte, via cat_name in Event-Categories suchen
+            if ($cat_index < 0 && !empty($item->cat_name)) {
+                $event_cats = get_post_meta($event_id, '_tix_ticket_categories', true);
+                if (is_array($event_cats)) {
+                    foreach ($event_cats as $eci => $ec) {
+                        if (isset($ec['name']) && trim((string) $ec['name']) === trim((string) $item->cat_name)) {
+                            $cat_index = $eci;
+                            break;
+                        }
+                    }
+                }
+            }
+
             for ($i = 0; $i < $qty; $i++) {
                 $code = self::generate_ticket_code();
                 $download_token = hash('sha256', $code . wp_generate_password(32, true, true));
@@ -5466,6 +5586,18 @@ class TIX_Tickets {
                 update_post_meta($ticket_id, '_tix_ticket_price', $item->total / max(1, $qty));
                 update_post_meta($ticket_id, '_tix_ticket_status', 'valid'); // WICHTIG: ohne diese Meta würden Dashboard-Queries Tickets nicht zählen
                 update_post_meta($ticket_id, '_tix_ticket_checked_in', 0);
+                if ($cat_index >= 0) {
+                    update_post_meta($ticket_id, '_tix_ticket_cat_index', $cat_index);
+                }
+
+                // Special-Marker (für Ticket-Template, Statistik, "Special" Badge etc.)
+                if ($is_special && $special_id) {
+                    update_post_meta($ticket_id, '_tix_ticket_type', 'special');
+                    update_post_meta($ticket_id, '_tix_ticket_special_id', $special_id);
+                    // Optionales Special-Template übernehmen
+                    $sp_template = get_post_meta($special_id, '_tix_special_template', true);
+                    if ($sp_template) update_post_meta($ticket_id, '_tix_ticket_template', intval($sp_template));
+                }
 
                 // Sitzplatz zuweisen
                 if ($has_seats && isset($seat_ids[$i])) {

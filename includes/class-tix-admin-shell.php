@@ -45,6 +45,7 @@ class TIX_Admin_Shell {
             'tix-promoters', 'tix-marketing-export', 'tix-campaigns', 'tix-meta-ads',
             'tix-templates', 'tix-orders', 'tix-customers', 'tix-email-log', 'tix-bulk-editor', 'tix-settings-io',
             'tix-legal', 'tix-quotes', 'tix-coupons', 'tix-migration',
+            'tix-event-report',
             'tix-organizer-dashboard', 'tix-organizer-orders',
             'tix-organizer-guestlist', 'tix-organizer-email', 'tix-organizer-billing',
             'tix-organizer-media', 'tix-organizer-landing', 'tix-landing-settings',
@@ -470,6 +471,11 @@ class TIX_Admin_Shell {
                        class="tix-shell-item<?php echo $active === 'statistics' ? ' active' : ''; ?>">
                         <span class="dashicons dashicons-chart-bar"></span>
                         <span>Statistiken</span>
+                    </a>
+                    <a href="<?php echo admin_url('admin.php?page=tix-event-report'); ?>"
+                       class="tix-shell-item<?php echo ($current_page === 'tix-event-report') ? ' active' : ''; ?>">
+                        <span class="dashicons dashicons-media-document"></span>
+                        <span>Event-Bericht</span>
                     </a>
                     <a href="<?php echo admin_url('edit.php?post_type=tix_subscriber'); ?>"
                        class="tix-shell-item<?php echo $active === 'subscribers' ? ' active' : ''; ?>">

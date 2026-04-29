@@ -277,6 +277,39 @@
     margin-top: 12px;
 }
 
+/* Badge in der Listen-Ansicht (tcard) deutlich dezenter — der grosse Pink-Badge
+   ist nur in der Einzel-Ansicht / Bundle-View sinnvoll */
+.tix-mt-tcard .tix-badge {
+    background: #f1f5f9 !important;
+    color: #64748b !important;
+    font-size: 11px !important;
+    font-weight: 500 !important;
+    padding: 3px 9px !important;
+    border-radius: 14px !important;
+    box-shadow: none !important;
+    line-height: 1.4 !important;
+    gap: 4px !important;
+}
+.tix-mt-tcard .tix-badge .tix-badge-label {
+    font-size: 11px !important;
+    font-weight: 500 !important;
+}
+.tix-mt-tcard .tix-badge .tix-badge-name {
+    font-weight: 600 !important;
+    color: #475569 !important;
+}
+.tix-mt-tcard .tix-badge .tix-badge-sep {
+    opacity: .4;
+}
+.tix-mt-tcard .tix-badge .tix-badge-edit {
+    width: 14px !important;
+    height: 14px !important;
+    opacity: .5;
+}
+.tix-mt-tcard .tix-badge .tix-badge-edit:hover {
+    opacity: 1;
+}
+
 .tix-mt-tcard {
     display: flex;
     align-items: stretch;

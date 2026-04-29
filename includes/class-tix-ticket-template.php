@@ -280,7 +280,11 @@ class TIX_Ticket_Template {
     public static function gather_ticket_data($ticket_id) {
         $event_id   = intval(get_post_meta($ticket_id, '_tix_ticket_event_id', true));
         $order_id   = intval(get_post_meta($ticket_id, '_tix_ticket_order_id', true));
-        $cat_index  = intval(get_post_meta($ticket_id, '_tix_ticket_cat_index', true));
+        $cat_index_raw = get_post_meta($ticket_id, '_tix_ticket_cat_index', true);
+        $cat_index  = ($cat_index_raw === '' || $cat_index_raw === false || $cat_index_raw === null)
+            ? -1
+            : intval($cat_index_raw);
+        $cat_name_meta = get_post_meta($ticket_id, '_tix_ticket_cat_name', true);
         $code       = get_post_meta($ticket_id, '_tix_ticket_code', true);
         $owner_name = get_post_meta($ticket_id, '_tix_ticket_owner_name', true);
         $owner_email= get_post_meta($ticket_id, '_tix_ticket_owner_email', true);
@@ -301,11 +305,13 @@ class TIX_Ticket_Template {
         $location   = get_post_meta($event_id, '_tix_location', true);
         $address    = get_post_meta($event_id, '_tix_address', true);
 
-        // Kategorie-Name + tatsächlich bezahlter Preis
+        // Kategorie-Name: bevorzugt Meta `_tix_ticket_cat_name`, sonst per cat_index aus Event-Categories
         $cats     = get_post_meta($event_id, '_tix_ticket_categories', true);
         $cat_name = '';
         $price    = '';
-        if (is_array($cats) && isset($cats[$cat_index])) {
+        if ($cat_name_meta) {
+            $cat_name = $cat_name_meta;
+        } elseif (is_array($cats) && $cat_index >= 0 && isset($cats[$cat_index])) {
             $cat_name = $cats[$cat_index]['name'] ?? '';
         }
         // Bezahlten Preis vom Ticket-Post holen (nicht Kategoriepreis)

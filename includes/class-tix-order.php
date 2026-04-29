@@ -498,6 +498,10 @@ class TIX_Order {
             $order_number = self::generate_order_number();
         }
 
+        // Schema-konformes Row: nur Spalten die in wp_tix_orders existieren.
+        // currency, date_paid, transaction_id sind nicht im Schema → werden ggf. in
+        // separater meta-Tabelle abgelegt oder weggelassen.
+        // user_id heißt in wp_tix_orders 'customer_id'.
         $row = [
             'wc_order_id'          => 0, // native legacy
             'order_number'         => $order_number,
@@ -507,22 +511,20 @@ class TIX_Order {
             'subtotal'             => floatval($data['subtotal'] ?? $data['total'] ?? 0),
             'tax'                  => floatval($data['tax'] ?? 0),
             'discount'             => floatval($data['discount'] ?? 0),
-            'currency'             => $data['currency'] ?? 'EUR',
             'date_created'         => $data['date_created'] ?: current_time('mysql'),
-            'date_paid'            => $data['date_paid'] ?: null,
             'payment_method'       => $data['payment_method'] ?? '',
             'payment_method_title' => $data['payment_method_title'] ?? '',
-            'transaction_id'       => $data['transaction_id'] ?? '',
             'billing_first_name'   => $data['billing_first_name'] ?? '',
             'billing_last_name'    => $data['billing_last_name']  ?? '',
             'billing_email'        => $data['billing_email']      ?? '',
             'billing_phone'        => $data['billing_phone']      ?? '',
             'billing_company'      => $data['billing_company']    ?? '',
             'billing_address_1'    => $data['billing_address_1']  ?? '',
+            'billing_address_2'    => $data['billing_address_2']  ?? '',
             'billing_postcode'     => $data['billing_postcode']   ?? '',
             'billing_city'         => $data['billing_city']       ?? '',
             'billing_country'      => $data['billing_country']    ?? 'DE',
-            'user_id'              => intval($data['user_id'] ?? 0),
+            'customer_id'          => intval($data['customer_id'] ?? $data['user_id'] ?? 0),
         ];
 
         $insert = $wpdb->insert($t, $row);
@@ -536,6 +538,12 @@ class TIX_Order {
             $qty      = max(1, intval($it['qty'] ?? 1));
             $price    = floatval($it['price'] ?? 0);
 
+            // Item-Meta: cat_index + legacy + custom Meta (z.B. special, special_id) durchreichen
+            $item_meta = ['cat_index' => $cat_idx, 'legacy' => true];
+            if (!empty($it['meta']) && is_array($it['meta'])) {
+                $item_meta = array_merge($item_meta, $it['meta']);
+            }
+
             $wpdb->insert($ti, [
                 'order_id'   => $order_id,
                 'product_id' => 0,
@@ -545,7 +553,7 @@ class TIX_Order {
                 'tax'        => 0,
                 'name'       => $it['name'] ?? 'Ticket',
                 'cat_name'   => $it['cat_name'] ?? '',
-                'meta'       => json_encode(['cat_index' => $cat_idx, 'legacy' => true]),
+                'meta'       => json_encode($item_meta),
             ]);
         }
 

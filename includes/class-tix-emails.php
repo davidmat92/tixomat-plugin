@@ -238,6 +238,7 @@ class TIX_Emails {
         $tickets_html = '';
         $event_details_html = '';
         $cta_html     = '';
+        $bundle_link_html = '';
 
         // Order Items (alle order-basierten Mails)
         if (in_array($type, ['order_confirmation', 'order_complete', 'admin_new_order', 'admin_failed_order', 'on_hold', 'cancelled', 'refunded', 'invoice', 'customer_note'])) {
@@ -246,7 +247,24 @@ class TIX_Emails {
 
         // Tickets (nur bei completed + processing)
         if (in_array($type, ['order_confirmation', 'order_complete'])) {
-            $tickets_html = self::render_tickets_html($order, $accent, $accent_text, $text_color, $muted, $radius);
+            $tickets_html = self::render_tickets_html($order, $accent, $accent_text, $text_color, $muted, $radius, $btn_bg, $btn_text);
+
+            // Bundle-Link OBEN: alle Tickets dieser Bestellung in einer Ansicht öffnen
+            if (class_exists('TIX_Tickets')) {
+                $bundle_url = TIX_Tickets::get_bundle_url($order_id);
+                if ($bundle_url) {
+                    $bundle_link_html = '
+                    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 18px;">
+                        <tr>
+                            <td style="background-color: #f5f3ff; border: 1px solid #ddd6fe; border-radius: ' . $radius . 'px; padding: 14px 16px;">
+                                <a href="' . esc_url($bundle_url) . '" style="color: #5b21b6; text-decoration: none; font-weight: 600; font-size: 14px; display: inline-flex; align-items: center; gap: 8px;">
+                                    📋 &nbsp;Alle Tickets dieser Bestellung in einer Ansicht öffnen →
+                                </a>
+                            </td>
+                        </tr>
+                    </table>';
+                }
+            }
         }
 
         // Extra content (Erinnerung / Nachbefragung)
@@ -285,17 +303,33 @@ class TIX_Emails {
             </table>';
         }
 
-        // On-hold Info
+        // On-hold Info (Banküberweisung) inkl. vollständiger Bankdaten + Verwendungszweck
         $hold_info = '';
         if ($type === 'on_hold') {
             $method = $order->get_payment_method();
             if ($method === 'bacs' || $method === 'bank') {
+                $bs = function_exists('tix_get_settings') ? tix_get_settings() : [];
+                $order_number = method_exists($order, 'get_order_number') ? $order->get_order_number() : '';
+                $mono_style = 'font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace; font-weight:600; color:#0f172a;';
+
+                $rows = '';
+                if (!empty($bs['bank_holder']))     $rows .= '<tr><td style="padding:6px 12px 6px 0;color:#64748b;font-size:13px;white-space:nowrap;">Kontoinhaber</td><td style="padding:6px 0;font-size:13px;' . $mono_style . '">' . esc_html($bs['bank_holder']) . '</td></tr>';
+                if (!empty($bs['bank_iban']))       $rows .= '<tr><td style="padding:6px 12px 6px 0;color:#64748b;font-size:13px;white-space:nowrap;">IBAN</td><td style="padding:6px 0;font-size:13px;' . $mono_style . 'word-break:break-all;">' . esc_html($bs['bank_iban']) . '</td></tr>';
+                if (!empty($bs['bank_bic']))        $rows .= '<tr><td style="padding:6px 12px 6px 0;color:#64748b;font-size:13px;white-space:nowrap;">BIC</td><td style="padding:6px 0;font-size:13px;' . $mono_style . '">' . esc_html($bs['bank_bic']) . '</td></tr>';
+                if (!empty($bs['bank_name']))       $rows .= '<tr><td style="padding:6px 12px 6px 0;color:#64748b;font-size:13px;white-space:nowrap;">Bank</td><td style="padding:6px 0;font-size:13px;' . $mono_style . '">' . esc_html($bs['bank_name']) . '</td></tr>';
+                $rows .= '<tr><td style="padding:6px 12px 6px 0;color:#64748b;font-size:13px;white-space:nowrap;">Betrag</td><td style="padding:6px 0;font-size:13px;' . $mono_style . '">' . wp_strip_all_tags($order->get_formatted_order_total()) . '</td></tr>';
+                if ($order_number) $rows .= '<tr><td style="padding:6px 12px 6px 0;color:#64748b;font-size:13px;white-space:nowrap;">Verwendungszweck</td><td style="padding:6px 0;font-size:13px;' . $mono_style . '">' . esc_html($order_number) . '</td></tr>';
+
+                $hint = !empty($bs['bank_reference']) ? '<p style="margin:12px 0 0;font-size:12px;color:#64748b;">' . esc_html($bs['bank_reference']) . '</p>' : '';
+
                 $hold_info = '
                 <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 20px;">
                     <tr>
-                        <td style="background-color: #eff6ff; border-radius: ' . $radius . 'px; padding: 14px 16px; font-size: 13px; color: #1e40af;">
-                            <strong>Bitte überweise den Betrag von ' . wp_strip_all_tags($order->get_formatted_order_total()) . '</strong><br>
-                            Deine Tickets werden nach Zahlungseingang per E-Mail versendet.
+                        <td style="background-color:#eff6ff; border:1px solid #bfdbfe; border-radius:' . $radius . 'px; padding:18px 20px; color:#1e40af;">
+                            <p style="margin:0 0 14px;font-size:15px;font-weight:700;color:#1e3a8a;">Bitte überweise den Betrag von ' . wp_strip_all_tags($order->get_formatted_order_total()) . '</p>
+                            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0;">' . $rows . '</table>
+                            ' . $hint . '
+                            <p style="margin:14px 0 0;font-size:12px;color:#475569;">Deine Tickets werden automatisch erstellt sobald die Zahlung eingegangen ist.</p>
                         </td>
                     </tr>
                 </table>';
@@ -367,6 +401,9 @@ class TIX_Emails {
 
                             <?php echo $admin_info; ?>
                             <?php echo $hold_info; ?>
+
+                            <!-- Bundle-Link: Alle Tickets dieser Bestellung in einer Ansicht (oben prominent platziert) -->
+                            <?php echo $bundle_link_html; ?>
 
                             <!-- Order Items -->
                             <?php echo $items_html; ?>
@@ -1033,8 +1070,11 @@ class TIX_Emails {
 
     /**
      * Tickets mit Download-Links
+     * $btn_bg/$btn_text optional — fallback auf $accent/$accent_text für Backward-Compat.
      */
-    private static function render_tickets_html($order, $accent, $accent_text, $text_color, $muted, $radius) {
+    private static function render_tickets_html($order, $accent, $accent_text, $text_color, $muted, $radius, $btn_bg = null, $btn_text = null) {
+        if ($btn_bg === null)   $btn_bg   = $accent;
+        if ($btn_text === null) $btn_text = $accent_text;
         $tickets = self::get_ticket_data($order);
         if (empty($tickets)) return '';
 
@@ -1072,7 +1112,7 @@ class TIX_Emails {
                                         <td style="vertical-align: middle; text-align: right; padding-left: 12px; white-space: nowrap;">';
 
             if ($t['download_url']) {
-                $html .= '                 <a href="' . esc_url($t['download_url']) . '" style="display: inline-block; padding: 8px 18px; background-color: ' . esc_attr($accent) . '; color: ' . esc_attr($accent_text) . '; text-decoration: none; font-weight: 600; font-size: 12px; border-radius: ' . $radius . 'px;">&#8595; Download</a>';
+                $html .= '                 <a href="' . esc_url($t['download_url']) . '" style="display: inline-block; padding: 8px 18px; background-color: ' . esc_attr($btn_bg) . '; color: ' . esc_attr($btn_text) . '; text-decoration: none; font-weight: 600; font-size: 12px; border-radius: ' . $radius . 'px;">&#8595; Download</a>';
             } else {
                 $html .= '                 <span style="font-size: 12px; color: ' . esc_attr($muted) . '; font-style: italic;">Wird bereitgestellt&hellip;</span>';
             }
@@ -1275,12 +1315,15 @@ class TIX_Emails {
         $muted       = '#6b7280';
         $divider     = '#e5e7eb';
         $radius      = intval($s['radius_general'] ?: 8);
+        // E-Mail-spezifische Button-Farben (mit Fallback auf Accent)
+        $btn_bg      = !empty($s['email_btn_bg'])   ? $s['email_btn_bg']   : $accent;
+        $btn_text    = !empty($s['email_btn_text']) ? $s['email_btn_text'] : $accent_text;
 
         // Event-Details
         $event_details = self::render_event_details_html($event_id, $accent, $text_color, $muted, $divider, $radius);
 
         // Tickets für diesen Order
-        $tickets_html = self::render_tickets_html($order, $accent, $accent_text, $text_color, $muted, $radius);
+        $tickets_html = self::render_tickets_html($order, $accent, $accent_text, $text_color, $muted, $radius, $btn_bg, $btn_text);
 
         $extra = $event_details . $tickets_html;
 
@@ -1385,6 +1428,9 @@ class TIX_Emails {
             $brand_name . ' – Deine Tickets sind bereit!',
             $html
         );
+
+        // Marker setzen — verhindert Doppel-Versand durch Auto-Heal-Mechanismus
+        update_post_meta($order_id, '_tix_completed_email_sent', current_time('mysql'));
 
         // Admin notification (new_order) — kann per Flag unterdrückt werden
         $skip_admin = get_transient('_tix_skip_admin_email_' . $order_id);
@@ -1725,8 +1771,14 @@ class TIX_Emails {
             $items_html .= '</table>';
         }
 
-        // Recovery-URL
-        $recovery_url = add_query_arg('tix_recover_cart', $token, wc_get_checkout_url());
+        // Recovery-URL — WC-Checkout bevorzugt, sonst Tixomat-Checkout-Page oder Event-URL
+        if (function_exists('wc_get_checkout_url')) {
+            $recovery_url = add_query_arg('tix_recover_cart', $token, wc_get_checkout_url());
+        } else {
+            // Native: zur Event-Seite zurück (mit recovery-Token in URL)
+            $base_url = $event_id ? get_permalink($event_id) : home_url('/');
+            $recovery_url = add_query_arg('tix_recover_cart', $token, $base_url);
+        }
 
         $s = self::get_settings();
         $accent      = $s['color_accent']      ?: '#c8ff00';

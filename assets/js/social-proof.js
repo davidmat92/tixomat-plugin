@@ -19,7 +19,9 @@
     var currentCount = 0;
     var isVisible = false;
 
-    function createWidget() {
+    function ensureWidget() {
+        if (el) return; // Schon erstellt
+
         el = document.createElement('div');
         el.className = 'tix-sp tix-sp--' + cfg.position;
         el.setAttribute('aria-live', 'polite');
@@ -34,7 +36,6 @@
             '<span class="tix-sp__dot"></span>';
 
         countEl = el.querySelector('.tix-sp__text');
-        el.style.opacity = '0';
 
         // Position bestimmen
         if (cfg.position === 'floating') {
@@ -60,21 +61,24 @@
     }
 
     function updateDisplay(count) {
-        if (!el || !countEl) return;
+        currentCount = count;
 
-        var text = cfg.text.replace('{count}', count);
-        countEl.textContent = text;
-
-        if (count >= cfg.minCount && !isVisible) {
-            el.style.opacity = '1';
-            el.style.transform = 'translateY(0)';
-            isVisible = true;
-        } else if (count < cfg.minCount && isVisible) {
-            el.style.opacity = '0';
+        // Nur einblenden wenn Count >= minCount — Widget wird lazy erstellt
+        if (count >= cfg.minCount) {
+            ensureWidget();
+            if (!el || !countEl) return;
+            countEl.textContent = cfg.text.replace('{count}', count);
+            if (!isVisible) {
+                // Fade-In über requestAnimationFrame damit der Browser Zeit zum Layout hat
+                requestAnimationFrame(function () {
+                    el.classList.add('tix-sp--visible');
+                    isVisible = true;
+                });
+            }
+        } else if (isVisible && el) {
+            el.classList.remove('tix-sp--visible');
             isVisible = false;
         }
-
-        currentCount = count;
     }
 
     function heartbeat() {
@@ -100,8 +104,7 @@
         });
     }
 
-    // Init
-    createWidget();
+    // Init: NUR Heartbeat starten, Widget erst nach erfolgreichem Response erstellen
     heartbeat();
     setInterval(heartbeat, cfg.interval || 30000);
 })();

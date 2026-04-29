@@ -26,6 +26,8 @@ class TIX_Checkout {
         add_action('wp_ajax_tix_capture_cart_email',        [__CLASS__, 'ajax_capture_cart_email']);
         add_action('wp_ajax_nopriv_tix_capture_cart_email', [__CLASS__, 'ajax_capture_cart_email']);
         add_action('woocommerce_checkout_order_processed', [__CLASS__, 'cancel_abandoned_cart_recovery'], 5, 3);
+        // Nativer Order-Hook (ohne WC) — cancelt Recovery wenn nativ bezahlt wird
+        add_action('tix_order_completed',                  [__CLASS__, 'cancel_abandoned_cart_recovery_native'], 5, 1);
         add_action('template_redirect',                    [__CLASS__, 'handle_cart_recovery']);
         add_action('tix_send_abandoned_cart_email',         ['TIX_Emails', 'send_abandoned_cart']);
         add_action('tix_expire_abandoned_carts',            [__CLASS__, 'expire_old_abandoned_carts']);
@@ -33,9 +35,16 @@ class TIX_Checkout {
         // Express Checkout
         add_action('wp_ajax_tix_express_checkout', [__CLASS__, 'ajax_express_checkout']);
 
-        // Expire-Cron planen (Action Scheduler muss verfügbar sein)
-        if (function_exists('as_has_scheduled_action') && !as_has_scheduled_action('tix_expire_abandoned_carts')) {
-            as_schedule_recurring_action(time(), DAY_IN_SECONDS, 'tix_expire_abandoned_carts');
+        // Expire-Cron planen — ActionScheduler bevorzugt, sonst WP-Cron-Fallback
+        if (function_exists('as_has_scheduled_action')) {
+            if (!as_has_scheduled_action('tix_expire_abandoned_carts')) {
+                as_schedule_recurring_action(time(), DAY_IN_SECONDS, 'tix_expire_abandoned_carts');
+            }
+        } else {
+            // Native: WP-Cron als Fallback
+            if (!wp_next_scheduled('tix_expire_abandoned_carts')) {
+                wp_schedule_event(time() + 3600, 'daily', 'tix_expire_abandoned_carts');
+            }
         }
 
         $settings = self::get_settings();
@@ -1218,7 +1227,8 @@ class TIX_Checkout {
         // Abandoned Cart: Event-ID aus dem Warenkorb ermitteln
         $ac_event_id = 0;
         $ac_enabled  = !empty(self::get_settings()['abandoned_cart_enabled']);
-        if ($ac_enabled && function_exists('WC') && WC()->cart) {
+        if ($ac_enabled && function_exists('WC') && WC()->cart && !WC()->cart->is_empty()) {
+            // ── WC-Modus: Event-IDs aus WC-Cart-Items ──
             foreach (WC()->cart->get_cart() as $item) {
                 $eid = intval($item['tix_event_id'] ?? 0);
                 if (!$eid) $eid = intval(get_post_meta($item['product_id'], '_tix_event_id', true));
@@ -1229,6 +1239,21 @@ class TIX_Checkout {
             }
             // Wenn kein Event im Cart mit AC aktiv → deaktivieren
             if (!$ac_event_id) $ac_enabled = false;
+        } elseif ($ac_enabled) {
+            // ── Native Modus (ohne WC): Event-ID aus URL/Page-Context ermitteln ──
+            // Mehrere Quellen probieren: ?event_id=X, Cart-Cookie, Page-Meta
+            $eid = 0;
+            if (!empty($_GET['event_id'])) $eid = intval($_GET['event_id']);
+            if (!$eid && !empty($_GET['event'])) $eid = intval($_GET['event']);
+            // Fallback: aus Cookie/Cart-Storage (TIX_Cart speichert in Session)
+            if (!$eid && !empty($_COOKIE['tix_cart_event_id'])) $eid = intval($_COOKIE['tix_cart_event_id']);
+            // Bei aktivem AC-global immer enablen — Per-Event-Check macht der Capture-Handler
+            // (mit event_id=0 = global, ohne Per-Event-Opt-In-Check)
+            $ac_event_id = $eid;
+            // Wenn Event-ID vorhanden + Per-Event AC aktiv ODER kein Event-ID → enablen
+            if ($ac_event_id && get_post_meta($ac_event_id, '_tix_abandoned_cart', true) !== '1') {
+                $ac_enabled = false;
+            }
         }
 
         wp_localize_script('tix-checkout', 'ehCo', [
@@ -1366,10 +1391,15 @@ class TIX_Checkout {
         if (empty($settings['abandoned_cart_enabled'])) wp_send_json_error();
         if ($event_id && get_post_meta($event_id, '_tix_abandoned_cart', true) !== '1') wp_send_json_error();
 
-        // WC-Session-ID für Duplikat-Erkennung
+        // Session-ID für Duplikat-Erkennung
         $session_id = '';
         if (function_exists('WC') && WC()->session) {
             $session_id = WC()->session->get_customer_id();
+        } elseif (!empty($_COOKIE['PHPSESSID'])) {
+            $session_id = sanitize_text_field($_COOKIE['PHPSESSID']);
+        } else {
+            // Native: Cookie aus Email + IP (stabilisiert Duplikate aus gleichem Browser)
+            $session_id = substr(md5($email . ($_SERVER['REMOTE_ADDR'] ?? '')), 0, 16);
         }
 
         // Vorhandenen offenen Cart für diese E-Mail suchen
@@ -1393,9 +1423,9 @@ class TIX_Checkout {
                 update_post_meta($ac_id, '_tix_ac_wc_cart', maybe_serialize(WC()->cart->get_cart_for_session()));
             }
             // Scheduled Action aktualisieren (Delay neu starten)
-            as_unschedule_all_actions('tix_send_abandoned_cart_email', [$ac_id]);
+            self::ac_unschedule_email($ac_id);
             $delay = intval($settings['abandoned_cart_delay'] ?? 30) * 60;
-            as_schedule_single_action(time() + $delay, 'tix_send_abandoned_cart_email', [$ac_id]);
+            self::ac_schedule_email($ac_id, $delay);
         } else {
             // Neuen Cart-Eintrag erstellen
             $token = wp_generate_password(32, false);
@@ -1419,7 +1449,7 @@ class TIX_Checkout {
                 }
 
                 $delay = intval($settings['abandoned_cart_delay'] ?? 30) * 60;
-                as_schedule_single_action(time() + $delay, 'tix_send_abandoned_cart_email', [$ac_id]);
+                self::ac_schedule_email($ac_id, $delay);
             }
         }
 
@@ -1446,8 +1476,58 @@ class TIX_Checkout {
 
         foreach ($carts as $cart) {
             update_post_meta($cart->ID, '_tix_ac_status', 'recovered');
-            as_unschedule_all_actions('tix_send_abandoned_cart_email', [$cart->ID]);
+            self::ac_unschedule_email($cart->ID);
         }
+    }
+
+    /**
+     * Native-Variante: Bei nativer Bestellung Recovery cancel'n.
+     * Wird via tix_order_completed Hook gefeuert (nach erfolgreicher Zahlung).
+     */
+    public static function cancel_abandoned_cart_recovery_native($order_id) {
+        if (!class_exists('TIX_Order')) return;
+        $order = TIX_Order::get($order_id);
+        if (!$order) return;
+        $email = method_exists($order, 'get_billing_email') ? $order->get_billing_email() : '';
+        if (!$email) return;
+
+        $carts = get_posts([
+            'post_type'   => 'tix_abandoned_cart',
+            'post_status' => 'publish',
+            'meta_query'  => [
+                ['key' => '_tix_ac_email', 'value' => $email],
+                ['key' => '_tix_ac_status', 'value' => ['pending', 'sent'], 'compare' => 'IN'],
+            ],
+            'numberposts' => -1,
+        ]);
+
+        foreach ($carts as $cart) {
+            update_post_meta($cart->ID, '_tix_ac_status', 'recovered');
+            self::ac_unschedule_email($cart->ID);
+        }
+    }
+
+    /**
+     * Wrapper: Abandoned-Cart-Email schedulen.
+     * Bevorzugt ActionScheduler (mit WC), Fallback auf WP-Cron (native).
+     */
+    private static function ac_schedule_email($cart_id, $delay_seconds) {
+        if (function_exists('as_schedule_single_action')) {
+            as_schedule_single_action(time() + $delay_seconds, 'tix_send_abandoned_cart_email', [$cart_id]);
+        } else {
+            wp_schedule_single_event(time() + $delay_seconds, 'tix_send_abandoned_cart_email', [$cart_id]);
+        }
+    }
+
+    /**
+     * Wrapper: Abandoned-Cart-Email unschedulen.
+     */
+    private static function ac_unschedule_email($cart_id) {
+        if (function_exists('as_unschedule_all_actions')) {
+            as_unschedule_all_actions('tix_send_abandoned_cart_email', [$cart_id]);
+        }
+        // Auch WP-Cron-Variante immer entfernen (für Cross-Switch zwischen Modi)
+        wp_clear_scheduled_hook('tix_send_abandoned_cart_email', [$cart_id]);
     }
 
     /**
@@ -1521,7 +1601,7 @@ class TIX_Checkout {
 
         foreach ($carts as $cart) {
             update_post_meta($cart->ID, '_tix_ac_status', 'expired');
-            as_unschedule_all_actions('tix_send_abandoned_cart_email', [$cart->ID]);
+            self::ac_unschedule_email($cart->ID);
         }
     }
 
