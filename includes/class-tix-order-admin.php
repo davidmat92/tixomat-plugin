@@ -1045,13 +1045,14 @@ class TIX_Order_Admin {
 
         global $wpdb;
         $t = $wpdb->prefix . 'tix_orders';
-        // Native completed PayPal-Orders, max 25 pro Call (gegen Timeout)
+        // Alle completed Orders die entweder native PayPal sind ODER migrierte WC-Orders
+        // Max 50 pro Call (WC-Migration ist DB-only ohne API-Latenz, also schneller)
         $rows = $wpdb->get_results("
             SELECT id FROM $t
             WHERE status = 'completed'
-              AND payment_method = 'paypal'
+              AND (payment_method = 'paypal' OR wc_order_id > 0)
             ORDER BY date_created DESC
-            LIMIT 25
+            LIMIT 50
         ");
 
         $processed = 0;

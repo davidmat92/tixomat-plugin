@@ -465,17 +465,55 @@ class TIX_Gateway_PayPal {
     }
 
     /**
+     * Liest PayPal-Gebühren-Daten aus einem migrierten WC-Order (PPCP-Plugin).
+     * Funktioniert sowohl mit HPOS (wp_wc_orders_meta) als auch Legacy (wp_postmeta).
+     * Returns: ['fee', 'gross', 'net', 'currency'] oder null
+     */
+    private static function read_wc_ppcp_fees($wc_order_id) {
+        global $wpdb;
+        $serialized = '';
+
+        // 1) HPOS (wc_orders_meta)
+        $op_meta = $wpdb->prefix . 'wc_orders_meta';
+        if ($wpdb->get_var("SHOW TABLES LIKE '$op_meta'") === $op_meta) {
+            $serialized = $wpdb->get_var($wpdb->prepare(
+                "SELECT meta_value FROM $op_meta WHERE order_id = %d AND meta_key = '_ppcp_paypal_fees' LIMIT 1",
+                $wc_order_id
+            ));
+        }
+        // 2) Legacy postmeta
+        if (!$serialized) {
+            $serialized = get_post_meta($wc_order_id, '_ppcp_paypal_fees', true);
+            if (is_array($serialized)) {
+                // Already unserialized
+                $data = $serialized;
+                $serialized = '';
+            }
+        }
+        if ($serialized && !isset($data)) {
+            $data = maybe_unserialize($serialized);
+        }
+        if (empty($data) || !is_array($data) || empty($data['paypal_fee']['value'])) return null;
+
+        return [
+            'fee'      => floatval($data['paypal_fee']['value']),
+            'gross'    => floatval($data['gross_amount']['value']  ?? 0),
+            'net'      => floatval($data['net_amount']['value']    ?? 0),
+            'currency' => $data['paypal_fee']['currency_code']    ?? 'EUR',
+        ];
+    }
+
+    /**
      * Lädt Gebühren-Daten für eine bestehende PayPal-Order nach.
-     * Wird vom Backfill-Cron oder manuellen "Gebühren nachladen"-Button genutzt.
+     * Reihenfolge:
+     *   1. Bereits gecached → return
+     *   2. Aus migrierter WC-Order (_ppcp_paypal_fees) — kein API-Call nötig
+     *   3. PayPal API (mit Capture-ID) für native Orders
      *
-     * Returns: ['fee' => float, 'gross' => float, 'net' => float, 'currency' => string]
-     *          oder false bei Fehler
+     * Returns: ['fee', 'gross', 'net', 'currency', 'cached', 'source']
      */
     public static function backfill_fee($tix_order_id) {
-        $capture_id = get_option('_tix_paypal_capture_' . $tix_order_id);
-        if (!$capture_id) return false;
-
-        // Skip if already backfilled
+        // 1) Bereits gecached?
         $existing_fee = get_post_meta($tix_order_id, '_tix_payment_fee', true);
         if ($existing_fee !== '' && $existing_fee !== false && floatval($existing_fee) > 0) {
             return [
@@ -484,8 +522,45 @@ class TIX_Gateway_PayPal {
                 'net'      => floatval(get_post_meta($tix_order_id, '_tix_payment_net', true) ?: 0),
                 'currency' => get_post_meta($tix_order_id, '_tix_payment_fee_currency', true) ?: 'EUR',
                 'cached'   => true,
+                'source'   => 'cache',
             ];
         }
+
+        // 2) WC-Migrations-Daten? (PayPal Payments PPCP-Plugin speichert _ppcp_paypal_fees)
+        global $wpdb;
+        $tix_t = $wpdb->prefix . 'tix_orders';
+        $wc_id = intval($wpdb->get_var($wpdb->prepare("SELECT wc_order_id FROM $tix_t WHERE id = %d", $tix_order_id)));
+        if ($wc_id > 0) {
+            $wc_fees = self::read_wc_ppcp_fees($wc_id);
+            if ($wc_fees) {
+                update_post_meta($tix_order_id, '_tix_payment_fee',          $wc_fees['fee']);
+                update_post_meta($tix_order_id, '_tix_payment_fee_currency', $wc_fees['currency']);
+                update_post_meta($tix_order_id, '_tix_payment_gross',        $wc_fees['gross']);
+                update_post_meta($tix_order_id, '_tix_payment_net',          $wc_fees['net']);
+                update_post_meta($tix_order_id, '_tix_payment_gateway',      'paypal');
+
+                if (class_exists('TIX_Order_Admin') && method_exists('TIX_Order_Admin', 'add_note')) {
+                    TIX_Order_Admin::add_note(
+                        $tix_order_id,
+                        sprintf('🔄 Gebühren aus WC-Migration übernommen (PPCP) · Brutto %s · Gebühr %s · Netto %s %s',
+                            number_format($wc_fees['gross'], 2, ',', '.'),
+                            number_format($wc_fees['fee'],   2, ',', '.'),
+                            number_format($wc_fees['net'],   2, ',', '.'),
+                            $wc_fees['currency']
+                        ),
+                        'payment'
+                    );
+                }
+
+                $wc_fees['cached'] = false;
+                $wc_fees['source'] = 'wc_ppcp';
+                return $wc_fees;
+            }
+        }
+
+        // 3) PayPal API mit Capture-ID
+        $capture_id = get_option('_tix_paypal_capture_' . $tix_order_id);
+        if (!$capture_id) return false;
 
         $token = self::get_access_token();
         if (!$token) return false;
