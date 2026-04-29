@@ -381,6 +381,9 @@ class TIX_Native_Checkout {
             }
         }
 
+        // Auto-Apply-Coupon einsetzen wenn aktiv und noch keiner im Cart ist
+        self::apply_auto_coupon_if_eligible($cart);
+
         // Coupon-Rabatt neu berechnen (falls aktiv) — gleicher Mechanismus wie bei Update/Remove
         self::recalc_coupon_discount($cart);
         self::save_cart($cart);
@@ -393,6 +396,52 @@ class TIX_Native_Checkout {
             'cart_total'   => self::cart_total(),
             'checkout_url' => $checkout_url,
         ]);
+    }
+
+    /**
+     * Wendet einen Auto-Apply-Coupon (markiert in den Coupon-Settings) automatisch
+     * auf den Warenkorb an — sofern noch kein anderer Coupon aktiv ist.
+     *
+     * Räumt zudem auf: wenn der bisher gespeicherte Coupon das Auto-Apply-Marker-Feld
+     * trägt aber der User in den Settings deaktiviert hat, wird er nicht entfernt
+     * (Kunde behält ihn manuell). Das Auto-Apply läuft NUR wenn `coupon` leer ist.
+     *
+     * Mutiert $cart by-reference.
+     */
+    private static function apply_auto_coupon_if_eligible(array &$cart) {
+        // Nur wenn noch kein Coupon im Cart
+        if (!empty($cart['coupon']) && !empty($cart['coupon']['code'])) return;
+
+        // Kunde hat den Auto-Coupon explizit entfernt → nicht erneut anwenden
+        if (!empty($cart['auto_coupon_dismissed'])) return;
+
+        // Auto-Apply-Coupon aus Settings holen (filtert expired/exhausted)
+        if (!class_exists('TIX_Coupons')) return;
+        $coupon = TIX_Coupons::get_auto_apply_coupon();
+        if (!$coupon || empty($coupon['code'])) return;
+
+        // Discount auf Basis des aktuellen Cart-Totals berechnen
+        $items_total = 0.0;
+        if (!empty($cart['items']) && is_array($cart['items'])) {
+            foreach ($cart['items'] as $item) {
+                $items_total += floatval($item['price'] ?? 0) * max(1, intval($item['qty'] ?? 1));
+            }
+        }
+        if ($items_total <= 0) return;
+
+        $type  = $coupon['discount_type'] ?? 'percent';
+        $value = floatval($coupon['value'] ?? 0);
+        $discount = $type === 'percent'
+            ? round($items_total * $value / 100, 2)
+            : min($items_total, $value);
+        $discount = max(0, round($discount, 2));
+        if ($discount <= 0) return;
+
+        $cart['coupon'] = [
+            'code'       => $coupon['code'],
+            'discount'   => $discount,
+            'auto'       => true, // Marker für UI: dieser wurde automatisch angewendet
+        ];
     }
 
     /**
@@ -616,6 +665,16 @@ class TIX_Native_Checkout {
 
         $cart = self::get_cart();
 
+        // Auto-Apply-Coupon einsetzen falls ein Marker-Coupon existiert und Cart noch keinen hat
+        // (Greift z.B. wenn User direkt zum Checkout geht ohne erneutes Add-to-Cart)
+        if (!empty($cart['items'])) {
+            $cart_was_modified = empty($cart['coupon']);
+            self::apply_auto_coupon_if_eligible($cart);
+            if ($cart_was_modified && !empty($cart['coupon'])) {
+                self::save_cart($cart);
+            }
+        }
+
         if (empty($cart['items'])) {
             $s = tix_get_settings();
             return '<div class="tix-co"><div class="tix-co-empty">'
@@ -630,9 +689,11 @@ class TIX_Native_Checkout {
         // ── Coupon discount ──
         $coupon_discount = 0;
         $coupon_code = '';
+        $coupon_auto = false;
         if (!empty($cart['coupon']) && !empty($cart['coupon']['discount'])) {
             $coupon_discount = round(floatval($cart['coupon']['discount']), 2);
             $coupon_code = $cart['coupon']['code'] ?? '';
+            $coupon_auto = !empty($cart['coupon']['auto']);
             $total = max(0, round($total - $coupon_discount, 2));
         }
 
@@ -792,6 +853,9 @@ class TIX_Native_Checkout {
                             <div class="tix-co-summary-row tix-co-coupon-row">
                                 <span style="display:inline-flex;align-items:center;gap:6px;">
                                     Rabatt (<?php echo esc_html($coupon_code); ?>)
+                                    <?php if ($coupon_auto): ?>
+                                        <span style="background:#dcfce7;color:#166534;padding:1px 6px;border-radius:5px;font-size:10px;font-weight:700;letter-spacing:0.04em;" title="Wurde automatisch angewendet">🪄 AUTO</span>
+                                    <?php endif; ?>
                                     <button type="button" class="tix-co-remove-coupon" title="Gutschein entfernen" aria-label="Gutschein entfernen"
                                         style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;border:0;background:rgba(0,0,0,.08);color:#6b7280;cursor:pointer;font-size:12px;line-height:1;padding:0;transition:background .15s,color .15s;"
                                         onmouseover="this.style.background='#ef4444';this.style.color='#fff';"
@@ -943,6 +1007,9 @@ class TIX_Native_Checkout {
                             <div class="tix-co-summary-row tix-co-coupon-row">
                                 <span style="display:inline-flex;align-items:center;gap:6px;">
                                     Rabatt (<?php echo esc_html($coupon_code); ?>)
+                                    <?php if ($coupon_auto): ?>
+                                        <span style="background:#dcfce7;color:#166534;padding:1px 6px;border-radius:5px;font-size:10px;font-weight:700;letter-spacing:0.04em;" title="Wurde automatisch angewendet">🪄 AUTO</span>
+                                    <?php endif; ?>
                                     <button type="button" class="tix-co-remove-coupon" title="Gutschein entfernen" aria-label="Gutschein entfernen"
                                         style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;border:0;background:rgba(0,0,0,.08);color:#6b7280;cursor:pointer;font-size:12px;line-height:1;padding:0;transition:background .15s,color .15s;"
                                         onmouseover="this.style.background='#ef4444';this.style.color='#fff';"
@@ -1528,6 +1595,11 @@ class TIX_Native_Checkout {
             check_ajax_referer('tix_add_to_cart', 'nonce');
         }
         $cart = self::get_cart();
+        // War's ein Auto-Apply-Coupon? Dann markieren dass Kunde ihn entfernt hat —
+        // verhindert dass apply_auto_coupon_if_eligible() ihn sofort wieder reinpackt
+        if (!empty($cart['coupon']['auto'])) {
+            $cart['auto_coupon_dismissed'] = true;
+        }
         $cart['coupon'] = null;
         self::save_cart($cart);
         wp_send_json_success([

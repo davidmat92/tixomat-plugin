@@ -47,13 +47,14 @@ class TIX_Coupons {
         if (!current_user_can('manage_options')) wp_die('Keine Berechtigung.');
         check_admin_referer('tix_coupon_save');
 
-        $code     = strtoupper(trim(sanitize_text_field($_POST['code'] ?? '')));
-        $type     = $_POST['discount_type'] ?? 'percent';
-        $value    = floatval(str_replace(',', '.', $_POST['value'] ?? '0'));
-        $expires  = sanitize_text_field($_POST['expires'] ?? '');
-        $max_uses = intval($_POST['max_uses'] ?? 0);
-        $desc     = sanitize_text_field($_POST['description'] ?? '');
-        $orig_code = strtoupper(trim(sanitize_text_field($_POST['orig_code'] ?? '')));
+        $code       = strtoupper(trim(sanitize_text_field($_POST['code'] ?? '')));
+        $type       = $_POST['discount_type'] ?? 'percent';
+        $value      = floatval(str_replace(',', '.', $_POST['value'] ?? '0'));
+        $expires    = sanitize_text_field($_POST['expires'] ?? '');
+        $max_uses   = intval($_POST['max_uses'] ?? 0);
+        $desc       = sanitize_text_field($_POST['description'] ?? '');
+        $auto_apply = !empty($_POST['auto_apply']) ? 1 : 0;
+        $orig_code  = strtoupper(trim(sanitize_text_field($_POST['orig_code'] ?? '')));
 
         if ($code === '' || !preg_match('/^[A-Z0-9_-]{3,40}$/', $code)) {
             wp_redirect(add_query_arg(['page' => 'tix-coupons', 'msg' => 'invalid_code'], admin_url('admin.php')));
@@ -78,6 +79,17 @@ class TIX_Coupons {
             $used = intval($coupons[$code]['used'] ?? 0);
         }
 
+        // ── Exklusivität: nur EIN Coupon darf auto_apply=1 haben ──
+        // Wenn dieser Coupon auto-apply ist → alle anderen auf 0 setzen
+        if ($auto_apply) {
+            foreach ($coupons as $k => &$c) {
+                if ($k !== $code && !empty($c['auto_apply'])) {
+                    $c['auto_apply'] = 0;
+                }
+            }
+            unset($c);
+        }
+
         $coupons[$code] = [
             'code'          => $code,
             'discount_type' => $type,
@@ -86,12 +98,39 @@ class TIX_Coupons {
             'max_uses'      => $max_uses,
             'used'          => $used,
             'description'   => $desc,
+            'auto_apply'    => $auto_apply,
         ];
 
         update_option(self::OPTION, $coupons);
 
         wp_redirect(add_query_arg(['page' => 'tix-coupons', 'msg' => 'saved'], admin_url('admin.php')));
         exit;
+    }
+
+    /**
+     * Liefert den aktiven Auto-Apply-Coupon (oder null wenn keiner).
+     * Filtert auch abgelaufene und ausgeschöpfte Codes raus.
+     */
+    public static function get_auto_apply_coupon() {
+        $coupons = get_option(self::OPTION, []);
+        if (!is_array($coupons)) return null;
+
+        foreach ($coupons as $code => $c) {
+            if (empty($c['auto_apply'])) continue;
+
+            // Expiry-Check
+            if (!empty($c['expires'])) {
+                $ts = strtotime($c['expires']);
+                if ($ts && $ts < time()) continue;
+            }
+            // Max-Uses-Check
+            $used = intval($c['used'] ?? 0);
+            $max  = intval($c['max_uses'] ?? 0);
+            if ($max > 0 && $used >= $max) continue;
+
+            return $c;
+        }
+        return null;
     }
 
     public static function handle_delete() {
@@ -216,6 +255,35 @@ class TIX_Coupons {
                                            placeholder="optional, intern">
                                 </td>
                             </tr>
+                            <tr>
+                                <th>Automatisch anwenden</th>
+                                <td>
+                                    <?php
+                                    $current_auto = !empty($edit['auto_apply']);
+                                    // Anderen aktiven Auto-Apply-Coupon (außer diesem) finden — für Hinweis
+                                    $other_auto = null;
+                                    foreach ($coupons as $oc) {
+                                        if (!empty($oc['auto_apply']) && $oc['code'] !== ($edit['code'] ?? '')) {
+                                            $other_auto = $oc;
+                                            break;
+                                        }
+                                    }
+                                    ?>
+                                    <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;">
+                                        <input type="checkbox" name="auto_apply" value="1" <?php checked($current_auto); ?>>
+                                        <span><strong>🪄 Automatisch im Warenkorb anwenden</strong></span>
+                                    </label>
+                                    <p class="description" style="margin-top:8px;">
+                                        Wird beim ersten Hinzufügen eines Tickets automatisch auf den Warenkorb angewendet — der Kunde muss den Code nicht selbst eingeben.<br>
+                                        <strong>⚠️ Nur ein Coupon</strong> kann gleichzeitig automatisch angewendet werden. Beim Aktivieren wird der bisherige Auto-Apply-Coupon deaktiviert.
+                                    </p>
+                                    <?php if ($other_auto && !$current_auto): ?>
+                                        <p style="margin-top:8px;font-size:12px;background:#fef3c7;border-left:3px solid #f59e0b;padding:8px 12px;border-radius:4px;color:#78350f;">
+                                            Aktuell ist <strong style="font-family:monospace;"><?php echo esc_html($other_auto['code']); ?></strong> als Auto-Apply-Coupon aktiv. Wenn du diesen aktivierst, wird der andere automatisch deaktiviert.
+                                        </p>
+                                    <?php endif; ?>
+                                </td>
+                            </tr>
                         </table>
 
                         <p class="submit">
@@ -263,6 +331,9 @@ class TIX_Coupons {
                                 <tr<?php echo $disabled ? ' style="opacity:.55;"' : ''; ?>>
                                     <td>
                                         <strong style="font-family:monospace;font-size:13px;letter-spacing:1px;"><?php echo esc_html($code); ?></strong>
+                                        <?php if (!empty($c['auto_apply'])): ?>
+                                            <span style="background:#dcfce7;color:#166534;padding:1px 7px;border-radius:6px;font-size:10px;font-weight:700;margin-left:4px;" title="Wird automatisch im Warenkorb angewendet">🪄 AUTO</span>
+                                        <?php endif; ?>
                                         <?php if (!empty($c['description'])): ?>
                                             <div style="font-size:11px;color:#9ca3af;"><?php echo esc_html($c['description']); ?></div>
                                         <?php endif; ?>
