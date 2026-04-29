@@ -149,7 +149,7 @@ class TIX_Admin_Shell {
         elseif ($current_page === 'tix-docs')                                   $active = 'docs';
         elseif (in_array($current_page, ['tixomat', 'tix-dashboard'], true))     $active = 'dashboard';
 
-        // ── Settings Tabs ──
+        // ── Settings Tabs (alle in einer Liste, kein Mehr-Toggle mehr) ──
         $settings_tabs = [
             'design'          => ['icon' => 'art',                    'label' => 'Design'],
             'buttons'         => ['icon' => 'button',                 'label' => 'Buttons'],
@@ -158,24 +158,25 @@ class TIX_Admin_Shell {
             'checkout'        => ['icon' => 'cart',                   'label' => 'Checkout'],
             'express'         => ['icon' => 'performance',            'label' => 'Express Checkout'],
             'my-tickets'      => ['icon' => 'id',                     'label' => 'Meine Tickets'],
+            'wallet'          => ['icon' => 'id-alt',                 'label' => 'Wallet'],
+            'invoice'         => ['icon' => 'media-document',         'label' => 'Rechnungen'],
             'newsletter'      => ['icon' => 'email-alt',              'label' => 'Newsletter'],
             'checkin'         => ['icon' => 'clipboard',              'label' => 'Check-in'],
             'fees'            => ['icon' => 'money-alt',              'label' => 'Gebühren'],
             'bot'             => ['icon' => 'format-chat',            'label' => 'Ticket-Bot'],
             'typography'      => ['icon' => 'editor-textcolor',       'label' => 'Typografie'],
-            'colors'          => ['icon' => 'admin-appearance',      'label' => 'Farben'],
+            'colors'          => ['icon' => 'admin-appearance',       'label' => 'Farben'],
             'event-homepage'  => ['icon' => 'admin-home',             'label' => 'Event-Homepage'],
+            'ticket-template' => ['icon' => 'media-document',         'label' => 'Ticket-Template'],
+            'email-template'  => ['icon' => 'email-alt',              'label' => 'E-Mail-Template'],
+            'data-sync'       => ['icon' => 'cloud-saved',            'label' => 'Daten-Sync'],
+            'event-page'      => ['icon' => 'welcome-widgets-menus',  'label' => 'Event-Seite'],
+            'event-cards'     => ['icon' => 'screenoptions',          'label' => 'Event-Karten'],
+            'share'           => ['icon' => 'share',                  'label' => 'Share'],
+            'marketing'       => ['icon' => 'megaphone',              'label' => 'Marketing'],
             'advanced'        => ['icon' => 'admin-generic',          'label' => 'Erweitert'],
         ];
-        $settings_more = [
-            'ticket-template'  => ['icon' => 'media-document',          'label' => 'Ticket-Template'],
-            'email-template'   => ['icon' => 'email-alt',               'label' => 'E-Mail-Template'],
-            'data-sync'        => ['icon' => 'cloud-saved',             'label' => 'Daten-Sync'],
-            'event-page'       => ['icon' => 'welcome-widgets-menus',   'label' => 'Event-Seite'],
-            'event-cards'      => ['icon' => 'screenoptions',           'label' => 'Event-Karten'],
-            'share'            => ['icon' => 'share',                   'label' => 'Share'],
-            'marketing'        => ['icon' => 'megaphone',               'label' => 'Marketing'],
-        ];
+        $settings_more = []; // Leere Liste — Mehr-Toggle wird nicht mehr gerendert
 
         // ── Docs Tabs ──
         $docs_tabs = [
@@ -584,22 +585,24 @@ class TIX_Admin_Shell {
                             </a>
                         <?php endforeach; ?>
 
-                        <!-- Mehr-Toggle -->
-                        <button type="button" class="tix-shell-item tix-shell-more-btn" id="tix-shell-settings-more-btn">
-                            <span class="dashicons dashicons-ellipsis"></span>
-                            <span>Mehr</span>
-                            <span class="tix-shell-chevron dashicons dashicons-arrow-down-alt2"></span>
-                        </button>
-                        <div class="tix-shell-more-items" id="tix-shell-settings-more">
-                            <?php foreach ($settings_more as $tab => $t) : ?>
-                                <a href="#<?php echo $tab; ?>"
-                                   class="tix-shell-item tix-shell-settings-tab"
-                                   data-settings-tab="<?php echo $tab; ?>">
-                                    <span class="dashicons dashicons-<?php echo $t['icon']; ?>"></span>
-                                    <span><?php echo $t['label']; ?></span>
-                                </a>
-                            <?php endforeach; ?>
-                        </div>
+                        <?php if (!empty($settings_more)) : ?>
+                            <!-- Mehr-Toggle (nur wenn $settings_more nicht leer ist) -->
+                            <button type="button" class="tix-shell-item tix-shell-more-btn" id="tix-shell-settings-more-btn">
+                                <span class="dashicons dashicons-ellipsis"></span>
+                                <span>Mehr</span>
+                                <span class="tix-shell-chevron dashicons dashicons-arrow-down-alt2"></span>
+                            </button>
+                            <div class="tix-shell-more-items" id="tix-shell-settings-more">
+                                <?php foreach ($settings_more as $tab => $t) : ?>
+                                    <a href="#<?php echo $tab; ?>"
+                                       class="tix-shell-item tix-shell-settings-tab"
+                                       data-settings-tab="<?php echo $tab; ?>">
+                                        <span class="dashicons dashicons-<?php echo $t['icon']; ?>"></span>
+                                        <span><?php echo $t['label']; ?></span>
+                                    </a>
+                                <?php endforeach; ?>
+                            </div>
+                        <?php endif; ?>
                     <?php else : ?>
                         <a href="<?php echo admin_url('admin.php?page=tix-settings'); ?>"
                            class="tix-shell-item<?php echo $active === 'settings' ? ' active' : ''; ?>">
