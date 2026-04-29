@@ -214,6 +214,7 @@ class TIX_Support {
             'statuses'   => self::get_statuses(),
             'categories' => self::get_categories(),
             'isAdmin'    => true,
+            'crmUrl'     => admin_url('admin.php?page=tix-customers&email='),
         ]);
     }
 
@@ -730,8 +731,9 @@ class TIX_Support {
         check_ajax_referer('tix_support_action', 'nonce');
         if (!current_user_can('manage_options')) wp_send_json_error('Keine Berechtigung.');
 
-        $ticket_id = intval($_POST['ticket_id'] ?? 0);
-        $content   = sanitize_textarea_field($_POST['content'] ?? '');
+        $ticket_id       = intval($_POST['ticket_id'] ?? 0);
+        $content         = sanitize_textarea_field($_POST['content'] ?? '');
+        $attach_order_id = intval($_POST['attach_order_id'] ?? 0);
 
         if (!$ticket_id || empty($content)) {
             wp_send_json_error('Ticket-ID und Nachricht erforderlich.');
@@ -740,6 +742,14 @@ class TIX_Support {
         $post = get_post($ticket_id);
         if (!$post || $post->post_type !== 'tix_support_ticket') {
             wp_send_json_error('Anfrage nicht gefunden.');
+        }
+
+        // Sicherheitscheck: attach_order_id muss zur Ticket-Bestellung gehören
+        if ($attach_order_id) {
+            $linked_order_id = intval(get_post_meta($ticket_id, '_tix_sp_order_id', true));
+            if ($linked_order_id !== $attach_order_id) {
+                $attach_order_id = 0; // Manipulation: ignorieren statt fehlschlagen
+            }
         }
 
         $user = wp_get_current_user();
@@ -762,13 +772,30 @@ class TIX_Support {
         // Letzte Antwort-Timestamp aktualisieren
         update_post_meta($ticket_id, '_tix_sp_last_reply', current_time('c'));
 
-        // E-Mail an Kunden senden
+        // E-Mail an Kunden senden (mit optionalen Ticket-Anhängen)
+        $attach_message = '';
         $email = get_post_meta($ticket_id, '_tix_sp_email', true);
         if ($email) {
-            self::send_email_reply_to_customer($ticket_id, $post->post_title, $email, $content);
+            $attach_message = self::send_email_reply_to_customer($ticket_id, $post->post_title, $email, $content, $attach_order_id);
         }
 
-        wp_send_json_success(['message' => $msg]);
+        $response = ['message' => $msg];
+        if ($attach_message) {
+            $response['attach_message'] = $attach_message;
+            // Interne Notiz im Thread: was wurde angehängt
+            $note = [
+                'id'      => self::generate_message_id(),
+                'type'    => 'note',
+                'author'  => ($user->display_name ?: 'Support-Team') . ' (intern)',
+                'user_id' => $user->ID,
+                'content' => '🎫 ' . $attach_message,
+                'date'    => current_time('c'),
+            ];
+            self::add_message($ticket_id, $note);
+            $response['attach_note'] = $note;
+        }
+
+        wp_send_json_success($response);
     }
 
     // ══════════════════════════════════════════════
@@ -1470,7 +1497,7 @@ class TIX_Support {
     /**
      * Admin-Antwort → E-Mail an Kunden
      */
-    private static function send_email_reply_to_customer($ticket_id, $subject, $email, $reply_content) {
+    private static function send_email_reply_to_customer($ticket_id, $subject, $email, $reply_content, $attach_order_id = 0) {
         $name = get_post_meta($ticket_id, '_tix_sp_name', true);
         $body = '<p>Hallo ' . esc_html($name ?: 'Kunde') . ',</p>';
         $body .= '<p>du hast eine neue Antwort zu deiner Anfrage <strong>#' . $ticket_id . '</strong> erhalten:</p>';
@@ -1478,13 +1505,81 @@ class TIX_Support {
         $body .= nl2br(esc_html($reply_content));
         $body .= '</div>';
 
+        // ── Optional: Tickets anhängen ──
+        $attachments     = [];
+        $temp_files      = [];
+        $attached_count  = 0;
+        $attach_message  = '';
+        if ($attach_order_id > 0 && class_exists('TIX_Tickets')) {
+            $tickets = TIX_Tickets::get_all_tickets_for_order($attach_order_id);
+            if (!empty($tickets)) {
+                $upload_dir = wp_upload_dir();
+                $tmp_dir = trailingslashit($upload_dir['basedir']) . 'tix-support-mail-tmp';
+                if (!file_exists($tmp_dir)) {
+                    @wp_mkdir_p($tmp_dir);
+                    @file_put_contents($tmp_dir . '/.htaccess', "deny from all\n");
+                }
+
+                $ticket_items = [];
+                foreach ($tickets as $t) {
+                    $ticket_pid = intval($t['id'] ?? 0);
+                    $code       = $t['code'] ?? '';
+                    $dlurl      = $t['download_url'] ?? '';
+                    if (!$dlurl && $ticket_pid) {
+                        $dlurl = TIX_Tickets::get_download_url($ticket_pid);
+                    }
+
+                    if ($ticket_pid && TIX_Tickets::has_pdf_template($ticket_pid)) {
+                        $pdf_binary = TIX_Tickets::get_pdf_binary($ticket_pid);
+                        if ($pdf_binary) {
+                            $safe_code = preg_replace('/[^A-Z0-9]/i', '', $code) ?: (string) $ticket_pid;
+                            $file_path = $tmp_dir . '/ticket-' . $safe_code . '.pdf';
+                            if (file_put_contents($file_path, $pdf_binary)) {
+                                $attachments[] = $file_path;
+                                $temp_files[]  = $file_path;
+                                $attached_count++;
+                            }
+                        }
+                    }
+
+                    $label = $ticket_pid ? TIX_Tickets::ticket_type_label($ticket_pid) : 'Ticket';
+                    $li  = '<li style="padding:10px 0;border-bottom:1px solid #f3f4f6;">';
+                    $li .= '<strong>' . esc_html($code) . '</strong>';
+                    if ($dlurl) $li .= ' <a href="' . esc_url($dlurl) . '" style="color:#2563eb;text-decoration:none;margin-left:8px;">' . esc_html($label) . ' öffnen →</a>';
+                    $li .= '</li>';
+                    $ticket_items[] = $li;
+                }
+
+                $body .= '<hr style="margin:24px 0;border:none;border-top:1px solid #e5e7eb;">';
+                $body .= '<h3 style="margin:0 0 12px;font-size:15px;">Deine Tickets</h3>';
+                if ($attached_count > 0) {
+                    $body .= '<p style="margin:0 0 12px;font-size:13px;color:#64748b;">Deine Tickets hängen als <strong>PDF</strong> an dieser E-Mail. Falls du sie nicht öffnen kannst, nutze die Links unten.</p>';
+                } else {
+                    $body .= '<p style="margin:0 0 12px;font-size:13px;color:#64748b;">Deine Online-Tickets kannst du über die folgenden Links abrufen:</p>';
+                }
+                $body .= '<ul style="list-style:none;padding:0;margin:0;">' . implode('', $ticket_items) . '</ul>';
+
+                $total = count($tickets);
+                if ($attached_count > 0) {
+                    $attach_message = $attached_count . ' Ticket-PDF' . ($attached_count > 1 ? 's' : '') . ' angehängt + ' . $total . ' Download-Link' . ($total > 1 ? 's' : '') . ' im Body';
+                } else {
+                    $attach_message = $total . ' Ticket-Download-Link' . ($total > 1 ? 's' : '') . ' im Mail-Body';
+                }
+            }
+        }
+
         $html = TIX_Emails::build_generic_email_html(
             'Neue Antwort',
             $body,
             '#' . $ticket_id . ' – ' . $subject
         );
 
-        wp_mail($email, 'Neue Antwort zu deiner Anfrage #' . $ticket_id, $html, ['Content-Type: text/html; charset=UTF-8']);
+        wp_mail($email, 'Neue Antwort zu deiner Anfrage #' . $ticket_id, $html, ['Content-Type: text/html; charset=UTF-8'], $attachments);
+
+        // Temp-PDFs aufräumen
+        foreach ($temp_files as $f) { @unlink($f); }
+
+        return $attach_message;
     }
 
     /**

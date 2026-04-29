@@ -154,6 +154,19 @@
             // Reply Box
             html += '<div class="tix-sp-reply-box">';
             html += '<textarea class="tix-sp-reply-textarea" id="tix-sp-reply-text" placeholder="Antwort oder interne Notiz schreiben…"></textarea>';
+
+            // Tickets-Anhang Dropdown — nur wenn Bestellung verifiziert (order_id vorhanden)
+            if (t.order_id && t.linked_tickets && t.linked_tickets.length) {
+                html += '<div class="tix-sp-reply-attach">';
+                html += '<label for="tix-sp-attach-order" style="display:block;font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:4px;">🎫 Tickets anhängen (optional)</label>';
+                html += '<select id="tix-sp-attach-order" style="width:100%;padding:8px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;background:#fff;">';
+                html += '<option value="">Keine Tickets anhängen</option>';
+                html += '<option value="' + t.order_id + '">Alle Tickets der Bestellung #' + t.order_id + ' (' + t.linked_tickets.length + ')</option>';
+                html += '</select>';
+                html += '<div style="font-size:11px;color:#9ca3af;margin-top:4px;">PDF-Tickets als Anhang, Online-Tickets als Download-Link in der Mail.</div>';
+                html += '</div>';
+            }
+
             html += '<div class="tix-sp-reply-actions">';
             html += '<button class="tix-sp-btn tix-sp-btn-accent" id="tix-sp-reply-btn">📩 Antworten</button>';
             html += '<button class="tix-sp-btn" id="tix-sp-note-btn">📌 Interne Notiz</button>';
@@ -166,8 +179,18 @@
             // Kunden-Info
             html += '<div class="tix-sp-sidebar-card">';
             html += '<h4>Kunde</h4>';
-            html += '<div class="tix-sp-sidebar-row"><span class="tix-sp-sidebar-label">Name</span><span class="tix-sp-sidebar-value">' + esc(t.name || '–') + '</span></div>';
-            html += '<div class="tix-sp-sidebar-row"><span class="tix-sp-sidebar-label">E-Mail</span><span class="tix-sp-sidebar-value">' + esc(t.email) + '</span></div>';
+            var crmHref = t.email ? (S.crmUrl + encodeURIComponent(t.email)) : '';
+            var nameHtml = t.name ? esc(t.name) : '–';
+            var emailHtml = esc(t.email || '');
+            if (crmHref) {
+                nameHtml  = '<a href="' + crmHref + '" target="_blank" title="Kundenansicht öffnen" style="color:#2563eb;text-decoration:none;font-weight:600;">' + nameHtml + '</a>';
+                emailHtml = '<a href="' + crmHref + '" target="_blank" title="Kundenansicht öffnen" style="color:#2563eb;text-decoration:none;">' + emailHtml + '</a>';
+            }
+            html += '<div class="tix-sp-sidebar-row"><span class="tix-sp-sidebar-label">Name</span><span class="tix-sp-sidebar-value">' + nameHtml + '</span></div>';
+            html += '<div class="tix-sp-sidebar-row"><span class="tix-sp-sidebar-label">E-Mail</span><span class="tix-sp-sidebar-value">' + emailHtml + '</span></div>';
+            if (crmHref) {
+                html += '<div class="tix-sp-sidebar-row" style="margin-top:6px;"><a href="' + crmHref + '" target="_blank" style="display:inline-flex;align-items:center;gap:4px;background:#eff6ff;color:#1d4ed8;padding:5px 10px;border-radius:6px;text-decoration:none;font-size:11px;font-weight:600;border:1px solid #bfdbfe;">👤 Kundenansicht öffnen →</a></div>';
+            }
             html += '<div class="tix-sp-sidebar-row"><span class="tix-sp-sidebar-label">Kategorie</span><span class="tix-sp-sidebar-value">' + esc(t.category_label) + '</span></div>';
             if (t.order_id) {
                 html += '<div class="tix-sp-sidebar-row"><span class="tix-sp-sidebar-label">Bestellung</span><span class="tix-sp-sidebar-value"><a href="' + (t.order && t.order.edit_url ? t.order.edit_url : '#') + '" target="_blank">#' + t.order_id + '</a></span></div>';
@@ -277,17 +300,31 @@
             var btn = $(this);
             btn.prop('disabled', true).text('Wird gesendet…');
 
+            var attachOrderId = $('#tix-sp-attach-order').val() || '';
+
             $.post(S.ajax, {
-                action:    'tix_support_reply',
-                nonce:     S.nonce,
-                ticket_id: currentTicket.id,
-                content:   content,
+                action:           'tix_support_reply',
+                nonce:            S.nonce,
+                ticket_id:        currentTicket.id,
+                content:          content,
+                attach_order_id:  attachOrderId,
             }, function(r) {
                 btn.prop('disabled', false).text('📩 Antworten');
                 if (r.success) {
                     $('#tix-sp-reply-text').val('');
+                    if (r.data.attach_message) {
+                        // Kurzer Hinweis über Anhang-Status
+                        var infoBox = $('<div class="tix-sp-attach-info" style="margin-top:8px;padding:8px 12px;background:#dcfce7;color:#14532d;border:1px solid #86efac;border-radius:6px;font-size:12px;"></div>').text('✓ ' + r.data.attach_message);
+                        $('#tix-sp-attach-order').closest('.tix-sp-reply-attach').after(infoBox);
+                        $('#tix-sp-attach-order').val('');
+                        setTimeout(function() { infoBox.fadeOut(400, function() { $(this).remove(); }); }, 4000);
+                    }
                     currentTicket.messages.push(r.data.message);
                     $('#tix-sp-messages').append(renderMessage(r.data.message));
+                    if (r.data.attach_note) {
+                        currentTicket.messages.push(r.data.attach_note);
+                        $('#tix-sp-messages').append(renderMessage(r.data.attach_note));
+                    }
                     var msgBox = document.getElementById('tix-sp-messages');
                     if (msgBox) msgBox.scrollTop = msgBox.scrollHeight;
                 }

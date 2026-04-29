@@ -469,10 +469,11 @@ class TIX_CRM {
                                 $switch_url = TIX_User_Switch::get_switch_url($data['user_id']);
                         ?>
                             <a href="<?php echo esc_url($switch_url); ?>"
-                               style="display:flex;align-items:center;justify-content:center;gap:6px;background:linear-gradient(90deg,#FF5500,#dc2626);color:#fff;padding:10px 14px;border-radius:8px;text-decoration:none;font-weight:600;font-size:13px;width:100%;margin-top:8px;">
-                                🎭 Als diesen Kunden einloggen
+                               style="display:flex;align-items:center;justify-content:center;gap:6px;background:linear-gradient(90deg,#FF5500,#dc2626);color:#fff;padding:9px 10px;border-radius:8px;text-decoration:none;font-weight:600;font-size:12px;line-height:1.2;width:100%;margin-top:10px;box-sizing:border-box;text-align:center;white-space:nowrap;">
+                                <span class="dashicons dashicons-admin-users" style="font-size:15px;width:15px;height:15px;line-height:1;"></span>
+                                Als Kunde einloggen
                             </a>
-                            <p style="margin:6px 0 0;font-size:11px;color:#6b7280;text-align:center;">Support-Modus — du wirst temporär als dieser Kunde eingeloggt.</p>
+                            <p style="margin:6px 0 0;font-size:11px;color:#6b7280;text-align:center;line-height:1.4;">Support-Modus — du wirst temporär als dieser Kunde eingeloggt.</p>
                         <?php endif; endif; ?>
                     </div>
                     <?php else: ?>
