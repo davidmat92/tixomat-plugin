@@ -899,6 +899,13 @@ class TIX_Event_Report {
 
         $pdf = new TIX_Simple_PDF($page_w, $page_h, $margin_x, $margin_y);
 
+        // System-Logo laden (gleiche Quelle wie Dashboard oben links)
+        $logo_url = tix_get_settings('admin_logo_url');
+        $logo_loaded = false;
+        if ($logo_url) {
+            $logo_loaded = $pdf->load_logo($logo_url);
+        }
+
         // Titel
         $brand = tix_get_settings('email_brand_name') ?: get_bloginfo('name');
         $title = $event ? $event->post_title : 'Event-Bericht';
@@ -906,6 +913,11 @@ class TIX_Event_Report {
         if ($date_label) $date_label = date_i18n('l, d. F Y', strtotime($date_label));
 
         $pdf->add_page();
+
+        // ── Logo oben rechts (vollfarbig, dezent klein) ──
+        if ($logo_loaded) {
+            $pdf->draw_logo($page_w - $margin_x - 90, $page_h - $margin_y - 40, 90, 50);
+        }
 
         // Header-Block
         $pdf->set_font('Helvetica-Bold', 18);
@@ -1023,6 +1035,11 @@ class TIX_Event_Report {
         // Footer auf jeder Seite
         $pdf->set_footer($brand . ' · Event-Bericht · Seite {p}/{n}');
 
+        // Dezentes Logo unten rechts (mit 55% Opazität, gleiche Höhe wie Footer-Text)
+        if ($logo_loaded) {
+            $pdf->set_footer_logo($page_w - $margin_x - 50, 14, 50);
+        }
+
         $bytes = $pdf->output();
 
         nocache_headers();
@@ -1052,12 +1069,94 @@ class TIX_Simple_PDF {
     private $current_font = 'F1';
     private $current_size = 10;
     private $footer_text = '';
+    // Logo-Daten: JPEG-Bytes + Dimensionen für Image-XObject
+    private $logo_jpeg = null;
+    private $logo_w = 0;
+    private $logo_h = 0;
+    // Footer-Logo-Position-Spec: ['x' => , 'y' => , 'w' => , 'opacity' => ] oder null
+    private $footer_logo_spec = null;
 
     public function __construct($w, $h, $mx, $my) {
         $this->w = $w;
         $this->h = $h;
         $this->mx = $mx;
         $this->my = $my;
+    }
+
+    /**
+     * Logo laden und für PDF-Embedding vorbereiten.
+     * Akzeptiert URL (lokale Uploads bevorzugt) oder Filesystem-Pfad.
+     * Konvertiert PNG/anderes zu JPEG (für PDF DCTDecode).
+     */
+    public function load_logo($url_or_path) {
+        if (!$url_or_path || !extension_loaded('gd')) return false;
+
+        $bytes = null;
+        // Lokale URLs → direkt vom Filesystem (schneller, keine HTTP-Request)
+        $upload = wp_get_upload_dir();
+        if (strpos($url_or_path, $upload['baseurl']) === 0) {
+            $path = str_replace($upload['baseurl'], $upload['basedir'], $url_or_path);
+            if (is_readable($path)) $bytes = @file_get_contents($path);
+        } elseif (file_exists($url_or_path)) {
+            $bytes = @file_get_contents($url_or_path);
+        } else {
+            $r = wp_remote_get($url_or_path, ['timeout' => 8]);
+            if (!is_wp_error($r) && wp_remote_retrieve_response_code($r) === 200) {
+                $bytes = wp_remote_retrieve_body($r);
+            }
+        }
+        if (!$bytes) return false;
+
+        // GD: Bild öffnen → mit weißem Hintergrund auf JPEG ausgeben
+        $img = @imagecreatefromstring($bytes);
+        if (!$img) return false;
+
+        $w = imagesx($img);
+        $h = imagesy($img);
+        // Auf weißem Hintergrund flatten (Transparenz weg, da JPEG keine Alpha hat)
+        $bg = imagecreatetruecolor($w, $h);
+        $white = imagecolorallocate($bg, 255, 255, 255);
+        imagefilledrectangle($bg, 0, 0, $w, $h, $white);
+        imagecopyresampled($bg, $img, 0, 0, 0, 0, $w, $h, $w, $h);
+
+        ob_start();
+        imagejpeg($bg, null, 88);
+        $jpeg = ob_get_clean();
+        imagedestroy($img);
+        imagedestroy($bg);
+        if (!$jpeg) return false;
+
+        $this->logo_jpeg = $jpeg;
+        $this->logo_w = $w;
+        $this->logo_h = $h;
+        return true;
+    }
+
+    /**
+     * Logo an Position (x, y) mit max. Breite zeichnen — Aspect Ratio beibehalten.
+     * Gibt die tatsächlich gezeichnete Höhe zurück (für Layout-Berechnungen).
+     */
+    public function draw_logo($x, $y, $max_w, $max_h = null) {
+        if (!$this->logo_jpeg || $this->logo_w <= 0) return 0;
+        $ratio = $this->logo_h / $this->logo_w;
+        $w = $max_w;
+        $h = $w * $ratio;
+        if ($max_h && $h > $max_h) {
+            $h = $max_h;
+            $w = $h / $ratio;
+        }
+        // q W 0 0 H X Y cm /Logo Do Q (Image-Matrix)
+        $this->current .= sprintf("q %.2f 0 0 %.2f %.2f %.2f cm /Logo Do Q\n",
+            $w, $h, $x, $y);
+        return $h;
+    }
+
+    /**
+     * Logo auf jedem Footer einbetten (Position bottom-right).
+     * Wird in output() auf alle Seiten angewendet.
+     */
+    public function set_footer_logo($x, $y, $w) {
+        $this->footer_logo_spec = ['x' => $x, 'y' => $y, 'w' => $w];
     }
 
     public function add_page() {
@@ -1143,33 +1242,33 @@ class TIX_Simple_PDF {
 
         $n_pages = count($this->pages);
 
-        // Footer auf jede Seite anhängen (nach pages-Sammlung)
-        if ($this->footer_text) {
-            foreach ($this->pages as $i => $content) {
-                $this->set_color(0.5, 0.5, 0.5);
+        // Footer-Text + optional Footer-Logo auf jede Seite anhängen
+        foreach ($this->pages as $i => $content) {
+            $extra = '';
+            if ($this->footer_text) {
                 $foot_text = str_replace(['{p}', '{n}'], [$i + 1, $n_pages], $this->footer_text);
                 $foot_str  = $this->encode($foot_text);
-                // 11pt Helvetica
-                $content .= sprintf("q 0.5 0.5 0.5 rg BT /F1 9 Tf %d 20 Td (%s) Tj ET Q\n",
+                $extra .= sprintf("q 0.5 0.5 0.5 rg BT /F1 9 Tf %d 20 Td (%s) Tj ET Q\n",
                     $this->mx, $foot_str);
-                $this->pages[$i] = $content;
             }
+            // Footer-Logo (dezent rechts unten)
+            if ($this->footer_logo_spec && $this->logo_jpeg && $this->logo_w > 0) {
+                $spec = $this->footer_logo_spec;
+                $ratio = $this->logo_h / $this->logo_w;
+                $w = $spec['w'];
+                $h = $w * $ratio;
+                // Dezent: 50% Opazität via Graphics State (gs alphafill)
+                $extra .= sprintf("q /GS_FADED gs %.2f 0 0 %.2f %.2f %.2f cm /Logo Do Q\n",
+                    $w, $h, $spec['x'], $spec['y']);
+            }
+            $this->pages[$i] = $content . $extra;
         }
 
-        // PDF zusammenbauen
+        // ── PDF zusammenbauen ──
         $pdf = "%PDF-1.4\n%\xE2\xE3\xCF\xD3\n";
         $offsets = [];
-        $obj_id = 0;
+        $obj_id  = 0;
 
-        $write_obj = function($content) use (&$pdf, &$offsets, &$obj_id) {
-            $obj_id++;
-            $offsets[$obj_id] = strlen($pdf);
-            $pdf .= $obj_id . " 0 obj\n" . $content . "\nendobj\n";
-            return $obj_id;
-        };
-
-        // Reservation (3 oben pro Seite + 2 fonts + catalog + pages)
-        // Order: 1=Catalog, 2=Pages-Tree, 3+=PageObjs/Contents, then Fonts
         $catalog_id = ++$obj_id;
         $pages_id   = ++$obj_id;
 
@@ -1183,9 +1282,13 @@ class TIX_Simple_PDF {
         $font1_id = ++$obj_id;
         $font2_id = ++$obj_id;
 
-        // Reset to write in correct order
-        $pdf = "%PDF-1.4\n%\xE2\xE3\xCF\xD3\n";
-        $offsets = [];
+        // Logo-XObject + ExtGState für Opazität (nur wenn Logo geladen)
+        $logo_obj_id = 0;
+        $gs_obj_id   = 0;
+        if ($this->logo_jpeg && $this->logo_w > 0) {
+            $logo_obj_id = ++$obj_id;
+            $gs_obj_id   = ++$obj_id;
+        }
 
         // 1: Catalog
         $offsets[$catalog_id] = strlen($pdf);
@@ -1197,28 +1300,50 @@ class TIX_Simple_PDF {
         $pdf .= $pages_id . " 0 obj\n<< /Type /Pages /Kids [$kids] /Count $n_pages >>\nendobj\n";
 
         // 3+: Page-Objs + Contents
+        $resources_xobj = '';
+        $resources_extgstate = '';
+        if ($logo_obj_id) {
+            $resources_xobj      = ' /XObject << /Logo ' . $logo_obj_id . ' 0 R >>';
+            $resources_extgstate = ' /ExtGState << /GS_FADED ' . $gs_obj_id . ' 0 R >>';
+        }
         foreach ($this->pages as $i => $content) {
             $page_id    = $page_ids[$i];
             $content_id = $content_ids[$i];
             $offsets[$page_id] = strlen($pdf);
             $pdf .= $page_id . " 0 obj\n<< /Type /Page /Parent " . $pages_id . " 0 R "
                 . "/MediaBox [0 0 " . $this->w . " " . $this->h . "] "
-                . "/Resources << /Font << /F1 " . $font1_id . " 0 R /F2 " . $font2_id . " 0 R >> >> "
+                . "/Resources << /Font << /F1 " . $font1_id . " 0 R /F2 " . $font2_id . " 0 R >>"
+                . $resources_xobj . $resources_extgstate
+                . " >> "
                 . "/Contents " . $content_id . " 0 R >>\nendobj\n";
 
             $offsets[$content_id] = strlen($pdf);
             $pdf .= $content_id . " 0 obj\n<< /Length " . strlen($content) . " >>\nstream\n" . $content . "endstream\nendobj\n";
         }
 
-        // Fonts: Standard-PDF-Fonts (Helvetica + Helvetica-Bold)
+        // Fonts
         $offsets[$font1_id] = strlen($pdf);
         $pdf .= $font1_id . " 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>\nendobj\n";
         $offsets[$font2_id] = strlen($pdf);
         $pdf .= $font2_id . " 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>\nendobj\n";
 
+        // Logo-XObject (JPEG mit DCTDecode-Filter)
+        if ($logo_obj_id) {
+            $offsets[$logo_obj_id] = strlen($pdf);
+            $pdf .= $logo_obj_id . " 0 obj\n<< /Type /XObject /Subtype /Image "
+                . "/Width " . $this->logo_w . " /Height " . $this->logo_h . " "
+                . "/ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode "
+                . "/Length " . strlen($this->logo_jpeg) . " >>\nstream\n"
+                . $this->logo_jpeg . "\nendstream\nendobj\n";
+
+            // ExtGState: Faded (50% Opazität für dezente Footer-Anzeige)
+            $offsets[$gs_obj_id] = strlen($pdf);
+            $pdf .= $gs_obj_id . " 0 obj\n<< /Type /ExtGState /ca 0.55 /CA 0.55 >>\nendobj\n";
+        }
+
         // xref
         $xref_offset = strlen($pdf);
-        $total_objs = $obj_id + 1; // +1 for the implicit object 0
+        $total_objs = $obj_id + 1;
         $pdf .= "xref\n0 " . $total_objs . "\n";
         $pdf .= "0000000000 65535 f \n";
         for ($i = 1; $i < $total_objs; $i++) {
