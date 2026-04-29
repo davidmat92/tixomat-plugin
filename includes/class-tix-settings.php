@@ -561,6 +561,17 @@ class TIX_Settings {
             // ── Meta Ads ──
             'meta_pixel_enabled'       => 0,
             'meta_pixel_id'            => '',
+            // Google Ads / GA4 / GTM
+            'google_ads_enabled'           => 0,
+            'google_ads_id'                => '',  // AW-XXXXXXXXX
+            'google_ads_conversion_label'  => '',  // Label-Teil nach dem '/' im Conversion-Tag
+            'google_ads_send_purchase'     => 1,   // bei Purchase auf Thank-You-Seite triggern
+            'ga4_enabled'                  => 0,
+            'ga4_measurement_id'           => '',  // G-XXXXXXXXX
+            'gtm_enabled'                  => 0,
+            'gtm_container_id'             => '',  // GTM-XXXXXXX
+            'google_consent_mode'          => 'always', // 'always' oder 'consent_required'
+            'google_consent_cookie'        => 'cookie_consent',
             'meta_access_token'        => '',
             'meta_test_event_code'     => '',
             'meta_capi_enabled'        => 0,
@@ -1509,6 +1520,40 @@ class TIX_Settings {
         // Meta Ads
         $clean['meta_pixel_enabled']     = !empty($input['meta_pixel_enabled']) ? 1 : 0;
         $clean['meta_pixel_id']          = preg_replace('/[^0-9]/', '', $input['meta_pixel_id'] ?? '');
+
+        // Google Ads / GA4 / GTM Sanitize
+        $clean['google_ads_enabled']           = !empty($input['google_ads_enabled']) ? 1 : 0;
+        // AW-1234567890 oder nur die Ziffern — wir akzeptieren beides
+        $google_ads_id_raw = strtoupper(trim($input['google_ads_id'] ?? ''));
+        $google_ads_id_raw = preg_replace('/[^A-Z0-9-]/', '', $google_ads_id_raw);
+        if ($google_ads_id_raw && !str_starts_with($google_ads_id_raw, 'AW-')) {
+            // Nur Zahlen → automatisch "AW-" prefix
+            if (preg_match('/^[0-9]+$/', $google_ads_id_raw)) {
+                $google_ads_id_raw = 'AW-' . $google_ads_id_raw;
+            }
+        }
+        $clean['google_ads_id']                = $google_ads_id_raw;
+        $clean['google_ads_conversion_label']  = preg_replace('/[^A-Za-z0-9_-]/', '', $input['google_ads_conversion_label'] ?? '');
+        $clean['google_ads_send_purchase']     = !empty($input['google_ads_send_purchase']) ? 1 : 0;
+
+        $clean['ga4_enabled']                  = !empty($input['ga4_enabled']) ? 1 : 0;
+        $ga4_id = strtoupper(trim($input['ga4_measurement_id'] ?? ''));
+        $ga4_id = preg_replace('/[^A-Z0-9-]/', '', $ga4_id);
+        if ($ga4_id && !str_starts_with($ga4_id, 'G-')) {
+            $ga4_id = 'G-' . $ga4_id;
+        }
+        $clean['ga4_measurement_id']           = $ga4_id;
+
+        $clean['gtm_enabled']                  = !empty($input['gtm_enabled']) ? 1 : 0;
+        $gtm_id = strtoupper(trim($input['gtm_container_id'] ?? ''));
+        $gtm_id = preg_replace('/[^A-Z0-9-]/', '', $gtm_id);
+        if ($gtm_id && !str_starts_with($gtm_id, 'GTM-')) {
+            $gtm_id = 'GTM-' . $gtm_id;
+        }
+        $clean['gtm_container_id']             = $gtm_id;
+
+        $clean['google_consent_mode']          = in_array($input['google_consent_mode'] ?? 'always', ['always', 'consent_required'], true) ? $input['google_consent_mode'] : 'always';
+        $clean['google_consent_cookie']        = sanitize_text_field($input['google_consent_cookie'] ?? 'cookie_consent');
         $clean['meta_access_token']      = sanitize_text_field($input['meta_access_token'] ?? '');
         $clean['meta_test_event_code']   = sanitize_text_field($input['meta_test_event_code'] ?? '');
         $clean['meta_capi_enabled']      = !empty($input['meta_capi_enabled']) ? 1 : 0;
@@ -2520,8 +2565,8 @@ class TIX_Settings {
                                     <span class="tix-nav-label">Marketing</span>
                                 </button>
                                 <button type="button" class="tix-nav-tab" data-tab="meta-ads">
-                                    <span class="dashicons dashicons-facebook-alt"></span>
-                                    <span class="tix-nav-label">Meta Ads</span>
+                                    <span class="dashicons dashicons-chart-area"></span>
+                                    <span class="tix-nav-label">Tracking-Pixel</span>
                                 </button>
                                 <button type="button" class="tix-nav-tab" data-tab="export-import">
                                     <span class="dashicons dashicons-database-export"></span>
@@ -6088,6 +6133,90 @@ class TIX_Settings {
                                             <span class="dashicons dashicons-facebook-alt" style="margin-top:4px"></span>
                                             Meta Ads Dashboard öffnen
                                         </a>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Google Ads ── ?>
+                                <div class="tix-card" style="border-left:4px solid #4285f4;">
+                                    <div class="tix-card-header" style="background:linear-gradient(90deg,#fff,#f0f7ff);">
+                                        <span class="dashicons dashicons-google" style="color:#4285f4;"></span>
+                                        <h3>Google Ads</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <p class="tix-field-hint" style="margin-bottom:12px;">Conversion-Tracking für Google Ads-Kampagnen. Sendet Purchase-Events mit Bestellwert auf der Thank-You-Seite.</p>
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('google_ads_enabled', 'Google Ads Tracking aktivieren', $s, 'Lädt das gtag.js-Snippet im Frontend.'); ?>
+                                            </div>
+                                            <?php self::text_row('google_ads_id', 'Google Ads Conversion-ID', $s, 'AW-1234567890'); ?>
+                                            <?php self::text_row('google_ads_conversion_label', 'Conversion-Label (Purchase)', $s, 'AbCdEfGhIjK'); ?>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('google_ads_send_purchase', 'Purchase-Conversion auf Thank-You senden', $s, 'Sendet automatisch das Conversion-Event mit Bestellwert (transaction_id, value).'); ?>
+                                            </div>
+                                        </div>
+                                        <details style="margin-top:12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:8px 12px;">
+                                            <summary style="cursor:pointer;font-weight:600;font-size:12px;">Wo finde ich diese Werte?</summary>
+                                            <div style="font-size:12px;color:#475569;line-height:1.6;margin-top:8px;">
+                                                <strong>Conversion-ID</strong>: Im Google-Ads-Konto → Tools &amp; Einstellungen → Conversions → eigener Conversion-Eintrag → Tag-Setup → "Conversion-ID" (Format: <code>AW-1234567890</code>).<br>
+                                                <strong>Conversion-Label</strong>: Direkt darunter unter "Conversion-Label" (Format: zufälliger 11-Zeichen-String wie <code>AbC1dEf2gH3</code>).
+                                            </div>
+                                        </details>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Google Analytics 4 ── ?>
+                                <div class="tix-card" style="border-left:4px solid #f59e0b;">
+                                    <div class="tix-card-header" style="background:linear-gradient(90deg,#fff,#fffbeb);">
+                                        <span class="dashicons dashicons-chart-line" style="color:#f59e0b;"></span>
+                                        <h3>Google Analytics 4 (GA4)</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <p class="tix-field-hint" style="margin-bottom:12px;">GA4-Tracking für Page-Views und E-Commerce-Events (view_item, add_to_cart, purchase).</p>
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('ga4_enabled', 'GA4 aktivieren', $s, 'Lädt das gtag.js-Snippet im Frontend.'); ?>
+                                            </div>
+                                            <?php self::text_row('ga4_measurement_id', 'Measurement-ID', $s, 'G-XXXXXXXXXX'); ?>
+                                        </div>
+                                        <p class="tix-field-hint" style="margin-top:12px;font-size:12px;">Findest du in GA4 → Verwaltung → Datenstreams → Web-Stream → Mess-ID (beginnt mit <code>G-</code>).</p>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Google Tag Manager (optional) ── ?>
+                                <div class="tix-card" style="border-left:4px solid #34a853;">
+                                    <div class="tix-card-header" style="background:linear-gradient(90deg,#fff,#f0fdf4);">
+                                        <span class="dashicons dashicons-tag" style="color:#34a853;"></span>
+                                        <h3>Google Tag Manager (optional)</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <p class="tix-field-hint" style="margin-bottom:12px;">Falls du GTM nutzt, kannst du hier die Container-ID eintragen — alle Pixel laufen dann zentral darüber.</p>
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('gtm_enabled', 'GTM aktivieren', $s, 'Lädt den GTM-Container im Frontend (head + body noscript).'); ?>
+                                            </div>
+                                            <?php self::text_row('gtm_container_id', 'GTM Container-ID', $s, 'GTM-XXXXXXX'); ?>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Google Consent ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-privacy"></span>
+                                        <h3>Google Consent-Modus</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <p class="tix-field-hint" style="margin-bottom:12px;">DSGVO-konformes Laden der Google-Tags — wartet bis Cookie-Consent gegeben wurde.</p>
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <label class="tix-field-label">Consent-Modus</label>
+                                                <select name="<?php echo self::OPTION_KEY; ?>[google_consent_mode]" class="tix-select-input">
+                                                    <option value="always" <?php selected($s['google_consent_mode'] ?? 'always', 'always'); ?>>Tags immer laden</option>
+                                                    <option value="consent_required" <?php selected($s['google_consent_mode'] ?? '', 'consent_required'); ?>>Nur nach Cookie-Consent laden</option>
+                                                </select>
+                                            </div>
+                                            <?php self::text_row('google_consent_cookie', 'Consent-Cookie Name', $s, 'cookie_consent'); ?>
+                                        </div>
                                     </div>
                                 </div>
 
