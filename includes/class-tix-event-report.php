@@ -321,6 +321,75 @@ class TIX_Event_Report {
     // Datenquelle
     // ═══════════════════════════════════════════
 
+    /**
+     * Resolved eine Order-ID zu der zugehörigen tix_orders-Row.
+     * Strategie:
+     *  1. Match per `tix_orders.id = X` (native Order)
+     *  2. Match per `tix_orders.wc_order_id = X` (migrierte WC-Order, _tix_ticket_order_id ist die WC-Post-ID)
+     *  3. WC aktiv UND nichts gefunden → wc_get_order(X) als zusätzliche Quelle
+     *
+     * Returns: ['row' => stdClass|null, 'ticket_count' => int]
+     */
+    private static function resolve_order($order_id_meta) {
+        global $wpdb;
+        $t  = $wpdb->prefix . 'tix_orders';
+        $pm = $wpdb->postmeta;
+
+        // 1) Match per id (native Order)
+        $row = $wpdb->get_row($wpdb->prepare(
+            "SELECT id, order_number, date_created, total, wc_order_id, status FROM $t WHERE id = %d",
+            $order_id_meta
+        ));
+
+        // 2) Fallback: Match per wc_order_id (migrierte WC-Order)
+        if (!$row) {
+            $row = $wpdb->get_row($wpdb->prepare(
+                "SELECT id, order_number, date_created, total, wc_order_id, status FROM $t WHERE wc_order_id = %d",
+                $order_id_meta
+            ));
+        }
+
+        // 3) WC-aktiv: Total aus WC-Order übernehmen wenn tix_orders.total = 0
+        if ($row && floatval($row->total) <= 0 && $row->wc_order_id && function_exists('wc_get_order')) {
+            $wc_order = wc_get_order(intval($row->wc_order_id));
+            if ($wc_order) {
+                $row->total = floatval($wc_order->get_total());
+            }
+        }
+
+        // 4) Wenn keine tix_orders-Row und WC aktiv → on-the-fly aus WC bauen
+        if (!$row && function_exists('wc_get_order')) {
+            $wc_order = wc_get_order($order_id_meta);
+            if ($wc_order) {
+                $row = (object) [
+                    'id'           => 0,
+                    'order_number' => $wc_order->get_order_number(),
+                    'date_created' => $wc_order->get_date_created() ? $wc_order->get_date_created()->date('Y-m-d H:i:s') : '',
+                    'total'        => floatval($wc_order->get_total()),
+                    'wc_order_id'  => $order_id_meta,
+                    'status'       => preg_replace('/^wc-/', '', $wc_order->get_status()),
+                ];
+            }
+        }
+
+        // Anzahl Tickets für diese Order — nutzen für Preis-Pro-Ticket-Ableitung
+        $ticket_count = intval($wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM {$wpdb->posts} p
+             INNER JOIN $pm pm ON pm.post_id = p.ID AND pm.meta_key = '_tix_ticket_order_id'
+             WHERE p.post_type = 'tix_ticket' AND p.post_status = 'publish'
+               AND pm.meta_value = %s
+               AND NOT EXISTS (
+                   SELECT 1 FROM $pm sm WHERE sm.post_id = p.ID AND sm.meta_key = '_tix_ticket_status' AND sm.meta_value = 'cancelled'
+               )",
+            (string) $order_id_meta
+        )));
+
+        return [
+            'row'          => $row,
+            'ticket_count' => $ticket_count ?: 1,
+        ];
+    }
+
     private static function get_events_for_picker($time_filter = 'all') {
         $today = current_time('Y-m-d');
         $args = [
@@ -381,6 +450,10 @@ class TIX_Event_Report {
         $checked_in = 0;
         $revenue    = 0.0;
 
+        // Order-Resolver-Cache: order_id_meta → tix_orders-Row + Tickets-Count für diese Order
+        // Spart wiederholte DB-Queries pro Event
+        $order_cache = [];
+
         foreach ($tickets_q->posts as $tp) {
             $tid = $tp->ID;
             $code      = get_post_meta($tid, '_tix_ticket_code', true);
@@ -393,9 +466,29 @@ class TIX_Event_Report {
             $checked   = (bool) get_post_meta($tid, '_tix_ticket_checked_in', true);
             $ci_time   = get_post_meta($tid, '_tix_ticket_checkin_time', true);
             $seat_id   = get_post_meta($tid, '_tix_ticket_seat_id', true);
-            $order_id  = intval(get_post_meta($tid, '_tix_ticket_order_id', true));
+            $order_id_meta = intval(get_post_meta($tid, '_tix_ticket_order_id', true));
 
-            // Fallback: cat_name aus Index suchen
+            // ── Order auflösen (matcht id ODER wc_order_id für migrierte Tickets) ──
+            $order_row     = null;
+            $tickets_in_order = 1;
+            if ($order_id_meta) {
+                if (!isset($order_cache[$order_id_meta])) {
+                    $order_cache[$order_id_meta] = self::resolve_order($order_id_meta);
+                }
+                $order_row        = $order_cache[$order_id_meta]['row'];
+                $tickets_in_order = max(1, intval($order_cache[$order_id_meta]['ticket_count']));
+            }
+
+            // ── Preis-Fallback: aus Order ableiten falls Ticket-Meta leer ──
+            if ($price <= 0 && $order_row) {
+                $order_total = floatval($order_row->total);
+                if ($order_total > 0 && $tickets_in_order > 0) {
+                    // Total / Anzahl-Tickets-dieser-Order = durchschnittlicher Ticket-Preis
+                    $price = round($order_total / $tickets_in_order, 2);
+                }
+            }
+
+            // ── cat_name-Fallback ──
             if (!$cat_name && $cat_index !== '' && $cat_index !== false) {
                 $cats = get_post_meta($event_id, '_tix_ticket_categories', true);
                 $idx = intval($cat_index);
@@ -403,24 +496,30 @@ class TIX_Event_Report {
                     $cat_name = $cats[$idx]['name'] ?? '';
                 }
             }
-            if (!$cat_name) $cat_name = '–';
-
-            // Order-Datum + Bestell-Nr. aus tix_orders
-            $order_date    = '';
-            $order_number  = '';
-            if ($order_id) {
-                $row = $wpdb->get_row($wpdb->prepare(
-                    "SELECT order_number, date_created FROM {$wpdb->prefix}tix_orders WHERE id = %d",
-                    $order_id
-                ));
-                if ($row) {
-                    $order_number = $row->order_number;
-                    $order_date   = $row->date_created ? date_i18n('d.m.Y H:i', strtotime($row->date_created)) : '';
+            if (!$cat_name) {
+                // Fallback: erste Event-Kategorie als Default für migrierte Tickets ohne Zuordnung
+                $cats = get_post_meta($event_id, '_tix_ticket_categories', true);
+                if (is_array($cats) && !empty($cats)) {
+                    $cat_name = $cats[0]['name'] ?? '–';
+                } else {
+                    $cat_name = '–';
                 }
+            }
+
+            // ── Order-Datum + Nummer aus aufgelöster Order ──
+            $order_date   = '';
+            $order_number = '';
+            $real_order_id = 0;
+            if ($order_row) {
+                $real_order_id = intval($order_row->id);
+                $order_number  = $order_row->order_number;
+                $order_date    = $order_row->date_created ? date_i18n('d.m.Y H:i', strtotime($order_row->date_created)) : '';
             }
             if (!$order_date) {
                 $order_date = $tp->post_date ? date_i18n('d.m.Y H:i', strtotime($tp->post_date)) : '';
             }
+            // Für Detail-Tabelle: tix_orders.id (zum Verlinken zur Order-Detail-Seite)
+            $order_id = $real_order_id ?: $order_id_meta;
 
             // Sitzplatz menschenlesbar
             $seat_label = '';
