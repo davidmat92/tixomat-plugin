@@ -971,12 +971,6 @@ class TIX_Event_Report {
 
         $pdf->add_page();
 
-        // ── Logo oben rechts (vollfarbig) ──
-        // Logo-Bereich: y=525..570 (max 45pt hoch), Title-Block beginnt bei y=550
-        if ($logo_loaded) {
-            $pdf->draw_logo($page_w - $margin_x - 90, 525, 90, 45);
-        }
-
         // Header-Block (mehr vertikaler Abstand zwischen den Zeilen)
         $pdf->set_font('Helvetica-Bold', 18);
         $pdf->text(36, 550, 'Event-Bericht');
@@ -1168,9 +1162,13 @@ class TIX_Event_Report {
         // Footer auf jeder Seite
         $pdf->set_footer($brand . ' · Event-Bericht · Seite {p}/{n}');
 
-        // Dezentes Logo unten rechts (mit 55% Opazität, gleiche Höhe wie Footer-Text)
+        // Dezentes Logo unten rechts auf jeder Seite — so groß wie möglich, ganz rechts.
+        // - right_anchor_x = page_w - 10 (10pt Margin zur rechten Kante)
+        // - y = 4 (4pt Abstand zur Unterkante)
+        // - max_h = 38pt (über dem Footer-Text bei y=20, Logo darf bis y=42 reichen)
+        // - max_w = 110pt (Hard-Cap damit breite Logos nicht ins Footer-Text rein laufen)
         if ($logo_loaded) {
-            $pdf->set_footer_logo($page_w - $margin_x - 50, 14, 50);
+            $pdf->set_footer_logo($page_w - 10, 4, 110, 38);
         }
 
         $bytes = $pdf->output();
@@ -1345,11 +1343,18 @@ class TIX_Simple_PDF {
     }
 
     /**
-     * Logo auf jedem Footer einbetten (Position bottom-right).
-     * Wird in output() auf alle Seiten angewendet.
+     * Logo auf jedem Footer einbetten — right-anchored.
+     * Logo wird so groß wie möglich gerendert (Priorität: max_h),
+     * Width fällt auf max_w zurück wenn Aspect-Ratio das verlangt.
+     * x = $right_anchor_x - actual_width (Logo-Rechte-Kante an dieser X-Position)
      */
-    public function set_footer_logo($x, $y, $w) {
-        $this->footer_logo_spec = ['x' => $x, 'y' => $y, 'w' => $w];
+    public function set_footer_logo($right_anchor_x, $y, $max_w, $max_h) {
+        $this->footer_logo_spec = [
+            'right_anchor_x' => $right_anchor_x,
+            'y'              => $y,
+            'max_w'          => $max_w,
+            'max_h'          => $max_h,
+        ];
     }
 
     public function add_page() {
@@ -1444,15 +1449,24 @@ class TIX_Simple_PDF {
                 $extra .= sprintf("q 0.5 0.5 0.5 rg BT /F1 9 Tf %d 20 Td (%s) Tj ET Q\n",
                     $this->mx, $foot_str);
             }
-            // Footer-Logo (dezent rechts unten)
+            // Footer-Logo (right-anchored, so groß wie möglich)
             if ($this->footer_logo_spec && $this->logo_jpeg && $this->logo_w > 0) {
                 $spec = $this->footer_logo_spec;
-                $ratio = $this->logo_h / $this->logo_w;
-                $w = $spec['w'];
-                $h = $w * $ratio;
-                // Dezent: 50% Opazität via Graphics State (gs alphafill)
+                $ratio = $this->logo_h / $this->logo_w; // h/w
+
+                // Priorität: max_h. Width vom Verhältnis abgeleitet, aber capped auf max_w.
+                $h = $spec['max_h'];
+                $w = $h / $ratio;
+                if ($w > $spec['max_w']) {
+                    $w = $spec['max_w'];
+                    $h = $w * $ratio;
+                }
+                // Right-anchored: rechte Kante bei right_anchor_x
+                $x = $spec['right_anchor_x'] - $w;
+
+                // Dezent: ExtGState mit 55% Opazität
                 $extra .= sprintf("q /GS_FADED gs %.2f 0 0 %.2f %.2f %.2f cm /Logo Do Q\n",
-                    $w, $h, $spec['x'], $spec['y']);
+                    $w, $h, $x, $spec['y']);
             }
             $this->pages[$i] = $content . $extra;
         }
