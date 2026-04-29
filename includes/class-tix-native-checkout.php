@@ -1551,6 +1551,11 @@ class TIX_Native_Checkout {
             }
         }
 
+        // ── Hook für nachgelagerte Module (z.B. Campaign-Tracking, Newsletter, etc.) ──
+        // Wird gefeuert bevor die Order via Gateway bezahlt wird, damit die Quelle
+        // im Order-Meta gespeichert ist sobald der Status auf "completed" geht.
+        do_action('tix_native_order_created', $order_id, $data, $cart);
+
         return $order_id;
     }
 

@@ -19,20 +19,54 @@ class TIX_Campaign_Tracking {
      * Vordefinierte Kanäle.
      */
     const CHANNELS = [
-        'instagram'  => 'Instagram',
-        'tiktok'     => 'TikTok',
-        'facebook'   => 'Facebook',
-        'linkedin'   => 'LinkedIn',
-        'xing'       => 'Xing',
-        'whatsapp'   => 'WhatsApp',
-        'youtube'    => 'YouTube',
-        'email'      => 'Newsletter',
-        'google_ads' => 'Google Ads',
-        'flyer'      => 'Plakat/Flyer',
-        'website'    => 'Webseite',
-        'twitter'    => 'X (Twitter)',
-        'podcast'    => 'Podcast',
-        'telegram'   => 'Telegram',
+        // Direct
+        'direct'             => 'Direkt-Aufruf',
+        'referral'           => 'Verweis (sonstige)',
+
+        // Search engines (organic)
+        'google_organic'     => 'Google (organisch)',
+        'bing_organic'       => 'Bing (organisch)',
+        'duckduckgo_organic' => 'DuckDuckGo',
+        'ecosia_organic'     => 'Ecosia',
+        'startpage_organic'  => 'Startpage',
+        'yahoo_organic'      => 'Yahoo',
+        'yandex_organic'     => 'Yandex',
+
+        // Paid ads
+        'google_ads'         => 'Google Ads',
+        'facebook_ads'       => 'Facebook Ads',
+        'meta_ads'           => 'Meta Ads',
+        'tiktok_ads'         => 'TikTok Ads',
+
+        // Social
+        'instagram'          => 'Instagram',
+        'tiktok'             => 'TikTok',
+        'facebook'           => 'Facebook',
+        'linkedin'           => 'LinkedIn',
+        'xing'               => 'Xing',
+        'youtube'            => 'YouTube',
+        'twitter'            => 'X (Twitter)',
+        'pinterest'          => 'Pinterest',
+        'reddit'             => 'Reddit',
+        'snapchat'           => 'Snapchat',
+        'threads'            => 'Threads',
+
+        // Messenger
+        'whatsapp'           => 'WhatsApp',
+        'telegram'           => 'Telegram',
+        'signal'             => 'Signal',
+        'messenger'          => 'Messenger',
+
+        // Email / Sonstige
+        'email'              => 'E-Mail',
+        'flyer'              => 'Plakat/Flyer',
+        'website'            => 'Webseite',
+        'podcast'            => 'Podcast',
+
+        // Event-Plattformen
+        'eventim'            => 'Eventim',
+        'eventbrite'         => 'Eventbrite',
+        'ticketmaster'       => 'Ticketmaster',
     ];
 
     public static function init() {
@@ -48,6 +82,9 @@ class TIX_Campaign_Tracking {
             add_action('woocommerce_checkout_create_order', [__CLASS__, 'save_order_meta'], 10, 2);
             add_action('woocommerce_admin_order_data_after_billing_address', [__CLASS__, 'display_order_meta']);
         }
+
+        // Native-Order: Cookie-Daten + Referrer beim Anlegen speichern
+        add_action('tix_native_order_created', [__CLASS__, 'save_native_order_meta'], 10, 1);
     }
 
     // ──────────────────────────────────────────
@@ -120,9 +157,12 @@ class TIX_Campaign_Tracking {
     // ──────────────────────────────────────────
 
     public static function enqueue_assets() {
-        if (!is_singular('event')) return;
+        // Auf allen Frontend-Seiten laden — Cookie wird beim ersten Besuch gesetzt
+        // (z.B. Homepage, Event-Liste, Blog-Beitrag). EventID nur auf Event-Seiten,
+        // damit der Pageview-AJAX nur für Event-Statistiken zählt.
+        if (is_admin()) return;
 
-        $post_id = get_the_ID();
+        $event_id = is_singular('event') ? get_the_ID() : 0;
         $s = function_exists('tix_get_settings') ? tix_get_settings() : [];
         $cookie_days = intval($s['campaign_cookie_days'] ?? 30);
 
@@ -136,7 +176,7 @@ class TIX_Campaign_Tracking {
 
         wp_localize_script('tix-campaign-pixel', 'tixCampaign', [
             'ajaxUrl'    => admin_url('admin-ajax.php'),
-            'eventId'    => $post_id,
+            'eventId'    => $event_id, // 0 = keine Pageview-Aggregation, nur Cookie setzen
             'nonce'      => wp_create_nonce('tix_campaign'),
             'cookieDays' => $cookie_days,
             'cookieName' => self::COOKIE_NAME,
@@ -197,6 +237,55 @@ class TIX_Campaign_Tracking {
         }
         if ($content) {
             $order->update_meta_data('_tix_campaign_content', $content);
+        }
+    }
+
+    /**
+     * Native-Order: speichert Campaign-Daten aus Cookie + Server-Side-Referrer.
+     */
+    public static function save_native_order_meta($tix_order_id) {
+        if (!$tix_order_id) return;
+
+        $cookie_raw = $_COOKIE[self::COOKIE_NAME] ?? '';
+        $source = $campaign = $content = $medium = '';
+        $cookie_referrer = '';
+
+        if ($cookie_raw) {
+            $cookie = json_decode(stripslashes(urldecode($cookie_raw)), true);
+            if (is_array($cookie)) {
+                $source   = sanitize_key($cookie['src']     ?? '');
+                $campaign = sanitize_text_field($cookie['camp']    ?? '');
+                $content  = sanitize_text_field($cookie['content'] ?? '');
+                $medium   = sanitize_text_field($cookie['medium']  ?? '');
+                $cookie_referrer = esc_url_raw($cookie['referrer'] ?? '');
+            }
+        }
+
+        // Fallback: HTTP-Referrer aus Order-Submit-Request
+        $http_referer = sanitize_text_field($_SERVER['HTTP_REFERER'] ?? '');
+
+        if ($source) {
+            update_post_meta($tix_order_id, '_tix_campaign_source', $source);
+        }
+        if ($campaign) {
+            update_post_meta($tix_order_id, '_tix_campaign_name', $campaign);
+        }
+        if ($content) {
+            update_post_meta($tix_order_id, '_tix_campaign_content', $content);
+        }
+        if ($medium) {
+            update_post_meta($tix_order_id, '_tix_campaign_medium', $medium);
+        }
+        if ($cookie_referrer) {
+            update_post_meta($tix_order_id, '_tix_campaign_referrer', $cookie_referrer);
+        } elseif ($http_referer) {
+            update_post_meta($tix_order_id, '_tix_campaign_referrer', $http_referer);
+        }
+
+        // Landing-Page (auf der der Cookie initial gesetzt wurde — falls trackbar)
+        // Falls keine direkte Quelle ermittelbar, mark mit 'direct'
+        if (!$source && !$cookie_referrer && !$http_referer) {
+            update_post_meta($tix_order_id, '_tix_campaign_source', 'direct');
         }
     }
 

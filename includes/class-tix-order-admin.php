@@ -245,6 +245,16 @@ class TIX_Order_Admin {
                                         <?php echo esc_html($customer_name); ?>
                                     </a>
                                     <br><a href="<?php echo esc_url($customer_url); ?>" style="color:#9ca3af;font-size:12px;text-decoration:none;"><?php echo esc_html($o->billing_email); ?></a>
+                                    <?php
+                                    // Quelle-Badge
+                                    $row_source = get_post_meta($o->id, '_tix_campaign_source', true);
+                                    if ($row_source && class_exists('TIX_Campaign_Tracking')):
+                                        $row_label = TIX_Campaign_Tracking::get_channel_label($row_source);
+                                        $colors_map = ['instagram'=>'#e4405f','facebook'=>'#1877f2','tiktok'=>'#000000','youtube'=>'#ff0000','whatsapp'=>'#25d366','google_organic'=>'#4285f4','google_ads'=>'#34a853','email'=>'#f59e0b','direct'=>'#6b7280','referral'=>'#8b5cf6'];
+                                        $row_color = $colors_map[$row_source] ?? '#3b82f6';
+                                    ?>
+                                        <br><span style="display:inline-block;margin-top:4px;padding:1px 7px;border-radius:8px;font-size:10px;font-weight:600;background:<?php echo esc_attr($row_color); ?>15;color:<?php echo esc_attr($row_color); ?>;border:1px solid <?php echo esc_attr($row_color); ?>30;" title="Herkunft">📍 <?php echo esc_html($row_label); ?></span>
+                                    <?php endif; ?>
                                 </td>
                                 <td style="padding:12px 16px;font-size:13px;color:#6b7280;">
                                     <?php echo esc_html($o->payment_method_title ?: $o->payment_method ?: '—'); ?>
@@ -674,6 +684,67 @@ class TIX_Order_Admin {
                         <?php endif; ?>
                         <?php if ($order->wc_order_id): ?>
                             <tr><td style="padding:4px 0;color:#6b7280;">WC-Bestellung</td><td style="padding:4px 0;"><a href="<?php echo admin_url('post.php?post=' . $order->wc_order_id . '&action=edit'); ?>">#<?php echo $order->wc_order_id; ?></a></td></tr>
+                        <?php endif; ?>
+
+                        <?php
+                        // ── Herkunft / Kampagne ──
+                        $camp_source   = get_post_meta($order_id, '_tix_campaign_source', true);
+                        $camp_name     = get_post_meta($order_id, '_tix_campaign_name', true);
+                        $camp_content  = get_post_meta($order_id, '_tix_campaign_content', true);
+                        $camp_medium   = get_post_meta($order_id, '_tix_campaign_medium', true);
+                        $camp_referrer = get_post_meta($order_id, '_tix_campaign_referrer', true);
+
+                        if ($camp_source || $camp_referrer):
+                            $source_label = '—';
+                            $source_color = '#6b7280';
+                            if ($camp_source && class_exists('TIX_Campaign_Tracking')) {
+                                $source_label = TIX_Campaign_Tracking::get_channel_label($camp_source);
+                            }
+                            // Farbe je nach Quelle
+                            $source_colors = [
+                                'instagram'      => '#e4405f',
+                                'facebook'       => '#1877f2',
+                                'tiktok'         => '#000000',
+                                'youtube'        => '#ff0000',
+                                'whatsapp'       => '#25d366',
+                                'google_organic' => '#4285f4',
+                                'google_ads'     => '#34a853',
+                                'email'          => '#f59e0b',
+                                'direct'         => '#6b7280',
+                                'referral'       => '#8b5cf6',
+                            ];
+                            $source_color = $source_colors[$camp_source] ?? '#3b82f6';
+                        ?>
+                            <tr><td colspan="2" style="padding:10px 0 2px;"><hr style="border:none;border-top:1px solid #f3f4f6;margin:0;"></td></tr>
+                            <tr><td style="padding:4px 0;color:#3b82f6;font-weight:600;" colspan="2">📍 Herkunft</td></tr>
+                            <tr>
+                                <td style="padding:4px 0;color:#6b7280;">Quelle</td>
+                                <td style="padding:4px 0;">
+                                    <span style="display:inline-block;padding:3px 10px;border-radius:10px;font-size:12px;font-weight:600;background:<?php echo esc_attr($source_color); ?>15;color:<?php echo esc_attr($source_color); ?>;border:1px solid <?php echo esc_attr($source_color); ?>30;">
+                                        <?php echo esc_html($source_label); ?>
+                                    </span>
+                                </td>
+                            </tr>
+                            <?php if ($camp_name): ?>
+                                <tr><td style="padding:4px 0;color:#6b7280;">Kampagne</td><td style="padding:4px 0;font-weight:500;"><?php echo esc_html($camp_name); ?></td></tr>
+                            <?php endif; ?>
+                            <?php if ($camp_content): ?>
+                                <tr><td style="padding:4px 0;color:#6b7280;">Content</td><td style="padding:4px 0;font-size:12px;color:#475569;"><?php echo esc_html($camp_content); ?></td></tr>
+                            <?php endif; ?>
+                            <?php if ($camp_medium): ?>
+                                <tr><td style="padding:4px 0;color:#6b7280;">Medium</td><td style="padding:4px 0;font-size:12px;color:#475569;"><?php echo esc_html($camp_medium); ?></td></tr>
+                            <?php endif; ?>
+                            <?php if ($camp_referrer): ?>
+                                <tr>
+                                    <td style="padding:4px 0;color:#6b7280;">Verweis-URL</td>
+                                    <td style="padding:4px 0;font-size:11px;">
+                                        <a href="<?php echo esc_url($camp_referrer); ?>" target="_blank" rel="noopener" style="color:#64748b;text-decoration:none;word-break:break-all;" title="<?php echo esc_attr($camp_referrer); ?>">
+                                            <?php echo esc_html(strlen($camp_referrer) > 50 ? substr($camp_referrer, 0, 47) . '…' : $camp_referrer); ?>
+                                            <span class="dashicons dashicons-external" style="font-size:11px;width:11px;height:11px;vertical-align:middle;margin-left:2px;"></span>
+                                        </a>
+                                    </td>
+                                </tr>
+                            <?php endif; ?>
                         <?php endif; ?>
                         <?php
                         $refund_info = get_option('_tix_refund_' . $order_id);
