@@ -194,6 +194,12 @@ class TIX_Gateway_Mollie {
 
         TIX_Native_Checkout::update_order_status($order_id, $tix_status, 'mollie');
 
+        // ── Gebühren-Erfassung bei erfolgreicher Zahlung ──
+        // Mollie liefert: amount (gross), settlementAmount (net) — Differenz = Mollie-Gebühr
+        if ($tix_status === 'completed' && !empty($body['amount']['value'])) {
+            self::store_fee_from_payment($order_id, $body);
+        }
+
         delete_transient($lock_key);
 
         wp_die('OK', '', 200);
@@ -270,5 +276,145 @@ class TIX_Gateway_Mollie {
         // Zur Thank-You-Seite weiterleiten
         wp_safe_redirect(TIX_Native_Checkout::thankyou_url($order_id, $order_key));
         exit;
+    }
+
+    /**
+     * Speichert Mollie-Gebühren aus Payment-Response.
+     * Mollie-Logik: fee = amount - settlementAmount
+     * Bei manchen Methoden ist settlementAmount erst nach Settlement gefüllt (1-2 Tage Delay)
+     */
+    private static function store_fee_from_payment($order_id, array $body) {
+        if (empty($body['amount']['value'])) return false;
+        $gross    = floatval($body['amount']['value']);
+        $currency = $body['amount']['currency'] ?? 'EUR';
+
+        // settlementAmount ist erst nach Mollie-Settlement gefüllt — Fallback auf 0
+        if (empty($body['settlementAmount']['value'])) {
+            // Noch keine Gebühren-Info verfügbar — markieren für späteren Backfill
+            update_post_meta($order_id, '_tix_mollie_fee_pending', current_time('mysql'));
+            return false;
+        }
+        $net = floatval($body['settlementAmount']['value']);
+        $fee = round($gross - $net, 2);
+
+        update_post_meta($order_id, '_tix_payment_fee',          $fee);
+        update_post_meta($order_id, '_tix_payment_fee_currency', $currency);
+        update_post_meta($order_id, '_tix_payment_gross',        $gross);
+        update_post_meta($order_id, '_tix_payment_net',          $net);
+        update_post_meta($order_id, '_tix_payment_gateway',      'mollie');
+        delete_post_meta($order_id, '_tix_mollie_fee_pending');
+
+        if (class_exists('TIX_Order_Admin') && method_exists('TIX_Order_Admin', 'add_note')) {
+            TIX_Order_Admin::add_note(
+                $order_id,
+                sprintf('💳 Mollie-Capture · Brutto %s · Gebühr %s · Netto %s %s',
+                    number_format($gross, 2, ',', '.'),
+                    number_format($fee,   2, ',', '.'),
+                    number_format($net,   2, ',', '.'),
+                    $currency
+                ),
+                'payment'
+            );
+        }
+        return ['fee' => $fee, 'gross' => $gross, 'net' => $net, 'currency' => $currency];
+    }
+
+    /**
+     * Lädt Gebühren-Daten für eine bestehende Mollie-Order nach.
+     * Reihenfolge:
+     *   1. Cache (bereits gespeichert)
+     *   2. WC-Migration aus _mollie_payment_id (falls Mollie-WC-Plugin genutzt wurde)
+     *   3. Mollie-API mit Payment-ID
+     *
+     * Returns: ['fee', 'gross', 'net', 'currency', 'cached', 'source'] oder false
+     */
+    public static function backfill_fee($tix_order_id) {
+        // 1) Cache?
+        $existing_fee = get_post_meta($tix_order_id, '_tix_payment_fee', true);
+        if ($existing_fee !== '' && $existing_fee !== false && floatval($existing_fee) > 0) {
+            return [
+                'fee'      => floatval($existing_fee),
+                'gross'    => floatval(get_post_meta($tix_order_id, '_tix_payment_gross', true) ?: 0),
+                'net'      => floatval(get_post_meta($tix_order_id, '_tix_payment_net', true) ?: 0),
+                'currency' => get_post_meta($tix_order_id, '_tix_payment_fee_currency', true) ?: 'EUR',
+                'cached'   => true,
+                'source'   => 'cache',
+            ];
+        }
+
+        $payment_id = get_option('_tix_mollie_payment_' . $tix_order_id);
+
+        // 2) WC-Migration: Mollie-Payment-ID aus WC-Order-Meta holen wenn keine native vorhanden
+        if (!$payment_id) {
+            global $wpdb;
+            $tix_t = $wpdb->prefix . 'tix_orders';
+            $wc_id = intval($wpdb->get_var($wpdb->prepare("SELECT wc_order_id FROM $tix_t WHERE id = %d", $tix_order_id)));
+            if ($wc_id > 0) {
+                // HPOS oder Legacy
+                $op_meta = $wpdb->prefix . 'wc_orders_meta';
+                if ($wpdb->get_var("SHOW TABLES LIKE '$op_meta'") === $op_meta) {
+                    $payment_id = $wpdb->get_var($wpdb->prepare(
+                        "SELECT meta_value FROM $op_meta WHERE order_id = %d AND meta_key = '_mollie_payment_id' LIMIT 1",
+                        $wc_id
+                    ));
+                }
+                if (!$payment_id) {
+                    $payment_id = get_post_meta($wc_id, '_mollie_payment_id', true);
+                }
+            }
+        }
+        if (!$payment_id) return false;
+
+        // 3) Mollie-API
+        $api_key = self::get_api_key();
+        if (!$api_key) return false;
+
+        $r = wp_remote_get(self::API_URL . '/payments/' . $payment_id, [
+            'timeout' => 12,
+            'headers' => ['Authorization' => 'Bearer ' . $api_key],
+        ]);
+        if (is_wp_error($r)) return false;
+        $body = json_decode(wp_remote_retrieve_body($r), true);
+        if (empty($body['amount']['value'])) return false;
+
+        // settlementAmount nicht da → Gebühr noch nicht abrechenbar (Mollie braucht 1-2 Tage)
+        if (empty($body['settlementAmount']['value'])) {
+            update_post_meta($tix_order_id, '_tix_mollie_fee_pending', current_time('mysql'));
+            return false;
+        }
+
+        $gross    = floatval($body['amount']['value']);
+        $net      = floatval($body['settlementAmount']['value']);
+        $fee      = round($gross - $net, 2);
+        $currency = $body['amount']['currency'] ?? 'EUR';
+
+        update_post_meta($tix_order_id, '_tix_payment_fee',          $fee);
+        update_post_meta($tix_order_id, '_tix_payment_fee_currency', $currency);
+        update_post_meta($tix_order_id, '_tix_payment_gross',        $gross);
+        update_post_meta($tix_order_id, '_tix_payment_net',          $net);
+        update_post_meta($tix_order_id, '_tix_payment_gateway',      'mollie');
+        delete_post_meta($tix_order_id, '_tix_mollie_fee_pending');
+
+        if (class_exists('TIX_Order_Admin') && method_exists('TIX_Order_Admin', 'add_note')) {
+            TIX_Order_Admin::add_note(
+                $tix_order_id,
+                sprintf('🔄 Mollie-Gebühren nachgeladen · Brutto %s · Gebühr %s · Netto %s %s',
+                    number_format($gross, 2, ',', '.'),
+                    number_format($fee,   2, ',', '.'),
+                    number_format($net,   2, ',', '.'),
+                    $currency
+                ),
+                'payment'
+            );
+        }
+
+        return [
+            'fee'      => $fee,
+            'gross'    => $gross,
+            'net'      => $net,
+            'currency' => $currency,
+            'cached'   => false,
+            'source'   => 'mollie_api',
+        ];
     }
 }

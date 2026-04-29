@@ -625,20 +625,41 @@ class TIX_Order_Admin {
                         $payment_fee   = floatval(get_post_meta($order_id, '_tix_payment_fee', true));
                         $payment_net   = floatval(get_post_meta($order_id, '_tix_payment_net', true));
                         $payment_gross = floatval(get_post_meta($order_id, '_tix_payment_gross', true));
+                        $payment_gw    = get_post_meta($order_id, '_tix_payment_gateway', true);
+                        $fee_pending   = get_post_meta($order_id, '_tix_mollie_fee_pending', true);
                         $is_paypal     = ($order->payment_method === 'paypal');
-                        $can_backfill  = $is_paypal && $payment_fee <= 0 && $order->status === 'completed' && get_option('_tix_paypal_capture_' . $order_id);
+                        $is_mollie     = ($order->payment_method === 'mollie' || get_option('_tix_mollie_payment_' . $order_id));
+                        $can_backfill  = $payment_fee <= 0 && $order->status === 'completed' && (
+                            ($is_paypal && get_option('_tix_paypal_capture_' . $order_id)) ||
+                            ($is_mollie && get_option('_tix_mollie_payment_' . $order_id))
+                        );
                         if ($payment_fee > 0):
+                            $gw_label = $payment_gw === 'mollie' ? 'Mollie' : 'PayPal';
                         ?>
                             <tr><td colspan="2" style="padding:10px 0 2px;"><hr style="border:none;border-top:1px solid #f3f4f6;margin:0;"></td></tr>
-                            <tr><td style="padding:4px 0;color:#dc2626;font-weight:600;" colspan="2">💳 Zahlungs-Gebühren</td></tr>
+                            <tr><td style="padding:4px 0;color:#dc2626;font-weight:600;" colspan="2">💳 Zahlungs-Gebühren (<?php echo esc_html($gw_label); ?>)</td></tr>
                             <?php if ($payment_gross > 0 && abs($payment_gross - floatval($order->total)) > 0.01): ?>
-                                <tr><td style="padding:4px 0;color:#6b7280;">Brutto (PayPal)</td><td style="padding:4px 0;font-weight:500;"><?php echo number_format($payment_gross, 2, ',', '.'); ?> &euro;</td></tr>
+                                <tr><td style="padding:4px 0;color:#6b7280;">Brutto</td><td style="padding:4px 0;font-weight:500;"><?php echo number_format($payment_gross, 2, ',', '.'); ?> &euro;</td></tr>
                             <?php endif; ?>
                             <tr><td style="padding:4px 0;color:#6b7280;">Gebühr</td><td style="padding:4px 0;font-weight:600;color:#dc2626;">−<?php echo number_format($payment_fee, 2, ',', '.'); ?> &euro;</td></tr>
                             <tr><td style="padding:4px 0;color:#6b7280;">Netto-Eingang</td><td style="padding:4px 0;font-weight:700;color:#10b981;"><?php echo number_format($payment_net, 2, ',', '.'); ?> &euro;</td></tr>
-                        <?php elseif ($can_backfill): ?>
+                        <?php elseif ($fee_pending && $is_mollie): ?>
+                            <tr><td colspan="2" style="padding:10px 0 2px;"><hr style="border:none;border-top:1px solid #f3f4f6;margin:0;"></td></tr>
+                            <tr><td colspan="2" style="padding:4px 0;color:#f59e0b;font-size:12px;">⏳ Mollie-Settlement steht aus (1–2 Tage Delay) — Gebühren werden später nachgeladen.</td></tr>
                             <tr><td colspan="2" style="padding:8px 0;">
-                                <button type="button" id="tix-paypal-backfill-btn"
+                                <button type="button" style="background:#fef3c7;border:1px solid #f59e0b;color:#78350f;padding:6px 12px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;"
+                                        onclick="
+                                            this.disabled = true; this.innerHTML = 'Lade…';
+                                            fetch(ajaxurl, {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:'action=tix_paypal_backfill_fee&nonce=<?php echo $nonce; ?>&order_id=<?php echo $order_id; ?>'})
+                                            .then(function(r){return r.json()})
+                                            .then(function(r){if(r.success)location.reload(); else{alert(r.data.message||'Noch nicht verfügbar'); this.disabled=false; this.innerHTML='💳 Erneut prüfen';}}.bind(this));
+                                        ">💳 Erneut prüfen</button>
+                            </td></tr>
+                        <?php elseif ($can_backfill):
+                            $gw_label = $is_mollie ? 'Mollie' : 'PayPal';
+                        ?>
+                            <tr><td colspan="2" style="padding:8px 0;">
+                                <button type="button" id="tix-payment-backfill-btn"
                                         style="background:#fef3c7;border:1px solid #f59e0b;color:#78350f;padding:6px 12px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:6px;"
                                         onclick="
                                             this.disabled = true; this.innerHTML = 'Lade…';
@@ -647,7 +668,7 @@ class TIX_Order_Admin {
                                             .then(function(r){if(r.success)location.reload(); else{alert(r.data.message||'Fehler'); this.disabled=false; this.innerHTML='💳 Gebühren nachladen';}}.bind(this));
                                         ">
                                     <span class="dashicons dashicons-update" style="width:14px;height:14px;font-size:14px;"></span>
-                                    💳 PayPal-Gebühr nachladen
+                                    💳 <?php echo esc_html($gw_label); ?>-Gebühren nachladen
                                 </button>
                             </td></tr>
                         <?php endif; ?>
@@ -1022,15 +1043,29 @@ class TIX_Order_Admin {
 
         $order_id = intval($_POST['order_id'] ?? 0);
         if (!$order_id) wp_send_json_error(['message' => 'Ungültige Bestellnummer.']);
-        if (!class_exists('TIX_Gateway_PayPal')) wp_send_json_error(['message' => 'PayPal-Gateway nicht verfügbar.']);
 
-        $result = TIX_Gateway_PayPal::backfill_fee($order_id);
-        if (!$result) wp_send_json_error(['message' => 'PayPal-API-Aufruf fehlgeschlagen oder keine Capture-ID gespeichert.']);
+        // Erst Mollie versuchen wenn Mollie-Payment-ID vorhanden, sonst PayPal
+        $result = false;
+        $is_mollie = (bool) get_option('_tix_mollie_payment_' . $order_id);
+        if ($is_mollie && class_exists('TIX_Gateway_Mollie')) {
+            $result = TIX_Gateway_Mollie::backfill_fee($order_id);
+        }
+        if (!$result && class_exists('TIX_Gateway_PayPal')) {
+            $result = TIX_Gateway_PayPal::backfill_fee($order_id);
+        }
+
+        if (!$result) {
+            $msg = $is_mollie
+                ? 'Mollie-Settlement noch nicht verfügbar (1–2 Tage Delay) oder keine Payment-ID gespeichert.'
+                : 'PayPal-API-Aufruf fehlgeschlagen oder keine Capture-ID gespeichert.';
+            wp_send_json_error(['message' => $msg]);
+        }
 
         wp_send_json_success([
             'message' => 'Gebühren erfolgreich geladen: ' . number_format($result['fee'], 2, ',', '.') . ' ' . $result['currency'],
             'fee'     => $result['fee'],
             'net'     => $result['net'],
+            'source'  => $result['source'] ?? '',
         ]);
     }
 
@@ -1041,16 +1076,15 @@ class TIX_Order_Admin {
     public static function ajax_paypal_backfill_all() {
         check_ajax_referer('tix_order_action', 'nonce');
         if (!current_user_can('manage_options')) wp_send_json_error(['message' => 'Keine Berechtigung.']);
-        if (!class_exists('TIX_Gateway_PayPal')) wp_send_json_error(['message' => 'PayPal-Gateway nicht verfügbar.']);
 
         global $wpdb;
         $t = $wpdb->prefix . 'tix_orders';
-        // Alle completed Orders die entweder native PayPal sind ODER migrierte WC-Orders
-        // Max 50 pro Call (WC-Migration ist DB-only ohne API-Latenz, also schneller)
+        // Alle completed Orders mit potenziellen Gebühren-Daten:
+        // - native PayPal/Mollie ODER migrierte WC-Orders
         $rows = $wpdb->get_results("
-            SELECT id FROM $t
+            SELECT id, payment_method, wc_order_id FROM $t
             WHERE status = 'completed'
-              AND (payment_method = 'paypal' OR wc_order_id > 0)
+              AND (payment_method IN ('paypal','mollie') OR wc_order_id > 0)
             ORDER BY date_created DESC
             LIMIT 50
         ");
@@ -1067,7 +1101,14 @@ class TIX_Order_Admin {
                 $skipped++;
                 continue;
             }
-            $result = TIX_Gateway_PayPal::backfill_fee($order_id);
+            // Erst Mollie versuchen (falls payment_method=mollie oder native Mollie-ID), dann PayPal
+            $result = false;
+            if (class_exists('TIX_Gateway_Mollie') && ($r->payment_method === 'mollie' || get_option('_tix_mollie_payment_' . $order_id))) {
+                $result = TIX_Gateway_Mollie::backfill_fee($order_id);
+            }
+            if (!$result && class_exists('TIX_Gateway_PayPal')) {
+                $result = TIX_Gateway_PayPal::backfill_fee($order_id);
+            }
             $processed++;
             if ($result) {
                 $with_fee++;
