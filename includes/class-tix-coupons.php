@@ -665,6 +665,7 @@ class TIX_Coupons {
                                 <input type="text" id="cp-cta" name="coupon_popup_cta" class="regular-text" style="width:100%;max-width:340px;"
                                        value="<?php echo esc_attr($tix_s['coupon_popup_cta'] ?? 'Jetzt Tickets sichern'); ?>"
                                        placeholder="Jetzt Tickets sichern">
+                                <p class="description">Tipp: Bei leerer URL einen passenden Text wie "Verstanden" oder "Schließen" verwenden.</p>
                             </td>
                         </tr>
                         <tr>
@@ -672,8 +673,20 @@ class TIX_Coupons {
                             <td>
                                 <input type="url" id="cp-cta-url" name="coupon_popup_cta_url" class="regular-text" style="width:100%;max-width:520px;"
                                        value="<?php echo esc_attr($tix_s['coupon_popup_cta_url'] ?? ''); ?>"
-                                       placeholder="https://deinedomain.de/events/">
-                                <p class="description">Optional. Leer = Button schließt nur das Popup (Kunde bleibt auf der Seite).</p>
+                                       placeholder="https://deinedomain.de/events/  —  oder leer lassen">
+                                <p class="description"><strong>Optional</strong> — wenn leer, schließt der Button nur das Popup (Kunde bleibt auf der aktuellen Seite). Mit URL führt der Klick z.B. zur Event-Seite.</p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th><label>Farben</label></th>
+                            <td>
+                                <p style="margin:0;font-size:13px;">
+                                    Alle Farben des Popups konfigurierst du unter
+                                    <a href="<?php echo admin_url('admin.php?page=tix-settings#colors'); ?>" target="_blank" style="font-weight:600;">
+                                        Einstellungen → Farben → Gruppe „Coupon-Popup"
+                                    </a>
+                                    (13 Klassen für Banner, Code-Box, Buttons etc.).
+                                </p>
                             </td>
                         </tr>
                     </table>

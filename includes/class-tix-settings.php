@@ -10970,6 +10970,21 @@ class TIX_Settings {
                 'tix-magic-input'        => ['label' => 'Eingabefeld',          'props' => ['bg' => '#ffffff', 'color' => '#0f172a', 'border' => '#cbd5e1']],
                 'tix-magic-btn'          => ['label' => 'Button',               'props' => ['bg' => '#0284c7', 'color' => '#ffffff']],
             ],
+            'Coupon-Popup' => [
+                'tix-cp-overlay'      => ['label' => 'Hintergrund-Overlay',    'props' => ['bg' => 'rgba(15,23,42,.65)']],
+                'tix-cp-modal'        => ['label' => 'Modal-Hintergrund',      'props' => ['bg' => '#ffffff']],
+                'tix-cp-banner'       => ['label' => 'Banner (oben, Wert-Bereich)', 'props' => ['bg' => '#FF5500', 'color' => '#ffffff']],
+                'tix-cp-saving'       => ['label' => 'Banner-Label "Du sparst"',    'props' => ['color' => '#ffffff']],
+                'tix-cp-value'        => ['label' => 'Banner-Wert (groß)',          'props' => ['color' => '#ffffff']],
+                'tix-cp-headline'     => ['label' => 'Überschrift',                 'props' => ['color' => '#0f172a']],
+                'tix-cp-subtext'      => ['label' => 'Beschreibungstext',           'props' => ['color' => '#64748b']],
+                'tix-cp-code-box'     => ['label' => 'Code-Box',                    'props' => ['bg' => '#f0fdf4', 'border' => '#22c55e']],
+                'tix-cp-code-label'   => ['label' => 'Code-Label "Gutscheincode"',  'props' => ['color' => '#15803d']],
+                'tix-cp-code'         => ['label' => 'Code-Text',                   'props' => ['color' => '#15803d']],
+                'tix-cp-code-status'  => ['label' => 'Code-Status "✓ aktiv"',       'props' => ['color' => '#16a34a']],
+                'tix-cp-cta'          => ['label' => 'CTA-Button',                  'props' => ['bg' => '#0f172a', 'color' => '#ffffff']],
+                'tix-cp-close'        => ['label' => 'Schließen-Button (×)',        'props' => ['bg' => 'rgba(255,255,255,.25)', 'color' => '#ffffff']],
+            ],
         ];
     }
 
