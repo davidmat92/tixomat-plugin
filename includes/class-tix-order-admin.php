@@ -18,6 +18,8 @@ class TIX_Order_Admin {
         add_action('wp_ajax_tix_order_invoice', [__CLASS__, 'render_invoice']);
         add_action('wp_ajax_tix_order_resend_email', [__CLASS__, 'ajax_resend_email']);
         add_action('wp_ajax_tix_order_regen_tickets', [__CLASS__, 'ajax_regen_tickets']);
+        add_action('wp_ajax_tix_paypal_backfill_fee', [__CLASS__, 'ajax_paypal_backfill_fee']);
+        add_action('wp_ajax_tix_paypal_backfill_all', [__CLASS__, 'ajax_paypal_backfill_all']);
 
         // Manuelle Bestellerstellung
         add_action('wp_ajax_tix_order_get_categories', [__CLASS__, 'ajax_get_categories']);
@@ -617,6 +619,38 @@ class TIX_Order_Admin {
                         <tr><td style="padding:4px 0;color:#6b7280;">Datum</td><td style="padding:4px 0;font-weight:500;"><?php echo date_i18n('d.m.Y, H:i', strtotime($order->date_created)); ?> Uhr</td></tr>
                         <tr><td style="padding:4px 0;color:#6b7280;">Zahlungsart</td><td style="padding:4px 0;font-weight:500;"><?php echo esc_html($order->payment_method_title ?: $order->payment_method ?: '—'); ?></td></tr>
                         <tr><td style="padding:4px 0;color:#6b7280;">Gesamt</td><td style="padding:4px 0;font-weight:700;font-size:16px;"><?php echo number_format($order->total, 2, ',', '.'); ?> &euro;</td></tr>
+
+                        <?php
+                        // ── Zahlungs-Gebühren (PayPal/Mollie) ──
+                        $payment_fee   = floatval(get_post_meta($order_id, '_tix_payment_fee', true));
+                        $payment_net   = floatval(get_post_meta($order_id, '_tix_payment_net', true));
+                        $payment_gross = floatval(get_post_meta($order_id, '_tix_payment_gross', true));
+                        $is_paypal     = ($order->payment_method === 'paypal');
+                        $can_backfill  = $is_paypal && $payment_fee <= 0 && $order->status === 'completed' && get_option('_tix_paypal_capture_' . $order_id);
+                        if ($payment_fee > 0):
+                        ?>
+                            <tr><td colspan="2" style="padding:10px 0 2px;"><hr style="border:none;border-top:1px solid #f3f4f6;margin:0;"></td></tr>
+                            <tr><td style="padding:4px 0;color:#dc2626;font-weight:600;" colspan="2">💳 Zahlungs-Gebühren</td></tr>
+                            <?php if ($payment_gross > 0 && abs($payment_gross - floatval($order->total)) > 0.01): ?>
+                                <tr><td style="padding:4px 0;color:#6b7280;">Brutto (PayPal)</td><td style="padding:4px 0;font-weight:500;"><?php echo number_format($payment_gross, 2, ',', '.'); ?> &euro;</td></tr>
+                            <?php endif; ?>
+                            <tr><td style="padding:4px 0;color:#6b7280;">Gebühr</td><td style="padding:4px 0;font-weight:600;color:#dc2626;">−<?php echo number_format($payment_fee, 2, ',', '.'); ?> &euro;</td></tr>
+                            <tr><td style="padding:4px 0;color:#6b7280;">Netto-Eingang</td><td style="padding:4px 0;font-weight:700;color:#10b981;"><?php echo number_format($payment_net, 2, ',', '.'); ?> &euro;</td></tr>
+                        <?php elseif ($can_backfill): ?>
+                            <tr><td colspan="2" style="padding:8px 0;">
+                                <button type="button" id="tix-paypal-backfill-btn"
+                                        style="background:#fef3c7;border:1px solid #f59e0b;color:#78350f;padding:6px 12px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:6px;"
+                                        onclick="
+                                            this.disabled = true; this.innerHTML = 'Lade…';
+                                            fetch(ajaxurl, {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:'action=tix_paypal_backfill_fee&nonce=<?php echo $nonce; ?>&order_id=<?php echo $order_id; ?>'})
+                                            .then(function(r){return r.json()})
+                                            .then(function(r){if(r.success)location.reload(); else{alert(r.data.message||'Fehler'); this.disabled=false; this.innerHTML='💳 Gebühren nachladen';}}.bind(this));
+                                        ">
+                                    <span class="dashicons dashicons-update" style="width:14px;height:14px;font-size:14px;"></span>
+                                    💳 PayPal-Gebühr nachladen
+                                </button>
+                            </td></tr>
+                        <?php endif; ?>
                         <?php if ($order->wc_order_id): ?>
                             <tr><td style="padding:4px 0;color:#6b7280;">WC-Bestellung</td><td style="padding:4px 0;"><a href="<?php echo admin_url('post.php?post=' . $order->wc_order_id . '&action=edit'); ?>">#<?php echo $order->wc_order_id; ?></a></td></tr>
                         <?php endif; ?>
@@ -977,6 +1011,77 @@ class TIX_Order_Admin {
         }
 
         wp_send_json_success(['message' => 'E-Mail wurde erneut gesendet.']);
+    }
+
+    // ──────────────────────────────────────────
+    // AJAX: PayPal-Gebühr für eine Order nachladen
+    // ──────────────────────────────────────────
+    public static function ajax_paypal_backfill_fee() {
+        check_ajax_referer('tix_order_action', 'nonce');
+        if (!current_user_can('manage_options')) wp_send_json_error(['message' => 'Keine Berechtigung.']);
+
+        $order_id = intval($_POST['order_id'] ?? 0);
+        if (!$order_id) wp_send_json_error(['message' => 'Ungültige Bestellnummer.']);
+        if (!class_exists('TIX_Gateway_PayPal')) wp_send_json_error(['message' => 'PayPal-Gateway nicht verfügbar.']);
+
+        $result = TIX_Gateway_PayPal::backfill_fee($order_id);
+        if (!$result) wp_send_json_error(['message' => 'PayPal-API-Aufruf fehlgeschlagen oder keine Capture-ID gespeichert.']);
+
+        wp_send_json_success([
+            'message' => 'Gebühren erfolgreich geladen: ' . number_format($result['fee'], 2, ',', '.') . ' ' . $result['currency'],
+            'fee'     => $result['fee'],
+            'net'     => $result['net'],
+        ]);
+    }
+
+    /**
+     * AJAX: Bulk-Backfill für ALLE PayPal-Orders ohne Gebühren-Daten.
+     * Läuft mit Rate-Limit (max 25 Orders pro Call) damit's nicht in Timeout läuft.
+     */
+    public static function ajax_paypal_backfill_all() {
+        check_ajax_referer('tix_order_action', 'nonce');
+        if (!current_user_can('manage_options')) wp_send_json_error(['message' => 'Keine Berechtigung.']);
+        if (!class_exists('TIX_Gateway_PayPal')) wp_send_json_error(['message' => 'PayPal-Gateway nicht verfügbar.']);
+
+        global $wpdb;
+        $t = $wpdb->prefix . 'tix_orders';
+        // Native completed PayPal-Orders, max 25 pro Call (gegen Timeout)
+        $rows = $wpdb->get_results("
+            SELECT id FROM $t
+            WHERE status = 'completed'
+              AND payment_method = 'paypal'
+            ORDER BY date_created DESC
+            LIMIT 25
+        ");
+
+        $processed = 0;
+        $with_fee  = 0;
+        $skipped   = 0;
+        $errors    = 0;
+
+        foreach ($rows as $r) {
+            $order_id = intval($r->id);
+            // Skip if already has fee
+            if (floatval(get_post_meta($order_id, '_tix_payment_fee', true)) > 0) {
+                $skipped++;
+                continue;
+            }
+            $result = TIX_Gateway_PayPal::backfill_fee($order_id);
+            $processed++;
+            if ($result) {
+                $with_fee++;
+            } else {
+                $errors++;
+            }
+        }
+
+        wp_send_json_success([
+            'message' => "Backfill: $processed verarbeitet · $with_fee mit Gebühren-Daten · $skipped bereits OK · $errors Fehler",
+            'processed' => $processed,
+            'with_fee'  => $with_fee,
+            'skipped'   => $skipped,
+            'errors'    => $errors,
+        ]);
     }
 
     // ──────────────────────────────────────────

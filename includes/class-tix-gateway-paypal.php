@@ -387,6 +387,36 @@ class TIX_Gateway_PayPal {
             if (!empty($captures[0]['id'])) {
                 update_option('_tix_paypal_capture_' . $tix_order_id, $captures[0]['id'], false);
             }
+
+            // ── Gebühren-Erfassung aus seller_receivable_breakdown ──
+            // PayPal liefert: gross_amount (was Kunde zahlte), paypal_fee (Gebühr), net_amount (was wir bekommen)
+            $breakdown = $captures[0]['seller_receivable_breakdown'] ?? [];
+            if (!empty($breakdown['paypal_fee']['value'])) {
+                $fee_amt   = floatval($breakdown['paypal_fee']['value']);
+                $fee_curr  = $breakdown['paypal_fee']['currency_code'] ?? 'EUR';
+                $gross_amt = floatval($breakdown['gross_amount']['value'] ?? 0);
+                $net_amt   = floatval($breakdown['net_amount']['value'] ?? max(0, $gross_amt - $fee_amt));
+
+                update_post_meta($tix_order_id, '_tix_payment_fee',          $fee_amt);
+                update_post_meta($tix_order_id, '_tix_payment_fee_currency', $fee_curr);
+                update_post_meta($tix_order_id, '_tix_payment_gross',        $gross_amt);
+                update_post_meta($tix_order_id, '_tix_payment_net',          $net_amt);
+                update_post_meta($tix_order_id, '_tix_payment_gateway',      'paypal');
+
+                // Note für Audit-Trail
+                if (class_exists('TIX_Order_Admin') && method_exists('TIX_Order_Admin', 'add_note')) {
+                    TIX_Order_Admin::add_note(
+                        $tix_order_id,
+                        sprintf('💳 PayPal-Capture · Brutto %s %s · Gebühr %s %s · Netto %s %s',
+                            number_format($gross_amt, 2, ',', '.'), $fee_curr,
+                            number_format($fee_amt,   2, ',', '.'), $fee_curr,
+                            number_format($net_amt,   2, ',', '.'), $fee_curr
+                        ),
+                        'payment'
+                    );
+                }
+            }
+
             TIX_Native_Checkout::update_order_status($tix_order_id, 'completed', 'paypal');
             return true;
         }
@@ -432,6 +462,77 @@ class TIX_Gateway_PayPal {
      */
     public static function get_last_error($tix_order_id) {
         return get_transient('tix_paypal_error_' . $tix_order_id);
+    }
+
+    /**
+     * Lädt Gebühren-Daten für eine bestehende PayPal-Order nach.
+     * Wird vom Backfill-Cron oder manuellen "Gebühren nachladen"-Button genutzt.
+     *
+     * Returns: ['fee' => float, 'gross' => float, 'net' => float, 'currency' => string]
+     *          oder false bei Fehler
+     */
+    public static function backfill_fee($tix_order_id) {
+        $capture_id = get_option('_tix_paypal_capture_' . $tix_order_id);
+        if (!$capture_id) return false;
+
+        // Skip if already backfilled
+        $existing_fee = get_post_meta($tix_order_id, '_tix_payment_fee', true);
+        if ($existing_fee !== '' && $existing_fee !== false && floatval($existing_fee) > 0) {
+            return [
+                'fee'      => floatval($existing_fee),
+                'gross'    => floatval(get_post_meta($tix_order_id, '_tix_payment_gross', true) ?: 0),
+                'net'      => floatval(get_post_meta($tix_order_id, '_tix_payment_net', true) ?: 0),
+                'currency' => get_post_meta($tix_order_id, '_tix_payment_fee_currency', true) ?: 'EUR',
+                'cached'   => true,
+            ];
+        }
+
+        $token = self::get_access_token();
+        if (!$token) return false;
+
+        $r = wp_remote_get(self::api_url() . '/v2/payments/captures/' . $capture_id, [
+            'timeout' => 12,
+            'headers' => [
+                'Authorization' => 'Bearer ' . $token,
+                'Content-Type'  => 'application/json',
+            ],
+        ]);
+        if (is_wp_error($r)) return false;
+        $body = json_decode(wp_remote_retrieve_body($r), true);
+        if (empty($body['seller_receivable_breakdown']['paypal_fee']['value'])) return false;
+
+        $bd       = $body['seller_receivable_breakdown'];
+        $fee      = floatval($bd['paypal_fee']['value']);
+        $currency = $bd['paypal_fee']['currency_code'] ?? 'EUR';
+        $gross    = floatval($bd['gross_amount']['value'] ?? 0);
+        $net      = floatval($bd['net_amount']['value'] ?? max(0, $gross - $fee));
+
+        update_post_meta($tix_order_id, '_tix_payment_fee',          $fee);
+        update_post_meta($tix_order_id, '_tix_payment_fee_currency', $currency);
+        update_post_meta($tix_order_id, '_tix_payment_gross',        $gross);
+        update_post_meta($tix_order_id, '_tix_payment_net',          $net);
+        update_post_meta($tix_order_id, '_tix_payment_gateway',      'paypal');
+
+        if (class_exists('TIX_Order_Admin') && method_exists('TIX_Order_Admin', 'add_note')) {
+            TIX_Order_Admin::add_note(
+                $tix_order_id,
+                sprintf('🔄 Gebühren nachgeladen · Brutto %s · Gebühr %s · Netto %s %s',
+                    number_format($gross, 2, ',', '.'),
+                    number_format($fee,   2, ',', '.'),
+                    number_format($net,   2, ',', '.'),
+                    $currency
+                ),
+                'payment'
+            );
+        }
+
+        return [
+            'fee'      => $fee,
+            'gross'    => $gross,
+            'net'      => $net,
+            'currency' => $currency,
+            'cached'   => false,
+        ];
     }
 
     /**

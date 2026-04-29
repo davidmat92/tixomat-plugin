@@ -144,6 +144,11 @@ class TIX_Event_Report {
                 ['Check-in Rate',    $data['kpis']['checkin_rate'] . '%',                               '#f59e0b', 'groups'],
                 ['Storniert',        number_format($data['kpis']['cancelled'], 0, ',', '.'),           '#6b7280', 'no-alt'],
             ];
+            // Wenn Zahlungs-Gebühren erfasst → 2 zusätzliche KPI-Karten
+            if (!empty($data['kpis']['payment_fees']) && $data['kpis']['payment_fees'] > 0) {
+                $kpis[] = ['Zahlungs-Gebühren',    '−' . number_format($data['kpis']['payment_fees'], 2, ',', '.') . ' €', '#dc2626', 'money-alt'];
+                $kpis[] = ['Netto nach Gebühren', number_format($data['kpis']['revenue_after_fees'], 2, ',', '.') . ' €', '#059669', 'chart-bar'];
+            }
             foreach ($kpis as [$label, $value, $color, $icon]):
             ?>
                 <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:16px 18px;">
@@ -450,6 +455,10 @@ class TIX_Event_Report {
         $checked_in = 0;
         $revenue    = 0.0;
 
+        // Zahlungs-Gebühren-Summe (PayPal etc.) — pro Order nur EINMAL gezählt
+        $payment_fees = 0.0;
+        $orders_with_fees = []; // Tracking welche Order-IDs schon gezählt wurden
+
         // Order-Resolver-Cache: order_id_meta → tix_orders-Row + Tickets-Count für diese Order
         // Spart wiederholte DB-Queries pro Event
         $order_cache = [];
@@ -521,6 +530,15 @@ class TIX_Event_Report {
             // Für Detail-Tabelle: tix_orders.id (zum Verlinken zur Order-Detail-Seite)
             $order_id = $real_order_id ?: $order_id_meta;
 
+            // Zahlungs-Gebühr für diese Order summieren (nur EINMAL pro Order)
+            if ($real_order_id && !isset($orders_with_fees[$real_order_id])) {
+                $orders_with_fees[$real_order_id] = true;
+                $fee = floatval(get_post_meta($real_order_id, '_tix_payment_fee', true));
+                if ($fee > 0) {
+                    $payment_fees += $fee;
+                }
+            }
+
             // Sitzplatz menschenlesbar
             $seat_label = '';
             if ($seat_id) {
@@ -583,13 +601,16 @@ class TIX_Event_Report {
         return [
             'event_id'   => $event_id,
             'kpis'       => [
-                'sold'          => $sold,
-                'cancelled'     => $cancelled,
-                'checked_in'    => $checked_in,
-                'checkin_rate'  => $checkin_rate,
-                'revenue_gross' => round($revenue, 2),
-                'revenue_net'   => round($revenue_net, 2),
-                'vat_rate'      => $vat_rate,
+                'sold'                   => $sold,
+                'cancelled'              => $cancelled,
+                'checked_in'             => $checked_in,
+                'checkin_rate'           => $checkin_rate,
+                'revenue_gross'          => round($revenue, 2),
+                'revenue_net'            => round($revenue_net, 2),
+                'vat_rate'               => $vat_rate,
+                'payment_fees'           => round($payment_fees, 2),
+                'revenue_after_fees'     => round($revenue - $payment_fees, 2),
+                'revenue_net_after_fees' => round($revenue_net - $payment_fees, 2),
             ],
             'categories' => $cat_list,
             'tickets'    => $tickets,
@@ -664,7 +685,12 @@ class TIX_Event_Report {
         fputcsv($out, ['Eingecheckt',      $data['kpis']['checked_in']], ';');
         fputcsv($out, ['Check-in Rate',    $data['kpis']['checkin_rate'] . '%'], ';');
         fputcsv($out, ['Brutto-Umsatz',    number_format($data['kpis']['revenue_gross'], 2, ',', '.') . ' EUR'], ';');
-        fputcsv($out, ['Netto-Umsatz',     number_format($data['kpis']['revenue_net'], 2, ',', '.') . ' EUR'], ';');
+        fputcsv($out, ['Netto-Umsatz (vor Geb.)', number_format($data['kpis']['revenue_net'], 2, ',', '.') . ' EUR'], ';');
+        if (!empty($data['kpis']['payment_fees']) && $data['kpis']['payment_fees'] > 0) {
+            fputcsv($out, ['Zahlungs-Gebühren',         '-' . number_format($data['kpis']['payment_fees'], 2, ',', '.') . ' EUR'], ';');
+            fputcsv($out, ['Brutto nach Gebühren',      number_format($data['kpis']['revenue_after_fees'], 2, ',', '.') . ' EUR'], ';');
+            fputcsv($out, ['Netto nach Gebühren',       number_format($data['kpis']['revenue_net_after_fees'], 2, ',', '.') . ' EUR'], ';');
+        }
         fputcsv($out, [], ';');
 
         // Steueraufschlüsselung
@@ -752,8 +778,13 @@ class TIX_Event_Report {
         $rows[] = ['Storniert',          $data['kpis']['cancelled']];
         $rows[] = ['Eingecheckt',        $data['kpis']['checked_in']];
         $rows[] = ['Check-in Rate',      $data['kpis']['checkin_rate'] . '%'];
-        $rows[] = ['Brutto-Umsatz EUR',  round($data['kpis']['revenue_gross'], 2)];
-        $rows[] = ['Netto-Umsatz EUR',   round($data['kpis']['revenue_net'], 2)];
+        $rows[] = ['Brutto-Umsatz EUR',          round($data['kpis']['revenue_gross'], 2)];
+        $rows[] = ['Netto-Umsatz EUR (vor Geb.)', round($data['kpis']['revenue_net'], 2)];
+        if (!empty($data['kpis']['payment_fees']) && $data['kpis']['payment_fees'] > 0) {
+            $rows[] = ['Zahlungs-Gebühren EUR',       round($data['kpis']['payment_fees'], 2)];
+            $rows[] = ['Brutto nach Gebühren EUR',    round($data['kpis']['revenue_after_fees'], 2)];
+            $rows[] = ['Netto nach Gebühren EUR',     round($data['kpis']['revenue_net_after_fees'], 2)];
+        }
         $rows[] = [];
 
         // Steueraufschlüsselung
@@ -985,7 +1016,8 @@ class TIX_Event_Report {
         $pdf->set_color(0.3, 0.3, 0.3);
         if ($date_label) $pdf->text(36, 482, $date_label);
 
-        // KPIs (5 Boxen nebeneinander) — mehr Gap zum Logo (Logo bottom 525, KPI top jetzt 460)
+        // KPIs — bei aktiven Zahlungs-Gebühren 7 Boxen (2 Reihen), sonst 5 (eine Reihe)
+        $has_fees = !empty($data['kpis']['payment_fees']) && $data['kpis']['payment_fees'] > 0;
         $box_y = 410;
         $box_h = 50;
         $box_w = 150;
@@ -997,16 +1029,28 @@ class TIX_Event_Report {
             ['Check-in Rate',    $data['kpis']['checkin_rate'] . '%'],
             ['Storniert',        number_format($data['kpis']['cancelled'], 0, ',', '.')],
         ];
+        if ($has_fees) {
+            $kpi_items[] = ['Zahlungs-Gebühren',  '-' . number_format($data['kpis']['payment_fees'], 2, ',', '.') . ' EUR'];
+            $kpi_items[] = ['Netto nach Gebühren', number_format($data['kpis']['revenue_after_fees'], 2, ',', '.') . ' EUR'];
+        }
         foreach ($kpi_items as $i => $kpi) {
-            $x = $box_x + ($box_w + 8) * $i;
+            // Layout: max 5 Boxen pro Reihe, danach Umbruch
+            $col = $i % 5;
+            $row = intdiv($i, 5);
+            $x = $box_x + ($box_w + 8) * $col;
+            $y = $box_y - ($row * ($box_h + 8));
             $pdf->set_color(0.95, 0.95, 0.97);
-            $pdf->rect($x, $box_y, $box_w, $box_h, true);
+            $pdf->rect($x, $y, $box_w, $box_h, true);
             $pdf->set_color(0.4, 0.4, 0.4);
             $pdf->set_font('Helvetica', 8);
-            $pdf->text($x + 8, $box_y + $box_h - 12, strtoupper($kpi[0]));
+            $pdf->text($x + 8, $y + $box_h - 12, strtoupper($kpi[0]));
             $pdf->set_color(0, 0, 0);
             $pdf->set_font('Helvetica-Bold', 13);
-            $pdf->text($x + 8, $box_y + 12, $kpi[1]);
+            $pdf->text($x + 8, $y + 12, $kpi[1]);
+        }
+        // Wenn 2 Reihen → Y-Cursor entsprechend nach unten verschieben
+        if ($has_fees) {
+            $box_y = $box_y - ($box_h + 8); // Eine Reihe weiter runter für nachfolgende Sektion
         }
 
         // Kategorien-Tabelle
