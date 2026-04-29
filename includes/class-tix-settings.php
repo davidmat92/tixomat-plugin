@@ -2419,6 +2419,11 @@ class TIX_Settings {
                                 <span class="tix-nav-label">Wallet</span>
                                 <span style="position:absolute;top:-4px;right:-4px;background:#FF5500;color:#fff;font-size:9px;font-weight:700;padding:2px 5px;border-radius:8px;line-height:1;letter-spacing:0.04em;">NEU</span>
                             </button>
+                            <button type="button" class="tix-nav-tab" data-tab="invoice" style="position:relative;">
+                                <span class="dashicons dashicons-media-document"></span>
+                                <span class="tix-nav-label">Rechnungen</span>
+                                <span style="position:absolute;top:-4px;right:-4px;background:#FF5500;color:#fff;font-size:9px;font-weight:700;padding:2px 5px;border-radius:8px;line-height:1;letter-spacing:0.04em;">NEU</span>
+                            </button>
                             <button type="button" class="tix-nav-tab active" data-tab="design">
                                 <span class="dashicons dashicons-art"></span>
                                 <span class="tix-nav-label">Design</span>
@@ -7042,41 +7047,7 @@ class TIX_Settings {
                                     </div>
                                 </div>
 
-                                <?php // ── Card: Rechnungen / Aussteller-Daten ── ?>
-                                <div class="tix-card">
-                                    <div class="tix-card-header">
-                                        <span class="dashicons dashicons-media-document"></span>
-                                        <h3>Rechnungen / Aussteller-Daten</h3>
-                                    </div>
-                                    <div class="tix-card-body">
-                                        <p class="tix-settings-hint" style="margin:0 0 14px;background:#fef3c7;border-left:3px solid #f59e0b;padding:10px 14px;border-radius:6px;">
-                                            <strong>📋 Wichtig f&uuml;r Steuerberater &amp; Finanzamt:</strong> Diese Daten erscheinen im Event-Bericht-PDF (Aussteller-Block). Vollst&auml;ndige Angaben sind Pflicht nach &sect;14 UStG f&uuml;r rechtssichere Abrechnungen.
-                                        </p>
-                                        <div class="tix-field-grid">
-                                            <?php self::text_row('invoice_company_name', 'Firmenname / Aussteller', $s, 'MDJ Veranstaltungs UG (haftungsbeschränkt)'); ?>
-                                            <div class="tix-field tix-field-full">
-                                                <label class="tix-field-label">Firmenadresse (Stra&szlig;e + PLZ Ort)</label>
-                                                <textarea name="<?php echo self::OPTION_KEY; ?>[invoice_company_address]" rows="3" class="large-text" style="width:100%;padding:8px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;resize:vertical;" placeholder="Musterstra&szlig;e 1&#10;12345 Berlin&#10;Deutschland"><?php echo esc_textarea($s['invoice_company_address'] ?? ''); ?></textarea>
-                                            </div>
-                                            <?php self::text_row('invoice_company_tax_id', 'Steuernummer (vom Finanzamt)', $s, '123/456/78901'); ?>
-                                            <?php self::text_row('invoice_company_ust_id', 'USt-IdNr.', $s, 'DE123456789'); ?>
-                                            <?php self::text_row('invoice_managing_director', 'Gesch&auml;ftsf&uuml;hrer/in', $s, 'Max Mustermann'); ?>
-                                            <?php self::text_row('invoice_register_court', 'Amtsgericht / Registergericht', $s, 'Amtsgericht Köln'); ?>
-                                            <?php self::text_row('invoice_register_number', 'Handelsregister-Nr.', $s, 'HRB 12345'); ?>
-                                            <?php self::text_row('invoice_email', 'Gesch&auml;fts-Email', $s, 'office@meine-firma.de'); ?>
-                                            <?php self::text_row('invoice_phone', 'Gesch&auml;fts-Telefon', $s, '+49 30 12345678'); ?>
-                                            <div class="tix-field tix-field-full">
-                                                <label class="tix-field-label">Optionale Fu&szlig;zeile (zus&auml;tzlicher Text)</label>
-                                                <textarea name="<?php echo self::OPTION_KEY; ?>[invoice_footer_text]" rows="2" class="large-text" style="width:100%;padding:8px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;resize:vertical;" placeholder="Bankverbindung: IBAN DE12... · BIC ..."><?php echo esc_textarea($s['invoice_footer_text'] ?? ''); ?></textarea>
-                                            </div>
-                                            <div class="tix-field tix-field-full">
-                                                <p class="tix-settings-hint" style="font-size:12px;">
-                                                    💡 Diese Daten erscheinen im Aussteller-Block des Event-Bericht-PDFs (Steueraufschl&uuml;sselung mit Steuersatz aus dem &bdquo;Steuern&ldquo;-Tab) und auf eventuell sp&auml;ter generierten Einzelrechnungen.
-                                                </p>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
+                                <?php // Rechnungs-Card wurde in den eigenen "Rechnungen"-Tab verschoben ?>
 
                                 <?php // ── Card: Branding ── ?>
                                 <div class="tix-card">
@@ -7926,6 +7897,143 @@ class TIX_Settings {
                                     });
                                 })();
                                 </script>
+
+                            </div>
+
+                            <?php // ═══ PANE: RECHNUNGEN / AUSSTELLER ═══ ?>
+                            <div class="tix-pane" data-pane="invoice">
+
+                                <?php // ── Hinweis-Banner ── ?>
+                                <div class="tix-card" style="margin-bottom:16px;background:linear-gradient(135deg,#fef3c7,#fde68a);border-color:#f59e0b;">
+                                    <div class="tix-card-body" style="padding:16px 20px;">
+                                        <div style="display:flex;align-items:flex-start;gap:12px;">
+                                            <span style="font-size:24px;">📋</span>
+                                            <div style="flex:1;">
+                                                <strong style="color:#78350f;display:block;margin-bottom:4px;font-size:14px;">Rechnungs- &amp; Aussteller-Daten</strong>
+                                                <span style="color:#92400e;font-size:13px;line-height:1.5;">Diese Felder erscheinen im Aussteller-Block des Event-Bericht-PDFs (Steuerberater-tauglich) und werden später für Einzelrechnungen genutzt. Vollst&auml;ndige Angaben sind Pflicht nach §14 UStG.</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Firmen-Stammdaten ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-businessperson"></span>
+                                        <h3>Firmen-Stammdaten</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <?php self::text_row('invoice_company_name', 'Firmenname / Aussteller', $s, 'MDJ Veranstaltungs UG (haftungsbeschränkt)'); ?>
+                                            <div class="tix-field tix-field-full">
+                                                <label class="tix-field-label">Firmenadresse (Straße + PLZ Ort)</label>
+                                                <textarea name="<?php echo self::OPTION_KEY; ?>[invoice_company_address]" rows="3" class="large-text" style="width:100%;padding:8px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;resize:vertical;" placeholder="Musterstra&szlig;e 1&#10;12345 Berlin&#10;Deutschland"><?php echo esc_textarea($s['invoice_company_address'] ?? ''); ?></textarea>
+                                            </div>
+                                            <?php self::text_row('invoice_managing_director', 'Geschäftsführer/in', $s, 'Max Mustermann'); ?>
+                                            <?php self::text_row('invoice_email', 'Geschäfts-Email', $s, 'office@meine-firma.de'); ?>
+                                            <?php self::text_row('invoice_phone', 'Geschäfts-Telefon', $s, '+49 30 12345678'); ?>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Steuer-IDs ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-money-alt"></span>
+                                        <h3>Steuer-Identifikation</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <p class="tix-settings-hint" style="margin-bottom:12px;font-size:12px;">
+                                            <strong>Steuernummer</strong> = vom Finanzamt vergeben (z.B. <code>123/456/78901</code>) ·
+                                            <strong>USt-IdNr.</strong> = europäische ID (z.B. <code>DE123456789</code>). Idealerweise beides eintragen — pflicht ist mindestens eines davon.
+                                        </p>
+                                        <div class="tix-field-grid">
+                                            <?php self::text_row('invoice_company_tax_id', 'Steuernummer (vom Finanzamt)', $s, '123/456/78901'); ?>
+                                            <?php self::text_row('invoice_company_ust_id', 'USt-IdNr.', $s, 'DE123456789'); ?>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Handelsregister ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-bank"></span>
+                                        <h3>Handelsregister</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <?php self::text_row('invoice_register_court', 'Amtsgericht / Registergericht', $s, 'Amtsgericht Köln'); ?>
+                                            <?php self::text_row('invoice_register_number', 'Handelsregister-Nr.', $s, 'HRB 12345'); ?>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Footer ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-edit"></span>
+                                        <h3>Optionale Fußzeile</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <label class="tix-field-label">Zusätzlicher Footer-Text (z.B. Bankverbindung)</label>
+                                                <textarea name="<?php echo self::OPTION_KEY; ?>[invoice_footer_text]" rows="3" class="large-text" style="width:100%;padding:8px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;resize:vertical;" placeholder="Bankverbindung: IBAN DE12 3456 7890 1234 5678 90 · BIC ABCDDEFFXXX&#10;Sparkasse Musterstadt"><?php echo esc_textarea($s['invoice_footer_text'] ?? ''); ?></textarea>
+                                                <p class="tix-field-hint">Erscheint als zusätzliche Zeilen im Aussteller-Block, z.B. für Bankverbindung. Optional.</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <?php // ── Card: Vorschau ── ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-visibility"></span>
+                                        <h3>Vorschau Aussteller-Block</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <p class="tix-settings-hint" style="margin-bottom:12px;font-size:12px;">So erscheinen deine Daten im PDF-Bericht (Steuerberater-Format):</p>
+                                        <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:18px 22px;font-family:Helvetica,Arial,sans-serif;font-size:13px;line-height:1.6;color:#1f2937;">
+                                            <?php
+                                            $preview_lines = [];
+                                            if (!empty($s['invoice_company_name'])) $preview_lines[] = '<strong>' . esc_html($s['invoice_company_name']) . '</strong>';
+                                            if (!empty($s['invoice_company_address'])) {
+                                                foreach (preg_split('/\r\n|\r|\n/', $s['invoice_company_address']) as $ln) {
+                                                    $ln = trim($ln);
+                                                    if ($ln) $preview_lines[] = esc_html($ln);
+                                                }
+                                            }
+                                            $tax_line = [];
+                                            if (!empty($s['invoice_company_tax_id'])) $tax_line[] = 'Steuernr.: ' . esc_html($s['invoice_company_tax_id']);
+                                            if (!empty($s['invoice_company_ust_id'])) $tax_line[] = 'USt-IdNr.: ' . esc_html($s['invoice_company_ust_id']);
+                                            if (!empty($tax_line)) $preview_lines[] = implode(' · ', $tax_line);
+                                            $rep_line = [];
+                                            if (!empty($s['invoice_managing_director'])) $rep_line[] = 'Geschäftsführer: ' . esc_html($s['invoice_managing_director']);
+                                            if (!empty($s['invoice_register_court']) && !empty($s['invoice_register_number'])) $rep_line[] = esc_html($s['invoice_register_court']) . ' ' . esc_html($s['invoice_register_number']);
+                                            elseif (!empty($s['invoice_register_court'])) $rep_line[] = esc_html($s['invoice_register_court']);
+                                            elseif (!empty($s['invoice_register_number'])) $rep_line[] = esc_html($s['invoice_register_number']);
+                                            if (!empty($rep_line)) $preview_lines[] = implode(' · ', $rep_line);
+                                            $contact = [];
+                                            if (!empty($s['invoice_email'])) $contact[] = esc_html($s['invoice_email']);
+                                            if (!empty($s['invoice_phone'])) $contact[] = esc_html($s['invoice_phone']);
+                                            if (!empty($contact)) $preview_lines[] = implode(' · ', $contact);
+                                            if (!empty($s['invoice_footer_text'])) {
+                                                foreach (preg_split('/\r\n|\r|\n/', $s['invoice_footer_text']) as $ln) {
+                                                    $ln = trim($ln);
+                                                    if ($ln) $preview_lines[] = esc_html($ln);
+                                                }
+                                            }
+                                            if (empty($preview_lines)) {
+                                                echo '<em style="color:#9ca3af;">Trag oben deine Firmendaten ein — die Vorschau erscheint nach dem Speichern.</em>';
+                                            } else {
+                                                foreach ($preview_lines as $ln) {
+                                                    echo $ln . '<br>';
+                                                }
+                                            }
+                                            ?>
+                                        </div>
+                                    </div>
+                                </div>
 
                             </div>
 
