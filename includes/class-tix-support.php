@@ -694,27 +694,51 @@ class TIX_Support {
         $ticket['messages'] = self::get_messages($ticket_id);
 
         // Verknüpfte Order-Infos
-        $order_id = get_post_meta($ticket_id, '_tix_sp_order_id', true);
+        $order_id    = intval(get_post_meta($ticket_id, '_tix_sp_order_id', true));
+        $ticket_code = get_post_meta($ticket_id, '_tix_sp_ticket_code', true);
+
+        // ── Linked-Ticket per Code auflösen ── (auch wenn keine Order-ID gesetzt)
+        $linked_ticket_obj = null;
+        if ($ticket_code && class_exists('TIX_Tickets')) {
+            $linked_ticket_obj = TIX_Tickets::get_ticket_by_code($ticket_code);
+            if ($linked_ticket_obj) {
+                $ticket['linked_ticket'] = self::format_ticket($linked_ticket_obj);
+                // Order-ID aus Ticket nachholen, falls fehlend
+                if (!$order_id) {
+                    $order_id = intval(get_post_meta($linked_ticket_obj->ID, '_tix_ticket_order_id', true));
+                }
+            }
+        }
+
+        // ── Fallback: Order anhand Kunden-Email finden, wenn weder Order-ID noch Ticket-Code ──
+        if (!$order_id) {
+            $email = get_post_meta($ticket_id, '_tix_sp_email', true);
+            if ($email) {
+                global $wpdb;
+                $orders_table = $wpdb->prefix . 'tix_orders';
+                if ($wpdb->get_var("SHOW TABLES LIKE '$orders_table'") === $orders_table) {
+                    $latest = $wpdb->get_var($wpdb->prepare(
+                        "SELECT id FROM $orders_table WHERE billing_email = %s ORDER BY date_created DESC LIMIT 1",
+                        $email
+                    ));
+                    if ($latest) $order_id = intval($latest);
+                }
+            }
+        }
+
+        // ── Order laden ──
         if ($order_id) {
             $order = function_exists('wc_get_order') ? wc_get_order($order_id) : false;
             if (!$order && class_exists('TIX_Order')) {
                 $order = TIX_Order::get($order_id);
             }
             if ($order) {
-                $ticket['order'] = self::format_order($order);
+                $ticket['order']    = self::format_order($order);
+                $ticket['order_id'] = $order_id; // an JS weiterreichen für Ticket-Anhang-Dropdown
             }
         }
 
-        // Verknüpftes Ticket (per Ticket-Code)
-        $ticket_code = get_post_meta($ticket_id, '_tix_sp_ticket_code', true);
-        if ($ticket_code && class_exists('TIX_Tickets')) {
-            $t = TIX_Tickets::get_ticket_by_code($ticket_code);
-            if ($t) {
-                $ticket['linked_ticket'] = self::format_ticket($t);
-            }
-        }
-
-        // Alle Tickets der verknüpften Bestellung
+        // ── Alle Tickets der verknüpften Bestellung ──
         if ($order_id && class_exists('TIX_Tickets')) {
             $all_tickets = TIX_Tickets::get_all_tickets_for_order($order_id);
             $ticket['linked_tickets'] = array_values(array_map([__CLASS__, 'format_ticket'], $all_tickets));
@@ -1426,21 +1450,79 @@ class TIX_Support {
         ];
     }
 
+    /**
+     * Normalisiert ein Ticket auf die JS-Struktur, egal ob's ein WP_Post
+     * (von get_ticket_by_code), ein assoziatives Array (von TIX_Tickets::
+     * get_all_tickets_for_order) oder eine Mischung daraus ist.
+     */
     private static function format_ticket($ticket) {
-        $ticket_id = $ticket->ID;
+        // ── Unified-Array (z.B. aus get_all_tickets_for_order) ──
+        if (is_array($ticket)) {
+            $ticket_id = intval($ticket['id'] ?? 0);
+            $event_name = $ticket['event_name'] ?? $ticket['event'] ?? '';
+            // Falls Event-Name fehlt, aus event_id nachladen
+            if (!$event_name && !empty($ticket['event_id'])) {
+                $ev = get_post(intval($ticket['event_id']));
+                if ($ev) $event_name = $ev->post_title;
+            }
+            // Falls Code fehlt aber ID da → aus Meta nachholen
+            $code = $ticket['code'] ?? '';
+            if (!$code && $ticket_id) {
+                $code = get_post_meta($ticket_id, '_tix_ticket_code', true);
+            }
+            return [
+                'id'           => $ticket_id,
+                'code'         => $code,
+                'event'        => $event_name,
+                'event_id'     => intval($ticket['event_id'] ?? 0),
+                'owner'        => $ticket['owner_name'] ?? $ticket['owner'] ?? '',
+                'email'        => $ticket['owner_email'] ?? $ticket['email'] ?? '',
+                'status'       => $ticket['status'] ?? '',
+                'order_id'     => intval($ticket['order_id'] ?? 0),
+                'edit_url'     => $ticket_id ? admin_url('post.php?post=' . $ticket_id . '&action=edit') : '',
+                'download_url' => $ticket['download_url'] ?? (($ticket_id && class_exists('TIX_Tickets')) ? TIX_Tickets::get_download_url($ticket_id) : ''),
+                'seat_id'      => $ticket_id ? get_post_meta($ticket_id, '_tix_ticket_seat_id', true) : '',
+                'seat_label'   => $ticket_id ? get_post_meta($ticket_id, '_tix_ticket_seat_label', true) : '',
+                'cat_name'     => $ticket['cat_name'] ?? '',
+            ];
+        }
+
+        // ── WP_Post (legacy: aus get_ticket_by_code, get_tickets_by_order) ──
+        if (is_object($ticket) && isset($ticket->ID)) {
+            $ticket_id  = intval($ticket->ID);
+            $event_id   = intval(get_post_meta($ticket_id, '_tix_ticket_event_id', true));
+            $event_name = get_post_meta($ticket_id, '_tix_ticket_event_name', true);
+            if (!$event_name && $event_id) {
+                $ev = get_post($event_id);
+                if ($ev) $event_name = $ev->post_title;
+            }
+            // Kategorie-Name aus Event-Meta
+            $cat_index = intval(get_post_meta($ticket_id, '_tix_ticket_cat_index', true));
+            $cats      = get_post_meta($event_id, '_tix_ticket_categories', true);
+            $cat_name  = (is_array($cats) && isset($cats[$cat_index]['name'])) ? $cats[$cat_index]['name'] : '';
+
+            return [
+                'id'           => $ticket_id,
+                'code'         => get_post_meta($ticket_id, '_tix_ticket_code', true),
+                'event'        => $event_name,
+                'event_id'     => $event_id,
+                'owner'        => get_post_meta($ticket_id, '_tix_ticket_owner_name', true),
+                'email'        => get_post_meta($ticket_id, '_tix_ticket_owner_email', true),
+                'status'       => $ticket->post_status,
+                'order_id'     => intval(get_post_meta($ticket_id, '_tix_ticket_order_id', true)),
+                'edit_url'     => admin_url('post.php?post=' . $ticket_id . '&action=edit'),
+                'download_url' => class_exists('TIX_Tickets') ? TIX_Tickets::get_download_url($ticket_id) : '',
+                'seat_id'      => get_post_meta($ticket_id, '_tix_ticket_seat_id', true),
+                'seat_label'   => get_post_meta($ticket_id, '_tix_ticket_seat_label', true),
+                'cat_name'     => $cat_name,
+            ];
+        }
+
+        // Fallback: leeres Schema, damit JS nicht crasht
         return [
-            'id'           => $ticket_id,
-            'code'         => get_post_meta($ticket_id, '_tix_ticket_code', true),
-            'event'        => get_post_meta($ticket_id, '_tix_ticket_event_name', true),
-            'event_id'     => get_post_meta($ticket_id, '_tix_ticket_event_id', true),
-            'owner'        => get_post_meta($ticket_id, '_tix_ticket_owner_name', true),
-            'email'        => get_post_meta($ticket_id, '_tix_ticket_owner_email', true),
-            'status'       => $ticket->post_status,
-            'order_id'     => get_post_meta($ticket_id, '_tix_ticket_order_id', true),
-            'edit_url'     => admin_url('post.php?post=' . $ticket_id . '&action=edit'),
-            'download_url' => class_exists('TIX_Tickets') ? TIX_Tickets::get_download_url($ticket_id) : '',
-            'seat_id'      => get_post_meta($ticket_id, '_tix_ticket_seat_id', true),
-            'seat_label'   => get_post_meta($ticket_id, '_tix_ticket_seat_label', true),
+            'id' => 0, 'code' => '', 'event' => '', 'event_id' => 0,
+            'owner' => '', 'email' => '', 'status' => '', 'order_id' => 0,
+            'edit_url' => '', 'download_url' => '', 'seat_id' => '', 'seat_label' => '', 'cat_name' => '',
         ];
     }
 

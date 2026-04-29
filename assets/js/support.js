@@ -232,16 +232,33 @@
                 html += '<div class="tix-sp-sidebar-card">';
                 html += '<h4>Tickets der Bestellung (' + t.linked_tickets.length + ')</h4>';
                 t.linked_tickets.forEach(function(lt) {
-                    var seatInfo = lt.seat_label ? ' · 🪑 ' + esc(lt.seat_label) : '';
-                    html += '<div class="tix-sp-linked-ticket">';
-                    html += '<div class="tix-sp-linked-ticket-info">';
-                    html += '<strong>' + esc(lt.code) + '</strong>';
-                    html += '<span>' + esc(lt.owner || '–') + seatInfo + '</span>';
+                    var code      = lt.code || ('#' + (lt.id || '?'));
+                    var eventLine = lt.event ? esc(lt.event) : '';
+                    var catLine   = lt.cat_name ? esc(lt.cat_name) : '';
+                    var ownerLine = lt.owner ? esc(lt.owner) : (lt.email ? esc(lt.email) : '');
+                    var seatLine  = lt.seat_label ? '🪑 ' + esc(lt.seat_label) : '';
+                    var subLines  = [];
+                    if (eventLine) subLines.push(eventLine);
+                    if (catLine)   subLines.push(catLine);
+                    if (ownerLine) subLines.push('👤 ' + ownerLine);
+                    if (seatLine)  subLines.push(seatLine);
+
+                    html += '<div class="tix-sp-linked-ticket" style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;padding:10px 0;border-bottom:1px solid #f3f4f6;">';
+                    html += '<div class="tix-sp-linked-ticket-info" style="min-width:0;flex:1;">';
+                    html += '<div style="font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;font-weight:600;color:#0f172a;letter-spacing:0.02em;">' + esc(code) + '</div>';
+                    if (subLines.length) {
+                        html += '<div style="font-size:11px;color:#64748b;margin-top:3px;line-height:1.5;">' + subLines.join('<br>') + '</div>';
+                    }
                     html += '</div>';
-                    html += '<div class="tix-sp-linked-ticket-actions">';
-                    html += '<a href="' + esc(lt.edit_url) + '" target="_blank" title="Ticket öffnen">🎫</a>';
-                    html += '<button class="tix-sp-qa-resend" data-ticket-id="' + lt.id + '" data-email="' + esc(lt.email) + '" title="E-Mail erneut senden">📧</button>';
-                    html += '<button class="tix-sp-qa-change-owner" data-ticket-id="' + lt.id + '" title="Inhaber ändern">👤</button>';
+                    html += '<div class="tix-sp-linked-ticket-actions" style="display:flex;gap:4px;flex-shrink:0;">';
+                    if (lt.edit_url) {
+                        html += '<a href="' + esc(lt.edit_url) + '" target="_blank" title="Ticket-Backend öffnen" style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:6px;background:#f1f5f9;text-decoration:none;font-size:14px;">🎫</a>';
+                    }
+                    if (lt.download_url) {
+                        html += '<button class="tix-sp-copy-url" data-url="' + esc(lt.download_url) + '" title="Online-Ticket-Link kopieren" style="border:none;background:#f1f5f9;border-radius:6px;width:28px;height:28px;cursor:pointer;font-size:13px;">🔗</button>';
+                    }
+                    html += '<button class="tix-sp-qa-resend" data-ticket-id="' + lt.id + '" data-email="' + esc(lt.email || t.email || '') + '" title="Ticket-Mail erneut senden" style="border:none;background:#f1f5f9;border-radius:6px;width:28px;height:28px;cursor:pointer;font-size:13px;">📧</button>';
+                    html += '<button class="tix-sp-qa-change-owner" data-ticket-id="' + lt.id + '" title="Inhaber ändern" style="border:none;background:#f1f5f9;border-radius:6px;width:28px;height:28px;cursor:pointer;font-size:13px;">👤</button>';
                     html += '</div></div>';
                 });
                 html += '</div>';
