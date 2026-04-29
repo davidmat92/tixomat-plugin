@@ -914,27 +914,28 @@ class TIX_Event_Report {
 
         $pdf->add_page();
 
-        // ── Logo oben rechts (vollfarbig, dezent klein) ──
+        // ── Logo oben rechts (vollfarbig) ──
+        // Logo-Bereich: y=525..570 (max 45pt hoch), Title-Block beginnt bei y=550
         if ($logo_loaded) {
-            $pdf->draw_logo($page_w - $margin_x - 90, $page_h - $margin_y - 40, 90, 50);
+            $pdf->draw_logo($page_w - $margin_x - 90, 525, 90, 45);
         }
 
-        // Header-Block
+        // Header-Block (mehr vertikaler Abstand zwischen den Zeilen)
         $pdf->set_font('Helvetica-Bold', 18);
-        $pdf->text(36, 555, 'Event-Bericht');
+        $pdf->text(36, 550, 'Event-Bericht');
         $pdf->set_font('Helvetica', 10);
         $pdf->set_color(0.4, 0.4, 0.4);
-        $pdf->text(36, 540, $brand . ' · erstellt am ' . date_i18n('d.m.Y H:i'));
+        $pdf->text(36, 530, $brand . ' · erstellt am ' . date_i18n('d.m.Y H:i'));
 
         $pdf->set_color(0, 0, 0);
         $pdf->set_font('Helvetica-Bold', 14);
-        $pdf->text(36, 515, $title);
+        $pdf->text(36, 500, $title);
         $pdf->set_font('Helvetica', 10);
         $pdf->set_color(0.3, 0.3, 0.3);
-        if ($date_label) $pdf->text(36, 500, $date_label);
+        if ($date_label) $pdf->text(36, 482, $date_label);
 
-        // KPIs (5 Boxen nebeneinander)
-        $box_y = 460;
+        // KPIs (5 Boxen nebeneinander) — mehr Gap zum Logo (Logo bottom 525, KPI top jetzt 460)
+        $box_y = 410;
         $box_h = 50;
         $box_w = 150;
         $box_x = 36;
@@ -987,22 +988,24 @@ class TIX_Event_Report {
             }
         }
 
-        // Detail-Tickets (neue Seite)
+        // ── Detail-Tickets (neue Seite) ──
         $pdf->add_page();
         $y = $page_h - 50;
-        $pdf->set_font('Helvetica-Bold', 14);
+        $pdf->set_font('Helvetica-Bold', 16);
+        $pdf->set_color(0, 0, 0);
         $pdf->text(36, $y, 'Verkaufte Tickets — Detailliste');
-        $y -= 8;
-        $pdf->set_font('Helvetica', 9);
+        $y -= 22; // mehr Gap zwischen Title und Subline (vorher 8 → 22)
+
+        $pdf->set_font('Helvetica', 10);
         $pdf->set_color(0.4, 0.4, 0.4);
         $pdf->text(36, $y, count($data['tickets']) . ' Tickets · Event: ' . $title);
-        $y -= 14;
+        $y -= 28; // mehr Gap zwischen Subline und Tabellen-Header (vorher 14 → 28)
 
         $headers = ['Code', 'Käufer', 'Email', 'Kat.', 'Preis', 'Bestellt', 'Bestell-Nr.', 'Status', 'Check-in'];
         $widths  = [78, 110, 140, 60, 50, 70, 95, 50, 50];
         $pdf->set_color(0, 0, 0);
         $pdf->draw_table_header($headers, $widths, 36, $y);
-        $y -= 16;
+        $y -= 22; // mehr Gap zwischen Header und erster Datenzeile (vorher 16 → 22)
 
         $pdf->set_font('Helvetica', 8);
         foreach ($data['tickets'] as $t) {
@@ -1020,14 +1023,15 @@ class TIX_Event_Report {
             ];
             $pdf->draw_table_row($row, $widths, 36, $y);
             $y -= 13;
-            if ($y < 40) {
+            if ($y < 50) {
                 $pdf->add_page();
-                $y = $page_h - 40;
-                $pdf->set_font('Helvetica-Bold', 11);
+                $y = $page_h - 50;
+                $pdf->set_font('Helvetica-Bold', 12);
+                $pdf->set_color(0, 0, 0);
                 $pdf->text(36, $y, 'Verkaufte Tickets (Fortsetzung)');
-                $y -= 18;
+                $y -= 26; // mehr Gap (vorher 18 → 26)
                 $pdf->draw_table_header($headers, $widths, 36, $y);
-                $y -= 16;
+                $y -= 22; // mehr Gap (vorher 16 → 22)
                 $pdf->set_font('Helvetica', 8);
             }
         }
