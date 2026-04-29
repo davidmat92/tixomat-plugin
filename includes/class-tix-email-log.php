@@ -14,6 +14,9 @@ class TIX_Email_Log {
     const TABLE_SUFFIX = 'tix_email_log';
 
     public static function init() {
+        // Schema-Migration sicherstellen
+        add_action('init', [__CLASS__, 'ensure_tracking_columns'], 1);
+
         // Alle ausgehenden Mails loggen
         add_filter('wp_mail', [__CLASS__, 'log_outgoing'], 999999);
 
@@ -49,7 +52,7 @@ class TIX_Email_Log {
         $t = self::table_name();
         if (!$email) return [];
 
-        $sql = "SELECT id, subject, status, source, date_created FROM $t WHERE to_email = %s";
+        $sql = "SELECT * FROM $t WHERE to_email = %s";
         $args = [$email];
         if ($since) {
             $sql .= " AND date_created >= %s";
@@ -82,6 +85,7 @@ class TIX_Email_Log {
         echo '<th style="text-align:left;padding:6px 8px;font-weight:600;color:#6b7280;font-size:11px;text-transform:uppercase;letter-spacing:0.04em;">Datum</th>';
         echo '<th style="text-align:left;padding:6px 8px;font-weight:600;color:#6b7280;font-size:11px;text-transform:uppercase;letter-spacing:0.04em;">Betreff</th>';
         echo '<th style="text-align:left;padding:6px 8px;font-weight:600;color:#6b7280;font-size:11px;text-transform:uppercase;letter-spacing:0.04em;">Status</th>';
+        echo '<th style="text-align:left;padding:6px 8px;font-weight:600;color:#6b7280;font-size:11px;text-transform:uppercase;letter-spacing:0.04em;">Tracking</th>';
         echo '<th></th>';
         echo '</tr></thead><tbody>';
 
@@ -94,6 +98,7 @@ class TIX_Email_Log {
             echo '<td style="padding:8px;color:#6b7280;white-space:nowrap;">' . esc_html($date) . '</td>';
             echo '<td style="padding:8px;color:#0f172a;">' . esc_html($row->subject) . ($row->source ? ' <span style="font-size:10px;color:#9ca3af;">(' . esc_html($row->source) . ')</span>' : '') . '</td>';
             echo '<td style="padding:8px;"><span style="display:inline-block;padding:1px 7px;border-radius:8px;font-size:10px;font-weight:600;background:' . $color . '15;color:' . $color . ';">' . esc_html(strtoupper($row->status)) . '</span></td>';
+            echo '<td style="padding:8px;white-space:nowrap;">' . self::tracking_badge_html($row, true) . '</td>';
             echo '<td style="padding:8px;text-align:right;"><a href="' . esc_url($log_url) . '" style="color:#0284c7;text-decoration:none;font-size:11px;" title="Im Log öffnen">→</a></td>';
             echo '</tr>';
         }
@@ -124,16 +129,62 @@ class TIX_Email_Log {
             status VARCHAR(20) NOT NULL DEFAULT 'sent',
             error_message TEXT,
             source VARCHAR(100) NOT NULL DEFAULT '',
+            tracking_token VARCHAR(64) NOT NULL DEFAULT '',
+            opened_at DATETIME NULL DEFAULT NULL,
+            open_count INT UNSIGNED NOT NULL DEFAULT 0,
+            last_opened_at DATETIME NULL DEFAULT NULL,
+            feedback_value VARCHAR(20) NOT NULL DEFAULT '',
+            feedback_at DATETIME NULL DEFAULT NULL,
+            feedback_text TEXT,
             date_created DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (id),
             KEY to_email (to_email(191)),
             KEY status (status),
             KEY date_created (date_created),
-            KEY source (source)
+            KEY source (source),
+            KEY tracking_token (tracking_token)
         ) $charset;";
 
         require_once ABSPATH . 'wp-admin/includes/upgrade.php';
         dbDelta($sql);
+    }
+
+    /**
+     * Migration: Tracking-Spalten zu existierender Tabelle hinzufügen.
+     * Wird beim Plugin-Init geprüft (idempotent).
+     */
+    public static function ensure_tracking_columns() {
+        global $wpdb;
+        $t = self::table_name();
+        // Schnell-Check via Static-Flag (1× pro Request)
+        static $checked = false;
+        if ($checked) return;
+        $checked = true;
+
+        if ($wpdb->get_var("SHOW TABLES LIKE '$t'") !== $t) return;
+
+        $columns = $wpdb->get_col("SHOW COLUMNS FROM $t", 0);
+        if (!is_array($columns)) return;
+
+        $needed = [
+            'tracking_token'  => "ALTER TABLE $t ADD COLUMN tracking_token VARCHAR(64) NOT NULL DEFAULT '' AFTER source",
+            'opened_at'       => "ALTER TABLE $t ADD COLUMN opened_at DATETIME NULL DEFAULT NULL AFTER tracking_token",
+            'open_count'      => "ALTER TABLE $t ADD COLUMN open_count INT UNSIGNED NOT NULL DEFAULT 0 AFTER opened_at",
+            'last_opened_at'  => "ALTER TABLE $t ADD COLUMN last_opened_at DATETIME NULL DEFAULT NULL AFTER open_count",
+            'feedback_value'  => "ALTER TABLE $t ADD COLUMN feedback_value VARCHAR(20) NOT NULL DEFAULT '' AFTER last_opened_at",
+            'feedback_at'     => "ALTER TABLE $t ADD COLUMN feedback_at DATETIME NULL DEFAULT NULL AFTER feedback_value",
+            'feedback_text'   => "ALTER TABLE $t ADD COLUMN feedback_text TEXT AFTER feedback_at",
+        ];
+        foreach ($needed as $col => $sql) {
+            if (!in_array($col, $columns, true)) {
+                $wpdb->query($sql);
+            }
+        }
+        // Index nachziehen
+        $idx = $wpdb->get_col("SHOW INDEX FROM $t WHERE Key_name='tracking_token'");
+        if (empty($idx)) {
+            $wpdb->query("ALTER TABLE $t ADD KEY tracking_token (tracking_token)");
+        }
     }
 
     // ══════════════════════════════════════
@@ -167,16 +218,32 @@ class TIX_Email_Log {
         // Quelle ermitteln (Backtrace)
         $source = self::detect_source();
 
-        $wpdb->insert($t, [
-            'to_email'     => mb_substr($to, 0, 500),
-            'subject'      => mb_substr($subject, 0, 500),
-            'body'         => $body,
-            'headers'      => $headers,
-            'status'       => 'sent',
-            'error_message' => '',
-            'source'       => $source,
-            'date_created' => current_time('mysql'),
-        ]);
+        // Sicherstellen, dass Tracking-Spalten existieren (legacy-Migration)
+        self::ensure_tracking_columns();
+
+        // ── Tracking-Token generieren + Pixel/Feedback in HTML-Mail injizieren ──
+        $token = '';
+        $has_tracking_cols = self::table_has_tracking_columns();
+        if ($has_tracking_cols && self::is_html_email($body, $headers) && self::should_track($source)) {
+            $token = self::generate_tracking_token();
+            $body  = self::inject_tracking_pixel_and_feedback($body, $token, $source);
+            $args['message'] = $body;
+        }
+
+        $insert_data = [
+            'to_email'       => mb_substr($to, 0, 500),
+            'subject'        => mb_substr($subject, 0, 500),
+            'body'           => $body,
+            'headers'        => $headers,
+            'status'         => 'sent',
+            'error_message'  => '',
+            'source'         => $source,
+            'date_created'   => current_time('mysql'),
+        ];
+        if ($has_tracking_cols) {
+            $insert_data['tracking_token'] = $token;
+        }
+        $wpdb->insert($t, $insert_data);
 
         // Log-ID für Fehler-Zuordnung merken
         if ($wpdb->insert_id) {
@@ -184,6 +251,149 @@ class TIX_Email_Log {
         }
 
         return $args;
+    }
+
+    /**
+     * Cached-Check, ob die Tracking-Spalten in der DB existieren.
+     */
+    private static function table_has_tracking_columns() {
+        static $cached = null;
+        if ($cached !== null) return $cached;
+        global $wpdb;
+        $t = self::table_name();
+        $col = $wpdb->get_var("SHOW COLUMNS FROM $t LIKE 'tracking_token'");
+        $cached = !empty($col);
+        return $cached;
+    }
+
+    /**
+     * Erkennt, ob die Mail HTML-Inhalt hat (Pixel/Feedback nur in HTML sinnvoll).
+     */
+    private static function is_html_email($body, $headers) {
+        if (stripos($body, '</body>') !== false || stripos($body, '<html') !== false) return true;
+        if (stripos($headers, 'text/html') !== false) return true;
+        return false;
+    }
+
+    /**
+     * Tracking nur für eigene Mails (keine WP-Core, keine fremden Plugins).
+     * Heuristik: Source beginnt mit 'tix_' oder Body enthält 'tix-email-container'.
+     */
+    private static function should_track($source) {
+        // Per Filter deaktivierbar
+        if (!apply_filters('tix_email_tracking_enabled', true, $source)) return false;
+        return true;
+    }
+
+    /**
+     * Generiert einen 32-Zeichen URL-sicheren Token.
+     */
+    public static function generate_tracking_token() {
+        return bin2hex(random_bytes(16));
+    }
+
+    /**
+     * Fügt Tracking-Pixel + Feedback-Buttons vor </body> ein.
+     * Wenn kein </body> vorhanden, wird's am Ende angehängt.
+     */
+    private static function inject_tracking_pixel_and_feedback($html, $token, $source) {
+        $pixel_url = self::get_pixel_url($token);
+        $pixel = '<img src="' . esc_url($pixel_url) . '" alt="" width="1" height="1" style="display:block;width:1px;height:1px;border:0;outline:none;text-decoration:none;" />';
+
+        // Feedback-Buttons nur, wenn der Hook das erlaubt (default: nur Support-Replies bekommen Feedback)
+        $show_feedback = apply_filters('tix_email_show_feedback', self::source_wants_feedback($source), $source, $token);
+        $feedback_html = $show_feedback ? self::build_feedback_buttons($token) : '';
+
+        $injection = $feedback_html . $pixel;
+
+        if (stripos($html, '</body>') !== false) {
+            return preg_replace('#</body>#i', $injection . '</body>', $html, 1);
+        }
+        return $html . $injection;
+    }
+
+    /**
+     * Soll der Source standardmäßig Feedback-Buttons bekommen?
+     * Wir zeigen Feedback nur bei "menschlich verfassten" Antworten — Support-Replies + CRM-Mails.
+     */
+    private static function source_wants_feedback($source) {
+        $list = ['tix_support', 'tix_crm', 'tix_emails', 'tix_my_tickets'];
+        foreach ($list as $needle) {
+            if (stripos($source, $needle) !== false) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Baut den Feedback-Button-Block. Inline-Styles für maximale Mail-Client-Kompatibilität.
+     */
+    private static function build_feedback_buttons($token) {
+        $base = self::get_feedback_base_url($token);
+        $url_yes  = esc_url($base . '/helpful');
+        $url_no   = esc_url($base . '/not_helpful');
+        $url_more = esc_url($base . '/need_more');
+
+        ob_start();
+        ?>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:24px 0 8px;">
+    <tr><td align="center" style="padding:18px 16px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;">
+        <p style="margin:0 0 12px;font-size:13px;color:#475569;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">War diese E-Mail hilfreich?</p>
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 auto;">
+            <tr>
+                <td style="padding:0 6px;"><a href="<?php echo $url_yes; ?>" target="_blank" style="display:inline-block;padding:8px 16px;background:#dcfce7;color:#15803d;border:1px solid #86efac;border-radius:8px;text-decoration:none;font-size:13px;font-weight:600;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">👍 Ja, hilfreich</a></td>
+                <td style="padding:0 6px;"><a href="<?php echo $url_no; ?>" target="_blank" style="display:inline-block;padding:8px 16px;background:#fee2e2;color:#b91c1c;border:1px solid #fca5a5;border-radius:8px;text-decoration:none;font-size:13px;font-weight:600;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">👎 Nein</a></td>
+                <td style="padding:0 6px;"><a href="<?php echo $url_more; ?>" target="_blank" style="display:inline-block;padding:8px 16px;background:#fef3c7;color:#92400e;border:1px solid #fde68a;border-radius:8px;text-decoration:none;font-size:13px;font-weight:600;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">💬 Brauche mehr Hilfe</a></td>
+            </tr>
+        </table>
+    </td></tr>
+</table>
+        <?php
+        return ob_get_clean();
+    }
+
+    public static function get_pixel_url($token) {
+        return rest_url('tix/v1/mail-pixel/' . $token . '.gif');
+    }
+
+    public static function get_feedback_base_url($token) {
+        return rest_url('tix/v1/mail-feedback/' . $token);
+    }
+
+    /**
+     * Open + Feedback Badge HTML — kompakt für Listen, Order-/Customer-Detail.
+     * Erwartet Row mit: opened_at, open_count, feedback_value, feedback_at.
+     */
+    public static function tracking_badge_html($row, $compact = true) {
+        // Wenn das Tracking-Schema noch nicht migriert ist → nichts anzeigen
+        if (!isset($row->tracking_token) && !property_exists($row, 'opened_at')) return '';
+
+        $opened_at = $row->opened_at ?? null;
+        $opened    = !empty($opened_at) && $opened_at !== '0000-00-00 00:00:00';
+        $count     = isset($row->open_count) ? intval($row->open_count) : 0;
+        $fb_val    = $row->feedback_value ?? '';
+        $fb_at     = $row->feedback_at ?? '';
+
+        $out = '';
+        if ($opened) {
+            $title = 'Geöffnet ' . ($count > 1 ? "$count× — zuletzt: " : '') . date_i18n('d.m. H:i', strtotime($row->last_opened_at ?: $row->opened_at));
+            $out .= '<span title="' . esc_attr($title) . '" style="display:inline-flex;align-items:center;gap:3px;font-size:10px;font-weight:600;color:#15803d;background:#dcfce7;padding:1px 6px;border-radius:8px;">📨 Geöffnet' . ($count > 1 && !$compact ? ' ' . $count . '×' : '') . '</span>';
+        } else {
+            $out .= '<span title="Noch nicht geöffnet" style="display:inline-flex;align-items:center;gap:3px;font-size:10px;font-weight:600;color:#6b7280;background:#f3f4f6;padding:1px 6px;border-radius:8px;">📭 Ungeöffnet</span>';
+        }
+
+        if ($fb_val) {
+            $labels = [
+                'helpful'     => ['👍', 'Hilfreich',     '#15803d', '#dcfce7'],
+                'not_helpful' => ['👎', 'Nicht hilfreich','#b91c1c', '#fee2e2'],
+                'need_more'   => ['💬', 'Brauche Hilfe',  '#92400e', '#fef3c7'],
+            ];
+            $l = $labels[$fb_val] ?? null;
+            if ($l) {
+                $title = 'Feedback ' . ($fb_at ? date_i18n('d.m. H:i', strtotime($fb_at)) : '');
+                $out .= ' <span title="' . esc_attr($title) . '" style="display:inline-flex;align-items:center;gap:3px;font-size:10px;font-weight:600;color:' . $l[2] . ';background:' . $l[3] . ';padding:1px 6px;border-radius:8px;">' . $l[0] . ' ' . esc_html($l[1]) . '</span>';
+            }
+        }
+        return $out;
     }
 
     private static $last_log_id = 0;
@@ -366,12 +576,13 @@ class TIX_Email_Log {
                             <th style="padding:12px 16px;font-size:13px;font-weight:600;">Betreff</th>
                             <th style="padding:12px 16px;font-size:13px;font-weight:600;">Quelle</th>
                             <th style="padding:12px 16px;font-size:13px;font-weight:600;width:100px;">Status</th>
+                            <th style="padding:12px 16px;font-size:13px;font-weight:600;width:200px;">Tracking</th>
                             <th style="padding:12px 8px;font-size:13px;font-weight:600;width:80px;"></th>
                         </tr>
                     </thead>
                     <tbody>
                         <?php if (empty($logs)): ?>
-                            <tr><td colspan="7" style="padding:40px;text-align:center;color:#9ca3af;">Keine E-Mails gefunden.</td></tr>
+                            <tr><td colspan="8" style="padding:40px;text-align:center;color:#9ca3af;">Keine E-Mails gefunden.</td></tr>
                         <?php endif; ?>
                         <?php foreach ($logs as $log):
                             $is_failed = ($log->status === 'failed');
@@ -399,6 +610,9 @@ class TIX_Email_Log {
                                         <span style="width:7px;height:7px;border-radius:50%;background:<?php echo $color; ?>;"></span>
                                         <?php echo esc_html($status_label); ?>
                                     </span>
+                                </td>
+                                <td style="padding:12px 16px;white-space:nowrap;">
+                                    <?php echo self::tracking_badge_html($log, false); ?>
                                 </td>
                                 <td style="padding:12px 8px;text-align:center;">
                                     <a href="<?php echo esc_url(admin_url('admin.php?page=tix-email-log&log_id=' . $log->id)); ?>" title="Details" style="color:#6b7280;text-decoration:none;">
@@ -519,6 +733,44 @@ class TIX_Email_Log {
                             <?php endif; ?>
                         </div>
                     </div>
+
+                    <?php // ── Tracking-Info ── ?>
+                    <?php if (!empty($log->tracking_token)):
+                        $opened = !empty($log->opened_at) && $log->opened_at !== '0000-00-00 00:00:00';
+                    ?>
+                    <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin-top:12px;">
+                        <h3 style="font-size:14px;font-weight:600;margin:0 0 12px;">📨 Tracking</h3>
+                        <div style="font-size:13px;line-height:2;color:#374151;">
+                            <div>
+                                <strong>Geöffnet:</strong>
+                                <?php if ($opened): ?>
+                                    <span style="color:#15803d;font-weight:600;">Ja</span>
+                                    <span style="color:#9ca3af;font-size:11px;">(<?php echo intval($log->open_count); ?>×)</span>
+                                <?php else: ?>
+                                    <span style="color:#9ca3af;">Noch nicht</span>
+                                <?php endif; ?>
+                            </div>
+                            <?php if ($opened): ?>
+                                <div><strong>Erstmals:</strong> <span style="font-size:12px;"><?php echo date_i18n('d.m.Y, H:i', strtotime($log->opened_at)); ?></span></div>
+                                <?php if ($log->last_opened_at && $log->last_opened_at !== $log->opened_at): ?>
+                                    <div><strong>Zuletzt:</strong> <span style="font-size:12px;"><?php echo date_i18n('d.m.Y, H:i', strtotime($log->last_opened_at)); ?></span></div>
+                                <?php endif; ?>
+                            <?php endif; ?>
+                            <?php if (!empty($log->feedback_value)):
+                                $fb_labels = ['helpful' => '👍 Hilfreich', 'not_helpful' => '👎 Nicht hilfreich', 'need_more' => '💬 Brauche mehr Hilfe'];
+                                $fb_label = $fb_labels[$log->feedback_value] ?? $log->feedback_value;
+                            ?>
+                                <div style="margin-top:8px;padding:8px;background:#f9fafb;border-radius:6px;">
+                                    <strong>Feedback:</strong> <?php echo esc_html($fb_label); ?><br>
+                                    <span style="font-size:11px;color:#9ca3af;"><?php echo date_i18n('d.m.Y, H:i', strtotime($log->feedback_at)); ?></span>
+                                    <?php if (!empty($log->feedback_text)): ?>
+                                        <div style="margin-top:6px;padding:6px 8px;background:#fff;border-left:3px solid #FF5500;font-size:12px;color:#475569;font-style:italic;">„<?php echo esc_html($log->feedback_text); ?>"</div>
+                                    <?php endif; ?>
+                                </div>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                    <?php endif; ?>
 
                     <?php // ── Actions ── ?>
                     <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin-top:12px;">
