@@ -24,8 +24,31 @@ class TIX_Coupons {
 
     public static function init() {
         add_action('admin_menu', [__CLASS__, 'register_menu'], 60);
-        add_action('admin_post_tix_coupon_save',   [__CLASS__, 'handle_save']);
-        add_action('admin_post_tix_coupon_delete', [__CLASS__, 'handle_delete']);
+        add_action('admin_post_tix_coupon_save',         [__CLASS__, 'handle_save']);
+        add_action('admin_post_tix_coupon_delete',       [__CLASS__, 'handle_delete']);
+        add_action('admin_post_tix_coupon_popup_save',   [__CLASS__, 'handle_popup_save']);
+    }
+
+    /**
+     * Save-Handler für Popup-Settings (separater Form auf der Coupon-Seite)
+     */
+    public static function handle_popup_save() {
+        if (!current_user_can('manage_options')) wp_die('Keine Berechtigung.');
+        check_admin_referer('tix_coupon_popup_save');
+
+        $s = function_exists('tix_get_settings') ? tix_get_settings() : get_option('tix_settings', []);
+        if (!is_array($s)) $s = [];
+
+        $s['coupon_popup_enabled']  = !empty($_POST['coupon_popup_enabled']) ? 1 : 0;
+        $s['coupon_popup_headline'] = sanitize_text_field($_POST['coupon_popup_headline'] ?? '');
+        $s['coupon_popup_subtext']  = sanitize_textarea_field($_POST['coupon_popup_subtext'] ?? '');
+        $s['coupon_popup_cta']      = sanitize_text_field($_POST['coupon_popup_cta'] ?? '');
+        $s['coupon_popup_cta_url']  = esc_url_raw($_POST['coupon_popup_cta_url'] ?? '');
+
+        update_option('tix_settings', $s);
+
+        wp_redirect(add_query_arg(['page' => 'tix-coupons', 'msg' => 'popup_saved'], admin_url('admin.php')));
+        exit;
     }
 
     public static function register_menu() {
@@ -55,6 +78,16 @@ class TIX_Coupons {
         $desc       = sanitize_text_field($_POST['description'] ?? '');
         $auto_apply = !empty($_POST['auto_apply']) ? 1 : 0;
         $orig_code  = strtoupper(trim(sanitize_text_field($_POST['orig_code'] ?? '')));
+
+        // Restrictions (WC-Style)
+        $min_amount       = max(0, floatval(str_replace(',', '.', $_POST['min_amount'] ?? '0')));
+        $max_amount       = max(0, floatval(str_replace(',', '.', $_POST['max_amount'] ?? '0')));
+        $allowed_events   = array_filter(array_map('intval', (array) ($_POST['allowed_events'] ?? [])));
+        $excluded_events  = array_filter(array_map('intval', (array) ($_POST['excluded_events'] ?? [])));
+        $allowed_cats     = array_filter(array_map('intval', (array) ($_POST['allowed_categories'] ?? [])));
+        $excluded_cats    = array_filter(array_map('intval', (array) ($_POST['excluded_categories'] ?? [])));
+        $one_per_email    = !empty($_POST['one_per_email']) ? 1 : 0;
+        $individual_use   = !empty($_POST['individual_use']) ? 1 : 0;
 
         if ($code === '' || !preg_match('/^[A-Z0-9_-]{3,40}$/', $code)) {
             wp_redirect(add_query_arg(['page' => 'tix-coupons', 'msg' => 'invalid_code'], admin_url('admin.php')));
@@ -91,14 +124,23 @@ class TIX_Coupons {
         }
 
         $coupons[$code] = [
-            'code'          => $code,
-            'discount_type' => $type,
-            'value'         => round($value, 2),
-            'expires'       => $expires,
-            'max_uses'      => $max_uses,
-            'used'          => $used,
-            'description'   => $desc,
-            'auto_apply'    => $auto_apply,
+            'code'                 => $code,
+            'discount_type'        => $type,
+            'value'                => round($value, 2),
+            'expires'              => $expires,
+            'max_uses'             => $max_uses,
+            'used'                 => $used,
+            'description'          => $desc,
+            'auto_apply'           => $auto_apply,
+            // Restrictions
+            'min_amount'           => round($min_amount, 2),
+            'max_amount'           => round($max_amount, 2),
+            'allowed_events'       => array_values($allowed_events),
+            'excluded_events'      => array_values($excluded_events),
+            'allowed_categories'   => array_values($allowed_cats),
+            'excluded_categories'  => array_values($excluded_cats),
+            'one_per_email'        => $one_per_email,
+            'individual_use'       => $individual_use,
         ];
 
         update_option(self::OPTION, $coupons);
@@ -131,6 +173,103 @@ class TIX_Coupons {
             return $c;
         }
         return null;
+    }
+
+    /**
+     * Validiert einen Coupon gegen einen Cart-Kontext.
+     *
+     * @param array $coupon Coupon-Definition (aus tix_coupons-Option)
+     * @param array $context [
+     *     'items_total' => float,                  // Cart-Summe in EUR
+     *     'event_ids'   => int[],                  // Alle Event-IDs im Cart
+     *     'email'       => string (optional),      // Email für one_per_email-Check
+     * ]
+     * @return true|string  true wenn gültig, sonst Fehlermeldung
+     */
+    public static function validate_against_cart(array $coupon, array $context) {
+        $items_total = floatval($context['items_total'] ?? 0);
+        $event_ids   = array_map('intval', (array) ($context['event_ids'] ?? []));
+        $email       = strtolower(trim((string) ($context['email'] ?? '')));
+
+        // Min-Amount
+        $min = floatval($coupon['min_amount'] ?? 0);
+        if ($min > 0 && $items_total < $min) {
+            return sprintf('Mindestbestellwert %s €. Aktuell: %s €.',
+                number_format($min, 2, ',', '.'),
+                number_format($items_total, 2, ',', '.')
+            );
+        }
+
+        // Max-Amount
+        $max = floatval($coupon['max_amount'] ?? 0);
+        if ($max > 0 && $items_total > $max) {
+            return sprintf('Höchstbestellwert %s €. Aktuell: %s €.',
+                number_format($max, 2, ',', '.'),
+                number_format($items_total, 2, ',', '.')
+            );
+        }
+
+        // Allowed-Events: wenn gesetzt → mind. ein Event aus Cart muss matchen (Allow-list)
+        $allowed_events = (array) ($coupon['allowed_events'] ?? []);
+        if (!empty($allowed_events)) {
+            $intersect = array_intersect($event_ids, array_map('intval', $allowed_events));
+            if (empty($intersect)) {
+                return 'Dieser Gutschein ist nicht für deine ausgewählten Events gültig.';
+            }
+        }
+
+        // Excluded-Events: wenn ein Cart-Event in Block-list → ungültig
+        $excluded_events = (array) ($coupon['excluded_events'] ?? []);
+        if (!empty($excluded_events)) {
+            $intersect = array_intersect($event_ids, array_map('intval', $excluded_events));
+            if (!empty($intersect)) {
+                return 'Dieser Gutschein ist für eines deiner Events ausgeschlossen.';
+            }
+        }
+
+        // Allowed-Categories
+        $allowed_cats = array_map('intval', (array) ($coupon['allowed_categories'] ?? []));
+        $excluded_cats = array_map('intval', (array) ($coupon['excluded_categories'] ?? []));
+        if (!empty($allowed_cats) || !empty($excluded_cats)) {
+            $cart_cat_ids = [];
+            foreach ($event_ids as $eid) {
+                $terms = get_the_terms($eid, 'event_category');
+                if (is_array($terms)) {
+                    foreach ($terms as $t) $cart_cat_ids[] = intval($t->term_id);
+                }
+            }
+            $cart_cat_ids = array_unique($cart_cat_ids);
+            if (!empty($allowed_cats) && empty(array_intersect($cart_cat_ids, $allowed_cats))) {
+                return 'Dieser Gutschein gilt nicht für die Kategorien deiner Events.';
+            }
+            if (!empty($excluded_cats) && !empty(array_intersect($cart_cat_ids, $excluded_cats))) {
+                return 'Dieser Gutschein ist für mindestens eine Kategorie deiner Events ausgeschlossen.';
+            }
+        }
+
+        // One-per-Email: prüft ob diese Email den Code schon eingelöst hat
+        if (!empty($coupon['one_per_email']) && $email && is_email($email)) {
+            global $wpdb;
+            $t = $wpdb->prefix . 'tix_orders';
+            // Suche Orders mit dieser Email + completed/processing-Status, die diesen Coupon-Code im Notes-Feld haben
+            // Da wir aktuell keine eigene Coupon-Verwendungs-Tabelle haben, nutzen wir die order_notes
+            $tn = $wpdb->prefix . 'tix_order_notes';
+            if ($wpdb->get_var("SHOW TABLES LIKE '$tn'") === $tn) {
+                $count = intval($wpdb->get_var($wpdb->prepare("
+                    SELECT COUNT(DISTINCT n.order_id)
+                    FROM $tn n
+                    INNER JOIN $t o ON o.id = n.order_id
+                    WHERE o.billing_email = %s
+                      AND o.status IN ('completed','processing')
+                      AND n.note LIKE %s
+                ", $email, '%' . $wpdb->esc_like('Gutschein "' . $coupon['code'] . '"') . '%')));
+                if ($count > 0) {
+                    return 'Du hast diesen Gutschein bereits eingelöst.';
+                }
+            }
+        }
+
+        return true;
     }
 
     public static function handle_delete() {
@@ -169,7 +308,12 @@ class TIX_Coupons {
             case 'deleted':       $msg_text = 'Gutschein gelöscht.'; break;
             case 'invalid_code':  $msg_text = 'Ungültiger Code (3–40 Zeichen, A–Z, 0–9, _, -).'; $msg_type = 'error'; break;
             case 'invalid_value': $msg_text = 'Ungültiger Rabattwert.'; $msg_type = 'error'; break;
+            case 'popup_saved':   $msg_text = 'Popup-Einstellungen gespeichert.'; break;
         }
+
+        // Popup-Settings für Form
+        $tix_s = function_exists('tix_get_settings') ? tix_get_settings() : get_option('tix_settings', []);
+        if (!is_array($tix_s)) $tix_s = [];
         ?>
         <div class="wrap" style="max-width:1200px;">
             <h1>Gutscheine</h1>
@@ -253,6 +397,106 @@ class TIX_Coupons {
                                     <input type="text" id="ttc-desc" name="description" class="regular-text"
                                            value="<?php echo esc_attr($edit['description'] ?? ''); ?>"
                                            placeholder="optional, intern">
+                                </td>
+                            </tr>
+                            <tr>
+                                <th colspan="2" style="padding-top:24px;">
+                                    <h3 style="margin:0 0 4px;font-size:14px;text-transform:uppercase;letter-spacing:0.05em;color:#475569;border-top:1px solid #e5e7eb;padding-top:14px;">🔒 Beschränkungen (optional)</h3>
+                                </th>
+                            </tr>
+                            <tr>
+                                <th><label for="ttc-min">Mindestbestellwert (€)</label></th>
+                                <td>
+                                    <input type="text" id="ttc-min" name="min_amount"
+                                           value="<?php echo esc_attr($edit['min_amount'] ?? ''); ?>"
+                                           placeholder="0,00" style="width:120px;font-family:monospace;">
+                                    <p class="description">Coupon greift nur ab diesem Cart-Wert. 0 oder leer = kein Minimum.</p>
+                                </td>
+                            </tr>
+                            <tr>
+                                <th><label for="ttc-max">Höchstbestellwert (€)</label></th>
+                                <td>
+                                    <input type="text" id="ttc-max-amount" name="max_amount"
+                                           value="<?php echo esc_attr($edit['max_amount'] ?? ''); ?>"
+                                           placeholder="0,00" style="width:120px;font-family:monospace;">
+                                    <p class="description">Coupon greift nur bis zu diesem Cart-Wert. 0 oder leer = kein Maximum.</p>
+                                </td>
+                            </tr>
+                            <tr>
+                                <th><label>Beinhaltete Events</label></th>
+                                <td>
+                                    <?php
+                                    $all_events = get_posts(['post_type' => 'event', 'posts_per_page' => 200, 'post_status' => 'publish', 'orderby' => 'title', 'order' => 'ASC']);
+                                    $sel_allowed = (array) ($edit['allowed_events'] ?? []);
+                                    ?>
+                                    <select name="allowed_events[]" multiple style="width:100%;max-width:520px;height:160px;font-size:12px;">
+                                        <?php foreach ($all_events as $ev): ?>
+                                            <option value="<?php echo $ev->ID; ?>" <?php echo in_array($ev->ID, $sel_allowed) ? 'selected' : ''; ?>><?php echo esc_html($ev->post_title); ?></option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                    <p class="description">Coupon gilt <strong>nur</strong> für ausgewählte Events. Leer = alle Events erlaubt. (Strg/Cmd zum Multi-Select)</p>
+                                </td>
+                            </tr>
+                            <tr>
+                                <th><label>Ausgeschlossene Events</label></th>
+                                <td>
+                                    <?php $sel_excluded = (array) ($edit['excluded_events'] ?? []); ?>
+                                    <select name="excluded_events[]" multiple style="width:100%;max-width:520px;height:120px;font-size:12px;">
+                                        <?php foreach ($all_events as $ev): ?>
+                                            <option value="<?php echo $ev->ID; ?>" <?php echo in_array($ev->ID, $sel_excluded) ? 'selected' : ''; ?>><?php echo esc_html($ev->post_title); ?></option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                    <p class="description">Coupon gilt <strong>nicht</strong> für ausgewählte Events. Hat Vorrang vor "Beinhaltet".</p>
+                                </td>
+                            </tr>
+                            <tr>
+                                <th><label>Beinhaltete Kategorien</label></th>
+                                <td>
+                                    <?php
+                                    $all_cats = get_terms(['taxonomy' => 'event_category', 'hide_empty' => false]);
+                                    $sel_allowed_cats = (array) ($edit['allowed_categories'] ?? []);
+                                    $sel_excluded_cats = (array) ($edit['excluded_categories'] ?? []);
+                                    ?>
+                                    <?php if (!is_wp_error($all_cats) && !empty($all_cats)): ?>
+                                        <select name="allowed_categories[]" multiple style="width:100%;max-width:340px;height:100px;font-size:12px;">
+                                            <?php foreach ($all_cats as $cat): ?>
+                                                <option value="<?php echo $cat->term_id; ?>" <?php echo in_array($cat->term_id, $sel_allowed_cats) ? 'selected' : ''; ?>><?php echo esc_html($cat->name); ?></option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                        <p class="description">Coupon gilt nur für Events in diesen Kategorien. Leer = alle.</p>
+                                    <?php else: ?>
+                                        <em style="color:#9ca3af;">Keine Event-Kategorien angelegt.</em>
+                                    <?php endif; ?>
+                                </td>
+                            </tr>
+                            <tr>
+                                <th><label>Ausgeschlossene Kategorien</label></th>
+                                <td>
+                                    <?php if (!is_wp_error($all_cats) && !empty($all_cats)): ?>
+                                        <select name="excluded_categories[]" multiple style="width:100%;max-width:340px;height:80px;font-size:12px;">
+                                            <?php foreach ($all_cats as $cat): ?>
+                                                <option value="<?php echo $cat->term_id; ?>" <?php echo in_array($cat->term_id, $sel_excluded_cats) ? 'selected' : ''; ?>><?php echo esc_html($cat->name); ?></option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                    <?php else: ?>
+                                        <em style="color:#9ca3af;">—</em>
+                                    <?php endif; ?>
+                                </td>
+                            </tr>
+                            <tr>
+                                <th>Sonstiges</th>
+                                <td>
+                                    <label style="display:block;margin-bottom:6px;">
+                                        <input type="checkbox" name="one_per_email" value="1" <?php checked(!empty($edit['one_per_email'])); ?>>
+                                        <strong>Nur einmal pro Kunde (Email)</strong>
+                                    </label>
+                                    <p class="description" style="margin:0 0 12px 22px;">Wenn ein Kunde mit dieser Email schon eine Bestellung mit diesem Code hat, ist er gesperrt.</p>
+
+                                    <label style="display:block;">
+                                        <input type="checkbox" name="individual_use" value="1" <?php checked(!empty($edit['individual_use'])); ?>>
+                                        <strong>Individuelle Verwendung</strong>
+                                    </label>
+                                    <p class="description" style="margin:0 0 0 22px;">Kann nicht mit anderen Coupons kombiniert werden.</p>
                                 </td>
                             </tr>
                             <tr>
@@ -373,6 +617,70 @@ class TIX_Coupons {
                     <?php endif; ?>
                 </div>
 
+            </div>
+
+            <?php // ── Popup-Einstellungen ── ?>
+            <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:24px;margin-top:24px;">
+                <h2 style="margin-top:0;font-size:18px;display:flex;align-items:center;gap:10px;">
+                    🎁 Auto-Coupon-Popup
+                    <span style="font-size:11px;background:#dbeafe;color:#1e40af;padding:2px 8px;border-radius:6px;font-weight:600;">FRONTEND</span>
+                </h2>
+                <p style="color:#6b7280;font-size:13px;margin:0 0 18px;">
+                    Wenn ein Coupon mit „🪄 Automatisch anwenden" aktiv ist, erscheint beim ersten Seitenaufruf ein auffälliges Popup für den Besucher. Cookie-gesteuert: zeigt sich pro Code nur einmal alle 24h.
+                </p>
+
+                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                    <?php wp_nonce_field('tix_coupon_popup_save'); ?>
+                    <input type="hidden" name="action" value="tix_coupon_popup_save">
+
+                    <table class="form-table">
+                        <tr>
+                            <th>Aktiviert</th>
+                            <td>
+                                <label style="display:inline-flex;align-items:center;gap:8px;">
+                                    <input type="checkbox" name="coupon_popup_enabled" value="1" <?php checked(!empty($tix_s['coupon_popup_enabled'])); ?>>
+                                    <span>Popup im Frontend anzeigen wenn Auto-Coupon aktiv</span>
+                                </label>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th><label for="cp-headline">Überschrift</label></th>
+                            <td>
+                                <input type="text" id="cp-headline" name="coupon_popup_headline" class="regular-text" style="width:100%;max-width:520px;"
+                                       value="<?php echo esc_attr($tix_s['coupon_popup_headline'] ?? '🎁 Dein Rabatt ist aktiv!'); ?>"
+                                       placeholder="🎁 Dein Rabatt ist aktiv!">
+                            </td>
+                        </tr>
+                        <tr>
+                            <th><label for="cp-subtext">Unterzeile</label></th>
+                            <td>
+                                <textarea id="cp-subtext" name="coupon_popup_subtext" rows="2" class="large-text" style="width:100%;max-width:520px;"
+                                          placeholder="Wir haben dir bereits einen Gutschein im Warenkorb hinterlegt — du sparst beim Checkout automatisch."><?php echo esc_textarea($tix_s['coupon_popup_subtext'] ?? 'Wir haben dir bereits einen Gutschein im Warenkorb hinterlegt — du sparst beim Checkout automatisch.'); ?></textarea>
+                                <p class="description">Der Coupon-Wert (z.B. „−10%" oder „−15€") wird automatisch oben groß angezeigt — schreib hier nur Text drumrum.</p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th><label for="cp-cta">CTA-Button-Text</label></th>
+                            <td>
+                                <input type="text" id="cp-cta" name="coupon_popup_cta" class="regular-text" style="width:100%;max-width:340px;"
+                                       value="<?php echo esc_attr($tix_s['coupon_popup_cta'] ?? 'Jetzt Tickets sichern'); ?>"
+                                       placeholder="Jetzt Tickets sichern">
+                            </td>
+                        </tr>
+                        <tr>
+                            <th><label for="cp-cta-url">CTA-Ziel-URL</label></th>
+                            <td>
+                                <input type="url" id="cp-cta-url" name="coupon_popup_cta_url" class="regular-text" style="width:100%;max-width:520px;"
+                                       value="<?php echo esc_attr($tix_s['coupon_popup_cta_url'] ?? ''); ?>"
+                                       placeholder="https://deinedomain.de/events/">
+                                <p class="description">Optional. Leer = Button schließt nur das Popup (Kunde bleibt auf der Seite).</p>
+                            </td>
+                        </tr>
+                    </table>
+                    <p class="submit">
+                        <button type="submit" class="button button-primary">Popup-Einstellungen speichern</button>
+                    </p>
+                </form>
             </div>
         </div>
         <?php

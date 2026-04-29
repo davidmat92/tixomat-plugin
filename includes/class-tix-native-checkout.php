@@ -422,12 +422,22 @@ class TIX_Native_Checkout {
 
         // Discount auf Basis des aktuellen Cart-Totals berechnen
         $items_total = 0.0;
+        $event_ids   = [];
         if (!empty($cart['items']) && is_array($cart['items'])) {
             foreach ($cart['items'] as $item) {
                 $items_total += floatval($item['price'] ?? 0) * max(1, intval($item['qty'] ?? 1));
+                $eid = intval($item['event_id'] ?? 0);
+                if ($eid) $event_ids[] = $eid;
             }
         }
         if ($items_total <= 0) return;
+
+        // Restrictions validieren — wenn Coupon nicht passt, NICHT auto-applizieren
+        $valid = TIX_Coupons::validate_against_cart($coupon, [
+            'items_total' => $items_total,
+            'event_ids'   => array_unique($event_ids),
+        ]);
+        if ($valid !== true) return; // stille Skip — Auto-Apply soll User nicht nerven mit Fehlern
 
         $type  = $coupon['discount_type'] ?? 'percent';
         $value = floatval($coupon['value'] ?? 0);
@@ -551,6 +561,24 @@ class TIX_Native_Checkout {
         if ($max_uses > 0 && $used >= $max_uses) {
             $cart['coupon'] = null;
             return;
+        }
+
+        // Restrictions validieren — wenn ungültig (z.B. Min-Amount nicht mehr erfüllt durch Item-Entfernen)
+        // → Coupon entfernen
+        if (class_exists('TIX_Coupons')) {
+            $event_ids = [];
+            foreach ($cart['items'] as $item) {
+                $eid = intval($item['event_id'] ?? 0);
+                if ($eid) $event_ids[] = $eid;
+            }
+            $valid = TIX_Coupons::validate_against_cart($coupon, [
+                'items_total' => $items_total,
+                'event_ids'   => array_unique($event_ids),
+            ]);
+            if ($valid !== true) {
+                $cart['coupon'] = null;
+                return;
+            }
         }
 
         // Rabatt neu berechnen auf Basis des aktuellen Items-Totals
@@ -1425,6 +1453,18 @@ class TIX_Native_Checkout {
         $order_id = $wpdb->insert_id;
         if (!$order_id) return null;
 
+        // ── Coupon-Note für Audit-Trail + one_per_email-Check ──
+        if (!empty($coupon_code) && $coupon_discount > 0 && class_exists('TIX_Order_Admin') && method_exists('TIX_Order_Admin', 'add_note')) {
+            TIX_Order_Admin::add_note(
+                $order_id,
+                sprintf('🎟️ Gutschein "%s" eingelöst — Rabatt %s €',
+                    $coupon_code,
+                    number_format($coupon_discount, 2, ',', '.')
+                ),
+                'coupon'
+            );
+        }
+
         // ── Gebühren-Daten als Order-Meta speichern ──
         if ($fee_data) {
             update_option('_tix_order_fees_' . $order_id, [
@@ -1569,9 +1609,34 @@ class TIX_Native_Checkout {
             wp_send_json_error(['message' => 'Dieser Gutschein wurde bereits eingelöst.']);
         }
 
-        // Calculate discount
+        // Restrictions validieren (Min/Max-Amount, Allowed/Excluded Events + Categories, one_per_email)
         $cart = self::get_cart();
         $cart_total = self::cart_total();
+        $event_ids = [];
+        if (!empty($cart['items']) && is_array($cart['items'])) {
+            foreach ($cart['items'] as $item) {
+                $eid = intval($item['event_id'] ?? 0);
+                if ($eid) $event_ids[] = $eid;
+            }
+        }
+        // Email für one_per_email aus eingeloggtem User holen (falls vorhanden)
+        $email = '';
+        if (is_user_logged_in()) {
+            $u = wp_get_current_user();
+            if ($u && $u->user_email) $email = $u->user_email;
+        }
+        if (class_exists('TIX_Coupons')) {
+            $valid = TIX_Coupons::validate_against_cart($coupon, [
+                'items_total' => $cart_total,
+                'event_ids'   => array_unique($event_ids),
+                'email'       => $email,
+            ]);
+            if ($valid !== true) {
+                wp_send_json_error(['message' => $valid]);
+            }
+        }
+
+        // Calculate discount
         $discount_type = $coupon['discount_type'] ?? 'percent';
         $discount_value = floatval($coupon['value'] ?? 0);
 

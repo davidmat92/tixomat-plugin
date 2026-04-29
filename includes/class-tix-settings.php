@@ -572,6 +572,12 @@ class TIX_Settings {
             'gtm_container_id'             => '',  // GTM-XXXXXXX
             'google_consent_mode'          => 'always', // 'always' oder 'consent_required'
             'google_consent_cookie'        => 'cookie_consent',
+            // Auto-Coupon-Popup (Frontend)
+            'coupon_popup_enabled'         => 1,
+            'coupon_popup_headline'        => '🎁 Dein Rabatt ist aktiv!',
+            'coupon_popup_subtext'         => 'Wir haben dir bereits einen Gutschein im Warenkorb hinterlegt — du sparst beim Checkout automatisch.',
+            'coupon_popup_cta'             => 'Jetzt Tickets sichern',
+            'coupon_popup_cta_url'         => '',
             'meta_access_token'        => '',
             'meta_test_event_code'     => '',
             'meta_capi_enabled'        => 0,
@@ -1554,6 +1560,13 @@ class TIX_Settings {
 
         $clean['google_consent_mode']          = in_array($input['google_consent_mode'] ?? 'always', ['always', 'consent_required'], true) ? $input['google_consent_mode'] : 'always';
         $clean['google_consent_cookie']        = sanitize_text_field($input['google_consent_cookie'] ?? 'cookie_consent');
+
+        // Auto-Coupon-Popup
+        $clean['coupon_popup_enabled']  = !empty($input['coupon_popup_enabled']) ? 1 : 0;
+        $clean['coupon_popup_headline'] = sanitize_text_field($input['coupon_popup_headline'] ?? '');
+        $clean['coupon_popup_subtext']  = sanitize_textarea_field($input['coupon_popup_subtext'] ?? '');
+        $clean['coupon_popup_cta']      = sanitize_text_field($input['coupon_popup_cta'] ?? '');
+        $clean['coupon_popup_cta_url']  = esc_url_raw($input['coupon_popup_cta_url'] ?? '');
         $clean['meta_access_token']      = sanitize_text_field($input['meta_access_token'] ?? '');
         $clean['meta_test_event_code']   = sanitize_text_field($input['meta_test_event_code'] ?? '');
         $clean['meta_capi_enabled']      = !empty($input['meta_capi_enabled']) ? 1 : 0;
