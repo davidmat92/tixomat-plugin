@@ -690,11 +690,24 @@ class TIX_Native_Checkout {
         $coupon_discount = 0;
         $coupon_code = '';
         $coupon_auto = false;
+        $coupon_badge_label = '';
         if (!empty($cart['coupon']) && !empty($cart['coupon']['discount'])) {
             $coupon_discount = round(floatval($cart['coupon']['discount']), 2);
             $coupon_code = $cart['coupon']['code'] ?? '';
             $coupon_auto = !empty($cart['coupon']['auto']);
             $total = max(0, round($total - $coupon_discount, 2));
+
+            // Auto-Badge-Label: Coupon-Wert aus tix_coupons-Definition holen
+            if ($coupon_auto && $coupon_code) {
+                $all_coupons = get_option('tix_coupons', []);
+                $coupon_def = is_array($all_coupons) ? ($all_coupons[$coupon_code] ?? null) : null;
+                if ($coupon_def) {
+                    $cv = floatval($coupon_def['value'] ?? 0);
+                    $coupon_badge_label = ($coupon_def['discount_type'] ?? 'percent') === 'percent'
+                        ? '−' . number_format($cv, ($cv == intval($cv)) ? 0 : 1, ',', '.') . '%'
+                        : '−' . number_format($cv, 2, ',', '.') . '€';
+                }
+            }
         }
 
         // ── Gebühren für Anzeige ──
@@ -853,8 +866,8 @@ class TIX_Native_Checkout {
                             <div class="tix-co-summary-row tix-co-coupon-row">
                                 <span style="display:inline-flex;align-items:center;gap:6px;">
                                     Rabatt (<?php echo esc_html($coupon_code); ?>)
-                                    <?php if ($coupon_auto): ?>
-                                        <span style="background:#dcfce7;color:#166534;padding:1px 6px;border-radius:5px;font-size:10px;font-weight:700;letter-spacing:0.04em;" title="Wurde automatisch angewendet">🪄 AUTO</span>
+                                    <?php if ($coupon_auto && $coupon_badge_label): ?>
+                                        <span style="background:#dcfce7;color:#166534;padding:1px 6px;border-radius:5px;font-size:10px;font-weight:700;letter-spacing:0.04em;" title="Automatisch angewendet"><?php echo esc_html($coupon_badge_label); ?></span>
                                     <?php endif; ?>
                                     <button type="button" class="tix-co-remove-coupon" title="Gutschein entfernen" aria-label="Gutschein entfernen"
                                         style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;border:0;background:rgba(0,0,0,.08);color:#6b7280;cursor:pointer;font-size:12px;line-height:1;padding:0;transition:background .15s,color .15s;"
@@ -1007,8 +1020,8 @@ class TIX_Native_Checkout {
                             <div class="tix-co-summary-row tix-co-coupon-row">
                                 <span style="display:inline-flex;align-items:center;gap:6px;">
                                     Rabatt (<?php echo esc_html($coupon_code); ?>)
-                                    <?php if ($coupon_auto): ?>
-                                        <span style="background:#dcfce7;color:#166534;padding:1px 6px;border-radius:5px;font-size:10px;font-weight:700;letter-spacing:0.04em;" title="Wurde automatisch angewendet">🪄 AUTO</span>
+                                    <?php if ($coupon_auto && $coupon_badge_label): ?>
+                                        <span style="background:#dcfce7;color:#166534;padding:1px 6px;border-radius:5px;font-size:10px;font-weight:700;letter-spacing:0.04em;" title="Automatisch angewendet"><?php echo esc_html($coupon_badge_label); ?></span>
                                     <?php endif; ?>
                                     <button type="button" class="tix-co-remove-coupon" title="Gutschein entfernen" aria-label="Gutschein entfernen"
                                         style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;border:0;background:rgba(0,0,0,.08);color:#6b7280;cursor:pointer;font-size:12px;line-height:1;padding:0;transition:background .15s,color .15s;"
