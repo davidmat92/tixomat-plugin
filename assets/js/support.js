@@ -62,12 +62,39 @@
                 }
 
                 var html = '';
+
+                // ── Bulk-Toolbar (versteckt, erscheint bei Selektion) ──
+                html += '<div class="tix-sp-bulk-toolbar" id="tix-sp-bulk-toolbar" style="display:none;align-items:center;gap:10px;padding:10px 14px;background:#fef3c7;border:1px solid #fcd34d;border-radius:8px;margin-bottom:10px;font-size:13px;">';
+                html += '<strong id="tix-sp-bulk-count" style="color:#92400e;">0 ausgewählt</strong>';
+                html += '<select id="tix-sp-bulk-action" style="padding:5px 8px;border:1px solid #fcd34d;border-radius:6px;font-size:12px;background:#fff;">';
+                html += '<option value="">– Aktion wählen –</option>';
+                html += '<option value="tix_resolved">Als gelöst markieren</option>';
+                html += '<option value="tix_progress">In Bearbeitung</option>';
+                html += '<option value="tix_open">Wieder öffnen</option>';
+                html += '<option value="tix_closed">Schließen</option>';
+                html += '<option value="delete">Permanent löschen</option>';
+                html += '</select>';
+                html += '<button id="tix-sp-bulk-apply" class="button button-primary" style="font-size:12px;">Anwenden</button>';
+                html += '<button id="tix-sp-bulk-clear" style="margin-left:auto;background:transparent;border:none;color:#92400e;cursor:pointer;font-size:12px;text-decoration:underline;">Auswahl aufheben</button>';
+                html += '</div>';
+
+                // ── Select-All Header ──
+                html += '<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;font-size:11px;color:#9ca3af;border-bottom:1px solid #f3f4f6;">';
+                html += '<input type="checkbox" id="tix-sp-select-all" style="margin:0;">';
+                html += '<label for="tix-sp-select-all" style="cursor:pointer;">Alle auswählen</label>';
+                html += '</div>';
+
                 d.tickets.forEach(function(t) {
                     var prioClass = t.priority !== 'normal' ? ' tix-sp-priority-' + t.priority : '';
-                    html += '<div class="tix-sp-ticket-row' + prioClass + '" data-id="' + t.id + '">';
+                    html += '<div class="tix-sp-ticket-row' + prioClass + '" data-id="' + t.id + '" style="position:relative;">';
+                    html += '<input type="checkbox" class="tix-sp-bulk-cb" data-id="' + t.id + '" style="margin-right:6px;flex-shrink:0;" onclick="event.stopPropagation();">';
                     html += '<span class="tix-sp-ticket-date">' + esc(t.date_formatted) + '</span>';
                     html += '<span class="tix-sp-ticket-status" style="background:' + esc(t.status_color) + '">' + esc(t.status_label) + '</span>';
-                    html += '<span class="tix-sp-ticket-subject">' + esc(t.subject) + '</span>';
+                    html += '<span class="tix-sp-ticket-subject">' + esc(t.subject);
+                    if (t.ai_summary) {
+                        html += '<div style="font-size:11px;color:#64748b;font-style:italic;margin-top:2px;font-weight:400;line-height:1.4;">✨ ' + esc(t.ai_summary) + '</div>';
+                    }
+                    html += '</span>';
                     html += '<span class="tix-sp-ticket-customer">' + esc(t.name || t.email) + '</span>';
                     html += '<span class="tix-sp-ticket-category">' + esc(t.category_label) + '</span>';
                     html += '</div>';
@@ -105,9 +132,59 @@
         });
 
         // ── Anfrage öffnen ──
-        $(document).on('click', '.tix-sp-ticket-row', function() {
+        $(document).on('click', '.tix-sp-ticket-row', function(e) {
+            // Klick auf Checkbox darf nicht das Ticket öffnen
+            if (e.target && e.target.classList && e.target.classList.contains('tix-sp-bulk-cb')) return;
             var id = $(this).data('id');
             loadTicketDetail(id);
+        });
+
+        // ── Bulk-Aktionen ──
+        function updateBulkToolbar() {
+            var selected = $('.tix-sp-bulk-cb:checked').length;
+            var bar = $('#tix-sp-bulk-toolbar');
+            if (selected > 0) {
+                bar.css('display', 'flex');
+                $('#tix-sp-bulk-count').text(selected + ' ausgewählt');
+            } else {
+                bar.hide();
+            }
+        }
+
+        $(document).on('change', '.tix-sp-bulk-cb', updateBulkToolbar);
+
+        $(document).on('change', '#tix-sp-select-all', function() {
+            $('.tix-sp-bulk-cb').prop('checked', this.checked);
+            updateBulkToolbar();
+        });
+
+        $(document).on('click', '#tix-sp-bulk-clear', function() {
+            $('.tix-sp-bulk-cb, #tix-sp-select-all').prop('checked', false);
+            updateBulkToolbar();
+        });
+
+        $(document).on('click', '#tix-sp-bulk-apply', function() {
+            var action = $('#tix-sp-bulk-action').val();
+            var ids = $('.tix-sp-bulk-cb:checked').map(function(){ return parseInt($(this).data('id')); }).get();
+            if (!action || !ids.length) {
+                alert('Bitte Aktion wählen und mindestens eine Anfrage auswählen.');
+                return;
+            }
+            var label = $('#tix-sp-bulk-action option:selected').text();
+            if (!confirm('"' + label + '" auf ' + ids.length + ' Anfrage' + (ids.length === 1 ? '' : 'n') + ' anwenden?')) return;
+
+            var btn = $(this).prop('disabled', true).text('…');
+            $.post(S.ajax, {
+                action: 'tix_support_bulk', nonce: S.nonce,
+                bulk_action: action, ids: ids,
+            }, function(r) {
+                btn.prop('disabled', false).text('Anwenden');
+                if (r.success) {
+                    loadTicketList();
+                } else {
+                    alert(r.data || 'Fehler');
+                }
+            });
         });
 
         function loadTicketDetail(id) {
@@ -121,7 +198,18 @@
             }, function(r) {
                 if (!r.success) { detailEl.html('<div class="tix-sp-empty">Fehler: ' + esc(r.data) + '</div>'); return; }
                 currentTicket = r.data;
+                pendingAttachments = [];
+                templatesCache = null; // pro Ticket neu laden (Kategorie kann anders sein)
                 renderTicketDetail(r.data);
+
+                // Draft laden
+                $.post(S.ajax, { action: 'tix_support_draft_get', nonce: S.nonce, ticket_id: id }, function(d) {
+                    if (d.success && d.data.reply && d.data.reply.content) {
+                        $('#tix-sp-reply-text').val(d.data.reply.content);
+                        $('#tix-sp-draft-status').text('💾 Entwurf wiederhergestellt');
+                        setTimeout(function(){ $('#tix-sp-draft-status').text(''); }, 3000);
+                    }
+                });
             });
         }
 
@@ -139,6 +227,18 @@
             html += '<select class="tix-sp-detail-status-select" id="tix-sp-status-select">' + statusOpts + '</select>';
             html += '</div>';
 
+            // KI-Summary (1 Satz, falls cached)
+            if (t.ai_summary) {
+                html += '<div class="tix-sp-ai-summary" style="margin:0 0 14px;padding:10px 14px;background:linear-gradient(90deg,#fef3c7,#fef9e7);border-left:3px solid #FF5500;border-radius:6px;font-size:13px;color:#374151;font-style:italic;">';
+                html += '<span style="font-weight:600;color:#dc2626;font-style:normal;">✨ </span>' + esc(t.ai_summary);
+                html += ' <button id="tix-sp-summary-refresh" title="Neu generieren" style="border:none;background:transparent;cursor:pointer;font-size:11px;color:#6b7280;margin-left:6px;">↻</button>';
+                html += '</div>';
+            } else {
+                html += '<div class="tix-sp-ai-summary" style="margin:0 0 14px;text-align:right;">';
+                html += '<button id="tix-sp-summary-refresh" style="background:transparent;border:1px solid #e5e7eb;color:#6b7280;padding:4px 10px;border-radius:6px;cursor:pointer;font-size:11px;">✨ KI-Zusammenfassung generieren</button>';
+                html += '</div>';
+            }
+
             html += '<div class="tix-sp-detail-layout">';
 
             // ── Thread ──
@@ -153,11 +253,23 @@
 
             // Reply Box
             html += '<div class="tix-sp-reply-box">';
-            html += '<textarea class="tix-sp-reply-textarea" id="tix-sp-reply-text" placeholder="Antwort oder interne Notiz schreiben…"></textarea>';
+
+            // ── Toolbar: Vorlagen + KI-Vorschlag + Upload ──
+            html += '<div class="tix-sp-reply-toolbar" style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:8px 10px;background:#f9fafb;border:1px solid #e5e7eb;border-bottom:none;border-radius:8px 8px 0 0;font-size:12px;">';
+            html += '<button type="button" class="tix-sp-tb-btn" id="tix-sp-tb-templates" title="Antwort-Vorlage einfügen" style="background:#fff;border:1px solid #e5e7eb;border-radius:6px;padding:5px 9px;cursor:pointer;font-size:12px;">📋 Vorlagen</button>';
+            html += '<button type="button" class="tix-sp-tb-btn" id="tix-sp-tb-ai" title="KI-Antwortvorschlag generieren" style="background:linear-gradient(90deg,#FF5500,#dc2626);color:#fff;border:1px solid #dc2626;border-radius:6px;padding:5px 9px;cursor:pointer;font-size:12px;font-weight:600;">✨ KI-Vorschlag</button>';
+            html += '<label for="tix-sp-tb-upload" class="tix-sp-tb-btn" title="Datei anhängen" style="background:#fff;border:1px solid #e5e7eb;border-radius:6px;padding:5px 9px;cursor:pointer;font-size:12px;display:inline-flex;align-items:center;gap:4px;">📎 Anhang<input type="file" id="tix-sp-tb-upload" style="display:none;" accept="image/*,.pdf,.doc,.docx,.txt"></label>';
+            html += '<span id="tix-sp-draft-status" style="margin-left:auto;font-size:11px;color:#9ca3af;"></span>';
+            html += '</div>';
+
+            html += '<textarea class="tix-sp-reply-textarea" id="tix-sp-reply-text" placeholder="Antwort oder interne Notiz schreiben… (Cmd+Enter zum Senden, /shortcut + Tab für Vorlagen)" style="border-radius:0 0 0 0;border-top:none;"></textarea>';
+
+            // Anhang-Liste (befüllt nach Upload)
+            html += '<div id="tix-sp-attached-files" style="display:none;padding:8px 12px;background:#f9fafb;border-left:1px solid #e5e7eb;border-right:1px solid #e5e7eb;font-size:12px;"></div>';
 
             // Tickets-Anhang Dropdown — nur wenn Bestellung verifiziert (order_id vorhanden)
             if (t.order_id && t.linked_tickets && t.linked_tickets.length) {
-                html += '<div class="tix-sp-reply-attach">';
+                html += '<div class="tix-sp-reply-attach" style="padding:10px 12px;background:#f9fafb;border-left:1px solid #e5e7eb;border-right:1px solid #e5e7eb;">';
                 html += '<label for="tix-sp-attach-order" style="display:block;font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:4px;">🎫 Tickets anhängen (optional)</label>';
                 html += '<select id="tix-sp-attach-order" style="width:100%;padding:8px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;background:#fff;">';
                 html += '<option value="">Keine Tickets anhängen</option>';
@@ -170,6 +282,7 @@
             html += '<div class="tix-sp-reply-actions">';
             html += '<button class="tix-sp-btn tix-sp-btn-accent" id="tix-sp-reply-btn">📩 Antworten</button>';
             html += '<button class="tix-sp-btn" id="tix-sp-note-btn">📌 Interne Notiz</button>';
+            html += '<span style="margin-left:auto;font-size:11px;color:#9ca3af;">Cmd/Ctrl+Enter</span>';
             html += '</div></div>';
             html += '</div>';
 
@@ -282,6 +395,14 @@
             html += '<span class="tix-sp-msg-date">' + formatDate(m.date) + '</span>';
             html += '</div>';
             html += '<div class="tix-sp-msg-content">' + esc(m.content) + '</div>';
+            // Anhänge der Nachricht
+            if (m.attachments && m.attachments.length) {
+                html += '<div class="tix-sp-msg-attachments" style="margin-top:6px;display:flex;flex-wrap:wrap;gap:6px;">';
+                m.attachments.forEach(function(a) {
+                    html += '<a href="' + esc(a.url) + '" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:4px 9px;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:6px;text-decoration:none;color:#334155;font-size:11px;">📎 ' + esc(a.name) + '</a>';
+                });
+                html += '</div>';
+            }
             html += '</div>';
             return html;
         }
@@ -318,6 +439,7 @@
             btn.prop('disabled', true).text('Wird gesendet…');
 
             var attachOrderId = $('#tix-sp-attach-order').val() || '';
+            var fileUrls = pendingAttachments.map(function(a){ return a.url; });
 
             $.post(S.ajax, {
                 action:           'tix_support_reply',
@@ -325,10 +447,15 @@
                 ticket_id:        currentTicket.id,
                 content:          content,
                 attach_order_id:  attachOrderId,
+                attached_files:   pendingAttachments,
             }, function(r) {
                 btn.prop('disabled', false).text('📩 Antworten');
                 if (r.success) {
                     $('#tix-sp-reply-text').val('');
+                    pendingAttachments = [];
+                    $('#tix-sp-attached-files').hide().empty();
+                    // Draft auch serverseitig löschen
+                    $.post(S.ajax, { action: 'tix_support_draft_save', nonce: S.nonce, ticket_id: currentTicket.id, content: '', kind: 'reply' });
                     if (r.data.attach_message) {
                         // Kurzer Hinweis über Anhang-Status
                         var infoBox = $('<div class="tix-sp-attach-info" style="margin-top:8px;padding:8px 12px;background:#dcfce7;color:#14532d;border:1px solid #86efac;border-radius:6px;font-size:12px;"></div>').text('✓ ' + r.data.attach_message);
@@ -370,6 +497,212 @@
                     if (msgBox) msgBox.scrollTop = msgBox.scrollHeight;
                 }
             });
+        });
+
+        // ══════════════════════════════════════════════
+        // NEU 1.38.126: Drafts (Auto-save), Templates, AI, Upload
+        // ══════════════════════════════════════════════
+
+        // Hochgeladene Dateien für nächste Antwort sammeln
+        var pendingAttachments = [];
+        var draftSaveTimer = null;
+
+        // ── Auto-save Drafts (debounce 1.5s) ──
+        $(document).on('input', '#tix-sp-reply-text', function() {
+            if (!currentTicket) return;
+            clearTimeout(draftSaveTimer);
+            $('#tix-sp-draft-status').text('Speichere…');
+            var content = $(this).val();
+            draftSaveTimer = setTimeout(function() {
+                $.post(S.ajax, {
+                    action: 'tix_support_draft_save', nonce: S.nonce,
+                    ticket_id: currentTicket.id, content: content, kind: 'reply',
+                }, function(r) {
+                    $('#tix-sp-draft-status').text(r.success ? '💾 gespeichert' : '');
+                    setTimeout(function(){ $('#tix-sp-draft-status').text(''); }, 2000);
+                });
+            }, 1500);
+        });
+
+        // ── Cmd/Ctrl+Enter zum Senden ──
+        $(document).on('keydown', '#tix-sp-reply-text', function(e) {
+            if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                e.preventDefault();
+                $('#tix-sp-reply-btn').click();
+                return;
+            }
+            // Tab-Trigger für Template-Shortcuts (/spam<Tab>)
+            if (e.key === 'Tab') {
+                var ta = this;
+                var v = ta.value;
+                var caret = ta.selectionStart;
+                var before = v.substring(0, caret);
+                var match = before.match(/\/(\w+)$/);
+                if (match) {
+                    e.preventDefault();
+                    expandShortcut(match[1], ta);
+                }
+            }
+        });
+
+        // ── Templates: Liste laden + einfügen ──
+        var templatesCache = null;
+        function loadTemplates(category, cb) {
+            if (templatesCache) return cb(templatesCache);
+            $.post(S.ajax, {
+                action: 'tix_sp_templates_list', nonce: S.nonce, category: category || '',
+            }, function(r) {
+                if (r.success) {
+                    templatesCache = r.data.templates || [];
+                    cb(templatesCache);
+                }
+            });
+        }
+
+        function expandShortcut(shortcut, textarea) {
+            loadTemplates(currentTicket && currentTicket.category, function(tpls) {
+                var match = tpls.find(function(t){ return (t.shortcut || '').toLowerCase() === shortcut.toLowerCase(); });
+                if (!match) return;
+                var v = textarea.value;
+                var caret = textarea.selectionStart;
+                var before = v.substring(0, caret).replace(/\/\w+$/, '');
+                var after = v.substring(caret);
+                var rendered = renderTemplate(match.body);
+                textarea.value = before + rendered + after;
+                textarea.selectionStart = textarea.selectionEnd = before.length + rendered.length;
+                $(textarea).trigger('input');
+            });
+        }
+
+        function renderTemplate(body) {
+            if (!currentTicket) return body;
+            var first = (currentTicket.name || '').split(' ')[0] || 'zusammen';
+            var last  = (currentTicket.name || '').split(' ').slice(1).join(' ') || '';
+            var event = (currentTicket.linked_tickets && currentTicket.linked_tickets[0]) ? (currentTicket.linked_tickets[0].event || '') : '';
+            return body
+                .replace(/\{\{first_name\}\}/g, first)
+                .replace(/\{\{last_name\}\}/g, last)
+                .replace(/\{\{email\}\}/g, currentTicket.email || '')
+                .replace(/\{\{ticket_id\}\}/g, currentTicket.id || '')
+                .replace(/\{\{order_id\}\}/g, currentTicket.order_id || '')
+                .replace(/\{\{event_name\}\}/g, event)
+                .replace(/\{\{ticket_code\}\}/g, currentTicket.ticket_code || '');
+        }
+
+        $(document).on('click', '#tix-sp-tb-templates', function() {
+            var btn = $(this);
+            loadTemplates(currentTicket && currentTicket.category, function(tpls) {
+                $('.tix-sp-tpl-popup').remove();
+                var pop = $('<div class="tix-sp-tpl-popup" style="position:absolute;background:#fff;border:1px solid #e5e7eb;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,0.12);padding:8px;max-width:380px;max-height:400px;overflow-y:auto;z-index:9999;"></div>');
+                if (!tpls || !tpls.length) {
+                    pop.append('<div style="padding:14px;color:#6b7280;font-size:13px;text-align:center;">Keine Vorlagen vorhanden. <a href="' + S.adminUrl + 'admin.php?page=tix-support-templates" target="_blank">Erstellen →</a></div>');
+                } else {
+                    tpls.forEach(function(t) {
+                        var item = $('<div class="tix-sp-tpl-item" style="padding:8px 10px;border-radius:6px;cursor:pointer;font-size:13px;line-height:1.4;"></div>');
+                        var preview = (t.body || '').substring(0, 80).replace(/\n/g, ' ') + (t.body.length > 80 ? '…' : '');
+                        item.html('<div style="font-weight:600;color:#0f172a;">' + esc(t.title) + (t.shortcut ? ' <code style="background:#fef3c7;color:#92400e;padding:1px 5px;border-radius:3px;font-size:10px;">/' + esc(t.shortcut) + '</code>' : '') + '</div><div style="color:#64748b;font-size:11px;margin-top:2px;">' + esc(preview) + '</div>');
+                        item.on('mouseenter', function(){ $(this).css('background', '#f3f4f6'); });
+                        item.on('mouseleave', function(){ $(this).css('background', ''); });
+                        item.on('click', function() {
+                            var ta = document.getElementById('tix-sp-reply-text');
+                            var rendered = renderTemplate(t.body);
+                            if (ta.value && ta.value.trim()) {
+                                ta.value = ta.value.replace(/\s+$/, '') + '\n\n' + rendered;
+                            } else {
+                                ta.value = rendered;
+                            }
+                            $(ta).trigger('input').focus();
+                            ta.selectionStart = ta.selectionEnd = ta.value.length;
+                            pop.remove();
+                        });
+                        pop.append(item);
+                    });
+                    pop.append('<div style="padding:8px 10px;border-top:1px solid #e5e7eb;margin-top:6px;text-align:center;"><a href="' + S.adminUrl + 'admin.php?page=tix-support-templates" target="_blank" style="font-size:11px;color:#6b7280;text-decoration:none;">⚙️ Vorlagen verwalten</a></div>');
+                }
+                var off = btn.offset();
+                pop.css({ top: off.top + btn.outerHeight() + 4, left: off.left });
+                $('body').append(pop);
+                setTimeout(function() {
+                    $(document).one('click', function() { pop.remove(); });
+                }, 0);
+            });
+        });
+
+        // ── KI-Antwortvorschlag ──
+        $(document).on('click', '#tix-sp-tb-ai', function() {
+            if (!currentTicket) return;
+            var btn = $(this);
+            var orig = btn.html();
+            btn.prop('disabled', true).html('⏳ KI denkt nach…');
+            $.post(S.ajax, {
+                action: 'tix_support_ai_reply', nonce: S.nonce, ticket_id: currentTicket.id,
+            }, function(r) {
+                btn.prop('disabled', false).html(orig);
+                if (r.success && r.data.reply) {
+                    var ta = document.getElementById('tix-sp-reply-text');
+                    if (ta.value && ta.value.trim() && !confirm('Vorhandenen Text mit KI-Vorschlag ersetzen?')) return;
+                    ta.value = r.data.reply;
+                    $(ta).trigger('input').focus();
+                    ta.selectionStart = ta.selectionEnd = ta.value.length;
+                } else {
+                    alert(r.data || r.data?.message || 'KI-Antwort fehlgeschlagen.');
+                }
+            }).fail(function(xhr) {
+                btn.prop('disabled', false).html(orig);
+                alert('Fehler: ' + (xhr.responseJSON?.data || 'Netzwerkfehler'));
+            });
+        });
+
+        // ── KI-Summary refresh ──
+        $(document).on('click', '#tix-sp-summary-refresh', function() {
+            if (!currentTicket) return;
+            var btn = $(this);
+            btn.prop('disabled', true);
+            $.post(S.ajax, {
+                action: 'tix_support_ai_summary', nonce: S.nonce,
+                ticket_id: currentTicket.id, force: 1,
+            }, function(r) {
+                btn.prop('disabled', false);
+                if (r.success && r.data.summary) {
+                    currentTicket.ai_summary = r.data.summary;
+                    var box = $('.tix-sp-ai-summary');
+                    box.html('<span style="font-weight:600;color:#dc2626;font-style:normal;">✨ </span>' + esc(r.data.summary) + ' <button id="tix-sp-summary-refresh" title="Neu generieren" style="border:none;background:transparent;cursor:pointer;font-size:11px;color:#6b7280;margin-left:6px;">↻</button>');
+                    box.attr('style', 'margin:0 0 14px;padding:10px 14px;background:linear-gradient(90deg,#fef3c7,#fef9e7);border-left:3px solid #FF5500;border-radius:6px;font-size:13px;color:#374151;font-style:italic;');
+                } else {
+                    alert(r.data || 'KI-Zusammenfassung fehlgeschlagen.');
+                }
+            });
+        });
+
+        // ── Datei-Upload (Admin) ──
+        $(document).on('change', '#tix-sp-tb-upload', function() {
+            var file = this.files[0];
+            if (!file || !currentTicket) return;
+            var fd = new FormData();
+            fd.append('action', 'tix_support_upload');
+            fd.append('nonce', S.nonce);
+            fd.append('ticket_id', currentTicket.id);
+            fd.append('file', file);
+
+            var listBox = $('#tix-sp-attached-files').show();
+            var row = $('<div style="display:flex;align-items:center;gap:6px;padding:3px 0;font-size:12px;"><span>📎 ' + esc(file.name) + '</span> <span class="status" style="color:#9ca3af;">…lädt</span></div>');
+            listBox.append(row);
+
+            $.ajax({
+                url: S.ajax, type: 'POST', data: fd, processData: false, contentType: false,
+                success: function(r) {
+                    if (r.success) {
+                        pendingAttachments.push(r.data);
+                        row.find('.status').text('✓').css('color', '#16a34a');
+                    } else {
+                        row.find('.status').text('✗ ' + (r.data || 'Fehler')).css('color', '#dc2626');
+                    }
+                },
+                error: function() {
+                    row.find('.status').text('✗ Netzwerkfehler').css('color', '#dc2626');
+                },
+            });
+            this.value = '';
         });
 
         // ── Quick Actions ──
@@ -828,6 +1161,13 @@
                     html += '<span class="tix-sp-front-msg-date">' + formatDate(m.date) + '</span>';
                     html += '</div>';
                     html += '<div class="tix-sp-front-msg-content">' + esc(m.content) + '</div>';
+                    if (m.attachments && m.attachments.length) {
+                        html += '<div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:6px;">';
+                        m.attachments.forEach(function(a) {
+                            html += '<a href="' + esc(a.url) + '" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:4px 9px;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:6px;text-decoration:none;color:#334155;font-size:11px;">📎 ' + esc(a.name) + '</a>';
+                        });
+                        html += '</div>';
+                    }
                     html += '</div>';
                 });
             }
@@ -837,12 +1177,51 @@
             if (t.status !== 'tix_closed') {
                 html += '<div class="tix-sp-front-reply">';
                 html += '<textarea id="tix-sp-front-reply-text" placeholder="Deine Antwort…"></textarea>';
-                html += '<button class="tix-sp-front-btn" id="tix-sp-front-reply-btn" data-id="' + t.id + '">Antworten</button>';
+                html += '<div style="display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap;">';
+                html += '<label for="tix-sp-front-upload" style="display:inline-flex;align-items:center;gap:5px;padding:6px 12px;background:#fff;border:1px solid #d1d5db;border-radius:6px;cursor:pointer;font-size:13px;color:#374151;">📎 Datei anhängen<input type="file" id="tix-sp-front-upload" data-ticket-id="' + t.id + '" style="display:none;" accept="image/*,.pdf,.doc,.docx,.txt"></label>';
+                html += '<button class="tix-sp-front-btn" id="tix-sp-front-reply-btn" data-id="' + t.id + '" style="margin-left:auto;">Antworten</button>';
+                html += '</div>';
+                html += '<div id="tix-sp-front-attached" style="margin-top:8px;font-size:12px;color:#475569;"></div>';
                 html += '</div>';
             }
 
             $('#tix-sp-front-detail-content').html(html);
         }
+
+        // ── Customer-Portal: Datei-Upload ──
+        var frontPendingAttachments = [];
+        $(document).on('change', '#tix-sp-front-upload', function() {
+            var file = this.files[0];
+            if (!file) return;
+            var ticketId = $(this).data('ticket-id');
+            var fd = new FormData();
+            fd.append('action', 'tix_support_upload');
+            fd.append('nonce', S.nonce);
+            fd.append('ticket_id', ticketId);
+            fd.append('email', authData.email);
+            fd.append('access_key', authData.access_key);
+            fd.append('file', file);
+
+            var listBox = $('#tix-sp-front-attached');
+            var row = $('<div style="display:flex;align-items:center;gap:6px;padding:3px 0;"><span>📎 ' + esc(file.name) + '</span> <span class="status" style="color:#9ca3af;">…lädt</span></div>');
+            listBox.append(row);
+
+            $.ajax({
+                url: S.ajax, type: 'POST', data: fd, processData: false, contentType: false,
+                success: function(r) {
+                    if (r.success) {
+                        frontPendingAttachments.push(r.data);
+                        row.find('.status').text('✓').css('color', '#16a34a');
+                    } else {
+                        row.find('.status').text('✗ ' + (r.data || 'Fehler')).css('color', '#dc2626');
+                    }
+                },
+                error: function() {
+                    row.find('.status').text('✗ Netzwerkfehler').css('color', '#dc2626');
+                },
+            });
+            this.value = '';
+        });
 
         // ── Zurück ──
         $(document).on('click', '#tix-sp-front-back-btn', function() {
@@ -859,21 +1238,32 @@
             btn.prop('disabled', true).text('Wird gesendet…');
 
             $.post(S.ajax, {
-                action:     'tix_support_customer_reply',
-                nonce:      S.nonce,
-                ticket_id:  ticketId,
-                email:      authData.email,
-                access_key: authData.access_key,
-                content:    content,
+                action:         'tix_support_customer_reply',
+                nonce:          S.nonce,
+                ticket_id:      ticketId,
+                email:          authData.email,
+                access_key:     authData.access_key,
+                content:        content,
+                attached_files: frontPendingAttachments,
             }, function(r) {
                 btn.prop('disabled', false).text('Antworten');
                 if (r.success) {
                     $('#tix-sp-front-reply-text').val('');
+                    $('#tix-sp-front-attached').empty();
+                    frontPendingAttachments = [];
                     var m = r.data.message;
                     var cls = 'tix-sp-front-msg-' + m.type;
                     var msgHtml = '<div class="tix-sp-front-msg ' + cls + '">';
                     msgHtml += '<div class="tix-sp-front-msg-header"><span class="tix-sp-front-msg-author">' + esc(m.author) + '</span><span class="tix-sp-front-msg-date">' + formatDate(m.date) + '</span></div>';
-                    msgHtml += '<div class="tix-sp-front-msg-content">' + esc(m.content) + '</div></div>';
+                    msgHtml += '<div class="tix-sp-front-msg-content">' + esc(m.content) + '</div>';
+                    if (m.attachments && m.attachments.length) {
+                        msgHtml += '<div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:6px;">';
+                        m.attachments.forEach(function(a) {
+                            msgHtml += '<a href="' + esc(a.url) + '" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:4px 9px;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:6px;text-decoration:none;color:#334155;font-size:11px;">📎 ' + esc(a.name) + '</a>';
+                        });
+                        msgHtml += '</div>';
+                    }
+                    msgHtml += '</div>';
                     $('#tix-sp-front-messages').append(msgHtml);
                 }
             });

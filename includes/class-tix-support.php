@@ -48,6 +48,15 @@ class TIX_Support {
         add_action('wp_ajax_tix_support_resend_ticket', [__CLASS__, 'ajax_resend_ticket']);
         add_action('wp_ajax_tix_support_change_owner',  [__CLASS__, 'ajax_change_owner']);
 
+        // ── Neu (1.38.126): Drafts, Bulk, File-Upload, AI ──
+        add_action('wp_ajax_tix_support_draft_save',    [__CLASS__, 'ajax_draft_save']);
+        add_action('wp_ajax_tix_support_draft_get',     [__CLASS__, 'ajax_draft_get']);
+        add_action('wp_ajax_tix_support_bulk',          [__CLASS__, 'ajax_bulk']);
+        add_action('wp_ajax_tix_support_upload',        [__CLASS__, 'ajax_upload']);
+        add_action('wp_ajax_nopriv_tix_support_upload', [__CLASS__, 'ajax_upload_customer']);
+        add_action('wp_ajax_tix_support_ai_summary',    [__CLASS__, 'ajax_ai_summary']);
+        add_action('wp_ajax_tix_support_ai_reply',      [__CLASS__, 'ajax_ai_reply']);
+
         // ── Frontend (nopriv) AJAX ──
         add_action('wp_ajax_tix_support_create',          [__CLASS__, 'ajax_create']);
         add_action('wp_ajax_nopriv_tix_support_create',   [__CLASS__, 'ajax_create']);
@@ -215,6 +224,7 @@ class TIX_Support {
             'categories' => self::get_categories(),
             'isAdmin'    => true,
             'crmUrl'     => admin_url('admin.php?page=tix-customers&email='),
+            'adminUrl'   => admin_url(),
         ]);
     }
 
@@ -758,6 +768,7 @@ class TIX_Support {
         $ticket_id       = intval($_POST['ticket_id'] ?? 0);
         $content         = sanitize_textarea_field($_POST['content'] ?? '');
         $attach_order_id = intval($_POST['attach_order_id'] ?? 0);
+        $attached_files  = (array) ($_POST['attached_files'] ?? []);
 
         if (!$ticket_id || empty($content)) {
             wp_send_json_error('Ticket-ID und Nachricht erforderlich.');
@@ -776,14 +787,31 @@ class TIX_Support {
             }
         }
 
+        // Attachments validieren — URLs müssen aus unserer Upload-Struktur stammen
+        $upload_dir = wp_upload_dir();
+        $allowed_prefix = trailingslashit($upload_dir['baseurl']) . 'tix-support/' . intval($ticket_id) . '/';
+        $valid_files = [];
+        foreach ($attached_files as $f) {
+            if (!is_array($f)) continue;
+            $url = esc_url_raw($f['url'] ?? '');
+            if ($url && strpos($url, $allowed_prefix) === 0) {
+                $valid_files[] = [
+                    'url'  => $url,
+                    'name' => sanitize_text_field($f['name'] ?? basename($url)),
+                    'mime' => sanitize_text_field($f['mime'] ?? ''),
+                ];
+            }
+        }
+
         $user = wp_get_current_user();
         $msg = [
-            'id'      => self::generate_message_id(),
-            'type'    => 'admin',
-            'author'  => $user->display_name ?: 'Support-Team',
-            'user_id' => $user->ID,
-            'content' => $content,
-            'date'    => current_time('c'),
+            'id'          => self::generate_message_id(),
+            'type'        => 'admin',
+            'author'      => $user->display_name ?: 'Support-Team',
+            'user_id'     => $user->ID,
+            'content'     => $content,
+            'date'        => current_time('c'),
+            'attachments' => $valid_files,
         ];
 
         self::add_message($ticket_id, $msg);
@@ -796,11 +824,11 @@ class TIX_Support {
         // Letzte Antwort-Timestamp aktualisieren
         update_post_meta($ticket_id, '_tix_sp_last_reply', current_time('c'));
 
-        // E-Mail an Kunden senden (mit optionalen Ticket-Anhängen)
+        // E-Mail an Kunden senden (mit optionalen Ticket-Anhängen + Datei-Anhängen)
         $attach_message = '';
         $email = get_post_meta($ticket_id, '_tix_sp_email', true);
         if ($email) {
-            $attach_message = self::send_email_reply_to_customer($ticket_id, $post->post_title, $email, $content, $attach_order_id);
+            $attach_message = self::send_email_reply_to_customer($ticket_id, $post->post_title, $email, $content, $attach_order_id, $valid_files);
         }
 
         $response = ['message' => $msg];
@@ -1006,6 +1034,314 @@ class TIX_Support {
     }
 
     // ══════════════════════════════════════════════
+    // AJAX: DRAFTS (Auto-save)
+    // ══════════════════════════════════════════════
+
+    public static function ajax_draft_save() {
+        check_ajax_referer('tix_support_action', 'nonce');
+        if (!current_user_can('manage_options')) wp_send_json_error('Keine Berechtigung.');
+
+        $ticket_id = intval($_POST['ticket_id'] ?? 0);
+        $content   = wp_unslash($_POST['content'] ?? '');
+        $kind      = sanitize_text_field($_POST['kind'] ?? 'reply'); // 'reply' or 'note'
+        $user_id   = get_current_user_id();
+        if (!$ticket_id || !$user_id) wp_send_json_error('Ungültige Daten.');
+
+        $key = "_tix_sp_draft_{$user_id}_{$kind}";
+        if ($content === '') {
+            delete_post_meta($ticket_id, $key);
+        } else {
+            update_post_meta($ticket_id, $key, [
+                'content' => $content,
+                'updated' => current_time('mysql'),
+            ]);
+        }
+        wp_send_json_success(['saved' => true]);
+    }
+
+    public static function ajax_draft_get() {
+        check_ajax_referer('tix_support_action', 'nonce');
+        if (!current_user_can('manage_options')) wp_send_json_error('Keine Berechtigung.');
+
+        $ticket_id = intval($_POST['ticket_id'] ?? 0);
+        $user_id   = get_current_user_id();
+        if (!$ticket_id || !$user_id) wp_send_json_error('Ungültige Daten.');
+
+        $reply = get_post_meta($ticket_id, "_tix_sp_draft_{$user_id}_reply", true);
+        $note  = get_post_meta($ticket_id, "_tix_sp_draft_{$user_id}_note", true);
+        wp_send_json_success([
+            'reply' => is_array($reply) ? $reply : null,
+            'note'  => is_array($note)  ? $note  : null,
+        ]);
+    }
+
+    // ══════════════════════════════════════════════
+    // AJAX: BULK-AKTIONEN
+    // ══════════════════════════════════════════════
+
+    public static function ajax_bulk() {
+        check_ajax_referer('tix_support_action', 'nonce');
+        if (!current_user_can('manage_options')) wp_send_json_error('Keine Berechtigung.');
+
+        $ids    = array_filter(array_map('intval', (array) ($_POST['ids'] ?? [])));
+        $action = sanitize_text_field($_POST['bulk_action'] ?? '');
+        if (empty($ids) || !$action) wp_send_json_error('Keine IDs oder Aktion.');
+
+        $valid_status = ['tix_open' => 1, 'tix_progress' => 1, 'tix_resolved' => 1, 'tix_closed' => 1];
+        $changed = 0;
+
+        foreach ($ids as $id) {
+            $post = get_post($id);
+            if (!$post || $post->post_type !== 'tix_support_ticket') continue;
+
+            if (isset($valid_status[$action])) {
+                wp_update_post(['ID' => $id, 'post_status' => $action]);
+                update_post_meta($id, '_tix_sp_last_reply', current_time('c'));
+                $changed++;
+            } elseif ($action === 'delete') {
+                wp_delete_post($id, true); // permanent
+                $changed++;
+            }
+        }
+
+        wp_send_json_success([
+            'changed' => $changed,
+            'message' => $changed . ' Anfrage' . ($changed === 1 ? '' : 'n') . ' aktualisiert.',
+        ]);
+    }
+
+    // ══════════════════════════════════════════════
+    // AJAX: FILE-UPLOAD
+    // ══════════════════════════════════════════════
+
+    /**
+     * Admin-Upload: Datei hochladen, gibt URL zurück die in der Antwort
+     * verlinkt wird (oder als Mail-Anhang via attach_files).
+     */
+    public static function ajax_upload() {
+        check_ajax_referer('tix_support_action', 'nonce');
+        if (!current_user_can('manage_options')) wp_send_json_error('Keine Berechtigung.');
+
+        $ticket_id = intval($_POST['ticket_id'] ?? 0);
+        if (!$ticket_id) wp_send_json_error('Ticket-ID fehlt.');
+
+        $result = self::handle_upload($_FILES['file'] ?? null, $ticket_id, 'admin');
+        if (is_wp_error($result)) wp_send_json_error($result->get_error_message());
+
+        wp_send_json_success($result);
+    }
+
+    /**
+     * Customer-Upload via Portal mit access_key-Verifikation.
+     */
+    public static function ajax_upload_customer() {
+        check_ajax_referer('tix_support_action', 'nonce');
+
+        $ticket_id  = intval($_POST['ticket_id'] ?? 0);
+        $email      = sanitize_email($_POST['email'] ?? '');
+        $access_key = sanitize_text_field($_POST['access_key'] ?? '');
+
+        if (!self::verify_customer_access($ticket_id, $email, $access_key)) {
+            wp_send_json_error('Zugriff verweigert.');
+        }
+
+        $result = self::handle_upload($_FILES['file'] ?? null, $ticket_id, 'customer');
+        if (is_wp_error($result)) wp_send_json_error($result->get_error_message());
+
+        wp_send_json_success($result);
+    }
+
+    /**
+     * Sicherer Upload-Handler.
+     * Speichert in /uploads/tix-support/{ticket_id}/, mit Whitelist-Mimetypes.
+     */
+    private static function handle_upload($file, $ticket_id, $by = 'admin') {
+        if (empty($file) || !is_array($file)) {
+            return new WP_Error('no_file', 'Keine Datei hochgeladen.');
+        }
+        if (($file['error'] ?? UPLOAD_ERR_OK) !== UPLOAD_ERR_OK) {
+            return new WP_Error('upload_error', 'Upload-Fehler.');
+        }
+
+        // Größe limitieren (10 MB)
+        if ($file['size'] > 10 * 1024 * 1024) {
+            return new WP_Error('too_large', 'Datei zu groß (max. 10 MB).');
+        }
+
+        // Mime-Whitelist (Bilder, PDFs, Office-Dokumente)
+        $allowed = [
+            'image/jpeg' => 'jpg', 'image/png' => 'png', 'image/gif' => 'gif', 'image/webp' => 'webp', 'image/heic' => 'heic',
+            'application/pdf' => 'pdf',
+            'application/msword' => 'doc',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document' => 'docx',
+            'text/plain' => 'txt',
+        ];
+        $finfo = function_exists('finfo_open') ? finfo_open(FILEINFO_MIME_TYPE) : false;
+        $detected_mime = $finfo ? finfo_file($finfo, $file['tmp_name']) : ($file['type'] ?? '');
+        if ($finfo) finfo_close($finfo);
+        if (!isset($allowed[$detected_mime])) {
+            return new WP_Error('mime', 'Dateityp nicht erlaubt.');
+        }
+
+        // Zielverzeichnis
+        $upload_dir = wp_upload_dir();
+        $base_dir   = trailingslashit($upload_dir['basedir']) . 'tix-support';
+        if (!file_exists($base_dir)) {
+            wp_mkdir_p($base_dir);
+            // .htaccess: Direktzugriff erlaubt aber kein PHP execute
+            file_put_contents($base_dir . '/.htaccess', "Options -Indexes\n<FilesMatch \"\\.(php|php\\..*)$\">\nRequire all denied\n</FilesMatch>\n");
+        }
+        $ticket_dir = $base_dir . '/' . intval($ticket_id);
+        if (!file_exists($ticket_dir)) wp_mkdir_p($ticket_dir);
+
+        // Sicherer Dateiname
+        $orig_name = sanitize_file_name($file['name']);
+        $ext       = $allowed[$detected_mime];
+        $base_name = pathinfo($orig_name, PATHINFO_FILENAME) ?: 'upload';
+        $base_name = substr(preg_replace('/[^a-zA-Z0-9._-]/', '_', $base_name), 0, 50);
+        $unique    = wp_generate_password(6, false, false);
+        $filename  = $base_name . '_' . $unique . '.' . $ext;
+        $dest      = $ticket_dir . '/' . $filename;
+
+        if (!@move_uploaded_file($file['tmp_name'], $dest)) {
+            return new WP_Error('move', 'Datei konnte nicht gespeichert werden.');
+        }
+        @chmod($dest, 0644);
+
+        $url = trailingslashit($upload_dir['baseurl']) . 'tix-support/' . intval($ticket_id) . '/' . $filename;
+
+        // Attachment-Meta auf dem Ticket
+        $existing = get_post_meta($ticket_id, '_tix_sp_attachments', true);
+        if (!is_array($existing)) $existing = [];
+        $existing[] = [
+            'id'        => uniqid('att_', true),
+            'name'      => $orig_name,
+            'filename'  => $filename,
+            'url'       => $url,
+            'size'      => intval($file['size']),
+            'mime'      => $detected_mime,
+            'uploaded_by' => $by,
+            'date'      => current_time('c'),
+        ];
+        update_post_meta($ticket_id, '_tix_sp_attachments', $existing);
+
+        return [
+            'name' => $orig_name,
+            'url'  => $url,
+            'size' => intval($file['size']),
+            'mime' => $detected_mime,
+        ];
+    }
+
+    // ══════════════════════════════════════════════
+    // AJAX: KI-FEATURES (Anthropic)
+    // ══════════════════════════════════════════════
+
+    /**
+     * Generiert eine 1-Satz-Zusammenfassung für die Liste, gecached pro Ticket.
+     * Cache wird invalidiert sobald eine neue Nachricht hinzukommt.
+     */
+    public static function ajax_ai_summary() {
+        check_ajax_referer('tix_support_action', 'nonce');
+        if (!current_user_can('manage_options')) wp_send_json_error('Keine Berechtigung.');
+
+        $ticket_id = intval($_POST['ticket_id'] ?? 0);
+        $force     = !empty($_POST['force']);
+        $post = get_post($ticket_id);
+        if (!$post || $post->post_type !== 'tix_support_ticket') {
+            wp_send_json_error('Anfrage nicht gefunden.');
+        }
+
+        // Cache-Schlüssel aus Hash der Nachrichten — automatische Invalidierung
+        $messages = self::get_messages($ticket_id);
+        $hash = md5(wp_json_encode($messages) . $post->post_title);
+        $cached = get_post_meta($ticket_id, '_tix_sp_ai_summary', true);
+        if (!$force && is_array($cached) && ($cached['hash'] ?? '') === $hash && !empty($cached['text'])) {
+            wp_send_json_success(['summary' => $cached['text'], 'cached' => true]);
+        }
+
+        if (!class_exists('TIX_Support_AI')) {
+            wp_send_json_error('KI-Modul nicht geladen.');
+        }
+        $summary = TIX_Support_AI::summarize_thread($post, $messages);
+        if (is_wp_error($summary)) wp_send_json_error($summary->get_error_message());
+
+        update_post_meta($ticket_id, '_tix_sp_ai_summary', [
+            'hash' => $hash,
+            'text' => $summary,
+            'date' => current_time('c'),
+        ]);
+
+        wp_send_json_success(['summary' => $summary, 'cached' => false]);
+    }
+
+    /**
+     * KI-Antwortvorschlag — analysiert Anfrage + Kontext (Bestellung, Tickets,
+     * Kunden-Historie, Templates) und gibt einen Antwort-Entwurf zurück.
+     */
+    public static function ajax_ai_reply() {
+        check_ajax_referer('tix_support_action', 'nonce');
+        if (!current_user_can('manage_options')) wp_send_json_error('Keine Berechtigung.');
+
+        $ticket_id = intval($_POST['ticket_id'] ?? 0);
+        $post = get_post($ticket_id);
+        if (!$post || $post->post_type !== 'tix_support_ticket') {
+            wp_send_json_error('Anfrage nicht gefunden.');
+        }
+        if (!class_exists('TIX_Support_AI')) wp_send_json_error('KI-Modul nicht geladen.');
+
+        // Kontext sammeln
+        $messages    = self::get_messages($ticket_id);
+        $email       = get_post_meta($ticket_id, '_tix_sp_email', true);
+        $name        = get_post_meta($ticket_id, '_tix_sp_name', true);
+        $category    = get_post_meta($ticket_id, '_tix_sp_category', true);
+        $order_id    = intval(get_post_meta($ticket_id, '_tix_sp_order_id', true));
+        $ticket_code = get_post_meta($ticket_id, '_tix_sp_ticket_code', true);
+
+        $order_info = '';
+        $tickets_info = '';
+        if ($order_id) {
+            $order = function_exists('wc_get_order') ? wc_get_order($order_id) : false;
+            if (!$order && class_exists('TIX_Order')) $order = TIX_Order::get($order_id);
+            if ($order) {
+                $info = self::format_order($order);
+                $order_info = "Bestellung #{$info['id']} vom {$info['date']}, Status: {$info['status']}, Total: {$info['total']} €";
+                if (!empty($info['items'])) {
+                    $items_strs = array_map(fn($it) => $it['qty'] . '× ' . $it['name'], $info['items']);
+                    $order_info .= "\nArtikel: " . implode(', ', $items_strs);
+                }
+            }
+            if (class_exists('TIX_Tickets')) {
+                $tix = TIX_Tickets::get_all_tickets_for_order($order_id);
+                if (!empty($tix)) {
+                    $tickets_info = "Tickets der Bestellung:\n";
+                    foreach ($tix as $t) {
+                        $tickets_info .= "- " . ($t['code'] ?? '?') . " · " . ($t['event_name'] ?? '') . " · " . ($t['cat_name'] ?? '') . " · Inhaber: " . ($t['owner_name'] ?? '–') . "\n";
+                    }
+                }
+            }
+        }
+
+        // Kanned-Templates
+        $templates = class_exists('TIX_Support_Templates') ? TIX_Support_Templates::get_for_category($category) : [];
+
+        $reply = TIX_Support_AI::suggest_reply([
+            'subject'      => $post->post_title,
+            'category'     => $category,
+            'customer'     => ['name' => $name, 'email' => $email],
+            'messages'     => $messages,
+            'order_info'   => $order_info,
+            'tickets_info' => $tickets_info,
+            'ticket_code'  => $ticket_code,
+            'templates'    => $templates,
+        ]);
+
+        if (is_wp_error($reply)) wp_send_json_error($reply->get_error_message());
+
+        wp_send_json_success(['reply' => $reply]);
+    }
+
+    // ══════════════════════════════════════════════
     // AJAX: NEUE ANFRAGE ERSTELLEN (Frontend + Admin)
     // ══════════════════════════════════════════════
 
@@ -1083,10 +1419,11 @@ class TIX_Support {
     public static function ajax_customer_reply() {
         check_ajax_referer('tix_support_action', 'nonce');
 
-        $ticket_id  = intval($_POST['ticket_id'] ?? 0);
-        $email      = sanitize_email($_POST['email'] ?? '');
-        $access_key = sanitize_text_field($_POST['access_key'] ?? '');
-        $content    = sanitize_textarea_field($_POST['content'] ?? '');
+        $ticket_id      = intval($_POST['ticket_id'] ?? 0);
+        $email          = sanitize_email($_POST['email'] ?? '');
+        $access_key     = sanitize_text_field($_POST['access_key'] ?? '');
+        $content        = sanitize_textarea_field($_POST['content'] ?? '');
+        $attached_files = (array) ($_POST['attached_files'] ?? []);
 
         if (!$ticket_id || !is_email($email) || empty($content)) {
             wp_send_json_error('Fehlende Daten.');
@@ -1097,16 +1434,33 @@ class TIX_Support {
             wp_send_json_error('Zugriff verweigert.');
         }
 
+        // Attachments validieren (URL muss aus dieser Ticket-Upload-Struktur stammen)
+        $upload_dir = wp_upload_dir();
+        $allowed_prefix = trailingslashit($upload_dir['baseurl']) . 'tix-support/' . intval($ticket_id) . '/';
+        $valid_files = [];
+        foreach ($attached_files as $f) {
+            if (!is_array($f)) continue;
+            $url = esc_url_raw($f['url'] ?? '');
+            if ($url && strpos($url, $allowed_prefix) === 0) {
+                $valid_files[] = [
+                    'url'  => $url,
+                    'name' => sanitize_text_field($f['name'] ?? basename($url)),
+                    'mime' => sanitize_text_field($f['mime'] ?? ''),
+                ];
+            }
+        }
+
         $post = get_post($ticket_id);
         $name = get_post_meta($ticket_id, '_tix_sp_name', true) ?: $email;
 
         $msg = [
-            'id'      => self::generate_message_id(),
-            'type'    => 'customer',
-            'author'  => $name,
-            'email'   => $email,
-            'content' => $content,
-            'date'    => current_time('c'),
+            'id'          => self::generate_message_id(),
+            'type'        => 'customer',
+            'author'      => $name,
+            'email'       => $email,
+            'content'     => $content,
+            'date'        => current_time('c'),
+            'attachments' => $valid_files,
         ];
 
         self::add_message($ticket_id, $msg);
@@ -1299,10 +1653,20 @@ class TIX_Support {
         return is_array($raw) ? $raw : [];
     }
 
+    /** Public-Wrapper für TIX_Support_AI::cron_summarize. */
+    public static function get_messages_public($ticket_id) {
+        return self::get_messages($ticket_id);
+    }
+
     private static function add_message($ticket_id, $msg) {
         $messages = self::get_messages($ticket_id);
         $messages[] = $msg;
         update_post_meta($ticket_id, '_tix_sp_messages', wp_json_encode($messages));
+
+        // KI-Summary asynchron triggern (best effort, fail-soft)
+        if (function_exists('wp_schedule_single_event')) {
+            wp_schedule_single_event(time() + 5, 'tix_sp_summary_async', [intval($ticket_id)]);
+        }
     }
 
     // ══════════════════════════════════════════════
@@ -1378,6 +1742,9 @@ class TIX_Support {
             if ($c['slug'] === $cat_slug) { $cat_label = $c['label']; break; }
         }
 
+        $ai_summary  = get_post_meta($post->ID, '_tix_sp_ai_summary', true);
+        $attachments = get_post_meta($post->ID, '_tix_sp_attachments', true);
+
         return [
             'id'           => $post->ID,
             'subject'      => $post->post_title,
@@ -1394,6 +1761,8 @@ class TIX_Support {
             'last_reply'   => get_post_meta($post->ID, '_tix_sp_last_reply', true),
             'date'         => $post->post_date,
             'date_formatted' => wp_date('d.m.Y H:i', strtotime($post->post_date)),
+            'ai_summary'   => is_array($ai_summary) ? ($ai_summary['text'] ?? '') : '',
+            'attachments'  => is_array($attachments) ? array_values($attachments) : [],
         ];
     }
 
@@ -1579,13 +1948,31 @@ class TIX_Support {
     /**
      * Admin-Antwort → E-Mail an Kunden
      */
-    private static function send_email_reply_to_customer($ticket_id, $subject, $email, $reply_content, $attach_order_id = 0) {
+    private static function send_email_reply_to_customer($ticket_id, $subject, $email, $reply_content, $attach_order_id = 0, $extra_files = []) {
         $name = get_post_meta($ticket_id, '_tix_sp_name', true);
         $body = '<p>Hallo ' . esc_html($name ?: 'Kunde') . ',</p>';
         $body .= '<p>du hast eine neue Antwort zu deiner Anfrage <strong>#' . $ticket_id . '</strong> erhalten:</p>';
         $body .= '<div style="background:#FAF8F4;border-left:4px solid ' . tix_primary() . ';padding:16px;border-radius:8px;margin:16px 0;">';
         $body .= nl2br(esc_html($reply_content));
         $body .= '</div>';
+
+        // ── Datei-Anhänge des Admins (vom Upload-Toolbar) ──
+        $extra_attach_files = [];
+        $upload_dir = wp_upload_dir();
+        if (!empty($extra_files)) {
+            $body .= '<div style="margin:16px 0;padding:12px 14px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;">';
+            $body .= '<strong style="font-size:13px;color:#475569;">📎 Anhänge:</strong><ul style="margin:8px 0 0;padding-left:20px;">';
+            foreach ($extra_files as $f) {
+                $url = $f['url'] ?? '';
+                $name_f = $f['name'] ?? basename($url);
+                $body .= '<li style="font-size:13px;margin:3px 0;"><a href="' . esc_url($url) . '" style="color:#2563eb;text-decoration:none;">' . esc_html($name_f) . '</a></li>';
+                // URL → Dateipfad ableiten und als wp_mail-Attachment beilegen
+                $rel = str_replace(trailingslashit($upload_dir['baseurl']), '', $url);
+                $abs = trailingslashit($upload_dir['basedir']) . $rel;
+                if (file_exists($abs)) $extra_attach_files[] = $abs;
+            }
+            $body .= '</ul></div>';
+        }
 
         // ── Optional: Tickets anhängen ──
         $attachments     = [];
@@ -1656,10 +2043,20 @@ class TIX_Support {
             '#' . $ticket_id . ' – ' . $subject
         );
 
-        wp_mail($email, 'Neue Antwort zu deiner Anfrage #' . $ticket_id, $html, ['Content-Type: text/html; charset=UTF-8'], $attachments);
+        // Datei-Anhänge zur wp_mail-Liste hinzufügen
+        $all_attachments = array_merge($attachments, $extra_attach_files);
 
-        // Temp-PDFs aufräumen
+        wp_mail($email, 'Neue Antwort zu deiner Anfrage #' . $ticket_id, $html, ['Content-Type: text/html; charset=UTF-8'], $all_attachments);
+
+        // Temp-PDFs aufräumen (Datei-Uploads bleiben — sind permanent gespeichert)
         foreach ($temp_files as $f) { @unlink($f); }
+
+        // Anhang-Status erweitern
+        if (!empty($extra_attach_files)) {
+            $extra_count = count($extra_attach_files);
+            $extra_msg = $extra_count . ' Datei' . ($extra_count > 1 ? 'en' : '') . ' angehängt';
+            $attach_message = $attach_message ? ($attach_message . ' · ' . $extra_msg) : $extra_msg;
+        }
 
         return $attach_message;
     }

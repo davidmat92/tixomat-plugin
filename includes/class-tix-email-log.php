@@ -300,8 +300,8 @@ class TIX_Email_Log {
         $pixel_url = self::get_pixel_url($token);
         $pixel = '<img src="' . esc_url($pixel_url) . '" alt="" width="1" height="1" style="display:block;width:1px;height:1px;border:0;outline:none;text-decoration:none;" />';
 
-        // Feedback-Buttons nur, wenn der Hook das erlaubt (default: nur Support-Replies bekommen Feedback)
-        $show_feedback = apply_filters('tix_email_show_feedback', self::source_wants_feedback($source), $source, $token);
+        // Feedback-Buttons nur, wenn der Body unser Mail-Template ist (ODER per Filter erzwungen)
+        $show_feedback = apply_filters('tix_email_show_feedback', self::source_wants_feedback($source, $html), $source, $token);
         $feedback_html = $show_feedback ? self::build_feedback_buttons($token) : '';
 
         $injection = $feedback_html . $pixel;
@@ -313,11 +313,21 @@ class TIX_Email_Log {
     }
 
     /**
-     * Soll der Source standardmäßig Feedback-Buttons bekommen?
-     * Wir zeigen Feedback nur bei "menschlich verfassten" Antworten — Support-Replies + CRM-Mails.
+     * Soll diese Mail Feedback-Buttons bekommen?
+     * Robuste Erkennung via HTML-Marker (statt Backtrace, der bei WP-Hooks
+     * unzuverlässig den Caller findet): jede Mail durch unser
+     * build_generic_email_html() trägt die CSS-Klasse "tix-email-container".
      */
-    private static function source_wants_feedback($source) {
-        $list = ['tix_support', 'tix_crm', 'tix_emails', 'tix_my_tickets'];
+    private static function source_wants_feedback($source, $body = '') {
+        // Filter-Override: Plugins können explizit Feedback aus/anschalten
+        $forced = apply_filters('tix_email_feedback_force', null, $source, $body);
+        if ($forced !== null) return (bool) $forced;
+
+        // Heuristik 1: Body trägt unseren Container-Marker → ist unsere Mail
+        if ($body && stripos($body, 'tix-email-container') !== false) return true;
+
+        // Heuristik 2: Source enthält tix-prefix
+        $list = ['tix_support', 'tix_crm', 'TIX_Support', 'TIX_CRM', 'TIX_Emails', 'TIX_My_Tickets'];
         foreach ($list as $needle) {
             if (stripos($source, $needle) !== false) return true;
         }
