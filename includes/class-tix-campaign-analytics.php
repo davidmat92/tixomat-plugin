@@ -92,9 +92,11 @@ class TIX_Campaign_Analytics {
 
     private static function render_summary($results) {
         $total_views   = array_sum(array_column($results, 'views'));
+        $total_orders  = array_sum(array_column($results, 'orders'));
         $total_tickets = array_sum(array_column($results, 'tickets'));
         $total_revenue = array_sum(array_column($results, 'revenue'));
-        $avg_conv      = $total_views > 0 ? ($total_tickets / $total_views * 100) : 0;
+        // Conversion = Bestellungen / Besucher (Anteil der Besucher die kaufen)
+        $avg_conv      = $total_views > 0 ? ($total_orders / $total_views * 100) : 0;
         $channels_used = count($results);
 
         ?>
@@ -103,18 +105,22 @@ class TIX_Campaign_Analytics {
             $kpis = [
                 ['📊', 'Kan&auml;le', $channels_used, '#e0f2fe', '#0369a1'],
                 ['👁️', 'Besucher', number_format($total_views, 0, ',', '.'), '#f0fdf4', '#166534'],
+                ['🛒', 'Bestellungen', number_format($total_orders, 0, ',', '.'), '#fef9c3', '#854d0e'],
                 ['🎟️', 'Tickets', number_format($total_tickets, 0, ',', '.'), '#fef3c7', '#92400e'],
                 ['💰', 'Umsatz', number_format($total_revenue, 2, ',', '.') . ' &euro;', '#fce7f3', '#9d174d'],
                 ['📈', 'Conversion', number_format($avg_conv, 1, ',', '.') . '%', '#ede9fe', '#5b21b6'],
             ];
             foreach ($kpis as $k): ?>
-            <div style="flex:1;min-width:150px;padding:16px 20px;background:<?php echo $k[3]; ?>;border-radius:10px;text-align:center">
+            <div style="flex:1;min-width:140px;padding:16px 20px;background:<?php echo $k[3]; ?>;border-radius:10px;text-align:center">
                 <div style="font-size:24px;margin-bottom:4px"><?php echo $k[0]; ?></div>
                 <div style="font-size:22px;font-weight:800;color:<?php echo $k[4]; ?>"><?php echo $k[2]; ?></div>
                 <div style="font-size:12px;color:#64748b;margin-top:2px"><?php echo $k[1]; ?></div>
             </div>
             <?php endforeach; ?>
         </div>
+        <p style="font-size:12px;color:#64748b;margin:0 0 16px;">
+            <strong>Conversion</strong> = Bestellungen ÷ Besucher · <strong>Tickets</strong> = Stückzahl, <strong>Bestellungen</strong> = Anzahl distinkter Käufe.
+        </p>
         <?php
     }
 
@@ -148,6 +154,7 @@ class TIX_Campaign_Analytics {
                     <th style="width:180px">Kanal</th>
                     <th>Kampagne</th>
                     <th style="width:100px;text-align:right">Besucher</th>
+                    <th style="width:90px;text-align:right">Bestellungen</th>
                     <th style="width:80px;text-align:right">Tickets</th>
                     <th style="width:120px;text-align:right">Umsatz</th>
                     <th style="width:100px;text-align:right">Conversion</th>
@@ -156,7 +163,10 @@ class TIX_Campaign_Analytics {
             <tbody>
                 <?php foreach ($results as $row):
                     $bg = $colors[$row['source']] ?? '#94a3b8';
-                    $conv = $row['views'] > 0 ? ($row['tickets'] / $row['views'] * 100) : 0;
+                    $orders = intval($row['orders'] ?? 0);
+                    $tickets = intval($row['tickets'] ?? 0);
+                    // Conversion = Bestellungen / Besucher
+                    $conv = $row['views'] > 0 ? ($orders / $row['views'] * 100) : 0;
                 ?>
                 <tr>
                     <td>
@@ -165,7 +175,8 @@ class TIX_Campaign_Analytics {
                     </td>
                     <td><?php echo $row['campaign'] ? esc_html($row['campaign']) : '<span style="color:#94a3b8">&mdash;</span>'; ?></td>
                     <td style="text-align:right"><?php echo number_format($row['views'], 0, ',', '.'); ?></td>
-                    <td style="text-align:right"><?php echo number_format($row['tickets'], 0, ',', '.'); ?></td>
+                    <td style="text-align:right"><?php echo number_format($orders, 0, ',', '.'); ?></td>
+                    <td style="text-align:right"><strong><?php echo number_format($tickets, 0, ',', '.'); ?></strong></td>
                     <td style="text-align:right"><?php echo number_format($row['revenue'], 2, ',', '.') . ' &euro;'; ?></td>
                     <td style="text-align:right">
                         <?php if ($conv > 0): ?>
@@ -180,14 +191,16 @@ class TIX_Campaign_Analytics {
             <tfoot>
                 <?php
                 $total_views   = array_sum(array_column($results, 'views'));
+                $total_orders  = array_sum(array_column($results, 'orders'));
                 $total_tickets = array_sum(array_column($results, 'tickets'));
                 $total_revenue = array_sum(array_column($results, 'revenue'));
-                $total_conv    = $total_views > 0 ? ($total_tickets / $total_views * 100) : 0;
+                $total_conv    = $total_views > 0 ? ($total_orders / $total_views * 100) : 0;
                 ?>
                 <tr style="font-weight:700">
                     <td>Gesamt</td>
                     <td></td>
                     <td style="text-align:right"><?php echo number_format($total_views, 0, ',', '.'); ?></td>
+                    <td style="text-align:right"><?php echo number_format($total_orders, 0, ',', '.'); ?></td>
                     <td style="text-align:right"><?php echo number_format($total_tickets, 0, ',', '.'); ?></td>
                     <td style="text-align:right"><?php echo number_format($total_revenue, 2, ',', '.') . ' &euro;'; ?></td>
                     <td style="text-align:right"><?php echo number_format($total_conv, 1, ',', '.'); ?>%</td>
@@ -215,14 +228,16 @@ class TIX_Campaign_Analytics {
 
         $out = fopen('php://output', 'w');
         fwrite($out, "\xEF\xBB\xBF"); // BOM für Excel
-        fputcsv($out, ['Kanal', 'Kampagne', 'Besucher', 'Tickets', 'Umsatz', 'Conversion (%)'], ';');
+        fputcsv($out, ['Kanal', 'Kampagne', 'Besucher', 'Bestellungen', 'Tickets', 'Umsatz', 'Conversion (%)'], ';');
 
         foreach ($results as $row) {
-            $conv = $row['views'] > 0 ? ($row['tickets'] / $row['views'] * 100) : 0;
+            $orders = intval($row['orders'] ?? 0);
+            $conv = $row['views'] > 0 ? ($orders / $row['views'] * 100) : 0;
             fputcsv($out, [
                 $row['channel_label'],
                 $row['campaign'],
                 $row['views'],
+                $orders,
                 $row['tickets'],
                 number_format($row['revenue'], 2, '.', ''),
                 number_format($conv, 1, '.', ''),
@@ -239,6 +254,7 @@ class TIX_Campaign_Analytics {
 
     /**
      * Pageview-Daten + Order-Daten zusammenführen.
+     * Liefert pro Quelle/Kampagne: views, orders (Bestellungen), tickets (Stückzahlen), revenue.
      */
     private static function query_analytics($filter) {
         global $wpdb;
@@ -256,6 +272,7 @@ class TIX_Campaign_Analytics {
                 'campaign'      => $row['campaign'],
                 'channel_label' => self::get_channel_label($row['source']),
                 'views'         => intval($row['views']),
+                'orders'        => 0,
                 'tickets'       => 0,
                 'revenue'       => 0.0,
             ];
@@ -269,17 +286,19 @@ class TIX_Campaign_Analytics {
                     'campaign'      => $row['campaign'],
                     'channel_label' => self::get_channel_label($row['source']),
                     'views'         => 0,
+                    'orders'        => 0,
                     'tickets'       => 0,
                     'revenue'       => 0.0,
                 ];
             }
+            $merged[$key]['orders']  = intval($row['orders']);
             $merged[$key]['tickets'] = intval($row['tickets']);
             $merged[$key]['revenue'] = floatval($row['revenue']);
         }
 
-        // Sortieren nach Besucher absteigend
+        // Sortieren nach Tickets absteigend, dann Besucher
         usort($merged, function ($a, $b) {
-            return $b['views'] - $a['views'] ?: $b['tickets'] - $a['tickets'];
+            return $b['tickets'] - $a['tickets'] ?: $b['views'] - $a['views'];
         });
 
         return $merged;
@@ -330,6 +349,10 @@ class TIX_Campaign_Analytics {
 
     /**
      * Order-Daten aus WC-Orders mit _tix_campaign_source Meta + native Orders.
+     * Liefert pro Quelle/Kampagne:
+     *   - orders   = Anzahl distinkter Bestellungen
+     *   - tickets  = Summe der Ticket-Stückzahlen über alle Bestellungen
+     *   - revenue  = Summe der Gesamtbeträge
      */
     private static function query_orders($filter) {
         global $wpdb;
@@ -348,15 +371,22 @@ class TIX_Campaign_Analytics {
         // Native orders (wc_order_id = 0)
         $native_data = self::query_orders_native($filter);
 
-        // Merge by source + campaign
+        // Merge by source + campaign — orders, tickets, revenue addieren
         $merged = [];
         foreach (array_merge($wc_data, $native_data) as $row) {
             $key = $row['source'] . '::' . $row['campaign'];
             if (!isset($merged[$key])) {
-                $merged[$key] = $row;
+                $merged[$key] = [
+                    'source'   => $row['source'],
+                    'campaign' => $row['campaign'],
+                    'orders'   => intval($row['orders'] ?? 0),
+                    'tickets'  => intval($row['tickets'] ?? 0),
+                    'revenue'  => floatval($row['revenue'] ?? 0),
+                ];
             } else {
-                $merged[$key]['tickets'] = intval($merged[$key]['tickets']) + intval($row['tickets']);
-                $merged[$key]['revenue'] = floatval($merged[$key]['revenue']) + floatval($row['revenue']);
+                $merged[$key]['orders']  += intval($row['orders'] ?? 0);
+                $merged[$key]['tickets'] += intval($row['tickets'] ?? 0);
+                $merged[$key]['revenue'] += floatval($row['revenue'] ?? 0);
             }
         }
 
@@ -398,11 +428,13 @@ class TIX_Campaign_Analytics {
 
         $where_sql = implode(' AND ', $where);
 
+        // Orders + Revenue pro Quelle/Kampagne
         $sql = "SELECT
                     ms.meta_value AS source,
                     COALESCE(mc.meta_value, '') AS campaign,
-                    COUNT(DISTINCT o.id) AS tickets,
-                    SUM(o.total_amount) AS revenue
+                    COUNT(DISTINCT o.id) AS orders,
+                    SUM(o.total_amount) AS revenue,
+                    GROUP_CONCAT(DISTINCT o.id) AS order_ids
                 FROM $orders_table o
                 INNER JOIN $meta_table ms ON ms.order_id = o.id AND ms.meta_key = '_tix_campaign_source'
                 LEFT JOIN $meta_table mc ON mc.order_id = o.id AND mc.meta_key = '_tix_campaign_name'
@@ -415,7 +447,46 @@ class TIX_Campaign_Analytics {
             $sql = $wpdb->prepare($sql, ...$args);
         }
 
-        return $wpdb->get_results($sql, ARRAY_A) ?: [];
+        $rows = $wpdb->get_results($sql, ARRAY_A) ?: [];
+
+        // Tickets pro Bestellung über order_items + _qty meta
+        foreach ($rows as &$r) {
+            $r['tickets'] = self::count_wc_tickets_for_orders(
+                array_filter(array_map('intval', explode(',', $r['order_ids'] ?? ''))),
+                intval($filter['event_id'] ?? 0)
+            );
+            unset($r['order_ids']);
+        }
+        unset($r);
+
+        return $rows;
+    }
+
+    /**
+     * Zählt Ticket-Stückzahlen (SUM _qty) für gegebene WC-Order-IDs.
+     * Optional auf ein Event eingeschränkt.
+     */
+    private static function count_wc_tickets_for_orders($order_ids, $event_id = 0) {
+        if (empty($order_ids)) return 0;
+        global $wpdb;
+        $ids_in = implode(',', array_map('intval', $order_ids));
+
+        $event_filter = '';
+        if ($event_id > 0) {
+            $event_filter = "AND EXISTS (
+                SELECT 1 FROM {$wpdb->prefix}woocommerce_order_itemmeta oim_ev
+                WHERE oim_ev.order_item_id = oi.order_item_id
+                  AND oim_ev.meta_key = '_tix_event_id'
+                  AND oim_ev.meta_value = " . intval($event_id) . "
+            )";
+        }
+
+        $sql = "SELECT COALESCE(SUM(CAST(oim_q.meta_value AS UNSIGNED)), 0)
+                FROM {$wpdb->prefix}woocommerce_order_items oi
+                INNER JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim_q
+                    ON oim_q.order_item_id = oi.order_item_id AND oim_q.meta_key = '_qty'
+                WHERE oi.order_id IN ($ids_in) AND oi.order_item_type = 'line_item' $event_filter";
+        return intval($wpdb->get_var($sql));
     }
 
     /**
@@ -452,8 +523,9 @@ class TIX_Campaign_Analytics {
         $sql = "SELECT
                     ms.meta_value AS source,
                     COALESCE(mc.meta_value, '') AS campaign,
-                    COUNT(DISTINCT p.ID) AS tickets,
-                    SUM(CAST(mt.meta_value AS DECIMAL(10,2))) AS revenue
+                    COUNT(DISTINCT p.ID) AS orders,
+                    SUM(CAST(mt.meta_value AS DECIMAL(10,2))) AS revenue,
+                    GROUP_CONCAT(DISTINCT p.ID) AS order_ids
                 FROM {$wpdb->posts} p
                 INNER JOIN {$wpdb->postmeta} ms ON ms.post_id = p.ID AND ms.meta_key = '_tix_campaign_source'
                 LEFT JOIN {$wpdb->postmeta} mc ON mc.post_id = p.ID AND mc.meta_key = '_tix_campaign_name'
@@ -467,7 +539,19 @@ class TIX_Campaign_Analytics {
             $sql = $wpdb->prepare($sql, ...$args);
         }
 
-        return $wpdb->get_results($sql, ARRAY_A) ?: [];
+        $rows = $wpdb->get_results($sql, ARRAY_A) ?: [];
+
+        // Tickets über order_items + _qty Meta
+        foreach ($rows as &$r) {
+            $r['tickets'] = self::count_wc_tickets_for_orders(
+                array_filter(array_map('intval', explode(',', $r['order_ids'] ?? ''))),
+                intval($filter['event_id'] ?? 0)
+            );
+            unset($r['order_ids']);
+        }
+        unset($r);
+
+        return $rows;
     }
 
     /**
@@ -503,10 +587,24 @@ class TIX_Campaign_Analytics {
 
         $where_sql = implode(' AND ', $where);
 
-        $sql = "SELECT o.id, o.total
+        // Tickets via SUM(quantity) aus tix_order_items, optional Event-gefiltert
+        $items_table = $wpdb->prefix . 'tix_order_items';
+        $items_have_table = $wpdb->get_var("SHOW TABLES LIKE '$items_table'") === $items_table;
+        $event_id_filter = intval($filter['event_id'] ?? 0);
+
+        $tickets_subquery = $items_have_table
+            ? "(SELECT COALESCE(SUM(oi2.quantity), 0)
+                FROM $items_table oi2
+                WHERE oi2.order_id = o.id"
+                . ($event_id_filter > 0 ? " AND oi2.event_id = " . $event_id_filter : '')
+              . ")"
+            : "0";
+
+        $sql = "SELECT o.id, o.total, $tickets_subquery AS ticket_count
                 FROM $orders_table o
                 $event_join
-                WHERE $where_sql";
+                WHERE $where_sql
+                GROUP BY o.id";
 
         if (!empty($args)) {
             $sql = $wpdb->prepare($sql, ...$args);
@@ -528,11 +626,13 @@ class TIX_Campaign_Analytics {
                 $grouped[$key] = [
                     'source'   => $source,
                     'campaign' => $campaign,
+                    'orders'   => 0,
                     'tickets'  => 0,
                     'revenue'  => 0.0,
                 ];
             }
-            $grouped[$key]['tickets'] += 1;
+            $grouped[$key]['orders']  += 1;
+            $grouped[$key]['tickets'] += intval($row['ticket_count']);
             $grouped[$key]['revenue'] += floatval($row['total']);
         }
 
