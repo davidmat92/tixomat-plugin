@@ -949,7 +949,7 @@ class TIX_My_Account {
                 'created'   => $t->post_date,
                 'category'  => get_post_meta($t->ID, '_tix_sp_category', true),
                 'priority'  => get_post_meta($t->ID, '_tix_sp_priority', true),
-                'messages'  => get_post_meta($t->ID, '_tix_sp_messages', true),
+                'messages'  => class_exists('TIX_Support') ? TIX_Support::get_messages_public($t->ID) : get_post_meta($t->ID, '_tix_sp_messages', true),
             ];
         }
 

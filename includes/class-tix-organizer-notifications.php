@@ -560,12 +560,14 @@ class TIX_Organizer_Notifications {
         $order_id       = intval(get_post_meta($post_id, '_tix_sp_order_id', true));
         $category       = get_post_meta($post_id, '_tix_sp_category', true);
 
-        // Erste Nachricht extrahieren für Preview
-        $messages = get_post_meta($post_id, '_tix_sp_messages', true);
+        // Erste Nachricht extrahieren für Preview (über Helper damit Legacy-Encoding repariert wird)
+        $messages = class_exists('TIX_Support')
+            ? TIX_Support::get_messages_public($post_id)
+            : get_post_meta($post_id, '_tix_sp_messages', true);
         $preview = '';
         if (is_array($messages) && !empty($messages)) {
             $first = reset($messages);
-            $preview = is_array($first) ? ($first['message'] ?? $first['text'] ?? '') : (string) $first;
+            $preview = is_array($first) ? ($first['content'] ?? $first['message'] ?? $first['text'] ?? '') : (string) $first;
             $preview = wp_strip_all_tags($preview);
             if (mb_strlen($preview) > 200) $preview = mb_substr($preview, 0, 200) . '…';
         } else {

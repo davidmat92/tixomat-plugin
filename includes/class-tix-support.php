@@ -71,6 +71,9 @@ class TIX_Support {
 
         // Sidebar-Badge-Cache invalidieren wenn sich Status ändert
         add_action('transition_post_status', [__CLASS__, 'invalidate_open_count_cache'], 10, 3);
+
+        // One-shot Migration für Legacy-JSON-Strings mit kaputten Unicode-Escapes
+        add_action('admin_init', [__CLASS__, 'migrate_messages_storage']);
     }
 
     /**
@@ -1397,7 +1400,8 @@ class TIX_Support {
             'content' => $content,
             'date'    => current_time('c'),
         ];
-        update_post_meta($post_id, '_tix_sp_messages', wp_json_encode([$msg]));
+        // Array statt JSON-String — siehe add_message() Begründung
+        update_post_meta($post_id, '_tix_sp_messages', [$msg]);
 
         // E-Mail an Admin
         self::send_email_new_ticket_admin($post_id, $subject, $email, $name);
@@ -1646,11 +1650,75 @@ class TIX_Support {
     private static function get_messages($ticket_id) {
         $raw = get_post_meta($ticket_id, '_tix_sp_messages', true);
         if (empty($raw)) return [];
+        // Neue Speicherung: direktes Array
+        if (is_array($raw)) return self::repair_messages_array($raw);
+        // Legacy: war als JSON-String gespeichert — bei alten Tickets sind die
+        // JSON-Escapes durch wp_unslash beschädigt (\n → n, ü → u00fc, 👋 → ud83dudc4b).
         if (is_string($raw)) {
-            $decoded = json_decode($raw, true);
-            return is_array($decoded) ? $decoded : [];
+            $repaired = self::repair_legacy_unicode_escapes($raw);
+            $decoded = json_decode($repaired, true);
+            return is_array($decoded) ? self::repair_messages_array($decoded) : [];
         }
-        return is_array($raw) ? $raw : [];
+        return [];
+    }
+
+    /**
+     * Falls einzelne Message-Felder bereits decoded vorliegen aber Reste der
+     * kaputten Escapes enthalten (Mix-Fall), normalisieren wir nochmal.
+     */
+    private static function repair_messages_array($messages) {
+        if (!is_array($messages)) return [];
+        foreach ($messages as &$m) {
+            if (isset($m['content']) && is_string($m['content']) && strpos($m['content'], 'ud8') !== false) {
+                $m['content'] = self::repair_legacy_unicode_escapes($m['content']);
+            }
+        }
+        return $messages;
+    }
+
+    /**
+     * Best-Effort-Reparatur für Strings, deren JSON-Backslash-Escapes durch
+     * wp_unslash zerstört wurden. Wir reparieren nur eindeutig erkennbare
+     * Patterns (Surrogate Pairs für Emojis + bekannte deutsche Umlaute).
+     * \n / \t lassen sich nicht ohne false positives wiederherstellen.
+     */
+    private static function repair_legacy_unicode_escapes($s) {
+        if (!is_string($s) || $s === '') return $s;
+
+        // 1) Emoji-Surrogate-Pairs: udXXX udXXX → ein Code-Point (4-byte UTF-8)
+        $s = preg_replace_callback(
+            '/u([dD][89aAbB][0-9a-fA-F]{2})u([dD][cCdDeEfF][0-9a-fA-F]{2})/',
+            function($m) {
+                $high = hexdec($m[1]);
+                $low  = hexdec($m[2]);
+                $cp = (($high - 0xD800) << 10) + ($low - 0xDC00) + 0x10000;
+                return mb_chr($cp, 'UTF-8');
+            },
+            $s
+        );
+
+        // 2) Bekannte deutsche/europäische Umlaute + Sonderzeichen (sicher erkennbar)
+        $umlaut_map = [
+            'u00e4' => 'ä', 'u00f6' => 'ö', 'u00fc' => 'ü', 'u00df' => 'ß',
+            'u00c4' => 'Ä', 'u00d6' => 'Ö', 'u00dc' => 'Ü',
+            'u00e9' => 'é', 'u00e8' => 'è', 'u00ea' => 'ê', 'u00eb' => 'ë',
+            'u00e0' => 'à', 'u00e1' => 'á', 'u00e2' => 'â', 'u00e3' => 'ã',
+            'u00f1' => 'ñ', 'u00f3' => 'ó', 'u00f2' => 'ò', 'u00f4' => 'ô',
+            'u00fa' => 'ú', 'u00f9' => 'ù', 'u00fb' => 'û',
+            'u00ed' => 'í', 'u00ec' => 'ì', 'u00ee' => 'î',
+            'u00a0' => "\u{00a0}", 'u00ab' => '«', 'u00bb' => '»',
+            'u2013' => '–', 'u2014' => '—', 'u2026' => '…',
+            'u201c' => '"', 'u201d' => '"', 'u2018' => "'", 'u2019' => "'",
+            'u201e' => '„', 'u20ac' => '€',
+        ];
+        $s = strtr($s, $umlaut_map);
+
+        // 3) \n und \t lassen sich NICHT zuverlässig zurückgewinnen ohne Wörter zu zerstören.
+        //    Heuristik: Wenn nach Satzzeichen (./,!?;:) gefolgt von "nn" und einem Großbuchstaben
+        //    ein neuer Satz beginnt, ist das vermutlich der zerstörte Doppel-Newline aus "\n\n".
+        $s = preg_replace('/([.,!?;:])nn([A-ZÄÖÜ])/u', "$1\n\n$2", $s);
+
+        return $s;
     }
 
     /** Public-Wrapper für TIX_Support_AI::cron_summarize. */
@@ -1658,10 +1726,56 @@ class TIX_Support {
         return self::get_messages($ticket_id);
     }
 
+    /**
+     * One-shot Migration: durchläuft alle bestehenden Support-Tickets,
+     * decodiert Legacy-JSON-Strings + repariert kaputte Unicode-Escapes
+     * und speichert die Messages als Array.
+     *
+     * Wird einmalig auf admin_init ausgeführt (idempotent, danach skip).
+     */
+    public static function migrate_messages_storage() {
+        if (get_option('tix_sp_messages_migrated_v2')) return;
+        // Nur Admin-Trigger, sonst riskanter wenn auf jeder Seite läuft
+        if (!is_admin() || !current_user_can('manage_options')) return;
+
+        global $wpdb;
+        $rows = $wpdb->get_results(
+            "SELECT pm.post_id, pm.meta_value
+             FROM {$wpdb->postmeta} pm
+             INNER JOIN {$wpdb->posts} p ON p.ID = pm.post_id AND p.post_type = 'tix_support_ticket'
+             WHERE pm.meta_key = '_tix_sp_messages' LIMIT 5000"
+        );
+        if (empty($rows)) {
+            update_option('tix_sp_messages_migrated_v2', current_time('c'), false);
+            return;
+        }
+
+        $fixed = 0;
+        foreach ($rows as $row) {
+            $val = $row->meta_value;
+            if (!is_string($val) || $val === '') continue;
+            // Wenn schon serialisiertes Array → skip
+            if (substr($val, 0, 2) === 'a:' || substr($val, 0, 5) === 's:') continue;
+            // Wenn JSON-String: decode + repair + als Array speichern
+            $repaired = self::repair_legacy_unicode_escapes($val);
+            $decoded = json_decode($repaired, true);
+            if (is_array($decoded)) {
+                $decoded = self::repair_messages_array($decoded);
+                update_post_meta(intval($row->post_id), '_tix_sp_messages', $decoded);
+                $fixed++;
+            }
+        }
+        update_option('tix_sp_messages_migrated_v2', current_time('c') . ' (fixed: ' . $fixed . ')', false);
+    }
+
     private static function add_message($ticket_id, $msg) {
         $messages = self::get_messages($ticket_id);
         $messages[] = $msg;
-        update_post_meta($ticket_id, '_tix_sp_messages', wp_json_encode($messages));
+        // WICHTIG: Direkt als Array speichern. wp_json_encode() würde JSON mit
+        // \uXXXX-Escapes produzieren — und update_post_meta() ruft intern
+        // wp_unslash() auf, das die Backslashes entfernt. Resultat: kaputte
+        // Escapes wie "ud83d" statt "👋". Mit Array → WP serialisiert sauber.
+        update_post_meta($ticket_id, '_tix_sp_messages', $messages);
 
         // KI-Summary asynchron triggern (best effort, fail-soft)
         if (function_exists('wp_schedule_single_event')) {

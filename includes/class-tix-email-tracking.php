@@ -149,11 +149,19 @@ class TIX_Email_Tracking {
         ];
         $label = $labels[$value] ?? $value;
 
-        // Reflection-freie interne Notiz via add_message (private, daher direkt Meta updaten)
+        // Interne Notiz: bestehende Messages laden + Note anhängen.
+        // WICHTIG: Array-Form (kein wp_json_encode → würde durch wp_unslash
+        // alle Backslashes verlieren, siehe TIX_Support::add_message).
         $meta_key = '_tix_sp_messages';
         $raw = get_post_meta($ticket_id, $meta_key, true);
-        $messages = $raw ? json_decode($raw, true) : [];
-        if (!is_array($messages)) $messages = [];
+        if (is_array($raw)) {
+            $messages = $raw;
+        } elseif (is_string($raw) && $raw !== '') {
+            $decoded = json_decode($raw, true);
+            $messages = is_array($decoded) ? $decoded : [];
+        } else {
+            $messages = [];
+        }
 
         $content = 'Kunden-Feedback per E-Mail: ' . $label;
         if ($note) $content .= "\n\n„" . $note . '"';
@@ -166,7 +174,7 @@ class TIX_Email_Tracking {
             'content' => $content,
             'date'    => current_time('c'),
         ];
-        update_post_meta($ticket_id, $meta_key, wp_json_encode($messages));
+        update_post_meta($ticket_id, $meta_key, $messages);
 
         // Bei "need_more" Status auf "in Bearbeitung" zurücksetzen, falls schon "gelöst"
         if ($value === 'need_more' && $post->post_status === 'tix_resolved') {
