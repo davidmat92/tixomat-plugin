@@ -1713,10 +1713,12 @@ class TIX_Support {
         ];
         $s = strtr($s, $umlaut_map);
 
-        // 3) \n und \t lassen sich NICHT zuverlässig zurückgewinnen ohne Wörter zu zerstören.
-        //    Heuristik: Wenn nach Satzzeichen (./,!?;:) gefolgt von "nn" und einem Großbuchstaben
-        //    ein neuer Satz beginnt, ist das vermutlich der zerstörte Doppel-Newline aus "\n\n".
-        $s = preg_replace('/([.,!?;:])nn([A-ZÄÖÜ])/u', "$1\n\n$2", $s);
+        // 3) \n und \t lassen sich nur heuristisch wiederherstellen — diese Patterns
+        //    sind sicher genug für deutsche Mail-Texte:
+        //    - Satzzeichen + nn + Buchstabe → \n\n (z.B. "Hallo Sven,nnich habe…")
+        //    - Satzzeichen + n + Großbuchstabe → \n  (einzelner Newline am Satzende)
+        $s = preg_replace('/([.,!?;:])nn([a-zäöüA-ZÄÖÜ])/u', "$1\n\n$2", $s);
+        $s = preg_replace('/([.!?;:])n([A-ZÄÖÜ])/u', "$1\n$2", $s);
 
         return $s;
     }
