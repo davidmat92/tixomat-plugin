@@ -1791,7 +1791,7 @@ class TIX_Support {
         $order_id = method_exists($order, 'get_id') ? $order->get_id() : 0;
         $items_table = $wpdb->prefix . 'tix_order_items';
         $items_rows = $order_id ? $wpdb->get_results($wpdb->prepare(
-            "SELECT item_name, quantity FROM $items_table WHERE order_id = %d", $order_id
+            "SELECT name, cat_name, quantity FROM $items_table WHERE order_id = %d", $order_id
         )) : [];
 
         return [
@@ -1813,7 +1813,8 @@ class TIX_Support {
                 (method_exists($order, 'get_billing_last_name')  ? $order->get_billing_last_name()  : '')
             ),
             'items'    => array_map(function($it) {
-                return ['name' => $it->item_name ?: 'Ticket', 'qty' => intval($it->quantity)];
+                $label = trim(($it->name ?? '') . (!empty($it->cat_name) ? ' – ' . $it->cat_name : ''));
+                return ['name' => $label ?: 'Ticket', 'qty' => intval($it->quantity)];
             }, $items_rows),
             'edit_url' => admin_url('admin.php?page=tix-orders&order_id=' . $order_id),
         ];

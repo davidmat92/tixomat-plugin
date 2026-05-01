@@ -296,19 +296,25 @@ class TIX_Meta_Pixel {
 
         $content_ids = [];
         $event_ids = [];
+        $num_items = 0;
         foreach ($order->get_items() as $item) {
             $product_id = $item->get_product_id();
             $content_ids[] = $product_id;
             $event_id = get_post_meta($product_id, '_tix_event_id', true);
             if ($event_id) $event_ids[] = intval($event_id);
+            // TIX_Order_Item hat get_quantity() — keine get_item_count() auf Order-Ebene
+            $num_items += method_exists($item, 'get_quantity') ? intval($item->get_quantity()) : 1;
         }
+
+        // TIX_Order hat keine get_currency() — Standard EUR (per Filter überschreibbar)
+        $currency = apply_filters('tix_native_order_currency', 'EUR', $order);
 
         $data = [
             'value'       => floatval($order->get_total()),
-            'currency'    => $order->get_currency(),
+            'currency'    => $currency,
             'content_ids' => array_unique($content_ids),
             'event_ids'   => array_unique($event_ids),
-            'num_items'   => $order->get_item_count(),
+            'num_items'   => $num_items,
             'order_id'    => $order_id,
             'event_id'    => $event_id_dedup,
         ];
@@ -346,10 +352,10 @@ class TIX_Meta_Pixel {
                 'user_data'     => $user_data,
                 'custom_data'   => [
                     'value'        => floatval($order->get_total()),
-                    'currency'     => $order->get_currency(),
+                    'currency'     => $currency,
                     'content_ids'  => array_map('strval', array_unique($content_ids)),
                     'content_type' => 'product',
-                    'num_items'    => $order->get_item_count(),
+                    'num_items'    => $num_items,
                     'order_id'     => (string) $order_id,
                 ],
             ];
