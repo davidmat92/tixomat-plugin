@@ -1736,38 +1736,54 @@ class TIX_Support {
      * Wird einmalig auf admin_init ausgeführt (idempotent, danach skip).
      */
     public static function migrate_messages_storage() {
-        if (get_option('tix_sp_messages_migrated_v2')) return;
-        // Nur Admin-Trigger, sonst riskanter wenn auf jeder Seite läuft
+        $current = get_option('tix_sp_messages_migrated_v2');
+        // Versions-String erlaubt Re-Runs nach Heuristik-Verbesserungen
+        $migration_version = 'v4-newline-heuristic';
+        if ($current && strpos($current, $migration_version) !== false) return;
         if (!is_admin() || !current_user_can('manage_options')) return;
 
         global $wpdb;
-        $rows = $wpdb->get_results(
-            "SELECT pm.post_id, pm.meta_value
-             FROM {$wpdb->postmeta} pm
-             INNER JOIN {$wpdb->posts} p ON p.ID = pm.post_id AND p.post_type = 'tix_support_ticket'
-             WHERE pm.meta_key = '_tix_sp_messages' LIMIT 5000"
+        $post_ids = $wpdb->get_col(
+            "SELECT p.ID
+             FROM {$wpdb->posts} p
+             INNER JOIN {$wpdb->postmeta} pm ON pm.post_id = p.ID AND pm.meta_key = '_tix_sp_messages'
+             WHERE p.post_type = 'tix_support_ticket' LIMIT 5000"
         );
-        if (empty($rows)) {
-            update_option('tix_sp_messages_migrated_v2', current_time('c'), false);
+        if (empty($post_ids)) {
+            update_option('tix_sp_messages_migrated_v2', current_time('c') . ' (' . $migration_version . ')', false);
             return;
         }
 
         $fixed = 0;
-        foreach ($rows as $row) {
-            $val = $row->meta_value;
-            if (!is_string($val) || $val === '') continue;
-            // Wenn schon serialisiertes Array → skip
-            if (substr($val, 0, 2) === 'a:' || substr($val, 0, 5) === 's:') continue;
-            // Wenn JSON-String: decode + repair + als Array speichern
-            $repaired = self::repair_legacy_unicode_escapes($val);
-            $decoded = json_decode($repaired, true);
-            if (is_array($decoded)) {
-                $decoded = self::repair_messages_array($decoded);
-                update_post_meta(intval($row->post_id), '_tix_sp_messages', $decoded);
+        foreach ($post_ids as $post_id) {
+            $raw = get_post_meta(intval($post_id), '_tix_sp_messages', true);
+            $messages = null;
+
+            if (is_array($raw)) {
+                // Schon Array — nur repair-Pass auf den content-Strings drüberlaufen lassen
+                $messages = self::repair_messages_array($raw);
+                // Zusätzlich: Newline-Heuristik auf jedes content-Feld
+                foreach ($messages as &$m) {
+                    if (isset($m['content']) && is_string($m['content'])) {
+                        $m['content'] = self::repair_legacy_unicode_escapes($m['content']);
+                    }
+                }
+                unset($m);
+            } elseif (is_string($raw) && $raw !== '') {
+                // JSON-String mit kaputten Escapes
+                $repaired = self::repair_legacy_unicode_escapes($raw);
+                $decoded = json_decode($repaired, true);
+                if (is_array($decoded)) {
+                    $messages = self::repair_messages_array($decoded);
+                }
+            }
+
+            if (is_array($messages)) {
+                update_post_meta(intval($post_id), '_tix_sp_messages', $messages);
                 $fixed++;
             }
         }
-        update_option('tix_sp_messages_migrated_v2', current_time('c') . ' (fixed: ' . $fixed . ')', false);
+        update_option('tix_sp_messages_migrated_v2', current_time('c') . ' (' . $migration_version . ', fixed: ' . $fixed . ')', false);
     }
 
     private static function add_message($ticket_id, $msg) {
