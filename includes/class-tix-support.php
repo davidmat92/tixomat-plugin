@@ -1740,7 +1740,9 @@ class TIX_Support {
         // Versions-String erlaubt Re-Runs nach Heuristik-Verbesserungen
         $migration_version = 'v4-newline-heuristic';
         if ($current && strpos($current, $migration_version) !== false) return;
-        if (!is_admin() || !current_user_can('manage_options')) return;
+        // Sicherheit: nur Admin oder WP-CLI (für manuellen Trigger)
+        $is_cli = defined('WP_CLI') && WP_CLI;
+        if (!$is_cli && (!is_admin() || !current_user_can('manage_options'))) return;
 
         global $wpdb;
         $post_ids = $wpdb->get_col(
