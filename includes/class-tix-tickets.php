@@ -2981,6 +2981,13 @@ body{margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',
             margin-top: 6px;
         }
         html.tix-ht-v4 .ticket-cover-cat { justify-content: center; }
+        <?php
+        // Badge-Farben aus denselben Settings wie der "Nicht eingecheckt"-Pill
+        // (Settings → Design → Ticket-Badge → Pending-Status). Damit matcht der
+        // Cat-Badge exakt den oberen Status-Pill.
+        $cat_badge_bg = !empty($s['badge_pending_bg'])   ? $s['badge_pending_bg']   : '#6366f1';
+        $cat_badge_fg = !empty($s['badge_pending_text']) ? $s['badge_pending_text'] : '#ffffff';
+        ?>
         html.tix-ht-v4 .tix-ticket-cat {
             display: inline-flex;
             align-items: center;
@@ -2991,9 +2998,9 @@ body{margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',
             text-transform: uppercase;
             padding: 7px 16px;
             border-radius: 999px;
-            /* Einfarbig in Akzent-Farbe (gleicher Pill-Look wie "Nicht eingecheckt") */
-            background: <?php echo esc_attr($accent); ?>;
-            color: <?php echo esc_attr(!empty($s['color_accent_text']) ? $s['color_accent_text'] : '#ffffff'); ?>;
+            /* Einfarbig — gleicher Pill-Look wie "Nicht eingecheckt"-Status oben */
+            background: <?php echo esc_attr($cat_badge_bg); ?>;
+            color: <?php echo esc_attr($cat_badge_fg); ?>;
             border: none;
             box-shadow: 0 4px 14px -4px rgba(0,0,0,0.18);
             line-height: 1.2;
