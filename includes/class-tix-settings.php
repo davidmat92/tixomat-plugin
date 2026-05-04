@@ -1098,6 +1098,7 @@ class TIX_Settings {
         $clean['ht_action_save_image']   = !empty($input['ht_action_save_image']) ? 1 : 0;
         $clean['ht_action_wallets']      = !empty($input['ht_action_wallets']) ? 1 : 0;
         $clean['ht_action_print']        = !empty($input['ht_action_print']) ? 1 : 0;
+        $clean['ht_show_order_bundle_btn'] = !empty($input['ht_show_order_bundle_btn']) ? 1 : 0;
         $clean['ht_share_image']         = esc_url_raw($input['ht_share_image'] ?? '');
         $clean['ht_qr_bright_mode']      = !empty($input['ht_qr_bright_mode']) ? 1 : 0;
         $clean['ht_show_event_cover']    = !empty($input['ht_show_event_cover']) ? 1 : 0;
@@ -3470,7 +3471,13 @@ class TIX_Settings {
                                                         <input type="checkbox" name="<?php echo $ok; ?>[ht_action_print]" value="1" <?php checked(!empty($s['ht_action_print'])); ?>>
                                                         <span style="font-size:13px;"><strong>🖨️ Ticket drucken</strong></span>
                                                     </label>
+                                                    <label style="display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid #e5e7eb;border-radius:8px;cursor:pointer;">
+                                                        <?php $bundle_btn_on = !isset($s['ht_show_order_bundle_btn']) || !empty($s['ht_show_order_bundle_btn']); ?>
+                                                        <input type="checkbox" name="<?php echo $ok; ?>[ht_show_order_bundle_btn]" value="1" <?php checked($bundle_btn_on); ?>>
+                                                        <span style="font-size:13px;"><strong>📋 „Alle Tickets der Bestellung"-Button</strong></span>
+                                                    </label>
                                                 </div>
+                                                <p style="margin:8px 0 0;font-size:11px;color:#9ca3af;line-height:1.5;">Der Bundle-Button erscheint unten auf jedem Ticket — aber nur wenn die Bestellung mehr als 1 Ticket enthält.</p>
                                             </div>
                                         </div>
 

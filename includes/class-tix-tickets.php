@@ -681,15 +681,11 @@ class TIX_Tickets {
                 wp_die('Ticket nicht gefunden oder Link abgelaufen.', 'Fehler', ['response' => 404]);
             }
 
-            // ── Routing: format=pdf|image → direkter Download, sonst Landing-Page ──
-            $format = sanitize_text_field($_GET['format'] ?? '');
-            if ($format === 'pdf' || $format === 'image' || !empty($_GET['download'])) {
-                self::render_pdf($results[0]->ID);
-                exit;
-            }
-
-            // Default: Landing-Page mit Preview + Action-Buttons
-            self::render_landing_page($results[0]->ID);
+            // Direkt Ticket anzeigen — kein Zwischenschritt mehr.
+            // - HTML-Modus (kein Template) → render_legacy_html mit Action-Bar unten
+            // - PDF-Modus (Template) → render_pdf streamt PDF (mit optionalem HTML-Wrapper
+            //   nur wenn Toggle aktiv und nicht explizit format=pdf gefordert)
+            self::render_pdf($results[0]->ID);
             exit;
         }
 
@@ -1768,21 +1764,26 @@ class TIX_Tickets {
      */
     private static function render_pdf($ticket_id) {
         $event_id = intval(get_post_meta($ticket_id, '_tix_ticket_event_id', true));
+        $format   = sanitize_text_field($_GET['format'] ?? '');
+        $direct   = ($format === 'pdf' || $format === 'image' || !empty($_GET['download']));
 
-        // ── TEMPLATE MODE ──
+        // ── TEMPLATE MODE (PDF-Ticket über Bild-Template) ──
         if (class_exists('TIX_Ticket_Template')) {
             $config = TIX_Ticket_Template::get_effective_config($event_id);
 
             if ($config && !empty($config['template_image_id'])) {
-                $format = sanitize_text_field($_GET['format'] ?? '');
                 $gd = TIX_Ticket_Template::render_ticket_image($ticket_id, $config);
 
                 if ($gd) {
-                    if ($format === 'image') {
+                    if ($direct && $format === 'image') {
                         header('Content-Type: image/jpeg');
                         header('Content-Disposition: inline; filename="ticket-' . $ticket_id . '.jpg"');
                         imagejpeg($gd, null, 92);
-                    } else {
+                        imagedestroy($gd);
+                        return;
+                    }
+                    if ($direct) {
+                        // PDF (default direct)
                         ob_start();
                         imagejpeg($gd, null, 95);
                         $jpeg = ob_get_clean();
@@ -1790,10 +1791,17 @@ class TIX_Tickets {
                         header('Content-Type: application/pdf');
                         header('Content-Disposition: inline; filename="ticket-' . $ticket_id . '.pdf"');
                         echo $pdf;
+                        imagedestroy($gd);
+                        return;
                     }
+
+                    // Browser-View: HTML-Wrapper mit Bild + Bundle-Button
+                    // GD ist OK weil das Bild gerade gerendert wurde — sicher dass es funktioniert
                     imagedestroy($gd);
+                    self::render_pdf_html_wrapper($ticket_id, $event_id);
                     return;
                 }
+                // GD-Fehler → fall through zu legacy_html
             }
         }
 
@@ -1802,11 +1810,93 @@ class TIX_Tickets {
     }
 
     /**
+     * Wrapper-Seite für PDF-Tickets: rendert das Ticket-Bild als JPEG und
+     * zeigt darunter die Action-Bar mit "Alle Tickets dieser Bestellung".
+     * Wird für ?tix_dl=TOKEN ohne format=pdf aufgerufen.
+     */
+    private static function render_pdf_html_wrapper($ticket_id, $event_id) {
+        $token       = self::ensure_download_token($ticket_id);
+        $order_id    = intval(get_post_meta($ticket_id, '_tix_ticket_order_id', true));
+        $code        = get_post_meta($ticket_id, '_tix_ticket_code', true);
+        $event       = $event_id ? get_post($event_id) : null;
+        $event_name  = $event ? $event->post_title : '';
+        $image_url   = add_query_arg(['tix_dl' => $token, 'format' => 'image'], home_url('/'));
+        $pdf_url     = add_query_arg(['tix_dl' => $token, 'format' => 'pdf'], home_url('/'));
+
+        $s          = function_exists('tix_get_settings') ? get_option('tix_settings', []) : [];
+        $brand      = !empty($s['email_brand_name']) ? $s['email_brand_name'] : get_bloginfo('name');
+        $accent     = !empty($s['color_primary']) ? $s['color_primary'] : '#FF5500';
+
+        nocache_headers();
+        header('Content-Type: text/html; charset=UTF-8');
+        ?>
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Ticket <?php echo esc_html($code ?: '#' . $ticket_id); ?> — <?php echo esc_html($brand); ?></title>
+<style>
+*,*::before,*::after{box-sizing:border-box}
+body{margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background:#f3f4f6;color:#1a1a1a;display:flex;flex-direction:column;align-items:center;min-height:100vh;padding:24px 12px}
+.tix-w-img{max-width:760px;width:100%;border-radius:14px;box-shadow:0 4px 20px rgba(0,0,0,0.12);overflow:hidden;background:#fff}
+.tix-w-img img{display:block;width:100%;height:auto}
+.tix-w-bar{max-width:760px;width:100%;margin-top:12px;display:flex;flex-wrap:wrap;gap:8px;justify-content:center}
+.tix-w-btn{display:inline-flex;align-items:center;gap:6px;padding:10px 16px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px;border:1px solid #e5e7eb;background:#fff;color:#0f172a;cursor:pointer;font-family:inherit}
+.tix-w-btn:hover{background:#f9fafb}
+.tix-w-btn-primary{background:<?php echo esc_attr($accent); ?>;color:#fff;border-color:transparent}
+</style>
+</head>
+<body>
+    <div class="tix-w-img">
+        <img src="<?php echo esc_url($image_url); ?>" alt="<?php echo esc_attr($event_name . ' — ' . $code); ?>" />
+    </div>
+    <div class="tix-w-bar">
+        <a href="<?php echo esc_url($pdf_url); ?>" target="_blank" rel="noopener" class="tix-w-btn">📄 PDF herunterladen</a>
+        <?php self::render_bundle_action_button_html($ticket_id, $order_id); ?>
+    </div>
+</body>
+</html>
+        <?php
+        exit;
+    }
+
+    /**
+     * Rendert den "Alle Tickets dieser Bestellung anzeigen"-Button.
+     * Wird vom render_legacy_html UND render_pdf_html_wrapper aufgerufen.
+     * Per Setting toggle-bar (ht_show_order_bundle_btn, default: an).
+     */
+    public static function render_bundle_action_button_html($ticket_id, $order_id) {
+        if (!$order_id) return;
+        $s = function_exists('tix_get_settings') ? get_option('tix_settings', []) : [];
+        // Setting-Toggle (default: an)
+        $show = !isset($s['ht_show_order_bundle_btn']) || !empty($s['ht_show_order_bundle_btn']);
+        if (!$show) return;
+
+        // Anzahl Tickets der Bestellung — Button nur anzeigen wenn >1
+        $tickets = self::get_all_tickets_for_order(intval($order_id));
+        $cnt = count($tickets);
+        if ($cnt <= 1) return;
+
+        $bundle_url = self::get_bundle_url(intval($order_id));
+        if (!$bundle_url) return;
+
+        $accent = !empty($s['color_primary']) ? $s['color_primary'] : '#FF5500';
+        ?>
+        <a href="<?php echo esc_url($bundle_url); ?>" class="tix-w-btn tix-w-btn-primary" rel="noopener" style="background:<?php echo esc_attr($accent); ?>;color:#fff;">
+            📋 Alle <?php echo intval($cnt); ?> Tickets dieser Bestellung anzeigen
+        </a>
+        <?php
+    }
+
+    /**
      * Legacy HTML-Ticket (Fallback ohne Template)
      */
     private static function render_legacy_html($ticket_id) {
         $code         = get_post_meta($ticket_id, '_tix_ticket_code', true);
         $event_id     = intval(get_post_meta($ticket_id, '_tix_ticket_event_id', true));
+        $order_id     = intval(get_post_meta($ticket_id, '_tix_ticket_order_id', true));
         $cat_index_raw = get_post_meta($ticket_id, '_tix_ticket_cat_index', true);
         // -1 = "noch nicht ermittelt" (leerer Meta-Wert würde sonst auf Index 0 = Standard fallen)
         $cat_index    = ($cat_index_raw === '' || $cat_index_raw === false || $cat_index_raw === null)
@@ -3654,6 +3744,30 @@ class TIX_Tickets {
                 <?php endif; ?>
             </div>
         </div>
+
+        <?php
+        // ── GRUPPE 3: BUNDLE-BUTTON ── (nur wenn Order >1 Tickets hat + Setting aktiv)
+        $show_bundle_btn = !isset($s['ht_show_order_bundle_btn']) || !empty($s['ht_show_order_bundle_btn']);
+        if ($show_bundle_btn && $order_id) {
+            $order_tickets = self::get_all_tickets_for_order($order_id);
+            $cnt = count($order_tickets);
+            if ($cnt > 1) {
+                $bundle_url = self::get_bundle_url($order_id);
+                if ($bundle_url):
+        ?>
+        <div class="tix-ticket-actions-group">
+            <div class="tix-ticket-actions-row" style="justify-content:center;">
+                <a href="<?php echo esc_url($bundle_url); ?>" rel="noopener" class="btn-base"
+                   style="background:<?php echo esc_attr($accent); ?>;color:#fff;border:none;font-weight:600;text-decoration:none;padding:14px 22px;font-size:14px;width:100%;justify-content:center;display:inline-flex;gap:8px;align-items:center;">
+                    📋 Alle <?php echo intval($cnt); ?> Tickets dieser Bestellung anzeigen
+                </a>
+            </div>
+        </div>
+        <?php
+                endif;
+            }
+        }
+        ?>
 
     </div>
 
