@@ -349,27 +349,189 @@ class TIX_Tickets {
 
     public static function render_admin_actions_box($post) {
         $ticket_id    = $post->ID;
+        $token        = self::ensure_download_token($ticket_id);
         $download_url = self::get_download_url($ticket_id);
+        $pdf_url      = add_query_arg(['tix_dl' => $token, 'format' => 'pdf'], home_url('/'));
         $email        = get_post_meta($ticket_id, '_tix_ticket_owner_email', true);
+        $owner_name   = get_post_meta($ticket_id, '_tix_ticket_owner_name', true);
         $checked_in   = get_post_meta($ticket_id, '_tix_ticket_checked_in', true);
+        $code         = get_post_meta($ticket_id, '_tix_ticket_code', true);
+        $order_id     = intval(get_post_meta($ticket_id, '_tix_ticket_order_id', true));
+        $send_log     = get_post_meta($ticket_id, '_tix_ticket_send_log', true);
+        $send_nonce   = wp_create_nonce('tix_send_ticket_email');
+        $resend_nonce = wp_create_nonce('tix_admin_ticket_action');
         ?>
-        <p style="margin:0 0 10px;">
-            <a href="<?php echo esc_url($download_url); ?>" target="_blank" class="button button-primary" style="width:100%;text-align:center;">👁️ Online-Ansicht</a>
-        </p>
-        <p style="margin:0 0 10px;">
-            <a href="<?php echo esc_url(add_query_arg(['tix_dl' => get_post_meta($ticket_id, '_tix_ticket_download_token', true), 'format' => 'pdf'], home_url('/'))); ?>" target="_blank" class="button" style="width:100%;text-align:center;">📄 PDF öffnen</a>
-        </p>
-        <?php if ($email): ?>
-        <p style="margin:0 0 10px;font-size:12px;color:#6b7280;">
-            E-Mail: <strong><?php echo esc_html($email); ?></strong>
-        </p>
-        <?php endif; ?>
-        <p style="margin:14px 0 6px;font-size:11px;color:#9ca3af;text-transform:uppercase;letter-spacing:0.04em;font-weight:600;">Status</p>
+        <style>
+            .tix-tab-action{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;padding:9px 12px;margin-bottom:6px;font-weight:600;border-radius:6px;cursor:pointer;font-size:13px;text-decoration:none;border:1px solid transparent;background:#fff;color:#374151;border-color:#e5e7eb;text-align:center}
+            .tix-tab-action:hover{background:#f9fafb}
+            .tix-tab-action.primary{background:linear-gradient(90deg,#FF5500,#dc2626);color:#fff;border-color:transparent}
+            .tix-tab-action.secondary{background:#f3f4f6;color:#374151}
+            .tix-tab-action.danger:hover{background:#fef2f2;color:#dc2626;border-color:#fecaca}
+            .tix-tab-actions-section{margin-top:14px;padding-top:14px;border-top:1px solid #f3f4f6}
+            .tix-tab-actions-section-title{margin:0 0 8px;font-size:11px;color:#9ca3af;text-transform:uppercase;letter-spacing:0.04em;font-weight:600}
+            .tix-tab-feedback{padding:8px 12px;border-radius:6px;font-size:12px;margin-top:6px}
+            .tix-tab-feedback.ok{background:#dcfce7;color:#15803d}
+            .tix-tab-feedback.err{background:#fee2e2;color:#b91c1c}
+        </style>
+
+        <?php // ── Status ── ?>
+        <p class="tix-tab-actions-section-title" style="margin-top:0;">Status</p>
         <?php if ($checked_in): ?>
-            <p style="margin:0;padding:8px 12px;background:#dcfce7;color:#15803d;border-radius:6px;font-size:12px;">✓ Eingecheckt</p>
+            <p style="margin:0;padding:8px 12px;background:#dcfce7;color:#15803d;border-radius:6px;font-size:12px;text-align:center;">✓ Eingecheckt</p>
         <?php else: ?>
-            <p style="margin:0;padding:8px 12px;background:#f3f4f6;color:#6b7280;border-radius:6px;font-size:12px;">○ Noch nicht eingecheckt</p>
+            <p style="margin:0;padding:8px 12px;background:#f3f4f6;color:#6b7280;border-radius:6px;font-size:12px;text-align:center;">○ Noch nicht eingecheckt</p>
         <?php endif; ?>
+
+        <?php // ── Anzeigen ── ?>
+        <div class="tix-tab-actions-section">
+            <p class="tix-tab-actions-section-title">Anzeigen</p>
+            <a href="<?php echo esc_url($download_url); ?>" target="_blank" class="tix-tab-action primary">👁️ Online-Ansicht (Kunden-Sicht)</a>
+            <a href="<?php echo esc_url($pdf_url); ?>" target="_blank" class="tix-tab-action">📄 PDF öffnen</a>
+            <a href="<?php echo esc_url(add_query_arg(['tix_dl' => $token, 'format' => 'image'], home_url('/'))); ?>" target="_blank" class="tix-tab-action">🖼️ Als Bild öffnen</a>
+        </div>
+
+        <?php // ── Versand & Teilen ── ?>
+        <div class="tix-tab-actions-section">
+            <p class="tix-tab-actions-section-title">Versand & Teilen</p>
+            <button type="button" class="tix-tab-action primary" id="tix-admin-resend-mail">📧 Ticket-Mail erneut senden</button>
+            <button type="button" class="tix-tab-action" id="tix-admin-send-other">📨 An andere E-Mail senden</button>
+            <button type="button" class="tix-tab-action" id="tix-admin-copy-link" data-url="<?php echo esc_attr($download_url); ?>">🔗 Online-Link kopieren</button>
+            <button type="button" class="tix-tab-action" id="tix-admin-copy-code" data-code="<?php echo esc_attr($code); ?>">📋 Ticket-Code kopieren</button>
+            <?php if (function_exists('tix_supports_whatsapp_share') || true): ?>
+                <?php
+                $wa_msg = "Hier ist dein Ticket: " . $download_url;
+                $wa_url = 'https://wa.me/?text=' . rawurlencode($wa_msg);
+                ?>
+                <a href="<?php echo esc_url($wa_url); ?>" target="_blank" class="tix-tab-action" style="background:#25d36622;color:#075e54;border-color:#86efac;">💬 WhatsApp Share</a>
+            <?php endif; ?>
+            <div id="tix-admin-action-feedback"></div>
+        </div>
+
+        <?php // ── Verknüpfungen ── ?>
+        <div class="tix-tab-actions-section">
+            <p class="tix-tab-actions-section-title">Verknüpfungen</p>
+            <?php if ($order_id): ?>
+                <a href="<?php echo esc_url(admin_url('admin.php?page=tix-orders&order_id=' . $order_id)); ?>" class="tix-tab-action">📋 Bestellung #<?php echo intval($order_id); ?> öffnen</a>
+            <?php endif; ?>
+            <?php if ($email): ?>
+                <a href="<?php echo esc_url(admin_url('admin.php?page=tix-customers&email=' . urlencode($email))); ?>" class="tix-tab-action">👤 Kundenansicht öffnen</a>
+            <?php endif; ?>
+        </div>
+
+        <?php // ── Versand-Log (wenn vorhanden) ── ?>
+        <?php if (is_array($send_log) && !empty($send_log)): ?>
+        <div class="tix-tab-actions-section">
+            <p class="tix-tab-actions-section-title">Versand-Log (letzte <?php echo count($send_log); ?>)</p>
+            <div style="font-size:11px;color:#64748b;line-height:1.5;max-height:140px;overflow-y:auto;">
+                <?php foreach (array_reverse($send_log) as $entry): ?>
+                    <div style="padding:4px 0;border-bottom:1px solid #f3f4f6;">
+                        <strong><?php echo esc_html($entry['email'] ?? '?'); ?></strong>
+                        <?php if (($entry['scope'] ?? '') === 'all'): ?> (alle) <?php endif; ?>
+                        <br><span style="color:#9ca3af;"><?php echo esc_html(date_i18n('d.m. H:i', strtotime($entry['date'] ?? ''))); ?></span>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+        </div>
+        <?php endif; ?>
+
+        <?php // ── E-Mail-Modal (versteckt) ── ?>
+        <div id="tix-admin-mail-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:99999;align-items:center;justify-content:center;padding:20px;">
+            <div style="background:#fff;border-radius:14px;max-width:440px;width:100%;padding:24px;">
+                <h3 style="margin:0 0 6px;font-size:18px;">📨 An andere E-Mail senden</h3>
+                <p style="margin:0 0 14px;color:#6b7280;font-size:13px;">Sendet das Ticket an die angegebene Adresse (mit PDF-Anhang falls Template).</p>
+                <input type="email" id="tix-admin-mail-target" placeholder="empfaenger@example.com" value="<?php echo esc_attr($email); ?>" style="width:100%;padding:10px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;margin-bottom:12px;">
+                <label style="display:flex;gap:8px;align-items:center;font-size:13px;color:#374151;background:#f9fafb;padding:8px 10px;border-radius:6px;margin-bottom:14px;cursor:pointer;">
+                    <input type="checkbox" id="tix-admin-mail-all">
+                    <span>Alle Tickets der Bestellung mitsenden</span>
+                </label>
+                <div id="tix-admin-mail-msg" style="margin-bottom:10px;"></div>
+                <div style="display:flex;justify-content:flex-end;gap:8px;">
+                    <button type="button" class="button" id="tix-admin-mail-cancel">Abbrechen</button>
+                    <button type="button" class="button button-primary" id="tix-admin-mail-go">Senden</button>
+                </div>
+            </div>
+        </div>
+
+        <script>
+        (function($){
+            var TOKEN = <?php echo wp_json_encode($token); ?>;
+            var TICKET_ID = <?php echo intval($ticket_id); ?>;
+            var SEND_NONCE = <?php echo wp_json_encode($send_nonce); ?>;
+            var RESEND_NONCE = <?php echo wp_json_encode($resend_nonce); ?>;
+
+            function feedback(msg, ok) {
+                var div = $('#tix-admin-action-feedback');
+                div.html('<div class="tix-tab-feedback ' + (ok ? 'ok' : 'err') + '">' + msg + '</div>');
+                setTimeout(function() { div.empty(); }, 4500);
+            }
+
+            // Copy
+            $('#tix-admin-copy-link').on('click', function() {
+                var url = $(this).data('url');
+                if (navigator.clipboard) {
+                    navigator.clipboard.writeText(url).then(function(){ feedback('🔗 Link kopiert', true); });
+                } else {
+                    var ta = document.createElement('textarea'); ta.value = url; document.body.appendChild(ta); ta.select();
+                    try { document.execCommand('copy'); feedback('🔗 Link kopiert', true); } catch(e) {}
+                    document.body.removeChild(ta);
+                }
+            });
+            $('#tix-admin-copy-code').on('click', function() {
+                var code = $(this).data('code');
+                navigator.clipboard.writeText(code).then(function(){ feedback('📋 Code kopiert: ' + code, true); });
+            });
+
+            // Resend Original-Mail
+            $('#tix-admin-resend-mail').on('click', function() {
+                var btn = $(this);
+                var orig = btn.html();
+                btn.prop('disabled', true).html('Sende…');
+                $.post(ajaxurl, {
+                    action: 'tix_support_resend_ticket',
+                    nonce: <?php echo wp_json_encode(wp_create_nonce('tix_support_action')); ?>,
+                    ticket_post_id: TICKET_ID,
+                    email: <?php echo wp_json_encode($email); ?>,
+                }, function(r) {
+                    btn.prop('disabled', false).html(orig);
+                    if (r.success) feedback('✓ ' + (r.data.message || 'E-Mail gesendet'), true);
+                    else feedback('✗ ' + (r.data || 'Fehler'), false);
+                });
+            });
+
+            // An andere E-Mail
+            $('#tix-admin-send-other').on('click', function() {
+                $('#tix-admin-mail-modal').css('display', 'flex');
+                $('#tix-admin-mail-msg').empty();
+            });
+            $('#tix-admin-mail-cancel').on('click', function() { $('#tix-admin-mail-modal').hide(); });
+            $('#tix-admin-mail-modal').on('click', function(e) { if (e.target === this) $(this).hide(); });
+            $('#tix-admin-mail-go').on('click', function() {
+                var email = $('#tix-admin-mail-target').val().trim();
+                if (!email || email.indexOf('@') < 0) {
+                    $('#tix-admin-mail-msg').html('<div class="tix-tab-feedback err">E-Mail ungültig.</div>');
+                    return;
+                }
+                var scope = $('#tix-admin-mail-all').is(':checked') ? 'all' : 'single';
+                var btn = $(this);
+                btn.prop('disabled', true).text('Sende…');
+                $.post(ajaxurl, {
+                    action: 'tix_send_ticket_email',
+                    nonce: SEND_NONCE,
+                    token: TOKEN,
+                    email: email,
+                    scope: scope,
+                }, function(r) {
+                    btn.prop('disabled', false).text('Senden');
+                    if (r.success) {
+                        $('#tix-admin-mail-msg').html('<div class="tix-tab-feedback ok">' + (r.data.message || 'Gesendet') + '</div>');
+                        setTimeout(function() { $('#tix-admin-mail-modal').hide(); }, 1800);
+                    } else {
+                        $('#tix-admin-mail-msg').html('<div class="tix-tab-feedback err">' + (r.data || 'Fehler') + '</div>');
+                    }
+                });
+            });
+        })(jQuery);
+        </script>
         <?php
     }
 

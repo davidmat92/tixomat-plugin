@@ -319,7 +319,7 @@
             html += '<div class="tix-sp-quick-actions">';
             if (t.linked_ticket) {
                 if (t.linked_ticket.download_url) {
-                    html += '<a href="' + esc(t.linked_ticket.download_url) + '" target="_blank" rel="noopener" class="tix-sp-qa-btn" style="background:#dbeafe;color:#1d4ed8;">👁️ Online ansehen (Kunden-Sicht)</a>';
+                    html += '<button class="tix-sp-qa-btn tix-sp-ticket-preview" data-url="' + esc(t.linked_ticket.download_url) + '" style="background:#dbeafe;color:#1d4ed8;border:none;cursor:pointer;text-align:left;">👁️ Online ansehen (Kunden-Sicht)</button>';
                 }
                 html += '<a href="' + esc(t.linked_ticket.edit_url) + '" target="_blank" class="tix-sp-qa-btn">🎫 Ticket-Backend öffnen</a>';
                 if (t.linked_ticket.download_url) {
@@ -368,8 +368,8 @@
                     html += '</div>';
                     html += '<div class="tix-sp-linked-ticket-actions" style="display:flex;gap:4px;flex-shrink:0;">';
                     if (lt.download_url) {
-                        // Kunden-Sicht: Landing-Page mit Preview + Buttons (neuer Tab)
-                        html += '<a href="' + esc(lt.download_url) + '" target="_blank" rel="noopener" title="Ticket online ansehen (Kunden-Sicht)" style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:6px;background:#dbeafe;text-decoration:none;font-size:14px;">👁️</a>';
+                        // Kunden-Sicht: Landing-Page als Modal öffnen (statt neuer Tab)
+                        html += '<button class="tix-sp-ticket-preview" data-url="' + esc(lt.download_url) + '" title="Ticket online ansehen (Kunden-Sicht)" style="border:none;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:6px;background:#dbeafe;cursor:pointer;font-size:14px;">👁️</button>';
                     }
                     if (lt.edit_url) {
                         html += '<a href="' + esc(lt.edit_url) + '" target="_blank" title="Ticket-Backend öffnen" style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:6px;background:#f1f5f9;text-decoration:none;font-size:14px;">🎫</a>';
@@ -717,6 +717,38 @@
             $('#tix-sp-status-select').val('tix_resolved').trigger('change');
         });
 
+        // ── Ticket-Preview-Modal (Kunden-Sicht im iframe) ──
+        $(document).on('click', '.tix-sp-ticket-preview', function(e) {
+            e.preventDefault();
+            var url = $(this).data('url');
+            if (!url) return;
+            // Modal aufbauen
+            var modalHtml = ''
+                + '<div id="tix-sp-tlp-modal" style="position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;padding:24px;">'
+                + '  <div style="background:#fff;border-radius:14px;width:680px;max-width:100%;height:88vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 50px rgba(0,0,0,0.35);">'
+                + '    <div style="display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid #e5e7eb;background:#f9fafb;">'
+                + '      <strong style="flex:1;font-size:13px;color:#0f172a;">👁️ Kunden-Sicht des Tickets</strong>'
+                + '      <a href="' + esc(url) + '" target="_blank" rel="noopener" style="color:#2563eb;text-decoration:none;font-size:12px;font-weight:600;padding:4px 10px;border-radius:6px;background:#dbeafe;">↗ In neuem Tab</a>'
+                + '      <button id="tix-sp-tlp-close" type="button" style="border:none;background:transparent;cursor:pointer;font-size:18px;color:#64748b;padding:4px 8px;">✕</button>'
+                + '    </div>'
+                + '    <iframe src="' + esc(url) + '" style="flex:1;border:none;width:100%;background:#f3f4f6;" title="Ticket-Vorschau"></iframe>'
+                + '  </div>'
+                + '</div>';
+            $('body').append(modalHtml);
+        });
+        $(document).on('click', '#tix-sp-tlp-close', function() {
+            $('#tix-sp-tlp-modal').remove();
+        });
+        $(document).on('click', '#tix-sp-tlp-modal', function(e) {
+            // Klick außerhalb der Card schließt
+            if (e.target.id === 'tix-sp-tlp-modal') $('#tix-sp-tlp-modal').remove();
+        });
+        $(document).on('keydown', function(e) {
+            if (e.key === 'Escape' && $('#tix-sp-tlp-modal').length) {
+                $('#tix-sp-tlp-modal').remove();
+            }
+        });
+
         $(document).on('click', '.tix-sp-qa-resend', function() {
             var btn = $(this);
             var ticketId = btn.data('ticket-id');
@@ -878,7 +910,7 @@
                     html += '</div>';
                     html += '<div class="tix-sp-result-card-actions">';
                     if (t.download_url) {
-                        html += '<a href="' + esc(t.download_url) + '" target="_blank" rel="noopener" class="tix-sp-btn tix-sp-btn-sm" style="background:#dbeafe;color:#1d4ed8;border-color:#bfdbfe;">👁️ Online ansehen</a>';
+                        html += '<button class="tix-sp-btn tix-sp-btn-sm tix-sp-ticket-preview" data-url="' + esc(t.download_url) + '" style="background:#dbeafe;color:#1d4ed8;border-color:#bfdbfe;">👁️ Online ansehen</button>';
                     }
                     if (t.edit_url) {
                         html += '<a href="' + esc(t.edit_url) + '" target="_blank" class="tix-sp-btn tix-sp-btn-sm">🎫 Backend</a>';
