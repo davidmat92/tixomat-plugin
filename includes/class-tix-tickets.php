@@ -23,6 +23,10 @@ class TIX_Tickets {
         add_action('init', [__CLASS__, 'register_download_endpoint']);
         add_action('template_redirect', [__CLASS__, 'handle_download']);
 
+        // Admin: Metabox auf Ticket-Edit-Seite (Kategorie-Override + Preis-Verbergen + Inhaber-Override)
+        add_action('add_meta_boxes_tix_ticket', [__CLASS__, 'register_admin_metabox']);
+        add_action('save_post_tix_ticket',      [__CLASS__, 'save_admin_metabox'], 10, 2);
+
         // Ticket-Erstellung bei Order-Status-Änderung (WooCommerce)
         add_action('woocommerce_order_status_completed',  [__CLASS__, 'on_order_completed']);
         add_action('woocommerce_order_status_processing', [__CLASS__, 'on_order_completed']);
@@ -168,6 +172,265 @@ class TIX_Tickets {
             'exclude_from_search' => true,
             'publicly_queryable' => false,
         ]);
+    }
+
+    // ══════════════════════════════════════════════
+    // ADMIN: TICKET-METABOX (Kategorie-Override, Preis verbergen, Inhaber)
+    // ══════════════════════════════════════════════
+
+    public static function register_admin_metabox() {
+        add_meta_box(
+            'tix_ticket_admin',
+            '🎫 Ticket-Daten',
+            [__CLASS__, 'render_admin_metabox'],
+            'tix_ticket',
+            'normal',
+            'high'
+        );
+        add_meta_box(
+            'tix_ticket_actions',
+            '⚙️ Aktionen',
+            [__CLASS__, 'render_admin_actions_box'],
+            'tix_ticket',
+            'side',
+            'default'
+        );
+    }
+
+    public static function render_admin_metabox($post) {
+        wp_nonce_field('tix_ticket_admin_save', '_tix_ticket_admin_nonce');
+
+        $ticket_id  = $post->ID;
+        $code       = get_post_meta($ticket_id, '_tix_ticket_code', true);
+        $event_id   = intval(get_post_meta($ticket_id, '_tix_ticket_event_id', true));
+        $order_id   = intval(get_post_meta($ticket_id, '_tix_ticket_order_id', true));
+        $cat_index  = get_post_meta($ticket_id, '_tix_ticket_cat_index', true);
+        $cat_index  = ($cat_index === '' || $cat_index === false) ? -1 : intval($cat_index);
+        $cat_name   = get_post_meta($ticket_id, '_tix_ticket_cat_name', true);
+        $owner_name = get_post_meta($ticket_id, '_tix_ticket_owner_name', true);
+        $owner_email= get_post_meta($ticket_id, '_tix_ticket_owner_email', true);
+        $price_paid = get_post_meta($ticket_id, '_tix_ticket_price', true);
+        $hide_price = (bool) get_post_meta($ticket_id, '_tix_ticket_hide_price', true);
+
+        $event = $event_id ? get_post($event_id) : null;
+        $event_cats = $event_id ? (get_post_meta($event_id, '_tix_ticket_categories', true) ?: []) : [];
+        $download_url = self::get_download_url($ticket_id);
+
+        ?>
+        <style>
+            .tix-tab-card{background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:18px;margin-bottom:14px}
+            .tix-tab-card h4{margin:0 0 12px;font-size:13px;text-transform:uppercase;letter-spacing:0.06em;color:#6b7280;font-weight:600}
+            .tix-tab-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+            .tix-tab-field label{display:block;font-size:11px;font-weight:600;color:#374151;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:4px}
+            .tix-tab-field input[type=text],.tix-tab-field input[type=email],.tix-tab-field input[type=number],.tix-tab-field select{width:100%;padding:8px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px}
+            .tix-tab-field input[readonly]{background:#f9fafb;color:#6b7280}
+            .tix-tab-help{font-size:11px;color:#9ca3af;margin-top:4px}
+            .tix-tab-toggle{display:flex;align-items:center;gap:10px;padding:10px 12px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;cursor:pointer}
+            .tix-tab-toggle input{margin:0}
+            .tix-tab-toggle strong{font-size:13px;color:#0f172a}
+            .tix-tab-toggle .desc{font-size:11px;color:#6b7280;margin-top:2px}
+            .tix-tab-warn{padding:10px 12px;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:8px;font-size:12px;margin-top:10px}
+        </style>
+
+        <div class="tix-tab-card">
+            <h4>Identifikation</h4>
+            <div class="tix-tab-grid">
+                <div class="tix-tab-field">
+                    <label>Ticket-Code</label>
+                    <input type="text" value="<?php echo esc_attr($code); ?>" readonly>
+                    <div class="tix-tab-help">Wird nicht geändert (bestimmt QR-Code & Check-in).</div>
+                </div>
+                <div class="tix-tab-field">
+                    <label>Event</label>
+                    <input type="text" value="<?php echo esc_attr($event ? $event->post_title : '–'); ?>" readonly>
+                    <div class="tix-tab-help">
+                        <?php if ($event_id): ?>
+                            <a href="<?php echo esc_url(get_edit_post_link($event_id)); ?>">Event öffnen →</a>
+                        <?php endif; ?>
+                    </div>
+                </div>
+                <div class="tix-tab-field">
+                    <label>Bestellung</label>
+                    <?php if ($order_id): ?>
+                        <input type="text" value="#<?php echo intval($order_id); ?>" readonly>
+                        <div class="tix-tab-help"><a href="<?php echo esc_url(admin_url('admin.php?page=tix-orders&order_id=' . $order_id)); ?>">Bestellung öffnen →</a></div>
+                    <?php else: ?>
+                        <input type="text" value="–" readonly>
+                    <?php endif; ?>
+                </div>
+                <div class="tix-tab-field">
+                    <label>Kunden-Online-Link</label>
+                    <input type="text" value="<?php echo esc_attr($download_url); ?>" readonly onclick="this.select();">
+                    <div class="tix-tab-help"><a href="<?php echo esc_url($download_url); ?>" target="_blank">In neuem Tab öffnen →</a></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="tix-tab-card">
+            <h4>Kategorie überschreiben</h4>
+            <div class="tix-tab-field">
+                <label>Ticket-Kategorie</label>
+                <select name="tix_cat_override" id="tix_cat_override">
+                    <option value="">— Aus Event übernehmen —</option>
+                    <?php foreach ($event_cats as $i => $c):
+                        $name = $c['name'] ?? '';
+                        if (!$name) continue;
+                        $selected = ($cat_index === intval($i)) ? 'selected' : '';
+                    ?>
+                        <option value="<?php echo intval($i); ?>" data-name="<?php echo esc_attr($name); ?>" <?php echo $selected; ?>>
+                            <?php echo esc_html($name); ?> <?php if (isset($c['price'])): ?>(<?php echo esc_html(number_format(floatval($c['price']), 2, ',', '.')); ?> €)<?php endif; ?>
+                        </option>
+                    <?php endforeach; ?>
+                    <option value="custom" <?php echo ($cat_name && $cat_index === -1) ? 'selected' : ''; ?>>— Freier Text (manuell) —</option>
+                </select>
+                <div class="tix-tab-help">Wähle eine andere Kategorie aus dem Event (z.B. „Standard" → „VIP"). Die Änderung wirkt sich auf alle Ticket-Anzeigen aus (Online-Ansicht, PDF, Wallet).</div>
+            </div>
+
+            <div class="tix-tab-field" id="tix_cat_custom_wrap" style="margin-top:10px;<?php echo ($cat_name && $cat_index === -1) ? '' : 'display:none;'; ?>">
+                <label>Kategorie-Name (frei wählbar)</label>
+                <input type="text" name="tix_cat_custom_name" value="<?php echo esc_attr($cat_name); ?>" placeholder="z.B. VIP, Backstage, Presse">
+            </div>
+
+            <?php if ($cat_name): ?>
+                <div class="tix-tab-help" style="margin-top:8px;">
+                    Aktuell angezeigt als: <strong><?php echo esc_html($cat_name); ?></strong>
+                </div>
+            <?php endif; ?>
+        </div>
+
+        <div class="tix-tab-card">
+            <h4>Preis-Anzeige</h4>
+            <div class="tix-tab-grid">
+                <div class="tix-tab-field">
+                    <label>Bezahlter Preis</label>
+                    <input type="text" value="<?php echo esc_attr($price_paid !== '' ? number_format(floatval($price_paid), 2, ',', '.') . ' €' : '–'); ?>" readonly>
+                    <div class="tix-tab-help">Aus Bestellung übernommen.</div>
+                </div>
+                <div class="tix-tab-field" style="display:flex;align-items:flex-end;">
+                    <label class="tix-tab-toggle" style="width:100%;">
+                        <input type="checkbox" name="tix_hide_price" value="1" <?php checked($hide_price); ?>>
+                        <div>
+                            <strong>Preis ausblenden</strong>
+                            <div class="desc">Zeigt den Preis weder im Online-Ticket noch im PDF/Wallet.</div>
+                        </div>
+                    </label>
+                </div>
+            </div>
+        </div>
+
+        <div class="tix-tab-card">
+            <h4>Inhaber</h4>
+            <div class="tix-tab-grid">
+                <div class="tix-tab-field">
+                    <label>Name</label>
+                    <input type="text" name="tix_owner_name" value="<?php echo esc_attr($owner_name); ?>">
+                </div>
+                <div class="tix-tab-field">
+                    <label>E-Mail</label>
+                    <input type="email" name="tix_owner_email" value="<?php echo esc_attr($owner_email); ?>">
+                </div>
+            </div>
+            <div class="tix-tab-help" style="margin-top:8px;">Änderungen werden auf dem Ticket + in der Gästeliste übernommen.</div>
+        </div>
+
+        <script>
+        (function(){
+            var sel = document.getElementById('tix_cat_override');
+            var wrap = document.getElementById('tix_cat_custom_wrap');
+            if (sel && wrap) {
+                sel.addEventListener('change', function(){
+                    wrap.style.display = (this.value === 'custom') ? '' : 'none';
+                });
+            }
+        })();
+        </script>
+        <?php
+    }
+
+    public static function render_admin_actions_box($post) {
+        $ticket_id    = $post->ID;
+        $download_url = self::get_download_url($ticket_id);
+        $email        = get_post_meta($ticket_id, '_tix_ticket_owner_email', true);
+        $checked_in   = get_post_meta($ticket_id, '_tix_ticket_checked_in', true);
+        ?>
+        <p style="margin:0 0 10px;">
+            <a href="<?php echo esc_url($download_url); ?>" target="_blank" class="button button-primary" style="width:100%;text-align:center;">👁️ Online-Ansicht</a>
+        </p>
+        <p style="margin:0 0 10px;">
+            <a href="<?php echo esc_url(add_query_arg(['tix_dl' => get_post_meta($ticket_id, '_tix_ticket_download_token', true), 'format' => 'pdf'], home_url('/'))); ?>" target="_blank" class="button" style="width:100%;text-align:center;">📄 PDF öffnen</a>
+        </p>
+        <?php if ($email): ?>
+        <p style="margin:0 0 10px;font-size:12px;color:#6b7280;">
+            E-Mail: <strong><?php echo esc_html($email); ?></strong>
+        </p>
+        <?php endif; ?>
+        <p style="margin:14px 0 6px;font-size:11px;color:#9ca3af;text-transform:uppercase;letter-spacing:0.04em;font-weight:600;">Status</p>
+        <?php if ($checked_in): ?>
+            <p style="margin:0;padding:8px 12px;background:#dcfce7;color:#15803d;border-radius:6px;font-size:12px;">✓ Eingecheckt</p>
+        <?php else: ?>
+            <p style="margin:0;padding:8px 12px;background:#f3f4f6;color:#6b7280;border-radius:6px;font-size:12px;">○ Noch nicht eingecheckt</p>
+        <?php endif; ?>
+        <?php
+    }
+
+    public static function save_admin_metabox($post_id, $post) {
+        if ($post->post_type !== 'tix_ticket') return;
+        if (defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) return;
+        if (!current_user_can('manage_options') && !current_user_can('edit_posts')) return;
+        if (empty($_POST['_tix_ticket_admin_nonce']) || !wp_verify_nonce($_POST['_tix_ticket_admin_nonce'], 'tix_ticket_admin_save')) return;
+
+        // ── Kategorie-Override ──
+        $event_id = intval(get_post_meta($post_id, '_tix_ticket_event_id', true));
+        $cats     = $event_id ? (get_post_meta($event_id, '_tix_ticket_categories', true) ?: []) : [];
+
+        $sel = isset($_POST['tix_cat_override']) ? sanitize_text_field(wp_unslash($_POST['tix_cat_override'])) : '';
+        if ($sel === '') {
+            // Reset → Override entfernen, Original-Auflösung greift wieder
+            delete_post_meta($post_id, '_tix_ticket_cat_name');
+            // cat_index bleibt wie er ist
+        } elseif ($sel === 'custom') {
+            $custom = sanitize_text_field(wp_unslash($_POST['tix_cat_custom_name'] ?? ''));
+            if ($custom !== '') {
+                update_post_meta($post_id, '_tix_ticket_cat_name', $custom);
+                update_post_meta($post_id, '_tix_ticket_cat_index', -1);
+            }
+        } else {
+            $idx = intval($sel);
+            if (isset($cats[$idx]['name'])) {
+                update_post_meta($post_id, '_tix_ticket_cat_index', $idx);
+                update_post_meta($post_id, '_tix_ticket_cat_name', sanitize_text_field($cats[$idx]['name']));
+            }
+        }
+
+        // ── Preis-Anzeige ──
+        if (!empty($_POST['tix_hide_price'])) {
+            update_post_meta($post_id, '_tix_ticket_hide_price', 1);
+        } else {
+            delete_post_meta($post_id, '_tix_ticket_hide_price');
+        }
+
+        // ── Inhaber-Override ──
+        $owner_name  = sanitize_text_field(wp_unslash($_POST['tix_owner_name']  ?? ''));
+        $owner_email = sanitize_email($_POST['tix_owner_email'] ?? '');
+        if ($owner_name !== '')  update_post_meta($post_id, '_tix_ticket_owner_name',  $owner_name);
+        if ($owner_email && is_email($owner_email)) update_post_meta($post_id, '_tix_ticket_owner_email', $owner_email);
+
+        // ── Gästeliste synchronisieren ──
+        if ($event_id && ($owner_name || $owner_email)) {
+            $code   = get_post_meta($post_id, '_tix_ticket_code', true);
+            $guests = get_post_meta($event_id, '_tix_guests', true) ?: [];
+            if (is_array($guests) && $code) {
+                foreach ($guests as &$g) {
+                    if (($g['ticket_code'] ?? '') === $code) {
+                        if ($owner_name)  $g['name']  = $owner_name;
+                        if ($owner_email) $g['email'] = $owner_email;
+                        break;
+                    }
+                }
+                unset($g);
+                update_post_meta($event_id, '_tix_guests', $guests);
+            }
+        }
     }
 
     // ══════════════════════════════════════════════
@@ -951,6 +1214,7 @@ class TIX_Tickets {
         $cat_index = intval(get_post_meta($ticket_id, '_tix_ticket_cat_index', true));
         $cats     = get_post_meta($event_id, '_tix_ticket_categories', true);
         $cat_name = $cat_name_meta ?: ((is_array($cats) && isset($cats[$cat_index]['name'])) ? $cats[$cat_index]['name'] : '');
+        $hide_price = (bool) get_post_meta($ticket_id, '_tix_ticket_hide_price', true);
 
         // Alle Tickets der Bestellung
         $order_tickets = $order_id ? self::get_all_tickets_for_order($order_id) : [];
@@ -1408,11 +1672,14 @@ class TIX_Tickets {
         } elseif (is_array($cats) && $cat_index >= 0 && isset($cats[$cat_index])) {
             $cat_name = $cats[$cat_index]['name'] ?? '';
         }
-        // Bezahlten Preis vom Ticket-Post holen (nicht Kategoriepreis)
-        $paid = get_post_meta($ticket_id, '_tix_ticket_price', true);
-        if ($paid !== '' && $paid !== false) {
-            $p = floatval($paid);
-            if ($p > 0) $price = number_format($p, 2, ',', '.') . ' €';
+        // Bezahlten Preis vom Ticket-Post holen (nicht Kategoriepreis) — Admin kann ihn aber verstecken
+        $hide_price_flag = (bool) get_post_meta($ticket_id, '_tix_ticket_hide_price', true);
+        if (!$hide_price_flag) {
+            $paid = get_post_meta($ticket_id, '_tix_ticket_price', true);
+            if ($paid !== '' && $paid !== false) {
+                $p = floatval($paid);
+                if ($p > 0) $price = number_format($p, 2, ',', '.') . ' €';
+            }
         }
 
         // Datum formatieren
@@ -5405,12 +5672,15 @@ class TIX_Tickets {
                 $cat_name = $cats[$cat_index]['name'] ?? '';
             }
 
-            // Bezahlten Preis aus Ticket-Meta (nicht Kategorie-Preis)
+            // Bezahlten Preis aus Ticket-Meta (nicht Kategorie-Preis) — Admin kann ihn aber verstecken
             $price = '';
-            $paid = get_post_meta($ticket_id, '_tix_ticket_price', true);
-            if ($paid !== '' && $paid !== false) {
-                $p = floatval($paid);
-                if ($p > 0) $price = number_format($p, 2, ',', '.') . ' €';
+            $hide_price_flag = (bool) get_post_meta($ticket_id, '_tix_ticket_hide_price', true);
+            if (!$hide_price_flag) {
+                $paid = get_post_meta($ticket_id, '_tix_ticket_price', true);
+                if ($paid !== '' && $paid !== false) {
+                    $p = floatval($paid);
+                    if ($p > 0) $price = number_format($p, 2, ',', '.') . ' €';
+                }
             }
 
             $date_display = '';

@@ -314,11 +314,14 @@ class TIX_Ticket_Template {
         } elseif (is_array($cats) && $cat_index >= 0 && isset($cats[$cat_index])) {
             $cat_name = $cats[$cat_index]['name'] ?? '';
         }
-        // Bezahlten Preis vom Ticket-Post holen (nicht Kategoriepreis)
-        $paid = get_post_meta($ticket_id, '_tix_ticket_price', true);
-        if ($paid !== '' && $paid !== false) {
-            $p = floatval($paid);
-            if ($p > 0) $price = number_format($p, 2, ',', '.') . ' €';
+        // Bezahlten Preis vom Ticket-Post holen (nicht Kategoriepreis) — Admin kann ihn aber verstecken
+        $hide_price_flag = (bool) get_post_meta($ticket_id, '_tix_ticket_hide_price', true);
+        if (!$hide_price_flag) {
+            $paid = get_post_meta($ticket_id, '_tix_ticket_price', true);
+            if ($paid !== '' && $paid !== false) {
+                $p = floatval($paid);
+                if ($p > 0) $price = number_format($p, 2, ',', '.') . ' €';
+            }
         }
 
         // QR-Daten
