@@ -359,14 +359,15 @@
                     if (ownerLine) subLines.push('👤 ' + ownerLine);
                     if (seatLine)  subLines.push(seatLine);
 
-                    html += '<div class="tix-sp-linked-ticket" style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;padding:10px 0;border-bottom:1px solid #f3f4f6;">';
-                    html += '<div class="tix-sp-linked-ticket-info" style="min-width:0;flex:1;">';
+                    // Vertikales Layout: Text oben, Buttons darunter (Sidebar ist eng)
+                    html += '<div class="tix-sp-linked-ticket" style="display:flex;flex-direction:column;gap:8px;padding:12px 0;border-bottom:1px solid #f3f4f6;">';
+                    html += '<div class="tix-sp-linked-ticket-info" style="min-width:0;">';
                     html += '<div style="font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;font-weight:600;color:#0f172a;letter-spacing:0.02em;">' + esc(code) + '</div>';
                     if (subLines.length) {
                         html += '<div style="font-size:11px;color:#64748b;margin-top:3px;line-height:1.5;">' + subLines.join('<br>') + '</div>';
                     }
                     html += '</div>';
-                    html += '<div class="tix-sp-linked-ticket-actions" style="display:flex;gap:4px;flex-shrink:0;">';
+                    html += '<div class="tix-sp-linked-ticket-actions" style="display:flex;flex-wrap:wrap;gap:4px;">';
                     if (lt.download_url) {
                         // Kunden-Sicht direkt in neuem Tab — Ticket wird sofort angezeigt
                         html += '<a href="' + esc(lt.download_url) + '" target="_blank" rel="noopener" title="Ticket online ansehen (Kunden-Sicht)" style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:6px;background:#dbeafe;text-decoration:none;font-size:14px;">👁️</a>';
