@@ -2989,41 +2989,15 @@ body{margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',
             font-weight: 800;
             letter-spacing: 0.16em;
             text-transform: uppercase;
-            padding: 6px 14px;
+            padding: 7px 16px;
             border-radius: 999px;
-            color: #ffffff;
-            /* Dunkler Solid-Hintergrund + dezenter, einfarbiger Akzent-Border */
-            background: rgba(15, 23, 42, 0.75);
-            border: 1.5px solid <?php echo esc_attr($accent); ?>;
-            box-shadow:
-                0 0 0 1px rgba(255,255,255,0.08) inset,
-                0 6px 18px -8px rgba(0,0,0,0.4);
-            text-shadow: 0 1px 2px rgba(0,0,0,0.35);
-            position: relative;
-            overflow: hidden;
+            /* Einfarbig in Akzent-Farbe (gleicher Pill-Look wie "Nicht eingecheckt") */
+            background: <?php echo esc_attr($accent); ?>;
+            color: <?php echo esc_attr(!empty($s['color_accent_text']) ? $s['color_accent_text'] : '#ffffff'); ?>;
+            border: none;
+            box-shadow: 0 4px 14px -4px rgba(0,0,0,0.18);
             line-height: 1.2;
             white-space: nowrap;
-        }
-        /* Sterne-Icon (CSS-only, vor dem Text) */
-        html.tix-ht-v4 .tix-ticket-cat::before {
-            content: "✦";
-            font-size: 11px;
-            opacity: 0.85;
-            letter-spacing: 0;
-            color: <?php echo esc_attr($accent); ?>;
-        }
-        /* Subtiler Shimmer-Sweep über den Badge */
-        html.tix-ht-v4 .tix-ticket-cat::after {
-            content: "";
-            position: absolute;
-            inset: 0;
-            background: linear-gradient(115deg,
-                transparent 35%,
-                rgba(255,255,255,0.18) 50%,
-                transparent 65%);
-            transform: translateX(-100%);
-            animation: tixCatShimmer 4.5s ease-in-out infinite;
-            pointer-events: none;
         }
         html.tix-ht-v4 .tix-ticket-price {
             font-size: 14px;
@@ -3032,18 +3006,14 @@ body{margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',
             letter-spacing: 0.02em;
             color: <?php echo esc_attr($ht_header_text); ?>;
         }
-        @keyframes tixCatShimmer {
-            0%   { transform: translateX(-100%); }
-            55%  { transform: translateX(120%); }
-            100% { transform: translateX(120%); }
-        }
-        /* Reduced-motion: Animationen aus, aber Look bleibt */
-        @media (prefers-reduced-motion: reduce) {
-            html.tix-ht-v4 .tix-ticket-cat::after { animation: none !important; }
-        }
-        /* Mobile: minimal kleiner aber weiterhin prominent */
+        /* Mobile: Badge zentriert (Header-Text ist mobil zentriert),
+         * minimal kleiner aber weiterhin prominent */
         @media (max-width: 480px) {
-            html.tix-ht-v4 .tix-ticket-cat { font-size: 12px; padding: 5px 12px; letter-spacing: 0.14em; }
+            html.tix-ht-v4 .ticket-header-text p,
+            html.tix-ht-v4 .ticket-cover-cat {
+                justify-content: center !important;
+            }
+            html.tix-ht-v4 .tix-ticket-cat { font-size: 12px; padding: 6px 14px; letter-spacing: 0.14em; }
             html.tix-ht-v4 .tix-ticket-price { font-size: 13px; }
         }
 
