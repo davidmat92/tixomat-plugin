@@ -2967,9 +2967,9 @@ body{margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',
         }
 
         /* ═══════════════════════════════════════
-         * V4: Kategorie-Badge — prominenter Holographic-Stempel
+         * V4: Kategorie-Badge — prominenter Stempel mit dezentem Akzent
          * Bleibt inline an seinem alten Platz, wird aber visuell gehoben:
-         * Gradient-Border, Uppercase, größere Schrift, animierter Shimmer.
+         * Schmaler Akzent-Border, Uppercase, größere Schrift, leiser Shimmer.
          * ═══════════════════════════════════════ */
         html.tix-ht-v4 .ticket-header-text p,
         html.tix-ht-v4 .ticket-cover-cat {
@@ -2991,18 +2991,14 @@ body{margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',
             text-transform: uppercase;
             padding: 6px 14px;
             border-radius: 999px;
-            color: #fff;
-            background:
-                linear-gradient(135deg,
-                    rgba(0,0,0,0.55),
-                    rgba(0,0,0,0.30)) padding-box,
-                conic-gradient(from 90deg, #ec4899, #a855f7, #3b82f6, #10b981, #f59e0b, #ec4899) border-box;
-            border: 2px solid transparent;
+            color: #ffffff;
+            /* Dunkler Solid-Hintergrund + dezenter, einfarbiger Akzent-Border */
+            background: rgba(15, 23, 42, 0.75);
+            border: 1.5px solid <?php echo esc_attr($accent); ?>;
             box-shadow:
-                0 0 0 1px rgba(255,255,255,0.10) inset,
-                0 8px 24px -8px rgba(168, 85, 247, 0.55);
-            text-shadow: 0 1px 2px rgba(0,0,0,0.45);
-            animation: tixCatHoloPulse 6s linear infinite;
+                0 0 0 1px rgba(255,255,255,0.08) inset,
+                0 6px 18px -8px rgba(0,0,0,0.4);
+            text-shadow: 0 1px 2px rgba(0,0,0,0.35);
             position: relative;
             overflow: hidden;
             line-height: 1.2;
@@ -3014,18 +3010,19 @@ body{margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',
             font-size: 11px;
             opacity: 0.85;
             letter-spacing: 0;
+            color: <?php echo esc_attr($accent); ?>;
         }
-        /* Subtle Shimmer-Sweep über den Badge */
+        /* Subtiler Shimmer-Sweep über den Badge */
         html.tix-ht-v4 .tix-ticket-cat::after {
             content: "";
             position: absolute;
             inset: 0;
             background: linear-gradient(115deg,
-                transparent 30%,
-                rgba(255,255,255,0.45) 50%,
-                transparent 70%);
+                transparent 35%,
+                rgba(255,255,255,0.18) 50%,
+                transparent 65%);
             transform: translateX(-100%);
-            animation: tixCatShimmer 3.5s ease-in-out infinite;
+            animation: tixCatShimmer 4.5s ease-in-out infinite;
             pointer-events: none;
         }
         html.tix-ht-v4 .tix-ticket-price {
@@ -3035,10 +3032,6 @@ body{margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',
             letter-spacing: 0.02em;
             color: <?php echo esc_attr($ht_header_text); ?>;
         }
-        @keyframes tixCatHoloPulse {
-            0%, 100% { filter: hue-rotate(0deg); }
-            50%      { filter: hue-rotate(45deg); }
-        }
         @keyframes tixCatShimmer {
             0%   { transform: translateX(-100%); }
             55%  { transform: translateX(120%); }
@@ -3046,13 +3039,30 @@ body{margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',
         }
         /* Reduced-motion: Animationen aus, aber Look bleibt */
         @media (prefers-reduced-motion: reduce) {
-            html.tix-ht-v4 .tix-ticket-cat,
             html.tix-ht-v4 .tix-ticket-cat::after { animation: none !important; }
         }
         /* Mobile: minimal kleiner aber weiterhin prominent */
         @media (max-width: 480px) {
             html.tix-ht-v4 .tix-ticket-cat { font-size: 12px; padding: 5px 12px; letter-spacing: 0.14em; }
             html.tix-ht-v4 .tix-ticket-price { font-size: 13px; }
+        }
+
+        /* ═══════════════════════════════════════
+         * V4: Verified-Badge mit weißem Hintergrund (höherer Kontrast
+         * gegen den Holographic-Header).
+         * ═══════════════════════════════════════ */
+        html.tix-ht-v4 .tix-verified-badge {
+            background: #ffffff;
+            color: #047857;
+            border: 1px solid rgba(16, 185, 129, 0.35);
+            box-shadow: 0 4px 12px -4px rgba(0,0,0,0.18);
+            text-shadow: none;
+        }
+        html.tix-ht-v4 .tix-verified-badge:hover {
+            background: #f0fdf4;
+        }
+        html.tix-ht-v4 .tix-verified-badge svg {
+            color: #10b981;
         }
 
         /* ═══════════════════════════════════════
