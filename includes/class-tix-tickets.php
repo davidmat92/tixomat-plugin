@@ -2967,6 +2967,95 @@ body{margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',
         }
 
         /* ═══════════════════════════════════════
+         * V4: Kategorie-Badge — prominenter Holographic-Stempel
+         * Bleibt inline an seinem alten Platz, wird aber visuell gehoben:
+         * Gradient-Border, Uppercase, größere Schrift, animierter Shimmer.
+         * ═══════════════════════════════════════ */
+        html.tix-ht-v4 .ticket-header-text p,
+        html.tix-ht-v4 .ticket-cover-cat {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 6px;
+        }
+        html.tix-ht-v4 .ticket-cover-cat { justify-content: center; }
+        html.tix-ht-v4 .tix-ticket-cat {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 13px;
+            font-weight: 800;
+            letter-spacing: 0.16em;
+            text-transform: uppercase;
+            padding: 6px 14px;
+            border-radius: 999px;
+            color: #fff;
+            background:
+                linear-gradient(135deg,
+                    rgba(0,0,0,0.55),
+                    rgba(0,0,0,0.30)) padding-box,
+                conic-gradient(from 90deg, #ec4899, #a855f7, #3b82f6, #10b981, #f59e0b, #ec4899) border-box;
+            border: 2px solid transparent;
+            box-shadow:
+                0 0 0 1px rgba(255,255,255,0.10) inset,
+                0 8px 24px -8px rgba(168, 85, 247, 0.55);
+            text-shadow: 0 1px 2px rgba(0,0,0,0.45);
+            animation: tixCatHoloPulse 6s linear infinite;
+            position: relative;
+            overflow: hidden;
+            line-height: 1.2;
+            white-space: nowrap;
+        }
+        /* Sterne-Icon (CSS-only, vor dem Text) */
+        html.tix-ht-v4 .tix-ticket-cat::before {
+            content: "✦";
+            font-size: 11px;
+            opacity: 0.85;
+            letter-spacing: 0;
+        }
+        /* Subtle Shimmer-Sweep über den Badge */
+        html.tix-ht-v4 .tix-ticket-cat::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(115deg,
+                transparent 30%,
+                rgba(255,255,255,0.45) 50%,
+                transparent 70%);
+            transform: translateX(-100%);
+            animation: tixCatShimmer 3.5s ease-in-out infinite;
+            pointer-events: none;
+        }
+        html.tix-ht-v4 .tix-ticket-price {
+            font-size: 14px;
+            font-weight: 600;
+            opacity: 0.85;
+            letter-spacing: 0.02em;
+            color: <?php echo esc_attr($ht_header_text); ?>;
+        }
+        @keyframes tixCatHoloPulse {
+            0%, 100% { filter: hue-rotate(0deg); }
+            50%      { filter: hue-rotate(45deg); }
+        }
+        @keyframes tixCatShimmer {
+            0%   { transform: translateX(-100%); }
+            55%  { transform: translateX(120%); }
+            100% { transform: translateX(120%); }
+        }
+        /* Reduced-motion: Animationen aus, aber Look bleibt */
+        @media (prefers-reduced-motion: reduce) {
+            html.tix-ht-v4 .tix-ticket-cat,
+            html.tix-ht-v4 .tix-ticket-cat::after { animation: none !important; }
+        }
+        /* Mobile: minimal kleiner aber weiterhin prominent */
+        @media (max-width: 480px) {
+            html.tix-ht-v4 .tix-ticket-cat { font-size: 12px; padding: 5px 12px; letter-spacing: 0.14em; }
+            html.tix-ht-v4 .tix-ticket-price { font-size: 13px; }
+        }
+
+        /* ═══════════════════════════════════════
            V5 · CYBERPUNK — Neon-Grid, Glitch-Text, Cyan/Magenta
            ═══════════════════════════════════════ */
         html.tix-ht-v5,
@@ -3486,7 +3575,12 @@ body{margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',
             <img src="<?php echo esc_url($event_cover_url); ?>" alt="<?php echo esc_attr($event_name); ?>">
             <div class="ticket-cover-overlay">
                 <h1 class="ticket-cover-title"><?php echo esc_html($event_name); ?></h1>
-                <?php if ($cat_name): ?><p class="ticket-cover-cat"><?php echo esc_html($cat_name); ?><?php if ($price): ?> — <?php echo esc_html($price); ?><?php endif; ?></p><?php endif; ?>
+                <?php if ($cat_name || $price): ?>
+                <p class="ticket-cover-cat">
+                    <?php if ($cat_name): ?><span class="tix-ticket-cat" data-cat="<?php echo esc_attr($cat_name); ?>"><?php echo esc_html($cat_name); ?></span><?php endif; ?>
+                    <?php if ($price): ?><span class="tix-ticket-price"> — <?php echo esc_html($price); ?></span><?php endif; ?>
+                </p>
+                <?php endif; ?>
             </div>
         </div>
         <?php endif; ?>
@@ -3498,7 +3592,10 @@ body{margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',
             <div class="ticket-header-text" style="text-align:right;">
                 <?php if (!($event_cover_url && !empty($ht_show_event_cover))): ?>
                     <h1><?php echo esc_html($event_name); ?></h1>
-                    <p><?php echo esc_html($cat_name); ?><?php if ($price): ?> — <?php echo esc_html($price); ?><?php endif; ?></p>
+                    <p>
+                        <?php if ($cat_name): ?><span class="tix-ticket-cat" data-cat="<?php echo esc_attr($cat_name); ?>"><?php echo esc_html($cat_name); ?></span><?php endif; ?>
+                        <?php if ($price): ?><span class="tix-ticket-price"> — <?php echo esc_html($price); ?></span><?php endif; ?>
+                    </p>
                 <?php endif; ?>
                 <?php if (!empty($ht_show_verified_badge)): ?>
                 <button type="button" class="tix-verified-badge no-print" onclick="tixOpenVerifyModal()" title="Klicken für Echtheitsprüfung">
