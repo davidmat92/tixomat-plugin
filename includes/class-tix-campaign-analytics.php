@@ -32,6 +32,38 @@ class TIX_Campaign_Analytics {
     // ──────────────────────────────────────────
 
     public static function render_page() {
+        $tab = sanitize_key($_GET['tab'] ?? 'events');
+        if (!in_array($tab, ['events', 'site'], true)) $tab = 'events';
+
+        $base_url = admin_url('admin.php?page=tix-campaigns');
+        ?>
+        <div class="wrap">
+            <h1><span class="dashicons dashicons-chart-bar" style="font-size:24px;margin-right:8px"></span>Tracking &amp; Analytics</h1>
+
+            <h2 class="nav-tab-wrapper" style="margin-bottom:16px;">
+                <a href="<?php echo esc_url($base_url . '&tab=events'); ?>" class="nav-tab <?php echo $tab === 'events' ? 'nav-tab-active' : ''; ?>">
+                    <span class="dashicons dashicons-tickets-alt" style="font-size:16px;width:16px;height:16px;vertical-align:text-top;"></span>
+                    Pro Event
+                </a>
+                <a href="<?php echo esc_url($base_url . '&tab=site'); ?>" class="nav-tab <?php echo $tab === 'site' ? 'nav-tab-active' : ''; ?>">
+                    <span class="dashicons dashicons-admin-site-alt3" style="font-size:16px;width:16px;height:16px;vertical-align:text-top;"></span>
+                    Gesamte Website
+                </a>
+            </h2>
+
+            <?php if ($tab === 'events'): ?>
+                <?php self::render_events_tab(); ?>
+            <?php else: ?>
+                <?php self::render_site_tab(); ?>
+            <?php endif; ?>
+        </div>
+        <?php
+    }
+
+    /**
+     * Tab "Pro Event" — bisheriger Inhalt unverändert.
+     */
+    private static function render_events_tab() {
         $events  = self::get_events_list();
         $filter  = self::get_filter_from_request();
         $results = null;
@@ -39,50 +71,241 @@ class TIX_Campaign_Analytics {
         if (isset($_GET['tix_preview'])) {
             $results = self::query_analytics($filter);
         }
-
         ?>
-        <div class="wrap">
-            <h1><span class="dashicons dashicons-chart-bar" style="font-size:24px;margin-right:8px"></span>Kampagnen-Tracking</h1>
-            <p>Auswertung deiner Marketing-Kan&auml;le: Welcher Kanal bringt Besucher und Ticket-Verk&auml;ufe?</p>
+        <p>Auswertung deiner Marketing-Kan&auml;le pro Event: Welcher Kanal bringt Besucher und Ticket-Verk&auml;ufe?</p>
 
-            <form method="get" action="">
-                <input type="hidden" name="page" value="tix-campaigns">
-                <input type="hidden" name="tix_preview" value="1">
+        <form method="get" action="">
+            <input type="hidden" name="page" value="tix-campaigns">
+            <input type="hidden" name="tab" value="events">
+            <input type="hidden" name="tix_preview" value="1">
 
-                <table class="form-table">
-                    <tr>
-                        <th>Event</th>
-                        <td>
-                            <select name="event_id">
-                                <option value="">Alle Events</option>
-                                <?php foreach ($events as $id => $title): ?>
-                                    <option value="<?php echo $id; ?>" <?php selected($filter['event_id'], $id); ?>><?php echo esc_html($title); ?></option>
-                                <?php endforeach; ?>
-                            </select>
-                        </td>
-                    </tr>
-                    <tr>
-                        <th>Zeitraum</th>
-                        <td>
-                            <input type="date" name="date_from" value="<?php echo esc_attr($filter['date_from']); ?>">
-                            &ndash;
-                            <input type="date" name="date_to" value="<?php echo esc_attr($filter['date_to']); ?>">
-                        </td>
-                    </tr>
-                </table>
+            <table class="form-table">
+                <tr>
+                    <th>Event</th>
+                    <td>
+                        <select name="event_id">
+                            <option value="">Alle Events</option>
+                            <?php foreach ($events as $id => $title): ?>
+                                <option value="<?php echo $id; ?>" <?php selected($filter['event_id'], $id); ?>><?php echo esc_html($title); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </td>
+                </tr>
+                <tr>
+                    <th>Zeitraum</th>
+                    <td>
+                        <input type="date" name="date_from" value="<?php echo esc_attr($filter['date_from']); ?>">
+                        &ndash;
+                        <input type="date" name="date_to" value="<?php echo esc_attr($filter['date_to']); ?>">
+                    </td>
+                </tr>
+            </table>
 
-                <?php submit_button('Daten laden', 'secondary', 'submit', true); ?>
-            </form>
+            <?php submit_button('Daten laden', 'secondary', 'submit', true); ?>
+        </form>
 
-            <?php if ($results !== null): ?>
-                <?php if (!empty($results)): ?>
-                    <?php self::render_summary($results); ?>
-                    <?php self::render_table($results, $filter); ?>
-                <?php else: ?>
-                    <p><em>Keine Daten f&uuml;r diesen Zeitraum vorhanden.</em></p>
-                <?php endif; ?>
+        <?php if ($results !== null): ?>
+            <?php if (!empty($results)): ?>
+                <?php self::render_summary($results); ?>
+                <?php self::render_table($results, $filter); ?>
+            <?php else: ?>
+                <p><em>Keine Daten f&uuml;r diesen Zeitraum vorhanden.</em></p>
             <?php endif; ?>
+        <?php endif; ?>
+        <?php
+    }
+
+    /**
+     * Tab "Gesamte Website" — Site-weite Pageview-Statistik.
+     */
+    private static function render_site_tab() {
+        if (!class_exists('TIX_Site_Analytics')) {
+            echo '<p><em>Site-Analytics-Modul nicht geladen.</em></p>';
+            return;
+        }
+        $df = sanitize_text_field($_GET['date_from'] ?? '');
+        $dt = sanitize_text_field($_GET['date_to'] ?? '');
+        // Default: letzte 30 Tage
+        if (!$df) $df = date('Y-m-d', strtotime('-30 days'));
+        if (!$dt) $dt = date('Y-m-d');
+
+        $kpis       = TIX_Site_Analytics::get_kpis($df, $dt);
+        $channels   = TIX_Site_Analytics::get_channels($df, $dt);
+        $top_pages  = TIX_Site_Analytics::get_top_pages($df, $dt, 20);
+        $devices    = TIX_Site_Analytics::get_devices($df, $dt);
+        $timeseries = TIX_Site_Analytics::get_timeseries($df, $dt);
+        $referrers  = TIX_Site_Analytics::get_referrers($df, $dt, 15);
+        $conv       = TIX_Site_Analytics::get_conversion($df, $dt);
+
+        $no_data = $kpis['views'] === 0;
+        ?>
+        <p style="margin-bottom:16px;color:#475569;">Site-weite Besucher-Statistik &mdash; alle Frontend-Seiten, nicht nur Events. Kanal-Attribution funktioniert über First-Touch-Cookie.</p>
+
+        <form method="get" action="" style="background:#fff;padding:14px 18px;border-radius:8px;border:1px solid #e5e7eb;margin-bottom:16px;display:flex;align-items:flex-end;gap:14px;flex-wrap:wrap;">
+            <input type="hidden" name="page" value="tix-campaigns">
+            <input type="hidden" name="tab" value="site">
+            <div>
+                <label style="display:block;font-size:12px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px;">Zeitraum</label>
+                <input type="date" name="date_from" value="<?php echo esc_attr($df); ?>">
+                &ndash;
+                <input type="date" name="date_to" value="<?php echo esc_attr($dt); ?>">
+            </div>
+            <button class="button button-primary" type="submit">Anwenden</button>
+            <span style="font-size:12px;color:#9ca3af;margin-left:auto;">Aufbewahrung:
+                <?php $s = function_exists('tix_get_settings') ? tix_get_settings() : []; echo intval($s['site_views_retention_days'] ?? 90); ?> Tage</span>
+        </form>
+
+        <?php if ($no_data): ?>
+            <div style="background:#fef9c3;border:1px solid #fde68a;border-radius:8px;padding:16px 20px;color:#92400e;">
+                <strong>Noch keine Daten</strong> &mdash; Pageview-Tracking sammelt ab jetzt. Zurückkommen in einer Stunde, wenn die ersten Besuche eingelaufen sind.
+            </div>
+            <?php return; ?>
+        <?php endif; ?>
+
+        <?php // ── KPI-Karten ── ?>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px;">
+            <?php
+            $kpi_cards = [
+                ['👁️',  'Pageviews',         number_format($kpis['views'], 0, ',', '.'), '#e0f2fe', '#0369a1'],
+                ['👤',  'Unique Visitors',   number_format($kpis['unique_visitors'], 0, ',', '.'), '#fef3c7', '#92400e'],
+                ['📊',  'Sessions',          number_format($kpis['sessions'], 0, ',', '.'), '#fce7f3', '#9d174d'],
+                ['📈',  'Pages / Session',   number_format($kpis['views_per_session'], 2, ',', '.'), '#ede9fe', '#5b21b6'],
+                ['🆕',  'Erstbesuche',       number_format($kpis['first_visits'], 0, ',', '.'), '#dcfce7', '#166534'],
+                ['🛒',  'Bestellungen',      number_format($conv['orders'], 0, ',', '.'), '#fef9c3', '#854d0e'],
+                ['🎯',  'Conversion-Rate',   number_format($conv['rate'], 2, ',', '.') . '%', '#fee2e2', '#991b1b'],
+            ];
+            foreach ($kpi_cards as $k): ?>
+                <div style="padding:16px 18px;background:<?php echo $k[3]; ?>;border-radius:10px;text-align:center;">
+                    <div style="font-size:22px;margin-bottom:4px;line-height:1;"><?php echo $k[0]; ?></div>
+                    <div style="font-size:22px;font-weight:800;color:<?php echo $k[4]; ?>;line-height:1.1;"><?php echo $k[2]; ?></div>
+                    <div style="font-size:11px;color:#64748b;margin-top:4px;text-transform:uppercase;letter-spacing:.04em;font-weight:600;"><?php echo $k[1]; ?></div>
+                </div>
+            <?php endforeach; ?>
         </div>
+
+        <?php // ── Time-Series Chart ── ?>
+        <div style="background:#fff;padding:18px 20px;border-radius:10px;border:1px solid #e5e7eb;margin-bottom:20px;">
+            <h3 style="margin:0 0 12px;font-size:15px;">Pageviews / Tag</h3>
+            <canvas id="tix-site-timeseries" height="80"></canvas>
+        </div>
+
+        <?php // ── Channels + Devices nebeneinander ── ?>
+        <div style="display:grid;grid-template-columns:2fr 1fr;gap:16px;margin-bottom:20px;">
+            <div style="background:#fff;padding:18px 20px;border-radius:10px;border:1px solid #e5e7eb;">
+                <h3 style="margin:0 0 12px;font-size:15px;">Top-Kanäle</h3>
+                <table class="widefat striped" style="border:none;">
+                    <thead><tr>
+                        <th>Kanal</th>
+                        <th style="text-align:right">Pageviews</th>
+                        <th style="text-align:right">Unique</th>
+                        <th style="text-align:right">Sessions</th>
+                    </tr></thead>
+                    <tbody>
+                        <?php foreach ($channels as $c):
+                            $label = self::get_channel_label($c['source']);
+                        ?>
+                        <tr>
+                            <td><strong><?php echo esc_html($label); ?></strong> <span style="color:#9ca3af;font-size:11px;">(<?php echo esc_html($c['source']); ?>)</span></td>
+                            <td style="text-align:right;"><?php echo number_format(intval($c['views']), 0, ',', '.'); ?></td>
+                            <td style="text-align:right;"><?php echo number_format(intval($c['uniques']), 0, ',', '.'); ?></td>
+                            <td style="text-align:right;"><?php echo number_format(intval($c['sessions']), 0, ',', '.'); ?></td>
+                        </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+
+            <div style="background:#fff;padding:18px 20px;border-radius:10px;border:1px solid #e5e7eb;">
+                <h3 style="margin:0 0 12px;font-size:15px;">Geräte</h3>
+                <?php
+                $total_views = array_sum(array_column($devices, 'views'));
+                $dev_icons = ['mobile' => '📱', 'tablet' => '💻', 'desktop' => '🖥️', 'unknown' => '❓'];
+                foreach ($devices as $d):
+                    $pct = $total_views > 0 ? round((intval($d['views']) / $total_views) * 100, 1) : 0;
+                ?>
+                <div style="margin-bottom:10px;">
+                    <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;">
+                        <span><?php echo $dev_icons[$d['device_type']] ?? '•'; ?> <strong><?php echo esc_html(ucfirst($d['device_type'] ?: 'unbekannt')); ?></strong></span>
+                        <span style="color:#6b7280;"><?php echo $pct; ?>%</span>
+                    </div>
+                    <div style="height:8px;background:#f1f5f9;border-radius:99px;overflow:hidden;">
+                        <div style="height:100%;background:linear-gradient(90deg,#FF5500,#dc2626);width:<?php echo $pct; ?>%;"></div>
+                    </div>
+                    <div style="font-size:11px;color:#9ca3af;margin-top:2px;"><?php echo number_format(intval($d['views']), 0, ',', '.'); ?> Views &middot; <?php echo number_format(intval($d['uniques']), 0, ',', '.'); ?> Unique</div>
+                </div>
+                <?php endforeach; ?>
+            </div>
+        </div>
+
+        <?php // ── Top-Pages + Referrer ── ?>
+        <div style="display:grid;grid-template-columns:2fr 1fr;gap:16px;">
+            <div style="background:#fff;padding:18px 20px;border-radius:10px;border:1px solid #e5e7eb;">
+                <h3 style="margin:0 0 12px;font-size:15px;">Top-Seiten</h3>
+                <table class="widefat striped" style="border:none;">
+                    <thead><tr>
+                        <th>Pfad</th>
+                        <th style="text-align:right">Pageviews</th>
+                        <th style="text-align:right">Unique</th>
+                    </tr></thead>
+                    <tbody>
+                        <?php foreach ($top_pages as $p): ?>
+                        <tr>
+                            <td>
+                                <code style="font-size:12px;color:#0f172a;"><?php echo esc_html($p['page_path']); ?></code>
+                                <?php if (!empty($p['page_title'])): ?><br><span style="color:#9ca3af;font-size:11px;"><?php echo esc_html(wp_trim_words($p['page_title'], 8, '…')); ?></span><?php endif; ?>
+                            </td>
+                            <td style="text-align:right;"><?php echo number_format(intval($p['views']), 0, ',', '.'); ?></td>
+                            <td style="text-align:right;"><?php echo number_format(intval($p['uniques']), 0, ',', '.'); ?></td>
+                        </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+
+            <div style="background:#fff;padding:18px 20px;border-radius:10px;border:1px solid #e5e7eb;">
+                <h3 style="margin:0 0 12px;font-size:15px;">Referrer-Hosts</h3>
+                <?php if (empty($referrers)): ?>
+                    <p style="color:#9ca3af;font-size:13px;margin:0;">Keine externen Referrer im Zeitraum.</p>
+                <?php else: ?>
+                    <ul style="list-style:none;padding:0;margin:0;font-size:13px;">
+                        <?php foreach ($referrers as $r): ?>
+                        <li style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #f3f4f6;">
+                            <code style="color:#334155;font-size:12px;"><?php echo esc_html($r['referrer_host']); ?></code>
+                            <span style="color:#6b7280;"><?php echo number_format(intval($r['views']), 0, ',', '.'); ?></span>
+                        </li>
+                        <?php endforeach; ?>
+                    </ul>
+                <?php endif; ?>
+            </div>
+        </div>
+
+        <?php // ── Chart.js für Time-Series ── ?>
+        <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+        <script>
+        (function(){
+            var ts = <?php echo wp_json_encode(array_values($timeseries)); ?>;
+            if (!ts || !ts.length) return;
+            var ctx = document.getElementById('tix-site-timeseries');
+            if (!ctx) return;
+            var labels = ts.map(function(r){ return r.view_date; });
+            new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        { label: 'Pageviews', data: ts.map(function(r){ return parseInt(r.views,10); }), borderColor: '#FF5500', backgroundColor: 'rgba(255,85,0,0.12)', fill: true, tension: 0.3 },
+                        { label: 'Unique Visitors', data: ts.map(function(r){ return parseInt(r.uniques,10); }), borderColor: '#2563eb', backgroundColor: 'rgba(37,99,235,0.08)', fill: true, tension: 0.3 },
+                        { label: 'Sessions', data: ts.map(function(r){ return parseInt(r.sessions,10); }), borderColor: '#16a34a', backgroundColor: 'rgba(22,163,74,0.06)', fill: false, tension: 0.3 }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    plugins: { legend: { position: 'bottom' } },
+                    scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+                }
+            });
+        })();
+        </script>
         <?php
     }
 

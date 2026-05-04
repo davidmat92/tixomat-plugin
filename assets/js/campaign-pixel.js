@@ -77,7 +77,7 @@
         } catch (e) { /* ignore */ }
     }
 
-    // 5. Pageview-AJAX nur auf Event-Seiten senden (für Statistik-Aggregat)
+    // 5. Pageview-AJAX auf Event-Seiten (für Statistik-Aggregat — bestehend)
     if (cfg.eventId) {
         var fd = new FormData();
         fd.append('action', 'tix_campaign_pageview');
@@ -88,6 +88,82 @@
         fd.append('content', trackContent);
 
         fetch(cfg.ajaxUrl, { method: 'POST', body: fd, credentials: 'same-origin' }).catch(function () {});
+    }
+
+    // 6. Site-weiter Pageview (NEU: jede Frontend-Seite, nicht nur Events)
+    //    Speichert Visitor-ID + Session-ID für Unique-Counts und Sessions.
+    try {
+        var visitorId = getOrCreateVisitorId();
+        var sessionInfo = getOrCreateSession();
+        var pagePath = window.location.pathname || '/';
+        var pageTitle = document.title || '';
+        var refHost = '';
+        if (document.referrer) {
+            try { refHost = new URL(document.referrer).hostname || ''; } catch (e) {}
+        }
+
+        // Same-Page-Refresh-Spam vermeiden: pro Session+Path nur 1× innerhalb 30s
+        var dedupKey = 'tix_pv_' + sessionInfo.id + '_' + pagePath;
+        var lastSent = parseInt(sessionStorage.getItem(dedupKey) || '0', 10);
+        var now = Date.now();
+        if (lastSent && (now - lastSent) < 30000) {
+            // Skip: identische Seite vor < 30s schon gemeldet
+        } else {
+            sessionStorage.setItem(dedupKey, String(now));
+
+            var pvData = new FormData();
+            pvData.append('action', 'tix_track_pageview');
+            pvData.append('nonce', cfg.nonce);
+            pvData.append('visitor_id', visitorId.id);
+            pvData.append('session_id', sessionInfo.id);
+            pvData.append('page_path', pagePath);
+            pvData.append('page_title', pageTitle);
+            pvData.append('referrer_host', refHost);
+            pvData.append('source', trackSrc);
+            pvData.append('campaign', trackCamp);
+            pvData.append('content', trackContent);
+            pvData.append('is_first_visit', visitorId.first ? '1' : '0');
+            pvData.append('is_session_start', sessionInfo.fresh ? '1' : '0');
+
+            // Beacon-API bevorzugen (überlebt Tab-Close), sonst Fetch
+            if (navigator.sendBeacon) {
+                navigator.sendBeacon(cfg.ajaxUrl, pvData);
+            } else {
+                fetch(cfg.ajaxUrl, { method: 'POST', body: pvData, credentials: 'same-origin', keepalive: true }).catch(function () {});
+            }
+        }
+    } catch (e) { /* tracking soll nie das Frontend brechen */ }
+
+    // ──────────────────────────────────────────
+    // Visitor + Session Helpers
+    // ──────────────────────────────────────────
+    function getOrCreateVisitorId() {
+        try {
+            var existing = localStorage.getItem('tix_visitor');
+            if (existing) return { id: existing, first: false };
+            var id = Date.now().toString(36) + Math.random().toString(36).substring(2, 10);
+            localStorage.setItem('tix_visitor', id);
+            return { id: id, first: true };
+        } catch (e) {
+            // localStorage blocked → Fallback: Session-Cookie
+            var sid = getCookie('tix_visitor_fallback');
+            if (sid) return { id: sid, first: false };
+            var nid = Date.now().toString(36) + Math.random().toString(36).substring(2, 10);
+            setCookie('tix_visitor_fallback', nid, 365);
+            return { id: nid, first: true };
+        }
+    }
+
+    function getOrCreateSession() {
+        var existing = getCookie('tix_session');
+        if (existing) {
+            // Session läuft 30min Idle — bei jeder Page-View renewen
+            setCookie('tix_session', existing, 0, 30); // 30min
+            return { id: existing, fresh: false };
+        }
+        var id = Date.now().toString(36) + Math.random().toString(36).substring(2, 10);
+        setCookie('tix_session', id, 0, 30);
+        return { id: id, fresh: true };
     }
 
     // ──────────────────────────────────────────
@@ -150,9 +226,10 @@
         return m ? m[1] : '';
     }
 
-    function setCookie(name, value, days) {
+    function setCookie(name, value, days, minutes) {
         var d = new Date();
-        d.setTime(d.getTime() + days * 86400000);
+        var ms = (days || 0) * 86400000 + (minutes || 0) * 60000;
+        d.setTime(d.getTime() + ms);
         document.cookie = name + '=' + encodeURIComponent(value) +
             ';path=/;expires=' + d.toUTCString() + ';SameSite=Lax';
     }
