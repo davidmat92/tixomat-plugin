@@ -52,6 +52,10 @@ class TIX_Tickets {
         // Admin: manueller Check-in aus "Verkaufte Tickets" (gleicher Backend-Pfad wie Scanner)
         add_action('wp_ajax_tix_admin_checkin_toggle', [__CLASS__, 'ajax_admin_checkin_toggle']);
 
+        // Ticket-Landing-Page: Ticket(s) an freie E-Mail senden
+        add_action('wp_ajax_tix_send_ticket_email',        [__CLASS__, 'ajax_send_ticket_email']);
+        add_action('wp_ajax_nopriv_tix_send_ticket_email', [__CLASS__, 'ajax_send_ticket_email']);
+
         // ── GHOST-ORDER-SWEEP (Hourly Cron) ──
         // Watchdog: scannt completed/processing Orders der letzten 7 Tage und heilt
         // jene ohne Tickets. Schickt Bestätigungsmail mit, falls noch keine versendet.
@@ -252,7 +256,15 @@ class TIX_Tickets {
                 wp_die('Ticket nicht gefunden oder Link abgelaufen.', 'Fehler', ['response' => 404]);
             }
 
-            self::render_pdf($results[0]->ID);
+            // ── Routing: format=pdf|image → direkter Download, sonst Landing-Page ──
+            $format = sanitize_text_field($_GET['format'] ?? '');
+            if ($format === 'pdf' || $format === 'image' || !empty($_GET['download'])) {
+                self::render_pdf($results[0]->ID);
+                exit;
+            }
+
+            // Default: Landing-Page mit Preview + Action-Buttons
+            self::render_landing_page($results[0]->ID);
             exit;
         }
 
@@ -904,6 +916,331 @@ class TIX_Tickets {
     // ══════════════════════════════════════════════
     // PDF GENERIERUNG
     // ══════════════════════════════════════════════
+
+    /**
+     * Ticket-Landing-Page: zeigt Vorschau + Action-Buttons.
+     * Wird beim Aufruf von ?tix_dl=TOKEN (ohne &format=pdf) gerendert.
+     */
+    private static function render_landing_page($ticket_id) {
+        $code         = get_post_meta($ticket_id, '_tix_ticket_code', true);
+        $event_id     = intval(get_post_meta($ticket_id, '_tix_ticket_event_id', true));
+        $order_id     = intval(get_post_meta($ticket_id, '_tix_ticket_order_id', true));
+        $owner_name   = get_post_meta($ticket_id, '_tix_ticket_owner_name', true);
+        $token        = get_post_meta($ticket_id, '_tix_ticket_download_token', true);
+        $billing_email = '';
+        if ($order_id) {
+            global $wpdb;
+            $orders_table = $wpdb->prefix . 'tix_orders';
+            if ($wpdb->get_var("SHOW TABLES LIKE '$orders_table'") === $orders_table) {
+                $billing_email = $wpdb->get_var($wpdb->prepare("SELECT billing_email FROM $orders_table WHERE id = %d", $order_id));
+            }
+            if (!$billing_email && function_exists('wc_get_order')) {
+                $wco = wc_get_order($order_id);
+                if ($wco) $billing_email = $wco->get_billing_email();
+            }
+        }
+
+        $event = get_post($event_id);
+        $event_name = $event ? $event->post_title : '';
+        $date_start = get_post_meta($event_id, '_tix_date_start', true);
+        $time_start = get_post_meta($event_id, '_tix_time_start', true);
+        $location   = get_post_meta($event_id, '_tix_location', true);
+
+        // Kategorie/Preis
+        $cat_name_meta = get_post_meta($ticket_id, '_tix_ticket_cat_name', true);
+        $cat_index = intval(get_post_meta($ticket_id, '_tix_ticket_cat_index', true));
+        $cats     = get_post_meta($event_id, '_tix_ticket_categories', true);
+        $cat_name = $cat_name_meta ?: ((is_array($cats) && isset($cats[$cat_index]['name'])) ? $cats[$cat_index]['name'] : '');
+
+        // Alle Tickets der Bestellung
+        $order_tickets = $order_id ? self::get_all_tickets_for_order($order_id) : [];
+        $bundle_url    = $order_id ? self::get_bundle_url($order_id) : '';
+
+        // URLs für Aktionen
+        $current_url   = add_query_arg(['tix_dl' => $token], home_url('/'));
+        $pdf_url       = add_query_arg(['tix_dl' => $token, 'format' => 'pdf'], home_url('/'));
+        $image_url     = add_query_arg(['tix_dl' => $token, 'format' => 'image'], home_url('/'));
+        $has_template  = self::has_pdf_template($ticket_id);
+
+        // Format-Datum
+        $date_display = '';
+        if ($date_start) $date_display = date_i18n('l, d. F Y', strtotime($date_start));
+
+        // Branding
+        $s = function_exists('tix_get_settings') ? get_option('tix_settings', []) : [];
+        $accent     = !empty($s['color_primary']) ? $s['color_primary'] : '#FF5500';
+        $brand_name = !empty($s['email_brand_name']) ? $s['email_brand_name'] : get_bloginfo('name');
+        $logo_url   = !empty($s['email_logo_url'])  ? $s['email_logo_url']   : '';
+        $ajax_url   = admin_url('admin-ajax.php');
+        $send_nonce = wp_create_nonce('tix_send_ticket_email');
+
+        nocache_headers();
+        header('Content-Type: text/html; charset=UTF-8');
+        ?>
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Ticket <?php echo esc_html($code ?: '#' . $ticket_id); ?> — <?php echo esc_html($brand_name); ?></title>
+<style>
+  *,*::before,*::after{box-sizing:border-box}
+  body{margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background:#f3f4f6;color:#1a1a1a;line-height:1.5}
+  .tix-tlp-shell{max-width:640px;margin:0 auto;padding:24px 16px}
+  .tix-tlp-brand{text-align:center;margin-bottom:24px;padding:16px}
+  .tix-tlp-brand img{max-height:40px;width:auto}
+  .tix-tlp-brand h1{margin:0;font-size:18px;font-weight:600;color:#475569;letter-spacing:0.02em}
+  .tix-tlp-card{background:#fff;border-radius:14px;box-shadow:0 4px 20px rgba(0,0,0,0.06);overflow:hidden;margin-bottom:16px}
+  .tix-tlp-head{padding:24px 24px 16px;text-align:center;background:linear-gradient(135deg,<?php echo esc_attr($accent); ?>,<?php echo esc_attr($accent); ?>dd);color:#fff}
+  .tix-tlp-head h2{margin:0 0 4px;font-size:20px;font-weight:700;line-height:1.3}
+  .tix-tlp-head .meta{font-size:13px;opacity:0.92}
+  .tix-tlp-body{padding:20px 24px}
+  .tix-tlp-row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #f3f4f6;font-size:14px}
+  .tix-tlp-row:last-child{border-bottom:none}
+  .tix-tlp-row .label{color:#6b7280;font-size:12px;text-transform:uppercase;letter-spacing:0.04em;font-weight:600}
+  .tix-tlp-row .val{color:#0f172a;font-weight:500;text-align:right}
+  .tix-tlp-code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:18px;font-weight:700;letter-spacing:0.05em;text-align:center;padding:14px;background:#f9fafb;border-radius:8px;margin:16px 0;color:#0f172a}
+  .tix-tlp-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:0 24px 20px}
+  .tix-tlp-btn{display:flex;align-items:center;justify-content:center;gap:6px;padding:12px 16px;border-radius:10px;text-decoration:none;font-weight:600;font-size:14px;border:1px solid transparent;cursor:pointer;font-family:inherit;transition:transform .1s}
+  .tix-tlp-btn:active{transform:scale(0.98)}
+  .tix-tlp-btn-primary{background:<?php echo esc_attr($accent); ?>;color:#fff}
+  .tix-tlp-btn-secondary{background:#fff;color:#0f172a;border-color:#e5e7eb}
+  .tix-tlp-btn-secondary:hover{background:#f9fafb}
+  .tix-tlp-btn-full{grid-column:1/-1}
+  .tix-tlp-section-title{padding:12px 24px 6px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:#6b7280}
+  .tix-tlp-other{padding:0 14px 14px}
+  .tix-tlp-other-row{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-radius:8px;margin-bottom:6px;background:#f9fafb;font-size:13px}
+  .tix-tlp-other-row .info{flex:1;min-width:0}
+  .tix-tlp-other-row .code-mini{font-family:ui-monospace,Menlo,Consolas,monospace;font-weight:600;color:#0f172a}
+  .tix-tlp-other-row .name-mini{color:#64748b;font-size:11px;display:block;margin-top:1px}
+  .tix-tlp-other-row .actions a{color:<?php echo esc_attr($accent); ?>;text-decoration:none;font-size:12px;font-weight:600;padding:4px 8px;border-radius:6px}
+  .tix-tlp-other-row .actions a:hover{background:#fff}
+  .tix-tlp-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center;padding:16px}
+  .tix-tlp-modal.show{display:flex}
+  .tix-tlp-modal-card{background:#fff;border-radius:14px;max-width:420px;width:100%;padding:22px 24px}
+  .tix-tlp-modal-card h3{margin:0 0 6px;font-size:18px}
+  .tix-tlp-modal-card p{margin:0 0 14px;font-size:13px;color:#64748b}
+  .tix-tlp-modal-card label{display:flex;align-items:center;gap:8px;padding:8px 10px;background:#f9fafb;border-radius:8px;margin-bottom:6px;font-size:13px;cursor:pointer}
+  .tix-tlp-modal-card input[type="email"]{width:100%;padding:10px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;font-family:inherit;margin-bottom:10px}
+  .tix-tlp-modal-foot{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}
+  .tix-tlp-msg{padding:10px 14px;border-radius:8px;font-size:13px;margin-bottom:12px}
+  .tix-tlp-msg-ok{background:#dcfce7;color:#15803d;border:1px solid #86efac}
+  .tix-tlp-msg-err{background:#fee2e2;color:#b91c1c;border:1px solid #fca5a5}
+  .tix-tlp-toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#0f172a;color:#fff;padding:10px 18px;border-radius:8px;font-size:13px;opacity:0;transition:opacity .25s;pointer-events:none;z-index:9998}
+  .tix-tlp-toast.show{opacity:1}
+  @media (max-width:480px){.tix-tlp-actions{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="tix-tlp-shell">
+
+    <div class="tix-tlp-brand">
+        <?php if ($logo_url): ?>
+            <img src="<?php echo esc_url($logo_url); ?>" alt="<?php echo esc_attr($brand_name); ?>">
+        <?php else: ?>
+            <h1><?php echo esc_html($brand_name); ?></h1>
+        <?php endif; ?>
+    </div>
+
+    <div class="tix-tlp-card">
+        <div class="tix-tlp-head">
+            <h2><?php echo esc_html($event_name); ?></h2>
+            <div class="meta">
+                <?php echo esc_html($date_display); ?>
+                <?php if ($time_start): ?> · <?php echo esc_html($time_start); ?> Uhr<?php endif; ?>
+                <?php if ($location): ?> · <?php echo esc_html($location); ?><?php endif; ?>
+            </div>
+        </div>
+
+        <div class="tix-tlp-body">
+            <div class="tix-tlp-code"><?php echo esc_html($code); ?></div>
+            <?php if ($cat_name): ?>
+                <div class="tix-tlp-row"><span class="label">Kategorie</span><span class="val"><?php echo esc_html($cat_name); ?></span></div>
+            <?php endif; ?>
+            <?php if ($owner_name): ?>
+                <div class="tix-tlp-row"><span class="label">Inhaber</span><span class="val"><?php echo esc_html($owner_name); ?></span></div>
+            <?php endif; ?>
+            <?php if ($order_id): ?>
+                <div class="tix-tlp-row"><span class="label">Bestellung</span><span class="val">#<?php echo intval($order_id); ?></span></div>
+            <?php endif; ?>
+        </div>
+
+        <div class="tix-tlp-actions">
+            <a class="tix-tlp-btn tix-tlp-btn-primary tix-tlp-btn-full" href="<?php echo esc_url($pdf_url); ?>" target="_blank" rel="noopener">
+                📄 <?php echo $has_template ? 'Als PDF öffnen' : 'Ticket öffnen'; ?>
+            </a>
+            <button class="tix-tlp-btn tix-tlp-btn-secondary" type="button" id="tix-tlp-copy" data-url="<?php echo esc_attr($current_url); ?>">
+                🔗 Link kopieren
+            </button>
+            <button class="tix-tlp-btn tix-tlp-btn-secondary" type="button" id="tix-tlp-send-single">
+                📧 An E-Mail senden
+            </button>
+            <?php if ($has_template): ?>
+            <a class="tix-tlp-btn tix-tlp-btn-secondary tix-tlp-btn-full" href="<?php echo esc_url($image_url); ?>" target="_blank" rel="noopener">
+                🖼️ Als Bild speichern
+            </a>
+            <?php endif; ?>
+        </div>
+    </div>
+
+    <?php if (count($order_tickets) > 1): ?>
+    <div class="tix-tlp-card">
+        <div class="tix-tlp-section-title">Alle Tickets dieser Bestellung (<?php echo count($order_tickets); ?>)</div>
+        <div class="tix-tlp-other">
+            <?php foreach ($order_tickets as $ot):
+                if (intval($ot['id']) === intval($ticket_id)) continue;
+                $ot_dl = $ot['download_url'] ?? '';
+            ?>
+            <div class="tix-tlp-other-row">
+                <div class="info">
+                    <span class="code-mini"><?php echo esc_html($ot['code'] ?? ''); ?></span>
+                    <span class="name-mini">
+                        <?php echo esc_html($ot['cat_name'] ?? ''); ?>
+                        <?php if (!empty($ot['owner_name'])): ?> · 👤 <?php echo esc_html($ot['owner_name']); ?><?php endif; ?>
+                    </span>
+                </div>
+                <div class="actions">
+                    <a href="<?php echo esc_url($ot_dl); ?>" target="_blank" rel="noopener">Ansehen →</a>
+                </div>
+            </div>
+            <?php endforeach; ?>
+        </div>
+        <div class="tix-tlp-actions" style="padding-top:8px;">
+            <?php if ($bundle_url): ?>
+            <a class="tix-tlp-btn tix-tlp-btn-secondary" href="<?php echo esc_url($bundle_url); ?>" target="_blank" rel="noopener">
+                📋 Alle ansehen
+            </a>
+            <?php endif; ?>
+            <button class="tix-tlp-btn tix-tlp-btn-secondary" type="button" id="tix-tlp-send-all">
+                📧 Alle senden
+            </button>
+        </div>
+    </div>
+    <?php endif; ?>
+
+    <p style="text-align:center;margin:18px 0;font-size:11px;color:#9ca3af;">
+        Dieser Link ist persönlich. Bitte nicht öffentlich teilen.
+    </p>
+</div>
+
+<?php // ── E-Mail-Modal ── ?>
+<div class="tix-tlp-modal" id="tix-tlp-modal">
+    <div class="tix-tlp-modal-card">
+        <h3>An E-Mail senden</h3>
+        <p>Wir senden das Ticket / die Tickets an die angegebene Adresse.</p>
+        <div id="tix-tlp-msg"></div>
+        <input type="email" id="tix-tlp-email" placeholder="empfaenger@example.com" value="<?php echo esc_attr($billing_email); ?>" autocomplete="email">
+        <div id="tix-tlp-options" style="margin:8px 0 14px;font-size:12px;color:#64748b;"></div>
+        <div class="tix-tlp-modal-foot">
+            <button class="tix-tlp-btn tix-tlp-btn-secondary" type="button" id="tix-tlp-cancel">Abbrechen</button>
+            <button class="tix-tlp-btn tix-tlp-btn-primary" type="button" id="tix-tlp-send-go">Senden</button>
+        </div>
+    </div>
+</div>
+
+<div class="tix-tlp-toast" id="tix-tlp-toast">Link kopiert ✓</div>
+
+<script>
+(function(){
+    var TOKEN     = <?php echo wp_json_encode($token); ?>;
+    var TICKET_ID = <?php echo intval($ticket_id); ?>;
+    var ORDER_ID  = <?php echo intval($order_id); ?>;
+    var AJAX      = <?php echo wp_json_encode($ajax_url); ?>;
+    var NONCE     = <?php echo wp_json_encode($send_nonce); ?>;
+    var sendScope = 'single';
+
+    function $(id){ return document.getElementById(id); }
+    function toast(text){
+        var t = $('tix-tlp-toast');
+        t.textContent = text;
+        t.classList.add('show');
+        setTimeout(function(){ t.classList.remove('show'); }, 1800);
+    }
+
+    // Copy link
+    $('tix-tlp-copy').addEventListener('click', function(){
+        var url = this.dataset.url;
+        if (navigator.clipboard) {
+            navigator.clipboard.writeText(url).then(function(){ toast('Link kopiert ✓'); }, function(){ fallbackCopy(url); });
+        } else {
+            fallbackCopy(url);
+        }
+    });
+    function fallbackCopy(text){
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.select();
+        try { document.execCommand('copy'); toast('Link kopiert ✓'); } catch(e) { toast('Kopieren fehlgeschlagen'); }
+        document.body.removeChild(ta);
+    }
+
+    // Modal: send single
+    $('tix-tlp-send-single').addEventListener('click', function(){
+        sendScope = 'single';
+        $('tix-tlp-options').textContent = 'Es wird nur dieses Ticket gesendet.';
+        showModal();
+    });
+    var sendAll = $('tix-tlp-send-all');
+    if (sendAll) sendAll.addEventListener('click', function(){
+        sendScope = 'all';
+        $('tix-tlp-options').textContent = 'Es werden alle Tickets dieser Bestellung gesendet.';
+        showModal();
+    });
+
+    function showModal(){
+        $('tix-tlp-msg').innerHTML = '';
+        $('tix-tlp-modal').classList.add('show');
+        setTimeout(function(){ $('tix-tlp-email').focus(); }, 30);
+    }
+    function hideModal(){ $('tix-tlp-modal').classList.remove('show'); }
+
+    $('tix-tlp-cancel').addEventListener('click', hideModal);
+    $('tix-tlp-modal').addEventListener('click', function(e){ if (e.target === this) hideModal(); });
+
+    $('tix-tlp-send-go').addEventListener('click', function(){
+        var email = $('tix-tlp-email').value.trim();
+        if (!email || email.indexOf('@') < 0) {
+            $('tix-tlp-msg').innerHTML = '<div class="tix-tlp-msg tix-tlp-msg-err">Bitte gültige E-Mail eintragen.</div>';
+            return;
+        }
+        var btn = this;
+        btn.disabled = true;
+        btn.textContent = 'Sende…';
+
+        var fd = new FormData();
+        fd.append('action', 'tix_send_ticket_email');
+        fd.append('nonce', NONCE);
+        fd.append('token', TOKEN);
+        fd.append('email', email);
+        fd.append('scope', sendScope);
+
+        fetch(AJAX, { method: 'POST', body: fd, credentials: 'same-origin' })
+            .then(function(r){ return r.json(); })
+            .then(function(r){
+                btn.disabled = false;
+                btn.textContent = 'Senden';
+                if (r && r.success) {
+                    $('tix-tlp-msg').innerHTML = '<div class="tix-tlp-msg tix-tlp-msg-ok">' + (r.data.message || 'E-Mail wurde gesendet.') + '</div>';
+                    setTimeout(hideModal, 1800);
+                } else {
+                    $('tix-tlp-msg').innerHTML = '<div class="tix-tlp-msg tix-tlp-msg-err">' + ((r && r.data) || 'Versand fehlgeschlagen.') + '</div>';
+                }
+            })
+            .catch(function(){
+                btn.disabled = false;
+                btn.textContent = 'Senden';
+                $('tix-tlp-msg').innerHTML = '<div class="tix-tlp-msg tix-tlp-msg-err">Netzwerkfehler.</div>';
+            });
+    });
+})();
+</script>
+</body>
+</html>
+        <?php
+        exit;
+    }
 
     /**
      * Download-URL für ein tix_ticket generieren
@@ -4127,6 +4464,142 @@ class TIX_Tickets {
      * AJAX: Admin-Check-in-Toggle (aus "Verkaufte Tickets").
      * Ruft denselben Backend-Code wie der Scanner → 100% Sync.
      */
+    /**
+     * AJAX: Ticket(s) per E-Mail an eine freie Adresse senden.
+     * Wird von der Ticket-Landing-Page (?tix_dl=TOKEN) genutzt.
+     *
+     * Sicherheit:
+     * - Token muss gültig sein (kennt nur der Ticket-Inhaber bzw. wer den Link hat)
+     * - Rate-Limit: max 3 Sends pro Token pro Stunde (gegen Spam-Vector)
+     * - Nonce-Check
+     */
+    public static function ajax_send_ticket_email() {
+        check_ajax_referer('tix_send_ticket_email', 'nonce');
+
+        $token  = sanitize_text_field($_POST['token'] ?? '');
+        $email  = sanitize_email($_POST['email'] ?? '');
+        $scope  = sanitize_text_field($_POST['scope'] ?? 'single'); // 'single' | 'all'
+
+        if (!preg_match('/^[0-9a-f]{64}$/', $token)) {
+            wp_send_json_error('Ungültiger Token.');
+        }
+        if (!is_email($email)) {
+            wp_send_json_error('Bitte gültige E-Mail-Adresse eintragen.');
+        }
+
+        // Token → Ticket auflösen
+        $results = get_posts([
+            'post_type'      => 'tix_ticket',
+            'post_status'    => 'publish',
+            'posts_per_page' => 1,
+            'meta_query'     => [['key' => '_tix_ticket_download_token', 'value' => $token]],
+        ]);
+        if (empty($results)) {
+            wp_send_json_error('Ticket nicht gefunden.');
+        }
+        $ticket   = $results[0];
+        $ticket_id = $ticket->ID;
+        $order_id = intval(get_post_meta($ticket_id, '_tix_ticket_order_id', true));
+
+        // Rate-Limit (max 3 pro Stunde pro Token)
+        $rate_key = 'tix_send_rate_' . md5($token);
+        $count = (int) get_transient($rate_key);
+        if ($count >= 3) {
+            wp_send_json_error('Limit erreicht (3 Sends pro Stunde). Bitte später erneut versuchen.');
+        }
+        set_transient($rate_key, $count + 1, HOUR_IN_SECONDS);
+
+        // Tickets sammeln (single oder all)
+        if ($scope === 'all' && $order_id) {
+            $tix = self::get_all_tickets_for_order($order_id);
+            if (empty($tix)) wp_send_json_error('Keine Tickets der Bestellung gefunden.');
+        } else {
+            $tix = [self::normalize_tix_ticket($ticket)];
+        }
+
+        // Mail bauen
+        $event_id   = intval(get_post_meta($ticket_id, '_tix_ticket_event_id', true));
+        $event      = get_post($event_id);
+        $event_name = $event ? $event->post_title : '';
+        $brand      = function_exists('tix_get_settings') ? (tix_get_settings()['email_brand_name'] ?? get_bloginfo('name')) : get_bloginfo('name');
+
+        // PDF-Anhänge wenn Template
+        $upload_dir = wp_upload_dir();
+        $tmp_dir = trailingslashit($upload_dir['basedir']) . 'tix-resend-tmp';
+        if (!file_exists($tmp_dir)) {
+            wp_mkdir_p($tmp_dir);
+            @file_put_contents($tmp_dir . '/.htaccess', "deny from all\n");
+        }
+        $attachments = [];
+        $temp_files = [];
+        $ticket_items = [];
+
+        foreach ($tix as $t) {
+            $tid  = intval($t['id'] ?? 0);
+            $code = $t['code'] ?? '';
+            $dl   = $t['download_url'] ?? '';
+            if (!$dl && $tid) $dl = self::get_download_url($tid);
+
+            if ($tid && self::has_pdf_template($tid)) {
+                $bin = self::get_pdf_binary($tid);
+                if ($bin) {
+                    $safe = preg_replace('/[^A-Z0-9]/i', '', $code) ?: (string) $tid;
+                    $path = $tmp_dir . '/ticket-' . $safe . '.pdf';
+                    if (file_put_contents($path, $bin)) {
+                        $attachments[] = $path;
+                        $temp_files[]  = $path;
+                    }
+                }
+            }
+
+            $li  = '<li style="padding:10px 0;border-bottom:1px solid #f3f4f6;">';
+            $li .= '<strong>' . esc_html($code) . '</strong>';
+            if (!empty($t['cat_name'])) $li .= ' · ' . esc_html($t['cat_name']);
+            if (!empty($t['owner_name'])) $li .= ' <span style="color:#94a3b8;">· 👤 ' . esc_html($t['owner_name']) . '</span>';
+            if ($dl) $li .= '<br><a href="' . esc_url($dl) . '" style="color:#2563eb;text-decoration:none;font-size:13px;">→ Online ansehen</a>';
+            $li .= '</li>';
+            $ticket_items[] = $li;
+        }
+
+        $count_label = count($tix) === 1 ? 'Dein Ticket' : 'Deine Tickets (' . count($tix) . ')';
+        $body  = '<p>Hallo,</p>';
+        $body .= '<p>hier ist <strong>' . $count_label . '</strong> für <strong>' . esc_html($event_name) . '</strong>:</p>';
+        $body .= '<ul style="list-style:none;padding:0;margin:16px 0;">' . implode('', $ticket_items) . '</ul>';
+        if (!empty($attachments)) {
+            $body .= '<p style="font-size:13px;color:#64748b;">Die PDF-Tickets sind dieser E-Mail als Anhang beigefügt.</p>';
+        }
+        $body .= '<p style="font-size:12px;color:#94a3b8;margin-top:24px;">Diese E-Mail wurde über die Ticket-Online-Seite an <strong>' . esc_html($email) . '</strong> verschickt.</p>';
+
+        $html = class_exists('TIX_Emails')
+            ? TIX_Emails::build_generic_email_html($count_label, $body, $event_name)
+            : '<html><body>' . $body . '</body></html>';
+
+        $subject = $count_label . ' – ' . $event_name;
+        $sent = wp_mail($email, $subject, $html, ['Content-Type: text/html; charset=UTF-8'], $attachments);
+
+        // Aufräumen
+        foreach ($temp_files as $f) { @unlink($f); }
+
+        // Send-Log auf Ticket-Meta
+        $log = get_post_meta($ticket_id, '_tix_ticket_send_log', true);
+        if (!is_array($log)) $log = [];
+        $log[] = [
+            'email' => $email,
+            'scope' => $scope,
+            'date'  => current_time('c'),
+            'ip'    => $_SERVER['REMOTE_ADDR'] ?? '',
+        ];
+        // Keep last 20
+        if (count($log) > 20) $log = array_slice($log, -20);
+        update_post_meta($ticket_id, '_tix_ticket_send_log', $log);
+
+        if ($sent) {
+            wp_send_json_success(['message' => 'E-Mail an ' . $email . ' gesendet ✓']);
+        } else {
+            wp_send_json_error('Versand fehlgeschlagen. Bitte später erneut versuchen.');
+        }
+    }
+
     public static function ajax_admin_checkin_toggle() {
         check_ajax_referer('tix_ticket_action', 'nonce');
         if (!current_user_can('manage_options') && !current_user_can('edit_others_posts')) {

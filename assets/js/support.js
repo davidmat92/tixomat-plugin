@@ -318,7 +318,10 @@
             html += '<h4>Aktionen</h4>';
             html += '<div class="tix-sp-quick-actions">';
             if (t.linked_ticket) {
-                html += '<a href="' + esc(t.linked_ticket.edit_url) + '" target="_blank" class="tix-sp-qa-btn">🎫 Ticket öffnen</a>';
+                if (t.linked_ticket.download_url) {
+                    html += '<a href="' + esc(t.linked_ticket.download_url) + '" target="_blank" rel="noopener" class="tix-sp-qa-btn" style="background:#dbeafe;color:#1d4ed8;">👁️ Online ansehen (Kunden-Sicht)</a>';
+                }
+                html += '<a href="' + esc(t.linked_ticket.edit_url) + '" target="_blank" class="tix-sp-qa-btn">🎫 Ticket-Backend öffnen</a>';
                 if (t.linked_ticket.download_url) {
                     html += '<button class="tix-sp-copy-url" data-url="' + esc(t.linked_ticket.download_url) + '">📥 Download-Link kopieren</button>';
                 }
@@ -364,6 +367,10 @@
                     }
                     html += '</div>';
                     html += '<div class="tix-sp-linked-ticket-actions" style="display:flex;gap:4px;flex-shrink:0;">';
+                    if (lt.download_url) {
+                        // Kunden-Sicht: Landing-Page mit Preview + Buttons (neuer Tab)
+                        html += '<a href="' + esc(lt.download_url) + '" target="_blank" rel="noopener" title="Ticket online ansehen (Kunden-Sicht)" style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:6px;background:#dbeafe;text-decoration:none;font-size:14px;">👁️</a>';
+                    }
                     if (lt.edit_url) {
                         html += '<a href="' + esc(lt.edit_url) + '" target="_blank" title="Ticket-Backend öffnen" style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:6px;background:#f1f5f9;text-decoration:none;font-size:14px;">🎫</a>';
                     }
@@ -870,8 +877,11 @@
                     html += '<span>' + esc(t.event || '–') + ' · ' + esc(t.owner || '–') + ' · ' + esc(t.email || '') + seatInfo + '</span>';
                     html += '</div>';
                     html += '<div class="tix-sp-result-card-actions">';
+                    if (t.download_url) {
+                        html += '<a href="' + esc(t.download_url) + '" target="_blank" rel="noopener" class="tix-sp-btn tix-sp-btn-sm" style="background:#dbeafe;color:#1d4ed8;border-color:#bfdbfe;">👁️ Online ansehen</a>';
+                    }
                     if (t.edit_url) {
-                        html += '<a href="' + esc(t.edit_url) + '" target="_blank" class="tix-sp-btn tix-sp-btn-sm">🎫 Öffnen</a>';
+                        html += '<a href="' + esc(t.edit_url) + '" target="_blank" class="tix-sp-btn tix-sp-btn-sm">🎫 Backend</a>';
                     }
                     if (t.download_url) {
                         html += '<button class="tix-sp-btn tix-sp-btn-sm tix-sp-copy-url" data-url="' + esc(t.download_url) + '">📥 Link kopieren</button>';
