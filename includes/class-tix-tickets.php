@@ -2009,6 +2009,16 @@ body{margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',
         // Issue-Datum für Verified-Badge
         $issue_date = date_i18n('d.m.Y', strtotime($code ? get_post($ticket_id)->post_date : 'now'));
 
+        // Importiertes Ticket (Tickera-Migration): Datum ist oft unzuverlässig
+        // (= Import-Datum, nicht echtes Kauf-Datum), daher zeigen wir nur "Ticket gekauft
+        // und bezahlt" als Trust-Signal ohne irreführendes Datum.
+        $is_imported = (bool) get_post_meta($ticket_id, '_tix_legacy_ticket_id',    true)
+                    || (bool) get_post_meta($ticket_id, '_tix_legacy_tickera_id',   true)
+                    || (bool) get_post_meta($ticket_id, '_tix_legacy_source',       true);
+        $verified_label = $is_imported
+            ? 'Ticket gekauft und bezahlt'
+            : 'Ticket gekauft am ' . $issue_date;
+
         $qr_data = 'GL-' . $event_id . '-' . $code;
         // Lokale QR-Generierung via Canvas (wird clientseitig von tix-qr.js gerendert)
         // Fallback-URL falls JS nicht lädt
@@ -3423,8 +3433,8 @@ body{margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',
                         <div class="tix-verify-cell-value" data-tix-verify-order>—</div>
                     </div>
                     <div class="tix-verify-cell">
-                        <div class="tix-verify-cell-label">Gekauft am</div>
-                        <div class="tix-verify-cell-value" data-tix-verify-purchased>—</div>
+                        <div class="tix-verify-cell-label">Kategorie</div>
+                        <div class="tix-verify-cell-value" data-tix-verify-category>—</div>
                     </div>
                     <div class="tix-verify-cell">
                         <div class="tix-verify-cell-label">Inhaber</div>
@@ -3493,7 +3503,7 @@ body{margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',
                 <?php if (!empty($ht_show_verified_badge)): ?>
                 <button type="button" class="tix-verified-badge no-print" onclick="tixOpenVerifyModal()" title="Klicken für Echtheitsprüfung">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 12l2 2 4-4"/><path d="M12 2l8.5 4v6c0 5.25-3.75 9.5-8.5 10-4.75-.5-8.5-4.75-8.5-10V6L12 2z"/></svg>
-                    <span>Ticket gekauft am <?php echo esc_html($issue_date); ?></span>
+                    <span><?php echo esc_html($verified_label); ?></span>
                 </button>
                 <?php endif; ?>
             </div>
@@ -3756,7 +3766,7 @@ body{margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',
                 if ($bundle_url):
         ?>
         <div class="tix-ticket-actions-group">
-            <div class="tix-ticket-actions-row" style="justify-content:center;">
+            <div class="tix-ticket-actions-row" style="grid-template-columns:1fr;">
                 <a href="<?php echo esc_url($bundle_url); ?>" rel="noopener" class="btn-base"
                    style="background:<?php echo esc_attr($accent); ?>;color:#fff;border:none;font-weight:600;text-decoration:none;padding:14px 22px;font-size:14px;width:100%;justify-content:center;display:inline-flex;gap:8px;align-items:center;">
                     📋 Alle <?php echo intval($cnt); ?> Tickets dieser Bestellung anzeigen
@@ -4398,7 +4408,10 @@ body{margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',
                     if (firstRun) {
                         modal.querySelector('[data-tix-verify-code]').textContent = d.code || '—';
                         modal.querySelector('[data-tix-verify-order]').textContent = d.order_number || '—';
-                        modal.querySelector('[data-tix-verify-purchased]').textContent = d.purchased_display || '—';
+                        var catEl = modal.querySelector('[data-tix-verify-category]');
+                        if (catEl) catEl.textContent = d.category || '—';
+                        var purEl = modal.querySelector('[data-tix-verify-purchased]');
+                        if (purEl) purEl.textContent = d.purchased_display || '—';
                         modal.querySelector('[data-tix-verify-holder]').textContent = d.holder_name || '(nicht zugeordnet)';
                         var evParts = [];
                         if (d.event_name) evParts.push(d.event_name);
@@ -5308,6 +5321,21 @@ body{margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',
         $checked_in    = (bool) get_post_meta($ticket_id, '_tix_ticket_checked_in', true);
         $checkin_time  = (string) get_post_meta($ticket_id, '_tix_ticket_checkin_time', true);
 
+        // Kategorie auflösen (Override-Meta hat Vorrang vor cat_index → Event-Categories)
+        $cat_name_meta = (string) get_post_meta($ticket_id, '_tix_ticket_cat_name', true);
+        $cat_index_raw = get_post_meta($ticket_id, '_tix_ticket_cat_index', true);
+        $cat_name      = '';
+        if ($cat_name_meta !== '') {
+            $cat_name = $cat_name_meta;
+        } elseif ($cat_index_raw !== '' && $cat_index_raw !== false && $event_id) {
+            $cats = get_post_meta($event_id, '_tix_ticket_categories', true);
+            $cat_index = intval($cat_index_raw);
+            if (is_array($cats) && $cat_index >= 0 && isset($cats[$cat_index]['name'])) {
+                $cat_name = (string) $cats[$cat_index]['name'];
+            }
+        }
+        if (!$cat_name) $cat_name = '—';
+
         // Verifikations-Signatur: HMAC aus ticket-id + order-date + server-secret
         // Beweist dass der Response vom Server kommt (nicht fake)
         $sig_base = $ticket_id . '|' . $purchased_at . '|' . $code;
@@ -5322,6 +5350,7 @@ body{margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',
             'event_date'    => $event_start,
             'event_time'    => $event_time,
             'event_location'=> $event_loc,
+            'category'      => $cat_name,
             'order_number'  => $order_number,
             'purchased_at'  => $purchased_at,
             'purchased_display' => $purchased_at ? date_i18n('d.m.Y · H:i', strtotime($purchased_at)) : '',
