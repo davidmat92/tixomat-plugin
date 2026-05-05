@@ -93,12 +93,13 @@ class TIX_Coupons {
             wp_redirect(add_query_arg(['page' => 'tix-coupons', 'msg' => 'invalid_code'], admin_url('admin.php')));
             exit;
         }
-        if (!in_array($type, ['percent', 'fixed'], true)) $type = 'percent';
+        if (!in_array($type, ['percent', 'fixed', 'per_ticket_percent', 'per_ticket_fixed'], true)) $type = 'percent';
         if ($value <= 0) {
             wp_redirect(add_query_arg(['page' => 'tix-coupons', 'msg' => 'invalid_value'], admin_url('admin.php')));
             exit;
         }
-        if ($type === 'percent' && $value > 100) $value = 100;
+        // Prozent-Caps (Cart-weit + pro Ticket)
+        if (in_array($type, ['percent', 'per_ticket_percent'], true) && $value > 100) $value = 100;
 
         $coupons = get_option(self::OPTION, []);
         if (!is_array($coupons)) $coupons = [];
@@ -354,14 +355,37 @@ class TIX_Coupons {
                             <tr>
                                 <th>Rabatt-Typ</th>
                                 <td>
-                                    <label style="margin-right:18px;">
-                                        <input type="radio" name="discount_type" value="percent" <?php checked(($edit['discount_type'] ?? 'percent'), 'percent'); ?>>
-                                        Prozent (%)
-                                    </label>
-                                    <label>
-                                        <input type="radio" name="discount_type" value="fixed" <?php checked(($edit['discount_type'] ?? ''), 'fixed'); ?>>
-                                        Fester Betrag (€)
-                                    </label>
+                                    <?php $current_type = $edit['discount_type'] ?? 'percent'; ?>
+                                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;max-width:640px;">
+                                        <label style="display:flex;align-items:flex-start;gap:8px;padding:12px 14px;border:1.5px solid <?php echo $current_type === 'percent' ? '#FF5500' : '#e5e7eb'; ?>;border-radius:8px;cursor:pointer;background:<?php echo $current_type === 'percent' ? '#fff7ed' : '#fff'; ?>;">
+                                            <input type="radio" name="discount_type" value="percent" <?php checked($current_type, 'percent'); ?> style="margin-top:2px;">
+                                            <div>
+                                                <div style="font-weight:600;font-size:13px;color:#0f172a;">📊 Prozent auf Gesamtbetrag</div>
+                                                <div style="font-size:11px;color:#64748b;margin-top:2px;">z.B. 10% auf den ganzen Warenkorb</div>
+                                            </div>
+                                        </label>
+                                        <label style="display:flex;align-items:flex-start;gap:8px;padding:12px 14px;border:1.5px solid <?php echo $current_type === 'fixed' ? '#FF5500' : '#e5e7eb'; ?>;border-radius:8px;cursor:pointer;background:<?php echo $current_type === 'fixed' ? '#fff7ed' : '#fff'; ?>;">
+                                            <input type="radio" name="discount_type" value="fixed" <?php checked($current_type, 'fixed'); ?> style="margin-top:2px;">
+                                            <div>
+                                                <div style="font-weight:600;font-size:13px;color:#0f172a;">💶 Fixbetrag auf Gesamtbetrag</div>
+                                                <div style="font-size:11px;color:#64748b;margin-top:2px;">z.B. 5 € pauschal vom Warenkorb</div>
+                                            </div>
+                                        </label>
+                                        <label style="display:flex;align-items:flex-start;gap:8px;padding:12px 14px;border:1.5px solid <?php echo $current_type === 'per_ticket_percent' ? '#FF5500' : '#e5e7eb'; ?>;border-radius:8px;cursor:pointer;background:<?php echo $current_type === 'per_ticket_percent' ? '#fff7ed' : '#fff'; ?>;">
+                                            <input type="radio" name="discount_type" value="per_ticket_percent" <?php checked($current_type, 'per_ticket_percent'); ?> style="margin-top:2px;">
+                                            <div>
+                                                <div style="font-weight:600;font-size:13px;color:#0f172a;">🎫 Prozent pro Ticket</div>
+                                                <div style="font-size:11px;color:#64748b;margin-top:2px;">z.B. 15% auf jedes einzelne Ticket</div>
+                                            </div>
+                                        </label>
+                                        <label style="display:flex;align-items:flex-start;gap:8px;padding:12px 14px;border:1.5px solid <?php echo $current_type === 'per_ticket_fixed' ? '#FF5500' : '#e5e7eb'; ?>;border-radius:8px;cursor:pointer;background:<?php echo $current_type === 'per_ticket_fixed' ? '#fff7ed' : '#fff'; ?>;">
+                                            <input type="radio" name="discount_type" value="per_ticket_fixed" <?php checked($current_type, 'per_ticket_fixed'); ?> style="margin-top:2px;">
+                                            <div>
+                                                <div style="font-weight:600;font-size:13px;color:#0f172a;">🏷️ Fixbetrag pro Ticket</div>
+                                                <div style="font-size:11px;color:#64748b;margin-top:2px;">z.B. 5 € Rabatt pro Ticket → bei 3 Tickets = 15 €</div>
+                                            </div>
+                                        </label>
+                                    </div>
                                 </td>
                             </tr>
                             <tr>
@@ -371,7 +395,7 @@ class TIX_Coupons {
                                            value="<?php echo esc_attr($edit['value'] ?? ''); ?>"
                                            placeholder="z.B. 10 oder 5,00"
                                            style="width:120px;font-family:monospace;">
-                                    <p class="description">Bei Prozent: 1–100. Bei Fest: Betrag in Euro.</p>
+                                    <p class="description">Bei Prozent: 1–100. Bei Fix-Betrag: Wert in Euro.</p>
                                 </td>
                             </tr>
                             <tr>
@@ -583,11 +607,28 @@ class TIX_Coupons {
                                         <?php endif; ?>
                                     </td>
                                     <td>
-                                        <?php if ($type === 'percent'): ?>
-                                            <strong><?php echo number_format($val, 0, ',', '.'); ?> %</strong>
-                                        <?php else: ?>
-                                            <strong><?php echo number_format($val, 2, ',', '.'); ?> €</strong>
-                                        <?php endif; ?>
+                                        <?php
+                                        switch ($type) {
+                                            case 'percent':
+                                                echo '<strong>' . number_format($val, 0, ',', '.') . ' %</strong>';
+                                                echo '<div style="font-size:10px;color:#9ca3af;">auf Gesamt</div>';
+                                                break;
+                                            case 'fixed':
+                                                echo '<strong>' . number_format($val, 2, ',', '.') . ' €</strong>';
+                                                echo '<div style="font-size:10px;color:#9ca3af;">auf Gesamt</div>';
+                                                break;
+                                            case 'per_ticket_percent':
+                                                echo '<strong>' . number_format($val, 0, ',', '.') . ' %</strong>';
+                                                echo '<div style="font-size:10px;color:#9ca3af;">pro Ticket</div>';
+                                                break;
+                                            case 'per_ticket_fixed':
+                                                echo '<strong>' . number_format($val, 2, ',', '.') . ' €</strong>';
+                                                echo '<div style="font-size:10px;color:#9ca3af;">pro Ticket</div>';
+                                                break;
+                                            default:
+                                                echo '<strong>' . esc_html($val) . '</strong>';
+                                        }
+                                        ?>
                                     </td>
                                     <td>
                                         <?php if (!$exp): ?>

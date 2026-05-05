@@ -422,10 +422,13 @@ class TIX_Native_Checkout {
 
         // Discount auf Basis des aktuellen Cart-Totals berechnen
         $items_total = 0.0;
+        $cart_qty    = 0;
         $event_ids   = [];
         if (!empty($cart['items']) && is_array($cart['items'])) {
             foreach ($cart['items'] as $item) {
-                $items_total += floatval($item['price'] ?? 0) * max(1, intval($item['qty'] ?? 1));
+                $qty = max(1, intval($item['qty'] ?? 1));
+                $items_total += floatval($item['price'] ?? 0) * $qty;
+                $cart_qty    += $qty;
                 $eid = intval($item['event_id'] ?? 0);
                 if ($eid) $event_ids[] = $eid;
             }
@@ -441,10 +444,17 @@ class TIX_Native_Checkout {
 
         $type  = $coupon['discount_type'] ?? 'percent';
         $value = floatval($coupon['value'] ?? 0);
-        $discount = $type === 'percent'
-            ? round($items_total * $value / 100, 2)
-            : min($items_total, $value);
-        $discount = max(0, round($discount, 2));
+        switch ($type) {
+            case 'fixed':              $discount = $value; break;
+            case 'per_ticket_fixed':   $discount = $value * $cart_qty; break;
+            case 'percent':
+            case 'per_ticket_percent': $discount = $items_total * $value / 100; break;
+            default:                   $discount = 0;
+        }
+        $discount = min($items_total, max(0, $discount));
+        $max_cap = floatval($coupon['max_amount'] ?? 0);
+        if ($max_cap > 0 && $discount > $max_cap) $discount = $max_cap;
+        $discount = round($discount, 2);
         if ($discount <= 0) return;
 
         $cart['coupon'] = [
@@ -510,13 +520,15 @@ class TIX_Native_Checkout {
     private static function recalc_coupon_discount(array &$cart) {
         if (empty($cart['coupon']) || empty($cart['coupon']['code'])) return;
 
-        // Cart-Total ohne Coupon (= Summe aller Items)
+        // Cart-Total ohne Coupon (= Summe aller Items) + Quantity (für per_ticket_*)
         $items_total = 0.0;
+        $cart_qty    = 0;
         if (!empty($cart['items']) && is_array($cart['items'])) {
             foreach ($cart['items'] as $item) {
                 $price = floatval($item['price'] ?? 0);
                 $qty   = max(1, intval($item['qty'] ?? 1));
                 $items_total += $price * $qty;
+                $cart_qty    += $qty;
             }
         }
 
@@ -585,13 +597,19 @@ class TIX_Native_Checkout {
         $discount_type  = $coupon['discount_type'] ?? 'percent';
         $discount_value = floatval($coupon['value'] ?? 0);
 
-        if ($discount_type === 'percent') {
-            $discount = round($items_total * $discount_value / 100, 2);
-        } else {
-            // Fest-€-Coupon: nicht mehr als der Warenkorb-Wert
-            $discount = min($items_total, $discount_value);
+        switch ($discount_type) {
+            case 'fixed':              $discount = $discount_value; break;
+            case 'per_ticket_fixed':   $discount = $discount_value * $cart_qty; break;
+            case 'percent':
+            case 'per_ticket_percent': $discount = $items_total * $discount_value / 100; break;
+            default:                   $discount = 0;
         }
-        $discount = max(0, round($discount, 2));
+        // Niemals mehr als der Cart-Total
+        $discount = min($items_total, max(0, $discount));
+        // max_amount-Cap (falls Coupon-Restriction setzt)
+        $max_cap = floatval($coupon['max_amount'] ?? 0);
+        if ($max_cap > 0 && $discount > $max_cap) $discount = $max_cap;
+        $discount = round($discount, 2);
 
         $cart['coupon']['discount'] = $discount;
     }
@@ -1641,16 +1659,45 @@ class TIX_Native_Checkout {
             }
         }
 
+        // Cart-Quantity ermitteln (für per_ticket_*-Discounts)
+        $cart_qty = 0;
+        if (!empty($cart['items']) && is_array($cart['items'])) {
+            foreach ($cart['items'] as $item) {
+                $cart_qty += max(1, intval($item['qty'] ?? $item['quantity'] ?? 1));
+            }
+        }
+
         // Calculate discount
         $discount_type = $coupon['discount_type'] ?? 'percent';
         $discount_value = floatval($coupon['value'] ?? 0);
 
-        if ($discount_type === 'percent') {
-            $discount = round($cart_total * $discount_value / 100, 2);
-        } else {
-            $discount = min($cart_total, $discount_value);
+        switch ($discount_type) {
+            case 'percent':
+                // X% auf Cart-Gesamtbetrag
+                $discount = $cart_total * $discount_value / 100;
+                break;
+            case 'fixed':
+                // X € pauschal vom Cart
+                $discount = $discount_value;
+                break;
+            case 'per_ticket_percent':
+                // X% auf jedes Ticket — math gleich wie 'percent', aber semantisch klarer
+                // (für Communication "15% pro Ticket" statt "15% auf den Warenkorb")
+                $discount = $cart_total * $discount_value / 100;
+                break;
+            case 'per_ticket_fixed':
+                // X € pro Ticket × Anzahl Tickets im Cart
+                $discount = $discount_value * $cart_qty;
+                break;
+            default:
+                $discount = 0;
         }
 
+        // Niemals mehr als der Cart-Total
+        $discount = min($cart_total, max(0, $discount));
+        // max_amount-Cap (falls Coupon-Restriction setzt)
+        $max_cap = floatval($coupon['max_amount'] ?? 0);
+        if ($max_cap > 0 && $discount > $max_cap) $discount = $max_cap;
         $discount = round($discount, 2);
 
         // Apply to cart
