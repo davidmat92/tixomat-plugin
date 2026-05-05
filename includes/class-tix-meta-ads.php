@@ -60,6 +60,15 @@ class TIX_Meta_Ads {
             'meta_key'       => '_tix_date_start',
             'order'          => 'DESC',
         ]);
+
+        // WP-Pages für UTM-Link-Generator (zusätzlich zu Events)
+        $pages = get_posts([
+            'post_type'      => 'page',
+            'post_status'    => 'publish',
+            'posts_per_page' => 200,
+            'orderby'        => 'title',
+            'order'          => 'ASC',
+        ]);
         ?>
         <div class="wrap tix-meta-ads-wrap">
             <h1 style="display:flex;align-items:center;gap:10px">
@@ -357,8 +366,33 @@ class TIX_Meta_Ads {
                 <div class="tix-meta-card">
                     <h3>UTM-Link Generator</h3>
                     <div class="tix-meta-utm-form">
+
+                        <?php // ── Ziel-Typ-Auswahl: Event / Homepage / WP-Page / Custom URL ── ?>
                         <div class="tix-meta-field">
-                            <label>Event</label>
+                            <label>Ziel</label>
+                            <div class="tix-utm-target-type" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px;">
+                                <label style="display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border:1px solid #e5e7eb;border-radius:8px;cursor:pointer;background:#fff;">
+                                    <input type="radio" name="tix_utm_target" value="event" checked>
+                                    <span>🎫 Event</span>
+                                </label>
+                                <label style="display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border:1px solid #e5e7eb;border-radius:8px;cursor:pointer;background:#fff;">
+                                    <input type="radio" name="tix_utm_target" value="home">
+                                    <span>🏠 Homepage</span>
+                                </label>
+                                <label style="display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border:1px solid #e5e7eb;border-radius:8px;cursor:pointer;background:#fff;">
+                                    <input type="radio" name="tix_utm_target" value="page">
+                                    <span>📄 WordPress-Seite</span>
+                                </label>
+                                <label style="display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border:1px solid #e5e7eb;border-radius:8px;cursor:pointer;background:#fff;">
+                                    <input type="radio" name="tix_utm_target" value="custom">
+                                    <span>🔗 Custom URL</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <?php // ── Event-Dropdown (Default) ── ?>
+                        <div class="tix-meta-field tix-utm-target-input" data-for="event">
+                            <label>Event auswählen</label>
                             <select id="tix-utm-event" class="regular-text">
                                 <option value="">— Event wählen —</option>
                                 <?php foreach ($events as $ev): ?>
@@ -368,6 +402,35 @@ class TIX_Meta_Ads {
                                 <?php endforeach; ?>
                             </select>
                         </div>
+
+                        <?php // ── Homepage-Info ── ?>
+                        <div class="tix-meta-field tix-utm-target-input" data-for="home" style="display:none;">
+                            <label>Ziel-URL</label>
+                            <input type="text" class="regular-text" value="<?php echo esc_attr(home_url('/')); ?>" readonly style="background:#f9fafb;">
+                            <p class="description" style="margin-top:4px;">UTM-Parameter werden an deine Homepage angehängt.</p>
+                        </div>
+
+                        <?php // ── WP-Page-Dropdown ── ?>
+                        <div class="tix-meta-field tix-utm-target-input" data-for="page" style="display:none;">
+                            <label>WordPress-Seite auswählen</label>
+                            <select id="tix-utm-page" class="regular-text">
+                                <option value="">— Seite wählen —</option>
+                                <?php foreach ($pages as $pg): ?>
+                                <option value="<?php echo esc_attr(get_permalink($pg->ID)); ?>">
+                                    <?php echo esc_html(get_the_title($pg->ID) ?: '(ohne Titel)'); ?>
+                                </option>
+                                <?php endforeach; ?>
+                            </select>
+                            <p class="description" style="margin-top:4px;"><?php echo intval(count($pages)); ?> publizierte Seiten gefunden.</p>
+                        </div>
+
+                        <?php // ── Custom URL Input ── ?>
+                        <div class="tix-meta-field tix-utm-target-input" data-for="custom" style="display:none;">
+                            <label>Beliebige URL</label>
+                            <input type="url" id="tix-utm-custom" class="regular-text" placeholder="https://mallorca-festival-xxl.de/blog/dein-artikel/">
+                            <p class="description" style="margin-top:4px;">Beliebige URL — auch externe Domains funktionieren (z.B. Blog-Posts, Landing-Pages, Subdomains).</p>
+                        </div>
+
                         <div class="tix-meta-field">
                             <label>Source</label>
                             <select id="tix-utm-source">
@@ -377,6 +440,11 @@ class TIX_Meta_Ads {
                                 <option value="newsletter">Newsletter</option>
                                 <option value="flyer">Flyer</option>
                                 <option value="poster">Poster</option>
+                                <option value="tiktok">TikTok</option>
+                                <option value="youtube">YouTube</option>
+                                <option value="whatsapp">WhatsApp</option>
+                                <option value="google_ads">Google Ads</option>
+                                <option value="other">Sonstige</option>
                             </select>
                         </div>
                         <div class="tix-meta-field">
@@ -387,6 +455,8 @@ class TIX_Meta_Ads {
                                 <option value="email">E-Mail</option>
                                 <option value="print">Print</option>
                                 <option value="qr">QR-Code</option>
+                                <option value="referral">Referral</option>
+                                <option value="cpc">CPC</option>
                             </select>
                         </div>
                         <div class="tix-meta-field">
@@ -425,10 +495,10 @@ class TIX_Meta_Ads {
                     <h3>Letzte Links</h3>
                     <table class="widefat" id="tix-utm-history">
                         <thead>
-                            <tr><th>Link</th><th>Source</th><th>Medium</th><th>Campaign</th><th></th></tr>
+                            <tr><th>Ziel</th><th>Link</th><th>Source</th><th>Medium</th><th>Campaign</th><th></th></tr>
                         </thead>
                         <tbody>
-                            <tr><td colspan="5" style="text-align:center;color:#999">Noch keine Links generiert</td></tr>
+                            <tr><td colspan="6" style="text-align:center;color:#999">Noch keine Links generiert</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -596,7 +666,16 @@ class TIX_Meta_Ads {
         $campaign = sanitize_text_field($_POST['campaign'] ?? '');
         $content = sanitize_text_field($_POST['content'] ?? '');
 
-        if (empty($base)) wp_send_json_error(['message' => 'Kein Event gewählt.']);
+        if (empty($base)) wp_send_json_error('Bitte ein Ziel auswählen.');
+
+        // URL-Validierung — muss valid HTTP/HTTPS-URL sein
+        if (!preg_match('#^https?://#i', $base)) {
+            wp_send_json_error('Ungültige URL — muss mit http:// oder https:// beginnen.');
+        }
+
+        if (empty($source) || empty($campaign)) {
+            wp_send_json_error('Source und Campaign sind Pflichtfelder.');
+        }
 
         $params = [
             'utm_source'   => $source,

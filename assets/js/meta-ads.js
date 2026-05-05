@@ -230,12 +230,56 @@
     /* ══════════════════════════════════════════
        UTM LINK GENERATOR
     ══════════════════════════════════════════ */
+
+    // Ziel-Typ-Switcher: zeigt das passende Eingabefeld an
+    $(document).on('change', 'input[name="tix_utm_target"]', function(){
+        var t = $(this).val();
+        $('.tix-utm-target-input').hide();
+        $('.tix-utm-target-input[data-for="' + t + '"]').show();
+    });
+
+    function getUtmBaseUrl() {
+        var type = $('input[name="tix_utm_target"]:checked').val() || 'event';
+        if (type === 'event')  return $('#tix-utm-event').val();
+        if (type === 'page')   return $('#tix-utm-page').val();
+        if (type === 'custom') return ($('#tix-utm-custom').val() || '').trim();
+        if (type === 'home')   return $('.tix-utm-target-input[data-for="home"] input').val();
+        return '';
+    }
+
+    function getUtmTargetLabel() {
+        var type = $('input[name="tix_utm_target"]:checked').val() || 'event';
+        if (type === 'event')  return $('#tix-utm-event option:selected').text();
+        if (type === 'page')   return $('#tix-utm-page option:selected').text();
+        if (type === 'custom') return ($('#tix-utm-custom').val() || '').trim();
+        if (type === 'home')   return 'Homepage';
+        return '';
+    }
+
     $('#tix-utm-generate').on('click', function(){
-        var baseUrl = $('#tix-utm-event').val();
+        var baseUrl = getUtmBaseUrl();
+        var type    = $('input[name="tix_utm_target"]:checked').val() || 'event';
+
         if(!baseUrl){
-            alert('Bitte wähle ein Event.');
+            var msgs = {
+                event:  'Bitte wähle ein Event.',
+                page:   'Bitte wähle eine WordPress-Seite.',
+                custom: 'Bitte gib eine URL ein.',
+                home:   'Homepage-URL fehlt.'
+            };
+            alert(msgs[type] || 'Bitte ein Ziel auswählen.');
             return;
         }
+
+        // URL-Validierung für custom
+        if (type === 'custom') {
+            try { new URL(baseUrl); }
+            catch(e) {
+                alert('Ungültige URL — bitte mit https:// beginnen.');
+                return;
+            }
+        }
+
         $.post(M.ajax, {
             action: 'tix_meta_generate_utm',
             nonce: M.nonce,
@@ -245,7 +289,10 @@
             campaign: $('#tix-utm-campaign').val(),
             content: $('#tix-utm-content').val()
         }, function(r){
-            if(!r.success) return;
+            if(!r.success) {
+                alert(r.data || 'Fehler beim Generieren.');
+                return;
+            }
             var url = r.data.url;
             $('#tix-utm-url').val(url);
             $('#tix-utm-result').show();
@@ -257,6 +304,7 @@
             // Save to history
             utmHistory.unshift({
                 url: url,
+                target: getUtmTargetLabel(),
                 source: $('#tix-utm-source').val(),
                 medium: $('#tix-utm-medium').val(),
                 campaign: $('#tix-utm-campaign').val()
@@ -282,8 +330,10 @@
         if(!utmHistory.length) return;
         var html = '';
         utmHistory.slice(0,10).forEach(function(h){
+            var targetLabel = h.target ? esc(h.target) : '—';
             html += '<tr>' +
-                '<td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><code>' + esc(h.url) + '</code></td>' +
+                '<td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:#475569;">' + targetLabel + '</td>' +
+                '<td style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><code style="font-size:11px;">' + esc(h.url) + '</code></td>' +
                 '<td>' + esc(h.source) + '</td>' +
                 '<td>' + esc(h.medium) + '</td>' +
                 '<td>' + esc(h.campaign) + '</td>' +
