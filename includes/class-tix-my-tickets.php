@@ -1554,7 +1554,14 @@ class TIX_My_Tickets {
 
                     <?php if (!empty($combo['all_tickets']) && $is_paid): ?>
                         <?php
-                        $bundle_url_combo = class_exists('TIX_Tickets') ? TIX_Tickets::get_bundle_url($od['order_id']) : '';
+                        // Bundle-URL aus Token eines eigenen Tickets bauen (Owner-Filter im Handler)
+                        $bundle_url_combo = '';
+                        if (class_exists('TIX_Tickets') && !empty($combo['all_tickets'][0]['id'])) {
+                            $own_token = TIX_Tickets::ensure_download_token($combo['all_tickets'][0]['id']);
+                            if ($own_token) {
+                                $bundle_url_combo = add_query_arg(['tix_bundle' => $own_token], home_url('/'));
+                            }
+                        }
                         if ($bundle_url_combo):
                         ?>
                             <a href="<?php echo esc_url($bundle_url_combo); ?>" target="_blank" class="tix-mt-bundle-link" style="display:inline-flex;align-items:center;gap:8px;margin-bottom:12px;padding:10px 14px;background:#f5f3ff;border:1px solid #ddd6fe;border-radius:8px;color:#5b21b6;font-size:13px;font-weight:600;text-decoration:none;">
@@ -1686,7 +1693,18 @@ class TIX_My_Tickets {
 
                     <?php if (!empty($ev['tickets']) && $is_paid): ?>
                         <?php
-                        $bundle_url = class_exists('TIX_Tickets') ? TIX_Tickets::get_bundle_url($od['order_id']) : '';
+                        // Bundle-URL aus Token EINES SICHTBAREN Tickets bauen (= das gehört
+                        // dem aktuellen User). get_bundle_url($order_id) würde das ERSTE
+                        // Ticket der Order nehmen — bei admin-zugeordneten Tickets gehört
+                        // das aber evtl. einem anderen User → Filter würde dessen Tickets
+                        // zeigen statt der eigenen.
+                        $bundle_url = '';
+                        if (class_exists('TIX_Tickets') && !empty($ev['tickets'][0]['id'])) {
+                            $own_token = TIX_Tickets::ensure_download_token($ev['tickets'][0]['id']);
+                            if ($own_token) {
+                                $bundle_url = add_query_arg(['tix_bundle' => $own_token], home_url('/'));
+                            }
+                        }
                         if ($bundle_url && count($ev['tickets']) > 1):
                         ?>
                             <a href="<?php echo esc_url($bundle_url); ?>" target="_blank" class="tix-mt-bundle-link" style="display:inline-flex;align-items:center;gap:8px;margin-bottom:12px;padding:10px 14px;background:#f5f3ff;border:1px solid #ddd6fe;border-radius:8px;color:#5b21b6;font-size:13px;font-weight:600;text-decoration:none;">
