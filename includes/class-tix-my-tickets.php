@@ -1564,7 +1564,7 @@ class TIX_My_Tickets {
                         }
                         if ($bundle_url_combo):
                         ?>
-                            <a href="<?php echo esc_url($bundle_url_combo); ?>" target="_blank" class="tix-mt-bundle-link" style="display:inline-flex;align-items:center;gap:8px;margin-bottom:12px;padding:10px 14px;background:#f5f3ff;border:1px solid #ddd6fe;border-radius:8px;color:#5b21b6;font-size:13px;font-weight:600;text-decoration:none;">
+                            <a href="<?php echo esc_url($bundle_url_combo); ?>" target="_blank" class="tix-mt-bundle-link" style="display:inline-flex;align-items:center;gap:8px;margin-top:12px;margin-bottom:12px;padding:10px 14px;background:#f5f3ff;border:1px solid #ddd6fe;border-radius:8px;color:#5b21b6;font-size:13px;font-weight:600;text-decoration:none;">
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="4" rx="1"/><rect x="3" y="10" width="18" height="4" rx="1"/><rect x="3" y="16" width="18" height="4" rx="1"/></svg>
                                 Alle Tickets dieser Bestellung in einer Ansicht öffnen →
                             </a>
@@ -1707,7 +1707,7 @@ class TIX_My_Tickets {
                         }
                         if ($bundle_url && count($ev['tickets']) > 1):
                         ?>
-                            <a href="<?php echo esc_url($bundle_url); ?>" target="_blank" class="tix-mt-bundle-link" style="display:inline-flex;align-items:center;gap:8px;margin-bottom:12px;padding:10px 14px;background:#f5f3ff;border:1px solid #ddd6fe;border-radius:8px;color:#5b21b6;font-size:13px;font-weight:600;text-decoration:none;">
+                            <a href="<?php echo esc_url($bundle_url); ?>" target="_blank" class="tix-mt-bundle-link" style="display:inline-flex;align-items:center;gap:8px;margin-top:12px;margin-bottom:12px;padding:10px 14px;background:#f5f3ff;border:1px solid #ddd6fe;border-radius:8px;color:#5b21b6;font-size:13px;font-weight:600;text-decoration:none;">
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="4" rx="1"/><rect x="3" y="10" width="18" height="4" rx="1"/><rect x="3" y="16" width="18" height="4" rx="1"/></svg>
                                 Alle Tickets dieser Bestellung in einer Ansicht öffnen →
                             </a>
