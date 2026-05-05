@@ -313,23 +313,38 @@ class TIX_Promoter_Admin {
 
         $promoter_id     = intval($_POST['promoter_id'] ?? 0);
         $event_id        = intval($_POST['event_id'] ?? 0);
+        $is_global       = !empty($_POST['is_global']) || $event_id === 0;
         $commission_type  = in_array($_POST['commission_type'] ?? '', ['percent', 'fixed']) ? $_POST['commission_type'] : 'percent';
         $commission_value = floatval($_POST['commission_value'] ?? 0);
         $discount_type    = in_array($_POST['discount_type'] ?? '', ['percent', 'fixed', 'none', '']) ? $_POST['discount_type'] : '';
         $discount_value   = floatval($_POST['discount_value'] ?? 0);
         $promo_code       = sanitize_text_field($_POST['promo_code'] ?? '');
 
-        if (!$promoter_id || !$event_id) {
-            wp_send_json_error('Promoter und Event sind erforderlich.');
+        if (!$promoter_id) {
+            wp_send_json_error('Promoter ist erforderlich.');
+        }
+        // Wenn nicht global → Event ist Pflicht
+        if (!$is_global && !$event_id) {
+            wp_send_json_error('Bitte ein Event auswählen oder "Für alle Events" aktivieren.');
+        }
+        if ($is_global) {
+            $event_id = 0; // Konvention: 0 = global
         }
         if ($commission_value <= 0) {
             wp_send_json_error('Provision muss groesser als 0 sein.');
         }
 
-        // Doppelte Zuordnung pruefen
-        $existing = TIX_Promoter_DB::get_assignment_by_promoter_event($promoter_id, $event_id);
+        // Doppelte Zuordnung pruefen — direktes SQL (Lookup hat Global-Fallback der hier stört)
+        global $wpdb;
+        $existing = $wpdb->get_row($wpdb->prepare(
+            "SELECT id FROM " . TIX_Promoter_DB::table_events() . "
+             WHERE promoter_id = %d AND event_id = %d AND status = 'active'",
+            $promoter_id, $event_id
+        ));
         if ($existing) {
-            wp_send_json_error('Diese Zuordnung existiert bereits.');
+            wp_send_json_error($is_global
+                ? 'Eine globale Zuordnung für diesen Promoter existiert bereits.'
+                : 'Diese Zuordnung existiert bereits.');
         }
 
         // Discount-Normalisierung
@@ -959,6 +974,13 @@ class TIX_Promoter_Admin {
                                                 <select id="tix-af-promoter"></select>
                                             </div>
                                             <div class="tix-form-field">
+                                                <label>Geltungsbereich</label>
+                                                <label style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:#fef3c7;border:1px solid #fcd34d;border-radius:8px;cursor:pointer;font-weight:500;">
+                                                    <input type="checkbox" id="tix-af-global">
+                                                    <span>🌐 Für <strong>alle Events</strong> gültig</span>
+                                                </label>
+                                            </div>
+                                            <div class="tix-form-field" id="tix-af-event-wrap">
                                                 <label>Event</label>
                                                 <select id="tix-af-event"></select>
                                             </div>

@@ -242,11 +242,39 @@ class TIX_Promoter_DB {
         ));
     }
 
+    /**
+     * Findet die Assignment für (promoter, event). Fallback auf globale Assignment
+     * (event_id=0) wenn keine event-spezifische existiert. Damit kann ein Promoter
+     * eine "Für alle Events"-Konfiguration haben statt für jedes Event einzeln.
+     */
     public static function get_assignment_by_promoter_event(int $promoter_id, int $event_id) {
         global $wpdb;
+        $table = self::table_events();
+
+        // 1. Event-spezifische Assignment hat Vorrang
+        if ($event_id > 0) {
+            $specific = $wpdb->get_row($wpdb->prepare(
+                "SELECT * FROM $table WHERE promoter_id = %d AND event_id = %d AND status = 'active'",
+                $promoter_id, $event_id
+            ));
+            if ($specific) return $specific;
+        }
+
+        // 2. Fallback: globale Assignment (event_id=0 = "Für alle Events")
         return $wpdb->get_row($wpdb->prepare(
-            "SELECT * FROM " . self::table_events() . " WHERE promoter_id = %d AND event_id = %d AND status = 'active'",
-            $promoter_id, $event_id
+            "SELECT * FROM $table WHERE promoter_id = %d AND event_id = 0 AND status = 'active'",
+            $promoter_id
+        ));
+    }
+
+    /**
+     * Findet aktive globale Assignment eines Promoters (event_id=0), falls vorhanden.
+     */
+    public static function get_global_assignment(int $promoter_id) {
+        global $wpdb;
+        return $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM " . self::table_events() . " WHERE promoter_id = %d AND event_id = 0 AND status = 'active'",
+            $promoter_id
         ));
     }
 

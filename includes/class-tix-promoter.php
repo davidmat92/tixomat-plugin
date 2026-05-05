@@ -53,8 +53,57 @@ class TIX_Promoter {
             add_action('woocommerce_order_status_refunded',  [__CLASS__, 'cancel_commissions'], 15);
         }
 
-        // Native Order Provision berechnen
+        // ── NATIVE CHECKOUT INTEGRATION ──
+        // Cookie/Cart-Attribution wird gespeichert sobald Native-Order angelegt wird
+        add_action('tix_native_order_created', [__CLASS__, 'save_native_order_attribution'], 10, 3);
+        // Provision auf Native + WC einheitlich berechnen
         add_action('tix_order_completed', [__CLASS__, 'calculate_commissions']);
+        add_action('tix_order_cancelled', [__CLASS__, 'cancel_commissions']);
+    }
+
+    /**
+     * Native: Promoter-Attribution beim Order-Erstellen abspeichern.
+     * Liest aus dem Cart (Promo-Code) und/oder dem Cookie (Referral).
+     * Schreibt Promoter-ID + Attribution-Typ als Post-Meta auf das tix_order.
+     */
+    public static function save_native_order_attribution($order_id, $data, $cart) {
+        if (!class_exists('TIX_Promoter_DB')) return;
+
+        $promoter_id = 0;
+        $attribution = '';
+
+        // 1) Cart hat einen Promo-Code-Coupon → finde Assignment dazu
+        if (!empty($cart['coupon']['code'])) {
+            $code = (string) $cart['coupon']['code'];
+            $assignment = TIX_Promoter_DB::get_assignment_by_promo_code($code);
+            if ($assignment && !empty($assignment->promoter_id)) {
+                $promoter_id = intval($assignment->promoter_id);
+                $attribution = 'promo_code';
+            }
+        }
+
+        // 2) Sonst: Referral-Cookie auflösen
+        if (!$promoter_id && !empty($_COOKIE[self::COOKIE_NAME])) {
+            $code = sanitize_text_field($_COOKIE[self::COOKIE_NAME]);
+            $promoter = TIX_Promoter_DB::get_promoter_by_code($code);
+            if ($promoter) {
+                $promoter_id = intval($promoter->id);
+                $attribution = 'referral';
+            }
+        }
+
+        if (!$promoter_id) return;
+
+        // Als Post-Meta auf das tix_order — nutzt update_post_meta auch wenn TIX_Order
+        // intern eine eigene Tabelle hat; das post_id existiert.
+        update_post_meta($order_id, '_tix_promoter_id',          $promoter_id);
+        update_post_meta($order_id, '_tix_promoter_attribution', $attribution);
+
+        // Cookie löschen damit es nicht für die nächste Order erneut greift
+        if (!empty($_COOKIE[self::COOKIE_NAME])) {
+            setcookie(self::COOKIE_NAME, '', time() - 3600, COOKIEPATH, COOKIE_DOMAIN);
+            unset($_COOKIE[self::COOKIE_NAME]);
+        }
     }
 
     // ──────────────────────────────────────────
@@ -216,29 +265,49 @@ class TIX_Promoter {
         if (!class_exists('TIX_Promoter_DB')) return;
 
         $order = function_exists('wc_get_order') ? wc_get_order($order_id) : false;
+        $is_wc = $order ? true : false;
         if (!$order && class_exists('TIX_Order')) {
             $order = TIX_Order::get($order_id);
         }
         if (!$order) return;
 
-        $promoter_id = intval($order->get_meta('_tix_promoter_id'));
+        // Promoter-ID aus Order-Meta (WC + native einheitlich via post_meta)
+        $promoter_id = $is_wc
+            ? intval($order->get_meta('_tix_promoter_id'))
+            : intval(get_post_meta($order_id, '_tix_promoter_id', true));
         if (!$promoter_id) return;
 
         // Doppelte Berechnung vermeiden
-        if ($order->get_meta('_tix_promoter_commissions_calculated')) return;
+        $already = $is_wc
+            ? $order->get_meta('_tix_promoter_commissions_calculated')
+            : get_post_meta($order_id, '_tix_promoter_commissions_calculated', true);
+        if ($already) return;
 
-        $attribution = $order->get_meta('_tix_promoter_attribution') ?: 'referral';
+        $attribution = ($is_wc ? $order->get_meta('_tix_promoter_attribution') : get_post_meta($order_id, '_tix_promoter_attribution', true)) ?: 'referral';
 
         foreach ($order->get_items() as $item_id => $item) {
-            $product_id = $item->get_product_id();
-            $event_id   = intval(get_post_meta($product_id, '_tix_parent_event_id', true));
+            // Event-ID aus Item ermitteln — WC vs. native
+            $event_id = 0;
+            $qty = 0;
+            $line_total = 0.0;
+
+            if ($is_wc) {
+                $product_id = method_exists($item, 'get_product_id') ? $item->get_product_id() : 0;
+                $event_id   = intval(get_post_meta($product_id, '_tix_parent_event_id', true));
+                $qty        = method_exists($item, 'get_quantity') ? $item->get_quantity() : 1;
+                $line_total = floatval(method_exists($item, 'get_total') ? $item->get_total() : 0);
+            } else {
+                // Native TIX_Order Item: event_id direkt
+                $event_id   = intval(method_exists($item, 'get_event_id') ? $item->get_event_id() : ($item->event_id ?? 0));
+                $qty        = method_exists($item, 'get_quantity') ? $item->get_quantity() : intval($item->quantity ?? 1);
+                $line_total = floatval(method_exists($item, 'get_total') ? $item->get_total() : ($item->total ?? 0));
+            }
+
             if (!$event_id) continue;
 
+            // Assignment für (Promoter, Event) — mit Global-Fallback (event_id=0)
             $assignment = TIX_Promoter_DB::get_assignment_by_promoter_event($promoter_id, $event_id);
             if (!$assignment) continue;
-
-            $qty        = $item->get_quantity();
-            $line_total = floatval($item->get_total());
 
             // Provision berechnen
             $commission = 0;
@@ -260,7 +329,7 @@ class TIX_Promoter {
                 'promoter_id'       => $promoter_id,
                 'event_id'          => $event_id,
                 'order_id'          => $order_id,
-                'order_item_id'     => $item_id,
+                'order_item_id'     => intval($item_id),
                 'attribution'       => $attribution,
                 'tickets_qty'       => $qty,
                 'order_total'       => $line_total,
@@ -269,8 +338,12 @@ class TIX_Promoter {
             ]);
         }
 
-        $order->update_meta_data('_tix_promoter_commissions_calculated', 1);
-        $order->save();
+        if ($is_wc) {
+            $order->update_meta_data('_tix_promoter_commissions_calculated', 1);
+            $order->save();
+        } else {
+            update_post_meta($order_id, '_tix_promoter_commissions_calculated', 1);
+        }
 
         // Referral-Cookie löschen
         if (!empty($_COOKIE[self::COOKIE_NAME])) {

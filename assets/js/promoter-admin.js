@@ -254,13 +254,24 @@
     $(document).on('click', '#tix-assign-add-btn', function() { $('#tix-assign-form').toggle(); });
     $(document).on('click', '#tix-assign-cancel-btn', function() { $('#tix-assign-form').hide(); });
 
+    // Globale-Zuordnung-Toggle: blendet das Event-Dropdown aus
+    $(document).on('change', '#tix-af-global', function() {
+        var isGlobal = $(this).is(':checked');
+        $('#tix-af-event-wrap').toggle(!isGlobal);
+        if (isGlobal) {
+            $('#tix-af-event').val('');
+        }
+    });
+
     // Save Assignment
     $(document).on('click', '#tix-assign-save-btn', function() {
+        var isGlobal = $('#tix-af-global').is(':checked');
         $.post(tixPromoter.ajaxurl, {
             action: 'tix_promoter_assign',
             nonce: tixPromoter.nonce,
             promoter_id: $('#tix-af-promoter').val(),
-            event_id: $('#tix-af-event').val(),
+            event_id: isGlobal ? 0 : $('#tix-af-event').val(),
+            is_global: isGlobal ? 1 : 0,
             commission_type: $('#tix-af-commission-type').val(),
             commission_value: $('#tix-af-commission-value').val(),
             discount_type: $('#tix-af-discount-type').val(),
@@ -269,6 +280,8 @@
         }, function(r) {
             if (r.success) {
                 $('#tix-assign-form').hide();
+                $('#tix-af-global').prop('checked', false);
+                $('#tix-af-event-wrap').show();
                 loadAssignments();
             } else {
                 alert(r.data || 'Fehler.');

@@ -1611,11 +1611,36 @@ class TIX_Native_Checkout {
             }
         }
 
+        // Wenn KEIN tix_coupons-Eintrag gefunden → Promoter-Code prüfen
+        if (!$found_key && class_exists('TIX_Promoter_DB')) {
+            $assignment = TIX_Promoter_DB::get_assignment_by_promo_code($code);
+            if ($assignment && !empty($assignment->discount_type) && floatval($assignment->discount_value) > 0) {
+                // Synthetischen Coupon erstellen — wird nicht in tix_coupons persistiert,
+                // sondern temporär für diese Order verwendet
+                $found_key = strtoupper($code);
+                $coupon = [
+                    'code'              => $found_key,
+                    'discount_type'     => $assignment->discount_type,           // percent | fixed
+                    'value'             => floatval($assignment->discount_value),
+                    'expires'           => '',
+                    'max_uses'          => 0,
+                    'used'              => 0,
+                    'description'       => 'Promoter-Code',
+                    'is_promoter'       => true,
+                    'promoter_id'       => intval($assignment->promoter_id),
+                    'event_id'          => intval($assignment->event_id),
+                ];
+            }
+        }
+
         if (!$found_key) {
             wp_send_json_error(['message' => 'Gutscheincode ungültig.']);
         }
 
-        $coupon = $coupons[$found_key];
+        // Wenn aus tix_coupons → wie bisher; sonst: $coupon ist schon oben gesetzt
+        if (!isset($coupon)) {
+            $coupon = $coupons[$found_key];
+        }
 
         // Check expiry
         if (!empty($coupon['expires'])) {
