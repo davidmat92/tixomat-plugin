@@ -827,9 +827,15 @@ class TIX_Tickets {
             if (empty($results)) {
                 wp_die('Bestellung nicht gefunden oder Link abgelaufen.', 'Fehler', ['response' => 404]);
             }
-            $order_id = intval(get_post_meta($results[0]->ID, '_tix_ticket_order_id', true));
+            $source_ticket_id = $results[0]->ID;
+            $order_id = intval(get_post_meta($source_ticket_id, '_tix_ticket_order_id', true));
             if (!$order_id) wp_die('Bestellung nicht gefunden.', 'Fehler', ['response' => 404]);
-            self::render_bundle_html($order_id);
+
+            // Filter: nur Tickets mit gleicher owner_email wie das Token-Ticket zeigen.
+            // Damit sieht ein admin-zugeordneter User NUR seine Tickets — nicht die der
+            // anderen Bestell-Empfänger.
+            $owner_filter = (string) get_post_meta($source_ticket_id, '_tix_ticket_owner_email', true);
+            self::render_bundle_html($order_id, $owner_filter);
             exit;
         }
 
@@ -2069,12 +2075,22 @@ body{margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',
         $show = !isset($s['ht_show_order_bundle_btn']) || !empty($s['ht_show_order_bundle_btn']);
         if (!$show) return;
 
-        // Anzahl Tickets der Bestellung — Button nur anzeigen wenn >1
+        // Anzahl Tickets — gefiltert auf den gleichen Owner wie das aktuelle Ticket.
+        // (Wenn Tickets der Order auf verschiedene User aufgeteilt sind, sieht jeder
+        // nur seine eigenen.)
+        $owner_email = strtolower(trim((string) get_post_meta($ticket_id, '_tix_ticket_owner_email', true)));
         $tickets = self::get_all_tickets_for_order(intval($order_id));
+        if ($owner_email !== '') {
+            $tickets = array_values(array_filter($tickets, function($t) use ($owner_email) {
+                return strtolower(trim((string) ($t['owner_email'] ?? ''))) === $owner_email;
+            }));
+        }
         $cnt = count($tickets);
-        if ($cnt <= 1) return;
+        if ($cnt <= 1) return; // Nur 1 Ticket → kein Bundle-Button nötig
 
-        $bundle_url = self::get_bundle_url(intval($order_id));
+        // Bundle-URL nutzt das aktuelle Ticket-Token → Filter wird im Handler gezogen
+        $token = self::ensure_download_token($ticket_id);
+        $bundle_url = $token ? add_query_arg(['tix_bundle' => $token], home_url('/')) : '';
         if (!$bundle_url) return;
 
         $accent = !empty($s['color_primary']) ? $s['color_primary'] : '#FF5500';
@@ -4035,13 +4051,23 @@ body{margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',
         </div>
 
         <?php
-        // ── GRUPPE 3: BUNDLE-BUTTON ── (nur wenn Order >1 Tickets hat + Setting aktiv)
+        // ── GRUPPE 3: BUNDLE-BUTTON ── (nur wenn Order >1 Tickets DESSELBEN OWNERS hat)
         $show_bundle_btn = !isset($s['ht_show_order_bundle_btn']) || !empty($s['ht_show_order_bundle_btn']);
         if ($show_bundle_btn && $order_id) {
+            // Auf Owner des aktuellen Tickets filtern — admin-zugeordnete Tickets
+            // sehen nur die eigenen, nicht die anderer Bestellungs-Empfänger.
+            $cur_owner = strtolower(trim((string) get_post_meta($ticket_id, '_tix_ticket_owner_email', true)));
             $order_tickets = self::get_all_tickets_for_order($order_id);
+            if ($cur_owner !== '') {
+                $order_tickets = array_values(array_filter($order_tickets, function($t) use ($cur_owner) {
+                    return strtolower(trim((string) ($t['owner_email'] ?? ''))) === $cur_owner;
+                }));
+            }
             $cnt = count($order_tickets);
             if ($cnt > 1) {
-                $bundle_url = self::get_bundle_url($order_id);
+                // Bundle-URL nutzt das aktuelle Ticket-Token (= Owner-Filter wirkt im Handler)
+                $bundle_token = self::ensure_download_token($ticket_id);
+                $bundle_url = $bundle_token ? add_query_arg(['tix_bundle' => $bundle_token], home_url('/')) : '';
                 if ($bundle_url):
         ?>
         <div class="tix-ticket-actions-group">
@@ -5650,8 +5676,20 @@ body{margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',
      * Jedes Ticket bekommt denselben Badge + Personen-Zuordnungs-UI wie die
      * Einzelansicht.
      */
-    public static function render_bundle_html($order_id) {
+    public static function render_bundle_html($order_id, $owner_filter = '') {
         $tickets = self::get_tickets_by_order($order_id);
+
+        // Optional: nur Tickets mit gleicher Owner-Email zeigen (für admin-zugeordnete
+        // Tickets). Wenn alle Tickets der Order denselben Owner haben → kein Effekt.
+        // Wenn die Tickets aufgeteilt sind → sieht der User nur seine eigenen.
+        if ($owner_filter !== '') {
+            $owner_filter = strtolower(trim($owner_filter));
+            $tickets = array_values(array_filter($tickets, function($t) use ($owner_filter) {
+                $oe = strtolower(trim((string) get_post_meta($t->ID, '_tix_ticket_owner_email', true)));
+                return $oe === $owner_filter;
+            }));
+        }
+
         if (empty($tickets)) wp_die('Keine Tickets gefunden.', 'Fehler', ['response' => 404]);
 
         // Design-Settings laden
