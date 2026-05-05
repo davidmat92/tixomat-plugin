@@ -385,7 +385,10 @@ class TIX_Email_Log {
 
         $out = '';
         if ($opened) {
-            $title = 'Geöffnet ' . ($count > 1 ? "$count× — zuletzt: " : '') . date_i18n('d.m. H:i', strtotime($row->last_opened_at ?: $row->opened_at));
+            // WICHTIG: × ist 0xD7 (Multi-Byte) und PHP würde "$count×" als
+            // EINEN Variablennamen parsen (variable_name regex erlaubt 0x80-0xFF).
+            // Daher Konkatenation statt Interpolation.
+            $title = 'Geöffnet ' . ($count > 1 ? ($count . '× — zuletzt: ') : '') . date_i18n('d.m. H:i', strtotime($row->last_opened_at ?: $row->opened_at));
             $out .= '<span title="' . esc_attr($title) . '" style="display:inline-flex;align-items:center;gap:3px;font-size:10px;font-weight:600;color:#15803d;background:#dcfce7;padding:1px 6px;border-radius:8px;">📨 Geöffnet' . ($count > 1 && !$compact ? ' ' . $count . '×' : '') . '</span>';
         } else {
             $out .= '<span title="Noch nicht geöffnet" style="display:inline-flex;align-items:center;gap:3px;font-size:10px;font-weight:600;color:#6b7280;background:#f3f4f6;padding:1px 6px;border-radius:8px;">📭 Ungeöffnet</span>';

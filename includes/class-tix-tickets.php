@@ -734,6 +734,9 @@ class TIX_Tickets {
         // ── WP-User-Zuordnung ──
         // Wenn assigned_user_id gesetzt → User-Daten haben Vorrang vor Owner-Feldern
         // (außer Admin hat sie händisch geändert).
+        // WICHTIG: post_author NICHT via wp_update_post() ändern — das würde unseren
+        // save_post_tix_ticket-Hook rekursiv triggern (Out-of-memory). Stattdessen
+        // direktes $wpdb->update bypassed den Hook.
         $assigned_user_id = intval($_POST['tix_assigned_user_id'] ?? 0);
         if ($assigned_user_id > 0) {
             $u = get_userdata($assigned_user_id);
@@ -751,8 +754,18 @@ class TIX_Tickets {
                     update_post_meta($post_id, '_tix_ticket_owner_email', $u->user_email);
                     $owner_email = $u->user_email;
                 }
-                // post_author auf den User setzen (für Meine-Tickets-Query)
-                wp_update_post(['ID' => $post_id, 'post_author' => $assigned_user_id]);
+                // post_author direkt in wp_posts setzen (umgeht save_post-Hook)
+                if (intval($post->post_author) !== $assigned_user_id) {
+                    global $wpdb;
+                    $wpdb->update(
+                        $wpdb->posts,
+                        ['post_author' => $assigned_user_id],
+                        ['ID' => $post_id],
+                        ['%d'],
+                        ['%d']
+                    );
+                    clean_post_cache($post_id);
+                }
             }
         } else {
             // Explizit entfernt

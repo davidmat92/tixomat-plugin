@@ -245,7 +245,9 @@ class TIX_Site_Analytics {
         if ($date_to)   { $where[] = 'view_date <= %s'; $args[] = $date_to; }
         $where_sql = implode(' AND ', $where);
 
-        $sql = "SELECT page_path, ANY_VALUE(page_title) AS page_title,
+        // MAX(page_title) als ANY_VALUE-Ersatz — funktioniert in allen MySQL/MariaDB
+        // Versionen, gibt deterministisch denselben page_title pro page_path zurück.
+        $sql = "SELECT page_path, MAX(page_title) AS page_title,
                        COUNT(*) AS views, COUNT(DISTINCT visitor_id) AS uniques
                 FROM $t WHERE $where_sql
                 GROUP BY page_path ORDER BY views DESC LIMIT %d";
