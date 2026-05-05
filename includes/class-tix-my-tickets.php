@@ -123,7 +123,22 @@ class TIX_My_Tickets {
         // -- Bestellungen laden (dual-source: WC + native, deduped) --
         $orders = self::load_orders($user_id, $email);
 
-        if (empty($orders)) {
+        // Auch wenn keine Orders: könnte transferred/admin-assigned Tickets geben.
+        // Pre-check ob assigned/transferred Tickets vorhanden sind.
+        $has_assigned_or_transferred = false;
+        if ($user_id) {
+            global $wpdb;
+            $count = (int) $wpdb->get_var($wpdb->prepare(
+                "SELECT COUNT(*) FROM {$wpdb->postmeta} pm
+                 INNER JOIN {$wpdb->posts} p ON p.ID = pm.post_id AND p.post_type = 'tix_ticket' AND p.post_status = 'publish'
+                 WHERE (pm.meta_key = '_tix_ticket_assigned_user_id' AND pm.meta_value = %s)
+                    OR (pm.meta_key = '_tix_ticket_transfer_to' AND pm.meta_value = %s)",
+                (string) $user_id, (string) $user_id
+            ));
+            $has_assigned_or_transferred = $count > 0;
+        }
+
+        if (empty($orders) && !$has_assigned_or_transferred) {
             return self::render_empty($is_guest ? $email : '');
         }
 
@@ -178,10 +193,13 @@ class TIX_My_Tickets {
             }
         }
 
-        // ── Transferierte Tickets (auf diesen User umgeschrieben) ──
-        // Nur für eingeloggte User — Transfers sind user-gebunden, nicht email-gebunden
+        // ── Transferierte / Admin-zugeordnete Tickets ──
+        // Vereinigt zwei Quellen:
+        //   1) Frontend-Transfer per "Inhaber ändern" → _tix_ticket_transfer_to + status=transferred
+        //   2) Admin-Override via Ticket-Edit-Page → _tix_ticket_assigned_user_id
         $transferred_to_me = [];
         $tix_transferred   = [];
+        $assigned_to_me    = [];
 
         if ($user_id) {
             // TIX-Tickets: Transfers über _tix_ticket_transfer_to
@@ -194,8 +212,29 @@ class TIX_My_Tickets {
                 ],
                 'post_status' => 'publish',
             ]);
+
+            // Admin-zugeordnete Tickets (via Backend Ticket-Edit-Metabox)
+            $assigned_to_me = get_posts([
+                'post_type'      => 'tix_ticket',
+                'posts_per_page' => -1,
+                'meta_key'       => '_tix_ticket_assigned_user_id',
+                'meta_value'     => (string) $user_id,
+                'post_status'    => 'publish',
+            ]);
         }
-        foreach ($tix_transferred as $et) {
+
+        $seen_ids = [];
+        foreach (array_merge($tix_transferred, $assigned_to_me) as $et) {
+            if (isset($seen_ids[$et->ID])) continue;
+            $seen_ids[$et->ID] = true;
+
+            // Skip wenn als 'transferred' markiert UND user nicht der Empfänger (Sicherheits-Check)
+            $status = get_post_meta($et->ID, '_tix_ticket_status', true);
+            if ($status === 'transferred') {
+                $to = get_post_meta($et->ID, '_tix_ticket_transfer_to', true);
+                if ((string) $to !== (string) $user_id) continue;
+            }
+
             $transferred_to_me[] = [
                 'id'           => $et->ID,
                 'code'         => get_post_meta($et->ID, '_tix_ticket_code', true) ?: $et->post_title,
@@ -203,13 +242,19 @@ class TIX_My_Tickets {
                 'event_id'     => intval(get_post_meta($et->ID, '_tix_ticket_event_id', true)),
                 'download_url' => class_exists('TIX_Tickets') ? TIX_Tickets::get_download_url($et->ID) : '',
                 'source'       => 'eh',
+                'is_assigned'  => $status !== 'transferred', // unterscheidet Frontend-Transfer vs. Admin-Override
             ];
-            // Kategorie-Name ermitteln
-            $eid = intval(get_post_meta($et->ID, '_tix_ticket_event_id', true));
-            $ci  = intval(get_post_meta($et->ID, '_tix_ticket_cat_index', true));
-            $cats = get_post_meta($eid, '_tix_ticket_categories', true);
-            if (is_array($cats) && isset($cats[$ci])) {
-                $transferred_to_me[count($transferred_to_me) - 1]['type_name'] = $cats[$ci]['name'] ?? 'Ticket';
+            // Kategorie-Name ermitteln (Override-Meta hat Vorrang)
+            $cat_name_meta = get_post_meta($et->ID, '_tix_ticket_cat_name', true);
+            if ($cat_name_meta) {
+                $transferred_to_me[count($transferred_to_me) - 1]['type_name'] = $cat_name_meta;
+            } else {
+                $eid = intval(get_post_meta($et->ID, '_tix_ticket_event_id', true));
+                $ci  = intval(get_post_meta($et->ID, '_tix_ticket_cat_index', true));
+                $cats = get_post_meta($eid, '_tix_ticket_categories', true);
+                if (is_array($cats) && isset($cats[$ci])) {
+                    $transferred_to_me[count($transferred_to_me) - 1]['type_name'] = $cats[$ci]['name'] ?? 'Ticket';
+                }
             }
         }
 
