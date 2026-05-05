@@ -223,14 +223,27 @@ class TIX_CRM {
                         <?php foreach ($rows as $r):
                             $detail_url = admin_url('admin.php?page=' . self::PAGE_SLUG . '&email=' . urlencode($r['email']));
                         ?>
-                            <tr style="border-top:1px solid #f3f4f6;">
+                            <?php $is_user_only = !empty($r['is_user_only']); ?>
+                            <tr style="border-top:1px solid #f3f4f6;<?php echo $is_user_only ? 'background:#fafbff;' : ''; ?>">
                                 <td style="padding:12px 14px;">
-                                    <a href="<?php echo esc_url($detail_url); ?>" style="font-weight:600;color:#0f172a;text-decoration:none;">
-                                        <?php echo esc_html(trim($r['first_name'] . ' ' . $r['last_name']) ?: '(ohne Namen)'); ?>
-                                    </a>
+                                    <?php if ($is_user_only): ?>
+                                        <?php
+                                        $u = $r['user_id'] ? get_userdata($r['user_id']) : null;
+                                        $login = $u ? $u->user_login : '';
+                                        ?>
+                                        <a href="<?php echo esc_url($detail_url); ?>" style="font-weight:600;color:#0f172a;text-decoration:none;">
+                                            <?php echo esc_html(trim($r['first_name'] . ' ' . $r['last_name']) ?: ($u ? $u->display_name : '(ohne Namen)')); ?>
+                                        </a>
+                                        <span style="display:inline-block;background:#dbeafe;color:#1d4ed8;padding:1px 7px;border-radius:6px;font-size:10px;font-weight:600;margin-left:4px;" title="WP-User ohne Bestellungen">👤 NUR USER</span>
+                                        <?php if ($login): ?><div style="font-size:11px;color:#9ca3af;font-family:monospace;margin-top:2px;">@<?php echo esc_html($login); ?></div><?php endif; ?>
+                                    <?php else: ?>
+                                        <a href="<?php echo esc_url($detail_url); ?>" style="font-weight:600;color:#0f172a;text-decoration:none;">
+                                            <?php echo esc_html(trim($r['first_name'] . ' ' . $r['last_name']) ?: '(ohne Namen)'); ?>
+                                        </a>
+                                    <?php endif; ?>
                                 </td>
                                 <td style="padding:12px 14px;color:#334155;font-size:13px;"><?php echo esc_html($r['email']); ?></td>
-                                <td style="padding:12px 14px;font-weight:600;"><?php echo intval($r['order_count']); ?></td>
+                                <td style="padding:12px 14px;font-weight:600;<?php echo $is_user_only ? 'color:#9ca3af;' : ''; ?>"><?php echo intval($r['order_count']); ?></td>
                                 <td style="padding:12px 14px;font-weight:600;color:#16a34a;"><?php echo number_format((float)$r['total_spent'], 2, ',', '.'); ?> €</td>
                                 <td style="padding:12px 14px;font-size:13px;color:#334155;">
                                     <?php echo $r['last_order'] ? esc_html(date_i18n('d.m.Y', strtotime($r['last_order']))) : '—'; ?>
@@ -887,11 +900,54 @@ class TIX_CRM {
         // 3. Attribution (Quelle) pro Kunde anreichern
         self::enrich_attribution($customers);
 
-        // 4. Filter: Suche
+        // 4. Filter: Suche — über Orders-Daten + WP-User-Suche (auch User ohne Bestellungen)
         if ($args['search']) {
             $needle = mb_strtolower($args['search']);
+
+            // 4a. WP-User mit passendem Namen/Login/Email finden und ggf. als Pseudo-Customers zufügen
+            //     (User die existieren aber keine Bestellungen haben — sonst wären sie schon drin)
+            $matched_users = self::search_wp_users($args['search']);
+            foreach ($matched_users as $u) {
+                $email_key = strtolower($u->user_email ?: '');
+                if (!$email_key) continue;
+                if (isset($customers[$email_key])) {
+                    // User hat schon Orders → nur user_id sicherstellen
+                    if (!$customers[$email_key]['user_id']) {
+                        $customers[$email_key]['user_id'] = intval($u->ID);
+                    }
+                    continue;
+                }
+                // Pseudo-Customer für User ohne Bestellungen
+                $first = (string) get_user_meta($u->ID, 'first_name', true);
+                $last  = (string) get_user_meta($u->ID, 'last_name',  true);
+                $customers[$email_key] = [
+                    'email'         => $u->user_email,
+                    'first_name'    => $first,
+                    'last_name'     => $last,
+                    'phone'         => '',
+                    'order_count'   => 0,
+                    'total_spent'   => 0.0,
+                    'last_order'    => '',
+                    'first_order'   => $u->user_registered ?: '',
+                    'event_count'   => 0,
+                    'ticket_count'  => 0,
+                    'user_id'       => intval($u->ID),
+                    'source'        => '',
+                    'utm_source'    => '',
+                    'utm_campaign'  => '',
+                    'is_user_only'  => true, // Marker: kein Customer aus Orders, nur WP-User
+                ];
+            }
+
+            // 4b. Filter auf den nun erweiterten Pool — auch user_login + display_name + nicename matchen
             $customers = array_filter($customers, function($c) use ($needle) {
                 $hay = mb_strtolower($c['email'] . ' ' . $c['first_name'] . ' ' . $c['last_name']);
+                if (!empty($c['user_id'])) {
+                    $u = get_userdata($c['user_id']);
+                    if ($u) {
+                        $hay .= ' ' . mb_strtolower($u->user_login . ' ' . $u->display_name . ' ' . $u->user_nicename);
+                    }
+                }
                 return strpos($hay, $needle) !== false;
             });
         }
@@ -942,6 +998,35 @@ class TIX_CRM {
     }
 
     /** Aggregiert native tix_orders pro Email */
+    /**
+     * Sucht WP-User nach Begriff in user_login / user_email / display_name /
+     * first_name / last_name / user_nicename. Gibt max. 50 Treffer zurück.
+     * Wird vom CRM-Search benutzt um auch User ohne Bestellungen zu finden.
+     */
+    private static function search_wp_users($needle) {
+        if (!$needle || strlen($needle) < 2) return [];
+        global $wpdb;
+
+        $like = '%' . $wpdb->esc_like($needle) . '%';
+
+        // Direkter Match auf wp_users (login/email/display/nicename)
+        $sql = "SELECT DISTINCT u.ID, u.user_login, u.user_email, u.display_name, u.user_nicename, u.user_registered
+                FROM {$wpdb->users} u
+                LEFT JOIN {$wpdb->usermeta} m_first ON m_first.user_id = u.ID AND m_first.meta_key = 'first_name'
+                LEFT JOIN {$wpdb->usermeta} m_last  ON m_last.user_id  = u.ID AND m_last.meta_key  = 'last_name'
+                WHERE u.user_login    LIKE %s
+                   OR u.user_email    LIKE %s
+                   OR u.display_name  LIKE %s
+                   OR u.user_nicename LIKE %s
+                   OR m_first.meta_value LIKE %s
+                   OR m_last.meta_value  LIKE %s
+                LIMIT 50";
+
+        return (array) $wpdb->get_results($wpdb->prepare(
+            $sql, $like, $like, $like, $like, $like, $like
+        ));
+    }
+
     private static function aggregate_native_orders($args) {
         global $wpdb;
         $t  = $wpdb->prefix . 'tix_orders';

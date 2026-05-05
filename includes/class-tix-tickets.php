@@ -26,6 +26,7 @@ class TIX_Tickets {
         // Admin: Metabox auf Ticket-Edit-Seite (Kategorie-Override + Preis-Verbergen + Inhaber-Override)
         add_action('add_meta_boxes_tix_ticket', [__CLASS__, 'register_admin_metabox']);
         add_action('save_post_tix_ticket',      [__CLASS__, 'save_admin_metabox'], 10, 2);
+        add_action('wp_ajax_tix_admin_search_users', [__CLASS__, 'ajax_admin_search_users']);
 
         // Ticket-Erstellung bei Order-Status-Änderung (WooCommerce)
         add_action('woocommerce_order_status_completed',  [__CLASS__, 'on_order_completed']);
@@ -197,6 +198,53 @@ class TIX_Tickets {
         );
     }
 
+    /**
+     * AJAX-Endpoint für User-Search-Autocomplete im Metabox.
+     * Sucht in user_login / email / display_name / first_name / last_name / nicename.
+     */
+    public static function ajax_admin_search_users() {
+        if (!check_ajax_referer('tix_user_search', 'nonce', false)) {
+            wp_send_json_error('nonce');
+        }
+        if (!current_user_can('manage_options') && !current_user_can('edit_posts')) {
+            wp_send_json_error('forbidden');
+        }
+        $q = sanitize_text_field(wp_unslash($_POST['q'] ?? ''));
+        if (strlen($q) < 2) wp_send_json_success(['users' => []]);
+
+        global $wpdb;
+        $like = '%' . $wpdb->esc_like($q) . '%';
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT DISTINCT u.ID, u.user_login, u.user_email, u.display_name
+             FROM {$wpdb->users} u
+             LEFT JOIN {$wpdb->usermeta} m_first ON m_first.user_id = u.ID AND m_first.meta_key = 'first_name'
+             LEFT JOIN {$wpdb->usermeta} m_last  ON m_last.user_id  = u.ID AND m_last.meta_key  = 'last_name'
+             WHERE u.user_login    LIKE %s
+                OR u.user_email    LIKE %s
+                OR u.display_name  LIKE %s
+                OR u.user_nicename LIKE %s
+                OR m_first.meta_value LIKE %s
+                OR m_last.meta_value  LIKE %s
+             ORDER BY u.display_name ASC
+             LIMIT 15",
+            $like, $like, $like, $like, $like, $like
+        ));
+
+        $users = [];
+        foreach ((array) $rows as $r) {
+            $first = (string) get_user_meta($r->ID, 'first_name', true);
+            $last  = (string) get_user_meta($r->ID, 'last_name',  true);
+            $full  = trim($first . ' ' . $last) ?: $r->display_name;
+            $users[] = [
+                'id'    => intval($r->ID),
+                'login' => $r->user_login,
+                'email' => $r->user_email,
+                'name'  => $full,
+            ];
+        }
+        wp_send_json_success(['users' => $users]);
+    }
+
     public static function render_admin_metabox($post) {
         wp_nonce_field('tix_ticket_admin_save', '_tix_ticket_admin_nonce');
 
@@ -320,14 +368,44 @@ class TIX_Tickets {
 
         <div class="tix-tab-card">
             <h4>Inhaber</h4>
+
+            <?php // ── WP-User-Picker (Autocomplete) ── ?>
+            <?php
+            $current_user_id = intval(get_post_meta($ticket_id, '_tix_ticket_assigned_user_id', true));
+            if (!$current_user_id && $owner_email) {
+                $u = get_user_by('email', $owner_email);
+                if ($u) $current_user_id = $u->ID;
+            }
+            $current_user = $current_user_id ? get_userdata($current_user_id) : null;
+            ?>
+            <div class="tix-tab-field" style="margin-bottom:12px;">
+                <label>WP-User zuordnen <span style="font-weight:400;color:#9ca3af;font-size:11px;">(optional)</span></label>
+                <div style="position:relative;">
+                    <input type="text" id="tix_user_search" autocomplete="off"
+                        placeholder="Name, E-Mail oder Login eingeben..."
+                        value="<?php echo esc_attr($current_user ? $current_user->display_name . ' (' . $current_user->user_email . ')' : ''); ?>"
+                        style="width:100%;">
+                    <input type="hidden" name="tix_assigned_user_id" id="tix_assigned_user_id" value="<?php echo intval($current_user_id); ?>">
+                    <div id="tix_user_search_results" style="display:none;position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid #d1d5db;border-radius:6px;max-height:240px;overflow-y:auto;z-index:1000;box-shadow:0 4px 12px rgba(0,0,0,0.08);"></div>
+                </div>
+                <?php if ($current_user): ?>
+                    <div style="margin-top:6px;font-size:12px;color:#0f172a;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                        <span>Aktuell: <strong><?php echo esc_html($current_user->display_name); ?></strong> (<?php echo esc_html($current_user->user_email); ?>)</span>
+                        <a href="<?php echo esc_url(get_edit_user_link($current_user->ID)); ?>" target="_blank" style="font-size:11px;">→ User bearbeiten</a>
+                        <button type="button" class="button button-small" id="tix_user_clear" style="font-size:11px;">✕ Zuordnung entfernen</button>
+                    </div>
+                <?php endif; ?>
+                <div class="tix-tab-help" style="margin-top:6px;">Bei Auswahl wird Name + E-Mail automatisch übernommen. Das Ticket erscheint dann in „Meine Tickets" des gewählten Users.</div>
+            </div>
+
             <div class="tix-tab-grid">
                 <div class="tix-tab-field">
                     <label>Name</label>
-                    <input type="text" name="tix_owner_name" value="<?php echo esc_attr($owner_name); ?>">
+                    <input type="text" name="tix_owner_name" id="tix_owner_name" value="<?php echo esc_attr($owner_name); ?>">
                 </div>
                 <div class="tix-tab-field">
                     <label>E-Mail</label>
-                    <input type="email" name="tix_owner_email" value="<?php echo esc_attr($owner_email); ?>">
+                    <input type="email" name="tix_owner_email" id="tix_owner_email" value="<?php echo esc_attr($owner_email); ?>">
                 </div>
             </div>
             <div class="tix-tab-help" style="margin-top:8px;">Änderungen werden auf dem Ticket + in der Gästeliste übernommen.</div>
@@ -335,6 +413,7 @@ class TIX_Tickets {
 
         <script>
         (function(){
+            // Kategorie-Custom-Toggle
             var sel = document.getElementById('tix_cat_override');
             var wrap = document.getElementById('tix_cat_custom_wrap');
             if (sel && wrap) {
@@ -342,6 +421,81 @@ class TIX_Tickets {
                     wrap.style.display = (this.value === 'custom') ? '' : 'none';
                 });
             }
+
+            // WP-User-Autocomplete
+            var search = document.getElementById('tix_user_search');
+            var results = document.getElementById('tix_user_search_results');
+            var hidden = document.getElementById('tix_assigned_user_id');
+            var clearBtn = document.getElementById('tix_user_clear');
+            var ownerName = document.getElementById('tix_owner_name');
+            var ownerEmail = document.getElementById('tix_owner_email');
+            var debounce;
+
+            if (search) {
+                search.addEventListener('input', function(){
+                    var q = this.value.trim();
+                    clearTimeout(debounce);
+                    if (q.length < 2) { results.style.display = 'none'; return; }
+                    debounce = setTimeout(function(){
+                        var fd = new FormData();
+                        fd.append('action', 'tix_admin_search_users');
+                        fd.append('nonce', '<?php echo wp_create_nonce('tix_user_search'); ?>');
+                        fd.append('q', q);
+                        fetch(ajaxurl, { method: 'POST', body: fd, credentials: 'same-origin' })
+                            .then(function(r){ return r.json(); })
+                            .then(function(r){
+                                if (!r.success || !r.data.users || !r.data.users.length) {
+                                    results.innerHTML = '<div style="padding:10px 12px;color:#9ca3af;font-size:12px;">Keine User gefunden.</div>';
+                                    results.style.display = 'block';
+                                    return;
+                                }
+                                var html = '';
+                                r.data.users.forEach(function(u){
+                                    html += '<div class="tix-user-result" data-id="' + u.id + '" data-email="' + escAttr(u.email) + '" data-name="' + escAttr(u.name) + '" style="padding:9px 12px;cursor:pointer;border-bottom:1px solid #f3f4f6;">'
+                                        + '<div style="font-weight:600;font-size:13px;">' + escHtml(u.name) + '</div>'
+                                        + '<div style="font-size:11px;color:#64748b;">' + escHtml(u.email) + ' · @' + escHtml(u.login) + '</div>'
+                                        + '</div>';
+                                });
+                                results.innerHTML = html;
+                                results.style.display = 'block';
+                            });
+                    }, 250);
+                });
+
+                document.addEventListener('click', function(e){
+                    if (e.target.closest('.tix-user-result')) {
+                        var item = e.target.closest('.tix-user-result');
+                        var id = item.getAttribute('data-id');
+                        var email = item.getAttribute('data-email');
+                        var name = item.getAttribute('data-name');
+                        hidden.value = id;
+                        search.value = name + ' (' + email + ')';
+                        if (ownerName)  ownerName.value  = name;
+                        if (ownerEmail) ownerEmail.value = email;
+                        results.style.display = 'none';
+                    } else if (!e.target.closest('#tix_user_search')) {
+                        results.style.display = 'none';
+                    }
+                });
+            }
+
+            if (clearBtn) {
+                clearBtn.addEventListener('click', function(e){
+                    e.preventDefault();
+                    if (hidden) hidden.value = '0';
+                    if (search) search.value = '';
+                    this.style.display = 'none';
+                    var info = this.parentElement;
+                    if (info) info.innerHTML = '<em style="font-size:12px;color:#9ca3af;">Zuordnung wird beim Speichern entfernt.</em>';
+                });
+            }
+
+            function escHtml(s) {
+                return String(s || '').replace(/[&<>"']/g, function(c){
+                    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+                });
+            }
+            function escAttr(s) { return escHtml(s).replace(/"/g, '&quot;'); }
         })();
         </script>
         <?php
@@ -576,6 +730,34 @@ class TIX_Tickets {
         $owner_email = sanitize_email($_POST['tix_owner_email'] ?? '');
         if ($owner_name !== '')  update_post_meta($post_id, '_tix_ticket_owner_name',  $owner_name);
         if ($owner_email && is_email($owner_email)) update_post_meta($post_id, '_tix_ticket_owner_email', $owner_email);
+
+        // ── WP-User-Zuordnung ──
+        // Wenn assigned_user_id gesetzt → User-Daten haben Vorrang vor Owner-Feldern
+        // (außer Admin hat sie händisch geändert).
+        $assigned_user_id = intval($_POST['tix_assigned_user_id'] ?? 0);
+        if ($assigned_user_id > 0) {
+            $u = get_userdata($assigned_user_id);
+            if ($u) {
+                update_post_meta($post_id, '_tix_ticket_assigned_user_id', $assigned_user_id);
+                // Wenn die Owner-Felder leer waren oder dem alten User entsprachen → mit User-Daten füllen
+                $first = (string) get_user_meta($assigned_user_id, 'first_name', true);
+                $last  = (string) get_user_meta($assigned_user_id, 'last_name',  true);
+                $full  = trim($first . ' ' . $last) ?: $u->display_name;
+                if ($owner_name === '' || $owner_name === $full) {
+                    update_post_meta($post_id, '_tix_ticket_owner_name',  $full);
+                    $owner_name = $full;
+                }
+                if (!$owner_email || !is_email($owner_email)) {
+                    update_post_meta($post_id, '_tix_ticket_owner_email', $u->user_email);
+                    $owner_email = $u->user_email;
+                }
+                // post_author auf den User setzen (für Meine-Tickets-Query)
+                wp_update_post(['ID' => $post_id, 'post_author' => $assigned_user_id]);
+            }
+        } else {
+            // Explizit entfernt
+            delete_post_meta($post_id, '_tix_ticket_assigned_user_id');
+        }
 
         // ── Gästeliste synchronisieren ──
         if ($event_id && ($owner_name || $owner_email)) {
