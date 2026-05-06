@@ -25,6 +25,7 @@ class TIX_Promoter_Admin {
             'tix_promoter_delete',
             'tix_promoter_list',
             'tix_promoter_search_users',
+            'tix_promoter_search_events',
             'tix_promoter_assign',
             'tix_promoter_unassign',
             'tix_promoter_assignments',
@@ -41,7 +42,8 @@ class TIX_Promoter_Admin {
         }
 
         // CSV-Export ueber admin_post
-        add_action('admin_post_tix_promoter_export_csv', [__CLASS__, 'export_csv']);
+        add_action('admin_post_tix_promoter_export_csv',   [__CLASS__, 'export_csv']);
+        add_action('admin_post_tix_promoter_export_links', [__CLASS__, 'export_links_csv']);
     }
 
     /* ──────────────────────────── Menu ──────────────────────────── */
@@ -72,14 +74,42 @@ class TIX_Promoter_Admin {
         wp_enqueue_script('tix-promoter-admin', TIXOMAT_URL . 'assets/js/promoter-admin' . $min . '.js', ['jquery', 'chartjs'], TIXOMAT_VERSION, true);
 
         wp_localize_script('tix-promoter-admin', 'tixPromoter', [
-            'ajaxurl'    => admin_url('admin-ajax.php'),
-            'nonce'      => wp_create_nonce('tix_promoter_admin'),
-            'exporturl'  => admin_url('admin-post.php?action=tix_promoter_export_csv'),
-            'promoters'  => self::get_promoters_list(),
-            'events'     => self::get_events_list(),
-            'currency'   => function_exists('get_woocommerce_currency_symbol') ? get_woocommerce_currency_symbol() : "\xe2\x82\xac",
-            'siteUrl'    => trailingslashit(home_url()),
+            'ajaxurl'         => admin_url('admin-ajax.php'),
+            'nonce'           => wp_create_nonce('tix_promoter_admin'),
+            'exporturl'       => admin_url('admin-post.php?action=tix_promoter_export_csv'),
+            'exportLinksUrl'  => admin_url('admin-post.php?action=tix_promoter_export_links'),
+            'promoters'       => self::get_promoters_list(),
+            'events'          => self::get_events_list(),
+            'coupons'         => self::get_coupons_list(),
+            'currency'        => function_exists('get_woocommerce_currency_symbol') ? get_woocommerce_currency_symbol() : "\xe2\x82\xac",
+            'siteUrl'         => trailingslashit(home_url()),
         ]);
+    }
+
+    /**
+     * Listet alle existierenden tix_coupons als [code => label] für Dropdowns.
+     */
+    private static function get_coupons_list() {
+        $coupons = get_option('tix_coupons', []);
+        if (!is_array($coupons)) return [];
+        $list = [];
+        foreach ($coupons as $code => $c) {
+            // Expired ausblenden — sonst landen sie versehentlich in Promoter-Links
+            if (!empty($c['expires'])) {
+                $ts = strtotime($c['expires']);
+                if ($ts && $ts < time()) continue;
+            }
+            $type = $c['discount_type'] ?? 'percent';
+            $val  = floatval($c['value'] ?? 0);
+            $label = strtoupper($code) . ' — ';
+            if ($type === 'percent' || $type === 'per_ticket_percent') {
+                $label .= number_format($val, 1, ',', '.') . ' %';
+            } else {
+                $label .= number_format($val, 2, ',', '.') . ' €';
+            }
+            $list[] = ['code' => strtoupper($code), 'label' => $label];
+        }
+        return $list;
     }
 
     /* ──────────────────────────── Helpers ──────────────────────────── */
@@ -157,6 +187,7 @@ class TIX_Promoter_Admin {
         $promoter_code = sanitize_text_field($_POST['promoter_code'] ?? '');
         $display_name  = sanitize_text_field($_POST['display_name'] ?? '');
         $notes         = sanitize_textarea_field($_POST['notes'] ?? '');
+        $default_coup  = strtoupper(sanitize_text_field($_POST['default_coupon_code'] ?? ''));
         $status        = in_array($_POST['status'] ?? '', ['active', 'inactive']) ? $_POST['status'] : 'active';
 
         if ($id > 0) {
@@ -165,6 +196,7 @@ class TIX_Promoter_Admin {
             if (!empty($promoter_code)) $update['promoter_code'] = $promoter_code;
             if (!empty($display_name))  $update['display_name']  = $display_name;
             if (isset($_POST['notes'])) $update['notes']         = $notes;
+            if (isset($_POST['default_coupon_code'])) $update['default_coupon_code'] = $default_coup;
             $result = TIX_Promoter_DB::update_promoter($id, $update);
             if ($result === false) {
                 wp_send_json_error('Fehler beim Aktualisieren.');
@@ -184,11 +216,12 @@ class TIX_Promoter_Admin {
             }
 
             $new_id = TIX_Promoter_DB::insert_promoter([
-                'user_id'       => $user_id,
-                'promoter_code' => $promoter_code,
-                'display_name'  => $display_name,
-                'notes'         => $notes,
-                'status'        => $status,
+                'user_id'             => $user_id,
+                'promoter_code'       => $promoter_code,
+                'display_name'        => $display_name,
+                'default_coupon_code' => $default_coup,
+                'notes'               => $notes,
+                'status'              => $status,
             ]);
             if (!$new_id) {
                 wp_send_json_error('Fehler beim Erstellen. Code evtl. bereits vergeben.');
@@ -257,22 +290,24 @@ class TIX_Promoter_Admin {
         if (!current_user_can('manage_options')) wp_send_json_error('Keine Berechtigung.');
         if (!class_exists('TIX_Promoter_DB'))   wp_send_json_error('Datenbank nicht verfuegbar.');
 
+        TIX_Promoter_DB::ensure_default_coupon_column();
         $rows = TIX_Promoter_DB::get_all_promoter_stats();
         $data = [];
         foreach ($rows as $r) {
             $data[] = [
-                'id'                 => intval($r->id),
-                'promoter_code'      => $r->promoter_code,
-                'display_name'       => $r->display_name ?: '',
-                'user_id'            => intval($r->user_id),
-                'user_email'         => $r->user_email ?? '',
-                'notes'              => $r->notes ?? '',
-                'status'             => $r->status,
-                'status_badge'       => self::status_badge($r->status),
-                'total_sales'        => self::format_eur($r->total_sales),
-                'total_sales_raw'    => floatval($r->total_sales),
-                'total_commission'   => self::format_eur($r->total_commission),
-                'pending_commission' => self::format_eur($r->pending_commission),
+                'id'                  => intval($r->id),
+                'promoter_code'       => $r->promoter_code,
+                'display_name'        => $r->display_name ?: '',
+                'default_coupon_code' => $r->default_coupon_code ?? '',
+                'user_id'             => intval($r->user_id),
+                'user_email'          => $r->user_email ?? '',
+                'notes'               => $r->notes ?? '',
+                'status'              => $r->status,
+                'status_badge'        => self::status_badge($r->status),
+                'total_sales'         => self::format_eur($r->total_sales),
+                'total_sales_raw'     => floatval($r->total_sales),
+                'total_commission'    => self::format_eur($r->total_commission),
+                'pending_commission'  => self::format_eur($r->pending_commission),
             ];
         }
         wp_send_json_success($data);
@@ -300,6 +335,49 @@ class TIX_Promoter_Admin {
                 'label' => $u->display_name . ' (' . $u->user_email . ')',
                 'value' => $u->display_name,
                 'email' => $u->user_email,
+            ];
+        }
+        wp_send_json_success($results);
+    }
+
+    /* ──── Event-Suche (Live-Suche fuer Link-Generator) ──── */
+
+    public static function ajax_search_events() {
+        check_ajax_referer('tix_promoter_admin', 'nonce');
+        if (!current_user_can('manage_options')) wp_send_json_error('Keine Berechtigung.');
+
+        $term  = sanitize_text_field($_POST['q'] ?? '');
+        $limit = min(20, max(5, intval($_POST['limit'] ?? 20)));
+
+        $args = [
+            'post_type'      => 'event',
+            'post_status'    => 'publish',
+            'posts_per_page' => $limit,
+            'orderby'        => 'meta_value',
+            'meta_key'       => '_tix_date_start',
+            'order'          => 'ASC',
+            'meta_query'     => [
+                'relation' => 'OR',
+                ['key' => '_tix_date_start', 'value' => date('Y-m-d'), 'compare' => '>=', 'type' => 'DATE'],
+                ['key' => '_tix_date_start', 'compare' => 'NOT EXISTS'],
+            ],
+        ];
+
+        // Suchterm anwenden (WP-Standardsuche im Titel/Excerpt/Content)
+        if (strlen($term) >= 2) {
+            $args['s'] = $term;
+        }
+
+        $events = get_posts($args);
+        $results = [];
+        foreach ($events as $ev) {
+            $date_raw = get_post_meta($ev->ID, '_tix_date_start', true);
+            $results[] = [
+                'id'        => $ev->ID,
+                'title'     => $ev->post_title,
+                'date'      => $date_raw ? date_i18n('d.m.Y', strtotime($date_raw)) : '',
+                'date_raw'  => $date_raw ?: '',
+                'permalink' => get_permalink($ev->ID),
             ];
         }
         wp_send_json_success($results);
@@ -727,6 +805,86 @@ class TIX_Promoter_Admin {
         exit;
     }
 
+    /* ──── CSV Export: Alle Event-Links fuer einen Promoter ──── */
+
+    public static function export_links_csv() {
+        if (!current_user_can('manage_options')) wp_die('Keine Berechtigung.');
+        check_admin_referer('tix_promoter_admin', 'nonce');
+        if (!class_exists('TIX_Promoter_DB')) wp_die('Datenbank nicht verfuegbar.');
+
+        $promoter_id = intval($_GET['promoter_id'] ?? 0);
+        if (!$promoter_id) wp_die('Promoter-ID fehlt.');
+
+        TIX_Promoter_DB::ensure_default_coupon_column();
+        $promoter = TIX_Promoter_DB::get_promoter($promoter_id);
+        if (!$promoter) wp_die('Promoter nicht gefunden.');
+
+        $code           = $promoter->promoter_code;
+        $default_coupon = $promoter->default_coupon_code ?? '';
+
+        // ALLE bookable Events (kein Limit — soll auch fuer 5000+ Events funktionieren)
+        $events = get_posts([
+            'post_type'      => 'event',
+            'post_status'    => 'publish',
+            'posts_per_page' => -1,
+            'orderby'        => 'meta_value',
+            'meta_key'       => '_tix_date_start',
+            'order'          => 'ASC',
+            'meta_query'     => [
+                'relation' => 'OR',
+                ['key' => '_tix_date_start', 'value' => date('Y-m-d'), 'compare' => '>=', 'type' => 'DATE'],
+                ['key' => '_tix_date_start', 'compare' => 'NOT EXISTS'],
+            ],
+        ]);
+
+        $filename = 'promoter-links-' . sanitize_file_name($code) . '-' . date('Y-m-d') . '.csv';
+        header('Content-Type: text/csv; charset=UTF-8');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        header('Pragma: no-cache');
+        header('Expires: 0');
+
+        $out = fopen('php://output', 'w');
+        fprintf($out, chr(0xEF) . chr(0xBB) . chr(0xBF));
+
+        fputcsv($out, ['Event-ID', 'Event-Titel', 'Datum', 'Referral-Link', 'Referral-Link mit Coupon', 'Coupon'], ';');
+
+        // Erste Zeile: Allgemeiner Link (gilt fuer alle Events ueber Cookie)
+        $home_link = add_query_arg('ref', $code, home_url('/'));
+        $home_link_coupon = $default_coupon
+            ? add_query_arg(['ref' => $code, 'coupon' => $default_coupon], home_url('/'))
+            : '';
+        fputcsv($out, [
+            '0',
+            'Allgemeiner Link (Startseite, alle Events)',
+            'Dauerhaft',
+            $home_link,
+            $home_link_coupon,
+            $default_coupon,
+        ], ';');
+
+        foreach ($events as $ev) {
+            $permalink = get_permalink($ev->ID);
+            if (!$permalink) continue;
+            $date_raw = get_post_meta($ev->ID, '_tix_date_start', true);
+            $date_fmt = $date_raw ? date_i18n('d.m.Y', strtotime($date_raw)) : '';
+            $ref_link = add_query_arg('ref', $code, $permalink);
+            $ref_coup = $default_coupon
+                ? add_query_arg(['ref' => $code, 'coupon' => $default_coupon], $permalink)
+                : '';
+            fputcsv($out, [
+                $ev->ID,
+                $ev->post_title,
+                $date_fmt,
+                $ref_link,
+                $ref_coup,
+                $default_coupon,
+            ], ';');
+        }
+
+        fclose($out);
+        exit;
+    }
+
     /* ══════════════════════════════════════════════════════════════════
        EVENT TAB (Metabox-Pane im Event-Editor)
        ══════════════════════════════════════════════════════════════════ */
@@ -895,6 +1053,16 @@ class TIX_Promoter_Admin {
                                             <div class="tix-form-field">
                                                 <label>Anzeigename</label>
                                                 <input type="text" id="tix-pf-display-name" placeholder="z.B. Max Mustermann">
+                                            </div>
+                                            <div class="tix-form-field">
+                                                <label>Standard-Coupon (optional)</label>
+                                                <select id="tix-pf-default-coupon">
+                                                    <option value="">— Kein Coupon —</option>
+                                                    <?php foreach (self::get_coupons_list() as $c): ?>
+                                                        <option value="<?php echo esc_attr($c['code']); ?>"><?php echo esc_html($c['label']); ?></option>
+                                                    <?php endforeach; ?>
+                                                </select>
+                                                <small style="color:#64748b;font-size:11px;display:block;margin-top:4px;">Wird automatisch an alle Promoter-Links angehängt — Besucher bekommt Rabatt sofort beim Klick.</small>
                                             </div>
                                             <div class="tix-form-field tix-form-field-full">
                                                 <label>Notizen</label>
@@ -1237,6 +1405,97 @@ class TIX_Promoter_Admin {
                 </div><!-- /.tix-app -->
             </div><!-- /.tix-settings-grid -->
         </div><!-- /.wrap -->
+
+        <!-- ═══════════════════════════════════════
+             LINK-GENERATOR MODAL
+             ═══════════════════════════════════════ -->
+        <style>
+        .tix-link-evt-item:hover { background: #f1f5f9 !important; }
+        .tix-link-evt-item:last-child { border-bottom: none !important; }
+        .tix-link-modal-dialog input[readonly] { color: #0f172a; }
+        @media (max-width: 768px) {
+            .tix-link-modal-dialog { margin: 10px !important; max-height: calc(100vh - 20px) !important; }
+        }
+        </style>
+        <div class="tix-link-modal" id="tix-link-modal" style="display:none;position:fixed;inset:0;z-index:99999;">
+            <div class="tix-link-modal-backdrop" style="position:absolute;inset:0;background:rgba(15,23,42,0.55);backdrop-filter:blur(2px);"></div>
+            <div class="tix-link-modal-dialog" style="position:relative;max-width:760px;margin:40px auto;background:#fff;border-radius:14px;box-shadow:0 24px 64px rgba(15,23,42,0.25);overflow:hidden;max-height:calc(100vh - 80px);display:flex;flex-direction:column;">
+                <header style="display:flex;align-items:center;justify-content:space-between;padding:16px 22px;border-bottom:1px solid #e5e7eb;">
+                    <div>
+                        <h2 style="margin:0;font-size:18px;font-weight:700;">🔗 Link-Generator</h2>
+                        <p style="margin:2px 0 0;color:#64748b;font-size:13px;">Promoter: <strong id="tix-link-modal-name">—</strong> &middot; Code: <code id="tix-link-modal-code" style="background:#fef3c7;padding:1px 7px;border-radius:5px;">—</code></p>
+                    </div>
+                    <button type="button" class="tix-link-modal-close button button-small" style="font-size:18px;line-height:1;padding:4px 10px;">&times;</button>
+                </header>
+
+                <div style="overflow-y:auto;padding:22px;display:flex;flex-direction:column;gap:22px;">
+
+                    <!-- Coupon-Toggle -->
+                    <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:14px;">
+                        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-weight:600;">
+                            <input type="checkbox" id="tix-link-coupon-toggle" style="margin:0;">
+                            <span>Coupon an Link anhängen — Besucher bekommt Rabatt sofort beim Klick</span>
+                        </label>
+                        <div id="tix-link-coupon-wrap" style="margin-top:10px;display:none;">
+                            <select id="tix-link-coupon-select" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;">
+                                <option value="">— Coupon wählen —</option>
+                                <?php foreach (self::get_coupons_list() as $c): ?>
+                                    <option value="<?php echo esc_attr($c['code']); ?>"><?php echo esc_html($c['label']); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                            <small style="color:#64748b;font-size:11px;display:block;margin-top:4px;">Standard-Coupon des Promoters wird vorausgewählt.</small>
+                        </div>
+                    </div>
+
+                    <!-- 1. Allgemeiner Link -->
+                    <section>
+                        <h3 style="margin:0 0 8px;font-size:14px;font-weight:700;color:#0f172a;">🌐 Allgemeiner Link</h3>
+                        <p style="margin:0 0 8px;color:#64748b;font-size:12px;">Funktioniert für alle Events — Cookie wird beim Klick gesetzt und gilt 30 Tage.</p>
+                        <div style="display:flex;gap:6px;align-items:center;">
+                            <input type="text" readonly id="tix-link-general" style="flex:1;background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:8px 10px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;">
+                            <button type="button" class="button button-primary tix-link-copy" data-target="#tix-link-general">Kopieren</button>
+                        </div>
+                    </section>
+
+                    <!-- 2. Event-spezifischer Link mit Live-Suche -->
+                    <section>
+                        <h3 style="margin:0 0 8px;font-size:14px;font-weight:700;color:#0f172a;">🎫 Event-Link erstellen</h3>
+                        <p style="margin:0 0 8px;color:#64748b;font-size:12px;">Suche ein Event — Live-Suche, perfekt auch bei tausenden Events.</p>
+                        <input type="text" id="tix-link-event-search" placeholder="Event-Name oder -Titel suchen..." autocomplete="off" style="width:100%;padding:9px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;">
+                        <div id="tix-link-event-results" style="margin-top:8px;max-height:240px;overflow-y:auto;border:1px solid #e5e7eb;border-radius:6px;display:none;"></div>
+                        <div id="tix-link-event-output" style="margin-top:10px;display:none;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:8px;padding:12px;">
+                            <div style="font-weight:700;color:#065f46;margin-bottom:6px;" id="tix-link-event-output-title">—</div>
+                            <div style="display:flex;gap:6px;align-items:center;">
+                                <input type="text" readonly id="tix-link-event-link" style="flex:1;background:#fff;border:1px solid #d1d5db;border-radius:6px;padding:8px 10px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;">
+                                <button type="button" class="button button-primary tix-link-copy" data-target="#tix-link-event-link">Kopieren</button>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- 3. Custom URL -->
+                    <section>
+                        <h3 style="margin:0 0 8px;font-size:14px;font-weight:700;color:#0f172a;">✏️ Custom URL</h3>
+                        <p style="margin:0 0 8px;color:#64748b;font-size:12px;">Eigene URL eingeben (z.B. eine Landing-Page) — System hängt <code>?ref=CODE</code> automatisch an.</p>
+                        <input type="text" id="tix-link-custom-input" placeholder="https://… oder /landing-page/" style="width:100%;padding:9px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
+                        <div id="tix-link-custom-output-wrap" style="margin-top:10px;display:none;">
+                            <div style="display:flex;gap:6px;align-items:center;">
+                                <input type="text" readonly id="tix-link-custom-output" style="flex:1;background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:8px 10px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;">
+                                <button type="button" class="button button-primary tix-link-copy" data-target="#tix-link-custom-output">Kopieren</button>
+                            </div>
+                        </div>
+                    </section>
+
+                </div>
+
+                <footer style="padding:14px 22px;border-top:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center;background:#f9fafb;">
+                    <a href="#" id="tix-link-csv-export" class="button">
+                        <span class="dashicons dashicons-download" style="font-size:16px;width:16px;height:16px;line-height:1;vertical-align:text-top;"></span>
+                        Alle Event-Links als CSV
+                    </a>
+                    <button type="button" class="button button-primary tix-link-modal-close">Schließen</button>
+                </footer>
+            </div>
+        </div>
         <?php
     }
 }

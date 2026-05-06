@@ -415,9 +415,37 @@ class TIX_Native_Checkout {
         // Kunde hat den Auto-Coupon explizit entfernt → nicht erneut anwenden
         if (!empty($cart['auto_coupon_dismissed'])) return;
 
-        // Auto-Apply-Coupon aus Settings holen (filtert expired/exhausted)
         if (!class_exists('TIX_Coupons')) return;
-        $coupon = TIX_Coupons::get_auto_apply_coupon();
+
+        // 1. PRIORITÄT: Pending-Coupon aus URL (?coupon=XYZ — via Promoter-Link).
+        //    Falls valid → applizieren und beenden.
+        $pending_code = TIX_Coupons::get_pending_coupon_code();
+        $coupon = null;
+        $is_url_pending = false;
+        if ($pending_code) {
+            $coupon = TIX_Coupons::find_by_code($pending_code);
+            if ($coupon && !empty($coupon['code'])) {
+                $is_url_pending = true;
+            } else {
+                // Synthetic Promoter-Code: aus tix_promoter_events ableiten
+                if (class_exists('TIX_Promoter_DB') && method_exists('TIX_Promoter_DB', 'get_assignment_by_promo_code')) {
+                    $assignment = TIX_Promoter_DB::get_assignment_by_promo_code($pending_code);
+                    if ($assignment && !empty($assignment->discount_type) && floatval($assignment->discount_value) > 0) {
+                        $coupon = [
+                            'code'          => $pending_code,
+                            'discount_type' => $assignment->discount_type,
+                            'value'         => floatval($assignment->discount_value),
+                        ];
+                        $is_url_pending = true;
+                    }
+                }
+            }
+        }
+
+        // 2. FALLBACK: globalen Auto-Apply-Coupon aus Settings holen
+        if (!$coupon || empty($coupon['code'])) {
+            $coupon = TIX_Coupons::get_auto_apply_coupon();
+        }
         if (!$coupon || empty($coupon['code'])) return;
 
         // Discount auf Basis des aktuellen Cart-Totals berechnen
@@ -458,10 +486,17 @@ class TIX_Native_Checkout {
         if ($discount <= 0) return;
 
         $cart['coupon'] = [
-            'code'       => $coupon['code'],
-            'discount'   => $discount,
-            'auto'       => true, // Marker für UI: dieser wurde automatisch angewendet
+            'code'        => $coupon['code'],
+            'discount'    => $discount,
+            'auto'        => true, // Marker für UI: dieser wurde automatisch angewendet
+            'url_applied' => $is_url_pending, // aus ?coupon=XYZ URL — UI zeigt grünes Banner
         ];
+
+        // URL-Pending-Coupon: Cookie nach Apply löschen (sonst läuft er ins Leere
+        // wenn Cart geleert wird → würde sich beim nächsten Add wieder anwenden).
+        if ($is_url_pending && method_exists('TIX_Coupons', 'clear_pending_coupon')) {
+            TIX_Coupons::clear_pending_coupon();
+        }
     }
 
     /**
@@ -736,11 +771,13 @@ class TIX_Native_Checkout {
         $coupon_discount = 0;
         $coupon_code = '';
         $coupon_auto = false;
+        $coupon_url_applied = false;
         $coupon_badge_label = '';
         if (!empty($cart['coupon']) && !empty($cart['coupon']['discount'])) {
             $coupon_discount = round(floatval($cart['coupon']['discount']), 2);
             $coupon_code = $cart['coupon']['code'] ?? '';
             $coupon_auto = !empty($cart['coupon']['auto']);
+            $coupon_url_applied = !empty($cart['coupon']['url_applied']);
             $total = max(0, round($total - $coupon_discount, 2));
 
             // Auto-Badge-Label: Coupon-Wert aus tix_coupons-Definition holen
@@ -896,6 +933,13 @@ class TIX_Native_Checkout {
                             <?php endforeach; ?>
                         </div>
                         <a href="<?php echo esc_url(get_post_type_archive_link('event') ?: home_url('/events/')); ?>" class="tix-co-btn-more">+ Weitere Tickets kaufen</a>
+
+                        <?php if ($coupon_url_applied && $coupon_code): ?>
+                        <div class="tix-co-coupon-applied-banner" style="margin-top:14px;padding:12px 14px;background:linear-gradient(135deg,#dcfce7 0%,#bbf7d0 100%);border:1px solid #86efac;border-radius:10px;display:flex;align-items:center;gap:10px;color:#065f46;font-size:13px;font-weight:600;">
+                            <span style="font-size:20px;line-height:1;">🎉</span>
+                            <span>Dein Gutschein-Code <code style="background:rgba(255,255,255,0.7);padding:2px 8px;border-radius:5px;letter-spacing:0.04em;color:#065f46;"><?php echo esc_html($coupon_code); ?></code> wurde automatisch angewendet — du sparst beim Checkout!</span>
+                        </div>
+                        <?php endif; ?>
 
                         <?php // ── Coupon Input ── ?>
                         <div class="tix-co-coupon" style="margin-top:12px;display:flex;gap:8px;align-items:stretch;">

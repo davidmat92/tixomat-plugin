@@ -20,13 +20,147 @@ if (!defined('ABSPATH')) exit;
 
 class TIX_Coupons {
 
-    const OPTION = 'tix_coupons';
+    const OPTION       = 'tix_coupons';
+    const COOKIE_NAME  = 'tix_pending_coupon';
+    const COOKIE_TTL   = 30 * DAY_IN_SECONDS; // 30 Tage
 
     public static function init() {
         add_action('admin_menu', [__CLASS__, 'register_menu'], 60);
         add_action('admin_post_tix_coupon_save',         [__CLASS__, 'handle_save']);
         add_action('admin_post_tix_coupon_delete',       [__CLASS__, 'handle_delete']);
         add_action('admin_post_tix_coupon_popup_save',   [__CLASS__, 'handle_popup_save']);
+
+        // URL-Coupon-Detection: liest ?coupon=XYZ und speichert ihn in Cookie
+        add_action('init', [__CLASS__, 'detect_url_coupon'], 5);
+
+        // WooCommerce: nach Add-to-Cart pending-coupon automatisch applizieren
+        add_action('woocommerce_add_to_cart', [__CLASS__, 'wc_apply_pending_coupon'], 20);
+    }
+
+    /**
+     * WooCommerce-Hook: nach jedem Add-to-Cart prüft, ob ein pending-coupon
+     * (aus ?coupon=XYZ) gesetzt ist und appliziert ihn — sofern WC-Coupon
+     * existiert und noch nicht angewandt ist.
+     *
+     * Funktioniert mit nativen tix_coupons UND Promoter-Synthetic-Codes,
+     * sofern für diese ein WC-Coupon erstellt wurde (TIX_Promoter::create_promo_coupon).
+     */
+    public static function wc_apply_pending_coupon() {
+        if (!function_exists('WC') || !WC()->cart) return;
+
+        $code = self::get_pending_coupon_code();
+        if (!$code) return;
+
+        $cart = WC()->cart;
+        // Schon angewandt?
+        if (in_array(strtolower($code), array_map('strtolower', $cart->get_applied_coupons()), true)) return;
+
+        // WC-Coupon-Validierung: Wenn WC einen Coupon mit dem Code kennt → einfach apply_coupon
+        $wc_coupon = new \WC_Coupon($code);
+        if ($wc_coupon && $wc_coupon->get_id()) {
+            $cart->apply_coupon($code);
+            // Cookie entfernen, damit beim nächsten Cart-Reset nicht nochmal versucht wird
+            self::clear_pending_coupon();
+            // WC-Notice für den Kunden
+            if (function_exists('wc_add_notice')) {
+                wc_add_notice(sprintf('🎉 Dein Gutschein-Code <strong>%s</strong> wurde automatisch angewendet.', esc_html($code)), 'success');
+            }
+        }
+    }
+
+    /**
+     * Liest ?coupon=XYZ aus der URL, validiert ihn und speichert ihn als Cookie.
+     * Beim nächsten Cart-Add wird er via apply_pending_coupon_if_eligible() automatisch angewandt.
+     *
+     * Akzeptiert auch synthetische Promoter-Codes (aus tix_promoter_events.promo_code).
+     */
+    public static function detect_url_coupon() {
+        if (empty($_GET['coupon'])) return;
+        if (is_admin() || wp_doing_ajax() || wp_doing_cron()) return;
+
+        $code = strtoupper(sanitize_text_field((string) $_GET['coupon']));
+        if (!$code || strlen($code) > 50) return;
+
+        // Validieren: existiert + nicht expired + nicht ausgeschöpft
+        $coupon = self::find_by_code($code);
+        if (!$coupon) {
+            // Fallback: Promoter-Synthetic-Code (aus tix_promoter_events)?
+            if (class_exists('TIX_Promoter_DB') && method_exists('TIX_Promoter_DB', 'get_assignment_by_promo_code')) {
+                $assignment = TIX_Promoter_DB::get_assignment_by_promo_code($code);
+                if (!$assignment || empty($assignment->discount_type) || floatval($assignment->discount_value) <= 0) {
+                    return;
+                }
+                // Synthetic Coupon ist gültig — setzen wir den Cookie
+            } else {
+                return;
+            }
+        }
+
+        // Cookie setzen (HttpOnly = false, weil wir es serverseitig lesen)
+        // SameSite=Lax: greift bei normaler Navigation
+        if (!headers_sent()) {
+            setcookie(self::COOKIE_NAME, $code, [
+                'expires'  => time() + self::COOKIE_TTL,
+                'path'     => '/',
+                'samesite' => 'Lax',
+                'secure'   => is_ssl(),
+                'httponly' => false,
+            ]);
+            $_COOKIE[self::COOKIE_NAME] = $code; // sofort verfügbar
+        }
+    }
+
+    /**
+     * Liest den Pending-Coupon aus dem Cookie (für apply_pending_coupon_if_eligible).
+     * @return string|null
+     */
+    public static function get_pending_coupon_code() {
+        if (empty($_COOKIE[self::COOKIE_NAME])) return null;
+        $code = strtoupper(sanitize_text_field((string) $_COOKIE[self::COOKIE_NAME]));
+        return $code ?: null;
+    }
+
+    /**
+     * Löscht den Pending-Coupon-Cookie (nach erfolgreichem Apply).
+     */
+    public static function clear_pending_coupon() {
+        if (!headers_sent()) {
+            setcookie(self::COOKIE_NAME, '', [
+                'expires'  => time() - 3600,
+                'path'     => '/',
+                'samesite' => 'Lax',
+                'secure'   => is_ssl(),
+                'httponly' => false,
+            ]);
+        }
+        unset($_COOKIE[self::COOKIE_NAME]);
+    }
+
+    /**
+     * Findet einen Coupon case-insensitive in der tix_coupons-Option.
+     * @return array|null Coupon-Definition mit gesetztem 'code'-Key oder null.
+     */
+    public static function find_by_code(string $code) {
+        $code = strtoupper(trim($code));
+        if (!$code) return null;
+        $coupons = get_option(self::OPTION, []);
+        if (!is_array($coupons)) return null;
+        foreach ($coupons as $k => $c) {
+            if (strtoupper((string) $k) === $code) {
+                $c['code'] = strtoupper((string) $k);
+                // Expiry-Check
+                if (!empty($c['expires'])) {
+                    $ts = strtotime($c['expires']);
+                    if ($ts && $ts < time()) return null;
+                }
+                // Max-Uses-Check
+                $used = intval($c['used'] ?? 0);
+                $max  = intval($c['max_uses'] ?? 0);
+                if ($max > 0 && $used >= $max) return null;
+                return $c;
+            }
+        }
+        return null;
     }
 
     /**

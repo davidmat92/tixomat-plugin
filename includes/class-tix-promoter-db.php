@@ -53,14 +53,15 @@ class TIX_Promoter_DB {
         // Promoter
         $t1 = self::table_promoters();
         dbDelta("CREATE TABLE $t1 (
-            id              BIGINT UNSIGNED AUTO_INCREMENT,
-            user_id         BIGINT UNSIGNED NOT NULL,
-            promoter_code   VARCHAR(30) NOT NULL,
-            status          VARCHAR(20) DEFAULT 'active',
-            display_name    VARCHAR(255) DEFAULT '',
-            notes           TEXT,
-            created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
-            updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            id                   BIGINT UNSIGNED AUTO_INCREMENT,
+            user_id              BIGINT UNSIGNED NOT NULL,
+            promoter_code        VARCHAR(30) NOT NULL,
+            status               VARCHAR(20) DEFAULT 'active',
+            display_name         VARCHAR(255) DEFAULT '',
+            default_coupon_code  VARCHAR(50) DEFAULT '',
+            notes                TEXT,
+            created_at           DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at           DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
             PRIMARY KEY (id),
             UNIQUE KEY promoter_code (promoter_code),
             UNIQUE KEY user_id (user_id),
@@ -158,6 +159,20 @@ class TIX_Promoter_DB {
         global $wpdb;
         $t = self::table_promoters();
         return $wpdb->get_var("SHOW TABLES LIKE '$t'") === $t;
+    }
+
+    /**
+     * Stellt sicher, dass die Spalte `default_coupon_code` existiert (für Bestandsinstallationen).
+     * Wird lazy bei den ersten Lese/Schreib-Calls aufgerufen.
+     */
+    public static function ensure_default_coupon_column() {
+        global $wpdb;
+        $t = self::table_promoters();
+        $col = $wpdb->get_row($wpdb->prepare(
+            "SHOW COLUMNS FROM $t LIKE %s", 'default_coupon_code'
+        ));
+        if ($col) return;
+        $wpdb->query("ALTER TABLE $t ADD COLUMN default_coupon_code VARCHAR(50) NOT NULL DEFAULT '' AFTER display_name");
     }
 
     /**
@@ -260,12 +275,14 @@ class TIX_Promoter_DB {
 
     public static function insert_promoter(array $data) {
         global $wpdb;
+        self::ensure_default_coupon_column();
         $row = [
-            'user_id'       => intval($data['user_id'] ?? 0),
-            'promoter_code' => sanitize_text_field($data['promoter_code'] ?? ''),
-            'status'        => sanitize_text_field($data['status'] ?? 'active'),
-            'display_name'  => sanitize_text_field($data['display_name'] ?? ''),
-            'notes'         => sanitize_textarea_field($data['notes'] ?? ''),
+            'user_id'             => intval($data['user_id'] ?? 0),
+            'promoter_code'       => sanitize_text_field($data['promoter_code'] ?? ''),
+            'status'              => sanitize_text_field($data['status'] ?? 'active'),
+            'display_name'        => sanitize_text_field($data['display_name'] ?? ''),
+            'default_coupon_code' => strtoupper(sanitize_text_field($data['default_coupon_code'] ?? '')),
+            'notes'               => sanitize_textarea_field($data['notes'] ?? ''),
         ];
         $wpdb->insert(self::table_promoters(), $row);
         return $wpdb->insert_id;
@@ -273,10 +290,15 @@ class TIX_Promoter_DB {
 
     public static function update_promoter(int $id, array $data) {
         global $wpdb;
-        $allowed = ['promoter_code', 'status', 'display_name', 'notes'];
+        self::ensure_default_coupon_column();
+        $allowed = ['promoter_code', 'status', 'display_name', 'notes', 'default_coupon_code'];
         $update = [];
         foreach ($allowed as $k) {
-            if (isset($data[$k])) $update[$k] = sanitize_text_field($data[$k]);
+            if (isset($data[$k])) {
+                $update[$k] = ($k === 'default_coupon_code')
+                    ? strtoupper(sanitize_text_field($data[$k]))
+                    : sanitize_text_field($data[$k]);
+            }
         }
         if (empty($update)) return false;
         return $wpdb->update(self::table_promoters(), $update, ['id' => $id]);
@@ -671,11 +693,12 @@ class TIX_Promoter_DB {
 
     public static function get_all_promoter_stats() {
         global $wpdb;
+        self::ensure_default_coupon_column();
         $tp = self::table_promoters();
         $tc = self::table_commissions();
 
         return $wpdb->get_results(
-            "SELECT p.id, p.promoter_code, p.display_name, p.notes, p.status, p.user_id, u.user_email,
+            "SELECT p.id, p.promoter_code, p.display_name, p.default_coupon_code, p.notes, p.status, p.user_id, u.user_email,
                     COALESCE(SUM(c.order_total), 0) AS total_sales,
                     COALESCE(SUM(c.commission_amount), 0) AS total_commission,
                     COALESCE(SUM(CASE WHEN c.status = 'pending' THEN c.commission_amount ELSE 0 END), 0) AS pending_commission,

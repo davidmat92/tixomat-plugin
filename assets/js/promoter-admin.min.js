@@ -100,7 +100,10 @@
                     '<td>' + esc(p.total_commission) + '</td>' +
                     '<td>' + esc(p.pending_commission) + '</td>' +
                     '<td class="tix-actions">' +
-                        '<button class="button button-small tix-promo-edit" data-id="' + p.id + '" data-code="' + esc(p.promoter_code) + '" data-name="' + esc(p.display_name) + '" data-notes="' + esc(p.notes || '') + '">Bearbeiten</button> ' +
+                        '<button class="button button-small button-primary tix-promo-link-gen" data-id="' + p.id + '" data-code="' + esc(p.promoter_code) + '" data-name="' + esc(p.display_name || p.promoter_code) + '" data-default-coupon="' + esc(p.default_coupon_code || '') + '" title="Link-Generator öffnen">' +
+                            '<span class="dashicons dashicons-admin-links" style="font-size:14px;width:14px;height:14px;vertical-align:text-top;line-height:1;"></span> Link erstellen' +
+                        '</button> ' +
+                        '<button class="button button-small tix-promo-edit" data-id="' + p.id + '" data-code="' + esc(p.promoter_code) + '" data-name="' + esc(p.display_name) + '" data-default-coupon="' + esc(p.default_coupon_code || '') + '" data-notes="' + esc(p.notes || '') + '">Bearbeiten</button> ' +
                         (p.status === 'active' ?
                             '<button class="button button-small tix-promo-deactivate" data-id="' + p.id + '">Deaktivieren</button>' :
                             '<button class="button button-small tix-promo-activate" data-id="' + p.id + '">Aktivieren</button>'
@@ -109,6 +112,209 @@
             });
             $tbody.html(html);
         });
+    }
+
+    /* ════════════════════════════════
+       LINK-GENERATOR MODAL
+       ════════════════════════════════ */
+    var linkModal = {
+        promoterId: 0,
+        promoterCode: '',
+        promoterName: '',
+        defaultCoupon: '',
+        searchTimer: null
+    };
+
+    // Open Modal aus Promoter-Liste
+    $(document).on('click', '.tix-promo-link-gen', function(e) {
+        e.preventDefault();
+        var $btn = $(this);
+        linkModal.promoterId    = parseInt($btn.data('id'), 10) || 0;
+        linkModal.promoterCode  = String($btn.data('code') || '');
+        linkModal.promoterName  = String($btn.data('name') || $btn.data('code') || '');
+        linkModal.defaultCoupon = String($btn.data('default-coupon') || '').toUpperCase();
+
+        // Header befüllen
+        $('#tix-link-modal-name').text(linkModal.promoterName);
+        $('#tix-link-modal-code').text(linkModal.promoterCode);
+
+        // Coupon-Toggle: wenn Default-Coupon vorhanden → vorausgewählt
+        if (linkModal.defaultCoupon) {
+            $('#tix-link-coupon-toggle').prop('checked', true);
+            $('#tix-link-coupon-wrap').show();
+            $('#tix-link-coupon-select').val(linkModal.defaultCoupon);
+        } else {
+            $('#tix-link-coupon-toggle').prop('checked', false);
+            $('#tix-link-coupon-wrap').hide();
+            $('#tix-link-coupon-select').val('');
+        }
+
+        // Inputs zurücksetzen
+        $('#tix-link-event-search').val('');
+        $('#tix-link-event-results').empty().hide();
+        $('#tix-link-event-output').hide();
+        $('#tix-link-custom-input').val('');
+        $('#tix-link-custom-output-wrap').hide();
+
+        // Allgemein-Link bauen
+        rebuildAllLinks();
+
+        $('#tix-link-modal').css('display', 'block');
+        document.body.style.overflow = 'hidden';
+    });
+
+    // Close
+    $(document).on('click', '.tix-link-modal-close, .tix-link-modal-backdrop', function() {
+        $('#tix-link-modal').hide();
+        document.body.style.overflow = '';
+    });
+    // Esc-Key schließt
+    $(document).on('keydown', function(e) {
+        if (e.key === 'Escape' && $('#tix-link-modal').is(':visible')) {
+            $('#tix-link-modal').hide();
+            document.body.style.overflow = '';
+        }
+    });
+
+    // Coupon-Toggle ein/aus
+    $(document).on('change', '#tix-link-coupon-toggle', function() {
+        $('#tix-link-coupon-wrap').toggle(this.checked);
+        rebuildAllLinks();
+    });
+    $(document).on('change', '#tix-link-coupon-select', function() {
+        rebuildAllLinks();
+    });
+
+    // Live-Suche Events (debounced)
+    $(document).on('input', '#tix-link-event-search', function() {
+        var term = $(this).val();
+        clearTimeout(linkModal.searchTimer);
+        if (term.length < 2) {
+            $('#tix-link-event-results').empty().hide();
+            return;
+        }
+        linkModal.searchTimer = setTimeout(function() {
+            $.post(tixPromoter.ajaxurl, {
+                action: 'tix_promoter_search_events',
+                nonce: tixPromoter.nonce,
+                q: term,
+                limit: 20
+            }, function(r) {
+                var $results = $('#tix-link-event-results');
+                if (!r.success || !r.data || !r.data.length) {
+                    $results.html('<div style="padding:12px;color:#9ca3af;font-size:13px;text-align:center;">Keine Treffer</div>').show();
+                    return;
+                }
+                var html = '';
+                $.each(r.data, function(i, ev) {
+                    html += '<div class="tix-link-evt-item" data-id="' + ev.id + '" data-title="' + esc(ev.title) + '" data-permalink="' + esc(ev.permalink || '') + '" data-date="' + esc(ev.date || '') + '" style="padding:8px 12px;cursor:pointer;border-bottom:1px solid #f3f4f6;display:flex;justify-content:space-between;gap:10px;">' +
+                        '<span style="font-weight:600;color:#0f172a;">' + esc(ev.title) + '</span>' +
+                        '<span style="color:#64748b;font-size:12px;white-space:nowrap;">' + esc(ev.date || '—') + '</span>' +
+                        '</div>';
+                });
+                $results.html(html).show();
+            });
+        }, 250);
+    });
+
+    // Klick auf Suchergebnis → Link bauen
+    $(document).on('click', '.tix-link-evt-item', function() {
+        var $item = $(this);
+        var permalink = String($item.data('permalink') || '');
+        var title     = String($item.data('title') || '');
+        var date      = String($item.data('date') || '');
+        if (!permalink) return;
+
+        var url = appendRefAndCoupon(permalink);
+        $('#tix-link-event-output-title').text(title + (date ? ' — ' + date : ''));
+        $('#tix-link-event-link').val(url);
+        $('#tix-link-event-output').show();
+        $('#tix-link-event-results').hide();
+        $('#tix-link-event-search').val(title);
+    });
+
+    // Custom-URL: live umrechnen
+    $(document).on('input', '#tix-link-custom-input', function() {
+        var raw = $(this).val().trim();
+        if (!raw) {
+            $('#tix-link-custom-output-wrap').hide();
+            return;
+        }
+        // Falls relative URL: an siteUrl hängen
+        var base = (tixPromoter.siteUrl || '/');
+        var full = raw;
+        if (!/^https?:\/\//i.test(raw)) {
+            // Trailing-Slash bereinigen
+            full = base.replace(/\/$/, '') + (raw.startsWith('/') ? raw : '/' + raw);
+        }
+        var withRef = appendRefAndCoupon(full);
+        $('#tix-link-custom-output').val(withRef);
+        $('#tix-link-custom-output-wrap').show();
+    });
+
+    // CSV-Export: Window-Navigation mit Promoter-ID + Nonce
+    $(document).on('click', '#tix-link-csv-export', function(e) {
+        e.preventDefault();
+        if (!linkModal.promoterId) return;
+        var url = (tixPromoter.exportLinksUrl || '') +
+            '&promoter_id=' + linkModal.promoterId +
+            '&_wpnonce=' + encodeURIComponent(tixPromoter.nonce);
+        window.location.href = url;
+    });
+
+    // Copy-Buttons im Modal
+    $(document).on('click', '.tix-link-copy', function() {
+        var sel = $(this).data('target');
+        var $input = $(sel);
+        if (!$input.length) return;
+        var text = $input.val();
+        var $btn = $(this);
+        var orig = $btn.text();
+        var done = function() {
+            $btn.text('✓ Kopiert');
+            $input.select();
+            setTimeout(function(){ $btn.text(orig); }, 1500);
+        };
+        if (navigator.clipboard) {
+            navigator.clipboard.writeText(text).then(done, function() { fallbackCopy(text); done(); });
+        } else {
+            fallbackCopy(text); done();
+        }
+    });
+
+    /** Hängt ?ref=CODE (+ optional &coupon=COUPON) an eine URL — handled bereits vorhandene Query-Strings. */
+    function appendRefAndCoupon(url) {
+        if (!url) return '';
+        var sep = url.indexOf('?') >= 0 ? '&' : '?';
+        var out = url + sep + 'ref=' + encodeURIComponent(linkModal.promoterCode);
+        var couponEnabled = $('#tix-link-coupon-toggle').is(':checked');
+        var couponCode = couponEnabled ? ($('#tix-link-coupon-select').val() || '') : '';
+        if (couponCode) {
+            out += '&coupon=' + encodeURIComponent(couponCode);
+        }
+        return out;
+    }
+
+    /** Aktualisiert alle drei Links (allgemein + event + custom) wenn Coupon-Toggle sich ändert. */
+    function rebuildAllLinks() {
+        var siteUrl = tixPromoter.siteUrl || '/';
+        $('#tix-link-general').val(appendRefAndCoupon(siteUrl));
+
+        // Event-Link neu bauen wenn schon eines gewählt ist
+        var $evtOut = $('#tix-link-event-output');
+        if ($evtOut.is(':visible')) {
+            var existing = $('#tix-link-event-link').val();
+            // Reverse-engineer Permalink durch Strip ?ref=...
+            var m = existing.match(/^([^?]+)(\?|&)/);
+            if (m) {
+                $('#tix-link-event-link').val(appendRefAndCoupon(m[1]));
+            }
+        }
+        // Custom-URL ebenfalls
+        var $customWrap = $('#tix-link-custom-output-wrap');
+        if ($customWrap.is(':visible')) {
+            $('#tix-link-custom-input').trigger('input');
+        }
     }
 
     // Copy-Helper: jeder Button mit data-clip kopiert Inhalt + zeigt kurzes Feedback
@@ -146,6 +352,7 @@
         $('#tix-pf-user-id').val('0');
         $('#tix-pf-code').val('');
         $('#tix-pf-display-name').val('');
+        $('#tix-pf-default-coupon').val('');
         $('#tix-pf-notes').val('');
         $('#tix-pf-user-wrap').show();
         $('#tix-promoter-form-title').text('Neuen Promoter erstellen');
@@ -164,6 +371,7 @@
         $('#tix-pf-id').val($(this).data('id'));
         $('#tix-pf-code').val($(this).data('code'));
         $('#tix-pf-display-name').val($(this).data('name'));
+        $('#tix-pf-default-coupon').val($(this).data('default-coupon') || '');
         $('#tix-pf-notes').val($(this).data('notes'));
         $('#tix-pf-user-wrap').hide();
     });
@@ -177,6 +385,7 @@
             user_id: $('#tix-pf-user-id').val(),
             promoter_code: $('#tix-pf-code').val(),
             display_name: $('#tix-pf-display-name').val(),
+            default_coupon_code: $('#tix-pf-default-coupon').val() || '',
             notes: $('#tix-pf-notes').val()
         };
         $.post(tixPromoter.ajaxurl, data, function(r) {
