@@ -170,51 +170,35 @@
 
     function renderOverview(d) {
         var kpis = d.kpis;
-        var html = '';
         if (kpis) {
-            var items = [
-                { icon: '💰', num: kpis.total_sales, lbl: 'Gesamtumsatz' },
-                { icon: '📊', num: kpis.total_commission, lbl: 'Provision gesamt' },
-                { icon: '⏳', num: kpis.pending_commission, lbl: 'Ausstehend' },
-                { icon: '🎫', num: kpis.events_count, lbl: 'Aktive Events' }
-            ];
-            $.each(items, function(i, kpi) {
-                html += '<div class="tix-pd-kpi">' +
-                    '<span class="tix-pd-kpi-icon">' + kpi.icon + '</span>' +
-                    '<span class="tix-pd-kpi-num">' + kpi.num + '</span>' +
-                    '<span class="tix-pd-kpi-lbl">' + kpi.lbl + '</span>' +
-                    '</div>';
-            });
+            // Update bestehende Spans (HTML-Skeleton beibehalten für Icon-Layout)
+            $('#tix-pd-kpi-total-sales').html(kpis.total_sales || '0');
+            $('#tix-pd-kpi-total-commission').html(kpis.total_commission || '0');
+            $('#tix-pd-kpi-pending').html(kpis.pending_commission || '0');
+            $('#tix-pd-kpi-events').html(kpis.events_count || '0');
         }
-        $('#tix-pd-kpis').html(html);
 
-        // Referral-Links
+        // Referral-Links — Allgemeiner Link prominent, dann Event-spezifisch
         var linksHtml = '';
-        if (d.links && d.links.length) {
-            $.each(d.links, function(i, l) {
-                linksHtml += '<div class="tix-pd-link-card">' +
-                    '<div class="tix-pd-link-card-title">' + esc(l.title) + '</div>' +
-                    '<div class="tix-pd-link-card-row">' +
-                        '<span class="tix-pd-link-card-label">Referral-Link</span>' +
-                        '<div class="tix-pd-link-card-value">' +
-                            '<input type="text" readonly value="' + esc(l.link) + '" class="tix-pd-link-input">' +
-                            '<button class="tix-pd-copy" data-copy="' + esc(l.link) + '"><span class="tix-pd-copy-label">Kopieren</span></button>' +
-                        '</div>' +
-                    '</div>';
-                if (l.promo) {
-                    linksHtml += '<div class="tix-pd-link-card-row">' +
-                        '<span class="tix-pd-link-card-label">Promo-Code</span>' +
-                        '<div class="tix-pd-link-card-value">' +
-                            '<code class="tix-pd-link-code">' + esc(l.promo) + '</code>' +
-                            '<button class="tix-pd-copy" data-copy="' + esc(l.promo) + '"><span class="tix-pd-copy-label">Kopieren</span></button>' +
-                        '</div>' +
-                    '</div>';
-                }
-                linksHtml += '</div>';
-            });
-        } else {
-            linksHtml = '<p class="tix-pd-empty">Keine aktiven Events zugeordnet.</p>';
+
+        // 1) Allgemeiner Link (immer ganz oben, gross & auffällig)
+        if (d.general_link) {
+            linksHtml += renderGeneralLinkCard(d.general_link);
         }
+
+        // 2) Event-spezifische Links
+        if (d.event_links && d.event_links.length) {
+            linksHtml += '<h4 style="margin:24px 0 12px;font-size:14px;font-weight:700;color:#0f172a;">Event-spezifische Links</h4>';
+            linksHtml += '<p style="margin:0 0 12px;color:#64748b;font-size:12px;">Direkt-Link zu einer Event-Seite — der Cookie wird trotzdem für alle Events gesetzt.</p>';
+            linksHtml += '<div class="tix-pd-event-links-grid" style="display:grid;grid-template-columns:repeat(auto-fill, minmax(320px, 1fr));gap:12px;">';
+            $.each(d.event_links, function(i, l) {
+                linksHtml += renderEventLinkCard(l);
+            });
+            linksHtml += '</div>';
+        } else if (!d.general_link) {
+            linksHtml = '<p class="tix-pd-empty">Noch keine Events verfügbar.</p>';
+        }
+
         $('#tix-pd-links-list').html(linksHtml);
 
         // Chart
@@ -256,6 +240,57 @@
         }
     }
 
+    /* ── Link-Karten ── */
+    function renderGeneralLinkCard(g) {
+        var html = '<div class="tix-pd-link-card tix-pd-link-card-general" style="background:linear-gradient(135deg, var(--tix-acc-primary, #FF5500) 0%, #ea580c 100%);color:#fff;border-radius:14px;padding:20px;margin-bottom:8px;box-shadow:0 4px 12px rgba(255,85,0,0.18);">';
+        html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">';
+        html += '<span style="font-size:18px;font-weight:800;">' + esc(g.title || 'Allgemeiner Link') + '</span>';
+        html += '</div>';
+        if (g.subtitle) {
+            html += '<p style="margin:0 0 14px;font-size:13px;opacity:0.92;">' + esc(g.subtitle) + '</p>';
+        }
+        html += '<div style="display:flex;gap:6px;align-items:stretch;flex-wrap:wrap;">';
+        html += '<input type="text" readonly value="' + esc(g.link) + '" class="tix-pd-link-input" style="flex:1;min-width:220px;background:rgba(255,255,255,0.95);color:#0f172a;border:none;border-radius:8px;padding:10px 12px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;">';
+        html += '<button class="tix-pd-copy" data-copy="' + esc(g.link) + '" style="background:#fff;color:var(--tix-acc-primary,#FF5500);border:none;border-radius:8px;padding:10px 16px;font-weight:700;cursor:pointer;font-size:13px;">';
+        html += '<span class="tix-pd-copy-label">Kopieren</span></button>';
+        html += '</div>';
+        if (g.promo_code) {
+            html += '<div style="margin-top:12px;display:flex;gap:8px;align-items:center;font-size:13px;">';
+            html += '<span style="opacity:0.85;">Promo-Code:</span>';
+            html += '<code style="background:rgba(255,255,255,0.22);padding:4px 10px;border-radius:6px;font-weight:700;letter-spacing:0.05em;">' + esc(g.promo_code) + '</code>';
+            html += '<button class="tix-pd-copy" data-copy="' + esc(g.promo_code) + '" style="background:rgba(255,255,255,0.95);color:var(--tix-acc-primary,#FF5500);border:none;border-radius:6px;padding:4px 10px;font-weight:700;cursor:pointer;font-size:11px;">';
+            html += '<span class="tix-pd-copy-label">Kopieren</span></button>';
+            html += '</div>';
+        }
+        html += '</div>';
+        return html;
+    }
+
+    function renderEventLinkCard(l) {
+        var html = '<div class="tix-pd-link-card-event" style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:14px;">';
+        html += '<div style="font-weight:700;font-size:13px;color:#0f172a;margin-bottom:2px;line-height:1.3;">' + esc(l.title || '') + '</div>';
+        if (l.date) {
+            html += '<div style="font-size:11px;color:#64748b;margin-bottom:10px;">📅 ' + esc(l.date) + '</div>';
+        } else {
+            html += '<div style="margin-bottom:10px;"></div>';
+        }
+        html += '<div style="display:flex;gap:4px;align-items:center;">';
+        html += '<input type="text" readonly value="' + esc(l.link) + '" class="tix-pd-link-input" style="flex:1;min-width:0;background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:6px 8px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;">';
+        html += '<button class="tix-pd-copy" data-copy="' + esc(l.link) + '" style="background:var(--tix-acc-primary,#FF5500);color:#fff;border:none;border-radius:6px;padding:6px 10px;font-weight:600;cursor:pointer;font-size:11px;flex-shrink:0;">';
+        html += '<span class="tix-pd-copy-label">Kopieren</span></button>';
+        html += '</div>';
+        if (l.promo_code) {
+            html += '<div style="margin-top:8px;display:flex;gap:6px;align-items:center;font-size:11px;color:#64748b;">';
+            html += '<span>Code:</span>';
+            html += '<code style="background:#fef3c7;padding:2px 8px;border-radius:4px;font-weight:700;color:#0f172a;">' + esc(l.promo_code) + '</code>';
+            html += '<button class="tix-pd-copy" data-copy="' + esc(l.promo_code) + '" style="background:transparent;color:var(--tix-acc-primary,#FF5500);border:1px solid var(--tix-acc-primary,#FF5500);border-radius:4px;padding:2px 8px;font-weight:600;cursor:pointer;font-size:10px;">';
+            html += '<span class="tix-pd-copy-label">Kopieren</span></button>';
+            html += '</div>';
+        }
+        html += '</div>';
+        return html;
+    }
+
     /* ════════════════════════════════
        EVENTS
        ════════════════════════════════ */
@@ -281,15 +316,17 @@
             var link  = e.referral_link || '';
             var rowStyle = e.is_global ? 'background:#fef3c7;' : '';
             html += '<tr style="' + rowStyle + '">' +
-                '<td><strong>' + esc(title) + '</strong></td>' +
-                '<td>' + esc(date) + '</td>' +
-                '<td>' +
-                    '<span class="tix-pd-link" style="word-break:break-all;font-size:11px;">' + esc(link) + '</span> ' +
-                    '<button class="tix-pd-copy" data-copy="' + esc(link) + '"><span class="tix-pd-copy-label">Kopieren</span></button>' +
+                '<td style="min-width:160px;"><strong>' + esc(title) + '</strong></td>' +
+                '<td style="white-space:nowrap;">' + esc(date) + '</td>' +
+                '<td style="min-width:280px;">' +
+                    '<div style="display:flex;gap:4px;align-items:center;">' +
+                        '<input type="text" readonly value="' + esc(link) + '" style="flex:1;min-width:0;background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:6px 8px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;">' +
+                        '<button class="tix-pd-copy" data-copy="' + esc(link) + '" style="background:var(--tix-acc-primary,#FF5500);color:#fff;border:none;border-radius:6px;padding:6px 10px;font-weight:600;cursor:pointer;font-size:11px;flex-shrink:0;"><span class="tix-pd-copy-label">Kopieren</span></button>' +
+                    '</div>' +
                 '</td>' +
-                '<td>' + (e.promo_code ? '<code>' + esc(e.promo_code) + '</code> <button class="tix-pd-copy" data-copy="' + esc(e.promo_code) + '"><span class="tix-pd-copy-label">Kopieren</span></button>' : '–') + '</td>' +
-                '<td>' + esc(e.commission) + '</td>' +
-                '<td>' + (e.discount || '–') + '</td>' +
+                '<td>' + (e.promo_code ? '<code style="background:#fef3c7;padding:2px 6px;border-radius:4px;font-weight:700;">' + esc(e.promo_code) + '</code> <button class="tix-pd-copy" data-copy="' + esc(e.promo_code) + '" style="background:transparent;color:var(--tix-acc-primary,#FF5500);border:1px solid var(--tix-acc-primary,#FF5500);border-radius:4px;padding:2px 6px;font-weight:600;cursor:pointer;font-size:10px;margin-left:4px;"><span class="tix-pd-copy-label">Kopieren</span></button>' : '–') + '</td>' +
+                '<td style="white-space:nowrap;">' + esc(e.commission) + '</td>' +
+                '<td style="white-space:nowrap;">' + (e.discount || '–') + '</td>' +
                 '</tr>';
         });
         $tbody.html(html);
@@ -321,9 +358,9 @@
                 '<td>' + esc(s.date) + '</td>' +
                 '<td>' + esc(s.event) + '</td>' +
                 '<td>' + s.tickets + '</td>' +
-                '<td>' + esc(s.total) + '</td>' +
-                '<td>' + esc(s.commission) + '</td>' +
-                '<td>' + esc(s.attribution) + '</td>' +
+                '<td>' + (s.sales || s.total || '–') + '</td>' +
+                '<td>' + (s.commission || '–') + '</td>' +
+                '<td>' + esc(s.attribution || '') + '</td>' +
                 '</tr>';
         });
         $tbody.html(html);
@@ -358,8 +395,8 @@
                 '<td>' + esc(c.event) + '</td>' +
                 '<td>#' + c.order_id + '</td>' +
                 '<td>' + c.tickets + '</td>' +
-                '<td>' + esc(c.commission) + '</td>' +
-                '<td><span class="tix-pd-badge tix-pd-badge-' + c.status + '">' + esc(c.status_label) + '</span></td>' +
+                '<td>' + (c.commission || '–') + '</td>' +
+                '<td><span class="tix-pd-badge tix-pd-badge-' + esc(c.status) + '">' + esc(statusLabel(c.status)) + '</span></td>' +
                 '</tr>';
         });
         $tbody.html(html);
@@ -386,11 +423,11 @@
         $.each(d.payouts, function(i, p) {
             html += '<tr>' +
                 '<td>' + esc(p.period) + '</td>' +
-                '<td>' + esc(p.total_sales) + '</td>' +
-                '<td>' + esc(p.total_commission) + '</td>' +
+                '<td>' + (p.sales || p.total_sales || '–') + '</td>' +
+                '<td>' + (p.commission || p.total_commission || '–') + '</td>' +
                 '<td>' + p.count + '</td>' +
-                '<td><span class="tix-pd-badge tix-pd-badge-' + p.status + '">' + esc(p.status_label) + '</span></td>' +
-                '<td>' + esc(p.paid_date || '–') + '</td>' +
+                '<td><span class="tix-pd-badge tix-pd-badge-' + esc(p.status) + '">' + esc(statusLabel(p.status)) + '</span></td>' +
+                '<td>' + (p.paid_date || '–') + '</td>' +
                 '</tr>';
         });
         $tbody.html(html);
@@ -418,9 +455,22 @@
         switch(tab) {
             case 'overview':    renderOverview(d); break;
             case 'events':      renderEvents(d); break;
+            case 'tracking':    renderTracking(d); break;
             case 'sales':       renderSales(d); break;
             case 'commissions': renderCommissions(d); break;
             case 'payouts':     renderPayouts(d); break;
+        }
+    }
+
+    function statusLabel(status) {
+        switch ((status || '').toLowerCase()) {
+            case 'pending':   return 'Ausstehend';
+            case 'approved':  return 'Genehmigt';
+            case 'paid':      return 'Bezahlt';
+            case 'void':
+            case 'cancelled': return 'Storniert';
+            case 'refunded':  return 'Erstattet';
+            default:          return status || '';
         }
     }
 

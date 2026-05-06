@@ -540,19 +540,55 @@ class TIX_Promoter_Dashboard {
             $chart_commission[] = floatval($row->commission);
         }
 
-        // Referral-Links fuer Uebersicht
-        $links = [];
+        // ── Referral-Links: Allgemein + Event-spezifisch ──
+        $code = $promoter->promoter_code;
+
+        // Allgemeiner Link (immer): Homepage + ?ref=CODE
+        // Falls globale Zuordnung existiert → wird auch deren promo_code mitgegeben
+        $global_assignment = null;
+        $event_assignments = [];
         foreach ($events as $a) {
             if ($a->status !== 'active') continue;
-            $eid   = intval($a->event_id);
-            $plink = get_permalink($eid);
-            $ref   = $plink
-                ? add_query_arg('ref', $promoter->promoter_code, $plink)
-                : home_url('/?p=' . $eid . '&ref=' . $promoter->promoter_code);
-            $links[] = [
-                'title'    => $a->event_title ?: get_the_title($eid),
-                'link'     => $ref,
-                'promo'    => $a->promo_code ?: '',
+            if (intval($a->event_id) === 0) {
+                $global_assignment = $a;
+            } else {
+                $event_assignments[intval($a->event_id)] = $a;
+            }
+        }
+
+        $general_link = [
+            'title'      => '🌐 Allgemeiner Link (Startseite)',
+            'subtitle'   => 'Funktioniert für alle Events — Cookie wird gesetzt',
+            'link'       => add_query_arg('ref', $code, home_url('/')),
+            'promo_code' => $global_assignment ? ($global_assignment->promo_code ?: '') : '',
+        ];
+
+        // Event-spezifische Links: ALLE bookable Events (bookable = published, künftig oder ohne Datum)
+        $bookable = get_posts([
+            'post_type'      => 'event',
+            'post_status'    => 'publish',
+            'posts_per_page' => 50,
+            'meta_query'     => [
+                'relation' => 'OR',
+                [ 'key' => '_tix_date_start', 'value' => date('Y-m-d'), 'compare' => '>=', 'type' => 'DATE' ],
+                [ 'key' => '_tix_date_start', 'compare' => 'NOT EXISTS' ],
+            ],
+            'orderby'  => 'meta_value',
+            'meta_key' => '_tix_date_start',
+            'order'    => 'ASC',
+        ]);
+
+        $event_links = [];
+        foreach ($bookable as $ev) {
+            $plink = get_permalink($ev->ID);
+            if (!$plink) continue;
+            $a = $event_assignments[$ev->ID] ?? $global_assignment;
+            $event_links[] = [
+                'event_id'   => $ev->ID,
+                'title'      => $ev->post_title,
+                'date'       => self::format_event_date($ev->ID),
+                'link'       => add_query_arg('ref', $code, $plink),
+                'promo_code' => $a ? ($a->promo_code ?: '') : '',
             ];
         }
 
@@ -561,15 +597,26 @@ class TIX_Promoter_Dashboard {
                 'total_sales'        => self::format_currency(floatval($stats->total_sales ?? 0)),
                 'total_commission'   => self::format_currency(floatval($stats->total_commission ?? 0)),
                 'pending_commission' => self::format_currency(floatval($stats->pending_commission ?? 0)),
-                'events_count'       => count($events),
+                'events_count'       => count($event_links),
             ],
             'chart' => [
                 'labels'     => $chart_labels,
                 'sales'      => $chart_sales,
                 'commission' => $chart_commission,
             ],
-            'links' => $links,
+            'general_link' => $general_link,
+            'event_links'  => $event_links,
+            // Backward-Compat: alter "links"-Key bleibt
+            'links'        => array_merge([$general_link], $event_links),
         ]);
+    }
+
+    /** Helper: Event-Datum formatiert */
+    private static function format_event_date($event_id) {
+        $raw = get_post_meta($event_id, '_tix_date_start', true);
+        if (!$raw) return '';
+        $ts = strtotime($raw);
+        return $ts ? date_i18n('d.m.Y', $ts) : '';
     }
 
     /* ══════════════════════════════════════════
