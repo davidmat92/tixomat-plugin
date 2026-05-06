@@ -307,6 +307,64 @@ class TIX_Promoter {
     }
 
     // ──────────────────────────────────────────
+    // Provisionen-Hierarchie (Helper)
+    // ──────────────────────────────────────────
+
+    /**
+     * Liefert die effektive Provision fuer (Promoter, Event) als Array.
+     * 3-Stufen-Fallback:
+     *   1. Event-spezifische Zuordnung (event_id > 0, commission_value > 0)
+     *   2. Globale Promoter-Zuordnung (event_id = 0, commission_value > 0)
+     *   3. Settings-Default (promoter_default_commission_*)
+     *
+     * @return array{type: string, value: float, source: string}
+     *   source: 'event' | 'global' | 'settings' | 'none'
+     */
+    public static function get_effective_commission($promoter_id, $event_id) {
+        if (class_exists('TIX_Promoter_DB')) {
+            // 1. Event-spezifisch (nur wenn event_id > 0)
+            if ($event_id > 0) {
+                global $wpdb;
+                $specific = $wpdb->get_row($wpdb->prepare(
+                    "SELECT commission_type, commission_value FROM " . TIX_Promoter_DB::table_events() . "
+                     WHERE promoter_id = %d AND event_id = %d AND status = 'active'",
+                    intval($promoter_id), intval($event_id)
+                ));
+                if ($specific && floatval($specific->commission_value) > 0) {
+                    return [
+                        'type'   => $specific->commission_type ?: 'percent',
+                        'value'  => floatval($specific->commission_value),
+                        'source' => 'event',
+                    ];
+                }
+            }
+
+            // 2. Globale Promoter-Zuordnung (event_id = 0)
+            $global = TIX_Promoter_DB::get_global_assignment(intval($promoter_id));
+            if ($global && floatval($global->commission_value) > 0) {
+                return [
+                    'type'   => $global->commission_type ?: 'percent',
+                    'value'  => floatval($global->commission_value),
+                    'source' => 'global',
+                ];
+            }
+        }
+
+        // 3. Settings-Default
+        $s = function_exists('tix_get_settings') ? tix_get_settings() : get_option('tix_settings', []);
+        $def_val = floatval($s['promoter_default_commission_value'] ?? 0);
+        if ($def_val > 0) {
+            return [
+                'type'   => in_array($s['promoter_default_commission_type'] ?? '', ['percent', 'fixed']) ? $s['promoter_default_commission_type'] : 'percent',
+                'value'  => $def_val,
+                'source' => 'settings',
+            ];
+        }
+
+        return ['type' => 'percent', 'value' => 0, 'source' => 'none'];
+    }
+
+    // ──────────────────────────────────────────
     // Provisionen berechnen
     // ──────────────────────────────────────────
 
@@ -354,24 +412,26 @@ class TIX_Promoter {
 
             if (!$event_id) continue;
 
-            // Assignment für (Promoter, Event) — mit Global-Fallback (event_id=0)
-            $assignment = TIX_Promoter_DB::get_assignment_by_promoter_event($promoter_id, $event_id);
-            if (!$assignment) continue;
+            // Effektive Provision ermitteln (3-Stufen-Hierarchie)
+            $eff = self::get_effective_commission($promoter_id, $event_id);
+            if ($eff['source'] === 'none') continue; // keine Provision irgendwo gesetzt → skip
 
-            // Provision berechnen
             $commission = 0;
-            if ($assignment->commission_type === 'percent') {
-                $commission = $line_total * ($assignment->commission_value / 100);
-            } elseif ($assignment->commission_type === 'fixed') {
-                $commission = $assignment->commission_value * $qty;
+            if ($eff['type'] === 'percent') {
+                $commission = $line_total * ($eff['value'] / 100);
+            } elseif ($eff['type'] === 'fixed') {
+                $commission = $eff['value'] * $qty;
             }
 
-            // Discount ermitteln (aus Fees oder Coupon)
+            // Discount: nur wenn echte Assignment existiert (Settings haben keinen Discount)
+            $assignment = TIX_Promoter_DB::get_assignment_by_promoter_event($promoter_id, $event_id);
             $discount = 0;
-            if ($assignment->discount_type === 'percent') {
-                $discount = $line_total * ($assignment->discount_value / 100);
-            } elseif ($assignment->discount_type === 'fixed') {
-                $discount = $assignment->discount_value * $qty;
+            if ($assignment) {
+                if ($assignment->discount_type === 'percent') {
+                    $discount = $line_total * ($assignment->discount_value / 100);
+                } elseif ($assignment->discount_type === 'fixed') {
+                    $discount = $assignment->discount_value * $qty;
+                }
             }
 
             TIX_Promoter_DB::insert_commission([

@@ -433,9 +433,7 @@ class TIX_Promoter_Admin {
         if ($is_global) {
             $event_id = 0; // Konvention: 0 = global
         }
-        if ($commission_value <= 0) {
-            wp_send_json_error('Provision muss groesser als 0 sein.');
-        }
+        // commission_value = 0 ist erlaubt → Hierarchie verwendet dann Settings-Default
 
         // Doppelte Zuordnung pruefen — direktes SQL (Lookup hat Global-Fallback der hier stört)
         global $wpdb;
@@ -1206,6 +1204,19 @@ class TIX_Promoter_Admin {
                                             <div class="tix-form-field">
                                                 <label>Provision Wert</label>
                                                 <input type="number" id="tix-af-commission-value" step="0.01" min="0" placeholder="z.B. 10">
+                                                <?php
+                                                $tix_s = function_exists('tix_get_settings') ? tix_get_settings() : [];
+                                                $def_val = floatval($tix_s['promoter_default_commission_value'] ?? 0);
+                                                $def_type = $tix_s['promoter_default_commission_type'] ?? 'percent';
+                                                if ($def_val > 0):
+                                                    $def_disp = $def_type === 'percent'
+                                                        ? number_format($def_val, ($def_val == intval($def_val)) ? 0 : 1, ',', '.') . ' %'
+                                                        : number_format($def_val, 2, ',', '.') . ' &euro;';
+                                                ?>
+                                                <small style="color:#64748b;font-size:11px;display:block;margin-top:4px;">Wenn leer/0: Standard <code><?php echo $def_disp; ?></code> aus den <a href="<?php echo esc_url(admin_url('admin.php?page=tix-settings#advanced')); ?>" target="_blank">Einstellungen</a> wird verwendet.</small>
+                                                <?php else: ?>
+                                                <small style="color:#64748b;font-size:11px;display:block;margin-top:4px;">Wenn leer/0: keine Provision (kein Standard in den <a href="<?php echo esc_url(admin_url('admin.php?page=tix-settings#advanced')); ?>" target="_blank">Einstellungen</a> gesetzt).</small>
+                                                <?php endif; ?>
                                             </div>
                                             <div class="tix-form-field">
                                                 <label>Rabatt Typ</label>

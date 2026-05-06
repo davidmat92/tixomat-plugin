@@ -346,6 +346,8 @@ class TIX_Settings {
             'promoter_cookie_days'  => 30,
             'promoter_page_id'      => 0,
             'promoter_auth_method'  => 'both', // both | magic_link | wp_login
+            'promoter_default_commission_type'  => 'percent', // global Fallback fuer alle Promoter/Events
+            'promoter_default_commission_value' => 0,         // 0 = kein Default (keine Provision wenn nirgends gesetzt)
             'promoter_self_signup'  => 0,
             'promoter_signup_commission_type'  => 'fixed',
             'promoter_signup_commission_value' => 2,
@@ -1176,6 +1178,8 @@ class TIX_Settings {
         $clean['promoter_cookie_days'] = max(1, intval($input['promoter_cookie_days'] ?? 30));
         $clean['promoter_page_id']     = max(0, intval($input['promoter_page_id'] ?? 0));
         $clean['promoter_auth_method'] = in_array($input['promoter_auth_method'] ?? '', ['both', 'magic_link', 'wp_login']) ? $input['promoter_auth_method'] : 'both';
+        $clean['promoter_default_commission_type']  = in_array($input['promoter_default_commission_type'] ?? '', ['percent', 'fixed']) ? $input['promoter_default_commission_type'] : 'percent';
+        $clean['promoter_default_commission_value'] = max(0, floatval(str_replace(',', '.', $input['promoter_default_commission_value'] ?? 0)));
         $clean['promoter_self_signup'] = !empty($input['promoter_self_signup']) ? 1 : 0;
         $clean['promoter_signup_commission_type']  = in_array($input['promoter_signup_commission_type'] ?? '', ['percent', 'fixed']) ? $input['promoter_signup_commission_type'] : 'fixed';
         $clean['promoter_signup_commission_value'] = max(0, floatval($input['promoter_signup_commission_value'] ?? 2));
@@ -6908,6 +6912,26 @@ class TIX_Settings {
                                                     <option value="wp_login"   <?php selected($auth_method, 'wp_login'); ?>>Nur WordPress-Login</option>
                                                 </select>
                                                 <p class="tix-settings-hint"><strong>Magic-Link:</strong> Promoter gibt seine E-Mail ein, bekommt einen Login-Link per Mail (kein WP-Account n&ouml;tig). <strong>Beide:</strong> empfohlen f&uuml;r maximale Flexibilit&auml;t.</p>
+                                            </div>
+                                            <div class="tix-field tix-field-full" style="border-top:1px solid #e5e7eb;padding-top:16px;margin-top:8px">
+                                                <h4 style="margin:0 0 4px">Standard-Provision (globaler Fallback)</h4>
+                                                <p class="tix-settings-hint" style="margin:0 0 12px">Gilt f&uuml;r alle Promoter und Events, wenn keine spezifische Provision gesetzt ist. <strong>Hierarchie:</strong> Event-spezifische Zuordnung &gt; globale Promoter-Zuordnung (&bdquo;Alle Events&ldquo;) &gt; Standard hier.</p>
+                                            </div>
+                                            <div class="tix-field">
+                                                <label class="tix-field-label">Provisions-Typ</label>
+                                                <?php $def_t = $s['promoter_default_commission_type'] ?? 'percent'; ?>
+                                                <select name="<?php echo self::OPTION_KEY; ?>[promoter_default_commission_type]">
+                                                    <option value="percent" <?php selected($def_t, 'percent'); ?>>Prozent (%)</option>
+                                                    <option value="fixed"   <?php selected($def_t, 'fixed'); ?>>Festbetrag (&euro; pro Ticket)</option>
+                                                </select>
+                                            </div>
+                                            <div class="tix-field">
+                                                <label class="tix-field-label">Wert</label>
+                                                <input type="number" step="0.01" min="0" max="100"
+                                                       name="<?php echo self::OPTION_KEY; ?>[promoter_default_commission_value]"
+                                                       value="<?php echo esc_attr(number_format(floatval($s['promoter_default_commission_value'] ?? 0), 2, '.', '')); ?>"
+                                                       class="small-text">
+                                                <p class="tix-settings-hint">Bei Prozent: 10 = 10%. Bei Festbetrag: 2 = 2&euro; pro Ticket. <strong>0</strong> = kein automatischer Default (nur explizite Zuordnungen geben Provision).</p>
                                             </div>
                                             <div class="tix-field tix-field-full" style="border-top:1px solid #e5e7eb;padding-top:16px;margin-top:8px">
                                                 <h4 style="margin:0 0 8px">Empfehlungsprogramm</h4>

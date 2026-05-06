@@ -8,6 +8,7 @@
     $(function() {
         initTabs();
         initCopy();
+        initLinkGenerator();
         loadTab('overview');
     });
 
@@ -132,6 +133,136 @@
                 });
             }
         }
+    }
+
+    /* ════════════════════════════════
+       FRONTEND LINK-GENERATOR MODAL
+       ════════════════════════════════ */
+    var pdLinkModal = { promoterCode: '', searchTimer: null };
+
+    function initLinkGenerator() {
+        // Promoter-Code aus dem KPI-Container holen (steckt im Header-Code-Tag)
+        // Wir lesen ihn beim ersten Open lazily
+        $(document).on('click', '#tix-pd-link-gen-btn', function(e) {
+            e.preventDefault();
+            // Promoter-Code aus dem allgemein-Link extrahieren
+            var generalLink = $('#tix-pd-link-general').val();
+            var m = generalLink.match(/[?&]ref=([^&]+)/);
+            pdLinkModal.promoterCode = m ? decodeURIComponent(m[1]) : '';
+
+            // Reset Inputs
+            $('#tix-pd-link-event-search').val('');
+            $('#tix-pd-link-event-results').empty().hide();
+            $('#tix-pd-link-event-output').hide();
+            $('#tix-pd-link-custom-input').val('');
+            $('#tix-pd-link-custom-output-wrap').hide();
+
+            $('#tix-pd-link-modal').css('display', 'block');
+            document.body.style.overflow = 'hidden';
+        });
+
+        $(document).on('click', '.tix-pd-link-modal-close, .tix-pd-link-modal-backdrop', function() {
+            $('#tix-pd-link-modal').hide();
+            document.body.style.overflow = '';
+        });
+
+        $(document).on('keydown', function(e) {
+            if (e.key === 'Escape' && $('#tix-pd-link-modal').is(':visible')) {
+                $('#tix-pd-link-modal').hide();
+                document.body.style.overflow = '';
+            }
+        });
+
+        // Live-Suche (debounced)
+        $(document).on('input', '#tix-pd-link-event-search', function() {
+            var term = $(this).val();
+            clearTimeout(pdLinkModal.searchTimer);
+            if (term.length < 2) {
+                $('#tix-pd-link-event-results').empty().hide();
+                return;
+            }
+            pdLinkModal.searchTimer = setTimeout(function() {
+                $.post(tixPD.ajax, {
+                    action: 'tix_pd_search_events',
+                    nonce: tixPD.nonce,
+                    q: term,
+                    limit: 20
+                }, function(r) {
+                    var $results = $('#tix-pd-link-event-results');
+                    if (!r || !r.success || !r.data || !r.data.length) {
+                        $results.html('<div style="padding:12px;color:#9ca3af;font-size:13px;text-align:center;">Keine Treffer</div>').show();
+                        return;
+                    }
+                    var html = '';
+                    $.each(r.data, function(i, ev) {
+                        html += '<div class="tix-pd-link-evt-item" data-permalink="' + esc(ev.permalink || '') + '" data-title="' + esc(ev.title) + '" data-date="' + esc(ev.date || '') + '" style="padding:8px 12px;cursor:pointer;border-bottom:1px solid #f3f4f6;display:flex;justify-content:space-between;gap:10px;">' +
+                            '<span style="font-weight:600;color:#0f172a;">' + esc(ev.title) + '</span>' +
+                            '<span style="color:#64748b;font-size:12px;white-space:nowrap;">' + esc(ev.date || '—') + '</span>' +
+                            '</div>';
+                    });
+                    $results.html(html).show();
+                });
+            }, 250);
+        });
+
+        // Event auswählen
+        $(document).on('click', '.tix-pd-link-evt-item', function() {
+            var $item = $(this);
+            var permalink = String($item.data('permalink') || '');
+            var title     = String($item.data('title') || '');
+            var date      = String($item.data('date') || '');
+            if (!permalink) return;
+
+            var sep = permalink.indexOf('?') >= 0 ? '&' : '?';
+            var url = permalink + sep + 'ref=' + encodeURIComponent(pdLinkModal.promoterCode);
+            $('#tix-pd-link-event-output-title').text(title + (date ? ' — ' + date : ''));
+            $('#tix-pd-link-event-link').val(url);
+            $('#tix-pd-link-event-output').show();
+            $('#tix-pd-link-event-results').hide();
+            $('#tix-pd-link-event-search').val(title);
+        });
+
+        // Custom-URL
+        $(document).on('input', '#tix-pd-link-custom-input', function() {
+            var raw = $(this).val().trim();
+            if (!raw) {
+                $('#tix-pd-link-custom-output-wrap').hide();
+                return;
+            }
+            var base = (tixPD.site_url || '/');
+            var full = raw;
+            if (!/^https?:\/\//i.test(raw)) {
+                full = base.replace(/\/$/, '') + (raw.charAt(0) === '/' ? raw : '/' + raw);
+            }
+            var sep = full.indexOf('?') >= 0 ? '&' : '?';
+            $('#tix-pd-link-custom-output').val(full + sep + 'ref=' + encodeURIComponent(pdLinkModal.promoterCode));
+            $('#tix-pd-link-custom-output-wrap').show();
+        });
+
+        // Copy-Buttons
+        $(document).on('click', '.tix-pd-link-copy', function() {
+            var sel = $(this).data('target');
+            var $input = $(sel);
+            if (!$input.length) return;
+            var text = $input.val();
+            var $btn = $(this);
+            var orig = $btn.text();
+            var done = function() {
+                $btn.text('✓ Kopiert');
+                $input.select();
+                setTimeout(function(){ $btn.text(orig); }, 1500);
+            };
+            if (navigator.clipboard) {
+                navigator.clipboard.writeText(text).then(done, function() { done(); });
+            } else {
+                var t = document.createElement('textarea');
+                t.value = text; t.style.position='fixed'; t.style.opacity='0';
+                document.body.appendChild(t); t.select();
+                try { document.execCommand('copy'); } catch(e) {}
+                document.body.removeChild(t);
+                done();
+            }
+        });
     }
 
     /* ── Copy to Clipboard ── */

@@ -27,11 +27,16 @@ class TIX_Promoter_Dashboard {
             'tix_pd_sales',
             'tix_pd_commissions',
             'tix_pd_payouts',
+            'tix_pd_search_events', // Live-Suche fuer Link-Generator
         ];
         foreach ($actions as $action) {
             add_action('wp_ajax_' . $action, [__CLASS__, 'ajax_' . str_replace('tix_pd_', '', $action)]);
             add_action('wp_ajax_nopriv_' . $action, [__CLASS__, 'ajax_' . str_replace('tix_pd_', '', $action)]);
         }
+
+        // CSV-Export ueber admin_post (mit + ohne Login)
+        add_action('admin_post_tix_pd_export_links',        [__CLASS__, 'export_links_csv']);
+        add_action('admin_post_nopriv_tix_pd_export_links', [__CLASS__, 'export_links_csv']);
     }
 
     /* ══════════════════════════════════════════
@@ -155,11 +160,17 @@ class TIX_Promoter_Dashboard {
                             Dein Promoter-Code: <code style="background:#fef3c7;padding:2px 8px;border-radius:6px;font-weight:700;letter-spacing:0.05em;"><?php echo esc_html($promoter->promoter_code); ?></code>
                         </p>
                     </div>
-                    <?php if (class_exists('TIX_Promoter_Auth')): ?>
-                    <a href="<?php echo esc_url(TIX_Promoter_Auth::logout_url()); ?>" style="font-size:12px;color:#64748b;text-decoration:none;border:1px solid #e5e7eb;padding:6px 12px;border-radius:6px;white-space:nowrap;">
-                        <span class="dashicons dashicons-exit" style="font-size:13px;width:13px;height:13px;line-height:1;vertical-align:text-top;"></span> Abmelden
-                    </a>
-                    <?php endif; ?>
+                    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                        <button type="button" id="tix-pd-link-gen-btn" style="background:var(--tix-acc-primary, #FF5500);color:#fff;border:none;border-radius:8px;padding:8px 14px;font-weight:700;cursor:pointer;font-size:13px;display:inline-flex;align-items:center;gap:6px;">
+                            <span class="dashicons dashicons-admin-links" style="font-size:14px;width:14px;height:14px;line-height:1;"></span>
+                            Link erstellen
+                        </button>
+                        <?php if (class_exists('TIX_Promoter_Auth')): ?>
+                        <a href="<?php echo esc_url(TIX_Promoter_Auth::logout_url()); ?>" style="font-size:12px;color:#64748b;text-decoration:none;border:1px solid #e5e7eb;padding:6px 12px;border-radius:6px;white-space:nowrap;">
+                            <span class="dashicons dashicons-exit" style="font-size:13px;width:13px;height:13px;line-height:1;vertical-align:text-top;"></span> Abmelden
+                        </a>
+                        <?php endif; ?>
+                    </div>
                 </div>
 
                 <?php if (!empty($_GET['tix_pauth_ok'])): ?>
@@ -408,6 +419,77 @@ class TIX_Promoter_Dashboard {
             </div><!-- /.tix-pd-panels -->
             </div><!-- /.tix-account-content -->
         </div><!-- /#tix-promoter-dashboard -->
+
+        <!-- ═══════════════════════════════════════
+             LINK-GENERATOR MODAL (Frontend, ohne Coupon)
+             ═══════════════════════════════════════ -->
+        <div class="tix-pd-link-modal" id="tix-pd-link-modal" style="display:none;position:fixed;inset:0;z-index:99999;">
+            <div class="tix-pd-link-modal-backdrop" style="position:absolute;inset:0;background:rgba(15,23,42,0.55);backdrop-filter:blur(2px);"></div>
+            <div class="tix-pd-link-modal-dialog" style="position:relative;max-width:680px;margin:40px auto;background:#fff;border-radius:14px;box-shadow:0 24px 64px rgba(15,23,42,0.25);overflow:hidden;max-height:calc(100vh - 80px);display:flex;flex-direction:column;">
+                <header style="display:flex;align-items:center;justify-content:space-between;padding:16px 22px;border-bottom:1px solid #e5e7eb;">
+                    <div>
+                        <h2 style="margin:0;font-size:18px;font-weight:700;">🔗 Link-Generator</h2>
+                        <p style="margin:2px 0 0;color:#64748b;font-size:13px;">Dein Code: <code style="background:#fef3c7;padding:1px 7px;border-radius:5px;letter-spacing:0.04em;font-weight:700;"><?php echo esc_html($promoter->promoter_code); ?></code></p>
+                    </div>
+                    <button type="button" class="tix-pd-link-modal-close" style="background:#f1f5f9;border:none;border-radius:6px;font-size:18px;line-height:1;padding:6px 12px;cursor:pointer;color:#475569;">&times;</button>
+                </header>
+
+                <div style="overflow-y:auto;padding:22px;display:flex;flex-direction:column;gap:22px;">
+                    <!-- 1. Allgemeiner Link -->
+                    <section>
+                        <h3 style="margin:0 0 8px;font-size:14px;font-weight:700;color:#0f172a;">🌐 Allgemeiner Link</h3>
+                        <p style="margin:0 0 8px;color:#64748b;font-size:12px;">Funktioniert f&uuml;r alle Events &mdash; Cookie wird beim Klick gesetzt und gilt 30 Tage.</p>
+                        <div style="display:flex;gap:6px;align-items:center;">
+                            <input type="text" readonly id="tix-pd-link-general" value="<?php echo esc_attr(add_query_arg('ref', $promoter->promoter_code, home_url('/'))); ?>" style="flex:1;background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:8px 10px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;color:#0f172a;">
+                            <button type="button" class="tix-pd-link-copy" data-target="#tix-pd-link-general" style="background:var(--tix-acc-primary, #FF5500);color:#fff;border:none;border-radius:8px;padding:9px 14px;font-weight:700;cursor:pointer;font-size:13px;">Kopieren</button>
+                        </div>
+                    </section>
+
+                    <!-- 2. Event-spezifischer Link mit Live-Suche -->
+                    <section>
+                        <h3 style="margin:0 0 8px;font-size:14px;font-weight:700;color:#0f172a;">🎫 Event-Link erstellen</h3>
+                        <p style="margin:0 0 8px;color:#64748b;font-size:12px;">Suche ein Event, klick darauf &mdash; fertig.</p>
+                        <input type="text" id="tix-pd-link-event-search" placeholder="Event-Name suchen&hellip;" autocomplete="off" style="width:100%;padding:9px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;box-sizing:border-box;">
+                        <div id="tix-pd-link-event-results" style="margin-top:8px;max-height:240px;overflow-y:auto;border:1px solid #e5e7eb;border-radius:6px;display:none;background:#fff;"></div>
+                        <div id="tix-pd-link-event-output" style="margin-top:10px;display:none;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:8px;padding:12px;">
+                            <div style="font-weight:700;color:#065f46;margin-bottom:6px;" id="tix-pd-link-event-output-title">&mdash;</div>
+                            <div style="display:flex;gap:6px;align-items:center;">
+                                <input type="text" readonly id="tix-pd-link-event-link" style="flex:1;background:#fff;border:1px solid #d1d5db;border-radius:6px;padding:8px 10px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;color:#0f172a;">
+                                <button type="button" class="tix-pd-link-copy" data-target="#tix-pd-link-event-link" style="background:var(--tix-acc-primary, #FF5500);color:#fff;border:none;border-radius:8px;padding:9px 14px;font-weight:700;cursor:pointer;font-size:13px;">Kopieren</button>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- 3. Custom URL -->
+                    <section>
+                        <h3 style="margin:0 0 8px;font-size:14px;font-weight:700;color:#0f172a;">✏️ Eigene URL</h3>
+                        <p style="margin:0 0 8px;color:#64748b;font-size:12px;">Beliebige Seite/URL eingeben &mdash; System h&auml;ngt <code>?ref=DEIN-CODE</code> automatisch an.</p>
+                        <input type="text" id="tix-pd-link-custom-input" placeholder="https://&hellip; oder /landing-page/" style="width:100%;padding:9px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;box-sizing:border-box;">
+                        <div id="tix-pd-link-custom-output-wrap" style="margin-top:10px;display:none;">
+                            <div style="display:flex;gap:6px;align-items:center;">
+                                <input type="text" readonly id="tix-pd-link-custom-output" style="flex:1;background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:8px 10px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;color:#0f172a;">
+                                <button type="button" class="tix-pd-link-copy" data-target="#tix-pd-link-custom-output" style="background:var(--tix-acc-primary, #FF5500);color:#fff;border:none;border-radius:8px;padding:9px 14px;font-weight:700;cursor:pointer;font-size:13px;">Kopieren</button>
+                            </div>
+                        </div>
+                    </section>
+                </div>
+
+                <footer style="padding:14px 22px;border-top:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center;background:#f9fafb;flex-wrap:wrap;gap:8px;">
+                    <a href="<?php echo esc_url(add_query_arg('action', 'tix_pd_export_links', admin_url('admin-post.php'))); ?>" style="display:inline-flex;align-items:center;gap:6px;background:#fff;border:1px solid #d1d5db;color:#0f172a;text-decoration:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:600;">
+                        <span class="dashicons dashicons-download" style="font-size:14px;width:14px;height:14px;line-height:1;"></span>
+                        Alle Event-Links als CSV
+                    </a>
+                    <button type="button" class="tix-pd-link-modal-close" style="background:var(--tix-acc-primary, #FF5500);color:#fff;border:none;border-radius:8px;padding:9px 16px;font-weight:700;cursor:pointer;font-size:13px;">Schließen</button>
+                </footer>
+            </div>
+        </div>
+        <style>
+        .tix-pd-link-evt-item:hover { background: #f1f5f9 !important; }
+        .tix-pd-link-evt-item:last-child { border-bottom: none !important; }
+        @media (max-width: 768px) {
+            .tix-pd-link-modal-dialog { margin: 10px !important; max-height: calc(100vh - 20px) !important; }
+        }
+        </style>
 
         <style>
         /* Promoter-Dashboard im my-account-Look — Overrides */
@@ -1036,6 +1118,109 @@ class TIX_Promoter_Dashboard {
         }
 
         wp_send_json_success(['payouts' => $rows]);
+    }
+
+    /* ══════════════════════════════════════════
+     * AJAX: Event-Suche fuer Link-Generator
+     * ══════════════════════════════════════════ */
+
+    public static function ajax_search_events() {
+        $promoter = self::ajax_guard();
+        if (!$promoter) return;
+
+        $term  = sanitize_text_field($_POST['q'] ?? '');
+        $limit = min(20, max(5, intval($_POST['limit'] ?? 20)));
+
+        $args = [
+            'post_type'      => 'event',
+            'post_status'    => 'publish',
+            'posts_per_page' => $limit,
+            'orderby'        => 'meta_value',
+            'meta_key'       => '_tix_date_start',
+            'order'          => 'ASC',
+            'meta_query'     => [
+                'relation' => 'OR',
+                ['key' => '_tix_date_start', 'value' => date('Y-m-d'), 'compare' => '>=', 'type' => 'DATE'],
+                ['key' => '_tix_date_start', 'compare' => 'NOT EXISTS'],
+            ],
+        ];
+        if (strlen($term) >= 2) $args['s'] = $term;
+
+        $events = get_posts($args);
+        $results = [];
+        foreach ($events as $ev) {
+            $date_raw = get_post_meta($ev->ID, '_tix_date_start', true);
+            $results[] = [
+                'id'        => $ev->ID,
+                'title'     => $ev->post_title,
+                'date'      => $date_raw ? date_i18n('d.m.Y', strtotime($date_raw)) : '',
+                'permalink' => get_permalink($ev->ID),
+            ];
+        }
+        wp_send_json_success($results);
+    }
+
+    /* ══════════════════════════════════════════
+     * CSV-Export: Alle Event-Links fuer den eingeloggten Promoter
+     * (admin_post — Window-Navigation, kein AJAX)
+     * ══════════════════════════════════════════ */
+
+    public static function export_links_csv() {
+        if (!class_exists('TIX_Promoter_DB')) wp_die('Promoter-Modul nicht verfuegbar.');
+
+        // Auth: Cookie ODER WP-Login
+        $promoter = class_exists('TIX_Promoter_Auth')
+            ? TIX_Promoter_Auth::get_current_promoter()
+            : (is_user_logged_in() ? TIX_Promoter_DB::get_promoter_by_user(get_current_user_id()) : null);
+        if (!$promoter || $promoter->status !== 'active') wp_die('Kein Promoter-Zugang.');
+
+        $code = $promoter->promoter_code;
+
+        $events = get_posts([
+            'post_type'      => 'event',
+            'post_status'    => 'publish',
+            'posts_per_page' => -1,
+            'orderby'        => 'meta_value',
+            'meta_key'       => '_tix_date_start',
+            'order'          => 'ASC',
+            'meta_query'     => [
+                'relation' => 'OR',
+                ['key' => '_tix_date_start', 'value' => date('Y-m-d'), 'compare' => '>=', 'type' => 'DATE'],
+                ['key' => '_tix_date_start', 'compare' => 'NOT EXISTS'],
+            ],
+        ]);
+
+        $filename = 'meine-promoter-links-' . sanitize_file_name($code) . '-' . date('Y-m-d') . '.csv';
+        header('Content-Type: text/csv; charset=UTF-8');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        header('Pragma: no-cache');
+        header('Expires: 0');
+
+        $out = fopen('php://output', 'w');
+        fprintf($out, chr(0xEF) . chr(0xBB) . chr(0xBF));
+        fputcsv($out, ['Event-ID', 'Event-Titel', 'Datum', 'Referral-Link'], ';');
+
+        // Erste Zeile: Allgemeiner Link
+        fputcsv($out, [
+            '0',
+            'Allgemeiner Link (Startseite, alle Events)',
+            'Dauerhaft',
+            add_query_arg('ref', $code, home_url('/')),
+        ], ';');
+
+        foreach ($events as $ev) {
+            $permalink = get_permalink($ev->ID);
+            if (!$permalink) continue;
+            $date_raw = get_post_meta($ev->ID, '_tix_date_start', true);
+            fputcsv($out, [
+                $ev->ID,
+                $ev->post_title,
+                $date_raw ? date_i18n('d.m.Y', strtotime($date_raw)) : '',
+                add_query_arg('ref', $code, $permalink),
+            ], ';');
+        }
+        fclose($out);
+        exit;
     }
 
     /* ══════════════════════════════════════════
