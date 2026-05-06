@@ -469,7 +469,7 @@
                     '</div>' +
                 '</td>' +
                 '<td>' + (e.promo_code ? '<code style="background:#fef3c7;padding:2px 6px;border-radius:4px;font-weight:700;">' + esc(e.promo_code) + '</code> <button class="tix-pd-copy" data-copy="' + esc(e.promo_code) + '" style="background:transparent;color:var(--tix-acc-primary,#FF5500);border:1px solid var(--tix-acc-primary,#FF5500);border-radius:4px;padding:2px 6px;font-weight:600;cursor:pointer;font-size:10px;margin-left:4px;"><span class="tix-pd-copy-label">Kopieren</span></button>' : '–') + '</td>' +
-                '<td style="white-space:nowrap;">' + esc(e.commission) + '</td>' +
+                '<td style="white-space:nowrap;">' + (e.commission || '–') + '</td>' +
                 '<td style="white-space:nowrap;">' + (e.discount || '–') + '</td>' +
                 '</tr>';
         });

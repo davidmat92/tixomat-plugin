@@ -257,8 +257,12 @@ class TIX_Promoter_Dashboard {
                 <!-- Meine Events -->
                 <div class="tix-pd-panel" id="tix-pd-panel-events" role="tabpanel" data-tab="events">
                     <h3 class="tix-pd-section-title">🎫 Meine Events</h3>
-                    <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:10px;padding:12px 16px;margin-bottom:16px;color:#075985;font-size:13px;line-height:1.6;">
-                        Hier siehst du alle Events, für die du <strong>aktuell Provision bekommst</strong>. Pro Event findest du den fertigen Referral-Link (sofort kopieren) und deine individuelle Provisions-Höhe.
+                    <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:10px;padding:12px 16px;margin-bottom:16px;color:#075985;font-size:13px;line-height:1.7;">
+                        Hier siehst du alle aktuell buchbaren Events mit deinem Referral-Link und der jeweiligen Provisions-Höhe.<br>
+                        <strong>Provisions-Quelle:</strong>
+                        <span style="display:inline-block;background:#dcfce7;color:#166534;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700;margin:0 4px;">EVENT-SPEZIFISCH</span> für dieses Event individuell festgelegt &nbsp;
+                        <span style="display:inline-block;background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700;margin:0 4px;">DEINE QUOTE</span> deine persönliche globale Provision &nbsp;
+                        <span style="display:inline-block;background:#dbeafe;color:#1d4ed8;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700;margin:0 4px;">STANDARD</span> Standard für alle Promoter
                         <br><strong>Promo-Code</strong> (falls vorhanden): Den kannst du Kunden geben — sie tippen ihn beim Checkout ein und bekommen Rabatt, du bekommst trotzdem deine Provision.
                     </div>
                     <div class="tix-pd-table-wrap" id="tix-pd-events-table">
@@ -915,10 +919,8 @@ class TIX_Promoter_Dashboard {
         $promoter = self::ajax_guard();
         if (!$promoter) return;
 
+        // Alle event-spezifischen Zuordnungen + globale Zuordnung sammeln
         $assignments = TIX_Promoter_DB::get_promoter_events($promoter->id);
-        $rows = [];
-
-        // Globale Zuordnung (event_id=0) separat behandeln + ALLE bookable Events listen
         $global = null;
         $event_specific = [];
         foreach ($assignments as $a) {
@@ -929,92 +931,123 @@ class TIX_Promoter_Dashboard {
             }
         }
 
-        $build_row = function($a, $event_id, $event_title) use ($promoter) {
-            $is_global = ($event_id === 0);
+        // Helper: Provision formatieren
+        $format_commission = function($type, $value) {
+            $v = floatval($value);
+            if ($v <= 0) return '';
+            if ($type === 'percent') return number_format($v, 1, ',', '.') . ' %';
+            if ($type === 'fixed')   return self::format_currency($v);
+            return '';
+        };
+
+        $rows = [];
+
+        // 1) Allgemeiner Link als oberste Zeile (immer) — zeigt entweder globale Promoter-Provision
+        //    oder Settings-Default oder "noch keine Provision"
+        if (class_exists('TIX_Promoter')) {
+            $eff_general = TIX_Promoter::get_effective_commission(intval($promoter->id), 0);
+        } else {
+            $eff_general = ['type' => 'percent', 'value' => 0, 'source' => 'none'];
+        }
+        $source_label_general = '';
+        if ($eff_general['source'] === 'global') {
+            $source_label_general = '<span style="background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700;letter-spacing:0.04em;margin-left:4px;">DEINE QUOTE</span>';
+        } elseif ($eff_general['source'] === 'settings') {
+            $source_label_general = '<span style="background:#dbeafe;color:#1d4ed8;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700;letter-spacing:0.04em;margin-left:4px;" title="Standard aus den Einstellungen">STANDARD</span>';
+        }
+        $rows[] = [
+            'event_id'      => 0,
+            'event_title'   => '🌐 Alle Events (Allgemeiner Link)',
+            'event_date'    => 'Dauerhaft',
+            'referral_link' => add_query_arg('ref', $promoter->promoter_code, home_url('/')),
+            'promo_code'    => $global ? ($global->promo_code ?: '') : '',
+            'commission'    => $format_commission($eff_general['type'], $eff_general['value']) . $source_label_general,
+            'discount'      => ($global && !empty($global->discount_type) && floatval($global->discount_value) > 0)
+                ? ($global->discount_type === 'percent'
+                    ? number_format(floatval($global->discount_value), 1, ',', '.') . ' %'
+                    : self::format_currency(floatval($global->discount_value)))
+                : '&ndash;',
+            'is_global'     => true,
+            'source'        => $eff_general['source'],
+        ];
+
+        // 2) Alle bookable Events durchgehen — pro Event die effektive Provision berechnen
+        $bookable = get_posts([
+            'post_type'      => 'event',
+            'post_status'    => 'publish',
+            'posts_per_page' => 100,
+            'meta_query'     => [
+                'relation' => 'OR',
+                ['key' => '_tix_date_start', 'value' => date('Y-m-d'), 'compare' => '>=', 'type' => 'DATE'],
+                ['key' => '_tix_date_start', 'compare' => 'NOT EXISTS'],
+            ],
+            'orderby'        => 'meta_value',
+            'meta_key'       => '_tix_date_start',
+            'order'          => 'ASC',
+        ]);
+
+        foreach ($bookable as $ev) {
+            $eid = $ev->ID;
+            $a   = $event_specific[$eid] ?? null;
+
+            if (class_exists('TIX_Promoter')) {
+                $eff = TIX_Promoter::get_effective_commission(intval($promoter->id), $eid);
+            } else {
+                $eff = ['type' => 'percent', 'value' => 0, 'source' => 'none'];
+            }
+
+            // Source-Badge
+            $badge = '';
+            if ($eff['source'] === 'event') {
+                $badge = '<span style="background:#dcfce7;color:#166534;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700;letter-spacing:0.04em;margin-left:4px;" title="Speziell für dieses Event festgelegt">EVENT-SPEZIFISCH</span>';
+            } elseif ($eff['source'] === 'global') {
+                $badge = '<span style="background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700;letter-spacing:0.04em;margin-left:4px;" title="Deine globale Provision (gilt für alle Events)">DEINE QUOTE</span>';
+            } elseif ($eff['source'] === 'settings') {
+                $badge = '<span style="background:#dbeafe;color:#1d4ed8;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700;letter-spacing:0.04em;margin-left:4px;" title="Standard aus den Einstellungen">STANDARD</span>';
+            } elseif ($eff['source'] === 'none') {
+                $badge = '<span style="color:#94a3b8;font-size:11px;font-style:italic;margin-left:4px;">(keine)</span>';
+            }
 
             // Referral-Link
-            if ($is_global) {
-                $referral_link = add_query_arg('ref', $promoter->promoter_code, home_url('/'));
-            } else {
-                $permalink = get_permalink($event_id);
-                $referral_link = $permalink
-                    ? add_query_arg('ref', $promoter->promoter_code, $permalink)
-                    : add_query_arg(['p' => $event_id, 'ref' => $promoter->promoter_code], home_url('/'));
-            }
+            $permalink = get_permalink($eid);
+            $referral_link = $permalink
+                ? add_query_arg('ref', $promoter->promoter_code, $permalink)
+                : add_query_arg(['p' => $eid, 'ref' => $promoter->promoter_code], home_url('/'));
 
             // Event-Datum
             $event_date = '';
-            if (!$is_global && $event_id) {
-                $date_raw = get_post_meta($event_id, '_tix_date_start', true)
-                            ?: get_post_meta($event_id, '_EventStartDate', true)
-                            ?: get_post_meta($event_id, '_tix_event_date', true)
-                            ?: get_post_meta($event_id, 'event_date_time', true);
-                if ($date_raw) {
-                    $dt = strtotime($date_raw);
-                    $event_date = $dt ? date_i18n('d.m.Y', $dt) : '';
-                }
+            $date_raw = get_post_meta($eid, '_tix_date_start', true);
+            if ($date_raw) {
+                $dt = strtotime($date_raw);
+                $event_date = $dt ? date_i18n('d.m.Y', $dt) : '';
             }
 
-            // Provision
-            $commission_display = '';
-            if ($a->commission_type === 'percent') {
-                $commission_display = number_format(floatval($a->commission_value), 1, ',', '.') . ' %';
-            } elseif ($a->commission_type === 'fixed') {
-                $commission_display = self::format_currency(floatval($a->commission_value));
+            // Discount: nur aus echter Assignment (event-spezifisch oder global)
+            $discount_display = '&ndash;';
+            $discount_source = $a ?: $global;
+            if ($discount_source && !empty($discount_source->discount_type) && floatval($discount_source->discount_value) > 0) {
+                $discount_display = $discount_source->discount_type === 'percent'
+                    ? number_format(floatval($discount_source->discount_value), 1, ',', '.') . ' %'
+                    : self::format_currency(floatval($discount_source->discount_value));
             }
 
-            // Rabatt
-            $discount_display = '';
-            if (!empty($a->discount_type) && floatval($a->discount_value) > 0) {
-                if ($a->discount_type === 'percent') {
-                    $discount_display = number_format(floatval($a->discount_value), 1, ',', '.') . ' %';
-                } elseif ($a->discount_type === 'fixed') {
-                    $discount_display = self::format_currency(floatval($a->discount_value));
-                }
-            }
+            // Promo-Code: nur aus echter Assignment
+            $promo_source = $a ?: $global;
+            $promo_code = ($promo_source && !empty($promo_source->promo_code)) ? $promo_source->promo_code : '';
 
-            return [
-                'event_id'      => $event_id,
-                'event_title'   => $is_global ? '🌐 Alle Events (Allgemeiner Link)' : ($event_title ?: '(Event #' . $event_id . ')'),
-                'event_date'    => $event_date ?: ($is_global ? 'Dauerhaft' : ''),
+            $rows[] = [
+                'event_id'      => $eid,
+                'event_title'   => $ev->post_title,
+                'event_date'    => $event_date,
                 'referral_link' => $referral_link,
-                'promo_code'    => $a->promo_code ?: '',
-                'commission'    => $commission_display,
-                'discount'      => $discount_display ?: '&ndash;',
-                'is_global'     => $is_global,
+                'promo_code'    => $promo_code,
+                'commission'    => $eff['source'] === 'none'
+                    ? $badge
+                    : $format_commission($eff['type'], $eff['value']) . $badge,
+                'discount'      => $discount_display,
+                'is_global'     => false,
+                'source'        => $eff['source'],
             ];
-        };
-
-        // Globale Zuordnung als erste Zeile
-        if ($global) {
-            $rows[] = $build_row($global, 0, '');
-        }
-
-        // Event-spezifische Zuordnungen
-        foreach ($event_specific as $eid => $a) {
-            $rows[] = $build_row($a, $eid, $a->event_title);
-        }
-
-        // Wenn globale Zuordnung existiert → ALLE bookable Events ergänzen,
-        // damit der Promoter pro Event einen Link mitnehmen kann (jeweils mit Global-Provision)
-        if ($global) {
-            $bookable = get_posts([
-                'post_type'      => 'event',
-                'post_status'    => 'publish',
-                'posts_per_page' => 100,
-                'meta_query'     => [
-                    'relation' => 'OR',
-                    [ 'key' => '_tix_date_start', 'value' => date('Y-m-d'), 'compare' => '>=', 'type' => 'DATE' ],
-                    [ 'key' => '_tix_date_start', 'compare' => 'NOT EXISTS' ],
-                ],
-                'orderby'        => 'meta_value',
-                'meta_key'       => '_tix_date_start',
-                'order'          => 'ASC',
-            ]);
-            foreach ($bookable as $ev) {
-                if (isset($event_specific[$ev->ID])) continue; // schon explizit zugeordnet
-                $rows[] = $build_row($global, $ev->ID, $ev->post_title);
-            }
         }
 
         wp_send_json_success(['events' => $rows]);
