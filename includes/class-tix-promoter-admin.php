@@ -78,6 +78,7 @@ class TIX_Promoter_Admin {
             'promoters'  => self::get_promoters_list(),
             'events'     => self::get_events_list(),
             'currency'   => function_exists('get_woocommerce_currency_symbol') ? get_woocommerce_currency_symbol() : "\xe2\x82\xac",
+            'siteUrl'    => trailingslashit(home_url()),
         ]);
     }
 

@@ -78,10 +78,22 @@
                 return;
             }
             var html = '';
+            // siteUrl ist bereits trailingslashit(home_url()) — nichts mehr ranhängen
+            var siteUrl = tixPromoter.siteUrl || (window.location.origin + '/');
             $.each(r.data, function(i, p) {
+                var refUrl = siteUrl + '?ref=' + encodeURIComponent(p.promoter_code);
                 html += '<tr>' +
                     '<td><strong>' + esc(p.display_name || p.promoter_code) + '</strong></td>' +
-                    '<td><code>' + esc(p.promoter_code) + '</code></td>' +
+                    '<td>' +
+                        '<div style="display:flex;flex-direction:column;gap:6px;align-items:flex-start;">' +
+                            '<button type="button" class="tix-promo-copy" data-clip="' + esc(p.promoter_code) + '" title="Code kopieren" style="background:#fef3c7;color:#92400e;border:1px solid #fde68a;padding:3px 9px;border-radius:6px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;font-weight:700;letter-spacing:0.05em;cursor:pointer;display:inline-flex;align-items:center;gap:5px;">' +
+                                esc(p.promoter_code) + ' <span class="dashicons dashicons-clipboard" style="font-size:13px;width:13px;height:13px;"></span>' +
+                            '</button>' +
+                            '<button type="button" class="tix-promo-copy" data-clip="' + esc(refUrl) + '" title="Referral-Link kopieren" style="background:#dbeafe;color:#1d4ed8;border:1px solid #bfdbfe;padding:2px 8px;border-radius:6px;font-size:11px;cursor:pointer;display:inline-flex;align-items:center;gap:4px;font-weight:600;">' +
+                                '🔗 Link kopieren' +
+                            '</button>' +
+                        '</div>' +
+                    '</td>' +
                     '<td>' + esc(p.user_email) + '</td>' +
                     '<td>' + p.status_badge + '</td>' +
                     '<td>' + esc(p.total_sales) + '</td>' +
@@ -97,6 +109,32 @@
             });
             $tbody.html(html);
         });
+    }
+
+    // Copy-Helper: jeder Button mit data-clip kopiert Inhalt + zeigt kurzes Feedback
+    $(document).on('click', '.tix-promo-copy', function(e) {
+        e.preventDefault();
+        var $btn = $(this);
+        var text = $btn.data('clip');
+        var done = function() {
+            var orig = $btn.html();
+            $btn.html('✓ Kopiert');
+            setTimeout(function(){ $btn.html(orig); }, 1500);
+        };
+        if (navigator.clipboard) {
+            navigator.clipboard.writeText(text).then(done, function(){
+                fallbackCopy(text); done();
+            });
+        } else {
+            fallbackCopy(text); done();
+        }
+    });
+    function fallbackCopy(text) {
+        var t = document.createElement('textarea');
+        t.value = text; t.style.position='fixed'; t.style.opacity='0';
+        document.body.appendChild(t); t.select();
+        try { document.execCommand('copy'); } catch(e) {}
+        document.body.removeChild(t);
     }
 
     // Add Promoter Form Toggle
