@@ -54,7 +54,8 @@ class TIX_Promoter_DB {
         $t1 = self::table_promoters();
         dbDelta("CREATE TABLE $t1 (
             id                   BIGINT UNSIGNED AUTO_INCREMENT,
-            user_id              BIGINT UNSIGNED NOT NULL,
+            user_id              BIGINT UNSIGNED NOT NULL DEFAULT 0,
+            email                VARCHAR(190) NOT NULL DEFAULT '',
             promoter_code        VARCHAR(30) NOT NULL,
             status               VARCHAR(20) DEFAULT 'active',
             display_name         VARCHAR(255) DEFAULT '',
@@ -64,7 +65,8 @@ class TIX_Promoter_DB {
             updated_at           DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
             PRIMARY KEY (id),
             UNIQUE KEY promoter_code (promoter_code),
-            UNIQUE KEY user_id (user_id),
+            KEY user_id (user_id),
+            KEY email (email),
             KEY status (status)
         ) $charset;");
 
@@ -176,6 +178,50 @@ class TIX_Promoter_DB {
     }
 
     /**
+     * Stellt sicher, dass die Spalte `email` existiert (für Bestandsinstallationen).
+     * Migriert auch den UNIQUE-Constraint auf user_id zu einem normalen INDEX,
+     * damit mehrere Promoter mit user_id=0 (Email-only) erlaubt sind.
+     */
+    public static function ensure_email_column() {
+        global $wpdb;
+        $t = self::table_promoters();
+        $col = $wpdb->get_row($wpdb->prepare(
+            "SHOW COLUMNS FROM $t LIKE %s", 'email'
+        ));
+        if (!$col) {
+            $wpdb->query("ALTER TABLE $t ADD COLUMN email VARCHAR(190) NOT NULL DEFAULT '' AFTER user_id");
+            $wpdb->query("ALTER TABLE $t ADD INDEX email (email)");
+
+            // Bestehende Promoter: WP-User-Mail in `email`-Feld kopieren
+            $rows = $wpdb->get_results("SELECT id, user_id FROM $t WHERE user_id > 0");
+            foreach ($rows as $r) {
+                $u = get_userdata(intval($r->user_id));
+                if ($u && !empty($u->user_email)) {
+                    $wpdb->update($t, ['email' => sanitize_email($u->user_email)], ['id' => intval($r->id)]);
+                }
+            }
+        }
+
+        // user_id UNIQUE → KEY downgrade (idempotent)
+        $idx = $wpdb->get_results("SHOW INDEX FROM $t WHERE Key_name = 'user_id'");
+        $is_unique = false;
+        foreach ($idx as $i) {
+            if (intval($i->Non_unique) === 0) { $is_unique = true; break; }
+        }
+        if ($is_unique) {
+            // Drop unique, add normal index
+            $wpdb->query("ALTER TABLE $t DROP INDEX user_id");
+            $wpdb->query("ALTER TABLE $t ADD INDEX user_id (user_id)");
+        }
+
+        // user_id default 0 (war NOT NULL ohne Default)
+        $userid_col = $wpdb->get_row("SHOW COLUMNS FROM $t LIKE 'user_id'");
+        if ($userid_col && $userid_col->Default === null) {
+            $wpdb->query("ALTER TABLE $t MODIFY user_id BIGINT UNSIGNED NOT NULL DEFAULT 0");
+        }
+    }
+
+    /**
      * Stellt sicher dass die Click-Tabelle existiert (für Bestandsinstallationen
      * die vor dieser Migration laufen).
      */
@@ -276,8 +322,19 @@ class TIX_Promoter_DB {
     public static function insert_promoter(array $data) {
         global $wpdb;
         self::ensure_default_coupon_column();
+        self::ensure_email_column();
+
+        // Email-Resolution: explizit gegeben → nehmen. Sonst aus WP-User ableiten.
+        $email = sanitize_email($data['email'] ?? '');
+        $user_id = intval($data['user_id'] ?? 0);
+        if (!$email && $user_id > 0) {
+            $u = get_userdata($user_id);
+            if ($u && !empty($u->user_email)) $email = sanitize_email($u->user_email);
+        }
+
         $row = [
-            'user_id'             => intval($data['user_id'] ?? 0),
+            'user_id'             => $user_id,
+            'email'               => $email,
             'promoter_code'       => sanitize_text_field($data['promoter_code'] ?? ''),
             'status'              => sanitize_text_field($data['status'] ?? 'active'),
             'display_name'        => sanitize_text_field($data['display_name'] ?? ''),
@@ -291,17 +348,41 @@ class TIX_Promoter_DB {
     public static function update_promoter(int $id, array $data) {
         global $wpdb;
         self::ensure_default_coupon_column();
-        $allowed = ['promoter_code', 'status', 'display_name', 'notes', 'default_coupon_code'];
+        self::ensure_email_column();
+        $allowed = ['promoter_code', 'status', 'display_name', 'notes', 'default_coupon_code', 'email', 'user_id'];
         $update = [];
         foreach ($allowed as $k) {
-            if (isset($data[$k])) {
-                $update[$k] = ($k === 'default_coupon_code')
-                    ? strtoupper(sanitize_text_field($data[$k]))
-                    : sanitize_text_field($data[$k]);
+            if (!isset($data[$k])) continue;
+            if ($k === 'default_coupon_code') {
+                $update[$k] = strtoupper(sanitize_text_field($data[$k]));
+            } elseif ($k === 'email') {
+                $update[$k] = sanitize_email($data[$k]);
+            } elseif ($k === 'user_id') {
+                $update[$k] = intval($data[$k]);
+            } else {
+                $update[$k] = sanitize_text_field($data[$k]);
             }
         }
         if (empty($update)) return false;
         return $wpdb->update(self::table_promoters(), $update, ['id' => $id]);
+    }
+
+    /**
+     * Findet einen Promoter per E-Mail (case-insensitive).
+     * Liefert ALLE matching Promoter (es können mehrere sein, falls
+     * jemand sowohl als WP-User als auch als Email-only Promoter
+     * angelegt wurde — was wir aber durch UI-Hinweise vermeiden).
+     */
+    public static function get_promoter_by_email(string $email) {
+        global $wpdb;
+        self::ensure_email_column();
+        $email = strtolower(trim(sanitize_email($email)));
+        if (!$email) return null;
+        return $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM " . self::table_promoters() . "
+             WHERE LOWER(email) = %s AND status = 'active'
+             LIMIT 1", $email
+        ));
     }
 
     public static function get_promoter(int $id) {
@@ -694,11 +775,13 @@ class TIX_Promoter_DB {
     public static function get_all_promoter_stats() {
         global $wpdb;
         self::ensure_default_coupon_column();
+        self::ensure_email_column();
         $tp = self::table_promoters();
         $tc = self::table_commissions();
 
         return $wpdb->get_results(
-            "SELECT p.id, p.promoter_code, p.display_name, p.default_coupon_code, p.notes, p.status, p.user_id, u.user_email,
+            "SELECT p.id, p.promoter_code, p.display_name, p.default_coupon_code, p.notes, p.status, p.user_id, p.email AS promoter_email, u.user_email,
+                    COALESCE(p.email, u.user_email, '') AS contact_email,
                     COALESCE(SUM(c.order_total), 0) AS total_sales,
                     COALESCE(SUM(c.commission_amount), 0) AS total_commission,
                     COALESCE(SUM(CASE WHEN c.status = 'pending' THEN c.commission_amount ELSE 0 END), 0) AS pending_commission,

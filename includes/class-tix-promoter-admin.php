@@ -184,6 +184,7 @@ class TIX_Promoter_Admin {
 
         $id            = intval($_POST['promoter_id'] ?? 0);
         $user_id       = intval($_POST['user_id'] ?? 0);
+        $email_input   = sanitize_email($_POST['email'] ?? '');
         $promoter_code = sanitize_text_field($_POST['promoter_code'] ?? '');
         $display_name  = sanitize_text_field($_POST['display_name'] ?? '');
         $notes         = sanitize_textarea_field($_POST['notes'] ?? '');
@@ -197,43 +198,66 @@ class TIX_Promoter_Admin {
             if (!empty($display_name))  $update['display_name']  = $display_name;
             if (isset($_POST['notes'])) $update['notes']         = $notes;
             if (isset($_POST['default_coupon_code'])) $update['default_coupon_code'] = $default_coup;
+            if (isset($_POST['email']) && $email_input) $update['email'] = $email_input;
             $result = TIX_Promoter_DB::update_promoter($id, $update);
             if ($result === false) {
                 wp_send_json_error('Fehler beim Aktualisieren.');
             }
             wp_send_json_success(['id' => $id, 'message' => 'Promoter aktualisiert.']);
         } else {
-            // Create
+            // Create — entweder WP-User-Mode ODER Email-Mode
             if (empty($promoter_code)) {
                 wp_send_json_error('Promoter-Code ist erforderlich.');
             }
-            if (!$user_id) {
-                wp_send_json_error('WordPress-Benutzer ist erforderlich.');
-            }
-            $existing = TIX_Promoter_DB::get_promoter_by_user($user_id);
-            if ($existing) {
-                wp_send_json_error('Dieser Benutzer ist bereits als Promoter registriert.');
-            }
 
-            $new_id = TIX_Promoter_DB::insert_promoter([
-                'user_id'             => $user_id,
-                'promoter_code'       => $promoter_code,
-                'display_name'        => $display_name,
-                'default_coupon_code' => $default_coup,
-                'notes'               => $notes,
-                'status'              => $status,
-            ]);
-            if (!$new_id) {
-                wp_send_json_error('Fehler beim Erstellen. Code evtl. bereits vergeben.');
-            }
+            $mode = $user_id > 0 ? 'user' : 'email';
 
-            // Promoter-Rolle zuweisen
-            $user = get_userdata($user_id);
-            if ($user) {
-                $user->add_role('tix_promoter');
+            if ($mode === 'user') {
+                $existing = TIX_Promoter_DB::get_promoter_by_user($user_id);
+                if ($existing) {
+                    wp_send_json_error('Dieser Benutzer ist bereits als Promoter registriert.');
+                }
+                $new_id = TIX_Promoter_DB::insert_promoter([
+                    'user_id'             => $user_id,
+                    'promoter_code'       => $promoter_code,
+                    'display_name'        => $display_name,
+                    'default_coupon_code' => $default_coup,
+                    'notes'               => $notes,
+                    'status'              => $status,
+                ]);
+                if (!$new_id) {
+                    wp_send_json_error('Fehler beim Erstellen. Code evtl. bereits vergeben.');
+                }
+                // Promoter-Rolle zuweisen
+                $user = get_userdata($user_id);
+                if ($user) $user->add_role('tix_promoter');
+                wp_send_json_success(['id' => $new_id, 'message' => 'Promoter erstellt (mit WP-Konto verknüpft).']);
+            } else {
+                // Email-Mode
+                if (!$email_input || !is_email($email_input)) {
+                    wp_send_json_error('Bitte eine gültige E-Mail-Adresse angeben.');
+                }
+                // Doppelt-Check: ist diese E-Mail schon als Promoter angelegt?
+                $existing = TIX_Promoter_DB::get_promoter_by_email($email_input);
+                if ($existing) {
+                    wp_send_json_error('Diese E-Mail-Adresse ist bereits als Promoter registriert.');
+                }
+                // Hinweis: Wenn ein WP-User mit dieser Mail existiert → können wir verknüpfen
+                // (das macht der Admin im UI per Klick — hier nur Info)
+                $new_id = TIX_Promoter_DB::insert_promoter([
+                    'user_id'             => 0,
+                    'email'               => $email_input,
+                    'promoter_code'       => $promoter_code,
+                    'display_name'        => $display_name ?: $email_input,
+                    'default_coupon_code' => $default_coup,
+                    'notes'               => $notes,
+                    'status'              => $status,
+                ]);
+                if (!$new_id) {
+                    wp_send_json_error('Fehler beim Erstellen. Code evtl. bereits vergeben.');
+                }
+                wp_send_json_success(['id' => $new_id, 'message' => 'Promoter erstellt (Magic-Link-Login per E-Mail).']);
             }
-
-            wp_send_json_success(['id' => $new_id, 'message' => 'Promoter erstellt.']);
         }
     }
 
@@ -1035,11 +1059,30 @@ class TIX_Promoter_Admin {
                                     <div class="tix-card-body">
                                         <input type="hidden" id="tix-pf-id" value="0">
                                         <div class="tix-form-grid">
+                                            <div class="tix-form-field tix-form-field-full" id="tix-pf-mode-wrap">
+                                                <label>Anmelde-Methode für diesen Promoter</label>
+                                                <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+                                                    <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-weight:500;">
+                                                        <input type="radio" name="tix-pf-mode" value="user" checked>
+                                                        <span>WordPress-Konto verknüpfen</span>
+                                                    </label>
+                                                    <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-weight:500;">
+                                                        <input type="radio" name="tix-pf-mode" value="email">
+                                                        <span>Nur E-Mail (Magic-Link-Login)</span>
+                                                    </label>
+                                                </div>
+                                                <small style="color:#64748b;font-size:11px;display:block;margin-top:6px;">Bei „Nur E-Mail" hat der Promoter keinen WP-Backend-Zugang — er loggt sich nur per Magic-Link ins Promoter-Dashboard ein.</small>
+                                            </div>
                                             <div class="tix-form-field" id="tix-pf-user-wrap">
                                                 <label>WordPress-Benutzer</label>
                                                 <input type="text" id="tix-pf-user-search" placeholder="Name oder E-Mail suchen..." autocomplete="off">
                                                 <input type="hidden" id="tix-pf-user-id" value="0">
                                                 <div class="tix-autocomplete-results" id="tix-pf-user-results"></div>
+                                            </div>
+                                            <div class="tix-form-field" id="tix-pf-email-wrap" style="display:none;">
+                                                <label>E-Mail-Adresse</label>
+                                                <input type="email" id="tix-pf-email" placeholder="promoter@beispiel.de" autocomplete="off">
+                                                <small style="color:#64748b;font-size:11px;display:block;margin-top:4px;">An diese Adresse wird der Magic-Link gesendet.</small>
                                             </div>
                                             <div class="tix-form-field">
                                                 <label>Promoter-Code</label>

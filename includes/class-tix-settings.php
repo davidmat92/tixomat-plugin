@@ -344,6 +344,8 @@ class TIX_Settings {
             // ── Promoter-System ──
             'promoter_enabled'      => 0,
             'promoter_cookie_days'  => 30,
+            'promoter_page_id'      => 0,
+            'promoter_auth_method'  => 'both', // both | magic_link | wp_login
             'promoter_self_signup'  => 0,
             'promoter_signup_commission_type'  => 'fixed',
             'promoter_signup_commission_value' => 2,
@@ -1172,6 +1174,8 @@ class TIX_Settings {
         // Promoter-System
         $clean['promoter_enabled'] = !empty($input['promoter_enabled']) ? 1 : 0;
         $clean['promoter_cookie_days'] = max(1, intval($input['promoter_cookie_days'] ?? 30));
+        $clean['promoter_page_id']     = max(0, intval($input['promoter_page_id'] ?? 0));
+        $clean['promoter_auth_method'] = in_array($input['promoter_auth_method'] ?? '', ['both', 'magic_link', 'wp_login']) ? $input['promoter_auth_method'] : 'both';
         $clean['promoter_self_signup'] = !empty($input['promoter_self_signup']) ? 1 : 0;
         $clean['promoter_signup_commission_type']  = in_array($input['promoter_signup_commission_type'] ?? '', ['percent', 'fixed']) ? $input['promoter_signup_commission_type'] : 'fixed';
         $clean['promoter_signup_commission_value'] = max(0, floatval($input['promoter_signup_commission_value'] ?? 2));
@@ -6873,6 +6877,37 @@ class TIX_Settings {
                                                        value="<?php echo intval($s['promoter_cookie_days'] ?? 30); ?>"
                                                        class="small-text" min="1" max="365" step="1">
                                                 <p class="tix-settings-hint">Wie lange ein Referral-Cookie g&uuml;ltig ist. Standard: 30 Tage. Je l&auml;nger, desto sicherer die Zuordnung &ndash; auch wenn der K&auml;ufer erst sp&auml;ter kauft.</p>
+                                            </div>
+                                            <div class="tix-field">
+                                                <label class="tix-field-label">Promoter-Dashboard-Seite</label>
+                                                <?php
+                                                wp_dropdown_pages([
+                                                    'selected'         => intval($s['promoter_page_id'] ?? 0),
+                                                    'name'             => self::OPTION_KEY . '[promoter_page_id]',
+                                                    'show_option_none' => '— Seite wählen —',
+                                                    'option_none_value'=> 0,
+                                                ]);
+                                                $promoter_page_id = intval($s['promoter_page_id'] ?? 0);
+                                                if ($promoter_page_id):
+                                                    $page_url = get_permalink($promoter_page_id);
+                                                    if ($page_url): ?>
+                                                        <p class="tix-settings-hint" style="margin-top:6px;">
+                                                            <span class="dashicons dashicons-yes-alt" style="color:#10b981;font-size:14px;width:14px;height:14px;vertical-align:text-top;"></span>
+                                                            <a href="<?php echo esc_url($page_url); ?>" target="_blank"><?php echo esc_html($page_url); ?></a>
+                                                        </p>
+                                                    <?php endif;
+                                                endif; ?>
+                                                <p class="tix-settings-hint">Auf welcher Seite das Promoter-Dashboard liegt (mit Shortcode <code>[tix_promoter_dashboard]</code>). Wird f&uuml;r Login-Redirects, Magic-Link-Mails und den Account-Link genutzt. Wenn nicht gesetzt: Slug <code>/promoter/</code> wird probiert.</p>
+                                            </div>
+                                            <div class="tix-field">
+                                                <label class="tix-field-label">Anmeldemethode</label>
+                                                <?php $auth_method = $s['promoter_auth_method'] ?? 'both'; ?>
+                                                <select name="<?php echo self::OPTION_KEY; ?>[promoter_auth_method]">
+                                                    <option value="both" <?php selected($auth_method, 'both'); ?>>Beide — Magic-Link UND WordPress-Login</option>
+                                                    <option value="magic_link" <?php selected($auth_method, 'magic_link'); ?>>Nur Magic-Link (E-Mail)</option>
+                                                    <option value="wp_login"   <?php selected($auth_method, 'wp_login'); ?>>Nur WordPress-Login</option>
+                                                </select>
+                                                <p class="tix-settings-hint"><strong>Magic-Link:</strong> Promoter gibt seine E-Mail ein, bekommt einen Login-Link per Mail (kein WP-Account n&ouml;tig). <strong>Beide:</strong> empfohlen f&uuml;r maximale Flexibilit&auml;t.</p>
                                             </div>
                                             <div class="tix-field tix-field-full" style="border-top:1px solid #e5e7eb;padding-top:16px;margin-top:8px">
                                                 <h4 style="margin:0 0 8px">Empfehlungsprogramm</h4>

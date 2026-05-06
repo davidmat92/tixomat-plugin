@@ -350,12 +350,29 @@
         $('#tix-pf-id').val('0');
         $('#tix-pf-user-search').val('');
         $('#tix-pf-user-id').val('0');
+        $('#tix-pf-email').val('');
         $('#tix-pf-code').val('');
         $('#tix-pf-display-name').val('');
         $('#tix-pf-default-coupon').val('');
         $('#tix-pf-notes').val('');
-        $('#tix-pf-user-wrap').show();
+        $('input[name="tix-pf-mode"][value="user"]').prop('checked', true).trigger('change');
+        $('#tix-pf-mode-wrap').show();
         $('#tix-promoter-form-title').text('Neuen Promoter erstellen');
+    });
+
+    // Mode-Toggle: WP-User vs. Email
+    $(document).on('change', 'input[name="tix-pf-mode"]', function() {
+        var mode = $(this).val();
+        if (mode === 'email') {
+            $('#tix-pf-user-wrap').hide();
+            $('#tix-pf-email-wrap').show();
+            $('#tix-pf-user-id').val('0');
+            $('#tix-pf-user-search').val('');
+        } else {
+            $('#tix-pf-user-wrap').show();
+            $('#tix-pf-email-wrap').hide();
+            $('#tix-pf-email').val('');
+        }
     });
 
     // Cancel
@@ -373,16 +390,21 @@
         $('#tix-pf-display-name').val($(this).data('name'));
         $('#tix-pf-default-coupon').val($(this).data('default-coupon') || '');
         $('#tix-pf-notes').val($(this).data('notes'));
+        // Beim Bearbeiten: Mode-Wahl + User-Suche ausblenden (Mode wird nicht mehr verändert)
+        $('#tix-pf-mode-wrap').hide();
         $('#tix-pf-user-wrap').hide();
+        $('#tix-pf-email-wrap').hide();
     });
 
     // Save Promoter
     $(document).on('click', '#tix-promoter-save-btn', function() {
+        var mode = $('input[name="tix-pf-mode"]:checked').val() || 'user';
         var data = {
             action: 'tix_promoter_save',
             nonce: tixPromoter.nonce,
             promoter_id: $('#tix-pf-id').val(),
-            user_id: $('#tix-pf-user-id').val(),
+            user_id: mode === 'user' ? $('#tix-pf-user-id').val() : '0',
+            email: mode === 'email' ? $('#tix-pf-email').val() : '',
             promoter_code: $('#tix-pf-code').val(),
             display_name: $('#tix-pf-display-name').val(),
             default_coupon_code: $('#tix-pf-default-coupon').val() || '',

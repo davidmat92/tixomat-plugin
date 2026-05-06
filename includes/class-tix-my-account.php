@@ -61,6 +61,19 @@ class TIX_My_Account {
         $primary = function_exists('tix_primary') ? tix_primary() : '#FF5500';
         $page_url = get_permalink();
 
+        // Ist der eingeloggte User ein aktiver Promoter? → Dashboard-Link einblenden
+        $is_promoter = false;
+        $promoter_dashboard_url = '';
+        if (class_exists('TIX_Promoter_DB')) {
+            $promoter = TIX_Promoter_DB::get_promoter_by_user(intval($user->ID));
+            if ($promoter && $promoter->status === 'active') {
+                $is_promoter = true;
+                $promoter_dashboard_url = class_exists('TIX_Promoter_Auth')
+                    ? TIX_Promoter_Auth::get_promoter_page_url()
+                    : home_url('/promoter/');
+            }
+        }
+
         ob_start();
         ?>
         <div class="tix-account" style="--tix-acc-primary: <?php echo esc_attr($primary); ?>;">
@@ -80,6 +93,16 @@ class TIX_My_Account {
                                 <?php echo esc_html($tab['label']); ?>
                             </a>
                         </li>
+                        <?php // Promoter-Link unmittelbar nach „Meine Bestellungen"
+                              if ($slug === 'orders' && $is_promoter && $promoter_dashboard_url): ?>
+                        <li class="tix-account-nav-item">
+                            <a href="<?php echo esc_url($promoter_dashboard_url); ?>" style="color:var(--tix-acc-primary, #FF5500);font-weight:600;">
+                                <span class="dashicons dashicons-megaphone"></span>
+                                Promoter Dashboard
+                                <span class="dashicons dashicons-external" style="font-size:13px;width:13px;height:13px;line-height:1;margin-left:4px;opacity:0.6;"></span>
+                            </a>
+                        </li>
+                        <?php endif; ?>
                     <?php endforeach; ?>
                 </ul>
             </nav>

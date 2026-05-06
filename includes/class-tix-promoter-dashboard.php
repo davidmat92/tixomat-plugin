@@ -75,18 +75,24 @@ class TIX_Promoter_Dashboard {
      * ══════════════════════════════════════════ */
 
     public static function render($atts = []) {
-        // -- Nicht eingeloggt: Login-Formular --
-        if (!is_user_logged_in()) {
-            return self::render_login();
-        }
-
-        // -- Kein Promoter: Hinweis --
         if (!class_exists('TIX_Promoter_DB')) {
             return '<div class="tix-pd"><p>Promoter-Modul ist nicht verfuegbar.</p></div>';
         }
 
-        $promoter = TIX_Promoter_DB::get_promoter_by_user(get_current_user_id());
-        if (!$promoter || $promoter->status !== 'active') {
+        // Auth: zuerst Magic-Link-Cookie, dann WP-Login
+        $promoter = class_exists('TIX_Promoter_Auth')
+            ? TIX_Promoter_Auth::get_current_promoter()
+            : (is_user_logged_in() ? TIX_Promoter_DB::get_promoter_by_user(get_current_user_id()) : null);
+
+        if (!$promoter) {
+            // Wenn WP eingeloggt aber kein Promoter → "Kein Zugang"
+            if (is_user_logged_in()) {
+                return self::render_no_access();
+            }
+            // Anonym → Login-Form
+            return self::render_login();
+        }
+        if ($promoter->status !== 'active') {
             return self::render_no_access();
         }
 
@@ -141,13 +147,26 @@ class TIX_Promoter_Dashboard {
 
             <div class="tix-account-content">
                 <!-- Header (innerhalb Content) -->
-                <div class="tix-pd-header" style="margin-bottom:24px;">
-                    <h2 class="tix-pd-title" style="margin:0 0 4px;font-size:24px;">Promoter Dashboard</h2>
-                    <p class="tix-pd-welcome" style="margin:0;color:#64748b;">
-                        Hallo, <?php echo esc_html($promoter->display_name ?: wp_get_current_user()->display_name); ?>!
-                        Dein Promoter-Code: <code style="background:#fef3c7;padding:2px 8px;border-radius:6px;font-weight:700;letter-spacing:0.05em;"><?php echo esc_html($promoter->promoter_code); ?></code>
-                    </p>
+                <div class="tix-pd-header" style="margin-bottom:24px;display:flex;justify-content:space-between;align-items:flex-end;gap:14px;flex-wrap:wrap;">
+                    <div>
+                        <h2 class="tix-pd-title" style="margin:0 0 4px;font-size:24px;">Promoter Dashboard</h2>
+                        <p class="tix-pd-welcome" style="margin:0;color:#64748b;">
+                            Hallo, <?php echo esc_html($promoter->display_name ?: ($promoter->email ?: 'Promoter')); ?>!
+                            Dein Promoter-Code: <code style="background:#fef3c7;padding:2px 8px;border-radius:6px;font-weight:700;letter-spacing:0.05em;"><?php echo esc_html($promoter->promoter_code); ?></code>
+                        </p>
+                    </div>
+                    <?php if (class_exists('TIX_Promoter_Auth')): ?>
+                    <a href="<?php echo esc_url(TIX_Promoter_Auth::logout_url()); ?>" style="font-size:12px;color:#64748b;text-decoration:none;border:1px solid #e5e7eb;padding:6px 12px;border-radius:6px;white-space:nowrap;">
+                        <span class="dashicons dashicons-exit" style="font-size:13px;width:13px;height:13px;line-height:1;vertical-align:text-top;"></span> Abmelden
+                    </a>
+                    <?php endif; ?>
                 </div>
+
+                <?php if (!empty($_GET['tix_pauth_ok'])): ?>
+                <div style="background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;padding:10px 14px;border-radius:8px;margin-bottom:18px;font-size:13px;">
+                    🎉 Du bist eingeloggt. Diese Sitzung bleibt 90 Tage aktiv.
+                </div>
+                <?php endif; ?>
 
             <!-- (Sentinel: rest of dashboard panels follow below — closing tags am Ende) -->
 
@@ -467,27 +486,107 @@ class TIX_Promoter_Dashboard {
      * ══════════════════════════════════════════ */
 
     private static function render_login() {
+        // Methode aus Settings holen
+        $s = function_exists('tix_get_settings') ? tix_get_settings() : get_option('tix_settings', []);
+        $auth_method = $s['promoter_auth_method'] ?? 'both';
+        $allow_magic = ($auth_method === 'both' || $auth_method === 'magic_link');
+        $allow_wp    = ($auth_method === 'both' || $auth_method === 'wp_login');
+
+        // CSS einreihen (Magic-Link nutzt jQuery + nonce)
+        if ($allow_magic) {
+            wp_enqueue_script('jquery');
+            $nonce = wp_create_nonce('tix_promoter_login');
+        } else {
+            $nonce = '';
+        }
+        $primary = function_exists('tix_primary') ? tix_primary() : '#FF5500';
+
+        // Flash-Messages aus Magic-Link-Redirects
+        $err_flag = isset($_GET['tix_pauth_err']) ? sanitize_key($_GET['tix_pauth_err']) : '';
+        $err_msg  = '';
+        if ($err_flag === 'expired') $err_msg = 'Dieser Login-Link ist abgelaufen. Bitte fordere einen neuen an.';
+        if ($err_flag === 'invalid') $err_msg = 'Dieser Login-Link ist ungültig. Bitte fordere einen neuen an.';
+
         ob_start();
         ?>
-        <div class="tix-pd" id="tix-promoter-dashboard">
-            <div class="tix-pd-login">
-                <div class="tix-pd-login-icon">&#128274;</div>
-                <h2 class="tix-pd-login-title">Promoter Login</h2>
-                <p class="tix-pd-login-text">Bitte melde dich an, um dein Promoter Dashboard zu sehen.</p>
-                <?php
-                wp_login_form([
-                    'redirect'       => get_permalink(),
-                    'form_id'        => 'tix-pd-login-form',
-                    'label_username' => 'E-Mail oder Benutzername',
-                    'label_password' => 'Passwort',
-                    'label_remember' => 'Angemeldet bleiben',
-                    'label_log_in'   => 'Anmelden',
-                ]);
-                ?>
-                <?php if (get_option('users_can_register')): ?>
-                    <p class="tix-pd-login-register">
-                        Noch kein Konto? <a href="<?php echo esc_url(wp_registration_url()); ?>">Jetzt registrieren</a>
-                    </p>
+        <div class="tix-pd" id="tix-promoter-dashboard" style="--tix-acc-primary: <?php echo esc_attr($primary); ?>;">
+            <div class="tix-pd-login" style="max-width:440px;margin:40px auto;padding:32px;background:#fff;border:1px solid #e5e7eb;border-radius:14px;box-shadow:0 4px 12px rgba(15,23,42,0.06);">
+                <div class="tix-pd-login-icon" style="font-size:42px;text-align:center;margin-bottom:8px;">&#128274;</div>
+                <h2 class="tix-pd-login-title" style="text-align:center;margin:0 0 6px;font-size:22px;">Promoter Login</h2>
+                <p class="tix-pd-login-text" style="text-align:center;color:#64748b;margin:0 0 22px;font-size:14px;">Melde dich an, um dein Promoter Dashboard zu sehen.</p>
+
+                <?php if ($err_msg): ?>
+                <div style="background:#fef2f2;border:1px solid #fecaca;color:#991b1b;padding:10px 14px;border-radius:8px;margin-bottom:14px;font-size:13px;">
+                    <?php echo esc_html($err_msg); ?>
+                </div>
+                <?php endif; ?>
+
+                <?php if ($allow_magic): ?>
+                <!-- Magic-Link-Form -->
+                <form id="tix-pd-magic-form" style="display:flex;flex-direction:column;gap:10px;margin-bottom:<?php echo $allow_wp ? '20px' : '0'; ?>;">
+                    <label style="font-weight:600;font-size:13px;color:#0f172a;">E-Mail-Adresse</label>
+                    <input type="email" id="tix-pd-magic-email" required placeholder="dein@beispiel.de" autocomplete="email" style="padding:11px 14px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;">
+                    <button type="submit" style="background:var(--tix-acc-primary, #FF5500);color:#fff;border:none;border-radius:8px;padding:12px 18px;font-weight:700;cursor:pointer;font-size:14px;">
+                        Login-Link per E-Mail senden
+                    </button>
+                    <div id="tix-pd-magic-msg" style="font-size:13px;margin-top:6px;display:none;"></div>
+                </form>
+                <script>
+                (function($) {
+                    $('#tix-pd-magic-form').on('submit', function(e) {
+                        e.preventDefault();
+                        var $f = $(this);
+                        var $btn = $f.find('button[type="submit"]');
+                        var $msg = $('#tix-pd-magic-msg');
+                        var email = $('#tix-pd-magic-email').val().trim();
+                        if (!email) return;
+                        $btn.prop('disabled', true).text('Sende…');
+                        $msg.hide();
+                        $.post('<?php echo esc_url(admin_url('admin-ajax.php')); ?>', {
+                            action: 'tix_promoter_request_login',
+                            nonce: '<?php echo esc_js($nonce); ?>',
+                            email: email
+                        }, function(r) {
+                            $btn.prop('disabled', false).text('Login-Link per E-Mail senden');
+                            if (r.success) {
+                                $msg.css({background:'#ecfdf5',border:'1px solid #a7f3d0',color:'#065f46',padding:'10px 14px',borderRadius:'8px'}).text(r.data.message).show();
+                            } else {
+                                $msg.css({background:'#fef2f2',border:'1px solid #fecaca',color:'#991b1b',padding:'10px 14px',borderRadius:'8px'}).text((r.data && r.data.message) || 'Fehler.').show();
+                            }
+                        }).fail(function() {
+                            $btn.prop('disabled', false).text('Login-Link per E-Mail senden');
+                            $msg.css({background:'#fef2f2',border:'1px solid #fecaca',color:'#991b1b',padding:'10px 14px',borderRadius:'8px'}).text('Netzwerkfehler. Bitte erneut versuchen.').show();
+                        });
+                    });
+                })(jQuery);
+                </script>
+                <?php endif; ?>
+
+                <?php if ($allow_magic && $allow_wp): ?>
+                <div style="display:flex;align-items:center;gap:12px;color:#94a3b8;font-size:12px;text-transform:uppercase;letter-spacing:0.05em;margin:18px 0;">
+                    <span style="flex:1;height:1px;background:#e5e7eb;"></span>oder<span style="flex:1;height:1px;background:#e5e7eb;"></span>
+                </div>
+                <?php endif; ?>
+
+                <?php if ($allow_wp): ?>
+                <!-- WP-Login-Form -->
+                <details style="margin-top:0;">
+                    <summary style="cursor:pointer;font-size:13px;color:#64748b;text-align:center;list-style:none;padding:8px;">
+                        <span style="border-bottom:1px dashed #cbd5e1;">Mit WordPress-Konto anmelden</span>
+                    </summary>
+                    <div style="margin-top:14px;">
+                        <?php
+                        wp_login_form([
+                            'redirect'       => get_permalink(),
+                            'form_id'        => 'tix-pd-login-form',
+                            'label_username' => 'E-Mail oder Benutzername',
+                            'label_password' => 'Passwort',
+                            'label_remember' => 'Angemeldet bleiben',
+                            'label_log_in'   => 'Anmelden',
+                        ]);
+                        ?>
+                    </div>
+                </details>
                 <?php endif; ?>
             </div>
         </div>
@@ -877,17 +976,16 @@ class TIX_Promoter_Dashboard {
     private static function ajax_guard() {
         check_ajax_referer('tix_promoter_dashboard', 'nonce');
 
-        if (!is_user_logged_in()) {
-            wp_send_json_error(['message' => 'Nicht eingeloggt.']);
-            return null;
-        }
-
         if (!class_exists('TIX_Promoter_DB')) {
             wp_send_json_error(['message' => 'Promoter-Modul nicht verfuegbar.']);
             return null;
         }
 
-        $promoter = TIX_Promoter_DB::get_promoter_by_user(get_current_user_id());
+        // Auth-Check: Magic-Link-Cookie ODER WP-Login
+        $promoter = class_exists('TIX_Promoter_Auth')
+            ? TIX_Promoter_Auth::get_current_promoter()
+            : (is_user_logged_in() ? TIX_Promoter_DB::get_promoter_by_user(get_current_user_id()) : null);
+
         if (!$promoter || $promoter->status !== 'active') {
             wp_send_json_error(['message' => 'Kein Promoter-Zugang.']);
             return null;
