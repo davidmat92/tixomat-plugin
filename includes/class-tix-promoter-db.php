@@ -36,6 +36,11 @@ class TIX_Promoter_DB {
         return $wpdb->prefix . 'tixomat_promoter_payouts';
     }
 
+    public static function table_clicks() {
+        global $wpdb;
+        return $wpdb->prefix . 'tixomat_promoter_clicks';
+    }
+
     // ──────────────────────────────────────────
     // Tabellen erstellen (Aktivierung + Migration)
     // ──────────────────────────────────────────
@@ -128,12 +133,125 @@ class TIX_Promoter_DB {
             KEY promoter_id (promoter_id),
             KEY status (status)
         ) $charset;");
+
+        // Click-Tracking (Referral-Link-Aufrufe)
+        $t5 = self::table_clicks();
+        dbDelta("CREATE TABLE $t5 (
+            id              BIGINT UNSIGNED AUTO_INCREMENT,
+            promoter_id     BIGINT UNSIGNED NOT NULL,
+            visitor_id      VARCHAR(40) NOT NULL DEFAULT '',
+            page_path       VARCHAR(500) NOT NULL DEFAULT '',
+            event_id        BIGINT UNSIGNED NOT NULL DEFAULT 0,
+            referrer_host   VARCHAR(255) NOT NULL DEFAULT '',
+            device_type     VARCHAR(20) NOT NULL DEFAULT '',
+            click_date      DATE NOT NULL,
+            click_time      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            KEY promoter_id (promoter_id),
+            KEY click_date (click_date),
+            KEY visitor_id (visitor_id),
+            KEY event_id (event_id)
+        ) $charset;");
     }
 
     public static function tables_exist() {
         global $wpdb;
         $t = self::table_promoters();
         return $wpdb->get_var("SHOW TABLES LIKE '$t'") === $t;
+    }
+
+    /**
+     * Stellt sicher dass die Click-Tabelle existiert (für Bestandsinstallationen
+     * die vor dieser Migration laufen).
+     */
+    public static function ensure_clicks_table() {
+        global $wpdb;
+        $t = self::table_clicks();
+        if ($wpdb->get_var("SHOW TABLES LIKE '$t'") === $t) return;
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+        $charset = $wpdb->get_charset_collate();
+        dbDelta("CREATE TABLE $t (
+            id              BIGINT UNSIGNED AUTO_INCREMENT,
+            promoter_id     BIGINT UNSIGNED NOT NULL,
+            visitor_id      VARCHAR(40) NOT NULL DEFAULT '',
+            page_path       VARCHAR(500) NOT NULL DEFAULT '',
+            event_id        BIGINT UNSIGNED NOT NULL DEFAULT 0,
+            referrer_host   VARCHAR(255) NOT NULL DEFAULT '',
+            device_type     VARCHAR(20) NOT NULL DEFAULT '',
+            click_date      DATE NOT NULL,
+            click_time      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            KEY promoter_id (promoter_id),
+            KEY click_date (click_date),
+            KEY visitor_id (visitor_id),
+            KEY event_id (event_id)
+        ) $charset;");
+    }
+
+    public static function insert_click(array $data) {
+        global $wpdb;
+        self::ensure_clicks_table();
+        return $wpdb->insert(self::table_clicks(), [
+            'promoter_id'   => intval($data['promoter_id'] ?? 0),
+            'visitor_id'    => substr((string) ($data['visitor_id'] ?? ''), 0, 40),
+            'page_path'     => substr((string) ($data['page_path'] ?? ''), 0, 500),
+            'event_id'      => intval($data['event_id'] ?? 0),
+            'referrer_host' => substr((string) ($data['referrer_host'] ?? ''), 0, 255),
+            'device_type'   => substr((string) ($data['device_type'] ?? ''), 0, 20),
+            'click_date'    => $data['click_date'] ?? current_time('Y-m-d'),
+            'click_time'    => $data['click_time'] ?? current_time('mysql'),
+        ]);
+    }
+
+    /**
+     * Aggregierte Klick-Statistiken für einen Promoter.
+     * @return array ['total','unique','today','last_7d','last_30d','timeseries','top_pages']
+     */
+    public static function get_click_stats(int $promoter_id) {
+        global $wpdb;
+        self::ensure_clicks_table();
+        $t = self::table_clicks();
+
+        $base = "FROM $t WHERE promoter_id = %d";
+        $args = [$promoter_id];
+
+        $total  = (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) $base", ...$args));
+        $unique = (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(DISTINCT visitor_id) $base", ...$args));
+        $today  = (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) $base AND click_date = %s", $promoter_id, current_time('Y-m-d')));
+        $w7     = (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) $base AND click_date >= %s", $promoter_id, date('Y-m-d', strtotime('-7 days'))));
+        $w30    = (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) $base AND click_date >= %s", $promoter_id, date('Y-m-d', strtotime('-30 days'))));
+
+        $timeseries = $wpdb->get_results($wpdb->prepare(
+            "SELECT click_date, COUNT(*) AS clicks, COUNT(DISTINCT visitor_id) AS uniques
+             FROM $t WHERE promoter_id = %d AND click_date >= %s
+             GROUP BY click_date ORDER BY click_date ASC",
+            $promoter_id, date('Y-m-d', strtotime('-30 days'))
+        ), ARRAY_A) ?: [];
+
+        $top_pages = $wpdb->get_results($wpdb->prepare(
+            "SELECT page_path, COUNT(*) AS clicks, COUNT(DISTINCT visitor_id) AS uniques
+             FROM $t WHERE promoter_id = %d
+             GROUP BY page_path ORDER BY clicks DESC LIMIT 10",
+            $promoter_id
+        ), ARRAY_A) ?: [];
+
+        $devices = $wpdb->get_results($wpdb->prepare(
+            "SELECT device_type, COUNT(*) AS clicks
+             FROM $t WHERE promoter_id = %d
+             GROUP BY device_type ORDER BY clicks DESC",
+            $promoter_id
+        ), ARRAY_A) ?: [];
+
+        return [
+            'total'      => $total,
+            'unique'     => $unique,
+            'today'      => $today,
+            'last_7d'    => $w7,
+            'last_30d'   => $w30,
+            'timeseries' => $timeseries,
+            'top_pages'  => $top_pages,
+            'devices'    => $devices,
+        ];
     }
 
     // ══════════════════════════════════════════

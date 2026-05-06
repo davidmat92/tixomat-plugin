@@ -23,6 +23,7 @@ class TIX_Promoter_Dashboard {
         $actions = [
             'tix_pd_overview',
             'tix_pd_events',
+            'tix_pd_tracking',
             'tix_pd_sales',
             'tix_pd_commissions',
             'tix_pd_payouts',
@@ -91,44 +92,74 @@ class TIX_Promoter_Dashboard {
 
         self::enqueue();
 
+        // Auch tix-account-CSS laden für identischen Look
+        wp_enqueue_style('tix-account', TIXOMAT_URL . 'assets/css/tix-account.css', [], TIXOMAT_VERSION);
+
+        $primary = function_exists('tix_primary') ? tix_primary() : '#FF5500';
+
         ob_start();
         ?>
-        <div class="tix-pd" id="tix-promoter-dashboard" data-promoter-id="<?php echo esc_attr($promoter->id); ?>">
+        <div class="tix-account tix-pd" id="tix-promoter-dashboard"
+             data-promoter-id="<?php echo esc_attr($promoter->id); ?>"
+             style="--tix-acc-primary: <?php echo esc_attr($primary); ?>;">
 
-            <!-- Header -->
-            <div class="tix-pd-header">
-                <h2 class="tix-pd-title">Promoter Dashboard</h2>
-                <span class="tix-pd-welcome">Hallo, <?php echo esc_html($promoter->display_name ?: wp_get_current_user()->display_name); ?>!</span>
-            </div>
-
-            <!-- Tab-Navigation -->
-            <nav class="tix-pd-tabs" role="tablist">
-                <button class="tix-pd-tab active" data-tab="overview" role="tab" aria-selected="true"
-                        aria-controls="tix-pd-panel-overview">
-                    <span class="tix-pd-tab-icon dashicons dashicons-dashboard"></span>
-                    <span class="tix-pd-tab-label">&#220;bersicht</span>
-                </button>
-                <button class="tix-pd-tab" data-tab="events" role="tab" aria-selected="false"
-                        aria-controls="tix-pd-panel-events">
-                    <span class="tix-pd-tab-icon dashicons dashicons-calendar-alt"></span>
-                    <span class="tix-pd-tab-label">Meine Events</span>
-                </button>
-                <button class="tix-pd-tab" data-tab="sales" role="tab" aria-selected="false"
-                        aria-controls="tix-pd-panel-sales">
-                    <span class="tix-pd-tab-icon dashicons dashicons-cart"></span>
-                    <span class="tix-pd-tab-label">Verk&#228;ufe</span>
-                </button>
-                <button class="tix-pd-tab" data-tab="commissions" role="tab" aria-selected="false"
-                        aria-controls="tix-pd-panel-commissions">
-                    <span class="tix-pd-tab-icon dashicons dashicons-money-alt"></span>
-                    <span class="tix-pd-tab-label">Provisionen</span>
-                </button>
-                <button class="tix-pd-tab" data-tab="payouts" role="tab" aria-selected="false"
-                        aria-controls="tix-pd-panel-payouts">
-                    <span class="tix-pd-tab-icon dashicons dashicons-bank"></span>
-                    <span class="tix-pd-tab-label">Auszahlungen</span>
-                </button>
+            <!-- Sidebar-Nav (my-account-Stil) -->
+            <nav class="tix-account-nav">
+                <ul>
+                    <li class="tix-account-nav-item is-active">
+                        <a href="#overview" class="tix-pd-nav-link" data-tab="overview">
+                            <span class="dashicons dashicons-dashboard"></span> Übersicht
+                        </a>
+                    </li>
+                    <li class="tix-account-nav-item">
+                        <a href="#events" class="tix-pd-nav-link" data-tab="events">
+                            <span class="dashicons dashicons-calendar-alt"></span> Meine Events
+                        </a>
+                    </li>
+                    <li class="tix-account-nav-item">
+                        <a href="#tracking" class="tix-pd-nav-link" data-tab="tracking">
+                            <span class="dashicons dashicons-chart-line"></span> Tracking
+                        </a>
+                    </li>
+                    <li class="tix-account-nav-item">
+                        <a href="#sales" class="tix-pd-nav-link" data-tab="sales">
+                            <span class="dashicons dashicons-cart"></span> Verkäufe
+                        </a>
+                    </li>
+                    <li class="tix-account-nav-item">
+                        <a href="#commissions" class="tix-pd-nav-link" data-tab="commissions">
+                            <span class="dashicons dashicons-money-alt"></span> Provisionen
+                        </a>
+                    </li>
+                    <li class="tix-account-nav-item">
+                        <a href="#payouts" class="tix-pd-nav-link" data-tab="payouts">
+                            <span class="dashicons dashicons-bank"></span> Auszahlungen
+                        </a>
+                    </li>
+                </ul>
             </nav>
+
+            <div class="tix-account-content">
+                <!-- Header (innerhalb Content) -->
+                <div class="tix-pd-header" style="margin-bottom:24px;">
+                    <h2 class="tix-pd-title" style="margin:0 0 4px;font-size:24px;">Promoter Dashboard</h2>
+                    <p class="tix-pd-welcome" style="margin:0;color:#64748b;">
+                        Hallo, <?php echo esc_html($promoter->display_name ?: wp_get_current_user()->display_name); ?>!
+                        Dein Promoter-Code: <code style="background:#fef3c7;padding:2px 8px;border-radius:6px;font-weight:700;letter-spacing:0.05em;"><?php echo esc_html($promoter->promoter_code); ?></code>
+                    </p>
+                </div>
+
+            <!-- (Sentinel: rest of dashboard panels follow below — closing tags am Ende) -->
+
+            <!-- Hidden: Legacy Tab-Buttons für Backward-Compat (nicht sichtbar, nur falls JS sie braucht) -->
+            <div class="tix-pd-tabs" role="tablist" style="display:none;">
+                <button class="tix-pd-tab active" data-tab="overview"></button>
+                <button class="tix-pd-tab" data-tab="events"></button>
+                <button class="tix-pd-tab" data-tab="tracking"></button>
+                <button class="tix-pd-tab" data-tab="sales"></button>
+                <button class="tix-pd-tab" data-tab="commissions"></button>
+                <button class="tix-pd-tab" data-tab="payouts"></button>
+            </div>
 
             <!-- Tab-Panels -->
             <div class="tix-pd-panels">
@@ -196,6 +227,85 @@ class TIX_Promoter_Dashboard {
                                 <tr><td colspan="6" class="tix-pd-loading">Lade Daten&hellip;</td></tr>
                             </tbody>
                         </table>
+                    </div>
+                </div>
+
+                <!-- Tracking (Klicks auf Referral-Links) -->
+                <div class="tix-pd-panel" id="tix-pd-panel-tracking" role="tabpanel" data-tab="tracking">
+                    <h3 class="tix-pd-section-title">Tracking — Aufrufe deiner Referral-Links</h3>
+                    <p style="color:#64748b;margin:0 0 16px;font-size:13px;">Jeder Klick auf einen Link mit deinem Code <code><?php echo esc_html($promoter->promoter_code); ?></code> wird hier gezählt. Mehrfach-Klicks vom gleichen Besucher werden alle 30 Min. dedupliziert.</p>
+
+                    <!-- KPI-Cards für Klicks -->
+                    <div class="tix-pd-kpis" id="tix-pd-tracking-kpis">
+                        <div class="tix-pd-kpi">
+                            <div class="tix-pd-kpi-icon"><span class="dashicons dashicons-visibility"></span></div>
+                            <div class="tix-pd-kpi-body">
+                                <span class="tix-pd-kpi-label">Klicks gesamt</span>
+                                <span class="tix-pd-kpi-value" id="tix-pd-tk-total">&mdash;</span>
+                            </div>
+                        </div>
+                        <div class="tix-pd-kpi">
+                            <div class="tix-pd-kpi-icon"><span class="dashicons dashicons-admin-users"></span></div>
+                            <div class="tix-pd-kpi-body">
+                                <span class="tix-pd-kpi-label">Unique Besucher</span>
+                                <span class="tix-pd-kpi-value" id="tix-pd-tk-unique">&mdash;</span>
+                            </div>
+                        </div>
+                        <div class="tix-pd-kpi">
+                            <div class="tix-pd-kpi-icon"><span class="dashicons dashicons-clock"></span></div>
+                            <div class="tix-pd-kpi-body">
+                                <span class="tix-pd-kpi-label">Heute</span>
+                                <span class="tix-pd-kpi-value" id="tix-pd-tk-today">&mdash;</span>
+                            </div>
+                        </div>
+                        <div class="tix-pd-kpi">
+                            <div class="tix-pd-kpi-icon"><span class="dashicons dashicons-calendar"></span></div>
+                            <div class="tix-pd-kpi-body">
+                                <span class="tix-pd-kpi-label">Letzte 7 Tage</span>
+                                <span class="tix-pd-kpi-value" id="tix-pd-tk-7d">&mdash;</span>
+                            </div>
+                        </div>
+                        <div class="tix-pd-kpi">
+                            <div class="tix-pd-kpi-icon"><span class="dashicons dashicons-chart-bar"></span></div>
+                            <div class="tix-pd-kpi-body">
+                                <span class="tix-pd-kpi-label">Letzte 30 Tage</span>
+                                <span class="tix-pd-kpi-value" id="tix-pd-tk-30d">&mdash;</span>
+                            </div>
+                        </div>
+                        <div class="tix-pd-kpi">
+                            <div class="tix-pd-kpi-icon"><span class="dashicons dashicons-chart-pie"></span></div>
+                            <div class="tix-pd-kpi-body">
+                                <span class="tix-pd-kpi-label">Conversion</span>
+                                <span class="tix-pd-kpi-value" id="tix-pd-tk-conv">&mdash;</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Klicks-Verlauf -->
+                    <div class="tix-pd-chart-wrap" style="margin-top:24px;">
+                        <h3 class="tix-pd-section-title">Klick-Verlauf (letzte 30 Tage)</h3>
+                        <canvas id="tix-pd-chart-clicks" height="220"></canvas>
+                    </div>
+
+                    <!-- Top-Pfade + Geräte -->
+                    <div style="display:grid;grid-template-columns:2fr 1fr;gap:16px;margin-top:24px;">
+                        <div>
+                            <h3 class="tix-pd-section-title">Top-Seiten (mit deinem Link aufgerufen)</h3>
+                            <div class="tix-pd-table-wrap">
+                                <table class="tix-pd-table">
+                                    <thead><tr><th>Seite</th><th>Klicks</th><th>Unique</th></tr></thead>
+                                    <tbody id="tix-pd-tk-pages-body">
+                                        <tr><td colspan="3" class="tix-pd-loading">Lade Daten&hellip;</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div>
+                            <h3 class="tix-pd-section-title">Geräte</h3>
+                            <div id="tix-pd-tk-devices" style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:16px;">
+                                <div class="tix-pd-loading">Lade Daten&hellip;</div>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -277,7 +387,77 @@ class TIX_Promoter_Dashboard {
                 </div>
 
             </div><!-- /.tix-pd-panels -->
+            </div><!-- /.tix-account-content -->
         </div><!-- /#tix-promoter-dashboard -->
+
+        <style>
+        /* Promoter-Dashboard im my-account-Look — Overrides */
+        .tix-account.tix-pd .tix-pd-tabs { display: none !important; }
+        .tix-account.tix-pd .tix-pd-panels { display: block; }
+        .tix-account.tix-pd .tix-pd-panel { display: none; }
+        .tix-account.tix-pd .tix-pd-panel.active { display: block; }
+        .tix-account.tix-pd .tix-pd-section-title {
+            font-size: 16px; font-weight: 700; margin: 0 0 12px; color: #0f172a;
+        }
+        .tix-account.tix-pd .tix-pd-kpis {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+            gap: 12px; margin-bottom: 24px;
+        }
+        .tix-account.tix-pd .tix-pd-kpi {
+            background: #fff; border: 1px solid #e5e7eb; border-radius: 12px;
+            padding: 16px; display: flex; align-items: center; gap: 12px;
+        }
+        .tix-account.tix-pd .tix-pd-kpi-icon {
+            width: 40px; height: 40px; border-radius: 10px;
+            background: var(--tix-acc-primary, #FF5500); color: #fff;
+            display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+        }
+        .tix-account.tix-pd .tix-pd-kpi-icon .dashicons { font-size: 20px; width: 20px; height: 20px; }
+        .tix-account.tix-pd .tix-pd-kpi-label {
+            display: block; font-size: 11px; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600;
+        }
+        .tix-account.tix-pd .tix-pd-kpi-value {
+            display: block; font-size: 22px; font-weight: 800; color: #0f172a; line-height: 1.2;
+        }
+        .tix-account.tix-pd .tix-pd-table-wrap {
+            background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; overflow: hidden;
+        }
+        .tix-account.tix-pd .tix-pd-table {
+            width: 100%; border-collapse: collapse; font-size: 13px;
+        }
+        .tix-account.tix-pd .tix-pd-table th {
+            background: #f9fafb; padding: 10px 14px; text-align: left;
+            font-weight: 600; color: #374151; font-size: 12px;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        .tix-account.tix-pd .tix-pd-table td {
+            padding: 10px 14px; border-top: 1px solid #f3f4f6; vertical-align: middle;
+        }
+        .tix-account.tix-pd .tix-pd-loading,
+        .tix-account.tix-pd .tix-pd-empty {
+            text-align: center; color: #9ca3af; padding: 24px; font-size: 13px;
+        }
+        .tix-account.tix-pd .tix-pd-link { font-family: ui-monospace, Menlo, Consolas, monospace; }
+        .tix-account.tix-pd .tix-pd-copy {
+            border: 1px solid #e5e7eb; background: #fff; padding: 4px 10px;
+            border-radius: 6px; cursor: pointer; font-size: 11px; margin-left: 6px;
+        }
+        .tix-account.tix-pd .tix-pd-copy:hover { background: #f9fafb; }
+        .tix-account.tix-pd .tix-pd-copy.copied {
+            background: var(--tix-acc-primary, #FF5500); color: #fff; border-color: transparent;
+        }
+        .tix-account.tix-pd .tix-pd-chart-wrap {
+            background: #fff; border: 1px solid #e5e7eb; border-radius: 12px;
+            padding: 18px; margin-top: 24px;
+        }
+        .tix-account.tix-pd .tix-pd-links-wrap {
+            background: #fff; border: 1px solid #e5e7eb; border-radius: 12px;
+            padding: 18px; margin-top: 24px;
+        }
+        @media (max-width: 768px) {
+            .tix-account.tix-pd .tix-pd-kpis { grid-template-columns: 1fr 1fr; }
+        }
+        </style>
         <?php
         return ob_get_clean();
     }
@@ -503,6 +683,34 @@ class TIX_Promoter_Dashboard {
         }
 
         wp_send_json_success(['events' => $rows]);
+    }
+
+    /* ══════════════════════════════════════════
+     * AJAX: Tracking (Klicks auf Referral-Links)
+     * ══════════════════════════════════════════ */
+
+    public static function ajax_tracking() {
+        $promoter = self::ajax_guard();
+        if (!$promoter) return;
+
+        $stats = TIX_Promoter_DB::get_click_stats(intval($promoter->id));
+
+        // Conversion: total_clicks vs. distinct orders mit promoter_id
+        global $wpdb;
+        $orders_with_promoter = (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(DISTINCT post_id) FROM {$wpdb->postmeta}
+             WHERE meta_key = '_tix_promoter_id' AND meta_value = %s",
+            (string) $promoter->id
+        ));
+        $conversion_rate = ($stats['unique'] ?? 0) > 0
+            ? round(($orders_with_promoter / $stats['unique']) * 100, 2)
+            : 0;
+
+        wp_send_json_success([
+            'stats'           => $stats,
+            'orders'          => $orders_with_promoter,
+            'conversion_rate' => $conversion_rate,
+        ]);
     }
 
     /* ══════════════════════════════════════════

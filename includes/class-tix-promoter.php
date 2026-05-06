@@ -139,6 +139,55 @@ class TIX_Promoter {
             WC()->session->set('tix_promoter_ref', $code);
             WC()->session->set('tix_promoter_attribution', 'referral');
         }
+
+        // Click-Tracking
+        self::log_referral_click($promoter);
+    }
+
+    /**
+     * Loggt einen Referral-Klick. Dedup pro Session+Promoter (max 1 Klick alle 30 Min).
+     */
+    private static function log_referral_click($promoter) {
+        $promoter_id = intval($promoter->id);
+        if (!$promoter_id) return;
+
+        // Visitor-ID aus Cookie/Session ableiten — wenn nichts da, eine neue erzeugen
+        $vid_cookie = 'tix_visitor';
+        $visitor_id = isset($_COOKIE[$vid_cookie]) ? sanitize_text_field($_COOKIE[$vid_cookie]) : '';
+        if (!$visitor_id) {
+            $visitor_id = bin2hex(random_bytes(8));
+            setcookie($vid_cookie, $visitor_id, time() + YEAR_IN_SECONDS, COOKIEPATH, COOKIE_DOMAIN, is_ssl(), true);
+        }
+
+        // Dedup: Transient-Lock für 30 Min — derselbe Visitor zählt pro Promoter nur 1× /30min
+        $lock_key = 'tix_pclick_' . md5($visitor_id . '_' . $promoter_id);
+        if (get_transient($lock_key)) return;
+        set_transient($lock_key, 1, 30 * MINUTE_IN_SECONDS);
+
+        // Page-Path + Event-ID + Referrer-Host
+        $path = sanitize_text_field($_SERVER['REQUEST_URI'] ?? '/');
+        $path = strtok($path, '?'); // Query-String entfernen
+        $path = substr($path, 0, 500);
+        $event_id = is_singular('event') ? get_the_ID() : 0;
+        $ref_host = '';
+        if (!empty($_SERVER['HTTP_REFERER'])) {
+            $h = parse_url((string) $_SERVER['HTTP_REFERER'], PHP_URL_HOST);
+            $ref_host = strtolower(preg_replace('/^www\./', '', (string) $h));
+        }
+        // Device
+        $ua = $_SERVER['HTTP_USER_AGENT'] ?? '';
+        $device = 'desktop';
+        if (preg_match('/iPad|Tablet|PlayBook|Silk/i', $ua))      $device = 'tablet';
+        elseif (preg_match('/Mobile|iPhone|Android|webOS/i', $ua)) $device = 'mobile';
+
+        TIX_Promoter_DB::insert_click([
+            'promoter_id'   => $promoter_id,
+            'visitor_id'    => $visitor_id,
+            'page_path'     => $path,
+            'event_id'      => intval($event_id),
+            'referrer_host' => $ref_host,
+            'device_type'   => $device,
+        ]);
     }
 
     // ──────────────────────────────────────────

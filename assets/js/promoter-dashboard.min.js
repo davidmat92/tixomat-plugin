@@ -11,18 +11,28 @@
         loadTab('overview');
     });
 
-    /* ── Tabs ── */
+    /* ── Tabs (Sidebar-Nav my-account-Stil + Legacy-Buttons) ── */
     function initTabs() {
-        $('.tix-pd').on('click', '.tix-pd-tab', function() {
-            var tab = $(this).data('tab');
-            $('.tix-pd-tab').removeClass('active').attr('aria-selected', 'false');
-            $(this).addClass('active').attr('aria-selected', 'true');
-            // Selector korrigiert: HTML nutzt .tix-pd-panel + data-tab (nicht .tix-pd-pane / data-pane)
-            $('.tix-pd-panel').removeClass('active');
-            $('.tix-pd-panel[data-tab="' + tab + '"]').addClass('active');
-            activeTab = tab;
-            loadTab(tab);
+        // Sidebar-Nav-Links (neu) + Legacy-Tab-Buttons (versteckt) — beide triggern dasselbe
+        $('.tix-pd').on('click', '.tix-pd-nav-link, .tix-pd-tab', function(e) {
+            e.preventDefault();
+            switchTab($(this).data('tab'));
         });
+    }
+
+    function switchTab(tab) {
+        if (!tab) return;
+        // Sidebar-Nav active
+        $('.tix-account-nav-item').removeClass('is-active');
+        $('.tix-pd-nav-link[data-tab="' + tab + '"]').closest('.tix-account-nav-item').addClass('is-active');
+        // Legacy-Buttons (für Backward-Compat)
+        $('.tix-pd-tab').removeClass('active');
+        $('.tix-pd-tab[data-tab="' + tab + '"]').addClass('active');
+        // Panels
+        $('.tix-pd-panel').removeClass('active');
+        $('.tix-pd-panel[data-tab="' + tab + '"]').addClass('active');
+        activeTab = tab;
+        loadTab(tab);
     }
 
     function loadTab(tab) {
@@ -33,9 +43,94 @@
         switch(tab) {
             case 'overview':    loadOverview(); break;
             case 'events':      loadEvents(); break;
+            case 'tracking':    loadTracking(); break;
             case 'sales':       loadSales(); break;
             case 'commissions': loadCommissions(); break;
             case 'payouts':     loadPayouts(); break;
+        }
+    }
+
+    /* ── Tracking-Tab ── */
+    function loadTracking() {
+        ajax('tix_pd_tracking', {}, function(d) {
+            cache['tracking'] = d;
+            renderTracking(d);
+        });
+    }
+
+    function renderTracking(d) {
+        var s = d.stats || {};
+        $('#tix-pd-tk-total').text(s.total || 0);
+        $('#tix-pd-tk-unique').text(s.unique || 0);
+        $('#tix-pd-tk-today').text(s.today || 0);
+        $('#tix-pd-tk-7d').text(s.last_7d || 0);
+        $('#tix-pd-tk-30d').text(s.last_30d || 0);
+        $('#tix-pd-tk-conv').text(d.conversion_rate ? d.conversion_rate + '%' : '0%');
+
+        // Top Pages
+        var $body = $('#tix-pd-tk-pages-body');
+        if (!s.top_pages || !s.top_pages.length) {
+            $body.html('<tr><td colspan="3" class="tix-pd-empty">Noch keine Klicks</td></tr>');
+        } else {
+            var html = '';
+            $.each(s.top_pages, function(i, p) {
+                html += '<tr>' +
+                    '<td><code style="font-size:11px;">' + esc(p.page_path || '/') + '</code></td>' +
+                    '<td>' + esc(p.clicks) + '</td>' +
+                    '<td>' + esc(p.uniques) + '</td>' +
+                    '</tr>';
+            });
+            $body.html(html);
+        }
+
+        // Devices
+        var $dev = $('#tix-pd-tk-devices');
+        if (!s.devices || !s.devices.length) {
+            $dev.html('<div class="tix-pd-empty">Keine Daten</div>');
+        } else {
+            var totalClicks = 0;
+            $.each(s.devices, function(i, d) { totalClicks += parseInt(d.clicks, 10) || 0; });
+            var devIcons = { mobile: '📱', tablet: '💻', desktop: '🖥️', unknown: '❓' };
+            var dh = '';
+            $.each(s.devices, function(i, dv) {
+                var pct = totalClicks > 0 ? Math.round((dv.clicks / totalClicks) * 100) : 0;
+                var icon = devIcons[dv.device_type] || '•';
+                var label = (dv.device_type || 'unbekannt').charAt(0).toUpperCase() + (dv.device_type || 'unbekannt').slice(1);
+                dh += '<div style="margin-bottom:10px;">' +
+                    '<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:3px;">' +
+                        '<span>' + icon + ' <strong>' + esc(label) + '</strong></span>' +
+                        '<span style="color:#64748b;">' + pct + '%</span>' +
+                    '</div>' +
+                    '<div style="height:6px;background:#f1f5f9;border-radius:99px;overflow:hidden;">' +
+                        '<div style="height:100%;background:var(--tix-acc-primary, #FF5500);width:' + pct + '%;"></div>' +
+                    '</div>' +
+                    '<div style="font-size:11px;color:#9ca3af;margin-top:2px;">' + esc(dv.clicks) + ' Klicks</div>' +
+                '</div>';
+            });
+            $dev.html(dh);
+        }
+
+        // Time-Series Chart
+        if (s.timeseries && s.timeseries.length && typeof Chart !== 'undefined') {
+            var ctx = document.getElementById('tix-pd-chart-clicks');
+            if (ctx) {
+                if (charts.clicks) { charts.clicks.destroy(); }
+                charts.clicks = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: s.timeseries.map(function(r) { return r.click_date; }),
+                        datasets: [
+                            { label: 'Klicks', data: s.timeseries.map(function(r) { return parseInt(r.clicks, 10); }), borderColor: getComputedStyle(document.documentElement).getPropertyValue('--tix-acc-primary').trim() || '#FF5500', backgroundColor: 'rgba(255,85,0,0.12)', fill: true, tension: 0.3 },
+                            { label: 'Unique', data: s.timeseries.map(function(r) { return parseInt(r.uniques, 10); }), borderColor: '#2563eb', backgroundColor: 'rgba(37,99,235,0.08)', fill: false, tension: 0.3 }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: { legend: { position: 'bottom' } },
+                        scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+                    }
+                });
+            }
         }
     }
 
