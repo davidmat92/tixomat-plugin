@@ -259,7 +259,9 @@ class TIX_Event_Report {
             <?php // ── BAR-CHART (Vergleich aller Kategorien) ── ?>
             <div style="margin-bottom:18px;">
                 <h4 style="margin:0 0 8px;font-size:13px;color:#475569;font-weight:600;">Visueller Vergleich</h4>
-                <canvas id="tix-er-cat-chart" height="220"></canvas>
+                <div style="position:relative;height:<?php echo max(160, 50 + count($data['categories']) * 40); ?>px;">
+                    <canvas id="tix-er-cat-chart"></canvas>
+                </div>
             </div>
 
             <?php // ── DETAIL-TABELLE (vorhanden, etwas kompakter) ── ?>
@@ -306,31 +308,43 @@ class TIX_Event_Report {
         </div>
         <script>
         (function() {
-            if (typeof Chart === 'undefined') return;
-            var ctx = document.getElementById('tix-er-cat-chart');
-            if (!ctx) return;
             var labels   = <?php echo wp_json_encode(array_column($data['categories'], 'name')); ?>;
             var sold     = <?php echo wp_json_encode(array_column($data['categories'], 'sold')); ?>;
             var avail    = <?php echo wp_json_encode(array_map(fn($c) => $c['capacity'] > 0 ? $c['available'] : 0, $data['categories'])); ?>;
-            new Chart(ctx, {
-                type: 'bar',
-                data: {
-                    labels: labels,
-                    datasets: [
-                        { label: 'Verkauft', data: sold, backgroundColor: '#10b981', stack: 'cap' },
-                        { label: 'Verfügbar', data: avail, backgroundColor: '#e5e7eb', stack: 'cap' }
-                    ]
-                },
-                options: {
-                    indexAxis: 'y',
-                    responsive: true,
-                    plugins: { legend: { position: 'bottom' } },
-                    scales: {
-                        x: { stacked: true, beginAtZero: true, ticks: { precision: 0 } },
-                        y: { stacked: true }
+
+            function render() {
+                if (typeof Chart === 'undefined') return false;
+                var ctx = document.getElementById('tix-er-cat-chart');
+                if (!ctx) return false;
+                new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: labels,
+                        datasets: [
+                            { label: 'Verkauft', data: sold, backgroundColor: '#10b981', stack: 'cap' },
+                            { label: 'Verfügbar', data: avail, backgroundColor: '#e5e7eb', stack: 'cap' }
+                        ]
+                    },
+                    options: {
+                        indexAxis: 'y',
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { position: 'bottom' } },
+                        scales: {
+                            x: { stacked: true, beginAtZero: true, ticks: { precision: 0 } },
+                            y: { stacked: true }
+                        }
                     }
-                }
-            });
+                });
+                return true;
+            }
+            // Chart.js wird im Footer geladen — warten bis es da ist
+            if (!render()) {
+                var tries = 0;
+                var iv = setInterval(function() {
+                    if (render() || ++tries > 50) clearInterval(iv);
+                }, 100);
+            }
         })();
         </script>
         <?php endif; ?>
