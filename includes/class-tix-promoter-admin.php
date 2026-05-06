@@ -452,22 +452,24 @@ class TIX_Promoter_Admin {
         global $wpdb;
         $table = TIX_Promoter_DB::table_events();
 
-        // Aktuelle globale Zuordnung holen (egal welcher op — wird in Antwort gebraucht)
+        // Aktuelle globale Zuordnung holen — egal welcher Status (active/inactive/ended)
+        // damit wir auch beendete reaktivieren statt mit Duplicate-Key zu kollidieren
         $current = $wpdb->get_row($wpdb->prepare(
-            "SELECT * FROM $table WHERE promoter_id = %d AND event_id = 0 AND status = 'active'",
+            "SELECT * FROM $table WHERE promoter_id = %d AND event_id = 0 LIMIT 1",
             $promoter_id
         ));
+        $is_active = $current && $current->status === 'active';
 
         if ($op === 'get') {
             wp_send_json_success([
-                'has_global' => !!$current,
-                'commission_type'  => $current ? $current->commission_type : 'percent',
-                'commission_value' => $current ? floatval($current->commission_value) : 0,
+                'has_global'       => $is_active,
+                'commission_type'  => $is_active ? $current->commission_type : 'percent',
+                'commission_value' => $is_active ? floatval($current->commission_value) : 0,
             ]);
         }
 
         if ($op === 'delete') {
-            if (!$current) wp_send_json_error('Keine globale Provision vorhanden.');
+            if (!$is_active) wp_send_json_error('Keine aktive globale Provision vorhanden.');
             TIX_Promoter_DB::unassign_event(intval($current->id));
             wp_send_json_success(['message' => 'Globale Provision entfernt.']);
         }
@@ -477,24 +479,23 @@ class TIX_Promoter_Admin {
         $value = floatval(str_replace(',', '.', $_POST['commission_value'] ?? '0'));
         if ($value <= 0) wp_send_json_error('Wert muss > 0 sein.');
 
-        if ($current) {
-            // Update existing
-            TIX_Promoter_DB::update_assignment(intval($current->id), [
-                'commission_type'  => $type,
-                'commission_value' => $value,
-            ]);
-            wp_send_json_success(['message' => 'Globale Provision aktualisiert.']);
-        }
-
-        // Neu anlegen
-        $new_id = TIX_Promoter_DB::assign_event([
+        // Upsert: wenn Eintrag (auch inactive/ended) existiert → updaten + reaktivieren.
+        // Sonst neu anlegen. assign_event() macht das jetzt automatisch.
+        $id = TIX_Promoter_DB::assign_event([
             'promoter_id'      => $promoter_id,
             'event_id'         => 0,
             'commission_type'  => $type,
             'commission_value' => $value,
+            'status'           => 'active',
         ]);
-        if (!$new_id) wp_send_json_error('Fehler beim Speichern.');
-        wp_send_json_success(['id' => $new_id, 'message' => 'Globale Provision gespeichert.']);
+        if (!$id) wp_send_json_error('Fehler beim Speichern.');
+
+        wp_send_json_success([
+            'id'      => $id,
+            'message' => $current
+                ? 'Globale Provision aktualisiert.'
+                : 'Globale Provision gespeichert.',
+        ]);
     }
 
     /* ──── Event-Zuordnung erstellen ──── */
@@ -525,7 +526,7 @@ class TIX_Promoter_Admin {
         }
         // commission_value = 0 ist erlaubt → Hierarchie verwendet dann Settings-Default
 
-        // Doppelte Zuordnung pruefen — direktes SQL (Lookup hat Global-Fallback der hier stört)
+        // Doppelte AKTIVE Zuordnung pruefen (inactive/ended sind OK — werden upsert-mässig reaktiviert)
         global $wpdb;
         $existing = $wpdb->get_row($wpdb->prepare(
             "SELECT id FROM " . TIX_Promoter_DB::table_events() . "
@@ -537,6 +538,8 @@ class TIX_Promoter_Admin {
                 ? 'Eine globale Zuordnung für diesen Promoter existiert bereits.'
                 : 'Diese Zuordnung existiert bereits.');
         }
+        // Hinweis: Wenn ein inactive/ended-Eintrag existiert, wird er von assign_event()
+        // automatisch reaktiviert (siehe upsert-Logik dort).
 
         // Discount-Normalisierung
         if ($discount_type === 'none') {

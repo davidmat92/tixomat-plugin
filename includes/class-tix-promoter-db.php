@@ -428,6 +428,7 @@ class TIX_Promoter_DB {
 
     public static function assign_event(array $data) {
         global $wpdb;
+        $table = self::table_events();
         $row = [
             'promoter_id'      => intval($data['promoter_id'] ?? 0),
             'event_id'         => intval($data['event_id'] ?? 0),
@@ -439,7 +440,19 @@ class TIX_Promoter_DB {
             'coupon_id'        => intval($data['coupon_id'] ?? 0) ?: null,
             'status'           => sanitize_text_field($data['status'] ?? 'active'),
         ];
-        $wpdb->insert(self::table_events(), $row);
+
+        // UNIQUE (promoter_id, event_id): wenn schon Eintrag existiert (auch wenn inactive/ended)
+        // → reaktivieren + Werte updaten statt fehlschlagen
+        $existing_id = $wpdb->get_var($wpdb->prepare(
+            "SELECT id FROM $table WHERE promoter_id = %d AND event_id = %d LIMIT 1",
+            $row['promoter_id'], $row['event_id']
+        ));
+        if ($existing_id) {
+            $wpdb->update($table, $row, ['id' => intval($existing_id)]);
+            return intval($existing_id);
+        }
+
+        $wpdb->insert($table, $row);
         return $wpdb->insert_id;
     }
 
