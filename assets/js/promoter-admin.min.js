@@ -94,14 +94,14 @@
 
     function loadPromoters() {
         var $tbody = $('#tix-promoter-table tbody');
-        $tbody.html('<tr><td colspan="8" class="tix-loading"><div class="tix-spinner"></div></td></tr>');
+        $tbody.html('<tr><td colspan="9" class="tix-loading"><div class="tix-spinner"></div></td></tr>');
 
         $.post(tixPromoter.ajaxurl, {
             action: 'tix_promoter_list',
             nonce: tixPromoter.nonce
         }, function(r) {
             if (!r.success || !r.data.length) {
-                $tbody.html('<tr><td colspan="8" class="tix-empty">Keine Promoter vorhanden</td></tr>');
+                $tbody.html('<tr><td colspan="9" class="tix-empty">Keine Promoter vorhanden</td></tr>');
                 return;
             }
             var html = '';
@@ -109,6 +109,19 @@
             var siteUrl = tixPromoter.siteUrl || (window.location.origin + '/');
             $.each(r.data, function(i, p) {
                 var refUrl = siteUrl + '?ref=' + encodeURIComponent(p.promoter_code);
+
+                // Assignments-Spalte: Badge mit Klick-Action zum Events-Tab gefiltert
+                var assignBadges = '';
+                if (p.has_global) {
+                    assignBadges += '<span class="tix-promo-jump-events" data-promoter-id="' + p.id + '" style="display:inline-block;background:#fef3c7;color:#92400e;border:1px solid #fde68a;padding:2px 8px;border-radius:5px;font-size:11px;font-weight:700;cursor:pointer;letter-spacing:0.04em;margin-right:4px;" title="Globale Provision: ' + esc(p.global_display) + ' — klicken um Zuordnungen zu sehen">🌐 ' + esc(p.global_display) + '</span>';
+                }
+                if (p.event_count > 0) {
+                    assignBadges += '<span class="tix-promo-jump-events" data-promoter-id="' + p.id + '" style="display:inline-block;background:#dcfce7;color:#166534;border:1px solid #bbf7d0;padding:2px 8px;border-radius:5px;font-size:11px;font-weight:700;cursor:pointer;letter-spacing:0.04em;" title="' + p.event_count + ' Event-spezifische Zuordnungen — klicken um sie zu sehen">' + p.event_count + ' Event' + (p.event_count > 1 ? 's' : '') + '</span>';
+                }
+                if (!assignBadges) {
+                    assignBadges = '<span style="color:#94a3b8;font-size:11px;font-style:italic;">keine</span>';
+                }
+
                 html += '<tr>' +
                     '<td><strong>' + esc(p.display_name || p.promoter_code) + '</strong></td>' +
                     '<td>' +
@@ -123,6 +136,7 @@
                     '</td>' +
                     '<td>' + esc(p.user_email) + '</td>' +
                     '<td>' + p.status_badge + '</td>' +
+                    '<td style="white-space:nowrap;">' + assignBadges + '</td>' +
                     '<td>' + esc(p.total_sales) + '</td>' +
                     '<td>' + esc(p.total_commission) + '</td>' +
                     '<td>' + esc(p.pending_commission) + '</td>' +
@@ -469,6 +483,25 @@
             $('#tix-link-custom-input').trigger('input');
         }
     }
+
+    // Klick auf Zuordnungs-Badge → Events-Tab + Filter auf diesen Promoter
+    $(document).on('click', '.tix-promo-jump-events', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        var pid = $(this).data('promoter-id');
+        if (!pid) return;
+        // Tab wechseln
+        $('.tix-nav-tab').removeClass('active');
+        $('.tix-nav-tab[data-tab="events"]').addClass('active');
+        $('.tix-pane').removeClass('active');
+        $('[data-pane="events"]').addClass('active');
+        activeTab = 'events';
+        // Filter setzen (Dropdown #tix-assign-filter-promoter)
+        $('#tix-assign-filter-promoter').val(pid);
+        loadAssignments();
+        // Scroll nach oben
+        $('html, body').animate({ scrollTop: 0 }, 200);
+    });
 
     // Copy-Helper: jeder Button mit data-clip kopiert Inhalt + zeigt kurzes Feedback
     $(document).on('click', '.tix-promo-copy', function(e) {

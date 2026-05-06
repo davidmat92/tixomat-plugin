@@ -317,8 +317,35 @@ class TIX_Promoter_Admin {
 
         TIX_Promoter_DB::ensure_default_coupon_column();
         $rows = TIX_Promoter_DB::get_all_promoter_stats();
+
+        // Assignment-Counts pro Promoter holen (event_id > 0) + Global-Flag (event_id = 0)
+        global $wpdb;
+        $assign_table = TIX_Promoter_DB::table_events();
+        $counts = $wpdb->get_results(
+            "SELECT promoter_id,
+                    SUM(CASE WHEN event_id = 0 THEN 1 ELSE 0 END) AS has_global,
+                    SUM(CASE WHEN event_id > 0 THEN 1 ELSE 0 END) AS event_count,
+                    MAX(CASE WHEN event_id = 0 THEN commission_type END) AS global_type,
+                    MAX(CASE WHEN event_id = 0 THEN commission_value END) AS global_value
+             FROM $assign_table
+             WHERE status = 'active'
+             GROUP BY promoter_id",
+            OBJECT_K
+        );
+
         $data = [];
         foreach ($rows as $r) {
+            $cnt = $counts[$r->id] ?? null;
+            $event_count = $cnt ? intval($cnt->event_count) : 0;
+            $has_global  = $cnt ? !!intval($cnt->has_global) : false;
+            $global_disp = '';
+            if ($has_global && $cnt) {
+                $val = floatval($cnt->global_value);
+                $global_disp = ($cnt->global_type === 'percent')
+                    ? number_format($val, ($val == intval($val)) ? 0 : 1, ',', '.') . '%'
+                    : number_format($val, 2, ',', '.') . '€';
+            }
+
             $data[] = [
                 'id'                  => intval($r->id),
                 'promoter_code'       => $r->promoter_code,
@@ -329,6 +356,9 @@ class TIX_Promoter_Admin {
                 'notes'               => $r->notes ?? '',
                 'status'              => $r->status,
                 'status_badge'        => self::status_badge($r->status),
+                'event_count'         => $event_count,
+                'has_global'          => $has_global,
+                'global_display'      => $global_disp,
                 'total_sales'         => self::format_eur($r->total_sales),
                 'total_sales_raw'     => floatval($r->total_sales),
                 'total_commission'    => self::format_eur($r->total_commission),
@@ -1193,6 +1223,7 @@ class TIX_Promoter_Admin {
                                                 <th>Code</th>
                                                 <th>E-Mail</th>
                                                 <th>Status</th>
+                                                <th>Zuordnungen</th>
                                                 <th>Umsatz</th>
                                                 <th>Provision</th>
                                                 <th>Ausstehend</th>
@@ -1200,7 +1231,7 @@ class TIX_Promoter_Admin {
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            <tr><td colspan="8" class="tix-loading"><div class="tix-spinner"></div></td></tr>
+                                            <tr><td colspan="9" class="tix-loading"><div class="tix-spinner"></div></td></tr>
                                         </tbody>
                                     </table>
                                 </div>

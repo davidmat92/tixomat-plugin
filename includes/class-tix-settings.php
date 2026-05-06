@@ -6918,49 +6918,137 @@ class TIX_Settings {
                                                 </select>
                                                 <p class="tix-settings-hint"><strong>Magic-Link:</strong> Promoter gibt seine E-Mail ein, bekommt einen Login-Link per Mail (kein WP-Account n&ouml;tig). <strong>Beide:</strong> empfohlen f&uuml;r maximale Flexibilit&auml;t.</p>
                                             </div>
-                                            <div class="tix-field tix-field-full" style="border-top:1px solid #e5e7eb;padding-top:16px;margin-top:8px">
-                                                <h4 style="margin:0 0 4px">Standard-Provision (globaler Fallback)</h4>
-                                                <p class="tix-settings-hint" style="margin:0 0 12px">Gilt f&uuml;r alle Promoter und Events, wenn keine spezifische Provision gesetzt ist. <strong>Hierarchie:</strong> Event-spezifische Zuordnung &gt; globale Promoter-Zuordnung (&bdquo;Alle Events&ldquo;) &gt; Standard hier.</p>
+                                            <!-- ═══════════════════════════════════════
+                                                 SUB-CARD A: Standard-Provision (Live-Fallback)
+                                                 ═══════════════════════════════════════ -->
+                                            <div class="tix-field tix-field-full" style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:10px;padding:14px 18px;margin-top:8px;">
+                                                <h4 style="margin:0 0 6px;display:flex;align-items:center;gap:8px;color:#075985;font-size:14px;">
+                                                    <span class="dashicons dashicons-shield" style="color:#075985;"></span>
+                                                    Standard-Provision &mdash; Live-Fallback
+                                                    <span class="tix-tooltip" data-tix-tip="Wird zur Laufzeit angewandt — speichert NICHTS in der DB. Greift, wenn ein Promoter weder eine event-spezifische noch eine globale Zuordnung hat. Änderungen wirken sofort für alle." style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:#075985;color:#fff;font-size:11px;font-weight:700;cursor:help;">?</span>
+                                                </h4>
+                                                <p style="margin:0 0 10px;color:#075985;font-size:12px;line-height:1.6;">
+                                                    Gilt f&uuml;r <strong>alle</strong> Promoter und Events, wenn nirgendwo eine spezifische Provision gesetzt ist.
+                                                    <br><strong>Hierarchie:</strong> Event-spezifische Zuordnung &gt; globale Promoter-Zuordnung (&bdquo;Alle Events&ldquo;) &gt; <em>Standard hier</em>.
+                                                </p>
+                                                <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+                                                    <div>
+                                                        <label class="tix-field-label" style="font-size:12px;text-transform:uppercase;letter-spacing:0.04em;color:#0f172a;">Provisions-Typ</label>
+                                                        <?php $def_t = $s['promoter_default_commission_type'] ?? 'percent'; ?>
+                                                        <select name="<?php echo self::OPTION_KEY; ?>[promoter_default_commission_type]" style="width:100%;">
+                                                            <option value="percent" <?php selected($def_t, 'percent'); ?>>Prozent (%)</option>
+                                                            <option value="fixed"   <?php selected($def_t, 'fixed'); ?>>Festbetrag (&euro; pro Ticket)</option>
+                                                        </select>
+                                                    </div>
+                                                    <div>
+                                                        <label class="tix-field-label" style="font-size:12px;text-transform:uppercase;letter-spacing:0.04em;color:#0f172a;">Wert</label>
+                                                        <input type="number" step="0.01" min="0" max="100"
+                                                               name="<?php echo self::OPTION_KEY; ?>[promoter_default_commission_value]"
+                                                               value="<?php echo esc_attr(number_format(floatval($s['promoter_default_commission_value'] ?? 0), 2, '.', '')); ?>"
+                                                               style="width:100%;">
+                                                    </div>
+                                                </div>
+                                                <p style="margin:8px 0 0;color:#075985;font-size:11px;font-style:italic;">10 = 10% &middot; 2 = 2&euro; pro Ticket &middot; <strong>0</strong> = kein Default (nur explizite Zuordnungen geben Provision).</p>
                                             </div>
-                                            <div class="tix-field">
-                                                <label class="tix-field-label">Provisions-Typ</label>
-                                                <?php $def_t = $s['promoter_default_commission_type'] ?? 'percent'; ?>
-                                                <select name="<?php echo self::OPTION_KEY; ?>[promoter_default_commission_type]">
-                                                    <option value="percent" <?php selected($def_t, 'percent'); ?>>Prozent (%)</option>
-                                                    <option value="fixed"   <?php selected($def_t, 'fixed'); ?>>Festbetrag (&euro; pro Ticket)</option>
-                                                </select>
+
+                                            <!-- ═══════════════════════════════════════
+                                                 SUB-CARD B: Empfehlungsprogramm (Self-Signup)
+                                                 ═══════════════════════════════════════ -->
+                                            <div class="tix-field tix-field-full" style="background:#fefce8;border:1px solid #fde68a;border-radius:10px;padding:14px 18px;margin-top:14px;">
+                                                <h4 style="margin:0 0 6px;display:flex;align-items:center;gap:8px;color:#7c2d12;font-size:14px;">
+                                                    <span class="dashicons dashicons-megaphone" style="color:#7c2d12;"></span>
+                                                    Empfehlungsprogramm &mdash; Self-Signup
+                                                    <span class="tix-tooltip" data-tix-tip="Wird einmal bei Self-Signup-Anmeldung in die DB geschrieben. Aenderungen wirken NUR fuer NEUE Anmeldungen — bestehende Promoter behalten ihre alte Quote." style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:#7c2d12;color:#fff;font-size:11px;font-weight:700;cursor:help;">?</span>
+                                                </h4>
+                                                <p style="margin:0 0 10px;color:#7c2d12;font-size:12px;line-height:1.6;">
+                                                    L&auml;sst K&auml;ufer sich selbst als Promoter anmelden &uuml;ber den Shortcode <code style="background:rgba(255,255,255,0.7);padding:1px 6px;border-radius:4px;">[tix_promoter_signup]</code>.
+                                                    Die Provisions-Werte werden bei der Anmeldung als <strong>feste Zuordnung</strong> in der Datenbank gespeichert.
+                                                </p>
+
+                                                <div class="tix-field tix-field-full" style="margin-bottom:12px;">
+                                                    <?php self::checkbox_row('promoter_self_signup', 'Self-Signup erlauben', $s); ?>
+                                                </div>
+
+                                                <div id="tix-signup-fields" style="<?php echo empty($s['promoter_self_signup']) ? 'display:none;' : ''; ?>">
+                                                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+                                                        <div>
+                                                            <label class="tix-field-label" style="font-size:12px;text-transform:uppercase;letter-spacing:0.04em;color:#0f172a;">Initial-Provisions-Typ</label>
+                                                            <select name="tix_settings[promoter_signup_commission_type]" style="width:100%;">
+                                                                <option value="fixed" <?php selected($s['promoter_signup_commission_type'] ?? 'fixed', 'fixed'); ?>>Festbetrag (&euro;)</option>
+                                                                <option value="percent" <?php selected($s['promoter_signup_commission_type'] ?? 'fixed', 'percent'); ?>>Prozent (%)</option>
+                                                            </select>
+                                                        </div>
+                                                        <div>
+                                                            <label class="tix-field-label" style="font-size:12px;text-transform:uppercase;letter-spacing:0.04em;color:#0f172a;">Initial-Wert</label>
+                                                            <input type="text"
+                                                                   name="tix_settings[promoter_signup_commission_value]"
+                                                                   value="<?php echo esc_attr($s['promoter_signup_commission_value'] ?? '2'); ?>"
+                                                                   style="width:100%;"
+                                                                   placeholder="z.B. 2">
+                                                        </div>
+                                                    </div>
+                                                    <div class="tix-field tix-field-full" style="margin-top:12px;">
+                                                        <?php self::checkbox_row('promoter_signup_auto_events', 'Alle Events automatisch zuweisen', $s, 'Neue Self-Signup Promoter werden automatisch allen &ouml;ffentlichen Events zugewiesen.'); ?>
+                                                    </div>
+                                                    <div class="tix-field tix-field-full">
+                                                        <?php self::checkbox_row('promoter_post_purchase_enabled', 'Empfehlungs-CTA auf Danke-Seite', $s, 'Zeigt nach dem Kauf einen Aufruf: &bdquo;Teile deinen Link und verdiene pro Verkauf&ldquo;.'); ?>
+                                                    </div>
+                                                    <div class="tix-field tix-field-full">
+                                                        <?php self::checkbox_row('promoter_my_tickets_enabled', 'Referral-Link in Meine Tickets', $s, 'Zeigt den pers&ouml;nlichen Empfehlungslink im Meine-Tickets-Bereich.'); ?>
+                                                    </div>
+                                                </div>
                                             </div>
-                                            <div class="tix-field">
-                                                <label class="tix-field-label">Wert</label>
-                                                <input type="number" step="0.01" min="0" max="100"
-                                                       name="<?php echo self::OPTION_KEY; ?>[promoter_default_commission_value]"
-                                                       value="<?php echo esc_attr(number_format(floatval($s['promoter_default_commission_value'] ?? 0), 2, '.', '')); ?>"
-                                                       class="small-text">
-                                                <p class="tix-settings-hint">Bei Prozent: 10 = 10%. Bei Festbetrag: 2 = 2&euro; pro Ticket. <strong>0</strong> = kein automatischer Default (nur explizite Zuordnungen geben Provision).</p>
-                                            </div>
-                                            <div class="tix-field tix-field-full" style="border-top:1px solid #e5e7eb;padding-top:16px;margin-top:8px">
-                                                <h4 style="margin:0 0 8px">Empfehlungsprogramm</h4>
-                                            </div>
-                                            <div class="tix-field tix-field-full">
-                                                <?php self::checkbox_row('promoter_self_signup', 'Self-Signup erlauben', $s, 'K&auml;ufer k&ouml;nnen sich selbst als Promoter registrieren. Shortcode: <code>[tix_promoter_signup]</code>'); ?>
-                                            </div>
-                                            <div class="tix-field">
-                                                <label>Standard-Provisions-Typ</label>
-                                                <select name="tix_settings[promoter_signup_commission_type]">
-                                                    <option value="fixed" <?php selected($s['promoter_signup_commission_type'] ?? 'fixed', 'fixed'); ?>>Festbetrag (&euro;)</option>
-                                                    <option value="percent" <?php selected($s['promoter_signup_commission_type'] ?? 'fixed', 'percent'); ?>>Prozent (%)</option>
-                                                </select>
-                                            </div>
-                                            <?php self::text_row('promoter_signup_commission_value', 'Provisions-Wert', $s, '2'); ?>
-                                            <div class="tix-field tix-field-full">
-                                                <?php self::checkbox_row('promoter_signup_auto_events', 'Alle Events automatisch zuweisen', $s, 'Neue Self-Signup Promoter werden automatisch allen &ouml;ffentlichen Events zugewiesen.'); ?>
-                                            </div>
-                                            <div class="tix-field tix-field-full">
-                                                <?php self::checkbox_row('promoter_post_purchase_enabled', 'Empfehlungs-CTA auf Danke-Seite', $s, 'Zeigt nach dem Kauf einen Aufruf: &bdquo;Teile deinen Link und verdiene pro Verkauf&ldquo;.'); ?>
-                                            </div>
-                                            <div class="tix-field tix-field-full">
-                                                <?php self::checkbox_row('promoter_my_tickets_enabled', 'Referral-Link in Meine Tickets', $s, 'Zeigt den pers&ouml;nlichen Empfehlungslink im Meine-Tickets-Bereich.'); ?>
-                                            </div>
+
+                                            <!-- ═══════════════════════════════════════
+                                                 Tooltip-Markup + Self-Signup-Toggle-JS
+                                                 ═══════════════════════════════════════ -->
+                                            <style>
+                                                .tix-tooltip { position: relative; }
+                                                .tix-tooltip:hover::after,
+                                                .tix-tooltip:focus::after {
+                                                    content: attr(data-tix-tip);
+                                                    position: absolute;
+                                                    left: 50%;
+                                                    bottom: 100%;
+                                                    transform: translateX(-50%) translateY(-8px);
+                                                    background: #0f172a;
+                                                    color: #fff;
+                                                    padding: 8px 12px;
+                                                    border-radius: 6px;
+                                                    font-size: 12px;
+                                                    font-weight: 400;
+                                                    line-height: 1.5;
+                                                    width: 280px;
+                                                    text-align: left;
+                                                    white-space: normal;
+                                                    z-index: 1000;
+                                                    box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+                                                    pointer-events: none;
+                                                }
+                                                .tix-tooltip:hover::before,
+                                                .tix-tooltip:focus::before {
+                                                    content: '';
+                                                    position: absolute;
+                                                    left: 50%;
+                                                    bottom: 100%;
+                                                    transform: translateX(-50%);
+                                                    border: 6px solid transparent;
+                                                    border-top-color: #0f172a;
+                                                    z-index: 1000;
+                                                    pointer-events: none;
+                                                }
+                                            </style>
+                                            <script>
+                                                (function() {
+                                                    var checkbox = document.querySelector('input[name="tix_settings[promoter_self_signup]"]');
+                                                    var wrap = document.getElementById('tix-signup-fields');
+                                                    if (checkbox && wrap) {
+                                                        checkbox.addEventListener('change', function() {
+                                                            wrap.style.display = this.checked ? '' : 'none';
+                                                        });
+                                                    }
+                                                })();
+                                            </script>
                                         </div>
                                     </div>
                                 </div>
