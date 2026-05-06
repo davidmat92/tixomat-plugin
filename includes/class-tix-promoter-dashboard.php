@@ -570,9 +570,9 @@ class TIX_Promoter_Dashboard {
 
                 <?php if ($allow_wp): ?>
                 <!-- WP-Login-Form -->
-                <details style="margin-top:0;">
+                <details class="tix-pd-wp-login" style="margin-top:0;">
                     <summary style="cursor:pointer;font-size:13px;color:#64748b;text-align:center;list-style:none;padding:8px;">
-                        <span style="border-bottom:1px dashed #cbd5e1;">Mit WordPress-Konto anmelden</span>
+                        <span style="border-bottom:1px dashed #cbd5e1;">mit Nutzerkonto anmelden</span>
                     </summary>
                     <div style="margin-top:14px;">
                         <?php
@@ -587,6 +587,58 @@ class TIX_Promoter_Dashboard {
                         ?>
                     </div>
                 </details>
+                <style>
+                /* WP-Login-Form: konsistent zum Magic-Link-Design */
+                .tix-pd-wp-login summary::-webkit-details-marker { display: none; }
+                #tix-pd-login-form { display: flex; flex-direction: column; gap: 10px; }
+                #tix-pd-login-form p { margin: 0; display: flex; flex-direction: column; gap: 6px; }
+                #tix-pd-login-form label[for="user_login"],
+                #tix-pd-login-form label[for="user_pass"] {
+                    font-weight: 600; font-size: 13px; color: #0f172a;
+                }
+                #tix-pd-login-form input[type="text"],
+                #tix-pd-login-form input[type="password"] {
+                    padding: 11px 14px; border: 1px solid #d1d5db; border-radius: 8px;
+                    font-size: 14px; width: 100%; box-sizing: border-box;
+                    background: #fff; color: #0f172a;
+                }
+                #tix-pd-login-form input[type="text"]:focus,
+                #tix-pd-login-form input[type="password"]:focus {
+                    outline: none; border-color: var(--tix-acc-primary, #FF5500);
+                    box-shadow: 0 0 0 3px rgba(255,85,0,0.1);
+                }
+                #tix-pd-login-form .login-remember {
+                    flex-direction: row; align-items: center; gap: 8px;
+                    font-size: 13px; color: #475569;
+                }
+                #tix-pd-login-form .login-remember label {
+                    display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 500;
+                }
+                #tix-pd-login-form .login-remember input[type="checkbox"] { margin: 0; }
+                #tix-pd-login-form .login-submit {
+                    margin-top: 4px;
+                }
+                #tix-pd-login-form input[type="submit"],
+                #tix-pd-login-form #wp-submit {
+                    background: var(--tix-acc-primary, #FF5500) !important;
+                    color: #fff !important;
+                    border: none !important;
+                    border-radius: 8px !important;
+                    padding: 12px 18px !important;
+                    font-weight: 700 !important;
+                    cursor: pointer !important;
+                    font-size: 14px !important;
+                    width: 100%;
+                    text-shadow: none !important;
+                    box-shadow: none !important;
+                    height: auto !important;
+                    line-height: 1.2 !important;
+                }
+                #tix-pd-login-form input[type="submit"]:hover,
+                #tix-pd-login-form #wp-submit:hover {
+                    filter: brightness(1.05);
+                }
+                </style>
                 <?php endif; ?>
             </div>
         </div>
