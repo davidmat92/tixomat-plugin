@@ -170,12 +170,25 @@
 
     function renderOverview(d) {
         var kpis = d.kpis;
+        // KPI-Grid komplett neu rendern — showLoading hatte das Markup vorher überschrieben
         if (kpis) {
-            // Update bestehende Spans (HTML-Skeleton beibehalten für Icon-Layout)
-            $('#tix-pd-kpi-total-sales').html(kpis.total_sales || '0');
-            $('#tix-pd-kpi-total-commission').html(kpis.total_commission || '0');
-            $('#tix-pd-kpi-pending').html(kpis.pending_commission || '0');
-            $('#tix-pd-kpi-events').html(kpis.events_count || '0');
+            var items = [
+                { ic: 'chart-area', lbl: 'Gesamtumsatz',     val: kpis.total_sales },
+                { ic: 'money-alt',  lbl: 'Provision gesamt', val: kpis.total_commission },
+                { ic: 'clock',      lbl: 'Ausstehend',       val: kpis.pending_commission },
+                { ic: 'calendar-alt', lbl: 'Aktive Events',  val: kpis.events_count }
+            ];
+            var khtml = '';
+            $.each(items, function(i, k) {
+                khtml += '<div class="tix-pd-kpi">' +
+                    '<div class="tix-pd-kpi-icon"><span class="dashicons dashicons-' + k.ic + '"></span></div>' +
+                    '<div class="tix-pd-kpi-body">' +
+                        '<span class="tix-pd-kpi-label">' + esc(k.lbl) + '</span>' +
+                        '<span class="tix-pd-kpi-value">' + (k.val !== undefined && k.val !== null ? k.val : '–') + '</span>' +
+                    '</div>' +
+                '</div>';
+            });
+            $('#tix-pd-kpis').html(khtml);
         }
 
         // Referral-Links — Allgemeiner Link prominent, dann Event-spezifisch
@@ -440,15 +453,46 @@
     function ajax(action, params, callback) {
         var data = $.extend({ action: action, nonce: tixPD.nonce }, params);
         $.post(tixPD.ajax, data, function(r) {
-            if (r.success && r.data) {
+            if (r && r.success && r.data) {
                 callback(r.data);
+                return;
             }
+            // WP gibt -1 oder 0 als String zurück bei Nonce-Fail / Auth-Fehler
+            var msg = (r && r.data && r.data.message) ? r.data.message : 'Daten konnten nicht geladen werden.';
+            console.error('[Promoter-Dashboard] AJAX-Fehler:', action, r);
+            replaceLoadingWithError(msg);
+        }).fail(function(xhr) {
+            console.error('[Promoter-Dashboard] Netzwerk-Fehler:', action, xhr.status);
+            replaceLoadingWithError('Verbindungsfehler — bitte Seite neu laden.');
+        });
+    }
+
+    function replaceLoadingWithError(msg) {
+        // Tabellen-Spinner durch Fehlerzeile ersetzen
+        $('.tix-pd-loading').each(function() {
+            var $tr = $(this).closest('tr');
+            if ($tr.length) {
+                var cols = $tr.find('td').attr('colspan') || 1;
+                $tr.html('<td colspan="' + cols + '" style="color:#dc2626;text-align:center;padding:16px;font-size:13px;">⚠ ' + esc(msg) + '</td>');
+            } else {
+                $(this).html('<span style="color:#dc2626;font-size:13px;">⚠ ' + esc(msg) + '</span>');
+            }
+        });
+        // Inline-Spinner-Wrapper (nicht in Tabelle)
+        $('.tix-pd-spinner').not('.tix-pd-loading .tix-pd-spinner').each(function() {
+            $(this).replaceWith('<span style="color:#dc2626;font-size:13px;">⚠ ' + esc(msg) + '</span>');
         });
     }
 
     function showLoading(selector, cols) {
         cols = cols || 1;
-        $(selector).html('<tr><td colspan="' + cols + '" class="tix-pd-loading"><div class="tix-pd-spinner"></div></td></tr>');
+        // Wenn Selector eine Tabelle/<tbody> trifft → <tr><td>-Spinner. Sonst: <div>-Spinner.
+        var $el = $(selector);
+        if ($el.is('tbody') || $el.find('tr').length > 0 || $el.attr('id') && $el.attr('id').endsWith('-body')) {
+            $el.html('<tr><td colspan="' + cols + '" class="tix-pd-loading"><div class="tix-pd-spinner"></div></td></tr>');
+        } else {
+            $el.html('<div class="tix-pd-loading" style="text-align:center;padding:24px;"><div class="tix-pd-spinner"></div></div>');
+        }
     }
 
     function renderTab(tab, d) {

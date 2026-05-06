@@ -411,6 +411,14 @@ class TIX_Promoter_Dashboard {
 
         <style>
         /* Promoter-Dashboard im my-account-Look — Overrides */
+        .tix-account.tix-pd .tix-account-content {
+            min-width: 0;       /* Verhindert Grid-Overflow bei langen Inhalten */
+            overflow-wrap: break-word;
+            word-wrap: break-word;
+        }
+        .tix-account.tix-pd .tix-pd-header { min-width: 0; }
+        .tix-account.tix-pd .tix-pd-header > div { min-width: 0; flex: 1; }
+        .tix-account.tix-pd .tix-pd-welcome { word-break: break-word; }
         .tix-account.tix-pd .tix-pd-tabs { display: none !important; }
         .tix-account.tix-pd .tix-pd-panels { display: block; }
         .tix-account.tix-pd .tix-pd-panel { display: none; }
@@ -439,7 +447,7 @@ class TIX_Promoter_Dashboard {
             display: block; font-size: 22px; font-weight: 800; color: #0f172a; line-height: 1.2;
         }
         .tix-account.tix-pd .tix-pd-table-wrap {
-            background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; overflow: hidden;
+            background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; overflow-x: auto;
         }
         .tix-account.tix-pd .tix-pd-table {
             width: 100%; border-collapse: collapse; font-size: 13px;
@@ -467,11 +475,20 @@ class TIX_Promoter_Dashboard {
         }
         .tix-account.tix-pd .tix-pd-chart-wrap {
             background: #fff; border: 1px solid #e5e7eb; border-radius: 12px;
-            padding: 18px; margin-top: 24px;
+            padding: 18px; margin-top: 24px; box-sizing: border-box; max-width: 100%; overflow-x: auto;
         }
         .tix-account.tix-pd .tix-pd-links-wrap {
             background: #fff; border: 1px solid #e5e7eb; border-radius: 12px;
-            padding: 18px; margin-top: 24px;
+            padding: 18px; margin-top: 24px; box-sizing: border-box; max-width: 100%;
+        }
+        .tix-account.tix-pd input[type="text"][readonly] {
+            min-width: 0; max-width: 100%;
+        }
+        .tix-account.tix-pd .tix-pd-event-links-grid {
+            box-sizing: border-box;
+        }
+        .tix-account.tix-pd .tix-pd-event-links-grid > * {
+            min-width: 0; box-sizing: border-box;
         }
         @media (max-width: 768px) {
             .tix-account.tix-pd .tix-pd-kpis { grid-template-columns: 1fr 1fr; }
