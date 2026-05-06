@@ -15,10 +15,11 @@
     function initTabs() {
         $('.tix-pd').on('click', '.tix-pd-tab', function() {
             var tab = $(this).data('tab');
-            $('.tix-pd-tab').removeClass('active');
-            $(this).addClass('active');
-            $('.tix-pd-pane').removeClass('active');
-            $('[data-pane="' + tab + '"]').addClass('active');
+            $('.tix-pd-tab').removeClass('active').attr('aria-selected', 'false');
+            $(this).addClass('active').attr('aria-selected', 'true');
+            // Selector korrigiert: HTML nutzt .tix-pd-panel + data-tab (nicht .tix-pd-pane / data-pane)
+            $('.tix-pd-panel').removeClass('active');
+            $('.tix-pd-panel[data-tab="' + tab + '"]').addClass('active');
             activeTab = tab;
             loadTab(tab);
         });
@@ -179,16 +180,21 @@
         }
         var html = '';
         $.each(d.events, function(i, e) {
-            html += '<tr>' +
-                '<td><strong>' + esc(e.title) + '</strong></td>' +
-                '<td>' + esc(e.date) + '</td>' +
+            // PHP liefert event_title/event_date — fallback auf title/date für Abwärtskompat.
+            var title = e.event_title || e.title || '';
+            var date  = e.event_date  || e.date  || '';
+            var link  = e.referral_link || '';
+            var rowStyle = e.is_global ? 'background:#fef3c7;' : '';
+            html += '<tr style="' + rowStyle + '">' +
+                '<td><strong>' + esc(title) + '</strong></td>' +
+                '<td>' + esc(date) + '</td>' +
                 '<td>' +
-                    '<span class="tix-pd-link">' + esc(e.referral_link) + '</span> ' +
-                    '<button class="tix-pd-copy" data-copy="' + esc(e.referral_link) + '"><span class="tix-pd-copy-label">Kopieren</span></button>' +
+                    '<span class="tix-pd-link" style="word-break:break-all;font-size:11px;">' + esc(link) + '</span> ' +
+                    '<button class="tix-pd-copy" data-copy="' + esc(link) + '"><span class="tix-pd-copy-label">Kopieren</span></button>' +
                 '</td>' +
                 '<td>' + (e.promo_code ? '<code>' + esc(e.promo_code) + '</code> <button class="tix-pd-copy" data-copy="' + esc(e.promo_code) + '"><span class="tix-pd-copy-label">Kopieren</span></button>' : '–') + '</td>' +
                 '<td>' + esc(e.commission) + '</td>' +
-                '<td>' + esc(e.discount || '–') + '</td>' +
+                '<td>' + (e.discount || '–') + '</td>' +
                 '</tr>';
         });
         $tbody.html(html);

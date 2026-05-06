@@ -192,7 +192,7 @@ class TIX_Promoter_Dashboard {
                                     <th>Rabatt</th>
                                 </tr>
                             </thead>
-                            <tbody>
+                            <tbody id="tix-pd-events-body">
                                 <tr><td colspan="6" class="tix-pd-loading">Lade Daten&hellip;</td></tr>
                             </tbody>
                         </table>
@@ -225,7 +225,7 @@ class TIX_Promoter_Dashboard {
                                     <th>Attribution</th>
                                 </tr>
                             </thead>
-                            <tbody>
+                            <tbody id="tix-pd-sales-body">
                                 <tr><td colspan="6" class="tix-pd-loading">Lade Daten&hellip;</td></tr>
                             </tbody>
                         </table>
@@ -247,7 +247,7 @@ class TIX_Promoter_Dashboard {
                                     <th>Status</th>
                                 </tr>
                             </thead>
-                            <tbody>
+                            <tbody id="tix-pd-commissions-body">
                                 <tr><td colspan="6" class="tix-pd-loading">Lade Daten&hellip;</td></tr>
                             </tbody>
                         </table>
@@ -269,7 +269,7 @@ class TIX_Promoter_Dashboard {
                                     <th>Bezahlt am</th>
                                 </tr>
                             </thead>
-                            <tbody>
+                            <tbody id="tix-pd-payouts-body">
                                 <tr><td colspan="6" class="tix-pd-loading">Lade Daten&hellip;</td></tr>
                             </tbody>
                         </table>
@@ -403,27 +403,44 @@ class TIX_Promoter_Dashboard {
         $assignments = TIX_Promoter_DB::get_promoter_events($promoter->id);
         $rows = [];
 
+        // Globale Zuordnung (event_id=0) separat behandeln + ALLE bookable Events listen
+        $global = null;
+        $event_specific = [];
         foreach ($assignments as $a) {
-            $event_id   = intval($a->event_id);
-            $event_title = $a->event_title ?: get_the_title($event_id);
-            $permalink   = get_permalink($event_id);
+            if (intval($a->event_id) === 0) {
+                $global = $a;
+            } else {
+                $event_specific[intval($a->event_id)] = $a;
+            }
+        }
+
+        $build_row = function($a, $event_id, $event_title) use ($promoter) {
+            $is_global = ($event_id === 0);
 
             // Referral-Link
-            $referral_link = $permalink
-                ? add_query_arg('ref', $promoter->promoter_code, $permalink)
-                : home_url('/?p=' . $event_id . '&ref=' . $promoter->promoter_code);
-
-            // Event-Datum (aus Event Meta)
-            $event_date = '';
-            $date_raw = get_post_meta($event_id, '_EventStartDate', true)
-                        ?: get_post_meta($event_id, '_tix_event_date', true)
-                        ?: get_post_meta($event_id, 'event_date_time', true);
-            if ($date_raw) {
-                $dt = strtotime($date_raw);
-                $event_date = $dt ? date_i18n('d.m.Y', $dt) : '';
+            if ($is_global) {
+                $referral_link = add_query_arg('ref', $promoter->promoter_code, home_url('/'));
+            } else {
+                $permalink = get_permalink($event_id);
+                $referral_link = $permalink
+                    ? add_query_arg('ref', $promoter->promoter_code, $permalink)
+                    : add_query_arg(['p' => $event_id, 'ref' => $promoter->promoter_code], home_url('/'));
             }
 
-            // Provision-Anzeige
+            // Event-Datum
+            $event_date = '';
+            if (!$is_global && $event_id) {
+                $date_raw = get_post_meta($event_id, '_tix_date_start', true)
+                            ?: get_post_meta($event_id, '_EventStartDate', true)
+                            ?: get_post_meta($event_id, '_tix_event_date', true)
+                            ?: get_post_meta($event_id, 'event_date_time', true);
+                if ($date_raw) {
+                    $dt = strtotime($date_raw);
+                    $event_date = $dt ? date_i18n('d.m.Y', $dt) : '';
+                }
+            }
+
+            // Provision
             $commission_display = '';
             if ($a->commission_type === 'percent') {
                 $commission_display = number_format(floatval($a->commission_value), 1, ',', '.') . ' %';
@@ -431,7 +448,7 @@ class TIX_Promoter_Dashboard {
                 $commission_display = self::format_currency(floatval($a->commission_value));
             }
 
-            // Rabatt-Anzeige
+            // Rabatt
             $discount_display = '';
             if (!empty($a->discount_type) && floatval($a->discount_value) > 0) {
                 if ($a->discount_type === 'percent') {
@@ -441,15 +458,48 @@ class TIX_Promoter_Dashboard {
                 }
             }
 
-            $rows[] = [
-                'event_id'       => $event_id,
-                'event_title'    => $event_title,
-                'event_date'     => $event_date,
-                'referral_link'  => $referral_link,
-                'promo_code'     => $a->promo_code ?: '',
-                'commission'     => $commission_display,
-                'discount'       => $discount_display ?: '&ndash;',
+            return [
+                'event_id'      => $event_id,
+                'event_title'   => $is_global ? '🌐 Alle Events (Allgemeiner Link)' : ($event_title ?: '(Event #' . $event_id . ')'),
+                'event_date'    => $event_date ?: ($is_global ? 'Dauerhaft' : ''),
+                'referral_link' => $referral_link,
+                'promo_code'    => $a->promo_code ?: '',
+                'commission'    => $commission_display,
+                'discount'      => $discount_display ?: '&ndash;',
+                'is_global'     => $is_global,
             ];
+        };
+
+        // Globale Zuordnung als erste Zeile
+        if ($global) {
+            $rows[] = $build_row($global, 0, '');
+        }
+
+        // Event-spezifische Zuordnungen
+        foreach ($event_specific as $eid => $a) {
+            $rows[] = $build_row($a, $eid, $a->event_title);
+        }
+
+        // Wenn globale Zuordnung existiert → ALLE bookable Events ergänzen,
+        // damit der Promoter pro Event einen Link mitnehmen kann (jeweils mit Global-Provision)
+        if ($global) {
+            $bookable = get_posts([
+                'post_type'      => 'event',
+                'post_status'    => 'publish',
+                'posts_per_page' => 100,
+                'meta_query'     => [
+                    'relation' => 'OR',
+                    [ 'key' => '_tix_date_start', 'value' => date('Y-m-d'), 'compare' => '>=', 'type' => 'DATE' ],
+                    [ 'key' => '_tix_date_start', 'compare' => 'NOT EXISTS' ],
+                ],
+                'orderby'        => 'meta_value',
+                'meta_key'       => '_tix_date_start',
+                'order'          => 'ASC',
+            ]);
+            foreach ($bookable as $ev) {
+                if (isset($event_specific[$ev->ID])) continue; // schon explizit zugeordnet
+                $rows[] = $build_row($global, $ev->ID, $ev->post_title);
+            }
         }
 
         wp_send_json_success(['events' => $rows]);
