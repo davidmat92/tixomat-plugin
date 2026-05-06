@@ -8,7 +8,34 @@
     $(function() {
         initTabs();
         populateDropdowns();
-        loadTab('promoters');
+
+        // Deep-Link aus Event-Editor: ?pre_event=123&pre_open=assign
+        var qs = new URLSearchParams(window.location.search);
+        var preEvent = parseInt(qs.get('pre_event'), 10) || 0;
+        var preOpen  = qs.get('pre_open') || '';
+
+        if (preEvent && preOpen === 'assign') {
+            // Auf Events-Tab wechseln
+            $('.tix-nav-tab').removeClass('active');
+            $('.tix-nav-tab[data-tab="events"]').addClass('active');
+            $('.tix-pane').removeClass('active');
+            $('[data-pane="events"]').addClass('active');
+            activeTab = 'events';
+            loadAssignments();
+
+            // Form sichtbar machen + Event vorauswählen
+            setTimeout(function() {
+                $('#tix-assign-form').show();
+                $('#tix-af-event').val(preEvent).trigger('change');
+                // Scroll zur Form
+                var $form = $('#tix-assign-form');
+                if ($form.length) {
+                    $('html, body').animate({ scrollTop: $form.offset().top - 80 }, 300);
+                }
+            }, 200);
+        } else {
+            loadTab('promoters');
+        }
     });
 
     /* ── Tabs ── */
@@ -103,6 +130,9 @@
                         '<button class="button button-small button-primary tix-promo-link-gen" data-id="' + p.id + '" data-code="' + esc(p.promoter_code) + '" data-name="' + esc(p.display_name || p.promoter_code) + '" data-default-coupon="' + esc(p.default_coupon_code || '') + '" title="Link-Generator öffnen">' +
                             '<span class="dashicons dashicons-admin-links" style="font-size:14px;width:14px;height:14px;vertical-align:text-top;line-height:1;"></span> Link erstellen' +
                         '</button> ' +
+                        '<button class="button button-small tix-promo-globalcom" data-id="' + p.id + '" data-name="' + esc(p.display_name || p.promoter_code) + '" title="Globale Provision für alle Events setzen">' +
+                            '<span class="dashicons dashicons-money-alt" style="font-size:14px;width:14px;height:14px;vertical-align:text-top;line-height:1;"></span> Globale Provision' +
+                        '</button> ' +
                         '<button class="button button-small tix-promo-edit" data-id="' + p.id + '" data-code="' + esc(p.promoter_code) + '" data-name="' + esc(p.display_name) + '" data-default-coupon="' + esc(p.default_coupon_code || '') + '" data-notes="' + esc(p.notes || '') + '">Bearbeiten</button> ' +
                         (p.status === 'active' ?
                             '<button class="button button-small tix-promo-deactivate" data-id="' + p.id + '">Deaktivieren</button>' :
@@ -113,6 +143,129 @@
             $tbody.html(html);
         });
     }
+
+    /* ════════════════════════════════
+       GLOBALE-PROVISION MODAL (Quick-Action)
+       ════════════════════════════════ */
+    var gcModal = { promoterId: 0 };
+
+    function gcMsg(text, kind) {
+        var $msg = $('#tix-gc-msg');
+        if (!text) { $msg.hide(); return; }
+        var styles = kind === 'error'
+            ? {background:'#fef2f2',border:'1px solid #fecaca',color:'#991b1b'}
+            : {background:'#ecfdf5',border:'1px solid #a7f3d0',color:'#065f46'};
+        $msg.css(styles).text(text).show();
+    }
+
+    function gcRenderCurrent(data) {
+        if (data.has_global) {
+            var disp = (data.commission_type === 'percent')
+                ? Number(data.commission_value).toFixed(2).replace(/\.?0+$/, '').replace('.', ',') + ' %'
+                : Number(data.commission_value).toFixed(2).replace('.', ',') + ' €';
+            $('#tix-gc-current-display').text(disp);
+            $('#tix-gc-current-wrap').show();
+            $('#tix-gc-type').val(data.commission_type);
+            $('#tix-gc-value').val(data.commission_value);
+        } else {
+            $('#tix-gc-current-wrap').hide();
+            $('#tix-gc-type').val('percent');
+            $('#tix-gc-value').val('');
+        }
+    }
+
+    $(document).on('click', '.tix-promo-globalcom', function(e) {
+        e.preventDefault();
+        var $btn = $(this);
+        gcModal.promoterId = parseInt($btn.data('id'), 10) || 0;
+        $('#tix-gc-name').text(String($btn.data('name') || ''));
+        gcMsg('');
+
+        // Aktuelle globale Provision laden
+        $.post(tixPromoter.ajaxurl, {
+            action: 'tix_promoter_global_commission',
+            nonce: tixPromoter.nonce,
+            promoter_id: gcModal.promoterId,
+            op: 'get'
+        }, function(r) {
+            if (r && r.success) {
+                gcRenderCurrent(r.data);
+            } else {
+                gcRenderCurrent({has_global: false});
+            }
+        });
+
+        $('#tix-gc-modal').css('display', 'block');
+        document.body.style.overflow = 'hidden';
+    });
+
+    $(document).on('click', '.tix-gc-close, .tix-gc-modal-backdrop', function() {
+        $('#tix-gc-modal').hide();
+        document.body.style.overflow = '';
+    });
+
+    $(document).on('click', '#tix-gc-save', function() {
+        var $btn = $(this);
+        var type = $('#tix-gc-type').val();
+        var value = parseFloat(String($('#tix-gc-value').val()).replace(',', '.'));
+        if (!value || value <= 0) {
+            gcMsg('Bitte einen Wert > 0 eingeben.', 'error');
+            return;
+        }
+        $btn.prop('disabled', true).text('Speichere…');
+        $.post(tixPromoter.ajaxurl, {
+            action: 'tix_promoter_global_commission',
+            nonce: tixPromoter.nonce,
+            promoter_id: gcModal.promoterId,
+            op: 'save',
+            commission_type: type,
+            commission_value: value
+        }, function(r) {
+            $btn.prop('disabled', false).text('Speichern');
+            if (r && r.success) {
+                gcMsg(r.data.message || 'Gespeichert.', 'success');
+                // Aktuelle Anzeige aktualisieren
+                gcRenderCurrent({has_global: true, commission_type: type, commission_value: value});
+                setTimeout(function() {
+                    $('#tix-gc-modal').hide();
+                    document.body.style.overflow = '';
+                    loadPromoters();
+                    loadAssignments && loadAssignments();
+                }, 800);
+            } else {
+                gcMsg((r && r.data) || 'Fehler beim Speichern.', 'error');
+            }
+        }).fail(function() {
+            $btn.prop('disabled', false).text('Speichern');
+            gcMsg('Netzwerkfehler.', 'error');
+        });
+    });
+
+    $(document).on('click', '#tix-gc-delete', function() {
+        if (!confirm('Globale Provision für diesen Promoter wirklich entfernen? (Settings-Default greift dann.)')) return;
+        var $btn = $(this);
+        $btn.prop('disabled', true);
+        $.post(tixPromoter.ajaxurl, {
+            action: 'tix_promoter_global_commission',
+            nonce: tixPromoter.nonce,
+            promoter_id: gcModal.promoterId,
+            op: 'delete'
+        }, function(r) {
+            $btn.prop('disabled', false);
+            if (r && r.success) {
+                gcMsg(r.data.message || 'Entfernt.', 'success');
+                gcRenderCurrent({has_global: false});
+                setTimeout(function() {
+                    $('#tix-gc-modal').hide();
+                    document.body.style.overflow = '';
+                    loadPromoters();
+                    loadAssignments && loadAssignments();
+                }, 800);
+            } else {
+                gcMsg((r && r.data) || 'Fehler beim Entfernen.', 'error');
+            }
+        });
+    });
 
     /* ════════════════════════════════
        LINK-GENERATOR MODAL

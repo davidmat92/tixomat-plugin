@@ -36,6 +36,7 @@ class TIX_Promoter_Admin {
             'tix_promoter_payouts',
             'tix_promoter_stats',
             'tix_promoter_generate_code',
+            'tix_promoter_global_commission',  // Quick-Action: globale Provision pro Promoter
         ];
         foreach ($actions as $a) {
             add_action('wp_ajax_' . $a, [__CLASS__, 'ajax_' . str_replace('tix_promoter_', '', $a)]);
@@ -405,6 +406,65 @@ class TIX_Promoter_Admin {
             ];
         }
         wp_send_json_success($results);
+    }
+
+    /* ──── Globale Provision (Quick-Action pro Promoter) ──── */
+
+    public static function ajax_global_commission() {
+        check_ajax_referer('tix_promoter_admin', 'nonce');
+        if (!current_user_can('manage_options')) wp_send_json_error('Keine Berechtigung.');
+        if (!class_exists('TIX_Promoter_DB')) wp_send_json_error('Datenbank nicht verfuegbar.');
+
+        $promoter_id = intval($_POST['promoter_id'] ?? 0);
+        $op          = sanitize_text_field($_POST['op'] ?? 'get'); // get | save | delete
+        if (!$promoter_id) wp_send_json_error('Promoter-ID fehlt.');
+
+        global $wpdb;
+        $table = TIX_Promoter_DB::table_events();
+
+        // Aktuelle globale Zuordnung holen (egal welcher op — wird in Antwort gebraucht)
+        $current = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM $table WHERE promoter_id = %d AND event_id = 0 AND status = 'active'",
+            $promoter_id
+        ));
+
+        if ($op === 'get') {
+            wp_send_json_success([
+                'has_global' => !!$current,
+                'commission_type'  => $current ? $current->commission_type : 'percent',
+                'commission_value' => $current ? floatval($current->commission_value) : 0,
+            ]);
+        }
+
+        if ($op === 'delete') {
+            if (!$current) wp_send_json_error('Keine globale Provision vorhanden.');
+            TIX_Promoter_DB::unassign_event(intval($current->id));
+            wp_send_json_success(['message' => 'Globale Provision entfernt.']);
+        }
+
+        // op === 'save'
+        $type  = in_array($_POST['commission_type'] ?? '', ['percent', 'fixed']) ? $_POST['commission_type'] : 'percent';
+        $value = floatval(str_replace(',', '.', $_POST['commission_value'] ?? '0'));
+        if ($value <= 0) wp_send_json_error('Wert muss > 0 sein.');
+
+        if ($current) {
+            // Update existing
+            TIX_Promoter_DB::update_assignment(intval($current->id), [
+                'commission_type'  => $type,
+                'commission_value' => $value,
+            ]);
+            wp_send_json_success(['message' => 'Globale Provision aktualisiert.']);
+        }
+
+        // Neu anlegen
+        $new_id = TIX_Promoter_DB::assign_event([
+            'promoter_id'      => $promoter_id,
+            'event_id'         => 0,
+            'commission_type'  => $type,
+            'commission_value' => $value,
+        ]);
+        if (!$new_id) wp_send_json_error('Fehler beim Speichern.');
+        wp_send_json_success(['id' => $new_id, 'message' => 'Globale Provision gespeichert.']);
     }
 
     /* ──── Event-Zuordnung erstellen ──── */
@@ -918,13 +978,18 @@ class TIX_Promoter_Admin {
         }
 
         $promoters = TIX_Promoter_DB::get_event_promoters($post->ID);
-        $manage_url = admin_url('admin.php?page=tix-promoters');
+        // Deep-Link mit pre_event-Param: JS auf der Promoter-Seite oeffnet den Events-Tab + Form mit pre-selected Event
+        $manage_url = add_query_arg([
+            'page'      => 'tix-promoters',
+            'pre_event' => intval($post->ID),
+            'pre_open'  => 'assign',
+        ], admin_url('admin.php'));
 
         if (empty($promoters)) {
             echo '<div class="tix-promoter-event-empty">';
             echo '<p style="margin:0 0 12px;"><span class="dashicons dashicons-businessman" style="font-size:32px;width:32px;height:32px;color:#cbd5e1;"></span></p>';
             echo '<p style="margin:0 0 8px;">Keine Promoter f&uuml;r dieses Event zugeordnet.</p>';
-            echo '<a href="' . esc_url($manage_url) . '" class="button">Promoter zuordnen &rarr;</a>';
+            echo '<a href="' . esc_url($manage_url) . '" class="button button-primary">Promoter zuordnen &rarr;</a>';
             echo '</div>';
             return;
         }
@@ -975,7 +1040,7 @@ class TIX_Promoter_Admin {
         }
 
         echo '</tbody></table></div>';
-        echo '<p style="margin-top:12px;"><a href="' . esc_url($manage_url) . '" class="button button-small">Promoter verwalten &rarr;</a></p>';
+        echo '<p style="margin-top:12px;"><a href="' . esc_url($manage_url) . '" class="button button-small">Weiteren Promoter zuordnen &rarr;</a></p>';
 
         // Inline Copy-JS (kein extra Script nötig)
         ?>
@@ -1459,6 +1524,50 @@ class TIX_Promoter_Admin {
                 </div><!-- /.tix-app -->
             </div><!-- /.tix-settings-grid -->
         </div><!-- /.wrap -->
+
+        <!-- ═══════════════════════════════════════
+             GLOBALE-PROVISION MODAL
+             ═══════════════════════════════════════ -->
+        <div class="tix-gc-modal" id="tix-gc-modal" style="display:none;position:fixed;inset:0;z-index:99999;">
+            <div class="tix-gc-modal-backdrop" style="position:absolute;inset:0;background:rgba(15,23,42,0.55);backdrop-filter:blur(2px);"></div>
+            <div class="tix-gc-modal-dialog" style="position:relative;max-width:520px;margin:60px auto;background:#fff;border-radius:14px;box-shadow:0 24px 64px rgba(15,23,42,0.25);overflow:hidden;">
+                <header style="display:flex;align-items:center;justify-content:space-between;padding:16px 22px;border-bottom:1px solid #e5e7eb;">
+                    <div>
+                        <h2 style="margin:0;font-size:18px;font-weight:700;">💰 Globale Provision</h2>
+                        <p style="margin:2px 0 0;color:#64748b;font-size:13px;">Promoter: <strong id="tix-gc-name">—</strong></p>
+                    </div>
+                    <button type="button" class="tix-gc-close button button-small" style="font-size:18px;line-height:1;padding:4px 10px;">&times;</button>
+                </header>
+                <div style="padding:22px;display:flex;flex-direction:column;gap:14px;">
+                    <p style="margin:0;color:#64748b;font-size:13px;">
+                        Diese Provision gilt für <strong>alle Events</strong> dieses Promoters &mdash;
+                        außer wo eine Event-spezifische Zuordnung existiert (die hat Vorrang).
+                    </p>
+                    <div id="tix-gc-current-wrap" style="display:none;background:#fef3c7;border:1px solid #fde68a;border-radius:8px;padding:10px 14px;font-size:13px;color:#92400e;">
+                        <strong>Aktuell gesetzt:</strong> <span id="tix-gc-current-display">—</span>
+                        <button type="button" id="tix-gc-delete" style="float:right;background:transparent;border:1px solid #f59e0b;color:#92400e;border-radius:6px;padding:3px 10px;cursor:pointer;font-size:12px;font-weight:600;">Entfernen</button>
+                    </div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                        <div>
+                            <label style="font-weight:600;font-size:13px;color:#0f172a;display:block;margin-bottom:4px;">Provisions-Typ</label>
+                            <select id="tix-gc-type" style="width:100%;padding:9px;border:1px solid #d1d5db;border-radius:6px;">
+                                <option value="percent">Prozent (%)</option>
+                                <option value="fixed">Festbetrag (&euro; pro Ticket)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label style="font-weight:600;font-size:13px;color:#0f172a;display:block;margin-bottom:4px;">Wert</label>
+                            <input type="number" id="tix-gc-value" step="0.01" min="0" placeholder="z.B. 10" style="width:100%;padding:9px;border:1px solid #d1d5db;border-radius:6px;box-sizing:border-box;">
+                        </div>
+                    </div>
+                    <div id="tix-gc-msg" style="display:none;padding:8px 12px;border-radius:6px;font-size:13px;"></div>
+                </div>
+                <footer style="padding:14px 22px;border-top:1px solid #e5e7eb;display:flex;justify-content:flex-end;gap:8px;background:#f9fafb;">
+                    <button type="button" class="tix-gc-close button">Abbrechen</button>
+                    <button type="button" id="tix-gc-save" class="button button-primary">Speichern</button>
+                </footer>
+            </div>
+        </div>
 
         <!-- ═══════════════════════════════════════
              LINK-GENERATOR MODAL
