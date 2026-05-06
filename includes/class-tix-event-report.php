@@ -19,6 +19,12 @@ class TIX_Event_Report {
     public static function init() {
         add_action('admin_menu', [__CLASS__, 'register_menu']);
         add_action('admin_post_tix_event_report_export', [__CLASS__, 'handle_export']);
+        add_action('admin_enqueue_scripts', [__CLASS__, 'enqueue']);
+    }
+
+    public static function enqueue($hook) {
+        if ($hook !== 'tixomat_page_tix-event-report') return;
+        wp_enqueue_script('chartjs', 'https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js', [], '4.4.0', true);
     }
 
     public static function register_menu() {
@@ -161,32 +167,125 @@ class TIX_Event_Report {
             <?php endforeach; ?>
         </div>
 
-        <?php // ── Pro-Kategorie-Aufschlüsselung ── ?>
-        <?php if (!empty($data['categories'])): ?>
+        <?php // ── Pro-Kategorie-Aufschlüsselung mit Progress-Bars + Chart ── ?>
+        <?php if (!empty($data['categories'])):
+            // Capacity-Warnings sammeln (nur Kategorien mit definierter Kapazitaet)
+            $low_cats = array_filter($data['categories'], fn($c) => $c['stock_status'] === 'low');
+            $sold_out = array_filter($data['categories'], fn($c) => $c['stock_status'] === 'soldout');
+        ?>
         <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:20px 22px;margin-bottom:18px;">
             <h3 style="margin:0 0 14px;font-size:14px;color:#0f172a;display:flex;align-items:center;gap:8px;">
                 <span class="dashicons dashicons-category"></span>
                 Aufschlüsselung nach Kategorie
             </h3>
+
+            <?php if ($low_cats || $sold_out): ?>
+            <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:10px 14px;margin-bottom:14px;color:#991b1b;font-size:13px;">
+                <strong>⚠️ Achtung:</strong>
+                <?php
+                $warns = [];
+                if ($sold_out) {
+                    $warns[] = count($sold_out) . ' Kategorie(n) ausverkauft: ' . esc_html(implode(', ', array_column($sold_out, 'name')));
+                }
+                if ($low_cats) {
+                    $warns[] = count($low_cats) . ' Kategorie(n) fast voll (< 10% Rest): ' . esc_html(implode(', ', array_column($low_cats, 'name')));
+                }
+                echo implode(' &middot; ', $warns);
+                ?>
+            </div>
+            <?php endif; ?>
+
+            <?php // ── PROGRESS-BARS pro Kategorie (visueller Vergleich) ── ?>
+            <div style="display:flex;flex-direction:column;gap:12px;margin-bottom:18px;">
+                <?php foreach ($data['categories'] as $cat):
+                    $bar_color = '#10b981'; // gruen
+                    $bar_label_color = '#065f46';
+                    $bar_bg = '#ecfdf5';
+                    if ($cat['stock_status'] === 'medium') {
+                        $bar_color = '#f59e0b'; // gelb
+                        $bar_label_color = '#92400e';
+                        $bar_bg = '#fef3c7';
+                    } elseif ($cat['stock_status'] === 'low') {
+                        $bar_color = '#ef4444'; // rot
+                        $bar_label_color = '#991b1b';
+                        $bar_bg = '#fef2f2';
+                    } elseif ($cat['stock_status'] === 'soldout') {
+                        $bar_color = '#9ca3af';
+                        $bar_label_color = '#374151';
+                        $bar_bg = '#f3f4f6';
+                    } elseif ($cat['stock_status'] === 'unlimited') {
+                        $bar_color = '#6366f1'; // indigo
+                        $bar_label_color = '#3730a3';
+                        $bar_bg = '#eef2ff';
+                    }
+                    // Bar-Width: bei unlimited keine Anzeige, sonst sold_through%
+                    $bar_width = $cat['stock_status'] === 'unlimited' ? 0 : min(100, $cat['sold_through']);
+                ?>
+                <div style="background:<?php echo $bar_bg; ?>;border-radius:10px;padding:12px 14px;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap;">
+                        <div style="display:flex;align-items:center;gap:10px;">
+                            <strong style="color:<?php echo $bar_label_color; ?>;font-size:14px;"><?php echo esc_html($cat['name']); ?></strong>
+                            <?php if ($cat['stock_status'] === 'soldout'): ?>
+                                <span style="background:#9ca3af;color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700;letter-spacing:0.04em;">AUSVERKAUFT</span>
+                            <?php elseif ($cat['stock_status'] === 'low'): ?>
+                                <span style="background:#ef4444;color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700;letter-spacing:0.04em;">FAST VOLL</span>
+                            <?php elseif ($cat['stock_status'] === 'unlimited'): ?>
+                                <span style="background:#6366f1;color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700;letter-spacing:0.04em;" title="Keine Kapazität definiert">UNLIMITIERT</span>
+                            <?php endif; ?>
+                        </div>
+                        <div style="font-size:13px;color:<?php echo $bar_label_color; ?>;font-weight:600;white-space:nowrap;">
+                            <?php if ($cat['capacity'] > 0): ?>
+                                <?php echo number_format($cat['sold'], 0, ',', '.'); ?> / <?php echo number_format($cat['capacity'], 0, ',', '.'); ?>
+                                <span style="opacity:0.7;">(<?php echo $cat['sold_through']; ?>%)</span>
+                                &middot; <strong><?php echo number_format($cat['available'], 0, ',', '.'); ?> verfügbar</strong>
+                            <?php else: ?>
+                                <?php echo number_format($cat['sold'], 0, ',', '.'); ?> verkauft
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                    <?php if ($cat['stock_status'] !== 'unlimited'): ?>
+                    <div style="height:8px;background:rgba(0,0,0,0.06);border-radius:99px;overflow:hidden;">
+                        <div style="height:100%;width:<?php echo $bar_width; ?>%;background:<?php echo $bar_color; ?>;transition:width 0.5s;"></div>
+                    </div>
+                    <?php endif; ?>
+                    <div style="display:flex;justify-content:space-between;font-size:11px;color:<?php echo $bar_label_color; ?>;opacity:0.85;margin-top:6px;">
+                        <span>✓ <?php echo number_format($cat['checked_in'], 0, ',', '.'); ?> eingecheckt &middot; Ø <?php echo number_format($cat['avg_price'], 2, ',', '.'); ?> €</span>
+                        <span><?php echo number_format($cat['revenue'], 2, ',', '.'); ?> € Umsatz</span>
+                    </div>
+                </div>
+                <?php endforeach; ?>
+            </div>
+
+            <?php // ── BAR-CHART (Vergleich aller Kategorien) ── ?>
+            <div style="margin-bottom:18px;">
+                <h4 style="margin:0 0 8px;font-size:13px;color:#475569;font-weight:600;">Visueller Vergleich</h4>
+                <canvas id="tix-er-cat-chart" height="220"></canvas>
+            </div>
+
+            <?php // ── DETAIL-TABELLE (vorhanden, etwas kompakter) ── ?>
+            <h4 style="margin:0 0 8px;font-size:13px;color:#475569;font-weight:600;">Detail-Tabelle</h4>
             <table class="widefat striped" style="border:none;">
                 <thead>
                     <tr style="background:#f9fafb;">
                         <th>Kategorie</th>
                         <th style="text-align:right;">Verkauft</th>
+                        <th style="text-align:right;">Verfügbar</th>
                         <th style="text-align:right;">Eingecheckt</th>
                         <th style="text-align:right;">Ø Preis</th>
                         <th style="text-align:right;">Brutto-Umsatz</th>
-                        <th style="text-align:right;">Anteil</th>
+                        <th style="text-align:right;">Umsatz-Anteil</th>
                     </tr>
                 </thead>
                 <tbody>
                     <?php foreach ($data['categories'] as $cat):
                         $share = $data['kpis']['revenue_gross'] > 0
                             ? round($cat['revenue'] / $data['kpis']['revenue_gross'] * 100, 1) : 0;
+                        $available_disp = $cat['capacity'] > 0 ? number_format($cat['available'], 0, ',', '.') : '∞';
                     ?>
                     <tr>
                         <td><strong><?php echo esc_html($cat['name']); ?></strong></td>
                         <td style="text-align:right;"><?php echo number_format($cat['sold'], 0, ',', '.'); ?></td>
+                        <td style="text-align:right;<?php echo $cat['stock_status'] === 'low' ? 'color:#ef4444;font-weight:700;' : ''; ?>"><?php echo $available_disp; ?></td>
                         <td style="text-align:right;color:#10b981;font-weight:600;"><?php echo number_format($cat['checked_in'], 0, ',', '.'); ?></td>
                         <td style="text-align:right;"><?php echo number_format($cat['avg_price'], 2, ',', '.'); ?> €</td>
                         <td style="text-align:right;font-weight:600;"><?php echo number_format($cat['revenue'], 2, ',', '.'); ?> €</td>
@@ -196,6 +295,7 @@ class TIX_Event_Report {
                     <tr style="background:#f3f4f6;font-weight:700;">
                         <td>SUMME</td>
                         <td style="text-align:right;"><?php echo number_format($data['kpis']['sold'], 0, ',', '.'); ?></td>
+                        <td style="text-align:right;">—</td>
                         <td style="text-align:right;color:#10b981;"><?php echo number_format($data['kpis']['checked_in'], 0, ',', '.'); ?></td>
                         <td style="text-align:right;">—</td>
                         <td style="text-align:right;"><?php echo number_format($data['kpis']['revenue_gross'], 2, ',', '.'); ?> €</td>
@@ -204,6 +304,35 @@ class TIX_Event_Report {
                 </tbody>
             </table>
         </div>
+        <script>
+        (function() {
+            if (typeof Chart === 'undefined') return;
+            var ctx = document.getElementById('tix-er-cat-chart');
+            if (!ctx) return;
+            var labels   = <?php echo wp_json_encode(array_column($data['categories'], 'name')); ?>;
+            var sold     = <?php echo wp_json_encode(array_column($data['categories'], 'sold')); ?>;
+            var avail    = <?php echo wp_json_encode(array_map(fn($c) => $c['capacity'] > 0 ? $c['available'] : 0, $data['categories'])); ?>;
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        { label: 'Verkauft', data: sold, backgroundColor: '#10b981', stack: 'cap' },
+                        { label: 'Verfügbar', data: avail, backgroundColor: '#e5e7eb', stack: 'cap' }
+                    ]
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    plugins: { legend: { position: 'bottom' } },
+                    scales: {
+                        x: { stacked: true, beginAtZero: true, ticks: { precision: 0 } },
+                        y: { stacked: true }
+                    }
+                }
+            });
+        })();
+        </script>
         <?php endif; ?>
 
         <?php // ── Detail-Tabelle aller Tickets ── ?>
@@ -584,10 +713,41 @@ class TIX_Event_Report {
             ];
         }
 
-        // Kategorie-Liste finalisieren (avg_price + sortieren nach Umsatz absteigend)
+        // ── Kapazitaeten aus Event-Meta ladern (Kategorie-Definition mit qty) ──
+        $event_cats = get_post_meta($event_id, '_tix_ticket_categories', true);
+        if (!is_array($event_cats)) $event_cats = [];
+        $cap_by_name = [];
+        foreach ($event_cats as $ec) {
+            $n = trim((string) ($ec['name'] ?? ''));
+            if (!$n) continue;
+            $cap_by_name[$n] = intval($ec['qty'] ?? 0);
+            // Auch Kategorie-Defs einbeziehen, die noch keine Tickets haben (verkauft = 0)
+            if (!isset($cat_stats[$n])) {
+                $cat_stats[$n] = ['name' => $n, 'sold' => 0, 'checked_in' => 0, 'revenue' => 0.0];
+            }
+        }
+
+        // Kategorie-Liste finalisieren (capacity, available, sold_through, avg_price + sortieren)
         $cat_list = [];
         foreach ($cat_stats as $c) {
-            $c['avg_price'] = $c['sold'] > 0 ? $c['revenue'] / $c['sold'] : 0;
+            $c['avg_price']        = $c['sold'] > 0 ? $c['revenue'] / $c['sold'] : 0;
+            $c['capacity']         = intval($cap_by_name[$c['name']] ?? 0);
+            $c['available']        = max(0, $c['capacity'] - $c['sold']);
+            $c['sold_through']     = $c['capacity'] > 0
+                ? round(($c['sold'] / $c['capacity']) * 100, 1)
+                : 0;
+            // Restkapazitaets-Status (fuer UI-Faerbung): sold-through 0-50% gruen, 50-90% gelb, 90-100% rot
+            if ($c['capacity'] === 0) {
+                $c['stock_status'] = 'unlimited'; // Keine Kapazitaet definiert
+            } elseif ($c['available'] === 0) {
+                $c['stock_status'] = 'soldout';
+            } elseif ($c['sold_through'] >= 90) {
+                $c['stock_status'] = 'low';      // < 10% verfuegbar
+            } elseif ($c['sold_through'] >= 50) {
+                $c['stock_status'] = 'medium';
+            } else {
+                $c['stock_status'] = 'high';
+            }
             $cat_list[] = $c;
         }
         usort($cat_list, fn($a, $b) => $b['revenue'] <=> $a['revenue']);
