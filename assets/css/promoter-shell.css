@@ -1,0 +1,126 @@
+/* ═══════════════════════════════════════════
+   Tixomat Promoter Shell – Fullscreen Mode
+   ═══════════════════════════════════════════ */
+
+/* ── Top Bar ── */
+.tix-pfs-header {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 52px;
+    background: #FAF8F4;
+    border-bottom: 1px solid #EDE9E0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 24px;
+    z-index: 10000;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+}
+
+.tix-pfs-brand {
+    display: flex;
+    align-items: center;
+}
+
+.tix-pfs-logo {
+    height: 24px;
+    width: auto;
+}
+
+.tix-pfs-user {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.tix-pfs-user-name {
+    font-size: 13px;
+    font-weight: 500;
+    color: #64748b;
+}
+
+.tix-pfs-logout {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    color: #94a3b8;
+    text-decoration: none;
+    transition: all 0.15s;
+}
+.tix-pfs-logout:hover {
+    background: rgba(0,0,0,0.04);
+    color: #ef4444;
+}
+.tix-pfs-logout .dashicons {
+    font-size: 18px;
+    width: 18px;
+    height: 18px;
+}
+
+/* ── Main Content ── */
+.tix-pfs-main {
+    padding-top: 52px;
+    min-height: calc(100vh - 52px);
+}
+
+/* Dashboard inner: reset defaults, fill space */
+.tix-promoter-fullscreen .tix-account.tix-pd {
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    background: transparent !important;
+    min-height: calc(100vh - 52px);
+}
+
+/* Layout: Sidebar + Content (account-Layout uebernimmt Grid) */
+.tix-promoter-fullscreen .tix-account.tix-pd > .tix-account-nav {
+    border-radius: 0 !important;
+    background: #FAF8F4 !important;
+    border-right: 1px solid #EDE9E0;
+    border-top: none;
+    border-bottom: none;
+    border-left: none;
+    min-height: calc(100vh - 52px);
+    position: sticky;
+    top: 52px;
+    align-self: stretch;
+}
+
+.tix-promoter-fullscreen .tix-account.tix-pd > .tix-account-content {
+    background: #fff;
+    border-radius: 16px;
+    margin: 16px 16px 16px 0;
+    padding: 24px 28px;
+    min-height: calc(100vh - 52px - 32px);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    box-sizing: border-box;
+}
+
+/* Mobile / Tablet */
+@media (max-width: 768px) {
+    .tix-pfs-header {
+        padding: 0 16px;
+    }
+    .tix-pfs-user-name {
+        display: none;
+    }
+    .tix-promoter-fullscreen .tix-account.tix-pd > .tix-account-content {
+        margin: 8px;
+        padding: 18px;
+        border-radius: 12px;
+    }
+    .tix-promoter-fullscreen .tix-account.tix-pd > .tix-account-nav {
+        position: static;
+        min-height: auto;
+        border-right: none;
+        border-bottom: 1px solid #EDE9E0;
+    }
+}

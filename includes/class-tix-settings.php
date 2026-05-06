@@ -348,6 +348,7 @@ class TIX_Settings {
             'promoter_auth_method'  => 'both', // both | magic_link | wp_login
             'promoter_default_commission_type'  => 'percent', // global Fallback fuer alle Promoter/Events
             'promoter_default_commission_value' => 0,         // 0 = kein Default (keine Provision wenn nirgends gesetzt)
+            'promoter_fullscreen'   => 1, // Fullscreen-Modus fuer Promoter-Dashboard (kein Theme)
             'promoter_self_signup'  => 0,
             'promoter_signup_commission_type'  => 'fixed',
             'promoter_signup_commission_value' => 2,
@@ -1180,6 +1181,7 @@ class TIX_Settings {
         $clean['promoter_auth_method'] = in_array($input['promoter_auth_method'] ?? '', ['both', 'magic_link', 'wp_login']) ? $input['promoter_auth_method'] : 'both';
         $clean['promoter_default_commission_type']  = in_array($input['promoter_default_commission_type'] ?? '', ['percent', 'fixed']) ? $input['promoter_default_commission_type'] : 'percent';
         $clean['promoter_default_commission_value'] = max(0, floatval(str_replace(',', '.', $input['promoter_default_commission_value'] ?? 0)));
+        $clean['promoter_fullscreen'] = !empty($input['promoter_fullscreen']) ? 1 : 0;
         $clean['promoter_self_signup'] = !empty($input['promoter_self_signup']) ? 1 : 0;
         $clean['promoter_signup_commission_type']  = in_array($input['promoter_signup_commission_type'] ?? '', ['percent', 'fixed']) ? $input['promoter_signup_commission_type'] : 'fixed';
         $clean['promoter_signup_commission_value'] = max(0, floatval($input['promoter_signup_commission_value'] ?? 2));
@@ -6902,6 +6904,9 @@ class TIX_Settings {
                                                     <?php endif;
                                                 endif; ?>
                                                 <p class="tix-settings-hint">Auf welcher Seite das Promoter-Dashboard liegt (mit Shortcode <code>[tix_promoter_dashboard]</code>). Wird f&uuml;r Login-Redirects, Magic-Link-Mails und den Account-Link genutzt. Wenn nicht gesetzt: Slug <code>/promoter/</code> wird probiert.</p>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('promoter_fullscreen', 'Fullscreen-Modus für Promoter-Dashboard', $s, 'Zeigt das Promoter-Dashboard auf voller Seitenbreite ohne WordPress-Theme-Elemente (Header, Footer, Sidebar). Nutzt eine eigene Top-Bar mit Logo + Logout. Empfohlen: <strong>aktiv</strong>.'); ?>
                                             </div>
                                             <div class="tix-field">
                                                 <label class="tix-field-label">Anmeldemethode</label>

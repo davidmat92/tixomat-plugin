@@ -2,14 +2,14 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.38.163
+ * Version: 1.38.164
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.38.163');
+define('TIXOMAT_VERSION', '1.38.164');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -570,6 +570,11 @@ if (tix_get_settings('promoter_enabled')) {
     // Magic-Link Auth (auch fuer Nicht-WP-User-Promoter)
     require_once TIXOMAT_PATH . 'includes/class-tix-promoter-auth.php';
     TIX_Promoter_Auth::init();
+    // Fullscreen-Shell fuer Promoter-Dashboard
+    if (tix_get_settings('promoter_fullscreen')) {
+        require_once TIXOMAT_PATH . 'includes/class-tix-promoter-shell.php';
+        TIX_Promoter_Shell::init();
+    }
     // Promoter Self-Signup / Empfehlungsprogramm
     if (tix_get_settings('promoter_self_signup') || tix_get_settings('promoter_post_purchase_enabled') || tix_get_settings('promoter_my_tickets_enabled')) {
         require_once TIXOMAT_PATH . 'includes/class-tix-promoter-signup.php';

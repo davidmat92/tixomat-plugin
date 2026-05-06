@@ -196,6 +196,21 @@ class TIX_Promoter_Dashboard {
 
                 <!-- Uebersicht -->
                 <div class="tix-pd-panel active" id="tix-pd-panel-overview" role="tabpanel" data-tab="overview">
+                    <!-- ── ONBOARDING / WIE FUNKTIONIERT'S ── -->
+                    <div class="tix-pd-howto" style="background:linear-gradient(135deg, #fff7ed 0%, #fef3c7 100%);border:1px solid #fde68a;border-radius:14px;padding:18px 22px;margin-bottom:20px;">
+                        <h3 style="margin:0 0 8px;font-size:16px;font-weight:700;color:#7c2d12;display:flex;align-items:center;gap:8px;">
+                            <span style="font-size:22px;">👋</span> So verdienst du Provisionen
+                        </h3>
+                        <ol style="margin:0;padding-left:22px;color:#92400e;font-size:13px;line-height:1.7;">
+                            <li><strong>Link kopieren</strong> — entweder den allgemeinen Link unten oder einen Event-spezifischen über den „🔗 Link erstellen"-Button rechts oben.</li>
+                            <li><strong>Teilen</strong> — auf Social Media, per WhatsApp, im Newsletter, überall wo deine Zielgruppe ist.</li>
+                            <li><strong>Provision verdienen</strong> — sobald jemand über deinen Link kauft, wird automatisch deine Provision gutgeschrieben (siehst du im Tab „Provisionen").</li>
+                        </ol>
+                        <p style="margin:10px 0 0;color:#92400e;font-size:12px;font-style:italic;">💡 <strong>Tipp:</strong> Auch wenn jemand erst später kauft (innerhalb von 30 Tagen), wird die Bestellung dir zugeordnet — Cookie sei Dank.</p>
+                    </div>
+
+                    <h3 class="tix-pd-section-title" style="margin-top:8px;">📊 Deine Zahlen</h3>
+                    <p style="color:#64748b;margin:0 0 12px;font-size:13px;">Übersicht aller bisherigen Verkäufe und Provisionen.</p>
                     <div class="tix-pd-kpis" id="tix-pd-kpis">
                         <div class="tix-pd-kpi" data-kpi="total_sales">
                             <div class="tix-pd-kpi-icon"><span class="dashicons dashicons-chart-area"></span></div>
@@ -227,20 +242,25 @@ class TIX_Promoter_Dashboard {
                         </div>
                     </div>
                     <div class="tix-pd-links-wrap" id="tix-pd-links">
-                        <h3 class="tix-pd-section-title">Deine Referral-Links</h3>
-                        <p class="tix-pd-links-hint">Teile diese Links, um Provisionen zu verdienen.</p>
+                        <h3 class="tix-pd-section-title">🔗 Deine Referral-Links</h3>
+                        <p class="tix-pd-links-hint" style="color:#64748b;font-size:13px;margin:0 0 12px;">Das sind deine fertigen Links zum Teilen. Der <strong>Allgemeine Link</strong> bringt dir Provision für jedes Event, das der Besucher kauft. Die <strong>Event-Links</strong> führen direkt zum jeweiligen Event.</p>
                         <div class="tix-pd-links-list" id="tix-pd-links-list"></div>
                     </div>
 
                     <div class="tix-pd-chart-wrap">
-                        <h3 class="tix-pd-section-title">Umsatzverlauf (letzte 30 Tage)</h3>
+                        <h3 class="tix-pd-section-title">📈 Umsatzverlauf (letzte 30 Tage)</h3>
+                        <p style="color:#64748b;font-size:13px;margin:0 0 12px;">Der orangefarbene Verlauf zeigt deinen erzielten Umsatz, der grüne deine Provision. So siehst du auf einen Blick, an welchen Tagen deine Werbung am besten gegriffen hat.</p>
                         <canvas id="tix-pd-chart-sales" height="260"></canvas>
                     </div>
                 </div>
 
                 <!-- Meine Events -->
                 <div class="tix-pd-panel" id="tix-pd-panel-events" role="tabpanel" data-tab="events">
-                    <h3 class="tix-pd-section-title">Meine Events</h3>
+                    <h3 class="tix-pd-section-title">🎫 Meine Events</h3>
+                    <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:10px;padding:12px 16px;margin-bottom:16px;color:#075985;font-size:13px;line-height:1.6;">
+                        Hier siehst du alle Events, für die du <strong>aktuell Provision bekommst</strong>. Pro Event findest du den fertigen Referral-Link (sofort kopieren) und deine individuelle Provisions-Höhe.
+                        <br><strong>Promo-Code</strong> (falls vorhanden): Den kannst du Kunden geben — sie tippen ihn beim Checkout ein und bekommen Rabatt, du bekommst trotzdem deine Provision.
+                    </div>
                     <div class="tix-pd-table-wrap" id="tix-pd-events-table">
                         <table class="tix-pd-table">
                             <thead>
@@ -262,8 +282,12 @@ class TIX_Promoter_Dashboard {
 
                 <!-- Tracking (Klicks auf Referral-Links) -->
                 <div class="tix-pd-panel" id="tix-pd-panel-tracking" role="tabpanel" data-tab="tracking">
-                    <h3 class="tix-pd-section-title">Tracking — Aufrufe deiner Referral-Links</h3>
-                    <p style="color:#64748b;margin:0 0 16px;font-size:13px;">Jeder Klick auf einen Link mit deinem Code <code><?php echo esc_html($promoter->promoter_code); ?></code> wird hier gezählt. Mehrfach-Klicks vom gleichen Besucher werden alle 30 Min. dedupliziert.</p>
+                    <h3 class="tix-pd-section-title">📊 Tracking — Wer klickt deine Links?</h3>
+                    <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:10px;padding:12px 16px;margin-bottom:16px;color:#075985;font-size:13px;line-height:1.6;">
+                        Jeder Klick auf einen Link mit deinem Code <code style="background:#fff;padding:1px 6px;border-radius:4px;font-weight:700;"><?php echo esc_html($promoter->promoter_code); ?></code> wird hier gezählt.
+                        <br><strong>Unique Besucher</strong> = einzelne Personen (Mehrfach-Klicks vom selben Besucher werden 30 Min lang als ein Klick gezählt).
+                        <br><strong>Conversion</strong> = Anteil der Klicker, die tatsächlich gekauft haben. Höher = bessere Zielgruppe.
+                    </div>
 
                     <!-- KPI-Cards für Klicks -->
                     <div class="tix-pd-kpis" id="tix-pd-tracking-kpis">
@@ -341,7 +365,11 @@ class TIX_Promoter_Dashboard {
 
                 <!-- Verkaeufe -->
                 <div class="tix-pd-panel" id="tix-pd-panel-sales" role="tabpanel" data-tab="sales">
-                    <h3 class="tix-pd-section-title">Verk&#228;ufe</h3>
+                    <h3 class="tix-pd-section-title">🛒 Verkäufe</h3>
+                    <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:10px;padding:12px 16px;margin-bottom:16px;color:#075985;font-size:13px;line-height:1.6;">
+                        Jede Bestellung, die über deinen Link oder deinen Promo-Code reinkam. Du siehst, welches Event verkauft wurde, wie viele Tickets, wie viel Umsatz und deine Provision.
+                        <br><strong>Attribution:</strong> <em>Referral-Link</em> = Besucher kam über deinen Link &nbsp;|&nbsp; <em>Promo-Code</em> = Besucher hat deinen Code beim Checkout eingegeben.
+                    </div>
                     <div class="tix-pd-filters">
                         <label>
                             <span>Von:</span>
@@ -374,7 +402,14 @@ class TIX_Promoter_Dashboard {
 
                 <!-- Provisionen -->
                 <div class="tix-pd-panel" id="tix-pd-panel-commissions" role="tabpanel" data-tab="commissions">
-                    <h3 class="tix-pd-section-title">Provisionen</h3>
+                    <h3 class="tix-pd-section-title">💰 Provisionen</h3>
+                    <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:10px;padding:12px 16px;margin-bottom:16px;color:#075985;font-size:13px;line-height:1.6;">
+                        Hier siehst du den Status jeder einzelnen Provision.
+                        <br><strong>Status-Bedeutung:</strong>
+                        <span style="display:inline-block;background:#fef3c7;color:#92400e;padding:1px 8px;border-radius:4px;font-weight:700;margin:0 4px;">Ausstehend</span> noch nicht freigegeben &nbsp;
+                        <span style="display:inline-block;background:#dbeafe;color:#1d4ed8;padding:1px 8px;border-radius:4px;font-weight:700;margin:0 4px;">Genehmigt</span> bereit für Auszahlung &nbsp;
+                        <span style="display:inline-block;background:#dcfce7;color:#166534;padding:1px 8px;border-radius:4px;font-weight:700;margin:0 4px;">Bezahlt</span> Geld ist bei dir
+                    </div>
                     <div class="tix-pd-table-wrap" id="tix-pd-commissions-table">
                         <table class="tix-pd-table">
                             <thead>
@@ -396,7 +431,10 @@ class TIX_Promoter_Dashboard {
 
                 <!-- Auszahlungen -->
                 <div class="tix-pd-panel" id="tix-pd-panel-payouts" role="tabpanel" data-tab="payouts">
-                    <h3 class="tix-pd-section-title">Auszahlungen</h3>
+                    <h3 class="tix-pd-section-title">🏦 Auszahlungen</h3>
+                    <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:10px;padding:12px 16px;margin-bottom:16px;color:#075985;font-size:13px;line-height:1.6;">
+                        Sobald deine Provisionen ausgezahlt werden, siehst du das hier zusammengefasst pro Zeitraum. Genaues Auszahlungs-Intervall regelt der Veranstalter — bei Fragen wende dich direkt an ihn.
+                    </div>
                     <div class="tix-pd-table-wrap" id="tix-pd-payouts-table">
                         <table class="tix-pd-table">
                             <thead>
