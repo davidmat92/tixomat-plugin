@@ -1297,6 +1297,12 @@ class TIX_Migration {
             update_post_meta($tid, '_tix_ticket_event_id',     $target_event_id);
             update_post_meta($tid, '_tix_ticket_order_id',     $new_order_id);
             update_post_meta($tid, '_tix_ticket_cat_index',    $target_cat_index);
+            // cat_name aus Event-Categories ableiten (statt nur Index zu speichern)
+            $_event_cats = get_post_meta($target_event_id, '_tix_ticket_categories', true);
+            $_cat_name = (is_array($_event_cats) && $target_cat_index >= 0 && isset($_event_cats[$target_cat_index]['name']))
+                ? $_event_cats[$target_cat_index]['name']
+                : '';
+            if ($_cat_name) update_post_meta($tid, '_tix_ticket_cat_name', $_cat_name);
             update_post_meta($tid, '_tix_ticket_owner_name',   $st['owner_name']);
             update_post_meta($tid, '_tix_ticket_owner_email',  $st['owner_email']);
             update_post_meta($tid, '_tix_ticket_status',       $st['status'] ?: 'valid');
@@ -1433,6 +1439,12 @@ class TIX_Migration {
             update_post_meta($tid, '_tix_ticket_event_id',      $target_event_id);
             update_post_meta($tid, '_tix_ticket_order_id',      $new_order_id);
             update_post_meta($tid, '_tix_ticket_cat_index',     $target_cat_index);
+            // cat_name aus Event-Categories ableiten
+            $_event_cats = get_post_meta($target_event_id, '_tix_ticket_categories', true);
+            $_cat_name = (is_array($_event_cats) && $target_cat_index >= 0 && isset($_event_cats[$target_cat_index]['name']))
+                ? $_event_cats[$target_cat_index]['name']
+                : '';
+            if ($_cat_name) update_post_meta($tid, '_tix_ticket_cat_name', $_cat_name);
             update_post_meta($tid, '_tix_ticket_status',        'valid');
             update_post_meta($tid, '_tix_ticket_checked_in',    intval($st['checked_in'] ?? 0));
             if (!empty($st['checked_in'])) update_post_meta($tid, '_tix_ticket_checkin_time', '');

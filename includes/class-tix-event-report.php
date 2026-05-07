@@ -20,6 +20,32 @@ class TIX_Event_Report {
         add_action('admin_menu', [__CLASS__, 'register_menu']);
         add_action('admin_post_tix_event_report_export', [__CLASS__, 'handle_export']);
         add_action('admin_enqueue_scripts', [__CLASS__, 'enqueue']);
+        add_action('wp_ajax_tix_event_report_repair_analyze', [__CLASS__, 'ajax_repair_analyze']);
+        add_action('wp_ajax_tix_event_report_repair_apply',   [__CLASS__, 'ajax_repair_apply']);
+    }
+
+    public static function ajax_repair_analyze() {
+        check_ajax_referer('tix_event_report_repair', 'nonce');
+        if (!current_user_can('manage_options')) wp_send_json_error('Keine Berechtigung.');
+        $event_id = intval($_POST['event_id'] ?? 0);
+        if (!$event_id) wp_send_json_error('Event-ID fehlt.');
+        if (!class_exists('TIX_Ticket_Category_Repair')) {
+            require_once TIXOMAT_PATH . 'includes/class-tix-ticket-category-repair.php';
+        }
+        $result = TIX_Ticket_Category_Repair::analyze_event($event_id);
+        wp_send_json_success($result);
+    }
+
+    public static function ajax_repair_apply() {
+        check_ajax_referer('tix_event_report_repair', 'nonce');
+        if (!current_user_can('manage_options')) wp_send_json_error('Keine Berechtigung.');
+        $event_id = intval($_POST['event_id'] ?? 0);
+        if (!$event_id) wp_send_json_error('Event-ID fehlt.');
+        if (!class_exists('TIX_Ticket_Category_Repair')) {
+            require_once TIXOMAT_PATH . 'includes/class-tix-ticket-category-repair.php';
+        }
+        $result = TIX_Ticket_Category_Repair::apply_event($event_id);
+        wp_send_json_success($result);
     }
 
     public static function enqueue($hook) {
@@ -174,10 +200,16 @@ class TIX_Event_Report {
             $sold_out = array_filter($data['categories'], fn($c) => $c['stock_status'] === 'soldout');
         ?>
         <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:20px 22px;margin-bottom:18px;">
-            <h3 style="margin:0 0 14px;font-size:14px;color:#0f172a;display:flex;align-items:center;gap:8px;">
-                <span class="dashicons dashicons-category"></span>
-                Aufschlüsselung nach Kategorie
-            </h3>
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px;">
+                <h3 style="margin:0;font-size:14px;color:#0f172a;display:flex;align-items:center;gap:8px;">
+                    <span class="dashicons dashicons-category"></span>
+                    Aufschlüsselung nach Kategorie
+                </h3>
+                <button type="button" id="tix-er-repair-btn" class="button" style="font-size:12px;display:inline-flex;align-items:center;gap:5px;" data-event-id="<?php echo intval($data['event_id']); ?>">
+                    <span class="dashicons dashicons-admin-tools" style="font-size:14px;width:14px;height:14px;line-height:1;"></span>
+                    Kategorien reparieren
+                </button>
+            </div>
 
             <?php if ($low_cats || $sold_out): ?>
             <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:10px 14px;margin-bottom:14px;color:#991b1b;font-size:13px;">
@@ -460,6 +492,146 @@ class TIX_Event_Report {
             search.addEventListener('input', applyFilter);
             catSel.addEventListener('change', applyFilter);
             ciSel.addEventListener('change', applyFilter);
+        })();
+        </script>
+
+        <!-- ═══════════════════════════════════════
+             KATEGORIEN-REPARATUR MODAL
+             ═══════════════════════════════════════ -->
+        <div id="tix-er-repair-modal" style="display:none;position:fixed;inset:0;z-index:99999;">
+            <div style="position:absolute;inset:0;background:rgba(15,23,42,0.55);" class="tix-er-repair-close-bg"></div>
+            <div style="position:relative;max-width:900px;margin:30px auto;background:#fff;border-radius:14px;box-shadow:0 24px 64px rgba(15,23,42,0.25);overflow:hidden;max-height:calc(100vh - 60px);display:flex;flex-direction:column;">
+                <header style="display:flex;align-items:center;justify-content:space-between;padding:16px 22px;border-bottom:1px solid #e5e7eb;">
+                    <div>
+                        <h2 style="margin:0;font-size:18px;font-weight:700;">🔧 Kategorien reparieren</h2>
+                        <p style="margin:2px 0 0;color:#64748b;font-size:13px;">Heuristik: aus dem Produkt-Namen (in tix_order_items) wird die echte Kategorie ermittelt und Tickets neu zugeordnet.</p>
+                    </div>
+                    <button type="button" class="button button-small tix-er-repair-close-bg" style="font-size:18px;line-height:1;padding:4px 10px;">&times;</button>
+                </header>
+                <div id="tix-er-repair-body" style="overflow-y:auto;padding:22px;flex:1;">
+                    <p style="color:#64748b;">Lade Vorschau&hellip;</p>
+                </div>
+                <footer style="padding:14px 22px;border-top:1px solid #e5e7eb;display:flex;justify-content:flex-end;gap:8px;background:#f9fafb;">
+                    <button type="button" class="button tix-er-repair-close-bg">Abbrechen</button>
+                    <button type="button" id="tix-er-repair-apply" class="button button-primary" disabled>Anwenden</button>
+                </footer>
+            </div>
+        </div>
+        <script>
+        (function() {
+            var modal = document.getElementById('tix-er-repair-modal');
+            var btn   = document.getElementById('tix-er-repair-btn');
+            var body  = document.getElementById('tix-er-repair-body');
+            var apply = document.getElementById('tix-er-repair-apply');
+            if (!btn || !modal) return;
+
+            var nonce = '<?php echo esc_js(wp_create_nonce('tix_event_report_repair')); ?>';
+            var ajaxUrl = '<?php echo esc_url(admin_url('admin-ajax.php')); ?>';
+            var eventId = btn.getAttribute('data-event-id');
+
+            function open() {
+                modal.style.display = 'block';
+                document.body.style.overflow = 'hidden';
+                body.innerHTML = '<p style="color:#64748b;">Lade Vorschau&hellip;</p>';
+                apply.disabled = true;
+                jQuery.post(ajaxUrl, { action: 'tix_event_report_repair_analyze', nonce: nonce, event_id: eventId }, function(r) {
+                    if (!r || !r.success || !r.data) { body.innerHTML = '<p style="color:#dc2626;">Fehler bei Analyse.</p>'; return; }
+                    renderPreview(r.data);
+                });
+            }
+            function close() {
+                modal.style.display = 'none';
+                document.body.style.overflow = '';
+            }
+            btn.addEventListener('click', open);
+            document.querySelectorAll('.tix-er-repair-close-bg').forEach(function(el){ el.addEventListener('click', close); });
+
+            function esc(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+            function renderPreview(d) {
+                var html = '';
+                html += '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:18px;">';
+                html += '<div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;padding:10px;text-align:center;"><div style="font-size:22px;font-weight:700;color:#075985;">' + d.total + '</div><div style="font-size:11px;color:#075985;text-transform:uppercase;letter-spacing:0.04em;">Tickets gesamt</div></div>';
+                html += '<div style="background:#fef3c7;border:1px solid #fde68a;border-radius:8px;padding:10px;text-align:center;"><div style="font-size:22px;font-weight:700;color:#92400e;">' + d.changes.length + '</div><div style="font-size:11px;color:#92400e;text-transform:uppercase;letter-spacing:0.04em;">werden geändert</div></div>';
+                html += '<div style="background:#ecfdf5;border:1px solid #a7f3d0;border-radius:8px;padding:10px;text-align:center;"><div style="font-size:22px;font-weight:700;color:#065f46;">' + d.unchanged + '</div><div style="font-size:11px;color:#065f46;text-transform:uppercase;letter-spacing:0.04em;">unverändert</div></div>';
+                html += '<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:10px;text-align:center;"><div style="font-size:22px;font-weight:700;color:#991b1b;">' + d.no_match.length + '</div><div style="font-size:11px;color:#991b1b;text-transform:uppercase;letter-spacing:0.04em;">nicht zuordenbar</div></div>';
+                html += '</div>';
+
+                if (d.new_cats.length) {
+                    html += '<div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:10px 14px;margin-bottom:14px;color:#9a3412;font-size:13px;">';
+                    html += '<strong>📦 Neue Kategorien werden auto-angelegt:</strong> ' + d.new_cats.map(esc).join(', ');
+                    html += '<br><small style="color:#9a3412;opacity:0.85;">Standardmäßig OFFLINE (online=0). Du kannst sie später im Event-Editor aktivieren / Kapazität setzen.</small></div>';
+                }
+
+                // Aktuelle Event-Kategorien
+                if (d.event_cats.length) {
+                    html += '<h4 style="margin:12px 0 6px;font-size:13px;color:#0f172a;">Aktuelle Event-Kategorien:</h4><ul style="margin:0 0 14px;padding-left:18px;font-size:13px;color:#475569;">';
+                    d.event_cats.forEach(function(c){
+                        html += '<li>' + esc(c.name) + (c.qty ? ' (Kapazität: ' + c.qty + ')' : '') + '</li>';
+                    });
+                    html += '</ul>';
+                }
+
+                if (d.changes.length) {
+                    html += '<h4 style="margin:12px 0 6px;font-size:13px;color:#0f172a;">Änderungen (' + d.changes.length + '):</h4>';
+                    html += '<div style="max-height:280px;overflow-y:auto;border:1px solid #e5e7eb;border-radius:6px;">';
+                    html += '<table class="widefat" style="border:none;font-size:12px;"><thead style="position:sticky;top:0;background:#f9fafb;z-index:1;"><tr><th>Code</th><th>Preis</th><th>Alt</th><th>→ Neu</th><th>Quelle (item.name)</th></tr></thead><tbody>';
+                    d.changes.slice(0, 200).forEach(function(c){
+                        html += '<tr><td><code>' + esc(c.code) + '</code></td>' +
+                                '<td>' + parseFloat(c.ticket_price).toFixed(2).replace('.', ',') + ' €</td>' +
+                                '<td><span style="color:#6b7280;">' + esc(c.old_cat_name) + '</span></td>' +
+                                '<td><strong style="color:#065f46;">' + esc(c.new_cat_name) + '</strong></td>' +
+                                '<td style="color:#6b7280;font-size:11px;">' + esc(c.item_name) + '</td></tr>';
+                    });
+                    if (d.changes.length > 200) {
+                        html += '<tr><td colspan="5" style="text-align:center;color:#9ca3af;font-style:italic;">… ' + (d.changes.length - 200) + ' weitere Änderungen</td></tr>';
+                    }
+                    html += '</tbody></table></div>';
+                }
+
+                if (d.no_match.length) {
+                    html += '<h4 style="margin:14px 0 6px;font-size:13px;color:#991b1b;">Nicht zuordenbar (' + d.no_match.length + '):</h4>';
+                    html += '<div style="max-height:140px;overflow-y:auto;border:1px solid #e5e7eb;border-radius:6px;background:#fef2f2;padding:8px 12px;font-size:12px;color:#991b1b;">';
+                    d.no_match.slice(0, 50).forEach(function(n){
+                        html += '<div><code>' + esc(n.code) + '</code> — ' + esc(n.reason) + '</div>';
+                    });
+                    html += '</div>';
+                }
+
+                if (d.changes.length === 0 && d.no_match.length === 0) {
+                    html += '<div style="background:#ecfdf5;border:1px solid #a7f3d0;border-radius:8px;padding:14px;color:#065f46;text-align:center;">✓ Alles in Ordnung — keine Reparatur nötig.</div>';
+                    apply.disabled = true;
+                } else if (d.changes.length === 0) {
+                    apply.disabled = true;
+                } else {
+                    apply.disabled = false;
+                }
+
+                body.innerHTML = html;
+            }
+
+            apply.addEventListener('click', function() {
+                if (!confirm('Willst du diese ' + 'Änderungen' + ' wirklich anwenden? Das kann nicht rückgängig gemacht werden.')) return;
+                apply.disabled = true; apply.textContent = 'Wende an…';
+                jQuery.post(ajaxUrl, { action: 'tix_event_report_repair_apply', nonce: nonce, event_id: eventId }, function(r) {
+                    apply.textContent = 'Anwenden';
+                    if (!r || !r.success || !r.data) { alert('Fehler beim Anwenden.'); apply.disabled = false; return; }
+                    var html = '<div style="background:#ecfdf5;border:1px solid #a7f3d0;border-radius:8px;padding:18px;color:#065f46;">';
+                    html += '<h3 style="margin:0 0 8px;font-size:15px;">✓ Reparatur abgeschlossen</h3>';
+                    html += '<p style="margin:0 0 6px;"><strong>' + r.data.updated + '</strong> Tickets aktualisiert.</p>';
+                    if (r.data.created_cats && r.data.created_cats.length) {
+                        html += '<p style="margin:0 0 6px;"><strong>Neue Kategorien angelegt:</strong> ' + r.data.created_cats.map(esc).join(', ') + ' (offline — bitte im Event-Editor aktivieren)</p>';
+                    }
+                    if (r.data.errors && r.data.errors.length) {
+                        html += '<p style="margin:6px 0 0;color:#991b1b;"><strong>Fehler:</strong></p><ul style="margin:0;padding-left:20px;font-size:12px;color:#991b1b;">';
+                        r.data.errors.forEach(function(e){ html += '<li>' + esc(e) + '</li>'; });
+                        html += '</ul>';
+                    }
+                    html += '<p style="margin:14px 0 0;"><a href="" class="button button-primary">Seite neu laden</a></p>';
+                    html += '</div>';
+                    body.innerHTML = html;
+                });
+            });
         })();
         </script>
         <?php
