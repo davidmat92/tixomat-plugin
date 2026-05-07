@@ -23,8 +23,11 @@ class TIX_Ticket_Category_Repair {
     /**
      * Heuristik: Kategorie-Name aus Produkt-Namen extrahieren.
      * Reihenfolge ist wichtig — spezifischere Patterns zuerst!
+     *
+     * @param string $product_name  Item-Name aus tix_order_items
+     * @param array  $fallback_cats Aktuelle Event-Kategorien — fuer Phase-Fallback
      */
-    private static function extract_category_name(string $product_name): string {
+    private static function extract_category_name(string $product_name, array $fallback_cats = []): string {
         $n = strtolower($product_name);
 
         // Special-Variants zuerst (enthält "Standard"-Substring)
@@ -41,6 +44,12 @@ class TIX_Ticket_Category_Repair {
         if (strpos($n, 'standard') !== false) return 'Standard';
         if (strpos($n, 'early') !== false)    return 'Early-Bird';
         if (strpos($n, 'student') !== false)  return 'Student';
+
+        // Phase-Pattern: "PHASE 1 - …", "PHASE 2 - …", "Phase 3" — Tickera-Legacy ohne Kategorie
+        // → 1. Event-Kategorie als Fallback (die "Standard"-Kategorie)
+        if (preg_match('/^\s*phase\s*\d+/i', $product_name)) {
+            return !empty($fallback_cats[0]['name']) ? (string) $fallback_cats[0]['name'] : 'Standard';
+        }
 
         return ''; // unbekannt
     }
@@ -121,6 +130,14 @@ class TIX_Ticket_Category_Repair {
         $no_match  = [];
         $new_cats  = [];
 
+        // Helper: Fallback ueber cat_index, wenn das Event diesen Index hat.
+        $resolve_via_index = function($cur_idx) use ($event_cats) {
+            if ($cur_idx === '' || $cur_idx === false || $cur_idx === null) return '';
+            $idx = intval($cur_idx);
+            if ($idx < 0) return '';
+            return isset($event_cats[$idx]['name']) ? (string) $event_cats[$idx]['name'] : '';
+        };
+
         foreach ($ticket_ids as $tid) {
             $tid = intval($tid);
             $code        = get_post_meta($tid, '_tix_ticket_code', true);
@@ -129,26 +146,48 @@ class TIX_Ticket_Category_Repair {
             $cur_idx     = get_post_meta($tid, '_tix_ticket_cat_index', true);
             $price       = floatval(get_post_meta($tid, '_tix_ticket_price', true));
             $special_id  = intval(get_post_meta($tid, '_tix_ticket_special_id', true)) ?: null;
+            $status      = get_post_meta($tid, '_tix_ticket_status', true);
+
+            // Stornierte Tickets ueberspringen — werden eh nicht als verkauft gezaehlt
+            if ($status === 'cancelled') {
+                $unchanged++;
+                continue;
+            }
 
             $item = $order_id
                 ? self::find_matching_item($order_id, $event_id, $price, $special_id)
                 : null;
 
-            if (!$item) {
-                // Ohne Order-Item kein zuverlaessiger Repair moeglich
-                if (!$cur_name) {
-                    $no_match[] = ['ticket_id' => $tid, 'code' => $code, 'reason' => 'kein Order-Item gefunden'];
-                } else {
-                    $unchanged++;
-                }
-                continue;
+            // Detected Category — primaer aus Item, sonst aus cat_index-Fallback
+            $detected = '';
+            $source   = '';
+
+            if ($item) {
+                $detected = self::extract_category_name($item->name, $event_cats);
+                $source   = $detected ? 'item-name' : '';
             }
 
-            // Soll-Kategorie ermitteln
-            $detected = self::extract_category_name($item->name);
+            // Fallback 1: kein Item → cat_index-Lookup im Event
+            if (!$detected) {
+                $via_idx = $resolve_via_index($cur_idx);
+                if ($via_idx) {
+                    $detected = $via_idx;
+                    $source   = 'cat-index';
+                }
+            }
+
+            // Fallback 2: noch immer nichts → 1. Kategorie als Default
+            if (!$detected && !empty($event_cats[0]['name'])) {
+                $detected = (string) $event_cats[0]['name'];
+                $source   = 'default-1st-category';
+            }
+
             if (!$detected) {
                 if (!$cur_name) {
-                    $no_match[] = ['ticket_id' => $tid, 'code' => $code, 'reason' => 'Kategorie nicht erkennbar aus "' . $item->name . '"'];
+                    $reason = $item
+                        ? ('Kategorie nicht erkennbar aus "' . $item->name . '"')
+                        : 'kein Order-Item gefunden';
+                    $no_match[] = ['ticket_id' => $tid, 'code' => $code, 'reason' => $reason];
                 } else {
                     $unchanged++;
                 }
@@ -177,8 +216,8 @@ class TIX_Ticket_Category_Repair {
                 'old_cat_idx'  => $cur_idx === '' ? '(leer)' : $cur_idx,
                 'new_cat_name' => $detected,
                 'new_cat_idx'  => $new_idx,
-                'source'       => 'item-name',
-                'item_name'    => $item->name,
+                'source'       => $source,
+                'item_name'    => $item ? $item->name : '(via ' . $source . ')',
                 'ticket_price' => $price,
             ];
         }
