@@ -52,7 +52,7 @@ class TIX_Sponsor_Admin {
         if (!current_user_can('manage_options')) wp_die('Keine Berechtigung.');
         $sid = intval($_GET['sponsor_id'] ?? 0);
         if (!$sid) wp_die('Sponsor-ID fehlt.');
-        if (!isset($_GET['_wpnonce']) || !wp_verify_nonce($_GET['_wpnonce'], 'tix_sponsor_login_as_' . $sid)) {
+        if (!isset($_GET['_wpnonce']) || !wp_verify_nonce($_GET['_wpnonce'], 'tix_sponsor_login_as')) {
             wp_die('Ungültige Sicherheitsprüfung.');
         }
         if (!class_exists('TIX_Sponsor_DB') || !class_exists('TIX_Sponsor_Auth')) wp_die('Sponsor-Modul fehlt.');
@@ -81,9 +81,11 @@ class TIX_Sponsor_Admin {
         wp_enqueue_style('tix-admin', TIXOMAT_URL . 'assets/css/admin.css', ['tix-google-fonts'], TIXOMAT_VERSION);
         wp_enqueue_style('dashicons');
         wp_localize_script('jquery', 'tixSponsor', [
-            'ajaxurl' => admin_url('admin-ajax.php'),
-            'nonce'   => wp_create_nonce('tix_sponsor_admin'),
-            'events'  => self::get_events_list(),
+            'ajaxurl'         => admin_url('admin-ajax.php'),
+            'nonce'           => wp_create_nonce('tix_sponsor_admin'),
+            'events'          => self::get_events_list(),
+            'loginAsBaseUrl'  => admin_url('admin-post.php'),
+            'loginAsNonce'    => wp_create_nonce('tix_sponsor_login_as'),
         ]);
     }
 
@@ -501,10 +503,12 @@ class TIX_Sponsor_Admin {
                 currentSponsor = { id: $(this).data('id'), name: $(this).data('name'), email: $(this).data('email') };
                 $('#tix-sp-detail-name').text(currentSponsor.name);
                 $('#tix-sp-detail-email').text(currentSponsor.email);
-                // Login-As-URL bauen (per-sponsor Nonce, im Backend per AJAX holen)
-                $.post(tixSponsor.ajaxurl, { action: 'tix_sponsor_login_as_url', nonce: tixSponsor.nonce, sponsor_id: currentSponsor.id }, function(r) {
-                    if (r && r.success && r.data && r.data.url) $('#tix-sp-login-as').attr('href', r.data.url);
-                });
+                // Login-As-URL synchron bauen (kein Race mit AJAX-Click)
+                var loginAsUrl = (tixSponsor.loginAsBaseUrl || '/wp-admin/admin-post.php')
+                    + '?action=tix_sponsor_login_as'
+                    + '&sponsor_id=' + encodeURIComponent(currentSponsor.id)
+                    + '&_wpnonce=' + encodeURIComponent(tixSponsor.loginAsNonce || '');
+                $('#tix-sp-login-as').attr('href', loginAsUrl);
                 $('#tix-sp-detail').show();
                 loadPools();
                 $('html, body').animate({ scrollTop: $('#tix-sp-detail').offset().top - 60 }, 200);
