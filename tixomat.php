@@ -2,14 +2,14 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.38.172
+ * Version: 1.38.173
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.38.172');
+define('TIXOMAT_VERSION', '1.38.173');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -587,18 +587,16 @@ if (tix_get_settings('promoter_enabled')) {
     }
 }
 
-// ── Sponsor-System ──
-if (tix_get_settings('sponsor_enabled')) {
-    require_once TIXOMAT_PATH . 'includes/class-tix-sponsor-db.php';
-    require_once TIXOMAT_PATH . 'includes/class-tix-sponsor-auth.php';
-    require_once TIXOMAT_PATH . 'includes/class-tix-sponsor-admin.php';
-    require_once TIXOMAT_PATH . 'includes/class-tix-sponsor-dashboard.php';
-    TIX_Sponsor_Auth::init();
-    TIX_Sponsor_Admin::init();
-    TIX_Sponsor_Dashboard::init();
-    // Tabellen sicherstellen (lazy)
-    if (!TIX_Sponsor_DB::tables_exist()) TIX_Sponsor_DB::create_tables();
-}
+// ── Sponsor-System (immer geladen — keine Setting-Gate) ──
+require_once TIXOMAT_PATH . 'includes/class-tix-sponsor-db.php';
+require_once TIXOMAT_PATH . 'includes/class-tix-sponsor-auth.php';
+require_once TIXOMAT_PATH . 'includes/class-tix-sponsor-admin.php';
+require_once TIXOMAT_PATH . 'includes/class-tix-sponsor-dashboard.php';
+TIX_Sponsor_Auth::init();
+TIX_Sponsor_Admin::init();
+TIX_Sponsor_Dashboard::init();
+// Tabellen sicherstellen (lazy)
+if (!TIX_Sponsor_DB::tables_exist()) TIX_Sponsor_DB::create_tables();
 
 // ── Marketing-Features ──
 if (tix_get_settings('vip_enabled')) {
