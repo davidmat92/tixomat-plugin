@@ -349,6 +349,9 @@ class TIX_Settings {
             'promoter_default_commission_type'  => 'percent', // global Fallback fuer alle Promoter/Events
             'promoter_default_commission_value' => 0,         // 0 = kein Default (keine Provision wenn nirgends gesetzt)
             'promoter_fullscreen'   => 1, // Fullscreen-Modus fuer Promoter-Dashboard (kein Theme)
+            // ── Sponsor-System ──
+            'sponsor_enabled'    => 1,
+            'sponsor_page_id'    => 0,
             'promoter_self_signup'  => 0,
             'promoter_signup_commission_type'  => 'fixed',
             'promoter_signup_commission_value' => 2,
@@ -1182,6 +1185,8 @@ class TIX_Settings {
         $clean['promoter_default_commission_type']  = in_array($input['promoter_default_commission_type'] ?? '', ['percent', 'fixed']) ? $input['promoter_default_commission_type'] : 'percent';
         $clean['promoter_default_commission_value'] = max(0, floatval(str_replace(',', '.', $input['promoter_default_commission_value'] ?? 0)));
         $clean['promoter_fullscreen'] = !empty($input['promoter_fullscreen']) ? 1 : 0;
+        $clean['sponsor_enabled']     = !empty($input['sponsor_enabled']) ? 1 : 0;
+        $clean['sponsor_page_id']     = max(0, intval($input['sponsor_page_id'] ?? 0));
         $clean['promoter_self_signup'] = !empty($input['promoter_self_signup']) ? 1 : 0;
         $clean['promoter_signup_commission_type']  = in_array($input['promoter_signup_commission_type'] ?? '', ['percent', 'fixed']) ? $input['promoter_signup_commission_type'] : 'fixed';
         $clean['promoter_signup_commission_value'] = max(0, floatval($input['promoter_signup_commission_value'] ?? 2));

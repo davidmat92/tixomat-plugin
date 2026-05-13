@@ -201,8 +201,10 @@ class TIX_Ticket_Selector {
         }
 
         // Online + Offline-Tickets anzeigen (nicht: beide AUS)
+        // admin_only-Kategorien IMMER ausblenden (nur via Sponsor-Portal vergebbar)
         $categories = array_filter($categories, fn($c) =>
-            ($c['online'] ?? '1') === '1' || !empty($c['offline_ticket'])
+            empty($c['admin_only']) &&
+            (($c['online'] ?? '1') === '1' || !empty($c['offline_ticket']))
         );
         if (empty($categories)) {
             return '<p class="tix-sel-error">Keine Tickets verfügbar.</p>';
