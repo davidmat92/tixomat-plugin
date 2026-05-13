@@ -18,10 +18,51 @@ class TIX_Sponsor_Admin {
             'tix_sponsor_save', 'tix_sponsor_list', 'tix_sponsor_delete',
             'tix_sponsor_pools', 'tix_sponsor_pool_add', 'tix_sponsor_pool_delete',
             'tix_sponsor_send_login', 'tix_sponsor_create_category',
+            'tix_sponsor_login_as_url',
         ];
         foreach ($actions as $a) {
             add_action('wp_ajax_' . $a, [__CLASS__, 'ajax_' . str_replace('tix_sponsor_', '', $a)]);
         }
+
+        // "Login as Sponsor" (Admin → setzt Sponsor-Cookie + Redirect)
+        add_action('admin_post_tix_sponsor_login_as', [__CLASS__, 'login_as_sponsor']);
+    }
+
+    /**
+     * AJAX: gibt die nonced URL für "Login as Sponsor" zurueck.
+     * Wird im JS aufgerufen wenn die Detail-Card geoeffnet wird.
+     */
+    public static function ajax_login_as_url() {
+        check_ajax_referer('tix_sponsor_admin', 'nonce');
+        if (!current_user_can('manage_options')) wp_send_json_error('Keine Berechtigung.');
+        $sid = intval($_POST['sponsor_id'] ?? 0);
+        if (!$sid) wp_send_json_error('Sponsor-ID fehlt.');
+        $url = wp_nonce_url(
+            admin_url('admin-post.php?action=tix_sponsor_login_as&sponsor_id=' . $sid),
+            'tix_sponsor_login_as_' . $sid
+        );
+        wp_send_json_success(['url' => $url]);
+    }
+
+    /**
+     * Admin-Action: setzt Sponsor-Session-Cookie für den eingeloggten Admin
+     * und redirected zur Sponsor-Dashboard-Seite. Capability-Check + Nonce.
+     */
+    public static function login_as_sponsor() {
+        if (!current_user_can('manage_options')) wp_die('Keine Berechtigung.');
+        $sid = intval($_GET['sponsor_id'] ?? 0);
+        if (!$sid) wp_die('Sponsor-ID fehlt.');
+        if (!isset($_GET['_wpnonce']) || !wp_verify_nonce($_GET['_wpnonce'], 'tix_sponsor_login_as_' . $sid)) {
+            wp_die('Ungültige Sicherheitsprüfung.');
+        }
+        if (!class_exists('TIX_Sponsor_DB') || !class_exists('TIX_Sponsor_Auth')) wp_die('Sponsor-Modul fehlt.');
+
+        $sponsor = TIX_Sponsor_DB::get_sponsor($sid);
+        if (!$sponsor || $sponsor->status !== 'active') wp_die('Sponsor nicht gefunden oder inaktiv.');
+
+        TIX_Sponsor_Auth::set_session_cookie(intval($sponsor->id));
+        wp_safe_redirect(add_query_arg('tix_admin_preview', '1', TIX_Sponsor_Auth::get_sponsor_page_url()));
+        exit;
     }
 
     public static function add_menu() {
@@ -327,7 +368,11 @@ class TIX_Sponsor_Admin {
                         <h2 style="margin:0;font-size:16px;">Kontingente für <span id="tix-sp-detail-name">—</span></h2>
                         <p style="margin:2px 0 0;color:#64748b;font-size:12px;">E-Mail: <code id="tix-sp-detail-email">—</code></p>
                     </div>
-                    <div style="display:flex;gap:6px;">
+                    <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                        <a href="#" id="tix-sp-login-as" class="button" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:5px;">
+                            <span class="dashicons dashicons-visibility" style="font-size:14px;width:14px;height:14px;line-height:1;"></span>
+                            Als Sponsor öffnen
+                        </a>
                         <button type="button" class="button" id="tix-sp-send-login">📧 Login-Link senden</button>
                         <button type="button" class="button" id="tix-sp-pool-add-btn"><span class="dashicons dashicons-plus-alt2" style="font-size:14px;width:14px;height:14px;line-height:1;vertical-align:text-top;"></span> Kontingent</button>
                         <button type="button" class="button" id="tix-sp-detail-close">Schließen</button>
@@ -456,6 +501,10 @@ class TIX_Sponsor_Admin {
                 currentSponsor = { id: $(this).data('id'), name: $(this).data('name'), email: $(this).data('email') };
                 $('#tix-sp-detail-name').text(currentSponsor.name);
                 $('#tix-sp-detail-email').text(currentSponsor.email);
+                // Login-As-URL bauen (per-sponsor Nonce, im Backend per AJAX holen)
+                $.post(tixSponsor.ajaxurl, { action: 'tix_sponsor_login_as_url', nonce: tixSponsor.nonce, sponsor_id: currentSponsor.id }, function(r) {
+                    if (r && r.success && r.data && r.data.url) $('#tix-sp-login-as').attr('href', r.data.url);
+                });
                 $('#tix-sp-detail').show();
                 loadPools();
                 $('html, body').animate({ scrollTop: $('#tix-sp-detail').offset().top - 60 }, 200);

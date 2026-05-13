@@ -535,9 +535,16 @@ class TIX_Sponsor_Dashboard {
         $logout = TIX_Sponsor_Auth::logout_url();
         $export_url = wp_nonce_url(admin_url('admin-post.php?action=tix_sd_export_csv'), 'tix_sd_export');
 
+        $is_admin_preview = !empty($_GET['tix_admin_preview']) && current_user_can('manage_options');
         ob_start();
         ?>
         <div class="tix-sd" id="tix-sponsor-dashboard" style="--tix-acc-primary: #FF5500;">
+            <?php if ($is_admin_preview): ?>
+            <div style="background:#fef3c7;border:1px solid #fde68a;border-radius:10px;padding:10px 16px;margin-bottom:16px;color:#7c2d12;font-size:13px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+                <span><strong>👁 Admin-Vorschau:</strong> Du siehst gerade das Portal aus Sicht des Sponsors <strong><?php echo esc_html($sponsor->name); ?></strong>. Alle Aktionen wirken sich real aus.</span>
+                <a href="<?php echo esc_url($logout); ?>" style="background:#7c2d12;color:#fff;padding:4px 12px;border-radius:6px;text-decoration:none;font-size:12px;font-weight:600;">← Vorschau beenden</a>
+            </div>
+            <?php endif; ?>
             <header style="display:flex;justify-content:space-between;align-items:flex-end;gap:14px;flex-wrap:wrap;margin-bottom:22px;">
                 <div>
                     <h1 style="margin:0 0 4px;font-size:24px;">🎟️ Sponsor-Portal</h1>
