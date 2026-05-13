@@ -554,12 +554,47 @@ class TIX_Sponsor_Dashboard {
             </header>
 
             <!-- Erklärungs-Card -->
-            <div style="background:#fef3c7;border:1px solid #fde68a;border-radius:12px;padding:16px 20px;margin-bottom:18px;color:#7c2d12;font-size:13px;line-height:1.7;">
-                <strong>So funktioniert's:</strong>
-                Du verwaltest deine Sponsor-Tickets selbständig. <strong>(1)</strong> Wähle einen Pool unten,
-                <strong>(2)</strong> klicke „Tickets ausgeben" und wähle wie: per E-Mail, anonym zum Drucken, oder mit eigenen Namen ohne Mail.
-                Jedes generierte Ticket bekommst du als <strong>Online-Link</strong> + <strong>PDF zum Drucken</strong>. Namen kannst du jederzeit nachträglich setzen oder ändern.
-            </div>
+            <details open style="background:linear-gradient(135deg,#fef3c7 0%,#fde68a 100%);border:1px solid #fcd34d;border-radius:12px;margin-bottom:18px;color:#7c2d12;">
+                <summary style="cursor:pointer;padding:14px 20px;font-weight:700;font-size:15px;list-style:none;display:flex;align-items:center;justify-content:space-between;">
+                    <span>👋 Willkommen — so funktioniert dein Sponsor-Portal</span>
+                    <span style="font-size:11px;opacity:0.7;">Klick zum Aus-/Einklappen</span>
+                </summary>
+                <div style="padding:0 20px 16px;font-size:13px;line-height:1.7;">
+
+                    <p style="margin:0 0 12px;">Du verteilst hier deine Sponsor-Tickets <strong>selbständig</strong>. Wir haben dir alles in 3 Schritten erklärt — kein Aufwand, keine technischen Tricks.</p>
+
+                    <!-- Schritt 1 -->
+                    <div style="background:rgba(255,255,255,0.6);border-radius:8px;padding:12px 14px;margin-bottom:10px;">
+                        <strong style="font-size:14px;">1️⃣ Pool auswählen</strong><br>
+                        Unten siehst du deine <strong>Ticket-Pools</strong> — pro Event und Kategorie eine Karte. Dort steht wie viele Tickets du noch frei hast.
+                    </div>
+
+                    <!-- Schritt 2 -->
+                    <div style="background:rgba(255,255,255,0.6);border-radius:8px;padding:12px 14px;margin-bottom:10px;">
+                        <strong style="font-size:14px;">2️⃣ Tickets ausgeben — drei Wege</strong>
+                        <ul style="margin:6px 0 0;padding-left:22px;">
+                            <li><strong>📧 Personalisiert + per Mail:</strong> Du tippst Name + E-Mail rein, wir verschicken automatisch ein Ticket mit PDF und Online-Link. Empfehlung für die meisten Fälle.</li>
+                            <li><strong>✏️ Personalisiert ohne Mail:</strong> Tickets mit Namen erstellen, aber du verteilst sie selbst (z.B. ausdrucken und persönlich übergeben).</li>
+                            <li><strong>🎫 Anonym:</strong> N Tickets ohne Namen — perfekt zum Drucken auf Vorrat. Namen kannst du jederzeit später nachtragen.</li>
+                        </ul>
+                    </div>
+
+                    <!-- Schritt 3 -->
+                    <div style="background:rgba(255,255,255,0.6);border-radius:8px;padding:12px 14px;margin-bottom:0;">
+                        <strong style="font-size:14px;">3️⃣ Was du mit jedem Ticket machen kannst</strong>
+                        <div style="margin-top:6px;display:grid;grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));gap:6px;">
+                            <div>👁 <strong>Online-Link</strong> öffnen + teilen</div>
+                            <div>↓ <strong>PDF</strong> herunterladen + drucken</div>
+                            <div>✎ <strong>Name/E-Mail</strong> nachträglich ändern</div>
+                            <div>📧 <strong>Mail erneut senden</strong></div>
+                            <div>× <strong>Stornieren</strong> (Kontingent wird frei)</div>
+                            <div>📋 <strong>Bulk-PDF</strong> aller Tickets eines Pools</div>
+                        </div>
+                    </div>
+
+                    <p style="margin:12px 0 0;font-style:italic;font-size:12px;opacity:0.85;">💡 <strong>Tipp:</strong> Die Empfänger brauchen das Ticket beim Einlass — entweder den QR-Code auf dem Handy oder auf Papier. Beides funktioniert.</p>
+                </div>
+            </details>
 
             <!-- Pool-Liste -->
             <div id="tix-sd-pools"></div>
