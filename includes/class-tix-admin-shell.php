@@ -42,7 +42,7 @@ class TIX_Admin_Shell {
         $tix_pages = [
             'tixomat', 'tix-dashboard',
             'tix-settings', 'tix-statistics', 'tix-support', 'tix-docs',
-            'tix-promoters', 'tix-marketing-export', 'tix-campaigns', 'tix-meta-ads',
+            'tix-promoters', 'tix-sponsors', 'tix-marketing-export', 'tix-campaigns', 'tix-meta-ads',
             'tix-templates', 'tix-orders', 'tix-customers', 'tix-email-log', 'tix-bulk-editor', 'tix-settings-io',
             'tix-legal', 'tix-quotes', 'tix-coupons', 'tix-migration',
             'tix-event-report',
@@ -137,6 +137,7 @@ class TIX_Admin_Shell {
         elseif ($current_page === 'tix-statistics')                             $active = 'statistics';
         elseif ($current_page === 'tix-support')                                $active = 'support';
         elseif ($current_page === 'tix-promoters')                              $active = 'promoter';
+        elseif ($current_page === 'tix-sponsors')                               $active = 'sponsor';
         elseif ($current_page === 'tix-marketing-export')                       $active = 'marketing-export';
         elseif ($current_page === 'tix-campaigns')                              $active = 'campaigns';
         elseif ($current_page === 'tix-meta-ads')                              $active = 'meta-ads';
@@ -502,6 +503,11 @@ class TIX_Admin_Shell {
                         <span>Promoter</span>
                     </a>
                     <?php endif; ?>
+                    <a href="<?php echo admin_url('admin.php?page=tix-sponsors'); ?>"
+                       class="tix-shell-item<?php echo $active === 'sponsor' ? ' active' : ''; ?>">
+                        <span class="dashicons dashicons-awards"></span>
+                        <span>Sponsoren</span>
+                    </a>
                     <?php if (!empty($s['marketing_export_enabled'])) : ?>
                     <a href="<?php echo admin_url('admin.php?page=tix-marketing-export'); ?>"
                        class="tix-shell-item<?php echo $active === 'marketing-export' ? ' active' : ''; ?>">

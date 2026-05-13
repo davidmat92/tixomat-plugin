@@ -17,7 +17,7 @@ class TIX_Sponsor_Admin {
         $actions = [
             'tix_sponsor_save', 'tix_sponsor_list', 'tix_sponsor_delete',
             'tix_sponsor_pools', 'tix_sponsor_pool_add', 'tix_sponsor_pool_delete',
-            'tix_sponsor_send_login',
+            'tix_sponsor_send_login', 'tix_sponsor_create_category',
         ];
         foreach ($actions as $a) {
             add_action('wp_ajax_' . $a, [__CLASS__, 'ajax_' . str_replace('tix_sponsor_', '', $a)]);
@@ -185,6 +185,58 @@ class TIX_Sponsor_Admin {
         wp_send_json_success(['message' => 'Kontingent entfernt.']);
     }
 
+    /**
+     * Legt eine neue (admin-only / versteckte) Kategorie im Event an.
+     * Wird vom Pool-Form genutzt — "+ Neue Kategorie anlegen".
+     */
+    public static function ajax_create_category() {
+        check_ajax_referer('tix_sponsor_admin', 'nonce');
+        if (!current_user_can('manage_options')) wp_send_json_error('Keine Berechtigung.');
+
+        $event_id = intval($_POST['event_id'] ?? 0);
+        $name     = trim(sanitize_text_field($_POST['name'] ?? ''));
+        $qty      = max(0, intval($_POST['qty'] ?? 0));
+        $admin_only = !empty($_POST['admin_only']);
+
+        if (!$event_id || !$name) wp_send_json_error('Event und Name sind erforderlich.');
+
+        $cats = get_post_meta($event_id, '_tix_ticket_categories', true);
+        if (!is_array($cats)) $cats = [];
+
+        // Duplikat-Check (case-insensitive)
+        foreach ($cats as $c) {
+            if (strtolower(trim($c['name'] ?? '')) === strtolower($name)) {
+                wp_send_json_error('Eine Kategorie mit diesem Namen existiert bereits in diesem Event.');
+            }
+        }
+
+        $new_cat = [
+            'name'           => $name,
+            'price'          => 0,
+            'sale_price'     => '',
+            'qty'            => $qty,
+            'desc'           => '',
+            'image_id'       => 0,
+            'online'         => '0',          // im normalen Selektor unsichtbar
+            'offline_ticket' => '0',
+            'admin_only'     => $admin_only ? 1 : 0,
+            'bundle_buy'     => 0, 'bundle_pay' => 0, 'bundle_label' => '',
+            'tc_event_id'    => 0, 'product_id' => 0, 'sku' => '', 'group' => '',
+            'seatmap_id'     => 0, 'seatmap_section' => '',
+            'phases'         => [],
+        ];
+
+        $cats[] = $new_cat;
+        update_post_meta($event_id, '_tix_ticket_categories', $cats);
+
+        $new_index = count($cats) - 1;
+        wp_send_json_success([
+            'cat_index' => $new_index,
+            'cat_name'  => $name,
+            'message'   => 'Kategorie "' . $name . '" angelegt (versteckt, qty=' . $qty . ').',
+        ]);
+    }
+
     public static function ajax_send_login() {
         check_ajax_referer('tix_sponsor_admin', 'nonce');
         if (!current_user_can('manage_options')) wp_send_json_error('Keine Berechtigung.');
@@ -297,6 +349,23 @@ class TIX_Sponsor_Admin {
                             <input type="number" id="tix-sp-pool-total" min="1" value="100" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;">
                         </div>
                     </div>
+
+                    <!-- Inline-Form: Neue Kategorie anlegen (nur sichtbar bei "+ Neue Kategorie") -->
+                    <div id="tix-sp-newcat-wrap" style="display:none;margin-top:12px;padding:12px 14px;background:#fef3c7;border:1px solid #fde68a;border-radius:8px;">
+                        <strong style="font-size:13px;color:#7c2d12;display:block;margin-bottom:8px;">🔒 Neue versteckte Kategorie für diesen Sponsor anlegen</strong>
+                        <div style="display:grid;grid-template-columns:2fr 1fr;gap:10px;">
+                            <div>
+                                <label style="font-weight:600;font-size:12px;display:block;margin-bottom:4px;">Kategorie-Name *</label>
+                                <input type="text" id="tix-sp-newcat-name" placeholder="z.B. Sponsor-Bereich Handwerker" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;box-sizing:border-box;">
+                            </div>
+                            <div>
+                                <label style="font-weight:600;font-size:12px;display:block;margin-bottom:4px;">Kapazität gesamt</label>
+                                <input type="number" id="tix-sp-newcat-qty" min="0" value="100" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;box-sizing:border-box;">
+                            </div>
+                        </div>
+                        <small style="color:#7c2d12;font-size:11px;display:block;margin-top:6px;">Diese Kategorie wird als <strong>versteckt</strong> (admin_only) angelegt — Besucher sehen sie nicht im normalen Ticket-Selektor.</small>
+                    </div>
+
                     <div style="margin-top:10px;display:flex;gap:8px;justify-content:flex-end;">
                         <button type="button" class="button" id="tix-sp-pool-cancel">Abbrechen</button>
                         <button type="button" class="button button-primary" id="tix-sp-pool-save">Kontingent hinzufügen</button>
@@ -457,28 +526,75 @@ class TIX_Sponsor_Admin {
                         opts += '<option value="' + c.index + '">' + esc(c.name) + hint + '</option>';
                     });
                 }
+                // Letzte Option: Neue Kategorie anlegen
+                opts += '<option value="__new__" style="font-weight:700;color:#7c2d12;">+ Neue versteckte Kategorie anlegen…</option>';
                 $('#tix-sp-pool-cat').html(opts);
+                $('#tix-sp-newcat-wrap').hide();
+            });
+
+            // Cat-Auswahl: bei "__new__" Inline-Form einblenden
+            $('#tix-sp-pool-cat').on('change', function() {
+                $('#tix-sp-newcat-wrap').toggle($(this).val() === '__new__');
             });
 
             $('#tix-sp-pool-save').on('click', function() {
                 if (!currentSponsor) return;
                 var $btn = $(this); $btn.prop('disabled', true).text('Speichere…');
-                $.post(tixSponsor.ajaxurl, {
-                    action: 'tix_sponsor_pool_add', nonce: tixSponsor.nonce,
-                    sponsor_id: currentSponsor.id,
-                    event_id:   $('#tix-sp-pool-event').val(),
-                    cat_index:  $('#tix-sp-pool-cat').val(),
-                    total:      $('#tix-sp-pool-total').val(),
-                }, function(r) {
-                    $btn.prop('disabled', false).text('Kontingent hinzufügen');
-                    if (r.success) {
-                        $('#tix-sp-pool-form').hide();
-                        loadPools();
-                        loadSponsors();
-                    } else {
-                        alert(r.data || 'Fehler.');
+                var event_id = $('#tix-sp-pool-event').val();
+                var cat_val  = $('#tix-sp-pool-cat').val();
+                var total    = $('#tix-sp-pool-total').val();
+
+                function createPool(cat_index) {
+                    $.post(tixSponsor.ajaxurl, {
+                        action: 'tix_sponsor_pool_add', nonce: tixSponsor.nonce,
+                        sponsor_id: currentSponsor.id,
+                        event_id:   event_id,
+                        cat_index:  cat_index,
+                        total:      total,
+                    }, function(r) {
+                        $btn.prop('disabled', false).text('Kontingent hinzufügen');
+                        if (r.success) {
+                            $('#tix-sp-pool-form').hide();
+                            $('#tix-sp-newcat-wrap').hide();
+                            // tixSponsor.events Cache aktualisieren — neue Kategorie kommt sonst beim nächsten Pool nicht im Dropdown
+                            location.reload();
+                        } else {
+                            alert(r.data || 'Fehler.');
+                        }
+                    });
+                }
+
+                if (cat_val === '__new__') {
+                    var name = ($('#tix-sp-newcat-name').val() || '').trim();
+                    var qty  = parseInt($('#tix-sp-newcat-qty').val(), 10) || 0;
+                    if (!name) {
+                        alert('Bitte einen Kategorie-Namen eingeben.');
+                        $btn.prop('disabled', false).text('Kontingent hinzufügen');
+                        return;
                     }
-                });
+                    // 1. Kategorie anlegen, dann Pool
+                    $.post(tixSponsor.ajaxurl, {
+                        action: 'tix_sponsor_create_category', nonce: tixSponsor.nonce,
+                        event_id:   event_id,
+                        name:       name,
+                        qty:        qty,
+                        admin_only: 1,
+                    }, function(r) {
+                        if (!r.success) {
+                            $btn.prop('disabled', false).text('Kontingent hinzufügen');
+                            alert(r.data || 'Fehler beim Kategorie-Anlegen.');
+                            return;
+                        }
+                        createPool(r.data.cat_index);
+                    });
+                } else {
+                    if (!cat_val) {
+                        alert('Bitte eine Kategorie auswählen.');
+                        $btn.prop('disabled', false).text('Kontingent hinzufügen');
+                        return;
+                    }
+                    createPool(cat_val);
+                }
             });
 
             $(document).on('click', '.tix-sp-pool-del', function() {
