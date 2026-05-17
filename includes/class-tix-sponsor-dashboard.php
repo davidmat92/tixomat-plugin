@@ -735,10 +735,8 @@ class TIX_Sponsor_Dashboard {
                                 '<div style="height:6px;background:#f1f5f9;border-radius:99px;overflow:hidden;margin-bottom:12px;">' +
                                     '<div style="height:100%;width:' + pct + '%;background:#FF5500;"></div>' +
                                 '</div>' +
-                                '<div style="display:flex;gap:6px;flex-wrap:wrap;">' +
-                                    '<button class="button button-primary tix-sd-issue-btn" data-pool-id="' + p.id + '" data-pool-label="' + esc(p.event_title + ' — ' + p.cat_name + ' (' + p.available + ' frei)') + '"' + (p.available <= 0 ? ' disabled' : '') + '>+ Tickets ausgeben</button>' +
-                                    (p.used > 0 ? '<a href="' + bulkPdfUrl + '" class="button">↓ Bulk-PDF</a>' : '') +
-                                '</div>' +
+                                '<button class="button button-primary tix-sd-issue-btn" data-pool-id="' + p.id + '" data-pool-label="' + esc(p.event_title + ' — ' + p.cat_name + ' (' + p.available + ' frei)') + '"' + (p.available <= 0 ? ' disabled' : '') + ' style="width:100%;display:block;padding:14px 20px;font-size:16px;font-weight:700;height:auto;line-height:1.2;border-radius:10px;box-shadow:0 4px 14px rgba(255,85,0,0.28);">+ Tickets ausgeben</button>' +
+                                (p.used > 0 ? '<div style="margin-top:10px;text-align:center;"><a href="' + bulkPdfUrl + '" class="button button-small" style="font-size:11px;">↓ Bulk-PDF aller Tickets</a></div>' : '') +
                                 '</div>';
                         });
                         html += '</div>';
