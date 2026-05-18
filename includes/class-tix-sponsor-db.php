@@ -41,6 +41,7 @@ class TIX_Sponsor_DB {
             notes           TEXT,
             status          VARCHAR(20) NOT NULL DEFAULT 'active',
             coupon_code     VARCHAR(50) NOT NULL DEFAULT '',
+            password_hash   VARCHAR(255) NOT NULL DEFAULT '',
             created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
             updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
             PRIMARY KEY (id),
@@ -130,6 +131,31 @@ class TIX_Sponsor_DB {
     public static function delete_sponsor(int $id) {
         global $wpdb;
         return $wpdb->update(self::table_sponsors(), ['status' => 'inactive'], ['id' => $id]);
+    }
+
+    /* ──── Passwort ──── */
+
+    public static function set_password(int $id, string $plain): bool {
+        global $wpdb;
+        if (strlen($plain) < 8) return false;
+        $hash = password_hash($plain, PASSWORD_DEFAULT);
+        return false !== $wpdb->update(self::table_sponsors(), ['password_hash' => $hash], ['id' => $id]);
+    }
+
+    public static function clear_password(int $id): bool {
+        global $wpdb;
+        return false !== $wpdb->update(self::table_sponsors(), ['password_hash' => ''], ['id' => $id]);
+    }
+
+    public static function verify_password(int $id, string $plain): bool {
+        $s = self::get_sponsor($id);
+        if (!$s || empty($s->password_hash)) return false;
+        return password_verify($plain, $s->password_hash);
+    }
+
+    public static function has_password(int $id): bool {
+        $s = self::get_sponsor($id);
+        return $s && !empty($s->password_hash);
     }
 
     /* ──── Pool CRUD ──── */

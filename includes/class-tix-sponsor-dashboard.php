@@ -563,6 +563,7 @@ class TIX_Sponsor_Dashboard {
         $nonce  = wp_create_nonce('tix_sponsor_dashboard');
         $logout = TIX_Sponsor_Auth::logout_url();
         $export_url = wp_nonce_url(admin_url('admin-post.php?action=tix_sd_export_csv'), 'tix_sd_export');
+        $has_password = TIX_Sponsor_DB::has_password(intval($sponsor->id));
 
         $is_admin_preview = !empty($_GET['tix_admin_preview']) && current_user_can('manage_options');
         ob_start();
@@ -616,8 +617,18 @@ class TIX_Sponsor_Dashboard {
                     <h1 style="margin:0 0 4px;font-size:24px;">🎟️ Sponsor-Portal</h1>
                     <p style="margin:0;color:#64748b;font-size:14px;">Hallo, <strong><?php echo esc_html($sponsor->contact_name ?: $sponsor->name); ?></strong> — willkommen.</p>
                 </div>
-                <a href="<?php echo esc_url($logout); ?>" style="font-size:12px;color:#64748b;text-decoration:none;border:1px solid #e5e7eb;padding:6px 12px;border-radius:6px;">Abmelden</a>
+                <div style="display:flex;gap:6px;align-items:center;">
+                    <button type="button" id="tix-sd-pw-open" style="font-size:12px;color:#0f172a;background:#fff;border:1px solid #e5e7eb;padding:6px 12px;border-radius:6px;cursor:pointer;">🔑 Passwort</button>
+                    <a href="<?php echo esc_url($logout); ?>" style="font-size:12px;color:#64748b;text-decoration:none;border:1px solid #e5e7eb;padding:6px 12px;border-radius:6px;">Abmelden</a>
+                </div>
             </header>
+
+            <?php if (!$has_password): ?>
+            <div id="tix-sd-pw-cta" style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:10px 14px;margin-bottom:14px;color:#1e3a8a;font-size:13px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+                <span>🔑 <strong>Tipp:</strong> Lege ein Passwort fest, dann kannst du dich auch ohne Login-Link einloggen.</span>
+                <button type="button" class="tix-sd-pw-open-link" style="background:#1d4ed8;color:#fff;border:none;padding:5px 12px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;">Passwort festlegen</button>
+            </div>
+            <?php endif; ?>
 
             <!-- Erklärungs-Card -->
             <details open style="background:linear-gradient(135deg,#fef3c7 0%,#fde68a 100%);border:1px solid #fcd34d;border-radius:12px;margin-bottom:18px;color:#7c2d12;">
@@ -784,11 +795,44 @@ class TIX_Sponsor_Dashboard {
             </div>
         </div>
 
+        <!-- PASSWORT-Modal -->
+        <div id="tix-sd-pw-modal" style="display:none;position:fixed;inset:0;z-index:99999;">
+            <div style="position:absolute;inset:0;background:rgba(15,23,42,0.55);" class="tix-sd-pw-close"></div>
+            <div style="position:relative;max-width:460px;margin:60px auto;background:#fff;border-radius:14px;box-shadow:0 24px 64px rgba(15,23,42,0.25);">
+                <header style="padding:16px 22px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center;">
+                    <h2 style="margin:0;font-size:18px;"><?php echo $has_password ? 'Passwort ändern' : 'Passwort festlegen'; ?></h2>
+                    <button type="button" class="button button-small tix-sd-pw-close">×</button>
+                </header>
+                <div style="padding:22px;display:flex;flex-direction:column;gap:12px;">
+                    <?php if ($has_password): ?>
+                    <div>
+                        <label style="font-weight:600;font-size:13px;display:block;margin-bottom:4px;">Aktuelles Passwort</label>
+                        <input type="password" id="tix-sd-pw-old" autocomplete="current-password" style="width:100%;padding:9px;border:1px solid #d1d5db;border-radius:6px;box-sizing:border-box;">
+                    </div>
+                    <?php endif; ?>
+                    <div>
+                        <label style="font-weight:600;font-size:13px;display:block;margin-bottom:4px;">Neues Passwort <span style="color:#94a3b8;font-weight:400;">(min. 8 Zeichen)</span></label>
+                        <input type="password" id="tix-sd-pw-new" autocomplete="new-password" minlength="8" style="width:100%;padding:9px;border:1px solid #d1d5db;border-radius:6px;box-sizing:border-box;">
+                    </div>
+                    <div>
+                        <label style="font-weight:600;font-size:13px;display:block;margin-bottom:4px;">Neues Passwort bestätigen</label>
+                        <input type="password" id="tix-sd-pw-confirm" autocomplete="new-password" minlength="8" style="width:100%;padding:9px;border:1px solid #d1d5db;border-radius:6px;box-sizing:border-box;">
+                    </div>
+                    <div id="tix-sd-pw-msg" style="font-size:13px;display:none;"></div>
+                </div>
+                <footer style="padding:14px 22px;border-top:1px solid #e5e7eb;display:flex;justify-content:flex-end;gap:8px;background:#f9fafb;">
+                    <button type="button" class="button tix-sd-pw-close">Abbrechen</button>
+                    <button type="button" class="button button-primary" id="tix-sd-pw-save">Speichern</button>
+                </footer>
+            </div>
+        </div>
+
         <script>
         (function($) {
             var nonce = '<?php echo esc_js($nonce); ?>';
             var ajaxUrl = '<?php echo esc_url(admin_url('admin-ajax.php')); ?>';
             var currentIssuePool = null;
+            var hasPassword = <?php echo $has_password ? 'true' : 'false'; ?>;
 
             function esc(s) { var d = document.createElement('div'); d.textContent = (s === null || s === undefined ? '' : s); return d.innerHTML; }
 
@@ -1028,6 +1072,52 @@ class TIX_Sponsor_Dashboard {
                 });
             });
 
+            // Passwort-Modal
+            function openPwModal() {
+                $('#tix-sd-pw-old, #tix-sd-pw-new, #tix-sd-pw-confirm').val('');
+                $('#tix-sd-pw-msg').hide();
+                $('#tix-sd-pw-modal').show();
+                document.body.style.overflow = 'hidden';
+                setTimeout(function() {
+                    $(hasPassword ? '#tix-sd-pw-old' : '#tix-sd-pw-new').focus();
+                }, 50);
+            }
+            $('#tix-sd-pw-open, .tix-sd-pw-open-link').on('click', openPwModal);
+            $(document).on('click', '.tix-sd-pw-close', function() {
+                $('#tix-sd-pw-modal').hide();
+                document.body.style.overflow = '';
+            });
+            $('#tix-sd-pw-save').on('click', function() {
+                var $btn = $(this);
+                var $msg = $('#tix-sd-pw-msg');
+                var newPw = $('#tix-sd-pw-new').val();
+                var conf  = $('#tix-sd-pw-confirm').val();
+                var oldPw = $('#tix-sd-pw-old').val();
+                if (newPw.length < 8) {
+                    $msg.css({background:'#fef2f2',border:'1px solid #fecaca',color:'#991b1b',padding:'10px 14px',borderRadius:'8px'}).text('Passwort muss mindestens 8 Zeichen lang sein.').show();
+                    return;
+                }
+                if (newPw !== conf) {
+                    $msg.css({background:'#fef2f2',border:'1px solid #fecaca',color:'#991b1b',padding:'10px 14px',borderRadius:'8px'}).text('Die beiden Passwörter stimmen nicht überein.').show();
+                    return;
+                }
+                $btn.prop('disabled', true).text('Speichere…'); $msg.hide();
+                $.post(ajaxUrl, {
+                    action: 'tix_sponsor_set_password', nonce: nonce,
+                    old_password: oldPw, new_password: newPw
+                }, function(r) {
+                    $btn.prop('disabled', false).text('Speichern');
+                    if (r.success) {
+                        $msg.css({background:'#ecfdf5',border:'1px solid #a7f3d0',color:'#065f46',padding:'10px 14px',borderRadius:'8px'}).text(r.data.message).show();
+                        hasPassword = true;
+                        $('#tix-sd-pw-cta').slideUp();
+                        setTimeout(function() { $('.tix-sd-pw-close').first().click(); }, 1200);
+                    } else {
+                        $msg.css({background:'#fef2f2',border:'1px solid #fecaca',color:'#991b1b',padding:'10px 14px',borderRadius:'8px'}).text((r.data && r.data.message) || 'Fehler.').show();
+                    }
+                });
+            });
+
             // Init
             loadOverview();
             loadTickets();
@@ -1048,10 +1138,9 @@ class TIX_Sponsor_Dashboard {
 
         ob_start();
         ?>
-        <div class="tix-sd-login" style="max-width:440px;margin:40px auto;padding:32px;background:#fff;border:1px solid #e5e7eb;border-radius:14px;box-shadow:0 4px 12px rgba(15,23,42,0.06);">
+        <div class="tix-sd-login" id="tix-sd-login" style="max-width:440px;margin:40px auto;padding:32px;background:#fff;border:1px solid #e5e7eb;border-radius:14px;box-shadow:0 4px 12px rgba(15,23,42,0.06);">
             <div style="font-size:42px;text-align:center;margin-bottom:8px;">🎟️</div>
-            <h2 style="text-align:center;margin:0 0 6px;font-size:22px;">Sponsor-Portal</h2>
-            <p style="text-align:center;color:#64748b;margin:0 0 22px;font-size:14px;">Gib deine E-Mail-Adresse ein — wir schicken dir einen Login-Link.</p>
+            <h2 style="text-align:center;margin:0 0 18px;font-size:22px;">Sponsor-Portal</h2>
 
             <?php if ($err_msg): ?>
             <div style="background:#fef2f2;border:1px solid #fecaca;color:#991b1b;padding:10px 14px;border-radius:8px;margin-bottom:14px;font-size:13px;">
@@ -1059,7 +1148,26 @@ class TIX_Sponsor_Dashboard {
             </div>
             <?php endif; ?>
 
-            <form id="tix-sd-magic-form" style="display:flex;flex-direction:column;gap:10px;">
+            <!-- Tabs -->
+            <div role="tablist" style="display:flex;gap:4px;background:#f1f5f9;border-radius:10px;padding:4px;margin-bottom:18px;">
+                <button type="button" class="tix-sd-tab active" data-tab="password" style="flex:1;padding:9px 12px;border:none;background:#fff;border-radius:8px;font-weight:600;font-size:13px;cursor:pointer;box-shadow:0 1px 3px rgba(15,23,42,0.08);color:#0f172a;">🔒 Mit Passwort</button>
+                <button type="button" class="tix-sd-tab" data-tab="magic" style="flex:1;padding:9px 12px;border:none;background:transparent;border-radius:8px;font-weight:600;font-size:13px;cursor:pointer;color:#64748b;">📧 Login-Link per Mail</button>
+            </div>
+
+            <!-- Tab: Passwort -->
+            <form id="tix-sd-password-form" class="tix-sd-tab-pane active" style="display:flex;flex-direction:column;gap:10px;">
+                <label style="font-weight:600;font-size:13px;color:#0f172a;">E-Mail-Adresse</label>
+                <input type="email" id="tix-sd-pw-email" required placeholder="kontakt@firma.de" autocomplete="email" style="padding:11px 14px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;">
+                <label style="font-weight:600;font-size:13px;color:#0f172a;margin-top:6px;">Passwort</label>
+                <input type="password" id="tix-sd-pw-password" required autocomplete="current-password" style="padding:11px 14px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;">
+                <button type="submit" style="background:#FF5500;color:#fff;border:none;border-radius:8px;padding:12px 18px;font-weight:700;cursor:pointer;font-size:14px;margin-top:4px;">Einloggen</button>
+                <div id="tix-sd-pw-msg" style="font-size:13px;margin-top:6px;display:none;"></div>
+                <p style="text-align:center;font-size:12px;color:#64748b;margin:8px 0 0;">Noch kein Passwort? Logge dich einmalig <a href="#" class="tix-sd-switch-tab" data-tab="magic" style="color:#FF5500;font-weight:600;">per Login-Link</a> ein und setze dort dein Passwort.</p>
+            </form>
+
+            <!-- Tab: Magic-Link -->
+            <form id="tix-sd-magic-form" class="tix-sd-tab-pane" style="display:none;flex-direction:column;gap:10px;">
+                <p style="color:#64748b;margin:0 0 4px;font-size:13px;text-align:center;">Wir schicken dir einen Einmal-Login-Link per E-Mail.</p>
                 <label style="font-weight:600;font-size:13px;color:#0f172a;">E-Mail-Adresse</label>
                 <input type="email" id="tix-sd-magic-email" required placeholder="kontakt@firma.de" autocomplete="email" style="padding:11px 14px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;">
                 <button type="submit" style="background:#FF5500;color:#fff;border:none;border-radius:8px;padding:12px 18px;font-weight:700;cursor:pointer;font-size:14px;">Login-Link senden</button>
@@ -1068,23 +1176,75 @@ class TIX_Sponsor_Dashboard {
         </div>
         <script>
         (function($) {
+            var ajaxUrl = '<?php echo esc_url(admin_url('admin-ajax.php')); ?>';
+            var nonce   = '<?php echo esc_js($nonce); ?>';
+
+            function setTab(name) {
+                $('.tix-sd-tab').each(function() {
+                    var active = $(this).data('tab') === name;
+                    $(this).toggleClass('active', active);
+                    if (active) {
+                        $(this).css({background:'#fff',color:'#0f172a',boxShadow:'0 1px 3px rgba(15,23,42,0.08)'});
+                    } else {
+                        $(this).css({background:'transparent',color:'#64748b',boxShadow:'none'});
+                    }
+                });
+                $('.tix-sd-tab-pane').each(function() {
+                    var matches = (name === 'password' && this.id === 'tix-sd-password-form')
+                               || (name === 'magic'    && this.id === 'tix-sd-magic-form');
+                    $(this).css('display', matches ? 'flex' : 'none').toggleClass('active', matches);
+                });
+            }
+            $(document).on('click', '.tix-sd-tab, .tix-sd-switch-tab', function(e) {
+                e.preventDefault();
+                setTab($(this).data('tab'));
+            });
+
+            function showMsg($msg, text, ok) {
+                $msg.css({
+                    background: ok ? '#ecfdf5' : '#fef2f2',
+                    border: '1px solid ' + (ok ? '#a7f3d0' : '#fecaca'),
+                    color: ok ? '#065f46' : '#991b1b',
+                    padding: '10px 14px', borderRadius: '8px'
+                }).text(text).show();
+            }
+
+            // Passwort-Login
+            $('#tix-sd-password-form').on('submit', function(e) {
+                e.preventDefault();
+                var $btn = $(this).find('button[type="submit"]');
+                var $msg = $('#tix-sd-pw-msg');
+                $btn.prop('disabled', true).text('Prüfe…'); $msg.hide();
+                $.post(ajaxUrl, {
+                    action: 'tix_sponsor_password_login', nonce: nonce,
+                    email:    $('#tix-sd-pw-email').val().trim(),
+                    password: $('#tix-sd-pw-password').val()
+                }, function(r) {
+                    if (r.success) {
+                        $btn.text('Eingeloggt — Lade…');
+                        window.location.href = r.data.redirect || window.location.href;
+                    } else {
+                        $btn.prop('disabled', false).text('Einloggen');
+                        showMsg($msg, (r.data && r.data.message) || 'Fehler.', false);
+                    }
+                }).fail(function() {
+                    $btn.prop('disabled', false).text('Einloggen');
+                    showMsg($msg, 'Server-Fehler.', false);
+                });
+            });
+
+            // Magic-Link
             $('#tix-sd-magic-form').on('submit', function(e) {
                 e.preventDefault();
                 var $btn = $(this).find('button[type="submit"]');
                 var $msg = $('#tix-sd-magic-msg');
-                $btn.prop('disabled', true).text('Sende…');
-                $msg.hide();
-                $.post('<?php echo esc_url(admin_url('admin-ajax.php')); ?>', {
-                    action: 'tix_sponsor_request_login',
-                    nonce: '<?php echo esc_js($nonce); ?>',
+                $btn.prop('disabled', true).text('Sende…'); $msg.hide();
+                $.post(ajaxUrl, {
+                    action: 'tix_sponsor_request_login', nonce: nonce,
                     email: $('#tix-sd-magic-email').val().trim()
                 }, function(r) {
                     $btn.prop('disabled', false).text('Login-Link senden');
-                    if (r.success) {
-                        $msg.css({background:'#ecfdf5',border:'1px solid #a7f3d0',color:'#065f46',padding:'10px 14px',borderRadius:'8px'}).text(r.data.message).show();
-                    } else {
-                        $msg.css({background:'#fef2f2',border:'1px solid #fecaca',color:'#991b1b',padding:'10px 14px',borderRadius:'8px'}).text((r.data && r.data.message) || 'Fehler.').show();
-                    }
+                    showMsg($msg, (r.success ? r.data.message : ((r.data && r.data.message) || 'Fehler.')), !!r.success);
                 });
             });
         })(jQuery);

@@ -22,6 +22,9 @@ class TIX_Sponsor_Auth {
         add_action('init', [__CLASS__, 'detect_magic_link'], 8);
         add_action('wp_ajax_tix_sponsor_request_login',        [__CLASS__, 'ajax_request_login']);
         add_action('wp_ajax_nopriv_tix_sponsor_request_login', [__CLASS__, 'ajax_request_login']);
+        add_action('wp_ajax_tix_sponsor_password_login',        [__CLASS__, 'ajax_password_login']);
+        add_action('wp_ajax_nopriv_tix_sponsor_password_login', [__CLASS__, 'ajax_password_login']);
+        add_action('wp_ajax_tix_sponsor_set_password',          [__CLASS__, 'ajax_set_password']);
         add_action('init', [__CLASS__, 'maybe_handle_logout'], 9);
     }
 
@@ -117,6 +120,65 @@ class TIX_Sponsor_Auth {
         wp_send_json_success([
             'message' => 'Wenn diese E-Mail in unserem System registriert ist, haben wir dir einen Login-Link geschickt.',
         ]);
+    }
+
+    public static function ajax_password_login() {
+        check_ajax_referer('tix_sponsor_login', 'nonce');
+
+        $email = sanitize_email($_POST['email'] ?? '');
+        $pass  = (string) ($_POST['password'] ?? '');
+        if (!is_email($email) || $pass === '') {
+            wp_send_json_error(['message' => 'Bitte E-Mail und Passwort eingeben.']);
+        }
+
+        // Rate-Limit (eigener Bucket — strenger als Magic-Link)
+        $ip = self::client_ip();
+        $rl_key = self::RATE_LIMIT_KEY . 'pw_' . md5($ip . '|' . strtolower($email));
+        $count  = (int) get_transient($rl_key);
+        if ($count >= self::RATE_LIMIT_MAX) {
+            wp_send_json_error(['message' => 'Zu viele Fehlversuche. Bitte warte 15 Minuten oder nutze den Login-Link.']);
+        }
+
+        if (!class_exists('TIX_Sponsor_DB')) {
+            wp_send_json_error(['message' => 'Sponsor-System nicht verfügbar.']);
+        }
+        $sponsor = TIX_Sponsor_DB::get_sponsor_by_email($email);
+        $ok = ($sponsor && $sponsor->status === 'active')
+            ? TIX_Sponsor_DB::verify_password(intval($sponsor->id), $pass)
+            : false;
+
+        if (!$ok) {
+            set_transient($rl_key, $count + 1, self::RATE_LIMIT_WINDOW);
+            // Bewusst generisch — keine Auskunft, ob E-Mail existiert oder Passwort falsch
+            wp_send_json_error(['message' => 'E-Mail oder Passwort falsch.']);
+        }
+
+        delete_transient($rl_key);
+        self::set_session_cookie(intval($sponsor->id));
+        wp_send_json_success(['redirect' => add_query_arg('tix_sauth_ok', '1', self::get_sponsor_page_url())]);
+    }
+
+    public static function ajax_set_password() {
+        check_ajax_referer('tix_sponsor_dashboard', 'nonce');
+        $sponsor = self::get_current_sponsor();
+        if (!$sponsor) wp_send_json_error(['message' => 'Nicht eingeloggt.']);
+
+        $new = (string) ($_POST['new_password'] ?? '');
+        $old = (string) ($_POST['old_password'] ?? '');
+
+        if (strlen($new) < 8) {
+            wp_send_json_error(['message' => 'Passwort muss mindestens 8 Zeichen lang sein.']);
+        }
+        // Wenn schon ein Passwort existiert → altes muss stimmen
+        if (TIX_Sponsor_DB::has_password(intval($sponsor->id))) {
+            if (!TIX_Sponsor_DB::verify_password(intval($sponsor->id), $old)) {
+                wp_send_json_error(['message' => 'Aktuelles Passwort ist falsch.']);
+            }
+        }
+        if (!TIX_Sponsor_DB::set_password(intval($sponsor->id), $new)) {
+            wp_send_json_error(['message' => 'Passwort konnte nicht gespeichert werden.']);
+        }
+        wp_send_json_success(['message' => 'Passwort gespeichert.']);
     }
 
     public static function detect_magic_link() {
