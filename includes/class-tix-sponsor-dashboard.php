@@ -1150,12 +1150,22 @@ class TIX_Sponsor_Dashboard {
 
             <!-- Tabs -->
             <div role="tablist" style="display:flex;gap:4px;background:#f1f5f9;border-radius:10px;padding:4px;margin-bottom:18px;">
-                <button type="button" class="tix-sd-tab active" data-tab="password" style="flex:1;padding:9px 12px;border:none;background:#fff;border-radius:8px;font-weight:600;font-size:13px;cursor:pointer;box-shadow:0 1px 3px rgba(15,23,42,0.08);color:#0f172a;">🔒 Mit Passwort</button>
-                <button type="button" class="tix-sd-tab" data-tab="magic" style="flex:1;padding:9px 12px;border:none;background:transparent;border-radius:8px;font-weight:600;font-size:13px;cursor:pointer;color:#64748b;">📧 Login-Link per Mail</button>
+                <button type="button" class="tix-sd-tab active" data-tab="magic" style="flex:1;padding:9px 12px;border:none;background:#fff;border-radius:8px;font-weight:600;font-size:13px;cursor:pointer;box-shadow:0 1px 3px rgba(15,23,42,0.08);color:#0f172a;">📧 Login-Link per Mail</button>
+                <button type="button" class="tix-sd-tab" data-tab="password" style="flex:1;padding:9px 12px;border:none;background:transparent;border-radius:8px;font-weight:600;font-size:13px;cursor:pointer;color:#64748b;">🔒 Mit Passwort</button>
             </div>
 
+            <!-- Tab: Magic-Link (primär) -->
+            <form id="tix-sd-magic-form" class="tix-sd-tab-pane active" style="display:flex;flex-direction:column;gap:10px;">
+                <p style="color:#64748b;margin:0 0 4px;font-size:13px;text-align:center;">Wir schicken dir einen Einmal-Login-Link per E-Mail.</p>
+                <label style="font-weight:600;font-size:13px;color:#0f172a;">E-Mail-Adresse</label>
+                <input type="email" id="tix-sd-magic-email" required placeholder="kontakt@firma.de" autocomplete="email" style="padding:11px 14px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;">
+                <button type="submit" style="background:#FF5500;color:#fff;border:none;border-radius:8px;padding:12px 18px;font-weight:700;cursor:pointer;font-size:14px;">Login-Link senden</button>
+                <div id="tix-sd-magic-msg" style="font-size:13px;margin-top:6px;display:none;"></div>
+                <p style="text-align:center;font-size:12px;color:#64748b;margin:8px 0 0;">Lieber direkt mit Passwort? <a href="#" class="tix-sd-switch-tab" data-tab="password" style="color:#FF5500;font-weight:600;">Hier wechseln</a></p>
+            </form>
+
             <!-- Tab: Passwort -->
-            <form id="tix-sd-password-form" class="tix-sd-tab-pane active" style="display:flex;flex-direction:column;gap:10px;">
+            <form id="tix-sd-password-form" class="tix-sd-tab-pane" style="display:none;flex-direction:column;gap:10px;">
                 <label style="font-weight:600;font-size:13px;color:#0f172a;">E-Mail-Adresse</label>
                 <input type="email" id="tix-sd-pw-email" required placeholder="kontakt@firma.de" autocomplete="email" style="padding:11px 14px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;">
                 <label style="font-weight:600;font-size:13px;color:#0f172a;margin-top:6px;">Passwort</label>
@@ -1163,15 +1173,6 @@ class TIX_Sponsor_Dashboard {
                 <button type="submit" style="background:#FF5500;color:#fff;border:none;border-radius:8px;padding:12px 18px;font-weight:700;cursor:pointer;font-size:14px;margin-top:4px;">Einloggen</button>
                 <div id="tix-sd-pw-msg" style="font-size:13px;margin-top:6px;display:none;"></div>
                 <p style="text-align:center;font-size:12px;color:#64748b;margin:8px 0 0;">Noch kein Passwort? Logge dich einmalig <a href="#" class="tix-sd-switch-tab" data-tab="magic" style="color:#FF5500;font-weight:600;">per Login-Link</a> ein und setze dort dein Passwort.</p>
-            </form>
-
-            <!-- Tab: Magic-Link -->
-            <form id="tix-sd-magic-form" class="tix-sd-tab-pane" style="display:none;flex-direction:column;gap:10px;">
-                <p style="color:#64748b;margin:0 0 4px;font-size:13px;text-align:center;">Wir schicken dir einen Einmal-Login-Link per E-Mail.</p>
-                <label style="font-weight:600;font-size:13px;color:#0f172a;">E-Mail-Adresse</label>
-                <input type="email" id="tix-sd-magic-email" required placeholder="kontakt@firma.de" autocomplete="email" style="padding:11px 14px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;">
-                <button type="submit" style="background:#FF5500;color:#fff;border:none;border-radius:8px;padding:12px 18px;font-weight:700;cursor:pointer;font-size:14px;">Login-Link senden</button>
-                <div id="tix-sd-magic-msg" style="font-size:13px;margin-top:6px;display:none;"></div>
             </form>
         </div>
         <script>
