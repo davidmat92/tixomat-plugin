@@ -60,9 +60,38 @@ class TIX_Sponsor_Dashboard {
                 'available'  => max(0, intval($p->total) - intval($p->used)),
             ];
         }
+
+        // Gutschein-Code des Sponsors (für reguläre Käufer) — aus Coupon-System auflösen
+        $coupon = null;
+        $code = trim((string) ($sponsor->coupon_code ?? ''));
+        if ($code !== '' && class_exists('TIX_Coupons')) {
+            $c = TIX_Coupons::find_by_code($code);
+            if ($c) {
+                $type     = $c['discount_type'] ?? 'percent';
+                $val      = floatval($c['value'] ?? 0);
+                $label    = ($type === 'percent')
+                    ? rtrim(rtrim(number_format($val, 2, ',', '.'), '0'), ',') . ' % Rabatt'
+                    : number_format($val, 2, ',', '.') . ' € Rabatt';
+                $max      = intval($c['max_uses'] ?? 0);
+                $used     = intval($c['used'] ?? 0);
+                $coupon   = [
+                    'code'        => strtoupper($code),
+                    'discount'    => $label,
+                    'expires'     => $c['expires'] ?? '',
+                    'max_uses'    => $max,
+                    'used'        => $used,
+                    'remaining'   => $max > 0 ? max(0, $max - $used) : null,
+                    'share_url'   => add_query_arg('coupon', strtoupper($code), home_url('/')),
+                ];
+            } else {
+                $coupon = ['code' => strtoupper($code), 'error' => 'Code im Gutschein-System nicht gefunden — bitte Veranstalter kontaktieren.'];
+            }
+        }
+
         wp_send_json_success([
             'sponsor' => ['name' => $sponsor->name, 'contact_name' => $sponsor->contact_name],
             'pools'   => $data,
+            'coupon'  => $coupon,
         ]);
     }
 
@@ -596,6 +625,9 @@ class TIX_Sponsor_Dashboard {
                 </div>
             </details>
 
+            <!-- Gutschein-Code für reguläre Käufer -->
+            <div id="tix-sd-coupon"></div>
+
             <!-- Pool-Liste -->
             <div id="tix-sd-pools"></div>
 
@@ -726,6 +758,37 @@ class TIX_Sponsor_Dashboard {
             function loadOverview() {
                 $.post(ajaxUrl, { action: 'tix_sd_overview', nonce: nonce }, function(r) {
                     if (!r.success) return;
+
+                    // Coupon-Karte (Promo-Code für reguläre Käufer)
+                    var couponHtml = '';
+                    var cp = r.data.coupon;
+                    if (cp && cp.error) {
+                        couponHtml = '<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:12px;padding:14px 18px;margin-bottom:14px;color:#991b1b;font-size:13px;">'
+                                   + '<strong>Gutschein-Code „' + esc(cp.code) + '"</strong> — ' + esc(cp.error)
+                                   + '</div>';
+                    } else if (cp && cp.code) {
+                        var usageLine = (cp.max_uses > 0)
+                            ? cp.used + ' von ' + cp.max_uses + ' Einlösungen verbraucht (' + cp.remaining + ' frei)'
+                            : cp.used + ' Einlösungen bisher';
+                        var expLine = cp.expires ? ' · gültig bis ' + esc(cp.expires) : '';
+                        couponHtml = '<div style="background:linear-gradient(135deg,#fff 0%,#fef3c7 100%);border:1px solid #fde68a;border-radius:12px;padding:18px 22px;margin-bottom:14px;">'
+                                   + '<div style="font-size:11px;color:#92400e;text-transform:uppercase;letter-spacing:0.06em;font-weight:700;margin-bottom:6px;">Dein Promo-Code für deine Kunden</div>'
+                                   + '<div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">'
+                                       + '<div style="font-family:ui-monospace,Menlo,Consolas,monospace;font-size:28px;font-weight:800;letter-spacing:0.08em;color:#0f172a;background:#fff;border:2px dashed #f59e0b;border-radius:10px;padding:8px 18px;">' + esc(cp.code) + '</div>'
+                                       + '<div>'
+                                           + '<div style="font-size:18px;font-weight:700;color:#b45309;">' + esc(cp.discount) + ' auf reguläre Tickets</div>'
+                                           + '<div style="font-size:12px;color:#78350f;margin-top:2px;">' + esc(usageLine) + esc(expLine) + '</div>'
+                                       + '</div>'
+                                   + '</div>'
+                                   + '<div style="margin-top:12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px;color:#475569;">'
+                                       + '<span>Direktlink zum Teilen:</span>'
+                                       + '<input type="text" readonly value="' + esc(cp.share_url) + '" style="flex:1;min-width:240px;padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;background:#fff;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;" onclick="this.select();">'
+                                       + '<button type="button" class="button button-small tix-sd-copy-link" data-link="' + esc(cp.share_url) + '">Link kopieren</button>'
+                                   + '</div>'
+                                   + '</div>';
+                    }
+                    $('#tix-sd-coupon').html(couponHtml);
+
                     var html = '';
                     if (!r.data.pools.length) {
                         html = '<div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:24px;text-align:center;color:#9ca3af;">Noch keine Kontingente zugewiesen. Bitte wende dich an den Veranstalter.</div>';
@@ -817,6 +880,17 @@ class TIX_Sponsor_Dashboard {
             $(document).on('click', '.tix-sd-qty-chip', function(e) {
                 e.preventDefault();
                 $('#tix-sd-anonymous-qty').val($(this).data('qty')).trigger('input');
+            });
+
+            // Promo-Code Direktlink kopieren
+            $(document).on('click', '.tix-sd-copy-link', function() {
+                var $btn = $(this); var link = $btn.data('link');
+                var done = function() { var t = $btn.text(); $btn.text('✓ Kopiert'); setTimeout(function(){ $btn.text(t); }, 1500); };
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(link).then(done, function(){ window.prompt('Link kopieren:', link); });
+                } else {
+                    window.prompt('Link kopieren:', link);
+                }
             });
 
             // Live-Counter für Empfänger-Textarea

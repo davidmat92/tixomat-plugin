@@ -115,17 +115,25 @@ class TIX_Sponsor_Admin {
         if (!current_user_can('manage_options')) wp_send_json_error('Keine Berechtigung.');
         if (!class_exists('TIX_Sponsor_DB')) wp_send_json_error('Sponsor-DB fehlt.');
 
-        $id    = intval($_POST['sponsor_id'] ?? 0);
-        $name  = sanitize_text_field($_POST['name'] ?? '');
-        $cn    = sanitize_text_field($_POST['contact_name'] ?? '');
-        $email = sanitize_email($_POST['email'] ?? '');
-        $notes = sanitize_textarea_field($_POST['notes'] ?? '');
+        $id     = intval($_POST['sponsor_id'] ?? 0);
+        $name   = sanitize_text_field($_POST['name'] ?? '');
+        $cn     = sanitize_text_field($_POST['contact_name'] ?? '');
+        $email  = sanitize_email($_POST['email'] ?? '');
+        $notes  = sanitize_textarea_field($_POST['notes'] ?? '');
+        $coupon = strtoupper(sanitize_text_field($_POST['coupon_code'] ?? ''));
 
         if (!$name)  wp_send_json_error('Name ist erforderlich.');
         if (!is_email($email)) wp_send_json_error('Bitte gültige E-Mail eingeben.');
 
+        // Coupon-Code: wenn gesetzt, muss er im Gutschein-System existieren
+        if ($coupon !== '') {
+            if (!class_exists('TIX_Coupons') || !TIX_Coupons::find_by_code($coupon)) {
+                wp_send_json_error('Gutschein-Code „' . $coupon . '" existiert nicht. Bitte zuerst unter Tixomat → Gutscheine anlegen.');
+            }
+        }
+
         if ($id > 0) {
-            TIX_Sponsor_DB::update_sponsor($id, ['name' => $name, 'contact_name' => $cn, 'email' => $email, 'notes' => $notes]);
+            TIX_Sponsor_DB::update_sponsor($id, ['name' => $name, 'contact_name' => $cn, 'email' => $email, 'notes' => $notes, 'coupon_code' => $coupon]);
             wp_send_json_success(['id' => $id, 'message' => 'Sponsor aktualisiert.']);
         }
 
@@ -134,7 +142,7 @@ class TIX_Sponsor_Admin {
         if ($exists) wp_send_json_error('Diese E-Mail ist bereits als Sponsor registriert.');
 
         $new_id = TIX_Sponsor_DB::insert_sponsor([
-            'name' => $name, 'contact_name' => $cn, 'email' => $email, 'notes' => $notes, 'status' => 'active',
+            'name' => $name, 'contact_name' => $cn, 'email' => $email, 'notes' => $notes, 'status' => 'active', 'coupon_code' => $coupon,
         ]);
         wp_send_json_success(['id' => $new_id, 'message' => 'Sponsor angelegt.']);
     }
@@ -160,6 +168,7 @@ class TIX_Sponsor_Admin {
                 'email'        => $r->email,
                 'notes'        => $r->notes,
                 'status'       => $r->status,
+                'coupon_code'  => (string) ($r->coupon_code ?? ''),
                 'total'        => intval($sum->tot ?? 0),
                 'used'         => intval($sum->usd ?? 0),
                 'available'    => max(0, intval($sum->tot ?? 0) - intval($sum->usd ?? 0)),
@@ -343,6 +352,11 @@ class TIX_Sponsor_Admin {
                             <label style="font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:0.04em;color:#0f172a;display:block;margin-bottom:4px;">Interne Notizen</label>
                             <textarea id="tix-sp-notes" rows="2" style="width:100%;padding:9px;border:1px solid #d1d5db;border-radius:6px;"></textarea>
                         </div>
+                        <div style="grid-column:1 / -1;">
+                            <label style="font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:0.04em;color:#0f172a;display:block;margin-bottom:4px;">Gutschein-Code für Kunden</label>
+                            <input type="text" id="tix-sp-coupon-code" style="width:100%;padding:9px;border:1px solid #d1d5db;border-radius:6px;text-transform:uppercase;font-family:ui-monospace,Menlo,Consolas,monospace;" placeholder="z.B. ACME50" maxlength="50">
+                            <small style="color:#64748b;font-size:11px;">Optional. Code muss <a href="<?php echo esc_url(admin_url('admin.php?page=tix-coupons')); ?>" target="_blank">unter Tixomat → Gutscheine</a> existieren. Er wird im Sponsor-Dashboard angezeigt — der Sponsor kann ihn an seine Kunden weitergeben (z.B. „50&nbsp;% Rabatt im regulären Ticket-Verkauf").</small>
+                        </div>
                     </div>
                     <div style="margin-top:12px;display:flex;gap:8px;justify-content:flex-end;">
                         <button type="button" class="button" id="tix-sp-cancel">Abbrechen</button>
@@ -450,8 +464,8 @@ class TIX_Sponsor_Admin {
                                 '<td style="padding:10px;border-top:1px solid #f3f4f6;text-align:right;">' + s.total + '</td>' +
                                 '<td style="padding:10px;border-top:1px solid #f3f4f6;text-align:right;">' + s.used + '</td>' +
                                 '<td style="padding:10px;border-top:1px solid #f3f4f6;text-align:right;">' +
-                                    '<button class="button button-small tix-sp-detail-btn" data-id="' + s.id + '" data-name="' + esc(s.name) + '" data-email="' + esc(s.email) + '" data-contact="' + esc(s.contact_name) + '" data-notes="' + esc(s.notes) + '">Verwalten</button> ' +
-                                    '<button class="button button-small tix-sp-edit-btn" data-id="' + s.id + '" data-name="' + esc(s.name) + '" data-email="' + esc(s.email) + '" data-contact="' + esc(s.contact_name) + '" data-notes="' + esc(s.notes) + '">Bearbeiten</button>' +
+                                    '<button class="button button-small tix-sp-detail-btn" data-id="' + s.id + '" data-name="' + esc(s.name) + '" data-email="' + esc(s.email) + '" data-contact="' + esc(s.contact_name) + '" data-notes="' + esc(s.notes) + '" data-coupon="' + esc(s.coupon_code) + '">Verwalten</button> ' +
+                                    '<button class="button button-small tix-sp-edit-btn" data-id="' + s.id + '" data-name="' + esc(s.name) + '" data-email="' + esc(s.email) + '" data-contact="' + esc(s.contact_name) + '" data-notes="' + esc(s.notes) + '" data-coupon="' + esc(s.coupon_code) + '">Bearbeiten</button>' +
                                 '</td></tr>';
                         });
                     }
@@ -462,7 +476,7 @@ class TIX_Sponsor_Admin {
             // Form-Toggle
             $('#tix-sp-add-btn').on('click', function() {
                 $('#tix-sp-id').val('0');
-                $('#tix-sp-name, #tix-sp-contact-name, #tix-sp-email, #tix-sp-notes').val('');
+                $('#tix-sp-name, #tix-sp-contact-name, #tix-sp-email, #tix-sp-notes, #tix-sp-coupon-code').val('');
                 $('#tix-sp-form').show();
             });
             $('#tix-sp-cancel').on('click', function() { $('#tix-sp-form').hide(); });
@@ -474,6 +488,7 @@ class TIX_Sponsor_Admin {
                 $('#tix-sp-contact-name').val($(this).data('contact'));
                 $('#tix-sp-email').val($(this).data('email'));
                 $('#tix-sp-notes').val($(this).data('notes'));
+                $('#tix-sp-coupon-code').val($(this).data('coupon') || '');
                 $('#tix-sp-form').show();
             });
 
@@ -487,6 +502,7 @@ class TIX_Sponsor_Admin {
                     contact_name: $('#tix-sp-contact-name').val(),
                     email:        $('#tix-sp-email').val(),
                     notes:        $('#tix-sp-notes').val(),
+                    coupon_code:  $('#tix-sp-coupon-code').val(),
                 }, function(r) {
                     $btn.prop('disabled', false).text('Speichern');
                     if (r.success) {

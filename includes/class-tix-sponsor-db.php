@@ -40,6 +40,7 @@ class TIX_Sponsor_DB {
             email           VARCHAR(190) NOT NULL DEFAULT '',
             notes           TEXT,
             status          VARCHAR(20) NOT NULL DEFAULT 'active',
+            coupon_code     VARCHAR(50) NOT NULL DEFAULT '',
             created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
             updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
             PRIMARY KEY (id),
@@ -80,6 +81,7 @@ class TIX_Sponsor_DB {
             'email'        => sanitize_email($data['email'] ?? ''),
             'notes'        => sanitize_textarea_field($data['notes'] ?? ''),
             'status'       => sanitize_text_field($data['status'] ?? 'active'),
+            'coupon_code'  => strtoupper(sanitize_text_field($data['coupon_code'] ?? '')),
         ];
         $wpdb->insert(self::table_sponsors(), $row);
         return intval($wpdb->insert_id);
@@ -87,13 +89,14 @@ class TIX_Sponsor_DB {
 
     public static function update_sponsor(int $id, array $data) {
         global $wpdb;
-        $allowed = ['name', 'contact_name', 'email', 'notes', 'status'];
+        $allowed = ['name', 'contact_name', 'email', 'notes', 'status', 'coupon_code'];
         $upd = [];
         foreach ($allowed as $k) {
             if (!isset($data[$k])) continue;
-            $upd[$k] = ($k === 'email')
-                ? sanitize_email($data[$k])
-                : (($k === 'notes') ? sanitize_textarea_field($data[$k]) : sanitize_text_field($data[$k]));
+            if ($k === 'email')            $upd[$k] = sanitize_email($data[$k]);
+            elseif ($k === 'notes')        $upd[$k] = sanitize_textarea_field($data[$k]);
+            elseif ($k === 'coupon_code')  $upd[$k] = strtoupper(sanitize_text_field($data[$k]));
+            else                           $upd[$k] = sanitize_text_field($data[$k]);
         }
         if (empty($upd)) return false;
         return $wpdb->update(self::table_sponsors(), $upd, ['id' => $id]);
