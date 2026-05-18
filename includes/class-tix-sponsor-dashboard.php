@@ -638,31 +638,40 @@ class TIX_Sponsor_Dashboard {
                     <div style="margin-bottom:16px;">
                         <strong style="font-size:13px;display:block;margin-bottom:8px;">Wie willst du die Tickets ausgeben?</strong>
                         <label style="display:block;padding:10px 12px;border:1px solid #e5e7eb;border-radius:8px;margin-bottom:6px;cursor:pointer;">
-                            <input type="radio" name="tix-sd-mode" value="personalized_mail" checked>
-                            <strong>📧 Personalisiert + per Mail versenden</strong>
-                            <div style="font-size:12px;color:#64748b;margin-left:22px;">Die Empfänger bekommen sofort ihr Ticket per Mail (mit PDF + Online-Link).</div>
+                            <input type="radio" name="tix-sd-mode" value="anonymous" checked>
+                            <strong>🎫 Stapel ohne Namen — z. B. 50 Tickets auf einmal</strong>
+                            <div style="font-size:12px;color:#64748b;margin-left:22px;">Du gibst nur eine Anzahl ein. Tickets werden sofort erstellt und können später personalisiert oder als PDF gedruckt werden.</div>
                         </label>
                         <label style="display:block;padding:10px 12px;border:1px solid #e5e7eb;border-radius:8px;margin-bottom:6px;cursor:pointer;">
-                            <input type="radio" name="tix-sd-mode" value="personalized_nomail">
-                            <strong>✏️ Personalisiert, OHNE Mail</strong>
-                            <div style="font-size:12px;color:#64748b;margin-left:22px;">Tickets werden mit Namen erstellt, du verteilst sie selbst (Bulk-PDF / Online-Links).</div>
+                            <input type="radio" name="tix-sd-mode" value="personalized_mail">
+                            <strong>📧 Mit Namen + sofort per Mail versenden</strong>
+                            <div style="font-size:12px;color:#64748b;margin-left:22px;">Liste von Empfängern (eine pro Zeile) — jeder bekommt sein Ticket sofort per Mail (mit PDF + Online-Link).</div>
                         </label>
                         <label style="display:block;padding:10px 12px;border:1px solid #e5e7eb;border-radius:8px;cursor:pointer;">
-                            <input type="radio" name="tix-sd-mode" value="anonymous">
-                            <strong>🎫 Anonym (zum späteren Personalisieren)</strong>
-                            <div style="font-size:12px;color:#64748b;margin-left:22px;">N Tickets ohne Namen — gut zum Ausdrucken und später ausgeben.</div>
+                            <input type="radio" name="tix-sd-mode" value="personalized_nomail">
+                            <strong>✏️ Mit Namen, OHNE Mail</strong>
+                            <div style="font-size:12px;color:#64748b;margin-left:22px;">Tickets werden mit Namen erstellt, du verteilst sie selbst (Bulk-PDF / Online-Links).</div>
                         </label>
                     </div>
 
-                    <div id="tix-sd-recipients-wrap">
-                        <strong style="font-size:13px;display:block;margin-bottom:6px;">Empfänger (eine pro Zeile, Format: Name, E-Mail)</strong>
-                        <textarea id="tix-sd-recipients" rows="8" style="width:100%;padding:10px;border:1px solid #d1d5db;border-radius:6px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;box-sizing:border-box;" placeholder="Max Mustermann, max@beispiel.de&#10;Anna Schmidt, anna@web.de"></textarea>
-                        <small style="color:#64748b;font-size:11px;">Du kannst auch nur den Namen (für „ohne Mail") oder nur die E-Mail eingeben.</small>
+                    <div id="tix-sd-recipients-wrap" style="display:none;">
+                        <strong style="font-size:13px;display:block;margin-bottom:6px;">Empfänger — eine pro Zeile (Format: <em>Name, E-Mail</em>)</strong>
+                        <textarea id="tix-sd-recipients" rows="8" style="width:100%;padding:10px;border:1px solid #d1d5db;border-radius:6px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;box-sizing:border-box;" placeholder="Max Mustermann, max@beispiel.de&#10;Anna Schmidt, anna@web.de&#10;… (beliebig viele Zeilen)"></textarea>
+                        <small style="color:#64748b;font-size:11px;display:block;margin-top:4px;">💡 Tipp: Du kannst zwei Spalten direkt aus Excel/Google Sheets kopieren und hier einfügen. Jede Zeile = 1 Ticket. <span id="tix-sd-recipients-count" style="font-weight:600;color:#0f172a;"></span></small>
                     </div>
 
-                    <div id="tix-sd-anonymous-wrap" style="display:none;">
-                        <strong style="font-size:13px;display:block;margin-bottom:6px;">Wie viele Tickets erstellen?</strong>
-                        <input type="number" id="tix-sd-anonymous-qty" value="10" min="1" max="500" style="width:120px;padding:8px;border:1px solid #d1d5db;border-radius:6px;">
+                    <div id="tix-sd-anonymous-wrap">
+                        <strong style="font-size:13px;display:block;margin-bottom:8px;">Wie viele Tickets erstellen?</strong>
+                        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                            <input type="number" id="tix-sd-anonymous-qty" value="50" min="1" max="500" style="width:120px;padding:10px;border:1px solid #d1d5db;border-radius:6px;font-size:18px;font-weight:700;text-align:center;">
+                            <div style="display:flex;gap:4px;flex-wrap:wrap;">
+                                <button type="button" class="button button-small tix-sd-qty-chip" data-qty="10">10</button>
+                                <button type="button" class="button button-small tix-sd-qty-chip" data-qty="25">25</button>
+                                <button type="button" class="button button-small tix-sd-qty-chip" data-qty="50">50</button>
+                                <button type="button" class="button button-small tix-sd-qty-chip" data-qty="100">100</button>
+                            </div>
+                        </div>
+                        <small style="color:#64748b;font-size:11px;display:block;margin-top:6px;">Maximum entspricht deinem Restkontingent in diesem Pool.</small>
                     </div>
 
                     <div id="tix-sd-mail-options" style="margin-top:14px;padding:10px 12px;background:#f9fafb;border-radius:8px;">
@@ -735,8 +744,10 @@ class TIX_Sponsor_Dashboard {
                                 '<div style="height:6px;background:#f1f5f9;border-radius:99px;overflow:hidden;margin-bottom:12px;">' +
                                     '<div style="height:100%;width:' + pct + '%;background:#FF5500;"></div>' +
                                 '</div>' +
-                                '<button class="button button-primary tix-sd-issue-btn" data-pool-id="' + p.id + '" data-pool-label="' + esc(p.event_title + ' — ' + p.cat_name + ' (' + p.available + ' frei)') + '"' + (p.available <= 0 ? ' disabled' : '') + ' style="width:100%;display:block;padding:14px 20px;font-size:16px;font-weight:700;height:auto;line-height:1.2;border-radius:10px;box-shadow:0 4px 14px rgba(255,85,0,0.28);">+ Tickets ausgeben</button>' +
-                                (p.used > 0 ? '<div style="margin-top:10px;text-align:center;"><a href="' + bulkPdfUrl + '" class="button button-small" style="font-size:11px;">↓ Bulk-PDF aller Tickets</a></div>' : '') +
+                                '<div style="display:flex;gap:6px;flex-wrap:wrap;">' +
+                                    '<button class="button button-primary tix-sd-issue-btn" data-pool-id="' + p.id + '" data-pool-label="' + esc(p.event_title + ' — ' + p.cat_name + ' (' + p.available + ' frei)') + '"' + (p.available <= 0 ? ' disabled' : '') + '>+ Tickets ausgeben</button>' +
+                                    (p.used > 0 ? '<a href="' + bulkPdfUrl + '" class="button">↓ Bulk-PDF</a>' : '') +
+                                '</div>' +
                                 '</div>';
                         });
                         html += '</div>';
@@ -802,13 +813,25 @@ class TIX_Sponsor_Dashboard {
                 $('#tix-sd-mail-options').toggle(m === 'personalized_mail');
             });
 
+            // Schnellwahl-Chips (10/25/50/100)
+            $(document).on('click', '.tix-sd-qty-chip', function(e) {
+                e.preventDefault();
+                $('#tix-sd-anonymous-qty').val($(this).data('qty')).trigger('input');
+            });
+
+            // Live-Counter für Empfänger-Textarea
+            $(document).on('input', '#tix-sd-recipients', function() {
+                var lines = $(this).val().split('\n').filter(function(l) { return l.trim().length > 0; }).length;
+                $('#tix-sd-recipients-count').text(lines > 0 ? '— erkannt: ' + lines + ' Ticket' + (lines === 1 ? '' : 's') : '');
+            });
+
             // Issue-Modal öffnen
             $(document).on('click', '.tix-sd-issue-btn', function() {
                 currentIssuePool = $(this).data('pool-id');
                 $('#tix-sd-issue-pool-label').text($(this).data('pool-label'));
-                $('#tix-sd-recipients').val('');
-                $('#tix-sd-anonymous-qty').val('10');
-                $('input[name="tix-sd-mode"][value="personalized_mail"]').prop('checked', true).trigger('change');
+                $('#tix-sd-recipients').val('').trigger('input');
+                $('#tix-sd-anonymous-qty').val('50');
+                $('input[name="tix-sd-mode"][value="anonymous"]').prop('checked', true).trigger('change');
                 $('#tix-sd-issue-modal').show();
                 document.body.style.overflow = 'hidden';
             });
