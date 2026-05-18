@@ -567,6 +567,43 @@ class TIX_Sponsor_Dashboard {
         $is_admin_preview = !empty($_GET['tix_admin_preview']) && current_user_can('manage_options');
         ob_start();
         ?>
+        <style>
+        #tix-sponsor-dashboard .button,
+        #tix-sponsor-dashboard a.button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            padding: 8px 14px;
+            font-size: 13px;
+            font-weight: 600;
+            line-height: 1.2;
+            border-radius: 8px;
+            border: 1px solid #d1d5db;
+            background: #fff;
+            color: #0f172a;
+            cursor: pointer;
+            text-decoration: none;
+            transition: background .15s, border-color .15s, color .15s, transform .05s, box-shadow .15s;
+            box-shadow: 0 1px 0 rgba(15,23,42,0.04);
+            font-family: inherit;
+            white-space: nowrap;
+        }
+        #tix-sponsor-dashboard .button:hover { background: #f9fafb; border-color: #9ca3af; color: #0f172a; }
+        #tix-sponsor-dashboard .button:active { transform: translateY(1px); }
+        #tix-sponsor-dashboard .button:focus { outline: 2px solid rgba(255,85,0,0.35); outline-offset: 1px; }
+        #tix-sponsor-dashboard .button-primary,
+        #tix-sponsor-dashboard a.button-primary {
+            background: var(--tix-acc-primary, #FF5500);
+            border-color: var(--tix-acc-primary, #FF5500);
+            color: #fff;
+            box-shadow: 0 2px 6px rgba(255,85,0,0.22);
+        }
+        #tix-sponsor-dashboard .button-primary:hover { background: #e64a00; border-color: #e64a00; color: #fff; }
+        #tix-sponsor-dashboard .button[disabled],
+        #tix-sponsor-dashboard .button:disabled { opacity: 0.5; cursor: not-allowed; box-shadow: none; }
+        #tix-sponsor-dashboard .button-small { padding: 4px 9px; font-size: 11px; font-weight: 500; border-radius: 6px; }
+        </style>
         <div class="tix-sd" id="tix-sponsor-dashboard" style="--tix-acc-primary: #FF5500;">
             <?php if ($is_admin_preview): ?>
             <div style="background:#fef3c7;border:1px solid #fde68a;border-radius:10px;padding:10px 16px;margin-bottom:16px;color:#7c2d12;font-size:13px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
