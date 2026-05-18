@@ -632,6 +632,9 @@ class TIX_Organizer_Notifications {
         $ticket_id = intval($ticket_id);
         if (!$ticket_id) return;
 
+        // Sponsor-Tickets lautlos halten (keine Push/Mail an Veranstalter beim Einlass)
+        if (get_post_meta($ticket_id, '_tix_ticket_sponsor_id', true)) return;
+
         // Dedupe (falls Hook mehrfach feuert)
         $notify_key = 'tix_checkin_notified_' . $ticket_id;
         if (get_transient($notify_key)) return;
@@ -678,6 +681,9 @@ class TIX_Organizer_Notifications {
         if ($meta_key !== '_tix_ticket_transfer_to') return;
         if (get_post_type($post_id) !== 'tix_ticket') return;
         if (empty($meta_value)) return; // leerer Wert = kein Transfer
+
+        // Sponsor-Tickets lautlos halten (keine Push/Mail an Veranstalter beim Transfer)
+        if (get_post_meta($post_id, '_tix_ticket_sponsor_id', true)) return;
 
         // Dedupe
         $notify_key = 'tix_transfer_notified_' . $post_id;
