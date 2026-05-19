@@ -9,6 +9,9 @@ class TIX_Gateway_Mollie {
 
     const API_URL = 'https://api.mollie.com/v2';
 
+    const METHODS_CACHE_KEY = 'tix_mollie_methods_v1';
+    const METHODS_CACHE_TTL = 6 * HOUR_IN_SECONDS;
+
     public static function get_id()    { return 'mollie'; }
     public static function get_title() { return 'Online bezahlen'; }
     public static function get_icon()  { return TIXOMAT_URL . 'assets/img/mollie.svg'; }
@@ -19,6 +22,47 @@ class TIX_Gateway_Mollie {
 
     private static function get_api_key() {
         return trim(tix_get_settings('mollie_api_key') ?? '');
+    }
+
+    /**
+     * Aktivierte Methoden vom Mollie-Account abrufen (gecached).
+     * Liefert Array von ['id', 'description', 'image'] — gefiltert auf produktive Nutzbarkeit.
+     */
+    public static function get_methods(bool $force_refresh = false): array {
+        if (!self::is_available()) return [];
+
+        if (!$force_refresh) {
+            $cached = get_transient(self::METHODS_CACHE_KEY);
+            if (is_array($cached)) return $cached;
+        }
+
+        $response = wp_remote_get(self::API_URL . '/methods?resource=payments', [
+            'timeout' => 8,
+            'headers' => ['Authorization' => 'Bearer ' . self::get_api_key()],
+        ]);
+        if (is_wp_error($response)) return [];
+        $code = wp_remote_retrieve_response_code($response);
+        $body = json_decode(wp_remote_retrieve_body($response), true);
+        if ($code < 200 || $code >= 300 || empty($body['_embedded']['methods'])) {
+            // Fehler — leere Antwort cachen damit wir nicht bei jedem Pageload neu kontaktieren
+            set_transient(self::METHODS_CACHE_KEY, [], 5 * MINUTE_IN_SECONDS);
+            return [];
+        }
+
+        $methods = [];
+        foreach ($body['_embedded']['methods'] as $m) {
+            $methods[] = [
+                'id'          => $m['id'] ?? '',
+                'description' => $m['description'] ?? ($m['id'] ?? ''),
+                'image'       => $m['image']['size2x'] ?? ($m['image']['size1x'] ?? ''),
+            ];
+        }
+        set_transient(self::METHODS_CACHE_KEY, $methods, self::METHODS_CACHE_TTL);
+        return $methods;
+    }
+
+    public static function clear_methods_cache() {
+        delete_transient(self::METHODS_CACHE_KEY);
     }
 
     /**
@@ -33,7 +77,7 @@ class TIX_Gateway_Mollie {
     /**
      * Zahlung erstellen → Redirect-URL zurückgeben
      */
-    public static function process($order_id) {
+    public static function process($order_id, string $preferred_method = '') {
         $api_key = self::get_api_key();
         if (!$api_key) {
             return ['error' => 'Mollie API-Key nicht konfiguriert.'];
@@ -60,25 +104,32 @@ class TIX_Gateway_Mollie {
             'order_key'          => $order->order_key,
         ], home_url('/'));
 
+        $payload = [
+            'amount' => [
+                'currency' => 'EUR',
+                'value'    => $amount,
+            ],
+            'description' => $description,
+            'redirectUrl'  => $return_url,
+            'webhookUrl'   => $webhook_url,
+            'metadata'     => [
+                'order_id'     => $order_id,
+                'order_number' => $order->order_number,
+            ],
+        ];
+        // Wenn der User eine konkrete Methode gewählt hat → direkt zu dieser Methode
+        // (sonst zeigt Mollie seine eigene Methoden-Auswahl)
+        if ($preferred_method !== '') {
+            $payload['method'] = sanitize_text_field($preferred_method);
+        }
+
         $response = wp_remote_post(self::API_URL . '/payments', [
             'timeout' => 15,
             'headers' => [
                 'Authorization' => 'Bearer ' . $api_key,
                 'Content-Type'  => 'application/json',
             ],
-            'body' => wp_json_encode([
-                'amount' => [
-                    'currency' => 'EUR',
-                    'value'    => $amount,
-                ],
-                'description' => $description,
-                'redirectUrl'  => $return_url,
-                'webhookUrl'   => $webhook_url,
-                'metadata'     => [
-                    'order_id'     => $order_id,
-                    'order_number' => $order->order_number,
-                ],
-            ]),
+            'body' => wp_json_encode($payload),
         ]);
 
         if (is_wp_error($response)) {

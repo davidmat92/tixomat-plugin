@@ -850,7 +850,22 @@ class TIX_Native_Checkout {
         if ($is_free) {
             $gateways[] = ['id' => 'free', 'title' => 'Kostenlos', 'icon' => ''];
         } else {
-            if (TIX_Gateway_Mollie::is_available())  $gateways[] = ['id' => 'mollie', 'title' => TIX_Gateway_Mollie::get_title(), 'icon' => TIX_Gateway_Mollie::get_icon()];
+            // Mollie: jede aktivierte Methode als eigenen Eintrag (Klarna, Karte, SEPA, iDEAL, ...)
+            if (TIX_Gateway_Mollie::is_available()) {
+                $mollie_methods = TIX_Gateway_Mollie::get_methods();
+                if (empty($mollie_methods)) {
+                    // Fallback (z.B. Account ohne aktivierte Methoden, oder API-Fehler) — Hosted-Checkout
+                    $gateways[] = ['id' => 'mollie', 'title' => TIX_Gateway_Mollie::get_title(), 'icon' => TIX_Gateway_Mollie::get_icon()];
+                } else {
+                    foreach ($mollie_methods as $m) {
+                        $gateways[] = [
+                            'id'    => 'mollie:' . $m['id'],
+                            'title' => $m['description'],
+                            'icon'  => $m['image'] ?: TIX_Gateway_Mollie::get_icon(),
+                        ];
+                    }
+                }
+            }
             if (TIX_Gateway_PayPal::is_available())  $gateways[] = ['id' => 'paypal', 'title' => TIX_Gateway_PayPal::get_title(), 'icon' => TIX_Gateway_PayPal::get_icon()];
             if (TIX_Gateway_Bank::is_available())    $gateways[] = ['id' => 'bank', 'title' => TIX_Gateway_Bank::get_title(), 'icon' => ''];
         }
@@ -1275,6 +1290,12 @@ class TIX_Native_Checkout {
         }
 
         $payment_method = sanitize_text_field($_POST['payment_method'] ?? 'free');
+        // Mollie-Methoden-Suffix abspalten (Format: "mollie:klarnapaylater")
+        $mollie_method = '';
+        if (strpos($payment_method, 'mollie:') === 0) {
+            $mollie_method  = substr($payment_method, 7);
+            $payment_method = 'mollie';
+        }
         $total = self::cart_total();
 
         // Server-side price validation: use dynamic pricing (phases, sale prices)
@@ -1368,7 +1389,7 @@ class TIX_Native_Checkout {
         if ($total <= 0 || $payment_method === 'free') {
             $result = TIX_Gateway_Free::process($order_id);
         } elseif ($payment_method === 'mollie') {
-            $result = TIX_Gateway_Mollie::process($order_id);
+            $result = TIX_Gateway_Mollie::process($order_id, $mollie_method);
         } elseif ($payment_method === 'paypal') {
             $result = TIX_Gateway_PayPal::process($order_id);
         } elseif ($payment_method === 'bank') {
