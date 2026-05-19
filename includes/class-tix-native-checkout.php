@@ -872,11 +872,14 @@ class TIX_Native_Checkout {
                 if (empty($mollie_methods)) {
                     $by_provider['mollie'][] = ['id' => 'mollie', 'title' => TIX_Gateway_Mollie::get_title(), 'icon' => TIX_Gateway_Mollie::get_icon()];
                 } else {
+                    // Methoden die einen Firmennamen voraussetzen (B2B-only)
+                    $b2b_only = ['billie'];
                     foreach ($mollie_methods as $m) {
                         $by_provider['mollie'][] = [
-                            'id'    => 'mollie:' . $m['id'],
-                            'title' => $m['description'],
-                            'icon'  => $m['image'] ?: TIX_Gateway_Mollie::get_icon(),
+                            'id'              => 'mollie:' . $m['id'],
+                            'title'           => $m['description'],
+                            'icon'            => $m['image'] ?: TIX_Gateway_Mollie::get_icon(),
+                            'requires_company'=> in_array($m['id'], $b2b_only, true) ? 1 : 0,
                         ];
                     }
                 }
@@ -1153,7 +1156,7 @@ class TIX_Native_Checkout {
                         <h3 class="tix-co-heading">Zahlungsart</h3>
                         <div class="tix-co-gateways">
                             <?php foreach ($gateways as $gi => $gw): ?>
-                                <div class="tix-co-gateway <?php echo $gi === 0 ? 'tix-co-gw-active' : ''; ?>">
+                                <div class="tix-co-gateway <?php echo $gi === 0 ? 'tix-co-gw-active' : ''; ?>"<?php if (!empty($gw['requires_company'])): ?> data-requires-company="1" style="display:none;"<?php endif; ?>>
                                     <label class="tix-co-gw-label">
                                         <input type="radio" name="payment_method" value="<?php echo esc_attr($gw['id']); ?>" class="tix-co-gw-radio" <?php checked($gi, 0); ?>>
                                         <span class="tix-co-gw-radio-custom"></span>
@@ -1163,6 +1166,37 @@ class TIX_Native_Checkout {
                                 </div>
                             <?php endforeach; ?>
                         </div>
+                        <script>
+                        (function(){
+                            // B2B-Methoden (z.B. Billie) nur einblenden wenn Firmenname ausgefüllt ist
+                            var companyField = document.querySelector('input[name="billing_company"]');
+                            if (!companyField) return;
+                            function toggleB2B(){
+                                var hasCompany = companyField.value.trim().length > 0;
+                                document.querySelectorAll('.tix-co-gateway[data-requires-company="1"]').forEach(function(el){
+                                    el.style.display = hasCompany ? '' : 'none';
+                                    // Wenn versteckt und gerade ausgewählt → Auswahl auf erstes sichtbares Gateway umschalten
+                                    if (!hasCompany) {
+                                        var radio = el.querySelector('input[type="radio"]');
+                                        if (radio && radio.checked) {
+                                            radio.checked = false;
+                                            var fallback = document.querySelector('.tix-co-gateway:not([style*="display: none"]) input[type="radio"]');
+                                            if (fallback) fallback.checked = true;
+                                        }
+                                    }
+                                });
+                            }
+                            companyField.addEventListener('input', toggleB2B);
+                            companyField.addEventListener('change', toggleB2B);
+                            // Auch wenn Firmen-Toggle-Button geklickt wird (Feld wird sichtbar gemacht), prüfen
+                            document.addEventListener('click', function(e){
+                                if (e.target && e.target.classList.contains('tix-co-company-toggle')) {
+                                    setTimeout(toggleB2B, 100);
+                                }
+                            });
+                            toggleB2B();
+                        })();
+                        </script>
                     </div>
                     <?php else: ?>
                         <input type="hidden" name="payment_method" value="free">
@@ -1350,6 +1384,14 @@ class TIX_Native_Checkout {
         } elseif (strpos($payment_method, 'stripe:') === 0) {
             $stripe_method  = substr($payment_method, 7);
             $payment_method = 'stripe';
+        }
+        // B2B-Validierung: Billie braucht zwingend einen Firmennamen
+        $b2b_only_methods = ['billie'];
+        if ($payment_method === 'mollie' && in_array($mollie_method, $b2b_only_methods, true)) {
+            $company_in = trim(sanitize_text_field($_POST['billing_company'] ?? ''));
+            if ($company_in === '') {
+                wp_send_json_error(['message' => 'Für „Auf Rechnung – Billie" muss ein Firmenname angegeben werden (Rechnungskauf nur für Geschäftskunden).']);
+            }
         }
         $total = self::cart_total();
 

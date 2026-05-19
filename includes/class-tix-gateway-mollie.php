@@ -193,6 +193,11 @@ class TIX_Gateway_Mollie {
             // Mollie akzeptiert E.164 — wir geben pur weiter, falls vorhanden
             $address_parts['phone'] = trim((string) $order->billing_phone);
         }
+        // organizationName für B2B-Methoden (Billie). Wir senden sie immer mit, wenn vorhanden —
+        // schadet anderen Methoden nicht und ist Pflicht für Billie.
+        if (!empty($order->billing_company)) {
+            $address_parts['organizationName'] = trim((string) $order->billing_company);
+        }
         if (!empty($address_parts['streetAndNumber']) && !empty($address_parts['city'])) {
             $payload['billingAddress'] = $address_parts;
         }
