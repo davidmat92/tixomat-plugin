@@ -9,7 +9,7 @@ class TIX_Gateway_Mollie {
 
     const API_URL = 'https://api.mollie.com/v2';
 
-    const METHODS_CACHE_KEY = 'tix_mollie_methods_v1';
+    const METHODS_CACHE_KEY = 'tix_mollie_methods_v2_de';
     const METHODS_CACHE_TTL = 6 * HOUR_IN_SECONDS;
 
     public static function get_id()    { return 'mollie'; }
@@ -36,7 +36,8 @@ class TIX_Gateway_Mollie {
             if (is_array($cached)) return $cached;
         }
 
-        $response = wp_remote_get(self::API_URL . '/methods?resource=payments', [
+        // locale=de_DE → deutsche Methoden-Beschreibungen statt englisch
+        $response = wp_remote_get(self::API_URL . '/methods?resource=payments&locale=de_DE', [
             'timeout' => 8,
             'headers' => ['Authorization' => 'Bearer ' . self::get_api_key()],
         ]);

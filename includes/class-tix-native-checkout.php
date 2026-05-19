@@ -1119,7 +1119,7 @@ class TIX_Native_Checkout {
                                         <input type="radio" name="payment_method" value="<?php echo esc_attr($gw['id']); ?>" class="tix-co-gw-radio" <?php checked($gi, 0); ?>>
                                         <span class="tix-co-gw-radio-custom"></span>
                                         <span class="tix-co-gw-title"><?php echo esc_html($gw['title']); ?></span>
-                                        <?php if ($gw['icon']): ?><span class="tix-co-gw-icon"><img src="<?php echo esc_url($gw['icon']); ?>" alt=""></span><?php endif; ?>
+                                        <?php if ($gw['icon']): ?><span class="tix-co-gw-icon" style="display:inline-flex;align-items:center;justify-content:flex-end;width:72px;height:28px;flex-shrink:0;"><img src="<?php echo esc_url($gw['icon']); ?>" alt="" style="max-width:72px;max-height:28px;width:auto;height:auto;object-fit:contain;display:block;"></span><?php endif; ?>
                                     </label>
                                 </div>
                             <?php endforeach; ?>
