@@ -1339,6 +1339,8 @@ class TIX_Order_Admin {
 
         if ($gateway === 'mollie' && class_exists('TIX_Gateway_Mollie')) {
             $result = TIX_Gateway_Mollie::refund($order_id, $gateway_amount);
+        } elseif ($gateway === 'stripe' && class_exists('TIX_Gateway_Stripe')) {
+            $result = TIX_Gateway_Stripe::refund($order_id, $gateway_amount);
         } elseif ($gateway === 'paypal' && class_exists('TIX_Gateway_PayPal')) {
             $result = TIX_Gateway_PayPal::refund($order_id, $gateway_amount);
         }

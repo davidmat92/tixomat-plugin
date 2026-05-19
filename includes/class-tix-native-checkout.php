@@ -851,7 +851,8 @@ class TIX_Native_Checkout {
             $gateways[] = ['id' => 'free', 'title' => 'Kostenlos', 'icon' => ''];
         } else {
             // Mollie: jede aktivierte Methode als eigenen Eintrag (Klarna, Karte, SEPA, iDEAL, ...)
-            if (TIX_Gateway_Mollie::is_available()) {
+            $mollie_enabled = (bool) (tix_get_settings('mollie_enabled') ?? 1);
+            if ($mollie_enabled && TIX_Gateway_Mollie::is_available()) {
                 $mollie_methods = TIX_Gateway_Mollie::get_methods();
                 if (empty($mollie_methods)) {
                     // Fallback (z.B. Account ohne aktivierte Methoden, oder API-Fehler) — Hosted-Checkout
@@ -864,6 +865,17 @@ class TIX_Native_Checkout {
                             'icon'  => $m['image'] ?: TIX_Gateway_Mollie::get_icon(),
                         ];
                     }
+                }
+            }
+            // Stripe: gleiche Logik
+            if (TIX_Gateway_Stripe::is_available()) {
+                $stripe_methods = TIX_Gateway_Stripe::get_methods();
+                foreach ($stripe_methods as $m) {
+                    $gateways[] = [
+                        'id'    => 'stripe:' . $m['id'],
+                        'title' => $m['label'],
+                        'icon'  => '',
+                    ];
                 }
             }
             if (TIX_Gateway_PayPal::is_available())  $gateways[] = ['id' => 'paypal', 'title' => TIX_Gateway_PayPal::get_title(), 'icon' => TIX_Gateway_PayPal::get_icon()];
@@ -1290,11 +1302,15 @@ class TIX_Native_Checkout {
         }
 
         $payment_method = sanitize_text_field($_POST['payment_method'] ?? 'free');
-        // Mollie-Methoden-Suffix abspalten (Format: "mollie:klarnapaylater")
+        // Methoden-Suffix abspalten (Format: "mollie:klarnapaylater" / "stripe:card")
         $mollie_method = '';
+        $stripe_method = '';
         if (strpos($payment_method, 'mollie:') === 0) {
             $mollie_method  = substr($payment_method, 7);
             $payment_method = 'mollie';
+        } elseif (strpos($payment_method, 'stripe:') === 0) {
+            $stripe_method  = substr($payment_method, 7);
+            $payment_method = 'stripe';
         }
         $total = self::cart_total();
 
@@ -1390,6 +1406,8 @@ class TIX_Native_Checkout {
             $result = TIX_Gateway_Free::process($order_id);
         } elseif ($payment_method === 'mollie') {
             $result = TIX_Gateway_Mollie::process($order_id, $mollie_method);
+        } elseif ($payment_method === 'stripe') {
+            $result = TIX_Gateway_Stripe::process($order_id, $stripe_method);
         } elseif ($payment_method === 'paypal') {
             $result = TIX_Gateway_PayPal::process($order_id);
         } elseif ($payment_method === 'bank') {

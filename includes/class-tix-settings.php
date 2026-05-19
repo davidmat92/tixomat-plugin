@@ -394,8 +394,17 @@ class TIX_Settings {
             // ── Checkout-Modus ──
             'checkout_mode'     => 'auto', // auto (WC wenn vorhanden), woocommerce, native
             // ── Payment Gateways (nativer Checkout) ──
+            'mollie_enabled'      => 1,
             'mollie_api_key'      => '',
             'mollie_test_mode'    => 0,
+            'stripe_enabled'              => 0,
+            'stripe_test_mode'            => 1,
+            'stripe_publishable_key_live' => '',
+            'stripe_secret_key_live'      => '',
+            'stripe_webhook_secret_live'  => '',
+            'stripe_publishable_key_test' => '',
+            'stripe_secret_key_test'      => '',
+            'stripe_webhook_secret_test'  => '',
             'paypal_client_id'    => '',
             'paypal_secret'       => '',
             'paypal_sandbox'      => 0,
@@ -1226,8 +1235,20 @@ class TIX_Settings {
 
         // Checkout-Modus + Payment Gateways
         $clean['checkout_mode'] = in_array($input['checkout_mode'] ?? 'auto', ['auto', 'woocommerce', 'native']) ? $input['checkout_mode'] : 'auto';
+        $clean['mollie_enabled']   = !empty($input['mollie_enabled']) ? 1 : 0;
         $clean['mollie_api_key']   = sanitize_text_field($input['mollie_api_key'] ?? '');
         $clean['mollie_test_mode'] = !empty($input['mollie_test_mode']) ? 1 : 0;
+        $clean['stripe_enabled']              = !empty($input['stripe_enabled']) ? 1 : 0;
+        $clean['stripe_test_mode']            = !empty($input['stripe_test_mode']) ? 1 : 0;
+        $clean['stripe_publishable_key_live'] = sanitize_text_field($input['stripe_publishable_key_live'] ?? '');
+        $clean['stripe_secret_key_live']      = sanitize_text_field($input['stripe_secret_key_live']      ?? '');
+        $clean['stripe_webhook_secret_live']  = sanitize_text_field($input['stripe_webhook_secret_live']  ?? '');
+        $clean['stripe_publishable_key_test'] = sanitize_text_field($input['stripe_publishable_key_test'] ?? '');
+        $clean['stripe_secret_key_test']      = sanitize_text_field($input['stripe_secret_key_test']      ?? '');
+        $clean['stripe_webhook_secret_test']  = sanitize_text_field($input['stripe_webhook_secret_test']  ?? '');
+        // Wenn Settings sich aendern → Methoden-Caches invalidieren
+        if (class_exists('TIX_Gateway_Mollie')) TIX_Gateway_Mollie::clear_methods_cache();
+        if (class_exists('TIX_Gateway_Stripe')) TIX_Gateway_Stripe::clear_methods_cache();
         $clean['paypal_client_id'] = sanitize_text_field($input['paypal_client_id'] ?? '');
         $clean['paypal_secret']    = sanitize_text_field($input['paypal_secret'] ?? '');
         $clean['paypal_sandbox']   = !empty($input['paypal_sandbox']) ? 1 : 0;
@@ -3101,10 +3122,34 @@ class TIX_Settings {
                                             <div class="tix-field tix-field-full">
                                                 <p class="tix-settings-hint" style="margin-top:0;">Kostenlose Events funktionieren immer ohne Zahlungsanbieter.</p>
                                             </div>
+                                            <div class="tix-field tix-field-full" style="border-top:1px solid #e5e7eb;padding-top:14px;margin-top:6px;">
+                                                <strong style="display:block;margin-bottom:8px;color:#0f172a;">🇪🇺 Mollie</strong>
+                                                <?php self::checkbox_row('mollie_enabled', 'Mollie aktivieren (im Checkout anzeigen)', $s); ?>
+                                            </div>
                                             <?php self::text_row('mollie_api_key', 'Mollie API Key', $s, 'live_... oder test_...'); ?>
                                             <div class="tix-field tix-field-full">
                                                 <?php self::checkbox_row('mollie_test_mode', 'Mollie Test-Modus', $s); ?>
-                                                <p class="tix-settings-hint"><a href="https://my.mollie.com/dashboard/developers/api-keys" target="_blank">Mollie Keys →</a></p>
+                                                <p class="tix-settings-hint"><a href="https://my.mollie.com/dashboard/developers/api-keys" target="_blank">Mollie Keys →</a> · Die aktivierten Methoden (Karte/Klarna/SEPA/...) werden automatisch im Checkout gelistet.</p>
+                                            </div>
+
+                                            <div class="tix-field tix-field-full" style="border-top:1px solid #e5e7eb;padding-top:14px;margin-top:6px;">
+                                                <strong style="display:block;margin-bottom:8px;color:#0f172a;">💳 Stripe</strong>
+                                                <?php self::checkbox_row('stripe_enabled', 'Stripe aktivieren (im Checkout anzeigen)', $s); ?>
+                                                <?php self::checkbox_row('stripe_test_mode', 'Test-Modus (sk_test_/pk_test_-Keys nutzen)', $s); ?>
+                                            </div>
+                                            <?php self::text_row('stripe_publishable_key_live', 'Stripe Publishable Key (Live)', $s, 'pk_live_...'); ?>
+                                            <?php self::text_row('stripe_secret_key_live',      'Stripe Secret Key (Live)',      $s, 'sk_live_...'); ?>
+                                            <?php self::text_row('stripe_webhook_secret_live',  'Stripe Webhook Secret (Live)',  $s, 'whsec_...'); ?>
+                                            <?php self::text_row('stripe_publishable_key_test', 'Stripe Publishable Key (Test)', $s, 'pk_test_...'); ?>
+                                            <?php self::text_row('stripe_secret_key_test',      'Stripe Secret Key (Test)',      $s, 'sk_test_...'); ?>
+                                            <?php self::text_row('stripe_webhook_secret_test',  'Stripe Webhook Secret (Test)',  $s, 'whsec_...'); ?>
+                                            <div class="tix-field tix-field-full">
+                                                <p class="tix-settings-hint">
+                                                    <a href="https://dashboard.stripe.com/apikeys" target="_blank">Stripe Keys →</a> ·
+                                                    Webhook-URL für Stripe-Dashboard:
+                                                    <code style="display:inline-block;padding:2px 8px;background:#f1f5f9;border-radius:4px;font-size:12px;"><?php echo esc_html(admin_url('admin-ajax.php?action=tix_stripe_webhook')); ?></code>
+                                                    — Events: <code>checkout.session.completed</code>, <code>checkout.session.async_payment_succeeded</code>, <code>checkout.session.async_payment_failed</code>, <code>charge.refunded</code>
+                                                </p>
                                             </div>
                                             <?php self::text_row('paypal_client_id', 'PayPal Client ID', $s, 'A...'); ?>
                                             <?php self::text_row('paypal_secret', 'PayPal Secret', $s, 'E...'); ?>
