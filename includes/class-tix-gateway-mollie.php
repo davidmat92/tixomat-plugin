@@ -118,6 +118,26 @@ class TIX_Gateway_Mollie {
                 'order_number' => $order->order_number,
             ],
         ];
+
+        // Billing-Adresse (Pflicht für Klarna/Billie/BNPL, schadet anderen Methoden nicht)
+        $address_parts = array_filter([
+            'streetAndNumber' => trim((string) $order->billing_address_1),
+            'streetAdditional' => trim((string) ($order->billing_address_2 ?? '')),
+            'postalCode'      => trim((string) $order->billing_postcode),
+            'city'            => trim((string) $order->billing_city),
+            'country'         => strtoupper(trim((string) $order->billing_country)) ?: 'DE',
+            'givenName'       => trim((string) $order->billing_first_name),
+            'familyName'      => trim((string) $order->billing_last_name),
+            'email'           => trim((string) $order->billing_email),
+        ], function($v) { return $v !== ''; });
+        if (!empty($order->billing_phone)) {
+            // Mollie akzeptiert E.164 — wir geben pur weiter, falls vorhanden
+            $address_parts['phone'] = trim((string) $order->billing_phone);
+        }
+        if (!empty($address_parts['streetAndNumber']) && !empty($address_parts['city'])) {
+            $payload['billingAddress'] = $address_parts;
+        }
+
         // Wenn der User eine konkrete Methode gewählt hat → direkt zu dieser Methode
         // (sonst zeigt Mollie seine eigene Methoden-Auswahl)
         if ($preferred_method !== '') {
