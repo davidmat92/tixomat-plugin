@@ -3152,6 +3152,26 @@ class TIX_Settings {
                                                 <p class="tix-settings-hint" style="margin-top:0;">Kostenlose Events funktionieren immer ohne Zahlungsanbieter.</p>
                                             </div>
 
+                                            <script>
+                                            jQuery(function($){
+                                                function syncOrder($list){
+                                                    var ids = $list.find('> li').map(function(){ return $(this).data('id'); }).get();
+                                                    $($list.data('target')).val(ids.join(','));
+                                                }
+                                                $('.tix-gw-sortable').each(function(){
+                                                    var $list = $(this);
+                                                    $list.sortable({
+                                                        handle: '.tix-drag-handle',
+                                                        placeholder: 'tix-gw-placeholder',
+                                                        update: function(){ syncOrder($list); }
+                                                    });
+                                                });
+                                                // Sicherheitsnetz: vor Submit alle Listen explizit syncen
+                                                $('#tix-settings-form').on('submit', function(){
+                                                    $('.tix-gw-sortable').each(function(){ syncOrder($(this)); });
+                                                });
+                                            });
+                                            </script>
                                             <?php
                                             wp_enqueue_script('jquery-ui-sortable');
                                             $provider_labels = [
@@ -3169,7 +3189,7 @@ class TIX_Settings {
                                             <div class="tix-field tix-field-full">
                                                 <label style="font-weight:600;display:block;margin-bottom:6px;">Reihenfolge der Anbieter im Checkout</label>
                                                 <input type="hidden" id="tix-provider-order" name="tix_settings[gateway_provider_order]" value="<?php echo esc_attr(implode(',', $provider_order)); ?>">
-                                                <ul id="tix-provider-sortable" class="tix-gw-sortable" style="list-style:none;margin:0;padding:8px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;display:flex;flex-direction:column;gap:4px;">
+                                                <ul id="tix-provider-sortable" class="tix-gw-sortable" data-target="#tix-provider-order" style="list-style:none;margin:0;padding:8px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;display:flex;flex-direction:column;gap:4px;">
                                                     <?php foreach ($provider_order as $p):
                                                         if (!isset($provider_labels[$p])) continue;
                                                         $info = $provider_labels[$p];
@@ -3184,18 +3204,6 @@ class TIX_Settings {
                                                     <?php endforeach; ?>
                                                 </ul>
                                                 <p class="tix-settings-hint" style="margin-top:6px;">Bestimmt die Reihenfolge, in der die Anbieter-Methoden im Checkout untereinander stehen. Innerhalb jedes Anbieters gilt zusätzlich die Methoden-Reihenfolge weiter unten.</p>
-                                                <script>
-                                                jQuery(function($){
-                                                    $('#tix-provider-sortable').sortable({
-                                                        handle: '.tix-drag-handle',
-                                                        placeholder: 'tix-gw-placeholder',
-                                                        update: function() {
-                                                            var ids = $('#tix-provider-sortable li').map(function(){ return $(this).data('id'); }).get();
-                                                            $('#tix-provider-order').val(ids.join(','));
-                                                        }
-                                                    });
-                                                });
-                                                </script>
                                             </div>
 
                                             <div class="tix-field tix-field-full" style="border-top:1px solid #e5e7eb;padding-top:14px;margin-top:6px;">
@@ -3227,7 +3235,7 @@ class TIX_Settings {
                                                     <?php if (empty($mollie_methods)): ?>
                                                         <p style="color:#92400e;background:#fef3c7;padding:10px 14px;border-radius:8px;font-size:13px;">Keine Methoden gefunden. Aktiviere sie zuerst im Mollie-Dashboard und <a href="<?php echo esc_url($reload_url); ?>">klicke hier zum Neuladen</a>.</p>
                                                     <?php else: ?>
-                                                        <ul id="tix-mollie-sortable" class="tix-gw-sortable" style="list-style:none;margin:0;padding:8px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;display:flex;flex-direction:column;gap:4px;">
+                                                        <ul id="tix-mollie-sortable" class="tix-gw-sortable" data-target="#tix-mollie-order" style="list-style:none;margin:0;padding:8px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;display:flex;flex-direction:column;gap:4px;">
                                                             <?php foreach ($mollie_sorted as $m): $checked = in_array($m['id'], $mollie_selected, true); ?>
                                                                 <li data-id="<?php echo esc_attr($m['id']); ?>" style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:#fff;border:1px solid #e5e7eb;border-radius:6px;cursor:move;">
                                                                     <span class="tix-drag-handle" style="color:#9ca3af;font-size:18px;line-height:1;user-select:none;flex-shrink:0;" title="Ziehen zum Sortieren">⋮⋮</span>
@@ -3283,7 +3291,7 @@ class TIX_Settings {
                                                     <?php if (empty($stripe_methods)): ?>
                                                         <p style="color:#92400e;background:#fef3c7;padding:10px 14px;border-radius:8px;font-size:13px;">Keine Methoden gefunden. Aktiviere sie zuerst im Stripe-Dashboard und <a href="<?php echo esc_url($reload_url); ?>">klicke hier zum Neuladen</a>.</p>
                                                     <?php else: ?>
-                                                        <ul id="tix-stripe-sortable" class="tix-gw-sortable" style="list-style:none;margin:0;padding:8px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;display:flex;flex-direction:column;gap:4px;">
+                                                        <ul id="tix-stripe-sortable" class="tix-gw-sortable" data-target="#tix-stripe-order" style="list-style:none;margin:0;padding:8px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;display:flex;flex-direction:column;gap:4px;">
                                                             <?php foreach ($stripe_sorted as $m): $checked = in_array($m['id'], $stripe_selected, true); ?>
                                                                 <li data-id="<?php echo esc_attr($m['id']); ?>" style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:#fff;border:1px solid #e5e7eb;border-radius:6px;cursor:move;">
                                                                     <span class="tix-drag-handle" style="color:#9ca3af;font-size:18px;line-height:1;user-select:none;flex-shrink:0;" title="Ziehen zum Sortieren">⋮⋮</span>
@@ -3296,22 +3304,6 @@ class TIX_Settings {
                                                         <p class="tix-settings-hint" style="margin-top:6px;">Ziehen zum Sortieren · Häkchen für Anzeige im Checkout. <strong>Leer = alle anzeigen.</strong> · <a href="<?php echo esc_url($reload_url); ?>">Vom Stripe-Dashboard neu laden</a></p>
                                                     <?php endif; ?>
                                                 </div>
-                                                <script>
-                                                jQuery(function($){
-                                                    $('.tix-gw-sortable').each(function(){
-                                                        var $list = $(this);
-                                                        var inputId = $list.attr('id') === 'tix-mollie-sortable' ? '#tix-mollie-order' : '#tix-stripe-order';
-                                                        $list.sortable({
-                                                            handle: '.tix-drag-handle',
-                                                            placeholder: 'tix-gw-placeholder',
-                                                            update: function() {
-                                                                var ids = $list.find('li').map(function(){ return $(this).data('id'); }).get();
-                                                                $(inputId).val(ids.join(','));
-                                                            }
-                                                        });
-                                                    });
-                                                });
-                                                </script>
                                                 <style>.tix-gw-placeholder{height:42px;background:#eef2ff;border:2px dashed #c7d2fe;border-radius:6px;margin:0;}</style>
                                                 <?php
                                             }
