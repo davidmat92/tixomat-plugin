@@ -20,7 +20,7 @@ class TIX_Gateway_Stripe {
     // Label + Logo-URL (Mollies öffentlicher Payment-Methods-CDN — stabile, hochauflösende SVGs)
     private static $method_labels = [
         'card'       => ['label' => 'Karte (Visa, Mastercard, Amex)', 'image' => 'https://www.mollie.com/external/icons/payment-methods/creditcard.svg'],
-        'klarna'     => ['label' => 'Klarna',                          'image' => 'https://www.mollie.com/external/icons/payment-methods/klarna.svg'],
+        'klarna'     => ['label' => 'Klarna (Rechnung, Ratenzahlung)', 'image' => 'https://www.mollie.com/external/icons/payment-methods/klarna.svg'],
         'sepa_debit' => ['label' => 'SEPA-Lastschrift',                'image' => 'https://www.mollie.com/external/icons/payment-methods/directdebit.svg'],
         'sofort'     => ['label' => 'SOFORT',                          'image' => 'https://www.mollie.com/external/icons/payment-methods/sofort.svg'],
         'giropay'    => ['label' => 'GiroPay',                         'image' => 'https://www.mollie.com/external/icons/payment-methods/giropay.svg'],
