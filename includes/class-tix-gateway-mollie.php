@@ -119,6 +119,65 @@ class TIX_Gateway_Mollie {
             ],
         ];
 
+        // Order-Lines (Pflicht für Klarna/Billie/BNPL — schadet anderen Methoden nicht)
+        $items = $wpdb->get_results($wpdb->prepare(
+            "SELECT name, cat_name, quantity, total, tax FROM {$wpdb->prefix}tix_order_items WHERE order_id = %d",
+            $order_id
+        ));
+        $lines = [];
+        $lines_sum = 0.0;
+        foreach ($items as $it) {
+            $qty        = max(1, intval($it->quantity));
+            $line_total = round(floatval($it->total), 2);
+            $unit_price = round($line_total / $qty, 2);
+            $vat_amount = round(floatval($it->tax), 2);
+            $vat_net    = $line_total - $vat_amount;
+            $vat_rate   = ($vat_net > 0) ? round(($vat_amount / $vat_net) * 100, 2) : 0;
+            $desc       = trim(($it->name ?: 'Ticket') . ($it->cat_name ? ' — ' . $it->cat_name : ''));
+            // Mollie verlangt qty * unitPrice === totalAmount (auf 2 Decimals)
+            $unit_price = round($line_total / $qty, 2);
+            $rebuilt    = round($unit_price * $qty, 2);
+            $line_total = $rebuilt; // Rundungs-Konsistenz
+            $lines[] = [
+                'type'        => 'physical',
+                'description' => $desc !== '' ? $desc : 'Ticket',
+                'quantity'    => $qty,
+                'unitPrice'   => ['currency' => 'EUR', 'value' => number_format($unit_price, 2, '.', '')],
+                'totalAmount' => ['currency' => 'EUR', 'value' => number_format($line_total, 2, '.', '')],
+                'vatRate'     => number_format($vat_rate, 2, '.', ''),
+                'vatAmount'   => ['currency' => 'EUR', 'value' => number_format($vat_amount, 2, '.', '')],
+            ];
+            $lines_sum += $line_total;
+        }
+        // Differenz zu order.total ausgleichen (Coupon-Rabatt / Customer-Fee / Rundungs-Drift)
+        $diff = round(floatval($order->total) - $lines_sum, 2);
+        if (abs($diff) >= 0.01) {
+            if ($diff < 0) {
+                $lines[] = [
+                    'type'        => 'discount',
+                    'description' => 'Rabatt',
+                    'quantity'    => 1,
+                    'unitPrice'   => ['currency' => 'EUR', 'value' => number_format($diff, 2, '.', '')],
+                    'totalAmount' => ['currency' => 'EUR', 'value' => number_format($diff, 2, '.', '')],
+                    'vatRate'     => '0.00',
+                    'vatAmount'   => ['currency' => 'EUR', 'value' => '0.00'],
+                ];
+            } else {
+                $lines[] = [
+                    'type'        => 'surcharge',
+                    'description' => 'Servicegebühr',
+                    'quantity'    => 1,
+                    'unitPrice'   => ['currency' => 'EUR', 'value' => number_format($diff, 2, '.', '')],
+                    'totalAmount' => ['currency' => 'EUR', 'value' => number_format($diff, 2, '.', '')],
+                    'vatRate'     => '0.00',
+                    'vatAmount'   => ['currency' => 'EUR', 'value' => '0.00'],
+                ];
+            }
+        }
+        if (!empty($lines)) {
+            $payload['lines'] = $lines;
+        }
+
         // Billing-Adresse (Pflicht für Klarna/Billie/BNPL, schadet anderen Methoden nicht)
         $address_parts = array_filter([
             'streetAndNumber' => trim((string) $order->billing_address_1),
