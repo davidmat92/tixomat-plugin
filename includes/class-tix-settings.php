@@ -398,9 +398,11 @@ class TIX_Settings {
             'mollie_api_key'         => '',
             'mollie_test_mode'       => 0,
             'mollie_enabled_methods' => [],
+            'mollie_methods_order'   => '', // kommagetrennte Reihenfolge
             'stripe_enabled'              => 0,
             'stripe_test_mode'            => 1,
             'stripe_enabled_methods'      => [],
+            'stripe_methods_order'        => '',
             'stripe_publishable_key_live' => '',
             'stripe_secret_key_live'      => '',
             'stripe_webhook_secret_live'  => '',
@@ -1245,11 +1247,13 @@ class TIX_Settings {
             $clean['mollie_enabled_methods'] = is_array($input['mollie_enabled_methods'] ?? null)
                 ? array_values(array_map('sanitize_text_field', $input['mollie_enabled_methods']))
                 : [];
+            $clean['mollie_methods_order'] = sanitize_text_field($input['mollie_methods_order'] ?? '');
         }
         if (isset($input['stripe_methods_marker'])) {
             $clean['stripe_enabled_methods'] = is_array($input['stripe_enabled_methods'] ?? null)
                 ? array_values(array_map('sanitize_text_field', $input['stripe_enabled_methods']))
                 : [];
+            $clean['stripe_methods_order'] = sanitize_text_field($input['stripe_methods_order'] ?? '');
         }
         $clean['stripe_enabled']              = !empty($input['stripe_enabled']) ? 1 : 0;
         $clean['stripe_test_mode']            = !empty($input['stripe_test_mode']) ? 1 : 0;
@@ -3147,28 +3151,34 @@ class TIX_Settings {
                                             <?php
                                             // Mollie-Methoden-Auswahl (nur wenn Key konfiguriert)
                                             if (!empty($s['mollie_api_key']) && class_exists('TIX_Gateway_Mollie')) {
+                                                wp_enqueue_script('jquery-ui-sortable');
                                                 $reload = !empty($_GET['tix_mollie_reload']);
                                                 if ($reload) TIX_Gateway_Mollie::clear_methods_cache();
                                                 $mollie_methods  = TIX_Gateway_Mollie::get_methods($reload);
                                                 $mollie_selected = is_array($s['mollie_enabled_methods'] ?? null) ? $s['mollie_enabled_methods'] : [];
+                                                $mollie_order    = array_filter(array_map('trim', explode(',', (string) ($s['mollie_methods_order'] ?? ''))));
+                                                // Methoden nach gespeicherter Reihenfolge sortieren, neue ans Ende
+                                                $mollie_sorted = self::sort_methods_by_order($mollie_methods, $mollie_order);
                                                 $reload_url = wp_nonce_url(add_query_arg('tix_mollie_reload', '1'), 'tix_mollie_reload');
                                                 ?>
                                                 <div class="tix-field tix-field-full">
-                                                    <label style="font-weight:600;display:block;margin-bottom:6px;">Im Checkout angezeigte Methoden</label>
+                                                    <label style="font-weight:600;display:block;margin-bottom:6px;">Im Checkout angezeigte Methoden & Reihenfolge</label>
                                                     <input type="hidden" name="tix_settings[mollie_methods_marker]" value="1">
+                                                    <input type="hidden" id="tix-mollie-order" name="tix_settings[mollie_methods_order]" value="<?php echo esc_attr(implode(',', wp_list_pluck($mollie_sorted, 'id'))); ?>">
                                                     <?php if (empty($mollie_methods)): ?>
                                                         <p style="color:#92400e;background:#fef3c7;padding:10px 14px;border-radius:8px;font-size:13px;">Keine Methoden gefunden. Aktiviere sie zuerst im Mollie-Dashboard und <a href="<?php echo esc_url($reload_url); ?>">klicke hier zum Neuladen</a>.</p>
                                                     <?php else: ?>
-                                                        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:6px;padding:10px 14px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;">
-                                                            <?php foreach ($mollie_methods as $m): $checked = in_array($m['id'], $mollie_selected, true); ?>
-                                                                <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
+                                                        <ul id="tix-mollie-sortable" class="tix-gw-sortable" style="list-style:none;margin:0;padding:8px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;display:flex;flex-direction:column;gap:4px;">
+                                                            <?php foreach ($mollie_sorted as $m): $checked = in_array($m['id'], $mollie_selected, true); ?>
+                                                                <li data-id="<?php echo esc_attr($m['id']); ?>" style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:#fff;border:1px solid #e5e7eb;border-radius:6px;cursor:move;">
+                                                                    <span class="tix-drag-handle" style="color:#9ca3af;font-size:18px;line-height:1;user-select:none;flex-shrink:0;" title="Ziehen zum Sortieren">⋮⋮</span>
                                                                     <input type="checkbox" name="tix_settings[mollie_enabled_methods][]" value="<?php echo esc_attr($m['id']); ?>" <?php checked($checked); ?>>
-                                                                    <?php if (!empty($m['image'])): ?><img src="<?php echo esc_url($m['image']); ?>" alt="" style="height:18px;max-width:36px;object-fit:contain;"><?php endif; ?>
-                                                                    <span><?php echo esc_html($m['description']); ?></span>
-                                                                </label>
+                                                                    <?php if (!empty($m['image'])): ?><img src="<?php echo esc_url($m['image']); ?>" alt="" style="height:20px;max-width:40px;object-fit:contain;flex-shrink:0;"><?php endif; ?>
+                                                                    <span style="font-size:13px;"><?php echo esc_html($m['description']); ?></span>
+                                                                </li>
                                                             <?php endforeach; ?>
-                                                        </div>
-                                                        <p class="tix-settings-hint" style="margin-top:6px;">Häkchen setzen für jede Methode, die im Checkout angezeigt werden soll. <strong>Leer = alle anzeigen.</strong> · <a href="<?php echo esc_url($reload_url); ?>">Vom Mollie-Dashboard neu laden</a></p>
+                                                        </ul>
+                                                        <p class="tix-settings-hint" style="margin-top:6px;">Ziehen zum Sortieren · Häkchen für Anzeige im Checkout. <strong>Leer = alle anzeigen.</strong> · <a href="<?php echo esc_url($reload_url); ?>">Vom Mollie-Dashboard neu laden</a></p>
                                                     <?php endif; ?>
                                                 </div>
                                                 <?php
@@ -3198,29 +3208,52 @@ class TIX_Settings {
                                             // Stripe-Methoden-Auswahl
                                             $stripe_secret = !empty($s['stripe_test_mode']) ? ($s['stripe_secret_key_test'] ?? '') : ($s['stripe_secret_key_live'] ?? '');
                                             if (!empty($s['stripe_enabled']) && !empty($stripe_secret) && class_exists('TIX_Gateway_Stripe')) {
+                                                wp_enqueue_script('jquery-ui-sortable');
                                                 $reload = !empty($_GET['tix_stripe_reload']);
                                                 if ($reload) TIX_Gateway_Stripe::clear_methods_cache();
                                                 $stripe_methods  = TIX_Gateway_Stripe::get_methods($reload);
                                                 $stripe_selected = is_array($s['stripe_enabled_methods'] ?? null) ? $s['stripe_enabled_methods'] : [];
+                                                $stripe_order    = array_filter(array_map('trim', explode(',', (string) ($s['stripe_methods_order'] ?? ''))));
+                                                $stripe_sorted   = self::sort_methods_by_order($stripe_methods, $stripe_order);
                                                 $reload_url = wp_nonce_url(add_query_arg('tix_stripe_reload', '1'), 'tix_stripe_reload');
                                                 ?>
                                                 <div class="tix-field tix-field-full">
-                                                    <label style="font-weight:600;display:block;margin-bottom:6px;">Im Checkout angezeigte Stripe-Methoden</label>
+                                                    <label style="font-weight:600;display:block;margin-bottom:6px;">Im Checkout angezeigte Stripe-Methoden & Reihenfolge</label>
                                                     <input type="hidden" name="tix_settings[stripe_methods_marker]" value="1">
+                                                    <input type="hidden" id="tix-stripe-order" name="tix_settings[stripe_methods_order]" value="<?php echo esc_attr(implode(',', wp_list_pluck($stripe_sorted, 'id'))); ?>">
                                                     <?php if (empty($stripe_methods)): ?>
                                                         <p style="color:#92400e;background:#fef3c7;padding:10px 14px;border-radius:8px;font-size:13px;">Keine Methoden gefunden. Aktiviere sie zuerst im Stripe-Dashboard und <a href="<?php echo esc_url($reload_url); ?>">klicke hier zum Neuladen</a>.</p>
                                                     <?php else: ?>
-                                                        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:6px;padding:10px 14px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;">
-                                                            <?php foreach ($stripe_methods as $m): $checked = in_array($m['id'], $stripe_selected, true); ?>
-                                                                <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
+                                                        <ul id="tix-stripe-sortable" class="tix-gw-sortable" style="list-style:none;margin:0;padding:8px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;display:flex;flex-direction:column;gap:4px;">
+                                                            <?php foreach ($stripe_sorted as $m): $checked = in_array($m['id'], $stripe_selected, true); ?>
+                                                                <li data-id="<?php echo esc_attr($m['id']); ?>" style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:#fff;border:1px solid #e5e7eb;border-radius:6px;cursor:move;">
+                                                                    <span class="tix-drag-handle" style="color:#9ca3af;font-size:18px;line-height:1;user-select:none;flex-shrink:0;" title="Ziehen zum Sortieren">⋮⋮</span>
                                                                     <input type="checkbox" name="tix_settings[stripe_enabled_methods][]" value="<?php echo esc_attr($m['id']); ?>" <?php checked($checked); ?>>
-                                                                    <span><?php echo esc_html($m['label']); ?></span>
-                                                                </label>
+                                                                    <?php if (!empty($m['image'])): ?><img src="<?php echo esc_url($m['image']); ?>" alt="" style="height:20px;max-width:40px;object-fit:contain;flex-shrink:0;"><?php endif; ?>
+                                                                    <span style="font-size:13px;"><?php echo esc_html($m['label']); ?></span>
+                                                                </li>
                                                             <?php endforeach; ?>
-                                                        </div>
-                                                        <p class="tix-settings-hint" style="margin-top:6px;">Häkchen setzen für jede Methode, die im Checkout angezeigt werden soll. <strong>Leer = alle anzeigen.</strong> · <a href="<?php echo esc_url($reload_url); ?>">Vom Stripe-Dashboard neu laden</a></p>
+                                                        </ul>
+                                                        <p class="tix-settings-hint" style="margin-top:6px;">Ziehen zum Sortieren · Häkchen für Anzeige im Checkout. <strong>Leer = alle anzeigen.</strong> · <a href="<?php echo esc_url($reload_url); ?>">Vom Stripe-Dashboard neu laden</a></p>
                                                     <?php endif; ?>
                                                 </div>
+                                                <script>
+                                                jQuery(function($){
+                                                    $('.tix-gw-sortable').each(function(){
+                                                        var $list = $(this);
+                                                        var inputId = $list.attr('id') === 'tix-mollie-sortable' ? '#tix-mollie-order' : '#tix-stripe-order';
+                                                        $list.sortable({
+                                                            handle: '.tix-drag-handle',
+                                                            placeholder: 'tix-gw-placeholder',
+                                                            update: function() {
+                                                                var ids = $list.find('li').map(function(){ return $(this).data('id'); }).get();
+                                                                $(inputId).val(ids.join(','));
+                                                            }
+                                                        });
+                                                    });
+                                                });
+                                                </script>
+                                                <style>.tix-gw-placeholder{height:42px;background:#eef2ff;border:2px dashed #c7d2fe;border-radius:6px;margin:0;}</style>
                                                 <?php
                                             }
                                             ?>
@@ -11423,5 +11456,27 @@ class TIX_Settings {
             }
         }
         return $clean;
+    }
+
+    /**
+     * Sortiert eine Liste von Gateway-Methoden nach einer gespeicherten Reihenfolge.
+     * Unbekannte/neue Methoden landen ans Ende.
+     *
+     * @param array $methods Array of ['id' => ..., ...] entries.
+     * @param array $order   Ordered list of method-IDs.
+     */
+    public static function sort_methods_by_order(array $methods, array $order): array {
+        if (empty($order)) return $methods;
+        $by_id = [];
+        foreach ($methods as $m) $by_id[$m['id']] = $m;
+        $sorted = [];
+        foreach ($order as $id) {
+            if (isset($by_id[$id])) {
+                $sorted[] = $by_id[$id];
+                unset($by_id[$id]);
+            }
+        }
+        foreach ($by_id as $rest) $sorted[] = $rest;
+        return $sorted;
     }
 }

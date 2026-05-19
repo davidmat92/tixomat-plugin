@@ -17,21 +17,27 @@ class TIX_Gateway_Stripe {
     const METHODS_CACHE_KEY = 'tix_stripe_methods_v1';
     const METHODS_CACHE_TTL = 6 * HOUR_IN_SECONDS;
 
-    // Default-Logos (CDN) für gängige Methoden — Stripe stellt keine Logo-API bereit
+    // Label + Logo-URL (Mollies öffentlicher Payment-Methods-CDN — stabile, hochauflösende SVGs)
     private static $method_labels = [
-        'card'       => ['label' => 'Karte (Visa, Mastercard, Amex)'],
-        'klarna'     => ['label' => 'Klarna'],
-        'sepa_debit' => ['label' => 'SEPA-Lastschrift'],
-        'sofort'     => ['label' => 'SOFORT'],
-        'giropay'    => ['label' => 'GiroPay'],
-        'bancontact' => ['label' => 'Bancontact'],
-        'ideal'      => ['label' => 'iDEAL'],
-        'eps'        => ['label' => 'EPS'],
-        'p24'        => ['label' => 'Przelewy24'],
-        'paypal'     => ['label' => 'PayPal'],
-        'link'       => ['label' => 'Stripe Link'],
-        'apple_pay'  => ['label' => 'Apple Pay'],
-        'google_pay' => ['label' => 'Google Pay'],
+        'card'       => ['label' => 'Karte (Visa, Mastercard, Amex)', 'image' => 'https://www.mollie.com/external/icons/payment-methods/creditcard.svg'],
+        'klarna'     => ['label' => 'Klarna',                          'image' => 'https://www.mollie.com/external/icons/payment-methods/klarna.svg'],
+        'sepa_debit' => ['label' => 'SEPA-Lastschrift',                'image' => 'https://www.mollie.com/external/icons/payment-methods/directdebit.svg'],
+        'sofort'     => ['label' => 'SOFORT',                          'image' => 'https://www.mollie.com/external/icons/payment-methods/sofort.svg'],
+        'giropay'    => ['label' => 'GiroPay',                         'image' => 'https://www.mollie.com/external/icons/payment-methods/giropay.svg'],
+        'bancontact' => ['label' => 'Bancontact',                      'image' => 'https://www.mollie.com/external/icons/payment-methods/bancontact.svg'],
+        'ideal'      => ['label' => 'iDEAL',                           'image' => 'https://www.mollie.com/external/icons/payment-methods/ideal.svg'],
+        'eps'        => ['label' => 'EPS',                             'image' => 'https://www.mollie.com/external/icons/payment-methods/eps.svg'],
+        'p24'        => ['label' => 'Przelewy24',                      'image' => 'https://www.mollie.com/external/icons/payment-methods/przelewy24.svg'],
+        'paypal'     => ['label' => 'PayPal',                          'image' => 'https://www.mollie.com/external/icons/payment-methods/paypal.svg'],
+        'link'       => ['label' => 'Stripe Link',                     'image' => ''],
+        'apple_pay'  => ['label' => 'Apple Pay',                       'image' => 'https://www.mollie.com/external/icons/payment-methods/applepay.svg'],
+        'google_pay' => ['label' => 'Google Pay',                      'image' => ''],
+        'amazon_pay' => ['label' => 'Amazon Pay',                      'image' => ''],
+        'blik'       => ['label' => 'BLIK',                            'image' => ''],
+        'kakao_pay'  => ['label' => 'Kakao Pay',                       'image' => ''],
+        'naver_pay'  => ['label' => 'Naver Pay',                       'image' => ''],
+        'payco'      => ['label' => 'Payco',                           'image' => ''],
+        'mb_way'     => ['label' => 'MB Way',                          'image' => ''],
     ];
 
     public static function get_id()    { return 'stripe'; }
@@ -119,6 +125,7 @@ class TIX_Gateway_Stripe {
                             $methods[] = [
                                 'id'    => $key,
                                 'label' => self::$method_labels[$key]['label'] ?? ucwords(str_replace('_', ' ', $key)),
+                                'image' => self::$method_labels[$key]['image'] ?? '',
                             ];
                         }
                     }
@@ -128,7 +135,7 @@ class TIX_Gateway_Stripe {
 
         // Fallback: wenn Stripe keine Configuration-API-Antwort gibt, nehmen wir Card als Default
         if (empty($methods)) {
-            $methods[] = ['id' => 'card', 'label' => self::$method_labels['card']['label']];
+            $methods[] = ['id' => 'card', 'label' => self::$method_labels['card']['label'], 'image' => self::$method_labels['card']['image']];
         }
 
         set_transient($cache_key, $methods, self::METHODS_CACHE_TTL);

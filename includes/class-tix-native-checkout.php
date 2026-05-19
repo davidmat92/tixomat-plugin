@@ -861,6 +861,11 @@ class TIX_Native_Checkout {
                         return in_array($m['id'], $mollie_allow, true);
                     }));
                 }
+                // Gespeicherte Reihenfolge anwenden
+                $mollie_order = array_filter(array_map('trim', explode(',', (string) tix_get_settings('mollie_methods_order'))));
+                if (!empty($mollie_order) && class_exists('TIX_Settings')) {
+                    $mollie_methods = TIX_Settings::sort_methods_by_order($mollie_methods, $mollie_order);
+                }
                 if (empty($mollie_methods)) {
                     // Fallback (z.B. Account ohne aktivierte Methoden, oder API-Fehler) — Hosted-Checkout
                     $gateways[] = ['id' => 'mollie', 'title' => TIX_Gateway_Mollie::get_title(), 'icon' => TIX_Gateway_Mollie::get_icon()];
@@ -883,11 +888,15 @@ class TIX_Native_Checkout {
                         return in_array($m['id'], $stripe_allow, true);
                     }));
                 }
+                $stripe_order = array_filter(array_map('trim', explode(',', (string) tix_get_settings('stripe_methods_order'))));
+                if (!empty($stripe_order) && class_exists('TIX_Settings')) {
+                    $stripe_methods = TIX_Settings::sort_methods_by_order($stripe_methods, $stripe_order);
+                }
                 foreach ($stripe_methods as $m) {
                     $gateways[] = [
                         'id'    => 'stripe:' . $m['id'],
                         'title' => $m['label'],
-                        'icon'  => '',
+                        'icon'  => $m['image'] ?? '',
                     ];
                 }
             }
