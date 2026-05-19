@@ -394,6 +394,7 @@ class TIX_Settings {
             // ── Checkout-Modus ──
             'checkout_mode'     => 'auto', // auto (WC wenn vorhanden), woocommerce, native
             // ── Payment Gateways (nativer Checkout) ──
+            'gateway_provider_order' => 'stripe,mollie,paypal,bank',
             'mollie_enabled'         => 1,
             'mollie_api_key'         => '',
             'mollie_test_mode'       => 0,
@@ -1239,6 +1240,17 @@ class TIX_Settings {
 
         // Checkout-Modus + Payment Gateways
         $clean['checkout_mode'] = in_array($input['checkout_mode'] ?? 'auto', ['auto', 'woocommerce', 'native']) ? $input['checkout_mode'] : 'auto';
+        if (isset($input['gateway_provider_order'])) {
+            // Whitelist auf bekannte Provider, Reihenfolge respektieren
+            $allowed_providers = ['stripe', 'mollie', 'paypal', 'bank'];
+            $raw = array_filter(array_map('trim', explode(',', (string) $input['gateway_provider_order'])));
+            $valid = array_values(array_intersect($raw, $allowed_providers));
+            // Fehlende ans Ende ergänzen, damit keiner verloren geht
+            foreach ($allowed_providers as $p) {
+                if (!in_array($p, $valid, true)) $valid[] = $p;
+            }
+            $clean['gateway_provider_order'] = implode(',', $valid);
+        }
         $clean['mollie_enabled']   = !empty($input['mollie_enabled']) ? 1 : 0;
         $clean['mollie_api_key']   = sanitize_text_field($input['mollie_api_key'] ?? '');
         $clean['mollie_test_mode'] = !empty($input['mollie_test_mode']) ? 1 : 0;
@@ -3139,6 +3151,53 @@ class TIX_Settings {
                                             <div class="tix-field tix-field-full">
                                                 <p class="tix-settings-hint" style="margin-top:0;">Kostenlose Events funktionieren immer ohne Zahlungsanbieter.</p>
                                             </div>
+
+                                            <?php
+                                            wp_enqueue_script('jquery-ui-sortable');
+                                            $provider_labels = [
+                                                'stripe' => ['label' => '💳 Stripe',          'desc' => 'Karte, Klarna, Apple/Google Pay, SEPA, ...'],
+                                                'mollie' => ['label' => '🇪🇺 Mollie',          'desc' => 'Karte, Klarna, iDEAL, Bancontact, Billie, ...'],
+                                                'paypal' => ['label' => '🅿️ PayPal',           'desc' => 'Direkter PayPal-Account-Login'],
+                                                'bank'   => ['label' => '🏦 Banküberweisung', 'desc' => 'Vorkasse (Order pending bis Zahlungseingang)'],
+                                            ];
+                                            $provider_order = array_filter(array_map('trim', explode(',', (string) ($s['gateway_provider_order'] ?? 'stripe,mollie,paypal,bank'))));
+                                            // Unbekannte oder fehlende ans Ende
+                                            foreach (array_keys($provider_labels) as $p) {
+                                                if (!in_array($p, $provider_order, true)) $provider_order[] = $p;
+                                            }
+                                            ?>
+                                            <div class="tix-field tix-field-full">
+                                                <label style="font-weight:600;display:block;margin-bottom:6px;">Reihenfolge der Anbieter im Checkout</label>
+                                                <input type="hidden" id="tix-provider-order" name="tix_settings[gateway_provider_order]" value="<?php echo esc_attr(implode(',', $provider_order)); ?>">
+                                                <ul id="tix-provider-sortable" class="tix-gw-sortable" style="list-style:none;margin:0;padding:8px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;display:flex;flex-direction:column;gap:4px;">
+                                                    <?php foreach ($provider_order as $p):
+                                                        if (!isset($provider_labels[$p])) continue;
+                                                        $info = $provider_labels[$p];
+                                                    ?>
+                                                        <li data-id="<?php echo esc_attr($p); ?>" style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:#fff;border:1px solid #e5e7eb;border-radius:6px;cursor:move;">
+                                                            <span class="tix-drag-handle" style="color:#9ca3af;font-size:18px;line-height:1;user-select:none;flex-shrink:0;" title="Ziehen zum Sortieren">⋮⋮</span>
+                                                            <div>
+                                                                <div style="font-weight:600;font-size:13px;color:#0f172a;"><?php echo esc_html($info['label']); ?></div>
+                                                                <div style="font-size:11px;color:#64748b;"><?php echo esc_html($info['desc']); ?></div>
+                                                            </div>
+                                                        </li>
+                                                    <?php endforeach; ?>
+                                                </ul>
+                                                <p class="tix-settings-hint" style="margin-top:6px;">Bestimmt die Reihenfolge, in der die Anbieter-Methoden im Checkout untereinander stehen. Innerhalb jedes Anbieters gilt zusätzlich die Methoden-Reihenfolge weiter unten.</p>
+                                                <script>
+                                                jQuery(function($){
+                                                    $('#tix-provider-sortable').sortable({
+                                                        handle: '.tix-drag-handle',
+                                                        placeholder: 'tix-gw-placeholder',
+                                                        update: function() {
+                                                            var ids = $('#tix-provider-sortable li').map(function(){ return $(this).data('id'); }).get();
+                                                            $('#tix-provider-order').val(ids.join(','));
+                                                        }
+                                                    });
+                                                });
+                                                </script>
+                                            </div>
+
                                             <div class="tix-field tix-field-full" style="border-top:1px solid #e5e7eb;padding-top:14px;margin-top:6px;">
                                                 <strong style="display:block;margin-bottom:8px;color:#0f172a;">🇪🇺 Mollie</strong>
                                                 <?php self::checkbox_row('mollie_enabled', 'Mollie aktivieren (im Checkout anzeigen)', $s); ?>

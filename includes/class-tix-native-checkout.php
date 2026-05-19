@@ -850,6 +850,9 @@ class TIX_Native_Checkout {
         if ($is_free) {
             $gateways[] = ['id' => 'free', 'title' => 'Kostenlos', 'icon' => ''];
         } else {
+            // Gateway-Eintraege pro Provider sammeln, am Ende per Provider-Order mergen
+            $by_provider = ['mollie' => [], 'stripe' => [], 'paypal' => [], 'bank' => []];
+
             // Mollie: jede aktivierte Methode als eigenen Eintrag (Klarna, Karte, SEPA, iDEAL, ...)
             $mollie_enabled = (bool) (tix_get_settings('mollie_enabled') ?? 1);
             if ($mollie_enabled && TIX_Gateway_Mollie::is_available()) {
@@ -867,11 +870,10 @@ class TIX_Native_Checkout {
                     $mollie_methods = TIX_Settings::sort_methods_by_order($mollie_methods, $mollie_order);
                 }
                 if (empty($mollie_methods)) {
-                    // Fallback (z.B. Account ohne aktivierte Methoden, oder API-Fehler) — Hosted-Checkout
-                    $gateways[] = ['id' => 'mollie', 'title' => TIX_Gateway_Mollie::get_title(), 'icon' => TIX_Gateway_Mollie::get_icon()];
+                    $by_provider['mollie'][] = ['id' => 'mollie', 'title' => TIX_Gateway_Mollie::get_title(), 'icon' => TIX_Gateway_Mollie::get_icon()];
                 } else {
                     foreach ($mollie_methods as $m) {
-                        $gateways[] = [
+                        $by_provider['mollie'][] = [
                             'id'    => 'mollie:' . $m['id'],
                             'title' => $m['description'],
                             'icon'  => $m['image'] ?: TIX_Gateway_Mollie::get_icon(),
@@ -879,7 +881,8 @@ class TIX_Native_Checkout {
                     }
                 }
             }
-            // Stripe: gleiche Logik
+
+            // Stripe
             if (TIX_Gateway_Stripe::is_available()) {
                 $stripe_methods = TIX_Gateway_Stripe::get_methods();
                 $stripe_allow   = tix_get_settings('stripe_enabled_methods');
@@ -893,15 +896,29 @@ class TIX_Native_Checkout {
                     $stripe_methods = TIX_Settings::sort_methods_by_order($stripe_methods, $stripe_order);
                 }
                 foreach ($stripe_methods as $m) {
-                    $gateways[] = [
+                    $by_provider['stripe'][] = [
                         'id'    => 'stripe:' . $m['id'],
                         'title' => $m['label'],
                         'icon'  => $m['image'] ?? '',
                     ];
                 }
             }
-            if (TIX_Gateway_PayPal::is_available())  $gateways[] = ['id' => 'paypal', 'title' => TIX_Gateway_PayPal::get_title(), 'icon' => TIX_Gateway_PayPal::get_icon()];
-            if (TIX_Gateway_Bank::is_available())    $gateways[] = ['id' => 'bank', 'title' => TIX_Gateway_Bank::get_title(), 'icon' => ''];
+
+            if (TIX_Gateway_PayPal::is_available())  $by_provider['paypal'][] = ['id' => 'paypal', 'title' => TIX_Gateway_PayPal::get_title(), 'icon' => TIX_Gateway_PayPal::get_icon()];
+            if (TIX_Gateway_Bank::is_available())    $by_provider['bank'][]   = ['id' => 'bank', 'title' => TIX_Gateway_Bank::get_title(), 'icon' => ''];
+
+            // Provider-Reihenfolge aus Settings anwenden (Default: stripe,mollie,paypal,bank)
+            $provider_order = array_filter(array_map('trim', explode(',', (string) (tix_get_settings('gateway_provider_order') ?: 'stripe,mollie,paypal,bank'))));
+            foreach ($provider_order as $p) {
+                if (!empty($by_provider[$p])) {
+                    $gateways = array_merge($gateways, $by_provider[$p]);
+                    unset($by_provider[$p]);
+                }
+            }
+            // Nicht in Order enthaltene Provider ans Ende
+            foreach ($by_provider as $rest) {
+                $gateways = array_merge($gateways, $rest);
+            }
         }
 
         ob_start();
