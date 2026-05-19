@@ -394,11 +394,13 @@ class TIX_Settings {
             // ── Checkout-Modus ──
             'checkout_mode'     => 'auto', // auto (WC wenn vorhanden), woocommerce, native
             // ── Payment Gateways (nativer Checkout) ──
-            'mollie_enabled'      => 1,
-            'mollie_api_key'      => '',
-            'mollie_test_mode'    => 0,
+            'mollie_enabled'         => 1,
+            'mollie_api_key'         => '',
+            'mollie_test_mode'       => 0,
+            'mollie_enabled_methods' => [],
             'stripe_enabled'              => 0,
             'stripe_test_mode'            => 1,
+            'stripe_enabled_methods'      => [],
             'stripe_publishable_key_live' => '',
             'stripe_secret_key_live'      => '',
             'stripe_webhook_secret_live'  => '',
@@ -1238,6 +1240,17 @@ class TIX_Settings {
         $clean['mollie_enabled']   = !empty($input['mollie_enabled']) ? 1 : 0;
         $clean['mollie_api_key']   = sanitize_text_field($input['mollie_api_key'] ?? '');
         $clean['mollie_test_mode'] = !empty($input['mollie_test_mode']) ? 1 : 0;
+        // Methoden-Filter: nur speichern wenn der Marker mitgeschickt wurde (Tab gerendert wurde)
+        if (isset($input['mollie_methods_marker'])) {
+            $clean['mollie_enabled_methods'] = is_array($input['mollie_enabled_methods'] ?? null)
+                ? array_values(array_map('sanitize_text_field', $input['mollie_enabled_methods']))
+                : [];
+        }
+        if (isset($input['stripe_methods_marker'])) {
+            $clean['stripe_enabled_methods'] = is_array($input['stripe_enabled_methods'] ?? null)
+                ? array_values(array_map('sanitize_text_field', $input['stripe_enabled_methods']))
+                : [];
+        }
         $clean['stripe_enabled']              = !empty($input['stripe_enabled']) ? 1 : 0;
         $clean['stripe_test_mode']            = !empty($input['stripe_test_mode']) ? 1 : 0;
         $clean['stripe_publishable_key_live'] = sanitize_text_field($input['stripe_publishable_key_live'] ?? '');
@@ -3129,8 +3142,38 @@ class TIX_Settings {
                                             <?php self::text_row('mollie_api_key', 'Mollie API Key', $s, 'live_... oder test_...'); ?>
                                             <div class="tix-field tix-field-full">
                                                 <?php self::checkbox_row('mollie_test_mode', 'Mollie Test-Modus', $s); ?>
-                                                <p class="tix-settings-hint"><a href="https://my.mollie.com/dashboard/developers/api-keys" target="_blank">Mollie Keys →</a> · Die aktivierten Methoden (Karte/Klarna/SEPA/...) werden automatisch im Checkout gelistet.</p>
+                                                <p class="tix-settings-hint"><a href="https://my.mollie.com/dashboard/developers/api-keys" target="_blank">Mollie Keys →</a></p>
                                             </div>
+                                            <?php
+                                            // Mollie-Methoden-Auswahl (nur wenn Key konfiguriert)
+                                            if (!empty($s['mollie_api_key']) && class_exists('TIX_Gateway_Mollie')) {
+                                                $reload = !empty($_GET['tix_mollie_reload']);
+                                                if ($reload) TIX_Gateway_Mollie::clear_methods_cache();
+                                                $mollie_methods  = TIX_Gateway_Mollie::get_methods($reload);
+                                                $mollie_selected = is_array($s['mollie_enabled_methods'] ?? null) ? $s['mollie_enabled_methods'] : [];
+                                                $reload_url = wp_nonce_url(add_query_arg('tix_mollie_reload', '1'), 'tix_mollie_reload');
+                                                ?>
+                                                <div class="tix-field tix-field-full">
+                                                    <label style="font-weight:600;display:block;margin-bottom:6px;">Im Checkout angezeigte Methoden</label>
+                                                    <input type="hidden" name="tix_settings[mollie_methods_marker]" value="1">
+                                                    <?php if (empty($mollie_methods)): ?>
+                                                        <p style="color:#92400e;background:#fef3c7;padding:10px 14px;border-radius:8px;font-size:13px;">Keine Methoden gefunden. Aktiviere sie zuerst im Mollie-Dashboard und <a href="<?php echo esc_url($reload_url); ?>">klicke hier zum Neuladen</a>.</p>
+                                                    <?php else: ?>
+                                                        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:6px;padding:10px 14px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;">
+                                                            <?php foreach ($mollie_methods as $m): $checked = in_array($m['id'], $mollie_selected, true); ?>
+                                                                <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
+                                                                    <input type="checkbox" name="tix_settings[mollie_enabled_methods][]" value="<?php echo esc_attr($m['id']); ?>" <?php checked($checked); ?>>
+                                                                    <?php if (!empty($m['image'])): ?><img src="<?php echo esc_url($m['image']); ?>" alt="" style="height:18px;max-width:36px;object-fit:contain;"><?php endif; ?>
+                                                                    <span><?php echo esc_html($m['description']); ?></span>
+                                                                </label>
+                                                            <?php endforeach; ?>
+                                                        </div>
+                                                        <p class="tix-settings-hint" style="margin-top:6px;">Häkchen setzen für jede Methode, die im Checkout angezeigt werden soll. <strong>Leer = alle anzeigen.</strong> · <a href="<?php echo esc_url($reload_url); ?>">Vom Mollie-Dashboard neu laden</a></p>
+                                                    <?php endif; ?>
+                                                </div>
+                                                <?php
+                                            }
+                                            ?>
 
                                             <div class="tix-field tix-field-full" style="border-top:1px solid #e5e7eb;padding-top:14px;margin-top:6px;">
                                                 <strong style="display:block;margin-bottom:8px;color:#0f172a;">💳 Stripe</strong>
@@ -3151,6 +3194,36 @@ class TIX_Settings {
                                                     — Events: <code>checkout.session.completed</code>, <code>checkout.session.async_payment_succeeded</code>, <code>checkout.session.async_payment_failed</code>, <code>charge.refunded</code>
                                                 </p>
                                             </div>
+                                            <?php
+                                            // Stripe-Methoden-Auswahl
+                                            $stripe_secret = !empty($s['stripe_test_mode']) ? ($s['stripe_secret_key_test'] ?? '') : ($s['stripe_secret_key_live'] ?? '');
+                                            if (!empty($s['stripe_enabled']) && !empty($stripe_secret) && class_exists('TIX_Gateway_Stripe')) {
+                                                $reload = !empty($_GET['tix_stripe_reload']);
+                                                if ($reload) TIX_Gateway_Stripe::clear_methods_cache();
+                                                $stripe_methods  = TIX_Gateway_Stripe::get_methods($reload);
+                                                $stripe_selected = is_array($s['stripe_enabled_methods'] ?? null) ? $s['stripe_enabled_methods'] : [];
+                                                $reload_url = wp_nonce_url(add_query_arg('tix_stripe_reload', '1'), 'tix_stripe_reload');
+                                                ?>
+                                                <div class="tix-field tix-field-full">
+                                                    <label style="font-weight:600;display:block;margin-bottom:6px;">Im Checkout angezeigte Stripe-Methoden</label>
+                                                    <input type="hidden" name="tix_settings[stripe_methods_marker]" value="1">
+                                                    <?php if (empty($stripe_methods)): ?>
+                                                        <p style="color:#92400e;background:#fef3c7;padding:10px 14px;border-radius:8px;font-size:13px;">Keine Methoden gefunden. Aktiviere sie zuerst im Stripe-Dashboard und <a href="<?php echo esc_url($reload_url); ?>">klicke hier zum Neuladen</a>.</p>
+                                                    <?php else: ?>
+                                                        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:6px;padding:10px 14px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;">
+                                                            <?php foreach ($stripe_methods as $m): $checked = in_array($m['id'], $stripe_selected, true); ?>
+                                                                <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
+                                                                    <input type="checkbox" name="tix_settings[stripe_enabled_methods][]" value="<?php echo esc_attr($m['id']); ?>" <?php checked($checked); ?>>
+                                                                    <span><?php echo esc_html($m['label']); ?></span>
+                                                                </label>
+                                                            <?php endforeach; ?>
+                                                        </div>
+                                                        <p class="tix-settings-hint" style="margin-top:6px;">Häkchen setzen für jede Methode, die im Checkout angezeigt werden soll. <strong>Leer = alle anzeigen.</strong> · <a href="<?php echo esc_url($reload_url); ?>">Vom Stripe-Dashboard neu laden</a></p>
+                                                    <?php endif; ?>
+                                                </div>
+                                                <?php
+                                            }
+                                            ?>
                                             <?php self::text_row('paypal_client_id', 'PayPal Client ID', $s, 'A...'); ?>
                                             <?php self::text_row('paypal_secret', 'PayPal Secret', $s, 'E...'); ?>
                                             <div class="tix-field tix-field-full">

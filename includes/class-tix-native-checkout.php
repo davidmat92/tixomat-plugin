@@ -854,6 +854,13 @@ class TIX_Native_Checkout {
             $mollie_enabled = (bool) (tix_get_settings('mollie_enabled') ?? 1);
             if ($mollie_enabled && TIX_Gateway_Mollie::is_available()) {
                 $mollie_methods = TIX_Gateway_Mollie::get_methods();
+                // Backend-Filter: wenn explizite Auswahl gesetzt, nur diese anzeigen (leer = alle)
+                $mollie_allow = tix_get_settings('mollie_enabled_methods');
+                if (is_array($mollie_allow) && !empty($mollie_allow)) {
+                    $mollie_methods = array_values(array_filter($mollie_methods, function($m) use ($mollie_allow) {
+                        return in_array($m['id'], $mollie_allow, true);
+                    }));
+                }
                 if (empty($mollie_methods)) {
                     // Fallback (z.B. Account ohne aktivierte Methoden, oder API-Fehler) — Hosted-Checkout
                     $gateways[] = ['id' => 'mollie', 'title' => TIX_Gateway_Mollie::get_title(), 'icon' => TIX_Gateway_Mollie::get_icon()];
@@ -870,6 +877,12 @@ class TIX_Native_Checkout {
             // Stripe: gleiche Logik
             if (TIX_Gateway_Stripe::is_available()) {
                 $stripe_methods = TIX_Gateway_Stripe::get_methods();
+                $stripe_allow   = tix_get_settings('stripe_enabled_methods');
+                if (is_array($stripe_allow) && !empty($stripe_allow)) {
+                    $stripe_methods = array_values(array_filter($stripe_methods, function($m) use ($stripe_allow) {
+                        return in_array($m['id'], $stripe_allow, true);
+                    }));
+                }
                 foreach ($stripe_methods as $m) {
                     $gateways[] = [
                         'id'    => 'stripe:' . $m['id'],
