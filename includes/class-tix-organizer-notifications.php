@@ -24,10 +24,16 @@ class TIX_Organizer_Notifications {
 
     const PUSHOVER_API = 'https://api.pushover.net/1/messages.json';
 
+    const PAUSE_META         = '_tix_org_notify_paused_until';
+    const PAUSE_INDEFINITE   = 4102444800; // 2100-01-01, in Praxis "unbegrenzt"
+
     public static function init() {
         // Organizer-Edit-Screen
         add_action('add_meta_boxes',         [__CLASS__, 'register_metabox']);
         add_action('save_post_tix_organizer',[__CLASS__, 'save_metabox'], 20, 2);
+
+        // Pause-Toggle (AJAX, ohne Post-Save)
+        add_action('wp_ajax_tix_org_notify_pause', [__CLASS__, 'ajax_pause_toggle']);
 
         // Test-Push auf Edit-Screen (feuert nur bei GET mit Nonce, nicht beim Save)
         add_action('admin_init', [__CLASS__, 'maybe_fire_test_push']);
@@ -111,6 +117,86 @@ class TIX_Organizer_Notifications {
         <p class="tix-notify-intro">
             Benachrichtigungen für diesen Veranstalter: E-Mail und/oder Pushover-Push. Es gehen jeweils <strong>alle aktivierten</strong> Empfänger die Nachricht raus — Events dieses Veranstalters lösen den Versand aus.
         </p>
+
+        <?php
+        $is_paused    = self::is_paused($post->ID);
+        $pause_remain = self::paused_remaining_text($post->ID);
+        $pause_nonce  = wp_create_nonce('tix_org_notify_pause');
+        ?>
+        <div id="tix-org-pause-panel"
+             data-org-id="<?php echo intval($post->ID); ?>"
+             data-nonce="<?php echo esc_attr($pause_nonce); ?>"
+             style="border-radius:10px;padding:14px 16px;margin-bottom:16px;<?php echo $is_paused
+                ? 'background:#fef2f2;border:1px solid #fecaca;color:#7f1d1d;'
+                : 'background:#f0fdf4;border:1px solid #bbf7d0;color:#14532d;'; ?>">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+                <div style="display:flex;align-items:center;gap:10px;">
+                    <span style="font-size:18px;"><?php echo $is_paused ? '⏸' : '🔔'; ?></span>
+                    <div>
+                        <strong style="font-size:14px;display:block;">
+                            <?php echo $is_paused
+                                ? 'Benachrichtigungen sind aktuell PAUSIERT'
+                                : 'Benachrichtigungen sind aktiv'; ?>
+                        </strong>
+                        <span style="font-size:12px;opacity:0.85;" class="tix-org-pause-detail">
+                            <?php if ($is_paused): ?>
+                                Bestellungen, Check-ins etc. lösen aktuell keine Mail/Push aus. <?php echo esc_html($pause_remain); ?>
+                            <?php else: ?>
+                                Du kannst sie temporär ausschalten — z.B. für einen Bulk-Import oder Wartung.
+                            <?php endif; ?>
+                        </span>
+                    </div>
+                </div>
+                <div class="tix-org-pause-actions" style="display:flex;gap:5px;flex-wrap:wrap;">
+                    <?php if ($is_paused): ?>
+                        <button type="button" class="button button-primary tix-org-pause-stop">▶ Wieder aktivieren</button>
+                    <?php else: ?>
+                        <button type="button" class="button tix-org-pause-start" data-duration="3600">1 Std. pausieren</button>
+                        <button type="button" class="button tix-org-pause-start" data-duration="14400">4 Std.</button>
+                        <button type="button" class="button tix-org-pause-start" data-duration="86400">24 Std.</button>
+                        <button type="button" class="button tix-org-pause-start" data-duration="indefinite" title="Bis du es manuell wieder aktivierst">Unbegrenzt</button>
+                    <?php endif; ?>
+                </div>
+            </div>
+        </div>
+        <script>
+        (function($) {
+            var $panel = $('#tix-org-pause-panel');
+            if (!$panel.length) return;
+            var orgId  = $panel.data('org-id');
+            var nonce  = $panel.data('nonce');
+            var ajaxUrl = ajaxurl;
+
+            function reload() { window.location.reload(); }
+
+            $panel.on('click', '.tix-org-pause-start', function() {
+                var $btn = $(this);
+                var duration = $btn.data('duration');
+                if (duration === 'indefinite') {
+                    if (!confirm('Benachrichtigungen unbegrenzt pausieren? Du musst sie hier manuell wieder aktivieren.')) return;
+                }
+                $btn.prop('disabled', true).text('…');
+                $.post(ajaxUrl, {
+                    action: 'tix_org_notify_pause', nonce: nonce,
+                    org_id: orgId, pause_action: 'start', duration: duration
+                }, function(r) {
+                    if (r.success) reload();
+                    else { alert((r.data && r.data.message) || 'Fehler.'); $btn.prop('disabled', false); }
+                });
+            });
+            $panel.on('click', '.tix-org-pause-stop', function() {
+                var $btn = $(this);
+                $btn.prop('disabled', true).text('…');
+                $.post(ajaxUrl, {
+                    action: 'tix_org_notify_pause', nonce: nonce,
+                    org_id: orgId, pause_action: 'stop'
+                }, function(r) {
+                    if (r.success) reload();
+                    else { alert((r.data && r.data.message) || 'Fehler.'); $btn.prop('disabled', false); }
+                });
+            });
+        })(jQuery);
+        </script>
 
         <div class="tix-notify-types">
             <strong style="display:block;margin-bottom:6px;">Welche Ereignisse sollen benachrichtigen?</strong>
@@ -335,9 +421,68 @@ class TIX_Organizer_Notifications {
      * @param string $type        'orders' | 'support'
      * @param array  $payload     [title, message, email_subject, email_body, url, url_title, sound]
      */
+    /* ──────────────── PAUSE ──────────────── */
+
+    public static function paused_until(int $org_id): int {
+        return (int) get_post_meta($org_id, self::PAUSE_META, true);
+    }
+
+    public static function is_paused(int $org_id): bool {
+        return self::paused_until($org_id) > time();
+    }
+
+    public static function paused_remaining_text(int $org_id): string {
+        $until = self::paused_until($org_id);
+        if ($until <= time()) return '';
+        if ($until >= self::PAUSE_INDEFINITE) return 'unbegrenzt — bis du es manuell aufhebst';
+        $diff = $until - time();
+        if ($diff < 60)          return 'noch < 1 Min.';
+        if ($diff < 3600)        return 'noch ' . intval($diff / 60) . ' Min.';
+        if ($diff < 86400)       return 'noch ' . round($diff / 3600, 1) . ' Std.';
+        return 'bis ' . wp_date('d.m.Y, H:i', $until);
+    }
+
+    public static function ajax_pause_toggle() {
+        check_ajax_referer('tix_org_notify_pause', 'nonce');
+        $org_id = intval($_POST['org_id'] ?? 0);
+        if (!$org_id || !current_user_can('edit_post', $org_id)) {
+            wp_send_json_error(['message' => 'Keine Berechtigung.']);
+        }
+        $action = sanitize_key($_POST['pause_action'] ?? '');
+
+        if ($action === 'stop') {
+            delete_post_meta($org_id, self::PAUSE_META);
+            wp_send_json_success(['paused' => false, 'message' => 'Benachrichtigungen sind wieder aktiv.']);
+        }
+
+        if ($action === 'start') {
+            $duration = sanitize_text_field($_POST['duration'] ?? '');
+            $until = 0;
+            if ($duration === 'indefinite') {
+                $until = self::PAUSE_INDEFINITE;
+            } else {
+                $secs = intval($duration);
+                if ($secs <= 0 || $secs > 30 * DAY_IN_SECONDS) {
+                    wp_send_json_error(['message' => 'Ungültige Dauer.']);
+                }
+                $until = time() + $secs;
+            }
+            update_post_meta($org_id, self::PAUSE_META, $until);
+            wp_send_json_success([
+                'paused'    => true,
+                'until'     => $until,
+                'remaining' => self::paused_remaining_text($org_id),
+                'message'   => 'Benachrichtigungen pausiert.',
+            ]);
+        }
+
+        wp_send_json_error(['message' => 'Ungültige Aktion.']);
+    }
+
     public static function notify_organizer($org_id, $type, array $payload) {
         $types = self::get_types($org_id);
         if (empty($types[$type])) return; // dieser Typ deaktiviert
+        if (self::is_paused(intval($org_id))) return; // alle Benachrichtigungen temporär aus
 
         // E-Mails
         $emails = self::active_emails($org_id);
