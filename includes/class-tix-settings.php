@@ -1267,6 +1267,15 @@ class TIX_Settings {
                 : [];
             $clean['stripe_methods_order'] = sanitize_text_field($input['stripe_methods_order'] ?? '');
         }
+        // Rechnungs-Settings (eigener Sub-Key 'invoicing', vom Invoicing-Tab gerendert)
+        if (isset($input['invoicing_marker'])) {
+            $inv_in = is_array($input['invoicing'] ?? null) ? $input['invoicing'] : [];
+            if (class_exists('TIX_Invoicing')) {
+                $clean['invoicing'] = TIX_Invoicing::sanitize_settings($inv_in);
+            } else {
+                $clean['invoicing'] = $inv_in;
+            }
+        }
         $clean['stripe_enabled']              = !empty($input['stripe_enabled']) ? 1 : 0;
         $clean['stripe_test_mode']            = !empty($input['stripe_test_mode']) ? 1 : 0;
         $clean['stripe_publishable_key_live'] = sanitize_text_field($input['stripe_publishable_key_live'] ?? '');
@@ -2813,6 +2822,11 @@ class TIX_Settings {
                                     </div>
                                 </div>
 
+                            </div>
+
+                            <?php // ═══ PANE: INVOICE (Rechnungen) ═══ ?>
+                            <div class="tix-pane" data-pane="invoice">
+                                <?php if (class_exists('TIX_Invoicing')) TIX_Invoicing::render_settings_pane(); ?>
                             </div>
 
                             <?php // ═══ PANE: BUTTONS ═══ ?>

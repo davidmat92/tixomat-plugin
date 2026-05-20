@@ -21,20 +21,34 @@ if (!defined('ABSPATH')) exit;
 
 class TIX_Invoicing {
 
-    const OPTION_KEY      = 'tix_invoicing_settings';
-    const ORDER_META_PREFIX = '_tix_invoice_';
+    // Settings leben innerhalb von tix_settings unter dem Sub-Key 'invoicing'
+    const TIX_SETTINGS_SUBKEY = 'invoicing';
+    const LEGACY_OPTION_KEY   = 'tix_invoicing_settings'; // vor Migration
+    const ORDER_META_PREFIX   = '_tix_invoice_';
 
     private static $providers = [];
 
     public static function init() {
-        add_action('admin_menu',        [__CLASS__, 'register_menu'], 60);
-        add_action('admin_init',        [__CLASS__, 'register_settings']);
         add_action('admin_post_tix_invoice_download',        [__CLASS__, 'handle_download']);
         add_action('admin_post_nopriv_tix_invoice_download', [__CLASS__, 'handle_download']);
         add_action('admin_post_tix_invoice_retry',           [__CLASS__, 'handle_retry']);
 
         // Auto-Trigger bei Bestellungsabschluss (alle Gateways feuern tix_order_completed)
         add_action('tix_order_completed', [__CLASS__, 'maybe_create_for_order'], 30, 1);
+
+        // Einmalige Migration alter standalone-Option → tix_settings.invoicing
+        add_action('admin_init', [__CLASS__, 'maybe_migrate_legacy_settings'], 5);
+    }
+
+    public static function maybe_migrate_legacy_settings() {
+        $legacy = get_option(self::LEGACY_OPTION_KEY);
+        if (!is_array($legacy) || empty($legacy)) return;
+        $tix = (array) get_option('tix_settings', []);
+        if (empty($tix[self::TIX_SETTINGS_SUBKEY])) {
+            $tix[self::TIX_SETTINGS_SUBKEY] = $legacy;
+            update_option('tix_settings', $tix);
+        }
+        delete_option(self::LEGACY_OPTION_KEY);
     }
 
     /* ─────────────── PROVIDER-REGISTRY ─────────────── */
@@ -58,15 +72,17 @@ class TIX_Invoicing {
     }
 
     public static function get_settings(string $provider_id = ''): array {
-        $s = (array) get_option(self::OPTION_KEY, []);
+        $tix = (array) get_option('tix_settings', []);
+        $s   = (array) ($tix[self::TIX_SETTINGS_SUBKEY] ?? []);
         if ($provider_id === '') return $s;
         return (array) ($s[$provider_id] ?? []);
     }
 
     public static function update_provider_settings(string $provider_id, array $values) {
-        $s = (array) get_option(self::OPTION_KEY, []);
-        $s[$provider_id] = $values;
-        update_option(self::OPTION_KEY, $s);
+        $tix = (array) get_option('tix_settings', []);
+        $tix[self::TIX_SETTINGS_SUBKEY] = (array) ($tix[self::TIX_SETTINGS_SUBKEY] ?? []);
+        $tix[self::TIX_SETTINGS_SUBKEY][$provider_id] = $values;
+        update_option('tix_settings', $tix);
     }
 
     /* ─────────────── AUTO-CREATE BEI ORDER ─────────────── */
@@ -193,25 +209,12 @@ class TIX_Invoicing {
         exit;
     }
 
-    /* ─────────────── ADMIN-MENU + SETTINGS-PAGE ─────────────── */
+    /* ─────────────── SETTINGS-RENDER (in tix-settings Tab) + SANITIZE ─────────────── */
 
-    public static function register_menu() {
-        add_submenu_page(
-            'tixomat',
-            'Rechnungen',
-            'Rechnungen',
-            'manage_options',
-            'tix-invoicing',
-            [__CLASS__, 'render_settings_page']
-        );
-    }
-
-    public static function register_settings() {
-        register_setting('tix_invoicing_group', self::OPTION_KEY, [
-            'sanitize_callback' => [__CLASS__, 'sanitize_settings'],
-        ]);
-    }
-
+    /**
+     * Sanitize-Helper für TIX_Settings::sanitize.
+     * Wird aus dem dortigen Code aufgerufen, wenn unser Tab-Marker im POST ist.
+     */
     public static function sanitize_settings($input): array {
         $clean = [];
         $allowed_ids = array_merge([''], array_keys(self::$providers));
@@ -228,79 +231,73 @@ class TIX_Invoicing {
         return $clean;
     }
 
-    public static function render_settings_page() {
-        if (!current_user_can('manage_options')) return;
-        $settings = (array) get_option(self::OPTION_KEY, []);
+    /**
+     * Rendert den Inhalt des "Rechnungen"-Tabs innerhalb der tix-settings Page.
+     * Form + submit_button kommen vom Parent (tix-settings hat ein einziges Form).
+     * Feld-Namen: tix_settings[invoicing][active_provider] / tix_settings[invoicing][<provider>][...]
+     */
+    public static function render_settings_pane() {
+        $settings = self::get_settings();
         $active   = (string) ($settings['active_provider'] ?? '');
+        $base     = 'tix_settings[' . self::TIX_SETTINGS_SUBKEY . ']';
         ?>
-        <div class="wrap" style="max-width:880px;">
-            <h1 style="display:flex;align-items:center;gap:10px;"><span class="dashicons dashicons-media-document"></span> Rechnungen</h1>
-            <p>Automatische Erstellung von Rechnungen bei jeder bezahlten Bestellung. <strong>0-€-Bestellungen</strong> (Freikarten, Sponsoring etc.) werden übersprungen. Die Rechnung wird dem Kunden in seiner Bestellungs-Übersicht zum Download angeboten.</p>
+        <input type="hidden" name="tix_settings[invoicing_marker]" value="1">
 
-            <?php settings_errors(); ?>
-
-            <form method="post" action="options.php">
-                <?php settings_fields('tix_invoicing_group'); ?>
-
-                <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:22px 26px;margin-bottom:18px;">
-                    <h2 style="margin-top:0;font-size:18px;">Aktiver Rechnungs-Anbieter</h2>
-                    <p style="color:#64748b;font-size:13px;margin-top:0;">Nur einer ist aktiv. Konfiguration dann unten je Provider.</p>
-                    <select name="<?php echo esc_attr(self::OPTION_KEY); ?>[active_provider]" style="min-width:280px;padding:6px 10px;font-size:14px;">
-                        <option value="" <?php selected($active, ''); ?>>— Deaktiviert (keine Rechnungserstellung) —</option>
-                        <?php foreach (self::$providers as $p): ?>
-                            <option value="<?php echo esc_attr($p['id']); ?>" <?php selected($active, $p['id']); ?>><?php echo esc_html($p['name']); ?></option>
-                        <?php endforeach; ?>
-                    </select>
-                </div>
-
-                <?php foreach (self::$providers as $id => $p):
-                    $is_active = ($id === $active);
-                    $provider_settings = (array) ($settings[$id] ?? []);
-                    $is_configured = class_exists($p['class']) && method_exists($p['class'], 'is_configured')
-                        ? call_user_func([$p['class'], 'is_configured']) : false;
-                    ?>
-                    <details<?php echo $is_active ? ' open' : ''; ?> style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:0;margin-bottom:14px;">
-                        <summary style="cursor:pointer;padding:16px 24px;font-size:16px;font-weight:600;display:flex;justify-content:space-between;align-items:center;list-style:none;">
-                            <span><?php echo esc_html($p['name']); ?></span>
-                            <span style="font-size:11px;font-weight:500;letter-spacing:0.05em;text-transform:uppercase;<?php echo $is_configured ? 'color:#065f46;background:#d1fae5;' : 'color:#92400e;background:#fef3c7;'; ?>padding:3px 10px;border-radius:99px;"><?php echo $is_configured ? '✓ konfiguriert' : 'nicht konfiguriert'; ?><?php echo $is_active ? ' · aktiv' : ''; ?></span>
-                        </summary>
-                        <div style="padding:0 24px 22px;">
-                            <?php
-                            if (class_exists($p['class']) && method_exists($p['class'], 'render_settings')) {
-                                call_user_func([$p['class'], 'render_settings'], $provider_settings, self::OPTION_KEY . '[' . $id . ']');
-                            } else {
-                                echo '<p style="color:#dc2626;">Provider-Klasse ' . esc_html($p['class']) . ' nicht gefunden.</p>';
-                            }
-                            ?>
-                        </div>
-                    </details>
-                <?php endforeach; ?>
-
-                <?php submit_button('Einstellungen speichern'); ?>
-            </form>
-
-            <?php self::render_recent_invoices(); ?>
+        <div class="tix-card">
+            <div class="tix-card-header">
+                <span class="dashicons dashicons-media-document"></span>
+                <h3>Aktiver Rechnungs-Anbieter</h3>
+            </div>
+            <div class="tix-card-body">
+                <p style="color:#64748b;font-size:13px;margin-top:0;">Bei jeder bezahlten Bestellung wird automatisch eine Rechnung erstellt und dem Kunden in seiner Bestellübersicht zum Download angeboten. <strong>0-€-Bestellungen</strong> (Freikarten, Sponsoring) werden übersprungen.</p>
+                <select name="<?php echo esc_attr($base); ?>[active_provider]" style="min-width:280px;padding:6px 10px;font-size:14px;">
+                    <option value="" <?php selected($active, ''); ?>>— Deaktiviert (keine Rechnungserstellung) —</option>
+                    <?php foreach (self::$providers as $p): ?>
+                        <option value="<?php echo esc_attr($p['id']); ?>" <?php selected($active, $p['id']); ?>><?php echo esc_html($p['name']); ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
         </div>
+
+        <?php foreach (self::$providers as $id => $p):
+            $is_active = ($id === $active);
+            $provider_settings = (array) ($settings[$id] ?? []);
+            $is_configured = class_exists($p['class']) && method_exists($p['class'], 'is_configured')
+                ? call_user_func([$p['class'], 'is_configured']) : false;
+            ?>
+            <div class="tix-card">
+                <div class="tix-card-header">
+                    <span class="dashicons dashicons-admin-generic"></span>
+                    <h3><?php echo esc_html($p['name']); ?></h3>
+                    <span style="margin-left:auto;font-size:11px;font-weight:500;letter-spacing:0.05em;text-transform:uppercase;<?php echo $is_configured ? 'color:#065f46;background:#d1fae5;' : 'color:#92400e;background:#fef3c7;'; ?>padding:3px 10px;border-radius:99px;"><?php echo $is_configured ? '✓ konfiguriert' : 'nicht konfiguriert'; ?><?php echo $is_active ? ' · aktiv' : ''; ?></span>
+                </div>
+                <div class="tix-card-body">
+                    <?php
+                    if (class_exists($p['class']) && method_exists($p['class'], 'render_settings')) {
+                        call_user_func([$p['class'], 'render_settings'], $provider_settings, $base . '[' . $id . ']');
+                    } else {
+                        echo '<p style="color:#dc2626;">Provider-Klasse ' . esc_html($p['class']) . ' nicht gefunden.</p>';
+                    }
+                    ?>
+                </div>
+            </div>
+        <?php endforeach; ?>
+
+        <?php self::render_recent_invoices(); ?>
         <?php
     }
 
     private static function render_recent_invoices() {
         global $wpdb;
-        // Letzte 20 Bestellungen mit Rechnungs-Status (über Options-Tabelle)
-        $rows = $wpdb->get_results($wpdb->prepare(
-            "SELECT o.id, o.order_number, o.billing_first_name, o.billing_last_name, o.billing_email, o.total, o.created_at, op.option_value
-             FROM {$wpdb->prefix}tix_orders o
-             LEFT JOIN {$wpdb->options} op ON op.option_name = %s
-             WHERE op.option_value IS NOT NULL
-             ORDER BY o.id DESC LIMIT 20",
-            'placeholder' // Workaround: wir lassen den JOIN-Filter weg, weil concat in WHERE komplex
-        ));
-        // Einfacherer Ansatz: lade die letzten 50 Orders, prüfe per Option-Lookup
         $rows = $wpdb->get_results("SELECT id, order_number, billing_first_name, billing_last_name, billing_email, total, created_at FROM {$wpdb->prefix}tix_orders ORDER BY id DESC LIMIT 50");
 
         ?>
-        <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:22px 26px;margin-top:18px;">
-            <h2 style="margin-top:0;font-size:16px;">Letzte 50 Bestellungen — Rechnungs-Status</h2>
+        <div class="tix-card">
+            <div class="tix-card-header">
+                <span class="dashicons dashicons-list-view"></span>
+                <h3>Letzte 50 Bestellungen — Rechnungs-Status</h3>
+            </div>
+            <div class="tix-card-body" style="padding:0;">
             <table class="widefat striped" style="margin-top:8px;">
                 <thead><tr>
                     <th>Bestellung</th><th>Kunde</th><th>Betrag</th><th>Status</th><th>Rechnung</th><th>Aktion</th>
@@ -340,6 +337,7 @@ class TIX_Invoicing {
                 <?php endforeach; ?>
                 </tbody>
             </table>
+            </div>
         </div>
         <?php
     }
