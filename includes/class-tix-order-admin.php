@@ -762,6 +762,46 @@ class TIX_Order_Admin {
                                 <tr><td style="padding:4px 0;color:#6b7280;">Bearbeiter</td><td style="padding:4px 0;"><?php echo esc_html($refund_user->display_name); ?></td></tr>
                             <?php endif; ?>
                         <?php endif; ?>
+
+                        <?php
+                        // ── Rechnung (vom Invoice-Provider erzeugt) ──
+                        $inv = class_exists('TIX_Invoicing') ? TIX_Invoicing::get_invoice_meta($order_id) : null;
+                        if ($inv):
+                            $inv_ok      = ($inv['status'] ?? '') === 'created';
+                            $inv_dl_url  = $inv_ok ? TIX_Invoicing::get_download_url($order_id) : '';
+                            $inv_retry   = wp_nonce_url(admin_url('admin-post.php?action=tix_invoice_retry&order_id=' . $order_id), 'tix_invoice_retry');
+                        ?>
+                            <tr><td colspan="2" style="padding:10px 0 2px;"><hr style="border:none;border-top:1px solid #f3f4f6;margin:0;"></td></tr>
+                            <tr><td style="padding:4px 0;color:#6b7280;font-weight:600;" colspan="2">🧾 Rechnung (<?php echo esc_html($inv['provider'] ?? '—'); ?>)</td></tr>
+                            <?php if ($inv_ok): ?>
+                                <tr>
+                                    <td style="padding:4px 0;color:#6b7280;">Belegnummer</td>
+                                    <td style="padding:4px 0;font-weight:500;"><code style="font-size:12px;background:#f1f5f9;padding:2px 6px;border-radius:4px;"><?php echo esc_html($inv['invoice_number'] ?: $inv['invoice_id']); ?></code></td>
+                                </tr>
+                                <tr>
+                                    <td style="padding:4px 0;color:#6b7280;">Erstellt</td>
+                                    <td style="padding:4px 0;"><?php echo esc_html(date_i18n('d.m.Y, H:i', strtotime($inv['created_at']))); ?> Uhr</td>
+                                </tr>
+                                <tr><td colspan="2" style="padding:6px 0;">
+                                    <a href="<?php echo esc_url($inv_dl_url); ?>" class="button button-small">PDF herunterladen ↓</a>
+                                    <a href="<?php echo esc_url($inv_retry); ?>" class="button button-small" title="Rechnung erneut erstellen (alte wird ersetzt)" style="margin-left:4px;">↻ Neu erstellen</a>
+                                </td></tr>
+                            <?php else: ?>
+                                <tr><td colspan="2" style="padding:4px 0;color:#991b1b;font-size:12px;">✗ Fehler: <?php echo esc_html($inv['error'] ?? ''); ?></td></tr>
+                                <tr><td colspan="2" style="padding:6px 0;">
+                                    <a href="<?php echo esc_url($inv_retry); ?>" class="button button-small">↻ Erneut versuchen</a>
+                                </td></tr>
+                            <?php endif; ?>
+                        <?php elseif (class_exists('TIX_Invoicing') && TIX_Invoicing::is_enabled() && floatval($order->total) > 0 && TIX_Invoicing::get_active_provider_class()):
+                            $inv_create = wp_nonce_url(admin_url('admin-post.php?action=tix_invoice_retry&order_id=' . $order_id), 'tix_invoice_retry');
+                        ?>
+                            <tr><td colspan="2" style="padding:10px 0 2px;"><hr style="border:none;border-top:1px solid #f3f4f6;margin:0;"></td></tr>
+                            <tr><td style="padding:4px 0;color:#6b7280;font-weight:600;" colspan="2">🧾 Rechnung</td></tr>
+                            <tr><td colspan="2" style="padding:4px 0;font-size:12px;color:#64748b;">Noch nicht erstellt</td></tr>
+                            <tr><td colspan="2" style="padding:6px 0;">
+                                <a href="<?php echo esc_url($inv_create); ?>" class="button button-small">+ Jetzt erstellen</a>
+                            </td></tr>
+                        <?php endif; ?>
                     </table>
                 </div>
 

@@ -349,11 +349,12 @@ class TIX_Invoicing {
                         $status_html  = '<span style="background:#fee2e2;color:#991b1b;padding:2px 8px;border-radius:5px;font-size:11px;font-weight:600;" title="' . esc_attr($meta['error'] ?? '') . '">✗ Fehler</span>';
                         $invoice_html = '<span style="font-size:11px;color:#991b1b;">' . esc_html(mb_substr($meta['error'] ?? '', 0, 80)) . '</span>';
                     }
-                    $retry_url = wp_nonce_url(admin_url('admin-post.php?action=tix_invoice_retry&order_id=' . intval($o->id)), 'tix_invoice_retry');
+                    $retry_url    = wp_nonce_url(admin_url('admin-post.php?action=tix_invoice_retry&order_id=' . intval($o->id)), 'tix_invoice_retry');
                     $download_url = self::has_downloadable_invoice(intval($o->id)) ? self::get_download_url(intval($o->id)) : '';
+                    $detail_url   = admin_url('admin.php?page=tix-orders&order_id=' . intval($o->id));
                 ?>
                     <tr>
-                        <td><strong><?php echo esc_html($o->order_number); ?></strong></td>
+                        <td><a href="<?php echo esc_url($detail_url); ?>" title="Bestellung öffnen"><strong><?php echo esc_html($o->order_number); ?></strong></a></td>
                         <td><?php echo esc_html(trim($o->billing_first_name . ' ' . $o->billing_last_name)); ?><br><span style="font-size:11px;color:#64748b;"><?php echo esc_html($o->billing_email); ?></span></td>
                         <td><?php echo number_format($total, 2, ',', '.'); ?>&nbsp;€</td>
                         <td><?php echo $status_html; ?></td>
