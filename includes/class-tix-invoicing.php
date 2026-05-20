@@ -66,6 +66,12 @@ class TIX_Invoicing {
         return (string) ($s['active_provider'] ?? '');
     }
 
+    /** Master-Schalter — Default an, wenn nicht gesetzt (backwards-compat). */
+    public static function is_enabled(): bool {
+        $s = self::get_settings();
+        return !isset($s['enabled']) || !empty($s['enabled']);
+    }
+
     public static function get_active_provider_class(): ?string {
         $id = self::get_active_provider_id();
         return $id && isset(self::$providers[$id]) ? self::$providers[$id]['class'] : null;
@@ -88,6 +94,9 @@ class TIX_Invoicing {
     /* ─────────────── AUTO-CREATE BEI ORDER ─────────────── */
 
     public static function maybe_create_for_order(int $order_id) {
+        // Master-Schalter: globaler Stopp
+        if (!self::is_enabled()) return;
+
         // Bereits Rechnung vorhanden? Dann skip (idempotent)
         if (self::get_invoice_meta($order_id)) return;
 
@@ -217,6 +226,7 @@ class TIX_Invoicing {
      */
     public static function sanitize_settings($input): array {
         $clean = [];
+        $clean['enabled'] = !empty($input['enabled']) ? 1 : 0;
         $allowed_ids = array_merge([''], array_keys(self::$providers));
         $clean['active_provider'] = in_array(($input['active_provider'] ?? ''), $allowed_ids, true) ? (string) $input['active_provider'] : '';
 
@@ -239,9 +249,28 @@ class TIX_Invoicing {
     public static function render_settings_pane() {
         $settings = self::get_settings();
         $active   = (string) ($settings['active_provider'] ?? '');
+        $enabled  = self::is_enabled();
         $base     = 'tix_settings[' . self::TIX_SETTINGS_SUBKEY . ']';
         ?>
         <input type="hidden" name="tix_settings[invoicing_marker]" value="1">
+
+        <div class="tix-card" style="<?php echo $enabled ? 'background:#f0fdf4;border-color:#bbf7d0;' : 'background:#fef2f2;border-color:#fecaca;'; ?>">
+            <div class="tix-card-header">
+                <span class="dashicons dashicons-<?php echo $enabled ? 'yes-alt' : 'no-alt'; ?>"></span>
+                <h3>Master-Schalter</h3>
+                <span style="margin-left:auto;font-size:11px;font-weight:600;letter-spacing:0.05em;text-transform:uppercase;<?php echo $enabled ? 'color:#065f46;background:#d1fae5;' : 'color:#7f1d1d;background:#fecaca;'; ?>padding:3px 10px;border-radius:99px;"><?php echo $enabled ? '● aktiv' : '⏸ pausiert'; ?></span>
+            </div>
+            <div class="tix-card-body">
+                <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:14px;">
+                    <input type="hidden" name="<?php echo esc_attr($base); ?>[enabled]" value="0">
+                    <input type="checkbox" name="<?php echo esc_attr($base); ?>[enabled]" value="1" <?php checked($enabled); ?> style="width:18px;height:18px;">
+                    <span><strong>Rechnungserstellung aktivieren</strong> — wenn an, wird bei jeder bezahlten Bestellung (>0&nbsp;€) automatisch eine Rechnung erstellt.</span>
+                </label>
+                <?php if (!$enabled): ?>
+                <p style="margin:10px 0 0;color:#7f1d1d;font-size:13px;background:rgba(255,255,255,0.6);padding:8px 12px;border-radius:6px;">⏸ <strong>Pausiert:</strong> Für neue Bestellungen werden keine Rechnungen erstellt. Bestehende Rechnungen bleiben unverändert verfügbar.</p>
+                <?php endif; ?>
+            </div>
+        </div>
 
         <div class="tix-card">
             <div class="tix-card-header">
@@ -251,7 +280,7 @@ class TIX_Invoicing {
             <div class="tix-card-body">
                 <p style="color:#64748b;font-size:13px;margin-top:0;">Bei jeder bezahlten Bestellung wird automatisch eine Rechnung erstellt und dem Kunden in seiner Bestellübersicht zum Download angeboten. <strong>0-€-Bestellungen</strong> (Freikarten, Sponsoring) werden übersprungen.</p>
                 <select name="<?php echo esc_attr($base); ?>[active_provider]" style="min-width:280px;padding:6px 10px;font-size:14px;">
-                    <option value="" <?php selected($active, ''); ?>>— Deaktiviert (keine Rechnungserstellung) —</option>
+                    <option value="" <?php selected($active, ''); ?>>— Kein Provider ausgewählt —</option>
                     <?php foreach (self::$providers as $p): ?>
                         <option value="<?php echo esc_attr($p['id']); ?>" <?php selected($active, $p['id']); ?>><?php echo esc_html($p['name']); ?></option>
                     <?php endforeach; ?>
