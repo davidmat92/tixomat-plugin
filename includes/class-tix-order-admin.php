@@ -831,16 +831,49 @@ class TIX_Order_Admin {
                target="_blank" class="button" style="margin-top:8px;display:inline-flex;align-items:center;gap:5px;">
                 <span class="dashicons dashicons-media-document" style="font-size:16px;width:16px;height:16px;vertical-align:middle;"></span> Rechnung
             </a>
-            <button type="button" class="button" id="tix-resend-email-btn" style="margin-top:8px;display:inline-flex;align-items:center;gap:5px;"
-                    onclick="
-                        var btn = this; btn.disabled = true; btn.textContent = 'Wird gesendet…';
-                        fetch(ajaxurl, {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:'action=tix_order_resend_email&nonce=<?php echo $nonce; ?>&order_id=<?php echo $order_id; ?>'})
+
+            <div style="display:inline-block;position:relative;margin-top:8px;vertical-align:top;">
+                <button type="button" class="button button-primary" id="tix-resend-tickets-btn" style="display:inline-flex;align-items:center;gap:5px;background:#10b981;border-color:#059669;">
+                    <span class="dashicons dashicons-tickets-alt" style="font-size:16px;width:16px;height:16px;vertical-align:middle;"></span> Tickets nachsenden
+                </button>
+            </div>
+            <div id="tix-resend-tickets-panel" style="display:none;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:14px 16px;margin-top:8px;max-width:460px;">
+                <label style="display:block;font-size:12px;font-weight:600;color:#065f46;margin-bottom:6px;">Empfänger-E-Mail</label>
+                <input type="email" id="tix-resend-tickets-email" value="<?php echo esc_attr($order->billing_email); ?>" style="width:100%;padding:7px 10px;border:1px solid #86efac;border-radius:6px;font-size:13px;box-sizing:border-box;margin-bottom:4px;">
+                <p style="margin:0 0 10px;font-size:11px;color:#065f46;">Standard ist die Bestell-E-Mail. Du kannst hier auch eine andere Adresse eingeben (z.B. wenn der Kunde umgezogen ist).</p>
+                <div>
+                    <button type="button" class="button button-primary" id="tix-resend-tickets-send" style="background:#10b981;border-color:#059669;">📧 Jetzt senden</button>
+                    <button type="button" class="button" id="tix-resend-tickets-cancel" style="margin-left:4px;">Abbrechen</button>
+                    <span id="tix-resend-tickets-msg" style="margin-left:10px;font-size:13px;"></span>
+                </div>
+            </div>
+            <script>
+            (function(){
+                var btn    = document.getElementById('tix-resend-tickets-btn');
+                var panel  = document.getElementById('tix-resend-tickets-panel');
+                var emailF = document.getElementById('tix-resend-tickets-email');
+                var send   = document.getElementById('tix-resend-tickets-send');
+                var cancel = document.getElementById('tix-resend-tickets-cancel');
+                var msg    = document.getElementById('tix-resend-tickets-msg');
+                if (!btn) return;
+                btn.addEventListener('click', function(){ panel.style.display = panel.style.display === 'none' ? 'block' : 'none'; msg.textContent = ''; if (panel.style.display==='block') emailF.focus(); });
+                cancel.addEventListener('click', function(){ panel.style.display = 'none'; });
+                send.addEventListener('click', function(){
+                    var em = (emailF.value || '').trim();
+                    if (!em || em.indexOf('@') < 1) { msg.textContent = 'Bitte E-Mail eingeben.'; msg.style.color = '#991b1b'; return; }
+                    send.disabled = true; send.textContent = 'Sende…'; msg.textContent = '';
+                    var body = 'action=tix_order_resend_email&nonce=<?php echo $nonce; ?>&order_id=<?php echo $order_id; ?>&email=' + encodeURIComponent(em);
+                    fetch(ajaxurl, {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:body})
                         .then(function(r){return r.json()})
-                        .then(function(r){ alert(r.success ? (r.data.message || 'Gesendet.') : (r.data.message || 'Fehler')); btn.disabled = false; btn.innerHTML = '<span class=\'dashicons dashicons-email\' style=\'font-size:16px;width:16px;height:16px;vertical-align:middle;\'></span> E-Mail erneut senden'; })
-                        .catch(function(){ alert('Netzwerkfehler.'); btn.disabled = false; btn.innerHTML = '<span class=\'dashicons dashicons-email\' style=\'font-size:16px;width:16px;height:16px;vertical-align:middle;\'></span> E-Mail erneut senden'; });
-                    ">
-                <span class="dashicons dashicons-email" style="font-size:16px;width:16px;height:16px;vertical-align:middle;"></span> E-Mail erneut senden
-            </button>
+                        .then(function(r){
+                            send.disabled = false; send.textContent = '📧 Jetzt senden';
+                            if (r.success) { msg.textContent = '✓ Gesendet an ' + em; msg.style.color = '#065f46'; setTimeout(function(){ panel.style.display='none'; }, 1500); }
+                            else { msg.textContent = (r.data && r.data.message) || 'Fehler'; msg.style.color = '#991b1b'; }
+                        })
+                        .catch(function(){ send.disabled = false; send.textContent = '📧 Jetzt senden'; msg.textContent = 'Netzwerkfehler.'; msg.style.color = '#991b1b'; });
+                });
+            })();
+            </script>
 
             <?php // ── Positionen ── ?>
             <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:20px;margin-top:16px;">
@@ -1154,12 +1187,39 @@ class TIX_Order_Admin {
         $order_id = intval($_POST['order_id'] ?? 0);
         if (!$order_id) wp_send_json_error(['message' => 'Ungültige Bestellnummer.']);
 
-        if (class_exists('TIX_Emails')) {
-            TIX_Emails::send_native_completed($order_id);
-            self::add_note($order_id, 'Bestätigungsmail erneut gesendet.', 'email');
+        $override_email = isset($_POST['email']) ? sanitize_email(wp_unslash($_POST['email'])) : '';
+        if ($override_email && !is_email($override_email)) {
+            wp_send_json_error(['message' => 'Ungültige E-Mail-Adresse.']);
         }
 
-        wp_send_json_success(['message' => 'E-Mail wurde erneut gesendet.']);
+        if (!class_exists('TIX_Emails')) {
+            wp_send_json_error(['message' => 'TIX_Emails Klasse nicht verfügbar.']);
+        }
+
+        // Alternative Empfänger-Email? → temporär billing_email in der Order swappen,
+        // damit send_native_completed an die richtige Adresse rausgeht. Restore nach Send.
+        $note_suffix = '';
+        if ($override_email) {
+            global $wpdb;
+            $t = $wpdb->prefix . 'tix_orders';
+            $original = $wpdb->get_var($wpdb->prepare("SELECT billing_email FROM $t WHERE id = %d", $order_id));
+            $wpdb->update($t, ['billing_email' => $override_email], ['id' => $order_id]);
+            // Marker leeren, damit send_native_completed nicht wegen "already sent"-Logik skippt
+            delete_post_meta($order_id, '_tix_completed_email_sent');
+
+            TIX_Emails::send_native_completed($order_id);
+
+            // Restore
+            $wpdb->update($t, ['billing_email' => $original], ['id' => $order_id]);
+            $note_suffix = ' an ' . $override_email . ' (statt ' . $original . ')';
+        } else {
+            // Standard-Fall: an Bestell-Email
+            delete_post_meta($order_id, '_tix_completed_email_sent');
+            TIX_Emails::send_native_completed($order_id);
+        }
+
+        self::add_note($order_id, '🎟️ Tickets erneut versandt' . $note_suffix, 'email');
+        wp_send_json_success(['message' => 'Tickets wurden gesendet' . $note_suffix . '.']);
     }
 
     // ──────────────────────────────────────────
