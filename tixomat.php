@@ -2,14 +2,14 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.38.201
+ * Version: 1.38.202
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.38.201');
+define('TIXOMAT_VERSION', '1.38.202');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -500,6 +500,7 @@ TIX_Invoicing::register_provider(
     'TIX_Invoice_Provider_Lexoffice'
 );
 TIX_Invoicing::init();
+TIX_Invoice_Provider_Lexoffice::register_ajax();
 
 // ── Event-Karten Shortcode [tix_events] ──
 require_once TIXOMAT_PATH . 'includes/class-tix-event-cards.php';

@@ -2824,11 +2824,6 @@ class TIX_Settings {
 
                             </div>
 
-                            <?php // ═══ PANE: INVOICE (Rechnungen) ═══ ?>
-                            <div class="tix-pane" data-pane="invoice">
-                                <?php if (class_exists('TIX_Invoicing')) TIX_Invoicing::render_settings_pane(); ?>
-                            </div>
-
                             <?php // ═══ PANE: BUTTONS ═══ ?>
                             <div class="tix-pane" data-pane="buttons">
 
@@ -8556,6 +8551,9 @@ class TIX_Settings {
                                         </div>
                                     </div>
                                 </div>
+
+                                <?php // ── Card-Block: Automatische Rechnungen (Lexware Office etc.) ── ?>
+                                <?php if (class_exists('TIX_Invoicing')) TIX_Invoicing::render_settings_pane(); ?>
 
                             </div>
 

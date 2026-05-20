@@ -201,22 +201,49 @@ class TIX_Invoice_Provider_Lexoffice {
     /* ─────────────── SETTINGS-UI ─────────────── */
 
     public static function render_settings(array $settings, string $name_prefix) {
-        $api_key = (string) ($settings['api_key'] ?? '');
+        $api_key  = (string) ($settings['api_key'] ?? '');
+        $nonce    = wp_create_nonce('tix_lexoffice_test');
         ?>
         <table class="form-table"><tbody>
             <tr>
                 <th scope="row"><label>API-Key</label></th>
                 <td>
-                    <input type="text" name="<?php echo esc_attr($name_prefix); ?>[api_key]" value="<?php echo esc_attr($api_key); ?>" placeholder="aus lexoffice → Einstellungen → Öffentliche API" style="width:480px;padding:7px 10px;font-family:ui-monospace,Menlo,Consolas,monospace;">
-                    <p class="description">Erstelle einen API-Key unter <a href="https://app.lexoffice.de/addons/public-api" target="_blank">app.lexoffice.de → Öffentliche API</a> und füge ihn hier ein.</p>
+                    <input type="text" id="tix-lexoffice-key" name="<?php echo esc_attr($name_prefix); ?>[api_key]" value="<?php echo esc_attr($api_key); ?>" placeholder="aus lexoffice → Einstellungen → Öffentliche API" style="width:480px;padding:7px 10px;font-family:ui-monospace,Menlo,Consolas,monospace;">
+                    <button type="button" id="tix-lexoffice-test" class="button" style="margin-left:6px;">Verbindung testen</button>
+                    <div id="tix-lexoffice-test-result" style="margin-top:10px;font-size:13px;"></div>
+                    <p class="description" style="margin-top:10px;">
+                        <strong>So findest du den Key:</strong>
+                        <br>1. <a href="https://app.lexware.de/permissions/public-api" target="_blank">app.lexware.de → Einstellungen → Öffentliche API</a> öffnen
+                        <br>2. „Neuen API-Schlüssel erstellen" anklicken
+                        <br>3. Berechtigungen: mindestens <strong>Belege (lesen + schreiben)</strong> und <strong>Kontakte (lesen + schreiben)</strong>
+                        <br>4. Der Schlüssel wird einmalig angezeigt — kopieren und hier einfügen, dann speichern.
+                    </p>
                 </td>
             </tr>
         </tbody></table>
-        <?php if ($api_key): ?>
-            <p style="font-size:13px;color:#64748b;">
-                Test: rufe die <a href="https://api.lexoffice.io/v1/profile" target="_blank">Profil-API</a> mit deinem Browser-Plugin (z.B. RESTed) und Header <code>Authorization: Bearer …</code> auf — du solltest deine Firma sehen.
-            </p>
-        <?php endif; ?>
+        <script>
+        (function($){
+            $('#tix-lexoffice-test').on('click', function(){
+                var $btn = $(this), $res = $('#tix-lexoffice-test-result');
+                var key = $('#tix-lexoffice-key').val();
+                if (!key) { $res.html('<span style="color:#b91c1c;">Bitte zuerst einen API-Key eintragen.</span>'); return; }
+                $btn.prop('disabled', true).text('Teste…');
+                $res.html('<span style="color:#64748b;">Sende Test-Request an api.lexoffice.io …</span>');
+                $.post(ajaxurl, {
+                    action: 'tix_lexoffice_test_key',
+                    nonce:  '<?php echo esc_js($nonce); ?>',
+                    api_key: key
+                }, function(r){
+                    $btn.prop('disabled', false).text('Verbindung testen');
+                    if (r.success) {
+                        $res.html('<span style="background:#d1fae5;color:#065f46;padding:8px 12px;border-radius:6px;display:inline-block;">✓ Verbindung OK — angemeldet als <strong>' + $('<div>').text(r.data.name || '').html() + '</strong>' + (r.data.company ? ' (' + $('<div>').text(r.data.company).html() + ')' : '') + '</span>');
+                    } else {
+                        $res.html('<span style="background:#fee2e2;color:#991b1b;padding:8px 12px;border-radius:6px;display:inline-block;">✗ ' + $('<div>').text((r.data && r.data.message) || 'Fehler').html() + '</span>');
+                    }
+                });
+            });
+        })(jQuery);
+        </script>
         <?php
     }
 
@@ -224,5 +251,42 @@ class TIX_Invoice_Provider_Lexoffice {
         return [
             'api_key' => sanitize_text_field($input['api_key'] ?? ''),
         ];
+    }
+
+    /* ─────────────── AJAX: VERBINDUNGSTEST ─────────────── */
+
+    public static function register_ajax() {
+        add_action('wp_ajax_tix_lexoffice_test_key', [__CLASS__, 'ajax_test_key']);
+    }
+
+    public static function ajax_test_key() {
+        check_ajax_referer('tix_lexoffice_test', 'nonce');
+        if (!current_user_can('manage_options')) wp_send_json_error(['message' => 'Keine Berechtigung.']);
+        $api_key = trim((string) ($_POST['api_key'] ?? ''));
+        if ($api_key === '') wp_send_json_error(['message' => 'Kein API-Key übergeben.']);
+
+        $response = wp_remote_get(self::API_URL . '/profile', [
+            'timeout' => 10,
+            'headers' => [
+                'Authorization' => 'Bearer ' . $api_key,
+                'Accept'        => 'application/json',
+            ],
+        ]);
+        if (is_wp_error($response)) {
+            wp_send_json_error(['message' => 'Verbindungsfehler: ' . $response->get_error_message()]);
+        }
+        $code = wp_remote_retrieve_response_code($response);
+        $body = json_decode(wp_remote_retrieve_body($response), true);
+        if ($code === 401) {
+            wp_send_json_error(['message' => 'Unauthorized (401) — API-Key wird von lexoffice abgelehnt. Mögliche Ursachen: Tippfehler, Key wurde widerrufen, falsche Berechtigungen, oder kein API-Key sondern z.B. das App-Token (muss „Neuen API-Schlüssel" unter Einstellungen → Öffentliche API sein).']);
+        }
+        if ($code < 200 || $code >= 300) {
+            wp_send_json_error(['message' => 'lexoffice ' . $code . ': ' . ($body['message'] ?? wp_remote_retrieve_body($response))]);
+        }
+        wp_send_json_success([
+            'name'    => trim(($body['companyName'] ?? '') ?: (($body['firstName'] ?? '') . ' ' . ($body['lastName'] ?? ''))),
+            'company' => $body['organizationId'] ?? '',
+            'raw'     => $body,
+        ]);
     }
 }
