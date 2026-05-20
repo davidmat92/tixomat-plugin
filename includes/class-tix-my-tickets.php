@@ -2036,6 +2036,21 @@ class TIX_My_Tickets {
                     <span><?php echo number_format((float) $item->get_total(), 2, ',', '.'); ?> &euro;</span>
                 </div>
                 <?php endforeach; ?>
+
+                <?php
+                // Rechnung zum Download (falls vom Invoice-Provider erzeugt)
+                $oid = method_exists($order, 'get_id') ? intval($order->get_id()) : 0;
+                if ($oid && class_exists('TIX_Invoicing') && TIX_Invoicing::has_downloadable_invoice($oid)):
+                    $inv_meta = TIX_Invoicing::get_invoice_meta($oid);
+                    $inv_url  = TIX_Invoicing::get_download_url($oid);
+                ?>
+                <div style="margin-top:12px;padding:12px 14px;border-top:1px solid #f3f4f6;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+                    <div style="font-size:13px;color:#475569;">
+                        🧾 <strong>Rechnung</strong> <?php if (!empty($inv_meta['invoice_number'])): ?><code style="font-size:11px;background:#f1f5f9;padding:1px 6px;border-radius:4px;"><?php echo esc_html($inv_meta['invoice_number']); ?></code><?php endif; ?>
+                    </div>
+                    <a href="<?php echo esc_url($inv_url); ?>" class="button button-primary" style="background:<?php echo esc_attr($accent); ?>;color:#000;border:0;border-radius:6px;padding:6px 14px;font-weight:600;text-decoration:none;font-size:13px;">Rechnung herunterladen (PDF)</a>
+                </div>
+                <?php endif; ?>
             </div>
         <?php endforeach; ?>
         </div>
