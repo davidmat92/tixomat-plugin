@@ -62,7 +62,7 @@ class TIX_Invoicing {
     }
 
     public static function get_active_provider_id(): string {
-        $s = (array) get_option(self::OPTION_KEY, []);
+        $s = self::get_settings();
         return (string) ($s['active_provider'] ?? '');
     }
 
