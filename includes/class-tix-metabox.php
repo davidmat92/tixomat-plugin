@@ -2742,8 +2742,8 @@ class TIX_Metabox {
                         '<td><input type="text" name="tix_timetable['+day+']['+idx+'][desc]" placeholder="Optional" style="width:100%"></td>' +
                         '<td><button type="button" class="button tix-tt-slot-del" title="Entfernen">&times;</button></td>';
                     tbody.appendChild(tr);
-                    // Re-init sortable nach DOM-Änderung
-                    if (window.jQuery && jQuery.fn.sortable) {
+                    // sortable refresh (nur wenn schon initialisiert)
+                    if (window.jQuery && jQuery.fn.sortable && jQuery(tbody).data('ui-sortable')) {
                         jQuery(tbody).sortable('refresh');
                     }
                 });
@@ -2756,40 +2756,56 @@ class TIX_Metabox {
                 }
             });
 
-            /* ── Drag&Drop: Slot-Reihenfolge per jQuery UI Sortable ── */
-            if (window.jQuery && jQuery.fn.sortable) {
-                function reindexSlots(tbody) {
-                    var day = tbody.dataset.day;
-                    tbody.querySelectorAll('tr.tix-tt-slot-row').forEach(function(row, newIdx){
-                        row.querySelectorAll('input[name], select[name]').forEach(function(field){
-                            // name-Pattern: tix_timetable[DAY][OLD_IDX][FIELD]
-                            field.name = field.name.replace(
-                                /^tix_timetable\[([^\]]+)\]\[\d+\]\[([^\]]+)\]$/,
-                                'tix_timetable[$1][' + newIdx + '][$2]'
-                            );
-                        });
+            /* ── Drag&Drop: Slot-Reihenfolge per jQuery UI Sortable ──
+             * Wir warten auf jQuery + jQuery UI Sortable (kann im Footer nachgeladen werden,
+             * unser inline-Script läuft womöglich vorher). Bis zu 5 Sekunden polling.
+             */
+            function tixReindexSlots(tbody) {
+                tbody.querySelectorAll('tr.tix-tt-slot-row').forEach(function(row, newIdx){
+                    row.querySelectorAll('input[name], select[name]').forEach(function(field){
+                        field.name = field.name.replace(
+                            /^tix_timetable\[([^\]]+)\]\[\d+\]\[([^\]]+)\]$/,
+                            'tix_timetable[$1][' + newIdx + '][$2]'
+                        );
                     });
+                });
+            }
+            (function waitForSortable(triesLeft){
+                if (!window.jQuery || !window.jQuery.fn || !window.jQuery.fn.sortable) {
+                    if (triesLeft > 0) return setTimeout(function(){ waitForSortable(triesLeft - 1); }, 100);
+                    console.warn('[Tixomat] jQuery UI Sortable nicht verfügbar — Drag&Drop für Acts deaktiviert.');
+                    return;
                 }
-                jQuery('.tix-tt-slots').each(function(){
+                var $ = window.jQuery;
+                $('.tix-tt-slots').each(function(){
                     var tbody = this;
-                    jQuery(tbody).sortable({
+                    if ($(tbody).data('ui-sortable')) return; // schon initialisiert
+                    $(tbody).sortable({
                         handle: '.tix-tt-handle',
                         axis: 'y',
+                        items: '> tr.tix-tt-slot-row',
+                        placeholder: 'tix-tt-placeholder',
+                        forcePlaceholderSize: true,
                         helper: function(e, tr){
-                            // Bei tr-sortable müssen td-widths gefroren werden, sonst kollabieren sie beim Drag
-                            var $orig = jQuery(tr); var $helper = tr.clone();
-                            jQuery(tr).children().each(function(i){ jQuery($helper).children().eq(i).width(jQuery(this).width()); });
+                            var $helper = tr.clone();
+                            tr.children().each(function(i){ $helper.children().eq(i).width($(this).width()); });
                             return $helper;
                         },
-                        update: function(){ reindexSlots(tbody); }
-                    });
+                        start: function(e, ui){
+                            ui.placeholder.html('<td colspan="7" style="background:#eef2ff;border:2px dashed #c7d2fe;height:'+ui.item.height()+'px;"></td>');
+                        },
+                        update: function(){ tixReindexSlots(tbody); }
+                    }).disableSelection();
                 });
                 // Sicherheitsnetz: vor Form-Submit alle Tabellen reindexieren
                 var form = document.getElementById('post');
-                if (form) form.addEventListener('submit', function(){
-                    document.querySelectorAll('.tix-tt-slots').forEach(reindexSlots);
-                });
-            }
+                if (form && !form._tixTtSubmitHooked) {
+                    form._tixTtSubmitHooked = true;
+                    form.addEventListener('submit', function(){
+                        document.querySelectorAll('.tix-tt-slots').forEach(tixReindexSlots);
+                    });
+                }
+            })(50);
         })();
         </script>
             </div>
