@@ -442,9 +442,9 @@ class TIX_Sync {
                 update_post_meta($post_id, "_tix_{$key}_label", $label);
             }
 
-            // Altersbegrenzung speziell
+            // Altersbegrenzung speziell — 0 (oder leer) heißt explizit "keine Begrenzung"
             $age = get_post_meta($post_id, '_tix_info_age_limit', true);
-            if ($age !== '' && $age !== null) {
+            if ($age !== '' && $age !== null && intval($age) > 0) {
                 update_post_meta($post_id, '_tix_age_limit_display', intval($age) . '+');
             } else {
                 update_post_meta($post_id, '_tix_age_limit_display', '');
