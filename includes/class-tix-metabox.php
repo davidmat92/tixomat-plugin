@@ -2631,18 +2631,20 @@ class TIX_Metabox {
                 <table class="widefat tix-tbl" style="margin-bottom:8px;">
                     <thead>
                         <tr>
-                            <th style="width:12%">Start</th>
-                            <th style="width:12%">Ende</th>
+                            <th style="width:24px;text-align:center;" title="Ziehen zum Sortieren"></th>
+                            <th style="width:11%">Start</th>
+                            <th style="width:11%">Ende</th>
                             <th style="width:18%">Bühne</th>
                             <th style="width:28%">Act / Titel</th>
                             <th style="width:22%">Beschreibung</th>
                             <th style="width:8%"></th>
                         </tr>
                     </thead>
-                    <tbody class="tix-tt-slots">
+                    <tbody class="tix-tt-slots" data-day="<?php echo esc_attr($day); ?>">
                         <?php if (!empty($day_slots)):
                             foreach ($day_slots as $si => $slot): ?>
                             <tr class="tix-tt-slot-row">
+                                <td class="tix-tt-handle" style="cursor:move;text-align:center;color:#94a3b8;font-size:18px;line-height:1;user-select:none;" title="Ziehen zum Sortieren">⋮⋮</td>
                                 <td><input type="time" name="tix_timetable[<?php echo $day; ?>][<?php echo $si; ?>][time]" value="<?php echo esc_attr($slot['time'] ?? ''); ?>" style="width:100%"></td>
                                 <td><input type="time" name="tix_timetable[<?php echo $day; ?>][<?php echo $si; ?>][end]" value="<?php echo esc_attr($slot['end'] ?? ''); ?>" style="width:100%"></td>
                                 <td>
@@ -2661,7 +2663,7 @@ class TIX_Metabox {
                             </tr>
                             <?php endforeach;
                         else: ?>
-                            <tr class="tix-tt-slot-empty"><td colspan="6" style="text-align:center;color:#999;padding:12px;">Noch keine Einträge.</td></tr>
+                            <tr class="tix-tt-slot-empty"><td colspan="7" style="text-align:center;color:#999;padding:12px;">Noch keine Einträge.</td></tr>
                         <?php endif; ?>
                     </tbody>
                 </table>
@@ -2732,6 +2734,7 @@ class TIX_Metabox {
                     var tr = document.createElement('tr');
                     tr.className = 'tix-tt-slot-row';
                     tr.innerHTML =
+                        '<td class="tix-tt-handle" style="cursor:move;text-align:center;color:#94a3b8;font-size:18px;line-height:1;user-select:none;" title="Ziehen zum Sortieren">⋮⋮</td>' +
                         '<td><input type="time" name="tix_timetable['+day+']['+idx+'][time]" style="width:100%"></td>' +
                         '<td><input type="time" name="tix_timetable['+day+']['+idx+'][end]" style="width:100%"></td>' +
                         '<td><select name="tix_timetable['+day+']['+idx+'][stage]" style="width:100%" class="tix-tt-stage-select">'+options+'</select></td>' +
@@ -2739,6 +2742,10 @@ class TIX_Metabox {
                         '<td><input type="text" name="tix_timetable['+day+']['+idx+'][desc]" placeholder="Optional" style="width:100%"></td>' +
                         '<td><button type="button" class="button tix-tt-slot-del" title="Entfernen">&times;</button></td>';
                     tbody.appendChild(tr);
+                    // Re-init sortable nach DOM-Änderung
+                    if (window.jQuery && jQuery.fn.sortable) {
+                        jQuery(tbody).sortable('refresh');
+                    }
                 });
             });
 
@@ -2748,6 +2755,41 @@ class TIX_Metabox {
                     e.target.closest('tr').remove();
                 }
             });
+
+            /* ── Drag&Drop: Slot-Reihenfolge per jQuery UI Sortable ── */
+            if (window.jQuery && jQuery.fn.sortable) {
+                function reindexSlots(tbody) {
+                    var day = tbody.dataset.day;
+                    tbody.querySelectorAll('tr.tix-tt-slot-row').forEach(function(row, newIdx){
+                        row.querySelectorAll('input[name], select[name]').forEach(function(field){
+                            // name-Pattern: tix_timetable[DAY][OLD_IDX][FIELD]
+                            field.name = field.name.replace(
+                                /^tix_timetable\[([^\]]+)\]\[\d+\]\[([^\]]+)\]$/,
+                                'tix_timetable[$1][' + newIdx + '][$2]'
+                            );
+                        });
+                    });
+                }
+                jQuery('.tix-tt-slots').each(function(){
+                    var tbody = this;
+                    jQuery(tbody).sortable({
+                        handle: '.tix-tt-handle',
+                        axis: 'y',
+                        helper: function(e, tr){
+                            // Bei tr-sortable müssen td-widths gefroren werden, sonst kollabieren sie beim Drag
+                            var $orig = jQuery(tr); var $helper = tr.clone();
+                            jQuery(tr).children().each(function(i){ jQuery($helper).children().eq(i).width(jQuery(this).width()); });
+                            return $helper;
+                        },
+                        update: function(){ reindexSlots(tbody); }
+                    });
+                });
+                // Sicherheitsnetz: vor Form-Submit alle Tabellen reindexieren
+                var form = document.getElementById('post');
+                if (form) form.addEventListener('submit', function(){
+                    document.querySelectorAll('.tix-tt-slots').forEach(reindexSlots);
+                });
+            }
         })();
         </script>
             </div>
