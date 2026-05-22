@@ -315,8 +315,9 @@ class TIX_Sync {
         $time_doors = get_post_meta($post_id, '_tix_time_doors', true);
 
         // Kurz mit Wochentag-Abkürzung — z.B. "Do., 04.06.2026" (für Event-Cards, Breakdance-Dynamic-Data)
-        update_post_meta($post_id, '_tix_date_start_formatted', $date_start ? date_i18n('D., d.m.Y', strtotime($date_start)) : '');
-        update_post_meta($post_id, '_tix_date_end_formatted',   $date_end   ? date_i18n('D., d.m.Y', strtotime($date_end))   : '');
+        // Hinweis: WP-Locale (de_DE) hängt bei "D" bereits den Punkt an → kein extra "." vor dem Komma
+        update_post_meta($post_id, '_tix_date_start_formatted', $date_start ? date_i18n('D, d.m.Y', strtotime($date_start)) : '');
+        update_post_meta($post_id, '_tix_date_end_formatted',   $date_end   ? date_i18n('D, d.m.Y', strtotime($date_end))   : '');
         // Lang mit vollem Wochentag — z.B. "Donnerstag, 04.06.2026"
         update_post_meta($post_id, '_tix_date_start_long', $date_start ? date_i18n('l, d.m.Y', strtotime($date_start)) : '');
         update_post_meta($post_id, '_tix_date_end_long',   $date_end   ? date_i18n('l, d.m.Y', strtotime($date_end))   : '');
