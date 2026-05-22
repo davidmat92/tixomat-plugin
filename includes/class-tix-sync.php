@@ -314,8 +314,12 @@ class TIX_Sync {
         $time_end   = get_post_meta($post_id, '_tix_time_end', true);
         $time_doors = get_post_meta($post_id, '_tix_time_doors', true);
 
-        update_post_meta($post_id, '_tix_date_start_formatted', $date_start ? date_i18n('d.m.Y', strtotime($date_start)) : '');
-        update_post_meta($post_id, '_tix_date_end_formatted', $date_end ? date_i18n('d.m.Y', strtotime($date_end)) : '');
+        // Kurz mit Wochentag-Abkürzung — z.B. "Do., 04.06.2026" (für Event-Cards, Breakdance-Dynamic-Data)
+        update_post_meta($post_id, '_tix_date_start_formatted', $date_start ? date_i18n('D., d.m.Y', strtotime($date_start)) : '');
+        update_post_meta($post_id, '_tix_date_end_formatted',   $date_end   ? date_i18n('D., d.m.Y', strtotime($date_end))   : '');
+        // Lang mit vollem Wochentag — z.B. "Donnerstag, 04.06.2026"
+        update_post_meta($post_id, '_tix_date_start_long', $date_start ? date_i18n('l, d.m.Y', strtotime($date_start)) : '');
+        update_post_meta($post_id, '_tix_date_end_long',   $date_end   ? date_i18n('l, d.m.Y', strtotime($date_end))   : '');
         update_post_meta($post_id, '_tix_time_start_formatted', $time_start ? date('H:i', strtotime($time_start)) : '');
         update_post_meta($post_id, '_tix_time_end_formatted', $time_end ? date('H:i', strtotime($time_end)) : '');
 
