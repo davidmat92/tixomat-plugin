@@ -17,6 +17,7 @@ class TIX_Order_Admin {
         add_action('wp_ajax_tix_order_export_csv', [__CLASS__, 'ajax_export_csv']);
         add_action('wp_ajax_tix_order_invoice', [__CLASS__, 'render_invoice']);
         add_action('wp_ajax_tix_order_resend_email', [__CLASS__, 'ajax_resend_email']);
+        add_action('admin_post_tix_order_tickets_csv', [__CLASS__, 'handle_export_tickets_csv']);
         add_action('wp_ajax_tix_order_regen_tickets', [__CLASS__, 'ajax_regen_tickets']);
         add_action('wp_ajax_tix_paypal_backfill_fee', [__CLASS__, 'ajax_paypal_backfill_fee']);
         add_action('wp_ajax_tix_paypal_backfill_all', [__CLASS__, 'ajax_paypal_backfill_all']);
@@ -830,6 +831,11 @@ class TIX_Order_Admin {
             <a href="<?php echo esc_url(wp_nonce_url(admin_url('admin-ajax.php?action=tix_order_invoice&order_id=' . $order_id), 'tix_invoice')); ?>"
                target="_blank" class="button" style="margin-top:8px;display:inline-flex;align-items:center;gap:5px;">
                 <span class="dashicons dashicons-media-document" style="font-size:16px;width:16px;height:16px;vertical-align:middle;"></span> Rechnung
+            </a>
+
+            <a href="<?php echo esc_url(wp_nonce_url(admin_url('admin-post.php?action=tix_order_tickets_csv&order_id=' . $order_id), 'tix_export_tickets_' . $order_id)); ?>"
+               class="button" style="margin-top:8px;display:inline-flex;align-items:center;gap:5px;" title="CSV mit einer Zeile pro Ticket (öffnet in Excel)">
+                <span class="dashicons dashicons-media-spreadsheet" style="font-size:16px;width:16px;height:16px;vertical-align:middle;"></span> Tickets als Excel
             </a>
 
             <div style="display:inline-block;position:relative;margin-top:8px;vertical-align:top;">
@@ -2589,5 +2595,106 @@ window.addEventListener('load', function() {
         })(jQuery);
         </script>
         <?php
+    }
+
+    // ──────────────────────────────────────────
+    // Tickets als CSV/Excel exportieren — eine Zeile pro Ticket
+    // ──────────────────────────────────────────
+    public static function handle_export_tickets_csv() {
+        if (!current_user_can('manage_options')) wp_die('Keine Berechtigung.');
+        $order_id = intval($_GET['order_id'] ?? 0);
+        if (!$order_id) wp_die('Bestellnummer fehlt.');
+        check_admin_referer('tix_export_tickets_' . $order_id);
+
+        global $wpdb;
+        $order = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}tix_orders WHERE id = %d", $order_id
+        ));
+        if (!$order) wp_die('Bestellung nicht gefunden.');
+
+        $tickets = get_posts([
+            'post_type'      => 'tix_ticket',
+            'post_status'    => 'any',
+            'posts_per_page' => -1,
+            'meta_key'       => '_tix_ticket_order_id',
+            'meta_value'     => $order_id,
+            'orderby'        => 'ID',
+            'order'          => 'ASC',
+        ]);
+
+        $filename = 'tickets-' . sanitize_file_name($order->order_number) . '.csv';
+        header('Content-Type: text/csv; charset=utf-8');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        header('Cache-Control: no-cache, no-store, must-revalidate');
+
+        $out = fopen('php://output', 'w');
+        // UTF-8 BOM → Excel öffnet sauber mit Umlauten
+        fwrite($out, "\xEF\xBB\xBF");
+
+        // Excel-DE-Layout: Semikolon-Trennung
+        $delim = ';';
+
+        fputcsv($out, [
+            'Ticket-Code',
+            'Bestellung',
+            'Event',
+            'Event-Datum',
+            'Kategorie',
+            'Preis (€)',
+            'Inhaber Name',
+            'Inhaber E-Mail',
+            'Status',
+            'Eingecheckt',
+            'Check-in Zeitpunkt',
+            'Check-in durch',
+            'Sponsor',
+            'Online-Ticket',
+            'PDF-Download',
+        ], $delim);
+
+        foreach ($tickets as $t) {
+            $tid          = $t->ID;
+            $code         = get_post_meta($tid, '_tix_ticket_code', true);
+            $event_id     = intval(get_post_meta($tid, '_tix_ticket_event_id', true));
+            $event_title  = $event_id ? get_the_title($event_id) : '';
+            $event_date   = $event_id ? (get_post_meta($event_id, '_tix_date_display', true) ?: get_post_meta($event_id, '_tix_date_start', true)) : '';
+            $cat_name     = get_post_meta($tid, '_tix_ticket_cat_name', true);
+            $price        = get_post_meta($tid, '_tix_ticket_price', true);
+            $owner_name   = get_post_meta($tid, '_tix_ticket_owner_name', true);
+            $owner_email  = get_post_meta($tid, '_tix_ticket_owner_email', true);
+            $status       = get_post_meta($tid, '_tix_ticket_status', true) ?: 'valid';
+            $checked      = intval(get_post_meta($tid, '_tix_ticket_checked_in', true)) ? 'Ja' : 'Nein';
+            $checked_at   = get_post_meta($tid, '_tix_ticket_checked_in_at', true);
+            $checked_by   = get_post_meta($tid, '_tix_ticket_checkin_by', true);
+            $sponsor_id   = intval(get_post_meta($tid, '_tix_ticket_sponsor_id', true));
+            $sponsor_name = '';
+            if ($sponsor_id && class_exists('TIX_Sponsor_DB')) {
+                $s = TIX_Sponsor_DB::get_sponsor($sponsor_id);
+                if ($s) $sponsor_name = $s->name;
+            }
+            $online_url = class_exists('TIX_Tickets') ? TIX_Tickets::get_download_url($tid) : '';
+            $pdf_url    = $online_url ? add_query_arg('format', 'pdf', $online_url) : '';
+
+            fputcsv($out, [
+                $code,
+                $order->order_number,
+                $event_title,
+                $event_date,
+                $cat_name,
+                $price !== '' ? number_format(floatval($price), 2, ',', '') : '',
+                $owner_name,
+                $owner_email,
+                $status,
+                $checked,
+                $checked_at,
+                $checked_by,
+                $sponsor_name,
+                $online_url,
+                $pdf_url,
+            ], $delim);
+        }
+
+        fclose($out);
+        exit;
     }
 }
