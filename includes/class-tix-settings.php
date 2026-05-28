@@ -6333,6 +6333,86 @@ class TIX_Settings {
                                                 <p class="tix-field-hint">Erstelle unter <a href="https://business.facebook.com/events_manager" target="_blank">Meta Events Manager</a> → Einstellungen → Conversions API → Access Token generieren.</p>
                                             </div>
                                             <?php self::text_row('meta_test_event_code', 'Test Event Code (optional)', $s, 'z.B. TEST12345'); ?>
+                                            <div class="tix-field tix-field-full">
+                                                <button type="button" id="tix-meta-test-btn" class="button button-secondary" style="display:inline-flex;align-items:center;gap:6px;">
+                                                    <span class="dashicons dashicons-controls-play" style="font-size:16px;width:16px;height:16px;vertical-align:middle;"></span> Test-Event senden
+                                                </button>
+                                                <span id="tix-meta-test-result" style="margin-left:10px;font-size:13px;"></span>
+                                                <p class="tix-field-hint" style="margin-top:8px;">Sendet ein PageView-Event an Meta. Bei gesetztem Test Event Code erscheint es sofort im <a href="https://business.facebook.com/events_manager" target="_blank">Events Manager → Test Events</a>. Ohne Code im normalen Event-Stream.</p>
+                                                <script>
+                                                (function($){
+                                                    $('#tix-meta-test-btn').on('click', function(){
+                                                        var $btn = $(this), $res = $('#tix-meta-test-result');
+                                                        $btn.prop('disabled', true);
+                                                        $res.html('<span style="color:#64748b;">Sende…</span>');
+                                                        $.post(ajaxurl, {action:'tix_meta_test_pixel', nonce:'<?php echo wp_create_nonce('tix_admin_nonce'); ?>'}, function(r){
+                                                            $btn.prop('disabled', false);
+                                                            if (r.success) {
+                                                                $res.html('<span style="background:#d1fae5;color:#065f46;padding:4px 10px;border-radius:5px;">✓ ' + r.data.message + ' (events_received: ' + r.data.events_received + ')</span>');
+                                                            } else {
+                                                                $res.html('<span style="background:#fee2e2;color:#991b1b;padding:4px 10px;border-radius:5px;">✗ ' + (r.data && r.data.message ? r.data.message : 'Fehler') + '</span>');
+                                                            }
+                                                        }).fail(function(){
+                                                            $btn.prop('disabled', false);
+                                                            $res.html('<span style="background:#fee2e2;color:#991b1b;padding:4px 10px;border-radius:5px;">✗ Netzwerk-Fehler</span>');
+                                                        });
+                                                    });
+                                                })(jQuery);
+                                                </script>
+                                            </div>
+                                        </div>
+
+                                        <?php // ── Letzte CAPI-Conversions (Server-side Purchase-Events) ── ?>
+                                        <?php
+                                        global $wpdb;
+                                        $conv_table = $wpdb->prefix . 'tix_meta_conversions';
+                                        $has_table = $wpdb->get_var("SHOW TABLES LIKE '$conv_table'") === $conv_table;
+                                        if ($has_table) {
+                                            $convs = $wpdb->get_results("SELECT * FROM $conv_table ORDER BY id DESC LIMIT 20");
+                                            ?>
+                                            <div style="margin-top:18px;border-top:1px solid #e5e7eb;padding-top:14px;">
+                                                <h4 style="margin:0 0 10px;font-size:13px;color:#0f172a;display:flex;justify-content:space-between;align-items:center;">
+                                                    <span>📡 Letzte 20 CAPI-Übertragungen</span>
+                                                    <?php $count_total = (int) $wpdb->get_var("SELECT COUNT(*) FROM $conv_table"); ?>
+                                                    <span style="font-weight:400;color:#64748b;font-size:12px;">Insgesamt: <?php echo $count_total; ?></span>
+                                                </h4>
+                                                <?php if (empty($convs)): ?>
+                                                    <p style="color:#9ca3af;font-size:13px;background:#f9fafb;padding:12px;border-radius:6px;">Noch keine CAPI-Conversions übertragen. Sobald die erste bezahlte Bestellung eingeht, erscheint sie hier.</p>
+                                                <?php else: ?>
+                                                    <div style="max-height:280px;overflow-y:auto;border:1px solid #e5e7eb;border-radius:6px;">
+                                                    <table class="widefat striped" style="margin:0;font-size:12px;">
+                                                        <thead><tr>
+                                                            <th>Zeitpunkt</th><th>Event</th><th>Order</th><th>Wert</th><th>UTM-Source</th><th>fbclid</th><th>Event-ID (Dedup)</th>
+                                                        </tr></thead>
+                                                        <tbody>
+                                                            <?php foreach ($convs as $c): ?>
+                                                            <tr>
+                                                                <td><?php echo esc_html(date_i18n('d.m.Y H:i:s', strtotime($c->created_at))); ?></td>
+                                                                <td><strong><?php echo esc_html($c->meta_event_name); ?></strong></td>
+                                                                <td><?php echo $c->order_id ? '<a href="' . esc_url(admin_url('admin.php?page=tix-orders&order_id=' . intval($c->order_id))) . '">#' . intval($c->order_id) . '</a>' : '—'; ?></td>
+                                                                <td><?php echo $c->value > 0 ? number_format(floatval($c->value), 2, ',', '.') . ' ' . esc_html($c->currency) : '—'; ?></td>
+                                                                <td><?php echo esc_html($c->utm_source ?: '—'); ?></td>
+                                                                <td><?php echo $c->fbclid ? '<span style="color:#16a34a;" title="fbclid vorhanden — Klick aus Meta-Ad zurückverfolgt">✓</span>' : '<span style="color:#9ca3af;">—</span>'; ?></td>
+                                                                <td><code style="font-size:10px;background:#f1f5f9;padding:1px 4px;border-radius:3px;"><?php echo esc_html(mb_substr($c->event_id ?: '', 0, 22)); ?></code></td>
+                                                            </tr>
+                                                            <?php endforeach; ?>
+                                                        </tbody>
+                                                    </table>
+                                                    </div>
+                                                    <p class="tix-field-hint" style="margin-top:8px;">Jede Zeile = ein Server-seitig an Meta gesendeter Purchase-Event. <strong>Event-ID</strong> ist der Dedup-Key zwischen Browser-Pixel und CAPI (Meta zählt nicht doppelt). <strong>fbclid</strong>-Spalte ✓ bedeutet, der Kauf konnte einer Meta-Anzeige zugeordnet werden.</p>
+                                                <?php endif; ?>
+                                            </div>
+                                            <?php
+                                        }
+                                        ?>
+
+                                        <div style="margin-top:14px;padding:12px 14px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;font-size:13px;color:#1e3a8a;">
+                                            <strong>🔍 Externe Kontrolle:</strong>
+                                            <ul style="margin:6px 0 0 18px;padding:0;list-style:disc;">
+                                                <li><a href="https://business.facebook.com/events_manager" target="_blank">Meta Events Manager</a> → Pixel auswählen → Tab <strong>Test Events</strong> (Test Code oben eingeben) — zeigt Events live nach 1–2 Sekunden.</li>
+                                                <li>Browser-Plugin <a href="https://chrome.google.com/webstore/detail/meta-pixel-helper/fdgfkebogiimcoedlicjlajpkdmockpc" target="_blank">Meta Pixel Helper</a> (Chrome) — prüft Pixel auf einzelnen Seiten.</li>
+                                                <li>Events Manager → <strong>Übersicht</strong> → „Server" zeigt CAPI-Eingang, „Browser" den Pixel — gute Score = beide ähnlich hoch + Dedup-Match.</li>
+                                            </ul>
                                         </div>
                                     </div>
                                 </div>
