@@ -318,7 +318,7 @@ class TIX_Invoicing {
 
     private static function render_recent_invoices() {
         global $wpdb;
-        $rows = $wpdb->get_results("SELECT id, order_number, billing_first_name, billing_last_name, billing_email, total, created_at FROM {$wpdb->prefix}tix_orders ORDER BY id DESC LIMIT 50");
+        $rows = $wpdb->get_results("SELECT id, order_number, billing_first_name, billing_last_name, billing_email, total, date_created FROM {$wpdb->prefix}tix_orders ORDER BY id DESC LIMIT 50");
 
         ?>
         <div class="tix-card">
