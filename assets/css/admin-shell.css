@@ -94,8 +94,11 @@ body.tix-fullscreen .wrap {
     margin: 0;
 }
 
-/* Settings + Docs + Support: Horizontale Tabs verstecken (Sidebar übernimmt) */
-body.tix-fullscreen .tix-settings-app > .tix-nav,
+/* Settings + Docs + Support: Horizontale Tabs verstecken (Sidebar übernimmt).
+ * Stats-App ausnehmen: hat selbe tix-settings-app Klasse, aber KEINE eigene Sidebar
+ * — ohne Tab-Leiste wäre die Stats-Navigation unerreichbar.
+ */
+body.tix-fullscreen .tix-settings-app:not(#tix-stats-app) > .tix-nav,
 body.tix-fullscreen .tix-docs-app > .tix-nav,
 body.tix-fullscreen .tix-support-app .tix-nav {
     display: none !important;

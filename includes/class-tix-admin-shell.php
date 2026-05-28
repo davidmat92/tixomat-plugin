@@ -175,6 +175,8 @@ class TIX_Admin_Shell {
             'event-cards'     => ['icon' => 'screenoptions',          'label' => 'Event-Karten'],
             'share'           => ['icon' => 'share',                  'label' => 'Share'],
             'marketing'       => ['icon' => 'megaphone',              'label' => 'Marketing'],
+            'meta-ads'        => ['icon' => 'chart-area',             'label' => 'Tracking-Pixel'],
+            'export-import'   => ['icon' => 'database-export',        'label' => 'Export / Import'],
             'advanced'        => ['icon' => 'admin-generic',          'label' => 'Erweitert'],
         ];
         $settings_more = []; // Leere Liste — Mehr-Toggle wird nicht mehr gerendert
