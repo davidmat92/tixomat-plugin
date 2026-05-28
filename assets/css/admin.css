@@ -165,13 +165,13 @@
    ═══════════════════════════════════════════ */
 .tix-nav {
     display: flex;
+    flex-wrap: wrap;
     gap: 4px;
     padding: 16px 20px 12px;
     background: #fff;
     border-bottom: none;
     box-shadow: 0 1px 0 #F3F0EA;
     border-radius: 16px 16px 0 0;
-    overflow-x: auto;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
 }
