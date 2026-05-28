@@ -1598,23 +1598,18 @@ class TIX_Statistics {
 
     /* ──────────────────────────── AJAX: Geografie (PLZ → Stadt) ──────────────────────────── */
 
-    public static function ajax_geography() {
-        check_ajax_referer('tix_stats_nonce', 'nonce');
-        $f  = self::parse_filters();
-        $ck = self::cache_key('geography', $f);
-        $cached = get_transient($ck);
-        if ($cached !== false) { wp_send_json_success($cached); }
-
+    /**
+     * Geo-Aggregation Helper — wird sowohl von ajax_geography als auch get_export_geography genutzt.
+     * Liefert sorted Liste von ['plz', 'city', 'orders', 'tickets', 'revenue', 'avg_order', 'region'].
+     */
+    private static function query_geography_entries($f): array {
         global $wpdb;
         $t  = $wpdb->prefix . 'tix_orders';
         $ti = $wpdb->prefix . 'tix_order_items';
 
-        // Nur bezahlte Bestellungen mit PLZ im aktuellen Zeitraum
         $from = $f['date_from'] ?: '1970-01-01';
         $to   = $f['date_to']   ?: '2099-12-31';
 
-        // Alle Bestellungen mit PLZ + Stadt holen → in PHP gruppieren
-        // (so können wir "häufigste Stadt-Schreibweise pro PLZ" sauber bestimmen)
         $rows = $wpdb->get_results($wpdb->prepare(
             "SELECT id, billing_postcode, billing_city, total
              FROM $t
@@ -1624,12 +1619,11 @@ class TIX_Statistics {
             $from, $to
         ));
 
-        // Aggregation pro PLZ
-        $by_plz = []; // plz => ['orders' => int, 'revenue' => float, 'cities' => [city => count], 'order_ids' => []]
+        $by_plz = [];
         foreach ($rows as $r) {
             $plz = preg_replace('/[^0-9A-Z]/i', '', strtoupper(trim($r->billing_postcode)));
             if ($plz === '') continue;
-            $plz = substr($plz, 0, 5); // DE-PLZ = 5 Stellen
+            $plz = substr($plz, 0, 5);
             if (!isset($by_plz[$plz])) {
                 $by_plz[$plz] = ['orders' => 0, 'revenue' => 0.0, 'cities' => [], 'order_ids' => []];
             }
@@ -1646,7 +1640,7 @@ class TIX_Statistics {
             }
         }
 
-        // Ticket-Counts pro Order-Set (batched für Performance)
+        // Ticket-Counts batched
         $all_order_ids = [];
         foreach ($by_plz as $entry) {
             foreach ($entry['order_ids'] as $oid) $all_order_ids[] = $oid;
@@ -1663,30 +1657,37 @@ class TIX_Statistics {
             }
         }
 
-        // Häufigste Stadt-Schreibweise pro PLZ + Tickets summieren
         $entries = [];
         foreach ($by_plz as $plz => $data) {
-            // Häufigste Stadt
             $top_city = '';
             $top_count = 0;
             foreach ($data['cities'] as $c) {
                 if ($c['count'] > $top_count) { $top_city = $c['label']; $top_count = $c['count']; }
             }
-            // Tickets
             $tickets = 0;
             foreach ($data['order_ids'] as $oid) $tickets += ($tickets_per_order[$oid] ?? 0);
-
             $entries[] = [
-                'plz'         => $plz,
-                'city'        => $top_city ?: '—',
-                'orders'      => $data['orders'],
-                'tickets'     => $tickets,
-                'revenue'     => round($data['revenue'], 2),
-                'avg_order'   => round($data['revenue'] / max(1, $data['orders']), 2),
-                'region'      => substr($plz, 0, 1), // erste Stelle = grobe Region
+                'plz'       => $plz,
+                'city'      => $top_city ?: '—',
+                'orders'    => $data['orders'],
+                'tickets'   => $tickets,
+                'revenue'   => round($data['revenue'], 2),
+                'avg_order' => round($data['revenue'] / max(1, $data['orders']), 2),
+                'region'    => substr($plz, 0, 1),
             ];
         }
         usort($entries, function($a, $b) { return $b['orders'] - $a['orders']; });
+        return $entries;
+    }
+
+    public static function ajax_geography() {
+        check_ajax_referer('tix_stats_nonce', 'nonce');
+        $f  = self::parse_filters();
+        $ck = self::cache_key('geography', $f);
+        $cached = get_transient($ck);
+        if ($cached !== false) { wp_send_json_success($cached); }
+
+        $entries = self::query_geography_entries($f);
 
         // Aggregation nach Region (erste PLZ-Stelle)
         $region_labels = [
@@ -1827,6 +1828,23 @@ class TIX_Statistics {
     private static function get_export_carts($f)    { return []; }
     private static function get_export_newsletter($f) { return []; }
     private static function get_export_discounts($f)  { return []; }
+
+    private static function get_export_geography($f) {
+        $entries = self::query_geography_entries($f);
+        $rows = [];
+        foreach ($entries as $e) {
+            $rows[] = [
+                'PLZ'          => $e['plz'],
+                'Stadt'        => $e['city'],
+                'Region'       => $e['region'] . 'xxxx',
+                'Bestellungen' => $e['orders'],
+                'Tickets'      => $e['tickets'],
+                'Umsatz (€)'   => number_format($e['revenue'], 2, ',', '.'),
+                'Ø Bestellung (€)' => number_format($e['avg_order'], 2, ',', '.'),
+            ];
+        }
+        return $rows;
+    }
 
     /* ──────────────────────────── Render ──────────────────────────── */
 
