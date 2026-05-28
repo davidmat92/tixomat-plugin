@@ -15,7 +15,7 @@ class TIX_Statistics {
             add_action('admin_enqueue_scripts', [__CLASS__, 'enqueue_assets']);
         }
         // AJAX endpoints
-        $tabs = ['overview','revenue','tickets','events','checkin','carts','newsletter','discounts','export'];
+        $tabs = ['overview','revenue','tickets','events','checkin','carts','newsletter','discounts','geography','export'];
         foreach ($tabs as $t) {
             add_action('wp_ajax_tix_stats_' . $t, [__CLASS__, 'ajax_' . $t]);
         }
@@ -1596,6 +1596,187 @@ class TIX_Statistics {
         wp_send_json_success($data);
     }
 
+    /* ──────────────────────────── AJAX: Geografie (PLZ → Stadt) ──────────────────────────── */
+
+    public static function ajax_geography() {
+        check_ajax_referer('tix_stats_nonce', 'nonce');
+        $f  = self::parse_filters();
+        $ck = self::cache_key('geography', $f);
+        $cached = get_transient($ck);
+        if ($cached !== false) { wp_send_json_success($cached); }
+
+        global $wpdb;
+        $t  = $wpdb->prefix . 'tix_orders';
+        $ti = $wpdb->prefix . 'tix_order_items';
+
+        // Nur bezahlte Bestellungen mit PLZ im aktuellen Zeitraum
+        $from = $f['date_from'] ?: '1970-01-01';
+        $to   = $f['date_to']   ?: '2099-12-31';
+
+        // Alle Bestellungen mit PLZ + Stadt holen → in PHP gruppieren
+        // (so können wir "häufigste Stadt-Schreibweise pro PLZ" sauber bestimmen)
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT id, billing_postcode, billing_city, total
+             FROM $t
+             WHERE status IN ('completed','processing')
+               AND billing_postcode <> ''
+               AND DATE(date_created) BETWEEN %s AND %s",
+            $from, $to
+        ));
+
+        // Aggregation pro PLZ
+        $by_plz = []; // plz => ['orders' => int, 'revenue' => float, 'cities' => [city => count], 'order_ids' => []]
+        foreach ($rows as $r) {
+            $plz = preg_replace('/[^0-9A-Z]/i', '', strtoupper(trim($r->billing_postcode)));
+            if ($plz === '') continue;
+            $plz = substr($plz, 0, 5); // DE-PLZ = 5 Stellen
+            if (!isset($by_plz[$plz])) {
+                $by_plz[$plz] = ['orders' => 0, 'revenue' => 0.0, 'cities' => [], 'order_ids' => []];
+            }
+            $by_plz[$plz]['orders']++;
+            $by_plz[$plz]['revenue'] += floatval($r->total);
+            $by_plz[$plz]['order_ids'][] = intval($r->id);
+            $city = trim($r->billing_city);
+            if ($city !== '') {
+                $city_key = mb_strtolower($city);
+                if (!isset($by_plz[$plz]['cities'][$city_key])) {
+                    $by_plz[$plz]['cities'][$city_key] = ['label' => $city, 'count' => 0];
+                }
+                $by_plz[$plz]['cities'][$city_key]['count']++;
+            }
+        }
+
+        // Ticket-Counts pro Order-Set (batched für Performance)
+        $all_order_ids = [];
+        foreach ($by_plz as $entry) {
+            foreach ($entry['order_ids'] as $oid) $all_order_ids[] = $oid;
+        }
+        $tickets_per_order = [];
+        if (!empty($all_order_ids)) {
+            $placeholders = implode(',', array_fill(0, count($all_order_ids), '%d'));
+            $tix_rows = $wpdb->get_results($wpdb->prepare(
+                "SELECT order_id, SUM(quantity) AS qty FROM $ti WHERE order_id IN ($placeholders) GROUP BY order_id",
+                ...$all_order_ids
+            ));
+            foreach ($tix_rows as $tr) {
+                $tickets_per_order[intval($tr->order_id)] = intval($tr->qty);
+            }
+        }
+
+        // Häufigste Stadt-Schreibweise pro PLZ + Tickets summieren
+        $entries = [];
+        foreach ($by_plz as $plz => $data) {
+            // Häufigste Stadt
+            $top_city = '';
+            $top_count = 0;
+            foreach ($data['cities'] as $c) {
+                if ($c['count'] > $top_count) { $top_city = $c['label']; $top_count = $c['count']; }
+            }
+            // Tickets
+            $tickets = 0;
+            foreach ($data['order_ids'] as $oid) $tickets += ($tickets_per_order[$oid] ?? 0);
+
+            $entries[] = [
+                'plz'         => $plz,
+                'city'        => $top_city ?: '—',
+                'orders'      => $data['orders'],
+                'tickets'     => $tickets,
+                'revenue'     => round($data['revenue'], 2),
+                'avg_order'   => round($data['revenue'] / max(1, $data['orders']), 2),
+                'region'      => substr($plz, 0, 1), // erste Stelle = grobe Region
+            ];
+        }
+        usort($entries, function($a, $b) { return $b['orders'] - $a['orders']; });
+
+        // Aggregation nach Region (erste PLZ-Stelle)
+        $region_labels = [
+            '0' => '0xxxx – Dresden, Leipzig, Chemnitz',
+            '1' => '1xxxx – Berlin, Brandenburg, Cottbus',
+            '2' => '2xxxx – Hamburg, Bremen, Hannover-Nord',
+            '3' => '3xxxx – Hannover, Kassel, Magdeburg',
+            '4' => '4xxxx – Ruhrgebiet, Düsseldorf, Münster',
+            '5' => '5xxxx – Köln, Bonn, Aachen, Koblenz',
+            '6' => '6xxxx – Frankfurt, Mainz, Saarbrücken',
+            '7' => '7xxxx – Stuttgart, Karlsruhe, Freiburg',
+            '8' => '8xxxx – München, Augsburg, Allgäu',
+            '9' => '9xxxx – Nürnberg, Würzburg, Erzgebirge',
+        ];
+        $region_agg = [];
+        foreach ($entries as $e) {
+            $r = $e['region'];
+            if (!isset($region_agg[$r])) $region_agg[$r] = ['orders' => 0, 'revenue' => 0.0];
+            $region_agg[$r]['orders']  += $e['orders'];
+            $region_agg[$r]['revenue'] += $e['revenue'];
+        }
+        ksort($region_agg);
+
+        // KPIs
+        $total_orders   = array_sum(array_column($entries, 'orders'));
+        $total_revenue  = array_sum(array_column($entries, 'revenue'));
+        $unique_cities  = count(array_unique(array_column($entries, 'city')));
+        $unique_plzs    = count($entries);
+        $top1 = $entries[0] ?? null;
+
+        $kpis = [
+            'plzs'     => ['value' => number_format($unique_plzs, 0, ',', '.'),    'label' => 'Eindeutige PLZs',     'icon' => 'dashicons-location-alt'],
+            'cities'   => ['value' => number_format($unique_cities, 0, ',', '.'),  'label' => 'Eindeutige Städte',   'icon' => 'dashicons-admin-site-alt3'],
+            'orders'   => ['value' => number_format($total_orders, 0, ',', '.'),   'label' => 'Bestellungen gesamt', 'icon' => 'dashicons-cart'],
+            'top_city' => ['value' => $top1 ? esc_html($top1['city']) : '—',       'label' => $top1 ? ('Top-Stadt (' . $top1['orders'] . ' Best.)') : 'Top-Stadt', 'icon' => 'dashicons-awards'],
+        ];
+
+        // Charts
+        $colors = [tix_primary(),'#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#ec4899','#84cc16','#3b82f6','#a855f7'];
+
+        // Doughnut: PLZ-Regionen
+        $region_chart_labels = [];
+        $region_chart_data   = [];
+        foreach ($region_agg as $r => $agg) {
+            $region_chart_labels[] = $region_labels[$r] ?? ($r . 'xxxx');
+            $region_chart_data[]   = $agg['orders'];
+        }
+
+        // Bar: Top 15 Städte
+        $top_cities = array_slice($entries, 0, 15);
+        $charts = [
+            'by_region' => [
+                'type' => 'doughnut',
+                'data' => [
+                    'labels'   => $region_chart_labels,
+                    'datasets' => [['data' => $region_chart_data, 'backgroundColor' => array_slice($colors, 0, count($region_chart_data))]],
+                ],
+            ],
+            'top_cities' => [
+                'type' => 'bar',
+                'data' => [
+                    'labels'   => array_map(function($e){ return $e['plz'] . ' ' . $e['city']; }, $top_cities),
+                    'datasets' => [['label' => 'Bestellungen', 'data' => array_column($top_cities, 'orders'), 'backgroundColor' => tix_primary()]],
+                ],
+                'options' => ['indexAxis' => 'y'],
+            ],
+        ];
+
+        // Tabellen-Rows (alle, max 200)
+        $rows_out = [];
+        foreach (array_slice($entries, 0, 200) as $e) {
+            $rows_out[] = [
+                $e['plz'],
+                $e['city'],
+                number_format($e['orders'], 0, ',', '.'),
+                number_format($e['tickets'], 0, ',', '.'),
+                self::format_eur($e['revenue']),
+                self::format_eur($e['avg_order']),
+            ];
+        }
+
+        $data = [
+            'kpis'   => $kpis,
+            'charts' => $charts,
+            'table'  => $rows_out, // wird im JS als renderTable() erwartet
+        ];
+        set_transient($ck, $data, 600);
+        wp_send_json_success($data);
+    }
+
     /* ──────────────────────────── AJAX: CSV-Export ──────────────────────────── */
 
     public static function ajax_export() {
@@ -1659,6 +1840,7 @@ class TIX_Statistics {
             'carts'      => ['label' => 'Warenkörbe',    'icon' => 'dashicons-cart'],
             'newsletter' => ['label' => 'Newsletter',    'icon' => 'dashicons-email-alt'],
             'discounts'  => ['label' => 'Rabatte',       'icon' => 'dashicons-tag'],
+            'geography'  => ['label' => 'Geografie',     'icon' => 'dashicons-location-alt'],
         ];
 
         // Chart-Definitionen pro Tab
@@ -1701,14 +1883,19 @@ class TIX_Statistics {
                 ['id' => 'by_type',  'title' => 'Rabatt nach Typ',               'icon' => 'dashicons-tag'],
                 ['id' => 'timeline', 'title' => 'Rabatte über Zeit',             'icon' => 'dashicons-chart-line'],
             ],
+            'geography'  => [
+                ['id' => 'by_region',     'title' => 'Käufer nach PLZ-Region',      'icon' => 'dashicons-location'],
+                ['id' => 'top_cities',    'title' => 'Top 15 Städte',              'icon' => 'dashicons-admin-site-alt3'],
+            ],
         ];
 
         // Tabellen-Spalten pro Tab
         $tab_table_cols = [
-            'overview' => [],
-            'revenue'  => ['Event','Location','Datum','Tickets','Umsatz','Ø Preis','Auslastung'],
-            'tickets'  => ['Event','Kategorien','Verkauft','Kapazität','Auslastung','Umsatz'],
-            'events'   => ['Event','Datum','Location','Status','Verkauft','Kapazität','Auslastung','Umsatz'],
+            'overview'  => [],
+            'revenue'   => ['Event','Location','Datum','Tickets','Umsatz','Ø Preis','Auslastung'],
+            'tickets'   => ['Event','Kategorien','Verkauft','Kapazität','Auslastung','Umsatz'],
+            'events'    => ['Event','Datum','Location','Status','Verkauft','Kapazität','Auslastung','Umsatz'],
+            'geography' => ['PLZ','Stadt','Bestellungen','Tickets','Umsatz','Ø Bestellung'],
         ];
         ?>
         <div class="wrap tix-settings-wrap">
