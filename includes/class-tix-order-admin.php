@@ -726,11 +726,43 @@ class TIX_Order_Admin {
                                     </span>
                                 </td>
                             </tr>
+                            <?php
+                            // Meta-Ads-Direktlink wenn Source = facebook/instagram/meta_ads UND ID ist numerisch
+                            $is_meta = in_array($camp_source, ['facebook', 'instagram', 'meta_ads', 'fb', 'ig'], true);
+                            $meta_link = function($id, $type) {
+                                $id = preg_replace('/[^0-9]/', '', (string) $id);
+                                if (strlen($id) < 10) return '';
+                                $base = 'https://business.facebook.com/adsmanager/manage/';
+                                if ($type === 'campaign') return $base . 'campaigns?selected_campaign_ids=' . $id;
+                                if ($type === 'ad')       return $base . 'ads?selected_ad_ids=' . $id;
+                                return '';
+                            };
+                            ?>
                             <?php if ($camp_name): ?>
-                                <tr><td style="padding:4px 0;color:#6b7280;">Kampagne</td><td style="padding:4px 0;font-weight:500;"><?php echo esc_html($camp_name); ?></td></tr>
+                                <tr><td style="padding:4px 0;color:#6b7280;">Kampagne</td><td style="padding:4px 0;font-weight:500;">
+                                    <?php $url = $is_meta ? $meta_link($camp_name, 'campaign') : ''; ?>
+                                    <?php if ($url): ?>
+                                        <a href="<?php echo esc_url($url); ?>" target="_blank" rel="noopener" title="Im Meta-Werbeanzeigenmanager öffnen" style="color:#1877f2;text-decoration:none;display:inline-flex;align-items:center;gap:5px;">
+                                            <code style="font-size:12px;background:#eff6ff;padding:2px 8px;border-radius:5px;color:#1e3a8a;"><?php echo esc_html($camp_name); ?></code>
+                                            <span class="dashicons dashicons-external" style="font-size:13px;width:13px;height:13px;"></span>
+                                        </a>
+                                    <?php else: ?>
+                                        <?php echo esc_html($camp_name); ?>
+                                    <?php endif; ?>
+                                </td></tr>
                             <?php endif; ?>
                             <?php if ($camp_content): ?>
-                                <tr><td style="padding:4px 0;color:#6b7280;">Content</td><td style="padding:4px 0;font-size:12px;color:#475569;"><?php echo esc_html($camp_content); ?></td></tr>
+                                <tr><td style="padding:4px 0;color:#6b7280;">Content</td><td style="padding:4px 0;font-size:12px;color:#475569;">
+                                    <?php $url = $is_meta ? $meta_link($camp_content, 'ad') : ''; ?>
+                                    <?php if ($url): ?>
+                                        <a href="<?php echo esc_url($url); ?>" target="_blank" rel="noopener" title="Anzeige im Meta-Werbeanzeigenmanager öffnen" style="color:#1877f2;text-decoration:none;display:inline-flex;align-items:center;gap:5px;">
+                                            <code style="font-size:12px;background:#eff6ff;padding:2px 8px;border-radius:5px;color:#1e3a8a;"><?php echo esc_html($camp_content); ?></code>
+                                            <span class="dashicons dashicons-external" style="font-size:13px;width:13px;height:13px;"></span>
+                                        </a>
+                                    <?php else: ?>
+                                        <?php echo esc_html($camp_content); ?>
+                                    <?php endif; ?>
+                                </td></tr>
                             <?php endif; ?>
                             <?php if ($camp_medium): ?>
                                 <tr><td style="padding:4px 0;color:#6b7280;">Medium</td><td style="padding:4px 0;font-size:12px;color:#475569;"><?php echo esc_html($camp_medium); ?></td></tr>
@@ -828,19 +860,41 @@ class TIX_Order_Admin {
                 </div>
             </div>
 
-            <a href="<?php echo esc_url(wp_nonce_url(admin_url('admin-ajax.php?action=tix_order_invoice&order_id=' . $order_id), 'tix_invoice')); ?>"
-               target="_blank" class="button" style="margin-top:8px;display:inline-flex;align-items:center;gap:5px;">
-                <span class="dashicons dashicons-media-document" style="font-size:16px;width:16px;height:16px;vertical-align:middle;"></span> Rechnung
-            </a>
-
-            <a href="<?php echo esc_url(wp_nonce_url(admin_url('admin-post.php?action=tix_order_tickets_csv&order_id=' . $order_id), 'tix_export_tickets_' . $order_id)); ?>"
-               class="button" style="margin-top:8px;display:inline-flex;align-items:center;gap:5px;" title="CSV mit einer Zeile pro Ticket (öffnet in Excel)">
-                <span class="dashicons dashicons-media-spreadsheet" style="font-size:16px;width:16px;height:16px;vertical-align:middle;"></span> Tickets als Excel
-            </a>
-
-            <div style="display:inline-block;position:relative;margin-top:8px;vertical-align:top;">
-                <button type="button" class="button button-primary" id="tix-resend-tickets-btn" style="display:inline-flex;align-items:center;gap:5px;background:#10b981;border-color:#059669;">
-                    <span class="dashicons dashicons-tickets-alt" style="font-size:16px;width:16px;height:16px;vertical-align:middle;"></span> Tickets nachsenden
+            <style>
+                .tix-od-actions { display:flex; gap:10px; flex-wrap:wrap; margin-top:16px; }
+                .tix-od-action {
+                    flex:1 1 0; min-width:160px;
+                    display:inline-flex; align-items:center; justify-content:center; gap:8px;
+                    padding:11px 16px;
+                    background:#fff; color:#0f172a;
+                    border:1px solid #e5e7eb; border-radius:10px;
+                    font-size:13px; font-weight:600; line-height:1;
+                    text-decoration:none; cursor:pointer;
+                    box-shadow:0 1px 2px rgba(15,23,42,.04);
+                    transition:border-color .15s, box-shadow .15s, transform .05s, background .15s, color .15s;
+                }
+                .tix-od-action:hover { border-color:#94a3b8; box-shadow:0 2px 4px rgba(15,23,42,.06); color:#0f172a; }
+                .tix-od-action:active { transform:translateY(1px); }
+                .tix-od-action .dashicons { font-size:18px; width:18px; height:18px; line-height:1; }
+                .tix-od-action--primary {
+                    background:linear-gradient(180deg, #10b981 0%, #059669 100%);
+                    border-color:#047857; color:#fff;
+                    box-shadow:0 2px 6px rgba(16,185,129,.28);
+                }
+                .tix-od-action--primary:hover { background:linear-gradient(180deg, #059669 0%, #047857 100%); border-color:#065f46; color:#fff; box-shadow:0 4px 10px rgba(16,185,129,.32); }
+                .tix-od-action--primary .dashicons { color:#fff; }
+            </style>
+            <div class="tix-od-actions">
+                <a href="<?php echo esc_url(wp_nonce_url(admin_url('admin-ajax.php?action=tix_order_invoice&order_id=' . $order_id), 'tix_invoice')); ?>"
+                   target="_blank" class="tix-od-action" title="Rechnung als HTML/PDF anzeigen">
+                    <span class="dashicons dashicons-media-document"></span> Rechnung
+                </a>
+                <a href="<?php echo esc_url(wp_nonce_url(admin_url('admin-post.php?action=tix_order_tickets_csv&order_id=' . $order_id), 'tix_export_tickets_' . $order_id)); ?>"
+                   class="tix-od-action" title="CSV mit einer Zeile pro Ticket (öffnet in Excel)">
+                    <span class="dashicons dashicons-download"></span> Tickets-Liste (Excel)
+                </a>
+                <button type="button" id="tix-resend-tickets-btn" class="tix-od-action tix-od-action--primary">
+                    <span class="dashicons dashicons-email-alt"></span> Tickets nachsenden
                 </button>
             </div>
             <div id="tix-resend-tickets-panel" style="display:none;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:14px 16px;margin-top:8px;max-width:460px;">
