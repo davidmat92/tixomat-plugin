@@ -2284,9 +2284,30 @@ class TIX_Native_Checkout {
 
         wp_enqueue_style('tix-checkout', TIXOMAT_URL . 'assets/css/checkout.css', ['tix-google-fonts'], TIXOMAT_VERSION);
         wp_enqueue_script('tix-native-checkout', TIXOMAT_URL . 'assets/js/native-checkout.js', ['jquery'], TIXOMAT_VERSION, true);
+
+        // Abandoned-Cart-Tracking nur aktiv wenn global an UND mind. ein Event im Cart hat den Per-Event-Schalter
+        $ac_enabled  = !empty(tix_get_settings('abandoned_cart_enabled'));
+        $ac_event_id = 0;
+        if ($ac_enabled) {
+            $cart = self::get_cart();
+            $any_event_ac = false;
+            foreach (($cart['items'] ?? []) as $item) {
+                $eid = intval($item['event_id'] ?? 0);
+                if ($eid && get_post_meta($eid, '_tix_abandoned_cart', true) === '1') {
+                    $ac_event_id  = $eid;
+                    $any_event_ac = true;
+                    break;
+                }
+            }
+            $ac_enabled = $any_event_ac;
+        }
+
         wp_localize_script('tix-native-checkout', 'tixNativeCheckout', [
-            'ajaxUrl' => admin_url('admin-ajax.php'),
-            'nonce'   => wp_create_nonce('tix_native_checkout'),
+            'ajaxUrl'   => admin_url('admin-ajax.php'),
+            'nonce'     => wp_create_nonce('tix_native_checkout'),
+            'cartNonce' => wp_create_nonce('tix_update_cart'),
+            'acEnabled' => $ac_enabled,
+            'acEventId' => $ac_event_id,
         ]);
     }
 

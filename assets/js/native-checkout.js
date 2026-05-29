@@ -252,4 +252,39 @@
         });
     });
 
+    // ── Abandoned-Cart-Tracking ──
+    // Bei jeder gültigen E-Mail-Eingabe im Checkout: cart_data + email an Server schicken.
+    // Server (TIX_Checkout::ajax_capture_cart_email) legt einen tix_abandoned_cart Post an
+    // und scheduled die Recovery-Mail nach X Minuten.
+    (function() {
+        if (typeof tixNativeCheckout === 'undefined' || !tixNativeCheckout.acEnabled) return;
+        var sentEmails = {};
+        $(document).on('blur change', 'input[name="billing_email"]', function() {
+            var email = ($(this).val() || '').trim().toLowerCase();
+            if (!email || email.indexOf('@') < 1 || email.length > 100) return;
+            if (sentEmails[email]) return;
+            sentEmails[email] = true;
+
+            // Cart-Daten aus DOM lesen — auch bei mehreren Events
+            var items = [];
+            $('.tix-co-item').each(function() {
+                var $i = $(this);
+                items.push({
+                    name:       $i.find('.tix-co-item-name').text().trim(),
+                    event_name: $i.find('.tix-co-item-info > div').first().text().trim(),
+                    qty:        parseInt($i.find('.tix-co-qty-val').text(), 10) || 1,
+                });
+            });
+            if (!items.length) return;
+
+            $.post(ajax, {
+                action:     'tix_capture_cart_email',
+                nonce:      tixNativeCheckout.cartNonce,
+                email:      email,
+                cart_data:  JSON.stringify(items),
+                event_id:   tixNativeCheckout.acEventId || 0
+            });
+        });
+    })();
+
 })(jQuery);
