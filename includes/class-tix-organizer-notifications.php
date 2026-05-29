@@ -575,6 +575,9 @@ class TIX_Organizer_Notifications {
         $customer_line = '<b>' . esc_html($data['customer'] ?: '(ohne Namen)') . '</b>';
         if ($data['email']) $customer_line .= ' <small>(' . esc_html($data['email']) . ')</small>';
 
+        // Herkunfts-Zeile (organisch / paid / direkt etc.) — wird an alle Order-Push-Texte angehängt
+        $source_line = self::build_source_line($order_id);
+
         switch ($type) {
             case 'orders':
                 $status_map = [
@@ -588,6 +591,7 @@ class TIX_Organizer_Notifications {
                     . "<b>" . intval($data['ticket_qty']) . "× Ticket</b> · " . esc_html($event_title) . "\n"
                     . "Bestellung #" . intval($order_id) . " · " . esc_html($status_label);
                 if ($gateway) $message .= " · " . esc_html($gateway);
+                if ($source_line) $message .= "\n\n" . $source_line;
                 break;
 
             case 'cancelled':
@@ -595,6 +599,7 @@ class TIX_Organizer_Notifications {
                 $message = $customer_line . "\n\n"
                     . "Bestellung #" . intval($order_id) . " wurde <b>storniert</b>.\n"
                     . intval($data['ticket_qty']) . "× Ticket · " . esc_html($event_title);
+                if ($source_line) $message .= "\n\n" . $source_line;
                 $sound   = 'falling';
                 break;
 
@@ -603,6 +608,7 @@ class TIX_Organizer_Notifications {
                 $message = $customer_line . "\n\n"
                     . "Bestellung #" . intval($order_id) . " wurde <b>erstattet</b>.\n"
                     . intval($data['ticket_qty']) . "× Ticket · " . esc_html($event_title);
+                if ($source_line) $message .= "\n\n" . $source_line;
                 $sound   = 'falling';
                 break;
 
@@ -612,6 +618,7 @@ class TIX_Organizer_Notifications {
                     . "Bestellung #" . intval($order_id) . " · Zahlung fehlgeschlagen"
                     . ($gateway ? " (" . esc_html($gateway) . ")" : "") . ".\n"
                     . "Event: " . esc_html($event_title);
+                if ($source_line) $message .= "\n\n" . $source_line;
                 $sound   = 'siren';
                 break;
 
@@ -897,5 +904,60 @@ class TIX_Organizer_Notifications {
                 : "Kein Test-Push gesendet — keine aktiven Pushover-Konfigurationen.";
             echo '<div class="notice ' . $cls . ' is-dismissible"><p>' . esc_html($msg) . '</p></div>';
         });
+    }
+
+    /**
+     * Baut eine kompakte Herkunfts-Zeile für Push/Mail aus den Campaign-Tracking-Metas der Order.
+     * Beispiele:
+     *   "📣 Paid · Facebook · Kampagne 120245…"
+     *   "🌿 Organisch · Google"
+     *   "🔗 Direkt"
+     *   "✉ E-Mail-Newsletter"
+     * Liefert leeren String wenn keinerlei Tracking-Daten vorhanden sind.
+     */
+    private static function build_source_line($order_id): string {
+        $source    = (string) get_post_meta($order_id, '_tix_campaign_source', true);
+        $medium    = (string) get_post_meta($order_id, '_tix_campaign_medium', true);
+        $name      = (string) get_post_meta($order_id, '_tix_campaign_name', true);
+        $content   = (string) get_post_meta($order_id, '_tix_campaign_content', true);
+        $referrer  = (string) get_post_meta($order_id, '_tix_campaign_referrer', true);
+
+        if (!$source && !$medium && !$name && !$referrer) return '';
+
+        // Source-Label (menschlich lesbar)
+        $source_label = '';
+        if ($source && class_exists('TIX_Campaign_Tracking') && method_exists('TIX_Campaign_Tracking', 'get_channel_label')) {
+            $source_label = TIX_Campaign_Tracking::get_channel_label($source);
+        }
+        if (!$source_label) $source_label = ucfirst(str_replace('_', ' ', $source ?: 'Unbekannt'));
+
+        // Medium klassifizieren
+        $is_paid = in_array(strtolower($medium), ['paid', 'cpc', 'ads', 'paidsocial', 'paid-social', 'display'], true)
+                || in_array($source, ['google_ads', 'meta_ads', 'tiktok_ads', 'facebook_ads'], true);
+        $is_email = in_array(strtolower($medium), ['email', 'newsletter'], true) || $source === 'email';
+        $is_direct = ($source === 'direct') || (!$source && !$referrer);
+
+        if ($is_direct) {
+            $icon = '🔗'; $prefix = 'Direkt';
+        } elseif ($is_email) {
+            $icon = '✉'; $prefix = 'E-Mail';
+        } elseif ($is_paid) {
+            $icon = '📣'; $prefix = 'Paid · ' . $source_label;
+        } else {
+            $icon = '🌿'; $prefix = 'Organisch · ' . $source_label;
+        }
+
+        $parts = [$prefix];
+        if ($name !== '') {
+            // Lange numerische Meta-Kampagnen-IDs kürzen, sonst gnadenlos
+            $name_short = strlen($name) > 32 ? substr($name, 0, 14) . '…' . substr($name, -8) : $name;
+            $parts[] = 'Kampagne ' . $name_short;
+        }
+        if ($content !== '' && $content !== $name) {
+            $content_short = strlen($content) > 24 ? substr($content, 0, 10) . '…' . substr($content, -6) : $content;
+            $parts[] = 'Anzeige ' . $content_short;
+        }
+
+        return '📍 ' . $icon . ' ' . implode(' · ', array_map('esc_html', $parts));
     }
 }
