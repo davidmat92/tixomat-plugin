@@ -253,21 +253,30 @@ class TIX_Ticket_Selector {
             <div class="tix-sel-categories">
                 <?php
                 // ── Sold-Count pro Kategorie (native Orders) — einmal pro Event aggregieren ──
-                $sold_per_cat = [];
+                // Spalte heisst cat_name (nicht cat_index) → wir mappen ueber den Namen
+                $sold_per_cat = []; // cat_index → qty
                 global $wpdb;
                 $orders_table = $wpdb->prefix . 'tix_orders';
                 $items_table  = $wpdb->prefix . 'tix_order_items';
                 if ($wpdb->get_var("SHOW TABLES LIKE '$orders_table'") === $orders_table) {
                     $sold_rows = $wpdb->get_results($wpdb->prepare(
-                        "SELECT i.cat_index, COALESCE(SUM(i.quantity), 0) AS qty
+                        "SELECT i.cat_name, COALESCE(SUM(i.quantity), 0) AS qty
                          FROM $items_table i
                          INNER JOIN $orders_table o ON i.order_id = o.id
                          WHERE o.status IN ('completed','processing') AND i.event_id = %d
-                         GROUP BY i.cat_index",
+                         GROUP BY i.cat_name",
                         $post_id
                     ));
+                    // cat_name → cat_index Mapping aufbauen
+                    $name_to_index = [];
+                    foreach ($categories as $idx => $c) {
+                        $name_to_index[mb_strtolower(trim($c['name'] ?? ''))] = $idx;
+                    }
                     foreach ($sold_rows as $sr) {
-                        $sold_per_cat[intval($sr->cat_index)] = intval($sr->qty);
+                        $key = mb_strtolower(trim((string) $sr->cat_name));
+                        if (isset($name_to_index[$key])) {
+                            $sold_per_cat[$name_to_index[$key]] = intval($sr->qty);
+                        }
                     }
                 }
 
