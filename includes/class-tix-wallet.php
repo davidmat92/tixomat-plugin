@@ -278,7 +278,9 @@ class TIX_Wallet {
                     ['key' => 'evt', 'label' => 'EVENT', 'value' => $t['event_title']],
                 ],
                 'primaryFields' => [
-                    ['key' => 'date', 'label' => 'DATUM', 'value' => self::format_date($t['date_start']), 'dateStyle' => 'PKDateStyleNone'],
+                    // KEIN dateStyle — wir liefern den Wert als vorformatierten String.
+                    // (Wenn dateStyle gesetzt ist, muss value ein ISO-8601 Date sein — sonst lehnt iOS den Pass ab.)
+                    ['key' => 'date', 'label' => 'DATUM', 'value' => self::format_date($t['date_start'])],
                 ],
                 'secondaryFields' => [
                     ['key' => 'admission', 'label' => 'EINLASS', 'value' => $t['admission'] ?: $t['time_start']],
