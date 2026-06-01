@@ -255,7 +255,7 @@ class TIX_Wallet {
         $pass_json = self::build_apple_pass_json($ticket, $s);
 
         // 2. Asset-Bilder herunterladen (logo.png, icon.png, optional strip.png)
-        $assets = self::collect_apple_assets($s);
+        $assets = self::collect_apple_assets($s, $ticket);
 
         // 3. Manifest (SHA1 jeder Datei) erstellen
         $manifest = ['pass.json' => sha1($pass_json)];
@@ -365,11 +365,20 @@ class TIX_Wallet {
      * Array zurück mit Apple-Wallet-Dateinamen ('logo.png', 'icon.png', 'strip.png',
      * 'logo@2x.png', 'icon@2x.png').
      */
-    private static function collect_apple_assets(array $s): array {
+    private static function collect_apple_assets(array $s, ?array $ticket = null): array {
         $files = [];
         $logo  = self::fetch_image_bytes($s['wallet_apple_logo_url'] ?? '');
         $icon  = self::fetch_image_bytes($s['wallet_apple_icon_url'] ?? '');
-        $strip = self::fetch_image_bytes($s['wallet_apple_strip_url'] ?? '');
+
+        // Strip-Bild Priorität: Event-Beitragsbild → globales Wallet-Strip-Setting
+        // Apple-Specs für eventTicket-Strip: 375×123 px @1x, 750×246 px @2x (1125×369 @3x)
+        $strip = null;
+        if ($ticket && !empty($ticket['event_id'])) {
+            $strip = self::event_strip_image(intval($ticket['event_id']));
+        }
+        if (!$strip) {
+            $strip = self::fetch_image_bytes($s['wallet_apple_strip_url'] ?? '');
+        }
 
         if ($logo) {
             $files['logo.png']    = $logo;
@@ -384,6 +393,42 @@ class TIX_Wallet {
             $files['strip@2x.png'] = $strip;
         }
         return $files;
+    }
+
+    /**
+     * Holt das Event-Beitragsbild und gibt es als PNG-Bytes zurück.
+     * Falls als JPG vorhanden → on-the-fly nach PNG konvertiert (Apple braucht PNG für strip.png).
+     */
+    private static function event_strip_image(int $event_id): ?string {
+        $thumb_id = get_post_thumbnail_id($event_id);
+        if (!$thumb_id) return null;
+
+        // Bevorzugt eine Größe, die nah am Wallet-Strip-Format liegt (375×123 @1x → 750×246 @2x)
+        $img = wp_get_attachment_image_src($thumb_id, 'large');
+        if (!$img || empty($img[0])) {
+            $img = wp_get_attachment_image_src($thumb_id, 'full');
+        }
+        if (!$img || empty($img[0])) return null;
+
+        $url   = $img[0];
+        $bytes = self::fetch_image_bytes($url);
+        if (!$bytes) return null;
+
+        // PNG? → direkt zurück. Sonst per GD nach PNG konvertieren.
+        $sig = substr($bytes, 0, 8);
+        if (substr($sig, 0, 8) === "\x89PNG\r\n\x1a\n") {
+            return $bytes;
+        }
+        if (!function_exists('imagecreatefromstring') || !function_exists('imagepng')) {
+            return null; // GD fehlt — Strip lieber weglassen als Pass kaputt machen
+        }
+        $im = @imagecreatefromstring($bytes);
+        if (!$im) return null;
+        ob_start();
+        imagepng($im);
+        $png = ob_get_clean();
+        imagedestroy($im);
+        return $png ?: null;
     }
 
     private static function fetch_image_bytes($url): ?string {
