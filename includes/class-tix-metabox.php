@@ -3557,6 +3557,7 @@ class TIX_Metabox {
         // ── Low-Stock-Anzeige pro Event (Override der globalen Setting) ──
         $low_stock_mode      = get_post_meta($post->ID, '_tix_low_stock_mode', true) ?: 'global';
         $low_stock_threshold = get_post_meta($post->ID, '_tix_low_stock_threshold', true);
+        $low_stock_text      = get_post_meta($post->ID, '_tix_low_stock_text', true);
         $low_stock_global    = intval(tix_get_settings('low_stock_threshold') ?? 10);
         ?>
         <div class="tix-card">
@@ -3565,21 +3566,25 @@ class TIX_Metabox {
                 <h3>„Nur noch X verfügbar!"-Anzeige</h3>
             </div>
             <div class="tix-card-body">
-                <p class="tix-field-hint" style="margin:0 0 12px;">Steuert das rote pulsierende Badge bei Tickets, deren Rest-Kontingent klein wird. Überschreibt die globale Einstellung nur für dieses Event.</p>
+                <p class="tix-field-hint" style="margin:0 0 12px;">Steuert das rote pulsierende Badge bei Tickets. Überschreibt die globale Einstellung nur für dieses Event.</p>
                 <div class="tix-field-grid">
                     <div class="tix-field tix-field-full">
                         <label class="tix-field-label">Modus</label>
                         <label style="display:flex;align-items:center;gap:8px;margin-bottom:6px;cursor:pointer;">
-                            <input type="radio" name="tix_meta[_tix_low_stock_mode]" value="global" <?php checked($low_stock_mode, 'global'); ?>>
-                            <span>🌐 Globalen Wert nutzen <small style="color:#64748b;">(aktuell: <?php echo $low_stock_global > 0 ? esc_html($low_stock_global) . ' Tickets' : 'deaktiviert'; ?>)</small></span>
+                            <input type="radio" name="tix_meta[_tix_low_stock_mode]" value="global" class="tix-lowstock-mode" <?php checked($low_stock_mode, 'global'); ?>>
+                            <span>🌐 <strong>Global</strong> — globaler Schwellwert <small style="color:#64748b;">(aktuell: <?php echo $low_stock_global > 0 ? esc_html($low_stock_global) . ' Tickets' : 'deaktiviert'; ?>)</small></span>
                         </label>
                         <label style="display:flex;align-items:center;gap:8px;margin-bottom:6px;cursor:pointer;">
-                            <input type="radio" name="tix_meta[_tix_low_stock_mode]" value="custom" <?php checked($low_stock_mode, 'custom'); ?> id="tix-lowstock-mode-custom">
-                            <span>🎯 Eigener Wert für dieses Event</span>
+                            <input type="radio" name="tix_meta[_tix_low_stock_mode]" value="custom" class="tix-lowstock-mode" <?php checked($low_stock_mode, 'custom'); ?>>
+                            <span>🎯 <strong>Eigener Schwellwert</strong> — Badge erscheint sobald der tatsächliche Bestand ≤ N fällt</span>
+                        </label>
+                        <label style="display:flex;align-items:center;gap:8px;margin-bottom:6px;cursor:pointer;">
+                            <input type="radio" name="tix_meta[_tix_low_stock_mode]" value="manual" class="tix-lowstock-mode" <?php checked($low_stock_mode, 'manual'); ?>>
+                            <span>✏️ <strong>Eigener Text immer anzeigen</strong> — fester Marketing-Trigger unabhängig vom Bestand</span>
                         </label>
                         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
-                            <input type="radio" name="tix_meta[_tix_low_stock_mode]" value="off" <?php checked($low_stock_mode, 'off'); ?>>
-                            <span>🚫 Badge für dieses Event ausschalten</span>
+                            <input type="radio" name="tix_meta[_tix_low_stock_mode]" value="off" class="tix-lowstock-mode" <?php checked($low_stock_mode, 'off'); ?>>
+                            <span>🚫 <strong>Aus</strong> — kein Badge für dieses Event</span>
                         </label>
                     </div>
                     <div class="tix-field tix-field-full" id="tix-lowstock-custom-wrap" style="<?php echo $low_stock_mode === 'custom' ? '' : 'display:none;'; ?>">
@@ -3587,14 +3592,29 @@ class TIX_Metabox {
                         <input type="number" min="1" max="9999" id="tix_low_stock_threshold" name="tix_meta[_tix_low_stock_threshold]"
                                value="<?php echo esc_attr($low_stock_threshold !== '' ? $low_stock_threshold : 50); ?>"
                                class="tix-text-input" style="max-width:180px;" placeholder="z.B. 50">
-                        <p class="tix-field-hint">z.B. „50" → Badge erscheint sobald nur noch 50 oder weniger Tickets in einer Kategorie verfügbar sind.</p>
+                        <p class="tix-field-hint">z.B. „50" → Badge erscheint sobald nur noch 50 oder weniger Tickets in einer Kategorie tatsächlich verfügbar sind.</p>
+                    </div>
+                    <div class="tix-field tix-field-full" id="tix-lowstock-manual-wrap" style="<?php echo $low_stock_mode === 'manual' ? '' : 'display:none;'; ?>">
+                        <label class="tix-field-label" for="tix_low_stock_text">Anzeige-Text</label>
+                        <input type="text" id="tix_low_stock_text" name="tix_meta[_tix_low_stock_text]"
+                               value="<?php echo esc_attr($low_stock_text ?: ''); ?>"
+                               class="tix-text-input" style="max-width:400px;" placeholder="z.B. Nur noch wenige Plätze! oder 🔥 Letzte Chance!" maxlength="80">
+                        <p class="tix-field-hint">Wird bei <strong>allen</strong> verfügbaren Online-Kategorien angezeigt — unabhängig vom Bestand. Gut als Marketing-Trigger.</p>
                     </div>
                 </div>
                 <script>
                 (function(){
-                    var radios = document.querySelectorAll('input[name="tix_meta[_tix_low_stock_mode]"]');
-                    var wrap = document.getElementById('tix-lowstock-custom-wrap');
-                    radios.forEach(function(r){ r.addEventListener('change', function(){ wrap.style.display = r.value === 'custom' && r.checked ? '' : (document.querySelector('input[name=\"tix_meta[_tix_low_stock_mode]\"]:checked').value === 'custom' ? '' : 'none'); }); });
+                    var radios = document.querySelectorAll('.tix-lowstock-mode');
+                    var custom = document.getElementById('tix-lowstock-custom-wrap');
+                    var manual = document.getElementById('tix-lowstock-manual-wrap');
+                    function update(){
+                        var sel = document.querySelector('.tix-lowstock-mode:checked');
+                        var v = sel ? sel.value : 'global';
+                        custom.style.display = v === 'custom' ? '' : 'none';
+                        manual.style.display = v === 'manual' ? '' : 'none';
+                    }
+                    radios.forEach(function(r){ r.addEventListener('change', update); });
+                    update();
                 })();
                 </script>
             </div>
@@ -4518,13 +4538,16 @@ class TIX_Metabox {
         update_post_meta($post_id, '_tix_ticket_transfer', !empty($tix_meta['_tix_ticket_transfer']) ? '1' : '0');
         update_post_meta($post_id, '_tix_barcode', !empty($tix_meta['_tix_barcode']) ? '1' : '0');
 
-        // Low-Stock-Badge (Per-Event Override)
-        $ls_mode = in_array(($tix_meta['_tix_low_stock_mode'] ?? 'global'), ['global','custom','off'], true)
+        // Low-Stock-Badge (Per-Event Override) — global/custom/manual/off
+        $ls_mode = in_array(($tix_meta['_tix_low_stock_mode'] ?? 'global'), ['global','custom','manual','off'], true)
                  ? $tix_meta['_tix_low_stock_mode'] : 'global';
         update_post_meta($post_id, '_tix_low_stock_mode', $ls_mode);
         if ($ls_mode === 'custom') {
             $ls_threshold = max(1, min(9999, intval($tix_meta['_tix_low_stock_threshold'] ?? 50)));
             update_post_meta($post_id, '_tix_low_stock_threshold', $ls_threshold);
+        }
+        if ($ls_mode === 'manual') {
+            update_post_meta($post_id, '_tix_low_stock_text', sanitize_text_field($tix_meta['_tix_low_stock_text'] ?? ''));
         }
 
         // Charity / Soziales Projekt

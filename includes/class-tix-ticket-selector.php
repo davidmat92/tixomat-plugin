@@ -472,16 +472,26 @@ class TIX_Ticket_Selector {
                             <span class="tix-sel-vat"><?php echo esc_html($vat_text); ?></span>
                             <?php
                             // ── Low-Stock-Badge ──
-                            // Per-Event Override: 'global' (default) | 'custom' (eigener Wert) | 'off' (deaktiviert)
+                            // Per-Event Override: 'global' (default) | 'custom' (Schwellwert) | 'manual' (fester Text) | 'off' (aus)
                             $low_stock_mode = get_post_meta($post_id, '_tix_low_stock_mode', true) ?: 'global';
+                            $low_threshold = 0;
+                            $manual_text = '';
                             if ($low_stock_mode === 'off') {
                                 $low_threshold = 0;
                             } elseif ($low_stock_mode === 'custom') {
                                 $low_threshold = intval(get_post_meta($post_id, '_tix_low_stock_threshold', true));
+                            } elseif ($low_stock_mode === 'manual') {
+                                $manual_text = trim((string) get_post_meta($post_id, '_tix_low_stock_text', true));
                             } else {
                                 $low_threshold = intval(tix_get_settings('low_stock_threshold') ?? 10);
                             }
-                            if (!$is_offline && $in_stock && $stock_qty !== null && $stock_qty > 0 && $low_threshold > 0 && $stock_qty <= $low_threshold):
+                            // 1) Manueller Marketing-Text → IMMER zeigen (bei verfügbaren Tickets)
+                            if (!$is_offline && $in_stock && $manual_text !== ''):
+                            ?>
+                                <span class="tix-sel-low-stock"><?php echo esc_html($manual_text); ?></span>
+                            <?php
+                            // 2) Echter Knappheits-Trigger (Bestand <= Schwellwert)
+                            elseif (!$is_offline && $in_stock && $stock_qty !== null && $stock_qty > 0 && $low_threshold > 0 && $stock_qty <= $low_threshold):
                             ?>
                                 <span class="tix-sel-low-stock">Nur noch <?php echo intval($stock_qty); ?> verfügbar!</span>
                             <?php endif; ?>
