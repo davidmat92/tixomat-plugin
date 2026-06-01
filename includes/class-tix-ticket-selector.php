@@ -463,7 +463,15 @@ class TIX_Ticket_Selector {
                             <span class="tix-sel-vat"><?php echo esc_html($vat_text); ?></span>
                             <?php
                             // ── Low-Stock-Badge ──
-                            $low_threshold = intval(tix_get_settings('low_stock_threshold') ?? 10);
+                            // Per-Event Override: 'global' (default) | 'custom' (eigener Wert) | 'off' (deaktiviert)
+                            $low_stock_mode = get_post_meta($post_id, '_tix_low_stock_mode', true) ?: 'global';
+                            if ($low_stock_mode === 'off') {
+                                $low_threshold = 0;
+                            } elseif ($low_stock_mode === 'custom') {
+                                $low_threshold = intval(get_post_meta($post_id, '_tix_low_stock_threshold', true));
+                            } else {
+                                $low_threshold = intval(tix_get_settings('low_stock_threshold') ?? 10);
+                            }
                             if (!$is_offline && $in_stock && $stock_qty !== null && $stock_qty > 0 && $low_threshold > 0 && $stock_qty <= $low_threshold):
                             ?>
                                 <span class="tix-sel-low-stock">Nur noch <?php echo intval($stock_qty); ?> verfügbar!</span>
