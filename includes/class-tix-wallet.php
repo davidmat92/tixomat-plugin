@@ -388,16 +388,14 @@ class TIX_Wallet {
             $files['icon.png']    = $icon;
             $files['icon@2x.png'] = $icon;
         }
-        // Strip wird in zwei Varianten erstellt (1x + 2x), beide auf Wallet-Spec-Größe gecropped
+        // THUMBNAIL statt STRIP: quadratisches Bild oben rechts neben dem Header.
+        // strip.png würde iOS den Text DRÜBER legen — thumbnail lässt das Layout sauber.
+        // Apple Spec: 90×90 @1x, 180×180 @2x — wir nehmen 2x als Basis für Schärfe.
         if ($strip) {
-            // Apple eventTicket strip: @1x 375×123, @2x 750×246
-            $strip_1x = self::resize_to_strip($strip, 375, 123);
-            $strip_2x = self::resize_to_strip($strip, 750, 246);
-            if ($strip_1x) $files['strip.png']    = $strip_1x;
-            if ($strip_2x) $files['strip@2x.png'] = $strip_2x;
-            // Falls Resize fehlschlägt, lieber Original (auch wenn groß) als gar nichts
-            if (!isset($files['strip.png']))    $files['strip.png']    = $strip;
-            if (!isset($files['strip@2x.png'])) $files['strip@2x.png'] = $strip;
+            $thumb_1x = self::resize_to_strip($strip, 90,  90);
+            $thumb_2x = self::resize_to_strip($strip, 180, 180);
+            if ($thumb_1x) $files['thumbnail.png']    = $thumb_1x;
+            if ($thumb_2x) $files['thumbnail@2x.png'] = $thumb_2x;
         }
         return $files;
     }
