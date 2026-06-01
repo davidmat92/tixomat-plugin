@@ -252,6 +252,25 @@ class TIX_Ticket_Selector {
 
             <div class="tix-sel-categories">
                 <?php
+                // ── Sold-Count pro Kategorie (native Orders) — einmal pro Event aggregieren ──
+                $sold_per_cat = [];
+                global $wpdb;
+                $orders_table = $wpdb->prefix . 'tix_orders';
+                $items_table  = $wpdb->prefix . 'tix_order_items';
+                if ($wpdb->get_var("SHOW TABLES LIKE '$orders_table'") === $orders_table) {
+                    $sold_rows = $wpdb->get_results($wpdb->prepare(
+                        "SELECT i.cat_index, COALESCE(SUM(i.quantity), 0) AS qty
+                         FROM $items_table i
+                         INNER JOIN $orders_table o ON i.order_id = o.id
+                         WHERE o.status IN ('completed','processing') AND i.event_id = %d
+                         GROUP BY i.cat_index",
+                        $post_id
+                    ));
+                    foreach ($sold_rows as $sr) {
+                        $sold_per_cat[intval($sr->cat_index)] = intval($sr->qty);
+                    }
+                }
+
                 // Prüfe ob alle Online-Tickets ausverkauft (für Warteliste)
                 $all_online_soldout = true;
                 $has_any_online = false;
@@ -348,6 +367,13 @@ class TIX_Ticket_Selector {
                             $in_stock  = $product->is_in_stock();
                             $stock_qty = $product->get_stock_quantity();
                         }
+                    }
+                    // Native Stock-Berechnung (kein WC-Product): qty_max - bereits_verkauft pro cat_index
+                    // qty_max <= 0 bedeutet "unbegrenzt" → kein stock_qty setzen
+                    if (!$is_offline && $stock_qty === null && $qty_max > 0) {
+                        $already_sold = $sold_per_cat[$i] ?? 0;
+                        $stock_qty = max(0, $qty_max - $already_sold);
+                        $in_stock  = $stock_qty > 0;
                     }
                 ?>
                     <?php // ── Einzelticket-Zeile ── ?>
