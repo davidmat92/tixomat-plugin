@@ -157,8 +157,35 @@ class TIX_Wallet {
 
         $code     = get_post_meta($ticket_id, '_tix_ticket_code', true) ?: get_post_meta($ticket_id, '_tix_ticket_serial', true) ?: '';
         $event_id = intval(get_post_meta($ticket_id, '_tix_ticket_event_id', true));
-        $owner    = trim(get_post_meta($ticket_id, '_tix_ticket_owner_first_name', true) . ' ' . get_post_meta($ticket_id, '_tix_ticket_owner_last_name', true));
-        $cat_name = get_post_meta($ticket_id, '_tix_ticket_category_name', true) ?: 'Ticket';
+
+        // Kategorie: cat_name ist Standard-Meta, category_name als Legacy-Fallback
+        $cat_name = get_post_meta($ticket_id, '_tix_ticket_cat_name', true)
+                 ?: get_post_meta($ticket_id, '_tix_ticket_category_name', true)
+                 ?: 'Ticket';
+
+        // Inhaber-Name: erst personalisierter Owner, sonst Käufer aus der Order, sonst leer
+        $owner = trim((string) get_post_meta($ticket_id, '_tix_ticket_owner_name', true));
+        if ($owner === '') {
+            // Legacy-Format mit first/last name
+            $owner = trim(
+                get_post_meta($ticket_id, '_tix_ticket_owner_first_name', true) . ' ' .
+                get_post_meta($ticket_id, '_tix_ticket_owner_last_name', true)
+            );
+        }
+        if ($owner === '') {
+            // Fallback: Käufer aus zugehöriger Order
+            $order_id = intval(get_post_meta($ticket_id, '_tix_ticket_order_id', true));
+            if ($order_id > 0) {
+                global $wpdb;
+                $row = $wpdb->get_row($wpdb->prepare(
+                    "SELECT billing_first_name, billing_last_name FROM {$wpdb->prefix}tix_orders WHERE id = %d",
+                    $order_id
+                ));
+                if ($row) {
+                    $owner = trim(($row->billing_first_name ?? '') . ' ' . ($row->billing_last_name ?? ''));
+                }
+            }
+        }
 
         $event = $event_id ? get_post($event_id) : null;
         $event_title = $event ? $event->post_title : 'Event';
@@ -193,7 +220,7 @@ class TIX_Wallet {
             'venue_addr'   => $venue_addr,
             'venue_lat'    => $venue_lat,
             'venue_lng'    => $venue_lng,
-            'owner_name'   => $owner ?: '–',
+            'owner_name'   => $owner, // leer wenn weder personalisiert noch Käufer-Daten verfügbar
             'category'     => $cat_name,
         ];
     }
@@ -293,7 +320,7 @@ class TIX_Wallet {
                 // Auxiliary: VENUE breit + optional NAME wenn personalisiert
                 'auxiliaryFields' => array_values(array_filter([
                     $t['venue_name']  ? ['key' => 'venue', 'label' => 'VENUE', 'value' => $t['venue_name']] : null,
-                    ($t['owner_name'] && $t['owner_name'] !== '–') ? ['key' => 'name', 'label' => 'NAME', 'value' => $t['owner_name']] : null,
+                    $t['owner_name'] ? ['key' => 'name', 'label' => 'NAME', 'value' => $t['owner_name']] : null,
                 ])),
                 'backFields' => [
                     ['key' => 'addr',     'label' => 'Adresse',     'value' => $t['venue_addr']],
