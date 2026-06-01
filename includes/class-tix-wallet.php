@@ -269,31 +269,37 @@ class TIX_Wallet {
             'teamIdentifier'     => $s['wallet_apple_team_id'],
             'organizationName'   => $s['wallet_apple_org_name'] ?: get_bloginfo('name'),
             'description'        => $t['event_title'] . ' — ' . $t['category'],
-            'logoText'           => $s['wallet_apple_org_name'] ?: '',
+            // logoText leer lassen, wenn ein Logo-Bild gesetzt ist — sonst rendert iOS Logo UND Text
+            // nebeneinander und das Header-Layout wird gequetscht (mit headerField rechts).
+            'logoText'           => '',
             'foregroundColor'    => self::hex_to_rgb_css($s['wallet_apple_fg_color'] ?? '#ffffff'),
             'backgroundColor'    => self::hex_to_rgb_css($s['wallet_apple_bg_color'] ?? '#0f172a'),
             'labelColor'         => self::hex_to_rgb_css($s['wallet_apple_label_color'] ?? '#cbd5e1'),
             'eventTicket' => [
-                'headerFields' => [
-                    ['key' => 'evt', 'label' => 'EVENT', 'value' => $t['event_title']],
-                ],
+                // Header: nur 1 Kurz-Info rechts neben dem Logo (Kategorie passt am besten)
+                // KEIN langer Event-Titel hier — der schneidet ab.
+                'headerFields' => array_values(array_filter([
+                    $t['category'] ? ['key' => 'cat', 'label' => 'KATEGORIE', 'value' => $t['category']] : null,
+                ])),
+                // Primary: Event-Titel groß — das ist die wichtigste Info
                 'primaryFields' => [
-                    // KEIN dateStyle — wir liefern den Wert als vorformatierten String.
-                    // (Wenn dateStyle gesetzt ist, muss value ein ISO-8601 Date sein — sonst lehnt iOS den Pass ab.)
-                    ['key' => 'date', 'label' => 'DATUM', 'value' => self::format_date($t['date_start'])],
+                    ['key' => 'event', 'label' => 'EVENT', 'value' => $t['event_title']],
                 ],
-                'secondaryFields' => [
-                    ['key' => 'admission', 'label' => 'EINLASS', 'value' => $t['admission'] ?: $t['time_start']],
-                    ['key' => 'venue',     'label' => 'VENUE',   'value' => $t['venue_name']],
-                ],
-                'auxiliaryFields' => [
-                    ['key' => 'cat',  'label' => 'KATEGORIE', 'value' => $t['category']],
-                    ['key' => 'name', 'label' => 'NAME',      'value' => $t['owner_name']],
-                ],
+                // Secondary: 2-spaltig DATUM + EINLASS
+                'secondaryFields' => array_values(array_filter([
+                    ['key' => 'date',  'label' => 'DATUM',   'value' => self::format_date($t['date_start'])],
+                    ($t['admission'] || $t['time_start']) ? ['key' => 'admission', 'label' => 'EINLASS', 'value' => $t['admission'] ?: $t['time_start']] : null,
+                ])),
+                // Auxiliary: VENUE breit + optional NAME wenn personalisiert
+                'auxiliaryFields' => array_values(array_filter([
+                    $t['venue_name']  ? ['key' => 'venue', 'label' => 'VENUE', 'value' => $t['venue_name']] : null,
+                    ($t['owner_name'] && $t['owner_name'] !== '–') ? ['key' => 'name', 'label' => 'NAME', 'value' => $t['owner_name']] : null,
+                ])),
                 'backFields' => [
-                    ['key' => 'addr',   'label' => 'Adresse',     'value' => $t['venue_addr']],
-                    ['key' => 'code',   'label' => 'Ticket-Code', 'value' => $t['code']],
-                    ['key' => 'powered','label' => 'Powered by',  'value' => 'Tixomat'],
+                    ['key' => 'addr',     'label' => 'Adresse',     'value' => $t['venue_addr']],
+                    ['key' => 'venue_b',  'label' => 'Venue',       'value' => $t['venue_name']],
+                    ['key' => 'code',     'label' => 'Ticket-Code', 'value' => $t['code']],
+                    ['key' => 'powered',  'label' => 'Powered by',  'value' => 'Tixomat'],
                 ],
             ],
             'barcodes' => [
