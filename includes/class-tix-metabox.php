@@ -1964,6 +1964,35 @@ class TIX_Metabox {
                     </label>
                 </div>
                 <?php
+                    // ── Low-Stock-Badge pro Kategorie ──
+                    $cat_ls_mode      = $cat['low_stock_mode']      ?? 'inherit';
+                    $cat_ls_threshold = $cat['low_stock_threshold'] ?? '';
+                    $cat_ls_text      = $cat['low_stock_text']      ?? '';
+                    $has_cat_ls       = $cat_ls_mode !== 'inherit' && $cat_ls_mode !== '';
+                ?>
+                <a href="#" class="tix-ls-toggle<?php echo $has_cat_ls ? ' has-ls' : ''; ?>" title="Knappheits-Badge nur für diese Kategorie">
+                    📣 <?php
+                        if ($cat_ls_mode === 'manual')      echo 'Text-Badge';
+                        elseif ($cat_ls_mode === 'custom')  echo 'Schwellwert ' . intval($cat_ls_threshold);
+                        elseif ($cat_ls_mode === 'off')     echo 'Badge aus';
+                        else                                 echo 'Anzeige';
+                    ?>
+                </a>
+                <div class="tix-ls-fields" <?php echo !$has_cat_ls ? 'style="display:none;"' : ''; ?> style="margin-top:4px;">
+                    <select name="tix_tickets[<?php echo $i; ?>][low_stock_mode]" class="tix-ls-mode tix-input-sm" style="font-size:11px;width:auto;">
+                        <option value="inherit" <?php selected($cat_ls_mode, 'inherit'); ?>>↳ Event-Einstellung nutzen</option>
+                        <option value="custom"  <?php selected($cat_ls_mode, 'custom'); ?>>🎯 Eigener Schwellwert</option>
+                        <option value="manual"  <?php selected($cat_ls_mode, 'manual'); ?>>✏️ Fester Text</option>
+                        <option value="off"     <?php selected($cat_ls_mode, 'off'); ?>>🚫 Aus</option>
+                    </select>
+                    <input type="number" name="tix_tickets[<?php echo $i; ?>][low_stock_threshold]" class="tix-ls-threshold tix-input-sm" min="1" max="9999"
+                           value="<?php echo esc_attr($cat_ls_threshold); ?>"
+                           placeholder="z.B. 50" style="width:80px;<?php echo $cat_ls_mode !== 'custom' ? 'display:none;' : ''; ?>">
+                    <input type="text" name="tix_tickets[<?php echo $i; ?>][low_stock_text]" class="tix-ls-text tix-input-sm" maxlength="80"
+                           value="<?php echo esc_attr($cat_ls_text); ?>"
+                           placeholder="z.B. 🔥 Nur noch wenige!" style="width:220px;<?php echo $cat_ls_mode !== 'manual' ? 'display:none;' : ''; ?>">
+                </div>
+                <?php
                     // Saalplan wird jetzt auf Event-Ebene konfiguriert (Erweitert-Tab)
                     global $post;
                     $event_sm_id = $post ? intval(get_post_meta($post->ID, '_tix_seatmap_id', true)) : 0;
@@ -4331,6 +4360,16 @@ class TIX_Metabox {
                 'seatmap_id'       => intval($ticket['seatmap_id'] ?? 0),
                 'seatmap_section'  => sanitize_key($ticket['seatmap_section'] ?? ''),
             ];
+
+            // Low-Stock-Badge pro Kategorie (überschreibt Event-Setting)
+            $ls_mode_raw = $ticket['low_stock_mode'] ?? 'inherit';
+            $cat['low_stock_mode'] = in_array($ls_mode_raw, ['inherit','custom','manual','off'], true) ? $ls_mode_raw : 'inherit';
+            if ($cat['low_stock_mode'] === 'custom') {
+                $cat['low_stock_threshold'] = max(1, min(9999, intval($ticket['low_stock_threshold'] ?? 50)));
+            }
+            if ($cat['low_stock_mode'] === 'manual') {
+                $cat['low_stock_text'] = sanitize_text_field($ticket['low_stock_text'] ?? '');
+            }
 
             // Preisphasen
             $raw_phases = $ticket['phases'] ?? [];

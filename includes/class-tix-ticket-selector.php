@@ -472,18 +472,30 @@ class TIX_Ticket_Selector {
                             <span class="tix-sel-vat"><?php echo esc_html($vat_text); ?></span>
                             <?php
                             // ── Low-Stock-Badge ──
-                            // Per-Event Override: 'global' (default) | 'custom' (Schwellwert) | 'manual' (fester Text) | 'off' (aus)
-                            $low_stock_mode = get_post_meta($post_id, '_tix_low_stock_mode', true) ?: 'global';
+                            // Priorität: Kategorie-Override → Event-Override → Global
+                            // Kategorie: 'inherit' (= Event-Setting nutzen) | 'custom' | 'manual' | 'off'
+                            $cat_ls_mode = $cat['low_stock_mode'] ?? 'inherit';
                             $low_threshold = 0;
                             $manual_text = '';
-                            if ($low_stock_mode === 'off') {
+
+                            if ($cat_ls_mode === 'off') {
                                 $low_threshold = 0;
-                            } elseif ($low_stock_mode === 'custom') {
-                                $low_threshold = intval(get_post_meta($post_id, '_tix_low_stock_threshold', true));
-                            } elseif ($low_stock_mode === 'manual') {
-                                $manual_text = trim((string) get_post_meta($post_id, '_tix_low_stock_text', true));
+                            } elseif ($cat_ls_mode === 'custom') {
+                                $low_threshold = intval($cat['low_stock_threshold'] ?? 0);
+                            } elseif ($cat_ls_mode === 'manual') {
+                                $manual_text = trim((string) ($cat['low_stock_text'] ?? ''));
                             } else {
-                                $low_threshold = intval(tix_get_settings('low_stock_threshold') ?? 10);
+                                // 'inherit' → Event-Setting fallback
+                                $low_stock_mode = get_post_meta($post_id, '_tix_low_stock_mode', true) ?: 'global';
+                                if ($low_stock_mode === 'off') {
+                                    $low_threshold = 0;
+                                } elseif ($low_stock_mode === 'custom') {
+                                    $low_threshold = intval(get_post_meta($post_id, '_tix_low_stock_threshold', true));
+                                } elseif ($low_stock_mode === 'manual') {
+                                    $manual_text = trim((string) get_post_meta($post_id, '_tix_low_stock_text', true));
+                                } else {
+                                    $low_threshold = intval(tix_get_settings('low_stock_threshold') ?? 10);
+                                }
                             }
                             // 1) Manueller Marketing-Text → IMMER zeigen (bei verfügbaren Tickets)
                             if (!$is_offline && $in_stock && $manual_text !== ''):

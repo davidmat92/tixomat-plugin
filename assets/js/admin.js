@@ -649,6 +649,18 @@
         $(this).next('.tix-bundle-fields').toggle();
     });
 
+    // ── Low-Stock-Badge pro Kategorie: Toggle + Mode-Switch ──
+    $(document).on('click', '.tix-ls-toggle', function(e) {
+        e.preventDefault();
+        $(this).next('.tix-ls-fields').toggle();
+    });
+    $(document).on('change', '.tix-ls-mode', function() {
+        var $wrap = $(this).closest('.tix-ls-fields');
+        var v = $(this).val();
+        $wrap.find('.tix-ls-threshold').toggle(v === 'custom');
+        $wrap.find('.tix-ls-text').toggle(v === 'manual');
+    });
+
     // ── Saalplan Toggle ──
     $(document).on('click', '.tix-seatmap-toggle', function(e) {
         e.preventDefault();
