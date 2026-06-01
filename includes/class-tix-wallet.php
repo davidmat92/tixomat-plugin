@@ -370,16 +370,6 @@ class TIX_Wallet {
         $logo  = self::fetch_image_bytes($s['wallet_apple_logo_url'] ?? '');
         $icon  = self::fetch_image_bytes($s['wallet_apple_icon_url'] ?? '');
 
-        // Strip-Bild Priorität: Event-Beitragsbild → globales Wallet-Strip-Setting
-        // Apple-Specs für eventTicket-Strip: 375×123 px @1x, 750×246 px @2x (1125×369 @3x)
-        $strip = null;
-        if ($ticket && !empty($ticket['event_id'])) {
-            $strip = self::event_strip_image(intval($ticket['event_id']));
-        }
-        if (!$strip) {
-            $strip = self::fetch_image_bytes($s['wallet_apple_strip_url'] ?? '');
-        }
-
         if ($logo) {
             $files['logo.png']    = $logo;
             $files['logo@2x.png'] = $logo;
@@ -388,15 +378,8 @@ class TIX_Wallet {
             $files['icon.png']    = $icon;
             $files['icon@2x.png'] = $icon;
         }
-        // THUMBNAIL statt STRIP: quadratisches Bild oben rechts neben dem Header.
-        // strip.png würde iOS den Text DRÜBER legen — thumbnail lässt das Layout sauber.
-        // Apple Spec: 90×90 @1x, 180×180 @2x — wir nehmen 2x als Basis für Schärfe.
-        if ($strip) {
-            $thumb_1x = self::resize_to_strip($strip, 90,  90);
-            $thumb_2x = self::resize_to_strip($strip, 180, 180);
-            if ($thumb_1x) $files['thumbnail.png']    = $thumb_1x;
-            if ($thumb_2x) $files['thumbnail@2x.png'] = $thumb_2x;
-        }
+        // KEIN strip/thumbnail/background — Pass bleibt clean nur mit Logo + Icon + Texten.
+        // Apple's Bild-Slots erlauben kein scharfes Vollbild ohne Crop oder Blur, daher weggelassen.
         return $files;
     }
 
