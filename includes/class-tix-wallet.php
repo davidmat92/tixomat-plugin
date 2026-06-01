@@ -388,47 +388,78 @@ class TIX_Wallet {
             $files['icon.png']    = $icon;
             $files['icon@2x.png'] = $icon;
         }
+        // Strip wird in zwei Varianten erstellt (1x + 2x), beide auf Wallet-Spec-Größe gecropped
         if ($strip) {
-            $files['strip.png']    = $strip;
-            $files['strip@2x.png'] = $strip;
+            // Apple eventTicket strip: @1x 375×123, @2x 750×246
+            $strip_1x = self::resize_to_strip($strip, 375, 123);
+            $strip_2x = self::resize_to_strip($strip, 750, 246);
+            if ($strip_1x) $files['strip.png']    = $strip_1x;
+            if ($strip_2x) $files['strip@2x.png'] = $strip_2x;
+            // Falls Resize fehlschlägt, lieber Original (auch wenn groß) als gar nichts
+            if (!isset($files['strip.png']))    $files['strip.png']    = $strip;
+            if (!isset($files['strip@2x.png'])) $files['strip@2x.png'] = $strip;
         }
         return $files;
     }
 
     /**
-     * Holt das Event-Beitragsbild und gibt es als PNG-Bytes zurück.
-     * Falls als JPG vorhanden → on-the-fly nach PNG konvertiert (Apple braucht PNG für strip.png).
+     * Holt das Event-Beitragsbild und gibt rohe Bytes zurück (PNG oder JPG — Resize macht der Caller).
      */
     private static function event_strip_image(int $event_id): ?string {
         $thumb_id = get_post_thumbnail_id($event_id);
         if (!$thumb_id) return null;
 
-        // Bevorzugt eine Größe, die nah am Wallet-Strip-Format liegt (375×123 @1x → 750×246 @2x)
-        $img = wp_get_attachment_image_src($thumb_id, 'large');
+        // Großzügige Quelle nehmen — Resize macht der Caller. medium_large ist gecached + meist 768px.
+        $img = wp_get_attachment_image_src($thumb_id, 'medium_large');
+        if (!$img || empty($img[0])) {
+            $img = wp_get_attachment_image_src($thumb_id, 'large');
+        }
         if (!$img || empty($img[0])) {
             $img = wp_get_attachment_image_src($thumb_id, 'full');
         }
         if (!$img || empty($img[0])) return null;
 
-        $url   = $img[0];
-        $bytes = self::fetch_image_bytes($url);
-        if (!$bytes) return null;
+        return self::fetch_image_bytes($img[0]);
+    }
 
-        // PNG? → direkt zurück. Sonst per GD nach PNG konvertieren.
-        $sig = substr($bytes, 0, 8);
-        if (substr($sig, 0, 8) === "\x89PNG\r\n\x1a\n") {
-            return $bytes;
+    /**
+     * Resized Bild-Bytes (PNG/JPG/WebP) auf exakt $w × $h, cropped center,
+     * gibt komprimierte PNG-Bytes zurück. Null wenn GD fehlt oder Bild kaputt.
+     */
+    private static function resize_to_strip(string $bytes, int $w, int $h): ?string {
+        if (!function_exists('imagecreatefromstring') || !function_exists('imagepng')) return null;
+        $src = @imagecreatefromstring($bytes);
+        if (!$src) return null;
+        $sw = imagesx($src);
+        $sh = imagesy($src);
+        if ($sw < 1 || $sh < 1) { imagedestroy($src); return null; }
+
+        // Cover-Crop: Quell-Region wählen, sodass Aspect-Ratio passt (zentriert)
+        $target_ratio = $w / $h;
+        $src_ratio    = $sw / $sh;
+        if ($src_ratio > $target_ratio) {
+            // Quelle zu breit → links/rechts beschneiden
+            $crop_w = intval($sh * $target_ratio);
+            $crop_h = $sh;
+            $crop_x = intval(($sw - $crop_w) / 2);
+            $crop_y = 0;
+        } else {
+            // Quelle zu hoch → oben/unten beschneiden
+            $crop_w = $sw;
+            $crop_h = intval($sw / $target_ratio);
+            $crop_x = 0;
+            $crop_y = intval(($sh - $crop_h) / 2);
         }
-        if (!function_exists('imagecreatefromstring') || !function_exists('imagepng')) {
-            return null; // GD fehlt — Strip lieber weglassen als Pass kaputt machen
-        }
-        $im = @imagecreatefromstring($bytes);
-        if (!$im) return null;
+
+        $dst = imagecreatetruecolor($w, $h);
+        imagecopyresampled($dst, $src, 0, 0, $crop_x, $crop_y, $w, $h, $crop_w, $crop_h);
+        imagedestroy($src);
+
         ob_start();
-        imagepng($im);
-        $png = ob_get_clean();
-        imagedestroy($im);
-        return $png ?: null;
+        imagepng($dst, null, 8); // Compression 8 (0=none, 9=max)
+        $out = ob_get_clean();
+        imagedestroy($dst);
+        return $out ?: null;
     }
 
     private static function fetch_image_bytes($url): ?string {
