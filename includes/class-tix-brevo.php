@@ -29,19 +29,64 @@ class TIX_Brevo {
     /* ─────────── Bereitschaft ─────────── */
 
     public static function is_configured(): bool {
-        return !empty(tix_get_settings('brevo_enabled'))
-            && !empty(tix_get_settings('brevo_api_key'))
-            && intval(tix_get_settings('brevo_list_id')) > 0;
+        if (empty(tix_get_settings('brevo_enabled')))    return false;
+        if (empty(tix_get_settings('brevo_api_key')))    return false;
+        // Mindestens entweder Default-Liste ODER eine Mapping-Regel
+        $has_default  = intval(tix_get_settings('brevo_list_id')) > 0;
+        $has_mappings = !empty(tix_get_settings('brevo_mappings'));
+        return $has_default || $has_mappings;
+    }
+
+    /**
+     * Berechnet welche Listen-IDs für eine Bestellung greifen.
+     * Geht alle Items der Order durch + matched gegen Mapping-Regeln.
+     * Fallback: Default-Listen-ID. Liefert eindeutiges Array von list_ids.
+     */
+    public static function list_ids_for_order(int $order_id): array {
+        $mappings = (array) (tix_get_settings('brevo_mappings') ?: []);
+        $default  = intval(tix_get_settings('brevo_list_id') ?? 0);
+        $list_ids = [];
+
+        if (!empty($mappings) && $order_id > 0) {
+            global $wpdb;
+            $items = $wpdb->get_results($wpdb->prepare(
+                "SELECT event_id, cat_name FROM {$wpdb->prefix}tix_order_items WHERE order_id = %d",
+                $order_id
+            ));
+            foreach ($items as $it) {
+                $ev  = intval($it->event_id);
+                $cat = trim((string) $it->cat_name);
+                foreach ($mappings as $m) {
+                    $rule_event = intval($m['event_id'] ?? 0);
+                    $rule_cat   = trim((string) ($m['cat_name'] ?? ''));
+                    // event_id=0 = any, cat_name='' = any
+                    $event_match = ($rule_event === 0) || ($rule_event === $ev);
+                    $cat_match   = ($rule_cat === '')  || (mb_strtolower($rule_cat) === mb_strtolower($cat));
+                    if ($event_match && $cat_match) {
+                        $list_ids[] = intval($m['list_id']);
+                    }
+                }
+            }
+        }
+
+        // Fallback: Default-Liste, falls keine Regel matched
+        if (empty($list_ids) && $default > 0) {
+            $list_ids[] = $default;
+        }
+
+        return array_values(array_unique(array_filter($list_ids, fn($id) => $id > 0)));
     }
 
     /* ─────────── HOOKS ─────────── */
 
     public static function handle_native_optin($order_id, $email, $first_name, $last_name) {
         if (!self::is_configured()) return;
+        $list_ids = self::list_ids_for_order(intval($order_id));
+        if (empty($list_ids)) return; // weder Mapping noch Default → nichts pushen
         self::add_contact($email, $first_name, $last_name, [
             'source'   => 'tixomat_native_checkout',
             'order_id' => intval($order_id),
-        ]);
+        ], $list_ids);
     }
 
     public static function handle_subscriber_save($post_id, $post, $update) {
@@ -50,15 +95,18 @@ class TIX_Brevo {
         if (wp_is_post_revision($post_id)) return;
         $email = get_post_meta($post_id, '_tix_sub_email', true) ?: $post->post_title;
         if (!is_email($email)) return;
-        // Nur opt-in
         $opt_in = get_post_meta($post_id, '_tix_sub_consent', true);
         if (!$opt_in) return;
         $first = (string) get_post_meta($post_id, '_tix_sub_first_name', true);
         $last  = (string) get_post_meta($post_id, '_tix_sub_last_name', true);
+        // Subscriber-CPT hat keine Order → versuche order_id Meta, sonst nur Default-Liste
+        $order_id = intval(get_post_meta($post_id, '_tix_sub_order_id', true));
+        $list_ids = self::list_ids_for_order($order_id);
+        if (empty($list_ids)) return;
         self::add_contact($email, $first, $last, [
             'source'        => 'tixomat_subscriber_cpt',
             'subscriber_id' => intval($post_id),
-        ]);
+        ], $list_ids);
     }
 
     /* ─────────── API: Kontakt hinzufügen / aktualisieren ─────────── */
@@ -67,13 +115,19 @@ class TIX_Brevo {
      * Fügt einen Kontakt zur konfigurierten Brevo-Liste hinzu (oder aktualisiert ihn).
      * @return array{success: bool, message: string, http?: int}
      */
-    public static function add_contact(string $email, string $first = '', string $last = '', array $extra = []): array {
+    public static function add_contact(string $email, string $first = '', string $last = '', array $extra = [], ?array $list_ids = null): array {
         if (!self::is_configured()) return ['success' => false, 'message' => 'Brevo nicht konfiguriert.'];
         $email = strtolower(trim(sanitize_email($email)));
         if (!is_email($email)) return ['success' => false, 'message' => 'Ungültige E-Mail.'];
 
-        $api_key  = trim(tix_get_settings('brevo_api_key'));
-        $list_id  = intval(tix_get_settings('brevo_list_id'));
+        $api_key = trim(tix_get_settings('brevo_api_key'));
+        // Backward-compat: wenn keine Liste übergeben → Default
+        if ($list_ids === null) {
+            $default = intval(tix_get_settings('brevo_list_id') ?? 0);
+            $list_ids = $default > 0 ? [$default] : [];
+        }
+        $list_ids = array_values(array_unique(array_filter(array_map('intval', $list_ids), fn($id) => $id > 0)));
+        if (empty($list_ids)) return ['success' => false, 'message' => 'Keine Listen-ID — weder Mapping noch Default-Liste konfiguriert.'];
 
         $attributes = array_filter([
             'VORNAME'   => trim($first),
@@ -86,7 +140,7 @@ class TIX_Brevo {
         $payload = [
             'email'         => $email,
             'attributes'    => $attributes,
-            'listIds'       => [$list_id],
+            'listIds'       => $list_ids,
             'updateEnabled' => true, // Duplikate updaten statt Fehler werfen
         ];
 
@@ -174,7 +228,10 @@ class TIX_Brevo {
             if (!is_email($email)) { $fail++; continue; }
             $first = get_post_meta($s->ID, '_tix_sub_first_name', true);
             $last  = get_post_meta($s->ID, '_tix_sub_last_name', true);
-            $r = self::add_contact($email, $first, $last, ['source' => 'tixomat_resync']);
+            $order_id = intval(get_post_meta($s->ID, '_tix_sub_order_id', true));
+            $list_ids = self::list_ids_for_order($order_id);
+            if (empty($list_ids)) { $fail++; $errors[] = $email . ': keine passende Liste'; continue; }
+            $r = self::add_contact($email, $first, $last, ['source' => 'tixomat_resync'], $list_ids);
             if ($r['success']) $ok++;
             else { $fail++; $errors[] = $email . ': ' . $r['message']; }
         }

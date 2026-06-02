@@ -329,7 +329,8 @@ class TIX_Settings {
             'newsletter_legal'    => '',          // Rechtlicher Hinweis unter Checkbox
             'brevo_enabled'       => 0,
             'brevo_api_key'       => '',
-            'brevo_list_id'       => 0,
+            'brevo_list_id'       => 0,                  // Default-Liste (Fallback)
+            'brevo_mappings'      => [],                  // [['event_id'=>X, 'cat_name'=>Y, 'list_id'=>Z], ...]
             // ── Ticket-System ──
             'ticket_system'         => 'standalone',
             // ── Abandoned Cart ──
@@ -1162,6 +1163,21 @@ class TIX_Settings {
         $clean['brevo_enabled'] = !empty($input['brevo_enabled']) ? 1 : 0;
         $clean['brevo_api_key'] = sanitize_text_field($input['brevo_api_key'] ?? '');
         $clean['brevo_list_id'] = max(0, intval($input['brevo_list_id'] ?? 0));
+        // Mappings: [['event_id'=>int, 'cat_name'=>string, 'list_id'=>int], ...]
+        // event_id=0 = "alle Events", cat_name="" = "alle Kategorien"
+        $clean['brevo_mappings'] = [];
+        if (is_array($input['brevo_mappings'] ?? null)) {
+            foreach ($input['brevo_mappings'] as $m) {
+                if (!is_array($m)) continue;
+                $list_id = intval($m['list_id'] ?? 0);
+                if ($list_id < 1) continue; // ohne Listen-ID → Zeile ignorieren
+                $clean['brevo_mappings'][] = [
+                    'event_id' => max(0, intval($m['event_id'] ?? 0)),
+                    'cat_name' => sanitize_text_field($m['cat_name'] ?? ''),
+                    'list_id'  => $list_id,
+                ];
+            }
+        }
 
         // Ticket-System (nur eigenes System)
         $clean['ticket_system'] = 'standalone';
@@ -6046,12 +6062,95 @@ class TIX_Settings {
                                                 <p class="tix-field-hint">In Brevo: <a href="https://app.brevo.com/settings/keys/api" target="_blank">Account → SMTP &amp; API → API Keys</a>.</p>
                                             </div>
                                             <div class="tix-field tix-field-half">
-                                                <label class="tix-field-label" for="tix-brevo-list">Listen-ID</label>
+                                                <label class="tix-field-label" for="tix-brevo-list">Default-Listen-ID (Fallback)</label>
                                                 <input type="number" id="tix-brevo-list" name="<?php echo self::OPTION_KEY; ?>[brevo_list_id]"
                                                        value="<?php echo esc_attr($s['brevo_list_id'] ?? ''); ?>"
                                                        class="tix-text-input" min="1" placeholder="z.B. 22">
-                                                <p class="tix-field-hint">In Brevo: Contacts → Lists → ID in URL.</p>
+                                                <p class="tix-field-hint">Greift wenn keine spezifische Mapping-Regel (unten) passt. Leer = Fallback aus, dann werden ohne Mapping keine Kontakte gepusht.</p>
                                             </div>
+
+                                            <?php
+                                            // ── Mapping-Tabelle: Event + Kategorie → Brevo-Liste ──
+                                            $mappings = (array) ($s['brevo_mappings'] ?? []);
+                                            if (empty($mappings)) $mappings = [['event_id' => 0, 'cat_name' => '', 'list_id' => '']]; // 1 leere Zeile
+                                            // Events laden für Dropdown
+                                            $brevo_events = get_posts(['post_type' => 'event', 'post_status' => ['publish','draft','future'], 'posts_per_page' => 200, 'orderby' => 'date', 'order' => 'DESC']);
+                                            // Pro Event die Kategorien sammeln
+                                            $brevo_cats_by_event = [];
+                                            $brevo_all_cats = [];
+                                            foreach ($brevo_events as $ev) {
+                                                $cats = get_post_meta($ev->ID, '_tix_ticket_categories', true);
+                                                if (!is_array($cats)) continue;
+                                                $names = [];
+                                                foreach ($cats as $c) {
+                                                    $n = trim($c['name'] ?? '');
+                                                    if ($n !== '') { $names[] = $n; $brevo_all_cats[$n] = true; }
+                                                }
+                                                $brevo_cats_by_event[$ev->ID] = $names;
+                                            }
+                                            $brevo_all_cats = array_keys($brevo_all_cats);
+                                            sort($brevo_all_cats);
+                                            ?>
+                                            <div class="tix-field tix-field-full">
+                                                <label class="tix-field-label">Listen-Mapping (Event + Kategorie → Listen-ID)</label>
+                                                <p class="tix-field-hint" style="margin-top:0;margin-bottom:8px;">Jede Regel landet einen Opt-In-Kontakt in die angegebene Liste. <strong>Mehrere Regeln können gleichzeitig matchen</strong> — der Kontakt wird dann in alle passenden Listen gepusht. Leerer Event = alle Events, leere Kategorie = alle Kategorien.</p>
+                                                <table id="tix-brevo-mappings" class="widefat" style="background:#f8fafc;">
+                                                    <thead><tr>
+                                                        <th style="width:38%;">Event</th>
+                                                        <th style="width:30%;">Kategorie</th>
+                                                        <th style="width:22%;">Listen-ID</th>
+                                                        <th style="width:60px;"></th>
+                                                    </tr></thead>
+                                                    <tbody>
+                                                    <?php foreach ($mappings as $i => $m): ?>
+                                                        <tr class="tix-brevo-map-row">
+                                                            <td>
+                                                                <select name="<?php echo self::OPTION_KEY; ?>[brevo_mappings][<?php echo $i; ?>][event_id]" class="tix-brevo-event tix-text-input" style="width:100%;">
+                                                                    <option value="0" <?php selected(intval($m['event_id']), 0); ?>>— Alle Events —</option>
+                                                                    <?php foreach ($brevo_events as $ev): ?>
+                                                                        <option value="<?php echo intval($ev->ID); ?>" <?php selected(intval($m['event_id']), $ev->ID); ?>><?php echo esc_html(get_the_title($ev->ID)); ?></option>
+                                                                    <?php endforeach; ?>
+                                                                </select>
+                                                            </td>
+                                                            <td>
+                                                                <select name="<?php echo self::OPTION_KEY; ?>[brevo_mappings][<?php echo $i; ?>][cat_name]" class="tix-brevo-cat tix-text-input" style="width:100%;">
+                                                                    <option value="" <?php selected($m['cat_name'], ''); ?>>— Alle Kategorien —</option>
+                                                                    <?php foreach ($brevo_all_cats as $cn): ?>
+                                                                        <option value="<?php echo esc_attr($cn); ?>" <?php selected($m['cat_name'], $cn); ?>><?php echo esc_html($cn); ?></option>
+                                                                    <?php endforeach; ?>
+                                                                </select>
+                                                            </td>
+                                                            <td><input type="number" min="1" name="<?php echo self::OPTION_KEY; ?>[brevo_mappings][<?php echo $i; ?>][list_id]" value="<?php echo esc_attr($m['list_id']); ?>" class="tix-text-input" placeholder="z.B. 23" style="width:100%;"></td>
+                                                            <td><button type="button" class="button tix-brevo-map-del" title="Regel entfernen">&times;</button></td>
+                                                        </tr>
+                                                    <?php endforeach; ?>
+                                                    </tbody>
+                                                </table>
+                                                <button type="button" id="tix-brevo-map-add" class="button" style="margin-top:8px;">+ Regel hinzufügen</button>
+                                            </div>
+                                            <script>
+                                            (function($){
+                                                var nextIdx = <?php echo count($mappings); ?>;
+                                                var eventOptions = <?php echo wp_json_encode(array_map(function($ev){ return ['id'=>intval($ev->ID),'title'=>html_entity_decode(get_the_title($ev->ID),ENT_QUOTES,'UTF-8')]; }, $brevo_events)); ?>;
+                                                var allCats = <?php echo wp_json_encode($brevo_all_cats); ?>;
+                                                $('#tix-brevo-map-add').on('click', function(){
+                                                    var i = nextIdx++;
+                                                    var $tr = $('<tr class="tix-brevo-map-row"></tr>');
+                                                    var prefix = '<?php echo self::OPTION_KEY; ?>[brevo_mappings][' + i + ']';
+                                                    var evSel = '<select name="' + prefix + '[event_id]" class="tix-brevo-event tix-text-input" style="width:100%;"><option value="0">— Alle Events —</option>';
+                                                    eventOptions.forEach(function(ev){ evSel += '<option value="' + ev.id + '">' + $('<div>').text(ev.title).html() + '</option>'; });
+                                                    evSel += '</select>';
+                                                    var catSel = '<select name="' + prefix + '[cat_name]" class="tix-brevo-cat tix-text-input" style="width:100%;"><option value="">— Alle Kategorien —</option>';
+                                                    allCats.forEach(function(c){ catSel += '<option value="' + $('<div>').text(c).html() + '">' + $('<div>').text(c).html() + '</option>'; });
+                                                    catSel += '</select>';
+                                                    $tr.append('<td>' + evSel + '</td><td>' + catSel + '</td><td><input type="number" min="1" name="' + prefix + '[list_id]" class="tix-text-input" placeholder="z.B. 23" style="width:100%;"></td><td><button type="button" class="button tix-brevo-map-del" title="Regel entfernen">×</button></td>');
+                                                    $('#tix-brevo-mappings tbody').append($tr);
+                                                });
+                                                $(document).on('click', '.tix-brevo-map-del', function(){
+                                                    $(this).closest('tr').remove();
+                                                });
+                                            })(jQuery);
+                                            </script>
                                             <div class="tix-field tix-field-full">
                                                 <button type="button" id="tix-brevo-test" class="button button-secondary" style="display:inline-flex;align-items:center;gap:6px;">
                                                     <span class="dashicons dashicons-yes-alt" style="font-size:16px;width:16px;height:16px;"></span> Verbindung testen
