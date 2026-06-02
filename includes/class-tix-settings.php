@@ -6156,9 +6156,13 @@ class TIX_Settings {
                                                     <span class="dashicons dashicons-yes-alt" style="font-size:16px;width:16px;height:16px;"></span> Verbindung testen
                                                 </button>
                                                 <button type="button" id="tix-brevo-resync" class="button" style="margin-left:6px;display:inline-flex;align-items:center;gap:6px;">
-                                                    <span class="dashicons dashicons-update" style="font-size:16px;width:16px;height:16px;"></span> Alle Bestands-Subscribers nachsynchronisieren
+                                                    <span class="dashicons dashicons-update" style="font-size:16px;width:16px;height:16px;"></span> Alle Opt-In-Subscribers nachsynchronisieren
+                                                </button>
+                                                <button type="button" id="tix-brevo-import-all" class="button" style="margin-left:6px;display:inline-flex;align-items:center;gap:6px;background:#fef3c7;border-color:#f59e0b;color:#92400e;">
+                                                    <span class="dashicons dashicons-download" style="font-size:16px;width:16px;height:16px;"></span> ALLE bezahlten Käufer importieren (ohne Opt-In!)
                                                 </button>
                                                 <span id="tix-brevo-result" style="margin-left:10px;font-size:13px;"></span>
+                                                <p class="tix-field-hint" style="margin-top:8px;background:#fef3c7;padding:8px 12px;border-radius:6px;color:#92400e;border:1px solid #fde68a;"><strong>⚠️ DSGVO-Hinweis:</strong> „Alle Käufer importieren" ignoriert das Opt-In-Häkchen und pusht <strong>jeden bezahlten Käufer</strong> in Brevo. Nur einmalig nutzen, wenn du die rechtliche Grundlage hast (z.B. wenn Newsletter beim Kauf bereits als implizite Zustimmung in den AGB verankert war) — sonst lieber bei „Opt-In-Subscribers" bleiben.</p>
                                             </div>
                                         </div>
                                         <script>
@@ -6186,6 +6190,19 @@ class TIX_Settings {
                                                     $b.prop('disabled', false);
                                                     if (r.success) fb(r.data.message, true);
                                                     else fb('✗ ' + (r.data && r.data.message ? r.data.message : 'Fehler'), false);
+                                                });
+                                            });
+                                            $('#tix-brevo-import-all').on('click', function(){
+                                                if (!confirm('⚠️ ALLE bezahlten Käufer (ohne Opt-In-Häkchen) an Brevo senden?\n\nDSGVO: Nur bestätigen wenn du sicher bist, dass du die rechtliche Grundlage zum E-Mail-Versand an diese Personen hast.\n\nFortfahren?')) return;
+                                                var $b = $(this); $b.prop('disabled', true);
+                                                fb('Import läuft (kann bei vielen Käufern länger dauern)…', true);
+                                                $.post(ajaxurl, {action:'tix_brevo_import_all', nonce:'<?php echo esc_js($brevo_nonce); ?>'}, function(r){
+                                                    $b.prop('disabled', false);
+                                                    if (r.success) fb(r.data.message, true);
+                                                    else fb('✗ ' + (r.data && r.data.message ? r.data.message : 'Fehler'), false);
+                                                }).fail(function(){
+                                                    $b.prop('disabled', false);
+                                                    fb('✗ Netzwerk-/Timeout-Fehler — bei vielen Käufern (>1000) kann der Request abbrechen', false);
                                                 });
                                             });
                                         })(jQuery);

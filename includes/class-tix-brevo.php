@@ -22,8 +22,9 @@ class TIX_Brevo {
     public static function init() {
         add_action('tix_newsletter_optin',  [__CLASS__, 'handle_native_optin'], 10, 4);
         add_action('save_post_tix_subscriber', [__CLASS__, 'handle_subscriber_save'], 20, 3);
-        add_action('wp_ajax_tix_brevo_test',   [__CLASS__, 'ajax_test']);
-        add_action('wp_ajax_tix_brevo_resync', [__CLASS__, 'ajax_resync']);
+        add_action('wp_ajax_tix_brevo_test',           [__CLASS__, 'ajax_test']);
+        add_action('wp_ajax_tix_brevo_resync',         [__CLASS__, 'ajax_resync']);
+        add_action('wp_ajax_tix_brevo_import_all',     [__CLASS__, 'ajax_import_all']);
     }
 
     /* ─────────── Bereitschaft ─────────── */
@@ -240,6 +241,68 @@ class TIX_Brevo {
             'ok'      => $ok,
             'fail'    => $fail,
             'total'   => count($subs),
+            'errors'  => array_slice($errors, 0, 5),
+        ]);
+    }
+
+    /* ─────────── AJAX: ALLE bezahlten Kaeufer importieren (One-Time) ─────────── */
+
+    public static function ajax_import_all() {
+        check_ajax_referer('tix_admin_nonce', 'nonce');
+        if (!current_user_can('manage_options')) wp_send_json_error(['message' => 'Keine Berechtigung.']);
+        if (!self::is_configured()) wp_send_json_error(['message' => 'Brevo nicht konfiguriert.']);
+
+        global $wpdb;
+        // Alle bezahlten Bestellungen mit Email — pro Email die NEUESTE Order (für Mapping)
+        $orders = $wpdb->get_results(
+            "SELECT id, billing_email, billing_first_name, billing_last_name
+             FROM {$wpdb->prefix}tix_orders
+             WHERE status IN ('completed','processing')
+               AND billing_email <> ''
+             ORDER BY id ASC"
+        );
+
+        // Dedupe nach Email — pro Email werden ALLE Order-IDs gesammelt damit
+        // alle passenden Mapping-Listen-IDs vereinigt werden (Käufer war in mehreren Events).
+        $by_email = [];
+        foreach ($orders as $o) {
+            $em = strtolower(trim($o->billing_email));
+            if (!is_email($em)) continue;
+            if (!isset($by_email[$em])) {
+                $by_email[$em] = [
+                    'first'     => $o->billing_first_name,
+                    'last'      => $o->billing_last_name,
+                    'order_ids' => [],
+                ];
+            }
+            $by_email[$em]['order_ids'][] = intval($o->id);
+            // Update Name auf den letzten (neueste Order = beste Datenqualität)
+            if ($o->billing_first_name) $by_email[$em]['first'] = $o->billing_first_name;
+            if ($o->billing_last_name)  $by_email[$em]['last']  = $o->billing_last_name;
+        }
+
+        $ok = 0; $fail = 0; $errors = [];
+        foreach ($by_email as $email => $info) {
+            // Listen-IDs aus ALLEN Orders dieses Käufers sammeln + dedupen
+            $all_lists = [];
+            foreach ($info['order_ids'] as $oid) {
+                foreach (self::list_ids_for_order($oid) as $lid) $all_lists[$lid] = true;
+            }
+            $list_ids = array_keys($all_lists);
+            if (empty($list_ids)) { $fail++; $errors[] = $email . ': keine passende Liste'; continue; }
+            $r = self::add_contact($email, $info['first'], $info['last'], [
+                'source'    => 'tixomat_import_all',
+                'order_ids' => implode(',', $info['order_ids']),
+            ], $list_ids);
+            if ($r['success']) $ok++;
+            else { $fail++; $errors[] = $email . ': ' . $r['message']; }
+        }
+        wp_send_json_success([
+            'message' => sprintf('Import fertig: %d OK, %d Fehler von %d eindeutigen Käufern (%d Bestellungen gesamt).',
+                $ok, $fail, count($by_email), count($orders)),
+            'ok'      => $ok,
+            'fail'    => $fail,
+            'total'   => count($by_email),
             'errors'  => array_slice($errors, 0, 5),
         ]);
     }
