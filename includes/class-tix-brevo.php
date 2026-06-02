@@ -25,6 +25,8 @@ class TIX_Brevo {
         add_action('wp_ajax_tix_brevo_test',           [__CLASS__, 'ajax_test']);
         add_action('wp_ajax_tix_brevo_resync',         [__CLASS__, 'ajax_resync']);
         add_action('wp_ajax_tix_brevo_import_all',     [__CLASS__, 'ajax_import_all']);
+        add_action('wp_ajax_tix_brevo_import_nonbuyers', [__CLASS__, 'ajax_import_nonbuyers']);
+        add_action('wp_ajax_tix_brevo_import_external', [__CLASS__, 'ajax_import_external']);
     }
 
     /* ─────────── Bereitschaft ─────────── */
@@ -303,6 +305,93 @@ class TIX_Brevo {
             'ok'      => $ok,
             'fail'    => $fail,
             'total'   => count($by_email),
+            'errors'  => array_slice($errors, 0, 5),
+        ]);
+    }
+
+    /* ─────────── AJAX: WP-Users ohne Bestellung importieren ─────────── */
+
+    public static function ajax_import_nonbuyers() {
+        check_ajax_referer('tix_admin_nonce', 'nonce');
+        if (!current_user_can('manage_options')) wp_send_json_error(['message' => 'Keine Berechtigung.']);
+        if (!self::is_configured()) wp_send_json_error(['message' => 'Brevo nicht konfiguriert.']);
+        $list_id = intval($_POST['list_id'] ?? 0);
+        if ($list_id < 1) wp_send_json_error(['message' => 'Ziel-Listen-ID fehlt.']);
+
+        global $wpdb;
+        // WP-Customer-Users die KEINE bezahlte Bestellung haben
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT u.ID, u.user_email,
+                    COALESCE(fn.meta_value, '') AS first_name,
+                    COALESCE(ln.meta_value, '') AS last_name
+             FROM {$wpdb->users} u
+             INNER JOIN {$wpdb->usermeta} cap ON u.ID = cap.user_id AND cap.meta_key = %s AND cap.meta_value LIKE %s
+             LEFT JOIN {$wpdb->usermeta} fn ON u.ID = fn.user_id AND fn.meta_key = 'first_name'
+             LEFT JOIN {$wpdb->usermeta} ln ON u.ID = ln.user_id AND ln.meta_key = 'last_name'
+             WHERE u.user_email <> ''
+               AND u.user_email NOT IN (
+                   SELECT DISTINCT billing_email FROM {$wpdb->prefix}tix_orders
+                   WHERE status IN ('completed','processing') AND billing_email <> ''
+               )",
+            $wpdb->prefix . 'capabilities',
+            '%tix_customer%'
+        ));
+
+        $ok = 0; $fail = 0; $errors = [];
+        foreach ($rows as $r) {
+            $email = strtolower(trim($r->user_email));
+            if (!is_email($email)) { $fail++; continue; }
+            $res = self::add_contact($email, $r->first_name, $r->last_name, ['source' => 'tixomat_nonbuyers'], [$list_id]);
+            if ($res['success']) $ok++;
+            else { $fail++; $errors[] = $email . ': ' . $res['message']; }
+        }
+        wp_send_json_success([
+            'message' => sprintf('Nicht-Käufer-Import: %d OK, %d Fehler von %d WP-Users ohne Bestellung → Liste #%d.',
+                $ok, $fail, count($rows), $list_id),
+            'errors'  => array_slice($errors, 0, 5),
+        ]);
+    }
+
+    /* ─────────── AJAX: Externe Quelle importieren (z.B. Tippspiel-Teilnehmer) ─────────── */
+
+    public static function ajax_import_external() {
+        check_ajax_referer('tix_admin_nonce', 'nonce');
+        if (!current_user_can('manage_options')) wp_send_json_error(['message' => 'Keine Berechtigung.']);
+        if (!self::is_configured()) wp_send_json_error(['message' => 'Brevo nicht konfiguriert.']);
+        $list_id = intval($_POST['list_id'] ?? 0);
+        $source  = sanitize_key($_POST['source'] ?? '');
+        if ($list_id < 1) wp_send_json_error(['message' => 'Ziel-Listen-ID fehlt.']);
+
+        global $wpdb;
+        $rows = [];
+        if ($source === 'mfxxl_teilnehmer') {
+            $tbl = $wpdb->prefix . 'mfxxl_teilnehmer';
+            if ($wpdb->get_var("SHOW TABLES LIKE '$tbl'") !== $tbl) {
+                wp_send_json_error(['message' => 'Tabelle ' . $tbl . ' existiert nicht.']);
+            }
+            // Nur mit DSGVO-Einwilligung
+            $rows = $wpdb->get_results("SELECT email, name FROM $tbl WHERE email <> '' AND einwilligung_dsgvo = 1");
+            // Name → first/last splitten
+            foreach ($rows as $r) {
+                $parts = preg_split('/\s+/', trim($r->name ?: ''), 2);
+                $r->first_name = $parts[0] ?? '';
+                $r->last_name  = $parts[1] ?? '';
+            }
+        } else {
+            wp_send_json_error(['message' => 'Unbekannte Quelle: ' . $source]);
+        }
+
+        $ok = 0; $fail = 0; $errors = [];
+        foreach ($rows as $r) {
+            $email = strtolower(trim($r->email));
+            if (!is_email($email)) { $fail++; continue; }
+            $res = self::add_contact($email, $r->first_name, $r->last_name, ['source' => $source], [$list_id]);
+            if ($res['success']) $ok++;
+            else { $fail++; $errors[] = $email . ': ' . $res['message']; }
+        }
+        wp_send_json_success([
+            'message' => sprintf('Import von %s: %d OK, %d Fehler von %d Datensätzen → Liste #%d.',
+                $source, $ok, $fail, count($rows), $list_id),
             'errors'  => array_slice($errors, 0, 5),
         ]);
     }

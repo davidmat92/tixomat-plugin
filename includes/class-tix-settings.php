@@ -6164,6 +6164,75 @@ class TIX_Settings {
                                                 <span id="tix-brevo-result" style="margin-left:10px;font-size:13px;"></span>
                                                 <p class="tix-field-hint" style="margin-top:8px;background:#fef3c7;padding:8px 12px;border-radius:6px;color:#92400e;border:1px solid #fde68a;"><strong>⚠️ DSGVO-Hinweis:</strong> „Alle Käufer importieren" ignoriert das Opt-In-Häkchen und pusht <strong>jeden bezahlten Käufer</strong> in Brevo. Nur einmalig nutzen, wenn du die rechtliche Grundlage hast (z.B. wenn Newsletter beim Kauf bereits als implizite Zustimmung in den AGB verankert war) — sonst lieber bei „Opt-In-Subscribers" bleiben.</p>
                                             </div>
+                                            <?php
+                                            global $wpdb;
+                                            // Quellen-Counts vorab anzeigen
+                                            $nonbuyer_count = intval($wpdb->get_var($wpdb->prepare(
+                                                "SELECT COUNT(DISTINCT u.user_email) FROM {$wpdb->users} u
+                                                 INNER JOIN {$wpdb->usermeta} um ON u.ID = um.user_id AND um.meta_key = %s AND um.meta_value LIKE %s
+                                                 WHERE u.user_email <> '' AND u.user_email NOT IN (
+                                                     SELECT DISTINCT billing_email FROM {$wpdb->prefix}tix_orders
+                                                     WHERE status IN ('completed','processing') AND billing_email <> '')",
+                                                $wpdb->prefix . 'capabilities', '%tix_customer%'
+                                            )));
+                                            $tippspiel_tbl = $wpdb->prefix . 'mfxxl_teilnehmer';
+                                            $tippspiel_count = ($wpdb->get_var("SHOW TABLES LIKE '$tippspiel_tbl'") === $tippspiel_tbl)
+                                                ? intval($wpdb->get_var("SELECT COUNT(*) FROM $tippspiel_tbl WHERE email <> '' AND einwilligung_dsgvo = 1"))
+                                                : 0;
+                                            ?>
+                                            <div class="tix-field tix-field-full" style="border-top:1px solid #e5e7eb;padding-top:12px;margin-top:6px;">
+                                                <label class="tix-field-label">Weitere Quellen importieren (Nicht-Käufer)</label>
+                                                <p class="tix-field-hint" style="margin-top:0;margin-bottom:10px;">Für Kontakte ohne bezahlte Bestellung. Je Quelle eine separate Brevo-Liste angeben (nicht das Mapping).</p>
+
+                                                <div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:12px 14px;margin-bottom:10px;">
+                                                    <strong style="font-size:13px;">👤 WP-Customer-Users ohne Bestellung</strong>
+                                                    <span style="color:#64748b;font-size:12px;margin-left:6px;">(<?php echo number_format($nonbuyer_count, 0, ',', '.'); ?> Kontakte)</span>
+                                                    <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap;">
+                                                        <label style="font-size:12px;color:#475569;">Ziel-Liste-ID:</label>
+                                                        <input type="number" id="tix-brevo-nonbuyer-list" min="1" placeholder="z.B. 23" class="tix-text-input" style="width:120px;">
+                                                        <button type="button" id="tix-brevo-nonbuyer-go" class="button">Importieren →</button>
+                                                    </div>
+                                                </div>
+
+                                                <?php if ($tippspiel_count > 0): ?>
+                                                <div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:12px 14px;">
+                                                    <strong style="font-size:13px;">🎮 Tippspiel-Teilnehmer (mit DSGVO-Einwilligung)</strong>
+                                                    <span style="color:#64748b;font-size:12px;margin-left:6px;">(<?php echo number_format($tippspiel_count, 0, ',', '.'); ?> Kontakte)</span>
+                                                    <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap;">
+                                                        <label style="font-size:12px;color:#475569;">Ziel-Liste-ID:</label>
+                                                        <input type="number" id="tix-brevo-tippspiel-list" min="1" placeholder="z.B. 24" class="tix-text-input" style="width:120px;">
+                                                        <button type="button" id="tix-brevo-tippspiel-go" class="button">Importieren →</button>
+                                                    </div>
+                                                </div>
+                                                <?php endif; ?>
+                                                <script>
+                                                (function($){
+                                                    function fb(html, ok){
+                                                        $('#tix-brevo-result').html('<span style="padding:4px 10px;border-radius:5px;background:' + (ok ? '#d1fae5;color:#065f46' : '#fee2e2;color:#991b1b') + ';">' + html + '</span>');
+                                                    }
+                                                    $('#tix-brevo-nonbuyer-go').on('click', function(){
+                                                        var lid = $('#tix-brevo-nonbuyer-list').val();
+                                                        if (!lid || parseInt(lid) < 1) { alert('Bitte Ziel-Listen-ID eingeben.'); return; }
+                                                        if (!confirm('⚠️ ' + <?php echo $nonbuyer_count; ?> + ' WP-Customer-Users ohne Bestellung an Brevo-Liste #' + lid + ' senden?\n\nDSGVO: Diese Personen haben nie etwas gekauft. Stelle sicher dass eine Rechtsgrundlage existiert.\n\nFortfahren?')) return;
+                                                        var $b = $(this); $b.prop('disabled', true); fb('Import läuft…', true);
+                                                        $.post(ajaxurl, {action:'tix_brevo_import_nonbuyers', nonce:'<?php echo esc_js($brevo_nonce); ?>', list_id: lid}, function(r){
+                                                            $b.prop('disabled', false);
+                                                            if (r.success) fb(r.data.message, true); else fb('✗ ' + (r.data.message || 'Fehler'), false);
+                                                        }).fail(function(){ $b.prop('disabled', false); fb('✗ Netzwerk-/Timeout-Fehler', false); });
+                                                    });
+                                                    $('#tix-brevo-tippspiel-go').on('click', function(){
+                                                        var lid = $('#tix-brevo-tippspiel-list').val();
+                                                        if (!lid || parseInt(lid) < 1) { alert('Bitte Ziel-Listen-ID eingeben.'); return; }
+                                                        if (!confirm('Alle <?php echo $tippspiel_count; ?> Tippspiel-Teilnehmer mit DSGVO-Einwilligung an Brevo-Liste #' + lid + ' senden?')) return;
+                                                        var $b = $(this); $b.prop('disabled', true); fb('Import läuft…', true);
+                                                        $.post(ajaxurl, {action:'tix_brevo_import_external', nonce:'<?php echo esc_js($brevo_nonce); ?>', source:'mfxxl_teilnehmer', list_id: lid}, function(r){
+                                                            $b.prop('disabled', false);
+                                                            if (r.success) fb(r.data.message, true); else fb('✗ ' + (r.data.message || 'Fehler'), false);
+                                                        }).fail(function(){ $b.prop('disabled', false); fb('✗ Netzwerk-/Timeout-Fehler', false); });
+                                                    });
+                                                })(jQuery);
+                                                </script>
+                                            </div>
                                         </div>
                                         <script>
                                         (function($){
