@@ -142,10 +142,13 @@ class TIX_Brevo {
 
         $payload = [
             'email'         => $email,
-            'attributes'    => $attributes,
             'listIds'       => $list_ids,
             'updateEnabled' => true, // Duplikate updaten statt Fehler werfen
         ];
+        // attributes nur mitgeben wenn nicht leer — Brevo lehnt leere Arrays als "object expected" ab
+        if (!empty($attributes)) {
+            $payload['attributes'] = $attributes;
+        }
 
         $resp = wp_remote_post(self::API_URL . '/contacts', [
             'timeout' => 10,
