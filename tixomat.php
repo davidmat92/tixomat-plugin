@@ -2,14 +2,14 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.38.233
+ * Version: 1.38.234
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.38.233');
+define('TIXOMAT_VERSION', '1.38.234');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -1298,6 +1298,10 @@ TIX_Ticket_Template_CPT::init();
 // ── E-Mails: immer laden (WP Core-Mails + WC-Mails wenn aktiv) ──
 require_once TIXOMAT_PATH . 'includes/class-tix-emails.php';
 TIX_Emails::init();
+
+// ── Brevo-Newsletter-Sync (immer laden, greift nur wenn enabled+configured) ──
+require_once TIXOMAT_PATH . 'includes/class-tix-brevo.php';
+TIX_Brevo::init();
 
 // ── E-Mail-Log ──
 require_once TIXOMAT_PATH . 'includes/class-tix-email-log.php';

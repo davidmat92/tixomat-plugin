@@ -327,6 +327,9 @@ class TIX_Settings {
             'newsletter_label'    => '',          // leer = Standardtext
             'newsletter_webhook'  => '',          // URL für Webhook
             'newsletter_legal'    => '',          // Rechtlicher Hinweis unter Checkbox
+            'brevo_enabled'       => 0,
+            'brevo_api_key'       => '',
+            'brevo_list_id'       => 0,
             // ── Ticket-System ──
             'ticket_system'         => 'standalone',
             // ── Abandoned Cart ──
@@ -1154,6 +1157,11 @@ class TIX_Settings {
         $clean['newsletter_label']   = sanitize_text_field($input['newsletter_label'] ?? '');
         $clean['newsletter_webhook'] = esc_url_raw($input['newsletter_webhook'] ?? '');
         $clean['newsletter_legal']   = sanitize_textarea_field($input['newsletter_legal'] ?? '');
+
+        // Brevo
+        $clean['brevo_enabled'] = !empty($input['brevo_enabled']) ? 1 : 0;
+        $clean['brevo_api_key'] = sanitize_text_field($input['brevo_api_key'] ?? '');
+        $clean['brevo_list_id'] = max(0, intval($input['brevo_list_id'] ?? 0));
 
         // Ticket-System (nur eigenes System)
         $clean['ticket_system'] = 'standalone';
@@ -6014,6 +6022,77 @@ class TIX_Settings {
 
                             <?php // ═══ PANE: MARKETING ═══ ?>
                             <div class="tix-pane" data-pane="marketing">
+
+                                <?php // ── Card: Brevo (Newsletter-Sync) ── ?>
+                                <?php
+                                $brevo_nonce = wp_create_nonce('tix_admin_nonce');
+                                ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-email-alt2"></span>
+                                        <h3>Brevo (Newsletter-Synchronisation)</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <p class="tix-field-hint" style="margin:0 0 14px;">Sendet jeden Käufer mit Newsletter-Opt-In automatisch in eine Brevo-Kontaktliste. <strong>Nur</strong> Käufer mit Häkchen — keine Opt-In-losen Bestellungen.</p>
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('brevo_enabled', 'Brevo-Sync aktivieren', $s, 'Bei Aktivierung wird jeder neue Opt-In live an die Brevo-Liste übertragen.'); ?>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <label class="tix-field-label">API-Key</label>
+                                                <input type="password" name="<?php echo self::OPTION_KEY; ?>[brevo_api_key]"
+                                                       value="<?php echo esc_attr($s['brevo_api_key'] ?? ''); ?>"
+                                                       class="tix-text-input" placeholder="xkeysib-..." autocomplete="off" id="tix-brevo-key">
+                                                <p class="tix-field-hint">In Brevo: <a href="https://app.brevo.com/settings/keys/api" target="_blank">Account → SMTP &amp; API → API Keys</a>.</p>
+                                            </div>
+                                            <div class="tix-field tix-field-half">
+                                                <label class="tix-field-label" for="tix-brevo-list">Listen-ID</label>
+                                                <input type="number" id="tix-brevo-list" name="<?php echo self::OPTION_KEY; ?>[brevo_list_id]"
+                                                       value="<?php echo esc_attr($s['brevo_list_id'] ?? ''); ?>"
+                                                       class="tix-text-input" min="1" placeholder="z.B. 22">
+                                                <p class="tix-field-hint">In Brevo: Contacts → Lists → ID in URL.</p>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <button type="button" id="tix-brevo-test" class="button button-secondary" style="display:inline-flex;align-items:center;gap:6px;">
+                                                    <span class="dashicons dashicons-yes-alt" style="font-size:16px;width:16px;height:16px;"></span> Verbindung testen
+                                                </button>
+                                                <button type="button" id="tix-brevo-resync" class="button" style="margin-left:6px;display:inline-flex;align-items:center;gap:6px;">
+                                                    <span class="dashicons dashicons-update" style="font-size:16px;width:16px;height:16px;"></span> Alle Bestands-Subscribers nachsynchronisieren
+                                                </button>
+                                                <span id="tix-brevo-result" style="margin-left:10px;font-size:13px;"></span>
+                                            </div>
+                                        </div>
+                                        <script>
+                                        (function($){
+                                            function fb(html, ok){
+                                                $('#tix-brevo-result').html('<span style="padding:4px 10px;border-radius:5px;background:' + (ok ? '#d1fae5;color:#065f46' : '#fee2e2;color:#991b1b') + ';">' + html + '</span>');
+                                            }
+                                            $('#tix-brevo-test').on('click', function(){
+                                                var $b = $(this); $b.prop('disabled', true);
+                                                fb('Teste…', true);
+                                                $.post(ajaxurl, {
+                                                    action:'tix_brevo_test', nonce:'<?php echo esc_js($brevo_nonce); ?>',
+                                                    api_key: $('#tix-brevo-key').val(), list_id: $('#tix-brevo-list').val()
+                                                }, function(r){
+                                                    $b.prop('disabled', false);
+                                                    if (r.success) fb(r.data.message + ' — Liste „' + $('<div>').text(r.data.list).html() + '" (' + r.data.count + ' Kontakte)', true);
+                                                    else fb('✗ ' + (r.data && r.data.message ? $('<div>').text(r.data.message).html() : 'Fehler'), false);
+                                                });
+                                            });
+                                            $('#tix-brevo-resync').on('click', function(){
+                                                if (!confirm('Alle bestehenden Opt-In-Subscribers an Brevo senden? Bei großen Listen kann das einige Sekunden dauern.')) return;
+                                                var $b = $(this); $b.prop('disabled', true);
+                                                fb('Resync läuft…', true);
+                                                $.post(ajaxurl, {action:'tix_brevo_resync', nonce:'<?php echo esc_js($brevo_nonce); ?>'}, function(r){
+                                                    $b.prop('disabled', false);
+                                                    if (r.success) fb(r.data.message, true);
+                                                    else fb('✗ ' + (r.data && r.data.message ? r.data.message : 'Fehler'), false);
+                                                });
+                                            });
+                                        })(jQuery);
+                                        </script>
+                                    </div>
+                                </div>
 
                                 <?php // ── Card: VIP-Erkennung ── ?>
                                 <div class="tix-card">
