@@ -349,6 +349,16 @@ class TIX_Native_Checkout {
             } else {
                 $price = floatval($cat['price'] ?? 0);
             }
+            // Bundle-Rabatt: wenn als Bundle hinzugefügt ("11 für 10"-Pakete) → effektiver Stückpreis
+            // qty kommt aus JS bereits als (Pakete × bundle_buy), also pro Ticket der reduzierte Preis.
+            if (!empty($item['bundle'])) {
+                $bbuy = intval($item['bundle_buy'] ?? ($cat['bundle_buy'] ?? 0));
+                $bpay = intval($item['bundle_pay'] ?? ($cat['bundle_pay'] ?? 0));
+                if ($bbuy > 0 && $bpay > 0 && $bpay < $bbuy) {
+                    // Effektiver Einzelpreis = (bezahlte Tickets / gekaufte Tickets) × Basispreis
+                    $price = round($price * $bpay / $bbuy, 2);
+                }
+            }
             $name = sanitize_text_field($cat['name'] ?? 'Ticket');
             $event_title = get_the_title($event_id);
 
@@ -1403,6 +1413,26 @@ class TIX_Native_Checkout {
 
             // Locked-Price (Vorbestellung/Quote mit Sonderpreis) → übernehmen, nicht überschreiben
             if (!empty($cart_item['locked_price'])) {
+                $validated_total += floatval($cart_item['price']) * intval($cart_item['qty']);
+                continue;
+            }
+
+            // Bundle-Item: Basis-/Dynamic-Preis holen, dann mit bundle_pay/bundle_buy Verhältnis rabattieren
+            if (!empty($cart_item['meta']['bundle'])) {
+                $cats = get_post_meta($event_id, '_tix_ticket_categories', true);
+                $cat  = (is_array($cats) && isset($cats[$cat_index])) ? $cats[$cat_index] : null;
+                if ($cat) {
+                    $base = class_exists('TIX_Dynamic_Pricing')
+                        ? (TIX_Dynamic_Pricing::get_dynamic_price($event_id, $cat_index) ?? floatval($cat['price'] ?? 0))
+                        : floatval($cat['price'] ?? 0);
+                    $bbuy = intval($cat['bundle_buy'] ?? 0);
+                    $bpay = intval($cat['bundle_pay'] ?? 0);
+                    if ($bbuy > 0 && $bpay > 0 && $bpay < $bbuy) {
+                        $cart_item['price'] = round($base * $bpay / $bbuy, 2);
+                    } else {
+                        $cart_item['price'] = $base; // Bundle in Kategorie entfernt → Fallback
+                    }
+                }
                 $validated_total += floatval($cart_item['price']) * intval($cart_item['qty']);
                 continue;
             }
