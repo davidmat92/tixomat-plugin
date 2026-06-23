@@ -355,8 +355,10 @@ class TIX_Native_Checkout {
                 $bbuy = intval($item['bundle_buy'] ?? ($cat['bundle_buy'] ?? 0));
                 $bpay = intval($item['bundle_pay'] ?? ($cat['bundle_pay'] ?? 0));
                 if ($bbuy > 0 && $bpay > 0 && $bpay < $bbuy) {
-                    // Effektiver Einzelpreis = (bezahlte Tickets / gekaufte Tickets) × Basispreis
-                    $price = round($price * $bpay / $bbuy, 2);
+                    // Effektiver Einzelpreis UNROUNDED — sonst entstehen Rundungsfehler beim Total
+                    // (z.B. 34.90 × 10/11 = 31.7272… auf 31.73 gerundet × 11 = 349.03 statt 349.00).
+                    // Display rundet automatisch via number_format($price, 2).
+                    $price = $price * $bpay / $bbuy;
                 }
             }
             $name = sanitize_text_field($cat['name'] ?? 'Ticket');
@@ -1428,7 +1430,8 @@ class TIX_Native_Checkout {
                     $bbuy = intval($cat['bundle_buy'] ?? 0);
                     $bpay = intval($cat['bundle_pay'] ?? 0);
                     if ($bbuy > 0 && $bpay > 0 && $bpay < $bbuy) {
-                        $cart_item['price'] = round($base * $bpay / $bbuy, 2);
+                        // UNROUNDED — sonst Rundungsfehler beim Total (siehe Kommentar in add_to_cart)
+                        $cart_item['price'] = $base * $bpay / $bbuy;
                     } else {
                         $cart_item['price'] = $base; // Bundle in Kategorie entfernt → Fallback
                     }
