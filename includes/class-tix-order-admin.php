@@ -18,6 +18,7 @@ class TIX_Order_Admin {
         add_action('wp_ajax_tix_order_invoice', [__CLASS__, 'render_invoice']);
         add_action('wp_ajax_tix_order_resend_email', [__CLASS__, 'ajax_resend_email']);
         add_action('admin_post_tix_order_tickets_csv', [__CLASS__, 'handle_export_tickets_csv']);
+        add_action('wp_ajax_tix_order_send_bank_info', [__CLASS__, 'ajax_send_bank_info']);
         add_action('wp_ajax_tix_order_regen_tickets', [__CLASS__, 'ajax_regen_tickets']);
         add_action('wp_ajax_tix_paypal_backfill_fee', [__CLASS__, 'ajax_paypal_backfill_fee']);
         add_action('wp_ajax_tix_paypal_backfill_all', [__CLASS__, 'ajax_paypal_backfill_all']);
@@ -893,10 +894,51 @@ class TIX_Order_Admin {
                    class="tix-od-action" title="CSV mit einer Zeile pro Ticket (öffnet in Excel)">
                     <span class="dashicons dashicons-download"></span> Tickets-Liste (Excel)
                 </a>
+                <button type="button" id="tix-send-bank-btn" class="tix-od-action" title="E-Mail mit IBAN/BIC/Verwendungszweck an den Kunden senden (unabhängig von der gewählten Zahlungsart)">
+                    <span class="dashicons dashicons-bank"></span> Bankverbindung senden
+                </button>
                 <button type="button" id="tix-resend-tickets-btn" class="tix-od-action tix-od-action--primary">
                     <span class="dashicons dashicons-email-alt"></span> Tickets nachsenden
                 </button>
             </div>
+
+            <div id="tix-send-bank-panel" style="display:none;background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;padding:14px 16px;margin-top:8px;max-width:460px;">
+                <label style="display:block;font-size:12px;font-weight:600;color:#0c4a6e;margin-bottom:6px;">Empfänger-E-Mail</label>
+                <input type="email" id="tix-send-bank-email" value="<?php echo esc_attr($order->billing_email); ?>" style="width:100%;padding:7px 10px;border:1px solid #7dd3fc;border-radius:6px;font-size:13px;box-sizing:border-box;margin-bottom:8px;">
+                <p style="margin:0 0 10px;font-size:11px;color:#0c4a6e;">Sendet die Bankverbindung (IBAN/BIC/Verwendungszweck) an diese Adresse — auch wenn die Bestellung z.B. per Kreditkarte begonnen wurde. Standard = Bestell-E-Mail.</p>
+                <div>
+                    <button type="button" class="button button-primary" id="tix-send-bank-send" style="background:#0284c7;border-color:#0369a1;">🏦 Jetzt senden</button>
+                    <button type="button" class="button" id="tix-send-bank-cancel" style="margin-left:4px;">Abbrechen</button>
+                    <span id="tix-send-bank-msg" style="margin-left:10px;font-size:13px;"></span>
+                </div>
+            </div>
+            <script>
+            (function(){
+                var btn=document.getElementById('tix-send-bank-btn'),
+                    panel=document.getElementById('tix-send-bank-panel'),
+                    emF=document.getElementById('tix-send-bank-email'),
+                    send=document.getElementById('tix-send-bank-send'),
+                    cancel=document.getElementById('tix-send-bank-cancel'),
+                    msg=document.getElementById('tix-send-bank-msg');
+                if(!btn) return;
+                btn.addEventListener('click', function(){ panel.style.display = panel.style.display==='none'?'block':'none'; msg.textContent=''; if(panel.style.display==='block') emF.focus(); });
+                cancel.addEventListener('click', function(){ panel.style.display='none'; });
+                send.addEventListener('click', function(){
+                    var em=(emF.value||'').trim();
+                    if(!em || em.indexOf('@')<1){ msg.textContent='Bitte E-Mail eingeben.'; msg.style.color='#991b1b'; return; }
+                    send.disabled=true; send.textContent='Sende…'; msg.textContent='';
+                    var body='action=tix_order_send_bank_info&nonce=<?php echo $nonce; ?>&order_id=<?php echo $order_id; ?>&email='+encodeURIComponent(em);
+                    fetch(ajaxurl,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:body})
+                        .then(function(r){return r.json();})
+                        .then(function(r){
+                            send.disabled=false; send.textContent='🏦 Jetzt senden';
+                            if(r.success){ msg.textContent='✓ '+(r.data.message||'Gesendet.'); msg.style.color='#065f46'; setTimeout(function(){ panel.style.display='none'; }, 1500); }
+                            else { msg.textContent=(r.data&&r.data.message)||'Fehler'; msg.style.color='#991b1b'; }
+                        })
+                        .catch(function(){ send.disabled=false; send.textContent='🏦 Jetzt senden'; msg.textContent='Netzwerkfehler.'; msg.style.color='#991b1b'; });
+                });
+            })();
+            </script>
             <div id="tix-resend-tickets-panel" style="display:none;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:14px 16px;margin-top:8px;max-width:460px;">
                 <label style="display:block;font-size:12px;font-weight:600;color:#065f46;margin-bottom:6px;">Empfänger-E-Mail</label>
                 <input type="email" id="tix-resend-tickets-email" value="<?php echo esc_attr($order->billing_email); ?>" style="width:100%;padding:7px 10px;border:1px solid #86efac;border-radius:6px;font-size:13px;box-sizing:border-box;margin-bottom:4px;">
@@ -2750,5 +2792,68 @@ window.addEventListener('load', function() {
 
         fclose($out);
         exit;
+    }
+
+    // ──────────────────────────────────────────
+    // AJAX: Bankverbindungs-E-Mail senden (unabhängig von Zahlungsart)
+    // ──────────────────────────────────────────
+    public static function ajax_send_bank_info() {
+        check_ajax_referer('tix_order_action', 'nonce');
+        if (!current_user_can('manage_options')) wp_send_json_error(['message' => 'Keine Berechtigung.']);
+        $order_id = intval($_POST['order_id'] ?? 0);
+        if (!$order_id) wp_send_json_error(['message' => 'Ungültige Bestellnummer.']);
+
+        global $wpdb;
+        $order = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}tix_orders WHERE id = %d", $order_id
+        ));
+        if (!$order) wp_send_json_error(['message' => 'Bestellung nicht gefunden.']);
+
+        $override_email = isset($_POST['email']) ? sanitize_email(wp_unslash($_POST['email'])) : '';
+        if ($override_email && !is_email($override_email)) {
+            wp_send_json_error(['message' => 'Ungültige E-Mail-Adresse.']);
+        }
+        $to = $override_email ?: $order->billing_email;
+        if (!is_email($to)) wp_send_json_error(['message' => 'Keine gültige Empfänger-E-Mail.']);
+
+        $s = function_exists('tix_get_settings') ? tix_get_settings() : [];
+        $bank_holder = trim((string) ($s['bank_holder'] ?? ''));
+        $bank_iban   = trim((string) ($s['bank_iban'] ?? ''));
+        $bank_bic    = trim((string) ($s['bank_bic'] ?? ''));
+        $bank_name   = trim((string) ($s['bank_name'] ?? ''));
+        if ($bank_iban === '' || $bank_holder === '') {
+            wp_send_json_error(['message' => 'Bank-Daten fehlen in Tixomat-Einstellungen (Zahlungsanbieter → Bankverbindung).']);
+        }
+
+        $amount   = number_format(floatval($order->total), 2, ',', '.') . ' €';
+        $purpose  = $order->order_number;
+        $customer = trim(($order->billing_first_name ?? '') . ' ' . ($order->billing_last_name ?? ''));
+        $brand    = $s['email_brand_name'] ?? get_bloginfo('name');
+
+        $body  = '<p>Hallo' . ($customer ? ' ' . esc_html($customer) : '') . ',</p>';
+        $body .= '<p>bitte überweise den Rechnungsbetrag für deine Bestellung <strong>' . esc_html($order->order_number) . '</strong> auf folgendes Konto:</p>';
+        $body .= '<div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:10px;padding:16px 20px;margin:18px 0;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:14px;line-height:1.7;">';
+        $body .=   '<div><strong>Betrag:</strong> ' . esc_html($amount) . '</div>';
+        $body .=   '<div><strong>Verwendungszweck:</strong> ' . esc_html($purpose) . '</div>';
+        $body .=   '<div><strong>Empfänger:</strong> ' . esc_html($bank_holder) . '</div>';
+        $body .=   '<div><strong>IBAN:</strong> ' . esc_html($bank_iban) . '</div>';
+        if ($bank_bic !== '')  $body .= '<div><strong>BIC:</strong> ' . esc_html($bank_bic) . '</div>';
+        if ($bank_name !== '') $body .= '<div><strong>Bank:</strong> ' . esc_html($bank_name) . '</div>';
+        $body .= '</div>';
+        $body .= '<p style="color:#64748b;font-size:13px;">Wichtig: bitte den Verwendungszweck exakt so angeben — sonst können wir deine Zahlung nicht automatisch zuordnen. Deine Tickets bekommst du, sobald der Geldeingang auf unserem Konto verbucht ist.</p>';
+        $body .= '<p style="color:#94a3b8;font-size:12px;margin-top:24px;">Bei Fragen antworte einfach auf diese Mail.</p>';
+
+        $html = class_exists('TIX_Emails') && method_exists('TIX_Emails', 'build_generic_email_html')
+            ? TIX_Emails::build_generic_email_html('Zahlungsinformationen', $body, 'Bestellung ' . $order->order_number)
+            : '<html><body>' . $body . '</body></html>';
+
+        $subject = ($brand ? $brand . ' – ' : '') . 'Zahlungsinformationen für Bestellung ' . $order->order_number;
+        $sent    = wp_mail($to, $subject, $html, ['Content-Type: text/html; charset=UTF-8']);
+
+        if (!$sent) wp_send_json_error(['message' => 'Mail-Versand fehlgeschlagen (wp_mail returned false).']);
+
+        $note_suffix = $override_email && $override_email !== $order->billing_email ? ' an ' . $override_email : '';
+        self::add_note($order_id, '🏦 Bankverbindungs-Mail versandt' . $note_suffix, 'email');
+        wp_send_json_success(['message' => 'Bank-Info an ' . $to . ' gesendet.']);
     }
 }
