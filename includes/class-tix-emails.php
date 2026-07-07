@@ -1461,6 +1461,15 @@ class TIX_Emails {
         // No email for pending status
         if ($new_status === 'pending') return;
 
+        // Stripe-Auto-Cleanup (Cron, ?cancelled=1, session.expired): keine Kunden-Mail —
+        // der Kunde hat nie bezahlt und keine Bestellbestaetigung erhalten. Eine
+        // "Bestellung storniert"-Mail waere verwirrend.
+        if ($new_status === 'cancelled'
+            && class_exists('TIX_Gateway_Stripe')
+            && !empty(TIX_Gateway_Stripe::$suppress_cancel_email)) {
+            return;
+        }
+
         $order = TIX_Order::get($order_id);
         if (!$order) return;
 

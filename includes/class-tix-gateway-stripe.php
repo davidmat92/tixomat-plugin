@@ -17,6 +17,14 @@ class TIX_Gateway_Stripe {
     const METHODS_CACHE_KEY = 'tix_stripe_methods_v1';
     const METHODS_CACHE_TTL = 6 * HOUR_IN_SECONDS;
 
+    /**
+     * Flag: unterdrueckt die "Bestellung storniert"-Kunden-Mail, wenn ein
+     * unbezahlter Stripe-pending automatisch aufgeraeumt wird (Cleanup-Cron,
+     * ?cancelled=1 Return, checkout.session.expired). Der Kunde hat nie eine
+     * Bestellbestaetigung erhalten — eine "storniert"-Mail waere verwirrend.
+     */
+    public static $suppress_cancel_email = false;
+
     // Label + Logo-URL (Mollies öffentlicher Payment-Methods-CDN — stabile, hochauflösende SVGs)
     private static $method_labels = [
         'card'       => ['label' => 'Karte (Visa, Mastercard, Amex)', 'image' => 'https://www.mollie.com/external/icons/payment-methods/creditcard.svg'],
@@ -88,6 +96,7 @@ class TIX_Gateway_Stripe {
     /**
      * Räumt pending Stripe-Orders auf, die älter als 25h sind (Stripe-Session
      * läuft nach 24h ab — 25h Puffer). Verhindert stuck-pending nach Webhook-Miss.
+     * Kunden-Mail wird unterdrueckt (nie bezahlt, keine Bestaetigung — wuerde nur verwirren).
      */
     public static function cleanup_pending() {
         global $wpdb;
@@ -99,9 +108,30 @@ class TIX_Gateway_Stripe {
              LIMIT 100"
         );
         if (empty($rows)) return;
-        if (!class_exists('TIX_Native_Checkout') || !method_exists('TIX_Native_Checkout', 'update_order_status')) return;
         foreach ($rows as $r) {
-            TIX_Native_Checkout::update_order_status(intval($r->id), 'cancelled', 'stripe');
+            self::silent_cancel(intval($r->id), 'auto-cleanup (>25h pending)');
+        }
+    }
+
+    /**
+     * Storniert eine unbezahlte pending-Order STILL — keine Kunden-Mail.
+     * Nutzt das $suppress_cancel_email Flag, das TIX_Emails::send_native_status_email prueft.
+     * Notiz wird trotzdem geschrieben, damit im Backend nachvollziehbar bleibt was passiert ist.
+     */
+    public static function silent_cancel($order_id, $reason = '') {
+        if (!class_exists('TIX_Native_Checkout') || !method_exists('TIX_Native_Checkout', 'update_order_status')) return;
+        self::$suppress_cancel_email = true;
+        try {
+            TIX_Native_Checkout::update_order_status(intval($order_id), 'cancelled', 'stripe');
+            if ($reason && class_exists('TIX_Order_Admin') && method_exists('TIX_Order_Admin', 'add_note')) {
+                TIX_Order_Admin::add_note(
+                    intval($order_id),
+                    'Stripe: still storniert (keine Kunden-Mail) — ' . $reason,
+                    'system'
+                );
+            }
+        } finally {
+            self::$suppress_cancel_email = false;
         }
     }
 
@@ -310,19 +340,16 @@ class TIX_Gateway_Stripe {
                 break;
 
             case 'checkout.session.expired':
-                // Session lief ab (Default 24h) ohne Bezahlung → Order aufräumen
+                // Session lief ab (Default 24h) ohne Bezahlung → Order aufräumen (KEINE Kunden-Mail)
                 $sess = $event['data']['object'] ?? [];
                 $order_id = intval($sess['metadata']['tix_order_id'] ?? 0);
                 if ($order_id && self::order_belongs_to_stripe($order_id)) {
-                    // Nur wenn noch pending — nicht überschreiben wenn zwischenzeitlich processing/completed
                     global $wpdb;
                     $current = $wpdb->get_var($wpdb->prepare(
                         "SELECT status FROM {$wpdb->prefix}tix_orders WHERE id = %d", $order_id
                     ));
                     if ($current === 'pending') {
-                        if (class_exists('TIX_Native_Checkout') && method_exists('TIX_Native_Checkout', 'update_order_status')) {
-                            TIX_Native_Checkout::update_order_status($order_id, 'cancelled', 'stripe');
-                        }
+                        self::silent_cancel($order_id, 'checkout.session.expired');
                     }
                 }
                 break;
@@ -375,11 +402,10 @@ class TIX_Gateway_Stripe {
         ));
         if (!$order) return;
 
-        // Bei "cancelled" → Order als cancelled markieren + zurück zum Checkout
+        // Bei "cancelled" → Order als cancelled markieren + zurück zum Checkout (KEINE Kunden-Mail)
         if (!empty($_GET['cancelled'])) {
-            // Order-Status auf cancelled setzen (nur wenn noch pending)
-            if ($order->status === 'pending' && class_exists('TIX_Native_Checkout') && method_exists('TIX_Native_Checkout', 'update_order_status')) {
-                TIX_Native_Checkout::update_order_status($order_id, 'cancelled', 'stripe');
+            if ($order->status === 'pending') {
+                self::silent_cancel($order_id, 'Kaeufer klickte "Zurueck" auf Stripe-Seite');
             }
             $checkout_url = home_url('/');
             $s = get_option('tix_settings', []);
