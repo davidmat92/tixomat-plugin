@@ -78,6 +78,31 @@ class TIX_Gateway_Stripe {
         add_action('wp_ajax_tix_stripe_webhook',        [__CLASS__, 'handle_webhook']);
         add_action('wp_ajax_nopriv_tix_stripe_webhook', [__CLASS__, 'handle_webhook']);
         add_action('template_redirect',                 [__CLASS__, 'handle_return']);
+        // Cleanup-Cron: pending Stripe-Orders älter als 25h auf cancelled setzen
+        add_action('tix_stripe_cleanup_pending', [__CLASS__, 'cleanup_pending']);
+        if (!wp_next_scheduled('tix_stripe_cleanup_pending')) {
+            wp_schedule_event(time() + 300, 'hourly', 'tix_stripe_cleanup_pending');
+        }
+    }
+
+    /**
+     * Räumt pending Stripe-Orders auf, die älter als 25h sind (Stripe-Session
+     * läuft nach 24h ab — 25h Puffer). Verhindert stuck-pending nach Webhook-Miss.
+     */
+    public static function cleanup_pending() {
+        global $wpdb;
+        $rows = $wpdb->get_results(
+            "SELECT id FROM {$wpdb->prefix}tix_orders
+             WHERE payment_method = 'stripe'
+               AND status = 'pending'
+               AND date_created < DATE_SUB(NOW(), INTERVAL 25 HOUR)
+             LIMIT 100"
+        );
+        if (empty($rows)) return;
+        if (!class_exists('TIX_Native_Checkout') || !method_exists('TIX_Native_Checkout', 'update_order_status')) return;
+        foreach ($rows as $r) {
+            TIX_Native_Checkout::update_order_status(intval($r->id), 'cancelled', 'stripe');
+        }
     }
 
     /* ────────────── METHODEN ────────────── */
@@ -284,6 +309,24 @@ class TIX_Gateway_Stripe {
                 }
                 break;
 
+            case 'checkout.session.expired':
+                // Session lief ab (Default 24h) ohne Bezahlung → Order aufräumen
+                $sess = $event['data']['object'] ?? [];
+                $order_id = intval($sess['metadata']['tix_order_id'] ?? 0);
+                if ($order_id && self::order_belongs_to_stripe($order_id)) {
+                    // Nur wenn noch pending — nicht überschreiben wenn zwischenzeitlich processing/completed
+                    global $wpdb;
+                    $current = $wpdb->get_var($wpdb->prepare(
+                        "SELECT status FROM {$wpdb->prefix}tix_orders WHERE id = %d", $order_id
+                    ));
+                    if ($current === 'pending') {
+                        if (class_exists('TIX_Native_Checkout') && method_exists('TIX_Native_Checkout', 'update_order_status')) {
+                            TIX_Native_Checkout::update_order_status($order_id, 'cancelled', 'stripe');
+                        }
+                    }
+                }
+                break;
+
             case 'charge.refunded':
                 // Optional: Status-Sync bei Refund — Order-Admin handhabt Refunds aktiv via API
                 break;
@@ -332,8 +375,12 @@ class TIX_Gateway_Stripe {
         ));
         if (!$order) return;
 
-        // Bei "cancelled" → zurück zum Checkout
+        // Bei "cancelled" → Order als cancelled markieren + zurück zum Checkout
         if (!empty($_GET['cancelled'])) {
+            // Order-Status auf cancelled setzen (nur wenn noch pending)
+            if ($order->status === 'pending' && class_exists('TIX_Native_Checkout') && method_exists('TIX_Native_Checkout', 'update_order_status')) {
+                TIX_Native_Checkout::update_order_status($order_id, 'cancelled', 'stripe');
+            }
             $checkout_url = home_url('/');
             $s = get_option('tix_settings', []);
             if (!empty($s['checkout_page_id'])) {
