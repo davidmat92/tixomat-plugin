@@ -473,7 +473,12 @@ class TIX_Native_Checkout {
                 $eid = intval($item['event_id'] ?? 0);
                 if ($eid) {
                     $event_ids[] = $eid;
-                    $tickets[]   = $eid . ':' . intval($item['cat_index'] ?? 0);
+                    $cidx        = intval($item['cat_index'] ?? 0);
+                    $tickets[]   = $eid . ':' . $cidx;
+                    // Bundle-Kauf (Gruppenticket) zusätzlich als eigenes Token adressierbar machen
+                    if (!empty($item['meta']['bundle'])) {
+                        $tickets[] = $eid . ':' . $cidx . ':bundle';
+                    }
                 }
             }
         }
@@ -636,7 +641,12 @@ class TIX_Native_Checkout {
                 $eid = intval($item['event_id'] ?? 0);
                 if ($eid) {
                     $event_ids[] = $eid;
-                    $tickets[]   = $eid . ':' . intval($item['cat_index'] ?? 0);
+                    $cidx        = intval($item['cat_index'] ?? 0);
+                    $tickets[]   = $eid . ':' . $cidx;
+                    // Bundle-Kauf (Gruppenticket) zusätzlich als eigenes Token adressierbar machen
+                    if (!empty($item['meta']['bundle'])) {
+                        $tickets[] = $eid . ':' . $cidx . ':bundle';
+                    }
                 }
             }
             $valid = TIX_Coupons::validate_against_cart($coupon, [
@@ -1874,7 +1884,12 @@ class TIX_Native_Checkout {
                 $eid = intval($item['event_id'] ?? 0);
                 if ($eid) {
                     $event_ids[] = $eid;
-                    $tickets[]   = $eid . ':' . intval($item['cat_index'] ?? 0);
+                    $cidx        = intval($item['cat_index'] ?? 0);
+                    $tickets[]   = $eid . ':' . $cidx;
+                    // Bundle-Kauf (Gruppenticket) zusätzlich als eigenes Token adressierbar machen
+                    if (!empty($item['meta']['bundle'])) {
+                        $tickets[] = $eid . ':' . $cidx . ':bundle';
+                    }
                 }
             }
         }
