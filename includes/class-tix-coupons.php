@@ -240,11 +240,12 @@ class TIX_Coupons {
 
         // Beim Bearbeiten: alten Code entfernen wenn umbenannt
         if ($orig_code && $orig_code !== $code && isset($coupons[$orig_code])) {
-            $existing = $coupons[$orig_code];
+            $prev = $coupons[$orig_code];
             unset($coupons[$orig_code]);
-            $used = intval($existing['used'] ?? 0); // Nutzungs-Counter erhalten
+            $used = intval($prev['used'] ?? 0); // Nutzungs-Counter erhalten
         } else {
-            $used = intval($coupons[$code]['used'] ?? 0);
+            $prev = is_array($coupons[$code] ?? null) ? $coupons[$code] : [];
+            $used = intval($prev['used'] ?? 0);
         }
 
         // ── Exklusivität: nur EIN Coupon darf auto_apply=1 haben ──
@@ -258,7 +259,9 @@ class TIX_Coupons {
             unset($c);
         }
 
-        $coupons[$code] = [
+        // array_merge: bewahrt zusätzliche Felder aus $prev (z.B. allowed_tickets, source),
+        // die diese UI (noch) nicht kennt — verhindert Datenverlust beim Bearbeiten.
+        $coupons[$code] = array_merge($prev, [
             'code'                 => $code,
             'discount_type'        => $type,
             'value'                => round($value, 2),
@@ -276,7 +279,7 @@ class TIX_Coupons {
             'excluded_categories'  => array_values($excluded_cats),
             'one_per_email'        => $one_per_email,
             'individual_use'       => $individual_use,
-        ];
+        ]);
 
         update_option(self::OPTION, $coupons);
 
@@ -379,6 +382,18 @@ class TIX_Coupons {
             }
             if (!empty($excluded_cats) && !empty(array_intersect($cart_cat_ids, $excluded_cats))) {
                 return 'Dieser Gutschein ist für mindestens eine Kategorie deiner Events ausgeschlossen.';
+            }
+        }
+
+        // Allowed-Tickets: Einschränkung auf einzelne Ticketarten (Format "event_id:cat_index").
+        // Rückwärtskompatibel — nur aktiv, wenn im Coupon gesetzt. Der Cart muss mindestens
+        // eine passende Ticketart enthalten (Allow-list). Kontext liefert 'tickets' als
+        // Liste von "event_id:cat_index"-Strings.
+        $allowed_tickets = array_values(array_filter(array_map('strval', (array) ($coupon['allowed_tickets'] ?? []))));
+        if (!empty($allowed_tickets)) {
+            $cart_tickets = array_map('strval', (array) ($context['tickets'] ?? []));
+            if (empty(array_intersect($cart_tickets, $allowed_tickets))) {
+                return 'Dieser Gutschein gilt nur für bestimmte Ticketarten, die nicht in deinem Warenkorb sind.';
             }
         }
 

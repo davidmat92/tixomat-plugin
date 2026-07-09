@@ -464,13 +464,17 @@ class TIX_Native_Checkout {
         $items_total = 0.0;
         $cart_qty    = 0;
         $event_ids   = [];
+        $tickets     = [];
         if (!empty($cart['items']) && is_array($cart['items'])) {
             foreach ($cart['items'] as $item) {
                 $qty = max(1, intval($item['qty'] ?? 1));
                 $items_total += floatval($item['price'] ?? 0) * $qty;
                 $cart_qty    += $qty;
                 $eid = intval($item['event_id'] ?? 0);
-                if ($eid) $event_ids[] = $eid;
+                if ($eid) {
+                    $event_ids[] = $eid;
+                    $tickets[]   = $eid . ':' . intval($item['cat_index'] ?? 0);
+                }
             }
         }
         if ($items_total <= 0) return;
@@ -479,6 +483,7 @@ class TIX_Native_Checkout {
         $valid = TIX_Coupons::validate_against_cart($coupon, [
             'items_total' => $items_total,
             'event_ids'   => array_unique($event_ids),
+            'tickets'     => array_unique($tickets),
         ]);
         if ($valid !== true) return; // stille Skip — Auto-Apply soll User nicht nerven mit Fehlern
 
@@ -626,13 +631,18 @@ class TIX_Native_Checkout {
         // → Coupon entfernen
         if (class_exists('TIX_Coupons')) {
             $event_ids = [];
+            $tickets   = [];
             foreach ($cart['items'] as $item) {
                 $eid = intval($item['event_id'] ?? 0);
-                if ($eid) $event_ids[] = $eid;
+                if ($eid) {
+                    $event_ids[] = $eid;
+                    $tickets[]   = $eid . ':' . intval($item['cat_index'] ?? 0);
+                }
             }
             $valid = TIX_Coupons::validate_against_cart($coupon, [
                 'items_total' => $items_total,
                 'event_ids'   => array_unique($event_ids),
+                'tickets'     => array_unique($tickets),
             ]);
             if ($valid !== true) {
                 $cart['coupon'] = null;
@@ -1858,10 +1868,14 @@ class TIX_Native_Checkout {
         $cart = self::get_cart();
         $cart_total = self::cart_total();
         $event_ids = [];
+        $tickets   = [];
         if (!empty($cart['items']) && is_array($cart['items'])) {
             foreach ($cart['items'] as $item) {
                 $eid = intval($item['event_id'] ?? 0);
-                if ($eid) $event_ids[] = $eid;
+                if ($eid) {
+                    $event_ids[] = $eid;
+                    $tickets[]   = $eid . ':' . intval($item['cat_index'] ?? 0);
+                }
             }
         }
         // Email für one_per_email aus eingeloggtem User holen (falls vorhanden)
@@ -1874,6 +1888,7 @@ class TIX_Native_Checkout {
             $valid = TIX_Coupons::validate_against_cart($coupon, [
                 'items_total' => $cart_total,
                 'event_ids'   => array_unique($event_ids),
+                'tickets'     => array_unique($tickets),
                 'email'       => $email,
             ]);
             if ($valid !== true) {
