@@ -27,26 +27,36 @@ class TIX_Gateway_Stripe {
 
     // Label + Logo-URL (Mollies öffentlicher Payment-Methods-CDN — stabile, hochauflösende SVGs)
     private static $method_labels = [
-        'card'       => ['label' => 'Karte (Visa, Mastercard, Amex)', 'image' => 'https://www.mollie.com/external/icons/payment-methods/creditcard.svg'],
-        'klarna'     => ['label' => 'Klarna (Rechnung, Ratenzahlung)', 'image' => 'https://www.mollie.com/external/icons/payment-methods/klarna.svg'],
-        'sepa_debit' => ['label' => 'SEPA-Lastschrift',                'image' => 'https://www.mollie.com/external/icons/payment-methods/directdebit.svg'],
-        'sofort'     => ['label' => 'SOFORT',                          'image' => 'https://www.mollie.com/external/icons/payment-methods/sofort.svg'],
-        'giropay'    => ['label' => 'GiroPay',                         'image' => 'https://www.mollie.com/external/icons/payment-methods/giropay.svg'],
-        'bancontact' => ['label' => 'Bancontact',                      'image' => 'https://www.mollie.com/external/icons/payment-methods/bancontact.svg'],
-        'ideal'      => ['label' => 'iDEAL',                           'image' => 'https://www.mollie.com/external/icons/payment-methods/ideal.svg'],
-        'eps'        => ['label' => 'EPS',                             'image' => 'https://www.mollie.com/external/icons/payment-methods/eps.svg'],
-        'p24'        => ['label' => 'Przelewy24',                      'image' => 'https://www.mollie.com/external/icons/payment-methods/przelewy24.svg'],
-        'paypal'     => ['label' => 'PayPal',                          'image' => 'https://www.mollie.com/external/icons/payment-methods/paypal.svg'],
-        'link'       => ['label' => 'Stripe Link',                     'image' => ''],
-        'apple_pay'  => ['label' => 'Apple Pay',                       'image' => 'https://www.mollie.com/external/icons/payment-methods/applepay.svg'],
-        'google_pay' => ['label' => 'Google Pay',                      'image' => ''],
-        'amazon_pay' => ['label' => 'Amazon Pay',                      'image' => ''],
-        'blik'       => ['label' => 'BLIK',                            'image' => ''],
-        'kakao_pay'  => ['label' => 'Kakao Pay',                       'image' => ''],
-        'naver_pay'  => ['label' => 'Naver Pay',                       'image' => ''],
-        'payco'      => ['label' => 'Payco',                           'image' => ''],
-        'mb_way'     => ['label' => 'MB Way',                          'image' => ''],
+        'card'        => ['label' => 'Karte (Visa, Mastercard, Amex)', 'image' => 'https://www.mollie.com/external/icons/payment-methods/creditcard.svg'],
+        'klarna'      => ['label' => 'Klarna (Rechnung, Ratenzahlung)', 'image' => 'https://www.mollie.com/external/icons/payment-methods/klarna.svg'],
+        'sepa_debit'  => ['label' => 'SEPA-Lastschrift',                'image' => 'https://www.mollie.com/external/icons/payment-methods/directdebit.svg'],
+        'bancontact'  => ['label' => 'Bancontact',                      'image' => 'https://www.mollie.com/external/icons/payment-methods/bancontact.svg'],
+        'ideal'       => ['label' => 'iDEAL',                           'image' => 'https://www.mollie.com/external/icons/payment-methods/ideal.svg'],
+        'eps'         => ['label' => 'EPS',                             'image' => 'https://www.mollie.com/external/icons/payment-methods/eps.svg'],
+        'p24'         => ['label' => 'Przelewy24',                      'image' => 'https://www.mollie.com/external/icons/payment-methods/przelewy24.svg'],
+        'paypal'      => ['label' => 'PayPal',                          'image' => 'https://www.mollie.com/external/icons/payment-methods/paypal.svg'],
+        'link'        => ['label' => 'Stripe Link',                     'image' => ''],
+        'apple_pay'   => ['label' => 'Apple Pay',                       'image' => 'https://www.mollie.com/external/icons/payment-methods/applepay.svg'],
+        'google_pay'  => ['label' => 'Google Pay',                      'image' => ''],
+        'samsung_pay' => ['label' => 'Samsung Pay',                     'image' => ''],
+        'amazon_pay'  => ['label' => 'Amazon Pay',                      'image' => ''],
+        'mb_way'      => ['label' => 'MB Way',                          'image' => ''],
     ];
+
+    /**
+     * Wallet-Overlays, die KEIN eigener Stripe payment_method_type sind,
+     * sondern über 'card' laufen. Stripe zeigt sie automatisch, wenn das
+     * Geraet+Browser sie unterstuetzt und die Session als 'card' erstellt wurde.
+     */
+    private static $wallet_via_card = ['apple_pay', 'google_pay', 'link', 'samsung_pay'];
+
+    /**
+     * Methoden, die NICHT mit EUR funktionieren (Currency-Konflikt).
+     * Stripe wuerde bei diesen einen 400 zurueckgeben. Werden aus der UI
+     * gefiltert, damit Kaeufer sie nicht auswaehlen koennen.
+     * (blik=PLN, kakao_pay/naver_pay/payco=KRW, pix=BRL, wechat_pay/alipay=CNY)
+     */
+    private static $eur_incompatible = ['blik', 'kakao_pay', 'naver_pay', 'payco', 'pix', 'wechat_pay', 'alipay'];
 
     public static function get_id()    { return 'stripe'; }
     public static function get_title() { return 'Stripe'; }
@@ -173,15 +183,40 @@ class TIX_Gateway_Stripe {
                     }
                 }
                 if ($config) {
+                    $seen_card = false;
                     foreach ($config as $key => $val) {
                         if (!is_array($val) || !isset($val['display_preference'])) continue;
                         $pref = $val['display_preference']['value'] ?? '';
-                        if ($pref === 'on') {
-                            $methods[] = [
-                                'id'    => $key,
-                                'label' => self::$method_labels[$key]['label'] ?? ucwords(str_replace('_', ' ', $key)),
-                                'image' => self::$method_labels[$key]['image'] ?? '',
-                            ];
+                        if ($pref !== 'on') continue;
+
+                        // Currency-inkompatible Methoden filtern (blik=PLN, KRW-Methoden, pix=BRL, …)
+                        if (in_array($key, self::$eur_incompatible, true)) continue;
+
+                        // Wallet-Overlays (link, samsung_pay, apple/google pay) laufen ueber 'card'
+                        // — sie werden auf der Stripe-Seite automatisch angezeigt. Wir zeigen sie
+                        // trotzdem in unserer UI, damit der Kaeufer sein Wunsch-Wallet direkt waehlen kann.
+                        // Ausser 'card' selbst wird sonst nicht doppelt gezeigt.
+                        if ($key === 'card') $seen_card = true;
+
+                        $methods[] = [
+                            'id'    => $key,
+                            'label' => self::$method_labels[$key]['label'] ?? ucwords(str_replace('_', ' ', $key)),
+                            'image' => self::$method_labels[$key]['image'] ?? '',
+                        ];
+                    }
+                    // Wenn irgendein Wallet-Overlay aktiv ist, muss 'card' im Backend akzeptiert sein
+                    // (sonst wirft Stripe Fehler beim Session-Create). Falls Kunde 'card' im Dashboard
+                    // ausgeblendet hat, aber Wallets an sind → wir fuegen 'card' still hinzu.
+                    if (!$seen_card) {
+                        foreach ($methods as $m) {
+                            if (in_array($m['id'], self::$wallet_via_card, true)) {
+                                $methods[] = [
+                                    'id'    => 'card',
+                                    'label' => self::$method_labels['card']['label'],
+                                    'image' => self::$method_labels['card']['image'],
+                                ];
+                                break;
+                            }
                         }
                     }
                 }
@@ -220,6 +255,16 @@ class TIX_Gateway_Stripe {
         // Methode (default card)
         $method = $preferred_method !== '' ? sanitize_text_field($preferred_method) : 'card';
 
+        // Currency-Konflikt fruehzeitig abfangen — Kunde bekommt sonst nur "Stripe-Fehler HTTP 400"
+        if (in_array($method, self::$eur_incompatible, true)) {
+            return ['error' => 'Diese Zahlungsmethode ist mit EUR nicht verfuegbar. Bitte andere waehlen.'];
+        }
+
+        // Wallet-Overlays (Apple/Google Pay, Link, Samsung Pay) sind KEINE eigenstaendigen
+        // Stripe payment_method_types — sie laufen auf der gehosteten Checkout-Seite ueber 'card'
+        // und werden automatisch angezeigt, wenn Geraet+Browser sie unterstuetzen.
+        $stripe_method = in_array($method, self::$wallet_via_card, true) ? 'card' : $method;
+
         $return_url = add_query_arg([
             'tix_payment_return' => 1,
             'gateway'            => 'stripe',
@@ -241,9 +286,7 @@ class TIX_Gateway_Stripe {
             'mode'                          => 'payment',
             'success_url'                   => $return_url,
             'cancel_url'                    => $cancel_url,
-            // Apple/Google Pay sind keine Stripe payment_method_types — sie laufen ueber 'card'
-            // (auf der gehosteten Checkout-Seite automatisch als Wallet, wenn Geraet+Browser passen).
-            'payment_method_types[0]'       => in_array($method, ['apple_pay','google_pay'], true) ? 'card' : $method,
+            'payment_method_types[0]'       => $stripe_method,
             'line_items[0][quantity]'       => 1,
             'line_items[0][price_data][currency]'                    => 'eur',
             'line_items[0][price_data][unit_amount]'                 => $amount_cents,
@@ -253,13 +296,26 @@ class TIX_Gateway_Stripe {
             'payment_intent_data[metadata][tix_order_id]'     => $order_id,
             'payment_intent_data[metadata][tix_order_number]' => $order->order_number,
             'customer_email'                => $order->billing_email,
+            // Deutsche Stripe-Checkout-Seite (statt Auto/EN Default)
+            'locale'                        => 'de',
         ];
+
+        // Klarna braucht die Rechnungsadresse fuer Bonitaets-Check — 'auto' laesst Stripe entscheiden
+        // ob es sie einholt (falls nicht via customer_email schon bekannt).
+        if ($stripe_method === 'klarna') {
+            $body['billing_address_collection'] = 'auto';
+        }
+
+        // Idempotency-Key: gleicher Order+Method-Aufruf gibt dieselbe Session zurueck statt eine 2. anzulegen
+        // (schuetzt vor Doppel-Klick auf "Zahlen"-Button).
+        $idempotency_key = 'tix_' . $order_id . '_' . $stripe_method . '_' . intval($amount_cents);
 
         $response = wp_remote_post(self::API_URL . '/checkout/sessions', [
             'timeout' => 15,
             'headers' => [
-                'Authorization' => 'Bearer ' . $secret,
-                'Content-Type'  => 'application/x-www-form-urlencoded',
+                'Authorization'   => 'Bearer ' . $secret,
+                'Content-Type'    => 'application/x-www-form-urlencoded',
+                'Idempotency-Key' => $idempotency_key,
             ],
             'body' => $body,
         ]);
