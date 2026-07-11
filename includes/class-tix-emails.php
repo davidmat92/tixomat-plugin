@@ -1466,7 +1466,7 @@ class TIX_Emails {
         // "Bestellung storniert"-Mail waere verwirrend.
         if ($new_status === 'cancelled'
             && class_exists('TIX_Gateway_Stripe')
-            && !empty(TIX_Gateway_Stripe::$suppress_cancel_email)) {
+            && (!empty(TIX_Gateway_Stripe::$suppress_cancel_notifications) || !empty(TIX_Gateway_Stripe::$suppress_cancel_email))) {
             return;
         }
 

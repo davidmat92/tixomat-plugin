@@ -541,6 +541,14 @@ class TIX_Organizer_Notifications {
      * Dedupe PRO (order_id, type) damit nicht bei jedem Status-Flip doppelt feuert.
      */
     public static function handle_order_status_changed($order_id, $new_status, $old_status, $gateway) {
+        // Stripe-Auto-Cleanup (Cron, ?cancelled=1, session.expired): kein Pushover/Mail
+        // an Veranstalter — Kunde hat nie bezahlt, ein "Stornierung"-Ping ist irrefuehrend.
+        if ($new_status === 'cancelled'
+            && class_exists('TIX_Gateway_Stripe')
+            && !empty(TIX_Gateway_Stripe::$suppress_cancel_notifications)) {
+            return;
+        }
+
         // Status → Notification-Typ-Mapping
         $type_map = [
             'completed'  => 'orders',

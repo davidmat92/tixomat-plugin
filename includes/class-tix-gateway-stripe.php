@@ -18,10 +18,16 @@ class TIX_Gateway_Stripe {
     const METHODS_CACHE_TTL = 6 * HOUR_IN_SECONDS;
 
     /**
-     * Flag: unterdrueckt die "Bestellung storniert"-Kunden-Mail, wenn ein
-     * unbezahlter Stripe-pending automatisch aufgeraeumt wird (Cleanup-Cron,
-     * ?cancelled=1 Return, checkout.session.expired). Der Kunde hat nie eine
-     * Bestellbestaetigung erhalten — eine "storniert"-Mail waere verwirrend.
+     * Flag: unterdrueckt ALLE Benachrichtigungen (Kunden-Mail + Pushover an
+     * Veranstalter), wenn ein unbezahlter Stripe-pending automatisch aufgeraeumt
+     * wird (Cleanup-Cron, ?cancelled=1 Return, checkout.session.expired).
+     * Der Kunde hat nie bezahlt — ein "storniert"-Ping ist irrefuehrend.
+     */
+    public static $suppress_cancel_notifications = false;
+
+    /**
+     * @deprecated Alias, wird noch von aelteren Consumern geprueft. Neue Consumers
+     * sollen $suppress_cancel_notifications lesen.
      */
     public static $suppress_cancel_email = false;
 
@@ -130,17 +136,19 @@ class TIX_Gateway_Stripe {
      */
     public static function silent_cancel($order_id, $reason = '') {
         if (!class_exists('TIX_Native_Checkout') || !method_exists('TIX_Native_Checkout', 'update_order_status')) return;
-        self::$suppress_cancel_email = true;
+        self::$suppress_cancel_notifications = true;
+        self::$suppress_cancel_email = true; // Legacy-Alias
         try {
             TIX_Native_Checkout::update_order_status(intval($order_id), 'cancelled', 'stripe');
             if ($reason && class_exists('TIX_Order_Admin') && method_exists('TIX_Order_Admin', 'add_note')) {
                 TIX_Order_Admin::add_note(
                     intval($order_id),
-                    'Stripe: still storniert (keine Kunden-Mail) — ' . $reason,
+                    'Stripe: still storniert (keine Benachrichtigungen) — ' . $reason,
                     'system'
                 );
             }
         } finally {
+            self::$suppress_cancel_notifications = false;
             self::$suppress_cancel_email = false;
         }
     }
