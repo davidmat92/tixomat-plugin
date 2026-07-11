@@ -48,6 +48,44 @@ class TIX_Native_Checkout {
 
         // Frontend Assets
         add_action('wp_enqueue_scripts', [__CLASS__, 'enqueue_assets']);
+
+        // Gutschein-Verbrauch erst bei bezahlter Bestellung — verhindert Verbrennen
+        // von Codes bei abgebrochenen/expirierten Stripe-Sessions.
+        add_action('tix_order_completed', [__CLASS__, 'increment_coupon_on_completion']);
+    }
+
+    /**
+     * Erhöht den `used`-Counter eines Gutscheins genau EINMAL, wenn die Bestellung
+     * bezahlt/abgeschlossen ist. Idempotent über das Flag `_tix_coupon_incremented_<id>`
+     * — schützt gegen Doppel-Feuern (Race, Retry, manueller Status-Wechsel).
+     */
+    public static function increment_coupon_on_completion($order_id) {
+        $order_id = intval($order_id);
+        if ($order_id <= 0) return;
+
+        // Idempotenz-Guard
+        $flag_key = '_tix_coupon_incremented_' . $order_id;
+        if (get_option($flag_key)) return;
+
+        $data = get_option('_tix_order_coupon_' . $order_id);
+        if (!is_array($data) || empty($data['code'])) return;
+
+        $code = $data['code'];
+        wp_cache_delete('tix_coupons', 'options');
+        $coupons = get_option('tix_coupons', []);
+
+        // Case-insensitive Lookup (wie beim Anwenden)
+        $stored_key = null;
+        foreach ($coupons as $k => $v) {
+            if (strtolower($k) === strtolower($code)) { $stored_key = $k; break; }
+        }
+        if ($stored_key === null) return;
+
+        $used = intval($coupons[$stored_key]['used'] ?? 0);
+        $coupons[$stored_key]['used'] = $used + 1;
+        update_option('tix_coupons', $coupons);
+
+        update_option($flag_key, 1, false);
     }
 
     // ──────────────────────────────────────────
@@ -1614,20 +1652,9 @@ class TIX_Native_Checkout {
 
             $data['total'] = max(0, round($data['total'] - $coupon_discount, 2));
 
-            if ($coupon_code && $coupon_discount > 0) {
-                // Re-read coupons to get latest state (minimize race window)
-                wp_cache_delete('tix_coupons', 'options');
-                $coupons = get_option('tix_coupons', []);
-                if (isset($coupons[$coupon_code])) {
-                    $max_uses = intval($coupons[$coupon_code]['max_uses'] ?? 0);
-                    $used = intval($coupons[$coupon_code]['used'] ?? 0);
-                    if ($max_uses > 0 && $used >= $max_uses) {
-                        // Coupon hit limit between validation and now — still apply
-                    }
-                    $coupons[$coupon_code]['used'] = $used + 1;
-                    update_option('tix_coupons', $coupons);
-                }
-            }
+            // Coupon-Code auf der Order persistieren — increment passiert erst
+            // bei tix_order_completed (via increment_coupon_on_completion, idempotent).
+            // Verhindert, dass Codes bei abgebrochenen Stripe-Sessions verbrannt werden.
         }
 
         // ── Gebühren / Provisionen ──
@@ -1698,6 +1725,14 @@ class TIX_Native_Checkout {
                 ),
                 'coupon'
             );
+        }
+
+        // ── Coupon-Code auf Order ablegen — used++ erst bei Zahlung (siehe increment_coupon_on_completion) ──
+        if (!empty($coupon_code) && $coupon_discount > 0) {
+            update_option('_tix_order_coupon_' . $order_id, [
+                'code'     => $coupon_code,
+                'discount' => $coupon_discount,
+            ], false);
         }
 
         // ── Gebühren-Daten als Order-Meta speichern ──

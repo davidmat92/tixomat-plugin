@@ -241,7 +241,9 @@ class TIX_Gateway_Stripe {
             'mode'                          => 'payment',
             'success_url'                   => $return_url,
             'cancel_url'                    => $cancel_url,
-            'payment_method_types[0]'       => $method,
+            // Apple/Google Pay sind keine Stripe payment_method_types — sie laufen ueber 'card'
+            // (auf der gehosteten Checkout-Seite automatisch als Wallet, wenn Geraet+Browser passen).
+            'payment_method_types[0]'       => in_array($method, ['apple_pay','google_pay'], true) ? 'card' : $method,
             'line_items[0][quantity]'       => 1,
             'line_items[0][price_data][currency]'                    => 'eur',
             'line_items[0][price_data][unit_amount]'                 => $amount_cents,
