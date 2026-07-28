@@ -20,12 +20,21 @@ class TIX_Broadcast {
     const BATCH_SIZE = 25;
     const OPT_DRAFT  = '_tix_broadcast_draft';
     const OPT_LOG    = '_tix_broadcast_log';
-    const OPT_SENDER = '_tix_broadcast_sender';
+    const OPT_SENDER      = '_tix_broadcast_sender';
+    const OPT_SENDER_NAME = '_tix_broadcast_sender_name';
 
     /** Absender fuer Rundmails (leer = WP/SMTP-Default). */
     public static function get_sender(): string {
         $v = get_option(self::OPT_SENDER, '');
         return is_email($v) ? $v : '';
+    }
+
+    /** Absender-Name fuer Rundmails (leer = email_brand_name aus den Einstellungen). */
+    public static function get_sender_name(): string {
+        $v = trim((string) get_option(self::OPT_SENDER_NAME, ''));
+        if ($v !== '') return $v;
+        $s = get_option('tix_settings', array());
+        return !empty($s['email_brand_name']) ? $s['email_brand_name'] : get_bloginfo('name');
     }
 
     public static function init() {
@@ -123,7 +132,7 @@ class TIX_Broadcast {
             . $body_html
             . '</div>'
             . '<div style="text-align:center;padding:16px;font-size:12px;color:#9ca3af;">'
-            . esc_html($brand) . ' &middot; Diese E-Mail wurde an Kunden von ' . esc_html($brand) . ' gesendet.'
+            . esc_html(self::get_sender_name()) . ' &middot; Diese E-Mail wurde an Kunden von ' . esc_html(self::get_sender_name()) . ' gesendet.'
             . '</div>'
             . '</div></body></html>';
     }
@@ -148,21 +157,24 @@ class TIX_Broadcast {
         $html = self::wrap_html($subj, $body);
 
         $headers = array('Content-Type: text/html; charset=UTF-8');
-        $sender = self::get_sender();
+        $sender      = self::get_sender();
+        $sender_name = self::get_sender_name();
         $from_filter = null;
+        $name_filter = null;
         if ($sender !== '') {
-            $s = get_option('tix_settings', array());
-            $brand = !empty($s['email_brand_name']) ? $s['email_brand_name'] : get_bloginfo('name');
-            $headers[] = 'From: ' . $brand . ' <' . $sender . '>';
-            // wp_mail_from-Filter zusaetzlich, damit auch SMTP-Plugins den Absender uebernehmen
+            $headers[] = 'From: ' . $sender_name . ' <' . $sender . '>';
+            // wp_mail_from-Filter zusaetzlich, damit auch SMTP-Plugins Absender + Name uebernehmen
             $from_filter = function () use ($sender) { return $sender; };
+            $name_filter = function () use ($sender_name) { return $sender_name; };
             add_filter('wp_mail_from', $from_filter, 99);
+            add_filter('wp_mail_from_name', $name_filter, 99);
         }
 
         $ok = (bool) wp_mail($recipient['email'], $subj, $html, $headers);
 
         if ($from_filter !== null) {
             remove_filter('wp_mail_from', $from_filter, 99);
+            remove_filter('wp_mail_from_name', $name_filter, 99);
         }
         return $ok;
     }
@@ -190,6 +202,9 @@ class TIX_Broadcast {
         if (isset($_POST['sender'])) {
             $sender = sanitize_email($_POST['sender']);
             update_option(self::OPT_SENDER, is_email($sender) ? $sender : '', false);
+        }
+        if (isset($_POST['sender_name'])) {
+            update_option(self::OPT_SENDER_NAME, sanitize_text_field($_POST['sender_name']), false);
         }
         wp_send_json_success(array('message' => 'Entwurf gespeichert'));
     }
@@ -357,9 +372,18 @@ class TIX_Broadcast {
                     </div>
                 </details>
 
-                <label style="font-weight:600;display:block;margin-bottom:6px;">Absender-Adresse <small style="color:#94a3b8;font-weight:400;">(leer = Standard-Absender)</small></label>
-                <input type="email" id="tix-bc-sender" value="<?php echo esc_attr(self::get_sender()); ?>" placeholder="z.B. dm@mallorca-festival-xxl.de"
-                       style="width:100%;max-width:420px;padding:8px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;margin-bottom:14px;box-sizing:border-box;">
+                <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:14px;">
+                    <div>
+                        <label style="font-weight:600;display:block;margin-bottom:6px;">Absender-Name</label>
+                        <input type="text" id="tix-bc-sender-name" value="<?php echo esc_attr(get_option(self::OPT_SENDER_NAME, '')); ?>" placeholder="z.B. Mallorca Festival XXL"
+                               style="width:280px;padding:8px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;box-sizing:border-box;">
+                    </div>
+                    <div>
+                        <label style="font-weight:600;display:block;margin-bottom:6px;">Absender-Adresse <small style="color:#94a3b8;font-weight:400;">(leer = Standard)</small></label>
+                        <input type="email" id="tix-bc-sender" value="<?php echo esc_attr(self::get_sender()); ?>" placeholder="z.B. dm@mallorca-festival-xxl.de"
+                               style="width:320px;padding:8px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;box-sizing:border-box;">
+                    </div>
+                </div>
 
                 <label style="font-weight:600;display:block;margin-bottom:6px;">Betreff</label>
                 <input type="text" id="tix-bc-subject" value="<?php echo esc_attr($draft['subject'] ?? ''); ?>" placeholder="z.B. Wichtige Info zu deinem Festival-Ticket"
@@ -449,25 +473,25 @@ class TIX_Broadcast {
 
             // Auto-Draft alle 5s bei Aenderung
             var draftDirty = false;
-            ['tix-bc-subject','tix-bc-body','tix-bc-sender'].forEach(function(id){
+            ['tix-bc-subject','tix-bc-body','tix-bc-sender','tix-bc-sender-name'].forEach(function(id){
                 document.getElementById(id).addEventListener('input', function(){ draftDirty = true; });
             });
+            function draftPayload() {
+                return { action:'tix_broadcast_draft',
+                       subject: document.getElementById('tix-bc-subject').value,
+                       body: document.getElementById('tix-bc-body').value,
+                       sender: document.getElementById('tix-bc-sender').value,
+                       sender_name: document.getElementById('tix-bc-sender-name').value,
+                       event_id: evSel.value };
+            }
             setInterval(function(){
                 if (!draftDirty) return;
                 draftDirty = false;
-                post({ action:'tix_broadcast_draft',
-                       subject: document.getElementById('tix-bc-subject').value,
-                       body: document.getElementById('tix-bc-body').value,
-                       sender: document.getElementById('tix-bc-sender').value,
-                       event_id: evSel.value });
+                post(draftPayload());
             }, 5000);
             // Absender auch direkt vor Test/Versand speichern
             function saveSenderNow() {
-                return post({ action:'tix_broadcast_draft',
-                       subject: document.getElementById('tix-bc-subject').value,
-                       body: document.getElementById('tix-bc-body').value,
-                       sender: document.getElementById('tix-bc-sender').value,
-                       event_id: evSel.value });
+                return post(draftPayload());
             }
 
             document.getElementById('tix-bc-test-btn').addEventListener('click', function(){
