@@ -20,6 +20,13 @@ class TIX_Broadcast {
     const BATCH_SIZE = 25;
     const OPT_DRAFT  = '_tix_broadcast_draft';
     const OPT_LOG    = '_tix_broadcast_log';
+    const OPT_SENDER = '_tix_broadcast_sender';
+
+    /** Absender fuer Rundmails (leer = WP/SMTP-Default). */
+    public static function get_sender(): string {
+        $v = get_option(self::OPT_SENDER, '');
+        return is_email($v) ? $v : '';
+    }
 
     public static function init() {
         add_action('admin_menu',                     array(__CLASS__, 'register_menu'), 64);
@@ -130,11 +137,25 @@ class TIX_Broadcast {
         $subj = self::personalize($subject, $recipient);
         $body = self::personalize($body_prepared, $recipient);
         $html = self::wrap_html($subj, $body);
-        if (class_exists('TIX_Emails') && method_exists('TIX_Emails', 'send_html_mail')) {
-            TIX_Emails::send_html_mail($recipient['email'], $subj, $html);
-            return true;
+
+        $headers = array('Content-Type: text/html; charset=UTF-8');
+        $sender = self::get_sender();
+        $from_filter = null;
+        if ($sender !== '') {
+            $s = get_option('tix_settings', array());
+            $brand = !empty($s['email_brand_name']) ? $s['email_brand_name'] : get_bloginfo('name');
+            $headers[] = 'From: ' . $brand . ' <' . $sender . '>';
+            // wp_mail_from-Filter zusaetzlich, damit auch SMTP-Plugins den Absender uebernehmen
+            $from_filter = function () use ($sender) { return $sender; };
+            add_filter('wp_mail_from', $from_filter, 99);
         }
-        return (bool) wp_mail($recipient['email'], $subj, $html, array('Content-Type: text/html; charset=UTF-8'));
+
+        $ok = (bool) wp_mail($recipient['email'], $subj, $html, $headers);
+
+        if ($from_filter !== null) {
+            remove_filter('wp_mail_from', $from_filter, 99);
+        }
+        return $ok;
     }
 
     /* ─────────── AJAX ─────────── */
@@ -157,6 +178,10 @@ class TIX_Broadcast {
             'event_id' => intval($_POST['event_id'] ?? 0),
             'saved_at' => current_time('mysql'),
         ), false);
+        if (isset($_POST['sender'])) {
+            $sender = sanitize_email($_POST['sender']);
+            update_option(self::OPT_SENDER, is_email($sender) ? $sender : '', false);
+        }
         wp_send_json_success(array('message' => 'Entwurf gespeichert'));
     }
 
@@ -323,6 +348,10 @@ class TIX_Broadcast {
                     </div>
                 </details>
 
+                <label style="font-weight:600;display:block;margin-bottom:6px;">Absender-Adresse <small style="color:#94a3b8;font-weight:400;">(leer = Standard-Absender)</small></label>
+                <input type="email" id="tix-bc-sender" value="<?php echo esc_attr(self::get_sender()); ?>" placeholder="z.B. dm@mallorca-festival-xxl.de"
+                       style="width:100%;max-width:420px;padding:8px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;margin-bottom:14px;box-sizing:border-box;">
+
                 <label style="font-weight:600;display:block;margin-bottom:6px;">Betreff</label>
                 <input type="text" id="tix-bc-subject" value="<?php echo esc_attr($draft['subject'] ?? ''); ?>" placeholder="z.B. Wichtige Info zu deinem Festival-Ticket"
                        style="width:100%;padding:8px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;margin-bottom:14px;box-sizing:border-box;">
@@ -411,7 +440,7 @@ class TIX_Broadcast {
 
             // Auto-Draft alle 5s bei Aenderung
             var draftDirty = false;
-            ['tix-bc-subject','tix-bc-body'].forEach(function(id){
+            ['tix-bc-subject','tix-bc-body','tix-bc-sender'].forEach(function(id){
                 document.getElementById(id).addEventListener('input', function(){ draftDirty = true; });
             });
             setInterval(function(){
@@ -420,16 +449,27 @@ class TIX_Broadcast {
                 post({ action:'tix_broadcast_draft',
                        subject: document.getElementById('tix-bc-subject').value,
                        body: document.getElementById('tix-bc-body').value,
+                       sender: document.getElementById('tix-bc-sender').value,
                        event_id: evSel.value });
             }, 5000);
+            // Absender auch direkt vor Test/Versand speichern
+            function saveSenderNow() {
+                return post({ action:'tix_broadcast_draft',
+                       subject: document.getElementById('tix-bc-subject').value,
+                       body: document.getElementById('tix-bc-body').value,
+                       sender: document.getElementById('tix-bc-sender').value,
+                       event_id: evSel.value });
+            }
 
             document.getElementById('tix-bc-test-btn').addEventListener('click', function(){
                 var btn = this;
                 btn.disabled = true;
-                post({ action:'tix_broadcast_test',
-                       test_email: document.getElementById('tix-bc-test-email').value,
-                       subject: document.getElementById('tix-bc-subject').value,
-                       body: document.getElementById('tix-bc-body').value
+                saveSenderNow().then(function(){
+                    return post({ action:'tix_broadcast_test',
+                           test_email: document.getElementById('tix-bc-test-email').value,
+                           subject: document.getElementById('tix-bc-subject').value,
+                           body: document.getElementById('tix-bc-body').value
+                    });
                 }).then(function(res){
                     btn.disabled = false;
                     msgEl.style.color = res.success ? '#059669' : '#dc2626';
@@ -445,11 +485,13 @@ class TIX_Broadcast {
                 btn.disabled = true;
                 msgEl.textContent = '';
 
-                post({ action:'tix_broadcast_start',
-                       event_id: evSel.value,
-                       statuses: statuses(),
-                       subject: document.getElementById('tix-bc-subject').value,
-                       body: document.getElementById('tix-bc-body').value
+                saveSenderNow().then(function(){
+                    return post({ action:'tix_broadcast_start',
+                           event_id: evSel.value,
+                           statuses: statuses(),
+                           subject: document.getElementById('tix-bc-subject').value,
+                           body: document.getElementById('tix-bc-body').value
+                    });
                 }).then(function(res){
                     if (!res.success) {
                         btn.disabled = false;
