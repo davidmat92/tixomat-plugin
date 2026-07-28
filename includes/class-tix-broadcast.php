@@ -61,9 +61,9 @@ class TIX_Broadcast {
 
     /**
      * Liefert deduplizierte Empfaenger: [ ['email'=>..., 'first_name'=>...], ... ]
-     * $event_id = 0 → alle Kunden.
+     * $event_id = 0 → alle Kunden. $cat_name filtert zusaetzlich auf Ticketart (nur mit Event).
      */
-    public static function get_recipients(int $event_id, array $statuses): array {
+    public static function get_recipients(int $event_id, array $statuses, string $cat_name = ''): array {
         global $wpdb;
         if (empty($statuses)) $statuses = array('completed', 'processing', 'on-hold');
         $statuses = array_values(array_intersect($statuses, array('completed', 'processing', 'on-hold', 'pending', 'refunded')));
@@ -71,14 +71,20 @@ class TIX_Broadcast {
         $ph = implode(',', array_fill(0, count($statuses), '%s'));
 
         if ($event_id > 0) {
+            $cat_sql = '';
+            $cat_params = array();
+            if ($cat_name !== '') {
+                $cat_sql = " AND i.cat_name = %s";
+                $cat_params = array($cat_name);
+            }
             $sql = "SELECT o.billing_email AS email, MAX(o.billing_first_name) AS first_name
                     FROM {$wpdb->prefix}tix_orders o
                     JOIN {$wpdb->prefix}tix_order_items i ON i.order_id = o.id
                     WHERE i.event_id = %d
-                      AND o.status IN ($ph)
+                      AND o.status IN ($ph)$cat_sql
                       AND o.billing_email <> ''
                     GROUP BY o.billing_email";
-            $params = array_merge(array($event_id), $statuses);
+            $params = array_merge(array($event_id), $statuses, $cat_params);
         } else {
             $sql = "SELECT o.billing_email AS email, MAX(o.billing_first_name) AS first_name
                     FROM {$wpdb->prefix}tix_orders o
@@ -186,7 +192,8 @@ class TIX_Broadcast {
         check_ajax_referer('tix_broadcast');
         $event_id = intval($_POST['event_id'] ?? 0);
         $statuses = self::parse_statuses($_POST['statuses'] ?? array());
-        $recipients = self::get_recipients($event_id, $statuses);
+        $cat_name = sanitize_text_field($_POST['cat_name'] ?? '');
+        $recipients = self::get_recipients($event_id, $statuses, $cat_name);
         wp_send_json_success(array('count' => count($recipients)));
     }
 
@@ -233,13 +240,14 @@ class TIX_Broadcast {
 
         $event_id = intval($_POST['event_id'] ?? 0);
         $statuses = self::parse_statuses($_POST['statuses'] ?? array());
+        $cat_name = sanitize_text_field($_POST['cat_name'] ?? '');
         $subject  = sanitize_text_field($_POST['subject'] ?? '');
         $body     = self::prepare_body((string) ($_POST['body'] ?? ''));
 
         if ($subject === '') wp_send_json_error(array('message' => 'Betreff fehlt.'));
         if (trim(wp_strip_all_tags($body)) === '') wp_send_json_error(array('message' => 'Nachricht fehlt.'));
 
-        $recipients = self::get_recipients($event_id, $statuses);
+        $recipients = self::get_recipients($event_id, $statuses, $cat_name);
         if (empty($recipients)) wp_send_json_error(array('message' => 'Keine Empfaenger gefunden.'));
 
         $job_id = 'bc_' . time() . '_' . wp_generate_password(6, false, false);
@@ -249,6 +257,7 @@ class TIX_Broadcast {
             'body'       => $body,
             'sent'       => 0,
             'event_id'   => $event_id,
+            'cat_name'   => $cat_name,
         ), 12 * HOUR_IN_SECONDS);
 
         wp_send_json_success(array('job_id' => $job_id, 'total' => count($recipients)));
@@ -287,6 +296,7 @@ class TIX_Broadcast {
                 'when'     => current_time('mysql'),
                 'subject'  => $job['subject'],
                 'event_id' => intval($job['event_id']),
+                'cat_name' => (string) ($job['cat_name'] ?? ''),
                 'total'    => $total,
                 'by'       => $current ? $current->user_login : 'system',
             );
@@ -329,6 +339,21 @@ class TIX_Broadcast {
              WHERE status IN ('completed','processing','on-hold') AND billing_email <> ''"
         ));
 
+        // Ticketarten pro Event (aus tatsaechlich verkauften Order-Items)
+        $event_cats = array();
+        $cat_rows = $wpdb->get_results(
+            "SELECT DISTINCT i.event_id, i.cat_name
+             FROM {$wpdb->prefix}tix_order_items i
+             JOIN {$wpdb->prefix}tix_orders o ON o.id = i.order_id
+             WHERE o.status IN ('completed','processing','on-hold') AND i.cat_name <> ''
+             ORDER BY i.cat_name"
+        );
+        foreach ($cat_rows as $cr) {
+            $eid = intval($cr->event_id);
+            if (!isset($event_cats[$eid])) $event_cats[$eid] = array();
+            $event_cats[$eid][] = $cr->cat_name;
+        }
+
         $draft = get_option(self::OPT_DRAFT, array());
         if (!is_array($draft)) $draft = array();
         $log = get_option(self::OPT_LOG, array());
@@ -358,6 +383,9 @@ class TIX_Broadcast {
                                 <?php echo esc_html(get_the_title($ev->ID) ?: '(ohne Titel)'); ?> (<?php echo $event_counts[$ev->ID]; ?> Kaeufer)
                             </option>
                         <?php endforeach; ?>
+                    </select>
+                    <select id="tix-bc-cat" style="display:none;min-width:200px;padding:7px 10px;border:1px solid #d1d5db;border-radius:6px;">
+                        <option value="">🎫 Alle Ticketarten</option>
                     </select>
                     <button type="button" class="button" id="tix-bc-all-btn" title="Mit einem Klick alle Kunden auswaehlen">🌍 Alle auswaehlen</button>
                     <span id="tix-bc-count" style="font-weight:700;color:#059669;"></span>
@@ -419,6 +447,7 @@ class TIX_Broadcast {
                     <?php foreach ($recent as $entry):
                         $target = intval($entry['event_id'] ?? 0);
                         $target_label = $target > 0 ? (get_the_title($target) ?: 'Event #' . $target) : 'Alle Kunden';
+                        if (!empty($entry['cat_name'])) $target_label .= ' — nur ' . $entry['cat_name'];
                     ?>
                         <tr>
                             <td><?php echo esc_html($entry['when'] ?? ''); ?></td>
@@ -439,8 +468,26 @@ class TIX_Broadcast {
             var nonce = '<?php echo esc_js($nonce); ?>';
             var ajaxUrl = '<?php echo esc_js(admin_url('admin-ajax.php')); ?>';
             var evSel = document.getElementById('tix-bc-event');
+            var catSel = document.getElementById('tix-bc-cat');
             var countEl = document.getElementById('tix-bc-count');
             var msgEl = document.getElementById('tix-bc-msg');
+            var eventCats = <?php echo wp_json_encode($event_cats); ?>;
+
+            function refreshCats() {
+                var eid = evSel.value;
+                var cats = (eid !== '0' && eventCats[eid]) ? eventCats[eid] : [];
+                catSel.innerHTML = '<option value="">🎫 Alle Ticketarten</option>';
+                if (cats.length > 0) {
+                    cats.forEach(function(c){
+                        var o = document.createElement('option');
+                        o.value = c; o.textContent = c;
+                        catSel.appendChild(o);
+                    });
+                    catSel.style.display = '';
+                } else {
+                    catSel.style.display = 'none';
+                }
+            }
 
             function statuses() {
                 var out = [];
@@ -459,16 +506,19 @@ class TIX_Broadcast {
             }
             function refreshCount() {
                 countEl.textContent = '…';
-                post({ action:'tix_broadcast_count', event_id: evSel.value, statuses: statuses() }).then(function(res){
+                post({ action:'tix_broadcast_count', event_id: evSel.value, cat_name: catSel.value, statuses: statuses() }).then(function(res){
                     countEl.textContent = res.success ? ('→ ' + res.data.count + ' Empfaenger') : '?';
                 });
             }
-            evSel.addEventListener('change', refreshCount);
+            evSel.addEventListener('change', function(){ refreshCats(); refreshCount(); });
+            catSel.addEventListener('change', refreshCount);
             document.querySelectorAll('.tix-bc-status').forEach(function(b){ b.addEventListener('change', refreshCount); });
             document.getElementById('tix-bc-all-btn').addEventListener('click', function(){
                 evSel.value = '0';
+                refreshCats();
                 refreshCount();
             });
+            refreshCats();
             refreshCount();
 
             // Auto-Draft alle 5s bei Aenderung
@@ -521,6 +571,7 @@ class TIX_Broadcast {
                 saveSenderNow().then(function(){
                     return post({ action:'tix_broadcast_start',
                            event_id: evSel.value,
+                           cat_name: catSel.value,
                            statuses: statuses(),
                            subject: document.getElementById('tix-bc-subject').value,
                            body: document.getElementById('tix-bc-body').value
