@@ -40,6 +40,7 @@ class TIX_Broadcast {
     public static function init() {
         add_action('admin_menu',                     array(__CLASS__, 'register_menu'), 64);
         add_action('wp_ajax_tix_broadcast_count',    array(__CLASS__, 'ajax_count'));
+        add_action('wp_ajax_tix_broadcast_search',   array(__CLASS__, 'ajax_search'));
         add_action('wp_ajax_tix_broadcast_test',     array(__CLASS__, 'ajax_test'));
         add_action('wp_ajax_tix_broadcast_start',    array(__CLASS__, 'ajax_start'));
         add_action('wp_ajax_tix_broadcast_batch',    array(__CLASS__, 'ajax_batch'));
@@ -187,6 +188,45 @@ class TIX_Broadcast {
 
     /* ─────────── AJAX ─────────── */
 
+    /**
+     * Autocomplete-Suche fuer Einzelkunden (E-Mail oder Name, dedupliziert pro E-Mail).
+     */
+    public static function ajax_search() {
+        if (!current_user_can(self::CAPABILITY)) wp_send_json_error(array('message' => 'no perm'));
+        check_ajax_referer('tix_broadcast');
+        global $wpdb;
+        $q = trim(sanitize_text_field($_POST['q'] ?? ''));
+        if (strlen($q) < 2) wp_send_json_success(array());
+
+        $like = '%' . $wpdb->esc_like($q) . '%';
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT billing_email AS email,
+                    MAX(billing_first_name) AS first_name,
+                    MAX(billing_last_name)  AS last_name,
+                    COUNT(*) AS orders
+             FROM {$wpdb->prefix}tix_orders
+             WHERE billing_email <> ''
+               AND (billing_email LIKE %s OR billing_first_name LIKE %s OR billing_last_name LIKE %s
+                    OR CONCAT(billing_first_name, ' ', billing_last_name) LIKE %s)
+             GROUP BY billing_email
+             ORDER BY MAX(date_created) DESC
+             LIMIT 10",
+            $like, $like, $like, $like
+        ), ARRAY_A);
+
+        $out = array();
+        foreach ($rows as $r) {
+            if (!is_email($r['email'])) continue;
+            $out[] = array(
+                'email'      => strtolower($r['email']),
+                'name'       => trim($r['first_name'] . ' ' . $r['last_name']),
+                'first_name' => trim((string) $r['first_name']),
+                'orders'     => intval($r['orders']),
+            );
+        }
+        wp_send_json_success($out);
+    }
+
     public static function ajax_count() {
         if (!current_user_can(self::CAPABILITY)) wp_send_json_error(array('message' => 'no perm'));
         check_ajax_referer('tix_broadcast');
@@ -247,7 +287,30 @@ class TIX_Broadcast {
         if ($subject === '') wp_send_json_error(array('message' => 'Betreff fehlt.'));
         if (trim(wp_strip_all_tags($body)) === '') wp_send_json_error(array('message' => 'Nachricht fehlt.'));
 
-        $recipients = self::get_recipients($event_id, $statuses, $cat_name);
+        // Manueller Modus: einzelne, per Autocomplete ausgewaehlte Kunden
+        $manual = array();
+        if (!empty($_POST['manual_emails']) && is_array($_POST['manual_emails'])) {
+            global $wpdb;
+            $seen = array();
+            foreach ($_POST['manual_emails'] as $raw) {
+                $em = strtolower(trim(sanitize_email($raw)));
+                if ($em === '' || !is_email($em) || isset($seen[$em])) continue;
+                $seen[$em] = 1;
+                $fn = (string) $wpdb->get_var($wpdb->prepare(
+                    "SELECT billing_first_name FROM {$wpdb->prefix}tix_orders
+                     WHERE billing_email = %s AND billing_first_name <> '' ORDER BY id DESC LIMIT 1",
+                    $em
+                ));
+                $manual[] = array('email' => $em, 'first_name' => trim($fn));
+            }
+        }
+
+        if (!empty($manual)) {
+            $recipients = $manual;
+            $event_id = -1; // Marker fuer Log: manuelle Auswahl
+        } else {
+            $recipients = self::get_recipients($event_id, $statuses, $cat_name);
+        }
         if (empty($recipients)) wp_send_json_error(array('message' => 'Keine Empfaenger gefunden.'));
 
         $job_id = 'bc_' . time() . '_' . wp_generate_password(6, false, false);
@@ -391,6 +454,23 @@ class TIX_Broadcast {
                     <span id="tix-bc-count" style="font-weight:700;color:#059669;"></span>
                 </div>
 
+                <div style="margin:10px 0 4px;">
+                    <label style="font-weight:600;display:block;margin-bottom:6px;">Oder einzelne Kunden auswaehlen <small style="color:#94a3b8;font-weight:400;">(ueberschreibt die Event-Auswahl)</small></label>
+                    <div style="position:relative;max-width:480px;">
+                        <input type="text" id="tix-bc-manual-search" placeholder="Name oder E-Mail tippen…" autocomplete="off"
+                               style="width:100%;padding:8px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;box-sizing:border-box;">
+                        <div id="tix-bc-manual-results" style="display:none;position:absolute;top:100%;left:0;right:0;z-index:50;background:#fff;border:1px solid #d1d5db;border-radius:0 0 8px 8px;max-height:240px;overflow:auto;box-shadow:0 8px 20px rgba(15,23,42,.12);"></div>
+                    </div>
+                    <div id="tix-bc-manual-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;"></div>
+                </div>
+                <style>
+                    .tix-bc-mres { padding:8px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid #f1f5f9; }
+                    .tix-bc-mres:hover { background:#f8fafc; }
+                    .tix-bc-mres:last-child { border-bottom:none; }
+                    .tix-bc-chip { display:inline-flex;align-items:center;gap:6px;background:#eff6ff;border:1px solid #bfdbfe;color:#1e40af;border-radius:999px;padding:4px 10px;font-size:12px; }
+                    .tix-bc-chip .x { cursor:pointer;font-weight:700;color:#dc2626; }
+                </style>
+
                 <details style="margin:8px 0 16px;">
                     <summary style="cursor:pointer;color:#64748b;font-size:13px;">Status-Filter (Standard: alle Zahler)</summary>
                     <div style="padding:10px 4px 0;display:flex;gap:16px;flex-wrap:wrap;font-size:13px;">
@@ -446,7 +526,11 @@ class TIX_Broadcast {
                     <tbody>
                     <?php foreach ($recent as $entry):
                         $target = intval($entry['event_id'] ?? 0);
-                        $target_label = $target > 0 ? (get_the_title($target) ?: 'Event #' . $target) : 'Alle Kunden';
+                        if ($target === -1) {
+                            $target_label = 'Manuelle Auswahl';
+                        } else {
+                            $target_label = $target > 0 ? (get_the_title($target) ?: 'Event #' . $target) : 'Alle Kunden';
+                        }
                         if (!empty($entry['cat_name'])) $target_label .= ' — nur ' . $entry['cat_name'];
                     ?>
                         <tr>
@@ -504,12 +588,82 @@ class TIX_Broadcast {
                 });
                 return fetch(ajaxUrl, { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body: body }).then(function(r){ return r.json(); });
             }
+            var manualList = []; // [{email, name}]
+
             function refreshCount() {
+                if (manualList.length > 0) {
+                    countEl.textContent = '→ ' + manualList.length + ' Empfaenger (manuelle Auswahl)';
+                    evSel.style.opacity = '0.4'; catSel.style.opacity = '0.4';
+                    return;
+                }
+                evSel.style.opacity = ''; catSel.style.opacity = '';
                 countEl.textContent = '…';
                 post({ action:'tix_broadcast_count', event_id: evSel.value, cat_name: catSel.value, statuses: statuses() }).then(function(res){
                     countEl.textContent = res.success ? ('→ ' + res.data.count + ' Empfaenger') : '?';
                 });
             }
+
+            // ── Einzelkunden-Autocomplete ──
+            var mSearch = document.getElementById('tix-bc-manual-search');
+            var mResults = document.getElementById('tix-bc-manual-results');
+            var mChips = document.getElementById('tix-bc-manual-chips');
+            var mTimer = null;
+
+            function renderChips() {
+                mChips.innerHTML = '';
+                manualList.forEach(function(c, idx){
+                    var chip = document.createElement('span');
+                    chip.className = 'tix-bc-chip';
+                    var label = document.createElement('span');
+                    label.textContent = (c.name ? c.name + ' — ' : '') + c.email;
+                    var x = document.createElement('span');
+                    x.className = 'x';
+                    x.textContent = '×';
+                    x.addEventListener('click', function(){
+                        manualList.splice(idx, 1);
+                        renderChips();
+                        refreshCount();
+                    });
+                    chip.appendChild(label);
+                    chip.appendChild(x);
+                    mChips.appendChild(chip);
+                });
+            }
+
+            mSearch.addEventListener('input', function(){
+                var q = mSearch.value.trim();
+                clearTimeout(mTimer);
+                if (q.length < 2) { mResults.style.display = 'none'; return; }
+                mTimer = setTimeout(function(){
+                    post({ action:'tix_broadcast_search', q: q }).then(function(res){
+                        if (!res.success || !res.data.length) {
+                            mResults.innerHTML = '<div class="tix-bc-mres" style="color:#94a3b8;cursor:default;">Kein Treffer</div>';
+                            mResults.style.display = 'block';
+                            return;
+                        }
+                        mResults.innerHTML = '';
+                        res.data.forEach(function(c){
+                            var row = document.createElement('div');
+                            row.className = 'tix-bc-mres';
+                            row.innerHTML = '<strong>' + (c.name || '(ohne Namen)') + '</strong> — ' + c.email +
+                                '<span style="float:right;color:#94a3b8;">' + c.orders + ' Best.</span>';
+                            row.addEventListener('click', function(){
+                                var exists = manualList.some(function(m){ return m.email === c.email; });
+                                if (!exists) manualList.push({ email: c.email, name: c.name });
+                                renderChips();
+                                refreshCount();
+                                mSearch.value = '';
+                                mResults.style.display = 'none';
+                            });
+                            mResults.appendChild(row);
+                        });
+                        mResults.style.display = 'block';
+                    });
+                }, 250);
+            });
+            document.addEventListener('click', function(e){
+                if (!mResults.contains(e.target) && e.target !== mSearch) mResults.style.display = 'none';
+            });
             evSel.addEventListener('change', function(){ refreshCats(); refreshCount(); });
             catSel.addEventListener('change', refreshCount);
             document.querySelectorAll('.tix-bc-status').forEach(function(b){ b.addEventListener('change', refreshCount); });
@@ -562,20 +716,28 @@ class TIX_Broadcast {
 
             document.getElementById('tix-bc-send-btn').addEventListener('click', function(){
                 var btn = this;
-                var cnt = countEl.textContent.replace(/[^0-9]/g, '') || '?';
-                var target = evSel.options[evSel.selectedIndex].text;
+                var cnt, target;
+                if (manualList.length > 0) {
+                    cnt = manualList.length;
+                    target = 'Manuelle Auswahl (' + manualList.map(function(m){ return m.email; }).join(', ') + ')';
+                } else {
+                    cnt = countEl.textContent.replace(/[^0-9]/g, '') || '?';
+                    target = evSel.options[evSel.selectedIndex].text;
+                    if (catSel.style.display !== 'none' && catSel.value) target += ' — nur ' + catSel.value;
+                }
                 if (!confirm('Rundmail an ' + cnt + ' Empfaenger senden?\n\nZiel: ' + target + '\n\nDas kann nicht rueckgaengig gemacht werden.')) return;
                 btn.disabled = true;
                 msgEl.textContent = '';
 
                 saveSenderNow().then(function(){
-                    return post({ action:'tix_broadcast_start',
+                    var payload = { action:'tix_broadcast_start',
                            event_id: evSel.value,
                            cat_name: catSel.value,
                            statuses: statuses(),
                            subject: document.getElementById('tix-bc-subject').value,
-                           body: document.getElementById('tix-bc-body').value
-                    });
+                           body: document.getElementById('tix-bc-body').value };
+                    if (manualList.length > 0) payload.manual_emails = manualList.map(function(m){ return m.email; });
+                    return post(payload);
                 }).then(function(res){
                     if (!res.success) {
                         btn.disabled = false;
