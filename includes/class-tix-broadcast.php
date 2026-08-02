@@ -45,6 +45,7 @@ class TIX_Broadcast {
         add_action('wp_ajax_tix_broadcast_start',    array(__CLASS__, 'ajax_start'));
         add_action('wp_ajax_tix_broadcast_batch',    array(__CLASS__, 'ajax_batch'));
         add_action('wp_ajax_tix_broadcast_draft',    array(__CLASS__, 'ajax_save_draft'));
+        add_action('wp_ajax_tix_broadcast_load_last', array(__CLASS__, 'ajax_load_last'));
     }
 
     public static function register_menu() {
@@ -256,6 +257,60 @@ class TIX_Broadcast {
         wp_send_json_success(array('message' => 'Entwurf gespeichert'));
     }
 
+    /**
+     * Laedt Betreff + Text der zuletzt versendeten Rundmail als Vorlage.
+     * Neuere Mails: aus _tix_broadcast_last. Aeltere (vor v1.38.261): Rekonstruktion
+     * aus dem E-Mail-Log (Inhalt zwischen Content-Div und Footer extrahiert).
+     */
+    public static function ajax_load_last() {
+        if (!current_user_can(self::CAPABILITY)) wp_send_json_error(array('message' => 'no perm'));
+        check_ajax_referer('tix_broadcast');
+
+        $last = get_option('_tix_broadcast_last', array());
+        if (is_array($last) && !empty($last['body'])) {
+            wp_send_json_success(array(
+                'subject' => (string) $last['subject'],
+                'body'    => (string) $last['body'],
+                'source'  => 'gespeicherte Vorlage (' . ($last['when'] ?? '') . ')',
+            ));
+        }
+
+        // Fallback: letzte Rundmail aus dem Broadcast-Log + Body aus dem E-Mail-Log rekonstruieren
+        $log = get_option(self::OPT_LOG, array());
+        if (!is_array($log) || empty($log)) wp_send_json_error(array('message' => 'Keine fruehere Rundmail gefunden.'));
+        $entry = end($log);
+        $subject = (string) ($entry['subject'] ?? '');
+        if ($subject === '') wp_send_json_error(array('message' => 'Keine fruehere Rundmail gefunden.'));
+
+        global $wpdb;
+        $log_table = $wpdb->prefix . 'tix_email_log';
+        $html = '';
+        if ($wpdb->get_var("SHOW TABLES LIKE '$log_table'") === $log_table) {
+            $html = (string) $wpdb->get_var($wpdb->prepare(
+                "SELECT body FROM $log_table WHERE subject = %s ORDER BY id DESC LIMIT 1", $subject
+            ));
+        }
+        if ($html === '') wp_send_json_error(array('message' => 'Text der letzten Rundmail nicht im E-Mail-Log gefunden.'));
+
+        // Inhalt zwischen Content-Div und Footer extrahieren
+        $marker_start = 'color:#1f2937;">';
+        $marker_end   = '<div style="text-align:center;padding:16px';
+        $p1 = strpos($html, $marker_start);
+        $p2 = strrpos($html, $marker_end);
+        if ($p1 === false || $p2 === false || $p2 <= $p1) {
+            wp_send_json_error(array('message' => 'Text konnte nicht extrahiert werden.'));
+        }
+        $inner = substr($html, $p1 + strlen($marker_start), $p2 - $p1 - strlen($marker_start));
+        // Schliessendes </div> des Content-Blocks abschneiden
+        $inner = preg_replace('#</div>\s*$#', '', trim($inner));
+
+        wp_send_json_success(array(
+            'subject' => $subject,
+            'body'    => trim($inner),
+            'source'  => 'rekonstruiert aus E-Mail-Log (' . ($entry['when'] ?? '') . ') — Anrede pruefen, {vorname} ggf. wieder einsetzen',
+        ));
+    }
+
     public static function ajax_test() {
         if (!current_user_can(self::CAPABILITY)) wp_send_json_error(array('message' => 'no perm'));
         check_ajax_referer('tix_broadcast');
@@ -351,6 +406,12 @@ class TIX_Broadcast {
 
         if ($sent >= $total) {
             delete_transient('tix_broadcast_' . $job_id);
+            // Letzte Mail als Vorlage speichern (fuer "Als Vorlage laden")
+            update_option('_tix_broadcast_last', array(
+                'subject' => $job['subject'],
+                'body'    => $job['body'],
+                'when'    => current_time('mysql'),
+            ), false);
             // Abschluss-Log
             $log = get_option(self::OPT_LOG, array());
             if (!is_array($log)) $log = array();
@@ -497,7 +558,10 @@ class TIX_Broadcast {
                 <input type="text" id="tix-bc-subject" value="<?php echo esc_attr($draft['subject'] ?? ''); ?>" placeholder="z.B. Wichtige Info zu deinem Festival-Ticket"
                        style="width:100%;padding:8px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;margin-bottom:14px;box-sizing:border-box;">
 
-                <label style="font-weight:600;display:block;margin-bottom:6px;">Nachricht <small style="color:#94a3b8;font-weight:400;">(HTML erlaubt, {vorname} wird ersetzt)</small></label>
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+                    <label style="font-weight:600;">Nachricht <small style="color:#94a3b8;font-weight:400;">(HTML erlaubt, {vorname} wird ersetzt)</small></label>
+                    <button type="button" class="button button-small" id="tix-bc-load-last" title="Betreff + Text der zuletzt versendeten Rundmail uebernehmen">📋 Letzte Mail als Vorlage laden</button>
+                </div>
                 <textarea id="tix-bc-body" rows="12" placeholder="Hallo {vorname},&#10;&#10;— hier kommt dein Text rein —"
                           style="width:100%;padding:10px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;font-family:inherit;box-sizing:border-box;"><?php echo esc_textarea($draft['body'] ?? ''); ?></textarea>
                 <p style="color:#94a3b8;font-size:12px;margin:4px 0 16px;">Entwurf wird automatisch gespeichert. Die Mail bekommt automatisch Header/Footer im Site-Branding.</p>
@@ -697,6 +761,28 @@ class TIX_Broadcast {
             function saveSenderNow() {
                 return post(draftPayload());
             }
+
+            document.getElementById('tix-bc-load-last').addEventListener('click', function(){
+                var subjEl = document.getElementById('tix-bc-subject');
+                var bodyEl = document.getElementById('tix-bc-body');
+                if ((subjEl.value.trim() || bodyEl.value.trim()) &&
+                    !confirm('Aktuellen Betreff/Text mit der letzten Rundmail ueberschreiben?')) return;
+                var btn = this;
+                btn.disabled = true;
+                post({ action:'tix_broadcast_load_last' }).then(function(res){
+                    btn.disabled = false;
+                    if (!res.success) {
+                        msgEl.style.color = '#dc2626';
+                        msgEl.textContent = '❌ ' + (res.data && res.data.message ? res.data.message : 'Fehler');
+                        return;
+                    }
+                    subjEl.value = res.data.subject;
+                    bodyEl.value = res.data.body;
+                    draftDirty = true;
+                    msgEl.style.color = '#059669';
+                    msgEl.textContent = '✅ Vorlage geladen — ' + res.data.source;
+                });
+            });
 
             document.getElementById('tix-bc-test-btn').addEventListener('click', function(){
                 var btn = this;
