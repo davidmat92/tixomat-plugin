@@ -70,6 +70,7 @@ class TIX_Single_Event {
         $min_price = null;
         foreach ($categories as $cat) {
             if (($cat['online'] ?? '1') !== '1') continue;
+            if (!empty($cat['admin_only']) || !empty($cat['hidden'])) continue;
             $p = floatval($cat['price'] ?? 0);
             if (class_exists('TIX_Metabox')) {
                 $phase = TIX_Metabox::get_active_phase($cat['phases'] ?? []);
@@ -380,6 +381,7 @@ class TIX_Single_Event {
                 if (is_array($categories)) {
                     foreach ($categories as $cat) {
                         if (($cat['online'] ?? '1') !== '1') continue;
+                        if (!empty($cat['admin_only']) || !empty($cat['hidden'])) continue;
                         $p = floatval($cat['price'] ?? 0);
                         // Phase-Preis prüfen
                         if (class_exists('TIX_Metabox')) {

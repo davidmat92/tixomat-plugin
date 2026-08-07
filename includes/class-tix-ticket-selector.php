@@ -19,7 +19,7 @@ class TIX_Ticket_Selector {
      */
     public static function render($atts) {
 
-        $atts = shortcode_atts(['id' => 0, 'fullwidth' => '0', 'variant' => '1'], $atts);
+        $atts = shortcode_atts(['id' => 0, 'fullwidth' => '0', 'variant' => '1', 'only_cat' => ''], $atts);
         $post_id = $atts['id'] ? intval($atts['id']) : get_the_ID();
 
         if (!$post_id || get_post_type($post_id) !== 'event') {
@@ -202,10 +202,14 @@ class TIX_Ticket_Selector {
 
         // Online + Offline-Tickets anzeigen (nicht: beide AUS)
         // admin_only-Kategorien IMMER ausblenden (nur via Sponsor-Portal vergebbar)
-        $categories = array_filter($categories, fn($c) =>
-            empty($c['admin_only']) &&
-            (($c['online'] ?? '1') === '1' || !empty($c['offline_ticket']))
-        );
+        // hidden-Kategorien nur zeigen, wenn per only_cat explizit angefordert (Aktionsseiten)
+        $only_cat = ($atts['only_cat'] !== '' && is_numeric($atts['only_cat'])) ? intval($atts['only_cat']) : null;
+        $categories = array_filter($categories, function ($c, $idx) use ($only_cat) {
+            if (!empty($c['admin_only'])) return false;
+            if (($c['online'] ?? '1') !== '1' && empty($c['offline_ticket'])) return false;
+            if ($only_cat !== null) return $idx === $only_cat; // Aktionsmodus: nur diese Kategorie
+            return empty($c['hidden']); // Normalmodus: hidden ausblenden
+        }, ARRAY_FILTER_USE_BOTH);
         if (empty($categories)) {
             return '<p class="tix-sel-error">Keine Tickets verfügbar.</p>';
         }
@@ -982,9 +986,10 @@ class TIX_Ticket_Selector {
         $categories = get_post_meta($post_id, '_tix_ticket_categories', true);
         if (!is_array($categories) || empty($categories)) return '';
 
-        // Nur Online-Tickets mit Lagerbestand
+        // Nur Online-Tickets mit Lagerbestand (hidden/admin_only ausgeschlossen)
         $categories = array_filter($categories, fn($c) =>
             ($c['online'] ?? '1') === '1' && empty($c['offline_ticket'])
+            && empty($c['admin_only']) && empty($c['hidden'])
         );
         if (empty($categories)) return '';
 

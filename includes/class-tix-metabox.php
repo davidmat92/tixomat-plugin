@@ -2070,6 +2070,9 @@ class TIX_Metabox {
                 <input type="hidden" name="tix_tickets[<?php echo $i; ?>][sku]" value="<?php echo esc_attr($sku); ?>">
                 <input type="hidden" name="tix_tickets[<?php echo $i; ?>][seatmap_id]" value="<?php echo esc_attr($cat['seatmap_id'] ?? ''); ?>" class="tix-seatmap-id-input">
                 <input type="hidden" name="tix_tickets[<?php echo $i; ?>][seatmap_section]" value="<?php echo esc_attr($cat['seatmap_section'] ?? ''); ?>" class="tix-seatmap-section-input">
+                <?php // System-Flags durchreichen, damit sie beim Editor-Save nicht verloren gehen ?>
+                <input type="hidden" name="tix_tickets[<?php echo $i; ?>][admin_only]" value="<?php echo !empty($cat['admin_only']) ? '1' : ''; ?>">
+                <input type="hidden" name="tix_tickets[<?php echo $i; ?>][hidden]" value="<?php echo !empty($cat['hidden']) ? '1' : ''; ?>">
                 <button type="button" class="button tix-del" title="Entfernen">&times;</button>
             </td>
         </tr>
@@ -4350,6 +4353,7 @@ class TIX_Metabox {
                 'online'         => (($ticket['sale_mode'] ?? 'online') === 'online') ? '1' : '0',
                 'offline_ticket' => (($ticket['sale_mode'] ?? 'online') === 'offline') ? '1' : '0',
                 'admin_only'     => !empty($ticket['admin_only']) ? 1 : 0,
+                'hidden'         => !empty($ticket['hidden']) ? 1 : 0,
                 'bundle_buy'     => intval($ticket['bundle_buy'] ?? 0),
                 'bundle_pay'     => intval($ticket['bundle_pay'] ?? 0),
                 'bundle_label'   => sanitize_text_field($ticket['bundle_label'] ?? ''),
@@ -5103,6 +5107,7 @@ class TIX_Metabox {
                     'online'         => (($ticket['sale_mode'] ?? 'online') === 'online') ? '1' : '0',
                     'offline_ticket' => (($ticket['sale_mode'] ?? 'online') === 'offline') ? '1' : '0',
                     'admin_only'     => !empty($ticket['admin_only']) ? 1 : 0,
+                    'hidden'         => !empty($ticket['hidden']) ? 1 : 0,
                     'bundle_buy'     => intval($ticket['bundle_buy'] ?? 0),
                     'bundle_pay'     => intval($ticket['bundle_pay'] ?? 0),
                     'bundle_label'   => sanitize_text_field($ticket['bundle_label'] ?? ''),
