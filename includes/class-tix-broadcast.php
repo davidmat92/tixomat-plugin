@@ -516,9 +516,9 @@ class TIX_Broadcast {
                 </div>
 
                 <div style="margin:10px 0 4px;">
-                    <label style="font-weight:600;display:block;margin-bottom:6px;">Oder einzelne Kunden auswaehlen <small style="color:#94a3b8;font-weight:400;">(ueberschreibt die Event-Auswahl)</small></label>
+                    <label style="font-weight:600;display:block;margin-bottom:6px;">Oder einzelne Empfaenger auswaehlen <small style="color:#94a3b8;font-weight:400;">(ueberschreibt die Event-Auswahl — auch externe Adressen moeglich)</small></label>
                     <div style="position:relative;max-width:480px;">
-                        <input type="text" id="tix-bc-manual-search" placeholder="Name oder E-Mail tippen…" autocomplete="off"
+                        <input type="text" id="tix-bc-manual-search" placeholder="Name oder E-Mail tippen — fremde Adresse: eingeben + Enter" autocomplete="off"
                                style="width:100%;padding:8px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;box-sizing:border-box;">
                         <div id="tix-bc-manual-results" style="display:none;position:absolute;top:100%;left:0;right:0;z-index:50;background:#fff;border:1px solid #d1d5db;border-radius:0 0 8px 8px;max-height:240px;overflow:auto;box-shadow:0 8px 20px rgba(15,23,42,.12);"></div>
                     </div>
@@ -678,8 +678,9 @@ class TIX_Broadcast {
                 manualList.forEach(function(c, idx){
                     var chip = document.createElement('span');
                     chip.className = 'tix-bc-chip';
+                    if (c.external) { chip.style.background = '#fffbeb'; chip.style.borderColor = '#fcd34d'; chip.style.color = '#92400e'; chip.title = 'Externe Adresse (kein Kunde)'; }
                     var label = document.createElement('span');
-                    label.textContent = (c.name ? c.name + ' — ' : '') + c.email;
+                    label.textContent = (c.external ? '➕ ' : '') + (c.name ? c.name + ' — ' : '') + c.email;
                     var x = document.createElement('span');
                     x.className = 'x';
                     x.textContent = '×';
@@ -694,31 +695,67 @@ class TIX_Broadcast {
                 });
             }
 
+            var EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+            function addManual(email, name, external) {
+                email = String(email || '').trim().toLowerCase();
+                if (!EMAIL_RE.test(email)) return false;
+                var exists = manualList.some(function(m){ return m.email === email; });
+                if (!exists) manualList.push({ email: email, name: name || '', external: !!external });
+                renderChips();
+                refreshCount();
+                mSearch.value = '';
+                mResults.style.display = 'none';
+                return true;
+            }
+            function buildExternalRow(email) {
+                var row = document.createElement('div');
+                row.className = 'tix-bc-mres';
+                row.style.background = '#fffbeb';
+                row.innerHTML = '➕ <strong>' + email + '</strong> als <em>externe Adresse</em> hinzufuegen <span style="float:right;color:#b45309;">nicht in Kundenliste</span>';
+                row.addEventListener('click', function(){ addManual(email, '', true); });
+                return row;
+            }
+
+            // Enter im Suchfeld: gueltige E-Mail direkt uebernehmen (auch wenn kein Kunde)
+            mSearch.addEventListener('keydown', function(e){
+                if (e.key !== 'Enter') return;
+                e.preventDefault();
+                var q = mSearch.value.trim();
+                if (EMAIL_RE.test(q)) {
+                    var known = manualList.some(function(m){ return m.email === q.toLowerCase(); });
+                    if (!known) addManual(q, '', true);
+                }
+            });
+
             mSearch.addEventListener('input', function(){
                 var q = mSearch.value.trim();
                 clearTimeout(mTimer);
                 if (q.length < 2) { mResults.style.display = 'none'; return; }
                 mTimer = setTimeout(function(){
                     post({ action:'tix_broadcast_search', q: q }).then(function(res){
+                        var isEmail = EMAIL_RE.test(q);
                         if (!res.success || !res.data.length) {
-                            mResults.innerHTML = '<div class="tix-bc-mres" style="color:#94a3b8;cursor:default;">Kein Treffer</div>';
+                            mResults.innerHTML = '';
+                            if (isEmail) {
+                                mResults.appendChild(buildExternalRow(q.toLowerCase()));
+                            } else {
+                                mResults.innerHTML = '<div class="tix-bc-mres" style="color:#94a3b8;cursor:default;">Kein Treffer — vollstaendige E-Mail-Adresse eingeben, um sie extern hinzuzufuegen</div>';
+                            }
                             mResults.style.display = 'block';
                             return;
                         }
                         mResults.innerHTML = '';
+                        // Wenn getippte Adresse eine gueltige E-Mail ist, die NICHT exakt unter den Treffern ist → Extern-Option oben anbieten
+                        if (isEmail) {
+                            var exact = res.data.some(function(c){ return c.email === q.toLowerCase(); });
+                            if (!exact) mResults.appendChild(buildExternalRow(q.toLowerCase()));
+                        }
                         res.data.forEach(function(c){
                             var row = document.createElement('div');
                             row.className = 'tix-bc-mres';
                             row.innerHTML = '<strong>' + (c.name || '(ohne Namen)') + '</strong> — ' + c.email +
                                 '<span style="float:right;color:#94a3b8;">' + c.orders + ' Best.</span>';
-                            row.addEventListener('click', function(){
-                                var exists = manualList.some(function(m){ return m.email === c.email; });
-                                if (!exists) manualList.push({ email: c.email, name: c.name });
-                                renderChips();
-                                refreshCount();
-                                mSearch.value = '';
-                                mResults.style.display = 'none';
-                            });
+                            row.addEventListener('click', function(){ addManual(c.email, c.name, false); });
                             mResults.appendChild(row);
                         });
                         mResults.style.display = 'block';
