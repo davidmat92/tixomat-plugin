@@ -258,6 +258,10 @@
                             '<label style="font-size:11px;color:#888;">zahle <input type="number" name="tix_tickets[' + i + '][bundle_pay]" min="1" step="1" class="tix-input-sm" style="width:50px" placeholder="10"></label>' +
                             '<label style="font-size:11px;color:#888;">Label <input type="text" name="tix_tickets[' + i + '][bundle_label]" class="tix-input-sm" style="width:160px" placeholder="z.B. Mannschafts-Ticket"></label>' +
                         '</div>' +
+                        '<div class="tix-hidden-wrap" style="margin-top:6px;">' +
+                            '<label style="font-size:11px;color:#888;cursor:pointer;"><input type="checkbox" name="tix_tickets[' + i + '][hidden]" value="1" class="tix-hidden-cb"> 🙈 Aktionsticket — <strong>nicht</strong> im normalen Ticket-Selector anzeigen</label>' +
+                            '<div class="tix-hidden-sc" style="display:none;margin-top:4px;font-size:11px;color:#b45309;">Nur sichtbar per Shortcode: <code class="tix-hidden-sc-code" style="background:#fef3c7;padding:2px 6px;border-radius:4px;user-select:all;cursor:pointer;" title="Klick = kopieren">[tix_ticket_selector id="' + (window.tixEventId || $('#post_ID').val() || 0) + '" only_cat="' + i + '"]</code> <span class="tix-hidden-sc-copied" style="display:none;color:#059669;">✓ kopiert</span></div>' +
+                        '</div>' +
                     '</td>' +
                     '<td><input type="number" name="tix_tickets[' + i + '][price]" step="0.01" min="0" style="width:100%"></td>' +
                     '<td><input type="number" name="tix_tickets[' + i + '][sale_price]" step="0.01" min="0" placeholder="—" style="width:100%" class="tix-sale-input"></td>' +
@@ -647,6 +651,28 @@
     $(document).on('click', '.tix-bundle-toggle', function(e) {
         e.preventDefault();
         $(this).next('.tix-bundle-fields').toggle();
+    });
+
+    // ── Aktionsticket (hidden): Shortcode-Hinweis ein/aus + Klick-Kopieren ──
+    $(document).on('change', '.tix-hidden-cb', function() {
+        var $wrap = $(this).closest('.tix-hidden-wrap');
+        var on = $(this).is(':checked');
+        $wrap.find('.tix-hidden-sc').toggle(on);
+        $wrap.find('label').first().css('color', on ? '#b45309' : '#888');
+    });
+    $(document).on('click', '.tix-hidden-sc-code', function() {
+        var $code = $(this);
+        var txt = $code.text();
+        var done = function() {
+            $code.next('.tix-hidden-sc-copied').fadeIn(120).delay(1200).fadeOut(300);
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(txt).then(done);
+        } else {
+            var r = document.createRange(); r.selectNodeContents(this);
+            var s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+            try { document.execCommand('copy'); done(); } catch (err) {}
+        }
     });
 
     // ── Low-Stock-Badge pro Kategorie: Toggle + Mode-Switch ──

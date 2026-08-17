@@ -1993,6 +1993,24 @@ class TIX_Metabox {
                            placeholder="z.B. 🔥 Nur noch wenige!" style="width:220px;<?php echo $cat_ls_mode !== 'manual' ? 'display:none;' : ''; ?>">
                 </div>
                 <?php
+                    // ── Aktionsticket: versteckt im normalen Selector, nur per Shortcode only_cat sichtbar ──
+                    $is_hidden = !empty($cat['hidden']);
+                    global $post;
+                    $ev_id_for_sc = $post ? intval($post->ID) : 0;
+                    $sc_hint = '[tix_ticket_selector id="' . $ev_id_for_sc . '" only_cat="' . intval($i) . '"]';
+                ?>
+                <div class="tix-hidden-wrap" style="margin-top:6px;">
+                    <label style="font-size:11px;color:<?php echo $is_hidden ? '#b45309' : '#888'; ?>;cursor:pointer;">
+                        <input type="checkbox" name="tix_tickets[<?php echo $i; ?>][hidden]" value="1" class="tix-hidden-cb" <?php checked($is_hidden); ?>>
+                        🙈 Aktionsticket — <strong>nicht</strong> im normalen Ticket-Selector anzeigen
+                    </label>
+                    <div class="tix-hidden-sc" style="<?php echo $is_hidden ? '' : 'display:none;'; ?>margin-top:4px;font-size:11px;color:#b45309;">
+                        Nur sichtbar per Shortcode:
+                        <code class="tix-hidden-sc-code" style="background:#fef3c7;padding:2px 6px;border-radius:4px;user-select:all;cursor:pointer;" title="Klick = kopieren"><?php echo esc_html($sc_hint); ?></code>
+                        <span class="tix-hidden-sc-copied" style="display:none;color:#059669;">✓ kopiert</span>
+                    </div>
+                </div>
+                <?php
                     // Saalplan wird jetzt auf Event-Ebene konfiguriert (Erweitert-Tab)
                     global $post;
                     $event_sm_id = $post ? intval(get_post_meta($post->ID, '_tix_seatmap_id', true)) : 0;
@@ -2070,9 +2088,8 @@ class TIX_Metabox {
                 <input type="hidden" name="tix_tickets[<?php echo $i; ?>][sku]" value="<?php echo esc_attr($sku); ?>">
                 <input type="hidden" name="tix_tickets[<?php echo $i; ?>][seatmap_id]" value="<?php echo esc_attr($cat['seatmap_id'] ?? ''); ?>" class="tix-seatmap-id-input">
                 <input type="hidden" name="tix_tickets[<?php echo $i; ?>][seatmap_section]" value="<?php echo esc_attr($cat['seatmap_section'] ?? ''); ?>" class="tix-seatmap-section-input">
-                <?php // System-Flags durchreichen, damit sie beim Editor-Save nicht verloren gehen ?>
+                <?php // admin_only (Sponsor-Portal) durchreichen, damit es beim Editor-Save nicht verloren geht ?>
                 <input type="hidden" name="tix_tickets[<?php echo $i; ?>][admin_only]" value="<?php echo !empty($cat['admin_only']) ? '1' : ''; ?>">
-                <input type="hidden" name="tix_tickets[<?php echo $i; ?>][hidden]" value="<?php echo !empty($cat['hidden']) ? '1' : ''; ?>">
                 <button type="button" class="button tix-del" title="Entfernen">&times;</button>
             </td>
         </tr>
