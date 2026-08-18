@@ -742,6 +742,16 @@ class TIX_Metabox {
                         <?php endif; ?>
                     </div>
 
+                    <?php // Veranstalter-Benachrichtigungen fuer DIESES Event stummschalten ?>
+                    <?php $org_muted = get_post_meta($post->ID, '_tix_org_notify_muted', true) === '1'; ?>
+                    <div class="tix-field tix-field-full">
+                        <label class="tix-field-label">Benachrichtigungen <?php self::tip('Schaltet Push + E-Mail an Veranstalter/Co-Veranstalter NUR fuer dieses Event stumm (Verkauf, Stornierung, Erstattung, Support, Check-in, Transfer). Die Einstellungen am Veranstalter selbst bleiben unveraendert und gelten weiter fuer alle anderen Events.'); ?></label>
+                        <label style="display:inline-flex;align-items:center;gap:8px;padding:8px 14px;background:<?php echo $org_muted ? '#fef3c7' : '#f8fafc'; ?>;border:1px solid <?php echo $org_muted ? '#fcd34d' : '#e2e8f0'; ?>;border-radius:10px;font-size:14px;cursor:pointer;">
+                            <input type="checkbox" name="tix_org_notify_muted" value="1" <?php checked($org_muted); ?> style="margin:0;">
+                            🔕 Veranstalter-Benachrichtigungen für dieses Event <strong>stummschalten</strong>
+                        </label>
+                    </div>
+
                     <?php // Check-in Passwort (gilt für Ticket-Check-in UND Gästeliste) ?>
                     <div class="tix-field tix-field-full">
                         <label class="tix-field-label" for="tix_checkin_password">Check-in Passwort <?php self::tip('Schützt die /checkin/-Seite. Türpersonal gibt dieses Passwort einmalig ein — danach Kamera-Scan. Leer lassen = kein Passwort-Schutz.'); ?></label>
@@ -3992,6 +4002,13 @@ class TIX_Metabox {
         } else {
             delete_post_meta($post_id, '_tix_co_organizer_id');
             delete_post_meta($post_id, '_tix_co_organizer');
+        }
+
+        // Veranstalter-Benachrichtigungen fuer dieses Event stummschalten
+        if (!empty($_POST['tix_org_notify_muted'])) {
+            update_post_meta($post_id, '_tix_org_notify_muted', '1');
+        } else {
+            delete_post_meta($post_id, '_tix_org_notify_muted');
         }
 
         // Event-Informationen (Sektionen + Labels)

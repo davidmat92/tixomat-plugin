@@ -689,9 +689,19 @@ class TIX_Organizer_Notifications {
     }
 
     /** Organizer-IDs aus Event-Liste (inkl. Co-Organizer) */
+    /**
+     * Event-Level-Stummschaltung: Wenn am Event `_tix_org_notify_muted` = '1' gesetzt ist,
+     * loest dieses Event KEINE Veranstalter-Benachrichtigungen aus (Push + Mail),
+     * unabhaengig von den Einstellungen am Veranstalter selbst.
+     */
+    public static function is_event_muted($event_id): bool {
+        return get_post_meta(intval($event_id), '_tix_org_notify_muted', true) === '1';
+    }
+
     private static function collect_organizer_ids(array $event_ids) {
         $org_ids = [];
         foreach ($event_ids as $eid) {
+            if (self::is_event_muted($eid)) continue; // Event stummgeschaltet → kein Ping
             $oid  = intval(get_post_meta($eid, '_tix_organizer_id', true));
             $coid = intval(get_post_meta($eid, '_tix_co_organizer_id', true));
             if ($oid)  $org_ids[$oid]  = true;
