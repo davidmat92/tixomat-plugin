@@ -2020,6 +2020,13 @@ class TIX_Metabox {
                         <span class="tix-hidden-sc-copied" style="display:none;color:#059669;">✓ kopiert</span>
                     </div>
                 </div>
+                <?php $no_fee = !empty($cat['no_fee']); ?>
+                <div class="tix-nofee-wrap" style="margin-top:4px;">
+                    <label style="font-size:11px;color:<?php echo $no_fee ? '#047857' : '#888'; ?>;cursor:pointer;">
+                        <input type="checkbox" name="tix_tickets[<?php echo $i; ?>][no_fee]" value="1" class="tix-nofee-cb" <?php checked($no_fee); ?>>
+                        💸 <strong>Keine Ticketgebühr</strong> für diese Kategorie (Servicegebühr entfällt)
+                    </label>
+                </div>
                 <?php
                     // Saalplan wird jetzt auf Event-Ebene konfiguriert (Erweitert-Tab)
                     global $post;
@@ -4388,6 +4395,7 @@ class TIX_Metabox {
                 'offline_ticket' => (($ticket['sale_mode'] ?? 'online') === 'offline') ? '1' : '0',
                 'admin_only'     => !empty($ticket['admin_only']) ? 1 : 0,
                 'hidden'         => !empty($ticket['hidden']) ? 1 : 0,
+                'no_fee'         => !empty($ticket['no_fee']) ? 1 : 0,
                 'bundle_buy'     => intval($ticket['bundle_buy'] ?? 0),
                 'bundle_pay'     => intval($ticket['bundle_pay'] ?? 0),
                 'bundle_label'   => sanitize_text_field($ticket['bundle_label'] ?? ''),
@@ -5142,6 +5150,7 @@ class TIX_Metabox {
                     'offline_ticket' => (($ticket['sale_mode'] ?? 'online') === 'offline') ? '1' : '0',
                     'admin_only'     => !empty($ticket['admin_only']) ? 1 : 0,
                     'hidden'         => !empty($ticket['hidden']) ? 1 : 0,
+                    'no_fee'         => !empty($ticket['no_fee']) ? 1 : 0,
                     'bundle_buy'     => intval($ticket['bundle_buy'] ?? 0),
                     'bundle_pay'     => intval($ticket['bundle_pay'] ?? 0),
                     'bundle_label'   => sanitize_text_field($ticket['bundle_label'] ?? ''),

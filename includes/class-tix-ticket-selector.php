@@ -911,7 +911,10 @@ class TIX_Ticket_Selector {
 
             <?php
             // ── Gebührenhinweis unter dem Selektor ──
-            if (class_exists('TIX_Fees') && function_exists('tix_get_settings') && !empty(tix_get_settings('fee_show_in_selector'))) {
+            // Hinweis entfaellt, wenn ALLE angezeigten Kategorien gebuehrenfrei sind (no_fee)
+            $all_no_fee = !empty($categories);
+            foreach ($categories as $c) { if (empty($c['no_fee'])) { $all_no_fee = false; break; } }
+            if (!$all_no_fee && class_exists('TIX_Fees') && function_exists('tix_get_settings') && !empty(tix_get_settings('fee_show_in_selector'))) {
                 $org_id = TIX_Fees::get_organizer_for_event($post_id);
                 $fee_cfg = TIX_Fees::get_fee_config($org_id);
                 if ($fee_cfg['fee_mode'] === 'customer' && ($fee_cfg['fee_fixed'] > 0 || $fee_cfg['fee_percent'] > 0)) {

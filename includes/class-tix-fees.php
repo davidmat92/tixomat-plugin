@@ -32,9 +32,10 @@ class TIX_Fees {
             $product = $cart_item['data'];
             $event_id = $cart_item['tix_event_id'] ?? ($product ? get_post_meta($product->get_id(), '_tix_event_id', true) : 0);
             $items[] = [
-                'price'    => floatval($cart_item['line_subtotal'] / max(1, $cart_item['quantity'])),
-                'qty'      => intval($cart_item['quantity']),
-                'event_id' => intval($event_id),
+                'price'      => floatval($cart_item['line_subtotal'] / max(1, $cart_item['quantity'])),
+                'qty'        => intval($cart_item['quantity']),
+                'event_id'   => intval($event_id),
+                'product_id' => $product ? intval($product->get_id()) : 0,
             ];
         }
 
@@ -61,9 +62,10 @@ class TIX_Fees {
             $product = $item->get_product();
             $event_id = $product ? get_post_meta($product->get_id(), '_tix_event_id', true) : 0;
             $items[] = [
-                'price'    => floatval($item->get_subtotal() / max(1, $item->get_quantity())),
-                'qty'      => intval($item->get_quantity()),
-                'event_id' => intval($event_id),
+                'price'      => floatval($item->get_subtotal() / max(1, $item->get_quantity())),
+                'qty'        => intval($item->get_quantity()),
+                'event_id'   => intval($event_id),
+                'product_id' => $product ? intval($product->get_id()) : 0,
             ];
         }
 
@@ -223,6 +225,33 @@ class TIX_Fees {
      *   customer_fee_line (Betrag der dem Kunden angezeigt wird, 0 wenn Veranstalter zahlt)
      * }
      */
+    /**
+     * Prueft, ob ein Cart-Item zu einer gebuehrenfreien Kategorie gehoert
+     * (Kategorie-Flag 'no_fee' im Event-Editor).
+     * Native Cart: event_id + cat_index. WC Cart: product_id → _tix_cat_index Meta.
+     */
+    public static function is_item_fee_exempt(array $item): bool {
+        $event_id = intval($item['event_id'] ?? 0);
+        if ($event_id <= 0) return false;
+
+        $cat_index = null;
+        if (isset($item['cat_index']) && intval($item['cat_index']) >= 0) {
+            $cat_index = intval($item['cat_index']);
+        } elseif (!empty($item['product_id'])) {
+            $pi = get_post_meta(intval($item['product_id']), '_tix_cat_index', true);
+            if ($pi !== '' && $pi !== null) $cat_index = intval($pi);
+        }
+        if ($cat_index === null) return false;
+
+        static $cache = [];
+        if (!isset($cache[$event_id])) {
+            $cats = get_post_meta($event_id, '_tix_ticket_categories', true);
+            $cache[$event_id] = is_array($cats) ? $cats : [];
+        }
+        $cat = $cache[$event_id][$cat_index] ?? null;
+        return is_array($cat) && !empty($cat['no_fee']);
+    }
+
     public static function calc_order_fees(array $items): array {
         if (empty($items)) {
             return [
@@ -245,12 +274,14 @@ class TIX_Fees {
         $cfg = self::get_fee_config($organizer_id);
 
         // Plattform-Fee pro Ticket (mit Max pro Ticket)
+        // Kategorien mit 'no_fee' = 1 sind gebuehrenfrei (Haken im Event-Editor)
         $subtotal     = 0;
         $platform_fee = 0;
         foreach ($items as $item) {
             $price = floatval($item['price']);
             $qty   = intval($item['qty']);
             $subtotal     += $price * $qty;
+            if (self::is_item_fee_exempt($item)) continue;
             $platform_fee += self::calc_platform_fee($price, $organizer_id, $cfg) * $qty;
         }
         $platform_fee = round($platform_fee, 2);
