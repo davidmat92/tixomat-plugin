@@ -897,10 +897,56 @@ class TIX_Order_Admin {
                 <button type="button" id="tix-send-bank-btn" class="tix-od-action" title="E-Mail mit IBAN/BIC/Verwendungszweck an den Kunden senden (unabhängig von der gewählten Zahlungsart)">
                     <span class="dashicons dashicons-bank"></span> Bankverbindung senden
                 </button>
+                <?php
+                // ── Ticketlinks fuer Copy&Paste (WhatsApp etc.) ──
+                $tix_copy_links = [];
+                if (class_exists('TIX_Tickets') && method_exists('TIX_Tickets', 'get_tickets_by_order')) {
+                    $order_tickets = TIX_Tickets::get_tickets_by_order($order_id);
+                    foreach ((array) $order_tickets as $tk) {
+                        if (get_post_status($tk->ID) !== 'publish') continue;
+                        $url = TIX_Tickets::get_online_view_url($tk->ID);
+                        if ($url) $tix_copy_links[] = $url;
+                    }
+                }
+                ?>
+                <?php if (!empty($tix_copy_links)): ?>
+                <button type="button" id="tix-copy-links-btn" class="tix-od-action" title="Alle Ticket-Links kopieren — mit Leerzeile getrennt, z.B. zum Weiterleiten per WhatsApp">
+                    <span class="dashicons dashicons-admin-links"></span> Ticketlinks kopieren (<?php echo count($tix_copy_links); ?>)
+                </button>
+                <textarea id="tix-copy-links-data" style="position:absolute;left:-9999px;top:0;" readonly><?php echo esc_textarea(implode("\n\n", $tix_copy_links)); ?></textarea>
+                <?php endif; ?>
                 <button type="button" id="tix-resend-tickets-btn" class="tix-od-action tix-od-action--primary">
                     <span class="dashicons dashicons-email-alt"></span> Tickets nachsenden
                 </button>
             </div>
+            <?php if (!empty($tix_copy_links)): ?>
+            <script>
+            (function(){
+                var btn = document.getElementById('tix-copy-links-btn');
+                var src = document.getElementById('tix-copy-links-data');
+                if (!btn || !src) return;
+                btn.addEventListener('click', function(){
+                    var txt = src.value;
+                    var done = function(){
+                        var orig = btn.innerHTML;
+                        btn.innerHTML = '<span class="dashicons dashicons-yes" style="color:#059669;"></span> Kopiert!';
+                        setTimeout(function(){ btn.innerHTML = orig; }, 1800);
+                    };
+                    if (navigator.clipboard && navigator.clipboard.writeText) {
+                        navigator.clipboard.writeText(txt).then(done).catch(function(){
+                            src.style.position = 'static'; src.select();
+                            try { document.execCommand('copy'); done(); } catch(e) {}
+                            src.style.position = 'absolute';
+                        });
+                    } else {
+                        src.style.position = 'static'; src.select();
+                        try { document.execCommand('copy'); done(); } catch(e) {}
+                        src.style.position = 'absolute';
+                    }
+                });
+            })();
+            </script>
+            <?php endif; ?>
 
             <div id="tix-send-bank-panel" style="display:none;background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;padding:14px 16px;margin-top:8px;max-width:460px;">
                 <label style="display:block;font-size:12px;font-weight:600;color:#0c4a6e;margin-bottom:6px;">Empfänger-E-Mail</label>
