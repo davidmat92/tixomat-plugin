@@ -12,14 +12,55 @@ if (!defined('ABSPATH')) exit;
 
 class TIX_IP_Block {
 
-    const OPTION     = 'tix_blocked_ips';
-    const CAPABILITY = 'manage_options';
+    const OPTION           = 'tix_blocked_ips';
+    const OPTION_CUSTOMERS = 'tix_blocked_customers';
+    const CAPABILITY       = 'manage_options';
 
     public static function init() {
         // Frueh blocken — vor Cart/Checkout-Handlern
         add_action('init',        [__CLASS__, 'maybe_block'], 0);
         add_action('admin_menu',  [__CLASS__, 'register_menu'], 66);
         add_action('admin_post_tix_ip_block_save', [__CLASS__, 'handle_save']);
+        // Kunden-Sperrliste: greift beim Checkout-Submit (Priority 1 = vor dem Handler).
+        // Bestehende Bestellungen/Tickets bleiben unberuehrt — nur NEUE Bestellungen werden verhindert.
+        add_action('wp_ajax_tix_native_checkout',        [__CLASS__, 'guard_checkout'], 1);
+        add_action('wp_ajax_nopriv_tix_native_checkout', [__CLASS__, 'guard_checkout'], 1);
+    }
+
+    /* ─────────── Kunden-Sperrliste (E-Mail / Name) ─────────── */
+
+    public static function get_blocked_customers(): array {
+        $v = get_option(self::OPTION_CUSTOMERS, []);
+        return is_array($v) ? $v : [];
+    }
+
+    /**
+     * Prueft E-Mail und vollen Namen (case-insensitiv) gegen die Sperrliste.
+     * Eintraege mit @ matchen die E-Mail, alle anderen den Namen "Vorname Nachname".
+     */
+    public static function is_customer_blocked(string $email, string $full_name): bool {
+        $email = strtolower(trim($email));
+        $name  = strtolower(trim(preg_replace('/\s+/', ' ', $full_name)));
+        foreach (self::get_blocked_customers() as $entry) {
+            $entry = strtolower(trim($entry));
+            if ($entry === '') continue;
+            if (strpos($entry, '@') !== false) {
+                if ($email !== '' && $email === $entry) return true;
+            } else {
+                $entry_norm = preg_replace('/\s+/', ' ', $entry);
+                if ($name !== '' && $name === $entry_norm) return true;
+            }
+        }
+        return false;
+    }
+
+    public static function guard_checkout() {
+        $email = sanitize_email($_POST['billing_email'] ?? '');
+        $full  = trim(sanitize_text_field($_POST['billing_first_name'] ?? '') . ' ' . sanitize_text_field($_POST['billing_last_name'] ?? ''));
+        if (self::is_customer_blocked($email, $full)) {
+            // Bewusst generische Meldung — kein Hinweis auf Sperre
+            wp_send_json_error(['message' => 'Die Bestellung konnte nicht verarbeitet werden. Bitte wende dich an den Support.']);
+        }
     }
 
     /* ─────────── Blocklogik ─────────── */
@@ -102,6 +143,16 @@ class TIX_IP_Block {
                         Deine aktuelle IP: <code><?php echo esc_html($own_ip); ?></code> — wird als eingeloggter Admin nie geblockt.
                     </p>
                 </div>
+
+                <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:18px 20px;margin-top:14px;">
+                    <label style="font-weight:600;display:block;margin-bottom:6px;">Gesperrte Kunden <small style="color:#94a3b8;font-weight:400;">(E-Mail oder Name, eine(r) pro Zeile)</small></label>
+                    <textarea name="blocked_customers" rows="8" style="width:100%;font-family:monospace;font-size:13px;padding:10px 12px;border:1px solid #d1d5db;border-radius:6px;box-sizing:border-box;" placeholder="max@example.de&#10;Max Mustermann"><?php echo esc_textarea(implode("\n", self::get_blocked_customers())); ?></textarea>
+                    <p style="color:#64748b;font-size:12px;margin:8px 0 0;">
+                        Zeilen mit <code>@</code> sperren die E-Mail-Adresse, alle anderen den vollen Namen (Vorname Nachname, Gross-/Kleinschreibung egal).<br>
+                        Gesperrte Kunden koennen keine <strong>neuen Bestellungen</strong> abschliessen (generische Fehlermeldung im Checkout).
+                        Bestehende Bestellungen und Tickets bleiben unveraendert gueltig.
+                    </p>
+                </div>
                 <p><input type="submit" class="button button-primary" value="Speichern"></p>
             </form>
         </div>
@@ -127,6 +178,21 @@ class TIX_IP_Block {
         }
         $clean = array_values(array_unique($clean));
         update_option(self::OPTION, $clean, false);
+
+        // Kunden-Sperrliste (E-Mail oder Name)
+        $raw_c = (string) ($_POST['blocked_customers'] ?? '');
+        $clean_c = [];
+        foreach (preg_split('/[\r\n]+/', $raw_c) as $line) {
+            $line = trim($line);
+            if ($line === '' || strlen($line) > 190) continue;
+            if (strpos($line, '@') !== false) {
+                $em = sanitize_email($line);
+                if (is_email($em)) $clean_c[] = strtolower($em);
+            } else {
+                $clean_c[] = sanitize_text_field($line);
+            }
+        }
+        update_option(self::OPTION_CUSTOMERS, array_values(array_unique($clean_c)), false);
 
         wp_safe_redirect(add_query_arg(['page' => 'tix-ip-block', 'saved' => 1], admin_url('admin.php')));
         exit;
