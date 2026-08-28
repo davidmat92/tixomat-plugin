@@ -22,6 +22,67 @@ class TIX_Broadcast {
     const OPT_LOG    = '_tix_broadcast_log';
     const OPT_SENDER      = '_tix_broadcast_sender';
     const OPT_SENDER_NAME = '_tix_broadcast_sender_name';
+    const OPT_UNSUB       = 'tix_newsletter_unsubscribed';
+
+    /* ─────────── Newsletter-Abmeldung ─────────── */
+
+    public static function get_suppressed(): array {
+        $v = get_option(self::OPT_UNSUB, array());
+        return is_array($v) ? $v : array();
+    }
+
+    public static function is_suppressed(string $email): bool {
+        return in_array(strtolower(trim($email)), self::get_suppressed(), true);
+    }
+
+    private static function unsub_token(string $email): string {
+        return substr(hash_hmac('sha256', strtolower(trim($email)), wp_salt('auth')), 0, 20);
+    }
+
+    public static function unsub_url(string $email): string {
+        return add_query_arg(array(
+            'tix_unsub' => rawurlencode(base64_encode(strtolower(trim($email)))),
+            't'         => self::unsub_token($email),
+        ), home_url('/'));
+    }
+
+    /**
+     * Abmelde-Landingpage: /?tix_unsub=<b64email>&t=<hmac>
+     * Traegt die E-Mail in die Sperrliste ein und zeigt eine Bestaetigung (mit Logo).
+     */
+    public static function handle_unsubscribe() {
+        if (empty($_GET['tix_unsub'])) return;
+        $email = strtolower(trim((string) base64_decode(rawurldecode((string) $_GET['tix_unsub']), true)));
+        $token = sanitize_text_field($_GET['t'] ?? '');
+        $valid = $email !== '' && is_email($email) && hash_equals(self::unsub_token($email), $token);
+
+        if ($valid && !self::is_suppressed($email)) {
+            $list = self::get_suppressed();
+            $list[] = $email;
+            update_option(self::OPT_UNSUB, array_values(array_unique($list)), false);
+        }
+
+        $s = get_option('tix_settings', array());
+        $brand = !empty($s['email_brand_name']) ? $s['email_brand_name'] : get_bloginfo('name');
+        $logo  = !empty($s['email_logo_url']) ? $s['email_logo_url'] : '';
+
+        status_header(200);
+        nocache_headers();
+        header('Content-Type: text/html; charset=utf-8');
+        echo '<!DOCTYPE html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Abmeldung</title></head>'
+            . '<body style="margin:0;background:#f4f4f5;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;">'
+            . '<div style="max-width:520px;margin:60px auto;padding:0 16px;">'
+            . '<div style="background:#000;border-radius:12px 12px 0 0;padding:22px;text-align:center;">'
+            . ($logo !== '' ? '<img src="' . esc_url($logo) . '" alt="' . esc_attr($brand) . '" style="max-height:44px;width:auto;">'
+                            : '<span style="color:#fff;font-size:19px;font-weight:700;">' . esc_html($brand) . '</span>')
+            . '</div>'
+            . '<div style="background:#fff;border-radius:0 0 12px 12px;padding:30px;text-align:center;font-size:15px;line-height:1.6;color:#1f2937;">'
+            . ($valid
+                ? '<div style="font-size:34px;margin-bottom:10px;">&#9993;</div><strong>Du bist abgemeldet.</strong><br>Du erh&auml;ltst keine Newsletter mehr von ' . esc_html($brand) . '.<br><span style="color:#6b7280;font-size:13px;">Wichtige E-Mails zu deinen Bestellungen (Tickets, Rechnungen) bekommst du weiterhin.</span>'
+                : '<strong>Link ung&uuml;ltig.</strong><br>Der Abmeldelink ist unvollst&auml;ndig oder abgelaufen. Bitte nutze den Link aus deiner E-Mail oder schreibe uns.')
+            . '</div></div></body></html>';
+        exit;
+    }
 
     /** Absender fuer Rundmails (leer = WP/SMTP-Default). */
     public static function get_sender(): string {
@@ -46,6 +107,7 @@ class TIX_Broadcast {
         add_action('wp_ajax_tix_broadcast_batch',    array(__CLASS__, 'ajax_batch'));
         add_action('wp_ajax_tix_broadcast_draft',    array(__CLASS__, 'ajax_save_draft'));
         add_action('wp_ajax_tix_broadcast_load_last', array(__CLASS__, 'ajax_load_last'));
+        add_action('template_redirect', array(__CLASS__, 'handle_unsubscribe'), 1);
     }
 
     public static function register_menu() {
@@ -63,10 +125,39 @@ class TIX_Broadcast {
 
     /**
      * Liefert deduplizierte Empfaenger: [ ['email'=>..., 'first_name'=>...], ... ]
-     * $event_id = 0 → alle Kunden. $cat_name filtert zusaetzlich auf Ticketart (nur mit Event).
+     * $event_id = 0 → alle Kunden. -2 → alle Kunden (jeder Status) + registrierte WP-Nutzer.
+     * $cat_name filtert zusaetzlich auf Ticketart (nur mit Event).
+     * Abgemeldete (Newsletter-Sperrliste) werden IMMER herausgefiltert.
      */
     public static function get_recipients(int $event_id, array $statuses, string $cat_name = ''): array {
         global $wpdb;
+
+        if ($event_id === -2) {
+            // ALLE: Kunden (jeder Bestellstatus) + registrierte Nutzer
+            $out = array(); $seen = array();
+            $rows = $wpdb->get_results(
+                "SELECT billing_email AS email, MAX(billing_first_name) AS first_name
+                 FROM {$wpdb->prefix}tix_orders WHERE billing_email <> '' GROUP BY billing_email", ARRAY_A
+            );
+            foreach ($rows as $r) {
+                $em = strtolower(trim($r['email']));
+                if ($em === '' || isset($seen[$em]) || !is_email($em)) continue;
+                $seen[$em] = 1;
+                $out[] = array('email' => $em, 'first_name' => trim((string) $r['first_name']));
+            }
+            $users = $wpdb->get_results(
+                "SELECT u.user_email AS email,
+                        (SELECT meta_value FROM {$wpdb->usermeta} um WHERE um.user_id = u.ID AND um.meta_key = 'first_name' LIMIT 1) AS first_name
+                 FROM {$wpdb->users} u", ARRAY_A
+            );
+            foreach ($users as $r) {
+                $em = strtolower(trim($r['email']));
+                if ($em === '' || isset($seen[$em]) || !is_email($em)) continue;
+                $seen[$em] = 1;
+                $out[] = array('email' => $em, 'first_name' => trim((string) $r['first_name']));
+            }
+            return self::filter_suppressed($out);
+        }
         if (empty($statuses)) $statuses = array('completed', 'processing', 'on-hold');
         $statuses = array_values(array_intersect($statuses, array('completed', 'processing', 'on-hold', 'pending', 'refunded')));
         if (empty($statuses)) return array();
@@ -105,7 +196,16 @@ class TIX_Broadcast {
             $seen[$em] = 1;
             $out[] = array('email' => $em, 'first_name' => trim((string) $r['first_name']));
         }
-        return $out;
+        return self::filter_suppressed($out);
+    }
+
+    /** Entfernt abgemeldete Adressen aus einer Empfaengerliste. */
+    private static function filter_suppressed(array $recipients): array {
+        $sup = array_flip(self::get_suppressed());
+        if (empty($sup)) return $recipients;
+        return array_values(array_filter($recipients, function ($r) use ($sup) {
+            return !isset($sup[$r['email']]);
+        }));
     }
 
     private static function parse_statuses($raw): array {
@@ -116,7 +216,7 @@ class TIX_Broadcast {
 
     /* ─────────── HTML-Wrapper ─────────── */
 
-    public static function wrap_html(string $subject, string $body_html): string {
+    public static function wrap_html(string $subject, string $body_html, string $unsub_url = ''): string {
         $s = get_option('tix_settings', array());
         $brand = !empty($s['email_brand_name']) ? $s['email_brand_name'] : get_bloginfo('name');
         $logo_url = !empty($s['email_logo_url']) ? $s['email_logo_url'] : '';
@@ -141,6 +241,9 @@ class TIX_Broadcast {
             . '</div>'
             . '<div style="text-align:center;padding:16px;font-size:12px;color:#9ca3af;">'
             . esc_html(self::get_sender_name()) . ' &middot; Diese E-Mail wurde an Kunden von ' . esc_html(self::get_sender_name()) . ' gesendet.'
+            . ($unsub_url !== ''
+                ? '<br><a href="' . esc_url($unsub_url) . '" style="color:#9ca3af;text-decoration:underline;">Newsletter abmelden</a>'
+                : '')
             . '</div>'
             . '</div></body></html>';
     }
@@ -160,11 +263,17 @@ class TIX_Broadcast {
     }
 
     private static function send_one(array $recipient, string $subject, string $body_prepared): bool {
+        // Abgemeldete nie anschreiben — letzte Verteidigungslinie direkt vorm Versand
+        if (self::is_suppressed($recipient['email'])) return false;
+
         $subj = self::personalize($subject, $recipient);
         $body = self::personalize($body_prepared, $recipient);
-        $html = self::wrap_html($subj, $body);
+        $unsub = self::unsub_url($recipient['email']);
+        $html = self::wrap_html($subj, $body, $unsub);
 
         $headers = array('Content-Type: text/html; charset=UTF-8');
+        $headers[] = 'List-Unsubscribe: <' . $unsub . '>';
+        $headers[] = 'List-Unsubscribe-Post: List-Unsubscribe=One-Click';
         $sender      = self::get_sender();
         $sender_name = self::get_sender_name();
         $from_filter = null;
@@ -462,6 +571,8 @@ class TIX_Broadcast {
             "SELECT COUNT(DISTINCT billing_email) FROM {$wpdb->prefix}tix_orders
              WHERE status IN ('completed','processing','on-hold') AND billing_email <> ''"
         ));
+        $everyone_count = count(self::get_recipients(-2, array()));
+        $unsub_count = count(self::get_suppressed());
 
         // Ticketarten pro Event (aus tatsaechlich verkauften Order-Items)
         $event_cats = array();
@@ -491,9 +602,12 @@ class TIX_Broadcast {
         <div class="wrap">
             <h1 style="display:flex;align-items:center;gap:10px;">📣 Rundmail an Kunden</h1>
             <p style="max-width:820px;color:#475569;">
-                E-Mail an alle Kaeufer eines Events oder an <strong>alle Kunden</strong> senden.
-                Empfaenger werden pro E-Mail-Adresse dedupliziert. Platzhalter: <code>{vorname}</code>.
-                Es wird erst gesendet, wenn du unten auf „Jetzt senden" klickst und bestaetigst.
+                HTML-Newsletter oder Rundmail an Event-Kaeufer, alle Kunden oder <strong>alle Menschen in der Datenbank</strong> (Kunden + registrierte Nutzer).
+                Empfaenger werden pro E-Mail-Adresse dedupliziert, jede Mail enthaelt automatisch das Logo im Kopf und einen <strong>Abmelde-Link</strong> im Footer.
+                Platzhalter: <code>{vorname}</code>. Es wird erst gesendet, wenn du unten auf „Jetzt senden" klickst und bestaetigst.
+            </p>
+            <p style="max-width:820px;color:#94a3b8;font-size:13px;margin-top:-8px;">
+                🚫 Abgemeldete Adressen: <strong><?php echo $unsub_count; ?></strong> — werden bei jedem Versand automatisch uebersprungen.
             </p>
 
             <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:20px;margin-top:16px;max-width:860px;">
@@ -501,7 +615,8 @@ class TIX_Broadcast {
                 <label style="font-weight:600;display:block;margin-bottom:8px;">Empfaenger</label>
                 <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:6px;">
                     <select id="tix-bc-event" style="min-width:380px;padding:7px 10px;border:1px solid #d1d5db;border-radius:6px;">
-                        <option value="0">🌍 Alle Kunden (<?php echo $all_count; ?> Empfaenger)</option>
+                        <option value="-2">📰 NEWSLETTER — alle Kunden + registrierte Nutzer (<?php echo $everyone_count; ?>)</option>
+                        <option value="0" selected>🌍 Alle zahlenden Kunden (<?php echo $all_count; ?>)</option>
                         <?php foreach ($events as $ev): if ($event_counts[$ev->ID] < 1 && $ev->post_status !== 'publish') continue; ?>
                             <option value="<?php echo intval($ev->ID); ?>" <?php selected(intval($draft['event_id'] ?? -1), $ev->ID); ?>>
                                 <?php echo esc_html(get_the_title($ev->ID) ?: '(ohne Titel)'); ?> (<?php echo $event_counts[$ev->ID]; ?> Kaeufer)
