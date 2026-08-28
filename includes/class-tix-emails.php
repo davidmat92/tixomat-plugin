@@ -31,6 +31,9 @@ class TIX_Emails {
     /** Flag: nächste wp_mail() als HTML senden */
     private static $next_mail_html = false;
 
+    /** Optionaler Hinweis-Block direkt unter der Ueberschrift (einmalig pro Mail, wird nach build geleert) */
+    public static $intro_notice_html = '';
+
     /** Aktuelles WC_Email-Objekt (wird vor woocommerce_mail_content gesetzt) */
     private static $current_email = null;
 
@@ -399,6 +402,7 @@ class TIX_Emails {
                             <div style="height: 20px;"></div>
                             <?php endif; ?>
 
+                            <?php if (self::$intro_notice_html) { echo self::$intro_notice_html; self::$intro_notice_html = ''; } ?>
                             <?php echo $admin_info; ?>
                             <?php echo $hold_info; ?>
 
