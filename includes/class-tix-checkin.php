@@ -104,9 +104,10 @@ class TIX_Checkin {
         <div class="tix-ci" id="tix-checkin-app">
 
             <!-- Event-Auswahl -->
+            <?php $fixed_event = intval($atts['event_id']); ?>
             <div class="tix-ci-header">
-                <h2 class="tix-ci-title">Tixomat &middot; Check-In</h2>
-                <select id="tix-ci-event" class="tix-ci-select">
+                <h2 class="tix-ci-title">Tixomat &middot; Check-In<?php if ($fixed_event): ?> — <?php echo esc_html(get_the_title($fixed_event)); ?><?php endif; ?></h2>
+                <select id="tix-ci-event" class="tix-ci-select"<?php echo $fixed_event ? ' style="display:none;" data-fixed="1"' : ''; ?>>
                     <option value="">Event wählen…</option>
                     <?php foreach ($events as $ev):
                         $date = get_post_meta($ev->ID, '_tix_date_start', true);

@@ -247,6 +247,9 @@
     if ($eventSel.options.length === 2) {
         $eventSel.selectedIndex = 1;
         $eventSel.dispatchEvent(new Event('change'));
+    } else if ($eventSel.value) {
+        // Event per Shortcode vorgewaehlt (event_id="...") → Scanner direkt starten
+        $eventSel.dispatchEvent(new Event('change'));
     }
 
     // ══════════════════════════════════════════════
