@@ -651,12 +651,26 @@ class TIX_Checkin {
             }
         }
 
+        // Kategorie-Name frueh ermitteln — wird in ALLEN Antworten mitgegeben (Tuer-Anzeige)
+        $cat_name = get_post_meta($ticket->ID, '_tix_ticket_cat_name', true);
+        if (!$cat_name) {
+            $cat_index_raw = get_post_meta($ticket->ID, '_tix_ticket_cat_index', true);
+            if ($cat_index_raw !== '' && $cat_index_raw !== false && $cat_index_raw !== null) {
+                $cat_index = intval($cat_index_raw);
+                $cats      = get_post_meta($event_id, '_tix_ticket_categories', true);
+                if (is_array($cats) && isset($cats[$cat_index])) {
+                    $cat_name = $cats[$cat_index]['name'] ?? '';
+                }
+            }
+        }
+
         if ($status === 'cancelled') {
             wp_send_json_error([
                 'message' => 'Ticket storniert.',
                 'status'  => 'cancelled',
                 'name'    => get_post_meta($ticket->ID, '_tix_ticket_owner_name', true),
                 'type'    => 'ticket',
+                'cat'     => $cat_name,
             ]);
         }
 
@@ -672,6 +686,7 @@ class TIX_Checkin {
                 'total_expected'  => 1,
                 'type'            => 'ticket',
                 'code'            => $code,
+                'cat'             => $cat_name,
                 'message'         => 'Bereits eingecheckt.',
             ]);
         }
@@ -693,20 +708,6 @@ class TIX_Checkin {
             }
         } catch (\Throwable $e) {
             // Fehler bei Custom-DB darf Check-in-Response nicht blockieren
-        }
-
-        // Kategorie-Name: bevorzugt aus Meta `_tix_ticket_cat_name` (zuverlässig),
-        // Fallback per cat_index in Event-Categories
-        $cat_name = get_post_meta($ticket->ID, '_tix_ticket_cat_name', true);
-        if (!$cat_name) {
-            $cat_index_raw = get_post_meta($ticket->ID, '_tix_ticket_cat_index', true);
-            if ($cat_index_raw !== '' && $cat_index_raw !== false && $cat_index_raw !== null) {
-                $cat_index = intval($cat_index_raw);
-                $cats      = get_post_meta($event_id, '_tix_ticket_categories', true);
-                if (is_array($cats) && isset($cats[$cat_index])) {
-                    $cat_name = $cats[$cat_index]['name'] ?? '';
-                }
-            }
         }
 
         wp_send_json_success([

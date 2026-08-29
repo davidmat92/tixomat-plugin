@@ -505,7 +505,6 @@
                 title = data.name || 'Eingecheckt';
                 details = [];
                 if (data.type === 'ticket') {
-                    if (data.cat) details.push(data.cat);
                     if (data.seat) details.push('Platz ' + data.seat);
                 } else {
                     if (data.total_expected > 1) details.push(data.checked_in_count + '/' + data.total_expected + ' eingecheckt');
@@ -572,8 +571,13 @@
         }
 
         $result.className = 'tix-ci-result ' + cls;
+        // Ticketart gross + fett direkt unter dem Icon (Tuer-Personal muss sie sofort sehen)
+        var catHtml = (data.cat && String(data.cat).trim() !== '')
+            ? '<div class="tix-ci-result-cat">' + escHtml(String(data.cat).toUpperCase()) + '</div>'
+            : '';
         $result.innerHTML =
             '<div class="tix-ci-result-icon">' + icon + '</div>' +
+            catHtml +
             '<div class="tix-ci-result-title">' + escHtml(title) + '</div>' +
             '<div class="tix-ci-result-details">' + details.map(escHtml).join('<br>') + '</div>';
 
