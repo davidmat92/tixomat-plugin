@@ -769,6 +769,10 @@ class TIX_My_Tickets {
         static $done = false;
         if ($done) return;
         $done = true;
+        // Akzentfarbe des Magic-Link-Blocks: eigene Option (Default = bisheriges Blau).
+        // Bewusst NICHT in tix_settings (Sanitize wuerde den Key beim Speichern verwerfen).
+        $magic = get_option('tix_magic_accent');
+        $magic = (is_string($magic) && preg_match('/^#[0-9a-fA-F]{6}$/', trim($magic))) ? trim($magic) : '#0284c7';
         ?>
         <div class="tix-magic-modal" id="tix-magic-modal" hidden role="dialog" aria-modal="true" aria-labelledby="tix-magic-modal-title">
             <div class="tix-magic-modal-backdrop" data-magic-close></div>
@@ -791,7 +795,7 @@ class TIX_My_Tickets {
 
                 <?php // Variante: Bestellungen vorhanden, kein Account — Gast-Ansicht ?>
                 <div class="tix-magic-modal-variant" data-variant="has_orders" hidden>
-                    <div class="tix-magic-modal-icon" style="background:#e0f2fe;color:#0284c7;">
+                    <div class="tix-magic-modal-icon" style="background:<?php echo esc_attr($magic); ?>1a;color:<?php echo esc_attr($magic); ?>;">
                         <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
                     </div>
                     <h2 class="tix-magic-modal-title">E-Mail wurde versendet</h2>
@@ -816,7 +820,7 @@ class TIX_My_Tickets {
                         💡 Vielleicht hast du mit einer <strong>anderen E-Mail-Adresse</strong> bestellt? Probier es noch einmal mit der Adresse, die du beim Kauf angegeben hast.
                     </p>
                     <p class="tix-magic-modal-text" style="font-size:13px;margin-top:14px;">
-                        Du benötigst Hilfe? Schreib uns an <a class="tix-magic-modal-support" href="#" style="color:#0284c7;font-weight:600;">support</a> — wir helfen dir gern weiter.
+                        Du benötigst Hilfe? Schreib uns an <a class="tix-magic-modal-support" href="#" style="color:<?php echo esc_attr($magic); ?>;font-weight:600;">support</a> — wir helfen dir gern weiter.
                     </p>
                 </div>
 
@@ -832,8 +836,8 @@ class TIX_My_Tickets {
             .tix-magic-input { width:100%; min-width:0; padding:11px 14px; border:1px solid #cbd5e1; border-radius:10px; font-size:14px; background:#fff; color:#0f172a; font-family:inherit; box-sizing:border-box; }
             /* iOS Safari Auto-Zoom: Inputs < 16px lösen Auto-Zoom aus → Mobile auf 16px bumpen */
             @media (max-width: 768px) { .tix-magic-input { font-size:16px !important; } }
-            .tix-magic-input:focus { outline:none; border-color:#0284c7; box-shadow:0 0 0 3px rgba(2,132,199,.15); }
-            .tix-magic-btn { width:100%; padding:11px 20px; background:#0284c7; color:#fff; border:none; border-radius:10px; font-size:14px; font-weight:600; cursor:pointer; font-family:inherit; transition:background .15s, opacity .15s; white-space:nowrap; box-sizing:border-box; }
+            .tix-magic-input:focus { outline:none; border-color:<?php echo esc_attr($magic); ?>; box-shadow:0 0 0 3px <?php echo esc_attr($magic); ?>26; }
+            .tix-magic-btn { width:100%; padding:11px 20px; background:<?php echo esc_attr($magic); ?>; color:#fff; border:none; border-radius:10px; font-size:14px; font-weight:600; cursor:pointer; font-family:inherit; transition:background .15s, opacity .15s; white-space:nowrap; box-sizing:border-box; }
             .tix-magic-btn:hover { filter:brightness(1.1); }
             .tix-magic-btn:disabled { opacity:.6; cursor:wait; }
             .tix-magic-result { margin-top:12px; padding:10px 14px; border-radius:8px; font-size:13px; line-height:1.5; }
@@ -846,13 +850,13 @@ class TIX_My_Tickets {
             .tix-magic-modal-content { position:relative; background:#fff; border-radius:18px; padding:32px 28px 24px; max-width:440px; width:100%; box-shadow:0 24px 60px rgba(0,0,0,.25); animation:tixMagScaleIn .25s cubic-bezier(.4,0,.2,1); text-align:center; }
             .tix-magic-modal-x { position:absolute; top:14px; right:14px; background:none; border:none; font-size:28px; line-height:1; color:#94a3b8; cursor:pointer; padding:4px 8px; border-radius:8px; }
             .tix-magic-modal-x:hover { background:#f1f5f9; color:#1e293b; }
-            .tix-magic-modal-icon { width:72px; height:72px; margin:0 auto 18px; border-radius:50%; background:#e0f2fe; color:#0284c7; display:flex; align-items:center; justify-content:center; }
+            .tix-magic-modal-icon { width:72px; height:72px; margin:0 auto 18px; border-radius:50%; background:<?php echo esc_attr($magic); ?>1a; color:<?php echo esc_attr($magic); ?>; display:flex; align-items:center; justify-content:center; }
             .tix-magic-modal-title { font-size:20px; font-weight:700; color:#0f172a; margin:0 0 12px; }
             .tix-magic-modal-text { font-size:14px; color:#475569; line-height:1.55; margin:0 0 14px; }
             .tix-magic-modal-text strong { color:#0f172a; word-break:break-all; }
             .tix-magic-modal-hint { font-size:13px; color:#64748b; line-height:1.5; margin:0 0 22px; padding:12px 14px; background:#f8fafc; border-radius:10px; border:1px solid #e2e8f0; }
-            .tix-magic-modal-btn { background:#0284c7; color:#fff; border:none; padding:12px 28px; border-radius:10px; font-size:14px; font-weight:600; cursor:pointer; font-family:inherit; }
-            .tix-magic-modal-btn:hover { background:#0369a1; }
+            .tix-magic-modal-btn { background:<?php echo esc_attr($magic); ?>; color:#fff; border:none; padding:12px 28px; border-radius:10px; font-size:14px; font-weight:600; cursor:pointer; font-family:inherit; }
+            .tix-magic-modal-btn:hover { filter:brightness(0.9); }
             @keyframes tixMagFadeIn { from { opacity:0; } to { opacity:1; } }
             @keyframes tixMagScaleIn { from { opacity:0; transform:scale(.92); } to { opacity:1; transform:scale(1); } }
         </style>
