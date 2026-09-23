@@ -2221,49 +2221,67 @@ class TIX_REST_API {
 
     /**
      * POST /auth/profile/avatar – Profilbild hochladen.
+     *
+     * Speichert das Bild als einfache Datei unter uploads/tix-avatars/ –
+     * bewusst NICHT als Attachment in der Mediathek (Kundenbilder sollen dort
+     * nicht auftauchen). Bild wird auf 600 px verkleinert, EXIF-Daten fallen weg.
      */
     public static function auth_profile_avatar(WP_REST_Request $req) {
         $user = wp_get_current_user();
         $files = $req->get_file_params();
 
-        if (empty($files['avatar'])) {
+        if (empty($files['avatar']) || empty($files['avatar']['tmp_name'])) {
             return new WP_Error('no_file', 'Kein Bild hochgeladen.', ['status' => 400]);
         }
 
-        require_once ABSPATH . 'wp-admin/includes/image.php';
         require_once ABSPATH . 'wp-admin/includes/file.php';
-        require_once ABSPATH . 'wp-admin/includes/media.php';
+        require_once ABSPATH . 'wp-admin/includes/image.php';
 
-        // Upload
         $file = $files['avatar'];
-        $upload = wp_handle_upload($file, ['test_form' => false]);
-
-        if (isset($upload['error'])) {
-            return new WP_Error('upload_failed', $upload['error'], ['status' => 500]);
+        if (!empty($file['error'])) {
+            return new WP_Error('upload_failed', 'Upload fehlgeschlagen.', ['status' => 400]);
+        }
+        if (intval($file['size'] ?? 0) > 10 * MB_IN_BYTES) {
+            return new WP_Error('too_large', 'Das Bild ist zu groß (max. 10 MB).', ['status' => 400]);
+        }
+        $check = wp_check_filetype_and_ext($file['tmp_name'], $file['name'] ?? 'avatar.jpg');
+        $mime  = $check['type'] ?: (string) ($file['type'] ?? '');
+        $allowed = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp', 'image/gif' => 'gif'];
+        if (!isset($allowed[$mime])) {
+            return new WP_Error('bad_type', 'Bitte ein JPG-, PNG- oder WebP-Bild wählen.', ['status' => 400]);
         }
 
-        // Alte Attachments aufräumen
-        $old_avatar_id = get_user_meta($user->ID, '_tix_avatar_id', true);
-        if ($old_avatar_id) {
-            wp_delete_attachment($old_avatar_id, true);
+        $paths = self::avatar_dir();
+        if (!$paths) {
+            return new WP_Error('upload_failed', 'Bild konnte nicht gespeichert werden.', ['status' => 500]);
         }
 
-        // Attachment erstellen
-        $attachment_id = wp_insert_attachment([
-            'post_mime_type' => $upload['type'],
-            'post_title'     => 'avatar-' . $user->ID,
-            'post_status'    => 'private',
-        ], $upload['file']);
+        // Name nicht erratbar (User-ID + Zufall); alte Datei entfernen
+        self::delete_avatar_file($user->ID, $paths['dir']);
+        $name   = $user->ID . '-' . wp_generate_password(12, false) . '.' . $allowed[$mime];
+        $target = $paths['dir'] . '/' . $name;
+        if (!@move_uploaded_file($file['tmp_name'], $target) && !@rename($file['tmp_name'], $target)) {
+            return new WP_Error('upload_failed', 'Bild konnte nicht gespeichert werden.', ['status' => 500]);
+        }
+        @chmod($target, 0644);
 
-        if (is_wp_error($attachment_id)) {
-            return new WP_Error('attachment_failed', 'Bild konnte nicht gespeichert werden.', ['status' => 500]);
+        // Verkleinern (max. 600 px) – schneidet zugleich Metadaten ab
+        $editor = wp_get_image_editor($target);
+        if (!is_wp_error($editor)) {
+            $editor->resize(600, 600, false);
+            $editor->set_quality(85);
+            $editor->save($target, $mime);
         }
 
-        wp_update_attachment_metadata($attachment_id, wp_generate_attachment_metadata($attachment_id, $upload['file']));
+        // Früherer Stand: Attachment in der Mediathek → jetzt entfernen
+        $old_id = intval(get_user_meta($user->ID, '_tix_avatar_id', true));
+        if ($old_id) {
+            wp_delete_attachment($old_id, true);
+            delete_user_meta($user->ID, '_tix_avatar_id');
+        }
 
-        // In User-Meta speichern
-        update_user_meta($user->ID, '_tix_avatar_id', $attachment_id);
-        update_user_meta($user->ID, '_tix_avatar_url', $upload['url']);
+        update_user_meta($user->ID, '_tix_avatar_file', $name);
+        update_user_meta($user->ID, '_tix_avatar_url', $paths['url'] . '/' . $name . '?v=' . time());
 
         $user = get_user_by('ID', $user->ID);
 
@@ -2271,6 +2289,49 @@ class TIX_REST_API {
             'success' => true,
             'user'    => self::format_guest_user($user),
         ]);
+    }
+
+    /** Ordner für Profilbilder (außerhalb der Mediathek): uploads/tix-avatars */
+    private static function avatar_dir() {
+        $uploads = wp_upload_dir();
+        if (!empty($uploads['error'])) return null;
+        $dir = trailingslashit($uploads['basedir']) . 'tix-avatars';
+        $url = trailingslashit($uploads['baseurl']) . 'tix-avatars';
+        if (!wp_mkdir_p($dir)) return null;
+        if (!file_exists($dir . '/index.html')) {
+            @file_put_contents($dir . '/index.html', '');
+        }
+        return ['dir' => $dir, 'url' => $url];
+    }
+
+    private static function delete_avatar_file($user_id, $dir) {
+        $old = basename((string) get_user_meta($user_id, '_tix_avatar_file', true));
+        if ($old !== '' && file_exists($dir . '/' . $old)) {
+            @unlink($dir . '/' . $old);
+        }
+    }
+
+    /**
+     * Einmalige Migration: Profilbild, das früher als Attachment in der
+     * Mediathek lag, in den tix-avatars-Ordner kopieren und das Attachment
+     * löschen. Läuft lazy beim nächsten Profil-Abruf des Nutzers.
+     */
+    private static function migrate_avatar_from_library($user_id) {
+        $old_id = intval(get_user_meta($user_id, '_tix_avatar_id', true));
+        if (!$old_id) return;
+        $paths = self::avatar_dir();
+        $src   = $paths ? get_attached_file($old_id) : '';
+        if ($src && file_exists($src)) {
+            $ext  = strtolower(pathinfo($src, PATHINFO_EXTENSION)) ?: 'jpg';
+            $name = $user_id . '-' . wp_generate_password(12, false) . '.' . $ext;
+            if (@copy($src, $paths['dir'] . '/' . $name)) {
+                self::delete_avatar_file($user_id, $paths['dir']);
+                update_user_meta($user_id, '_tix_avatar_file', $name);
+                update_user_meta($user_id, '_tix_avatar_url', $paths['url'] . '/' . $name);
+            }
+        }
+        wp_delete_attachment($old_id, true);
+        delete_user_meta($user_id, '_tix_avatar_id');
     }
 
     /**
@@ -2427,6 +2488,7 @@ class TIX_REST_API {
      * Hilfsfunktion: Guest-User Daten formatieren.
      */
     private static function format_guest_user(WP_User $user) {
+        self::migrate_avatar_from_library($user->ID);
         $avatar_url = get_user_meta($user->ID, '_tix_avatar_url', true);
         if (empty($avatar_url)) {
             $avatar_url = get_avatar_url($user->ID, ['size' => 96]);
