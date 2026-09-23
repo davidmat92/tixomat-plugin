@@ -20,6 +20,26 @@ class TIX_REST_API {
         add_action('rest_api_init', [__CLASS__, 'register_routes']);
         // Token-basierte Authentifizierung für Guest-User
         add_filter('determine_current_user', [__CLASS__, 'authenticate_by_token'], 30);
+        add_action('init', [__CLASS__, 'ensure_staff_role'], 5);
+    }
+
+    /**
+     * Rolle „Mitarbeiter (App)“: Zugang zum Veranstalter-Bereich der App
+     * (Check-in, Kasse, Gästeliste, Musikwünsche) für alle Events – ohne
+     * WordPress-Admin und ohne Veranstalter-Verknüpfung.
+     */
+    public static function ensure_staff_role() {
+        if (!get_role('tix_staff')) {
+            add_role('tix_staff', 'Mitarbeiter (App)', ['read' => true, 'tix_app_staff' => true]);
+        }
+    }
+
+    /** Admin, Mitarbeiter (App) oder Veranstalter-Rolle? */
+    private static function is_staff_user($user) {
+        if (!$user || !$user->ID) return false;
+        if ($user->has_cap('manage_options')) return true;
+        $roles = (array) $user->roles;
+        return in_array('tix_staff', $roles, true) || in_array('tix_organizer', $roles, true);
     }
 
     /**
@@ -350,20 +370,11 @@ class TIX_REST_API {
         if (!is_user_logged_in()) {
             return new WP_Error('rest_not_logged_in', 'Authentifizierung erforderlich.', ['status' => 401]);
         }
-
-        $user = wp_get_current_user();
-
-        // Admins haben immer Zugriff
-        if ($user->has_cap('manage_options')) {
+        // Admins, Mitarbeiter (App) und Veranstalter haben Zugriff
+        if (self::is_staff_user(wp_get_current_user())) {
             return true;
         }
-
-        // tix_organizer Rolle prüfen
-        if (in_array('tix_organizer', (array) $user->roles, true)) {
-            return true;
-        }
-
-        return new WP_Error('rest_forbidden', 'Keine Berechtigung. Veranstalter-Rolle erforderlich.', ['status' => 403]);
+        return new WP_Error('rest_forbidden', 'Keine Berechtigung. Rolle „Veranstalter“ oder „Mitarbeiter (App)“ erforderlich.', ['status' => 403]);
     }
 
     /**
@@ -371,17 +382,16 @@ class TIX_REST_API {
      */
     private static function can_access_event($event_id) {
         $user = wp_get_current_user();
-
-        // Admins sehen alles
-        if ($user->has_cap('manage_options')) {
+        // Admins und Mitarbeiter (App) sehen alles
+        if ($user->has_cap('manage_options') || in_array('tix_staff', (array) $user->roles, true)) {
             return true;
         }
-
-        // Organizer: nur eigene Events
+        // Veranstalter: nur eigene Events – ohne Verknüpfung alle (Ein-Club-Setup)
         if (class_exists('TIX_Organizer_Dashboard')) {
+            $org = TIX_Organizer_Dashboard::get_organizer_by_user($user->ID);
+            if (!$org) return true;
             return TIX_Organizer_Dashboard::user_owns_event($user->ID, $event_id);
         }
-
         return false;
     }
 
@@ -488,9 +498,12 @@ class TIX_REST_API {
                 ['key' => '_tix_date_start', 'value' => $today, 'compare' => '='],
             ];
         } elseif ($filter === 'upcoming') {
-            $args['meta_query'] = [
+            // auch Events, die gestern begonnen haben und noch laufen (Enddatum)
+            $args['meta_query'] = [[
+                'relation' => 'OR',
                 ['key' => '_tix_date_start', 'value' => $today, 'compare' => '>=', 'type' => 'DATE'],
-            ];
+                ['key' => '_tix_date_end',   'value' => $today, 'compare' => '>=', 'type' => 'DATE'],
+            ]];
         } elseif ($filter === 'past') {
             $args['meta_query'] = [
                 ['key' => '_tix_date_start', 'value' => $today, 'compare' => '<', 'type' => 'DATE'],
@@ -498,8 +511,11 @@ class TIX_REST_API {
             $args['order'] = 'DESC';
         }
 
-        // Organizer-Scoping: nur eigene Events (nicht für Admins)
-        if (!$user->has_cap('manage_options') && class_exists('TIX_Organizer_Dashboard')) {
+        // Organizer-Scoping: nur eigene Events – nur für Veranstalter mit Verknüpfung
+        // (Admins und Mitarbeiter (App) sehen alle Events)
+        if (!$user->has_cap('manage_options')
+            && !in_array('tix_staff', (array) $user->roles, true)
+            && class_exists('TIX_Organizer_Dashboard')) {
             $org = TIX_Organizer_Dashboard::get_organizer_by_user($user->ID);
             if ($org) {
                 $args['meta_query']   = $args['meta_query'] ?? [];
@@ -508,8 +524,6 @@ class TIX_REST_API {
                     ['key' => '_tix_organizer_id', 'value' => strval($org->ID)],
                     ['key' => '_tix_co_organizer_id', 'value' => strval($org->ID)],
                 ];
-            } else {
-                return rest_ensure_response(['ok' => true, 'count' => 0, 'events' => []]);
             }
         }
 
@@ -627,141 +641,41 @@ class TIX_REST_API {
 
     public static function event_statistics(WP_REST_Request $req) {
         $id = absint($req['id']);
-
         if (!self::can_access_event($id)) {
             return new WP_Error('forbidden', 'Kein Zugriff.', ['status' => 403]);
         }
-
-        // Umsatz + Bestellungen via WooCommerce
+        // Umsatz + Bestellungen aus den nativen Bestellungen (kein WooCommerce)
         $total_revenue = 0;
         $total_orders  = 0;
         $total_tickets = 0;
         $by_category   = [];
         $by_day        = [];
-
-        if (function_exists('wc_get_orders')) {
-            global $wpdb;
-
-            // Ticket-Kategorien des Events für product_id Mapping
-            $categories_raw = get_post_meta($id, '_tix_ticket_categories', true);
-            $product_ids = [];
-            if (is_array($categories_raw)) {
-                foreach ($categories_raw as $cat) {
-                    $pid = absint($cat['product_id'] ?? 0);
-                    if ($pid) $product_ids[] = $pid;
-                }
-            }
-
-            // Orders finden die Produkte dieses Events enthalten
-            $orders = [];
-            if (!empty($product_ids)) {
-                $placeholders = implode(',', array_fill(0, count($product_ids), '%d'));
-                $order_ids = $wpdb->get_col($wpdb->prepare(
-                    "SELECT DISTINCT oi.order_id
-                     FROM {$wpdb->prefix}woocommerce_order_items oi
-                     JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim
-                       ON oi.order_item_id = oim.order_item_id
-                     WHERE oim.meta_key = '_product_id'
-                       AND oim.meta_value IN ($placeholders)
-                     ORDER BY oi.order_id DESC",
-                    ...$product_ids
-                ));
-                foreach ($order_ids as $oid) {
-                    $order = wc_get_order($oid);
-                    if ($order && in_array($order->get_status(), ['completed', 'processing'])) {
-                        $orders[] = $order;
-                    }
-                }
-            }
-
-            // Fallback: per _tix_event_id Line-Item Meta
-            if (empty($orders)) {
-                $order_ids = $wpdb->get_col($wpdb->prepare(
-                    "SELECT DISTINCT order_id FROM {$wpdb->prefix}woocommerce_order_itemmeta oim
-                     JOIN {$wpdb->prefix}woocommerce_order_items oi ON oi.order_item_id = oim.order_item_id
-                     WHERE oim.meta_key = '_tix_event_id' AND oim.meta_value = %d",
-                    $id
-                ));
-                foreach ($order_ids as $oid) {
-                    $order = wc_get_order($oid);
-                    if ($order && in_array($order->get_status(), ['completed', 'processing'])) {
-                        $orders[] = $order;
-                    }
-                }
-            }
-
-            // Nur Event-relevante Items zählen (nicht alle Items der Order)
-            $product_ids_set = array_flip(array_map('strval', $product_ids));
-            foreach ($orders as $order) {
-                $order_event_revenue = 0;
-                $order_has_event_items = false;
-
-                $day = $order->get_date_created() ? $order->get_date_created()->format('Y-m-d') : '';
-
-                foreach ($order->get_items() as $item) {
-                    $item_product_id = strval($item->get_product_id());
-                    // Nur Items zählen die zu diesem Event gehören
-                    if (!isset($product_ids_set[$item_product_id])) continue;
-
-                    $order_has_event_items = true;
-                    $qty  = $item->get_quantity();
-                    $cat  = $item->get_name();
-                    $item_total = (float) $item->get_total();
-
-                    $total_tickets += $qty;
-                    $order_event_revenue += $item_total;
-
-                    if (!isset($by_category[$cat])) {
-                        $by_category[$cat] = ['revenue' => 0, 'tickets' => 0];
-                    }
-                    $by_category[$cat]['revenue'] += $item_total;
-                    $by_category[$cat]['tickets'] += $qty;
-                }
-
-                if ($order_has_event_items) {
-                    $total_orders++;
-                    $total_revenue += $order_event_revenue;
-                    if ($day) {
-                        $by_day[$day] = ($by_day[$day] ?? 0) + $order_event_revenue;
-                    }
-                }
-            }
-        }
-
-        // ── Native Orders (wc_order_id = 0) ──
         if (class_exists('TIX_Order')) {
             $native_orders = TIX_Order::query([
                 'event_id' => $id,
                 'status'   => ['completed', 'processing'],
+                'limit'    => 5000,
             ]);
-            foreach ($native_orders as $native) {
-                // Skip dual-write orders (already counted above)
-                if (method_exists($native, 'get_wc_order_id') && $native->get_wc_order_id() > 0) continue;
-
-                $order_event_revenue = 0;
+            foreach ((array) $native_orders as $native) {
+                $order_event_revenue   = 0;
                 $order_has_event_items = false;
-                $day = method_exists($native, 'get_date_created') && $native->get_date_created()
-                    ? $native->get_date_created()->format('Y-m-d') : '';
-
+                $created = $native->get_date_created();
+                $day     = $created ? $created->format('Y-m-d') : '';
                 foreach ($native->get_items() as $item) {
-                    $item_event_id = method_exists($item, 'get_event_id') ? $item->get_event_id() : 0;
+                    $item_event_id = $item->get_event_id();
                     if ($item_event_id && $item_event_id != $id) continue;
-
                     $order_has_event_items = true;
-                    $qty  = $item->get_quantity();
-                    $cat  = $item->get_name();
+                    $qty        = $item->get_quantity();
+                    $cat        = $item->get_name();
                     $item_total = (float) $item->get_total();
-
-                    $total_tickets += $qty;
+                    $total_tickets       += $qty;
                     $order_event_revenue += $item_total;
-
                     if (!isset($by_category[$cat])) {
                         $by_category[$cat] = ['revenue' => 0, 'tickets' => 0];
                     }
                     $by_category[$cat]['revenue'] += $item_total;
                     $by_category[$cat]['tickets'] += $qty;
                 }
-
                 if ($order_has_event_items) {
                     $total_orders++;
                     $total_revenue += $order_event_revenue;
@@ -771,41 +685,28 @@ class TIX_REST_API {
                 }
             }
         }
-
-        // Check-in Rate
-        $checkin_rate = 0;
+        // Check-in-Quote: Gästeliste + Ticket-Posts
         $checkin_total = 0;
         $checkin_done  = 0;
-
-        // Gästeliste
         $guests = get_post_meta($id, '_tix_guest_list', true);
         if (is_array($guests)) {
             foreach ($guests as $g) {
                 $expected = 1 + intval($g['plus'] ?? 0);
                 $checkin_total += $expected;
-                $checkin_done  += min(intval($g['checked_in_count'] ?? (empty($g['checked_in']) ? 0 : $expected)), $expected);
+                $done = isset($g['checked_in_count']) ? intval($g['checked_in_count']) : (empty($g['checked_in']) ? 0 : $expected);
+                $checkin_done += min($done, $expected);
             }
         }
-
-        // Tickets aus DB
-        if (class_exists('TIX_Ticket_DB')) {
-            $tickets = TIX_Ticket_DB::get_by_event($id);
-            foreach ($tickets as $t) {
-                $checkin_total++;
-                if (!empty($t['checked_in'])) $checkin_done++;
-            }
-        }
-
+        $counts = self::ticket_counts($id);
+        $checkin_total += $counts['total'];
+        $checkin_done  += $counts['checked'];
         $checkin_rate = $checkin_total > 0 ? round($checkin_done / $checkin_total * 100, 1) : 0;
-
-        // Letzte 30 Tage
         ksort($by_day);
         $by_day_last30 = array_slice($by_day, -30, null, true);
-
         return rest_ensure_response([
             'ok'         => true,
             'statistics' => [
-                'total_revenue'  => $total_revenue,
+                'total_revenue'  => round($total_revenue, 2),
                 'total_tickets'  => $total_tickets,
                 'total_orders'   => $total_orders,
                 'by_category'    => $by_category,
@@ -823,65 +724,19 @@ class TIX_REST_API {
 
     public static function event_orders(WP_REST_Request $req) {
         $id = absint($req['id']);
-
         if (!self::can_access_event($id)) {
             return new WP_Error('forbidden', 'Kein Zugriff.', ['status' => 403]);
         }
-
+        // Native Bestellungen mit Positionen dieses Events (kein WooCommerce)
         $orders_out = [];
-
-        if (function_exists('wc_get_orders')) {
-            global $wpdb;
-
-            // Ticket-Kategorien des Events für product_id Mapping
-            $categories_raw = get_post_meta($id, '_tix_ticket_categories', true);
-            $product_ids = [];
-            if (is_array($categories_raw)) {
-                foreach ($categories_raw as $cat) {
-                    $pid = absint($cat['product_id'] ?? 0);
-                    if ($pid) $product_ids[] = $pid;
-                }
-            }
-
-            $order_ids = [];
-            if (!empty($product_ids)) {
-                $placeholders = implode(',', array_fill(0, count($product_ids), '%d'));
-                $order_ids = $wpdb->get_col($wpdb->prepare(
-                    "SELECT DISTINCT oi.order_id
-                     FROM {$wpdb->prefix}woocommerce_order_items oi
-                     JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim
-                       ON oi.order_item_id = oim.order_item_id
-                     WHERE oim.meta_key = '_product_id'
-                       AND oim.meta_value IN ($placeholders)
-                     ORDER BY oi.order_id DESC",
-                    ...$product_ids
-                ));
-            }
-
-            // Fallback
-            if (empty($order_ids)) {
-                $order_ids = $wpdb->get_col($wpdb->prepare(
-                    "SELECT DISTINCT order_id FROM {$wpdb->prefix}woocommerce_order_itemmeta oim
-                     JOIN {$wpdb->prefix}woocommerce_order_items oi ON oi.order_item_id = oim.order_item_id
-                     WHERE oim.meta_key = '_tix_event_id' AND oim.meta_value = %d
-                     ORDER BY order_id DESC",
-                    $id
-                ));
-            }
-
-            $product_ids_set = array_flip(array_map('strval', $product_ids));
-
-            foreach (array_slice($order_ids, 0, 200) as $oid) {
-                $order = wc_get_order($oid);
-                if (!$order) continue;
-
-                // Nur event-relevante Items zeigen
+        if (class_exists('TIX_Order')) {
+            $orders = TIX_Order::query(['event_id' => $id, 'limit' => 200]);
+            foreach ($orders as $order) {
                 $items = [];
                 $event_total = 0;
                 foreach ($order->get_items() as $item) {
-                    $item_pid = strval($item->get_product_id());
-                    if (!empty($product_ids_set) && !isset($product_ids_set[$item_pid])) continue;
-
+                    $item_event_id = $item->get_event_id();
+                    if ($item_event_id && $item_event_id != $id) continue;
                     $item_total = (float) $item->get_total();
                     $items[] = [
                         'name'     => $item->get_name(),
@@ -890,22 +745,21 @@ class TIX_REST_API {
                     ];
                     $event_total += $item_total;
                 }
-
                 if (empty($items)) continue;
-
+                $created = $order->get_date_created();
                 $orders_out[] = [
-                    'id'       => $order->get_id(),
-                    'customer' => trim($order->get_billing_first_name() . ' ' . $order->get_billing_last_name()),
-                    'email'    => $order->get_billing_email(),
-                    'items'    => $items,
-                    'total'    => $event_total,
-                    'payment'  => $order->get_payment_method_title(),
-                    'status'   => $order->get_status(),
-                    'date'     => $order->get_date_created() ? $order->get_date_created()->format('Y-m-d H:i') : '',
+                    'id'           => $order->get_id(),
+                    'order_number' => $order->get_order_number(),
+                    'customer'     => trim($order->get_billing_first_name() . ' ' . $order->get_billing_last_name()),
+                    'email'        => (string) $order->get_billing_email(),
+                    'items'        => $items,
+                    'total'        => round($event_total, 2),
+                    'payment'      => (string) ($order->get_payment_method_title() ?: $order->get_payment_method()),
+                    'status'       => (string) $order->get_status(),
+                    'date'         => $created ? $created->format('Y-m-d H:i') : '',
                 ];
             }
         }
-
         return rest_ensure_response([
             'ok'     => true,
             'orders' => $orders_out,
@@ -1536,55 +1390,54 @@ class TIX_REST_API {
 
     public static function pos_categories(WP_REST_Request $req) {
         $event_id = absint($req['id']);
-
         if (!self::can_access_event($event_id)) {
             return new WP_Error('forbidden', 'Kein Zugriff.', ['status' => 403]);
         }
-
         $cats = get_post_meta($event_id, '_tix_ticket_categories', true);
         if (!is_array($cats) || empty($cats)) {
             return new WP_Error('no_categories', 'Keine Ticket-Kategorien.', ['status' => 404]);
         }
-
-        if (!function_exists('wc_get_product')) {
-            return new WP_Error('no_wc', 'WooCommerce nicht aktiv.', ['status' => 500]);
-        }
-
         $categories = [];
         foreach ($cats as $idx => $cat) {
-            $pid = intval($cat['product_id'] ?? 0);
-            if (!$pid) continue;
-
-            $product = wc_get_product($pid);
-            if (!$product) continue;
-
-            $stock     = $product->get_stock_quantity();
-            $total_qty = intval($cat['quantity'] ?? 0);
-
-            if ($stock === null || $stock === '') {
-                $available = -1;
-                $sold      = 0;
-            } else {
-                $available = max(0, intval($stock));
-                $sold      = max(0, $total_qty - intval($stock));
-            }
-
+            if (!is_array($cat) || !empty($cat['gift_card'])) continue;
+            $n = self::category_numbers($event_id, $idx, $cat);
             $categories[] = [
-                'index'      => $idx,
-                'product_id' => $pid,
-                'name'       => $cat['name'] ?? 'Ticket',
-                'price'      => floatval($product->get_price()),
-                'stock'      => $available,
-                'sold'       => $sold,
-                'total'      => $total_qty,
+                'index'              => intval($idx),
+                'product_id'         => intval($idx), // kein WooCommerce: Index = Kennung
+                'name'               => $cat['name'] ?? 'Ticket',
+                'price'              => self::current_price($cat),
+                'quantity_total'     => $n['total'],
+                'quantity_sold'      => $n['sold'],
+                'quantity_available' => $n['available'],
+                'unlimited'          => $n['unlimited'],
+                'sold_out'           => $n['sold_out'],
+                // alte Feldnamen (Kompatibilität)
+                'stock'              => $n['unlimited'] ? -1 : $n['available'],
+                'sold'               => $n['sold'],
+                'total'              => $n['total'],
             ];
         }
-
         return rest_ensure_response([
             'ok'          => true,
             'event_title' => get_the_title($event_id),
             'categories'  => $categories,
         ]);
+    }
+
+    /** POS-Zusatzdaten (Zahlart, Mitarbeiter) je Bestellung – Option statt WooCommerce-Meta. */
+    private static function pos_meta($order_id, ?array $set = null) {
+        $key = '_tix_pos_order_' . intval($order_id);
+        if ($set !== null) {
+            update_option($key, $set, false);
+            return $set;
+        }
+        $v = get_option($key, []);
+        return is_array($v) ? $v : [];
+    }
+
+    private static function pos_payment_label($payment) {
+        $labels = ['cash' => 'Barzahlung (Kasse)', 'card' => 'EC-Karte (Kasse)', 'free' => 'Kostenlos (Kasse)'];
+        return $labels[$payment] ?? $payment;
     }
 
     // ═══════════════════════════════════════════
@@ -1593,107 +1446,118 @@ class TIX_REST_API {
 
     public static function pos_create_order(WP_REST_Request $req) {
         $body = $req->get_json_params();
-
+        if (!is_array($body)) $body = [];
         $event_id       = absint($body['event_id'] ?? 0);
         $items          = $body['items'] ?? [];
         $payment        = sanitize_key($body['payment'] ?? 'cash');
         $customer_name  = sanitize_text_field($body['customer_name'] ?? '');
         $customer_email = sanitize_email($body['customer_email'] ?? '');
         $coupon_code    = sanitize_text_field($body['coupon_code'] ?? '');
-
-        if (!$event_id || empty($items)) {
+        if (!$event_id || empty($items) || !is_array($items)) {
             return new WP_Error('missing_data', 'Event oder Artikel fehlen.', ['status' => 400]);
         }
-
         if (!self::can_access_event($event_id)) {
             return new WP_Error('forbidden', 'Kein Zugriff.', ['status' => 403]);
         }
-
-        if (!function_exists('wc_create_order')) {
-            return new WP_Error('no_wc', 'WooCommerce nicht aktiv.', ['status' => 500]);
+        if (!class_exists('TIX_Native_Checkout')) {
+            return new WP_Error('no_native', 'Nativer Checkout nicht aktiv.', ['status' => 500]);
         }
+        if (!in_array($payment, ['cash', 'card', 'free'], true)) $payment = 'cash';
 
-        $valid_payments = ['cash', 'card', 'free'];
-        if (!in_array($payment, $valid_payments, true)) $payment = 'cash';
-
-        $payment_methods = [
-            'cash' => 'Barzahlung (POS)',
-            'card' => 'EC-Karte (POS)',
-            'free' => 'Kostenlos (POS)',
-        ];
-
-        // Stock-Check
+        $cats = get_post_meta($event_id, '_tix_ticket_categories', true);
+        if (!is_array($cats) || empty($cats)) {
+            return new WP_Error('no_categories', 'Keine Ticket-Kategorien.', ['status' => 404]);
+        }
+        // Positionen bündeln (Kennung = Kategorie-Index, wie in pos_categories)
+        $merged = [];
         foreach ($items as $item) {
-            $pid = intval($item['product_id'] ?? 0);
-            $qty = intval($item['qty'] ?? 0);
-            if (!$pid || $qty <= 0) continue;
-
-            $product = wc_get_product($pid);
-            if (!$product) {
-                return new WP_Error('product_not_found', 'Produkt #' . $pid . ' nicht gefunden.', ['status' => 400]);
+            if (!is_array($item)) continue;
+            $idx = intval($item['index'] ?? $item['product_id'] ?? -1);
+            $qty = intval($item['qty'] ?? $item['quantity'] ?? 0);
+            if ($idx < 0 || $qty <= 0) continue;
+            $merged[$idx] = ($merged[$idx] ?? 0) + $qty;
+        }
+        if (!$merged) return new WP_Error('missing_data', 'Keine gültigen Artikel.', ['status' => 400]);
+        $event_title = get_the_title($event_id);
+        $cart     = ['items' => [], 'coupon' => null];
+        $subtotal = 0;
+        foreach ($merged as $idx => $qty) {
+            if (!isset($cats[$idx]) || !is_array($cats[$idx]) || !empty($cats[$idx]['gift_card'])) {
+                return new WP_Error('category_not_found', 'Kategorie #' . $idx . ' nicht gefunden.', ['status' => 400]);
             }
-            $stock = $product->get_stock_quantity();
-            if ($stock !== null && $stock !== '' && intval($stock) < $qty) {
-                return new WP_Error('out_of_stock', $product->get_name() . ': Nur noch ' . $stock . ' verfügbar.', ['status' => 409]);
+            $cat   = $cats[$idx];
+            $stock = (isset($cat['stock']) && $cat['stock'] !== '') ? intval($cat['stock']) : -1;
+            if ($stock >= 0 && $qty > $stock) {
+                return new WP_Error('out_of_stock', ($cat['name'] ?? 'Ticket') . ': Nur noch ' . $stock . ' verfügbar.', ['status' => 409]);
             }
+            $price = $payment === 'free' ? 0.0 : floatval(self::current_price($cat));
+            $cart['items'][] = [
+                'event_id'    => $event_id,
+                'cat_index'   => intval($idx),
+                'name'        => sanitize_text_field($cat['name'] ?? 'Ticket'),
+                'event_title' => $event_title,
+                'price'       => $price,
+                'qty'         => $qty,
+                'meta'        => ['pos' => 1],
+            ];
+            $subtotal += $price * $qty;
         }
-
-        // WC Order erstellen
-        $order = wc_create_order();
-        if (is_wp_error($order)) {
-            return new WP_Error('order_failed', 'Order-Erstellung fehlgeschlagen.', ['status' => 500]);
+        // Gutschein-Code (Rabatt/Guthaben) wie in der App-Kasse
+        if ($coupon_code !== '' && method_exists('TIX_Native_Checkout', 'app_prepare_cart')) {
+            $cart = TIX_Native_Checkout::app_prepare_cart($cart, $coupon_code);
         }
+        $discount = round(floatval($cart['coupon']['discount'] ?? 0), 2);
+        $total    = max(0, round($subtotal - $discount, 2));
+        if ($total <= 0) $payment = 'free';
 
-        foreach ($items as $item) {
-            $pid = intval($item['product_id'] ?? 0);
-            $qty = intval($item['qty'] ?? 0);
-            if (!$pid || $qty <= 0) continue;
+        $name_parts = preg_split('/\s+/', trim($customer_name !== '' ? $customer_name : 'Kasse'), 2);
+        $staff      = wp_get_current_user();
 
-            $product = wc_get_product($pid);
-            if (!$product) continue;
-
-            $order->add_product($product, $qty);
+        // Warenkorb in die Session des Mitarbeiters legen (create_order liest Gutschein/Gebühren daraus)
+        $previous_cart = TIX_Native_Checkout::get_cart();
+        TIX_Native_Checkout::save_cart($cart);
+        $order_id = TIX_Native_Checkout::create_order([
+            'billing_first_name' => $name_parts[0] ?? 'Kasse',
+            'billing_last_name'  => $name_parts[1] ?? '',
+            'billing_email'      => $customer_email,
+            'billing_phone'      => '',
+            'billing_company'    => '',
+            'billing_address_1'  => '',
+            'billing_city'       => '',
+            'billing_postcode'   => '',
+            'billing_country'    => 'DE',
+            'payment_method'     => 'pos_' . $payment,
+            'total'              => $subtotal,
+            'items'              => $cart['items'],
+        ]);
+        if (!$order_id) {
+            if (!empty($previous_cart['items'])) TIX_Native_Checkout::save_cart($previous_cart);
+            else TIX_Native_Checkout::clear_cart();
+            return new WP_Error('order_failed', 'Bestellung konnte nicht angelegt werden.', ['status' => 500]);
         }
-
-        // Billing
-        $billing_name = $customer_name ?: 'POS Kunde';
-        $name_parts   = explode(' ', $billing_name, 2);
-        $order->set_billing_first_name($name_parts[0]);
-        $order->set_billing_last_name($name_parts[1] ?? '');
-        $order->set_billing_email($customer_email ?: get_option('admin_email'));
-
-        $order->set_payment_method('tix_pos_' . $payment);
-        $order->set_payment_method_title($payment_methods[$payment]);
-
-        // POS Meta
-        $staff_id   = get_current_user_id();
-        $staff_user = wp_get_current_user();
-
-        $order->update_meta_data('_tix_pos_order', 1);
-        $order->update_meta_data('_tix_pos_payment_type', $payment);
-        $order->update_meta_data('_tix_pos_staff_id', $staff_id);
-        $order->update_meta_data('_tix_pos_staff_name', $staff_user->display_name);
-
-        // Coupon
-        if ($coupon_code) {
-            $order->apply_coupon($coupon_code);
+        update_option('_tix_order_source_' . $order_id, 'pos', false);
+        self::pos_meta($order_id, [
+            'payment'    => $payment,
+            'staff_id'   => intval($staff->ID),
+            'staff_name' => (string) $staff->display_name,
+            'event_id'   => $event_id,
+            'created'    => current_time('mysql'),
+        ]);
+        if (class_exists('TIX_Order_Admin') && method_exists('TIX_Order_Admin', 'add_note')) {
+            TIX_Order_Admin::add_note($order_id, '🧾 Kassenverkauf (App) – ' . self::pos_payment_label($payment) . ' durch ' . $staff->display_name, 'pos');
         }
-
-        $order->calculate_totals();
-        $order->set_status('completed', 'POS-Verkauf (App)');
-        $order->save();
-
-        $order_id = $order->get_id();
-
-        // Tickets aus DB holen
-        $tickets = self::get_order_tickets($order_id, $event_id);
-
+        // Bezahlt → Tickets erzeugen (+ E-Mail, falls Adresse angegeben)
+        TIX_Native_Checkout::update_order_status($order_id, 'completed', 'pos');
+        // Web-Warenkorb des Mitarbeiters unangetastet lassen
+        if (!empty($previous_cart['items'])) TIX_Native_Checkout::save_cart($previous_cart);
+        $order = class_exists('TIX_Order') ? TIX_Order::get($order_id) : null;
         return rest_ensure_response([
-            'ok'       => true,
-            'order_id' => $order_id,
-            'total'    => floatval($order->get_total()),
-            'tickets'  => $tickets,
-            'payment'  => $payment,
+            'ok'           => true,
+            'order_id'     => intval($order_id),
+            'order_number' => $order ? $order->get_order_number() : (string) $order_id,
+            'total'        => $order ? floatval($order->get_total()) : $total,
+            'payment'      => $payment,
+            'tickets'      => self::get_order_tickets($order_id, $event_id),
         ]);
     }
 
@@ -1704,32 +1568,30 @@ class TIX_REST_API {
     public static function pos_send_email(WP_REST_Request $req) {
         $order_id = absint($req['id']);
         $body     = $req->get_json_params();
-        $email    = sanitize_email($body['email'] ?? '');
-
-        if (!$order_id || !$email) {
-            return new WP_Error('missing_data', 'Order-ID oder E-Mail fehlt.', ['status' => 400]);
+        $email    = sanitize_email(is_array($body) ? ($body['email'] ?? '') : '');
+        if (!$order_id || !is_email($email)) {
+            return new WP_Error('missing_data', 'Bestellnummer oder E-Mail fehlt.', ['status' => 400]);
         }
-
-        $order = wc_get_order($order_id);
+        $order = class_exists('TIX_Order') ? TIX_Order::get($order_id) : null;
         if (!$order) {
             return new WP_Error('not_found', 'Bestellung nicht gefunden.', ['status' => 404]);
         }
-
-        if ($email !== $order->get_billing_email()) {
-            $order->set_billing_email($email);
-            $order->save();
+        if (!class_exists('TIX_Emails') || !method_exists('TIX_Emails', 'send_native_completed')) {
+            return new WP_Error('no_mail', 'E-Mail-Versand nicht verfügbar.', ['status' => 500]);
         }
-
-        do_action('woocommerce_order_status_completed_notification', $order_id, $order);
-
-        if (class_exists('TIX_Emails')) {
-            TIX_Emails::send_ticket_email($order_id);
+        global $wpdb;
+        if (strcasecmp($email, (string) $order->get_billing_email()) !== 0) {
+            $wpdb->update($wpdb->prefix . 'tix_orders', ['billing_email' => $email], ['id' => $order_id]);
+            foreach (self::get_order_tickets($order_id) as $t) {
+                update_post_meta($t['id'], '_tix_ticket_owner_email', $email);
+            }
         }
-
-        return rest_ensure_response([
-            'ok'      => true,
-            'message' => 'E-Mail gesendet an ' . $email,
-        ]);
+        delete_post_meta($order_id, '_tix_completed_email_sent');
+        TIX_Emails::send_native_completed($order_id);
+        if (class_exists('TIX_Order_Admin') && method_exists('TIX_Order_Admin', 'add_note')) {
+            TIX_Order_Admin::add_note($order_id, '🎟️ Tickets per Kasse (App) gesendet an ' . $email, 'email');
+        }
+        return rest_ensure_response(['ok' => true, 'message' => 'E-Mail gesendet an ' . $email]);
     }
 
     // ═══════════════════════════════════════════
@@ -1738,40 +1600,68 @@ class TIX_REST_API {
 
     public static function pos_void_order(WP_REST_Request $req) {
         $order_id = absint($req['id']);
-
-        $order = wc_get_order($order_id);
+        $order = class_exists('TIX_Order') ? TIX_Order::get($order_id) : null;
         if (!$order) {
             return new WP_Error('not_found', 'Bestellung nicht gefunden.', ['status' => 404]);
         }
-
-        if (!$order->get_meta('_tix_pos_order')) {
-            return new WP_Error('not_pos', 'Keine POS-Bestellung.', ['status' => 400]);
+        if (strpos((string) $order->get_payment_method(), 'pos_') !== 0) {
+            return new WP_Error('not_pos', 'Keine Kassen-Bestellung.', ['status' => 400]);
         }
+        if ($order->get_status() === 'cancelled') {
+            return rest_ensure_response(['ok' => true, 'message' => 'Bestellung war bereits storniert.']);
+        }
+        if (class_exists('TIX_Native_Checkout')) {
+            TIX_Native_Checkout::update_order_status($order_id, 'cancelled', 'admin');
+        }
+        // Tickets stornieren + Bestand zurückgeben
+        $restock = [];
+        foreach (self::get_order_tickets($order_id) as $t) {
+            if ($t['status'] === 'cancelled') continue;
+            update_post_meta($t['id'], '_tix_ticket_status', 'cancelled');
+            $eid = intval(get_post_meta($t['id'], '_tix_ticket_event_id', true));
+            $ci  = get_post_meta($t['id'], '_tix_ticket_cat_index', true);
+            if ($eid && $ci !== '' && $ci !== false) {
+                $restock[$eid][intval($ci)] = ($restock[$eid][intval($ci)] ?? 0) + 1;
+            }
+        }
+        foreach ($restock as $eid => $by_cat) {
+            wp_cache_delete($eid, 'post_meta');
+            $cats = get_post_meta($eid, '_tix_ticket_categories', true);
+            if (!is_array($cats)) continue;
+            foreach ($by_cat as $ci => $n) {
+                if (isset($cats[$ci]['stock']) && $cats[$ci]['stock'] !== '' && intval($cats[$ci]['stock']) >= 0) {
+                    $cats[$ci]['stock'] = intval($cats[$ci]['stock']) + $n;
+                }
+            }
+            update_post_meta($eid, '_tix_ticket_categories', $cats);
+        }
+        if (class_exists('TIX_Order_Admin') && method_exists('TIX_Order_Admin', 'add_note')) {
+            TIX_Order_Admin::add_note($order_id, '↩️ Kassen-Storno (App) durch ' . wp_get_current_user()->display_name, 'pos');
+        }
+        return rest_ensure_response(['ok' => true, 'message' => 'Bestellung storniert.']);
+    }
 
-        $order->set_status('cancelled', 'POS-Storno (App)');
-        $order->save();
-
-        // Tickets stornieren
+    /** Kassen-Bestellungen eines Tages (nativ, payment_method pos_*). */
+    private static function pos_orders_for_day($date, array $statuses, $event_id = 0) {
         global $wpdb;
-        $table = $wpdb->prefix . 'tixomat_tickets';
-        if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $table)) === $table) {
-            $wpdb->update($table, ['ticket_status' => 'cancelled'], ['order_id' => $order_id]);
+        $t = $wpdb->prefix . 'tix_orders';
+        $placeholders = implode(',', array_fill(0, count($statuses), '%s'));
+        $params = array_merge([$date], $statuses);
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT id FROM $t WHERE payment_method LIKE 'pos\\_%' AND DATE(date_created) = %s AND status IN ($placeholders) ORDER BY date_created DESC",
+            ...$params
+        ), ARRAY_A);
+        $orders = [];
+        foreach ((array) $rows as $r) {
+            $o = TIX_Order::get(intval($r['id']));
+            if (!$o) continue;
+            if ($event_id) {
+                $meta = self::pos_meta($o->get_id());
+                if (intval($meta['event_id'] ?? 0) !== intval($event_id)) continue;
+            }
+            $orders[] = $o;
         }
-
-        $ticket_posts = get_posts([
-            'post_type'      => 'tix_ticket',
-            'meta_query'     => [['key' => '_tix_order_id', 'value' => $order_id]],
-            'posts_per_page' => -1,
-            'fields'         => 'ids',
-        ]);
-        foreach ($ticket_posts as $tid) {
-            update_post_meta($tid, '_tix_ticket_status', 'cancelled');
-        }
-
-        return rest_ensure_response([
-            'ok'      => true,
-            'message' => 'Bestellung storniert.',
-        ]);
+        return $orders;
     }
 
     // ═══════════════════════════════════════════
@@ -1781,88 +1671,42 @@ class TIX_REST_API {
     public static function pos_report(WP_REST_Request $req) {
         $date     = sanitize_text_field($req->get_param('date') ?: current_time('Y-m-d'));
         $event_id = absint($req->get_param('event_id'));
-
-        global $wpdb;
-
-        $hpos = class_exists('\Automattic\WooCommerce\Utilities\OrderUtil')
-            && \Automattic\WooCommerce\Utilities\OrderUtil::custom_orders_table_usage_is_enabled();
-
-        if ($hpos) {
-            $orders_table = $wpdb->prefix . 'wc_orders';
-            $meta_table   = $wpdb->prefix . 'wc_orders_meta';
-            $sql = "SELECT o.id FROM $orders_table o
-                INNER JOIN $meta_table m ON o.id = m.order_id AND m.meta_key = '_tix_pos_order'
-                WHERE o.status = 'wc-completed' AND DATE(o.date_created_gmt) = %s";
-        } else {
-            $sql = "SELECT p.ID as id FROM {$wpdb->posts} p
-                INNER JOIN {$wpdb->postmeta} pm ON p.ID = pm.post_id AND pm.meta_key = '_tix_pos_order'
-                WHERE p.post_type = 'shop_order' AND p.post_status = 'wc-completed' AND DATE(p.post_date) = %s";
-        }
-
-        $order_ids = $wpdb->get_col($wpdb->prepare($sql, $date));
-
         $report = [
             'date'          => $date,
-            'total_revenue' => 0,
+            'total_revenue' => 0.0,
             'total_tickets' => 0,
             'total_orders'  => 0,
-            'by_payment'    => ['cash' => 0, 'card' => 0, 'free' => 0],
+            'by_payment'    => ['cash' => 0.0, 'card' => 0.0, 'free' => 0.0],
             'by_category'   => [],
             'by_hour'       => [],
             'cancelled'     => 0,
         ];
-
-        foreach ($order_ids as $oid) {
-            $order = wc_get_order($oid);
-            if (!$order) continue;
-
-            $total        = floatval($order->get_total());
-            $payment_type = $order->get_meta('_tix_pos_payment_type') ?: 'cash';
-            $hour         = date('H', strtotime($order->get_date_created()->format('Y-m-d H:i:s')));
-
+        if (!class_exists('TIX_Order')) return rest_ensure_response(['ok' => true, 'report' => $report]);
+        foreach (self::pos_orders_for_day($date, ['completed', 'processing'], $event_id) as $order) {
+            $total   = floatval($order->get_total());
+            $payment = substr((string) $order->get_payment_method(), 4) ?: 'cash';
+            $created = $order->get_date_created();
+            $hour    = $created ? $created->format('H') : '00';
             $report['total_revenue'] += $total;
             $report['total_orders']++;
-            $report['by_payment'][$payment_type] = ($report['by_payment'][$payment_type] ?? 0) + $total;
-
-            if (!isset($report['by_hour'][$hour])) {
-                $report['by_hour'][$hour] = ['revenue' => 0, 'tickets' => 0];
-            }
-
+            $report['by_payment'][$payment] = round(($report['by_payment'][$payment] ?? 0) + $total, 2);
+            if (!isset($report['by_hour'][$hour])) $report['by_hour'][$hour] = ['revenue' => 0.0, 'tickets' => 0];
             foreach ($order->get_items() as $item) {
-                $qty       = $item->get_quantity();
-                $cat_name  = $item->get_name();
+                $qty        = $item->get_quantity();
+                $cat_name   = $item->get_name();
                 $item_total = floatval($item->get_total());
-
                 $report['total_tickets'] += $qty;
-                $report['by_hour'][$hour]['revenue'] += $item_total;
+                $report['by_hour'][$hour]['revenue'] = round($report['by_hour'][$hour]['revenue'] + $item_total, 2);
                 $report['by_hour'][$hour]['tickets'] += $qty;
-
-                if (!isset($report['by_category'][$cat_name])) {
-                    $report['by_category'][$cat_name] = ['tickets' => 0, 'revenue' => 0];
-                }
+                if (!isset($report['by_category'][$cat_name])) $report['by_category'][$cat_name] = ['tickets' => 0, 'revenue' => 0.0];
                 $report['by_category'][$cat_name]['tickets'] += $qty;
-                $report['by_category'][$cat_name]['revenue'] += $item_total;
+                $report['by_category'][$cat_name]['revenue'] = round($report['by_category'][$cat_name]['revenue'] + $item_total, 2);
             }
         }
-
-        // Stornierte zählen
-        if ($hpos) {
-            $cancel_sql = "SELECT COUNT(*) FROM $orders_table o
-                INNER JOIN $meta_table m ON o.id = m.order_id AND m.meta_key = '_tix_pos_order'
-                WHERE o.status = 'wc-cancelled' AND DATE(o.date_created_gmt) = %s";
-        } else {
-            $cancel_sql = "SELECT COUNT(*) FROM {$wpdb->posts} p
-                INNER JOIN {$wpdb->postmeta} pm ON p.ID = pm.post_id AND pm.meta_key = '_tix_pos_order'
-                WHERE p.post_type = 'shop_order' AND p.post_status = 'wc-cancelled' AND DATE(p.post_date) = %s";
-        }
-        $report['cancelled'] = intval($wpdb->get_var($wpdb->prepare($cancel_sql, $date)));
-
+        $report['cancelled']     = count(self::pos_orders_for_day($date, ['cancelled', 'refunded'], $event_id));
+        $report['total_revenue'] = round($report['total_revenue'], 2);
         ksort($report['by_hour']);
-
-        return rest_ensure_response([
-            'ok'     => true,
-            'report' => $report,
-        ]);
+        return rest_ensure_response(['ok' => true, 'report' => $report]);
     }
 
     // ═══════════════════════════════════════════
@@ -1871,59 +1715,36 @@ class TIX_REST_API {
 
     public static function pos_transactions(WP_REST_Request $req) {
         $date = sanitize_text_field($req->get_param('date') ?: current_time('Y-m-d'));
-
-        global $wpdb;
-
-        $hpos = class_exists('\Automattic\WooCommerce\Utilities\OrderUtil')
-            && \Automattic\WooCommerce\Utilities\OrderUtil::custom_orders_table_usage_is_enabled();
-
-        if ($hpos) {
-            $orders_table = $wpdb->prefix . 'wc_orders';
-            $meta_table   = $wpdb->prefix . 'wc_orders_meta';
-            $sql = "SELECT o.id FROM $orders_table o
-                INNER JOIN $meta_table m ON o.id = m.order_id AND m.meta_key = '_tix_pos_order'
-                WHERE o.status IN ('wc-completed', 'wc-cancelled')
-                AND DATE(o.date_created_gmt) = %s ORDER BY o.date_created_gmt DESC";
-        } else {
-            $sql = "SELECT p.ID as id FROM {$wpdb->posts} p
-                INNER JOIN {$wpdb->postmeta} pm ON p.ID = pm.post_id AND pm.meta_key = '_tix_pos_order'
-                WHERE p.post_type = 'shop_order' AND p.post_status IN ('wc-completed', 'wc-cancelled')
-                AND DATE(p.post_date) = %s ORDER BY p.post_date DESC";
-        }
-
-        $order_ids    = $wpdb->get_col($wpdb->prepare($sql, $date));
         $transactions = [];
-
-        foreach ($order_ids as $oid) {
-            $order = wc_get_order($oid);
-            if (!$order) continue;
-
-            $items_list   = [];
-            $ticket_count = 0;
-            foreach ($order->get_items() as $item) {
-                $items_list[] = $item->get_name() . ' x' . $item->get_quantity();
-                $ticket_count += $item->get_quantity();
+        if (class_exists('TIX_Order')) {
+            foreach (self::pos_orders_for_day($date, ['completed', 'processing', 'cancelled', 'refunded']) as $order) {
+                $items_list   = [];
+                $ticket_count = 0;
+                foreach ($order->get_items() as $item) {
+                    $items_list[]  = $item->get_quantity() . '× ' . $item->get_name();
+                    $ticket_count += $item->get_quantity();
+                }
+                $meta     = self::pos_meta($order->get_id());
+                $payment  = substr((string) $order->get_payment_method(), 4) ?: 'cash';
+                $created  = $order->get_date_created();
+                $customer = trim($order->get_billing_first_name() . ' ' . $order->get_billing_last_name());
+                $transactions[] = [
+                    'order_id'      => $order->get_id(),
+                    'order_number'  => $order->get_order_number(),
+                    'time'          => $created ? $created->format('H:i') : '',
+                    'items'         => implode(', ', $items_list),
+                    'tickets'       => $ticket_count,
+                    'total'         => floatval($order->get_total()),
+                    'payment'       => $payment,
+                    'payment_label' => self::pos_payment_label($payment),
+                    'customer'      => $customer === 'Kasse' ? '' : $customer,
+                    'email'         => (string) $order->get_billing_email(),
+                    'status'        => (string) $order->get_status(),
+                    'staff'         => (string) ($meta['staff_name'] ?? ''),
+                ];
             }
-
-            $transactions[] = [
-                'order_id'      => intval($oid),
-                'time'          => $order->get_date_created()->format('H:i'),
-                'items'         => implode(', ', $items_list),
-                'tickets'       => $ticket_count,
-                'total'         => floatval($order->get_total()),
-                'payment'       => $order->get_meta('_tix_pos_payment_type') ?: 'cash',
-                'payment_label' => $order->get_payment_method_title(),
-                'customer'      => trim($order->get_billing_first_name() . ' ' . $order->get_billing_last_name()),
-                'email'         => $order->get_billing_email(),
-                'status'        => $order->get_status(),
-                'staff'         => $order->get_meta('_tix_pos_staff_name') ?: '',
-            ];
         }
-
-        return rest_ensure_response([
-            'ok'           => true,
-            'transactions' => $transactions,
-        ]);
+        return rest_ensure_response(['ok' => true, 'date' => $date, 'transactions' => $transactions]);
     }
 
     // ═══════════════════════════════════════════
@@ -1933,6 +1754,63 @@ class TIX_REST_API {
     /**
      * Event-Daten für API-Response formatieren.
      */
+    /**
+     * Tickets eines Events aus den Ticket-Posts zählen (gesamt, eingecheckt,
+     * je Kategorie-Index). Stornierte zählen nicht. Kein WooCommerce.
+     */
+    public static function ticket_counts($event_id) {
+        static $cache = [];
+        $event_id = intval($event_id);
+        if (isset($cache[$event_id])) return $cache[$event_id];
+        global $wpdb;
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT p.ID, st.meta_value AS status, ci.meta_value AS cat_index, ch.meta_value AS checked
+             FROM {$wpdb->posts} p
+             INNER JOIN {$wpdb->postmeta} ev ON ev.post_id = p.ID AND ev.meta_key = '_tix_ticket_event_id' AND ev.meta_value = %s
+             LEFT JOIN {$wpdb->postmeta} st ON st.post_id = p.ID AND st.meta_key = '_tix_ticket_status'
+             LEFT JOIN {$wpdb->postmeta} ci ON ci.post_id = p.ID AND ci.meta_key = '_tix_ticket_cat_index'
+             LEFT JOIN {$wpdb->postmeta} ch ON ch.post_id = p.ID AND ch.meta_key = '_tix_ticket_checked_in'
+             WHERE p.post_type = 'tix_ticket' AND p.post_status IN ('publish', 'private')",
+            (string) $event_id
+        ), ARRAY_A);
+        $out = ['total' => 0, 'checked' => 0, 'by_cat' => []];
+        foreach ((array) $rows as $r) {
+            $status = (string) ($r['status'] ?: 'valid');
+            if ($status === 'cancelled') continue;
+            $out['total']++;
+            if ($status === 'used' || (string) $r['checked'] === '1') $out['checked']++;
+            $ci = ($r['cat_index'] === null || $r['cat_index'] === '') ? -1 : intval($r['cat_index']);
+            $out['by_cat'][$ci] = ($out['by_cat'][$ci] ?? 0) + 1;
+        }
+        return $cache[$event_id] = $out;
+    }
+
+    /** Kategorie-Zahlen ohne WooCommerce: Bestand aus `stock`, verkauft aus Ticket-Posts. */
+    private static function category_numbers($event_id, $index, array $cat) {
+        $counts    = self::ticket_counts($event_id);
+        $qty_total = absint($cat['quantity'] ?? $cat['qty'] ?? 0);
+        $stock     = (isset($cat['stock']) && $cat['stock'] !== '') ? intval($cat['stock']) : -1; // -1 = unbegrenzt
+        $qty_sold  = intval($counts['by_cat'][intval($index)] ?? 0);
+        if ($stock >= 0) {
+            $qty_avail = $stock;
+            if (!$qty_total) $qty_total = $qty_sold + $stock;
+            $unlimited = false;
+        } elseif ($qty_total > 0) {
+            $qty_avail = max(0, $qty_total - $qty_sold);
+            $unlimited = false;
+        } else {
+            $qty_avail = 999;
+            $unlimited = true;
+        }
+        return [
+            'total'     => $qty_total,
+            'sold'      => $qty_sold,
+            'available' => $qty_avail,
+            'unlimited' => $unlimited,
+            'sold_out'  => !$unlimited && $qty_avail <= 0,
+        ];
+    }
+
     private static function format_event($post, $detailed = false) {
         $id = $post->ID;
 
@@ -1966,42 +1844,22 @@ class TIX_REST_API {
 
         if (is_array($categories_raw)) {
             foreach ($categories_raw as $i => $cat) {
-                $product_id = absint($cat['product_id'] ?? 0);
-                $qty_total  = absint($cat['quantity'] ?? $cat['qty'] ?? 0);
-                $qty_sold   = 0;
-                $qty_avail  = $qty_total ?: 999;
-                $sold_out   = false;
-
-                if ($product_id && function_exists('wc_get_product')) {
-                    $product = wc_get_product($product_id);
-                    if ($product) {
-                        if ($product->managing_stock()) {
-                            $stock    = (int) $product->get_stock_quantity();
-                            $qty_sold = $qty_total > 0 ? max(0, $qty_total - $stock) : 0;
-                            $qty_avail = max(0, $stock);
-                        } else {
-                            $sold_out  = !$product->is_in_stock();
-                            $qty_avail = $sold_out ? 0 : ($qty_total ?: 999);
-                        }
-                    }
-                }
-
-                $price = self::current_price($cat);
-
+                if (!is_array($cat) || !empty($cat['gift_card'])) continue; // Gutscheine sind keine Tickets
+                $n = self::category_numbers($id, $i, $cat);
                 $categories[] = [
-                    'index'              => $i,
+                    'index'              => intval($i),
                     'name'               => $cat['name'] ?? '',
-                    'price'              => $price,
-                    'product_id'         => $product_id,
-                    'quantity_total'     => $qty_total,
-                    'quantity_sold'      => $qty_sold,
-                    'quantity_available' => $qty_avail,
-                    'sold_out'           => $sold_out || $qty_avail <= 0,
+                    'price'              => self::current_price($cat),
+                    'product_id'         => intval($i), // kein WooCommerce: Index = Kennung
+                    'quantity_total'     => $n['total'],
+                    'quantity_sold'      => $n['sold'],
+                    'quantity_available' => $n['available'],
+                    'unlimited'          => $n['unlimited'],
+                    'sold_out'           => $n['sold_out'],
                 ];
-
-                $total_capacity  += $qty_total;
-                $total_available += $qty_avail;
-                $total_sold      += $qty_sold;
+                $total_capacity  += $n['total'];
+                if (!$n['unlimited']) $total_available += $n['available'];
+                $total_sold      += $n['sold'];
             }
         }
 
@@ -2092,44 +1950,26 @@ class TIX_REST_API {
      * Tickets einer Bestellung holen.
      */
     private static function get_order_tickets($order_id, $event_id = 0) {
-        global $wpdb;
         $tickets = [];
-
-        // Custom DB zuerst
-        $table = $wpdb->prefix . 'tixomat_tickets';
-        if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $table)) === $table) {
-            $ticket_rows = $wpdb->get_results($wpdb->prepare(
-                "SELECT ticket_code, event_name, ticket_category, ticket_price FROM $table WHERE order_id = %d AND ticket_status = 'valid'",
-                $order_id
-            ), ARRAY_A);
-
-            foreach ($ticket_rows as $tr) {
-                $tickets[] = [
-                    'code'     => $tr['ticket_code'],
-                    'event'    => $tr['event_name'],
-                    'category' => $tr['ticket_category'],
-                    'price'    => floatval($tr['ticket_price']),
-                ];
-            }
+        $posts = get_posts([
+            'post_type'      => 'tix_ticket',
+            'post_status'    => 'any',
+            'posts_per_page' => -1,
+            'orderby'        => 'ID',
+            'order'          => 'ASC',
+            'meta_query'     => [['key' => '_tix_ticket_order_id', 'value' => (string) intval($order_id)]],
+        ]);
+        foreach ($posts as $tp) {
+            $eid = intval(get_post_meta($tp->ID, '_tix_ticket_event_id', true));
+            $tickets[] = [
+                'id'       => $tp->ID,
+                'code'     => (string) get_post_meta($tp->ID, '_tix_ticket_code', true),
+                'event'    => $eid ? get_the_title($eid) : (string) get_post_meta($tp->ID, '_tix_ticket_event_name', true),
+                'category' => (string) (get_post_meta($tp->ID, '_tix_ticket_cat_name', true) ?: 'Ticket'),
+                'price'    => floatval(get_post_meta($tp->ID, '_tix_ticket_price', true)),
+                'status'   => (string) (get_post_meta($tp->ID, '_tix_ticket_status', true) ?: 'valid'),
+            ];
         }
-
-        // Fallback: CPT
-        if (empty($tickets)) {
-            $ticket_posts = get_posts([
-                'post_type'      => 'tix_ticket',
-                'meta_query'     => [['key' => '_tix_order_id', 'value' => $order_id]],
-                'posts_per_page' => -1,
-            ]);
-            foreach ($ticket_posts as $tp) {
-                $tickets[] = [
-                    'code'     => get_post_meta($tp->ID, '_tix_ticket_code', true),
-                    'event'    => $event_id ? get_the_title($event_id) : '',
-                    'category' => get_post_meta($tp->ID, '_tix_ticket_category', true) ?: 'Ticket',
-                    'price'    => floatval(get_post_meta($tp->ID, '_tix_ticket_price', true)),
-                ];
-            }
-        }
-
         return $tickets;
     }
 

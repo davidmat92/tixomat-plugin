@@ -1909,6 +1909,9 @@ class TIX_Native_Checkout {
             'mollie' => 'Online bezahlen (Mollie)',
             'paypal' => 'PayPal',
             'bank'   => 'Banküberweisung (Vorkasse)',
+            'pos_cash' => 'Barzahlung (Kasse)',
+            'pos_card' => 'EC-Karte (Kasse)',
+            'pos_free' => 'Kostenlos (Kasse)',
         ];
         return $titles[$id] ?? $id;
     }
