@@ -709,8 +709,8 @@ class TIX_REST_API {
                 'total_revenue'  => round($total_revenue, 2),
                 'total_tickets'  => $total_tickets,
                 'total_orders'   => $total_orders,
-                'by_category'    => $by_category,
-                'by_day'         => $by_day_last30,
+                'by_category'    => (object) $by_category,
+                'by_day'         => (object) $by_day_last30,
                 'checkin_total'  => $checkin_total,
                 'checkin_done'   => $checkin_done,
                 'checkin_rate'   => $checkin_rate,
@@ -1681,7 +1681,10 @@ class TIX_REST_API {
             'by_hour'       => [],
             'cancelled'     => 0,
         ];
-        if (!class_exists('TIX_Order')) return rest_ensure_response(['ok' => true, 'report' => $report]);
+        if (!class_exists('TIX_Order')) {
+            foreach (['by_payment', 'by_category', 'by_hour'] as $k) $report[$k] = (object) $report[$k];
+            return rest_ensure_response(['ok' => true, 'report' => $report]);
+        }
         foreach (self::pos_orders_for_day($date, ['completed', 'processing'], $event_id) as $order) {
             $total   = floatval($order->get_total());
             $payment = substr((string) $order->get_payment_method(), 4) ?: 'cash';
@@ -1706,6 +1709,8 @@ class TIX_REST_API {
         $report['cancelled']     = count(self::pos_orders_for_day($date, ['cancelled', 'refunded'], $event_id));
         $report['total_revenue'] = round($report['total_revenue'], 2);
         ksort($report['by_hour']);
+        // Maps immer als JSON-Objekt (leer → {} statt [])
+        foreach (['by_payment', 'by_category', 'by_hour'] as $k) $report[$k] = (object) $report[$k];
         return rest_ensure_response(['ok' => true, 'report' => $report]);
     }
 
