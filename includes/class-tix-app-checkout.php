@@ -13,8 +13,9 @@
  *   POST /customer/orders            Bestellung anlegen und Zahlung starten
  *   GET  /customer/orders/{id}       Status + Tickets einer eigenen Bestellung
  *
- * Name und E-Mail kommen immer aus dem angemeldeten Konto – der Client kann
- * keine fremden Rechnungsdaten setzen.
+ * Die Rechnungsadresse wird wie im Web-Formular abgefragt (Vor-/Nachname, Firma
+ * optional, Straße, PLZ, Ort, Land, Telefon optional); die E-Mail kommt immer
+ * aus dem angemeldeten Konto. Die Adresse wird am Konto gemerkt (billing_*).
  */
 if (!defined('ABSPATH')) exit;
 
@@ -23,6 +24,85 @@ class TIX_App_Checkout {
     const NS        = 'tixomat/v1';
     const TOKEN_TTL = 6 * HOUR_IN_SECONDS;
     const MAX_QTY   = 20;
+
+    /** Länder wie im Web-Checkout (Reihenfolge = Anzeige) */
+    const COUNTRIES = [
+        'DE' => 'Deutschland', 'AT' => 'Österreich', 'CH' => 'Schweiz', 'NL' => 'Niederlande',
+        'BE' => 'Belgien', 'LU' => 'Luxemburg', 'FR' => 'Frankreich', 'PL' => 'Polen',
+        'DK' => 'Dänemark', 'CZ' => 'Tschechien', 'IT' => 'Italien', 'ES' => 'Spanien',
+        'GB' => 'Vereinigtes Königreich',
+    ];
+
+    /** Rechnungsdaten zum Vorbelegen: Konto + zuletzt genutzte Adresse (User-Meta billing_*) */
+    private static function billing_prefill($user) {
+        $first = trim((string) $user->first_name);
+        $last  = trim((string) $user->last_name);
+        if ($first === '' && $last === '') {
+            $parts = preg_split('/\s+/', trim((string) $user->display_name));
+            $first = array_shift($parts) ?: '';
+            $last  = trim(implode(' ', $parts));
+        }
+        $m = function ($key) use ($user) { return (string) get_user_meta($user->ID, $key, true); };
+        $country = strtoupper($m('billing_country'));
+        return [
+            'first_name' => $m('billing_first_name') ?: $first,
+            'last_name'  => $m('billing_last_name') ?: $last,
+            'company'    => $m('billing_company'),
+            'address_1'  => $m('billing_address_1'),
+            'postcode'   => $m('billing_postcode'),
+            'city'       => $m('billing_city'),
+            'country'    => isset(self::COUNTRIES[$country]) ? $country : 'DE',
+            'phone'      => $m('billing_phone'),
+            'email'      => (string) $user->user_email,
+        ];
+    }
+
+    /**
+     * Rechnungsdaten aus dem Request prüfen (Pflichtfelder wie im Web-Formular:
+     * Vor-/Nachname, Straße, PLZ, Ort, Land). E-Mail kommt immer aus dem Konto.
+     */
+    private static function read_billing(WP_REST_Request $req, $user) {
+        $in = $req->get_param('billing');
+        if (!is_array($in)) $in = [];
+        $get = function ($key, $max = 120) use ($in, $req) {
+            $v = $in[$key] ?? $req->get_param('billing_' . $key);
+            return mb_substr(trim(sanitize_text_field((string) ($v ?? ''))), 0, $max);
+        };
+        $b = [
+            'first_name' => $get('first_name', 60),
+            'last_name'  => $get('last_name', 60),
+            'company'    => $get('company', 120),
+            'address_1'  => $get('address_1', 160),
+            'postcode'   => $get('postcode', 16),
+            'city'       => $get('city', 80),
+            'country'    => strtoupper($get('country', 2)),
+            'phone'      => $get('phone', 40),
+            'email'      => (string) $user->user_email,
+        ];
+        $required = [
+            'first_name' => 'Vorname', 'last_name' => 'Nachname', 'address_1' => 'Straße und Hausnummer',
+            'postcode' => 'PLZ', 'city' => 'Ort',
+        ];
+        foreach ($required as $key => $label) {
+            if ($b[$key] === '') {
+                return new WP_Error('tix_billing', 'Bitte ' . $label . ' angeben.', ['status' => 400, 'field' => $key]);
+            }
+        }
+        if (!isset(self::COUNTRIES[$b['country']])) {
+            return new WP_Error('tix_billing', 'Bitte ein Land wählen.', ['status' => 400, 'field' => 'country']);
+        }
+        return $b;
+    }
+
+    /** Adresse am Konto merken (Vorbelegung beim nächsten Kauf, wie WooCommerce-Felder). */
+    private static function remember_billing($user, array $b) {
+        foreach (['first_name', 'last_name', 'company', 'address_1', 'postcode', 'city', 'country', 'phone'] as $k) {
+            update_user_meta($user->ID, 'billing_' . $k, $b[$k]);
+        }
+        if (trim((string) $user->first_name) === '' && trim((string) $user->last_name) === '') {
+            wp_update_user(['ID' => $user->ID, 'first_name' => $b['first_name'], 'last_name' => $b['last_name']]);
+        }
+    }
 
     public static function init() {
         add_action('rest_api_init', [__CLASS__, 'register_routes']);
@@ -426,6 +506,9 @@ class TIX_App_Checkout {
         $items  = is_array($items) ? $items : [];
         $coupon = (string) ($req->get_param('coupon') ?? '');
 
+        $user = wp_get_current_user();
+        $countries = [];
+        foreach (self::COUNTRIES as $code => $name) $countries[] = ['code' => $code, 'name' => $name];
         $resp = [
             'ok'              => true,
             'event_id'        => $event_id,
@@ -434,6 +517,11 @@ class TIX_App_Checkout {
             'totals'          => null,
             'payment_methods' => [],
             'coupon'          => null,
+            'billing'         => self::billing_prefill($user),
+            'fields'          => [
+                'company'   => !empty(tix_get_settings('show_company_field')),
+                'countries' => $countries,
+            ],
         ];
         if (!empty($items)) {
             $cart = self::build_cart($event_id, $items);
@@ -499,31 +587,24 @@ class TIX_App_Checkout {
             }
         }
 
-        // Rechnungsdaten aus dem Konto
-        $first = trim((string) $user->first_name);
-        $last  = trim((string) $user->last_name);
-        if ($first === '' && $last === '') {
-            $parts = preg_split('/\s+/', trim((string) $user->display_name));
-            $first = array_shift($parts) ?: $user->user_login;
-            $last  = trim(implode(' ', $parts));
-        }
-        if ($first === '') $first = $user->user_login;
-        if ($last === '')  $last  = '-';
-        $phone = sanitize_text_field((string) ($req->get_param('phone') ?? get_user_meta($user->ID, 'billing_phone', true)));
+        // Rechnungsadresse wie im Web-Formular (E-Mail immer aus dem Konto)
+        $billing = self::read_billing($req, $user);
+        if (is_wp_error($billing)) return $billing;
+        self::remember_billing($user, $billing);
 
         // Warenkorb in die Nutzer-Session legen: create_order liest Gutschein und Gebühren daraus
         $previous_cart = TIX_Native_Checkout::get_cart();
         TIX_Native_Checkout::save_cart($cart);
         $order_id = TIX_Native_Checkout::create_order([
-            'billing_first_name' => $first,
-            'billing_last_name'  => $last,
-            'billing_email'      => $user->user_email,
-            'billing_phone'      => $phone,
-            'billing_company'    => '',
-            'billing_address_1'  => '',
-            'billing_city'       => '',
-            'billing_postcode'   => '',
-            'billing_country'    => 'DE',
+            'billing_first_name' => $billing['first_name'],
+            'billing_last_name'  => $billing['last_name'],
+            'billing_email'      => $billing['email'],
+            'billing_phone'      => $billing['phone'],
+            'billing_company'    => $billing['company'],
+            'billing_address_1'  => $billing['address_1'],
+            'billing_city'       => $billing['city'],
+            'billing_postcode'   => $billing['postcode'],
+            'billing_country'    => $billing['country'],
             'payment_method'     => $payment_method,
             'total'              => $t['subtotal'],
             'items'              => $cart['items'],
