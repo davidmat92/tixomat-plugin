@@ -353,7 +353,12 @@ class TIX_Music {
 
     private static function deezer($path, array $args = []) {
         $url = self::DEEZER . $path . ($args ? '?' . http_build_query($args) : '');
-        $res = wp_remote_get($url, ['timeout' => 8, 'headers' => ['Accept' => 'application/json']]);
+        // Deezer beantwortet den WordPress-User-Agent mit 403 → neutraler UA
+        $res = wp_remote_get($url, [
+            'timeout'    => 8,
+            'user-agent' => 'Mozilla/5.0 (compatible; TixomatMusic/1.0; +' . home_url('/') . ')',
+            'headers'    => ['Accept' => 'application/json'],
+        ]);
         if (is_wp_error($res) || wp_remote_retrieve_response_code($res) !== 200) return null;
         $data = json_decode(wp_remote_retrieve_body($res), true);
         if (!is_array($data) || isset($data['error'])) return null;
