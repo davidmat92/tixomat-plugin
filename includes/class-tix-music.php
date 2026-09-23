@@ -478,30 +478,28 @@ class TIX_Music {
             }
         }
 
+        // Gleicher Song in mehreren Deezer-Releases (Single, Album, Remix-Fassung mit
+        // gleichem Namen) → nur einmal anzeigen: Schlüssel = normalisierter Titel + Artist
         $out  = [];
         $seen = [];
+        $take = function (array $song) use (&$out, &$seen) {
+            $k = self::normalize($song['title'] . ' ' . $song['artist']);
+            if ($k === '' || isset($seen[$k])) return;
+            $seen[$k] = true;
+            $out[] = $song;
+        };
         // Erst, was im Club schon gewünscht wurde
         foreach ((array) $local as $r) {
-            if (intval($r['requests']) <= 0) continue;
-            $k = intval($r['deezer_id']) ?: 'l' . $r['id'];
-            if (isset($seen[$k])) continue;
-            $seen[$k] = true;
-            $out[] = self::row_to_song($r);
+            if (intval($r['requests']) > 0) $take(self::row_to_song($r));
         }
         foreach ($remote as $s) {
-            $k = intval($s['deezer_id']);
-            if (isset($seen[$k])) continue;
-            $seen[$k] = true;
-            $out[] = [
-                'id' => intval($s['id'] ?? 0), 'deezer_id' => $k, 'title' => $s['title'], 'artist' => $s['artist'],
+            $take([
+                'id' => intval($s['id'] ?? 0), 'deezer_id' => intval($s['deezer_id']), 'title' => $s['title'], 'artist' => $s['artist'],
                 'cover' => $s['cover'], 'duration' => $s['duration'], 'explicit' => (bool) $s['explicit'], 'requests' => 0,
-            ];
+            ]);
         }
         foreach ((array) $local as $r) {
-            $k = intval($r['deezer_id']) ?: 'l' . $r['id'];
-            if (isset($seen[$k])) continue;
-            $seen[$k] = true;
-            $out[] = self::row_to_song($r);
+            $take(self::row_to_song($r));
         }
         return array_slice($out, 0, $limit);
     }
