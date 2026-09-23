@@ -22,14 +22,14 @@ echo ""
 echo "▸ Deploy → tixomat.de..."
 rsync $RSYNC_OPTS "$PLUGIN_DIR/" "$REMOTE_SERVER:/home/runcloud/webapps/Tixomat/wp-content/plugins/tixomat-plugin/"
 
-# 3. Deploy kitchenklub.de (ehemals kitchen.mdj.events / demo-mdj-events)
+# 3. Deploy demo.mdj.events (Webapp demo-mdj-events – NICHT kitchenklub.de; Demo-System, eignet sich als Staging)
 echo ""
-echo "▸ Deploy → kitchenklub.de..."
+echo "▸ Deploy → demo.mdj.events..."
 rsync $RSYNC_OPTS "$PLUGIN_DIR/" "$REMOTE_SERVER:/home/runcloud/webapps/demo-mdj-events/wp-content/plugins/tixomat/"
 
-# 4. Deploy kitchen-klub
+# 4. Deploy kitchenklub.de (Webapp kitchen-klub)
 echo ""
-echo "▸ Deploy → kitchen-klub..."
+echo "▸ Deploy → kitchenklub.de..."
 rsync $RSYNC_OPTS "$PLUGIN_DIR/" "$REMOTE_SERVER:/home/runcloud/webapps/kitchen-klub/wp-content/plugins/tixomat/"
 
 # 5. Deploy evendis
