@@ -449,6 +449,21 @@ class TIX_Native_Checkout {
     }
 
     /**
+     * App-Kasse (TIX_App_Checkout): Gutschein auf einen extern gebauten Warenkorb
+     * anwenden – manueller Code oder Auto-Apply – und den Rabatt neu berechnen.
+     * Gleiche Logik wie im Web-Checkout; ungültige Codes werden entfernt.
+     */
+    public static function app_prepare_cart(array $cart, string $coupon_code = ''): array {
+        if ($coupon_code !== '') {
+            $cart['coupon'] = ['code' => sanitize_text_field($coupon_code)];
+        } else {
+            self::apply_auto_coupon_if_eligible($cart);
+        }
+        self::recalc_coupon_discount($cart);
+        return $cart;
+    }
+
+    /**
      * Wendet einen Auto-Apply-Coupon (markiert in den Coupon-Settings) automatisch
      * auf den Warenkorb an — sofern noch kein anderer Coupon aktiv ist.
      *
