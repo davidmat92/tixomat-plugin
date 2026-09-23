@@ -1,0 +1,47 @@
+name: Deploy to site (manual)
+
+# Manueller Deploy einzelner Sites (z. B. kitchenklub.de) über GitHub Actions –
+# gleiche Ziele wie deploy.sh, ohne SSH vom eigenen Rechner.
+on:
+  workflow_dispatch:
+    inputs:
+      site:
+        description: "Ziel-Site"
+        required: true
+        default: kitchenklub
+        type: choice
+        options: [kitchenklub, demo, evendis, mallorca]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Ziel bestimmen
+        id: target
+        run: |
+          case "${{ inputs.site }}" in
+            kitchenklub) echo "path=/home/runcloud/webapps/kitchen-klub/wp-content/plugins/tixomat/" >> "$GITHUB_OUTPUT"; echo "url=https://kitchenklub.de" >> "$GITHUB_OUTPUT" ;;
+            demo)        echo "path=/home/runcloud/webapps/demo-mdj-events/wp-content/plugins/tixomat/" >> "$GITHUB_OUTPUT"; echo "url=https://demo.mdj.events" >> "$GITHUB_OUTPUT" ;;
+            evendis)     echo "path=/home/runcloud/webapps/evendis/wp-content/plugins/tixomat/" >> "$GITHUB_OUTPUT"; echo "url=https://evendis.de" >> "$GITHUB_OUTPUT" ;;
+            mallorca)    echo "path=/home/runcloud/webapps/mallorca-festival-xxl/wp-content/plugins/tixomat/" >> "$GITHUB_OUTPUT"; echo "url=" >> "$GITHUB_OUTPUT" ;;
+          esac
+
+      - name: Deploy Plugin
+        uses: burnett01/rsync-deployments@7.0.1
+        with:
+          switches: -avzc --delete --exclude='.git' --exclude='.github' --exclude='bot/' --exclude='mu-plugins/' --exclude='DP-CONNECT-BOT/' --exclude='.claude/' --exclude='node_modules'
+          path: ./
+          remote_path: ${{ steps.target.outputs.path }}
+          remote_host: 51.195.61.6
+          remote_port: 22
+          remote_user: runcloud
+          remote_key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Version prüfen
+        if: steps.target.outputs.url != ''
+        run: |
+          sleep 3
+          curl -s "${{ steps.target.outputs.url }}/wp-json/tixomat/v1/info" | head -c 300; echo
