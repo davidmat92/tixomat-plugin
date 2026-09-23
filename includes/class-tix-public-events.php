@@ -118,8 +118,11 @@ class TIX_Public_Events {
             'title'           => (string) $post->post_title,
             'slug'            => (string) $post->post_name,
             'url'             => get_permalink($id),
+            // Bildgrößen passend zur App: Detail/Karten „large“ (1024), Slider/Karten
+            // „medium_large“ (768), Zeilen + Blur-Platzhalter „medium“ (300)
             'image'           => get_the_post_thumbnail_url($id, 'large') ?: (get_the_post_thumbnail_url($id, 'full') ?: ''),
             'thumbnail'       => get_the_post_thumbnail_url($id, 'medium_large') ?: (get_the_post_thumbnail_url($id, 'medium') ?: ''),
+            'image_small'     => get_the_post_thumbnail_url($id, 'medium') ?: (get_the_post_thumbnail_url($id, 'thumbnail') ?: ''),
             'date_start'      => (string) get_post_meta($id, '_tix_date_start', true),
             'date_end'        => (string) get_post_meta($id, '_tix_date_end', true),
             'time_start'      => (string) get_post_meta($id, '_tix_time_start', true),
