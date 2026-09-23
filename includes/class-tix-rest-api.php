@@ -248,6 +248,13 @@ class TIX_REST_API {
             'permission_callback' => [__CLASS__, 'check_organizer'],
         ]);
 
+        // Einzelner Gast (App): POST = ändern, POST mit _method=DELETE oder DELETE = löschen
+        register_rest_route($ns, '/events/(?P<id>\d+)/guestlist/(?P<guest_id>[A-Za-z0-9-]+)', [
+            'methods'             => ['POST', 'DELETE'],
+            'callback'            => [__CLASS__, 'update_guest'],
+            'permission_callback' => [__CLASS__, 'check_organizer'],
+        ]);
+
         // ── Tickets ──
         register_rest_route($ns, '/events/(?P<id>\d+)/tickets', [
             'methods'             => 'GET',
@@ -1287,26 +1294,58 @@ class TIX_REST_API {
             return new WP_Error('forbidden', 'Kein Zugriff.', ['status' => 403]);
         }
 
-        $body   = $req->get_json_params();
-        $guests = $body['guests'] ?? [];
+        $body = $req->get_json_params();
+        if (!is_array($body)) $body = [];
 
+        // ── Einzelnen Gast anhängen (App: {name, email, note, plus}) ──
+        if (!isset($body['guests']) && isset($body['name'])) {
+            $name = sanitize_text_field($body['name']);
+            if ($name === '') {
+                return new WP_Error('missing_name', 'Bitte einen Namen angeben.', ['status' => 400]);
+            }
+            $guests = get_post_meta($event_id, '_tix_guest_list', true);
+            if (!is_array($guests)) $guests = [];
+            $guest = [
+                'id'               => wp_generate_uuid4(),
+                'name'             => $name,
+                'email'            => sanitize_email($body['email'] ?? ''),
+                'plus'             => absint($body['plus'] ?? 0),
+                'note'             => sanitize_text_field($body['note'] ?? ''),
+                'checked_in'       => false,
+                'checked_in_count' => 0,
+                'checkin_time'     => '',
+                'checkin_by'       => '',
+                'added_by'         => wp_get_current_user()->user_login,
+                'added_at'         => current_time('mysql'),
+            ];
+            $guests[] = $guest;
+            update_post_meta($event_id, '_tix_guest_list', $guests);
+            update_post_meta($event_id, '_tix_guest_list_enabled', '1');
+            return rest_ensure_response([
+                'ok'    => true,
+                'guest' => self::guest_payload($event_id, $guest),
+                'count' => count($guests),
+            ]);
+        }
+
+        // ── Ganze Liste ersetzen ──
+        $guests = $body['guests'] ?? null;
         if (!is_array($guests)) {
             return new WP_Error('invalid_data', 'Ungültige Daten.', ['status' => 400]);
         }
 
-        // Sanitize
         $clean = [];
         foreach ($guests as $g) {
             $clean[] = [
-                'id'              => sanitize_text_field($g['id'] ?? wp_generate_uuid4()),
-                'name'            => sanitize_text_field($g['name'] ?? ''),
-                'email'           => sanitize_email($g['email'] ?? ''),
-                'plus'            => absint($g['plus'] ?? 0),
-                'note'            => sanitize_text_field($g['note'] ?? ''),
-                'checked_in'      => !empty($g['checked_in']),
+                'id'               => sanitize_text_field($g['id'] ?? wp_generate_uuid4()),
+                'name'             => sanitize_text_field($g['name'] ?? ''),
+                'email'            => sanitize_email($g['email'] ?? ''),
+                'plus'             => absint($g['plus'] ?? 0),
+                'note'             => sanitize_text_field($g['note'] ?? ''),
+                'checked_in'       => !empty($g['checked_in']),
                 'checked_in_count' => absint($g['checked_in_count'] ?? 0),
-                'checkin_time'    => sanitize_text_field($g['checkin_time'] ?? ''),
-                'checkin_by'      => sanitize_text_field($g['checkin_by'] ?? ''),
+                'checkin_time'     => sanitize_text_field($g['checkin_time'] ?? ''),
+                'checkin_by'       => sanitize_text_field($g['checkin_by'] ?? ''),
             ];
         }
 
@@ -1318,6 +1357,75 @@ class TIX_REST_API {
             'count'   => count($clean),
             'message' => 'Gästeliste gespeichert.',
         ]);
+    }
+
+    /** Gast-Eintrag im Format der Gästeliste-Antwort. */
+    private static function guest_payload($event_id, array $g) {
+        $total_expected = 1 + intval($g['plus'] ?? 0);
+        if (!empty($g['checked_in']) && !isset($g['checked_in_count'])) {
+            $checked_in_count = $total_expected;
+        } else {
+            $checked_in_count = intval($g['checked_in_count'] ?? 0);
+        }
+        return [
+            'id'               => $g['id'] ?? '',
+            'name'             => $g['name'] ?? '',
+            'email'            => $g['email'] ?? '',
+            'plus'             => intval($g['plus'] ?? 0),
+            'note'             => $g['note'] ?? '',
+            'checked_in'       => !empty($g['checked_in']),
+            'checkin_time'     => $g['checkin_time'] ?? '',
+            'checked_in_count' => $checked_in_count,
+            'total_expected'   => $total_expected,
+            'code'             => 'GL-' . $event_id . '-' . ($g['id'] ?? ''),
+        ];
+    }
+
+    /**
+     * POST|DELETE /events/{id}/guestlist/{guest_id} – Gast ändern oder löschen.
+     * Löschen: HTTP DELETE oder POST mit `_method: DELETE` (App).
+     */
+    public static function update_guest(WP_REST_Request $req) {
+        $event_id = absint($req['id']);
+        $guest_id = sanitize_text_field($req['guest_id']);
+        if (!self::can_access_event($event_id)) {
+            return new WP_Error('forbidden', 'Kein Zugriff.', ['status' => 403]);
+        }
+        $body = $req->get_json_params();
+        if (!is_array($body)) $body = [];
+        $delete = $req->get_method() === 'DELETE' || strtoupper((string) ($body['_method'] ?? '')) === 'DELETE';
+
+        $guests = get_post_meta($event_id, '_tix_guest_list', true);
+        if (!is_array($guests)) $guests = [];
+
+        foreach ($guests as $i => $g) {
+            if (($g['id'] ?? '') !== $guest_id) continue;
+            if ($delete) {
+                array_splice($guests, $i, 1);
+                update_post_meta($event_id, '_tix_guest_list', array_values($guests));
+                return rest_ensure_response(['ok' => true, 'deleted' => $guest_id, 'count' => count($guests)]);
+            }
+            if (isset($body['name'])) {
+                $name = sanitize_text_field($body['name']);
+                if ($name === '') {
+                    return new WP_Error('missing_name', 'Bitte einen Namen angeben.', ['status' => 400]);
+                }
+                $g['name'] = $name;
+            }
+            if (isset($body['email'])) $g['email'] = sanitize_email($body['email']);
+            if (isset($body['note']))  $g['note']  = sanitize_text_field($body['note']);
+            if (isset($body['plus'])) {
+                $g['plus'] = absint($body['plus']);
+                // Zähler darf nicht über die neue Personenzahl hinausgehen
+                $max = 1 + $g['plus'];
+                if (intval($g['checked_in_count'] ?? 0) > $max) $g['checked_in_count'] = $max;
+            }
+            $guests[$i] = $g;
+            update_post_meta($event_id, '_tix_guest_list', $guests);
+            return rest_ensure_response(['ok' => true, 'guest' => self::guest_payload($event_id, $g)]);
+        }
+
+        return new WP_Error('guest_not_found', 'Gast nicht gefunden.', ['status' => 404]);
     }
 
     // ═══════════════════════════════════════════
@@ -1354,8 +1462,9 @@ class TIX_REST_API {
                 'status'        => $status,
                 'checked_in'    => (bool) get_post_meta($t->ID, '_tix_ticket_checked_in', true),
                 'checkin_time'  => get_post_meta($t->ID, '_tix_ticket_checkin_time', true),
-                'order_id'      => intval(get_post_meta($t->ID, '_tix_order_id', true)),
+                'order_id'      => intval(get_post_meta($t->ID, '_tix_ticket_order_id', true) ?: get_post_meta($t->ID, '_tix_order_id', true)),
                 'seat'          => get_post_meta($t->ID, '_tix_ticket_seat_id', true),
+                'price'         => floatval(get_post_meta($t->ID, '_tix_ticket_price', true)),
             ];
         }
 
@@ -1379,15 +1488,38 @@ class TIX_REST_API {
             return new WP_Error('forbidden', 'Kein Zugriff.', ['status' => 403]);
         }
 
-        $order_id = intval(get_post_meta($ticket_id, '_tix_order_id', true));
+        $order_id = intval(get_post_meta($ticket_id, '_tix_ticket_order_id', true) ?: get_post_meta($ticket_id, '_tix_order_id', true));
+        $order    = ($order_id && class_exists('TIX_Order')) ? TIX_Order::get($order_id) : null;
+        if (!$order) {
+            return new WP_Error('no_order', 'Zu diesem Ticket gibt es keine Bestellung – E-Mail nicht möglich.', ['status' => 404]);
+        }
+        if (!class_exists('TIX_Emails') || !method_exists('TIX_Emails', 'send_native_completed')) {
+            return new WP_Error('no_mail', 'E-Mail-Versand nicht verfügbar.', ['status' => 500]);
+        }
 
-        if (class_exists('TIX_Emails') && $order_id) {
-            TIX_Emails::send_ticket_email($order_id);
+        // Empfänger: Ticket-Inhaber, sonst Rechnungs-E-Mail der Bestellung
+        $email = sanitize_email((string) get_post_meta($ticket_id, '_tix_ticket_owner_email', true));
+        if (!is_email($email)) $email = sanitize_email((string) $order->get_billing_email());
+        if (!is_email($email)) {
+            return new WP_Error('no_email', 'Keine E-Mail-Adresse hinterlegt.', ['status' => 400]);
+        }
+        if (strcasecmp($email, (string) $order->get_billing_email()) !== 0) {
+            global $wpdb;
+            $wpdb->update($wpdb->prefix . 'tix_orders', ['billing_email' => $email], ['id' => $order_id]);
+        }
+
+        // Nur die Kunden-Mail, keine zweite Admin-Benachrichtigung
+        set_transient('_tix_skip_admin_email_' . $order_id, 1, 300);
+        delete_post_meta($order_id, '_tix_completed_email_sent');
+        TIX_Emails::send_native_completed($order_id);
+        if (class_exists('TIX_Order_Admin') && method_exists('TIX_Order_Admin', 'add_note')) {
+            TIX_Order_Admin::add_note($order_id, '🎟️ Tickets erneut gesendet (App) an ' . $email, 'email');
         }
 
         return rest_ensure_response([
             'ok'      => true,
-            'message' => 'E-Mail erneut gesendet.',
+            'email'   => $email,
+            'message' => 'E-Mail gesendet an ' . $email,
         ]);
     }
 
@@ -1593,6 +1725,7 @@ class TIX_REST_API {
                 update_post_meta($t['id'], '_tix_ticket_owner_email', $email);
             }
         }
+        set_transient('_tix_skip_admin_email_' . $order_id, 1, 300);
         delete_post_meta($order_id, '_tix_completed_email_sent');
         TIX_Emails::send_native_completed($order_id);
         if (class_exists('TIX_Order_Admin') && method_exists('TIX_Order_Admin', 'add_note')) {
