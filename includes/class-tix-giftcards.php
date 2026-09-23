@@ -28,18 +28,129 @@ class TIX_Giftcards {
         // Scan-Teileinloesung (Zugriff wie Scanner selbst: offen — Entscheidung Betreiber)
         add_action('wp_ajax_tix_giftcard_redeem',        [__CLASS__, 'ajax_redeem']);
         add_action('wp_ajax_nopriv_tix_giftcard_redeem', [__CLASS__, 'ajax_redeem']);
-        // Wunschbetrag-Formular
+        // Wunschbetrag-Formular (Event-gebunden) + eigenstaendiger Gutschein-Shop
         add_shortcode('tix_giftcard_amount', [__CLASS__, 'shortcode_amount']);
+        add_shortcode('tix_giftcards',       [__CLASS__, 'shortcode_shop']);
         // Kauf-Storno → Gutschein deaktivieren
         add_action('tix_order_cancelled', [__CLASS__, 'deactivate_for_order'], 20);
+        // System-Event aus allen Frontend-Event-Listen ausblenden
+        add_action('pre_get_posts', [__CLASS__, 'hide_system_event']);
     }
 
     /* ─────────── Settings ─────────── */
 
-    public static function validity_years(): int {
+    public static function get_settings(): array {
         $s = get_option(self::OPT_SETTINGS, []);
-        $y = intval(is_array($s) ? ($s['validity_years'] ?? 3) : 3);
-        return max(1, min(10, $y ?: 3));
+        if (!is_array($s)) $s = [];
+        $amounts = array_values(array_filter(array_map('floatval', (array) ($s['amounts'] ?? [25, 50, 100])), function ($a) { return $a > 0; }));
+        return [
+            'enabled'        => !empty($s['enabled']),
+            'amounts'        => $amounts ?: [25, 50, 100],
+            'free_amount'    => !isset($s['free_amount']) ? true : !empty($s['free_amount']),
+            'validity_years' => max(1, min(10, intval($s['validity_years'] ?? 3) ?: 3)),
+        ];
+    }
+
+    public static function validity_years(): int {
+        return self::get_settings()['validity_years'];
+    }
+
+    /* ─────────── Eigenstaendiger Modus: verstecktes System-Event ─────────── */
+
+    public static function system_event_id(): int {
+        $ids = get_posts([
+            'post_type' => 'event', 'post_status' => 'publish', 'posts_per_page' => 1, 'fields' => 'ids',
+            'meta_query' => [['key' => '_tix_system_giftcard_event', 'value' => '1']],
+            'tix_include_system' => 1,
+        ]);
+        return $ids ? intval($ids[0]) : 0;
+    }
+
+    /**
+     * Speichert Einstellungen und provisioniert/synct das versteckte System-Event.
+     * Kategorien: je fester Betrag eine (gift_card+no_fee+hidden), optional Wunschbetrag.
+     */
+    public static function save_settings(array $in) {
+        $amounts = [];
+        foreach (preg_split('/[,;\s]+/', (string) ($in['amounts'] ?? '')) as $a) {
+            $a = floatval(str_replace(',', '.', trim($a)));
+            if ($a > 0 && $a <= 10000) $amounts[] = round($a, 2);
+        }
+        $amounts = array_values(array_unique($amounts)) ?: [25, 50, 100];
+        sort($amounts);
+
+        $settings = [
+            'enabled'        => !empty($in['enabled']) ? 1 : 0,
+            'amounts'        => $amounts,
+            'free_amount'    => !empty($in['free_amount']) ? 1 : 0,
+            'validity_years' => max(1, min(10, intval($in['validity_years'] ?? 3))),
+        ];
+        update_option(self::OPT_SETTINGS, $settings, false);
+
+        if ($settings['enabled']) {
+            self::ensure_system_event($settings);
+        }
+        return $settings;
+    }
+
+    private static function ensure_system_event(array $settings): int {
+        $event_id = self::system_event_id();
+        if (!$event_id) {
+            $event_id = wp_insert_post([
+                'post_type'   => 'event',
+                'post_status' => 'publish',
+                'post_title'  => 'Geschenkgutschein',
+                'post_name'   => 'tix-geschenkgutschein',
+            ]);
+            if (!$event_id || is_wp_error($event_id)) return 0;
+            update_post_meta($event_id, '_tix_system_giftcard_event', '1');
+            update_post_meta($event_id, '_tix_tickets_enabled', '1');
+            // Bewusst KEIN Datum — Checkin behaelt datumslose Events, Listen blenden es eh aus
+        }
+
+        // Kategorien aus den Betraegen aufbauen (Sync bei jedem Speichern)
+        $cats = [];
+        foreach ($settings['amounts'] as $a) {
+            $cats[] = [
+                'name' => 'Gutschein ' . rtrim(rtrim(number_format($a, 2, ',', '.'), '0'), ',') . ' €',
+                'price' => $a, 'sale_price' => '', 'qty' => 100000, 'desc' => '',
+                'image_id' => 0, 'online' => '1', 'offline_ticket' => '0', 'admin_only' => 0,
+                'hidden' => 1, 'no_fee' => 1, 'gift_card' => 1, 'gift_free_amount' => 0,
+                'bundle_buy' => 0, 'bundle_pay' => 0, 'bundle_label' => '',
+                'tc_event_id' => 0, 'product_id' => 0, 'sku' => '', 'group' => '',
+                'seatmap_id' => 0, 'seatmap_section' => '', 'low_stock_mode' => 'off', 'phases' => [],
+            ];
+        }
+        if (!empty($settings['free_amount'])) {
+            $cats[] = [
+                'name' => 'Gutschein Wunschbetrag',
+                'price' => 0, 'sale_price' => '', 'qty' => 100000, 'desc' => '',
+                'image_id' => 0, 'online' => '1', 'offline_ticket' => '0', 'admin_only' => 0,
+                'hidden' => 1, 'no_fee' => 1, 'gift_card' => 1, 'gift_free_amount' => 1,
+                'bundle_buy' => 0, 'bundle_pay' => 0, 'bundle_label' => '',
+                'tc_event_id' => 0, 'product_id' => 0, 'sku' => '', 'group' => '',
+                'seatmap_id' => 0, 'seatmap_section' => '', 'low_stock_mode' => 'off', 'phases' => [],
+            ];
+        }
+        update_post_meta($event_id, '_tix_ticket_categories', $cats);
+        return $event_id;
+    }
+
+    /**
+     * Blendet das System-Event aus allen Frontend-Event-Queries aus
+     * (Homepage-Sektionen, Archive, Selektoren). Direkte get_post()-Zugriffe
+     * (Ticket-Rendering, Mails) sind nicht betroffen.
+     */
+    public static function hide_system_event($query) {
+        if (is_admin()) return;
+        if (!($query instanceof WP_Query)) return;
+        if ($query->get('tix_include_system')) return;
+        $pt = $query->get('post_type');
+        $has_event = $pt === 'event' || (is_array($pt) && in_array('event', $pt, true));
+        if (!$has_event) return;
+        $mq = (array) $query->get('meta_query');
+        $mq[] = ['key' => '_tix_system_giftcard_event', 'compare' => 'NOT EXISTS'];
+        $query->set('meta_query', $mq);
     }
 
     /* ─────────── Kategorie-Helpers ─────────── */
@@ -319,6 +430,112 @@ class TIX_Giftcards {
                     })
                     .catch(function(){ btn.disabled = false; msg.style.color = '#dc2626'; msg.textContent = 'Netzwerkfehler.'; });
             });
+        })();
+        </script>
+        <?php
+        return ob_get_clean();
+    }
+
+    /* ─────────── Eigenstaendiger Gutschein-Shop: [tix_giftcards] ─────────── */
+
+    public static function shortcode_shop($atts) {
+        $settings = self::get_settings();
+        if (empty($settings['enabled'])) {
+            return current_user_can('manage_options')
+                ? '<p><em>Geschenkgutscheine sind nicht aktiviert (Admin → Gutscheine → 💳 Geschenkgutscheine).</em></p>'
+                : '';
+        }
+        $event_id = self::system_event_id();
+        if (!$event_id) $event_id = self::ensure_system_event($settings);
+        if (!$event_id) return '';
+
+        $cats = get_post_meta($event_id, '_tix_ticket_categories', true);
+        if (!is_array($cats)) return '';
+
+        $fixed = []; $free_idx = -1;
+        foreach ($cats as $i => $c) {
+            if (empty($c['gift_card'])) continue;
+            if (!empty($c['gift_free_amount'])) { $free_idx = $i; continue; }
+            $fixed[$i] = floatval($c['price'] ?? 0);
+        }
+
+        $s = get_option('tix_settings', []);
+        $checkout_url = !empty($s['checkout_page_id']) ? get_permalink(intval($s['checkout_page_id'])) : home_url('/checkout/');
+        $nonce = wp_create_nonce('tix_add_to_cart');
+        $uid = 'tix-gcs-' . $event_id;
+
+        ob_start();
+        ?>
+        <div class="tix-giftcard-shop" id="<?php echo esc_attr($uid); ?>" style="max-width:520px;">
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;">
+                <?php foreach ($fixed as $idx => $amount): ?>
+                <button type="button" class="tix-gcs-fixed" data-cat="<?php echo intval($idx); ?>" data-amount="<?php echo esc_attr($amount); ?>"
+                        style="padding:22px 12px;background:#fff;border:2px solid #e2e8f0;border-radius:14px;cursor:pointer;text-align:center;transition:border-color .15s;">
+                    <span style="display:block;font-size:26px;font-weight:900;">💳 <?php echo esc_html(rtrim(rtrim(number_format($amount, 2, ',', '.'), '0'), ',')); ?>&nbsp;€</span>
+                    <span style="display:block;font-size:12px;color:#64748b;margin-top:4px;">Gutschein kaufen</span>
+                </button>
+                <?php endforeach; ?>
+            </div>
+
+            <?php if ($free_idx >= 0): ?>
+            <div style="margin-top:14px;background:#fff;border:2px solid #e2e8f0;border-radius:14px;padding:18px 20px;">
+                <div style="font-weight:700;font-size:14px;margin-bottom:8px;">Wunschbetrag (<?php echo self::MIN_FREE; ?>–<?php echo self::MAX_FREE; ?> €)</div>
+                <div style="display:flex;gap:10px;">
+                    <input type="number" class="tix-gcs-free-input" min="<?php echo self::MIN_FREE; ?>" max="<?php echo self::MAX_FREE; ?>" step="1" placeholder="z.B. 40"
+                           style="flex:1;min-width:0;padding:11px 14px;border:1px solid #cbd5e1;border-radius:10px;font-size:16px;box-sizing:border-box;">
+                    <button type="button" class="tix-gcs-free-add" data-cat="<?php echo intval($free_idx); ?>"
+                            style="padding:11px 20px;background:#0f172a;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;white-space:nowrap;">Kaufen</button>
+                </div>
+            </div>
+            <?php endif; ?>
+
+            <div class="tix-gcs-msg" style="margin-top:12px;font-size:14px;"></div>
+        </div>
+        <script>
+        (function(){
+            var box = document.getElementById('<?php echo esc_js($uid); ?>');
+            if (!box) return;
+            var msg = box.querySelector('.tix-gcs-msg');
+            function addToCart(catIndex, customAmount, btn) {
+                btn.disabled = true;
+                var item = {event_id: <?php echo intval($event_id); ?>, cat_index: catIndex, quantity: 1};
+                if (customAmount) item.custom_amount = customAmount;
+                var body = new URLSearchParams();
+                body.append('action', 'tix_add_to_cart');
+                body.append('nonce', '<?php echo esc_js($nonce); ?>');
+                body.append('items', JSON.stringify([item]));
+                fetch('<?php echo esc_js(admin_url('admin-ajax.php')); ?>', {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body: body})
+                    .then(function(r){ return r.json(); })
+                    .then(function(res){
+                        btn.disabled = false;
+                        if (res.success) {
+                            msg.style.color = '#059669';
+                            msg.innerHTML = '✓ Gutschein im Warenkorb. <a href="<?php echo esc_js($checkout_url); ?>" style="font-weight:700;">Zur Kasse →</a>';
+                        } else {
+                            msg.style.color = '#dc2626';
+                            msg.textContent = (res.data && res.data.message) ? res.data.message : 'Fehler.';
+                        }
+                    })
+                    .catch(function(){ btn.disabled = false; msg.style.color = '#dc2626'; msg.textContent = 'Netzwerkfehler.'; });
+            }
+            box.querySelectorAll('.tix-gcs-fixed').forEach(function(b){
+                b.addEventListener('click', function(){ addToCart(parseInt(this.getAttribute('data-cat'), 10), 0, this); });
+                b.addEventListener('mouseenter', function(){ this.style.borderColor = '#0f172a'; });
+                b.addEventListener('mouseleave', function(){ this.style.borderColor = '#e2e8f0'; });
+            });
+            var freeBtn = box.querySelector('.tix-gcs-free-add');
+            if (freeBtn) {
+                freeBtn.addEventListener('click', function(){
+                    var input = box.querySelector('.tix-gcs-free-input');
+                    var amount = parseFloat(input.value);
+                    if (!amount || amount < <?php echo self::MIN_FREE; ?> || amount > <?php echo self::MAX_FREE; ?>) {
+                        msg.style.color = '#dc2626';
+                        msg.textContent = 'Bitte Betrag zwischen <?php echo self::MIN_FREE; ?> und <?php echo self::MAX_FREE; ?> € eingeben.';
+                        return;
+                    }
+                    addToCart(parseInt(this.getAttribute('data-cat'), 10), amount, this);
+                });
+            }
         })();
         </script>
         <?php

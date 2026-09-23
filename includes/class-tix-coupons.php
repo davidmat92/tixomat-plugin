@@ -464,28 +464,52 @@ class TIX_Coupons {
         // Popup-Settings für Form
         $tix_s = function_exists('tix_get_settings') ? tix_get_settings() : get_option('tix_settings', []);
         if (!is_array($tix_s)) $tix_s = [];
-        // ── Geschenkgutschein-Einstellungen speichern (kleines Inline-Formular) ──
-        if (isset($_POST['tix_gc_settings_save']) && check_admin_referer('tix_gc_settings')) {
-            $years = max(1, min(10, intval($_POST['gc_validity_years'] ?? 3)));
-            update_option('tix_giftcard_settings', ['validity_years' => $years], false);
-            echo '<div class="notice notice-success is-dismissible"><p><strong>Gespeichert.</strong> Neue Geschenkgutscheine sind ' . $years . ' Jahre gueltig.</p></div>';
+        // ── Geschenkgutschein-Einstellungen speichern ──
+        if (isset($_POST['tix_gc_settings_save']) && check_admin_referer('tix_gc_settings') && class_exists('TIX_Giftcards')) {
+            $saved = TIX_Giftcards::save_settings([
+                'enabled'        => $_POST['gc_enabled'] ?? '',
+                'amounts'        => $_POST['gc_amounts'] ?? '',
+                'free_amount'    => $_POST['gc_free_amount'] ?? '',
+                'validity_years' => $_POST['gc_validity_years'] ?? 3,
+            ]);
+            echo '<div class="notice notice-success is-dismissible"><p><strong>Gespeichert.</strong> Geschenkgutscheine sind ' . ($saved['enabled'] ? 'AKTIV' : 'deaktiviert') . '.</p></div>';
         }
-        $gc_years = class_exists('TIX_Giftcards') ? TIX_Giftcards::validity_years() : 3;
+        $gc = class_exists('TIX_Giftcards') ? TIX_Giftcards::get_settings() : null;
+        $gc_event = ($gc && $gc['enabled'] && class_exists('TIX_Giftcards')) ? TIX_Giftcards::system_event_id() : 0;
         ?>
         <div class="wrap" style="max-width:1200px;">
             <h1>Gutscheine</h1>
 
-            <?php if (class_exists('TIX_Giftcards')): ?>
-            <div style="background:#fefce8;border:1px solid #fcd34d;border-radius:12px;padding:14px 20px;margin:12px 0;display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
-                <span style="font-weight:700;">💳 Geschenkgutscheine</span>
-                <form method="post" style="display:flex;align-items:center;gap:8px;margin:0;">
+            <?php if ($gc !== null): ?>
+            <div style="background:#fefce8;border:1px solid #fcd34d;border-radius:12px;padding:16px 20px;margin:12px 0;">
+                <form method="post" style="margin:0;">
                     <?php wp_nonce_field('tix_gc_settings'); ?>
-                    <label style="font-size:13px;color:#78350f;">Gültigkeit neuer Gutscheine:</label>
-                    <input type="number" name="gc_validity_years" value="<?php echo esc_attr($gc_years); ?>" min="1" max="10" style="width:64px;padding:5px 8px;border:1px solid #d1d5db;border-radius:6px;">
-                    <span style="font-size:13px;color:#78350f;">Jahre</span>
-                    <button type="submit" name="tix_gc_settings_save" value="1" class="button button-small">Speichern</button>
+                    <div style="display:flex;align-items:center;gap:18px;flex-wrap:wrap;">
+                        <label style="font-weight:700;font-size:14px;cursor:pointer;display:flex;align-items:center;gap:8px;">
+                            <input type="checkbox" name="gc_enabled" value="1" <?php checked($gc['enabled']); ?>>
+                            💳 Geschenkgutscheine verkaufen
+                        </label>
+                        <label style="font-size:13px;color:#78350f;">Beträge:
+                            <input type="text" name="gc_amounts" value="<?php echo esc_attr(implode(', ', $gc['amounts'])); ?>" placeholder="25, 50, 100" style="width:140px;padding:5px 8px;border:1px solid #d1d5db;border-radius:6px;">
+                        </label>
+                        <label style="font-size:13px;color:#78350f;cursor:pointer;">
+                            <input type="checkbox" name="gc_free_amount" value="1" <?php checked($gc['free_amount']); ?>> Wunschbetrag (10–500&nbsp;€)
+                        </label>
+                        <label style="font-size:13px;color:#78350f;">Gültigkeit:
+                            <input type="number" name="gc_validity_years" value="<?php echo esc_attr($gc['validity_years']); ?>" min="1" max="10" style="width:56px;padding:5px 8px;border:1px solid #d1d5db;border-radius:6px;"> Jahre
+                        </label>
+                        <button type="submit" name="tix_gc_settings_save" value="1" class="button button-primary button-small">Speichern</button>
+                    </div>
                 </form>
-                <span style="font-size:12px;color:#a16207;">Codes werden beim Kauf von Kategorien mit „💳 Geschenkgutschein"-Haken automatisch erzeugt und tauchen unten in der Liste auf (Typ „giftcard", Restguthaben = balance).</span>
+                <p style="font-size:12px;color:#a16207;margin:10px 0 0;">
+                    <?php if ($gc['enabled']): ?>
+                        ✅ Aktiv — kein Event nötig, alles läuft automatisch. Verkaufsseite: Shortcode <code style="user-select:all;">[tix_giftcards]</code> auf eine beliebige Seite setzen.
+                        Verkaufte Codes erscheinen unten in der Liste (Typ „giftcard", Restguthaben = balance). Einlösung: online im Checkout-Gutscheinfeld oder vor Ort per Ticket-Scan (Teilbeträge möglich).
+                        <?php if ($gc_event): ?> · <a href="<?php echo esc_url(admin_url('post.php?post=' . $gc_event . '&action=edit')); ?>">System-Event ansehen</a> (versteckt, wird automatisch verwaltet)<?php endif; ?>
+                    <?php else: ?>
+                        Aktivieren → ein verstecktes System-Event mit den Betrags-Kategorien wird automatisch angelegt und gepflegt. Du musst kein Event anlegen.
+                    <?php endif; ?>
+                </p>
             </div>
             <?php endif; ?>
             <p style="color:#6b7280;font-size:14px;margin:8px 0 24px;">
