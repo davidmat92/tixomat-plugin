@@ -2272,6 +2272,16 @@ class TIX_REST_API {
                 update_user_meta($user->ID, '_tix_phone', sanitize_text_field($phone));
             }
 
+            // Rechnungsadresse aus dem Profil (Felder wie in der Kasse)
+
+            $billing = $req->get_param('billing');
+
+            if (is_array($billing) && class_exists('TIX_App_Checkout')) {
+
+                TIX_App_Checkout::save_billing($user, $billing);
+
+            }
+
             // Refresh user
             $user = get_user_by('ID', $user->ID);
         }
@@ -2556,6 +2566,8 @@ class TIX_REST_API {
             'upcoming_events' => $upcoming_events,
             // false = Konto wurde per E-Mail-Code angelegt und hat noch kein eigenes Passwort
             'has_password'    => !get_user_meta($user->ID, '_tix_app_passwordless', true),
+            // Rechnungsadresse (Profil + Kasse)
+            'billing'         => class_exists('TIX_App_Checkout') ? TIX_App_Checkout::billing_prefill($user) : null,
         ];
     }
 
