@@ -1994,18 +1994,21 @@ class TIX_REST_API {
      * Gibt User-Daten + Auth-Token zurück bei Erfolg.
      */
     public static function auth_login(WP_REST_Request $req) {
-        $email    = sanitize_email($req->get_param('email'));
+        // E-Mail (Gäste) oder WordPress-Benutzername (Veranstalter/Mitarbeiter)
+        $login    = trim((string) ($req->get_param('email') ?: $req->get_param('username') ?: ''));
         $password = $req->get_param('password');
 
-        if (empty($email) || empty($password)) {
+        if ($login === '' || empty($password)) {
             return new WP_Error('missing_fields', 'E-Mail und Passwort sind erforderlich.', ['status' => 400]);
         }
 
-        // WordPress-Login mit E-Mail
-        $user = get_user_by('email', $email);
+        $user = false;
+        if (is_email($login)) {
+            $user = get_user_by('email', sanitize_email($login));
+        }
         if (!$user) {
             // Fallback: Username
-            $user = get_user_by('login', $email);
+            $user = get_user_by('login', sanitize_user($login, true));
         }
 
         if (!$user) {
