@@ -81,6 +81,15 @@ class TIX_Native_Checkout {
         }
         if ($stored_key === null) return;
 
+        // Geschenkgutschein: Guthaben um den Rabatt dieser Order reduzieren (statt used++)
+        if (($coupons[$stored_key]['discount_type'] ?? '') === 'giftcard') {
+            if (class_exists('TIX_Giftcards')) {
+                TIX_Giftcards::redeem($stored_key, floatval($data['discount'] ?? 0), 'online', 'order#' . $order_id);
+            }
+            update_option($flag_key, 1, false);
+            return;
+        }
+
         $used = intval($coupons[$stored_key]['used'] ?? 0);
         $coupons[$stored_key]['used'] = $used + 1;
         update_option('tix_coupons', $coupons);
@@ -405,7 +414,7 @@ class TIX_Native_Checkout {
             // Prüfe ob schon im Cart → Menge erhöhen
             $found = false;
             foreach ($cart['items'] as &$ci) {
-                if ($ci['event_id'] === $event_id && $ci['cat_index'] === $cat_index && empty($ci['meta']['special'])) {
+                if ($ci['event_id'] === $event_id && $ci['cat_index'] === $cat_index && empty($ci['meta']['special']) && empty($ci['meta']['gift'])) {
                     $ci['qty'] += $qty;
                     $found = true;
                     break;
@@ -413,21 +422,42 @@ class TIX_Native_Checkout {
             }
             unset($ci);
 
+            // ── Geschenkgutschein-Kategorie: Wunschbetrag + locked_price, nie mergen ──
+            $gift_meta = null;
+            $locked = 0;
+            if (class_exists('TIX_Giftcards')) {
+                $gflags = TIX_Giftcards::cat_flags($event_id, $cat_index);
+                if (!empty($gflags['gift'])) {
+                    $gift_meta = 1;
+                    $found = false; // Gutscheine immer als eigene Zeile (verschiedene Betraege)
+                    if (!empty($gflags['free_amount'])) {
+                        $amount = round(floatval($item['custom_amount'] ?? 0), 2);
+                        if ($amount < TIX_Giftcards::MIN_FREE || $amount > TIX_Giftcards::MAX_FREE) {
+                            wp_send_json_error(['message' => sprintf('Gutschein-Betrag muss zwischen %d und %d € liegen.', TIX_Giftcards::MIN_FREE, TIX_Giftcards::MAX_FREE)]);
+                        }
+                        $price  = $amount;
+                        $locked = 1; // validated_total uebernimmt locked_price unveraendert
+                    }
+                }
+            }
+
             if (!$found) {
-                $cart['items'][] = [
+                $cart['items'][] = array_filter([
                     'event_id'    => $event_id,
                     'cat_index'   => $cat_index,
                     'name'        => $name,
                     'event_title' => $event_title,
                     'price'       => $price,
                     'qty'         => $qty,
+                    'locked_price' => $locked ?: null,
                     'meta'        => array_filter([
                         'seats'      => $item['seats'] ?? null,
                         'seatmap_id' => $item['seatmap_id'] ?? null,
                         'bundle'     => $item['bundle'] ?? null,
                         'combo'      => $item['combo'] ?? null,
+                        'gift'       => $gift_meta,
                     ]),
-                ];
+                ], function ($v) { return $v !== null; });
             }
         }
 
@@ -1662,6 +1692,15 @@ class TIX_Native_Checkout {
                     if ($max_uses > 0 && $used >= $max_uses) {
                         $coupon_discount = 0;
                     }
+                    // Geschenkgutschein: Rabatt auf aktuelles Restguthaben clampen +
+                    // Gutschein-kauft-Gutschein blocken (Server-Sperre, unabhaengig vom Apply)
+                    if (($coupon['discount_type'] ?? '') === 'giftcard') {
+                        foreach ($cart['items'] as $gitem) {
+                            if (!empty($gitem['meta']['gift'])) { $coupon_discount = 0; break; }
+                        }
+                        $gc_balance = round(floatval($coupon['balance'] ?? 0), 2);
+                        $coupon_discount = min($coupon_discount, max(0, $gc_balance));
+                    }
                 }
             }
 
@@ -1973,6 +2012,15 @@ class TIX_Native_Checkout {
         $discount_type = $coupon['discount_type'] ?? 'percent';
         $discount_value = floatval($coupon['value'] ?? 0);
 
+        // Geschenkgutschein: mit Guthaben keinen neuen Gutschein kaufen (Guthaben-Karussell)
+        if ($discount_type === 'giftcard' && !empty($cart['items'])) {
+            foreach ($cart['items'] as $gitem) {
+                if (!empty($gitem['meta']['gift'])) {
+                    wp_send_json_error(['message' => 'Geschenkgutscheine koennen nicht mit einem Gutschein bezahlt werden.']);
+                }
+            }
+        }
+
         switch ($discount_type) {
             case 'percent':
                 // X% auf Cart-Gesamtbetrag
@@ -1990,6 +2038,14 @@ class TIX_Native_Checkout {
             case 'per_ticket_fixed':
                 // X € pro Ticket × Anzahl Tickets im Cart
                 $discount = $discount_value * $cart_qty;
+                break;
+            case 'giftcard':
+                // Guthaben-Gutschein: Abzug = min(Restguthaben, Warenkorb) — Rest bleibt stehen
+                $gc_balance = round(floatval($coupon['balance'] ?? 0), 2);
+                if ($gc_balance <= 0) {
+                    wp_send_json_error(['message' => 'Das Guthaben dieses Gutscheins ist aufgebraucht.']);
+                }
+                $discount = min($gc_balance, $cart_total);
                 break;
             default:
                 $discount = 0;

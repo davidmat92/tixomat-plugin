@@ -674,6 +674,30 @@ class TIX_Checkin {
             ]);
         }
 
+        // ── Geschenkgutschein-Ticket: Guthaben-Panel statt Check-in ──
+        $gift_code = get_post_meta($ticket->ID, '_tix_ticket_gift_code', true);
+        if ($gift_code && class_exists('TIX_Giftcards')) {
+            $card = TIX_Giftcards::get_card($gift_code);
+            $balance = $card ? round(floatval($card['balance'] ?? 0), 2) : 0;
+            $value   = $card ? round(floatval($card['value'] ?? 0), 2) : 0;
+            $expired = $card && !empty($card['expires']) && strtotime($card['expires'] . ' 23:59:59') < current_time('timestamp');
+            wp_send_json_success([
+                'status'      => 'giftcard',
+                'name'        => get_post_meta($ticket->ID, '_tix_ticket_owner_name', true),
+                'type'        => 'ticket',
+                'code'        => $code,
+                'cat'         => $cat_name,
+                'gift'        => [
+                    'balance'     => $balance,
+                    'balance_fmt' => number_format($balance, 2, ',', '.'),
+                    'value_fmt'   => number_format($value, 2, ',', '.'),
+                    'expired'     => (bool) $expired,
+                    'expires'     => $card['expires'] ?? '',
+                    'empty'       => $balance <= 0,
+                ],
+            ]);
+        }
+
         $checked_in = (bool) get_post_meta($ticket->ID, '_tix_ticket_checked_in', true);
 
         if ($checked_in) {

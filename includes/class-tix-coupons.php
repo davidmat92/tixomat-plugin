@@ -464,9 +464,30 @@ class TIX_Coupons {
         // Popup-Settings für Form
         $tix_s = function_exists('tix_get_settings') ? tix_get_settings() : get_option('tix_settings', []);
         if (!is_array($tix_s)) $tix_s = [];
+        // ── Geschenkgutschein-Einstellungen speichern (kleines Inline-Formular) ──
+        if (isset($_POST['tix_gc_settings_save']) && check_admin_referer('tix_gc_settings')) {
+            $years = max(1, min(10, intval($_POST['gc_validity_years'] ?? 3)));
+            update_option('tix_giftcard_settings', ['validity_years' => $years], false);
+            echo '<div class="notice notice-success is-dismissible"><p><strong>Gespeichert.</strong> Neue Geschenkgutscheine sind ' . $years . ' Jahre gueltig.</p></div>';
+        }
+        $gc_years = class_exists('TIX_Giftcards') ? TIX_Giftcards::validity_years() : 3;
         ?>
         <div class="wrap" style="max-width:1200px;">
             <h1>Gutscheine</h1>
+
+            <?php if (class_exists('TIX_Giftcards')): ?>
+            <div style="background:#fefce8;border:1px solid #fcd34d;border-radius:12px;padding:14px 20px;margin:12px 0;display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
+                <span style="font-weight:700;">💳 Geschenkgutscheine</span>
+                <form method="post" style="display:flex;align-items:center;gap:8px;margin:0;">
+                    <?php wp_nonce_field('tix_gc_settings'); ?>
+                    <label style="font-size:13px;color:#78350f;">Gültigkeit neuer Gutscheine:</label>
+                    <input type="number" name="gc_validity_years" value="<?php echo esc_attr($gc_years); ?>" min="1" max="10" style="width:64px;padding:5px 8px;border:1px solid #d1d5db;border-radius:6px;">
+                    <span style="font-size:13px;color:#78350f;">Jahre</span>
+                    <button type="submit" name="tix_gc_settings_save" value="1" class="button button-small">Speichern</button>
+                </form>
+                <span style="font-size:12px;color:#a16207;">Codes werden beim Kauf von Kategorien mit „💳 Geschenkgutschein"-Haken automatisch erzeugt und tauchen unten in der Liste auf (Typ „giftcard", Restguthaben = balance).</span>
+            </div>
+            <?php endif; ?>
             <p style="color:#6b7280;font-size:14px;margin:8px 0 24px;">
                 Globale Gutscheincodes für alle Tickets. Kunden geben sie im Checkout im Feld „Gutscheincode" ein.
             </p>

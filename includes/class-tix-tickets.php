@@ -3884,6 +3884,8 @@ body{margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',
             </div>
         </div>
 
+        <?php if (class_exists('TIX_Giftcards')) echo TIX_Giftcards::render_ticket_block($ticket_id); ?>
+
         <div class="ticket-footer">
             <?php echo esc_html($ht_footer_text); ?>
             <?php if (!empty($ht_show_agb_footer)):

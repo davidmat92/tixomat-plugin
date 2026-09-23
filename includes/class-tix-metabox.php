@@ -2027,6 +2027,17 @@ class TIX_Metabox {
                         💸 <strong>Keine Ticketgebühr</strong> für diese Kategorie (Servicegebühr entfällt)
                     </label>
                 </div>
+                <?php $is_gift = !empty($cat['gift_card']); $is_gift_free = !empty($cat['gift_free_amount']); ?>
+                <div class="tix-gift-wrap" style="margin-top:4px;">
+                    <label style="font-size:11px;color:<?php echo $is_gift ? '#a16207' : '#888'; ?>;cursor:pointer;">
+                        <input type="checkbox" name="tix_tickets[<?php echo $i; ?>][gift_card]" value="1" class="tix-gift-cb" <?php checked($is_gift); ?>>
+                        💳 <strong>Geschenkgutschein</strong> — Käufe erzeugen automatisch einen Guthaben-Code (Preis = Gutscheinwert)
+                    </label>
+                    <label class="tix-gift-free" style="display:<?php echo $is_gift ? 'block' : 'none'; ?>;margin:3px 0 0 20px;font-size:11px;color:#888;cursor:pointer;">
+                        <input type="checkbox" name="tix_tickets[<?php echo $i; ?>][gift_free_amount]" value="1" <?php checked($is_gift_free); ?>>
+                        Wunschbetrag — Käufer gibt Betrag frei ein (10–500&nbsp;€, via Shortcode <code>[tix_giftcard_amount id="…" cat="<?php echo intval($i); ?>"]</code>)
+                    </label>
+                </div>
                 <?php
                     // Saalplan wird jetzt auf Event-Ebene konfiguriert (Erweitert-Tab)
                     global $post;
@@ -4396,6 +4407,8 @@ class TIX_Metabox {
                 'admin_only'     => !empty($ticket['admin_only']) ? 1 : 0,
                 'hidden'         => !empty($ticket['hidden']) ? 1 : 0,
                 'no_fee'         => !empty($ticket['no_fee']) ? 1 : 0,
+                'gift_card'      => !empty($ticket['gift_card']) ? 1 : 0,
+                'gift_free_amount' => !empty($ticket['gift_free_amount']) ? 1 : 0,
                 'bundle_buy'     => intval($ticket['bundle_buy'] ?? 0),
                 'bundle_pay'     => intval($ticket['bundle_pay'] ?? 0),
                 'bundle_label'   => sanitize_text_field($ticket['bundle_label'] ?? ''),
@@ -5151,6 +5164,8 @@ class TIX_Metabox {
                     'admin_only'     => !empty($ticket['admin_only']) ? 1 : 0,
                     'hidden'         => !empty($ticket['hidden']) ? 1 : 0,
                     'no_fee'         => !empty($ticket['no_fee']) ? 1 : 0,
+                    'gift_card'      => !empty($ticket['gift_card']) ? 1 : 0,
+                    'gift_free_amount' => !empty($ticket['gift_free_amount']) ? 1 : 0,
                     'bundle_buy'     => intval($ticket['bundle_buy'] ?? 0),
                     'bundle_pay'     => intval($ticket['bundle_pay'] ?? 0),
                     'bundle_label'   => sanitize_text_field($ticket['bundle_label'] ?? ''),

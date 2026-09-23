@@ -666,6 +666,11 @@
     $(document).on('change', '.tix-nofee-cb', function() {
         $(this).closest('label').css('color', $(this).is(':checked') ? '#047857' : '#888');
     });
+    $(document).on('change', '.tix-gift-cb', function() {
+        var on = $(this).is(':checked');
+        $(this).closest('label').css('color', on ? '#a16207' : '#888');
+        $(this).closest('.tix-gift-wrap').find('.tix-gift-free').toggle(on);
+    });
     $(document).on('click', '.tix-hidden-sc-code', function() {
         var $code = $(this);
         var txt = $code.text();

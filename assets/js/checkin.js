@@ -498,6 +498,90 @@
         var status = data.status || (res.success ? 'ok' : 'error');
         var cls, icon, title, details;
 
+        // ── Geschenkgutschein: eigenes Panel mit Teileinloesung ──
+        if (status === 'giftcard') {
+            var g = data.gift || {};
+            var gCls, gInner;
+            if (g.expired) {
+                gCls = 'tix-ci-result-err';
+                gInner = '<div class="tix-ci-result-icon">✕</div>' +
+                    '<div class="tix-ci-result-cat">GUTSCHEIN</div>' +
+                    '<div class="tix-ci-result-title">Abgelaufen</div>' +
+                    '<div class="tix-ci-result-details">Gültig bis ' + escHtml(g.expires || '') + '</div>';
+                playBeep(200, 300); vibrate([500, 100, 500]);
+            } else if (g.empty) {
+                gCls = 'tix-ci-result-warn';
+                gInner = '<div class="tix-ci-result-icon">⚠</div>' +
+                    '<div class="tix-ci-result-cat">GUTSCHEIN</div>' +
+                    '<div class="tix-ci-result-title">Guthaben aufgebraucht</div>' +
+                    '<div class="tix-ci-result-details">Wert war ' + escHtml(g.value_fmt || '') + ' €</div>';
+                playBeep(400, 100); setTimeout(function(){ playBeep(400, 100); }, 200);
+                vibrate([120, 60, 120]);
+            } else {
+                gCls = 'tix-ci-result-ok';
+                gInner = '<div class="tix-ci-result-icon">💳</div>' +
+                    '<div class="tix-ci-result-cat">GUTSCHEIN</div>' +
+                    '<div class="tix-ci-result-title">Rest: <span class="tix-gc-balance">' + escHtml(g.balance_fmt) + '</span> €</div>' +
+                    (data.name ? '<div class="tix-ci-result-details">' + escHtml(data.name) + '</div>' : '') +
+                    '<div class="tix-gc-form" style="margin-top:12px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">' +
+                        '<input type="number" class="tix-gc-amount" min="0.5" step="0.5" max="' + g.balance + '" placeholder="Betrag €" ' +
+                            'style="width:110px;padding:10px 12px;border:2px solid currentColor;border-radius:10px;font-size:16px;font-weight:700;text-align:center;">' +
+                        '<button type="button" class="tix-gc-redeem" style="padding:10px 18px;background:#16a34a;color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;">Einlösen</button>' +
+                    '</div>' +
+                    '<div style="margin-top:8px;display:flex;gap:6px;justify-content:center;">' +
+                        '<button type="button" class="tix-gc-quick" data-amt="5" style="padding:6px 14px;border:1px solid currentColor;background:none;border-radius:8px;cursor:pointer;font-weight:600;">5 €</button>' +
+                        '<button type="button" class="tix-gc-quick" data-amt="10" style="padding:6px 14px;border:1px solid currentColor;background:none;border-radius:8px;cursor:pointer;font-weight:600;">10 €</button>' +
+                        '<button type="button" class="tix-gc-quick" data-amt="' + g.balance + '" style="padding:6px 14px;border:1px solid currentColor;background:none;border-radius:8px;cursor:pointer;font-weight:600;">Alles (' + escHtml(g.balance_fmt) + ' €)</button>' +
+                    '</div>' +
+                    '<div class="tix-gc-msg" style="margin-top:8px;font-size:13px;"></div>';
+                playBeep(800, 150); vibrate([400, 80, 200]);
+            }
+            $result.className = 'tix-ci-result ' + gCls;
+            $result.innerHTML = gInner;
+            $result.style.display = '';
+            clearTimeout($result._timer);
+            if (g.expired || g.empty) {
+                $result._timer = setTimeout(function(){ $result.style.display = 'none'; }, ehCheckin.popupDuration || 5000);
+            } else {
+                // Panel bleibt offen bis Einloesung/naechster Scan
+                var amtInput = $result.querySelector('.tix-gc-amount');
+                $result.querySelectorAll('.tix-gc-quick').forEach(function(b){
+                    b.addEventListener('click', function(){ amtInput.value = this.getAttribute('data-amt'); });
+                });
+                $result.querySelector('.tix-gc-redeem').addEventListener('click', function(){
+                    var btn = this;
+                    var amount = parseFloat(amtInput.value);
+                    var msgEl = $result.querySelector('.tix-gc-msg');
+                    if (!amount || amount <= 0) { msgEl.style.color = '#dc2626'; msgEl.textContent = 'Betrag eingeben.'; return; }
+                    btn.disabled = true;
+                    ajax('tix_giftcard_redeem', { ticket_code: data.code, amount: amount }, function(r){
+                        btn.disabled = false;
+                        if (!r.success) {
+                            msgEl.style.color = '#dc2626';
+                            msgEl.textContent = (r.data && r.data.message) ? r.data.message : 'Fehler.';
+                            return;
+                        }
+                        if (r.data.empty) {
+                            $result.className = 'tix-ci-result tix-ci-result-warn';
+                            $result.innerHTML = '<div class="tix-ci-result-icon">✓</div>' +
+                                '<div class="tix-ci-result-cat">GUTSCHEIN</div>' +
+                                '<div class="tix-ci-result-title">' + escHtml(amount.toFixed(2).replace('.', ',')) + ' € eingelöst</div>' +
+                                '<div class="tix-ci-result-details">Guthaben aufgebraucht — Gutschein entwertet.</div>';
+                            $result._timer = setTimeout(function(){ $result.style.display = 'none'; }, ehCheckin.popupDuration || 5000);
+                        } else {
+                            $result.querySelector('.tix-gc-balance').textContent = r.data.balance_fmt;
+                            amtInput.value = '';
+                            amtInput.max = r.data.balance;
+                            msgEl.style.color = '#16a34a';
+                            msgEl.textContent = '✓ ' + amount.toFixed(2).replace('.', ',') + ' € abgebucht — Rest ' + r.data.balance_fmt + ' €';
+                        }
+                        playBeep(800, 150); vibrate([300]);
+                    });
+                });
+            }
+            return;
+        }
+
         switch (status) {
             case 'ok':
                 cls = 'tix-ci-result-ok';
