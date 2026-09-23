@@ -680,7 +680,7 @@ class TIX_REST_API {
                     if ($item_event_id && $item_event_id != $id) continue;
                     $order_has_event_items = true;
                     $qty        = $item->get_quantity();
-                    $cat        = $item->get_name();
+                    $cat        = self::item_label($item);
                     $item_total = (float) $item->get_total();
                     $total_tickets       += $qty;
                     $order_event_revenue += $item_total;
@@ -753,7 +753,8 @@ class TIX_REST_API {
                     if ($item_event_id && $item_event_id != $id) continue;
                     $item_total = (float) $item->get_total();
                     $items[] = [
-                        'name'     => $item->get_name(),
+                        'name'     => self::item_label($item),
+                        'category' => $item->get_cat_name(),
                         'quantity' => $item->get_quantity(),
                         'total'    => $item_total,
                     ];
@@ -1563,6 +1564,12 @@ class TIX_REST_API {
         ]);
     }
 
+    /** Positionsname für die App: Kategorie („Standard“) statt „Event – Standard“. */
+    private static function item_label($item) {
+        $cat = method_exists($item, 'get_cat_name') ? trim((string) $item->get_cat_name()) : '';
+        return $cat !== '' ? $cat : (string) $item->get_name();
+    }
+
     /** POS-Zusatzdaten (Zahlart, Mitarbeiter) je Bestellung – Option statt WooCommerce-Meta. */
     private static function pos_meta($order_id, ?array $set = null) {
         $key = '_tix_pos_order_' . intval($order_id);
@@ -1836,7 +1843,7 @@ class TIX_REST_API {
             if (!isset($report['by_hour'][$hour])) $report['by_hour'][$hour] = ['revenue' => 0.0, 'tickets' => 0];
             foreach ($order->get_items() as $item) {
                 $qty        = $item->get_quantity();
-                $cat_name   = $item->get_name();
+                $cat_name   = self::item_label($item);
                 $item_total = floatval($item->get_total());
                 $report['total_tickets'] += $qty;
                 $report['by_hour'][$hour]['revenue'] = round($report['by_hour'][$hour]['revenue'] + $item_total, 2);
@@ -1866,7 +1873,7 @@ class TIX_REST_API {
                 $items_list   = [];
                 $ticket_count = 0;
                 foreach ($order->get_items() as $item) {
-                    $items_list[]  = $item->get_quantity() . '× ' . $item->get_name();
+                    $items_list[]  = $item->get_quantity() . '× ' . self::item_label($item);
                     $ticket_count += $item->get_quantity();
                 }
                 $meta     = self::pos_meta($order->get_id());
@@ -2008,37 +2015,26 @@ class TIX_REST_API {
             }
         }
 
-        // Check-in Stats
-        $checkin_stats = null;
-        if ($detailed) {
-            $guests    = get_post_meta($id, '_tix_guest_list', true);
-            $gl_total  = is_array($guests) ? count($guests) : 0;
-            $gl_checked = 0;
-            if (is_array($guests)) {
-                foreach ($guests as $g) {
-                    if (!empty($g['checked_in'])) $gl_checked++;
-                }
+        // Check-in-Zahlen (Gästeliste + Tickets) – auch in der Liste, damit
+        // Dashboard und Event-Zeilen den Stand zeigen; Tickets aus ticket_counts()
+        $gl_total   = 0;
+        $gl_checked = 0;
+        $guests = get_post_meta($id, '_tix_guest_list', true);
+        if (is_array($guests)) {
+            foreach ($guests as $g) {
+                $expected = 1 + intval($g['plus'] ?? 0);
+                $gl_total += $expected;
+                $done = isset($g['checked_in_count']) ? intval($g['checked_in_count']) : (empty($g['checked_in']) ? 0 : $expected);
+                $gl_checked += min($done, $expected);
             }
-
-            $tk_total = 0;
-            $tk_checked = 0;
-            if (class_exists('TIX_Tickets')) {
-                $tks = TIX_Tickets::get_tickets_by_event($id);
-                foreach ($tks as $t) {
-                    $s = get_post_meta($t->ID, '_tix_ticket_status', true) ?: 'valid';
-                    if ($s === 'cancelled') continue;
-                    $tk_total++;
-                    if (get_post_meta($t->ID, '_tix_ticket_checked_in', true)) $tk_checked++;
-                }
-            }
-
-            $checkin_stats = [
-                'total'      => $gl_total + $tk_total,
-                'checked_in' => $gl_checked + $tk_checked,
-                'guests'     => $gl_total,
-                'tickets'    => $tk_total,
-            ];
         }
+        $counts = self::ticket_counts($id);
+        $checkin_stats = [
+            'total'      => $gl_total + $counts['total'],
+            'checked_in' => $gl_checked + $counts['checked'],
+            'guests'     => $gl_total,
+            'tickets'    => $counts['total'],
+        ];
 
         $event = [
             'id'               => $id,
