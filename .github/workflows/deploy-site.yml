@@ -40,6 +40,21 @@ jobs:
           remote_user: runcloud
           remote_key: ${{ secrets.SSH_PRIVATE_KEY }}
 
+      # PHP-FPM hält den alten Code im OPcache – ohne Reset läuft die alte Version weiter.
+      # Der Server erlaubt nur ~1 SSH-Verbindung pro Minute, daher die Pause nach dem rsync.
+      - name: OPcache zurücksetzen
+        if: steps.target.outputs.url != ''
+        env:
+          SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          sleep 75
+          echo "$SSH_KEY" > deploy_key && chmod 600 deploy_key
+          ssh -i deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=30 runcloud@51.195.61.6 \
+            "echo '<?php opcache_reset(); echo \"RESET-OK\"; unlink(__FILE__);' > ${{ steps.target.outputs.path }}tix-oc.php"
+          rm -f deploy_key
+          sleep 2
+          echo "Reset: $(curl -s -m 20 "${{ steps.target.outputs.url }}/wp-content/plugins/tixomat/tix-oc.php" | head -c 40)"
+
       - name: Version prüfen
         if: steps.target.outputs.url != ''
         run: |
