@@ -242,6 +242,11 @@ class TIX_App_Checkout {
         return floatval($cat['price'] ?? 0);
     }
 
+    /** Öffentlicher Zugriff auf die Kategorien (Event-Katalog /public/events). */
+    public static function public_categories($event_id) {
+        return self::categories(intval($event_id));
+    }
+
     /** Öffentliche Kategorien eines Events im Format der App. */
     private static function categories($event_id) {
         $cats = get_post_meta($event_id, '_tix_ticket_categories', true);
