@@ -494,9 +494,16 @@ class TIX_REST_API {
         $today = current_time('Y-m-d');
 
         if ($filter === 'today') {
-            $args['meta_query'] = [
-                ['key' => '_tix_date_start', 'value' => $today, 'compare' => '='],
-            ];
+            // heute beginnend oder gerade laufend (mehrtägig, Enddatum >= heute)
+            $args['meta_query'] = [[
+                'relation' => 'OR',
+                ['key' => '_tix_date_start', 'value' => $today, 'compare' => '=', 'type' => 'DATE'],
+                [
+                    'relation' => 'AND',
+                    ['key' => '_tix_date_start', 'value' => $today, 'compare' => '<=', 'type' => 'DATE'],
+                    ['key' => '_tix_date_end',   'value' => $today, 'compare' => '>=', 'type' => 'DATE'],
+                ],
+            ]];
         } elseif ($filter === 'upcoming') {
             // auch Events, die gestern begonnen haben und noch laufen (Enddatum)
             $args['meta_query'] = [[
