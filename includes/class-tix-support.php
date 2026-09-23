@@ -2502,4 +2502,133 @@ class TIX_Support {
         </div>
         <?php
     }
+    // ══════════════════════════════════════════════
+    // APP-API (REST, KitchenKlub-App) – gleiche Logik wie das Kunden-Portal,
+    // aber ohne Nonce/AJAX; Zugriff über die Konto-E-Mail des App-Nutzers.
+    // ══════════════════════════════════════════════
+
+    /**
+     * Anfrage aus der App anlegen. Liefert die Ticket-ID oder WP_Error.
+     * $a: email, name, subject, category, content, order_id, ticket_code, user_id, source
+     */
+    public static function app_create(array $a) {
+        $email    = sanitize_email($a['email'] ?? '');
+        $name     = sanitize_text_field($a['name'] ?? '');
+        $subject  = sanitize_text_field($a['subject'] ?? '');
+        $category = sanitize_text_field($a['category'] ?? 'other');
+        $content  = sanitize_textarea_field($a['content'] ?? '');
+        $order_id = sanitize_text_field($a['order_id'] ?? '');
+        $ticket_code = sanitize_text_field($a['ticket_code'] ?? '');
+        if (!is_email($email) || $subject === '' || $content === '') {
+            return new WP_Error('tix_support_fields', 'E-Mail, Betreff und Nachricht sind Pflichtfelder.', ['status' => 400]);
+        }
+        $post_id = wp_insert_post([
+            'post_type'   => 'tix_support_ticket',
+            'post_title'  => $subject,
+            'post_status' => 'tix_open',
+            'post_author' => intval($a['user_id'] ?? 0),
+        ]);
+        if (is_wp_error($post_id) || !$post_id) {
+            return new WP_Error('tix_support_failed', 'Anfrage konnte nicht erstellt werden.', ['status' => 500]);
+        }
+        $access_key = self::ensure_access_key_for_email($email);
+        update_post_meta($post_id, '_tix_sp_email',      $email);
+        update_post_meta($post_id, '_tix_sp_name',       $name);
+        update_post_meta($post_id, '_tix_sp_category',   $category);
+        update_post_meta($post_id, '_tix_sp_priority',   'normal');
+        update_post_meta($post_id, '_tix_sp_access_key', $access_key);
+        update_post_meta($post_id, '_tix_sp_last_reply', current_time('c'));
+        update_post_meta($post_id, '_tix_sp_source',     sanitize_key($a['source'] ?? 'app'));
+        if ($order_id !== '') {
+            update_post_meta($post_id, '_tix_sp_order_id', intval(str_replace('#', '', $order_id)));
+        }
+        if ($ticket_code !== '') {
+            update_post_meta($post_id, '_tix_sp_ticket_code', strtoupper($ticket_code));
+        }
+        $msg = [
+            'id'      => self::generate_message_id(),
+            'type'    => 'customer',
+            'author'  => $name ?: $email,
+            'email'   => $email,
+            'content' => $content,
+            'date'    => current_time('c'),
+        ];
+        update_post_meta($post_id, '_tix_sp_messages', [$msg]);
+        self::send_email_new_ticket_admin($post_id, $subject, $email, $name);
+        self::send_email_new_ticket_customer($post_id, $subject, $email, $name, $access_key);
+        return intval($post_id);
+    }
+
+    /** Anfragen einer E-Mail (neueste zuerst) mit Vorschau der letzten Nachricht. */
+    public static function app_list($email) {
+        $email = sanitize_email($email);
+        if (!is_email($email)) return [];
+        $posts = get_posts([
+            'post_type'   => 'tix_support_ticket',
+            'post_status' => ['tix_open', 'tix_progress', 'tix_resolved', 'tix_closed'],
+            'meta_key'    => '_tix_sp_email',
+            'meta_value'  => $email,
+            'numberposts' => 50,
+            'orderby'     => 'date',
+            'order'       => 'DESC',
+        ]);
+        $out = [];
+        foreach ($posts as $p) {
+            $t = self::format_support_ticket($p);
+            $visible = array_values(array_filter(self::get_messages($p->ID), function ($m) { return ($m['type'] ?? '') !== 'note'; }));
+            $last = $visible ? end($visible) : null;
+            $t['message_count']        = count($visible);
+            $t['last_message_preview'] = $last ? wp_trim_words((string) ($last['content'] ?? ''), 15) : '';
+            $t['last_message_type']    = $last ? (string) ($last['type'] ?? '') : '';
+            $t['last_message_date']    = $last ? (string) ($last['date'] ?? '') : '';
+            $out[] = $t;
+        }
+        return $out;
+    }
+
+    /** Verlauf einer Anfrage (nur sichtbare Nachrichten) – Zugriff über die E-Mail. */
+    public static function app_detail($ticket_id, $email) {
+        $ticket_id = intval($ticket_id);
+        $email     = sanitize_email($email);
+        $post      = $ticket_id ? get_post($ticket_id) : null;
+        if (!$post || $post->post_type !== 'tix_support_ticket') {
+            return new WP_Error('tix_support_missing', 'Anfrage nicht gefunden.', ['status' => 404]);
+        }
+        $stored = (string) get_post_meta($ticket_id, '_tix_sp_email', true);
+        if (!is_email($email) || strcasecmp($stored, $email) !== 0) {
+            return new WP_Error('rest_forbidden', 'Keine Berechtigung.', ['status' => 403]);
+        }
+        $t = self::format_support_ticket($post);
+        $t['messages'] = array_values(array_filter(self::get_messages($ticket_id), function ($m) { return ($m['type'] ?? '') !== 'note'; }));
+        return $t;
+    }
+
+    /** Antwort des Kunden aus der App. Liefert den aktualisierten Verlauf oder WP_Error. */
+    public static function app_reply($ticket_id, $email, $content) {
+        $detail = self::app_detail($ticket_id, $email);
+        if (is_wp_error($detail)) return $detail;
+        $content = sanitize_textarea_field((string) $content);
+        if ($content === '') {
+            return new WP_Error('tix_support_fields', 'Bitte eine Nachricht eingeben.', ['status' => 400]);
+        }
+        $ticket_id = intval($ticket_id);
+        $post      = get_post($ticket_id);
+        $name      = get_post_meta($ticket_id, '_tix_sp_name', true) ?: $email;
+        $msg = [
+            'id'          => self::generate_message_id(),
+            'type'        => 'customer',
+            'author'      => $name,
+            'email'       => sanitize_email($email),
+            'content'     => $content,
+            'date'        => current_time('c'),
+            'attachments' => [],
+        ];
+        self::add_message($ticket_id, $msg);
+        update_post_meta($ticket_id, '_tix_sp_last_reply', current_time('c'));
+        if (in_array($post->post_status, ['tix_resolved', 'tix_closed'], true)) {
+            wp_update_post(['ID' => $ticket_id, 'post_status' => 'tix_open']);
+        }
+        self::send_email_customer_reply_admin($ticket_id, $post->post_title, $email, $content);
+        return self::app_detail($ticket_id, $email);
+    }
 }

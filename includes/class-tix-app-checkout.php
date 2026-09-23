@@ -8,14 +8,17 @@
  * Zahlungsseite des Gateways (Mollie/Stripe/PayPal), die die App im
  * In-App-Sheet öffnet; Free-Bestellungen werden sofort abgeschlossen.
  *
- * Routen (Namespace tixomat/v1, Kunden-Token `X-Tix-Token`):
+ * Routen (Namespace tixomat/v1; Kunden-Token `X-Tix-Token` optional – Gäste
+ * bestellen ohne Konto, wie im Web-Checkout):
  *   POST /customer/cart/quote        Kategorien + Preise/Gebühren/Steuer/Zahlarten
  *   POST /customer/orders            Bestellung anlegen und Zahlung starten
- *   GET  /customer/orders/{id}       Status + Tickets einer eigenen Bestellung
+ *                                    (Gast: billing.email Pflicht; optional
+ *                                    create_account + password → Konto + Token)
+ *   GET  /customer/orders/{id}       Status + Tickets: eigenes Konto oder ?key=order_key
  *
  * Die Rechnungsadresse wird wie im Web-Formular abgefragt (Vor-/Nachname, Firma
- * optional, Straße, PLZ, Ort, Land, Telefon optional); die E-Mail kommt immer
- * aus dem angemeldeten Konto. Die Adresse wird am Konto gemerkt (billing_*).
+ * optional, Straße, PLZ, Ort, Land, Telefon optional); bei angemeldeten Kunden
+ * kommt die E-Mail aus dem Konto und die Adresse wird dort gemerkt (billing_*).
  */
 if (!defined('ABSPATH')) exit;
 
@@ -68,6 +71,11 @@ class TIX_App_Checkout {
             $v = $in[$key] ?? $req->get_param('billing_' . $key);
             return mb_substr(trim(sanitize_text_field((string) ($v ?? ''))), 0, $max);
         };
+        // Gast: E-Mail aus dem Formular (Bestätigung + Tickets gehen dorthin)
+        $email = $user ? (string) $user->user_email : sanitize_email($get('email', 120));
+        if (!$user && !is_email($email)) {
+            return new WP_Error('tix_billing', 'Bitte eine gültige E-Mail-Adresse angeben.', ['status' => 400, 'field' => 'email']);
+        }
         $b = [
             'first_name' => $get('first_name', 60),
             'last_name'  => $get('last_name', 60),
@@ -77,7 +85,7 @@ class TIX_App_Checkout {
             'city'       => $get('city', 80),
             'country'    => strtoupper($get('country', 2)),
             'phone'      => $get('phone', 40),
-            'email'      => (string) $user->user_email,
+            'email'      => $email,
         ];
         $required = [
             'first_name' => 'Vorname', 'last_name' => 'Nachname', 'address_1' => 'Straße und Hausnummer',
@@ -109,15 +117,16 @@ class TIX_App_Checkout {
     }
 
     public static function register_routes() {
+        // Angebot und Bestellung auch ohne Konto (Gastbestellung wie im Web-Checkout)
         register_rest_route(self::NS, '/customer/cart/quote', [
             'methods'             => 'POST',
             'callback'            => [__CLASS__, 'quote'],
-            'permission_callback' => [__CLASS__, 'check_customer'],
+            'permission_callback' => '__return_true',
         ]);
         register_rest_route(self::NS, '/customer/orders', [
             'methods'             => 'POST',
             'callback'            => [__CLASS__, 'create'],
-            'permission_callback' => [__CLASS__, 'check_customer'],
+            'permission_callback' => '__return_true',
         ]);
         register_rest_route(self::NS, '/giftcards', [
             'methods'             => 'GET',
@@ -127,7 +136,7 @@ class TIX_App_Checkout {
         register_rest_route(self::NS, '/customer/orders/(?P<id>\d+)', [
             'methods'             => 'GET',
             'callback'            => [__CLASS__, 'status'],
-            'permission_callback' => [__CLASS__, 'check_customer'],
+            'permission_callback' => '__return_true', // Konto oder ?key=order_key (siehe status())
         ]);
     }
 
@@ -471,7 +480,8 @@ class TIX_App_Checkout {
 
     /** Einfaches Rate-Limit pro Nutzer (REST-tauglich, liefert WP_Error). */
     private static function rate_limited($bucket, $max, $window) {
-        $key  = 'tix_app_rl_' . $bucket . '_' . get_current_user_id();
+        $who  = get_current_user_id() ?: (class_exists('TIX_App_Account') ? 'ip_' . TIX_App_Account::client_ip() : 'ip_' . ($_SERVER['REMOTE_ADDR'] ?? ''));
+        $key  = 'tix_app_rl_' . $bucket . '_' . md5((string) $who);
         $data = get_transient($key);
         if (!is_array($data) || time() - intval($data['first']) >= $window) {
             $data = ['count' => 0, 'first' => time()];
@@ -568,16 +578,19 @@ class TIX_App_Checkout {
         return $tickets;
     }
 
-    private static function order_response($order_id, $payment_url = '') {
+    private static function order_response($order_id, $payment_url = '', array $extra = []) {
         $o = self::order_row($order_id);
         if (!$o) return self::error('tix_order_missing', 'Bestellung nicht gefunden.', 404);
         $status = (string) $o->status;
         $paid   = in_array($status, ['completed', 'processing'], true);
-        return rest_ensure_response([
+        return rest_ensure_response($extra + [
             'ok'    => true,
             'order' => [
                 'id'                   => intval($o->id),
                 'order_number'         => (string) $o->order_number,
+                'key'                  => (string) $o->order_key,
+                'billing_email'        => (string) $o->billing_email,
+                'guest'                => intval($o->customer_id) <= 0,
                 'status'               => $status,
                 'paid'                 => $paid,
                 'total'                => round(floatval($o->total), 2),
@@ -605,7 +618,7 @@ class TIX_App_Checkout {
         $items  = is_array($items) ? $items : [];
         $coupon = (string) ($req->get_param('coupon') ?? '');
 
-        $user = wp_get_current_user();
+        $user = is_user_logged_in() ? wp_get_current_user() : null;
         $countries = [];
         foreach (self::COUNTRIES as $code => $name) $countries[] = ['code' => $code, 'name' => $name];
         $resp = [
@@ -616,7 +629,8 @@ class TIX_App_Checkout {
             'totals'          => null,
             'payment_methods' => [],
             'coupon'          => null,
-            'billing'         => self::billing_prefill($user),
+            'guest'           => !$user,
+            'billing'         => $user ? self::billing_prefill($user) : null,
             'fields'          => [
                 'company'   => !empty(tix_get_settings('show_company_field')),
                 'countries' => $countries,
@@ -640,15 +654,14 @@ class TIX_App_Checkout {
 
     /** POST /customer/orders */
     public static function create(WP_REST_Request $req) {
-        $user = wp_get_current_user();
-        if (!$user || !$user->ID) return self::error('rest_not_logged_in', 'Authentifizierung erforderlich.', 401);
+        $user = is_user_logged_in() ? wp_get_current_user() : null;
         if (self::rate_limited('orders', 10, 300)) {
             return self::error('tix_rate_limit', 'Zu viele Bestellversuche. Bitte kurz warten.', 429);
         }
 
         $token = sanitize_text_field((string) $req->get_param('idempotency_token'));
         if (strlen($token) < 8) return self::error('tix_token', 'idempotency_token fehlt.');
-        $tkey = 'tix_app_order_' . md5($user->ID . '|' . $token);
+        $tkey = 'tix_app_order_' . md5(($user ? $user->ID : 'guest') . '|' . $token);
         $existing = get_transient($tkey);
         if (is_array($existing) && !empty($existing['order_id'])) {
             return self::order_response(intval($existing['order_id']), (string) ($existing['payment_url'] ?? ''));
@@ -686,10 +699,45 @@ class TIX_App_Checkout {
             }
         }
 
-        // Rechnungsadresse wie im Web-Formular (E-Mail immer aus dem Konto)
+        // Rechnungsadresse wie im Web-Formular (Konto: E-Mail aus dem Konto; Gast: aus dem Formular)
         $billing = self::read_billing($req, $user);
         if (is_wp_error($billing)) return $billing;
-        self::remember_billing($user, $billing);
+
+        // Gast: optional gleich ein Konto anlegen (wie „Konto anlegen“ im Web-Checkout,
+        // aber mit eigenem Passwort → sofort angemeldet, Tickets in der App)
+        $new_token = '';
+        if (!$user && !empty($req->get_param('create_account'))) {
+            $password = (string) $req->get_param('password');
+            if (strlen($password) < 8) {
+                return new WP_Error('weak_password', 'Das Passwort muss mindestens 8 Zeichen lang sein.', ['status' => 400, 'field' => 'password']);
+            }
+            if (email_exists($billing['email'])) {
+                return new WP_Error('email_exists', 'Für diese E-Mail-Adresse gibt es bereits ein Konto – bitte melde dich an.', ['status' => 409, 'field' => 'email']);
+            }
+            $username = method_exists('TIX_Native_Checkout', 'generate_username')
+                ? TIX_Native_Checkout::generate_username($billing['first_name'], $billing['last_name'], $billing['email'])
+                : sanitize_user(strtolower(explode('@', $billing['email'])[0]), true);
+            $user_id = wp_insert_user([
+                'user_login'   => $username,
+                'user_email'   => $billing['email'],
+                'user_pass'    => $password,
+                'first_name'   => $billing['first_name'],
+                'last_name'    => $billing['last_name'],
+                'display_name' => trim($billing['first_name'] . ' ' . $billing['last_name']) ?: $username,
+                'role'         => 'subscriber',
+            ]);
+            if (is_wp_error($user_id)) {
+                return new WP_Error('registration_failed', $user_id->get_error_message(), ['status' => 500]);
+            }
+            if (class_exists('TIX_Customer_Role')) TIX_Customer_Role::assign_to_user($user_id);
+            update_user_meta($user_id, '_tix_app_created', current_time('mysql'));
+            wp_set_current_user($user_id); // create_order setzt customer_id, Warenkorb landet am Konto
+            $user = wp_get_current_user();
+            if (class_exists('TIX_REST_API') && method_exists('TIX_REST_API', 'issue_app_token')) {
+                $new_token = TIX_REST_API::issue_app_token($user_id, (string) ($req->get_param('device') ?? ''));
+            }
+        }
+        if ($user) self::remember_billing($user, $billing);
 
         // Warenkorb in die Nutzer-Session legen: create_order liest Gutschein und Gebühren daraus
         $previous_cart = TIX_Native_Checkout::get_cart();
@@ -735,18 +783,29 @@ class TIX_App_Checkout {
         }
         $payment_url = (string) ($result['redirect'] ?? '');
         set_transient($tkey, ['order_id' => $order_id, 'payment_url' => $payment_url], self::TOKEN_TTL);
-        return self::order_response($order_id, $payment_url);
+        $extra = [];
+        if ($new_token !== '' && $user && method_exists('TIX_REST_API', 'guest_user_payload')) {
+            $extra = ['token' => $new_token, 'user' => TIX_REST_API::guest_user_payload($user), 'account_created' => true];
+        }
+        return self::order_response($order_id, $payment_url, $extra);
     }
 
-    /** GET /customer/orders/{id} – nur eigene Bestellungen */
+    /** GET /customer/orders/{id} – eigene Bestellung (Konto) oder Gast mit ?key=order_key */
     public static function status(WP_REST_Request $req) {
-        $user = wp_get_current_user();
+        $user = is_user_logged_in() ? wp_get_current_user() : null;
         $id   = intval($req['id']);
         $o    = self::order_row($id);
         if (!$o) return self::error('tix_order_missing', 'Bestellung nicht gefunden.', 404);
-        $mine = (intval($o->customer_id) > 0 && intval($o->customer_id) === intval($user->ID))
-             || strcasecmp((string) $o->billing_email, (string) $user->user_email) === 0;
-        if (!$mine) return self::error('rest_forbidden', 'Keine Berechtigung.', 403);
+        $mine = $user && (
+            (intval($o->customer_id) > 0 && intval($o->customer_id) === intval($user->ID))
+            || strcasecmp((string) $o->billing_email, (string) $user->user_email) === 0
+        );
+        if (!$mine) {
+            $key = sanitize_text_field((string) ($req->get_param('key') ?? ''));
+            if ($key === '' || !hash_equals((string) $o->order_key, $key)) {
+                return self::error($user ? 'rest_forbidden' : 'rest_not_logged_in', $user ? 'Keine Berechtigung.' : 'Authentifizierung erforderlich.', $user ? 403 : 401);
+            }
+        }
         return self::order_response($id, '');
     }
 }

@@ -2599,7 +2599,14 @@ class TIX_REST_API {
             'registered_date' => $user->user_registered,
             'tickets_count'   => $tickets_count,
             'upcoming_events' => $upcoming_events,
+            // false = Konto wurde per E-Mail-Code angelegt und hat noch kein eigenes Passwort
+            'has_password'    => !get_user_meta($user->ID, '_tix_app_passwordless', true),
         ];
+    }
+
+    /** Öffentlicher Zugriff auf das Kunden-Profil-Format (für TIX_App_Checkout / TIX_App_Account). */
+    public static function guest_user_payload(WP_User $user) {
+        return self::format_guest_user($user);
     }
 
     // ═══════════════════════════════════════════

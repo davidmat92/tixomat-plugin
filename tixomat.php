@@ -2,14 +2,14 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.38.288
+ * Version: 1.38.289
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.38.288');
+define('TIXOMAT_VERSION', '1.38.289');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -499,6 +499,8 @@ $checkout_mode = tix_get_settings('checkout_mode') ?: 'auto';
 $use_native = ($checkout_mode === 'native') || ($checkout_mode === 'auto' && !tix_has_wc());
 // App-Kasse (KitchenKlub-App): REST-Bestellung über den nativen Checkout
 require_once TIXOMAT_PATH . 'includes/class-tix-app-checkout.php';
+require_once TIXOMAT_PATH . 'includes/class-tix-app-account.php';
+TIX_App_Account::init(); // Einmal-Codes, Passwort, Ticket-PDF, Support für die App (unabhängig vom Checkout-Modus)
 
 if ($use_native) {
     TIX_Native_Checkout::init();
