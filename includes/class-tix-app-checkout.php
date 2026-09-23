@@ -511,6 +511,74 @@ class TIX_App_Checkout {
         ];
     }
 
+    /**
+     * Ticket-Post (CPT `tix_ticket`) im Format von GET /customer/tickets.
+     * Auf kitchenklub.de gibt es keine Ticket-Tabelle `tix_tickets` – die
+     * Posts sind die Quelle der Wahrheit (Meta `_tix_ticket_*`, Check-in setzt
+     * `_tix_ticket_checked_in`/`_tix_ticket_status = used`).
+     */
+    public static function ticket_from_post($post) {
+        $post = is_numeric($post) ? get_post(intval($post)) : $post;
+        if (!$post || $post->post_type !== 'tix_ticket') return null;
+        $id = intval($post->ID);
+        $m  = function ($k) use ($id) { return get_post_meta($id, $k, true); };
+        $event_id = intval($m('_tix_ticket_event_id'));
+        $event    = $event_id ? get_post($event_id) : null;
+        $cat      = (string) $m('_tix_ticket_cat_name');
+        if ($cat === '' && $event_id) {
+            $cats = get_post_meta($event_id, '_tix_ticket_categories', true);
+            $ci   = $m('_tix_ticket_cat_index');
+            if (is_array($cats) && $ci !== '' && $ci !== false && isset($cats[intval($ci)]['name'])) {
+                $cat = (string) $cats[intval($ci)]['name'];
+            }
+        }
+        $status  = (string) ($m('_tix_ticket_status') ?: 'valid');
+        $checked = (string) $m('_tix_ticket_checked_in') === '1' || $status === 'used';
+        return [
+            'id'             => $id,
+            'code'           => (string) $m('_tix_ticket_code'),
+            'event_id'       => $event_id,
+            'event_title'    => $event ? $event->post_title : (string) $m('_tix_ticket_event_name'),
+            'event_date'     => $event_id ? (string) get_post_meta($event_id, '_tix_date_start', true) : '',
+            'event_time'     => $event_id ? (string) get_post_meta($event_id, '_tix_time_start', true) : '',
+            'event_location' => $event_id ? (string) get_post_meta($event_id, '_tix_location', true) : '',
+            'event_image'    => $event_id ? (get_the_post_thumbnail_url($event_id, 'medium') ?: '') : '',
+            'category'       => $cat !== '' ? $cat : 'Ticket',
+            'seat'           => (string) $m('_tix_ticket_seat_id'),
+            'status'         => $status,
+            'checked_in'     => $checked,
+            'checkin_time'   => (string) $m('_tix_ticket_checkin_time'),
+            'order_id'       => intval($m('_tix_ticket_order_id')),
+            'price'          => floatval($m('_tix_ticket_price')),
+            'purchased'      => (string) $post->post_date,
+            'owner_name'     => (string) $m('_tix_ticket_owner_name'),
+        ] + self::gift_fields($id);
+    }
+
+    /** Alle Ticket-Posts einer E-Mail (aktueller Inhaber), neueste zuerst. */
+    public static function tickets_for_email($email) {
+        $email = sanitize_email((string) $email);
+        if ($email === '') return [];
+        $posts = get_posts([
+            'post_type'      => 'tix_ticket',
+            'post_status'    => ['publish', 'private'],
+            'posts_per_page' => 300,
+            'orderby'        => 'ID',
+            'order'          => 'DESC',
+            'meta_query'     => [
+                'relation' => 'OR',
+                ['key' => '_tix_ticket_owner_email', 'value' => $email, 'compare' => '='],
+                ['key' => '_tix_email',              'value' => $email, 'compare' => '='],
+            ],
+        ]);
+        $out = [];
+        foreach ($posts as $p) {
+            $t = self::ticket_from_post($p);
+            if ($t) $out[] = $t;
+        }
+        return $out;
+    }
+
     /** Tickets einer Bestellung im Format von GET /customer/tickets. */
     private static function order_tickets($order_id) {
         global $wpdb;
@@ -547,6 +615,8 @@ class TIX_App_Checkout {
                 'post_type'      => 'tix_ticket',
                 'post_status'    => 'any',
                 'posts_per_page' => -1,
+                'orderby'        => 'ID',
+                'order'          => 'ASC',
                 'meta_query'     => [
                     'relation' => 'OR',
                     ['key' => '_tix_ticket_order_id', 'value' => (string) intval($order_id)],
@@ -554,25 +624,8 @@ class TIX_App_Checkout {
                 ],
             ]);
             foreach ($posts as $tp) {
-                $event_id = intval(get_post_meta($tp->ID, '_tix_event_id', true));
-                $event    = $event_id ? get_post($event_id) : null;
-                $tickets[] = [
-                    'id'           => $tp->ID,
-                    'code'         => get_post_meta($tp->ID, '_tix_ticket_code', true),
-                    'event_id'     => $event_id,
-                    'event_title'  => $event ? $event->post_title : '',
-                    'event_date'   => $event_id ? get_post_meta($event_id, '_tix_date_start', true) : '',
-                    'event_time'   => $event_id ? get_post_meta($event_id, '_tix_time_start', true) : '',
-                    'event_image'  => $event_id ? get_the_post_thumbnail_url($event_id, 'medium') : '',
-                    'category'     => get_post_meta($tp->ID, '_tix_ticket_category', true) ?: 'Ticket',
-                    'seat'         => get_post_meta($tp->ID, '_tix_seat', true),
-                    'status'       => get_post_meta($tp->ID, '_tix_status', true) ?: 'valid',
-                    'checked_in'   => (bool) get_post_meta($tp->ID, '_tix_checked_in', true),
-                    'checkin_time' => get_post_meta($tp->ID, '_tix_checkin_time', true) ?: '',
-                    'order_id'     => intval($order_id),
-                    'price'        => floatval(get_post_meta($tp->ID, '_tix_ticket_price', true)),
-                    'purchased'    => $tp->post_date,
-                ] + self::gift_fields($tp->ID);
+                $t = self::ticket_from_post($tp);
+                if ($t) $tickets[] = $t;
             }
         }
         return $tickets;

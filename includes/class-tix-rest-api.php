@@ -2402,73 +2402,41 @@ class TIX_REST_API {
      */
     public static function customer_tickets(WP_REST_Request $req) {
         $user = wp_get_current_user();
-        $tickets = [];
-
-        // Aus Ticket-DB
-        global $wpdb;
-        $table = $wpdb->prefix . 'tix_tickets';
-        if ($wpdb->get_var("SHOW TABLES LIKE '{$table}'") === $table) {
-            $rows = $wpdb->get_results($wpdb->prepare(
-                "SELECT * FROM {$table} WHERE buyer_email = %s ORDER BY id DESC",
-                $user->user_email
-            ), ARRAY_A);
-
-            foreach ($rows as $row) {
-                $event_id = intval($row['event_id'] ?? 0);
-                $event = $event_id ? get_post($event_id) : null;
-
-                $tickets[] = [
-                    'id'          => intval($row['id']),
-                    'code'        => $row['ticket_code'] ?? '',
-                    'event_id'    => $event_id,
-                    'event_title' => $event ? $event->post_title : ($row['event_name'] ?? ''),
-                    'event_date'  => $event_id ? get_post_meta($event_id, '_tix_date_start', true) : '',
-                    'event_image' => $event_id ? get_the_post_thumbnail_url($event_id, 'medium') : '',
-                    'category'    => $row['category_name'] ?? '',
-                    'seat'        => $row['seat_id'] ?? '',
-                    'status'      => $row['ticket_status'] ?? 'valid',
-                    'checked_in'  => !empty($row['checked_in']),
-                    'checkin_time' => $row['checkin_time'] ?? '',
-                    'order_id'    => intval($row['order_id'] ?? 0),
-                    'price'       => floatval($row['ticket_price'] ?? 0),
-                    'purchased'   => $row['created_at'] ?? '',
-                ] + (class_exists('TIX_App_Checkout') ? TIX_App_Checkout::gift_fields(intval($row['ticket_post_id'] ?? 0)) : []);
-            }
-        }
-
-        // Fallback: CPT
+        // Ticket-Posts (CPT) sind die Quelle der Wahrheit – kitchenklub.de hat keine Ticket-Tabelle
+        $tickets = class_exists('TIX_App_Checkout') ? TIX_App_Checkout::tickets_for_email($user->user_email) : [];
         if (empty($tickets)) {
-            $ticket_posts = get_posts([
-                'post_type'      => 'tix_ticket',
-                'posts_per_page' => -1,
-                'meta_query'     => [
-                    ['key' => '_tix_email', 'value' => $user->user_email],
-                ],
-            ]);
+            // Aus Ticket-DB
+            global $wpdb;
+            $table = $wpdb->prefix . 'tix_tickets';
+            if ($wpdb->get_var("SHOW TABLES LIKE '{$table}'") === $table) {
+                $rows = $wpdb->get_results($wpdb->prepare(
+                    "SELECT * FROM {$table} WHERE buyer_email = %s ORDER BY id DESC",
+                    $user->user_email
+                ), ARRAY_A);
 
-            foreach ($ticket_posts as $tp) {
-                $event_id = intval(get_post_meta($tp->ID, '_tix_event_id', true));
-                $event = $event_id ? get_post($event_id) : null;
+                foreach ($rows as $row) {
+                    $event_id = intval($row['event_id'] ?? 0);
+                    $event = $event_id ? get_post($event_id) : null;
 
-                $tickets[] = [
-                    'id'          => $tp->ID,
-                    'code'        => get_post_meta($tp->ID, '_tix_ticket_code', true),
-                    'event_id'    => $event_id,
-                    'event_title' => $event ? $event->post_title : '',
-                    'event_date'  => $event_id ? get_post_meta($event_id, '_tix_date_start', true) : '',
-                    'event_image' => $event_id ? get_the_post_thumbnail_url($event_id, 'medium') : '',
-                    'category'    => get_post_meta($tp->ID, '_tix_ticket_category', true) ?: 'Ticket',
-                    'seat'        => get_post_meta($tp->ID, '_tix_seat', true),
-                    'status'      => get_post_meta($tp->ID, '_tix_status', true) ?: 'valid',
-                    'checked_in'  => (bool) get_post_meta($tp->ID, '_tix_checked_in', true),
-                    'checkin_time' => get_post_meta($tp->ID, '_tix_checkin_time', true) ?: '',
-                    'order_id'    => intval(get_post_meta($tp->ID, '_tix_order_id', true)),
-                    'price'       => floatval(get_post_meta($tp->ID, '_tix_ticket_price', true)),
-                    'purchased'   => $tp->post_date,
-                ] + (class_exists('TIX_App_Checkout') ? TIX_App_Checkout::gift_fields($tp->ID) : []);
+                    $tickets[] = [
+                        'id'          => intval($row['id']),
+                        'code'        => $row['ticket_code'] ?? '',
+                        'event_id'    => $event_id,
+                        'event_title' => $event ? $event->post_title : ($row['event_name'] ?? ''),
+                        'event_date'  => $event_id ? get_post_meta($event_id, '_tix_date_start', true) : '',
+                        'event_image' => $event_id ? get_the_post_thumbnail_url($event_id, 'medium') : '',
+                        'category'    => $row['category_name'] ?? '',
+                        'seat'        => $row['seat_id'] ?? '',
+                        'status'      => $row['ticket_status'] ?? 'valid',
+                        'checked_in'  => !empty($row['checked_in']),
+                        'checkin_time' => $row['checkin_time'] ?? '',
+                        'order_id'    => intval($row['order_id'] ?? 0),
+                        'price'       => floatval($row['ticket_price'] ?? 0),
+                        'purchased'   => $row['created_at'] ?? '',
+                    ] + (class_exists('TIX_App_Checkout') ? TIX_App_Checkout::gift_fields(intval($row['ticket_post_id'] ?? 0)) : []);
+                }
             }
         }
-
         // Sortierung: neueste zuerst
         usort($tickets, fn($a, $b) => strcmp($b['purchased'] ?? '', $a['purchased'] ?? ''));
 
@@ -2485,37 +2453,26 @@ class TIX_REST_API {
     public static function customer_events(WP_REST_Request $req) {
         $user = wp_get_current_user();
         $event_ids = [];
-
-        // Aus Ticket-DB
-        global $wpdb;
-        $table = $wpdb->prefix . 'tix_tickets';
-        if ($wpdb->get_var("SHOW TABLES LIKE '{$table}'") === $table) {
-            $rows = $wpdb->get_results($wpdb->prepare(
-                "SELECT DISTINCT event_id FROM {$table} WHERE buyer_email = %s",
-                $user->user_email
-            ), ARRAY_A);
-            foreach ($rows as $row) {
-                $eid = intval($row['event_id'] ?? 0);
-                if ($eid) $event_ids[$eid] = true;
+        if (class_exists('TIX_App_Checkout')) {
+            foreach (TIX_App_Checkout::tickets_for_email($user->user_email) as $t) {
+                if (!empty($t['event_id'])) $event_ids[intval($t['event_id'])] = true;
             }
         }
-
-        // Fallback: CPT
+        // Fallback: Ticket-Tabelle
         if (empty($event_ids)) {
-            $ticket_posts = get_posts([
-                'post_type'      => 'tix_ticket',
-                'posts_per_page' => -1,
-                'meta_query'     => [
-                    ['key' => '_tix_email', 'value' => $user->user_email],
-                ],
-                'fields'         => 'ids',
-            ]);
-            foreach ($ticket_posts as $tp_id) {
-                $eid = intval(get_post_meta($tp_id, '_tix_event_id', true));
-                if ($eid) $event_ids[$eid] = true;
+            global $wpdb;
+            $table = $wpdb->prefix . 'tix_tickets';
+            if ($wpdb->get_var("SHOW TABLES LIKE '{$table}'") === $table) {
+                $rows = $wpdb->get_results($wpdb->prepare(
+                    "SELECT DISTINCT event_id FROM {$table} WHERE buyer_email = %s",
+                    $user->user_email
+                ), ARRAY_A);
+                foreach ($rows as $row) {
+                    $eid = intval($row['event_id'] ?? 0);
+                    if ($eid) $event_ids[$eid] = true;
+                }
             }
         }
-
         $events = [];
         foreach (array_keys($event_ids) as $event_id) {
             $event = get_post($event_id);
@@ -2561,32 +2518,30 @@ class TIX_REST_API {
             $avatar_large = get_avatar_url($user->ID, ['size' => 300]);
         }
 
-        // Ticket-Statistiken
+        // Ticket-Statistiken (Ticket-Posts zuerst, sonst Ticket-Tabelle)
         $tickets_count = 0;
         $upcoming_events = 0;
-
+        $rows = class_exists('TIX_App_Checkout') ? TIX_App_Checkout::tickets_for_email($user->user_email) : [];
         global $wpdb;
         $table = $wpdb->prefix . 'tix_tickets';
-        if ($wpdb->get_var("SHOW TABLES LIKE '{$table}'") === $table) {
+        if (empty($rows) && $wpdb->get_var("SHOW TABLES LIKE '{$table}'") === $table) {
             $rows = $wpdb->get_results($wpdb->prepare(
                 "SELECT event_id FROM {$table} WHERE buyer_email = %s",
                 $user->user_email
             ), ARRAY_A);
-            $tickets_count = count($rows);
-
-            $seen_events = [];
-            foreach ($rows as $row) {
-                $eid = intval($row['event_id'] ?? 0);
-                if ($eid && !isset($seen_events[$eid])) {
-                    $seen_events[$eid] = true;
-                    $ds = get_post_meta($eid, '_tix_date_start', true);
-                    if ($ds && strtotime($ds) >= strtotime('today')) {
-                        $upcoming_events++;
-                    }
+        }
+        $tickets_count = count($rows);
+        $seen_events = [];
+        foreach ($rows as $row) {
+            $eid = intval($row['event_id'] ?? 0);
+            if ($eid && !isset($seen_events[$eid])) {
+                $seen_events[$eid] = true;
+                $ds = get_post_meta($eid, '_tix_date_start', true);
+                if ($ds && strtotime($ds) >= strtotime('today')) {
+                    $upcoming_events++;
                 }
             }
         }
-
         return [
             'id'              => $user->ID,
             'display_name'    => $user->display_name,
