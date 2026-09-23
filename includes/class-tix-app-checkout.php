@@ -37,7 +37,7 @@ class TIX_App_Checkout {
     ];
 
     /** Rechnungsdaten zum Vorbelegen: Konto + zuletzt genutzte Adresse (User-Meta billing_*) */
-    private static function billing_prefill($user) {
+    public static function billing_prefill($user) {
         $first = trim((string) $user->first_name);
         $last  = trim((string) $user->last_name);
         if ($first === '' && $last === '') {
@@ -99,6 +99,29 @@ class TIX_App_Checkout {
         if (!isset(self::COUNTRIES[$b['country']])) {
             return new WP_Error('tix_billing', 'Bitte ein Land wählen.', ['status' => 400, 'field' => 'country']);
         }
+        return $b;
+    }
+
+    /**
+     * Rechnungsadresse aus dem Profil speichern (POST /auth/profile {billing}) –
+     * ohne Pflichtfeld-Prüfung, nur bereinigt; Land muss bekannt sein.
+     */
+    public static function save_billing($user, array $in) {
+        $get = function ($key, $max = 120) use ($in) {
+            return mb_substr(trim(sanitize_text_field((string) ($in[$key] ?? ''))), 0, $max);
+        };
+        $country = strtoupper($get('country', 2));
+        $b = [
+            'first_name' => $get('first_name', 60),
+            'last_name'  => $get('last_name', 60),
+            'company'    => $get('company', 120),
+            'address_1'  => $get('address_1', 160),
+            'postcode'   => $get('postcode', 16),
+            'city'       => $get('city', 80),
+            'country'    => isset(self::COUNTRIES[$country]) ? $country : 'DE',
+            'phone'      => $get('phone', 40),
+        ];
+        foreach ($b as $k => $v) update_user_meta($user->ID, 'billing_' . $k, $v);
         return $b;
     }
 
@@ -542,6 +565,8 @@ class TIX_App_Checkout {
             'event_date'     => $event_id ? (string) get_post_meta($event_id, '_tix_date_start', true) : '',
             'event_time'     => $event_id ? (string) get_post_meta($event_id, '_tix_time_start', true) : '',
             'event_location' => $event_id ? (string) get_post_meta($event_id, '_tix_location', true) : '',
+            'event_address'  => $event_id ? (string) get_post_meta($event_id, '_tix_address', true) : '',
+            'event_doors'    => $event_id ? (string) get_post_meta($event_id, '_tix_time_doors', true) : '',
             'event_image'    => $event_id ? (get_the_post_thumbnail_url($event_id, 'medium') ?: '') : '',
             'category'       => $cat !== '' ? $cat : 'Ticket',
             'seat'           => (string) $m('_tix_ticket_seat_id'),
