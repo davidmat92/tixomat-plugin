@@ -46,29 +46,96 @@ class TIX_REST_API {
 
         $hashed = hash('sha256', $token);
 
-        // User mit passendem Token finden
+        // Mehrere Geräte pro Konto: Liste in _tix_app_tokens (seit 1.38.288);
+        // Legacy-Einzeltoken in _tix_app_token bleibt gültig, bis es ausläuft.
         $users = get_users([
-            'meta_key'   => '_tix_app_token',
-            'number'     => 0, // No limit
-            'fields'     => 'ids',
+            'meta_query' => [
+                'relation' => 'OR',
+                ['key' => '_tix_app_tokens', 'compare' => 'EXISTS'],
+                ['key' => '_tix_app_token',  'compare' => 'EXISTS'],
+            ],
+            'number' => 0,
+            'fields' => 'ids',
         ]);
 
         foreach ($users as $uid) {
-            $data = get_user_meta($uid, '_tix_app_token', true);
-            if (!is_array($data)) continue;
-            if (!isset($data['token'], $data['expires'])) continue;
-
-            if (hash_equals($data['token'], $hashed)) {
-                if ($data['expires'] > time()) {
-                    return $uid;
+            $list = get_user_meta($uid, '_tix_app_tokens', true);
+            if (is_array($list)) {
+                foreach ($list as $data) {
+                    if (!is_array($data) || !isset($data['token'], $data['expires'])) continue;
+                    if (hash_equals((string) $data['token'], $hashed)) {
+                        if (intval($data['expires']) > time()) return $uid;
+                        self::prune_app_tokens($uid);
+                        return $user_id;
+                    }
                 }
-                // Token abgelaufen → aufräumen
+            }
+            $data = get_user_meta($uid, '_tix_app_token', true);
+            if (is_array($data) && isset($data['token'], $data['expires'])
+                && hash_equals((string) $data['token'], $hashed)) {
+                if (intval($data['expires']) > time()) return $uid;
                 delete_user_meta($uid, '_tix_app_token');
                 return $user_id;
             }
         }
 
         return $user_id;
+    }
+
+    /** Neues Geräte-Token ausstellen (90 Tage), ohne andere Geräte abzumelden. */
+    public static function issue_app_token($user_id, $device = '') {
+        $token = wp_generate_password(64, false, false);
+        $list  = get_user_meta($user_id, '_tix_app_tokens', true);
+        $list  = is_array($list) ? $list : [];
+        $now   = time();
+        $list  = array_values(array_filter($list, function ($t) use ($now) {
+            return is_array($t) && intval($t['expires'] ?? 0) > $now;
+        }));
+        $list[] = [
+            'token'   => hash('sha256', $token),
+            'expires' => $now + (90 * DAY_IN_SECONDS),
+            'created' => $now,
+            'device'  => mb_substr(sanitize_text_field((string) $device), 0, 80),
+        ];
+        // Maximal 8 Geräte, älteste fliegen raus
+        if (count($list) > 8) $list = array_slice($list, -8);
+        update_user_meta($user_id, '_tix_app_tokens', $list);
+        return $token;
+    }
+
+    /** Abgelaufene Geräte-Tokens entfernen. */
+    private static function prune_app_tokens($user_id) {
+        $list = get_user_meta($user_id, '_tix_app_tokens', true);
+        if (!is_array($list)) return;
+        $now  = time();
+        $list = array_values(array_filter($list, function ($t) use ($now) {
+            return is_array($t) && intval($t['expires'] ?? 0) > $now;
+        }));
+        if ($list) update_user_meta($user_id, '_tix_app_tokens', $list);
+        else delete_user_meta($user_id, '_tix_app_tokens');
+    }
+
+    /** POST /auth/logout – nur das Token dieses Geräts ungültig machen. */
+    public static function auth_logout(WP_REST_Request $req) {
+        $user = wp_get_current_user();
+        $raw  = (string) ($_SERVER['HTTP_X_TIX_TOKEN'] ?? '');
+        if ($raw === '' && isset($_SERVER['HTTP_AUTHORIZATION']) && str_starts_with($_SERVER['HTTP_AUTHORIZATION'], 'Bearer ')) {
+            $raw = substr($_SERVER['HTTP_AUTHORIZATION'], 7);
+        }
+        $hashed = hash('sha256', $raw);
+        $list = get_user_meta($user->ID, '_tix_app_tokens', true);
+        if (is_array($list)) {
+            $list = array_values(array_filter($list, function ($t) use ($hashed) {
+                return !(is_array($t) && hash_equals((string) ($t['token'] ?? ''), $hashed));
+            }));
+            if ($list) update_user_meta($user->ID, '_tix_app_tokens', $list);
+            else delete_user_meta($user->ID, '_tix_app_tokens');
+        }
+        $legacy = get_user_meta($user->ID, '_tix_app_token', true);
+        if (is_array($legacy) && hash_equals((string) ($legacy['token'] ?? ''), $hashed)) {
+            delete_user_meta($user->ID, '_tix_app_token');
+        }
+        return rest_ensure_response(['success' => true]);
     }
 
     // ═══════════════════════════════════════════
@@ -227,6 +294,12 @@ class TIX_REST_API {
         register_rest_route($ns, '/auth/profile', [
             'methods'             => ['GET', 'POST'],
             'callback'            => [__CLASS__, 'auth_profile'],
+            'permission_callback' => [__CLASS__, 'check_authenticated'],
+        ]);
+
+        register_rest_route($ns, '/auth/logout', [
+            'methods'             => 'POST',
+            'callback'            => [__CLASS__, 'auth_logout'],
             'permission_callback' => [__CLASS__, 'check_authenticated'],
         ]);
 
@@ -2091,13 +2164,8 @@ class TIX_REST_API {
             return new WP_Error('invalid_credentials', 'Ungültige E-Mail oder Passwort.', ['status' => 401]);
         }
 
-        // Token generieren (gespeichert als User-Meta, gültig 90 Tage)
-        $token = wp_generate_password(64, false, false);
-        $token_data = [
-            'token'   => hash('sha256', $token),
-            'expires' => time() + (90 * DAY_IN_SECONDS),
-        ];
-        update_user_meta($user->ID, '_tix_app_token', $token_data);
+        // Geräte-Token (90 Tage) – weitere Geräte bleiben angemeldet
+        $token = self::issue_app_token($user->ID, (string) ($req->get_param('device') ?? ''));
 
         return rest_ensure_response([
             'success' => true,
@@ -2160,13 +2228,8 @@ class TIX_REST_API {
         // Optional: Willkommens-E-Mail senden
         wp_new_user_notification($user_id, null, 'user');
 
-        // Token generieren
-        $token = wp_generate_password(64, false, false);
-        $token_data = [
-            'token'   => hash('sha256', $token),
-            'expires' => time() + (90 * DAY_IN_SECONDS),
-        ];
-        update_user_meta($user_id, '_tix_app_token', $token_data);
+        // Geräte-Token (90 Tage)
+        $token = self::issue_app_token($user_id, (string) ($req->get_param('device') ?? ''));
 
         return rest_ensure_response([
             'success' => true,
