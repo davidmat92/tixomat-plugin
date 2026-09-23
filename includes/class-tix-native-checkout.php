@@ -490,6 +490,26 @@ class TIX_Native_Checkout {
             self::apply_auto_coupon_if_eligible($cart);
         }
         self::recalc_coupon_discount($cart);
+        // Geschenkgutschein (Guthaben): recalc kennt den Typ nicht → wie ajax_apply_coupon
+        if (!empty($cart['coupon']['code']) && class_exists('TIX_Giftcards')) {
+            $card = TIX_Giftcards::get_card((string) $cart['coupon']['code']);
+            if ($card) {
+                $items_total = 0.0;
+                $has_gift = false;
+                foreach ((array) $cart['items'] as $it) {
+                    $items_total += floatval($it['price'] ?? 0) * max(1, intval($it['qty'] ?? 1));
+                    if (!empty($it['meta']['gift'])) $has_gift = true;
+                }
+                $balance = round(floatval($card['balance'] ?? 0), 2);
+                $expired = !empty($card['expires']) && strtotime($card['expires'] . ' 23:59:59') < current_time('timestamp');
+                if ($has_gift || $balance <= 0 || $expired) {
+                    $cart['coupon'] = null; // Gutschein kauft keinen Gutschein / aufgebraucht / abgelaufen
+                } else {
+                    $cart['coupon']['discount'] = round(min($balance, $items_total), 2);
+                    $cart['coupon']['giftcard'] = 1;
+                }
+            }
+        }
         return $cart;
     }
 

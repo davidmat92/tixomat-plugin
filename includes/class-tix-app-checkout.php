@@ -119,6 +119,11 @@ class TIX_App_Checkout {
             'callback'            => [__CLASS__, 'create'],
             'permission_callback' => [__CLASS__, 'check_customer'],
         ]);
+        register_rest_route(self::NS, '/giftcards', [
+            'methods'             => 'GET',
+            'callback'            => [__CLASS__, 'giftcards'],
+            'permission_callback' => '__return_true',
+        ]);
         register_rest_route(self::NS, '/customer/orders/(?P<id>\d+)', [
             'methods'             => 'GET',
             'callback'            => [__CLASS__, 'status'],
@@ -153,10 +158,48 @@ class TIX_App_Checkout {
     }
 
     private static function is_public_category(array $cat) {
-        if (!empty($cat['hidden']) || !empty($cat['admin_only'])) return false;
+        if (!empty($cat['admin_only'])) return false;
         if (isset($cat['online']) && (string) $cat['online'] === '0') return false;
         if (!empty($cat['offline_ticket'])) return false;
+        // Gutschein-Kategorien sind im Web-Selector versteckt, in der App aber die Kaufbasis
+        if (!empty($cat['hidden']) && empty($cat['gift_card'])) return false;
         return true;
+    }
+
+    private static function is_gift_event($event_id) {
+        return get_post_meta(intval($event_id), '_tix_system_giftcard_event', true) === '1';
+    }
+
+    /** Geschenkgutschein-Einstellungen (wie [tix_giftcards]) */
+    private static function giftcard_config() {
+        if (!class_exists('TIX_Giftcards')) return ['enabled' => false];
+        $st = TIX_Giftcards::get_settings();
+        if (empty($st['enabled'])) return ['enabled' => false];
+        $event_id = TIX_Giftcards::system_event_id();
+        if (!$event_id) return ['enabled' => false];
+        $cats = get_post_meta($event_id, '_tix_ticket_categories', true);
+        $fixed = [];
+        $free_index = -1;
+        foreach ((array) $cats as $i => $c) {
+            if (!is_array($c) || empty($c['gift_card'])) continue;
+            if (!empty($c['gift_free_amount'])) { $free_index = intval($i); continue; }
+            $fixed[] = ['index' => intval($i), 'amount' => round(floatval($c['price'] ?? 0), 2), 'name' => (string) ($c['name'] ?? '')];
+        }
+        return [
+            'enabled'        => true,
+            'event_id'       => $event_id,
+            'amounts'        => $fixed,
+            'free_amount'    => !empty($st['free_amount']) && $free_index >= 0,
+            'free_index'     => $free_index,
+            'min'            => TIX_Giftcards::MIN_FREE,
+            'max'            => TIX_Giftcards::MAX_FREE,
+            'validity_years' => intval($st['validity_years']),
+        ];
+    }
+
+    /** GET /giftcards – öffentlich (Kachel nur zeigen, wenn aktiv) */
+    public static function giftcards(WP_REST_Request $req) {
+        return rest_ensure_response(['ok' => true] + self::giftcard_config());
     }
 
     private static function price_for($event_id, $index, array $cat) {
@@ -187,6 +230,8 @@ class TIX_App_Checkout {
                 'sold_out'           => $stock === 0,
                 'phase_label'        => ($price < $base) ? 'Aktionspreis' : '',
                 'max_per_order'      => $stock >= 0 ? min(self::MAX_QTY, $stock) : self::MAX_QTY,
+                'gift_card'          => !empty($cat['gift_card']),
+                'gift_free_amount'   => !empty($cat['gift_free_amount']),
             ];
         }
         return $out;
@@ -203,13 +248,54 @@ class TIX_App_Checkout {
         }
         $event_title = get_the_title($event_id);
         $cart = ['items' => [], 'coupon' => null];
-        $merged = [];
+        $merged = [];   // normale Tickets: je Kategorie eine Zeile
+        $gifts  = [];   // Gutscheine: nie mergen (verschiedene Beträge)
         foreach ($items as $it) {
             if (!is_array($it)) continue;
             $idx = intval($it['index'] ?? -1);
             $qty = intval($it['qty'] ?? ($it['quantity'] ?? 0));
             if ($qty <= 0) continue;
+            $cat = (isset($cats[$idx]) && is_array($cats[$idx])) ? $cats[$idx] : null;
+            if ($cat && !empty($cat['gift_card'])) {
+                $gifts[] = ['index' => $idx, 'qty' => $qty, 'custom_amount' => round(floatval($it['custom_amount'] ?? 0), 2)];
+                continue;
+            }
             $merged[$idx] = ($merged[$idx] ?? 0) + $qty;
+        }
+        foreach ($gifts as $g) {
+            $idx = $g['index'];
+            $cat = $cats[$idx];
+            if (!self::is_public_category($cat)) {
+                return self::error('tix_category', 'Dieser Gutschein ist nicht verfügbar.');
+            }
+            $name   = sanitize_text_field($cat['name'] ?? 'Gutschein');
+            $locked = 0;
+            if (!empty($cat['gift_free_amount'])) {
+                $amount = $g['custom_amount'];
+                $min = class_exists('TIX_Giftcards') ? TIX_Giftcards::MIN_FREE : 10;
+                $max = class_exists('TIX_Giftcards') ? TIX_Giftcards::MAX_FREE : 500;
+                if ($amount < $min || $amount > $max) {
+                    return self::error('tix_gift_amount', sprintf('Gutschein-Betrag muss zwischen %d und %d € liegen.', $min, $max));
+                }
+                $price  = $amount;
+                $locked = 1;
+                $name   = 'Gutschein ' . rtrim(rtrim(number_format($amount, 2, ',', '.'), '0'), ',') . ' €';
+            } else {
+                $price = self::price_for($event_id, $idx, $cat);
+            }
+            if ($g['qty'] > self::MAX_QTY) {
+                return self::error('tix_max_qty', sprintf('Maximal %d Gutscheine pro Bestellung.', self::MAX_QTY));
+            }
+            $cart['items'][] = array_filter([
+                'event_id'     => intval($event_id),
+                'cat_index'    => intval($idx),
+                'name'         => $name,
+                'event_title'  => $event_title,
+                'price'        => $price,
+                'qty'          => intval($g['qty']),
+                'locked_price' => $locked ?: null,
+                'meta'         => ['gift' => 1],
+            ], function ($v) { return $v !== null; });
         }
         foreach ($merged as $idx => $qty) {
             if (!isset($cats[$idx]) || !is_array($cats[$idx]) || !self::is_public_category($cats[$idx])) {
@@ -402,6 +488,19 @@ class TIX_App_Checkout {
         ));
     }
 
+    /** Geschenkgutschein-Felder eines Ticket-Posts (Code, Wert, Restguthaben, Gültigkeit). */
+    public static function gift_fields($ticket_post_id) {
+        $code = (string) get_post_meta(intval($ticket_post_id), '_tix_ticket_gift_code', true);
+        if ($code === '' || !class_exists('TIX_Giftcards')) return [];
+        $card = TIX_Giftcards::get_card($code);
+        return [
+            'gift_code'    => $code,
+            'gift_value'   => $card ? round(floatval($card['value'] ?? 0), 2) : 0,
+            'gift_balance' => $card ? round(floatval($card['balance'] ?? 0), 2) : 0,
+            'gift_expires' => $card ? (string) ($card['expires'] ?? '') : '',
+        ];
+    }
+
     /** Tickets einer Bestellung im Format von GET /customer/tickets. */
     private static function order_tickets($order_id) {
         global $wpdb;
@@ -430,7 +529,7 @@ class TIX_App_Checkout {
                     'order_id'     => intval($row['order_id'] ?? 0),
                     'price'        => floatval($row['ticket_price'] ?? 0),
                     'purchased'    => $row['created_at'] ?? '',
-                ];
+                ] + self::gift_fields(intval($row['ticket_post_id'] ?? 0));
             }
         }
         if (empty($tickets)) {
@@ -463,7 +562,7 @@ class TIX_App_Checkout {
                     'order_id'     => intval($order_id),
                     'price'        => floatval(get_post_meta($tp->ID, '_tix_ticket_price', true)),
                     'purchased'    => $tp->post_date,
-                ];
+                ] + self::gift_fields($tp->ID);
             }
         }
         return $tickets;

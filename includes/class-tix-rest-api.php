@@ -2369,7 +2369,7 @@ class TIX_REST_API {
                     'order_id'    => intval($row['order_id'] ?? 0),
                     'price'       => floatval($row['ticket_price'] ?? 0),
                     'purchased'   => $row['created_at'] ?? '',
-                ];
+                ] + (class_exists('TIX_App_Checkout') ? TIX_App_Checkout::gift_fields(intval($row['ticket_post_id'] ?? 0)) : []);
             }
         }
 
@@ -2402,7 +2402,7 @@ class TIX_REST_API {
                     'order_id'    => intval(get_post_meta($tp->ID, '_tix_order_id', true)),
                     'price'       => floatval(get_post_meta($tp->ID, '_tix_ticket_price', true)),
                     'purchased'   => $tp->post_date,
-                ];
+                ] + (class_exists('TIX_App_Checkout') ? TIX_App_Checkout::gift_fields($tp->ID) : []);
             }
         }
 
