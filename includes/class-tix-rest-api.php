@@ -1542,6 +1542,10 @@ class TIX_REST_API {
         $customer_name  = sanitize_text_field($body['customer_name'] ?? '');
         $customer_email = sanitize_email($body['customer_email'] ?? '');
         $coupon_code    = sanitize_text_field($body['coupon_code'] ?? '');
+        // Entweder–oder (App-Kasse): Gast geht sofort rein → Tickets direkt einchecken, dann keine
+        // Ticket-E-Mail; oder Tickets per E-Mail schicken → kein Check-in jetzt.
+        $checkin        = filter_var($body['checkin'] ?? false, FILTER_VALIDATE_BOOLEAN);
+        if ($checkin) $customer_email = '';
         if (!$event_id || empty($items) || !is_array($items)) {
             return new WP_Error('missing_data', 'Event oder Artikel fehlen.', ['status' => 400]);
         }
@@ -1639,6 +1643,22 @@ class TIX_REST_API {
         TIX_Native_Checkout::update_order_status($order_id, 'completed', 'pos');
         // Web-Warenkorb des Mitarbeiters unangetastet lassen
         if (!empty($previous_cart['items'])) TIX_Native_Checkout::save_cart($previous_cart);
+        $tickets = self::get_order_tickets($order_id, $event_id);
+        // Direkt einchecken: Gast steht am Einlass und geht sofort rein
+        if ($checkin && $tickets && class_exists('TIX_Tickets')) {
+            $by = $staff->user_login ? $staff->user_login : 'pos';
+            foreach ($tickets as $i => $t) {
+                if (!TIX_Tickets::is_checked_in($t['id'])) self::mark_ticket_checked_in($t['id'], $by);
+                $tickets[$i]['checked_in'] = true;
+                $tickets[$i]['status']     = 'used';
+            }
+            $meta = self::pos_meta($order_id);
+            $meta['checkin'] = current_time('mysql');
+            self::pos_meta($order_id, $meta);
+            if (class_exists('TIX_Order_Admin') && method_exists('TIX_Order_Admin', 'add_note')) {
+                TIX_Order_Admin::add_note($order_id, '✅ ' . count($tickets) . ' Ticket(s) direkt an der Kasse (App) eingecheckt durch ' . $staff->display_name, 'pos');
+            }
+        }
         $order = class_exists('TIX_Order') ? TIX_Order::get($order_id) : null;
         return rest_ensure_response([
             'ok'           => true,
@@ -1646,8 +1666,28 @@ class TIX_REST_API {
             'order_number' => $order ? $order->get_order_number() : (string) $order_id,
             'total'        => $order ? floatval($order->get_total()) : $total,
             'payment'      => $payment,
-            'tickets'      => self::get_order_tickets($order_id, $event_id),
+            'checked_in'   => (bool) $checkin,
+            'tickets'      => $tickets,
         ]);
+    }
+
+    /**
+     * Ticket als eingecheckt markieren (wie /checkin/ticket/{id}/toggle, inkl. optionaler Ticket-DB).
+     */
+    private static function mark_ticket_checked_in($ticket_id, $by) {
+        TIX_Tickets::checkin_ticket($ticket_id, $by);
+        try {
+            $code = get_post_meta($ticket_id, '_tix_ticket_code', true);
+            if ($code && class_exists('TIX_Ticket_DB') && class_exists('TIX_Settings') && TIX_Settings::get('ticket_db_enabled')) {
+                TIX_Ticket_DB::update_ticket($code, [
+                    'checked_in'      => 1,
+                    'checkin_time'    => current_time('mysql'),
+                    'ticket_status'   => 'used',
+                    'synced_supabase' => 0,
+                    'synced_airtable' => 0,
+                ]);
+            }
+        } catch (\Throwable $e) {}
     }
 
     // ═══════════════════════════════════════════
@@ -2052,6 +2092,7 @@ class TIX_REST_API {
                 'category' => (string) (get_post_meta($tp->ID, '_tix_ticket_cat_name', true) ?: 'Ticket'),
                 'price'    => floatval(get_post_meta($tp->ID, '_tix_ticket_price', true)),
                 'status'   => (string) (get_post_meta($tp->ID, '_tix_ticket_status', true) ?: 'valid'),
+                'checked_in' => (bool) get_post_meta($tp->ID, '_tix_ticket_checked_in', true),
             ];
         }
         return $tickets;
