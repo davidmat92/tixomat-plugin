@@ -387,6 +387,16 @@ class TIX_REST_API {
     /**
      * Prüft ob der aktuelle User Zugriff auf ein bestimmtes Event hat.
      */
+    /** Öffentlich für andere Module (Event-Editor, Bestell-Details). */
+    public static function user_can_access_event($event_id) {
+        return self::can_access_event($event_id);
+    }
+
+    /** Event im Veranstalter-Format (öffentlich für andere Module). */
+    public static function event_payload($post, $detailed = false) {
+        return self::format_event($post, $detailed);
+    }
+
     private static function can_access_event($event_id) {
         $user = wp_get_current_user();
         // Admins und Mitarbeiter (App) sehen alles
@@ -578,75 +588,8 @@ class TIX_REST_API {
     // ═══════════════════════════════════════════
 
     public static function create_event(WP_REST_Request $req) {
-        $body = $req->get_json_params();
-
-        $title    = sanitize_text_field($body['title'] ?? '');
-        $excerpt  = wp_kses_post($body['excerpt'] ?? '');
-        $location = sanitize_text_field($body['location'] ?? '');
-
-        if (empty($title)) {
-            return new WP_Error('missing_title', 'Titel ist erforderlich.', ['status' => 400]);
-        }
-
-        // Organizer-ID ermitteln
-        $user_id = get_current_user_id();
-        $organizer_id = 0;
-        $organizers = get_posts([
-            'post_type'      => 'tix_organizer',
-            'posts_per_page' => 1,
-            'meta_query'     => [['key' => '_tix_org_user_id', 'value' => $user_id]],
-            'fields'         => 'ids',
-        ]);
-        if (!empty($organizers)) $organizer_id = $organizers[0];
-
-        // Auto-Publish Setting
-        $auto_publish = get_option('tix_organizer_auto_publish', '0') === '1';
-
-        $post_id = wp_insert_post([
-            'post_type'    => 'event',
-            'post_title'   => $title,
-            'post_excerpt' => $excerpt,
-            'post_status'  => $auto_publish ? 'publish' : 'draft',
-            'post_author'  => $user_id,
-        ], true);
-
-        if (is_wp_error($post_id)) {
-            return $post_id;
-        }
-
-        // Meta-Daten
-        if (!empty($body['date_start']))  update_post_meta($post_id, '_tix_date_start', sanitize_text_field($body['date_start']));
-        if (!empty($body['date_end']))    update_post_meta($post_id, '_tix_date_end', sanitize_text_field($body['date_end']));
-        if (!empty($body['time_start']))  update_post_meta($post_id, '_tix_time_start', sanitize_text_field($body['time_start']));
-        if (!empty($body['time_end']))    update_post_meta($post_id, '_tix_time_end', sanitize_text_field($body['time_end']));
-        if (!empty($body['time_doors']))  update_post_meta($post_id, '_tix_time_doors', sanitize_text_field($body['time_doors']));
-        if ($location)                    update_post_meta($post_id, '_tix_location', $location);
-        if (!empty($body['status']))      update_post_meta($post_id, '_tix_status', sanitize_text_field($body['status']));
-        if ($organizer_id)                update_post_meta($post_id, '_tix_organizer_id', $organizer_id);
-
-        // Ticket-Kategorien
-        if (!empty($body['categories']) && is_array($body['categories'])) {
-            $categories = [];
-            foreach ($body['categories'] as $cat) {
-                $categories[] = [
-                    'name'     => sanitize_text_field($cat['name'] ?? ''),
-                    'price'    => floatval($cat['price'] ?? 0),
-                    'quantity' => absint($cat['quantity'] ?? 0),
-                ];
-            }
-            update_post_meta($post_id, '_tix_ticket_categories', $categories);
-
-            // WooCommerce-Sync triggern
-            if (class_exists('TIX_Sync')) {
-                TIX_Sync::sync_event($post_id);
-            }
-        }
-
-        $post = get_post($post_id);
-        return rest_ensure_response([
-            'ok'    => true,
-            'event' => self::format_event($post, true),
-        ]);
+        // Event-Editor der App (Titel, Termin, Ort, Info-Texte, Kategorien, Vorverkauf …)
+        return TIX_App_Events::create($req);
     }
 
     // ═══════════════════════════════════════════
