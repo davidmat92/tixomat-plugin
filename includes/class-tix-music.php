@@ -533,6 +533,8 @@ class TIX_Music {
     public static function check_dj(WP_REST_Request $req) {
         $key = (string) ($req->get_param('key') ?? $req->get_header('x-tix-dj-key') ?? '');
         if ($key !== '' && hash_equals(self::dj_key(), $key)) return true;
+        // Angemeldeter DJ (Rolle „DJ (App)“) darf die Liste sehen.
+        if (is_user_logged_in() && current_user_can('tix_app_dj')) return true;
         if (class_exists('TIX_REST_API') && method_exists('TIX_REST_API', 'check_organizer')) {
             $r = TIX_REST_API::check_organizer($req);
             if ($r === true) return true;

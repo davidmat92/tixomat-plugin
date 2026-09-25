@@ -32,6 +32,10 @@ class TIX_REST_API {
         if (!get_role('tix_staff')) {
             add_role('tix_staff', 'Mitarbeiter (App)', ['read' => true, 'tix_app_staff' => true]);
         }
+        // Rolle „DJ (App)“: sieht nur die Musikwunsch-Liste (kein Veranstalter-Bereich).
+        if (!get_role('tix_dj')) {
+            add_role('tix_dj', 'DJ (App)', ['read' => true, 'tix_app_dj' => true]);
+        }
     }
 
     /** Admin, Mitarbeiter (App) oder Veranstalter-Rolle? */
