@@ -163,6 +163,38 @@ class TIX_Loyalty {
         ]);
     }
 
+    /** Veranstalter: Voraussetzungen anpassen (aktiv, Stempel/Besuch, Prämien). */
+    public static function rest_save_config(WP_REST_Request $req) {
+        $b = $req->get_json_params();
+        if (!is_array($b)) $b = [];
+        if (array_key_exists('enabled', $b)) {
+            update_option('_tix_loyalty_enabled', filter_var($b['enabled'], FILTER_VALIDATE_BOOLEAN) ? '1' : '0');
+        }
+        if (array_key_exists('stamps_per_visit', $b)) {
+            update_option('_tix_loyalty_stamps_per_visit', max(1, intval($b['stamps_per_visit'])));
+        }
+        if (array_key_exists('rewards', $b) && is_array($b['rewards'])) {
+            $clean = [];
+            foreach ($b['rewards'] as $r) {
+                if (!is_array($r)) continue;
+                $title = sanitize_text_field($r['title'] ?? '');
+                if ($title === '') continue;
+                $id = sanitize_key($r['id'] ?? '');
+                if ($id === '') $id = sanitize_key(sanitize_title($title));
+                if ($id === '') $id = 'r' . count($clean);
+                $clean[] = [
+                    'id'          => $id,
+                    'cost'        => max(1, intval($r['cost'] ?? 1)),
+                    'title'       => $title,
+                    'description' => sanitize_text_field($r['description'] ?? ''),
+                    'type'        => sanitize_key($r['type'] ?? 'reward'),
+                ];
+            }
+            update_option('_tix_loyalty_rewards', $clean, false);
+        }
+        return self::rest_config();
+    }
+
     private static function reward_state($uid) {
         $points = self::points($uid);
         $out = [];
@@ -292,6 +324,10 @@ class TIX_Loyalty {
         register_rest_route(self::NS, '/loyalty/config', [
             'methods' => 'GET', 'callback' => [__CLASS__, 'rest_config'],
             'permission_callback' => '__return_true',
+        ]);
+        register_rest_route(self::NS, '/loyalty/config', [
+            'methods' => 'POST', 'callback' => [__CLASS__, 'rest_save_config'],
+            'permission_callback' => $organizer,
         ]);
         register_rest_route(self::NS, '/loyalty/me', [
             'methods' => 'GET', 'callback' => [__CLASS__, 'rest_me'],
