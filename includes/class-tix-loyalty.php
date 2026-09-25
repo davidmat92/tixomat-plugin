@@ -149,7 +149,7 @@ class TIX_Loyalty {
 
         $n = self::stamps_per_visit();
         self::set_points($uid, self::points($uid) + $n);
-        $label = $event_id > 0 ? get_the_title($event_id) : 'Besuch';
+        $label = ($event_id > 0 && get_post_type($event_id) === 'tix_event') ? get_the_title($event_id) : 'Besuch';
         self::log($uid, 'stamp', $n, $label !== '' ? $label : 'Besuch');
         return $n;
     }
