@@ -59,8 +59,9 @@ class TIX_App_Web {
     // ──────────────────────────────────────────
 
     private static $WD = ['', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'];
-    private static $WD_SHORT = ['', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
+    private static $WD_SHORT = ['', 'Mo.', 'Di.', 'Mi.', 'Do.', 'Fr.', 'Sa.', 'So.'];
     private static $MON = ['', 'Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
+    private static $MON_SHORT = ['', 'Jan.', 'Feb.', 'März', 'Apr.', 'Mai', 'Juni', 'Juli', 'Aug.', 'Sep.', 'Okt.', 'Nov.', 'Dez.'];
 
     /** DateTime in WP-Zeitzone aus Datum (Y-m-d) + Zeit (H:i); null wenn kein Datum. */
     private static function dt($date, $time, $fallback_time) {
@@ -79,6 +80,14 @@ class TIX_App_Web {
     private static function long_date(DateTime $dt, $with_time = true) {
         $s = self::$WD[(int) $dt->format('N')] . ', ' . (int) $dt->format('j') . '. '
             . self::$MON[(int) $dt->format('n')] . ' ' . $dt->format('Y');
+        if ($with_time) $s .= ' · ' . $dt->format('H:i') . ' Uhr';
+        return $s;
+    }
+
+    /** Kurzform wie in der App (KkDateTile): „Fr., 30. Okt. 2026 · 23:00 Uhr“. */
+    private static function short_date(DateTime $dt, $with_time = true) {
+        $s = self::$WD_SHORT[(int) $dt->format('N')] . ' ' . (int) $dt->format('j') . '. '
+            . self::$MON_SHORT[(int) $dt->format('n')] . ' ' . $dt->format('Y');
         if ($with_time) $s .= ' · ' . $dt->format('H:i') . ' Uhr';
         return $s;
     }
@@ -139,6 +148,7 @@ class TIX_App_Web {
         $price_from = $e['price_from'];
         $is_free   = $enabled && $price_from !== null && (float) $price_from == 0.0;
         $has_presale = $enabled && !$cancelled && !$soldout;
+        $has_cta     = $has_presale || $soldout || $cancelled;
         $age       = trim((string) ($e['age_label'] ?? ''));
         $status_label = trim((string) ($e['status_label'] ?? ''));
 
@@ -215,7 +225,7 @@ class TIX_App_Web {
         // JSON-LD Event
         self::json_ld($e, $start, $end, $permalink, $flyer, $venue, $address, $price_from, $is_free);
         echo '<style>' . self::css() . '</style>';
-        echo '</head><body>';
+        echo '</head><body' . ($has_cta ? ' class="has-cta"' : '') . '>';
 
         // ── Sticky Kopf ──
         echo '<header class="bar"><a class="brand" href="' . esc_url(home_url('/')) . '" aria-label="KitchenKlub Startseite">';
@@ -249,10 +259,10 @@ class TIX_App_Web {
 
         // ── Termin-Tabelle ──
         echo '<div class="card infos">';
-        echo self::info_row('Beginn', $start ? self::long_date($start) : 'Termin folgt');
+        echo self::info_row('Beginn', $start ? self::short_date($start) : 'Termin folgt');
         if ($end && (($e['date_end'] ?? '') !== '' || ($e['time_end'] ?? '') !== '')) {
             $end_same_day = $start && $start->format('Y-m-d') === $end->format('Y-m-d');
-            echo self::info_row('Ende', $end_same_day ? $end->format('H:i') . ' Uhr' : self::long_date($end));
+            echo self::info_row('Ende', $end_same_day ? $end->format('H:i') . ' Uhr' : self::short_date($end));
         }
         if ($doors) echo self::info_row('Einlass', $doors->format('H:i') . ' Uhr');
         echo '</div>';
@@ -333,7 +343,7 @@ class TIX_App_Web {
         echo '</main>';
 
         // ── Sticky CTA ──
-        if ($has_presale || $soldout || $cancelled) {
+        if ($has_cta) {
             echo '<div class="cta">';
             if ($has_presale && !$is_free && $price_from !== null) {
                 echo '<div class="ctaprice"><span class="lbl">Preis</span><span class="val">ab ' . esc_html(self::money($price_from)) . '</span></div>';
@@ -495,6 +505,7 @@ img{display:block;max-width:100%}
 .rowsub{color:var(--sec);font-size:12.5px;font-weight:400;margin-top:2px}
 .row>svg{width:18px;height:18px;color:#fff}
 .footspace{height:28px}
+body.has-cta .footspace{height:104px}
 .cta{position:fixed;left:0;right:0;bottom:0;z-index:30;display:flex;align-items:center;gap:16px;max-width:640px;margin:0 auto;padding:14px 20px;padding-bottom:calc(14px + env(safe-area-inset-bottom));background:linear-gradient(to bottom,rgba(74,74,74,0),var(--bg) 30%)}
 .ctaprice{display:flex;flex-direction:column;flex:0 0 auto}
 .ctaprice .lbl{color:var(--sec);font-size:12.5px}
