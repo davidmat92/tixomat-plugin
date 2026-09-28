@@ -179,7 +179,12 @@ class TIX_Notifications {
         ], 200);
     }
 
-    /** POST /notifications/broadcast {title, body, event_id?} – Veranstalter. */
+    /**
+     * POST /notifications/broadcast {title, body, event_id?, action?, target?}
+     * target: 'all' (Standard, alle App-Nutzer) oder 'event' (nur Ticket-Käufer
+     * des Events mit App-Konto). Ist ein event_id gesetzt, verlinkt die
+     * Nachricht automatisch auf das Event.
+     */
     public static function rest_broadcast(WP_REST_Request $req) {
         $title = self::clean($req->get_param('title'));
         $body  = self::clean($req->get_param('body'));
@@ -187,17 +192,67 @@ class TIX_Notifications {
             return new WP_Error('tix_empty', 'Titel oder Text erforderlich.', ['status' => 400]);
         }
         if ($title === '') $title = 'KitchenKlub';
+        $event_id = intval($req->get_param('event_id'));
+        $target   = sanitize_key((string) $req->get_param('target'));
+        $action   = (string) $req->get_param('action');
+        if ($action === '' && $event_id) $action = 'event:' . $event_id;
+
+        // Nur Käufer dieses Events (mit App-Konto)
+        if ($target === 'event' && $event_id) {
+            $uids = self::event_ticket_user_ids($event_id);
+            foreach ($uids as $uid) {
+                self::add_user_item($uid, $title, $body, [
+                    'type'     => 'message',
+                    'event_id' => $event_id,
+                    'action'   => $action,
+                ]);
+            }
+            return new WP_REST_Response([
+                'ok'         => true,
+                'pushed'     => self::apns_configured(),
+                'recipients' => count($uids),
+                'target'     => 'event',
+            ], 200);
+        }
+
+        // An alle App-Nutzer
         $item = self::add_broadcast($title, $body, [
             'type'     => 'message',
-            'event_id' => intval($req->get_param('event_id')),
-            'action'   => (string) $req->get_param('action'),
+            'event_id' => $event_id,
+            'action'   => $action,
         ]);
         return new WP_REST_Response([
             'ok'         => true,
             'item'       => $item,
             'pushed'     => self::apns_configured(),
             'recipients' => count(self::tokens()),
+            'target'     => 'all',
         ], 200);
+    }
+
+    /** Nutzer-IDs mit Ticket für dieses Event (nur Konten, für Ziel 'event'). */
+    private static function event_ticket_user_ids($event_id) {
+        $posts = get_posts([
+            'post_type'      => 'tix_ticket',
+            'post_status'    => ['publish', 'private'],
+            'posts_per_page' => 3000,
+            'fields'         => 'ids',
+            'meta_query'     => [
+                ['key' => '_tix_ticket_event_id', 'value' => intval($event_id), 'compare' => '='],
+            ],
+        ]);
+        $emails = [];
+        foreach ($posts as $pid) {
+            $e = get_post_meta($pid, '_tix_ticket_owner_email', true);
+            if (!$e) $e = get_post_meta($pid, '_tix_email', true);
+            if ($e) $emails[strtolower(trim((string) $e))] = true;
+        }
+        $uids = [];
+        foreach (array_keys($emails) as $e) {
+            $u = get_user_by('email', $e);
+            if ($u) $uids[$u->ID] = true;
+        }
+        return array_keys($uids);
     }
 
     /** POST /push/register {token, platform} – Geräte-Token merken. */
