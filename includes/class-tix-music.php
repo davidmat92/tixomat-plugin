@@ -281,7 +281,7 @@ class TIX_Music {
         $plain = function ($ts) { return gmdate('Y-m-d H:i', $ts); };
         return [
             'id'        => intval($event_id),
-            'title'     => get_the_title($event_id),
+            'title'     => html_entity_decode(get_the_title($event_id), ENT_QUOTES, 'UTF-8'),
             'date'      => (string) get_post_meta($event_id, '_tix_date_start', true),
             'location'  => (string) get_post_meta($event_id, '_tix_location', true),
             'image'     => get_the_post_thumbnail_url($event_id, 'medium') ?: '',
@@ -802,7 +802,7 @@ class TIX_Music {
         $event = null;
         if ($event_id) {
             $w = self::event_window($event_id);
-            $event = $w ? self::event_payload($event_id, $w) : ['id' => $event_id, 'title' => get_the_title($event_id)];
+            $event = $w ? self::event_payload($event_id, $w) : ['id' => $event_id, 'title' => html_entity_decode(get_the_title($event_id), ENT_QUOTES, 'UTF-8')];
         }
         $data = $event_id ? self::grouped_requests($event_id) : ['requests' => [], 'counts' => ['open' => 0, 'played' => 0, 'rejected' => 0, 'total' => 0]];
         return rest_ensure_response([
