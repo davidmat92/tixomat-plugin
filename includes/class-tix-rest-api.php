@@ -1527,9 +1527,11 @@ class TIX_REST_API {
         if (!self::can_access_event($event_id)) {
             return new WP_Error('forbidden', 'Kein Zugriff.', ['status' => 403]);
         }
+        // Kein Fehler, wenn ein Event keine Kategorien hat: leere Liste (200).
+        // Die App zeigt dann einen sauberen Hinweis statt einer Fehlermeldung.
         $cats = get_post_meta($event_id, '_tix_ticket_categories', true);
-        if (!is_array($cats) || empty($cats)) {
-            return new WP_Error('no_categories', 'Keine Ticket-Kategorien.', ['status' => 404]);
+        if (!is_array($cats)) {
+            $cats = [];
         }
         $categories = [];
         foreach ($cats as $idx => $cat) {
