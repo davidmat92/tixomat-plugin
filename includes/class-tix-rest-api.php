@@ -36,6 +36,11 @@ class TIX_REST_API {
         if (!get_role('tix_dj')) {
             add_role('tix_dj', 'DJ (App)', ['read' => true, 'tix_app_dj' => true]);
         }
+        // Rolle „Eingang (App)“: darf nur einchecken/scannen und die Namensliste
+        // sehen (kein Zugriff auf Adressen, Bestellungen, Statistik, Kasse, Editor).
+        if (!get_role('tix_entrance')) {
+            add_role('tix_entrance', 'Eingang (App)', ['read' => true, 'tix_app_entrance' => true]);
+        }
     }
 
     /** Admin, Mitarbeiter (App) oder Veranstalter-Rolle? */
@@ -187,7 +192,9 @@ class TIX_REST_API {
         register_rest_route($ns, '/events', [
             'methods'             => 'GET',
             'callback'            => [__CLASS__, 'get_events'],
-            'permission_callback' => [__CLASS__, 'check_organizer'],
+            // Auch „Eingang“ (zum Auswählen des Events fürs Einchecken); die Liste
+            // enthält nur Titel/Datum/Zählstände, keinen Umsatz oder Adressen.
+            'permission_callback' => [__CLASS__, 'check_entrance'],
         ]);
 
         register_rest_route($ns, '/events/(?P<id>\d+)', [
@@ -218,25 +225,25 @@ class TIX_REST_API {
         register_rest_route($ns, '/checkin/scan', [
             'methods'             => 'POST',
             'callback'            => [__CLASS__, 'checkin_scan'],
-            'permission_callback' => [__CLASS__, 'check_organizer'],
+            'permission_callback' => [__CLASS__, 'check_entrance'],
         ]);
 
         register_rest_route($ns, '/checkin/(?P<event_id>\d+)/list', [
             'methods'             => 'GET',
             'callback'            => [__CLASS__, 'checkin_list'],
-            'permission_callback' => [__CLASS__, 'check_organizer'],
+            'permission_callback' => [__CLASS__, 'check_entrance'],
         ]);
 
         register_rest_route($ns, '/checkin/(?P<event_id>\d+)/guest/(?P<guest_id>[A-Za-z0-9-]+)', [
             'methods'             => 'POST',
             'callback'            => [__CLASS__, 'checkin_update_guest'],
-            'permission_callback' => [__CLASS__, 'check_organizer'],
+            'permission_callback' => [__CLASS__, 'check_entrance'],
         ]);
 
         register_rest_route($ns, '/checkin/ticket/(?P<ticket_id>\d+)/toggle', [
             'methods'             => 'POST',
             'callback'            => [__CLASS__, 'checkin_toggle_ticket'],
-            'permission_callback' => [__CLASS__, 'check_organizer'],
+            'permission_callback' => [__CLASS__, 'check_entrance'],
         ]);
 
         // ── Gästeliste ──
@@ -388,6 +395,34 @@ class TIX_REST_API {
         return new WP_Error('rest_forbidden', 'Keine Berechtigung. Rolle „Veranstalter“ oder „Mitarbeiter (App)“ erforderlich.', ['status' => 403]);
     }
 
+    /** Hat der Nutzer die Rolle „Eingang (App)“? */
+    public static function is_entrance_user($user) {
+        return $user && $user->ID && (
+            $user->has_cap('tix_app_entrance') ||
+            in_array('tix_entrance', (array) $user->roles, true)
+        );
+    }
+
+    /** Reiner Eingang-Zugang (Eingang, aber kein Voll-Staff/Admin)? */
+    public static function is_entrance_only($user) {
+        return self::is_entrance_user($user) && !self::is_staff_user($user);
+    }
+
+    /**
+     * Berechtigung für Check-in/Einlass: volle Staff-Rollen ODER „Eingang“.
+     * Nur für Scan + Namensliste, NICHT für Bestellungen/Statistik/Kasse.
+     */
+    public static function check_entrance(WP_REST_Request $req) {
+        if (!is_user_logged_in()) {
+            return new WP_Error('rest_not_logged_in', 'Authentifizierung erforderlich.', ['status' => 401]);
+        }
+        $user = wp_get_current_user();
+        if (self::is_staff_user($user) || self::is_entrance_user($user)) {
+            return true;
+        }
+        return new WP_Error('rest_forbidden', 'Keine Berechtigung für den Einlass.', ['status' => 403]);
+    }
+
     /**
      * Prüft ob der aktuelle User Zugriff auf ein bestimmtes Event hat.
      */
@@ -403,8 +438,11 @@ class TIX_REST_API {
 
     private static function can_access_event($event_id) {
         $user = wp_get_current_user();
-        // Admins und Mitarbeiter (App) sehen alles
-        if ($user->has_cap('manage_options') || in_array('tix_staff', (array) $user->roles, true)) {
+        // Admins und Mitarbeiter (App) sehen alles; „Eingang“ ebenfalls (nur Check-in,
+        // die restlichen Endpunkte sperrt bereits die jeweilige permission_callback).
+        if ($user->has_cap('manage_options')
+            || in_array('tix_staff', (array) $user->roles, true)
+            || self::is_entrance_user($user)) {
             return true;
         }
         // Veranstalter: nur eigene Events – ohne Verknüpfung alle (Ein-Club-Setup)
@@ -1060,6 +1098,15 @@ class TIX_REST_API {
                 $stats['tickets']++;
                 if ($checked_in) $stats['checked_in']++;
             }
+        }
+
+        // „Eingang“ sieht nur Name + Check-in-Status, keine personenbezogenen
+        // Zusatzdaten (E-Mail, Notiz, Sitzplatz).
+        if (self::is_entrance_only(wp_get_current_user())) {
+            foreach ($combined as &$row) {
+                unset($row['email'], $row['note'], $row['seat']);
+            }
+            unset($row);
         }
 
         return rest_ensure_response([
