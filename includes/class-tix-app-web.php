@@ -22,9 +22,11 @@ if (!defined('ABSPATH')) exit;
 class TIX_App_Web {
 
     const OPT_EVENTS = '_tix_app_web_events'; // 'on' => App-Design als Live-Standard für Event-Seiten
+    const OPT_HOME   = '_tix_app_web_home';   // 'on' => App-Design als Live-Standard für die Startseite
 
     public static function init() {
         // Priorität 6: nach Organizer-/DJ-Shell (5), damit Personal-Vollbild Vorrang hat.
+        add_action('template_redirect', [__CLASS__, 'maybe_render_home'], 6);
         add_action('template_redirect', [__CLASS__, 'maybe_render_event'], 6);
     }
 
@@ -52,6 +54,40 @@ class TIX_App_Web {
         header('Content-Type: text/html; charset=UTF-8');
         self::render($e, $indexable);
         exit;
+    }
+
+    public static function maybe_render_home() {
+        if (is_admin() || is_feed() || is_embed()) return;
+        if (!(is_front_page() || is_home())) return;
+
+        $is_preview = isset($_GET['kkapp']);
+        $live       = get_option(self::OPT_HOME) === 'on';
+        if (!$is_preview && !$live) return; // Breakdance rendert die Startseite normal
+
+        nocache_headers();
+        header('Content-Type: text/html; charset=UTF-8');
+        self::render_home($live && !$is_preview, $is_preview);
+        exit;
+    }
+
+    /** Kommende Events (nicht vergangen), nach Datum aufsteigend, als Payloads. */
+    private static function upcoming_events($limit = 30) {
+        $ids = get_posts([
+            'post_type'      => 'event',
+            'post_status'    => 'publish',
+            'posts_per_page' => 200,
+            'fields'         => 'ids',
+            'meta_key'       => '_tix_date_start',
+            'orderby'        => 'meta_value',
+            'order'          => 'ASC',
+        ]);
+        $out = [];
+        foreach ($ids as $id) {
+            $p = TIX_Public_Events::payload($id, false);
+            if ($p && empty($p['is_past'])) $out[] = $p;
+            if (count($out) >= $limit) break;
+        }
+        return $out;
     }
 
     // ──────────────────────────────────────────
@@ -363,6 +399,138 @@ class TIX_App_Web {
     }
 
     // ──────────────────────────────────────────
+    //  Startseite
+    // ──────────────────────────────────────────
+
+    /** Event-Link; in der Vorschau mit ?kkapp=1, damit die ganze Tour App-Design bleibt. */
+    private static function event_link($e, $preview) {
+        $url = (string) ($e['url'] ?? '');
+        if ($preview && $url !== '') $url .= (strpos($url, '?') !== false ? '&' : '?') . 'kkapp=1';
+        return $url;
+    }
+
+    /** Datums-Badge (Wochentag/Tag/Monat) für die Flyer-Ecke. */
+    private static function date_badge($e) {
+        $dt = self::dt($e['date_start'] ?? '', $e['time_start'] ?? '', '00:00');
+        if (!$dt) return '';
+        return '<span class="datebadge"><i>' . esc_html(self::$WD_SHORT[(int) $dt->format('N')]) . '</i>'
+            . '<b>' . (int) $dt->format('j') . '</b>'
+            . '<i>' . esc_html(self::$MON_SHORT[(int) $dt->format('n')]) . '</i></span>';
+    }
+
+    private static function status_badge($e) {
+        if (self::is_cancelled($e)) return '<span class="pbadge b-signal">Abgesagt</span>';
+        if (self::is_soldout($e))   return '<span class="pbadge b-signal">Ausverkauft</span>';
+        if (!empty($e['tickets_enabled'])) return '<span class="pbadge b-signal">Vorverkauf</span>';
+        return '';
+    }
+
+    /** Event-Karte (Flyer + Datums-Badge, Titel, Ort). $hero = große Überlagerungs-Karte. */
+    private static function event_card($e, $preview, $hero = false) {
+        $link  = self::event_link($e, $preview);
+        $flyer = (string) ($e['thumbnail'] ?? $e['image'] ?? '');
+        $sm    = (string) ($e['image_small'] ?? '');
+        $title = (string) $e['title'];
+        $addr  = trim((string) ($e['address'] ?? ''));
+        $venue = trim((string) ($e['location'] ?? ''));
+        $place = $addr !== '' ? $addr : $venue;
+        $dt    = self::dt($e['date_start'] ?? '', $e['time_start'] ?? '', '00:00');
+        $meta  = ($dt ? self::short_date($dt, false) : '') . ($place !== '' ? ' · ' . $place : '');
+        $img   = $flyer !== ''
+            ? '<img src="' . esc_url($flyer) . '" alt="' . esc_attr($title) . '" loading="lazy"'
+                . ($sm !== '' ? ' style="background-image:url(' . esc_url($sm) . ')"' : '') . '>'
+            : '';
+
+        if ($hero) {
+            return '<a class="ecard hero" href="' . esc_url($link) . '"><div class="eflyer">' . $img
+                . self::status_badge($e)
+                . '<div class="hero-ov"><div class="hero-t">' . esc_html($title) . '</div>'
+                . ($meta !== '' ? '<div class="hero-m">' . self::icon('pin') . '<span>' . esc_html($meta) . '</span></div>' : '')
+                . '</div></div></a>';
+        }
+        return '<a class="ecard" href="' . esc_url($link) . '"><div class="eflyer">' . $img
+            . self::date_badge($e) . self::status_badge($e) . '</div>'
+            . '<div class="ecard-b"><div class="etitle">' . esc_html($title) . '</div>'
+            . ($meta !== '' ? '<div class="emeta">' . esc_html($meta) . '</div>' : '')
+            . '</div></a>';
+    }
+
+    private static function render_home($indexable, $preview) {
+        $events = self::upcoming_events(30);
+        $site_name = get_bloginfo('name') ?: 'KitchenKlub';
+        $tagline   = trim((string) get_bloginfo('description'));
+        $home_url  = home_url('/');
+        $title = $site_name . ($tagline !== '' ? ' – ' . $tagline : ' – Club, Events & Tickets');
+        $desc  = $tagline !== '' ? $tagline : 'Club-Events, Partys und Tickets bei KitchenKlub.';
+        if ($events) {
+            $names = array_map(function ($e) { return (string) $e['title']; }, array_slice($events, 0, 3));
+            $desc = 'Kommende Events: ' . implode(' · ', $names) . '. Tickets & Infos bei KitchenKlub.';
+        }
+        $desc = mb_substr($desc, 0, 200);
+        $og_img = '';
+        foreach ($events as $e) { if (!empty($e['image'])) { $og_img = (string) $e['image']; break; } }
+
+        $logo_id  = get_theme_mod('custom_logo');
+        $logo_url = $logo_id ? wp_get_attachment_image_url($logo_id, 'full') : '';
+
+        // ── HEAD ──
+        echo '<!DOCTYPE html><html lang="de"><head><meta charset="utf-8">';
+        echo '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">';
+        echo '<title>' . esc_html($title) . '</title>';
+        echo '<meta name="description" content="' . esc_attr($desc) . '">';
+        echo '<link rel="canonical" href="' . esc_url($home_url) . '">';
+        if (!$indexable) echo '<meta name="robots" content="noindex,follow">';
+        echo '<meta name="theme-color" content="#4A4A4A">';
+        echo '<meta property="og:type" content="website"><meta property="og:site_name" content="' . esc_attr($site_name) . '">';
+        echo '<meta property="og:title" content="' . esc_attr($title) . '">';
+        echo '<meta property="og:description" content="' . esc_attr($desc) . '">';
+        echo '<meta property="og:url" content="' . esc_url($home_url) . '">';
+        if ($og_img !== '') { echo '<meta property="og:image" content="' . esc_url($og_img) . '">'; echo '<meta name="twitter:card" content="summary_large_image">'; }
+        echo '<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>';
+        echo '<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">';
+        echo '<style>' . self::css() . '</style></head><body>';
+
+        // ── Kopf ──
+        echo '<header class="bar"><a class="brand" href="' . esc_url($home_url) . '" aria-label="KitchenKlub">';
+        if ($logo_url !== '') echo '<img src="' . esc_url($logo_url) . '" alt="KitchenKlub">';
+        else echo '<span class="brandtxt">KITCHENKLUB</span>';
+        echo '</a>';
+        echo '<a class="cbtn" href="https://www.instagram.com/kitchen.klub/" target="_blank" rel="noopener" aria-label="Instagram">' . self::icon('ig') . '</a>';
+        echo '</header>';
+
+        echo '<main class="wrap home">';
+
+        if ($tagline !== '') echo '<p class="home-intro">' . esc_html($tagline) . '</p>';
+
+        if ($events) {
+            $hero = array_shift($events);
+            echo '<section class="sec"><h2>Nächste Party</h2>' . self::event_card($hero, $preview, true) . '</section>';
+            if ($events) {
+                echo '<section class="sec"><h2>Kommende Events</h2><div class="ecards">';
+                foreach ($events as $e) echo self::event_card($e, $preview, false);
+                echo '</div></section>';
+            }
+        } else {
+            echo '<div class="card empty"><p>Zurzeit sind keine Termine veröffentlicht.</p>'
+                . '<p class="sub">Folge uns auf Instagram für neue Partys.</p></div>';
+        }
+
+        // ── Footer ──
+        echo '<footer class="foot">';
+        echo '<a class="foot-ig" href="https://www.instagram.com/kitchen.klub/" target="_blank" rel="noopener">' . self::icon('ig') . '@kitchen.klub</a>';
+        $legal = [];
+        $imp = get_page_by_path('impressum');
+        if ($imp) $legal[] = '<a href="' . esc_url(get_permalink($imp)) . '">Impressum</a>';
+        $priv = get_privacy_policy_url();
+        if ($priv) $legal[] = '<a href="' . esc_url($priv) . '">Datenschutz</a>';
+        if ($legal) echo '<div class="foot-legal">' . implode('<span class="dot">·</span>', $legal) . '</div>';
+        echo '<div class="foot-c">© ' . esc_html(date('Y')) . ' ' . esc_html($site_name) . '</div>';
+        echo '</footer>';
+
+        echo '</main></body></html>';
+    }
+
+    // ──────────────────────────────────────────
     //  Bausteine
     // ──────────────────────────────────────────
 
@@ -418,6 +586,7 @@ class TIX_App_Web {
             'copy'  => '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 012-2h8"/>',
             'nav'   => '<path d="M3 11l18-8-8 18-2-8-8-2z"/>',
             'ticket'=> '<path d="M3 9a2 2 0 012-2h14a2 2 0 012 2 2 2 0 000 6 2 2 0 01-2 2H5a2 2 0 01-2-2 2 2 0 000-6z"/><path d="M13 7v10"/>',
+            'ig'    => '<rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.2" cy="6.8" r="1" fill="currentColor" stroke="none"/>',
         ];
         $p = $paths[$name] ?? '';
         return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' . $p . '</svg>';
@@ -512,6 +681,36 @@ body.has-cta .footspace{height:104px}
 .ctaprice .val{font-size:18px;font-weight:700}
 .cta .btn{flex:1}
 @media(min-width:641px){.cta{border-radius:16px 16px 0 0}}
+/* Startseite */
+.home{padding-bottom:32px}
+.home-intro{color:var(--body);font-size:15px;line-height:1.55;margin:14px 0 4px}
+.ecards{display:grid;grid-template-columns:1fr;gap:16px}
+@media(min-width:560px){.ecards{grid-template-columns:1fr 1fr}}
+.ecard{display:block;background:var(--card);border:1px solid var(--hair);border-radius:16px;overflow:hidden;transition:transform .15s,border-color .15s}
+.ecard:hover{transform:translateY(-2px);border-color:var(--hairS)}
+.eflyer{position:relative;aspect-ratio:1.6;background:var(--card)}
+.eflyer img{width:100%;height:100%;object-fit:cover;background-size:cover;background-position:center}
+.datebadge{position:absolute;top:10px;left:10px;display:flex;flex-direction:column;align-items:center;background:#fff;color:var(--night);border-radius:10px;padding:6px 9px;line-height:1;box-shadow:0 4px 12px rgba(0,0,0,.25)}
+.datebadge i{font-style:normal;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.3px;color:#5C5A57}
+.datebadge b{font-size:18px;font-weight:800;margin:1px 0}
+.pbadge{position:absolute;top:10px;right:10px;font-size:10.5px;font-weight:700;padding:5px 8px;border-radius:8px;background:var(--signal);color:#fff}
+.ecard-b{padding:12px 14px 14px}
+.etitle{font-weight:700;font-size:15px;line-height:1.3;letter-spacing:-.2px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.emeta{color:var(--sec);font-size:12.5px;margin-top:5px;display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}
+.ecard.hero .eflyer{aspect-ratio:1.5}
+.hero-ov{position:absolute;left:0;right:0;bottom:0;padding:16px 16px 14px;background:linear-gradient(to top,rgba(0,0,0,.82),rgba(0,0,0,.15) 70%,transparent)}
+.hero-t{font-size:20px;font-weight:800;line-height:1.2;letter-spacing:-.3px;color:#fff;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.hero-m{display:flex;align-items:center;gap:5px;color:rgba(255,255,255,.85);font-size:13px;margin-top:6px}
+.hero-m svg{width:14px;height:14px;flex:0 0 14px}
+.empty{margin-top:20px;padding:28px 20px;text-align:center}
+.empty p{margin:0}.empty .sub{color:var(--sec);font-size:13px;margin-top:8px}
+.foot{margin-top:32px;padding-top:20px;border-top:1px solid var(--hair);text-align:center}
+.foot-ig{display:inline-flex;align-items:center;gap:8px;font-weight:600;font-size:14px}
+.foot-ig svg{width:20px;height:20px}
+.foot-legal{margin-top:12px;color:var(--sec);font-size:13px}
+.foot-legal a{color:var(--sec)}.foot-legal a:hover{color:#fff}
+.foot-legal .dot{margin:0 8px;color:var(--muted)}
+.foot-c{margin-top:12px;color:var(--muted);font-size:12px}
 CSS;
     }
 
