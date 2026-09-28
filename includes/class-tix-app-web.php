@@ -698,7 +698,7 @@ body.has-cta .footspace{height:104px}
 .etitle{font-weight:700;font-size:15px;line-height:1.3;letter-spacing:-.2px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .emeta{color:var(--sec);font-size:12.5px;margin-top:5px;display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}
 .ecard.hero .eflyer{aspect-ratio:1.5}
-.hero-ov{position:absolute;left:0;right:0;bottom:0;padding:16px 16px 14px;background:linear-gradient(to top,rgba(0,0,0,.82),rgba(0,0,0,.15) 70%,transparent)}
+.hero-ov{position:absolute;left:0;right:0;bottom:0;padding:20px 16px 14px;background:linear-gradient(to top,rgba(0,0,0,.92),rgba(0,0,0,.55) 45%,rgba(0,0,0,0) 88%)}
 .hero-t{font-size:20px;font-weight:800;line-height:1.2;letter-spacing:-.3px;color:#fff;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .hero-m{display:flex;align-items:center;gap:5px;color:rgba(255,255,255,.85);font-size:13px;margin-top:6px}
 .hero-m svg{width:14px;height:14px;flex:0 0 14px}
