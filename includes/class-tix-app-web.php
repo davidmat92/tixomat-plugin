@@ -98,6 +98,8 @@ class TIX_App_Web {
     private static $WD_SHORT = ['', 'Mo.', 'Di.', 'Mi.', 'Do.', 'Fr.', 'Sa.', 'So.'];
     private static $MON = ['', 'Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
     private static $MON_SHORT = ['', 'Jan.', 'Feb.', 'März', 'Apr.', 'Mai', 'Juni', 'Juli', 'Aug.', 'Sep.', 'Okt.', 'Nov.', 'Dez.'];
+    // Datums-Kachel wie KkDateTile: Monat 3-stellig GROSS ohne Punkt.
+    private static $MON_TILE = ['', 'JAN', 'FEB', 'MÄR', 'APR', 'MAI', 'JUN', 'JUL', 'AUG', 'SEP', 'OKT', 'NOV', 'DEZ'];
 
     /** DateTime in WP-Zeitzone aus Datum (Y-m-d) + Zeit (H:i); null wenn kein Datum. */
     private static function dt($date, $time, $fallback_time) {
@@ -409,57 +411,130 @@ class TIX_App_Web {
         return $url;
     }
 
-    /** Datums-Badge (Wochentag/Tag/Monat) für die Flyer-Ecke. */
-    private static function date_badge($e) {
+    private static function presale_active($e) {
+        return !empty($e['tickets_enabled']) && !self::is_cancelled($e) && !self::is_soldout($e);
+    }
+
+    /** Kompaktes Datum wie Fmt.dateCompact: „Fr., 2. Okt.“ */
+    private static function compact_date(DateTime $dt) {
+        return self::$WD_SHORT[(int) $dt->format('N')] . ', ' . (int) $dt->format('j') . '. '
+            . self::$MON_SHORT[(int) $dt->format('n')];
+    }
+
+    /** Weiße Datums-Kachel wie KkDateTile: Wochentag / Tag / MONAT. */
+    private static function date_tile($e) {
         $dt = self::dt($e['date_start'] ?? '', $e['time_start'] ?? '', '00:00');
-        if (!$dt) return '';
-        return '<span class="datebadge"><i>' . esc_html(self::$WD_SHORT[(int) $dt->format('N')]) . '</i>'
-            . '<b>' . (int) $dt->format('j') . '</b>'
-            . '<i>' . esc_html(self::$MON_SHORT[(int) $dt->format('n')]) . '</i></span>';
+        if (!$dt) {
+            return '<div class="dtile"><span class="dwd"></span><span class="dday">–</span><span class="dmon">BALD</span></div>';
+        }
+        return '<div class="dtile"><span class="dwd">' . esc_html(self::$WD_SHORT[(int) $dt->format('N')]) . '</span>'
+            . '<span class="dday">' . (int) $dt->format('j') . '</span>'
+            . '<span class="dmon">' . esc_html(self::$MON_TILE[(int) $dt->format('n')]) . '</span></div>';
     }
 
-    private static function status_badge($e) {
-        if (self::is_cancelled($e)) return '<span class="pbadge b-signal">Abgesagt</span>';
-        if (self::is_soldout($e))   return '<span class="pbadge b-signal">Ausverkauft</span>';
-        if (!empty($e['tickets_enabled'])) return '<span class="pbadge b-signal">Vorverkauf</span>';
-        return '';
-    }
-
-    /** Event-Karte (Flyer + Datums-Badge, Titel, Ort). $hero = große Überlagerungs-Karte. */
-    private static function event_card($e, $preview, $hero = false) {
+    /** Highlight-Karte wie _HighlightCard: Flyer + Datums-Badge + Vorverkauf, Titel, Ort. */
+    private static function highlight_card($e, $preview) {
         $link  = self::event_link($e, $preview);
-        $flyer = (string) ($e['thumbnail'] ?? $e['image'] ?? '');
+        $img   = (string) ($e['thumbnail'] ?? $e['image'] ?? '');
         $sm    = (string) ($e['image_small'] ?? '');
         $title = (string) $e['title'];
         $addr  = trim((string) ($e['address'] ?? ''));
         $venue = trim((string) ($e['location'] ?? ''));
         $place = $addr !== '' ? $addr : $venue;
         $dt    = self::dt($e['date_start'] ?? '', $e['time_start'] ?? '', '00:00');
-        $meta  = ($dt ? self::short_date($dt, false) : '') . ($place !== '' ? ' · ' . $place : '');
-        $img   = $flyer !== ''
-            ? '<img src="' . esc_url($flyer) . '" alt="' . esc_attr($title) . '" loading="lazy"'
-                . ($sm !== '' ? ' style="background-image:url(' . esc_url($sm) . ')"' : '') . '>'
-            : '';
-
-        if ($hero) {
-            return '<a class="ecard hero" href="' . esc_url($link) . '"><div class="eflyer">' . $img
-                . self::status_badge($e)
-                . '<div class="hero-ov"><div class="hero-t">' . esc_html($title) . '</div>'
-                . ($meta !== '' ? '<div class="hero-m">' . self::icon('pin') . '<span>' . esc_html($meta) . '</span></div>' : '')
-                . '</div></div></a>';
-        }
-        return '<a class="ecard" href="' . esc_url($link) . '"><div class="eflyer">' . $img
-            . self::date_badge($e) . self::status_badge($e) . '</div>'
-            . '<div class="ecard-b"><div class="etitle">' . esc_html($title) . '</div>'
-            . ($meta !== '' ? '<div class="emeta">' . esc_html($meta) . '</div>' : '')
+        $badge = $dt ? '<span class="hbadge">' . self::icon('calblank') . esc_html(self::compact_date($dt)) . '</span>' : '';
+        $tag   = self::presale_active($e) ? '<span class="htag">' . self::icon('ticket') . 'Vorverkauf</span>' : '';
+        $imgt  = $img !== ''
+            ? '<img src="' . esc_url($img) . '" alt="' . esc_attr($title) . '" loading="lazy"'
+                . ($sm !== '' ? ' style="background-image:url(' . esc_url($sm) . ')"' : '') . '>' : '';
+        return '<a class="hcard" href="' . esc_url($link) . '"><div class="hcard-img">' . $imgt . $badge . $tag . '</div>'
+            . '<div class="hcard-b"><div class="hcard-t">' . esc_html($title) . '</div>'
+            . '<div class="hcard-m">' . self::icon('pin') . '<span>' . esc_html($place !== '' ? $place : 'Mehr erfahren') . '</span></div>'
             . '</div></a>';
+    }
+
+    /** Event-Zeile wie EventRow: Datums-Kachel + Karte (Flyer, Titel, Uhrzeit). */
+    private static function event_row($e, $preview) {
+        $link  = self::event_link($e, $preview);
+        $img   = (string) ($e['image_small'] ?? $e['thumbnail'] ?? '');
+        $title = (string) $e['title'];
+        $dt    = self::dt($e['date_start'] ?? '', $e['time_start'] ?? '', '00:00');
+        $hasTime = trim((string) ($e['time_start'] ?? '')) !== '';
+        if (self::is_cancelled($e))      $meta = ['warn', 'Abgesagt'];
+        elseif (self::is_soldout($e))    $meta = ['warn', 'Ausverkauft'];
+        else                             $meta = ['pin', ($dt && $hasTime) ? $dt->format('H:i') : ''];
+        $tag = self::presale_active($e) ? '<span class="rowtag">' . self::icon('ticket') . 'Vorverkauf</span>' : '';
+        $imgt = $img !== '' ? '<img src="' . esc_url($img) . '" alt="' . esc_attr($title) . '" loading="lazy">' : '';
+        $metah = $meta[1] !== '' ? '<div class="row-m ' . ($meta[0] === 'warn' ? 'row-warn' : '') . '">'
+            . self::icon($meta[0]) . '<span>' . esc_html($meta[1]) . '</span></div>' : '';
+        return '<a class="erow" href="' . esc_url($link) . '">' . self::date_tile($e)
+            . '<div class="erow-c"><div class="erow-img">' . $imgt . $tag . '</div>'
+            . '<div class="erow-b"><div class="erow-t">' . esc_html($title) . '</div>' . $metah . '</div></div></a>';
+    }
+
+    /** Kachel-Aktion → Web-Ziel. WordPress-Seiten direkt, App-Funktionen in die echte App. */
+    private static function tile_href($action, $preview) {
+        $a = strtolower(trim((string) $action));
+        if (strpos($a, 'url:') === 0) return substr($action, 4);
+        if (strpos($a, 'page:') === 0) {
+            $slug = substr($action, 5);
+            $pg = get_page_by_path($slug);
+            return $pg ? get_permalink($pg) : home_url('/' . $slug . '/');
+        }
+        return home_url('/app-preview/');
+    }
+
+    /** Kacheln + Hashtag: aus _tix_app_config (falls gesetzt), sonst App-Defaults. */
+    private static function home_content() {
+        $cfg = get_option('_tix_app_config');
+        if (is_string($cfg)) $cfg = json_decode($cfg, true);
+        $tiles = [];
+        $hashtag = '#kitchengehtimmer';
+        if (is_array($cfg)) {
+            $home = isset($cfg['home']) && is_array($cfg['home']) ? $cfg['home'] : [];
+            if (!empty($home['hashtag'])) $hashtag = (string) $home['hashtag'];
+            if (!empty($home['tiles']) && is_array($home['tiles'])) {
+                foreach ($home['tiles'] as $t) {
+                    if (!is_array($t)) continue;
+                    $tiles[] = [
+                        'icon'   => (string) ($t['icon'] ?? 'link'),
+                        'label'  => (string) ($t['label'] ?? ''),
+                        'action' => (string) ($t['action'] ?? ''),
+                    ];
+                }
+            }
+        }
+        if (!$tiles) {
+            $tiles = [
+                ['icon' => 'calendar', 'label' => 'Events',        'action' => 'tab:events'],
+                ['icon' => 'ticket',   'label' => 'Vorverkauf',    'action' => 'presale'],
+                ['icon' => 'heart',    'label' => 'Musikwunsch',   'action' => 'page:musikwunsch'],
+                ['icon' => 'gift',     'label' => 'Gutscheine',    'action' => 'giftcards'],
+                ['icon' => 'info',     'label' => 'Ü16-Partys',    'action' => 'page:u16'],
+                ['icon' => 'doc',      'label' => 'Muttizettel',   'action' => 'muttizettel'],
+                ['icon' => 'loyalty',  'label' => 'Prämien',       'action' => 'loyalty'],
+                ['icon' => 'help',     'label' => 'FAQ',           'action' => 'page:faq'],
+                ['icon' => 'ticket',   'label' => 'Meine Tickets', 'action' => 'tab:tickets'],
+                ['icon' => 'chat',     'label' => 'Kontakt',       'action' => 'page:kontakt'],
+            ];
+        }
+        return ['tiles' => $tiles, 'hashtag' => $hashtag];
+    }
+
+    private static function section_title($title, $link_label = '', $link_href = '') {
+        $a = ($link_label !== '' && $link_href !== '')
+            ? '<a class="seclink" href="' . esc_url($link_href) . '">' . esc_html($link_label) . '</a>' : '';
+        return '<div class="sectitle"><h2>' . esc_html($title) . '</h2>' . $a . '</div>';
     }
 
     private static function render_home($indexable, $preview) {
         $events = self::upcoming_events(30);
+        $content = self::home_content();
         $site_name = get_bloginfo('name') ?: 'KitchenKlub';
         $tagline   = trim((string) get_bloginfo('description'));
         $home_url  = home_url('/');
+        // „Alle Events“ / Sektions-Links: vorerst in die echte App (Events-Tab).
+        $events_href = home_url('/app-preview/');
         $title = $site_name . ($tagline !== '' ? ' – ' . $tagline : ' – Club, Events & Tickets');
         $desc  = $tagline !== '' ? $tagline : 'Club-Events, Partys und Tickets bei KitchenKlub.';
         if ($events) {
@@ -490,32 +565,75 @@ class TIX_App_Web {
         echo '<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">';
         echo '<style>' . self::css() . '</style></head><body>';
 
-        // ── Kopf ──
-        echo '<header class="bar"><a class="brand" href="' . esc_url($home_url) . '" aria-label="KitchenKlub">';
+        // ── Kopf (Logo + Glocke + Konto, wie KkHeader) ──
+        echo '<header class="bar">';
+        echo '<a class="brand" href="' . esc_url($home_url) . '" aria-label="KitchenKlub">';
         if ($logo_url !== '') echo '<img src="' . esc_url($logo_url) . '" alt="KitchenKlub">';
         else echo '<span class="brandtxt">KITCHENKLUB</span>';
         echo '</a>';
-        echo '<a class="cbtn" href="https://www.instagram.com/kitchen.klub/" target="_blank" rel="noopener" aria-label="Instagram">' . self::icon('ig') . '</a>';
-        echo '</header>';
+        echo '<div class="bar-actions">';
+        echo '<a class="hact" href="' . esc_url(home_url('/app-preview/')) . '" aria-label="Mitteilungen">' . self::icon('bell') . '</a>';
+        echo '<a class="hact" href="' . esc_url(home_url('/app-preview/')) . '" aria-label="Konto">' . self::icon('user') . '</a>';
+        echo '</div></header>';
 
         echo '<main class="wrap home">';
 
-        if ($tagline !== '') echo '<p class="home-intro">' . esc_html($tagline) . '</p>';
-
+        // ── Highlights (Karussell) ──
+        echo '<section class="block">';
+        echo self::section_title('Highlights', 'Alle Events', $events_href);
         if ($events) {
-            $hero = array_shift($events);
-            echo '<section class="sec"><h2>Nächste Party</h2>' . self::event_card($hero, $preview, true) . '</section>';
-            if ($events) {
-                echo '<section class="sec"><h2>Kommende Events</h2><div class="ecards">';
-                foreach ($events as $e) echo self::event_card($e, $preview, false);
-                echo '</div></section>';
+            echo '<div class="carousel" id="hlc"><div class="track">';
+            foreach ($events as $e) echo self::highlight_card($e, $preview);
+            echo '<a class="moretile" href="' . esc_url($events_href) . '"><span class="more-ic">' . self::icon('arrow') . '</span><span class="more-l">Alle Events</span></a>';
+            echo '</div></div>';
+            if (count($events) > 1) {
+                echo '<div class="dots" id="hld">';
+                for ($i = 0; $i < count($events); $i++) echo '<span class="dot' . ($i === 0 ? ' on' : '') . '"></span>';
+                echo '</div>';
             }
         } else {
-            echo '<div class="card empty"><p>Zurzeit sind keine Termine veröffentlicht.</p>'
-                . '<p class="sub">Folge uns auf Instagram für neue Partys.</p></div>';
+            echo '<div class="hl-empty">' . self::brand_mark() . '</div>';
+        }
+        echo '</section>';
+
+        // ── Nächste Partys (2 Zeilen) ──
+        $now = time();
+        $next = array_slice($events, 0, 2);
+        if ($next) {
+            echo '<section class="block">';
+            echo self::section_title('Nächste Partys', 'Alle anzeigen', $events_href);
+            echo '<div class="rows">';
+            foreach ($next as $e) echo self::event_row($e, $preview);
+            echo '</div></section>';
         }
 
-        // ── Footer ──
+        // ── Hashtag ──
+        if ($content['hashtag'] !== '') {
+            echo '<div class="hashtag">' . esc_html($content['hashtag']) . '</div>';
+        }
+
+        // ── Kacheln ──
+        echo '<section class="block tiles">';
+        foreach ($content['tiles'] as $t) {
+            if (($t['label'] ?? '') === '') continue;
+            echo '<a class="tile" href="' . esc_url(self::tile_href($t['action'], $preview)) . '">'
+                . '<span class="tile-ic">' . self::icon((string) $t['icon']) . '</span>'
+                . '<span class="tile-l">' . esc_html($t['label']) . '</span>'
+                . '<span class="tile-cv">' . self::icon('caret') . '</span></a>';
+        }
+        echo '</section>';
+
+        // ── Tickets im Vorverkauf ──
+        $presale = array_values(array_filter($events, function ($e) { return self::presale_active($e); }));
+        if ($presale) {
+            echo '<section class="block">';
+            echo self::section_title('Tickets im Vorverkauf', 'Alle anzeigen', $events_href);
+            echo '<div class="rows">';
+            foreach ($presale as $e) echo self::event_row($e, $preview);
+            echo '</div></section>';
+        }
+
+        // ── Footer (dezent; rechtlich nötig, in der App unter „Konto“) ──
         echo '<footer class="foot">';
         echo '<a class="foot-ig" href="https://www.instagram.com/kitchen.klub/" target="_blank" rel="noopener">' . self::icon('ig') . '@kitchen.klub</a>';
         $legal = [];
@@ -527,7 +645,13 @@ class TIX_App_Web {
         echo '<div class="foot-c">© ' . esc_html(date('Y')) . ' ' . esc_html($site_name) . '</div>';
         echo '</footer>';
 
-        echo '</main></body></html>';
+        echo '</main>' . self::home_js() . '</body></html>';
+    }
+
+    private static function brand_mark() {
+        $logo_id  = get_theme_mod('custom_logo');
+        $logo_url = $logo_id ? wp_get_attachment_image_url($logo_id, 'full') : '';
+        return $logo_url ? '<img src="' . esc_url($logo_url) . '" alt="KitchenKlub" style="height:30px;opacity:.7">' : '<span class="brandtxt">KITCHENKLUB</span>';
     }
 
     // ──────────────────────────────────────────
@@ -574,22 +698,29 @@ class TIX_App_Web {
         echo '<script type="application/ld+json">' . wp_json_encode($data) . '</script>';
     }
 
-    /** Inline-SVG-Icons (Phosphor-ähnlich, strokeweight passend zur App). */
+    /** Icon = echtes Phosphor-Regular-SVG (identisch zur App), viewBox 256, fill.
+     *  $name akzeptiert Phosphor-Namen (map-pin) oder Kurz-Aliasse (pin, cal …). */
     private static function icon($name) {
-        $paths = [
-            'pin'   => '<path d="M12 21s-6-5.686-6-10a6 6 0 1112 0c0 4.314-6 10-6 10z"/><circle cx="12" cy="11" r="2.2"/>',
-            'cal'   => '<rect x="3.5" y="4.5" width="17" height="16" rx="2"/><path d="M3.5 9h17M8 3v3M16 3v3M12 13v4M10 15h4"/>',
-            'share' => '<path d="M4 12v7a1 1 0 001 1h14a1 1 0 001-1v-7"/><path d="M12 15V4M8 8l4-4 4 4"/>',
-            'wa'    => '<path d="M12 3a9 9 0 00-7.7 13.6L3 21l4.5-1.2A9 9 0 1012 3z"/><path d="M8.5 8.5c-.3 2 .8 3.9 2 5.1 1.2 1.2 3.1 2.3 5.1 2 .5-.1.9-.5 1-1l.2-1c.1-.4-.1-.8-.5-1l-1.4-.6c-.3-.1-.7 0-.9.3l-.4.5c-.9-.4-1.7-1.2-2.1-2.1l.5-.4c.3-.2.4-.6.3-.9l-.6-1.4c-.2-.4-.6-.6-1-.5l-1 .2c-.5.1-.9.5-1 1z" fill="currentColor" stroke="none"/>',
-            'fb'    => '<path d="M14 8.5V7c0-.7.3-1 1-1h1.5V3H14c-2 0-3.5 1.5-3.5 3.7v1.8H8V12h2.5v9h3v-9h2.3l.4-3.5H13.5z" fill="currentColor" stroke="none"/>',
-            'mail'  => '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M4 7l8 6 8-6"/>',
-            'copy'  => '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 012-2h8"/>',
-            'nav'   => '<path d="M3 11l18-8-8 18-2-8-8-2z"/>',
-            'ticket'=> '<path d="M3 9a2 2 0 012-2h14a2 2 0 012 2 2 2 0 000 6 2 2 0 01-2 2H5a2 2 0 01-2-2 2 2 0 000-6z"/><path d="M13 7v10"/>',
-            'ig'    => '<rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.2" cy="6.8" r="1" fill="currentColor" stroke="none"/>',
+        static $alias = [
+            'pin' => 'map-pin', 'cal' => 'calendar-plus', 'share' => 'export',
+            'wa' => 'whatsapp-logo', 'fb' => 'facebook-logo', 'mail' => 'envelope-simple',
+            'nav' => 'navigation-arrow', 'ig' => 'instagram-logo', 'caret' => 'caret-right',
+            'arrow' => 'arrow-right', 'warn' => 'warning-circle', 'caldot' => 'calendar-dots',
+            'calblank' => 'calendar-blank', 'doc' => 'file-text', 'loyalty' => 'seal-check',
+            'help' => 'question', 'chat' => 'chat-circle', 'calendar' => 'calendar-dots',
+            'music' => 'heart', 'faq' => 'question', 'contact' => 'chat-circle',
+            'document' => 'file-text', 'muttizettel' => 'file-text', 'praemien' => 'seal-check',
+            'account' => 'user', 'konto' => 'user',
         ];
-        $p = $paths[$name] ?? '';
-        return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' . $p . '</svg>';
+        static $map = null;
+        if ($map === null) {
+            $f = __DIR__ . '/tix-app-web-icons.php';
+            $map = is_readable($f) ? include $f : [];
+            if (!is_array($map)) $map = [];
+        }
+        $key = isset($alias[$name]) ? $alias[$name] : $name;
+        $p = isset($map[$key]) ? $map[$key] : (isset($map['arrow-up-right']) ? $map['arrow-up-right'] : '');
+        return '<svg viewBox="0 0 256 256" fill="currentColor" aria-hidden="true">' . $p . '</svg>';
     }
 
     // ──────────────────────────────────────────
@@ -608,7 +739,7 @@ img{display:block;max-width:100%}
 .brand img{height:34px;width:auto}
 .brandtxt{font-weight:800;letter-spacing:.5px;font-size:16px}
 .wrap{max-width:640px;margin:0 auto;padding:16px 20px 0}
-.cbtn{width:44px;height:44px;flex:0 0 44px;display:inline-flex;align-items:center;justify-content:center;border-radius:999px;border:1px solid var(--hairS);background:transparent;color:#fff;cursor:pointer;transition:background .15s}
+.cbtn{width:44px;height:44px;flex:0 0 44px;display:inline-flex;align-items:center;justify-content:center;border-radius:999px;border:0;background:var(--card);color:#fff;cursor:pointer;transition:background .15s}
 .cbtn:hover{background:var(--hair)}
 .cbtn svg{width:20px;height:20px}
 .flyer{border-radius:16px;overflow:hidden;aspect-ratio:1.85;background:var(--card)}
@@ -681,36 +812,70 @@ body.has-cta .footspace{height:104px}
 .ctaprice .val{font-size:18px;font-weight:700}
 .cta .btn{flex:1}
 @media(min-width:641px){.cta{border-radius:16px 16px 0 0}}
-/* Startseite */
-.home{padding-bottom:32px}
-.home-intro{color:var(--body);font-size:15px;line-height:1.55;margin:14px 0 4px}
-.ecards{display:grid;grid-template-columns:1fr;gap:16px}
-@media(min-width:560px){.ecards{grid-template-columns:1fr 1fr}}
-.ecard{display:block;background:var(--card);border:1px solid var(--hair);border-radius:16px;overflow:hidden;transition:transform .15s,border-color .15s}
-.ecard:hover{transform:translateY(-2px);border-color:var(--hairS)}
-.eflyer{position:relative;aspect-ratio:1.6;background:var(--card)}
-.eflyer img{width:100%;height:100%;object-fit:cover;background-size:cover;background-position:center}
-.datebadge{position:absolute;top:10px;left:10px;display:flex;flex-direction:column;align-items:center;background:#fff;color:var(--night);border-radius:10px;padding:6px 9px;line-height:1;box-shadow:0 4px 12px rgba(0,0,0,.25)}
-.datebadge i{font-style:normal;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.3px;color:#5C5A57}
-.datebadge b{font-size:18px;font-weight:800;margin:1px 0}
-.pbadge{position:absolute;top:10px;right:10px;font-size:10.5px;font-weight:700;padding:5px 8px;border-radius:8px;background:var(--signal);color:#fff}
-.ecard-b{padding:12px 14px 14px}
-.etitle{font-weight:700;font-size:15px;line-height:1.3;letter-spacing:-.2px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-.emeta{color:var(--sec);font-size:12.5px;margin-top:5px;display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}
-.ecard.hero .eflyer{aspect-ratio:1.5}
-.hero-ov{position:absolute;left:0;right:0;bottom:0;padding:20px 16px 14px;background:linear-gradient(to top,rgba(0,0,0,.92),rgba(0,0,0,.55) 45%,rgba(0,0,0,0) 88%)}
-.hero-t{font-size:20px;font-weight:800;line-height:1.2;letter-spacing:-.3px;color:#fff;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-.hero-m{display:flex;align-items:center;gap:5px;color:rgba(255,255,255,.85);font-size:13px;margin-top:6px}
-.hero-m svg{width:14px;height:14px;flex:0 0 14px}
-.empty{margin-top:20px;padding:28px 20px;text-align:center}
-.empty p{margin:0}.empty .sub{color:var(--sec);font-size:13px;margin-top:8px}
-.foot{margin-top:32px;padding-top:20px;border-top:1px solid var(--hair);text-align:center}
-.foot-ig{display:inline-flex;align-items:center;gap:8px;font-weight:600;font-size:14px}
+/* ── Startseite (App-getreu) ── */
+.wrap.home{padding-top:4px;padding-bottom:0}
+.bar-actions{display:flex;align-items:center;gap:10px}
+.hact{width:36px;height:36px;flex:0 0 36px;display:inline-flex;align-items:center;justify-content:center;border-radius:999px;background:var(--card);color:#fff}
+.hact svg{width:17px;height:17px}
+.block{margin-top:24px}
+.block:first-child{margin-top:0}
+.sectitle{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
+.sectitle h2{font-size:18px;font-weight:700;letter-spacing:-.2px;margin:0}
+.seclink{color:var(--sec);font-size:14px;font-weight:500;white-space:nowrap}
+.carousel{overflow-x:auto;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch;scrollbar-width:none;margin-right:-20px;padding-right:20px}
+.carousel::-webkit-scrollbar{display:none}
+.track{display:flex;gap:12px;align-items:stretch}
+.hcard{flex:0 0 74%;max-width:340px;min-width:210px;scroll-snap-align:start;background:var(--card);border-radius:16px;padding:8px;display:block}
+.hcard-img{position:relative;border-radius:12px;overflow:hidden;aspect-ratio:1.85;background:var(--card)}
+.hcard-img img{width:100%;height:100%;object-fit:cover;background-size:cover;background-position:center}
+.hbadge,.htag{position:absolute;top:10px;display:inline-flex;align-items:center;gap:5px;border-radius:8px;padding:4px 8px;font-size:11px;font-weight:600;line-height:1}
+.hbadge{left:10px;background:#fff;color:var(--night)}
+.htag{right:10px;background:var(--signal);color:#fff}
+.hbadge svg,.htag svg{width:12px;height:12px}
+.hcard-b{padding:10px 6px 4px}
+.hcard-t{font-size:15px;font-weight:600;letter-spacing:-.1px;line-height:1.3;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hcard-m{display:flex;align-items:center;gap:4px;margin-top:4px;color:var(--sec);font-size:12.5px}
+.hcard-m svg{width:13px;height:13px;flex:0 0 13px;color:var(--sec)}
+.hcard-m span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.moretile{flex:0 0 128px;scroll-snap-align:start;background:var(--card);border:1px solid var(--hair);border-radius:16px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:0 6px;text-align:center}
+.more-ic{width:40px;height:40px;border-radius:20px;background:#fff;display:flex;align-items:center;justify-content:center}
+.more-ic svg{width:20px;height:20px;color:var(--night)}
+.more-l{font-size:12.5px;font-weight:700;color:#fff}
+.dots{display:flex;justify-content:center;gap:4px;margin-top:12px}
+.dot{width:16px;height:4px;border-radius:20px;background:rgba(255,255,255,.38);transition:width .25s,background .25s}
+.dot.on{width:30px;background:#fff}
+.hl-empty{aspect-ratio:1.85;background:var(--card);border:1px solid var(--hair);border-radius:16px;display:flex;align-items:center;justify-content:center}
+.rows{display:flex;flex-direction:column;gap:12px}
+.erow{display:flex;align-items:stretch;gap:10px}
+.dtile{flex:0 0 46px;width:46px;background:#fff;border-radius:8px;display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1.1}
+.dwd{font-size:11px;font-weight:600;color:#5C5A57}
+.dday{font-size:18px;font-weight:700;color:var(--night);margin:1px 0}
+.dmon{font-size:10.5px;font-weight:700;letter-spacing:.6px;color:#5C5A57}
+.erow-c{flex:1;min-width:0;background:var(--card);border-radius:16px;display:flex;align-items:center;overflow:hidden}
+.erow-img{padding:8px;flex:0 0 auto;position:relative}
+.erow-img img{height:66px;aspect-ratio:1.9;width:auto;object-fit:cover;border-radius:8px;display:block}
+.rowtag{position:absolute;left:12px;bottom:12px;display:inline-flex;align-items:center;gap:3px;background:var(--signal);color:#fff;border-radius:5px;padding:3px 6px;font-size:9.5px;font-weight:600;line-height:1}
+.rowtag svg{width:10px;height:10px}
+.erow-b{flex:1;min-width:0;padding:8px 12px 8px 4px}
+.erow-t{font-size:15px;font-weight:600;line-height:1.25;color:#fff;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.row-m{display:flex;align-items:center;gap:4px;margin-top:3px;color:var(--sec);font-size:12px}
+.row-m svg{width:12px;height:12px;flex:0 0 12px;color:var(--sec)}
+.row-m span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row-warn{color:#F2899A}.row-warn svg{color:#F2899A}
+.hashtag{text-align:center;color:var(--sec);font-size:16px;font-weight:600;padding:28px 0 14px}
+.tiles{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:24px}
+.tile{display:flex;align-items:center;gap:10px;background:var(--card);border-radius:12px;padding:9px 12px;min-height:52px}
+.tile-ic{flex:0 0 20px;display:flex}.tile-ic svg{width:20px;height:20px;color:#fff}
+.tile-l{flex:1;min-width:0;font-size:14px;font-weight:500;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tile-cv{flex:0 0 auto;display:flex}.tile-cv svg{width:14px;height:14px;color:var(--muted)}
+.foot{margin-top:28px;padding-top:20px;border-top:1px solid var(--hair);text-align:center;padding-bottom:24px}
+.foot-ig{display:inline-flex;align-items:center;gap:8px;font-weight:600;font-size:14px;color:#fff}
 .foot-ig svg{width:20px;height:20px}
 .foot-legal{margin-top:12px;color:var(--sec);font-size:13px}
 .foot-legal a{color:var(--sec)}.foot-legal a:hover{color:#fff}
 .foot-legal .dot{margin:0 8px;color:var(--muted)}
 .foot-c{margin-top:12px;color:var(--muted);font-size:12px}
+@media(min-width:700px){.hcard{flex:0 0 calc((100% - 24px)/3)}}
 CSS;
     }
 
@@ -764,6 +929,24 @@ CSS;
       });}
     });
   });
+})();
+</script>
+JS;
+    }
+
+    /** Karussell: aktive Punkte beim Scrollen + Auto-Weiterblättern (7 s, wie App). */
+    private static function home_js() {
+        return <<<'JS'
+<script>
+(function(){
+  var c=document.getElementById('hlc'); if(!c) return;
+  var track=c.querySelector('.track'); var dots=document.getElementById('hld');
+  function ext(){ var f=track&&track.children[0]; return f?f.getBoundingClientRect().width+12:c.clientWidth; }
+  function idx(){ return Math.round(c.scrollLeft/ext()); }
+  function paint(){ if(!dots) return; var i=idx(),d=dots.children; for(var k=0;k<d.length;k++){ d[k].className='dot'+(k===i?' on':''); } }
+  var t; c.addEventListener('scroll',function(){ clearTimeout(t); t=setTimeout(paint,80); });
+  var slides=dots?dots.children.length:0;
+  if(slides>1){ setInterval(function(){ var n=(idx()+1)%slides; c.scrollTo({left:Math.round(n*ext()),behavior:'smooth'}); },7000); }
 })();
 </script>
 JS;
