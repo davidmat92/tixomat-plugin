@@ -47,6 +47,12 @@ class TIX_App_Account {
             'callback'            => [__CLASS__, 'change_password'],
             'permission_callback' => [__CLASS__, 'check_customer'],
         ]);
+        // Konto endgültig löschen (Apple-Pflicht 5.1.1(v) bei App-Konten)
+        register_rest_route(self::NS, '/auth/delete', [
+            'methods'             => 'POST',
+            'callback'            => [__CLASS__, 'delete_account'],
+            'permission_callback' => [__CLASS__, 'check_customer'],
+        ]);
         register_rest_route(self::NS, '/customer/tickets/(?P<id>\d+)/pdf', [
             'methods'             => 'GET',
             'callback'            => [__CLASS__, 'ticket_pdf'],
@@ -376,6 +382,48 @@ class TIX_App_Account {
             'success' => true,
             'user'    => self::user_payload($user),
         ]);
+    }
+
+    /**
+     * Konto endgültig löschen (in der App bestätigt).
+     * Entfernt den WordPress-Nutzer inkl. aller User-Meta, Profilbild und
+     * App-Tokens. Bestellungen/Tickets sind an die E-Mail gebunden und bleiben
+     * aus buchhalterischen/gesetzlichen Gründen erhalten (kein Login mehr möglich).
+     * Mitarbeiter-/Veranstalter-/Admin-Konten sind hier gesperrt.
+     */
+    public static function delete_account(WP_REST_Request $req) {
+        $user = wp_get_current_user();
+        if (!$user || !$user->ID) {
+            return self::error('rest_not_logged_in', 'Authentifizierung erforderlich.', 401);
+        }
+        if (self::rate_limited('delete', 5, 600, 'u' . $user->ID)) {
+            return self::error('tix_rate_limit', 'Zu viele Versuche. Bitte später erneut versuchen.', 429);
+        }
+        // Personal-/Veranstalter-/Admin-Konten nicht über die App löschbar.
+        $protected = ['administrator', 'tix_organizer', 'tix_staff', 'tix_dj', 'tix_entrance'];
+        if (array_intersect($protected, (array) $user->roles)) {
+            return self::error('tix_delete_forbidden', 'Dieses Konto kann nicht in der App gelöscht werden. Bitte wende dich an den Support.', 403);
+        }
+        $uid = $user->ID;
+        // Profilbild-Datei entfernen (liegt außerhalb der Mediathek).
+        $file = basename((string) get_user_meta($uid, '_tix_avatar_file', true));
+        if ($file !== '' && $file !== '.' && $file !== '..') {
+            $up = wp_get_upload_dir();
+            $path = trailingslashit($up['basedir']) . 'tix-avatars/' . $file;
+            if (is_file($path)) @unlink($path);
+        }
+        // App-Tokens sofort entwerten.
+        delete_user_meta($uid, '_tix_app_tokens');
+        delete_user_meta($uid, '_tix_app_token');
+        // WordPress-Nutzer löschen (entfernt Konto + sämtliche User-Meta).
+        if (!function_exists('wp_delete_user')) {
+            require_once ABSPATH . 'wp-admin/includes/user.php';
+        }
+        $ok = wp_delete_user($uid);
+        if (!$ok) {
+            return self::error('tix_delete_failed', 'Konto konnte nicht gelöscht werden.', 500);
+        }
+        return rest_ensure_response(['ok' => true, 'deleted' => true]);
     }
 
     // ──────────────────────────────────────────
