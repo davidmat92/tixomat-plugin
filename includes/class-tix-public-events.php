@@ -113,6 +113,10 @@ class TIX_Public_Events {
         $status  = (string) (get_post_meta($id, '_tix_status', true) ?: 'available');
         $organizer = (string) (get_post_meta($id, '_tix_organizer_display', true) ?: get_post_meta($id, '_tix_organizer', true));
         if ($organizer === '' && ($oid = intval(get_post_meta($id, '_tix_organizer_id', true)))) $organizer = (string) get_the_title($oid);
+        // Plattform-Felder (evendis): Veranstalter-Referenz, Sparte, Ort mit Stadt/Koordinaten, Module
+        $org_id   = intval(get_post_meta($id, '_tix_organizer_id', true));
+        $platform = class_exists('TIX_Public_Platform');
+        $org_info = $platform ? TIX_Public_Platform::organizer_ref($org_id, $organizer) : null;
         $out = [
             'id'              => intval($id),
             'title'           => (string) $post->post_title,
@@ -131,6 +135,10 @@ class TIX_Public_Events {
             'location'        => (string) get_post_meta($id, '_tix_location', true),
             'address'         => (string) get_post_meta($id, '_tix_address', true),
             'organizer'       => $organizer,
+            'organizer_info'  => $org_info,
+            'category'        => $platform ? TIX_Public_Platform::event_category($id) : null,
+            'venue'           => $platform ? TIX_Public_Platform::venue($id) : null,
+            'modules'         => ($platform && !empty($org_info['id'])) ? TIX_Public_Platform::modules($org_info['id']) : null,
             'age_label'       => self::age_label($id),
             'status'          => $status,
             'status_label'    => (string) get_post_meta($id, '_tix_status_label', true),
@@ -158,31 +166,51 @@ class TIX_Public_Events {
     /** GET /public/events */
     public static function rest_list(WP_REST_Request $req) {
         $filter   = in_array($req->get_param('filter'), ['past', 'all'], true) ? $req->get_param('filter') : 'upcoming';
-        $per_page = max(1, min(100, intval($req->get_param('per_page') ?: 50)));
-        $key      = 'tix_pub_events_' . md5($filter . '|' . $per_page);
+        $per_page = max(1, min(200, intval($req->get_param('per_page') ?: 50)));
+        $page     = max(1, intval($req->get_param('page') ?: 1));
+        $f = [
+            'category'  => sanitize_text_field((string) $req->get_param('category')),
+            'organizer' => sanitize_text_field((string) $req->get_param('organizer')),
+            'city'      => sanitize_text_field((string) $req->get_param('city')),
+            'q'         => sanitize_text_field((string) $req->get_param('q')),
+        ];
+        $key      = 'tix_pub_events_' . md5($filter . '|' . $per_page . '|' . $page . '|' . wp_json_encode($f));
         $cached   = get_transient($key);
         if (is_array($cached)) return rest_ensure_response($cached);
 
         $ids = get_posts([
             'post_type'      => 'event',
             'post_status'    => 'publish',
-            'posts_per_page' => 300,
+            'posts_per_page' => 1000,
             'fields'         => 'ids',
             'meta_key'       => '_tix_date_start',
             'orderby'        => 'meta_value',
             'order'          => $filter === 'past' ? 'DESC' : 'ASC',
         ]);
         $now = self::now();
-        $events = [];
+        $matched = [];
+        $filtering = class_exists('TIX_Public_Platform') && array_filter($f);
         foreach ($ids as $id) {
             list($start, $end) = self::times($id);
             if ($filter === 'upcoming' && $end && $end < $now) continue;
             if ($filter === 'past' && (!$end || $end >= $now)) continue;
             $p = self::payload($id, false);
-            if ($p) $events[] = $p;
-            if (count($events) >= $per_page) break;
+            if (!$p) continue;
+            if ($filtering && !TIX_Public_Platform::matches($p, $f)) continue;
+            $matched[] = $p;
         }
-        $resp = ['ok' => true, 'filter' => $filter, 'count' => count($events), 'events' => $events];
+        $total  = count($matched);
+        $events = array_slice($matched, ($page - 1) * $per_page, $per_page);
+        $resp = [
+            'ok'       => true,
+            'filter'   => $filter,
+            'count'    => count($events),
+            'total'    => $total,
+            'page'     => $page,
+            'per_page' => $per_page,
+            'has_more' => $page * $per_page < $total,
+            'events'   => $events,
+        ];
         set_transient($key, $resp, self::TTL);
         return rest_ensure_response($resp);
     }
