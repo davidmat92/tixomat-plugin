@@ -2184,6 +2184,10 @@ class TIX_REST_API {
         if (!wp_check_password($password, $user->user_pass, $user->ID)) {
             return new WP_Error('invalid_credentials', 'Ungültige E-Mail oder Passwort.', ['status' => 401]);
         }
+        if (class_exists('TIX_App_Account') && get_user_meta($user->ID, TIX_App_Account::META_UNVERIFIED, true)) {
+            // Registrierung noch nicht bestätigt – die App holt sich einen neuen Code (purpose=verify)
+            return new WP_Error('account_unverified', 'Bitte bestätige zuerst deine E-Mail-Adresse. Dafür bekommst du einen Code per E-Mail.', ['status' => 403, 'email' => $user->user_email]);
+        }
 
         // Geräte-Token (90 Tage) – weitere Geräte bleiben angemeldet
         $token = self::issue_app_token($user->ID, (string) ($req->get_param('device') ?? ''));
@@ -2245,18 +2249,42 @@ class TIX_REST_API {
         }
 
         $user = get_user_by('ID', $user_id);
-
-        // Optional: Willkommens-E-Mail senden
-        wp_new_user_notification($user_id, null, 'user');
-
+        update_user_meta($user_id, '_tix_app_created', current_time('mysql'));
+        $verify = filter_var($req->get_param('verify'), FILTER_VALIDATE_BOOLEAN);
+        if ($verify && class_exists('TIX_App_Account')) {
+            // Neue Apps (ab 1.38.323): Konto erst nach Bestätigung der E-Mail-Adresse aktiv –
+            // der Code kommt per Mail und wird in der App eingegeben (POST /auth/code/confirm, purpose=verify).
+            update_user_meta($user_id, TIX_App_Account::META_UNVERIFIED, 1);
+            TIX_App_Account::send_verification_code($email);
+            return rest_ensure_response([
+                'success'               => true,
+                'verification_required' => true,
+                'email'                 => $email,
+                'expires_in'            => TIX_App_Account::CODE_TTL,
+            ]);
+        }
+        // Ältere Apps: sofort angemeldet. Willkommens-Mail ohne „Passwort festlegen“-Link –
+        // das Passwort wurde gerade in der App vergeben.
+        self::send_welcome_email($user);
         // Geräte-Token (90 Tage)
         $token = self::issue_app_token($user_id, (string) ($req->get_param('device') ?? ''));
-
         return rest_ensure_response([
             'success' => true,
             'token'   => $token,
             'user'    => self::format_guest_user($user),
         ]);
+    }
+
+    /** Willkommens-Mail nach der App-Registrierung (kein Passwort-Link, das Passwort ist gesetzt). */
+    private static function send_welcome_email(WP_User $user) {
+        $site = get_bloginfo('name');
+        $body  = '<p>Hallo ' . esc_html($user->first_name ?: $user->display_name) . ',</p>';
+        $body .= '<p>willkommen bei <strong>' . esc_html($site) . '</strong>! Dein Konto ist eingerichtet.</p>';
+        $body .= '<p>Du meldest dich in der App mit <strong>' . esc_html($user->user_email) . '</strong> und dem Passwort an, das du gerade festgelegt hast.</p>';
+        $html = class_exists('TIX_Emails')
+            ? TIX_Emails::build_generic_email_html('Willkommen!', $body, 'Dein Konto wurde erstellt.')
+            : '<html><body>' . $body . '</body></html>';
+        wp_mail($user->user_email, 'Willkommen bei ' . $site, $html, ['Content-Type: text/html; charset=UTF-8']);
     }
 
     /**

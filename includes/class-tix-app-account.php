@@ -26,6 +26,8 @@ class TIX_App_Account {
     const CODE_TTL       = 15 * MINUTE_IN_SECONDS;
     const CODE_MAX_TRIES = 5;
     const META_PASSWORDLESS = '_tix_app_passwordless';
+    /** Konto per App registriert, E-Mail-Adresse noch nicht bestätigt (seit 1.38.323). */
+    const META_UNVERIFIED = '_tix_app_unverified';
 
     public static function init() {
         add_action('rest_api_init', [__CLASS__, 'register_routes']);
@@ -226,17 +228,45 @@ class TIX_App_Account {
         return get_user_by('ID', $user_id);
     }
 
+    /** Zweck eines Einmal-Codes: login (Standard), reset, verify (Konto bestätigen, seit 1.38.323). */
+    private static function normalize_purpose($raw) {
+        $p = (string) $raw;
+        return in_array($p, ['reset', 'verify'], true) ? $p : 'login';
+    }
+
+    /** Code erzeugen, als Transient merken und per E-Mail schicken. */
+    private static function issue_code($email, $purpose, $has_account) {
+        $code = str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+        set_transient(self::code_key($email, $purpose), [
+            'hash'    => self::code_hash($code),
+            'tries'   => 0,
+            'created' => time(),
+        ], self::CODE_TTL);
+        return self::send_code_email($email, $code, $purpose, $has_account);
+    }
+
+    /** Bestätigungscode nach der Registrierung (wird von POST /auth/register aufgerufen). */
+    public static function send_verification_code($email) {
+        return self::issue_code(sanitize_email($email), 'verify', true);
+    }
+
     private static function send_code_email($email, $code, $purpose, $has_account) {
         $site = get_bloginfo('name');
-        $login = ($purpose === 'login');
-        $subject = $login
-            ? 'Dein Anmeldecode – ' . $site
-            : 'Dein Code zum Zurücksetzen des Passworts – ' . $site;
-        $intro = $login
-            ? ($has_account
-                ? 'mit diesem Code meldest du dich ohne Passwort in der App an:'
-                : 'mit diesem Code siehst du deine Tickets in der App – ein Konto legen wir dabei automatisch für dich an:')
-            : 'mit diesem Code legst du in der App ein neues Passwort fest:';
+        $login  = ($purpose === 'login');
+        $verify = ($purpose === 'verify');
+        if ($verify) {
+            $subject = 'Bestätige dein Konto – ' . $site;
+            $intro   = 'schön, dass du dabei bist! Mit diesem Code bestätigst du dein neues Konto in der App – danach ist es aktiv:';
+        } else {
+            $subject = $login
+                ? 'Dein Anmeldecode – ' . $site
+                : 'Dein Code zum Zurücksetzen des Passworts – ' . $site;
+            $intro = $login
+                ? ($has_account
+                    ? 'mit diesem Code meldest du dich ohne Passwort in der App an:'
+                    : 'mit diesem Code siehst du deine Tickets in der App – ein Konto legen wir dabei automatisch für dich an:')
+                : 'mit diesem Code legst du in der App ein neues Passwort fest:';
+        }
         $body  = '<p>Hallo,</p>';
         $body .= '<p>' . $intro . '</p>';
         $body .= '<p style="text-align:center;margin:28px 0;">';
@@ -247,7 +277,7 @@ class TIX_App_Account {
                . 'Gib ihn in der App ein – du musst dafür keinen Link öffnen.</p>';
         $body .= '<p style="color:#94a3b8;font-size:12px;margin-top:24px;">Falls du diesen Code nicht angefordert hast, kannst du diese E-Mail ignorieren.</p>';
         $html = class_exists('TIX_Emails')
-            ? TIX_Emails::build_generic_email_html($login ? 'Dein Anmeldecode' : 'Passwort zurücksetzen', $body, $site . ' App')
+            ? TIX_Emails::build_generic_email_html($verify ? 'Konto bestätigen' : ($login ? 'Dein Anmeldecode' : 'Passwort zurücksetzen'), $body, $site . ' App')
             : '<html><body>' . $body . '</body></html>';
         return wp_mail($email, $subject, $html, ['Content-Type: text/html; charset=UTF-8']);
     }
@@ -259,7 +289,7 @@ class TIX_App_Account {
     /** POST /auth/code */
     public static function request_code(WP_REST_Request $req) {
         $email   = sanitize_email((string) $req->get_param('email'));
-        $purpose = (string) $req->get_param('purpose') === 'reset' ? 'reset' : 'login';
+        $purpose = self::normalize_purpose($req->get_param('purpose'));
         if (!is_email($email)) return self::error('invalid_email', 'Bitte eine gültige E-Mail-Adresse eingeben.');
         if (self::rate_limited('code_ip', 10, 600)) {
             return self::error('tix_rate_limit', 'Zu viele Anfragen. Bitte in ein paar Minuten erneut versuchen.', 429);
@@ -274,13 +304,13 @@ class TIX_App_Account {
         if ($purpose === 'login' && !$user && !self::email_has_orders($email)) {
             return self::error('not_found', 'Wir konnten weder ein Konto noch eine Bestellung mit dieser E-Mail-Adresse finden.', 404);
         }
-        $code = str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT);
-        set_transient(self::code_key($email, $purpose), [
-            'hash'    => self::code_hash($code),
-            'tries'   => 0,
-            'created' => time(),
-        ], self::CODE_TTL);
-        self::send_code_email($email, $code, $purpose, (bool) $user);
+        if ($purpose === 'verify') {
+            if (!$user) return self::error('not_found', 'Zu dieser E-Mail-Adresse gibt es kein Konto.', 404);
+            if (!get_user_meta($user->ID, self::META_UNVERIFIED, true)) {
+                return self::error('already_verified', 'Dieses Konto ist schon bestätigt – du kannst dich einfach anmelden.', 409);
+            }
+        }
+        self::issue_code($email, $purpose, (bool) $user);
         return rest_ensure_response([
             'ok'          => true,
             'email'       => $email,
@@ -293,7 +323,7 @@ class TIX_App_Account {
     /** POST /auth/code/confirm */
     public static function confirm_code(WP_REST_Request $req) {
         $email   = sanitize_email((string) $req->get_param('email'));
-        $purpose = (string) $req->get_param('purpose') === 'reset' ? 'reset' : 'login';
+        $purpose = self::normalize_purpose($req->get_param('purpose'));
         $code    = preg_replace('/\D/', '', (string) $req->get_param('code'));
         if (!is_email($email) || strlen($code) !== 6) {
             return self::error('code_invalid', 'Bitte den 6-stelligen Code aus der E-Mail eingeben.');
@@ -320,6 +350,9 @@ class TIX_App_Account {
 
         $user    = get_user_by('email', $email);
         $created = false;
+        if ($purpose === 'verify' && !$user) {
+            return self::error('not_found', 'Zu dieser E-Mail-Adresse gibt es kein Konto.', 404);
+        }
         if ($purpose === 'reset') {
             if (!$user) return self::error('not_found', 'Zu dieser E-Mail-Adresse gibt es kein Konto.', 404);
             $password = (string) $req->get_param('new_password');
@@ -337,14 +370,21 @@ class TIX_App_Account {
             if (is_wp_error($user)) return self::error('registration_failed', $user->get_error_message(), 500);
             $created = true;
         }
+        // Der Code beweist die E-Mail-Adresse: ein frisch registriertes Konto ist damit bestätigt
+        $verified = (bool) get_user_meta($user->ID, self::META_UNVERIFIED, true);
+        if ($verified) {
+            delete_user_meta($user->ID, self::META_UNVERIFIED);
+            update_user_meta($user->ID, '_tix_app_verified', current_time('mysql'));
+        }
         $user  = get_user_by('ID', $user->ID);
         $token = self::issue_token($user->ID, $req);
         return rest_ensure_response([
-            'ok'      => true,
-            'success' => true,
-            'token'   => $token,
-            'user'    => self::user_payload($user),
-            'created' => $created,
+            'ok'       => true,
+            'success'  => true,
+            'token'    => $token,
+            'user'     => self::user_payload($user),
+            'created'  => $created,
+            'verified' => $verified,
         ]);
     }
 
