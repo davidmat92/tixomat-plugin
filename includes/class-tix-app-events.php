@@ -2,7 +2,8 @@
 /**
  * Tixomat – Event-Editor und Bestell-Details für die App (Veranstalter-Bereich).
  *
- * Routen (X-Tix-Token, Rolle Admin / Veranstalter / Mitarbeiter (App)):
+ * Routen (X-Tix-Token, Rolle Admin / Veranstalter / Mitarbeiter (App); verknüpfte
+ * Veranstalter nur für eigene Events bzw. Bestellungen mit eigenen Positionen):
  *   GET  /events/form                → Vorlagen für ein neues Event (Locations, Info-Sektionen)
  *   GET  /events/{id}/edit           → editierbare Daten eines Events
  *   POST /events                     → Event anlegen   (Body wie /events/{id})
@@ -250,13 +251,12 @@ class TIX_App_Events {
         ], true);
         if (is_wp_error($post_id)) return $post_id;
 
-        // Veranstalter-Verknüpfung des Nutzers übernehmen (falls vorhanden)
-        if (class_exists('TIX_Organizer_Dashboard') && method_exists('TIX_Organizer_Dashboard', 'get_organizer_by_user')) {
-            $org = TIX_Organizer_Dashboard::get_organizer_by_user(get_current_user_id());
-            if ($org) {
-                update_post_meta($post_id, '_tix_organizer_id', $org->ID);
-                update_post_meta($post_id, '_tix_organizer', get_the_title($org->ID));
-            }
+        // Veranstalter-Verknüpfung des Nutzers übernehmen (falls vorhanden) – unabhängig vom
+        // Veranstalter-Dashboard, sonst könnte ein verknüpfter Veranstalter sein neues Event nicht sehen
+        $org_id = TIX_REST_API::organizer_id_for_user(get_current_user_id());
+        if ($org_id) {
+            update_post_meta($post_id, '_tix_organizer_id', $org_id);
+            update_post_meta($post_id, '_tix_organizer', get_the_title($org_id));
         }
 
         $err = self::apply($post_id, $body, true);
@@ -624,26 +624,28 @@ class TIX_App_Events {
     //  Bestellungen
     // ──────────────────────────────────────────
 
-    private static function order_or_error($id) {
+    /**
+     * Bestellung laden + Zugriff über die Events der Positionen (TIX_REST_API::user_can_access_order):
+     * 'read' = mindestens eine Position in einem eigenen Event, 'write' = alle Positionen.
+     */
+    private static function order_or_error($id, $mode = 'read') {
         $order = class_exists('TIX_Order') ? TIX_Order::get(absint($id)) : null;
         if (!$order) return new WP_Error('not_found', 'Bestellung nicht gefunden.', ['status' => 404]);
-        // Zugriff über die Events der Positionen
-        foreach ($order->get_items() as $item) {
-            $eid = $item->get_event_id();
-            if ($eid && !TIX_REST_API::user_can_access_event($eid)) {
-                return new WP_Error('forbidden', 'Kein Zugriff auf diese Bestellung.', ['status' => 403]);
-            }
+        if (!TIX_REST_API::user_can_access_order($order, $mode)) {
+            return new WP_Error('forbidden', 'Kein Zugriff auf diese Bestellung.', ['status' => 403]);
         }
         return $order;
     }
 
     public static function order_detail(WP_REST_Request $req) {
-        $order = self::order_or_error($req['id']);
+        $order = self::order_or_error($req['id'], 'read');
         if (is_wp_error($order)) return $order;
         $id = $order->get_id();
 
         $items = [];
         foreach ($order->get_items() as $item) {
+            // Sammelbestellung: eingegrenzte Veranstalter sehen nur Positionen eigener Events
+            if (!TIX_REST_API::item_visible($item->get_event_id())) continue;
             $cat = trim((string) $item->get_cat_name());
             $items[] = [
                 'name'     => $cat !== '' ? $cat : (string) $item->get_name(),
@@ -665,6 +667,7 @@ class TIX_App_Events {
             'meta_query'     => [['key' => '_tix_ticket_order_id', 'value' => (string) $id]],
         ]);
         foreach ($posts as $tp) {
+            if (!TIX_REST_API::item_visible(get_post_meta($tp->ID, '_tix_ticket_event_id', true))) continue;
             $status = (string) (get_post_meta($tp->ID, '_tix_ticket_status', true) ?: 'valid');
             $tickets[] = [
                 'id'           => $tp->ID,
@@ -719,7 +722,7 @@ class TIX_App_Events {
     }
 
     public static function order_resend(WP_REST_Request $req) {
-        $order = self::order_or_error($req['id']);
+        $order = self::order_or_error($req['id'], 'write');
         if (is_wp_error($order)) return $order;
         $id = $order->get_id();
         if (!class_exists('TIX_Emails') || !method_exists('TIX_Emails', 'send_native_completed')) {

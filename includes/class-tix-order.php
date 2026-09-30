@@ -256,6 +256,16 @@ class TIX_Order {
             $params[] = intval($args['event_id']);
         }
 
+        // Mehrere Events (Veranstalter-Eingrenzung): mindestens eine Position in einem dieser Events.
+        // Leere Liste = keine zugänglichen Events = keine Bestellungen.
+        if (isset($args['event_ids']) && is_array($args['event_ids'])) {
+            $event_ids = array_values(array_filter(array_map('intval', $args['event_ids'])));
+            if (!$event_ids) {
+                return [];
+            }
+            $where[] = "o.id IN (SELECT order_id FROM $ti WHERE event_id IN (" . implode(',', $event_ids) . "))";
+        }
+
         $allowed_cols = ['date_created', 'id', 'total', 'status', 'order_number', 'billing_email', 'billing_last_name'];
         $requested_col = $args['orderby'] ?? 'date_created';
         $order_col = in_array($requested_col, $allowed_cols, true) ? $requested_col : 'date_created';

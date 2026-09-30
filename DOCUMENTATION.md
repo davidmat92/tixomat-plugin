@@ -2611,12 +2611,43 @@ Tokens werden bei `/auth/login` generiert und als SHA-256 Hash in `_tix_app_toke
 | POST | `/auth/profile/avatar` | Avatar hochladen (multipart) | Token |
 | GET | `/customer/tickets` | Tickets des Kunden (Filter: status) | Token |
 | GET | `/customer/events` | Vergangene + kommende Events des Kunden | Token |
+| GET | `/orders` | Native Bestellungen (Filter: status, email, event_id, per_page) | Auth |
+| GET | `/orders/{id}` | Einzelne native Bestellung | Auth |
+| GET | `/orders/{id}/detail` | Bestellung mit Positionen, Kunde, Tickets (App) | Auth |
+| POST | `/orders/{id}/resend-email` | Bestellbestaetigung erneut senden | Auth |
+| POST | `/notifications/broadcast` | Nachricht an alle App-Nutzer (`target=all`, Betreiber) oder an Ticket-Kaeufer eines Events (`target=event`) | Auth |
+| GET/POST | `/app/config` | App-Inhalte lesen (Public) / speichern (Betreiber) | Public / Betreiber |
+| POST | `/loyalty/config`, `/loyalty/scan`, `/loyalty/award`, `/loyalty/redeem` | Treueprogramm verwalten, Gaeste stempeln | Betreiber |
+| GET/POST | `/music/dj/requests`, `/music/dj/requests/{id}/status` | Musikwunsch-Liste (DJ-Key, Rolle DJ oder Veranstalter) | DJ |
+
+### Rollen und Veranstalter-Eingrenzung
+
+| Rolle | Zugriff |
+|---|---|
+| Administrator | alles, seitenweit |
+| `tix_staff` (Mitarbeiter App) | Veranstalter-Bereich fuer alle Events, seitenweit (Betreiber-Personal) |
+| `tix_entrance` (Eingang App) | nur Check-in und Namensliste, alle Events |
+| `tix_dj` (DJ App) | nur Musikwunsch-Liste, alle Events |
+| `tix_organizer` ohne Verknuepfung | wie Mitarbeiter (App), alle Events: Ein-Veranstalter-Betrieb (z. B. KitchenKlub) |
+| `tix_organizer` mit Verknuepfung (`_tix_org_user_id` am `tix_organizer`-Eintrag) | **eingegrenzt**: nur eigene Events inkl. Co-Veranstalter |
+
+Eingegrenzte Veranstalter (Plattform-Betrieb mit vielen Veranstaltern, z. B. evendis.de):
+
+- Events, Statistik, Gaesteliste, Tickets, Check-in, Kasse: nur Events mit `_tix_organizer_id` oder `_tix_co_organizer_id` = eigener Veranstalter (`TIX_REST_API::user_can_access_event`).
+- Bestellungen (`/orders`, `/orders/{id}`, `/orders/{id}/detail`, `/pos/report`, `/pos/transactions`): Bestellung -> Event -> Zugriff (`TIX_REST_API::user_can_access_order`). Lesen: mindestens eine Position in einem eigenen Event, fremde Positionen und Tickets werden ausgeblendet. Aendern (`/pos/orders/{id}/void`, `/pos/orders/{id}/email`, `/orders/{id}/resend-email`): alle Positionen in eigenen Events. Bestellungen ohne Event-Positionen (nur Gutscheine) sind fuer eingegrenzte Veranstalter nicht sichtbar.
+- `/notifications/broadcast`: nur `target=event` mit eigenem Event; Nachrichten an alle App-Nutzer nur fuer Betreiber.
+- Betreiber-Funktionen (`TIX_REST_API::check_site_manager`): `POST /app/config`, `GET /app/config/edit`, `POST /loyalty/config`, `/loyalty/scan|award|redeem` liefern 403 fuer eingegrenzte Veranstalter.
+- Musikwunsch-Liste per Veranstalter-Login: nur eigene Events; DJ-Key und Rolle DJ bleiben seitenweit.
+- Die Eingrenzung gilt unabhaengig vom Setting `organizer_dashboard_enabled`: der Veranstalter-Lookup laeuft direkt in `TIX_REST_API::organizer_id_for_user` (kein `TIX_Organizer_Dashboard`, kein `TIX_Team`).
+- Ein Veranstalter-Eintrag zaehlt nur mit Status `publish` als Verknuepfung; ein unveroeffentlichter Eintrag macht den Nutzer zum unverknuepften Veranstalter (sieht alles).
 
 ### Dateien
 
 | Datei | Beschreibung |
 |---|---|
-| `includes/class-tix-rest-api.php` | REST API Klasse, alle Endpoints, Token-Auth |
+| `includes/class-tix-rest-api.php` | REST API Klasse, alle Endpoints, Token-Auth, Veranstalter-Eingrenzung (`is_scoped_user`, `user_can_access_event`, `user_can_access_order`, `check_site_manager`) |
+| `includes/class-tix-app-events.php` | Event-Editor + Bestell-Details/Resend fuer die App |
+| `includes/class-tix-notifications.php`, `class-tix-app-config.php`, `class-tix-loyalty.php`, `class-tix-music.php` | Benachrichtigungen, App-Inhalte, Treueprogramm, Musikwuensche (DJ) |
 
 ---
 

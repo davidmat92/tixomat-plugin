@@ -319,7 +319,9 @@ class TIX_Loyalty {
 
     // ── Routen ────────────────────────────────────────────────────
     public static function register_routes() {
-        $organizer = ['TIX_REST_API', 'check_organizer'];
+        // Betreiber-Funktion: das Treueprogramm gilt seitenweit – verknüpfte Veranstalter
+        // (Plattform-Betrieb) bekommen für Konfiguration, Scan, Stempel und Einlösen 403
+        $organizer = ['TIX_REST_API', 'check_site_manager'];
 
         register_rest_route(self::NS, '/loyalty/config', [
             'methods' => 'GET', 'callback' => [__CLASS__, 'rest_config'],

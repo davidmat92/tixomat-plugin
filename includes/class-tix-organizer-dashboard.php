@@ -141,8 +141,9 @@ class TIX_Organizer_Dashboard {
         ]);
         if ($orgs) return $orgs[0];
 
-        // Team-Mitglied?
-        if (class_exists('TIX_Team')) {
+        // Team-Mitglied? (nur wenn die Team-Klasse die Methode anbietet – seit dem Umbau
+        // auf App-Rollen liefert sie 0)
+        if (class_exists('TIX_Team') && method_exists('TIX_Team', 'get_organizer_for_user')) {
             $team_org_id = TIX_Team::get_organizer_for_user($user_id);
             if ($team_org_id) {
                 return get_post($team_org_id);

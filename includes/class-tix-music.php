@@ -542,6 +542,18 @@ class TIX_Music {
         return new WP_Error('rest_forbidden', 'DJ-Link oder Veranstalter-Login erforderlich.', ['status' => 401]);
     }
 
+    /**
+     * Zugriff nur über einen verknüpften Veranstalter-Login (Plattform-Betrieb)? DJ-Key und
+     * Rolle „DJ (App)“ bleiben seitenweit; Admin, Mitarbeiter (App) und unverknüpfte
+     * Veranstalter ebenfalls (Ein-Veranstalter-Betrieb).
+     */
+    private static function scoped_organizer(WP_REST_Request $req) {
+        $key = (string) ($req->get_param('key') ?? $req->get_header('x-tix-dj-key') ?? '');
+        if ($key !== '' && hash_equals(self::dj_key(), $key)) return false;
+        if (is_user_logged_in() && current_user_can('tix_app_dj')) return false;
+        return class_exists('TIX_REST_API') && TIX_REST_API::is_scoped_user();
+    }
+
     private static function status_payload() {
         $s   = self::settings();
         $cur = self::current_event();
@@ -789,6 +801,14 @@ class TIX_Music {
         $event_id = intval($req->get_param('event_id'));
         $events   = self::dj_event_candidates();
         $cur      = self::current_event();
+        // Verknüpfter Veranstalter (ohne DJ-Key/DJ-Rolle): nur eigene Events
+        if (self::scoped_organizer($req)) {
+            if ($event_id && !TIX_REST_API::user_can_access_event($event_id)) {
+                return self::error('rest_forbidden', 'Kein Zugriff auf dieses Event.', 403);
+            }
+            $events = array_values(array_filter($events, fn($e) => TIX_REST_API::user_can_access_event(intval($e['id']))));
+            if ($cur && !TIX_REST_API::user_can_access_event(intval($cur['id']))) $cur = null;
+        }
         if (!$event_id) {
             if ($cur) {
                 $event_id = intval($cur['id']);
@@ -826,6 +846,9 @@ class TIX_Music {
         if (!isset(self::STATUSES[$status])) return self::error('tix_music_status', 'Ungültiger Status.', 400);
         $row = $wpdb->get_row($wpdb->prepare("SELECT * FROM $rt WHERE id = %d", $id), ARRAY_A);
         if (!$row) return self::error('tix_music_missing', 'Wunsch nicht gefunden.', 404);
+        if (self::scoped_organizer($req) && !TIX_REST_API::user_can_access_event(intval($row['event_id']))) {
+            return self::error('rest_forbidden', 'Kein Zugriff auf dieses Event.', 403);
+        }
         $now = self::mysql_now();
         $wpdb->query($wpdb->prepare(
             "UPDATE $rt SET status = %s, updated_at = %s, played_at = %s WHERE event_id = %d AND song_key = %s",

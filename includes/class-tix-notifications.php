@@ -197,6 +197,17 @@ class TIX_Notifications {
         $action   = (string) $req->get_param('action');
         if ($action === '' && $event_id) $action = 'event:' . $event_id;
 
+        // Verknüpfte Veranstalter (Plattform-Betrieb): nur Käufer eines eigenen Events,
+        // keine Nachricht an alle App-Nutzer. Betreiber (Admin, Mitarbeiter (App),
+        // unverknüpfter Veranstalter) wie bisher.
+        $scoped = class_exists('TIX_REST_API') && TIX_REST_API::is_scoped_user();
+        if ($scoped && ($target !== 'event' || !$event_id)) {
+            return new WP_Error('rest_forbidden', 'Nachrichten an alle App-Nutzer kann nur der Betreiber senden. Bitte ein eigenes Event wählen (target=event).', ['status' => 403]);
+        }
+        if ($event_id && class_exists('TIX_REST_API') && !TIX_REST_API::user_can_access_event($event_id)) {
+            return new WP_Error('rest_forbidden', 'Kein Zugriff auf dieses Event.', ['status' => 403]);
+        }
+
         // Nur Käufer dieses Events (mit App-Konto)
         if ($target === 'event' && $event_id) {
             $uids = self::event_ticket_user_ids($event_id);

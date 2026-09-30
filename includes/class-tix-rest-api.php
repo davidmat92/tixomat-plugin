@@ -359,17 +359,18 @@ class TIX_REST_API {
             'permission_callback' => [__CLASS__, 'check_authenticated'],
         ]);
 
-        // ── Native Orders ──
+        // ── Native Orders (Admin, Mitarbeiter (App), Veranstalter – verknüpfte Veranstalter
+        //    sehen nur Bestellungen mit Positionen in eigenen Events, siehe user_can_access_order) ──
         register_rest_route($ns, '/orders', [
             'methods'             => 'GET',
             'callback'            => [__CLASS__, 'get_orders'],
-            'permission_callback' => function() { return current_user_can('edit_posts'); },
+            'permission_callback' => [__CLASS__, 'check_organizer'],
         ]);
 
         register_rest_route($ns, '/orders/(?P<id>\d+)', [
             'methods'             => 'GET',
             'callback'            => [__CLASS__, 'get_order'],
-            'permission_callback' => function() { return current_user_can('edit_posts'); },
+            'permission_callback' => [__CLASS__, 'check_organizer'],
         ]);
     }
 
@@ -424,6 +425,127 @@ class TIX_REST_API {
     }
 
     /**
+     * Betreiber-Funktionen (seitenweite Einstellungen wie App-Inhalte, Treueprogramm,
+     * Nachrichten an alle): Admin, Mitarbeiter (App) und Veranstalter OHNE Verknüpfung
+     * (Ein-Veranstalter-Betrieb). Verknüpfte Veranstalter einer Plattform bekommen 403.
+     */
+    public static function check_site_manager(WP_REST_Request $req) {
+        $r = self::check_organizer($req);
+        if ($r !== true) return $r;
+        if (self::is_scoped_user()) {
+            return new WP_Error('rest_forbidden', 'Diese Funktion steht nur dem Betreiber der Seite zur Verfügung.', ['status' => 403]);
+        }
+        return true;
+    }
+
+    // ═══════════════════════════════════════════
+    //  VERANSTALTER-EINGRENZUNG
+    // ═══════════════════════════════════════════
+
+    /**
+     * Veranstalter-Eintrag (tix_organizer, Meta _tix_org_user_id) eines Nutzers; 0 ohne
+     * Verknüpfung. Unabhängig vom Veranstalter-Dashboard (Setting) und ohne TIX_Team.
+     */
+    public static function organizer_id_for_user($user_id) {
+        static $cache = [];
+        $user_id = intval($user_id);
+        if (!$user_id) return 0;
+        if (array_key_exists($user_id, $cache)) return $cache[$user_id];
+        $ids = get_posts([
+            'post_type'      => 'tix_organizer',
+            'post_status'    => 'publish',
+            'posts_per_page' => 1,
+            'fields'         => 'ids',
+            'no_found_rows'  => true,
+            'meta_key'       => '_tix_org_user_id',
+            'meta_value'     => $user_id,
+        ]);
+        $cache[$user_id] = $ids ? intval($ids[0]) : 0;
+        return $cache[$user_id];
+    }
+
+    /**
+     * Eingegrenzter Nutzer: Veranstalter MIT Verknüpfung, der weder Admin noch
+     * Mitarbeiter (App) noch Eingang ist. Alle anderen sehen weiterhin die ganze Seite
+     * (Ein-Veranstalter-Betrieb bleibt unverändert).
+     */
+    public static function is_scoped_user($user = null) {
+        if (!$user) $user = wp_get_current_user();
+        if (!$user || !$user->ID) return false;
+        if ($user->has_cap('manage_options')) return false;
+        if (in_array('tix_staff', (array) $user->roles, true)) return false;
+        if (self::is_entrance_user($user)) return false;
+        return self::organizer_id_for_user($user->ID) > 0;
+    }
+
+    /**
+     * Event-IDs des eigenen Veranstalters (inkl. Co-Veranstalter, alle Status).
+     * null = keine Eingrenzung (Admin, Mitarbeiter (App), unverknüpfter Veranstalter).
+     */
+    public static function accessible_event_ids() {
+        if (!self::is_scoped_user()) return null;
+        $org_id = self::organizer_id_for_user(get_current_user_id());
+        $ids = get_posts([
+            'post_type'      => 'event',
+            'post_status'    => ['publish', 'draft', 'pending', 'private', 'future', 'trash'],
+            'posts_per_page' => -1,
+            'fields'         => 'ids',
+            'no_found_rows'  => true,
+            'meta_query'     => [
+                'relation' => 'OR',
+                ['key' => '_tix_organizer_id',    'value' => $org_id, 'type' => 'NUMERIC'],
+                ['key' => '_tix_co_organizer_id', 'value' => $org_id, 'type' => 'NUMERIC'],
+            ],
+        ]);
+        return array_map('intval', (array) $ids);
+    }
+
+    /** Event-IDs einer Bestellung: Positionen + Kassen-Meta. */
+    private static function order_event_ids($order) {
+        $ids = [];
+        foreach ($order->get_items() as $item) {
+            $eid = intval($item->get_event_id());
+            if ($eid) $ids[$eid] = true;
+        }
+        $meta = self::pos_meta($order->get_id());
+        $eid  = intval($meta['event_id'] ?? 0);
+        if ($eid) $ids[$eid] = true;
+        return array_keys($ids);
+    }
+
+    /**
+     * Zugriff auf eine Bestellung über die Events ihrer Positionen (Bestellung → Event →
+     * can_access_event). Nicht eingegrenzte Nutzer: immer erlaubt.
+     *   'read'  – mindestens eine Position in einem eigenen Event (Liste, Details),
+     *             wie /events/{id}/orders es für Sammelbestellungen bereits macht.
+     *   'write' – alle Positionen in eigenen Events (Storno, E-Mail ändern/erneut senden).
+     * Bestellungen ohne Event-Positionen (z. B. nur Gutscheine) nur für nicht eingegrenzte Nutzer.
+     */
+    public static function user_can_access_order($order, $mode = 'read') {
+        if (!self::is_scoped_user()) return true;
+        if (!$order) return false;
+        $event_ids = self::order_event_ids($order);
+        if (!$event_ids) return false;
+        $any = false;
+        $all = true;
+        foreach ($event_ids as $eid) {
+            if (self::can_access_event($eid)) $any = true;
+            else $all = false;
+        }
+        return $mode === 'write' ? $all : $any;
+    }
+
+    /**
+     * Darf eine Position/ein Ticket dieses Events in einer Antwort erscheinen?
+     * Eingegrenzte Nutzer sehen in Sammelbestellungen nur Positionen eigener Events.
+     */
+    public static function item_visible($event_id) {
+        if (!self::is_scoped_user()) return true;
+        $event_id = intval($event_id);
+        return $event_id > 0 && self::can_access_event($event_id);
+    }
+
+    /**
      * Prüft ob der aktuelle User Zugriff auf ein bestimmtes Event hat.
      */
     /** Öffentlich für andere Module (Event-Editor, Bestell-Details). */
@@ -438,6 +560,7 @@ class TIX_REST_API {
 
     private static function can_access_event($event_id) {
         $user = wp_get_current_user();
+        if (!$user || !$user->ID) return false;
         // Admins und Mitarbeiter (App) sehen alles; „Eingang“ ebenfalls (nur Check-in,
         // die restlichen Endpunkte sperrt bereits die jeweilige permission_callback).
         if ($user->has_cap('manage_options')
@@ -445,12 +568,21 @@ class TIX_REST_API {
             || self::is_entrance_user($user)) {
             return true;
         }
-        // Veranstalter: nur eigene Events – ohne Verknüpfung alle (Ein-Club-Setup)
-        if (class_exists('TIX_Organizer_Dashboard')) {
-            $org = TIX_Organizer_Dashboard::get_organizer_by_user($user->ID);
-            if (!$org) return true;
-            return TIX_Organizer_Dashboard::user_owns_event($user->ID, $event_id);
-        }
+        // Veranstalter: nur eigene Events – ohne Verknüpfung alle (Ein-Veranstalter-Betrieb).
+        // Bewusst ohne TIX_Organizer_Dashboard: die Klasse ist nur bei aktivem
+        // Veranstalter-Dashboard geladen, die App-Berechtigung muss aber immer gelten.
+        $org_id = self::organizer_id_for_user($user->ID);
+        if (!$org_id) return true;
+        return self::organizer_owns_event($org_id, $event_id);
+    }
+
+    /** Gehört das Event dem Veranstalter (auch als Co-Veranstalter)? */
+    private static function organizer_owns_event($org_id, $event_id) {
+        $org_id   = intval($org_id);
+        $event_id = intval($event_id);
+        if (!$org_id || !$event_id) return false;
+        if (intval(get_post_meta($event_id, '_tix_organizer_id', true)) === $org_id) return true;
+        if (intval(get_post_meta($event_id, '_tix_co_organizer_id', true)) === $org_id) return true;
         return false;
     }
 
@@ -506,14 +638,7 @@ class TIX_REST_API {
 
     public static function get_me(WP_REST_Request $req) {
         $user = wp_get_current_user();
-        $organizer_id = null;
-
-        if (class_exists('TIX_Organizer_Dashboard')) {
-            $org = TIX_Organizer_Dashboard::get_organizer_by_user($user->ID);
-            if ($org) {
-                $organizer_id = $org->ID;
-            }
-        }
+        $organizer_id = self::organizer_id_for_user($user->ID) ?: null;
 
         return rest_ensure_response([
             'ok'   => true,
@@ -578,19 +703,15 @@ class TIX_REST_API {
         }
 
         // Organizer-Scoping: nur eigene Events – nur für Veranstalter mit Verknüpfung
-        // (Admins und Mitarbeiter (App) sehen alle Events)
-        if (!$user->has_cap('manage_options')
-            && !in_array('tix_staff', (array) $user->roles, true)
-            && class_exists('TIX_Organizer_Dashboard')) {
-            $org = TIX_Organizer_Dashboard::get_organizer_by_user($user->ID);
-            if ($org) {
-                $args['meta_query']   = $args['meta_query'] ?? [];
-                $args['meta_query'][] = [
-                    'relation' => 'OR',
-                    ['key' => '_tix_organizer_id', 'value' => strval($org->ID)],
-                    ['key' => '_tix_co_organizer_id', 'value' => strval($org->ID)],
-                ];
-            }
+        // (Admins, Mitarbeiter (App) und Eingang sehen alle Events)
+        if (self::is_scoped_user($user)) {
+            $org_id = self::organizer_id_for_user($user->ID);
+            $args['meta_query']   = $args['meta_query'] ?? [];
+            $args['meta_query'][] = [
+                'relation' => 'OR',
+                ['key' => '_tix_organizer_id', 'value' => strval($org_id)],
+                ['key' => '_tix_co_organizer_id', 'value' => strval($org_id)],
+            ];
         }
 
         $posts  = get_posts($args);
@@ -1758,6 +1879,10 @@ class TIX_REST_API {
         if (!$order) {
             return new WP_Error('not_found', 'Bestellung nicht gefunden.', ['status' => 404]);
         }
+        // Ändert Rechnungs-/Inhaber-E-Mail: nur wenn alle Positionen zu eigenen Events gehören
+        if (!self::user_can_access_order($order, 'write')) {
+            return new WP_Error('forbidden', 'Kein Zugriff auf diese Bestellung.', ['status' => 403]);
+        }
         if (!class_exists('TIX_Emails') || !method_exists('TIX_Emails', 'send_native_completed')) {
             return new WP_Error('no_mail', 'E-Mail-Versand nicht verfügbar.', ['status' => 500]);
         }
@@ -1786,6 +1911,9 @@ class TIX_REST_API {
         $order = class_exists('TIX_Order') ? TIX_Order::get($order_id) : null;
         if (!$order) {
             return new WP_Error('not_found', 'Bestellung nicht gefunden.', ['status' => 404]);
+        }
+        if (!self::user_can_access_order($order, 'write')) {
+            return new WP_Error('forbidden', 'Kein Zugriff auf diese Bestellung.', ['status' => 403]);
         }
         if (strpos((string) $order->get_payment_method(), 'pos_') !== 0) {
             return new WP_Error('not_pos', 'Keine Kassen-Bestellung.', ['status' => 400]);
@@ -1824,7 +1952,10 @@ class TIX_REST_API {
         return rest_ensure_response(['ok' => true, 'message' => 'Bestellung storniert.']);
     }
 
-    /** Kassen-Bestellungen eines Tages (nativ, payment_method pos_*). */
+    /**
+     * Kassen-Bestellungen eines Tages (nativ, payment_method pos_*).
+     * Verknüpfte Veranstalter erhalten nur Bestellungen eigener Events.
+     */
     private static function pos_orders_for_day($date, array $statuses, $event_id = 0) {
         global $wpdb;
         $t = $wpdb->prefix . 'tix_orders';
@@ -1835,6 +1966,7 @@ class TIX_REST_API {
             ...$params
         ), ARRAY_A);
         $orders = [];
+        $scoped = self::is_scoped_user();
         foreach ((array) $rows as $r) {
             $o = TIX_Order::get(intval($r['id']));
             if (!$o) continue;
@@ -1842,6 +1974,7 @@ class TIX_REST_API {
                 $meta = self::pos_meta($o->get_id());
                 if (intval($meta['event_id'] ?? 0) !== intval($event_id)) continue;
             }
+            if ($scoped && !self::user_can_access_order($o, 'read')) continue;
             $orders[] = $o;
         }
         return $orders;
@@ -1854,6 +1987,9 @@ class TIX_REST_API {
     public static function pos_report(WP_REST_Request $req) {
         $date     = sanitize_text_field($req->get_param('date') ?: current_time('Y-m-d'));
         $event_id = absint($req->get_param('event_id'));
+        if ($event_id && !self::can_access_event($event_id)) {
+            return new WP_Error('forbidden', 'Kein Zugriff auf dieses Event.', ['status' => 403]);
+        }
         $report = [
             'date'          => $date,
             'total_revenue' => 0.0,
@@ -2603,6 +2739,8 @@ class TIX_REST_API {
 
     /**
      * GET /orders – list native orders (wc_order_id = 0).
+     * Verknüpfte Veranstalter: nur Bestellungen mit Positionen in eigenen Events,
+     * fremde Positionen werden ausgeblendet (user_can_access_order / item_visible).
      */
     public static function get_orders(WP_REST_Request $req) {
         if (!class_exists('TIX_Order')) {
@@ -2625,7 +2763,16 @@ class TIX_REST_API {
 
         $event_id = absint($req->get_param('event_id') ?: 0);
         if ($event_id) {
+            if (!self::can_access_event($event_id)) {
+                return new WP_Error('forbidden', 'Kein Zugriff auf dieses Event.', ['status' => 403]);
+            }
             $args['event_id'] = $event_id;
+        } else {
+            $allowed = self::accessible_event_ids();
+            if (is_array($allowed)) {
+                if (!$allowed) return rest_ensure_response(['ok' => true, 'orders' => []]);
+                $args['event_ids'] = $allowed;
+            }
         }
 
         $orders = TIX_Order::query($args);
@@ -2635,6 +2782,7 @@ class TIX_REST_API {
             // Only return native orders (wc_order_id = 0)
             $wc_id = method_exists($order, 'get_wc_order_id') ? $order->get_wc_order_id() : 0;
             if ($wc_id > 0) continue;
+            if (!self::user_can_access_order($order, 'read')) continue;
 
             $out[] = self::format_native_order($order);
         }
@@ -2654,6 +2802,9 @@ class TIX_REST_API {
         if (!$order) {
             return new WP_Error('not_found', 'Bestellung nicht gefunden.', ['status' => 404]);
         }
+        if (!self::user_can_access_order($order, 'read')) {
+            return new WP_Error('forbidden', 'Kein Zugriff auf diese Bestellung.', ['status' => 403]);
+        }
 
         return rest_ensure_response(['ok' => true, 'order' => self::format_native_order($order)]);
     }
@@ -2664,6 +2815,8 @@ class TIX_REST_API {
     private static function format_native_order($order) {
         $items = [];
         foreach ($order->get_items() as $item) {
+            // Sammelbestellung: eingegrenzte Veranstalter sehen nur Positionen eigener Events
+            if (!self::item_visible(method_exists($item, 'get_event_id') ? $item->get_event_id() : 0)) continue;
             $items[] = [
                 'name'       => $item->get_name(),
                 'quantity'   => $item->get_quantity(),

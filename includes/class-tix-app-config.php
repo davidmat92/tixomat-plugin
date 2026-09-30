@@ -51,7 +51,8 @@ class TIX_App_Config {
     }
 
     public static function register_routes() {
-        $organizer = ['TIX_REST_API', 'check_organizer'];
+        // Betreiber-Funktion: seitenweite App-Inhalte – verknüpfte Veranstalter (Plattform-Betrieb) bekommen 403
+        $organizer = ['TIX_REST_API', 'check_site_manager'];
         register_rest_route(self::NS, '/app/config', [
             'methods' => 'GET', 'callback' => [__CLASS__, 'rest_get'],
             'permission_callback' => '__return_true',

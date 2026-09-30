@@ -206,4 +206,19 @@ class TIX_Team {
         }
         return $login;
     }
+
+    // ── Kompatibilität zur früheren Team-Klasse (Veranstalter-Teams mit eigenen Rollen) ──
+    // Die Team-Mitgliedschaft je Veranstalter wurde beim Umbau auf App-Rollen entfernt.
+    // Veranstalter-Dashboard, Admin-Shell und Event-Caps rufen diese Methoden weiterhin
+    // auf; ohne sie endet jeder Aufruf im Fatal Error.
+
+    /** Veranstalter-ID über eine Team-Mitgliedschaft: gibt es nicht mehr → 0. */
+    public static function get_organizer_for_user($user_id) {
+        return 0;
+    }
+
+    /** Team-Berechtigung: ohne Team-Rollen gilt jeder verknüpfte Veranstalter als Inhaber (alles erlaubt). */
+    public static function user_can($user_id, $capability) {
+        return true;
+    }
 }
