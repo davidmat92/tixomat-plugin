@@ -191,10 +191,16 @@ class TIX_Notifications {
         if ($title === '' && $body === '') {
             return new WP_Error('tix_empty', 'Titel oder Text erforderlich.', ['status' => 400]);
         }
-        if ($title === '') $title = 'KitchenKlub';
         $event_id = intval($req->get_param('event_id'));
         $target   = sanitize_key((string) $req->get_param('target'));
         $action   = (string) $req->get_param('action');
+
+        // Mehr-Veranstalter-Modus: nur eigene Events, nur eigene Follower/Käufer
+        if (class_exists('TIX_App_Scope') && TIX_App_Scope::multi() && TIX_App_Scope::scoped()) {
+            return self::broadcast_scoped($title, $body, $event_id, $target);
+        }
+
+        if ($title === '') $title = 'KitchenKlub';
         if ($action === '' && $event_id) $action = 'event:' . $event_id;
 
         // Nur Käufer dieses Events (mit App-Konto)
@@ -227,6 +233,66 @@ class TIX_Notifications {
             'pushed'     => self::apns_configured(),
             'recipients' => count(self::tokens()),
             'target'     => 'all',
+        ], 200);
+    }
+
+    /**
+     * Broadcast eines Veranstalters (Mehr-Veranstalter-Modus): Ziel 'event' =
+     * Käufer dieses (eigenen) Events, sonst Follower des Veranstalters plus
+     * Käufer seiner kommenden Events. Nie an alle App-Nutzer der Plattform.
+     */
+    private static function broadcast_scoped($title, $body, $event_id, $target) {
+        $oid = TIX_App_Scope::organizer_id_for_user();
+        if (!$oid) return TIX_App_Scope::deny('Dieses Konto ist keinem Veranstalter zugeordnet.');
+        if ($event_id && !TIX_App_Scope::event_allowed($event_id)) {
+            return TIX_App_Scope::deny('Kein Zugriff auf dieses Event.');
+        }
+        if ($title === '') $title = html_entity_decode(get_the_title($oid), ENT_QUOTES, 'UTF-8');
+        $action = $event_id ? 'event:' . $event_id : 'organizer:' . $oid;
+
+        $uids = [];
+        if ($target === 'event' && $event_id) {
+            foreach (self::event_ticket_user_ids($event_id) as $u) $uids[$u] = true;
+        } else {
+            $target = 'followers';
+            $followers = get_users([
+                'meta_key'     => '_tix_app_following',
+                'meta_compare' => 'EXISTS',
+                'fields'       => 'ID',
+                'number'       => 5000,
+            ]);
+            foreach ($followers as $u) {
+                $list = get_user_meta($u, '_tix_app_following', true);
+                if (is_array($list) && in_array($oid, array_map('intval', $list), true)) $uids[intval($u)] = true;
+            }
+            $today = current_time('Y-m-d');
+            $events = get_posts([
+                'post_type' => 'event', 'post_status' => 'publish', 'posts_per_page' => 50, 'fields' => 'ids',
+                'meta_query' => [
+                    'relation' => 'AND',
+                    TIX_App_Scope::event_meta_clause($oid),
+                    ['relation' => 'OR',
+                        ['key' => '_tix_date_start', 'value' => $today, 'compare' => '>=', 'type' => 'DATE'],
+                        ['key' => '_tix_date_end',   'value' => $today, 'compare' => '>=', 'type' => 'DATE'],
+                    ],
+                ],
+            ]);
+            foreach ($events as $eid) {
+                foreach (self::event_ticket_user_ids($eid) as $u) $uids[$u] = true;
+            }
+        }
+        foreach (array_keys($uids) as $uid) {
+            self::add_user_item($uid, $title, $body, [
+                'type'     => 'message',
+                'event_id' => $event_id,
+                'action'   => $action,
+            ]);
+        }
+        return new WP_REST_Response([
+            'ok'         => true,
+            'pushed'     => self::apns_configured(),
+            'recipients' => count($uids),
+            'target'     => $target,
         ], 200);
     }
 

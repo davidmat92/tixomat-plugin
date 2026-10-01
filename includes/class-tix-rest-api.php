@@ -390,6 +390,8 @@ class TIX_REST_API {
         }
         // Admins, Mitarbeiter (App) und Veranstalter haben Zugriff
         if (self::is_staff_user(wp_get_current_user())) {
+            // Mehr-Veranstalter-Modus: nur mit freigegebenem Veranstalter
+            if (class_exists('TIX_App_Scope') && TIX_App_Scope::multi()) return TIX_App_Scope::require_organizer();
             return true;
         }
         return new WP_Error('rest_forbidden', 'Keine Berechtigung. Rolle „Veranstalter“ oder „Mitarbeiter (App)“ erforderlich.', ['status' => 403]);
@@ -418,6 +420,7 @@ class TIX_REST_API {
         }
         $user = wp_get_current_user();
         if (self::is_staff_user($user) || self::is_entrance_user($user)) {
+            if (class_exists('TIX_App_Scope') && TIX_App_Scope::multi()) return TIX_App_Scope::require_organizer();
             return true;
         }
         return new WP_Error('rest_forbidden', 'Keine Berechtigung für den Einlass.', ['status' => 403]);
@@ -437,6 +440,10 @@ class TIX_REST_API {
     }
 
     private static function can_access_event($event_id) {
+        // Mehr-Veranstalter-Modus: nur Events des eigenen Veranstalters (Admins alle)
+        if (class_exists('TIX_App_Scope') && TIX_App_Scope::multi()) {
+            return TIX_App_Scope::event_allowed($event_id);
+        }
         $user = wp_get_current_user();
         // Admins und Mitarbeiter (App) sehen alles; „Eingang“ ebenfalls (nur Check-in,
         // die restlichen Endpunkte sperrt bereits die jeweilige permission_callback).
@@ -507,15 +514,18 @@ class TIX_REST_API {
     public static function get_me(WP_REST_Request $req) {
         $user = wp_get_current_user();
         $organizer_id = null;
+        $multi = class_exists('TIX_App_Scope') && TIX_App_Scope::multi();
 
-        if (class_exists('TIX_Organizer_Dashboard')) {
+        if ($multi) {
+            $organizer_id = TIX_App_Scope::organizer_id_for_user($user->ID) ?: null;
+        } elseif (class_exists('TIX_Organizer_Dashboard')) {
             $org = TIX_Organizer_Dashboard::get_organizer_by_user($user->ID);
             if ($org) {
                 $organizer_id = $org->ID;
             }
         }
 
-        return rest_ensure_response([
+        $out = [
             'ok'   => true,
             'user' => [
                 'id'           => $user->ID,
@@ -525,7 +535,14 @@ class TIX_REST_API {
                 'organizer_id' => $organizer_id,
                 'avatar'       => get_avatar_url($user->ID, ['size' => 96]),
             ],
-        ]);
+        ];
+        // Mehr-Veranstalter-Modus: Veranstalter (Name, Status, Inhaber?) zusätzlich
+        if ($multi) {
+            $out['multi_organizer'] = true;
+            $out['organizer']       = TIX_App_Scope::me_payload($user->ID);
+            $out['is_admin']        = $user->has_cap('manage_options');
+        }
+        return rest_ensure_response($out);
     }
 
     // ═══════════════════════════════════════════
@@ -577,9 +594,15 @@ class TIX_REST_API {
             $args['order'] = 'DESC';
         }
 
-        // Organizer-Scoping: nur eigene Events – nur für Veranstalter mit Verknüpfung
-        // (Admins und Mitarbeiter (App) sehen alle Events)
-        if (!$user->has_cap('manage_options')
+        // Mehr-Veranstalter-Modus: nur Events des eigenen Veranstalters (Admins alle)
+        if (class_exists('TIX_App_Scope') && TIX_App_Scope::multi() && TIX_App_Scope::scoped()) {
+            $oid = TIX_App_Scope::organizer_id_for_user($user->ID);
+            if (!$oid) {
+                return rest_ensure_response(['ok' => true, 'count' => 0, 'events' => []]);
+            }
+            $args['meta_query']   = $args['meta_query'] ?? [];
+            $args['meta_query'][] = TIX_App_Scope::event_meta_clause($oid);
+        } elseif (!$user->has_cap('manage_options')
             && !in_array('tix_staff', (array) $user->roles, true)
             && class_exists('TIX_Organizer_Dashboard')) {
             $org = TIX_Organizer_Dashboard::get_organizer_by_user($user->ID);
@@ -827,7 +850,10 @@ class TIX_REST_API {
 
         $ticket_event_id = intval(get_post_meta($ticket->ID, '_tix_ticket_event_id', true));
 
-        // Event-Zugriff prüfen
+        // Event-Zugriff prüfen (Mehr-Veranstalter-Modus: Tickets ohne Event nur für Admins)
+        if (!$ticket_event_id && class_exists('TIX_App_Scope') && TIX_App_Scope::multi() && TIX_App_Scope::scoped()) {
+            return new WP_Error('forbidden', 'Kein Zugriff auf dieses Ticket.', ['status' => 403]);
+        }
         if ($ticket_event_id && !self::can_access_event($ticket_event_id)) {
             return new WP_Error('forbidden', 'Kein Zugriff auf dieses Event.', ['status' => 403]);
         }
@@ -1758,6 +1784,9 @@ class TIX_REST_API {
         if (!$order) {
             return new WP_Error('not_found', 'Bestellung nicht gefunden.', ['status' => 404]);
         }
+        if (class_exists('TIX_App_Scope') && TIX_App_Scope::multi() && !TIX_App_Scope::order_allowed($order)) {
+            return new WP_Error('forbidden', 'Kein Zugriff auf diese Bestellung.', ['status' => 403]);
+        }
         if (!class_exists('TIX_Emails') || !method_exists('TIX_Emails', 'send_native_completed')) {
             return new WP_Error('no_mail', 'E-Mail-Versand nicht verfügbar.', ['status' => 500]);
         }
@@ -1786,6 +1815,9 @@ class TIX_REST_API {
         $order = class_exists('TIX_Order') ? TIX_Order::get($order_id) : null;
         if (!$order) {
             return new WP_Error('not_found', 'Bestellung nicht gefunden.', ['status' => 404]);
+        }
+        if (class_exists('TIX_App_Scope') && TIX_App_Scope::multi() && !TIX_App_Scope::order_allowed($order)) {
+            return new WP_Error('forbidden', 'Kein Zugriff auf diese Bestellung.', ['status' => 403]);
         }
         if (strpos((string) $order->get_payment_method(), 'pos_') !== 0) {
             return new WP_Error('not_pos', 'Keine Kassen-Bestellung.', ['status' => 400]);
@@ -1835,9 +1867,11 @@ class TIX_REST_API {
             ...$params
         ), ARRAY_A);
         $orders = [];
+        $scoped = class_exists('TIX_App_Scope') && TIX_App_Scope::multi() && TIX_App_Scope::scoped();
         foreach ((array) $rows as $r) {
             $o = TIX_Order::get(intval($r['id']));
             if (!$o) continue;
+            if ($scoped && !TIX_App_Scope::order_allowed($o)) continue;
             if ($event_id) {
                 $meta = self::pos_meta($o->get_id());
                 if (intval($meta['event_id'] ?? 0) !== intval($event_id)) continue;
@@ -1854,6 +1888,9 @@ class TIX_REST_API {
     public static function pos_report(WP_REST_Request $req) {
         $date     = sanitize_text_field($req->get_param('date') ?: current_time('Y-m-d'));
         $event_id = absint($req->get_param('event_id'));
+        if ($event_id && class_exists('TIX_App_Scope') && TIX_App_Scope::multi() && !TIX_App_Scope::event_allowed($event_id)) {
+            return new WP_Error('forbidden', 'Kein Zugriff auf dieses Event.', ['status' => 403]);
+        }
         $report = [
             'date'          => $date,
             'total_revenue' => 0.0,
@@ -2656,6 +2693,16 @@ class TIX_REST_API {
             $args['event_id'] = $event_id;
         }
 
+        // Mehr-Veranstalter-Modus: nur Veranstalter-Team, nur eigene Bestellungen
+        $scoped = class_exists('TIX_App_Scope') && TIX_App_Scope::multi() && TIX_App_Scope::scoped();
+        if ($scoped) {
+            $perm = self::check_organizer($req);
+            if (is_wp_error($perm)) return $perm;
+            if ($event_id && !TIX_App_Scope::event_allowed($event_id)) {
+                return new WP_Error('forbidden', 'Kein Zugriff auf dieses Event.', ['status' => 403]);
+            }
+        }
+
         $orders = TIX_Order::query($args);
         $out = [];
 
@@ -2663,6 +2710,7 @@ class TIX_REST_API {
             // Only return native orders (wc_order_id = 0)
             $wc_id = method_exists($order, 'get_wc_order_id') ? $order->get_wc_order_id() : 0;
             if ($wc_id > 0) continue;
+            if ($scoped && !TIX_App_Scope::order_allowed($order)) continue;
 
             $out[] = self::format_native_order($order);
         }
@@ -2681,6 +2729,13 @@ class TIX_REST_API {
         $order = TIX_Order::get(absint($req['id']));
         if (!$order) {
             return new WP_Error('not_found', 'Bestellung nicht gefunden.', ['status' => 404]);
+        }
+        if (class_exists('TIX_App_Scope') && TIX_App_Scope::multi() && TIX_App_Scope::scoped()) {
+            $perm = self::check_organizer($req);
+            if (is_wp_error($perm)) return $perm;
+            if (!TIX_App_Scope::order_allowed($order)) {
+                return new WP_Error('forbidden', 'Kein Zugriff auf diese Bestellung.', ['status' => 403]);
+            }
         }
 
         return rest_ensure_response(['ok' => true, 'order' => self::format_native_order($order)]);

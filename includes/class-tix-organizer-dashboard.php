@@ -141,11 +141,12 @@ class TIX_Organizer_Dashboard {
         ]);
         if ($orgs) return $orgs[0];
 
-        // Team-Mitglied?
-        if (class_exists('TIX_Team')) {
-            $team_org_id = TIX_Team::get_organizer_for_user($user_id);
-            if ($team_org_id) {
-                return get_post($team_org_id);
+        // Team-Mitglied? (User-Meta `_tix_team_organizer_id`, vergeben über /team)
+        $team_org_id = intval(get_user_meta(intval($user_id), '_tix_team_organizer_id', true));
+        if ($team_org_id) {
+            $team_org = get_post($team_org_id);
+            if ($team_org && $team_org->post_type === 'tix_organizer' && $team_org->post_status === 'publish') {
+                return $team_org;
             }
         }
 

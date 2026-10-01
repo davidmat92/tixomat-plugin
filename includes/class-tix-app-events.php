@@ -192,6 +192,7 @@ class TIX_App_Events {
                     'sold'       => $sold,
                     'stock'      => (isset($c['stock']) && $c['stock'] !== '') ? intval($c['stock']) : -1,
                     'phases'     => is_array($c['phases'] ?? null) ? count($c['phases']) : 0,
+                    'phase_list' => self::phase_list($c['phases'] ?? []),
                 ];
             }
         }
@@ -241,6 +242,19 @@ class TIX_App_Events {
             return new WP_Error('missing_title', 'Bitte einen Titel eingeben.', ['status' => 400]);
         }
         $publish = !empty($body['published']);
+        // Mehr-Veranstalter-Modus: Event gehört immer dem eigenen Veranstalter
+        // (Admins dürfen `organizer_id` mitgeben)
+        $multi_org = 0;
+        if (class_exists('TIX_App_Scope') && TIX_App_Scope::multi()) {
+            $multi_org = TIX_App_Scope::organizer_id_for_user();
+            if (TIX_App_Scope::is_admin() && !empty($body['organizer_id'])) {
+                $cand = get_post(intval($body['organizer_id']));
+                if ($cand && $cand->post_type === 'tix_organizer') $multi_org = intval($cand->ID);
+            }
+            if (!$multi_org && !TIX_App_Scope::is_admin()) {
+                return new WP_Error('no_organizer', 'Dieses Konto ist keinem Veranstalter zugeordnet.', ['status' => 403]);
+            }
+        }
         $post_id = wp_insert_post([
             'post_type'    => 'event',
             'post_title'   => $title,
@@ -251,7 +265,10 @@ class TIX_App_Events {
         if (is_wp_error($post_id)) return $post_id;
 
         // Veranstalter-Verknüpfung des Nutzers übernehmen (falls vorhanden)
-        if (class_exists('TIX_Organizer_Dashboard') && method_exists('TIX_Organizer_Dashboard', 'get_organizer_by_user')) {
+        if ($multi_org) {
+            update_post_meta($post_id, '_tix_organizer_id', $multi_org);
+            update_post_meta($post_id, '_tix_organizer', get_the_title($multi_org));
+        } elseif (!(class_exists('TIX_App_Scope') && TIX_App_Scope::multi()) && class_exists('TIX_Organizer_Dashboard') && method_exists('TIX_Organizer_Dashboard', 'get_organizer_by_user')) {
             $org = TIX_Organizer_Dashboard::get_organizer_by_user(get_current_user_id());
             if ($org) {
                 update_post_meta($post_id, '_tix_organizer_id', $org->ID);
@@ -481,6 +498,10 @@ class TIX_App_Events {
             $cat['qty']    = $qty;
             $cat['desc']   = sanitize_text_field((string) ($in['desc'] ?? ''));
             $cat['hidden'] = !empty($in['hidden']) ? 1 : 0;
+            // Preisphasen nur, wenn die App sie mitschickt (ältere Apps lassen sie unverändert)
+            if (array_key_exists('phase_list', $in) && is_array($in['phase_list'])) {
+                $cat['phases'] = self::clean_phases($in['phase_list']);
+            }
 
             // Restbestand für den nativen Checkout: Kontingent minus verkaufte
             $sold_here = $has_index ? $sold(intval($in['index'])) : 0;
@@ -494,6 +515,41 @@ class TIX_App_Events {
 
         update_post_meta($post_id, '_tix_ticket_categories', array_values($new));
         return true;
+    }
+
+    /** Preisphasen für die App: [{name, price, until (Y-m-d)}], nach Datum sortiert. */
+    private static function phase_list($phases) {
+        if (!is_array($phases)) return [];
+        $out = [];
+        foreach ($phases as $ph) {
+            if (!is_array($ph)) continue;
+            $out[] = [
+                'name'  => (string) ($ph['name'] ?? ''),
+                'price' => floatval($ph['price'] ?? 0),
+                'until' => (string) ($ph['until'] ?? ''),
+            ];
+        }
+        return $out;
+    }
+
+    /** Preisphasen säubern wie die Metabox (leere Zeilen raus, nach Datum sortieren). */
+    private static function clean_phases(array $raw) {
+        $phases = [];
+        foreach ($raw as $ph) {
+            if (!is_array($ph)) continue;
+            $name  = sanitize_text_field((string) ($ph['name'] ?? ''));
+            $price = $ph['price'] ?? '';
+            $until = sanitize_text_field((string) ($ph['until'] ?? ''));
+            if ($until !== '' && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $until)) $until = '';
+            if ($name === '' && ($price === '' || $price === null) && $until === '') continue;
+            $phases[] = [
+                'name'  => $name,
+                'price' => ($price !== '' && $price !== null) ? max(0, round(floatval($price), 2)) : 0,
+                'until' => $until,
+            ];
+        }
+        usort($phases, fn($a, $b) => strcmp($a['until'], $b['until']));
+        return $phases;
     }
 
     /** `_tix_status` wie TIX_Sync (läuft ohne WooCommerce sonst nicht). */
@@ -627,6 +683,10 @@ class TIX_App_Events {
     private static function order_or_error($id) {
         $order = class_exists('TIX_Order') ? TIX_Order::get(absint($id)) : null;
         if (!$order) return new WP_Error('not_found', 'Bestellung nicht gefunden.', ['status' => 404]);
+        // Mehr-Veranstalter-Modus: alle Events der Bestellung müssen eigene sein
+        if (class_exists('TIX_App_Scope') && TIX_App_Scope::multi() && !TIX_App_Scope::order_allowed($order)) {
+            return new WP_Error('forbidden', 'Kein Zugriff auf diese Bestellung.', ['status' => 403]);
+        }
         // Zugriff über die Events der Positionen
         foreach ($order->get_items() as $item) {
             $eid = $item->get_event_id();

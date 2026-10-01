@@ -12,6 +12,11 @@
  * tix_customer) bleiben erhalten - es werden nur die App-Rollen umgesetzt.
  * Erweiterbar: weitere App-Rollen einfach in APP_ROLES ergaenzen.
  *
+ * Mehr-Veranstalter-Modus (TIX_App_Scope): Der Inhaber eines Veranstalters
+ * (und sein Team-Admin) verwaltet hier NUR sein eigenes Team. Mitglieder
+ * tragen User-Meta `_tix_team_organizer_id`; fremde Team-Mitglieder,
+ * Inhaber anderer Veranstalter und WordPress-Admins werden nie uebernommen.
+ *
  * @package Tixomat
  */
 
@@ -58,8 +63,13 @@ class TIX_Team {
         ]);
     }
 
-    /** Nur echte WordPress-Admins duerfen das Team verwalten. */
+    /** Nur echte WordPress-Admins duerfen das Team verwalten (Mehr-Veranstalter-Modus: auch der Veranstalter fuer sein Team). */
     public static function check_admin(WP_REST_Request $req) {
+        if (is_user_logged_in() && !current_user_can('manage_options') && class_exists('TIX_App_Scope') && TIX_App_Scope::multi()) {
+            if (TIX_App_Scope::is_org_manager()) return true;
+            $r = TIX_App_Scope::require_organizer();
+            return is_wp_error($r) ? $r : TIX_App_Scope::deny('Nur der Veranstalter selbst kann sein Team verwalten.');
+        }
         if (!is_user_logged_in() || !current_user_can('manage_options')) {
             return new WP_Error('rest_forbidden', 'Nur Admins duerfen das Team verwalten.', ['status' => 403]);
         }
@@ -90,8 +100,56 @@ class TIX_Team {
         ];
     }
 
+    /** Veranstalter, auf den das Team begrenzt ist (0 = ganze Site, Admin/Ein-Club-Modus). */
+    private static function scope_org() {
+        if (!(class_exists('TIX_App_Scope') && TIX_App_Scope::multi()) || current_user_can('manage_options')) return 0;
+        return TIX_App_Scope::organizer_id_for_user();
+    }
+
+    /** Gehoert der Nutzer schon zu einem ANDEREN Veranstalter (Inhaber oder Team)? */
+    private static function belongs_elsewhere(WP_User $u, $org) {
+        $p = TIX_App_Scope::organizer_post_for_user($u->ID);
+        return $p && intval($p->ID) !== intval($org);
+    }
+
+    /** GET /team im Mehr-Veranstalter-Modus: Inhaber + eigene Team-Mitglieder. */
+    private static function list_scoped($org) {
+        $out = [];
+        $owner_id = intval(get_post_meta($org, '_tix_org_user_id', true));
+        if ($owner_id && ($owner = get_user_by('id', $owner_id))) {
+            $out[] = [
+                'id'       => $owner->ID,
+                'name'     => $owner->display_name ?: $owner->user_login,
+                'email'    => $owner->user_email,
+                'role'     => 'owner',
+                'editable' => false,
+            ];
+        }
+        $members = get_users([
+            'meta_key'   => TIX_App_Scope::META_TEAM_ORG,
+            'meta_value' => intval($org),
+            'number'     => 0,
+        ]);
+        foreach ($members as $u) {
+            if ($u->ID === $owner_id) continue;
+            $m = self::member($u);
+            $m['editable'] = $u->ID !== get_current_user_id() && $m['role'] !== 'admin_wp';
+            $out[] = $m;
+        }
+        return new WP_REST_Response([
+            'ok'    => true,
+            'team'  => $out,
+            'roles' => [
+                ['key' => 'admin', 'label' => 'Team-Admin', 'hint' => 'Voller Veranstalter-Bereich (Events, Kasse, Bestellungen)'],
+                ['key' => 'entrance', 'label' => 'Eingang', 'hint' => 'Nur Einlass: scannen + Namensliste'],
+                ['key' => 'dj', 'label' => 'DJ', 'hint' => 'Nur Musikwunsch-Liste'],
+            ],
+        ], 200);
+    }
+
     /** GET /team - alle Nutzer mit App-Rolle + WordPress-Admins. */
     public static function rest_list(WP_REST_Request $req) {
+        if ($org = self::scope_org()) return self::list_scoped($org);
         $roles = array_merge(['administrator'], self::wp_roles());
         $seen  = [];
         $out   = [];
@@ -127,7 +185,16 @@ class TIX_Team {
             return new WP_Error('tix_bad_role', 'Unbekannte Rolle.', ['status' => 400]);
         }
 
+        $org  = self::scope_org();
         $user = get_user_by('email', $email);
+        if ($org && $user) {
+            if (in_array('administrator', (array) $user->roles, true) || self::belongs_elsewhere($user, $org)) {
+                return new WP_Error('tix_other_team', 'Diese Person gehoert bereits zu einem anderen Veranstalter.', ['status' => 409]);
+            }
+            if (intval(get_post_meta($org, '_tix_org_user_id', true)) === $user->ID) {
+                return new WP_Error('tix_is_owner', 'Das ist das Konto des Veranstalters selbst.', ['status' => 409]);
+            }
+        }
         if (!$user) {
             $login = self::unique_login($email);
             $uid = wp_insert_user([
@@ -139,6 +206,7 @@ class TIX_Team {
             ]);
             if (is_wp_error($uid)) return $uid;
             $user = get_user_by('id', $uid);
+            if ($org) update_user_meta($user->ID, TIX_App_Scope::META_TEAM_ORG, intval($org));
         } else {
             if (in_array('administrator', (array) $user->roles, true)) {
                 return new WP_Error('tix_is_admin', 'Diese Person ist bereits Administrator.', ['status' => 409]);
@@ -147,6 +215,7 @@ class TIX_Team {
                 wp_update_user(['ID' => $user->ID, 'display_name' => $name]);
             }
             self::apply_role($user, $role);
+            if ($org) update_user_meta($user->ID, TIX_App_Scope::META_TEAM_ORG, intval($org));
         }
         return new WP_REST_Response(['ok' => true, 'member' => self::member(get_user_by('id', $user->ID))], 200);
     }
@@ -163,7 +232,12 @@ class TIX_Team {
         if ($role !== 'none' && !isset(self::APP_ROLES[$role])) {
             return new WP_Error('tix_bad_role', 'Unbekannte Rolle.', ['status' => 400]);
         }
+        if ($org = self::scope_org()) {
+            $own = self::own_member_error($user, $org);
+            if ($own) return $own;
+        }
         self::apply_role($user, $role);
+        if ($role === 'none' && $org) delete_user_meta($user->ID, TIX_App_Scope::META_TEAM_ORG);
         return new WP_REST_Response(['ok' => true, 'member' => self::member(get_user_by('id', $id))], 200);
     }
 
@@ -175,8 +249,24 @@ class TIX_Team {
         if (in_array('administrator', (array) $user->roles, true)) {
             return new WP_Error('tix_is_admin', 'Administratoren werden im WordPress-Backend verwaltet.', ['status' => 409]);
         }
+        if ($org = self::scope_org()) {
+            $own = self::own_member_error($user, $org);
+            if ($own) return $own;
+        }
         self::apply_role($user, 'none');
+        if ($org) delete_user_meta($user->ID, TIX_App_Scope::META_TEAM_ORG);
         return new WP_REST_Response(['ok' => true], 200);
+    }
+
+    /** Mehr-Veranstalter-Modus: nur eigene Team-Mitglieder (nicht man selbst, nicht der Inhaber). */
+    private static function own_member_error(WP_User $user, $org) {
+        if (intval(get_user_meta($user->ID, TIX_App_Scope::META_TEAM_ORG, true)) !== intval($org)) {
+            return new WP_Error('tix_no_user', 'Nutzer nicht gefunden.', ['status' => 404]);
+        }
+        if ($user->ID === get_current_user_id() || intval(get_post_meta($org, '_tix_org_user_id', true)) === $user->ID) {
+            return new WP_Error('tix_self', 'Das eigene Konto kann hier nicht geaendert werden.', ['status' => 409]);
+        }
+        return null;
     }
 
     /**

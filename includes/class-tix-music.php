@@ -534,7 +534,11 @@ class TIX_Music {
         $key = (string) ($req->get_param('key') ?? $req->get_header('x-tix-dj-key') ?? '');
         if ($key !== '' && hash_equals(self::dj_key(), $key)) return true;
         // Angemeldeter DJ (Rolle „DJ (App)“) darf die Liste sehen.
-        if (is_user_logged_in() && current_user_can('tix_app_dj')) return true;
+        if (is_user_logged_in() && current_user_can('tix_app_dj')) {
+            // Mehr-Veranstalter-Modus: nur mit Veranstalter-Zuordnung
+            if (class_exists('TIX_App_Scope') && TIX_App_Scope::multi()) return TIX_App_Scope::require_organizer();
+            return true;
+        }
         if (class_exists('TIX_REST_API') && method_exists('TIX_REST_API', 'check_organizer')) {
             $r = TIX_REST_API::check_organizer($req);
             if ($r === true) return true;
@@ -784,11 +788,33 @@ class TIX_Music {
         return ['requests' => $out, 'counts' => $counts];
     }
 
+    /** Mehr-Veranstalter-Modus ohne DJ-Schlüssel und ohne Admin → nur eigene Events. */
+    private static function dj_scoped(WP_REST_Request $req) {
+        if (!(class_exists('TIX_App_Scope') && TIX_App_Scope::multi()) || !TIX_App_Scope::scoped()) return false;
+        $key = (string) ($req->get_param('key') ?? $req->get_header('x-tix-dj-key') ?? '');
+        return !($key !== '' && hash_equals(self::dj_key(), $key));
+    }
+
     /** GET /music/dj/requests?event_id= */
     public static function rest_dj_list(WP_REST_Request $req) {
         $event_id = intval($req->get_param('event_id'));
         $events   = self::dj_event_candidates();
         $cur      = self::current_event();
+        if (self::dj_scoped($req)) {
+            if ($event_id && !TIX_App_Scope::event_allowed($event_id)) {
+                return TIX_App_Scope::deny('Kein Zugriff auf dieses Event.');
+            }
+            $events = array_values(array_filter($events, fn($e) => TIX_App_Scope::event_allowed($e['id'])));
+            if ($cur && !TIX_App_Scope::event_allowed($cur['id'])) {
+                // Gerade läuft ein fremdes Event – eigenes laufendes Event suchen
+                $cur = null;
+                foreach ($events as $e) {
+                    $w = self::event_window($e['id']);
+                    $now = self::now();
+                    if ($w && $now >= $w['opens'] && $now <= $w['closes']) { $cur = ['id' => $e['id'], 'window' => $w]; break; }
+                }
+            }
+        }
         if (!$event_id) {
             if ($cur) {
                 $event_id = intval($cur['id']);
@@ -826,6 +852,9 @@ class TIX_Music {
         if (!isset(self::STATUSES[$status])) return self::error('tix_music_status', 'Ungültiger Status.', 400);
         $row = $wpdb->get_row($wpdb->prepare("SELECT * FROM $rt WHERE id = %d", $id), ARRAY_A);
         if (!$row) return self::error('tix_music_missing', 'Wunsch nicht gefunden.', 404);
+        if (self::dj_scoped($req) && !TIX_App_Scope::event_allowed(intval($row['event_id']))) {
+            return TIX_App_Scope::deny('Kein Zugriff auf diesen Wunsch.');
+        }
         $now = self::mysql_now();
         $wpdb->query($wpdb->prepare(
             "UPDATE $rt SET status = %s, updated_at = %s, played_at = %s WHERE event_id = %d AND song_key = %s",

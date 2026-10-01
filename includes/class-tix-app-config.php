@@ -37,10 +37,17 @@ class TIX_App_Config {
 
     /** Editor: aktuelle Overrides laden (auch wenn leer). */
     public static function rest_admin_get(WP_REST_Request $req) {
+        if (class_exists('TIX_App_Scope') && TIX_App_Scope::multi() && TIX_App_Scope::scoped()) {
+            return TIX_App_Scope::deny('Die App-Inhalte pflegt der Plattform-Betreiber.');
+        }
         return rest_ensure_response(['config' => (object) self::stored()]);
     }
 
     public static function rest_save(WP_REST_Request $req) {
+        // Mehr-Veranstalter-Modus: App-Inhalte gelten für die ganze Plattform → nur Admins
+        if (class_exists('TIX_App_Scope') && TIX_App_Scope::multi() && TIX_App_Scope::scoped()) {
+            return TIX_App_Scope::deny('Die App-Inhalte pflegt der Plattform-Betreiber. Deine Veranstalter-Seite bearbeitest du unter „Veranstalter-Seite“.');
+        }
         $b = $req->get_json_params();
         if (!is_array($b)) {
             return new WP_Error('bad_data', 'Ungültige Daten.', ['status' => 400]);
