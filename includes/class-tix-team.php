@@ -296,4 +296,39 @@ class TIX_Team {
         }
         return $login;
     }
+
+    // ── Rückfall für Aufrufer der früheren Team-Klasse ──
+    // Die alte Team-Mitgliedschaft mit eigenen Rollen (admin/mitarbeiter/checkin) gibt es
+    // seit dem Umbau auf App-Rollen nicht mehr. Veranstalter-Dashboard, Admin-Shell und
+    // Event-Caps (map_event_caps) rufen diese Methoden aber weiterhin auf; ohne sie endet
+    // jeder Aufruf im Fatal Error ("Call to undefined method").
+
+    /** Veranstalter-ID des Nutzers (Inhaber oder Team, nur freigegebene Einträge), sonst 0. */
+    public static function get_organizer_for_user($user_id) {
+        if (class_exists('TIX_App_Scope')) return TIX_App_Scope::organizer_id_for_user(intval($user_id));
+        return 0;
+    }
+
+    /**
+     * Team-Berechtigung wie die alte Rechte-Matrix: Admins, Inhaber und Team-Admins
+     * (Rolle tix_organizer) dürfen alles; Eingang (App) nur Gästeliste und Check-in
+     * (wie die alte Rolle „checkin“); DJ und sonstige Nutzer nichts.
+     */
+    public static function user_can($user_id, $capability) {
+        $user = get_userdata(intval($user_id));
+        if (!$user) return false;
+        if ($user->has_cap('manage_options')) return true;
+        if (class_exists('TIX_App_Scope')) {
+            if (TIX_App_Scope::is_org_manager($user->ID)) return true;
+        } elseif (get_posts([
+            'post_type' => 'tix_organizer', 'post_status' => 'publish', 'posts_per_page' => 1, 'fields' => 'ids',
+            'meta_key' => '_tix_org_user_id', 'meta_value' => intval($user->ID),
+        ])) {
+            return true;
+        }
+        if ($user->has_cap('tix_app_entrance') || in_array('tix_entrance', (array) $user->roles, true)) {
+            return in_array($capability, ['view_guestlist', 'perform_checkin'], true);
+        }
+        return false;
+    }
 }
