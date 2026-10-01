@@ -2134,6 +2134,14 @@ class TIX_REST_API {
             $event['checkin_stats'] = $checkin_stats;
         }
 
+        // Mehr-Veranstalter-Modus (evendis): großes Bild, Sichtbarkeit, Vorverkauf
+        if (class_exists('TIX_App_Scope') && TIX_App_Scope::multi()) {
+            $event['image']           = $thumb_id ? (wp_get_attachment_image_url($thumb_id, 'large') ?: '') : '';
+            $event['post_status']     = (string) $post->post_status;
+            $event['tickets_enabled'] = (bool) get_post_meta($id, '_tix_tickets_enabled', true);
+            $event['presale_active']  = (bool) get_post_meta($id, '_tix_presale_active', true);
+        }
+
         return $event;
     }
 
