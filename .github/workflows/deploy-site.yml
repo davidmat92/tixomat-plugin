@@ -1,20 +1,47 @@
 name: Deploy to site (manual)
 
-# Manueller Deploy einzelner Sites (z. B. kitchenklub.de) über GitHub Actions –
-# gleiche Ziele wie deploy.sh, ohne SSH vom eigenen Rechner.
+# Manueller Deploy auf die Kunden-Sites über GitHub Actions – ohne SSH vom eigenen Rechner.
+#
+#   site=alle         → kitchenklub.de, evendis.de und mallorca-festival-xxl.de nacheinander
+#                       (Regel des Auftraggebers seit 2026-10-02: Mallorca bekommt jede neue
+#                       Version mit, sobald KitchenKlub oder evendis eine bekommen)
+#   site=demo         → demo.mdj.events (Prüfumgebung, vorher einzeln testen)
+#   site=<einzeln>    → nur diese Site
+#
+# Der Server erlaubt nur ~1 SSH-Verbindung pro Minute: Die Sites laufen nacheinander
+# (max-parallel 1) mit Pausen zwischen den Verbindungen.
 on:
   workflow_dispatch:
     inputs:
       site:
-        description: "Ziel-Site"
+        description: "Ziel-Site (alle = kitchenklub + evendis + mallorca)"
         required: true
-        default: kitchenklub
+        default: demo
         type: choice
-        options: [kitchenklub, demo, evendis, mallorca]
+        options: [alle, demo, kitchenklub, evendis, mallorca]
 
 jobs:
-  deploy:
+  plan:
     runs-on: ubuntu-latest
+    outputs:
+      sites: ${{ steps.list.outputs.sites }}
+    steps:
+      - id: list
+        run: |
+          case "${{ inputs.site }}" in
+            alle) echo 'sites=["kitchenklub","evendis","mallorca"]' >> "$GITHUB_OUTPUT" ;;
+            *)    echo 'sites=["${{ inputs.site }}"]' >> "$GITHUB_OUTPUT" ;;
+          esac
+
+  deploy:
+    needs: plan
+    runs-on: ubuntu-latest
+    strategy:
+      max-parallel: 1
+      fail-fast: false
+      matrix:
+        site: ${{ fromJSON(needs.plan.outputs.sites) }}
+    name: deploy (${{ matrix.site }})
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -22,12 +49,22 @@ jobs:
       - name: Ziel bestimmen
         id: target
         run: |
-          case "${{ inputs.site }}" in
-            kitchenklub) echo "path=/home/runcloud/webapps/kitchen-klub/wp-content/plugins/tixomat/" >> "$GITHUB_OUTPUT"; echo "url=https://kitchenklub.de" >> "$GITHUB_OUTPUT" ;;
-            demo)        echo "path=/home/runcloud/webapps/demo-mdj-events/wp-content/plugins/tixomat/" >> "$GITHUB_OUTPUT"; echo "url=https://demo.mdj.events" >> "$GITHUB_OUTPUT" ;;
-            evendis)     echo "path=/home/runcloud/webapps/evendis/wp-content/plugins/tixomat/" >> "$GITHUB_OUTPUT"; echo "url=https://evendis.de" >> "$GITHUB_OUTPUT" ;;
-            mallorca)    echo "path=/home/runcloud/webapps/mallorca-festival-xxl/wp-content/plugins/tixomat/" >> "$GITHUB_OUTPUT"; echo "url=" >> "$GITHUB_OUTPUT" ;;
+          case "${{ matrix.site }}" in
+            kitchenklub) app=kitchen-klub;          url=https://kitchenklub.de ;;
+            demo)        app=demo-mdj-events;       url=https://demo.mdj.events ;;
+            evendis)     app=evendis;               url=https://evendis.de ;;
+            mallorca)    app=mallorca-festival-xxl; url=https://mallorca-festival-xxl.de ;;
+            *) echo "Unbekannte Site ${{ matrix.site }}"; exit 1 ;;
           esac
+          echo "path=/home/runcloud/webapps/$app/wp-content/plugins/tixomat/" >> "$GITHUB_OUTPUT"
+          echo "mu=/home/runcloud/webapps/$app/wp-content/mu-plugins/" >> "$GITHUB_OUTPUT"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "version=$(sed -n "s/^define('TIXOMAT_VERSION', '\([0-9.]*\)').*/\1/p" tixomat.php)" >> "$GITHUB_OUTPUT"
+
+      # Pause vor jeder weiteren Site, damit die SSH-Verbindung der vorigen nicht kollidiert.
+      - name: SSH-Pause
+        if: strategy.job-index > 0
+        run: sleep 70
 
       - name: Deploy Plugin
         uses: burnett01/rsync-deployments@7.0.1
@@ -40,23 +77,34 @@ jobs:
           remote_user: runcloud
           remote_key: ${{ secrets.SSH_PRIVATE_KEY }}
 
-      # PHP-FPM hält den alten Code im OPcache – ohne Reset läuft die alte Version weiter.
-      # Der Server erlaubt nur ~1 SSH-Verbindung pro Minute, daher die Pause nach dem rsync.
+      # PHP (PHP-FPM bzw. OpenLiteSpeed/lsphp) hält den alten Code im OPcache – ohne Reset
+      # läuft die alte Version weiter. Der Reset läuft über ein einmaliges, sich selbst
+      # löschendes mu-Plugin, das nur mit einem Zufallsschlüssel reagiert. Das klappt auch auf
+      # Sites, die direkte PHP-Aufrufe im Plugin-Ordner sperren (z. B. Mallorca).
       - name: OPcache zurücksetzen
-        if: steps.target.outputs.url != ''
         env:
           SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
         run: |
-          sleep 75
+          sleep 70
+          KEY=$(openssl rand -hex 12)
           echo "$SSH_KEY" > deploy_key && chmod 600 deploy_key
           ssh -i deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=30 runcloud@51.195.61.6 \
-            "echo '<?php opcache_reset(); echo \"RESET-OK\"; unlink(__FILE__);' > ${{ steps.target.outputs.path }}tix-oc.php"
+            "mkdir -p ${{ steps.target.outputs.mu }} && printf '%s' '<?php if (isset(\$_GET[\"tix_oc\"]) && \$_GET[\"tix_oc\"] === \"'$KEY'\") { \$ok = function_exists(\"opcache_reset\") && opcache_reset(); @unlink(__FILE__); header(\"Content-Type: text/plain\"); echo \$ok ? \"RESET-OK\" : \"RESET-NICHT-MOEGLICH\"; exit; }' > ${{ steps.target.outputs.mu }}zz-tix-oc.php"
           rm -f deploy_key
           sleep 2
-          echo "Reset: $(curl -s -m 20 "${{ steps.target.outputs.url }}/wp-content/plugins/tixomat/tix-oc.php" | head -c 40)"
+          echo "Reset: $(curl -s -m 30 "${{ steps.target.outputs.url }}/?tix_oc=$KEY" | head -c 40)"
 
       - name: Version prüfen
-        if: steps.target.outputs.url != ''
         run: |
           sleep 3
-          curl -s "${{ steps.target.outputs.url }}/wp-json/tixomat/v1/info" | head -c 300; echo
+          INFO=$(curl -s -m 30 "${{ steps.target.outputs.url }}/wp-json/tixomat/v1/info?_=$(date +%s)")
+          echo "$INFO" | head -c 300; echo
+          LIVE=$(echo "$INFO" | sed -n 's/.*"plugin_version":"\([0-9.]*\)".*/\1/p')
+          if [ "$LIVE" = "${{ steps.target.outputs.version }}" ]; then
+            echo "OK: ${{ matrix.site }} läuft auf $LIVE"
+          else
+            echo "::warning title=${{ matrix.site }}::Live-Version '$LIVE' statt ${{ steps.target.outputs.version }} – OPcache evtl. noch alt (Webserver in RunCloud neu starten)."
+          fi
+          HOME_CODE=$(curl -s -o /dev/null -w "%{http_code}" -m 30 "${{ steps.target.outputs.url }}/?_=$(date +%s)")
+          echo "Startseite: $HOME_CODE"
+          if [ "$HOME_CODE" -ge 500 ]; then echo "::error title=${{ matrix.site }}::Startseite antwortet mit $HOME_CODE"; exit 1; fi
