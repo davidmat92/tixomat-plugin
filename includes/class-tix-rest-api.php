@@ -458,7 +458,28 @@ class TIX_REST_API {
             if (!$org) return true;
             return TIX_Organizer_Dashboard::user_owns_event($user->ID, $event_id);
         }
+        // Veranstalter-Dashboard aus (Ein-Club-Betrieb, z. B. App-Team-Rolle „Admin“):
+        // dieselbe Regel ohne die Dashboard-Klasse – vorher gab es hier immer 403.
+        if (in_array('tix_organizer', (array) $user->roles, true)) {
+            $org = self::linked_organizer($user->ID);
+            if (!$org) return true;
+            return class_exists('TIX_App_Scope')
+                && in_array(intval($org->ID), TIX_App_Scope::event_org_ids($event_id), true);
+        }
         return false;
+    }
+
+    /**
+     * Veröffentlichter Veranstalter, mit dem der Nutzer verknüpft ist (Inhaber
+     * oder Team) – auch wenn das Veranstalter-Dashboard ausgeschaltet ist.
+     */
+    private static function linked_organizer($user_id) {
+        if (class_exists('TIX_Organizer_Dashboard')) {
+            return TIX_Organizer_Dashboard::get_organizer_by_user($user_id);
+        }
+        if (!class_exists('TIX_App_Scope')) return null;
+        $org = TIX_App_Scope::organizer_post_for_user($user_id);
+        return ($org && $org->post_status === 'publish') ? $org : null;
     }
 
     /**
@@ -603,9 +624,9 @@ class TIX_REST_API {
             $args['meta_query']   = $args['meta_query'] ?? [];
             $args['meta_query'][] = TIX_App_Scope::event_meta_clause($oid);
         } elseif (!$user->has_cap('manage_options')
-            && !in_array('tix_staff', (array) $user->roles, true)
-            && class_exists('TIX_Organizer_Dashboard')) {
-            $org = TIX_Organizer_Dashboard::get_organizer_by_user($user->ID);
+            && !in_array('tix_staff', (array) $user->roles, true)) {
+            // verknüpfte Veranstalter (auch bei ausgeschaltetem Dashboard)
+            $org = self::linked_organizer($user->ID);
             if ($org) {
                 $args['meta_query']   = $args['meta_query'] ?? [];
                 $args['meta_query'][] = [
