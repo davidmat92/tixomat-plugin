@@ -2618,6 +2618,28 @@ Tokens werden bei `/auth/login` generiert und als SHA-256 Hash in `_tix_app_toke
 |---|---|
 | `includes/class-tix-rest-api.php` | REST API Klasse, alle Endpoints, Token-Auth |
 
+### App-Vertrag: worauf sich KitchenKlub- und evendis-App verlassen (Stand 1.38.329)
+
+Die nativen Apps (Monorepo `tixomat-apps`: `apps/kitchenklub`, `apps/evendis`, Paket `tixomat_core`) lesen die folgenden Routen und Feldnamen direkt. **Feldnamen und Bedeutungen nicht umbenennen oder entfernen** – nur ergänzen. KitchenKlub ist als Store-App ausgeliefert; alte App-Versionen bleiben monatelang im Umlauf.
+
+| Bereich | Route / Feld | Nutzt | Seit |
+|---|---|---|---|
+| Kontobestätigung | `POST /auth/register` mit `verify=1` → kein Token, Antwort `{verification_required, email, expires_in}`, Nutzer-Meta `_tix_app_unverified`, Code-Mail „Bestätige dein Konto“ | KitchenKlub ab Build 36, evendis | 1.38.324 |
+| Kontobestätigung | `POST /auth/code` und `POST /auth/code/confirm` mit `purpose=verify` (neben `login`/`reset`), Bestätigung liefert Token + `verified` | beide | 1.38.324 |
+| Kontobestätigung | `POST /auth/login` lehnt unbestätigte Konten mit `code=account_unverified` (403, `data.email`) ab | beide | 1.38.324 |
+| Registrierung alt | `POST /auth/register` ohne `verify` → sofort Token + Willkommens-Mail (keine WordPress-„Passwort festlegen“-Mail) | ältere KitchenKlub-Builds | 1.38.324 |
+| Event-Katalog | `GET /public/events` je Event zusätzlich `organizer_info {id,slug,name,logo}`, `category {id,slug,name}`, `venue {id,name,city,zip,lat,lng}`, `modules {tickets,music,loyalty,giftcards,support,muttizettel}`; Filter `category`, `organizer`, `city`, `q`; Seiten `page`/`per_page` (≤200) mit `total`/`has_more` | evendis | 1.38.325 |
+| Plattform | `GET /public/organizers` (Filter `q`, `city`, `category`), `GET /public/organizers/{id\|slug}` (+ `description`, `email`, `phone`, `address`, `events`), `GET /public/categories` (`upcoming`), `GET /public/cities` | evendis | 1.38.325 |
+| Merkliste / Folgen | `GET/POST /customer/favorites`, `POST\|DELETE /customer/favorites/{event_id}` (User-Meta `_tix_saved_events`), dasselbe für `/customer/following` (`_tix_app_following`) | evendis | 1.38.325 |
+| Veranstalter-Module | Post-Meta `_tix_org_modules` (JSON) am `tix_organizer`, Vorgabe: nur `tickets` | evendis | 1.38.325 |
+| Mehr-Veranstalter | Option `tix_multi_organizer=1` (nur evendis.de): Veranstalter-Routen auf eigene Events begrenzt (`TIX_App_Scope`) | evendis | 1.38.326 |
+
+Code: `includes/class-tix-app-account.php` (Codes/Bestätigung), `includes/class-tix-rest-api.php` (`auth_register`, `auth_login`), `includes/class-tix-public-events.php` + `includes/class-tix-public-platform.php` (Katalog/Plattform), `includes/class-tix-app-scope.php` (Mehr-Veranstalter).
+
+### Rollout auf die Kunden-Sites
+
+Push auf `main` deployt nur tixomat.de. Kunden-Sites per Workflow „Deploy to site (manual)“: zuerst `site=demo` prüfen, dann **`site=alle`** = kitchenklub.de → evendis.de → mallorca-festival-xxl.de nacheinander (Regel des Betreibers seit 2026-10-02: Mallorca bekommt jede neue Version mit). Der Workflow setzt den OPcache per Einmal-mu-Plugin zurück (`/?tix_oc=<Schlüssel>`; Server = OpenLiteSpeed/lsphp) und prüft Live-Version und Startseite. Mallorca-Live liegt im Ordner `Mallorca-Festival-XXL-2026` (nicht `mallorca-festival-xxl` = alter Shop).
+
 ---
 
 ## 60. Admin Shell / Fullscreen-Modus
