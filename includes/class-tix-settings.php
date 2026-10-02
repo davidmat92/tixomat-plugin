@@ -6064,7 +6064,7 @@ class TIX_Settings {
                                             <div class="tix-field tix-field-half">
                                                 <label class="tix-field-label" for="tix-brevo-list">Default-Listen-ID (Fallback)</label>
                                                 <input type="number" id="tix-brevo-list" name="<?php echo self::OPTION_KEY; ?>[brevo_list_id]"
-                                                       value="<?php echo esc_attr($s['brevo_list_id'] ?? ''); ?>"
+                                                       value="<?php echo !empty($s['brevo_list_id']) ? esc_attr($s['brevo_list_id']) : ''; ?>"
                                                        class="tix-text-input" min="1" placeholder="z.B. 22">
                                                 <p class="tix-field-hint">Greift wenn keine spezifische Mapping-Regel (unten) passt. Leer = Fallback aus, dann werden ohne Mapping keine Kontakte gepusht.</p>
                                             </div>
@@ -9811,6 +9811,42 @@ class TIX_Settings {
                         });
                     }
                 });
+            })();
+
+            // ══════════════════════════════════════
+            // UNGUELTIGE FELDER IN VERSTECKTEN TABS SICHTBAR MACHEN
+            // Das Formular umfasst alle Tabs. Blockiert ein Feld in einem versteckten
+            // Tab oder einer eingeklappten Karte die HTML5-Validierung, verwirft der
+            // Browser das Absenden kommentarlos. Hier: zum Feld springen + markieren.
+            // ══════════════════════════════════════
+            (function() {
+                var form = document.getElementById('tix-settings-form');
+                if (!form) return;
+                var handled = false;
+                form.addEventListener('invalid', function(e) {
+                    if (handled) return; // nur das erste ungueltige Feld anspringen
+                    handled = true;
+                    setTimeout(function(){ handled = false; }, 500);
+                    var field = e.target;
+                    var pane = field.closest('.tix-pane');
+                    if (pane && !pane.classList.contains('active')) {
+                        var tab = document.querySelector('.tix-nav-tab[data-tab="' + pane.getAttribute('data-pane') + '"]');
+                        if (tab) tab.click();
+                    }
+                    var body = field.closest('.tix-feature-body');
+                    if (body && !body.classList.contains('tix-feature-expanded')) {
+                        body.classList.add('tix-feature-expanded');
+                        var hdr = body.parentNode ? body.parentNode.querySelector('.tix-feature-toggle') : null;
+                        if (hdr) hdr.classList.add('tix-feature-open');
+                    }
+                    setTimeout(function() {
+                        field.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        field.style.outline = '3px solid #dc2626';
+                        field.style.outlineOffset = '2px';
+                        try { field.focus({ preventScroll: true }); field.reportValidity(); } catch (err) {}
+                        setTimeout(function(){ field.style.outline = ''; field.style.outlineOffset = ''; }, 6000);
+                    }, 80);
+                }, true);
             })();
 
             // ══════════════════════════════════════
