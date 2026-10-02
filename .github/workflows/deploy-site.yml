@@ -53,7 +53,9 @@ jobs:
             kitchenklub) app=kitchen-klub;          url=https://kitchenklub.de ;;
             demo)        app=demo-mdj-events;       url=https://demo.mdj.events ;;
             evendis)     app=evendis;               url=https://evendis.de ;;
-            mallorca)    app=mallorca-festival-xxl; url=https://mallorca-festival-xxl.de ;;
+            # Live-Seite liegt in Mallorca-Festival-XXL-2026 (mallorca-festival-xxl = alter Shop
+            # alter-shop.mallorca-festival-xxl.de, mallorca-festival-xxl_clone = backup.…) – Stand 2026-10-02
+            mallorca)    app=Mallorca-Festival-XXL-2026; url=https://mallorca-festival-xxl.de ;;
             *) echo "Unbekannte Site ${{ matrix.site }}"; exit 1 ;;
           esac
           echo "path=/home/runcloud/webapps/$app/wp-content/plugins/tixomat/" >> "$GITHUB_OUTPUT"
