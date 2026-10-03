@@ -2638,7 +2638,7 @@ Code: `includes/class-tix-app-account.php` (Codes/Bestätigung), `includes/class
 
 ### Rollout auf die Kunden-Sites
 
-Push auf `main` deployt nur tixomat.de. Kunden-Sites per Workflow „Deploy to site (manual)“: zuerst `site=demo` prüfen, dann **`site=alle`** = kitchenklub.de → evendis.de → mallorca-festival-xxl.de nacheinander (Regel des Betreibers seit 2026-10-02: Mallorca bekommt jede neue Version mit). Der Workflow setzt den OPcache per Einmal-mu-Plugin zurück (`/?tix_oc=<Schlüssel>`; Server = OpenLiteSpeed/lsphp) und prüft Live-Version und Startseite. Mallorca-Live liegt im Ordner `Mallorca-Festival-XXL-2026` (nicht `mallorca-festival-xxl` = alter Shop).
+Push auf `main` deployt nur tixomat.de. Kunden-Sites per Workflow „Deploy to site (manual)“: zuerst `site=evendis` prüfen (evendis.de hat nur Testdaten; demo.mdj.events wird seit 2026-10-03 nicht mehr genutzt), dann **`site=alle`** = kitchenklub.de → evendis.de → mallorca-festival-xxl.de nacheinander (Regel des Betreibers seit 2026-10-02: Mallorca bekommt jede neue Version mit). Der Workflow setzt den OPcache per Einmal-mu-Plugin zurück (`/?tix_oc=<Schlüssel>`; Server = OpenLiteSpeed/lsphp) und prüft Live-Version und Startseite. Mallorca-Live liegt im Ordner `Mallorca-Festival-XXL-2026` (nicht `mallorca-festival-xxl` = alter Shop).
 
 ---
 
