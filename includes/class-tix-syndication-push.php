@@ -135,6 +135,12 @@ class TIX_Syndication_Push {
         $remote_id = get_post_meta($post_id, '_tix_syndicate_remote_id', true);
         if ($remote_id) {
             $result = self::api_call('PATCH', '/syndicate/' . intval($remote_id), $payload);
+            // Remote-Event existiert nicht mehr (z.B. Plattform neu aufgesetzt) → neu anlegen.
+            // Der Empfaenger dedupliziert per source_id + source_site, es entsteht kein Doppel.
+            if (!empty($result['http_code']) && intval($result['http_code']) === 404) {
+                delete_post_meta($post_id, '_tix_syndicate_remote_id');
+                $result = self::api_call('POST', '/syndicate', $payload);
+            }
         } else {
             $result = self::api_call('POST', '/syndicate', $payload);
         }
@@ -143,6 +149,7 @@ class TIX_Syndication_Push {
             update_post_meta($post_id, '_tix_syndicate_remote_id', intval($result['event_id']));
             update_post_meta($post_id, '_tix_syndicate_status', 'synced');
             update_post_meta($post_id, '_tix_syndicate_last', current_time('mysql'));
+            delete_post_meta($post_id, '_tix_syndicate_error');
         } else {
             $error = $result['message'] ?? 'Unbekannter Fehler';
             update_post_meta($post_id, '_tix_syndicate_status', 'error');
@@ -185,6 +192,6 @@ class TIX_Syndication_Push {
             return $body ?: ['success' => true];
         }
 
-        return ['message' => $body['message'] ?? ('HTTP ' . $code)];
+        return ['message' => $body['message'] ?? ('HTTP ' . $code), 'http_code' => $code];
     }
 }

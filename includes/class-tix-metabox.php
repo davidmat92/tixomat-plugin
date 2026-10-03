@@ -3940,7 +3940,10 @@ class TIX_Metabox {
         // ── Event-Verteilung ──
         $syn_global = function_exists('tix_get_settings') && tix_get_settings('syndication_enabled');
         if ($syn_global && class_exists('TIX_Syndication_Push') && TIX_Syndication_Push::is_configured()):
-            $syn_active  = get_post_meta($post->ID, '_tix_syndicate', true);
+            // Noch nie entschieden (neues Event) → standardmaessig an, da die Site zum Senden konfiguriert ist
+            $syn_active  = metadata_exists('post', $post->ID, '_tix_syndicate')
+                ? get_post_meta($post->ID, '_tix_syndicate', true)
+                : '1';
             $syn_status  = get_post_meta($post->ID, '_tix_syndicate_status', true);
             $syn_last    = get_post_meta($post->ID, '_tix_syndicate_last', true);
             $syn_error   = get_post_meta($post->ID, '_tix_syndicate_error', true);
