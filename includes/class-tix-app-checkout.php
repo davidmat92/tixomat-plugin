@@ -627,7 +627,16 @@ class TIX_App_Checkout {
             'price'          => floatval($m('_tix_ticket_price')),
             'purchased'      => (string) $post->post_date,
             'owner_name'     => (string) $m('_tix_ticket_owner_name'),
-        ] + self::gift_fields($id);
+        ] + self::mirror_fields($id) + self::gift_fields($id);
+    }
+
+    /** Spiegel-Ticket eines geteilten Events: Einlass beim Veranstalter (`source_site`). */
+    private static function mirror_fields($ticket_id) {
+        if ((string) get_post_meta($ticket_id, '_tix_ticket_mirror', true) !== '1') return [];
+        return [
+            'mirror'      => true,
+            'source_site' => (string) get_post_meta($ticket_id, '_tix_ticket_source_site', true),
+        ];
     }
 
     /** Alle Ticket-Posts einer E-Mail (aktueller Inhaber), neueste zuerst. */

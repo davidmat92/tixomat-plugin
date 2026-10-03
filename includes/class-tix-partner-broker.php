@@ -356,17 +356,6 @@ class TIX_Partner_Broker {
         }
     }
 
-    /** Spiegel-Ticket? (Einlass gilt nur an der Quelle) */
-    public static function is_mirror($ticket_id) {
-        return (string) get_post_meta(intval($ticket_id), '_tix_ticket_mirror', true) === '1';
-    }
-
-    /** Hinweis für Einlass-Ansichten: „Ticket gilt beim Einlass von …“ */
-    public static function mirror_notice($ticket_id) {
-        $site = (string) get_post_meta(intval($ticket_id), '_tix_ticket_source_site', true);
-        return 'Ticket gilt beim Einlass von ' . ($site !== '' ? $site : 'dem Veranstalter') . '.';
-    }
-
     // ──────────────────────────────────────────
     //  Status + Antwort an die App
     // ──────────────────────────────────────────

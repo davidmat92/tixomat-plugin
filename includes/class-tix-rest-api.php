@@ -899,6 +899,19 @@ class TIX_REST_API {
             ]);
         }
 
+        // Spiegel-Ticket eines geteilten Events: Einlass nur beim Veranstalter (Quelle)
+        if ($lock = TIX_Tickets::mirror_lock_message($ticket->ID)) {
+            return rest_ensure_response([
+                'ok'      => true,
+                'status'  => 'invalid',
+                'mirror'  => true,
+                'name'    => $name,
+                'type'    => 'ticket',
+                'code'    => $code,
+                'message' => $lock,
+            ]);
+        }
+
         $checked_in = (bool) get_post_meta($ticket->ID, '_tix_ticket_checked_in', true);
 
         if ($checked_in) {
@@ -1249,6 +1262,10 @@ class TIX_REST_API {
 
         $pw_check = self::verify_checkin_password($event_id, $req);
         if (is_wp_error($pw_check)) return $pw_check;
+
+        if ($lock = TIX_Tickets::mirror_lock_message($ticket_id)) {
+            return new WP_Error('tix_mirror_ticket', $lock, ['status' => 409]);
+        }
 
         $checked_in = TIX_Tickets::is_checked_in($ticket_id);
         $by         = wp_get_current_user()->user_login;

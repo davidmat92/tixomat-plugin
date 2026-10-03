@@ -5475,6 +5475,10 @@ body{margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',
             wp_send_json_error(['message' => 'not_found'], 404);
         }
 
+        if ($lock = self::mirror_lock_message($ticket_id)) {
+            wp_send_json_error(['message' => $lock], 409);
+        }
+
         $checked = self::is_checked_in($ticket_id);
         $by = wp_get_current_user()->user_login ?: 'admin';
 
@@ -6818,7 +6822,19 @@ body{margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',
     /**
      * Ticket einchecken
      */
+    /**
+     * Spiegel-Ticket eines geteilten Events (Plattform)? Dann gilt es nur beim Einlass
+     * der Quelle – liefert den Hinweis, sonst null. Status/Check-in kommen per Webhook.
+     */
+    public static function mirror_lock_message($ticket_id) {
+        if ((string) get_post_meta(intval($ticket_id), '_tix_ticket_mirror', true) !== '1') return null;
+        $site = (string) get_post_meta(intval($ticket_id), '_tix_ticket_source_site', true);
+        return 'Ticket gilt beim Einlass von ' . ($site !== '' ? $site : 'dem Veranstalter') . '.';
+    }
+
     public static function checkin_ticket($ticket_id, $by = 'door') {
+        // Sicherheitsnetz: Spiegel-Tickets nie hier einchecken (Einlass bei der Quelle)
+        if (self::mirror_lock_message($ticket_id) !== null) return false;
         update_post_meta($ticket_id, '_tix_ticket_checked_in',   1);
         update_post_meta($ticket_id, '_tix_ticket_checkin_time',  current_time('c'));
         update_post_meta($ticket_id, '_tix_ticket_checkin_by',    $by);
@@ -6831,6 +6847,7 @@ body{margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',
      * Check-in zurücksetzen
      */
     public static function reset_checkin($ticket_id) {
+        if (self::mirror_lock_message($ticket_id) !== null) return false;
         update_post_meta($ticket_id, '_tix_ticket_checked_in',   0);
         update_post_meta($ticket_id, '_tix_ticket_checkin_time',  '');
         update_post_meta($ticket_id, '_tix_ticket_checkin_by',    '');

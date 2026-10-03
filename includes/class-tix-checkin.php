@@ -674,6 +674,17 @@ class TIX_Checkin {
             ]);
         }
 
+        // Spiegel-Ticket eines geteilten Events: Einlass nur beim Veranstalter (Quelle)
+        if ($lock = TIX_Tickets::mirror_lock_message($ticket->ID)) {
+            wp_send_json_error([
+                'message' => $lock,
+                'status'  => 'invalid',
+                'name'    => get_post_meta($ticket->ID, '_tix_ticket_owner_name', true),
+                'type'    => 'ticket',
+                'cat'     => $cat_name,
+            ]);
+        }
+
         // ── Geschenkgutschein-Ticket: Guthaben-Panel statt Check-in ──
         $gift_code = get_post_meta($ticket->ID, '_tix_ticket_gift_code', true);
         if ($gift_code && class_exists('TIX_Giftcards')) {
@@ -886,6 +897,10 @@ class TIX_Checkin {
         $stored_pw = get_post_meta($event_id, '_tix_checkin_password', true);
         if ($stored_pw && !hash_equals($stored_pw, $password)) {
             wp_send_json_error(['message' => 'Falsches Passwort.', 'status' => 'unauthorized']);
+        }
+
+        if ($lock = TIX_Tickets::mirror_lock_message($ticket_id)) {
+            wp_send_json_error(['message' => $lock, 'status' => 'invalid']);
         }
 
         $checked_in = TIX_Tickets::is_checked_in($ticket_id);
