@@ -181,12 +181,42 @@ class TIX_App_Checkout {
         return new WP_Error($code, $message, ['status' => $status]);
     }
 
+    /** Geteiltes Event (Event-Verteilung von einer anderen Tixomat-Seite)? */
+    public static function is_syndicated($event_id) {
+        return get_post_meta(intval($event_id), '_tix_syndicated', true) === '1';
+    }
+
+    /**
+     * Herkunft eines geteilten Events für die App: {site, checkout_url}, sonst null.
+     * Tickets gibt es bei der Quelle; die evendis-Eventseite leitet dorthin weiter.
+     */
+    public static function syndicated_info($event_id) {
+        $event_id = intval($event_id);
+        if (!self::is_syndicated($event_id)) return null;
+        $checkout = (string) get_post_meta($event_id, '_tix_source_checkout', true);
+        if ($checkout === '') $checkout = (string) get_post_meta($event_id, '_tix_source_url', true);
+        return [
+            'site'         => (string) (get_post_meta($event_id, '_tix_source_site', true) ?: 'Veranstalter'),
+            'checkout_url' => $checkout,
+        ];
+    }
+
     /** Online-Verkauf für das Event möglich? (wie der Ticket-Selector der Event-Seite) */
     private static function sale_open($event_id) {
         if (get_post_status($event_id) !== 'publish') return false;
+        // Geteilte Events verkauft die Quelle, nie die eigene Kasse
+        if (self::is_syndicated($event_id)) return false;
         if (get_post_meta($event_id, '_tix_tickets_enabled', true) !== '1') return false;
         $status = get_post_meta($event_id, '_tix_status', true);
         return !in_array($status, ['cancelled', 'postponed', 'past', 'sold_out', 'presale_closed'], true);
+    }
+
+    private static function syndicated_error($event_id) {
+        $info = self::syndicated_info($event_id);
+        return new WP_Error('tix_syndicated', 'Tickets gibt es beim Veranstalter (' . $info['site'] . ').', [
+            'status'     => 409,
+            'syndicated' => $info,
+        ]);
     }
 
     private static function is_public_category(array $cat) {
@@ -276,6 +306,9 @@ class TIX_App_Checkout {
 
     /** Warenkorb im Format des Web-Checkouts aus der Auswahl der App bauen. */
     private static function build_cart($event_id, array $items) {
+        if (self::is_syndicated($event_id)) {
+            return self::syndicated_error($event_id);
+        }
         if (!self::sale_open($event_id)) {
             return self::error('tix_sale_closed', 'Für dieses Event ist aktuell kein Online-Verkauf möglich.');
         }
@@ -708,6 +741,7 @@ class TIX_App_Checkout {
             'ok'              => true,
             'event_id'        => $event_id,
             'sale_open'       => self::sale_open($event_id),
+            'syndicated'      => self::syndicated_info($event_id),
             'categories'      => self::categories($event_id),
             'totals'          => null,
             'payment_methods' => [],

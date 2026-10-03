@@ -1593,6 +1593,11 @@ class TIX_Native_Checkout {
             if (get_post_status($event_id) !== 'publish') {
                 wp_send_json_error(['message' => 'Event "' . get_the_title($event_id) . '" ist nicht mehr verfügbar.']);
             }
+            // Geteilte Events verkauft die Quellseite, nicht diese Kasse
+            if (get_post_meta($event_id, '_tix_syndicated', true) === '1') {
+                $site = get_post_meta($event_id, '_tix_source_site', true) ?: 'Veranstalter';
+                wp_send_json_error(['message' => 'Tickets für "' . get_the_title($event_id) . '" gibt es beim Veranstalter (' . esc_html($site) . ').']);
+            }
 
             $categories = get_post_meta($event_id, '_tix_ticket_categories', true);
             if (!is_array($categories) || !isset($categories[$cat_index])) {
