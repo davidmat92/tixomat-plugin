@@ -6,7 +6,9 @@ name: Deploy to site (manual)
 #                       (Regel des Auftraggebers seit 2026-10-02: Mallorca bekommt jede neue
 #                       Version mit, sobald KitchenKlub oder evendis eine bekommen)
 #   site=evendis      → nur evendis.de (Testdaten – vor „alle“ dort zuerst prüfen)
-#   site=<einzeln>    → nur diese Site (demo.mdj.events wird seit 2026-10-03 nicht mehr beliefert)
+#   site=test-quelle  → nur demo.mdj.events: Test-Quelle für geteilte Events (Partner-API,
+#                       Zahlung im Testmodus). Seit 2026-10-03 wiederbelebt, NICHT Teil von „alle“.
+#   site=<einzeln>    → nur diese Site
 #
 # Der Server erlaubt nur ~1 SSH-Verbindung pro Minute: Die Sites laufen nacheinander
 # (max-parallel 1) mit Pausen zwischen den Verbindungen.
@@ -18,7 +20,7 @@ on:
         required: true
         default: evendis
         type: choice
-        options: [alle, evendis, kitchenklub, mallorca]
+        options: [alle, evendis, test-quelle, kitchenklub, mallorca]
 
 jobs:
   plan:
@@ -52,6 +54,7 @@ jobs:
           case "${{ matrix.site }}" in
             kitchenklub) app=kitchen-klub;          url=https://kitchenklub.de ;;
             evendis)     app=evendis;               url=https://evendis.de ;;
+            test-quelle) app=demo-mdj-events;       url=https://demo.mdj.events ;;
             # Live-Seite liegt in Mallorca-Festival-XXL-2026 (mallorca-festival-xxl = alter Shop
             # alter-shop.mallorca-festival-xxl.de, mallorca-festival-xxl_clone = backup.…) – Stand 2026-10-02
             mallorca)    app=Mallorca-Festival-XXL-2026; url=https://mallorca-festival-xxl.de ;;
