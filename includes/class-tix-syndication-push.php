@@ -16,6 +16,49 @@ class TIX_Syndication_Push {
         add_action('before_delete_post', [__CLASS__, 'on_delete']);
         // Push bei Status-Wechsel (publish → draft etc.)
         add_action('transition_post_status', [__CLASS__, 'on_status_change'], 10, 3);
+        // Bestand nach Bestellung/Storno nachschicken (gebündelt, höchstens 1× pro Minute je Event)
+        add_action('tix_native_order_created', [__CLASS__, 'queue_stock_for_order'], 50);
+        add_action('tix_order_cancelled', [__CLASS__, 'queue_stock_for_order'], 50);
+        add_action('tix_order_completed', [__CLASS__, 'queue_stock_for_order'], 50);
+        add_action('tix_syndication_stock_push', [__CLASS__, 'push_stock']);
+    }
+
+    /** Darf die Plattform Tickets dieses Events verkaufen (Partner-API an + Häkchen je Event, Vorgabe an)? */
+    public static function partner_sales_enabled($post_id) {
+        return class_exists('TIX_Partners') && TIX_Partners::source_api_enabled()
+            && get_post_meta($post_id, '_tix_partner_sales', true) !== '0';
+    }
+
+    /** Events einer Bestellung, die verteilt sind, zum Bestands-Update vormerken. */
+    public static function queue_stock_for_order($order_id) {
+        global $wpdb;
+        $ids = $wpdb->get_col($wpdb->prepare(
+            "SELECT DISTINCT event_id FROM {$wpdb->prefix}tix_order_items WHERE order_id = %d", intval($order_id)
+        ));
+        foreach ((array) $ids as $event_id) {
+            $event_id = intval($event_id);
+            if (!$event_id || !get_post_meta($event_id, '_tix_syndicate_remote_id', true)) continue;
+            if (!wp_next_scheduled('tix_syndication_stock_push', [$event_id])) {
+                wp_schedule_single_event(time() + 60, 'tix_syndication_stock_push', [$event_id]);
+            }
+        }
+    }
+
+    /** Leichtes Update: nur Kategorien (Bestand) und Verkaufsstatus. */
+    public static function push_stock($event_id) {
+        $event_id  = intval($event_id);
+        $remote_id = intval(get_post_meta($event_id, '_tix_syndicate_remote_id', true));
+        if (!$remote_id || !self::is_configured() || get_post_status($event_id) !== 'publish') return;
+        if (get_post_meta($event_id, '_tix_syndicate', true) !== '1') return;
+        wp_cache_delete($event_id, 'post_meta');
+        $meta = [];
+        foreach (['_tix_ticket_categories', '_tix_status', '_tix_tickets_enabled'] as $k) {
+            if (metadata_exists('post', $event_id, $k)) $meta[$k] = get_post_meta($event_id, $k, true);
+        }
+        $result = self::api_call('PATCH', '/syndicate/' . $remote_id, ['stock_only' => 1, 'meta' => $meta]);
+        if (!empty($result['http_code'])) {
+            error_log('[TIX Syndication] Bestands-Update für Event #' . $event_id . ' fehlgeschlagen: ' . ($result['message'] ?? ''));
+        }
     }
 
     /**
@@ -42,6 +85,10 @@ class TIX_Syndication_Push {
             : (bool) get_post_meta($post_id, '_tix_syndicate', true);
 
         update_post_meta($post_id, '_tix_syndicate', $syndicate ? '1' : '0');
+        // Häkchen „Tickets auch über die Plattform verkaufen“ (nur wenn im Formular vorhanden)
+        if (isset($_POST['tix_partner_sales'])) {
+            update_post_meta($post_id, '_tix_partner_sales', $_POST['tix_partner_sales'] ? '1' : '0');
+        }
 
         if (!$syndicate) {
             // War vorher synced? → DELETE senden
@@ -110,6 +157,7 @@ class TIX_Syndication_Push {
             if (strpos($key, '_tix_') === 0) {
                 // Syndication-Meta nicht mitsenden
                 if (strpos($key, '_tix_syndicate') === 0) continue;
+                if ($key === '_tix_partner_sales') continue;
                 $all_meta[$key] = maybe_unserialize($values[0]);
             }
         }
@@ -127,6 +175,9 @@ class TIX_Syndication_Push {
             'excerpt'         => $post->post_excerpt,
             'status'          => $post->post_status,
             'featured_image'  => get_the_post_thumbnail_url($post_id, 'full') ?: '',
+            // Partner-Verkauf: REST-Basis dieser Seite + Freigabe je Event
+            'source_api'      => rest_url('tixomat/v1'),
+            'partner_sales'   => self::partner_sales_enabled($post_id),
             'categories'      => $categories,
             'meta'            => $all_meta,
         ];

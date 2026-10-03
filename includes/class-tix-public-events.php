@@ -112,7 +112,8 @@ class TIX_Public_Events {
         $enabled = get_post_meta($id, '_tix_tickets_enabled', true) === '1' && !empty($cats);
         // Geteiltes Event: Tickets gibt es bei der Quelle (App zeigt „Zur Veranstaltung“)
         $syndicated = class_exists('TIX_App_Checkout') ? TIX_App_Checkout::syndicated_info($id) : null;
-        if ($syndicated) $enabled = false;
+        // (außer die Plattform verkauft über die Vermittlung: sale_via_app)
+        if ($syndicated && empty($syndicated['sale_via_app'])) $enabled = false;
         $status  = (string) (get_post_meta($id, '_tix_status', true) ?: 'available');
         $organizer = (string) (get_post_meta($id, '_tix_organizer_display', true) ?: get_post_meta($id, '_tix_organizer', true));
         if ($organizer === '' && ($oid = intval(get_post_meta($id, '_tix_organizer_id', true)))) $organizer = (string) get_the_title($oid);

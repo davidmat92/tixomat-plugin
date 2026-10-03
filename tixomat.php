@@ -2,14 +2,14 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.38.333
+ * Version: 1.38.334
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.38.333');
+define('TIXOMAT_VERSION', '1.38.334');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -562,6 +562,17 @@ if (tix_get_settings('syndication_enabled')) {
     TIX_Syndication_Push::init();
 }
 TIX_Syndication_Receive::init();
+
+// ── Geteilte Events verkaufen: Partner-Verzeichnis (Plattform), Partner-API + Webhooks (Quelle),
+//    Vermittlung + Ticket-Spiegel (Plattform). Alles aus, bis konfiguriert. ──
+require_once TIXOMAT_PATH . 'includes/class-tix-partners.php';
+TIX_Partners::init();
+if ($use_native) {
+    require_once TIXOMAT_PATH . 'includes/class-tix-partner-api.php';
+    require_once TIXOMAT_PATH . 'includes/class-tix-partner-broker.php';
+    TIX_Partner_API::init();
+    TIX_Partner_Broker::init();
+}
 
 // ── Ticket-Bot (Bridge immer laden fuer Admin, API nur wenn aktiviert) ──
 require_once TIXOMAT_PATH . 'includes/class-tix-bot-bridge.php';

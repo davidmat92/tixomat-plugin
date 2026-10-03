@@ -3965,6 +3965,21 @@ class TIX_Metabox {
                 <p class="description" style="margin-top:6px;">
                     Event wird automatisch an <code><?php echo esc_html(preg_replace('#https?://#', '', $platform)); ?></code> gesendet. Ticketkauf wird zur Quellseite weitergeleitet.
                 </p>
+                <?php $partner_api = class_exists('TIX_Partners') && TIX_Partners::source_api_enabled(); ?>
+                <div class="tix-toggle-wrap" style="margin-top:10px;<?php echo $partner_api ? '' : 'opacity:.6;'; ?>">
+                    <label>
+                        <input type="hidden" name="tix_partner_sales" value="0">
+                        <input type="checkbox" name="tix_partner_sales" value="1" <?php checked(get_post_meta($post->ID, '_tix_partner_sales', true) !== '0'); ?>>
+                        <strong>Tickets auch über die Plattform verkaufen</strong>
+                    </label>
+                </div>
+                <p class="description" style="margin-top:6px;">
+                    <?php if ($partner_api): ?>
+                        Die App der Plattform verkauft Tickets in deinem Namen: Bestellung, Zahlung und Einlass laufen hier, die Tickets erscheinen zusätzlich in der App.
+                    <?php else: ?>
+                        Wirkt erst, wenn in den Einstellungen unter Event-Verteilung „Verkauf über die Plattform“ freigeschaltet ist.
+                    <?php endif; ?>
+                </p>
                 <?php if ($syn_status === 'synced'): ?>
                     <p style="margin-top:8px;font-size:12px;color:#22c55e;">✓ Verteilt <?php echo $syn_last ? '(' . date_i18n('d.m.Y H:i', strtotime($syn_last)) . ')' : ''; ?></p>
                 <?php elseif ($syn_status === 'error'): ?>

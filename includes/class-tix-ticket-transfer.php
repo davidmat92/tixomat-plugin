@@ -444,6 +444,7 @@ class TIX_Ticket_Transfer {
             }
 
             $processed[] = $ticket_id;
+            do_action('tix_ticket_transferred', $ticket_id, $new_email, $full_name);
         }
 
         if (empty($processed)) {

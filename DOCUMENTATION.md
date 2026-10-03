@@ -2618,7 +2618,7 @@ Tokens werden bei `/auth/login` generiert und als SHA-256 Hash in `_tix_app_toke
 |---|---|
 | `includes/class-tix-rest-api.php` | REST API Klasse, alle Endpoints, Token-Auth |
 
-### App-Vertrag: worauf sich KitchenKlub- und evendis-App verlassen (Stand 1.38.329)
+### App-Vertrag: worauf sich KitchenKlub- und evendis-App verlassen (Stand 1.38.334)
 
 Die nativen Apps (Monorepo `tixomat-apps`: `apps/kitchenklub`, `apps/evendis`, Paket `tixomat_core`) lesen die folgenden Routen und Feldnamen direkt. **Feldnamen und Bedeutungen nicht umbenennen oder entfernen** – nur ergänzen. KitchenKlub ist als Store-App ausgeliefert; alte App-Versionen bleiben monatelang im Umlauf.
 
@@ -2633,7 +2633,38 @@ Die nativen Apps (Monorepo `tixomat-apps`: `apps/kitchenklub`, `apps/evendis`, P
 | Merkliste / Folgen | `GET/POST /customer/favorites`, `POST\|DELETE /customer/favorites/{event_id}` (User-Meta `_tix_saved_events`), dasselbe für `/customer/following` (`_tix_app_following`) | evendis | 1.38.325 |
 | Veranstalter-Module | Post-Meta `_tix_org_modules` (JSON) am `tix_organizer`, Vorgabe: nur `tickets` | evendis | 1.38.325 |
 | Mehr-Veranstalter | Option `tix_multi_organizer=1` (nur evendis.de): Veranstalter-Routen auf eigene Events begrenzt (`TIX_App_Scope`) | evendis | 1.38.326 |
-| Geteilte Events | `GET /public/events[/{id}]` je Event `syndicated {site, checkout_url}` (sonst `null`); geteilte Events (`_tix_syndicated=1`) mit `tickets_enabled=false`. `POST /customer/cart/quote` liefert `syndicated` und `sale_open=false`; Angebot mit Positionen und `POST /customer/orders` lehnen mit `code=tix_syndicated` (409, `data.syndicated`) ab. Web-Kasse lehnt ebenfalls ab. | evendis | 1.38.333 |
+| Geteilte Events | `GET /public/events[/{id}]` je Event `syndicated {site, checkout_url, sale_via_app, terms_url}` (sonst `null`). Geteilte Events (`_tix_syndicated=1`) haben `tickets_enabled=false`, **außer** `sale_via_app=true` (Quelle im Partner-Verzeichnis freigeschaltet + Häkchen am Event): dann verkauft die App über die Vermittlung. Ohne Vermittlung: `POST /customer/cart/quote` liefert `syndicated` und `sale_open=false`; Angebot mit Positionen und `POST /customer/orders` lehnen mit `code=tix_syndicated` (409, `data.syndicated`) ab; Web-Kasse lehnt ebenfalls ab. | evendis | 1.38.333 |
+| Geteilte Events: Kauf | Mit `sale_via_app=true`: `POST /customer/cart/quote`, `POST /customer/orders`, `GET /customer/orders/{id}` **unverändertes Format**; Preise/Gebühren/Zahlarten/`payment_url` kommen von der Quelle. Zusätzlich im Angebot `seller {name, terms_url, privacy_url, revocation_url, notice}`, in der Bestellung `order.seller {name, mail_from_seller}`. Bestell-IDs vermittelter Bestellungen ≥ 800000001, `order_number` = Nummer der Quelle. | evendis | 1.38.334 |
+| Geteilte Events: Tickets | `GET /customer/tickets` enthält Spiegel-Tickets (gleicher Code wie bei der Quelle, `event_id` = Plattform-Event, QR `GL-<event_id>-<code>` gilt am Einlass der Quelle). Storniert = `status=cancelled` (bleibt sichtbar), eingecheckt/übertragen kommen per Webhook. Post-Meta `_tix_ticket_mirror=1`, `_tix_ticket_source_site`. | evendis | 1.38.334 |
+
+### Geteilte Events verkaufen (Partner-Vermittlung, seit 1.38.334)
+
+evendis.de (Plattform) vermittelt, die Quellseite (z. B. kitchenklub.de) verkauft: Geld, Preise, Gebühren, Tickets, Bestand und Einlass bleiben beim Veranstalter. Alles ist aus, bis es konfiguriert ist.
+
+| Seite | Einstellung | Wirkung |
+|---|---|---|
+| Plattform | Tixomat → **Partner** (Option `tix_partners`): Kennung, Name, API-Basis der Quelle, zugeordneter `tix_organizer`, „Verkauf über diese Seite“, AGB-Link; je Partner eigener **API Key** (`key_in`, Quelle → Plattform) und **Partner-Schlüssel** (`key_out`, Plattform → Quelle) | Quelle wird am Schlüssel erkannt (nicht am Namen); gemeinsamer Empfangs-Key bleibt übergangsweise gültig |
+| Quelle | Einstellungen → Event-Verteilung (Senden): API Key = `key_in`; „Verkauf über die Plattform erlauben“ (`partner_api_enabled`) + Partner-Schlüssel (`partner_api_key` = `key_out`) | Partner-API frei; Webhooks an die Plattform |
+| Quelle | Event → Event-Verteilung: Häkchen „Tickets auch über die Plattform verkaufen“ (`_tix_partner_sales`, Vorgabe an) | wird als `partner_sales` mitgeschickt |
+
+Event-Verteilung (Empfang auf der Plattform): neu `_tix_source_partner`, `_tix_source_api`, `_tix_partner_sales`; `_tix_organizer_id` → Veranstalter des Partners, `_tix_location_id` geleert, `product_id` aus Kategorien entfernt, `_tix_source_checkout` nur auf dem Host der Quelle; Ändern/Löschen nur durch die eigene Quelle. Quelle schickt Bestand nach Bestellung/Storno nach (`stock_only`, höchstens 1×/Minute je Event, Cron `tix_syndication_stock_push`).
+
+Partner-API der Quelle (`X-Tix-Partner-Id` = Hostname der Plattform, `X-Tix-Partner-Key`, 600 Anfragen/5 min je Partner):
+
+| Methode | Route | Inhalt |
+|---|---|---|
+| POST | `/partner/quote` | `{event_id, items, coupon?}` → Angebot wie `/customer/cart/quote` + `legal {seller, terms_url, privacy_url, revocation_url}` |
+| POST | `/partner/orders` | `{event_id, items, billing, payment_method, idempotency_token, partner_ref, coupon?}` → Gastbestellung (Option `_tix_order_partner_{id}`, `_tix_order_source_{id}=partner:<host>`) + `payment_url` |
+| GET | `/partner/orders/{id}?key=` | `{order{…}, partner_ref, tickets[{ticket_id, code, category, price, status, checked_in, checkin_time, owner_name, owner_email, seat}]}` |
+| POST | `/partner/orders/{id}/resend` | Ticket-Mail erneut senden (`{key}`) |
+
+Webhooks Quelle → Plattform: `POST /partner/webhook`, Header `X-Tix-Partner-Kid` (Fingerabdruck von `key_in`) + `X-Tix-Partner-Signature: t=<ts>,v1=<HMAC-SHA256(ts.body, key_in)>` (±5 min), Typen `order.paid`, `order.cancelled`, `order.refunded`, `ticket.checked_in`, `ticket.checkin_reset`, `ticket.transferred` (neuer Hook `tix_ticket_transferred`); Inhalt = aktueller Stand der ganzen Bestellung. Warteschlange `tix_partner_webhook_queue`, bis 12 Versuche mit wachsender Pause. Die Plattform holt zusätzlich alle 15 min nach (`tix_partner_broker_poll`).
+
+Plattform: Vermittlungs-Tabelle `{prefix}tix_partner_orders` (IDs ab 800000001), Ticket-Spiegel (`_tix_ticket_mirror`, `_tix_ticket_source_partner`, `_tix_ticket_source_ticket_id`, `_tix_ticket_source_site`, `_tix_ticket_order_id` = Vermittlungs-ID). Keine zweite Ticket-Mail – die kommt vom Veranstalter.
+
+Allgemein (alle Seiten): Bestand wird bei Storno/fehlgeschlagener/abgelaufener Zahlung zurückgegeben (Option `_tix_order_stock_taken_{id}` bzw. `_restored_`), bei späterer Zahlung wieder abgezogen; Status „Erstattet“ storniert die Tickets (`tix_order_cancelled`), außer im Erstattungs-Dialog ist „Tickets stornieren“ abgewählt; volle Erstattung im Admin wird nicht mehr von der Downgrade-Sperre blockiert.
+
+Code: `includes/class-tix-partners.php`, `includes/class-tix-partner-api.php`, `includes/class-tix-partner-broker.php`, `includes/class-tix-syndication-*.php`, `includes/class-tix-app-checkout.php`.
 
 Code: `includes/class-tix-app-account.php` (Codes/Bestätigung), `includes/class-tix-rest-api.php` (`auth_register`, `auth_login`), `includes/class-tix-public-events.php` + `includes/class-tix-public-platform.php` (Katalog/Plattform), `includes/class-tix-app-scope.php` (Mehr-Veranstalter).
 

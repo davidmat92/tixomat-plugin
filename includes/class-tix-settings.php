@@ -546,6 +546,9 @@ class TIX_Settings {
             // ── Syndication Empfang ──
             'syndication_receive_enabled' => 0,
             'syndication_receive_key'     => '',
+            // Partner-API (Quelle): Verkauf geteilter Events über die Plattform
+            'partner_api_enabled'         => 0,
+            'partner_api_key'             => '',
             // ── Mein-Konto Styling ──
             'myaccount_restyle'  => 0,
 
@@ -1328,6 +1331,8 @@ class TIX_Settings {
         $clean['syndication_site_name']      = sanitize_text_field($input['syndication_site_name'] ?? '');
         $clean['syndication_receive_enabled'] = !empty($input['syndication_receive_enabled']) ? 1 : 0;
         $clean['syndication_receive_key']    = sanitize_text_field($input['syndication_receive_key'] ?? '');
+        $clean['partner_api_enabled']        = !empty($input['partner_api_enabled']) ? 1 : 0;
+        $clean['partner_api_key']            = sanitize_text_field($input['partner_api_key'] ?? '');
 
         // Event-Karten
         foreach (['tix_card_color_signal', 'tix_card_color_signal_mid', 'tix_card_color_nacht', 'tix_card_color_nacht_soft', 'tix_card_color_spotlight', 'tix_card_color_entdecken', 'tix_card_color_licht', 'tix_card_color_sand', 'tix_card_color_text', 'tix_card_color_text_muted'] as $k) {
@@ -7321,6 +7326,13 @@ class TIX_Settings {
                                             <?php self::text_row('syndication_api_url', 'Plattform API-URL', $s, 'https://evendis.de/wp-json/tixomat/v1'); ?>
                                             <?php self::text_row('syndication_api_key', 'API Key', $s, 'tix_syn_...'); ?>
                                             <?php self::text_row('syndication_site_name', 'Anzeigename dieser Seite', $s, 'z.B. Kitchen Klub'); ?>
+                                            <div class="tix-field tix-field-full">
+                                                <p class="tix-settings-hint" style="margin:8px 0 0;"><strong>Verkauf über die Plattform</strong> – die App der Plattform verkauft Tickets geteilter Events in deinem Namen. Bestellung, Zahlung (dein Zahlungsanbieter, deine Preise und Gebühren) und Einlass laufen über diese Seite; die Tickets erscheinen zusätzlich in der App der Plattform. Pro Event abschaltbar.</p>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('partner_api_enabled', 'Verkauf über die Plattform erlauben', $s, 'Schaltet die Partner-API frei (Angebot, Bestellung, Status für die Plattform).'); ?>
+                                            </div>
+                                            <?php self::text_row('partner_api_key', 'Partner-Schlüssel (von der Plattform)', $s, 'tix_pout_...'); ?>
                                         </div>
                                     </div>
                                 </div>

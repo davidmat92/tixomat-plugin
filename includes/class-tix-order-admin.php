@@ -1600,9 +1600,17 @@ class TIX_Order_Admin {
 
         // Update order status — only set to refunded for full refunds
         $new_status = $is_full_refund ? 'refunded' : $order->status;
+        $tickets_cancelled = false;
         if ($is_full_refund) {
             if (class_exists('TIX_Native_Checkout')) {
-                TIX_Native_Checkout::update_order_status($order_id, 'refunded', 'admin_refund');
+                // Status „Erstattet“ storniert die Tickets nur, wenn das hier gewählt ist
+                TIX_Native_Checkout::$refund_cancels_tickets = (bool) $cancel_tickets;
+                try {
+                    TIX_Native_Checkout::update_order_status($order_id, 'refunded', 'admin_refund');
+                } finally {
+                    TIX_Native_Checkout::$refund_cancels_tickets = true;
+                }
+                $tickets_cancelled = (bool) $cancel_tickets && $order->status !== 'refunded';
             } else {
                 $wpdb->update($wpdb->prefix . 'tix_orders', ['status' => 'refunded'], ['id' => $order_id]);
             }
@@ -1624,8 +1632,8 @@ class TIX_Order_Admin {
         if ($reason) $refund_note .= ' — Grund: ' . $reason;
         self::add_note($order_id, $refund_note, 'refund');
 
-        // Cancel tickets if requested
-        if ($cancel_tickets) {
+        // Cancel tickets if requested (bei voller Erstattung schon über den Status erledigt)
+        if ($cancel_tickets && !$tickets_cancelled) {
             do_action('tix_order_cancelled', $order_id);
         }
 

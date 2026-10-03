@@ -10,6 +10,16 @@ if (!defined('ABSPATH')) exit;
 
 class TIX_Syndication_Receive {
 
+    /** Über den Schlüssel erkannte Quelle der laufenden Anfrage (Partner-Verzeichnis) */
+    private static $partner = null;
+
+    /** Meta, die nie vom Sender übernommen wird (Herkunft, Zuordnung, Quell-IDs) */
+    const PROTECTED_META = [
+        '_tix_syndicated', '_tix_source_url', '_tix_source_site', '_tix_source_id', '_tix_source_checkout',
+        '_tix_source_partner', '_tix_source_api', '_tix_partner_sales', '_tix_syndicated_image_url',
+        '_tix_organizer_id', '_tix_location_id',
+    ];
+
     public static function init() {
         add_action('rest_api_init', [__CLASS__, 'register_routes']);
     }
@@ -42,18 +52,43 @@ class TIX_Syndication_Receive {
      * Auth: X-Tix-Syndication-Key Header prüfen
      */
     public static function check_auth($request) {
+        self::$partner = null;
         if (!tix_get_settings('syndication_receive_enabled')) {
             return new WP_Error('disabled', 'Syndication-Empfang ist deaktiviert.', ['status' => 403]);
         }
 
-        $key = $request->get_header('X-Tix-Syndication-Key');
-        $expected = tix_get_settings('syndication_receive_key');
+        $key = (string) $request->get_header('X-Tix-Syndication-Key');
 
-        if (!$key || !$expected || !hash_equals($expected, $key)) {
+        // Eigener Schlüssel je Quelle (Partner-Verzeichnis): Quelle steht damit fest
+        if (class_exists('TIX_Partners') && ($p = TIX_Partners::find_by_key($key))) {
+            self::$partner = $p;
+            return true;
+        }
+
+        // Übergangsweise: gemeinsamer Schlüssel (Quelle nennt sich selbst)
+        $expected = (string) tix_get_settings('syndication_receive_key');
+        if ($key === '' || $expected === '' || !hash_equals($expected, $key)) {
             return new WP_Error('unauthorized', 'Ungültiger Syndication-Key.', ['status' => 401]);
         }
 
         return true;
+    }
+
+    /** Darf die Quelle der laufenden Anfrage dieses geteilte Event ändern? */
+    private static function owns($event_id, $data = []) {
+        if (get_post_meta($event_id, '_tix_syndicated', true) !== '1') {
+            return new WP_Error('not_syndicated', 'Dieses Event ist nicht syndiziert.', ['status' => 403]);
+        }
+        $owner = (string) get_post_meta($event_id, '_tix_source_partner', true);
+        if (self::$partner) {
+            if ($owner === self::$partner['id']) return true;
+            // Altes Event (vor dem Partner-Verzeichnis) übernehmen, wenn der Name passt
+            $site = sanitize_text_field($data['source_site'] ?? '');
+            if ($owner === '' && $site !== '' && $site === (string) get_post_meta($event_id, '_tix_source_site', true)) return true;
+        } elseif ($owner === '') {
+            return true;
+        }
+        return new WP_Error('forbidden', 'Dieses Event gehört zu einer anderen Quelle.', ['status' => 403]);
     }
 
     /**
@@ -77,6 +112,7 @@ class TIX_Syndication_Receive {
             // Update statt Create
             return self::update_event($existing, $data);
         }
+        if (self::$partner) $source_site = self::$partner['name'];
 
         // Neues Event erstellen
         $event_id = wp_insert_post([
@@ -96,9 +132,9 @@ class TIX_Syndication_Receive {
         update_post_meta($event_id, '_tix_source_url', $source_url);
         update_post_meta($event_id, '_tix_source_site', $source_site);
         update_post_meta($event_id, '_tix_source_id', $source_id);
-        update_post_meta($event_id, '_tix_source_checkout', esc_url_raw($data['source_checkout'] ?? $source_url));
+        self::apply_source($event_id, $data);
 
-        // Alle _tix_* Meta-Felder setzen (1:1 vom Sender)
+        // _tix_* Meta-Felder übernehmen (ohne Herkunft und Quell-IDs)
         self::apply_meta($event_id, $data);
 
         // Kategorien zuweisen
@@ -110,6 +146,7 @@ class TIX_Syndication_Receive {
         return rest_ensure_response([
             'event_id' => $event_id,
             'status'   => 'created',
+            'partner'  => self::$partner ? self::$partner['id'] : null,
         ]);
     }
 
@@ -124,8 +161,10 @@ class TIX_Syndication_Receive {
         if (!$post || $post->post_type !== 'event') {
             return new WP_Error('not_found', 'Event nicht gefunden.', ['status' => 404]);
         }
+        $owns = self::owns($event_id, is_array($data) ? $data : []);
+        if (is_wp_error($owns)) return $owns;
 
-        return self::update_event($event_id, $data);
+        return self::update_event($event_id, is_array($data) ? $data : []);
     }
 
     /**
@@ -139,10 +178,9 @@ class TIX_Syndication_Receive {
             return new WP_Error('not_found', 'Event nicht gefunden.', ['status' => 404]);
         }
 
-        // Nur syndizierte Events löschen
-        if (!get_post_meta($event_id, '_tix_syndicated', true)) {
-            return new WP_Error('not_syndicated', 'Dieses Event ist nicht syndiziert.', ['status' => 403]);
-        }
+        // Nur syndizierte Events der eigenen Quelle löschen
+        $owns = self::owns($event_id);
+        if (is_wp_error($owns)) return $owns;
 
         wp_trash_post($event_id);
 
@@ -154,22 +192,67 @@ class TIX_Syndication_Receive {
     // ──────────────────────────────────────────
 
     /**
-     * Bestehendes syndiziertes Event finden
+     * Bestehendes syndiziertes Event finden: bei bekannter Quelle über Partner + Quell-ID,
+     * sonst (und für alte Events ohne Partner) über Name + Quell-ID.
      */
     private static function find_by_source($source_id, $source_site) {
+        if (self::$partner) {
+            $events = get_posts([
+                'post_type'      => 'event',
+                'post_status'    => 'any',
+                'posts_per_page' => 1,
+                'fields'         => 'ids',
+                'meta_query'     => [
+                    'relation' => 'AND',
+                    ['key' => '_tix_source_id', 'value' => $source_id],
+                    ['key' => '_tix_source_partner', 'value' => self::$partner['id']],
+                    ['key' => '_tix_syndicated', 'value' => '1'],
+                ],
+            ]);
+            if (!empty($events)) return $events[0];
+        }
+        if ($source_site === '') return null;
         $events = get_posts([
             'post_type'      => 'event',
             'post_status'    => 'any',
             'posts_per_page' => 1,
+            'fields'         => 'ids',
             'meta_query'     => [
                 'relation' => 'AND',
                 ['key' => '_tix_source_id', 'value' => $source_id],
                 ['key' => '_tix_source_site', 'value' => $source_site],
                 ['key' => '_tix_syndicated', 'value' => '1'],
+                ['key' => '_tix_source_partner', 'compare' => 'NOT EXISTS'],
             ],
         ]);
 
-        return !empty($events) ? $events[0]->ID : null;
+        return !empty($events) ? $events[0] : null;
+    }
+
+    /**
+     * Herkunft setzen: Partner, Quell-API, Häkchen „über die Plattform verkaufen“ und
+     * geschützte Checkout-URL (nur auf dem Host der Quelle).
+     */
+    private static function apply_source($event_id, $data) {
+        $source_url = (string) get_post_meta($event_id, '_tix_source_url', true);
+        if (self::$partner) {
+            update_post_meta($event_id, '_tix_source_partner', self::$partner['id']);
+            update_post_meta($event_id, '_tix_source_site', self::$partner['name']);
+            update_post_meta($event_id, '_tix_partner_sales', !empty($data['partner_sales']) ? '1' : '0');
+            if (!empty($data['source_api'])) {
+                update_post_meta($event_id, '_tix_source_api', esc_url_raw($data['source_api']));
+            }
+            $host = strtolower((string) wp_parse_url(self::$partner['api_base'], PHP_URL_HOST));
+        } else {
+            $host = strtolower((string) wp_parse_url($source_url, PHP_URL_HOST));
+        }
+        if (array_key_exists('source_checkout', (array) $data) || !metadata_exists('post', $event_id, '_tix_source_checkout')) {
+            $checkout = esc_url_raw($data['source_checkout'] ?? '');
+            if ($checkout === '' || strtolower((string) wp_parse_url($checkout, PHP_URL_HOST)) !== $host) {
+                $checkout = strtolower((string) wp_parse_url($source_url, PHP_URL_HOST)) === $host ? $source_url : '';
+            }
+            update_post_meta($event_id, '_tix_source_checkout', $checkout);
+        }
     }
 
     /**
@@ -183,15 +266,20 @@ class TIX_Syndication_Receive {
 
         wp_update_post($update);
 
-        // Source-URL updaten
+        // Source-URL updaten (bei bekannter Quelle nur auf deren Host)
         if (isset($data['source_url'])) {
-            update_post_meta($event_id, '_tix_source_url', esc_url_raw($data['source_url']));
+            $url  = esc_url_raw($data['source_url']);
+            $host = self::$partner ? strtolower((string) wp_parse_url(self::$partner['api_base'], PHP_URL_HOST)) : '';
+            if ($host === '' || strtolower((string) wp_parse_url($url, PHP_URL_HOST)) === $host) {
+                update_post_meta($event_id, '_tix_source_url', $url);
+            }
         }
-        if (isset($data['source_checkout'])) {
-            update_post_meta($event_id, '_tix_source_checkout', esc_url_raw($data['source_checkout']));
+        // Nur-Bestand-Update (stock_only) lässt Herkunft und Häkchen unverändert
+        if (empty($data['stock_only'])) {
+            self::apply_source($event_id, $data);
         }
 
-        // Meta-Felder 1:1 übernehmen
+        // _tix_* Meta-Felder übernehmen (ohne Herkunft und Quell-IDs)
         self::apply_meta($event_id, $data);
 
         // Kategorien
@@ -207,23 +295,39 @@ class TIX_Syndication_Receive {
         return rest_ensure_response([
             'event_id' => $event_id,
             'status'   => 'updated',
+            'partner'  => self::$partner ? self::$partner['id'] : null,
         ]);
     }
 
     /**
-     * Alle _tix_* Meta-Felder setzen
+     * _tix_* Meta-Felder übernehmen. Herkunft, Syndication-Felder und Quell-IDs werden nie
+     * überschrieben; Quell-IDs zeigen hier ins Leere bzw. auf fremde Datensätze:
+     * _tix_organizer_id → zugeordneter Veranstalter des Partners (sonst leer),
+     * _tix_location_id → leer (Ort bleibt als Text/Adresse), product_id in Kategorien → entfernt.
      */
     private static function apply_meta($event_id, $data) {
-        if (empty($data['meta']) || !is_array($data['meta'])) return;
-
-        foreach ($data['meta'] as $key => $value) {
-            if (strpos($key, '_tix_') !== 0) continue;
-            // Syndication-Keys nicht überschreiben
-            if (strpos($key, '_tix_syndicate') === 0) continue;
-            if ($key === '_tix_source_url' || $key === '_tix_source_site' || $key === '_tix_source_id') continue;
-
-            update_post_meta($event_id, $key, $value);
+        if (!empty($data['meta']) && is_array($data['meta'])) {
+            foreach ($data['meta'] as $key => $value) {
+                $key = (string) $key;
+                if (strpos($key, '_tix_') !== 0) continue;
+                if (strpos($key, '_tix_syndicate') === 0) continue;
+                if (in_array($key, self::PROTECTED_META, true)) continue;
+                if ($key === '_tix_ticket_categories' && is_array($value)) {
+                    foreach ($value as $i => $cat) {
+                        if (is_array($cat)) unset($value[$i]['product_id']);
+                    }
+                }
+                update_post_meta($event_id, $key, $value);
+            }
         }
+
+        $org = self::$partner ? intval(self::$partner['organizer_id']) : 0;
+        if ($org > 0) {
+            update_post_meta($event_id, '_tix_organizer_id', $org);
+        } else {
+            delete_post_meta($event_id, '_tix_organizer_id');
+        }
+        delete_post_meta($event_id, '_tix_location_id');
     }
 
     /**

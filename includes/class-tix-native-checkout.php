@@ -52,6 +52,57 @@ class TIX_Native_Checkout {
         // Gutschein-Verbrauch erst bei bezahlter Bestellung — verhindert Verbrennen
         // von Codes bei abgebrochenen/expirierten Stripe-Sessions.
         add_action('tix_order_completed', [__CLASS__, 'increment_coupon_on_completion']);
+
+        // Bestand: bei Storno/fehlgeschlagener/abgelaufener Zahlung zurückgeben,
+        // bei späterer Zahlung einer zurückgegebenen Bestellung wieder abziehen
+        add_action('tix_order_cancelled', [__CLASS__, 'restore_stock'], 5);
+        add_action('tix_order_completed', [__CLASS__, 'reclaim_stock'], 5);
+    }
+
+    /**
+     * Erstattung storniert Tickets (tix_order_cancelled). Der Erstattungs-Dialog im
+     * Bestell-Admin schaltet das ab, wenn „Tickets stornieren“ nicht gewählt ist.
+     */
+    public static $refund_cancels_tickets = true;
+
+    /** Bestand nach Kategorie ändern (+ zurückgeben, − abziehen); unbegrenzt (-1) bleibt. */
+    private static function adjust_stock(array $lines, $sign) {
+        foreach ($lines as $l) {
+            $event_id  = intval($l['event_id'] ?? 0);
+            $cat_index = intval($l['cat_index'] ?? -1);
+            $qty       = intval($l['qty'] ?? 0);
+            if (!$event_id || $cat_index < 0 || $qty <= 0) continue;
+            wp_cache_delete($event_id, 'post_meta');
+            $categories = get_post_meta($event_id, '_tix_ticket_categories', true);
+            if (!is_array($categories) || !isset($categories[$cat_index])) continue;
+            $current = isset($categories[$cat_index]['stock']) ? intval($categories[$cat_index]['stock']) : -1;
+            if ($current < 0) continue;
+            $categories[$cat_index]['stock'] = max(0, $current + $sign * $qty);
+            update_post_meta($event_id, '_tix_ticket_categories', $categories);
+        }
+    }
+
+    /** Bestand einer stornierten/fehlgeschlagenen Bestellung zurückgeben (einmalig). */
+    public static function restore_stock($order_id) {
+        $order_id = intval($order_id);
+        $taken = get_option('_tix_order_stock_taken_' . $order_id);
+        if (!is_array($taken) || empty($taken)) return; // nur Bestellungen, deren Bestand create_order abgezogen hat
+        self::adjust_stock($taken, +1);
+        delete_option('_tix_order_stock_taken_' . $order_id);
+        update_option('_tix_order_stock_restored_' . $order_id, $taken, false);
+        if (class_exists('TIX_Order_Admin') && method_exists('TIX_Order_Admin', 'add_note')) {
+            TIX_Order_Admin::add_note($order_id, 'Bestand zurückgegeben (' . array_sum(array_column($taken, 'qty')) . ' Tickets).', 'system');
+        }
+    }
+
+    /** Zurückgegebener Bestand wird bei späterer Zahlung wieder abgezogen. */
+    public static function reclaim_stock($order_id) {
+        $order_id = intval($order_id);
+        $restored = get_option('_tix_order_stock_restored_' . $order_id);
+        if (!is_array($restored) || empty($restored)) return;
+        self::adjust_stock($restored, -1);
+        delete_option('_tix_order_stock_restored_' . $order_id);
+        update_option('_tix_order_stock_taken_' . $order_id, $restored, false);
     }
 
     /**
@@ -1880,6 +1931,7 @@ class TIX_Native_Checkout {
             ]);
         }
 
+        $stock_taken = [];
         // Decrement stock for each ticket category (cache-busted for freshness)
         // Specials (cat_index === -1) haben eigenen Stock — der wird via get_sold_count berechnet,
         // nicht über _tix_ticket_categories. Daher hier überspringen.
@@ -1896,8 +1948,13 @@ class TIX_Native_Checkout {
                 if ($current_stock >= 0) {
                     $categories[$cat_index]['stock'] = max(0, $current_stock - $qty);
                     update_post_meta($event_id, '_tix_ticket_categories', $categories);
+                    $stock_taken[] = ['event_id' => $event_id, 'cat_index' => $cat_index, 'qty' => min($qty, $current_stock)];
                 }
             }
+        }
+        // Abgezogenen Bestand merken → Rückgabe bei Storno/fehlgeschlagener Zahlung (restore_stock)
+        if (!empty($stock_taken)) {
+            update_option('_tix_order_stock_taken_' . $order_id, $stock_taken, false);
         }
 
         // ── Hook für nachgelagerte Module (z.B. Campaign-Tracking, Newsletter, etc.) ──
@@ -2139,7 +2196,7 @@ class TIX_Native_Checkout {
         // Bezahlte Bestellungen (completed/processing) dürfen nicht durch automatische Hooks
         // auf cancelled/failed/refunded gesetzt werden — nur durch Admin-Aktionen.
         // Admin-Aktionen kommen ohne $gateway-Parameter (oder mit gateway='admin').
-        $is_automated = !empty($gateway) && $gateway !== 'admin';
+        $is_automated = !empty($gateway) && !in_array($gateway, ['admin', 'admin_refund'], true);
         if ($is_automated
             && in_array($old_status, ['completed', 'processing'], true)
             && in_array($new_status, ['cancelled', 'failed', 'refunded'], true)) {
@@ -2203,6 +2260,9 @@ class TIX_Native_Checkout {
                 }
             }
         } elseif ($new_status === 'cancelled' || $new_status === 'failed') {
+            do_action('tix_order_cancelled', $order_id);
+        } elseif ($new_status === 'refunded' && $old_status !== 'refunded' && self::$refund_cancels_tickets) {
+            // Erstattung: Tickets stornieren, Bestand zurück (gleiche Folgen wie Storno)
             do_action('tix_order_cancelled', $order_id);
         }
     }

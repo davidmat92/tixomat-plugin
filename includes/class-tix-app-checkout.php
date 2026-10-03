@@ -28,6 +28,13 @@ class TIX_App_Checkout {
     const TOKEN_TTL = 6 * HOUR_IN_SECONDS;
     const MAX_QTY   = 20;
 
+    /**
+     * Partner-Bestellung (Quelle): gesetzt von TIX_Partner_API während Angebot/Bestellung
+     * für eine Plattform, ['id' => Plattform, 'ref' => Vermittlungs-ID]. Dann gilt die
+     * Ratenbegrenzung je Partner (nicht je IP) und die Bestellung wird markiert.
+     */
+    public static $partner = null;
+
     /** Länder wie im Web-Checkout (Reihenfolge = Anzeige) */
     const COUNTRIES = [
         'DE' => 'Deutschland', 'AT' => 'Österreich', 'CH' => 'Schweiz', 'NL' => 'Niederlande',
@@ -195,9 +202,13 @@ class TIX_App_Checkout {
         if (!self::is_syndicated($event_id)) return null;
         $checkout = (string) get_post_meta($event_id, '_tix_source_checkout', true);
         if ($checkout === '') $checkout = (string) get_post_meta($event_id, '_tix_source_url', true);
+        $broker = class_exists('TIX_Partner_Broker') ? TIX_Partner_Broker::partner_for_event($event_id) : null;
         return [
             'site'         => (string) (get_post_meta($event_id, '_tix_source_site', true) ?: 'Veranstalter'),
             'checkout_url' => $checkout,
+            // true = die App verkauft über die Vermittlung (Zahlung beim Veranstalter)
+            'sale_via_app' => (bool) $broker,
+            'terms_url'    => $broker ? (string) $broker['terms_url'] : '',
         ];
     }
 
@@ -541,6 +552,7 @@ class TIX_App_Checkout {
 
     /** Einfaches Rate-Limit pro Nutzer (REST-tauglich, liefert WP_Error). */
     private static function rate_limited($bucket, $max, $window) {
+        if (self::$partner) return false; // Partner-API begrenzt selbst je Partner
         $who  = get_current_user_id() ?: (class_exists('TIX_App_Account') ? 'ip_' . TIX_App_Account::client_ip() : 'ip_' . ($_SERVER['REMOTE_ADDR'] ?? ''));
         $key  = 'tix_app_rl_' . $bucket . '_' . md5((string) $who);
         $data = get_transient($key);
@@ -735,6 +747,10 @@ class TIX_App_Checkout {
         $coupon = (string) ($req->get_param('coupon') ?? '');
 
         $user = is_user_logged_in() ? wp_get_current_user() : null;
+        // Geteiltes Event mit Verkauf über die Vermittlung: Angebot der Quelle
+        if (!self::$partner && class_exists('TIX_Partner_Broker') && ($partner = TIX_Partner_Broker::partner_for_event($event_id))) {
+            return TIX_Partner_Broker::quote($partner, $event_id, $req, $user);
+        }
         $countries = [];
         foreach (self::COUNTRIES as $code => $name) $countries[] = ['code' => $code, 'name' => $name];
         $resp = [
@@ -769,6 +785,50 @@ class TIX_App_Checkout {
         return rest_ensure_response($resp);
     }
 
+    /** Gast möchte mit der Bestellung ein Konto anlegen: Eingaben prüfen (ohne anzulegen). */
+    private static function check_new_account(WP_REST_Request $req, $user, array $billing) {
+        if ($user || empty($req->get_param('create_account'))) return false;
+        $password = (string) $req->get_param('password');
+        if (strlen($password) < 8) {
+            return new WP_Error('weak_password', 'Das Passwort muss mindestens 8 Zeichen lang sein.', ['status' => 400, 'field' => 'password']);
+        }
+        if (email_exists($billing['email'])) {
+            return new WP_Error('email_exists', 'Für diese E-Mail-Adresse gibt es bereits ein Konto – bitte melde dich an.', ['status' => 409, 'field' => 'email']);
+        }
+        return true;
+    }
+
+    /**
+     * Konto anlegen (wie „Konto anlegen“ im Web-Checkout, aber mit eigenem Passwort →
+     * sofort angemeldet, Tickets in der App). Liefert [WP_User, App-Token] oder WP_Error.
+     */
+    private static function create_new_account(WP_REST_Request $req, array $billing) {
+        $username = method_exists('TIX_Native_Checkout', 'generate_username')
+            ? TIX_Native_Checkout::generate_username($billing['first_name'], $billing['last_name'], $billing['email'])
+            : sanitize_user(strtolower(explode('@', $billing['email'])[0]), true);
+        $user_id = wp_insert_user([
+            'user_login'   => $username,
+            'user_email'   => $billing['email'],
+            'user_pass'    => (string) $req->get_param('password'),
+            'first_name'   => $billing['first_name'],
+            'last_name'    => $billing['last_name'],
+            'display_name' => trim($billing['first_name'] . ' ' . $billing['last_name']) ?: $username,
+            'role'         => 'subscriber',
+        ]);
+        if (is_wp_error($user_id)) {
+            return new WP_Error('registration_failed', $user_id->get_error_message(), ['status' => 500]);
+        }
+        if (class_exists('TIX_Customer_Role')) TIX_Customer_Role::assign_to_user($user_id);
+        update_user_meta($user_id, '_tix_app_created', current_time('mysql'));
+        wp_set_current_user($user_id); // create_order setzt customer_id, Warenkorb landet am Konto
+        $user  = wp_get_current_user();
+        $token = '';
+        if (class_exists('TIX_REST_API') && method_exists('TIX_REST_API', 'issue_app_token')) {
+            $token = TIX_REST_API::issue_app_token($user_id, (string) ($req->get_param('device') ?? ''));
+        }
+        return [$user, $token];
+    }
+
     /** POST /customer/orders */
     public static function create(WP_REST_Request $req) {
         $user = is_user_logged_in() ? wp_get_current_user() : null;
@@ -778,8 +838,12 @@ class TIX_App_Checkout {
 
         $token = sanitize_text_field((string) $req->get_param('idempotency_token'));
         if (strlen($token) < 8) return self::error('tix_token', 'idempotency_token fehlt.');
-        $tkey = 'tix_app_order_' . md5(($user ? $user->ID : 'guest') . '|' . $token);
+        $who  = self::$partner ? 'partner|' . self::$partner['id'] : ($user ? $user->ID : 'guest');
+        $tkey = 'tix_app_order_' . md5($who . '|' . $token);
         $existing = get_transient($tkey);
+        if (is_array($existing) && !empty($existing['broker_id']) && class_exists('TIX_Partner_Broker')) {
+            return TIX_Partner_Broker::order_response(intval($existing['broker_id']));
+        }
         if (is_array($existing) && !empty($existing['order_id'])) {
             return self::order_response(intval($existing['order_id']), (string) ($existing['payment_url'] ?? ''));
         }
@@ -790,6 +854,32 @@ class TIX_App_Checkout {
 
         $event_id = intval($req->get_param('event_id'));
         if (!$event_id || get_post_type($event_id) !== 'event') return self::error('tix_event', 'Event nicht gefunden.', 404);
+
+        // Geteiltes Event mit Verkauf über die Vermittlung: Bestellung bei der Quelle
+        $partner = (!self::$partner && class_exists('TIX_Partner_Broker')) ? TIX_Partner_Broker::partner_for_event($event_id) : null;
+        if ($partner) {
+            $billing = self::read_billing($req, $user);
+            if (is_wp_error($billing)) return $billing;
+            $wants_account = self::check_new_account($req, $user, $billing);
+            if (is_wp_error($wants_account)) return $wants_account;
+            $broker_id = TIX_Partner_Broker::create_order($partner, $event_id, $req, $billing, $user, $tkey);
+            if (is_wp_error($broker_id)) return $broker_id;
+            $extra = [];
+            if ($wants_account === true) {
+                $acc = self::create_new_account($req, $billing);
+                if (!is_wp_error($acc)) {
+                    list($user, $new_token) = $acc;
+                    TIX_Partner_Broker::attach_user($broker_id, $user->ID);
+                    if ($new_token !== '' && method_exists('TIX_REST_API', 'guest_user_payload')) {
+                        $extra = ['token' => $new_token, 'user' => TIX_REST_API::guest_user_payload($user), 'account_created' => true];
+                    }
+                }
+            }
+            if ($user) self::remember_billing($user, $billing);
+            set_transient($tkey, ['broker_id' => $broker_id], self::TOKEN_TTL);
+            return TIX_Partner_Broker::order_response($broker_id, $extra);
+        }
+
         $items = $req->get_param('items');
         $cart  = self::build_cart($event_id, is_array($items) ? $items : []);
         if (is_wp_error($cart)) return $cart;
@@ -823,36 +913,12 @@ class TIX_App_Checkout {
         // Gast: optional gleich ein Konto anlegen (wie „Konto anlegen“ im Web-Checkout,
         // aber mit eigenem Passwort → sofort angemeldet, Tickets in der App)
         $new_token = '';
-        if (!$user && !empty($req->get_param('create_account'))) {
-            $password = (string) $req->get_param('password');
-            if (strlen($password) < 8) {
-                return new WP_Error('weak_password', 'Das Passwort muss mindestens 8 Zeichen lang sein.', ['status' => 400, 'field' => 'password']);
-            }
-            if (email_exists($billing['email'])) {
-                return new WP_Error('email_exists', 'Für diese E-Mail-Adresse gibt es bereits ein Konto – bitte melde dich an.', ['status' => 409, 'field' => 'email']);
-            }
-            $username = method_exists('TIX_Native_Checkout', 'generate_username')
-                ? TIX_Native_Checkout::generate_username($billing['first_name'], $billing['last_name'], $billing['email'])
-                : sanitize_user(strtolower(explode('@', $billing['email'])[0]), true);
-            $user_id = wp_insert_user([
-                'user_login'   => $username,
-                'user_email'   => $billing['email'],
-                'user_pass'    => $password,
-                'first_name'   => $billing['first_name'],
-                'last_name'    => $billing['last_name'],
-                'display_name' => trim($billing['first_name'] . ' ' . $billing['last_name']) ?: $username,
-                'role'         => 'subscriber',
-            ]);
-            if (is_wp_error($user_id)) {
-                return new WP_Error('registration_failed', $user_id->get_error_message(), ['status' => 500]);
-            }
-            if (class_exists('TIX_Customer_Role')) TIX_Customer_Role::assign_to_user($user_id);
-            update_user_meta($user_id, '_tix_app_created', current_time('mysql'));
-            wp_set_current_user($user_id); // create_order setzt customer_id, Warenkorb landet am Konto
-            $user = wp_get_current_user();
-            if (class_exists('TIX_REST_API') && method_exists('TIX_REST_API', 'issue_app_token')) {
-                $new_token = TIX_REST_API::issue_app_token($user_id, (string) ($req->get_param('device') ?? ''));
-            }
+        $wants_account = self::$partner ? false : self::check_new_account($req, $user, $billing);
+        if (is_wp_error($wants_account)) return $wants_account;
+        if ($wants_account === true) {
+            $acc = self::create_new_account($req, $billing);
+            if (is_wp_error($acc)) return $acc;
+            list($user, $new_token) = $acc;
         }
         if ($user) self::remember_billing($user, $billing);
 
@@ -880,7 +946,7 @@ class TIX_App_Checkout {
             TIX_Native_Checkout::clear_cart();
         }
         if (!$order_id) return self::error('tix_order_failed', 'Bestellung konnte nicht erstellt werden.', 500);
-        update_option('_tix_order_source_' . $order_id, 'app', false);
+        update_option('_tix_order_source_' . $order_id, self::$partner ? 'partner:' . self::$partner['id'] : 'app', false);
 
         // Zahlung starten
         if ($payment_method === 'free') {
@@ -911,6 +977,10 @@ class TIX_App_Checkout {
     public static function status(WP_REST_Request $req) {
         $user = is_user_logged_in() ? wp_get_current_user() : null;
         $id   = intval($req['id']);
+        // Vermittelte Bestellung (geteiltes Event, Zahlung beim Veranstalter)
+        if (class_exists('TIX_Partner_Broker') && TIX_Partner_Broker::is_broker_id($id)) {
+            return TIX_Partner_Broker::status($id, $req, $user);
+        }
         $o    = self::order_row($id);
         if (!$o) return self::error('tix_order_missing', 'Bestellung nicht gefunden.', 404);
         $mine = $user && (
