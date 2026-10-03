@@ -287,18 +287,15 @@ class TIX_Partner_Broker {
     // ──────────────────────────────────────────
 
     private static function find_mirror($partner, $source_ticket_id) {
-        $ids = get_posts([
-            'post_type'      => 'tix_ticket',
-            'post_status'    => ['publish', 'private', 'draft', 'pending', 'cancelled'],
-            'posts_per_page' => 1,
-            'fields'         => 'ids',
-            'meta_query'     => [
-                'relation' => 'AND',
-                ['key' => '_tix_ticket_source_partner', 'value' => (string) $partner],
-                ['key' => '_tix_ticket_source_ticket_id', 'value' => (string) intval($source_ticket_id)],
-            ],
-        ]);
-        return $ids ? intval($ids[0]) : 0;
+        global $wpdb;
+        return intval($wpdb->get_var($wpdb->prepare(
+            "SELECT p.ID FROM {$wpdb->posts} p
+             JOIN {$wpdb->postmeta} a ON a.post_id = p.ID AND a.meta_key = '_tix_ticket_source_partner' AND a.meta_value = %s
+             JOIN {$wpdb->postmeta} b ON b.post_id = p.ID AND b.meta_key = '_tix_ticket_source_ticket_id' AND b.meta_value = %s
+             WHERE p.post_type = 'tix_ticket' AND p.post_status NOT IN ('trash', 'auto-draft')
+             ORDER BY p.ID ASC LIMIT 1",
+            (string) $partner, (string) intval($source_ticket_id)
+        )));
     }
 
     /**
@@ -460,6 +457,15 @@ class TIX_Partner_Broker {
         if (get_transient($seen)) return rest_ensure_response(['ok' => true, 'duplicate' => true]);
 
         $row = self::row(intval($data['partner_ref'] ?? 0));
+        // Webhook kann vor dem Ende der Bestellanlage hier ankommen (z. B. 0-€-Bestellung):
+        // Quell-Bestellung dann aus dem signierten Webhook übernehmen
+        if ($row && $row->partner === $p['id'] && intval($row->source_order_id) === 0 && !empty($data['order']['key'])) {
+            self::update_row($row->id, [
+                'source_order_id'  => intval($data['order']['id']),
+                'source_order_key' => sanitize_text_field((string) $data['order']['key']),
+            ]);
+            $row = self::row($row->id);
+        }
         if (!$row || $row->partner !== $p['id'] || intval($row->source_order_id) !== intval($data['order']['id'])) {
             // Unbekannt (z. B. Bestellung direkt bei der Quelle) → bestätigen, nicht wiederholen lassen
             return rest_ensure_response(['ok' => true, 'ignored' => true]);

@@ -157,16 +157,17 @@ class TIX_Partner_API {
         if (!$o) return null;
         $m = self::marker($order_id);
         $tickets = [];
-        $posts = get_posts([
-            'post_type'      => 'tix_ticket',
-            // „cancelled“ ist kein registrierter Status → explizit aufzählen
-            'post_status'    => ['publish', 'private', 'draft', 'pending', 'cancelled'],
-            'posts_per_page' => -1,
-            'orderby'        => 'ID',
-            'order'          => 'ASC',
-            'meta_key'       => '_tix_ticket_order_id',
-            'meta_value'     => (string) intval($order_id),
-        ]);
+        // Auch stornierte Tickets (Post-Status „cancelled“ ist nicht registriert, WP_Query
+        // ignoriert ihn) → direkt per SQL
+        global $wpdb;
+        $ids = $wpdb->get_col($wpdb->prepare(
+            "SELECT p.ID FROM {$wpdb->posts} p
+             JOIN {$wpdb->postmeta} m ON m.post_id = p.ID AND m.meta_key = '_tix_ticket_order_id'
+             WHERE p.post_type = 'tix_ticket' AND m.meta_value = %s AND p.post_status NOT IN ('trash', 'auto-draft')
+             ORDER BY p.ID ASC",
+            (string) intval($order_id)
+        ));
+        $posts = array_filter(array_map('get_post', (array) $ids));
         foreach ($posts as $p) {
             $tid = intval($p->ID);
             $g = function ($k) use ($tid) { return get_post_meta($tid, $k, true); };
