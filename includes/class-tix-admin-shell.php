@@ -567,6 +567,12 @@ class TIX_Admin_Shell {
                             <span class="dashicons dashicons-chart-bar"></span>
                             <span>Statistiken</span>
                         </a>
+                        <?php if (class_exists('TIX_Support_Mail')) : ?>
+                        <a href="#mail" class="tix-shell-item tix-shell-support-tab" data-support-tab="mail">
+                            <span class="dashicons dashicons-email-alt"></span>
+                            <span>E-Mail-Eingang</span>
+                        </a>
+                        <?php endif; ?>
                     <?php else : ?>
                         <a href="<?php echo admin_url('admin.php?page=tix-support'); ?>"
                            class="tix-shell-item<?php echo $active === 'support' ? ' active' : ''; ?>">

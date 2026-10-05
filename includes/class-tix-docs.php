@@ -1017,7 +1017,7 @@ class TIX_Docs {
 
             // ── Support-System ──
             self::function_card('Support-System (CRM + Kunden-Portal)', 'dashicons-format-chat', [
-                '<strong>Admin-Dashboard</strong> unter Tixomat &rarr; Support mit 3 Tabs: Anfragen, Kunden-Suche, Statistiken.',
+                '<strong>Admin-Dashboard</strong> unter Tixomat &rarr; Support mit 4 Tabs: Anfragen, Kunden-Suche, Statistiken, E-Mail-Eingang.',
                 '<strong>Kunden-Suche</strong> erkennt automatisch E-Mail, Bestellnr. (#12345) und 12-stellige Ticket-Codes. Tickets k&ouml;nnen direkt ge&ouml;ffnet werden.',
                 '<strong>Anfragen-System</strong> (CPT <code>tix_support_ticket</code>) mit 4 Status: Offen, In Bearbeitung, Gel&ouml;st, Geschlossen.',
                 '<strong>Nachrichten-Thread</strong> mit 3 Typen: Kundennachricht, Admin-Antwort, Interne Notiz.',
@@ -1027,6 +1027,8 @@ class TIX_Docs {
                 '<strong>Floating Chat-Widget</strong> &ndash; optionaler Chat-Button auf allen Seiten (Setting: <code>support_chat_enabled</code>).',
                 '<strong>Auto-Login</strong> f&uuml;r eingeloggte User &ndash; kein Auth-Screen, Bestellungen werden automatisch als Dropdown angezeigt.',
                 '<strong>E-Mail-Benachrichtigungen</strong> bei neuer Anfrage, Admin-Antwort, Kunden-Antwort und Status&auml;nderung.',
+                '<strong>E-Mail-Eingang:</strong> Antwortet der Kunde einfach auf eine Support-Mail, landet die Antwort per IMAP-Abruf (alle 2 Minuten) in der Anfrage &ndash; Zuordnung &uuml;ber <code>[#Nummer]</code> im Betreff und ein f&auml;lschungssicheres Kennzeichen, Abwesenheitsnotizen werden ignoriert. Einrichtung unter Support &rarr; E-Mail-Eingang, inkl. R&uuml;ckw&auml;rts-Import.',
+                '<strong>&bdquo;Im Support antworten&ldquo;</strong> &ndash; jede Kunden-Mail enth&auml;lt einen Knopf, der die Anfrage direkt im Portal &ouml;ffnet.',
                 'Globaler Toggle + konfigurierbare Kategorien in <strong>Einstellungen &rarr; Erweitert</strong>.',
             ]);
 

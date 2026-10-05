@@ -399,7 +399,7 @@
             var cls = 'tix-sp-msg-' + m.type;
             var html = '<div class="tix-sp-msg ' + cls + '">';
             html += '<div class="tix-sp-msg-header">';
-            html += '<span class="tix-sp-msg-author">' + esc(m.author) + '</span>';
+            html += '<span class="tix-sp-msg-author">' + esc(m.author) + (m.source === 'email' ? ' <span title="Per E-Mail eingegangen" style="font-size:10px;font-weight:600;padding:1px 6px;border-radius:9px;background:#e0f2fe;color:#0369a1;margin-left:4px;">per E-Mail</span>' : '') + '</span>';
             html += '<span class="tix-sp-msg-date">' + formatDate(m.date) + '</span>';
             html += '</div>';
             html += '<div class="tix-sp-msg-content">' + esc(m.content) + '</div>';
@@ -1015,10 +1015,45 @@
             orders:     [],
         };
 
+        // Link aus einer Support-Mail: ?tix_sp_ticket=ID&tix_sp_key=…
+        var linkParams = new URLSearchParams(window.location.search);
+        var linkTicket = parseInt(linkParams.get('tix_sp_ticket') || '0', 10);
+        var linkKey    = linkParams.get('tix_sp_key') || '';
+        if (linkTicket && linkKey) {
+            try {
+                linkParams.delete('tix_sp_ticket');
+                linkParams.delete('tix_sp_key');
+                var q = linkParams.toString();
+                window.history.replaceState(null, '', window.location.pathname + (q ? '?' + q : '') + window.location.hash);
+            } catch(e) {}
+        }
+
+        function openFromMailLink() {
+            $.post(S.ajax, {
+                action:     'tix_support_customer_link',
+                nonce:      S.nonce,
+                ticket_id:  linkTicket,
+                access_key: linkKey,
+            }, function(r) {
+                if (r.success) {
+                    authData.email      = r.data.email;
+                    authData.name       = r.data.name || authData.name;
+                    authData.access_key = r.data.access_key;
+                    try { sessionStorage.setItem('tix_sp_auth', JSON.stringify(authData)); } catch(e) {}
+                    loadCustomerDetail(r.data.ticket_id);
+                } else {
+                    showSection('auth');
+                    $('#tix-sp-front-auth-error').text(r.data || 'Der Link ist ungültig.').show();
+                }
+            }).fail(function() { showSection('auth'); });
+        }
+
         // Session wiederherstellen
         try {
-            var stored = sessionStorage.getItem('tix_sp_auth');
-            if (stored) {
+            var stored = (linkTicket && linkKey) ? null : sessionStorage.getItem('tix_sp_auth');
+            if (linkTicket && linkKey) {
+                openFromMailLink();
+            } else if (stored) {
                 var parsed = JSON.parse(stored);
                 if (parsed.email && parsed.access_key) {
                     authData = parsed;

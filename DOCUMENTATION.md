@@ -2014,6 +2014,9 @@ Tixomat bietet ein integriertes Support-System fuer Kunden-Anfragen, Ticket-Such
 | `_tix_sp_access_key` | `string` | Zufaelliger 32-Zeichen-Key fuer Gast-Zugriff |
 | `_tix_sp_last_reply` | `string` | ISO-Timestamp der letzten Nachricht |
 | `_tix_sp_messages` | `JSON` | Nachrichten-Verlauf als JSON-Array |
+| `_tix_sp_source` | `string` | Herkunft der Anfrage (`app`, `email`; leer = Portal/Admin) |
+| `_tix_sp_mail_thread` | `array` | Message-IDs der letzten 20 Support-Mails an den Kunden (für In-Reply-To/References) |
+| `_tix_sp_mail_msgid` | `string` (mehrfach) | SHA1 der Message-ID jeder übernommenen Kunden-Mail (Duplikatschutz) |
 
 ### Nachrichten-Format
 
@@ -2026,12 +2029,15 @@ Jede Nachricht im `_tix_sp_messages`-Array hat folgende Struktur:
 | `author` | `string` | Anzeigename des Autors |
 | `content` | `string` | Nachrichtentext |
 | `date` | `string` | ISO-8601-Timestamp |
+| `email` | `string` | Absender-Adresse (nur `customer`) |
+| `attachments` | `array` | `[{url, name, mime}]` |
+| `source` | `string` | `email` = per E-Mail eingegangen (seit 1.38.340, sonst fehlt das Feld) |
 
 - `customer`: Sichtbar fuer Kunde + Admin, loest Admin-Benachrichtigung aus.
 - `admin`: Sichtbar fuer Kunde + Admin, loest Kunden-Benachrichtigung aus.
 - `note`: Nur im Admin sichtbar (interne Notiz).
 
-### Admin-Dashboard (3 Tabs)
+### Admin-Dashboard (4 Tabs)
 
 **Tab 1: Anfragen** – Filterbarer Liste aller Support-Tickets mit Status, Kategorie und Freitext-Suche. Klick oeffnet Inline-Detail mit Nachrichten-Thread, Antwort-Box und Quick Actions.
 
@@ -2041,6 +2047,8 @@ Jede Nachricht im `_tix_sp_messages`-Array hat folgende Struktur:
 - 12-stelliger Code → Ticket-Details mit zugehoeriger Bestellung
 
 **Tab 3: Statistiken** – KPI-Cards (Offen, In Bearbeitung, Heute geloest, Ø Antwortzeit) und 7-Tage-Trend-Chart.
+
+**Tab 4: E-Mail-Eingang** – Postfach-Einstellungen, Test-Verbindung, „Jetzt abrufen“, Rückwärts-Import und Protokoll (siehe unten). Per E-Mail eingegangene Nachrichten tragen im Verlauf das Kennzeichen „per E-Mail“.
 
 ### Quick Actions
 
@@ -2080,12 +2088,48 @@ Optionaler schwebender Chat-Button auf allen Seiten:
 | Trigger | Empfaenger | Betreff |
 |---|---|---|
 | Neue Anfrage erstellt | Admin | „Neue Support-Anfrage: {Betreff}" |
-| Neue Anfrage erstellt | Kunde | „Deine Anfrage wurde empfangen – #{ID}" |
-| Admin antwortet | Kunde | „Neue Antwort zu deiner Anfrage #{ID}" |
-| Kunde antwortet | Admin | „Neue Kunden-Antwort: #{ID} – {Betreff}" |
-| Status → Geloest | Kunde | „Deine Anfrage #{ID} wurde geloest" |
+| Neue Anfrage erstellt | Kunde | „Deine Anfrage wurde empfangen [#{ID}]" |
+| Admin antwortet | Kunde | „Neue Antwort zu deiner Anfrage [#{ID}]" |
+| Kunde antwortet (Portal, App, E-Mail) | Admin | „Neue Kunden-Antwort: #{ID} – {Betreff}" |
+| Status → Geloest | Kunde | „Deine Anfrage wurde geloest [#{ID}]" |
 
-Alle E-Mails nutzen `TIX_Emails::build_generic_email_html()` fuer einheitliches Branding.
+Alle E-Mails nutzen `TIX_Emails::build_generic_email_html()` fuer einheitliches Branding. Kunden-Mails gehen über `TIX_Support_Mail::send_customer_mail()` (Kennzeichen, Reply-To, Threading – siehe „E-Mail-Eingang“), Team-Mails tragen `X-Tixomat-Support: team` (Schleifenschutz, falls `admin_email` = Support-Postfach). Bis 1.38.339 lautete das Format „… #{ID}“ ohne Klammern; der Eingang erkennt beide.
+
+### E-Mail-Eingang: Kunden antworten per Mail (seit 1.38.340)
+
+Ziel: Jede Kundenantwort landet in der Anfrage – auch wenn der Kunde im Mailprogramm auf „Antworten“ drückt (Anlass: kitchenklub.de #925, drei Antworten lagen nur im normalen Postfach).
+
+**Ausgehend (jede Kunden-Mail: Bestätigung, Team-Antwort, „gelöst“):**
+
+| Baustein | Inhalt |
+|---|---|
+| Betreff | `… [#925]` (festes Format) |
+| `Reply-To` | Support-Postfach (nur wenn der Eingang aktiv ist) |
+| `Message-ID` | `<tixsp.<id>.<rand8>.<sig16>@<host>>`, `sig` = HMAC-SHA256 (Schlüssel aus `wp_salt('auth')`, je Seite verschieden) – per `phpmailer_init` gesetzt |
+| `In-Reply-To` / `References` | frühere Support-Mails der Anfrage (`_tix_sp_mail_thread`) → Mailprogramme zeigen einen Verlauf |
+| `Auto-Submitted: auto-generated` | Bestätigung und „gelöst“ (Abwesenheitsnotizen antworten nicht darauf) |
+| `X-Tixomat-Support` | `received` / `reply` / `resolved` + Ticket-ID (Schleifenschutz) |
+| Text oben | „##- Bitte oberhalb dieser Zeile antworten -##“ (nur bei aktivem Eingang; Schnittkante für das Zitat) |
+| Text unten | Knopf **„Im Support antworten“** → Portal-Link `?tix_sp_ticket=<id>&tix_sp_key=<access_key>` (keine E-Mail in der URL), optional „In der App öffnen“ (App-Link-Vorlage), Hinweis „Du kannst auch einfach auf diese E-Mail antworten …“ (nur bei aktivem Eingang), Zeile „Anfrage-Referenz: TIX-<id>-<sig16>“ |
+
+Portal: Der Link öffnet über `tix_support_customer_link` (Anfrage-Nr. + access_key, `hash_equals`) direkt die Anfrage; die Parameter werden danach aus der Adresszeile entfernt. Portal-URL: Feld „Support-Portal“ oder automatisch die erste veröffentlichte Seite mit `[tix_support]` (auch in `_breakdance_data`/`_elementor_data`), 12 h zwischengespeichert. Ohne Portal-Seite entfällt der Knopf.
+
+**Eingehend:** WP-Cron-Hook `tix_support_mail_fetch`, Intervall `tix_every_2min` (bei System-Cron dessen Takt, z. B. Mallorca alle 5 min). Sperre per Option `tix_support_mail_lock` (5 min), höchstens 30 Mails bzw. 45 s je Lauf. IMAP über `TIX_Support_IMAP` – eigener Socket-Client (SSL/TLS, STARTTLS, LOGIN bzw. AUTHENTICATE PLAIN bei Sonderzeichen, UID SEARCH/FETCH/STORE/MOVE), **keine ext-imap nötig** (fehlt ab PHP 8.4). Zertifikate werden geprüft (Filter `tix_support_mail_ssl_verify` nur für Tests).
+
+1. Start: Beim ersten Lauf wird nur die Position gemerkt (`UIDNEXT-1`); Altbestand nur über den Rückwärts-Import. Danach `UID SEARCH UID <letzte+1>:*` (Stand in Option `tix_support_mail_state`, bei geändertem Postfach/UIDVALIDITY neu).
+2. Vorprüfung nur mit Kopfzeilen (ohne Download): Duplikat (Message-ID), eigene Mail (`X-Tixomat-Support`, eigene Message-ID, Absender = Support-Postfach), automatische Mail (`Auto-Submitted`≠no, `X-Autoreply`/`X-Autorespond`, `Precedence: bulk|list|junk|auto_reply`, `List-Id`/`List-Unsubscribe`, `multipart/report`, `Return-Path: <>`, mailer-daemon/postmaster/noreply, `X-Spam-Flag: YES`, Betreff „Automatische Antwort“, „Out of Office“, „Unzustellbar“ …). Solche Mails bleiben **unverändert** im Postfach.
+3. Zuordnung: (a) signierte Message-ID in `In-Reply-To`/`References`, (b) signierte Referenz `TIX-<id>-<sig>` in Betreff/Text (übersteht das Zitat), (c) `[#ID]` oder altes „Anfrage … #ID“ im Betreff **und** Absender = Kunden-E-Mail der Anfrage. Bei (a)/(b) mit anderer Absenderadresse: übernommen + interne Notiz.
+4. Text: `text/plain` bevorzugt, sonst HTML→Text (blockquote, `gmail_quote`, Outlook `#divRplyFwdMsg`/`#appendonsend` entfernt); Schnitt an unserer Kante, „Am … schrieb …:“/„On … wrote:“ (auch zweizeilig), „-----Ursprüngliche Nachricht-----“, Outlook-Kopf „Von:/Gesendet:“, `____`, Signatur „-- “, „Von meinem iPhone gesendet“ u. ä.; `>`-Zeilen raus.
+5. Anhänge: wie Portal-Upload (`uploads/tix-support/<id>/`, Typ nach Inhalt: jpg/png/gif/webp/heic/pdf/doc/docx/txt), max. 10 MB/Datei, 10 je Mail; Inline-Bilder < 15 KB (Signatur-Logos) ignoriert; Abgelehntes als interne Notiz. Mails > 30 MB: nur Kopf + Hinweis.
+6. Speichern als `customer`-Nachricht mit `source: email`, Datum aus dem `Date`-Header, chronologisch einsortiert; gelöste/geschlossene Anfrage → offen; Team-Mail wie bei Portal-Antwort.
+7. Nicht zuordenbar: Einstellung „neue Anfrage anlegen“ (Kategorie `general` = „Allgemein“, Betreff ohne Re:/AW:, Kunde bekommt Bestätigung mit `[#ID]`; höchstens 5 neue Anfragen je Absender und Stunde) oder „ignorieren“.
+8. Danach: als gelesen markieren oder in Ordner verschieben (`UID MOVE`; ohne MOVE-Unterstützung kopieren + gelesen). **Es wird nie gelöscht oder expunged.**
+
+**Rückwärts-Import** (Knopf, Vorgabe 30 Tage, `SINCE` = Eingangsdatum im Postfach): gleiche Verarbeitung, Duplikatschutz über Message-ID, keine Team-Mails und keine Bestätigungen; Vorgabe nur Antworten zu bestehenden Anfragen (Haken „auch nicht zuordenbare Mails als neue Anfragen“ für ein reines Support-Postfach). Läuft in Häppchen à 20 s, die Oberfläche ruft bis „Fertig“.
+
+**Einstellungen** (Option `tix_support_mail`, je Seite; Admin: Support → E-Mail-Eingang): `enabled`, `address` (Reply-To), `host`, `port`, `encryption` (`ssl`/`tls`/`none`), `user`, `password_enc` (AES-256-GCM, Schlüssel aus `wp_salt('secure_auth')`; wird nie ausgegeben, Formularfeld leer = behalten; nach Salt-Wechsel Hinweis „neu eingeben“), `folder` (INBOX), `after` (`seen`/`move`), `move_folder` (Tixomat-Verarbeitet), `unmatched` (`ticket`/`ignore`), `portal_url`, `app_link` (z. B. `kitchenklub://support/{id}`). Protokoll der letzten 100 Mails: Option `tix_support_mail_log` (Absender, Betreff, Ergebnis – keine Zugangsdaten).
+
+**Einrichtung:** Am besten ein eigenes Support-Postfach. Ist es das allgemeine Postfach (z. B. mail@kitchenklub.de), zuerst „Nicht zuordenbar: ignorieren“ wählen, sonst wird jede Mail zur Anfrage. Nach dem Einschalten einmal den Rückwärts-Import laufen lassen (holt auch Mails aus den ersten Minuten bis zum ersten Abruf). WP-Cron läuft ohne System-Cron nur bei Seitenaufrufen.
 
 ### Support-Kategorien
 
@@ -2113,12 +2157,20 @@ Standard-Kategorien (konfigurierbar in Einstellungen → Erweitert):
 | `tix_support_customer_list` | Eigene Anfragen laden | Frontend |
 | `tix_support_customer_detail` | Eigene Anfrage laden | Frontend |
 | `tix_support_customer_reply` | Kunden-Antwort senden | Frontend |
+| `tix_support_customer_link` | Link aus der Support-Mail (Anfrage-Nr. + access_key) → Sitzung | Frontend |
+| `tix_support_mail_test` | IMAP-Verbindung testen (Formularwerte, Passwort leer = gespeichertes) | Admin |
+| `tix_support_mail_run` | Postfach sofort abrufen | Admin |
+| `tix_support_mail_backfill` | Rückwärts-Import (`days`, `allow_new`, `after_uid`) | Admin |
+
+Speichern der Postfach-Einstellungen: `admin-post.php?action=tix_support_mail_save` (Nonce `tix_support_mail_save`).
 
 ### Dateien
 
 | Datei | Zweck |
 |---|---|
 | `includes/class-tix-support.php` | PHP: CPT, Admin-Dashboard, AJAX, Shortcode, E-Mails |
+| `includes/class-tix-support-mail.php` | PHP: E-Mail-Eingang, Kennzeichen, Einstellungen, Cron, Rückwärts-Import |
+| `includes/class-tix-support-imap.php` | PHP: IMAP-Client (Sockets) + MIME-Parser, ohne WordPress-Abhängigkeit |
 | `assets/js/support.js` | JS: Admin-Dashboard + Frontend-Portal |
 | `assets/css/support.css` | CSS: Admin + Frontend Styles |
 
@@ -2618,7 +2670,7 @@ Tokens werden bei `/auth/login` generiert und als SHA-256 Hash in `_tix_app_toke
 |---|---|
 | `includes/class-tix-rest-api.php` | REST API Klasse, alle Endpoints, Token-Auth |
 
-### App-Vertrag: worauf sich KitchenKlub- und evendis-App verlassen (Stand 1.38.334)
+### App-Vertrag: worauf sich KitchenKlub- und evendis-App verlassen (Stand 1.38.340)
 
 Die nativen Apps (Monorepo `tixomat-apps`: `apps/kitchenklub`, `apps/evendis`, Paket `tixomat_core`) lesen die folgenden Routen und Feldnamen direkt. **Feldnamen und Bedeutungen nicht umbenennen oder entfernen** – nur ergänzen. KitchenKlub ist als Store-App ausgeliefert; alte App-Versionen bleiben monatelang im Umlauf.
 
@@ -2635,6 +2687,7 @@ Die nativen Apps (Monorepo `tixomat-apps`: `apps/kitchenklub`, `apps/evendis`, P
 | Mehr-Veranstalter | Option `tix_multi_organizer=1` (nur evendis.de): Veranstalter-Routen auf eigene Events begrenzt (`TIX_App_Scope`) | evendis | 1.38.326 |
 | Geteilte Events | `GET /public/events[/{id}]` je Event `syndicated {site, checkout_url, sale_via_app, terms_url}` (sonst `null`). Geteilte Events (`_tix_syndicated=1`) haben `tickets_enabled=false`, **außer** `sale_via_app=true` (Quelle im Partner-Verzeichnis freigeschaltet + Häkchen am Event): dann verkauft die App über die Vermittlung. Ohne Vermittlung: `POST /customer/cart/quote` liefert `syndicated` und `sale_open=false`; Angebot mit Positionen und `POST /customer/orders` lehnen mit `code=tix_syndicated` (409, `data.syndicated`) ab; Web-Kasse lehnt ebenfalls ab. | evendis | 1.38.333 |
 | Geteilte Events: Kauf | Mit `sale_via_app=true`: `POST /customer/cart/quote`, `POST /customer/orders`, `GET /customer/orders/{id}` **unverändertes Format**; Preise/Gebühren/Zahlarten/`payment_url` kommen von der Quelle. Zusätzlich im Angebot `seller {name, terms_url, privacy_url, revocation_url, notice}`, in der Bestellung `order.seller {name, mail_from_seller}`. Bestell-IDs vermittelter Bestellungen ≥ 800000001, `order_number` = Nummer der Quelle. | evendis | 1.38.334 |
+| Support | `GET /customer/support`, `GET /customer/support/{id}`, `POST /customer/support/{id}/reply` **unverändert**. Neu nur ergänzend: Nachrichten, die per E-Mail eingingen, tragen `source: "email"` (sonst fehlt das Feld), `type` bleibt `customer`; sie erscheinen chronologisch im Verlauf (`date` = Sendezeit der Mail). Antworten per Mail öffnen gelöste Anfragen wieder (`status` → `tix_open`). | KitchenKlub, evendis | 1.38.340 |
 | Geteilte Events: Tickets | `GET /customer/tickets` enthält Spiegel-Tickets (gleicher Code wie bei der Quelle, `event_id` = Plattform-Event, QR `GL-<event_id>-<code>` gilt am Einlass der Quelle). Storniert = `status=cancelled` (bleibt sichtbar), eingecheckt/übertragen kommen per Webhook. Ticket-Antwort für Spiegel zusätzlich `mirror: true`, `source_site` (Name der Quelle). Post-Meta `_tix_ticket_mirror=1`, `_tix_ticket_source_site`. | evendis | 1.38.335 |
 
 ### Geteilte Events verkaufen (Partner-Vermittlung, seit 1.38.334)

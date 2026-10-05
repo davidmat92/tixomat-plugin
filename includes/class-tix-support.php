@@ -12,6 +12,9 @@ if (!defined('ABSPATH')) exit;
 
 class TIX_Support {
 
+    /** Kategorie für Anfragen, die per E-Mail ohne Zuordnung eingehen */
+    const EMAIL_CATEGORY = 'general';
+
     // ══════════════════════════════════════════════
     // INIT
     // ══════════════════════════════════════════════
@@ -68,6 +71,8 @@ class TIX_Support {
         add_action('wp_ajax_nopriv_tix_support_customer_detail', [__CLASS__, 'ajax_customer_detail']);
         add_action('wp_ajax_tix_support_customer_auth',   [__CLASS__, 'ajax_customer_auth']);
         add_action('wp_ajax_nopriv_tix_support_customer_auth',  [__CLASS__, 'ajax_customer_auth']);
+        add_action('wp_ajax_tix_support_customer_link',   [__CLASS__, 'ajax_customer_link']);
+        add_action('wp_ajax_nopriv_tix_support_customer_link',  [__CLASS__, 'ajax_customer_link']);
 
         // Sidebar-Badge-Cache invalidieren wenn sich Status ändert
         add_action('transition_post_status', [__CLASS__, 'invalidate_open_count_cache'], 10, 3);
@@ -238,6 +243,9 @@ class TIX_Support {
     public static function render_admin_page() {
         $statuses   = self::get_statuses();
         $categories = self::get_categories();
+        if (!in_array(self::EMAIL_CATEGORY, array_column($categories, 'slug'), true)) {
+            $categories[] = ['slug' => self::EMAIL_CATEGORY, 'label' => 'Allgemein'];
+        }
         ?>
         <div class="wrap tix-support-app">
 
@@ -257,6 +265,12 @@ class TIX_Support {
                         <span class="dashicons dashicons-chart-bar"></span>
                         <span class="tix-nav-label">Statistiken</span>
                     </button>
+                    <?php if (class_exists('TIX_Support_Mail')): ?>
+                    <button type="button" class="tix-nav-tab" data-tab="mail">
+                        <span class="dashicons dashicons-email-alt"></span>
+                        <span class="tix-nav-label">E-Mail-Eingang</span>
+                    </button>
+                    <?php endif; ?>
                 </nav>
 
                 <div class="tix-content">
@@ -363,6 +377,13 @@ class TIX_Support {
                         </div>
 
                     </div>
+
+                    <?php if (class_exists('TIX_Support_Mail')): ?>
+                    <!-- ═══ Tab: E-Mail-Eingang ═══ -->
+                    <div class="tix-pane" data-pane="mail">
+                        <?php TIX_Support_Mail::render_admin_pane(); ?>
+                    </div>
+                    <?php endif; ?>
 
                 </div>
 
@@ -1172,13 +1193,7 @@ class TIX_Support {
         }
 
         // Mime-Whitelist (Bilder, PDFs, Office-Dokumente)
-        $allowed = [
-            'image/jpeg' => 'jpg', 'image/png' => 'png', 'image/gif' => 'gif', 'image/webp' => 'webp', 'image/heic' => 'heic',
-            'application/pdf' => 'pdf',
-            'application/msword' => 'doc',
-            'application/vnd.openxmlformats-officedocument.wordprocessingml.document' => 'docx',
-            'text/plain' => 'txt',
-        ];
+        $allowed = self::allowed_upload_mimes();
         $finfo = function_exists('finfo_open') ? finfo_open(FILEINFO_MIME_TYPE) : false;
         $detected_mime = $finfo ? finfo_file($finfo, $file['tmp_name']) : ($file['type'] ?? '');
         if ($finfo) finfo_close($finfo);
@@ -1186,7 +1201,43 @@ class TIX_Support {
             return new WP_Error('mime', 'Dateityp nicht erlaubt.');
         }
 
-        // Zielverzeichnis
+        $orig_name = sanitize_file_name($file['name']);
+        $target    = self::attachment_target($ticket_id, $orig_name, $allowed[$detected_mime]);
+
+        if (!@move_uploaded_file($file['tmp_name'], $target['path'])) {
+            return new WP_Error('move', 'Datei konnte nicht gespeichert werden.');
+        }
+        @chmod($target['path'], 0644);
+
+        return self::register_attachment($ticket_id, $orig_name, $target, intval($file['size']), $detected_mime, $by);
+    }
+
+    /** Erlaubte Dateitypen für Support-Anhänge (Mime → Endung) */
+    private static function allowed_upload_mimes() {
+        return [
+            'image/jpeg' => 'jpg', 'image/png' => 'png', 'image/gif' => 'gif', 'image/webp' => 'webp', 'image/heic' => 'heic',
+            'application/pdf' => 'pdf',
+            'application/msword' => 'doc',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document' => 'docx',
+            'text/plain' => 'txt',
+        ];
+    }
+
+    private static function detect_mime_of_data($data) {
+        if (!function_exists('finfo_open')) return '';
+        $finfo = finfo_open(FILEINFO_MIME_TYPE);
+        $mime  = $finfo ? finfo_buffer($finfo, $data) : '';
+        if ($finfo) finfo_close($finfo);
+        return (string) $mime;
+    }
+
+    /** Für den Mail-Eingang: ist der Inhalt (nach echtem Typ) ein erlaubter Anhang? */
+    public static function is_allowed_attachment_data($data) {
+        return isset(self::allowed_upload_mimes()[self::detect_mime_of_data($data)]);
+    }
+
+    /** Zielpfad in /uploads/tix-support/{ticket_id}/ mit sicherem, eindeutigem Dateinamen */
+    private static function attachment_target($ticket_id, $orig_name, $ext) {
         $upload_dir = wp_upload_dir();
         $base_dir   = trailingslashit($upload_dir['basedir']) . 'tix-support';
         if (!file_exists($base_dir)) {
@@ -1197,32 +1248,27 @@ class TIX_Support {
         $ticket_dir = $base_dir . '/' . intval($ticket_id);
         if (!file_exists($ticket_dir)) wp_mkdir_p($ticket_dir);
 
-        // Sicherer Dateiname
-        $orig_name = sanitize_file_name($file['name']);
-        $ext       = $allowed[$detected_mime];
         $base_name = pathinfo($orig_name, PATHINFO_FILENAME) ?: 'upload';
         $base_name = substr(preg_replace('/[^a-zA-Z0-9._-]/', '_', $base_name), 0, 50);
-        $unique    = wp_generate_password(6, false, false);
-        $filename  = $base_name . '_' . $unique . '.' . $ext;
-        $dest      = $ticket_dir . '/' . $filename;
+        $filename  = $base_name . '_' . wp_generate_password(6, false, false) . '.' . $ext;
+        return [
+            'path'     => $ticket_dir . '/' . $filename,
+            'filename' => $filename,
+            'url'      => trailingslashit($upload_dir['baseurl']) . 'tix-support/' . intval($ticket_id) . '/' . $filename,
+        ];
+    }
 
-        if (!@move_uploaded_file($file['tmp_name'], $dest)) {
-            return new WP_Error('move', 'Datei konnte nicht gespeichert werden.');
-        }
-        @chmod($dest, 0644);
-
-        $url = trailingslashit($upload_dir['baseurl']) . 'tix-support/' . intval($ticket_id) . '/' . $filename;
-
-        // Attachment-Meta auf dem Ticket
+    /** Anhang in der Ticket-Meta vermerken */
+    private static function register_attachment($ticket_id, $orig_name, array $target, $size, $mime, $by) {
         $existing = get_post_meta($ticket_id, '_tix_sp_attachments', true);
         if (!is_array($existing)) $existing = [];
         $existing[] = [
             'id'        => uniqid('att_', true),
             'name'      => $orig_name,
-            'filename'  => $filename,
-            'url'       => $url,
-            'size'      => intval($file['size']),
-            'mime'      => $detected_mime,
+            'filename'  => $target['filename'],
+            'url'       => $target['url'],
+            'size'      => intval($size),
+            'mime'      => $mime,
             'uploaded_by' => $by,
             'date'      => current_time('c'),
         ];
@@ -1230,10 +1276,31 @@ class TIX_Support {
 
         return [
             'name' => $orig_name,
-            'url'  => $url,
-            'size' => intval($file['size']),
-            'mime' => $detected_mime,
+            'url'  => $target['url'],
+            'size' => intval($size),
+            'mime' => $mime,
         ];
+    }
+
+    /**
+     * Anhang aus einer eingegangenen E-Mail speichern (gleiche Regeln wie der
+     * Portal-Upload: max. 10 MB, Typ nach Inhalt geprüft).
+     */
+    public static function store_attachment_data($ticket_id, $name, $data) {
+        $data = (string) $data;
+        if ($data === '') return new WP_Error('empty', 'leer');
+        if (strlen($data) > 10 * 1024 * 1024) return new WP_Error('too_large', 'zu groß');
+        $mime    = self::detect_mime_of_data($data);
+        $allowed = self::allowed_upload_mimes();
+        if (!isset($allowed[$mime])) return new WP_Error('mime', 'Dateityp nicht erlaubt');
+
+        $orig_name = sanitize_file_name((string) $name) ?: ('anhang.' . $allowed[$mime]);
+        $target    = self::attachment_target($ticket_id, $orig_name, $allowed[$mime]);
+        if (file_put_contents($target['path'], $data) === false) {
+            return new WP_Error('write', 'konnte nicht gespeichert werden');
+        }
+        @chmod($target['path'], 0644);
+        return self::register_attachment($ticket_id, $orig_name, $target, strlen($data), $mime, 'customer');
     }
 
     // ══════════════════════════════════════════════
@@ -1569,6 +1636,34 @@ class TIX_Support {
     }
 
     // ══════════════════════════════════════════════
+    // AJAX: LINK AUS DER SUPPORT-MAIL (Frontend)
+    // ══════════════════════════════════════════════
+
+    /**
+     * „Im Support antworten“: Link mit Anfrage-Nr. + access_key (keine E-Mail in
+     * der URL). Passt der Schlüssel zur Anfrage, bekommt das Portal die Sitzung.
+     */
+    public static function ajax_customer_link() {
+        check_ajax_referer('tix_support_action', 'nonce');
+
+        $ticket_id  = intval($_POST['ticket_id'] ?? 0);
+        $access_key = sanitize_text_field($_POST['access_key'] ?? '');
+        $post       = $ticket_id ? get_post($ticket_id) : null;
+        $stored     = $post && $post->post_type === 'tix_support_ticket' ? (string) get_post_meta($ticket_id, '_tix_sp_access_key', true) : '';
+
+        if ($stored === '' || $access_key === '' || !hash_equals($stored, $access_key)) {
+            wp_send_json_error('Der Link ist ungültig oder abgelaufen. Bitte melde dich mit E-Mail und Bestellnummer an.');
+        }
+
+        wp_send_json_success([
+            'ticket_id'  => $ticket_id,
+            'email'      => (string) get_post_meta($ticket_id, '_tix_sp_email', true),
+            'name'       => (string) get_post_meta($ticket_id, '_tix_sp_name', true),
+            'access_key' => $stored,
+        ]);
+    }
+
+    // ══════════════════════════════════════════════
     // AJAX: KUNDEN-LISTE (Frontend)
     // ══════════════════════════════════════════════
 
@@ -1862,6 +1957,101 @@ class TIX_Support {
         return self::generate_access_key();
     }
 
+    /** Access-Key einer Anfrage (legt einen an, falls ältere Anfragen keinen haben) */
+    public static function ensure_ticket_access_key($ticket_id) {
+        $ticket_id = intval($ticket_id);
+        $key = (string) get_post_meta($ticket_id, '_tix_sp_access_key', true);
+        if ($key !== '') return $key;
+        $email = (string) get_post_meta($ticket_id, '_tix_sp_email', true);
+        if (!is_email($email)) return '';
+        $key = self::ensure_access_key_for_email($email);
+        update_post_meta($ticket_id, '_tix_sp_access_key', $key);
+        return $key;
+    }
+
+    // ══════════════════════════════════════════════
+    // MAIL-EINGANG (TIX_Support_Mail)
+    // ══════════════════════════════════════════════
+
+    /**
+     * Neue Anfrage aus einer nicht zuordenbaren E-Mail (Kategorie „Allgemein“).
+     * Die Nachricht selbst kommt danach per add_email_message().
+     */
+    public static function create_ticket_from_email(array $a) {
+        $email = sanitize_email($a['email'] ?? '');
+        if (!is_email($email)) return new WP_Error('tix_support_fields', 'Ungültige E-Mail.');
+        $categories = self::get_categories();
+        $category = self::EMAIL_CATEGORY;
+        foreach ($categories as $c) {
+            if (strcasecmp($c['label'], 'Allgemein') === 0) { $category = $c['slug']; break; }
+        }
+        $post_id = wp_insert_post([
+            'post_type'   => 'tix_support_ticket',
+            'post_title'  => sanitize_text_field($a['subject'] ?? '') ?: 'Anfrage per E-Mail',
+            'post_status' => 'tix_open',
+            'post_author' => 0,
+        ]);
+        if (is_wp_error($post_id) || !$post_id) return new WP_Error('tix_support_failed', 'Anfrage konnte nicht erstellt werden.');
+        update_post_meta($post_id, '_tix_sp_email',      $email);
+        update_post_meta($post_id, '_tix_sp_name',       sanitize_text_field($a['name'] ?? ''));
+        update_post_meta($post_id, '_tix_sp_category',   $category);
+        update_post_meta($post_id, '_tix_sp_priority',   'normal');
+        update_post_meta($post_id, '_tix_sp_access_key', self::ensure_access_key_for_email($email));
+        update_post_meta($post_id, '_tix_sp_last_reply', current_time('c'));
+        update_post_meta($post_id, '_tix_sp_source',     'email');
+        update_post_meta($post_id, '_tix_sp_messages',   []);
+        return intval($post_id);
+    }
+
+    /**
+     * Kundennachricht aus einer E-Mail speichern – Verhalten wie eine Antwort im
+     * Portal: chronologisch einsortiert, gelöste/geschlossene Anfrage wieder offen,
+     * Team benachrichtigt. $opts: new, notify, confirm, notes[]
+     */
+    public static function add_email_message($ticket_id, array $msg, array $opts = []) {
+        $ticket_id = intval($ticket_id);
+        $post = get_post($ticket_id);
+        if (!$post || $post->post_type !== 'tix_support_ticket') return false;
+        $opts = array_merge(['new' => false, 'notify' => true, 'confirm' => true, 'notes' => []], $opts);
+
+        // Chronologisch einsortieren (Rückwärts-Import bringt ältere Mails)
+        $messages = self::get_messages($ticket_id);
+        $ts  = strtotime($msg['date'] ?? '') ?: time();
+        $pos = count($messages);
+        while ($pos > 0 && (strtotime($messages[$pos - 1]['date'] ?? '') ?: 0) > $ts) $pos--;
+        array_splice($messages, $pos, 0, [$msg]);
+        foreach ((array) $opts['notes'] as $note) {
+            $messages[] = [
+                'id'      => self::generate_message_id(),
+                'type'    => 'note',
+                'author'  => 'E-Mail-Eingang (intern)',
+                'user_id' => 0,
+                'content' => sanitize_textarea_field($note),
+                'date'    => current_time('c'),
+            ];
+        }
+        update_post_meta($ticket_id, '_tix_sp_messages', $messages);
+        if (function_exists('wp_schedule_single_event')) {
+            wp_schedule_single_event(time() + 5, 'tix_sp_summary_async', [$ticket_id]);
+        }
+
+        $last = strtotime((string) get_post_meta($ticket_id, '_tix_sp_last_reply', true)) ?: 0;
+        if ($ts >= $last) update_post_meta($ticket_id, '_tix_sp_last_reply', wp_date('c', $ts));
+
+        if (in_array($post->post_status, ['tix_resolved', 'tix_closed'], true)) {
+            wp_update_post(['ID' => $ticket_id, 'post_status' => 'tix_open']);
+        }
+
+        $email = (string) get_post_meta($ticket_id, '_tix_sp_email', true);
+        if ($opts['new']) {
+            if ($opts['notify']) self::send_email_new_ticket_admin($ticket_id, $post->post_title, $email, (string) get_post_meta($ticket_id, '_tix_sp_name', true));
+            if ($opts['confirm'] && $email) self::send_email_new_ticket_customer($ticket_id, $post->post_title, $email, (string) get_post_meta($ticket_id, '_tix_sp_name', true), '');
+        } elseif ($opts['notify']) {
+            self::send_email_customer_reply_admin($ticket_id, $post->post_title, $msg['email'] ?? $email, $msg['content'] ?? '');
+        }
+        return true;
+    }
+
     // ══════════════════════════════════════════════
     // FORMAT HELPERS
     // ══════════════════════════════════════════════
@@ -1875,6 +2065,7 @@ class TIX_Support {
         foreach ($categories as $c) {
             if ($c['slug'] === $cat_slug) { $cat_label = $c['label']; break; }
         }
+        if ($cat_label === self::EMAIL_CATEGORY) $cat_label = 'Allgemein';
 
         $ai_summary  = get_post_meta($post->ID, '_tix_sp_ai_summary', true);
         $attachments = get_post_meta($post->ID, '_tix_sp_attachments', true);
@@ -2058,18 +2249,46 @@ class TIX_Support {
             '#' . $ticket_id . ' – ' . $subject
         );
 
-        wp_mail($admin_email, 'Neue Support-Anfrage: ' . $subject, $html, ['Content-Type: text/html; charset=UTF-8']);
+        wp_mail($admin_email, 'Neue Support-Anfrage: ' . $subject, $html, self::team_headers());
+    }
+
+    // ── Bausteine für Kunden-Mails (Antwort per Mail/Portal, siehe TIX_Support_Mail) ──
+
+    private static function customer_subject($text, $ticket_id) {
+        return $text . ' [#' . intval($ticket_id) . ']';
+    }
+
+    private static function mail_top_html() {
+        return class_exists('TIX_Support_Mail') ? TIX_Support_Mail::body_top_html() : '';
+    }
+
+    private static function mail_footer_html($ticket_id) {
+        return class_exists('TIX_Support_Mail') ? TIX_Support_Mail::body_footer_html($ticket_id) : '';
+    }
+
+    private static function team_headers() {
+        return class_exists('TIX_Support_Mail') ? TIX_Support_Mail::team_headers() : ['Content-Type: text/html; charset=UTF-8'];
+    }
+
+    /** $kind: received | reply | resolved */
+    private static function send_customer_mail($ticket_id, $email, $subject, $html, $kind, $attachments = []) {
+        if (class_exists('TIX_Support_Mail')) {
+            return TIX_Support_Mail::send_customer_mail($ticket_id, $email, $subject, $html, $kind, $attachments);
+        }
+        return wp_mail($email, $subject, $html, ['Content-Type: text/html; charset=UTF-8'], $attachments);
     }
 
     /**
      * Neue Anfrage → Bestätigung an Kunden
      */
     private static function send_email_new_ticket_customer($ticket_id, $subject, $email, $name, $access_key) {
-        $body = '<p>Hallo ' . esc_html($name ?: 'Kunde') . ',</p>';
+        $body = self::mail_top_html();
+        $body .= '<p>Hallo ' . esc_html($name ?: 'Kunde') . ',</p>';
         $body .= '<p>wir haben deine Anfrage erhalten und werden uns so schnell wie möglich darum kümmern.</p>';
         $body .= '<p><strong>Anfrage-Nr:</strong> #' . $ticket_id . '<br>';
         $body .= '<strong>Betreff:</strong> ' . esc_html($subject) . '</p>';
         $body .= '<p>Du erhältst eine E-Mail, sobald wir dir antworten.</p>';
+        $body .= self::mail_footer_html($ticket_id);
 
         $html = TIX_Emails::build_generic_email_html(
             'Anfrage empfangen',
@@ -2077,7 +2296,7 @@ class TIX_Support {
             '#' . $ticket_id
         );
 
-        wp_mail($email, 'Deine Anfrage wurde empfangen – #' . $ticket_id, $html, ['Content-Type: text/html; charset=UTF-8']);
+        self::send_customer_mail($ticket_id, $email, self::customer_subject('Deine Anfrage wurde empfangen', $ticket_id), $html, 'received');
     }
 
     /**
@@ -2085,7 +2304,8 @@ class TIX_Support {
      */
     private static function send_email_reply_to_customer($ticket_id, $subject, $email, $reply_content, $attach_order_id = 0, $extra_files = []) {
         $name = get_post_meta($ticket_id, '_tix_sp_name', true);
-        $body = '<p>Hallo ' . esc_html($name ?: 'Kunde') . ',</p>';
+        $body = self::mail_top_html();
+        $body .= '<p>Hallo ' . esc_html($name ?: 'Kunde') . ',</p>';
         $body .= '<p>du hast eine neue Antwort zu deiner Anfrage <strong>#' . $ticket_id . '</strong> erhalten:</p>';
         $body .= '<div style="background:#FAF8F4;border-left:4px solid ' . tix_primary() . ';padding:16px;border-radius:8px;margin:16px 0;">';
         $body .= nl2br(esc_html($reply_content));
@@ -2172,6 +2392,8 @@ class TIX_Support {
             }
         }
 
+        $body .= self::mail_footer_html($ticket_id);
+
         $html = TIX_Emails::build_generic_email_html(
             'Neue Antwort',
             $body,
@@ -2181,7 +2403,7 @@ class TIX_Support {
         // Datei-Anhänge zur wp_mail-Liste hinzufügen
         $all_attachments = array_merge($attachments, $extra_attach_files);
 
-        wp_mail($email, 'Neue Antwort zu deiner Anfrage #' . $ticket_id, $html, ['Content-Type: text/html; charset=UTF-8'], $all_attachments);
+        self::send_customer_mail($ticket_id, $email, self::customer_subject('Neue Antwort zu deiner Anfrage', $ticket_id), $html, 'reply', $all_attachments);
 
         // Temp-PDFs aufräumen (Datei-Uploads bleiben — sind permanent gespeichert)
         foreach ($temp_files as $f) { @unlink($f); }
@@ -2214,7 +2436,7 @@ class TIX_Support {
             '#' . $ticket_id . ' – ' . $subject
         );
 
-        wp_mail($admin_email, 'Neue Kunden-Antwort: #' . $ticket_id . ' – ' . $subject, $html, ['Content-Type: text/html; charset=UTF-8']);
+        wp_mail($admin_email, 'Neue Kunden-Antwort: #' . $ticket_id . ' – ' . $subject, $html, self::team_headers());
     }
 
     /**
@@ -2222,10 +2444,12 @@ class TIX_Support {
      */
     private static function send_email_status_resolved($ticket_id, $subject, $email) {
         $name = get_post_meta($ticket_id, '_tix_sp_name', true);
-        $body = '<p>Hallo ' . esc_html($name ?: 'Kunde') . ',</p>';
+        $body = self::mail_top_html();
+        $body .= '<p>Hallo ' . esc_html($name ?: 'Kunde') . ',</p>';
         $body .= '<p>deine Anfrage <strong>#' . $ticket_id . '</strong> wurde als <strong>gelöst</strong> markiert.</p>';
         $body .= '<p><strong>Betreff:</strong> ' . esc_html($subject) . '</p>';
-        $body .= '<p>Falls du weitere Fragen hast, antworte einfach auf diese E-Mail oder erstelle eine neue Anfrage.</p>';
+        $body .= '<p>Falls du weitere Fragen hast, melde dich gern – deine Anfrage wird dann wieder geöffnet.</p>';
+        $body .= self::mail_footer_html($ticket_id);
 
         $html = TIX_Emails::build_generic_email_html(
             'Anfrage gelöst',
@@ -2233,7 +2457,7 @@ class TIX_Support {
             '#' . $ticket_id
         );
 
-        wp_mail($email, 'Deine Anfrage #' . $ticket_id . ' wurde gelöst', $html, ['Content-Type: text/html; charset=UTF-8']);
+        self::send_customer_mail($ticket_id, $email, self::customer_subject('Deine Anfrage wurde gelöst', $ticket_id), $html, 'resolved');
     }
 
     // ══════════════════════════════════════════════
