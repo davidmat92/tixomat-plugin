@@ -855,6 +855,9 @@ class TIX_Support {
             $attach_message = self::send_email_reply_to_customer($ticket_id, $post->post_title, $email, $content, $attach_order_id, $valid_files);
         }
 
+        // Feed-Eintrag + Push in der App (nur mit Kundenkonto)
+        self::notify_customer_app($ticket_id, $post->post_title, $email, $content);
+
         $response = ['message' => $msg];
         if ($attach_message) {
             $response['attach_message'] = $attach_message;
@@ -2416,6 +2419,39 @@ class TIX_Support {
         }
 
         return $attach_message;
+    }
+
+    /**
+     * Team-Antwort → persönlicher Feed-Eintrag + Push in der App
+     * (Aktion support:ticket:<id>, siehe App-Vertrag §59). Ohne Kundenkonto
+     * genügt die Mail. Nur für Team-Antworten, nicht für Notizen/Status.
+     */
+    private static function notify_customer_app($ticket_id, $subject, $email, $reply_content) {
+        if (!class_exists('TIX_Notifications') || !method_exists('TIX_Notifications', 'add_user_item')) return;
+        $ticket_id = intval($ticket_id);
+        $user = is_email($email) ? get_user_by('email', $email) : false;
+        if (!$user) {
+            $author = intval(get_post_field('post_author', $ticket_id));
+            $cand   = $author > 0 ? get_userdata($author) : false;
+            if ($cand && strcasecmp((string) $cand->user_email, (string) $email) === 0) $user = $cand;
+        }
+        if (!$user) return;
+
+        $text = trim(preg_replace('/\s+/u', ' ', wp_strip_all_tags((string) $reply_content)));
+        if (function_exists('mb_strlen') && mb_strlen($text) > 120) {
+            $text = rtrim(mb_substr($text, 0, 119)) . '…';
+        }
+        $subject = trim((string) $subject);
+        $body = ($subject !== '' ? '#' . $ticket_id . ' · ' . $subject : 'Anfrage #' . $ticket_id) . ': ' . $text;
+
+        try {
+            TIX_Notifications::add_user_item($user->ID, 'Neue Antwort auf deine Anfrage', $body, [
+                'type'   => 'support',
+                'action' => 'support:ticket:' . $ticket_id,
+            ]);
+        } catch (\Throwable $e) {
+            // Push ist Zusatz – die Antwort selbst ist gespeichert und gemailt
+        }
     }
 
     /**
