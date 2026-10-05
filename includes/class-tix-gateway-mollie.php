@@ -359,13 +359,23 @@ class TIX_Gateway_Mollie {
             return ['error' => 'Mollie API-Key nicht konfiguriert.'];
         }
 
-        $body = [];
-        if ($amount !== null) {
-            $body['amount'] = [
+        // Mollie v2 verlangt immer einen Betrag (leerer Body → „does not represent an object“):
+        // volle Erstattung = Gesamtbetrag der Bestellung
+        if ($amount === null) {
+            global $wpdb;
+            $amount = floatval($wpdb->get_var($wpdb->prepare(
+                "SELECT total FROM {$wpdb->prefix}tix_orders WHERE id = %d", intval($order_id)
+            )));
+            if ($amount <= 0) {
+                return ['error' => 'Erstattungsbetrag konnte nicht ermittelt werden.'];
+            }
+        }
+        $body = [
+            'amount' => [
                 'currency' => 'EUR',
                 'value'    => number_format($amount, 2, '.', ''),
-            ];
-        }
+            ],
+        ];
 
         $response = wp_remote_post(self::API_URL . '/payments/' . $payment_id . '/refunds', [
             'timeout' => 15,

@@ -333,8 +333,16 @@ class TIX_Partner_API {
             if (!wp_next_scheduled('tix_partner_webhook_flush')) {
                 wp_schedule_single_event(time(), 'tix_partner_webhook_flush');
             }
-            // Sofort im Hintergrund senden (Einlass soll nicht warten)
-            add_action('shutdown', function () { if (function_exists('spawn_cron')) spawn_cron(); });
+            // Sofort senden, nachdem die Antwort an den Kunden/Einlass raus ist (Cron nur für
+            // Wiederholungen – auf Seiten mit wenig Verkehr läuft WP-Cron sonst zu selten)
+            add_action('shutdown', function () {
+                if (function_exists('fastcgi_finish_request')) {
+                    fastcgi_finish_request();
+                } elseif (function_exists('litespeed_finish_request')) {
+                    litespeed_finish_request();
+                }
+                self::flush();
+            }, PHP_INT_MAX);
         }
     }
 
