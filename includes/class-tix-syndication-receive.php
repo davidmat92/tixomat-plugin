@@ -65,7 +65,12 @@ class TIX_Syndication_Receive {
             return true;
         }
 
-        // Übergangsweise: gemeinsamer Schlüssel (Quelle nennt sich selbst)
+        // Übergangsweise: gemeinsamer Schlüssel (Quelle nennt sich selbst) – abschaltbar;
+        // fehlt die Einstellung (ältere Installationen), bleibt er gültig
+        $shared_on = tix_get_settings('syndication_shared_key_enabled');
+        if ($shared_on !== null && empty($shared_on)) {
+            return new WP_Error('unauthorized', 'Gemeinsamer Syndication-Key ist abgeschaltet – bitte Partner-Schlüssel verwenden.', ['status' => 401]);
+        }
         $expected = (string) tix_get_settings('syndication_receive_key');
         if ($key === '' || $expected === '' || !hash_equals($expected, $key)) {
             return new WP_Error('unauthorized', 'Ungültiger Syndication-Key.', ['status' => 401]);

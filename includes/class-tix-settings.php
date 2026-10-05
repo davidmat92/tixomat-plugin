@@ -546,6 +546,7 @@ class TIX_Settings {
             // ── Syndication Empfang ──
             'syndication_receive_enabled' => 0,
             'syndication_receive_key'     => '',
+            'syndication_shared_key_enabled' => 1, // gemeinsamer Empfangs-Key (alt) neben Partner-Schlüsseln
             // Partner-API (Quelle): Verkauf geteilter Events über die Plattform
             'partner_api_enabled'         => 0,
             'partner_api_key'             => '',
@@ -1331,6 +1332,7 @@ class TIX_Settings {
         $clean['syndication_site_name']      = sanitize_text_field($input['syndication_site_name'] ?? '');
         $clean['syndication_receive_enabled'] = !empty($input['syndication_receive_enabled']) ? 1 : 0;
         $clean['syndication_receive_key']    = sanitize_text_field($input['syndication_receive_key'] ?? '');
+        $clean['syndication_shared_key_enabled'] = !empty($input['syndication_shared_key_enabled']) ? 1 : 0;
         $clean['partner_api_enabled']        = !empty($input['partner_api_enabled']) ? 1 : 0;
         $clean['partner_api_key']            = sanitize_text_field($input['partner_api_key'] ?? '');
 
@@ -7363,6 +7365,9 @@ class TIX_Settings {
                                                 <label class="tix-label">Empfangs-Key (an Sender weitergeben)</label>
                                                 <input type="text" name="tix_settings[syndication_receive_key]" value="<?php echo esc_attr($receive_key); ?>" class="regular-text" style="width:100%;font-family:monospace;font-size:13px;" readonly onclick="this.select();">
                                                 <p class="tix-settings-hint">Diesen Key dem Sender mitteilen. Er wird als Authentifizierungs-Header gesendet.</p>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('syndication_shared_key_enabled', 'Gemeinsamen Empfangs-Key akzeptieren (alt)', $s, 'Aus = nur noch Quellen mit eigenem Schlüssel aus Tixomat → Partner. Quelle nennt sich beim gemeinsamen Key selbst – empfohlen: aus, sobald alle Quellen Partner sind.'); ?>
                                             </div>
                                             <div class="tix-field tix-field-full">
                                                 <p class="tix-settings-hint">

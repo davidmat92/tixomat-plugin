@@ -2643,7 +2643,7 @@ evendis.de (Plattform) vermittelt, die Quellseite (z. B. kitchenklub.de) verkauf
 
 | Seite | Einstellung | Wirkung |
 |---|---|---|
-| Plattform | Tixomat → **Partner** (Option `tix_partners`): Kennung, Name, API-Basis der Quelle, zugeordneter `tix_organizer`, „Verkauf über diese Seite“, AGB-Link; je Partner eigener **API Key** (`key_in`, Quelle → Plattform) und **Partner-Schlüssel** (`key_out`, Plattform → Quelle) | Quelle wird am Schlüssel erkannt (nicht am Namen); gemeinsamer Empfangs-Key bleibt übergangsweise gültig |
+| Plattform | Tixomat → **Partner** (Option `tix_partners`): Kennung, Name, API-Basis der Quelle, zugeordneter `tix_organizer`, „Verkauf über diese Seite“, AGB-Link; je Partner eigener **API Key** (`key_in`, Quelle → Plattform) und **Partner-Schlüssel** (`key_out`, Plattform → Quelle) | Quelle wird am Schlüssel erkannt (nicht am Namen); gemeinsamer Empfangs-Key abschaltbar über „Gemeinsamen Empfangs-Key akzeptieren (alt)“ (`syndication_shared_key_enabled`, Vorgabe an; auf evendis.de seit 2026-10-05 aus) |
 | Quelle | Einstellungen → Event-Verteilung (Senden): API Key = `key_in`; „Verkauf über die Plattform erlauben“ (`partner_api_enabled`) + Partner-Schlüssel (`partner_api_key` = `key_out`) | Partner-API frei; Webhooks an die Plattform |
 | Quelle | Event → Event-Verteilung: Häkchen „Tickets auch über die Plattform verkaufen“ (`_tix_partner_sales`, Vorgabe an) | wird als `partner_sales` mitgeschickt |
 
