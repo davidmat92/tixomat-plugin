@@ -21,6 +21,25 @@ class TIX_Syndication_Push {
         add_action('tix_order_cancelled', [__CLASS__, 'queue_stock_for_order'], 50);
         add_action('tix_order_completed', [__CLASS__, 'queue_stock_for_order'], 50);
         add_action('tix_syndication_stock_push', [__CLASS__, 'push_stock']);
+        // Nach der Kopplung mit einer Plattform: markierte, kommende Events verteilen
+        add_action('tix_syndication_push_all', [__CLASS__, 'push_all']);
+    }
+
+    /** Alle veröffentlichten, kommenden Events mit Häkchen „Auf Plattform veröffentlichen“ senden. */
+    public static function push_all() {
+        if (!self::is_configured()) return;
+        $ids = get_posts([
+            'post_type'      => 'event',
+            'post_status'    => 'publish',
+            'posts_per_page' => 200,
+            'fields'         => 'ids',
+            'meta_query'     => [
+                'relation' => 'AND',
+                ['key' => '_tix_syndicate', 'value' => '1'],
+                ['key' => '_tix_date_start', 'value' => current_time('Y-m-d'), 'compare' => '>=', 'type' => 'DATE'],
+            ],
+        ]);
+        foreach ($ids as $id) self::push_event(intval($id));
     }
 
     /** Darf die Plattform Tickets dieses Events verkaufen (Partner-API an + Häkchen je Event, Vorgabe an)? */

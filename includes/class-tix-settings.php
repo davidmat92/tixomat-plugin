@@ -547,6 +547,7 @@ class TIX_Settings {
             'syndication_receive_enabled' => 0,
             'syndication_receive_key'     => '',
             'syndication_shared_key_enabled' => 1, // gemeinsamer Empfangs-Key (alt) neben Partner-Schlüsseln
+            'partner_autoconnect'         => 1, // Plattform: Tixomat-Seiten dürfen sich koppeln (Verkauf erst nach Freigabe)
             // Partner-API (Quelle): Verkauf geteilter Events über die Plattform
             'partner_api_enabled'         => 0,
             'partner_api_key'             => '',
@@ -1333,6 +1334,7 @@ class TIX_Settings {
         $clean['syndication_receive_enabled'] = !empty($input['syndication_receive_enabled']) ? 1 : 0;
         $clean['syndication_receive_key']    = sanitize_text_field($input['syndication_receive_key'] ?? '');
         $clean['syndication_shared_key_enabled'] = !empty($input['syndication_shared_key_enabled']) ? 1 : 0;
+        $clean['partner_autoconnect']        = !empty($input['partner_autoconnect']) ? 1 : 0;
         $clean['partner_api_enabled']        = !empty($input['partner_api_enabled']) ? 1 : 0;
         $clean['partner_api_key']            = sanitize_text_field($input['partner_api_key'] ?? '');
 
@@ -7335,6 +7337,18 @@ class TIX_Settings {
                                                 <?php self::checkbox_row('partner_api_enabled', 'Verkauf über die Plattform erlauben', $s, 'Schaltet die Partner-API frei (Angebot, Bestellung, Status für die Plattform).'); ?>
                                             </div>
                                             <?php self::text_row('partner_api_key', 'Partner-Schlüssel (von der Plattform)', $s, 'tix_pout_...'); ?>
+                                            <div class="tix-field tix-field-full" style="border-top:1px solid #e5e7eb;padding-top:12px;margin-top:4px;">
+                                                <label class="tix-field-label">Mit Plattform verbinden</label>
+                                                <?php
+                                                $tix_connect_default = (string) wp_parse_url((string) ($s['syndication_api_url'] ?? ''), PHP_URL_HOST) ?: 'evendis.de';
+                                                wp_nonce_field('tix_partner_connect', 'tix_connect_nonce', false);
+                                                ?>
+                                                <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                                                    <input type="text" name="tix_connect_platform" value="<?php echo esc_attr($tix_connect_default); ?>" class="regular-text" style="max-width:260px;">
+                                                    <button type="submit" class="button" formaction="<?php echo esc_url(admin_url('admin-post.php?action=tix_partner_connect')); ?>" formnovalidate>Verbinden</button>
+                                                </div>
+                                                <p class="tix-settings-hint">Richtet Verteilung und Schlüssel automatisch ein (vorher sonstige Änderungen speichern). Der Ticketverkauf über die App startet, sobald der Betreiber der Plattform freigibt.</p>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -7365,6 +7379,9 @@ class TIX_Settings {
                                                 <label class="tix-label">Empfangs-Key (an Sender weitergeben)</label>
                                                 <input type="text" name="tix_settings[syndication_receive_key]" value="<?php echo esc_attr($receive_key); ?>" class="regular-text" style="width:100%;font-family:monospace;font-size:13px;" readonly onclick="this.select();">
                                                 <p class="tix-settings-hint">Diesen Key dem Sender mitteilen. Er wird als Authentifizierungs-Header gesendet.</p>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('partner_autoconnect', 'Kopplung neuer Tixomat-Seiten erlauben', $s, 'Seiten können sich per „Mit Plattform verbinden“ selbst koppeln. Partner und Veranstalter werden angelegt, der Ticketverkauf über die App startet erst nach deiner Freigabe unter Tixomat → Partner (Mail an die Admin-Adresse).'); ?>
                                             </div>
                                             <div class="tix-field tix-field-full">
                                                 <?php self::checkbox_row('syndication_shared_key_enabled', 'Gemeinsamen Empfangs-Key akzeptieren (alt)', $s, 'Aus = nur noch Quellen mit eigenem Schlüssel aus Tixomat → Partner. Quelle nennt sich beim gemeinsamen Key selbst – empfohlen: aus, sobald alle Quellen Partner sind.'); ?>
