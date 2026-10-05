@@ -859,6 +859,9 @@ class TIX_Support_Mail {
         $new['unmatched']   = ($in['unmatched'] ?? '') === 'ignore' ? 'ignore' : 'ticket';
         $new['portal_url']  = esc_url_raw(trim($in['portal_url'] ?? ''));
         $new['app_link']    = trim(sanitize_text_field($in['app_link'] ?? ''));
+        if (class_exists('TIX_App_Links') && isset($in['app_link_ids'])) {
+            update_option(TIX_App_Links::OPTION, TIX_App_Links::sanitize_ids($in['app_link_ids']));
+        }
 
         $notice = 'saved';
         $pass = isset($in['password']) ? str_replace(["\r", "\n"], '', (string) $in['password']) : '';
@@ -1023,6 +1026,9 @@ class TIX_Support_Mail {
                             </td></tr>
                             <tr><th scope="row"><label for="tix-sp-mail-portal">Support-Portal</label></th><td><input type="url" class="regular-text" id="tix-sp-mail-portal" name="tix_sp_mail[portal_url]" value="<?php echo $f('portal_url'); ?>" placeholder="<?php echo esc_attr($portal ?: 'Seite mit [tix_support]'); ?>"><p class="description">Ziel des Knopfs „Im Support antworten“. Leer = automatisch<?php echo $portal ? ' (' . esc_html($portal) . ')' : ' – keine Seite mit <code>[tix_support]</code> gefunden, Knopf entfällt'; ?>.</p></td></tr>
                             <tr><th scope="row"><label for="tix-sp-mail-app">App-Link</label></th><td><input type="text" class="regular-text" id="tix-sp-mail-app" name="tix_sp_mail[app_link]" value="<?php echo $f('app_link'); ?>" placeholder="https://… oder app://support/{id}"><p class="description">Optional, <code>{id}</code> = Anfrage-Nummer. Erscheint als „In der App öffnen“.</p></td></tr>
+                            <?php if (class_exists('TIX_App_Links')): ?>
+                            <tr><th scope="row"><label for="tix-sp-mail-aasa">Universal Links</label></th><td><input type="text" class="regular-text" id="tix-sp-mail-aasa" name="tix_sp_mail[app_link_ids]" value="<?php echo esc_attr(implode(' ', TIX_App_Links::ids())); ?>" placeholder="TEAMID.de.beispiel.app"><p class="description">App-IDs (Team-ID.Bundle-ID, mehrere mit Leerzeichen). Dann öffnet der Knopf „Im Support antworten“ auf dem iPhone direkt die App (<code>/.well-known/apple-app-site-association</code>, nur Links mit <code>tix_sp_ticket</code>). Leer = aus.</p></td></tr>
+                            <?php endif; ?>
                         </table>
                         <p>
                             <button type="submit" class="button button-primary">Speichern</button>
