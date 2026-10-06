@@ -193,14 +193,14 @@ class TIX_Settlement_PDF {
         $pdf->add_page();
         $title = $s->type === 'advance' ? 'Abschlag ' . $s->number
             : (($reseller ? 'Gutschrift ' : 'Abrechnung ') . $s->number);
-        $date = wp_date('d.m.Y', strtotime($s->created));
+        $date = mysql2date('d.m.Y', $s->created);
         $y = self::head($pdf, $s, $title, [
             'Nummer'      => $s->number,
             'Datum'       => $date,
             'Veranstalter'=> (string) ($snap['organizer'] ?? ''),
             'Event'       => $s->type === 'balance' ? 'Saldo-Abrechnung' : $s->event_title,
-            'Event-Datum' => $s->event_date ? wp_date('d.m.Y', strtotime($s->event_date)) : '',
-            'Zeitraum'    => ($s->period_from && $s->period_to) ? wp_date('d.m.Y', strtotime($s->period_from)) . ' – ' . wp_date('d.m.Y', strtotime($s->period_to)) : '',
+            'Event-Datum' => $s->event_date ? mysql2date('d.m.Y', $s->event_date) : '',
+            'Zeitraum'    => ($s->period_from && $s->period_to) ? mysql2date('d.m.Y', $s->period_from) . ' – ' . mysql2date('d.m.Y', $s->period_to) : '',
         ]);
 
         if ($s->type === 'advance') {
@@ -254,8 +254,8 @@ class TIX_Settlement_PDF {
         $y -= 13;
         $pdf->text(self::M, $y, 'Verwendungszweck: ' . TIX_Settlement::remittance($s));
         $y -= 13;
-        $state = $s->status === 'paid' ? 'Ausgezahlt am ' . wp_date('d.m.Y', strtotime($s->paid_at))
-            : ($s->due_date ? 'Geplante Auszahlung ab ' . wp_date('d.m.Y', strtotime($s->due_date)) : '');
+        $state = $s->status === 'paid' ? 'Ausgezahlt am ' . mysql2date('d.m.Y', $s->paid_at)
+            : ($s->due_date ? 'Geplante Auszahlung ab ' . mysql2date('d.m.Y', $s->due_date) : '');
         if ($s->status === 'held') $state = 'Auszahlung zurückgestellt' . ($s->held_reason ? ': ' . $s->held_reason : '');
         if ($state) $pdf->text(self::M, $y, $state);
 
@@ -314,11 +314,11 @@ class TIX_Settlement_PDF {
 
         $pdf = new TIX_Simple_PDF(self::W, self::H, self::M, 40);
         $pdf->add_page();
-        $leistung = $s->event_date ? wp_date('d.m.Y', strtotime($s->event_date))
-            : (($s->period_from && $s->period_to) ? wp_date('d.m.Y', strtotime($s->period_from)) . ' – ' . wp_date('d.m.Y', strtotime($s->period_to)) : '');
+        $leistung = $s->event_date ? mysql2date('d.m.Y', $s->event_date)
+            : (($s->period_from && $s->period_to) ? mysql2date('d.m.Y', $s->period_from) . ' – ' . mysql2date('d.m.Y', $s->period_to) : '');
         $y = self::head($pdf, $s, 'Rechnung ' . $s->invoice_number, [
             'Rechnungsnr.'  => $s->invoice_number,
-            'Datum'         => wp_date('d.m.Y', strtotime($s->created)),
+            'Datum'         => mysql2date('d.m.Y', $s->created),
             'Leistung'      => $leistung,
             'Zu Abrechnung' => $s->number,
         ]);

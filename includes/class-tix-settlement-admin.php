@@ -53,7 +53,7 @@ class TIX_Settlement_Admin {
         }
         $rate = intval($wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM " . TIX_Settlement::items_table() . " WHERE settlement_id = %d AND gateway_fee_source = 'rate'", $s->id)));
         if ($rate) $h[] = $rate . '× Zahlungsgebühr nach Satz';
-        if ($s->due_date && strcmp($s->due_date, wp_date('Y-m-d')) > 0 && in_array($s->status, ['ready', 'approved'], true)) $h[] = 'Frist bis ' . wp_date('d.m.', strtotime($s->due_date));
+        if ($s->due_date && strcmp($s->due_date, wp_date('Y-m-d')) > 0 && in_array($s->status, ['ready', 'approved'], true)) $h[] = 'Frist bis ' . mysql2date('d.m.', $s->due_date);
         if (floatval($s->carry_over) < 0) $h[] = 'Negativer Saldo vorgetragen';
         if (get_post_meta($s->organizer_id, TIX_Payout_Details::META_PENDING, true)) $h[] = 'IBAN-Änderung offen';
         return $h;
@@ -143,8 +143,8 @@ class TIX_Settlement_Admin {
                 <tr>
                     <td><a href="<?php echo esc_url(self::url(['id' => $s->id])); ?>"><strong><?php echo esc_html($s->number); ?></strong></a><?php echo $s->type !== 'event' ? '<br><small>' . esc_html($s->type === 'advance' ? 'Abschlag' : 'Saldo') . '</small>' : ''; ?></td>
                     <td><a href="<?php echo esc_url(get_edit_post_link($s->organizer_id)); ?>"><?php echo esc_html(get_the_title($s->organizer_id)); ?></a></td>
-                    <td><?php echo esc_html($s->event_title); ?><?php echo $s->event_date ? '<br><small>' . esc_html(wp_date('d.m.Y', strtotime($s->event_date))) . '</small>' : ''; ?></td>
-                    <td><?php echo $s->due_date ? esc_html(wp_date('d.m.Y', strtotime($s->due_date))) : '—'; ?></td>
+                    <td><?php echo esc_html($s->event_title); ?><?php echo $s->event_date ? '<br><small>' . esc_html(mysql2date('d.m.Y', $s->event_date)) . '</small>' : ''; ?></td>
+                    <td><?php echo $s->due_date ? esc_html(mysql2date('d.m.Y', $s->due_date)) : '—'; ?></td>
                     <td style="text-align:right;"><strong><?php echo esc_html(TIX_Settlement::money($s->payout_amount)); ?></strong></td>
                     <td><?php echo self::status_label($s->status); ?><?php echo $s->status === 'held' && $s->held_reason ? '<br><small>' . esc_html($s->held_reason) . '</small>' : ''; ?></td>
                     <td><small style="color:#b45309;"><?php echo esc_html(implode(' · ', self::hints($s))); ?></small></td>
@@ -219,7 +219,7 @@ class TIX_Settlement_Admin {
         <p><a href="<?php echo esc_url(self::url()); ?>">← Zurück</a></p>
         <h2><?php echo esc_html($s->number . ' · ' . $s->event_title); ?> <?php echo self::status_label($s->status); ?></h2>
         <p><?php echo esc_html(get_the_title($s->organizer_id)); ?> · <?php echo esc_html(TIX_Settlement::money($s->payout_amount)); ?>
-            <?php echo $s->due_date ? ' · fällig ab ' . esc_html(wp_date('d.m.Y', strtotime($s->due_date))) : ''; ?>
+            <?php echo $s->due_date ? ' · fällig ab ' . esc_html(mysql2date('d.m.Y', $s->due_date)) : ''; ?>
             · <?php echo esc_html($s->tax_mode === 'reseller' ? 'Eigenhandel' : 'Vermittlung'); ?>
             <?php echo $s->invoice_number ? ' · Gebührenrechnung ' . esc_html($s->invoice_number) . ' (' . esc_html(TIX_Settlement::money($s->invoice_total)) . ')' : ''; ?></p>
         <?php if ($s->note) : ?><p style="color:#b45309;"><?php echo nl2br(esc_html($s->note)); ?></p><?php endif; ?>

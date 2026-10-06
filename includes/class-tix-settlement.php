@@ -374,7 +374,11 @@ class TIX_Settlement {
     /** Events, deren Frist abgelaufen ist und die noch keine Abrechnung haben. */
     public static function due_events() {
         $since = (string) self::opt('settlement_since');
-        $since_ts = $since ? strtotime($since . ' 00:00:00') : 0;
+        $since_ts = 0;
+        if ($since) {
+            // Mitternacht in der Zeitzone der Seite (Event-Ende wird ebenfalls lokal gerechnet)
+            try { $since_ts = (new DateTimeImmutable($since . ' 00:00:00', wp_timezone()))->getTimestamp(); } catch (\Exception $e) { $since_ts = 0; }
+        }
         $ids = get_posts([
             'post_type'      => 'event',
             'post_status'    => ['publish', 'private', 'draft', 'pending', 'future'],
@@ -907,7 +911,7 @@ class TIX_Settlement {
         $oid = intval($s->organizer_id);
         $title = $s->type === 'advance' ? 'Abschlag für ' . $s->event_title . ' erstellt'
             : ($s->type === 'balance' ? 'Saldo-Abrechnung erstellt' : 'Abrechnung für ' . $s->event_title . ' erstellt');
-        $due = $s->due_date ? wp_date('d.m.Y', strtotime($s->due_date)) : '';
+        $due = $s->due_date ? mysql2date('d.m.Y', $s->due_date) : '';
         $body = 'Auszahlung: ' . self::money($s->payout_amount) . ($due ? ' · geplant ab ' . $due : '');
         if ($s->status === 'draft') {
             $body = 'Bitte hinterlege deine Auszahlungsdaten, damit wir ' . self::money($s->payout_amount) . ' überweisen können.';

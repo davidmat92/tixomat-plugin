@@ -73,7 +73,7 @@ class TIX_Settlement_Organizer {
                 <?php endif; ?>
                 <div><div style="color:#6b7280;font-size:12px;">Nächste Auszahlung</div><div style="font-size:16px;font-weight:600;">
                     <?php if ($bal['next_payout']) : ?>
-                        <?php echo esc_html($money($bal['next_payout']['amount'])); ?><?php echo $bal['next_payout']['date'] ? ' · ab ' . esc_html(wp_date('d.m.Y', strtotime($bal['next_payout']['date']))) : ''; ?>
+                        <?php echo esc_html($money($bal['next_payout']['amount'])); ?><?php echo $bal['next_payout']['date'] ? ' · ab ' . esc_html(mysql2date('d.m.Y', $bal['next_payout']['date'])) : ''; ?>
                         <br><small style="color:#6b7280;font-weight:400;"><?php echo esc_html(self::status_text($bal['next_payout']['status'])); ?></small>
                     <?php else : ?>—<?php endif; ?>
                 </div></div>
@@ -161,10 +161,10 @@ class TIX_Settlement_Organizer {
                     <?php foreach ($list['rows'] as $s) : $p = TIX_Settlement::list_payload($s); ?>
                         <tr>
                             <td><strong><?php echo esc_html($s->number); ?></strong></td>
-                            <td><?php echo esc_html($s->event_title); ?><?php echo $s->event_date ? '<br><small>' . esc_html(wp_date('d.m.Y', strtotime($s->event_date))) . '</small>' : ''; ?></td>
+                            <td><?php echo esc_html($s->event_title); ?><?php echo $s->event_date ? '<br><small>' . esc_html(mysql2date('d.m.Y', $s->event_date)) . '</small>' : ''; ?></td>
                             <td style="text-align:right;"><strong><?php echo esc_html($money($s->payout_amount)); ?></strong></td>
                             <td><?php echo esc_html(self::status_text($s->status)); ?><?php echo $s->status === 'held' && $s->held_reason ? '<br><small>' . esc_html($s->held_reason) . '</small>' : ''; ?></td>
-                            <td><?php echo $p['payout_date'] ? esc_html(wp_date('d.m.Y', strtotime($p['payout_date']))) : '—'; ?></td>
+                            <td><?php echo $p['payout_date'] ? esc_html(mysql2date('d.m.Y', $p['payout_date'])) : '—'; ?></td>
                             <td>
                                 <?php if ($p['has_pdf']) : ?><a href="<?php echo esc_url(wp_nonce_url(admin_url('admin-post.php?action=tix_org_settlement_pdf&id=' . $s->id), 'tix_org_pdf_' . $s->id)); ?>">PDF</a><?php endif; ?>
                                 <?php if ($p['has_invoice']) : ?> · <a href="<?php echo esc_url(wp_nonce_url(admin_url('admin-post.php?action=tix_org_settlement_pdf&doc=invoice&id=' . $s->id), 'tix_org_pdf_' . $s->id)); ?>">Rechnung</a><?php endif; ?>
