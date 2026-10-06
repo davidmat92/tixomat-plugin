@@ -9,6 +9,52 @@
  */
 class TIX_Fees {
 
+    /** Wer trägt die Plattformgebühr: Veranstalter allein, geteilt mit dem Kunden, Kunde. */
+    const MODES = ['organizer', 'split', 'customer'];
+
+    /** Mehr-Veranstalter-Modus (evendis.de): nur der Modus ist je Veranstalter wählbar. */
+    public static function multi(): bool {
+        return function_exists('get_option') && get_option('tix_multi_organizer', '0') === '1';
+    }
+
+    /** Kundenanteil im Modus „geteilt“ in Prozent (zentral eingestellt, Vorgabe 50). */
+    public static function split_share($settings = null): float {
+        if ($settings === null) $settings = function_exists('tix_get_settings') ? tix_get_settings() : [];
+        $v = $settings['fee_split_customer_share'] ?? 50;
+        if ($v === '' || $v === null) $v = 50;
+        return max(0.0, min(100.0, floatval($v)));
+    }
+
+    /** Anteil (0–1) der Plattformgebühr, den der Kunde trägt. */
+    public static function customer_share(array $cfg): float {
+        $mode = $cfg['fee_mode'] ?? 'organizer';
+        if ($mode === 'customer') return 1.0;
+        if ($mode === 'split') return floatval($cfg['fee_split_share'] ?? 50) / 100;
+        return 0.0;
+    }
+
+    /** Trägt der Kunde (ganz oder teilweise) die Plattformgebühr? */
+    public static function customer_pays(array $cfg): bool {
+        return self::customer_share($cfg) > 0;
+    }
+
+    /**
+     * Gebühren-Konfiguration für clientseitige Anzeige (Modal-/Express-Checkout):
+     * Beträge bereits auf den Kundenanteil umgerechnet; null, wenn der Kunde nichts trägt.
+     */
+    public static function client_fee_config(array $cfg) {
+        $share = self::customer_share($cfg);
+        if ($share <= 0) return null;
+        return [
+            'fixed'     => $cfg['fee_fixed'],
+            'percent'   => $cfg['fee_percent'],
+            'label'     => $cfg['fee_label'],
+            'maxTicket' => $cfg['fee_max_per_ticket'],
+            'maxOrder'  => $cfg['fee_max_per_order'],
+            'share'     => round($share, 4),
+        ];
+    }
+
     /**
      * WooCommerce-Integration: Gebühren als WC Fee in den Warenkorb einhängen.
      */
@@ -107,11 +153,21 @@ class TIX_Fees {
             'fee_show_in_selector'=> intval($s['fee_show_in_selector'] ?? 0),
         ];
 
+        if (!in_array($config['fee_mode'], self::MODES, true)) $config['fee_mode'] = 'organizer';
+        $config['fee_split_share'] = self::split_share($s);
+
         // Per-Organizer Override
         if ($organizer_id && get_post_meta($organizer_id, '_tix_fee_override', true)) {
+            $org_mode = (string) get_post_meta($organizer_id, '_tix_fee_mode', true);
+            if (self::multi()) {
+                // Mehr-Veranstalter-Modus (evendis): eine zentrale Gebühr für alle,
+                // der Veranstalter wählt nur, wer sie trägt – keine eigenen Beträge.
+                if (in_array($org_mode, self::MODES, true)) $config['fee_mode'] = $org_mode;
+                return $config;
+            }
             $config['fee_fixed']   = floatval(get_post_meta($organizer_id, '_tix_fee_fixed', true));
             $config['fee_percent'] = floatval(get_post_meta($organizer_id, '_tix_fee_percent', true));
-            $config['fee_mode']    = get_post_meta($organizer_id, '_tix_fee_mode', true) ?: 'organizer';
+            $config['fee_mode']    = in_array($org_mode, self::MODES, true) ? $org_mode : 'organizer';
             $label = get_post_meta($organizer_id, '_tix_fee_label', true);
             if (!empty($label)) $config['fee_label'] = $label;
             $org_max_ticket = floatval(get_post_meta($organizer_id, '_tix_fee_max_per_ticket', true));
@@ -265,6 +321,9 @@ class TIX_Fees {
                 'customer_fee_line' => 0,
                 'organizer_payout'  => 0,
                 'platform_revenue'  => 0,
+                'platform_fee_customer'  => 0,
+                'platform_fee_organizer' => 0,
+                'fee_customer_share'     => 0,
             ];
         }
 
@@ -272,6 +331,24 @@ class TIX_Fees {
         $first_event = $items[0]['event_id'] ?? null;
         $organizer_id = $first_event ? self::get_organizer_for_event($first_event) : null;
         $cfg = self::get_fee_config($organizer_id);
+
+        return self::calc_with_config($items, $cfg);
+    }
+
+    /**
+     * Gebühren-Aufstellung mit vorgegebener Konfiguration (auch für Beispielrechnungen
+     * und Tests). Modus `split`: Kunde trägt `fee_split_share` % der Plattformgebühr
+     * (kaufmännisch auf Cent gerundet), der Veranstalter den Rest; eine eingestellte
+     * Rundung des Endbetrags gilt wie im Kunden-Modus, der Überschuss geht an die Plattform.
+     */
+    public static function calc_with_config(array $items, array $cfg): array {
+        $cfg += [
+            'fee_fixed' => 0, 'fee_percent' => 0, 'fee_mode' => 'organizer', 'fee_label' => 'Servicegebühr',
+            'gateway_fee_fixed' => 0, 'gateway_fee_percent' => 0, 'gateway_fee_mode' => 'organizer',
+            'fee_rounding' => 'none', 'fee_rounding_custom' => 0, 'fee_max_per_ticket' => 0,
+            'fee_max_per_order' => 0, 'fee_split_share' => 50,
+        ];
+        if (!in_array($cfg['fee_mode'], self::MODES, true)) $cfg['fee_mode'] = 'organizer';
 
         // Plattform-Fee pro Ticket (mit Max pro Ticket)
         // Kategorien mit 'no_fee' = 1 sind gebuehrenfrei (Haken im Event-Editor)
@@ -282,7 +359,7 @@ class TIX_Fees {
             $qty   = intval($item['qty']);
             $subtotal     += $price * $qty;
             if (self::is_item_fee_exempt($item)) continue;
-            $platform_fee += self::calc_platform_fee($price, $organizer_id, $cfg) * $qty;
+            $platform_fee += self::calc_platform_fee($price, null, $cfg) * $qty;
         }
         $platform_fee = round($platform_fee, 2);
 
@@ -291,20 +368,19 @@ class TIX_Fees {
             $platform_fee = min($platform_fee, round($cfg['fee_max_per_order'], 2));
         }
 
+        // Aufteilung Kunde / Veranstalter
+        $share = self::customer_share($cfg);
+        $platform_fee_customer  = round($platform_fee * $share, 2);
+        $platform_fee_organizer = round($platform_fee - $platform_fee_customer, 2);
+
         // Charge-Base für Gateway
-        $charge_base = $subtotal;
-        if ($cfg['fee_mode'] === 'customer') {
-            $charge_base += $platform_fee;
-        }
+        $charge_base = $subtotal + $platform_fee_customer;
 
         // Gateway-Fee
         $gateway_fee = self::calc_gateway_fee($charge_base, $cfg['gateway_fee_mode'], $cfg);
 
         // Endbeträge
-        $customer_fee_line = 0;
-        if ($cfg['fee_mode'] === 'customer') {
-            $customer_fee_line += $platform_fee;
-        }
+        $customer_fee_line = $platform_fee_customer;
         if ($cfg['gateway_fee_mode'] === 'customer') {
             $customer_fee_line += $gateway_fee;
         }
@@ -323,10 +399,7 @@ class TIX_Fees {
             }
         }
 
-        $organizer_deductions = 0;
-        if ($cfg['fee_mode'] === 'organizer') {
-            $organizer_deductions += $platform_fee;
-        }
+        $organizer_deductions = $platform_fee_organizer;
         if ($cfg['gateway_fee_mode'] === 'organizer') {
             $organizer_deductions += $gateway_fee;
         }
@@ -344,6 +417,9 @@ class TIX_Fees {
             'rounding_surplus'  => $rounding_surplus,
             'organizer_payout'  => $organizer_payout,
             'platform_revenue'  => round($platform_fee + $rounding_surplus, 2),
+            'platform_fee_customer'  => $platform_fee_customer,
+            'platform_fee_organizer' => $platform_fee_organizer,
+            'fee_customer_share'     => round($share * 100, 2),
         ];
     }
 }

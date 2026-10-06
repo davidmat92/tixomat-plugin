@@ -390,6 +390,21 @@ class TIX_Settings {
             'gateway_fee_fixed'    => 0,       // Gateway-Fixkosten pro Transaktion
             'gateway_fee_percent'  => 0,       // Gateway-Prozent pro Transaktion
             'gateway_fee_mode'     => 'organizer', // organizer oder customer
+            'fee_split_customer_share' => 50,  // Modus „geteilt“: Kundenanteil an der Plattformgebühr in %
+            // ── Abrechnung & Auszahlung (nur Mehr-Veranstalter-Modus, evendis.de) ──
+            'settlement_enabled'       => 1,      // Abrechnungen automatisch erstellen
+            'settlement_delay_days'    => 7,      // Auszahlung X Tage nach Event-Ende
+            'settlement_since'         => '',     // Nur Events mit Ende ab diesem Datum (leer = ab Einrichtung)
+            'settlement_tax_mode'      => 'agency', // agency = Vermittlung im fremden Namen, reseller = Eigenhandel
+            'settlement_ticket_vat_rate' => 7,    // Nur Eigenhandel: USt-Satz auf Ticketumsätze (Gutschrift)
+            'settlement_fee_vat_rate'  => 19,     // USt-Satz in der Gebührenrechnung (Beträge sind brutto)
+            'settlement_prefix'        => 'EV',   // Nummernkreis Abrechnungen: EV-2026-0001
+            'settlement_invoice_prefix'=> 'EVR',  // Nummernkreis Gebührenrechnungen: EVR-2026-0001
+            'settlement_refund_alert'  => 15,     // Hinweis ab dieser Erstattungsquote in %
+            'settlement_sepa_enabled'  => 0,      // SEPA-Sammeldatei (pain.001) – vorbereitet, später aktiv
+            'settlement_debtor_name'   => '',     // Auftraggeber für pain.001
+            'settlement_debtor_iban'   => '',
+            'settlement_debtor_bic'    => '',
 
             // ── Steuern ──
             'tax_enabled'       => 0,
@@ -1250,7 +1265,7 @@ class TIX_Settings {
         // Gebühren / Provisionen
         $clean['fee_fixed']         = max(0, floatval($input['fee_fixed'] ?? 0));
         $clean['fee_percent']       = max(0, min(100, floatval($input['fee_percent'] ?? 0)));
-        $clean['fee_mode']          = in_array($input['fee_mode'] ?? 'organizer', ['organizer', 'customer']) ? $input['fee_mode'] : 'organizer';
+        $clean['fee_mode']          = in_array($input['fee_mode'] ?? 'organizer', ['organizer', 'split', 'customer']) ? $input['fee_mode'] : 'organizer';
         $clean['fee_label']         = sanitize_text_field($input['fee_label'] ?? 'Servicegebühr');
         $valid_rounding = ['none', '0.90', '0.99', '0.50', '0.00', 'custom'];
         $clean['fee_rounding']      = in_array($input['fee_rounding'] ?? 'none', $valid_rounding) ? $input['fee_rounding'] : 'none';
@@ -1261,6 +1276,23 @@ class TIX_Settings {
         $clean['gateway_fee_fixed'] = max(0, floatval($input['gateway_fee_fixed'] ?? 0));
         $clean['gateway_fee_percent'] = max(0, min(100, floatval($input['gateway_fee_percent'] ?? 0)));
         $clean['gateway_fee_mode']  = in_array($input['gateway_fee_mode'] ?? 'organizer', ['organizer', 'customer']) ? $input['gateway_fee_mode'] : 'organizer';
+        $clean['fee_split_customer_share'] = max(0, min(100, floatval($input['fee_split_customer_share'] ?? 50)));
+
+        // Abrechnung & Auszahlung (Mehr-Veranstalter-Modus)
+        $clean['settlement_enabled']        = !empty($input['settlement_enabled']) ? 1 : 0;
+        $clean['settlement_delay_days']     = max(0, min(365, intval($input['settlement_delay_days'] ?? 7)));
+        $since = sanitize_text_field($input['settlement_since'] ?? '');
+        $clean['settlement_since']          = preg_match('/^\d{4}-\d{2}-\d{2}$/', $since) ? $since : '';
+        $clean['settlement_tax_mode']       = in_array($input['settlement_tax_mode'] ?? 'agency', ['agency', 'reseller'], true) ? $input['settlement_tax_mode'] : 'agency';
+        $clean['settlement_ticket_vat_rate']= max(0, min(100, floatval($input['settlement_ticket_vat_rate'] ?? 7)));
+        $clean['settlement_fee_vat_rate']   = max(0, min(100, floatval($input['settlement_fee_vat_rate'] ?? 19)));
+        $clean['settlement_prefix']         = preg_replace('/[^A-Za-z0-9]/', '', (string) ($input['settlement_prefix'] ?? 'EV')) ?: 'EV';
+        $clean['settlement_invoice_prefix'] = preg_replace('/[^A-Za-z0-9]/', '', (string) ($input['settlement_invoice_prefix'] ?? 'EVR')) ?: 'EVR';
+        $clean['settlement_refund_alert']   = max(0, min(100, floatval($input['settlement_refund_alert'] ?? 15)));
+        $clean['settlement_sepa_enabled']   = !empty($input['settlement_sepa_enabled']) ? 1 : 0;
+        $clean['settlement_debtor_name']    = sanitize_text_field($input['settlement_debtor_name'] ?? '');
+        $clean['settlement_debtor_iban']    = strtoupper(preg_replace('/\s+/', '', sanitize_text_field($input['settlement_debtor_iban'] ?? '')));
+        $clean['settlement_debtor_bic']     = strtoupper(preg_replace('/\s+/', '', sanitize_text_field($input['settlement_debtor_bic'] ?? '')));
 
         // Steuern
         $clean['tax_enabled']   = !empty($input['tax_enabled']) ? 1 : 0;
@@ -6860,11 +6892,27 @@ class TIX_Settings {
                                                 <label>Wer trägt die Gebühr?</label>
                                                 <select name="tix_settings[fee_mode]" style="width:240px;">
                                                     <option value="organizer" <?php selected($s['fee_mode'], 'organizer'); ?>>Veranstalter (unsichtbar für Kunden)</option>
+                                                    <option value="split" <?php selected($s['fee_mode'], 'split'); ?>>Geteilt (Kunde trägt einen Anteil)</option>
                                                     <option value="customer" <?php selected($s['fee_mode'], 'customer'); ?>>Kunde (wird aufgeschlagen)</option>
                                                 </select>
+                                                <?php if (class_exists('TIX_Fees') && TIX_Fees::multi()) : ?>
+                                                <p class="tix-field-hint" style="color:#9ca3af;font-size:12px;margin:4px 0 0;">
+                                                    Mehr-Veranstalter-Modus: Vorgabe für Veranstalter, die selbst nichts gewählt haben. Jeder Veranstalter wählt nur den Modus; die Höhe gilt für alle.
+                                                </p>
+                                                <?php endif; ?>
                                             </div>
 
-                                            <div class="tix-field" id="tix-fee-label-wrap" style="<?php echo $s['fee_mode'] === 'customer' ? '' : 'display:none;'; ?>">
+                                            <div class="tix-field" id="tix-fee-split-wrap">
+                                                <label>Kundenanteil bei „Geteilt“</label>
+                                                <div style="display:flex;align-items:center;gap:6px;">
+                                                    <input type="number" name="tix_settings[fee_split_customer_share]"
+                                                           value="<?php echo esc_attr($s['fee_split_customer_share'] ?? 50); ?>"
+                                                           step="1" min="0" max="100" style="width:80px;" />
+                                                    <span style="color:#6b7280;">% der Gebühr zahlt der Kunde, den Rest der Veranstalter</span>
+                                                </div>
+                                            </div>
+
+                                            <div class="tix-field" id="tix-fee-label-wrap" style="<?php echo $s['fee_mode'] !== 'organizer' ? '' : 'display:none;'; ?>">
                                                 <label>Bezeichnung für Kunden</label>
                                                 <input type="text" name="tix_settings[fee_label]"
                                                        value="<?php echo esc_attr($s['fee_label']); ?>"
@@ -6874,7 +6922,7 @@ class TIX_Settings {
                                                 </p>
                                             </div>
 
-                                            <div class="tix-field" id="tix-fee-rounding-wrap" style="<?php echo $s['fee_mode'] === 'customer' ? '' : 'display:none;'; ?>">
+                                            <div class="tix-field" id="tix-fee-rounding-wrap" style="<?php echo $s['fee_mode'] !== 'organizer' ? '' : 'display:none;'; ?>">
                                                 <label>Endpreis-Rundung</label>
                                                 <select name="tix_settings[fee_rounding]" id="tix-fee-rounding" style="width:240px;">
                                                     <option value="none" <?php selected($s['fee_rounding'], 'none'); ?>>Keine Rundung</option>
@@ -6889,7 +6937,7 @@ class TIX_Settings {
                                                 </p>
                                             </div>
 
-                                            <div class="tix-field" id="tix-fee-rounding-custom-wrap" style="<?php echo ($s['fee_mode'] === 'customer' && $s['fee_rounding'] === 'custom') ? '' : 'display:none;'; ?>">
+                                            <div class="tix-field" id="tix-fee-rounding-custom-wrap" style="<?php echo ($s['fee_mode'] !== 'organizer' && $s['fee_rounding'] === 'custom') ? '' : 'display:none;'; ?>">
                                                 <label>Eigener Nachkomma-Wert</label>
                                                 <div style="display:flex;align-items:center;gap:6px;">
                                                     <span style="color:#6b7280;">x,</span>
@@ -7023,8 +7071,13 @@ class TIX_Settings {
                                     </div>
                                     <div class="tix-card-body">
                                         <p class="tix-field-hint" style="margin:0 0 18px;color:#6b7280;font-size:13px;">
+                                            <?php if (class_exists('TIX_Fees') && TIX_Fees::multi()) : ?>
+                                            Mehr-Veranstalter-Modus: Die Gebühr oben gilt für alle Veranstalter. Jeder Veranstalter wählt nur, wer sie trägt
+                                            (er allein, geteilt mit dem Kunden oder der Kunde) – im Veranstalter-Bereich, in der App oder hier unter <strong>Tixomat → Veranstalter</strong>.
+                                            <?php else : ?>
                                             Pro Veranstalter können individuelle Gebühren definiert werden, die die globalen Einstellungen überschreiben.
                                             Bearbeite dazu den jeweiligen Veranstalter unter <strong>Tixomat → Veranstalter</strong>.
+                                            <?php endif; ?>
                                         </p>
                                         <?php
                                         $organizers = get_posts([
@@ -7045,7 +7098,8 @@ class TIX_Settings {
                                                 </tr>
                                             </thead>
                                             <tbody>
-                                            <?php foreach ($organizers as $org) :
+                                            <?php $o_multi = class_exists('TIX_Fees') && TIX_Fees::multi();
+                                            foreach ($organizers as $org) :
                                                 $override = get_post_meta($org->ID, '_tix_fee_override', true);
                                                 $o_fixed  = get_post_meta($org->ID, '_tix_fee_fixed', true);
                                                 $o_pct    = get_post_meta($org->ID, '_tix_fee_percent', true);
@@ -7057,9 +7111,9 @@ class TIX_Settings {
                                                             <?php echo esc_html($org->post_title); ?>
                                                         </a>
                                                     </td>
-                                                    <td><?php echo $override ? number_format_i18n(floatval($o_fixed), 2) . ' €' : '—'; ?></td>
-                                                    <td><?php echo $override ? number_format_i18n(floatval($o_pct), 1) . ' %' : '—'; ?></td>
-                                                    <td><?php echo $override ? ($o_mode === 'customer' ? 'Kunde' : 'Veranstalter') : '—'; ?></td>
+                                                    <td><?php echo ($override && !$o_multi) ? number_format_i18n(floatval($o_fixed), 2) . ' €' : ($override ? 'zentral' : '—'); ?></td>
+                                                    <td><?php echo ($override && !$o_multi) ? number_format_i18n(floatval($o_pct), 1) . ' %' : ($override ? 'zentral' : '—'); ?></td>
+                                                    <td><?php echo $override ? ($o_mode === 'customer' ? 'Kunde' : ($o_mode === 'split' ? 'Geteilt' : 'Veranstalter')) : '—'; ?></td>
                                                     <td>
                                                         <?php if ($override) : ?>
                                                             <span style="color:#16a34a;font-weight:600;">Individuell</span>
@@ -7087,45 +7141,31 @@ class TIX_Settings {
                                         <div id="tix-fee-calc" style="font-size:13px;line-height:1.8;color:#374151;">
                                         <?php
                                         $calc_price = 50;
-                                        $pf_fixed   = floatval($s['fee_fixed']);
-                                        $pf_pct     = floatval($s['fee_percent']);
-                                        $gw_fixed   = floatval($s['gateway_fee_fixed']);
-                                        $gw_pct     = floatval($s['gateway_fee_percent']);
-                                        $pf_fee     = $pf_fixed + ($calc_price * $pf_pct / 100);
                                         $fee_mode   = $s['fee_mode'];
                                         $gw_mode    = $s['gateway_fee_mode'];
-
-                                        // Subtotal nach Plattform-Fee
-                                        $charge_base = $calc_price;
-                                        if ($fee_mode === 'customer') $charge_base += $pf_fee;
-
-                                        // Gateway-Fee (mit Zirkularitäts-Auflösung)
-                                        if ($gw_pct > 0 && $gw_mode === 'customer') {
-                                            $total_with_gw = ($charge_base + $gw_fixed) / (1 - $gw_pct / 100);
-                                            $gw_fee = $total_with_gw - $charge_base;
-                                        } else {
-                                            $gw_fee = $gw_fixed + ($charge_base * $gw_pct / 100);
-                                        }
-
-                                        $customer_total = $charge_base + ($gw_mode === 'customer' ? $gw_fee : 0);
-
-                                        // Rundung anwenden
-                                        $rounding_surplus = 0;
-                                        $customer_fee_exists = ($fee_mode === 'customer' || $gw_mode === 'customer');
-                                        if ($customer_fee_exists && $s['fee_rounding'] !== 'none' && class_exists('TIX_Fees')) {
-                                            $rounded = TIX_Fees::round_up_to_target($customer_total, $s['fee_rounding'], floatval($s['fee_rounding_custom'] ?? 0));
-                                            if ($rounded > $customer_total) {
-                                                $rounding_surplus = round($rounded - $customer_total, 2);
-                                                $customer_total = $rounded;
-                                            }
-                                        }
-
-                                        $organizer_gets = $calc_price - ($fee_mode === 'organizer' ? $pf_fee : 0) - ($gw_mode === 'organizer' ? $gw_fee : 0);
-                                        $platform_gets  = $pf_fee + $rounding_surplus;
+                                        $ex_cfg = [
+                                            'fee_fixed' => floatval($s['fee_fixed']), 'fee_percent' => floatval($s['fee_percent']),
+                                            'fee_mode' => $fee_mode, 'fee_label' => $s['fee_label'],
+                                            'gateway_fee_fixed' => floatval($s['gateway_fee_fixed']), 'gateway_fee_percent' => floatval($s['gateway_fee_percent']),
+                                            'gateway_fee_mode' => $gw_mode, 'fee_rounding' => $s['fee_rounding'],
+                                            'fee_rounding_custom' => floatval($s['fee_rounding_custom'] ?? 0),
+                                            'fee_max_per_ticket' => floatval($s['fee_max_per_ticket'] ?? 0), 'fee_max_per_order' => floatval($s['fee_max_per_order'] ?? 0),
+                                            'fee_split_share' => floatval($s['fee_split_customer_share'] ?? 50),
+                                        ];
+                                        $ex = class_exists('TIX_Fees') ? TIX_Fees::calc_with_config([['price' => $calc_price, 'qty' => 1, 'event_id' => 0]], $ex_cfg) : [];
+                                        $pf_fee           = floatval($ex['platform_fee'] ?? 0);
+                                        $gw_fee           = floatval($ex['gateway_fee'] ?? 0);
+                                        $rounding_surplus = floatval($ex['rounding_surplus'] ?? 0);
+                                        $customer_total   = floatval($ex['customer_total'] ?? $calc_price);
+                                        $organizer_gets   = floatval($ex['organizer_payout'] ?? $calc_price);
+                                        $platform_gets    = floatval($ex['platform_revenue'] ?? 0);
+                                        $pf_who = $fee_mode === 'customer' ? 'Kunde zahlt' : ($fee_mode === 'split'
+                                            ? sprintf('geteilt: Kunde %s €, Veranstalter %s €', number_format_i18n(floatval($ex['platform_fee_customer'] ?? 0), 2), number_format_i18n(floatval($ex['platform_fee_organizer'] ?? 0), 2))
+                                            : 'Veranstalter zahlt');
                                         ?>
                                         <table style="border-collapse:collapse;width:100%;max-width:500px;">
                                             <tr><td style="padding:4px 12px 4px 0;">Ticket-Preis:</td><td style="padding:4px 0;font-weight:600;"><?php echo number_format_i18n($calc_price, 2); ?> €</td></tr>
-                                            <tr><td style="padding:4px 12px 4px 0;">Plattform-Provision:</td><td style="padding:4px 0;"><?php echo number_format_i18n($pf_fee, 2); ?> € <span style="color:#9ca3af;">(<?php echo $fee_mode === 'customer' ? 'Kunde zahlt' : 'Veranstalter zahlt'; ?>)</span></td></tr>
+                                            <tr><td style="padding:4px 12px 4px 0;">Plattform-Provision:</td><td style="padding:4px 0;"><?php echo number_format_i18n($pf_fee, 2); ?> € <span style="color:#9ca3af;">(<?php echo esc_html($pf_who); ?>)</span></td></tr>
                                             <tr><td style="padding:4px 12px 4px 0;">Gateway-Gebühr:</td><td style="padding:4px 0;"><?php echo number_format_i18n($gw_fee, 2); ?> € <span style="color:#9ca3af;">(<?php echo $gw_mode === 'customer' ? 'Kunde zahlt' : 'Veranstalter zahlt'; ?>)</span></td></tr>
                                             <?php if ($rounding_surplus > 0): ?>
                                             <tr><td style="padding:4px 12px 4px 0;">Rundungs-Aufschlag:</td><td style="padding:4px 0;"><?php echo number_format_i18n($rounding_surplus, 2); ?> € <span style="color:#9ca3af;">(→ Plattform)</span></td></tr>
@@ -7138,6 +7178,93 @@ class TIX_Settings {
                                     </div>
                                 </div>
 
+                                <?php // ── Card: Abrechnung & Auszahlung (nur Mehr-Veranstalter-Modus) ── ?>
+                                <?php if (class_exists('TIX_App_Scope') && TIX_App_Scope::multi()) : ?>
+                                <div class="tix-card">
+                                    <div class="tix-card-header">
+                                        <span class="dashicons dashicons-bank"></span>
+                                        <h3>Abrechnung &amp; Auszahlung</h3>
+                                    </div>
+                                    <div class="tix-card-body">
+                                        <p class="tix-field-hint" style="margin:0 0 16px;color:#6b7280;font-size:13px;">
+                                            Kunden zahlen auf das Konto der Plattform. Nach dem Event wird je Veranstalter automatisch eine Abrechnung erstellt;
+                                            jede Auszahlung gibst du unter <a href="<?php echo esc_url(admin_url('admin.php?page=tix-payouts')); ?>">Tixomat → Auszahlungen</a> frei.
+                                            Zahlungsgebühren (tatsächliche Anbietergebühr, sonst der Satz oben) werden dem Veranstalter weiterberechnet, sofern sie nicht der Kunde trägt.
+                                            Geteilte Events (Partner) sind nicht Teil der Abrechnung.
+                                        </p>
+                                        <div class="tix-field-grid">
+                                            <div class="tix-field">
+                                                <label><input type="checkbox" name="tix_settings[settlement_enabled]" value="1" <?php checked(!empty($s['settlement_enabled'] ?? 1)); ?> /> Abrechnungen automatisch erstellen</label>
+                                            </div>
+                                            <div class="tix-field">
+                                                <label>Auszahlung nach Event-Ende</label>
+                                                <div style="display:flex;align-items:center;gap:6px;">
+                                                    <input type="number" name="tix_settings[settlement_delay_days]" value="<?php echo esc_attr($s['settlement_delay_days'] ?? 7); ?>" min="0" max="365" style="width:80px;" />
+                                                    <span style="color:#6b7280;">Tage (Sonderregeln je Veranstalter unter Auszahlungen)</span>
+                                                </div>
+                                            </div>
+                                            <div class="tix-field">
+                                                <label>Abrechnen ab Event-Ende am</label>
+                                                <input type="date" name="tix_settings[settlement_since]" value="<?php echo esc_attr(($s['settlement_since'] ?? '') ?: get_option('tix_settlement_since', '')); ?>" />
+                                                <p class="tix-field-hint" style="color:#9ca3af;font-size:12px;margin:4px 0 0;">Ältere Events werden nicht abgerechnet (leer = ab Einrichtung).</p>
+                                            </div>
+                                            <div class="tix-field">
+                                                <label>Steuerliche Einordnung</label>
+                                                <select name="tix_settings[settlement_tax_mode]" style="width:320px;">
+                                                    <option value="agency" <?php selected($s['settlement_tax_mode'] ?? 'agency', 'agency'); ?>>Vermittlung im fremden Namen (Abrechnung + Gebührenrechnung)</option>
+                                                    <option value="reseller" <?php selected($s['settlement_tax_mode'] ?? 'agency', 'reseller'); ?>>Eigenhandel (Gutschrift über den Ticketumsatz)</option>
+                                                </select>
+                                                <p class="tix-field-hint" style="color:#b45309;font-size:12px;margin:4px 0 0;">Vor dem ersten echten Geld mit Steuerberatung klären.</p>
+                                            </div>
+                                            <div class="tix-field">
+                                                <label>USt-Satz Gebührenrechnung</label>
+                                                <div style="display:flex;align-items:center;gap:6px;">
+                                                    <input type="number" name="tix_settings[settlement_fee_vat_rate]" value="<?php echo esc_attr($s['settlement_fee_vat_rate'] ?? 19); ?>" step="0.1" min="0" max="100" style="width:80px;" />
+                                                    <span style="color:#6b7280;">% (Gebühren sind Bruttobeträge)</span>
+                                                </div>
+                                            </div>
+                                            <div class="tix-field">
+                                                <label>USt-Satz Tickets (nur Eigenhandel)</label>
+                                                <div style="display:flex;align-items:center;gap:6px;">
+                                                    <input type="number" name="tix_settings[settlement_ticket_vat_rate]" value="<?php echo esc_attr($s['settlement_ticket_vat_rate'] ?? 7); ?>" step="0.1" min="0" max="100" style="width:80px;" />
+                                                    <span style="color:#6b7280;">%</span>
+                                                </div>
+                                            </div>
+                                            <div class="tix-field">
+                                                <label>Nummernkreise</label>
+                                                <div style="display:flex;align-items:center;gap:6px;">
+                                                    <input type="text" name="tix_settings[settlement_prefix]" value="<?php echo esc_attr($s['settlement_prefix'] ?? 'EV'); ?>" style="width:70px;" />
+                                                    <span style="color:#6b7280;">-<?php echo esc_html(wp_date('Y')); ?>-0001 (Abrechnung)</span>
+                                                    <input type="text" name="tix_settings[settlement_invoice_prefix]" value="<?php echo esc_attr($s['settlement_invoice_prefix'] ?? 'EVR'); ?>" style="width:70px;margin-left:12px;" />
+                                                    <span style="color:#6b7280;">-<?php echo esc_html(wp_date('Y')); ?>-0001 (Gebührenrechnung)</span>
+                                                </div>
+                                            </div>
+                                            <div class="tix-field">
+                                                <label>Hinweis ab Erstattungsquote</label>
+                                                <div style="display:flex;align-items:center;gap:6px;">
+                                                    <input type="number" name="tix_settings[settlement_refund_alert]" value="<?php echo esc_attr($s['settlement_refund_alert'] ?? 15); ?>" min="0" max="100" style="width:80px;" />
+                                                    <span style="color:#6b7280;">%</span>
+                                                </div>
+                                            </div>
+                                            <div class="tix-field">
+                                                <label><input type="checkbox" name="tix_settings[settlement_sepa_enabled]" value="1" <?php checked(!empty($s['settlement_sepa_enabled'])); ?> /> SEPA-Sammeldatei (pain.001) anbieten</label>
+                                                <p class="tix-field-hint" style="color:#9ca3af;font-size:12px;margin:4px 0 0;">Vorbereitet; zunächst Überweisungen einzeln von Hand.</p>
+                                            </div>
+                                            <div class="tix-field">
+                                                <label>Auftraggeber (pain.001)</label>
+                                                <input type="text" name="tix_settings[settlement_debtor_name]" value="<?php echo esc_attr($s['settlement_debtor_name'] ?? ''); ?>" placeholder="Kontoinhaber" style="width:240px;" />
+                                                <input type="text" name="tix_settings[settlement_debtor_iban]" value="<?php echo esc_attr($s['settlement_debtor_iban'] ?? ''); ?>" placeholder="IBAN" style="width:240px;margin-top:6px;" />
+                                                <input type="text" name="tix_settings[settlement_debtor_bic]" value="<?php echo esc_attr($s['settlement_debtor_bic'] ?? ''); ?>" placeholder="BIC" style="width:140px;margin-top:6px;" />
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <?php else : ?>
+                                <?php foreach (['settlement_enabled', 'settlement_delay_days', 'settlement_since', 'settlement_tax_mode', 'settlement_ticket_vat_rate', 'settlement_fee_vat_rate', 'settlement_prefix', 'settlement_invoice_prefix', 'settlement_refund_alert', 'settlement_sepa_enabled', 'settlement_debtor_name', 'settlement_debtor_iban', 'settlement_debtor_bic'] as $hk) : ?>
+                                <input type="hidden" name="tix_settings[<?php echo esc_attr($hk); ?>]" value="<?php echo esc_attr($s[$hk] ?? ''); ?>" />
+                                <?php endforeach; ?>
+                                <?php endif; ?>
+
                                 <script>
                                 (function(){
                                     var feeMode = document.querySelector('[name="tix_settings[fee_mode]"]');
@@ -7146,8 +7273,10 @@ class TIX_Settings {
                                     var roundSel  = document.getElementById('tix-fee-rounding');
                                     var customWrap = document.getElementById('tix-fee-rounding-custom-wrap');
 
+                                    var splitWrap = document.getElementById('tix-fee-split-wrap');
                                     function updateVisibility() {
-                                        var isCustomer = feeMode && feeMode.value === 'customer';
+                                        var isCustomer = feeMode && feeMode.value !== 'organizer';
+                                        if (splitWrap) splitWrap.style.display = <?php echo (class_exists('TIX_Fees') && TIX_Fees::multi()) ? 'true' : "(feeMode && feeMode.value === 'split')"; ?> ? '' : 'none';
                                         if (labelWrap)  labelWrap.style.display  = isCustomer ? '' : 'none';
                                         if (roundWrap)  roundWrap.style.display  = isCustomer ? '' : 'none';
                                         if (customWrap) customWrap.style.display = (isCustomer && roundSel && roundSel.value === 'custom') ? '' : 'none';
@@ -7155,6 +7284,7 @@ class TIX_Settings {
 
                                     if (feeMode) feeMode.addEventListener('change', updateVisibility);
                                     if (roundSel) roundSel.addEventListener('change', updateVisibility);
+                                    updateVisibility();
                                 })();
                                 </script>
 

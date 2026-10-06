@@ -917,16 +917,18 @@ class TIX_Ticket_Selector {
             if (!$all_no_fee && class_exists('TIX_Fees') && function_exists('tix_get_settings') && !empty(tix_get_settings('fee_show_in_selector'))) {
                 $org_id = TIX_Fees::get_organizer_for_event($post_id);
                 $fee_cfg = TIX_Fees::get_fee_config($org_id);
-                if ($fee_cfg['fee_mode'] === 'customer' && ($fee_cfg['fee_fixed'] > 0 || $fee_cfg['fee_percent'] > 0)) {
+                $fee_share = TIX_Fees::customer_share($fee_cfg);
+                if ($fee_share > 0 && ($fee_cfg['fee_fixed'] > 0 || $fee_cfg['fee_percent'] > 0)) {
+                    // Modus „geteilt“: Hinweis zeigt nur den Kundenanteil
                     $hint_parts = [];
-                    if ($fee_cfg['fee_fixed'] > 0) $hint_parts[] = number_format($fee_cfg['fee_fixed'], 2, ',', '.') . ' €';
-                    if ($fee_cfg['fee_percent'] > 0) $hint_parts[] = number_format($fee_cfg['fee_percent'], 1, ',', '.') . ' %';
+                    if ($fee_cfg['fee_fixed'] > 0) $hint_parts[] = number_format(round($fee_cfg['fee_fixed'] * $fee_share, 2), 2, ',', '.') . ' €';
+                    if ($fee_cfg['fee_percent'] > 0) $hint_parts[] = number_format($fee_cfg['fee_percent'] * $fee_share, $fee_share < 1 ? 2 : 1, ',', '.') . ' %';
                     $hint_label = $fee_cfg['fee_label'] ?: 'Servicegebühr';
                     ?>
                     <div class="tix-sel-fee-hint" style="text-align:center;font-size:12px;color:#8C8985;padding:8px 0 0;">
                         zzgl. <?php echo implode(' + ', $hint_parts); ?> <?php echo esc_html($hint_label); ?>
                         <?php if (!empty($fee_cfg['fee_max_per_ticket']) && $fee_cfg['fee_max_per_ticket'] > 0): ?>
-                        <span>(max. <?php echo number_format($fee_cfg['fee_max_per_ticket'], 2, ',', '.'); ?> € pro Ticket)</span>
+                        <span>(max. <?php echo number_format(round($fee_cfg['fee_max_per_ticket'] * $fee_share, 2), 2, ',', '.'); ?> € pro Ticket)</span>
                         <?php endif; ?>
                     </div>
                     <?php
@@ -1021,15 +1023,8 @@ class TIX_Ticket_Selector {
         if (class_exists('TIX_Fees')) {
             $ec_org = TIX_Fees::get_organizer_for_event($post_id);
             $ec_cfg = TIX_Fees::get_fee_config($ec_org);
-            if ($ec_cfg['fee_mode'] === 'customer') {
-                $ec_fee_json = wp_json_encode([
-                    'fixed'     => $ec_cfg['fee_fixed'],
-                    'percent'   => $ec_cfg['fee_percent'],
-                    'label'     => $ec_cfg['fee_label'],
-                    'maxTicket' => $ec_cfg['fee_max_per_ticket'],
-                    'maxOrder'  => $ec_cfg['fee_max_per_order'],
-                ]);
-            }
+            $ec_client = TIX_Fees::client_fee_config($ec_cfg);
+            if ($ec_client) $ec_fee_json = wp_json_encode($ec_client);
         }
         ?>
         <div class="tix-ec-overlay" id="<?php echo esc_attr($modal_id); ?>" style="display:none;" data-event-id="<?php echo $post_id; ?>"<?php if ($ec_fee_json) echo ' data-fee-config="' . esc_attr($ec_fee_json) . '"'; ?>>

@@ -263,6 +263,7 @@ class TIX_Organizer_Admin {
             'tix-organizer-guestlist',
             'tix-organizer-email',
             'tix-organizer-billing',
+            'tix-organizer-payouts',
             'tix-organizer-media',
             'tix-templates',
             'tix-orders',
@@ -353,6 +354,9 @@ class TIX_Organizer_Admin {
 
         // Erlaubte Seiten
         global $pagenow;
+
+        // Auszahlungen (Mehr-Veranstalter-Modus): Formulare/PDF über admin-post.php, Prüfung im Handler
+        if ($pagenow === 'admin-post.php' && in_array($_REQUEST['action'] ?? '', ['tix_org_payout', 'tix_org_settlement_pdf'], true)) return;
         $allowed_pages = [
             'index.php', 'edit.php', 'post.php', 'post-new.php',
             'edit-tags.php', 'admin.php', 'admin-ajax.php', 'profile.php',
@@ -385,6 +389,7 @@ class TIX_Organizer_Admin {
             if (!class_exists('TIX_Team') || TIX_Team::user_can($uid, 'manage_billing')) {
                 $allowed_admin_pages[] = 'tix-organizer-email';
                 $allowed_admin_pages[] = 'tix-organizer-billing';
+                $allowed_admin_pages[] = 'tix-organizer-payouts';
             }
             if (!class_exists('TIX_Team') || TIX_Team::user_can($uid, 'manage_settings')) {
                 $allowed_admin_pages[] = 'tix-settings';

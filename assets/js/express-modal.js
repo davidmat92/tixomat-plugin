@@ -173,6 +173,10 @@
                 // Max pro Bestellung
                 if (feeConfig.maxOrder > 0) feeAmount = Math.min(feeAmount, feeConfig.maxOrder);
                 feeAmount = Math.round(feeAmount * 100) / 100;
+                // Modus „geteilt“: Kunde trägt nur seinen Anteil (share 0–1, Vorgabe 1)
+                if (typeof feeConfig.share === 'number' && feeConfig.share < 1) {
+                    feeAmount = Math.round(feeAmount * feeConfig.share * 100) / 100;
+                }
             }
 
             if (feeLineEl) {

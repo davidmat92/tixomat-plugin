@@ -392,6 +392,12 @@ class TIX_Gateway_Stripe {
                         // update_order_status feuert tix_order_status_changed selbst → triggert Ticket-Erstellung
                         TIX_Native_Checkout::update_order_status($order_id, $status, 'stripe');
                     }
+                    // Tatsächliche Stripe-Gebühr merken (Abrechnung der Veranstalter); Fehler egal,
+                    // die Abrechnung holt fehlende Gebühren später nach.
+                    // Nur Mehr-Veranstalter-Modus (evendis): Einzel-Sites bleiben unverändert.
+                    if ($status === 'completed' && class_exists('TIX_App_Scope') && TIX_App_Scope::multi()) {
+                        try { self::backfill_fee($order_id); } catch (\Throwable $e) {}
+                    }
                 }
                 break;
 
@@ -496,6 +502,38 @@ class TIX_Gateway_Stripe {
         ], $thank_url);
         wp_safe_redirect($thank_url);
         exit;
+    }
+
+    /* ────────────── GEBÜHR ────────────── */
+
+    /**
+     * Tatsächliche Stripe-Gebühr aus der Balance Transaction lesen und wie bei Mollie/PayPal
+     * speichern (`_tix_payment_fee` usw.). Bei asynchronen Zahlarten gibt es die Transaktion
+     * evtl. noch nicht → false, später erneut versuchen.
+     */
+    public static function backfill_fee($order_id) {
+        $order_id = intval($order_id);
+        $secret = self::get_secret_key();
+        $pi = get_option('_tix_stripe_pi_' . $order_id);
+        if (!$secret || !$pi) return false;
+        $response = wp_remote_get(self::API_URL . '/payment_intents/' . rawurlencode($pi) . '?expand[]=latest_charge.balance_transaction', [
+            'timeout' => 15,
+            'headers' => ['Authorization' => 'Bearer ' . $secret],
+        ]);
+        if (is_wp_error($response) || wp_remote_retrieve_response_code($response) !== 200) return false;
+        $data = json_decode(wp_remote_retrieve_body($response), true);
+        $bt = $data['latest_charge']['balance_transaction'] ?? null;
+        if (!is_array($bt) || !isset($bt['fee'])) return false;
+        $fee   = round(intval($bt['fee']) / 100, 2);
+        $gross = round(intval($bt['amount'] ?? 0) / 100, 2);
+        $net   = round(intval($bt['net'] ?? 0) / 100, 2);
+        $curr  = strtoupper((string) ($bt['currency'] ?? 'eur'));
+        update_post_meta($order_id, '_tix_payment_fee',          $fee);
+        update_post_meta($order_id, '_tix_payment_fee_currency', $curr);
+        update_post_meta($order_id, '_tix_payment_gross',        $gross);
+        update_post_meta($order_id, '_tix_payment_net',          $net);
+        update_post_meta($order_id, '_tix_payment_gateway',      'stripe');
+        return ['fee' => $fee, 'gross' => $gross, 'net' => $net, 'currency' => $curr];
     }
 
     /* ────────────── REFUND ────────────── */

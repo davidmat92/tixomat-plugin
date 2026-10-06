@@ -78,15 +78,8 @@ class TIX_Modal_Checkout {
         if (class_exists('TIX_Fees')) {
             $mc_org = TIX_Fees::get_organizer_for_event($post_id);
             $mc_cfg = TIX_Fees::get_fee_config($mc_org);
-            if ($mc_cfg['fee_mode'] === 'customer') {
-                $mc_fee_json = wp_json_encode([
-                    'fixed'     => $mc_cfg['fee_fixed'],
-                    'percent'   => $mc_cfg['fee_percent'],
-                    'label'     => $mc_cfg['fee_label'],
-                    'maxTicket' => $mc_cfg['fee_max_per_ticket'],
-                    'maxOrder'  => $mc_cfg['fee_max_per_order'],
-                ]);
-            }
+            $mc_client = TIX_Fees::client_fee_config($mc_cfg);
+            if ($mc_client) $mc_fee_json = wp_json_encode($mc_client);
         }
         ?>
         <div class="tix-mc-overlay" id="<?php echo esc_attr($modal_id); ?>" style="display:none;" data-event-id="<?php echo $post_id; ?>"<?php if ($mc_fee_json) echo ' data-fee-config="' . esc_attr($mc_fee_json) . '"'; ?>>

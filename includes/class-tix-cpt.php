@@ -512,6 +512,38 @@ class TIX_CPT {
                 </div>
             </div>
             <?php // ── Gebühren-Override ── ?>
+            <?php if (class_exists('TIX_Fees') && TIX_Fees::multi()) :
+                // Mehr-Veranstalter-Modus: zentrale Gebühr, je Veranstalter nur „wer trägt sie“
+                $mo_global = function_exists('tix_get_settings') ? tix_get_settings() : [];
+                $mo_mode   = get_post_meta($post->ID, '_tix_fee_override', true) ? (string) get_post_meta($post->ID, '_tix_fee_mode', true) : '';
+                $mo_labels = ['organizer' => 'Veranstalter trägt die Gebühr', 'split' => 'Geteilt mit dem Kunden', 'customer' => 'Kunde trägt die Gebühr'];
+                $mo_def    = $mo_labels[$mo_global['fee_mode'] ?? 'organizer'] ?? $mo_labels['organizer'];
+            ?>
+            <div class="tix-card">
+                <div class="tix-card-header">
+                    <span class="dashicons dashicons-money-alt"></span>
+                    <h3>Gebühr</h3>
+                </div>
+                <div class="tix-card-body">
+                    <input type="hidden" name="tix_fee_mode_only" value="1" />
+                    <div class="tix-field">
+                        <label class="tix-field-label">Wer trägt die Plattformgebühr?</label>
+                        <select name="tix_fee_mode" style="width:320px;">
+                            <option value="" <?php selected($mo_mode, ''); ?>>Zentrale Vorgabe (<?php echo esc_html($mo_def); ?>)</option>
+                            <?php foreach ($mo_labels as $k => $l) : ?>
+                            <option value="<?php echo esc_attr($k); ?>" <?php selected($mo_mode, $k); ?>><?php echo esc_html($l); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                        <p style="color:#9ca3af;font-size:12px;margin:6px 0 0;">
+                            Die Höhe der Gebühr (<?php echo number_format_i18n(floatval($mo_global['fee_fixed'] ?? 0), 2); ?> € +
+                            <?php echo number_format_i18n(floatval($mo_global['fee_percent'] ?? 0), 1); ?> %) gilt für alle Veranstalter
+                            und wird nur in den Tixomat-Einstellungen festgelegt. Der Veranstalter kann den Modus auch selbst wählen
+                            (App und Veranstalter-Bereich). Gilt für neue Bestellungen.
+                        </p>
+                    </div>
+                </div>
+            </div>
+            <?php else : ?>
             <div class="tix-card">
                 <div class="tix-card-header">
                     <span class="dashicons dashicons-money-alt"></span>
@@ -567,6 +599,7 @@ class TIX_CPT {
                                 <label class="tix-field-label">Wer trägt die Gebühr?</label>
                                 <select name="tix_fee_mode" style="width:240px;">
                                     <option value="organizer" <?php selected($fee_mode, 'organizer'); ?>>Veranstalter (unsichtbar)</option>
+                                    <option value="split" <?php selected($fee_mode, 'split'); ?>>Geteilt (Kunde trägt <?php echo esc_html(number_format_i18n(floatval($global['fee_split_customer_share'] ?? 50), 0)); ?> %)</option>
                                     <option value="customer" <?php selected($fee_mode, 'customer'); ?>>Kunde (aufgeschlagen)</option>
                                 </select>
                             </div>
@@ -610,6 +643,7 @@ class TIX_CPT {
                     </script>
                 </div>
             </div>
+            <?php endif; ?>
         </div>
         <script>
         (function(){
@@ -645,7 +679,7 @@ class TIX_CPT {
         </script>
 
         <?php // ── Team-Mitglieder Card ── ?>
-        <?php if (class_exists('TIX_Team') && $post->ID) : ?>
+        <?php if (class_exists('TIX_Team') && method_exists('TIX_Team', 'get_members') && method_exists('TIX_Team', 'get_roles') && $post->ID) : ?>
         <div style="margin-top:20px;">
             <div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:20px;">
                 <h3 style="margin:0 0 12px;font-size:14px;font-weight:600;">Team-Mitglieder</h3>
@@ -777,12 +811,23 @@ class TIX_CPT {
         update_post_meta($post_id, '_tix_org_user_id', $user_id);
 
         // ── Gebühren-Override ──
+        if (!empty($_POST['tix_fee_mode_only']) && class_exists('TIX_Fees') && TIX_Fees::multi()) {
+            // Mehr-Veranstalter-Modus: nur der Modus, Beträge bleiben zentral
+            $mode = sanitize_key($_POST['tix_fee_mode'] ?? '');
+            if (in_array($mode, TIX_Fees::MODES, true)) {
+                update_post_meta($post_id, '_tix_fee_override', 1);
+                update_post_meta($post_id, '_tix_fee_mode', $mode);
+            } else {
+                update_post_meta($post_id, '_tix_fee_override', 0);
+            }
+            return;
+        }
         $fee_override = !empty($_POST['tix_fee_override']);
         update_post_meta($post_id, '_tix_fee_override', $fee_override ? 1 : 0);
         if ($fee_override) {
             update_post_meta($post_id, '_tix_fee_fixed',   max(0, floatval($_POST['tix_fee_fixed'] ?? 0)));
             update_post_meta($post_id, '_tix_fee_percent', max(0, min(100, floatval($_POST['tix_fee_percent'] ?? 0))));
-            update_post_meta($post_id, '_tix_fee_mode',    in_array($_POST['tix_fee_mode'] ?? '', ['organizer', 'customer']) ? $_POST['tix_fee_mode'] : 'organizer');
+            update_post_meta($post_id, '_tix_fee_mode',    in_array($_POST['tix_fee_mode'] ?? '', ['organizer', 'split', 'customer']) ? $_POST['tix_fee_mode'] : 'organizer');
             update_post_meta($post_id, '_tix_fee_label',   sanitize_text_field($_POST['tix_fee_label'] ?? ''));
             update_post_meta($post_id, '_tix_fee_max_per_ticket', max(0, floatval($_POST['tix_fee_max_per_ticket'] ?? 0)));
             update_post_meta($post_id, '_tix_fee_max_per_order',  max(0, floatval($_POST['tix_fee_max_per_order'] ?? 0)));

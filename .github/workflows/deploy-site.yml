@@ -73,7 +73,7 @@ jobs:
       - name: Deploy Plugin
         uses: burnett01/rsync-deployments@7.0.1
         with:
-          switches: -avzc --delete --exclude='.git' --exclude='.github' --exclude='bot/' --exclude='mu-plugins/' --exclude='DP-CONNECT-BOT/' --exclude='.claude/' --exclude='node_modules'
+          switches: -avzc --delete --exclude='.git' --exclude='.github' --exclude='bot/' --exclude='mu-plugins/' --exclude='DP-CONNECT-BOT/' --exclude='.claude/' --exclude='tests/' --exclude='node_modules'
           path: ./
           remote_path: ${{ steps.target.outputs.path }}
           remote_host: 51.195.61.6

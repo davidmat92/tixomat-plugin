@@ -1625,7 +1625,15 @@ class TIX_Order_Admin {
             'admin_user' => get_current_user_id(),
             'gateway'    => $gateway,
         ];
+        // Summe aller Erstattungen dieser Bestellung (_tix_refund_ hält nur die letzte)
+        $refund_before = get_option('_tix_refund_total_' . $order_id, false);
+        if ($refund_before === false) {
+            $last = get_option('_tix_refund_' . $order_id);
+            $refund_before = is_array($last) ? floatval($last['amount'] ?? 0) : 0;
+        }
         update_option('_tix_refund_' . $order_id, $refund_data, false);
+        update_option('_tix_refund_total_' . $order_id, round(floatval($refund_before) + $refund_amount, 2), false);
+        do_action('tix_order_refund_recorded', $order_id, $refund_amount, $is_full_refund);
 
         // Write refund order note
         $refund_note = ($is_full_refund ? 'Vollständige' : 'Teilweise') . ' Erstattung: ' . number_format($refund_amount, 2, ',', '.') . ' €';

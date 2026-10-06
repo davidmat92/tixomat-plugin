@@ -14,7 +14,7 @@ jobs:
       - name: Deploy Plugin
         uses: burnett01/rsync-deployments@7.0.1
         with:
-          switches: -avz --delete --exclude='.git' --exclude='.github' --exclude='bot/' --exclude='mu-plugins/' --exclude='DP-CONNECT-BOT/' --exclude='.claude/'
+          switches: -avz --delete --exclude='.git' --exclude='.github' --exclude='bot/' --exclude='mu-plugins/' --exclude='DP-CONNECT-BOT/' --exclude='.claude/' --exclude='tests/'
           path: ./
           remote_path: /home/runcloud/webapps/Tixomat/wp-content/plugins/tixomat-plugin/
           remote_host: 51.195.61.6
