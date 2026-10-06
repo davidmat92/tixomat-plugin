@@ -549,7 +549,7 @@ class TIX_Settlement {
             'type'         => 'event',
             'organizer_id' => $oid,
             'event_id'     => $event_id,
-            'event_title'  => html_entity_decode(get_the_title($event_id), ENT_QUOTES, 'UTF-8'),
+            'event_title'  => html_entity_decode((string) get_post_field('post_title', $event_id), ENT_QUOTES, 'UTF-8'),
             'event_date'   => (string) get_post_meta($event_id, '_tix_date_start', true) ?: null,
             'event_end'    => self::local_dt($end),
             'due_date'     => self::local_date(($end ?: time()) + self::delay_days($oid) * DAY_IN_SECONDS),
@@ -595,7 +595,7 @@ class TIX_Settlement {
         if ($amount < 0.01) return new WP_Error('tix_no_amount', 'Kein Betrag für einen Abschlag verfügbar.');
         $sid = self::insert_settlement([
             'type' => 'advance', 'organizer_id' => $oid, 'event_id' => $event_id,
-            'event_title' => html_entity_decode(get_the_title($event_id), ENT_QUOTES, 'UTF-8'),
+            'event_title' => html_entity_decode((string) get_post_field('post_title', $event_id), ENT_QUOTES, 'UTF-8'),
             'event_date' => (string) get_post_meta($event_id, '_tix_date_start', true) ?: null,
             'due_date' => wp_date('Y-m-d'), 'payout_amount' => $amount, 'tickets' => $tickets, 'orders' => $count,
             'note' => sprintf('Abschlag %s %% vom bisherigen Netto (%s €)', rtrim(rtrim(number_format($pct, 2, ',', ''), '0'), ','), number_format($net, 2, ',', '.')),
@@ -783,7 +783,7 @@ class TIX_Settlement {
         $pd  = class_exists('TIX_Payout_Details') ? TIX_Payout_Details::payload($oid) : [];
         $iban = class_exists('TIX_Payout_Details') ? TIX_Payout_Details::iban($oid) : '';
         return [
-            'organizer'   => html_entity_decode(get_the_title($oid), ENT_QUOTES, 'UTF-8'),
+            'organizer'   => html_entity_decode((string) get_post_field('post_title', $oid), ENT_QUOTES, 'UTF-8'),
             'holder'      => (string) ($pd['holder'] ?? ''),
             'iban_enc'    => $iban !== '' ? TIX_Payout_Details::encrypt($iban) : '',
             'iban_masked' => (string) ($pd['iban_masked'] ?? ''),
