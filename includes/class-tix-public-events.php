@@ -214,6 +214,7 @@ class TIX_Public_Events {
             $out['raffle'] = class_exists('TIX_Raffle') ? TIX_Raffle::public_info($id) : null;
             // Ticket-Optionen (1.38.353): Mengenrabatt-Staffeln; Phasen/Pakete stehen an categories[]
             $out['group_discount'] = class_exists('TIX_Cart_Pricing') ? TIX_Cart_Pricing::group_discount($id) : null;
+            $out['specials_offer'] = class_exists('TIX_App_Checkout') ? TIX_App_Checkout::specials($id) : [];
         }
         return $out;
     }

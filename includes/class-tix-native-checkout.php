@@ -524,38 +524,149 @@ class TIX_Native_Checkout {
         ]);
     }
 
+    // ──────────────────────────────────────────
+    // Gutscheine: eine Prüfung für Web- und App-Kasse
+    // ──────────────────────────────────────────
+
     /**
-     * App-Kasse (TIX_App_Checkout): Gutschein auf einen extern gebauten Warenkorb
-     * anwenden – manueller Code oder Auto-Apply – und den Rabatt neu berechnen.
-     * Gleiche Logik wie im Web-Checkout; ungültige Codes werden entfernt.
+     * Gutschein-Definition zu einem Code: Eintrag aus tix_coupons (inkl. Geschenkgutschein)
+     * oder synthetischer Promoter-Code (tix_promoter_events). null = unbekannt.
      */
-    public static function app_prepare_cart(array $cart, string $coupon_code = ''): array {
-        if ($coupon_code !== '') {
-            $cart['coupon'] = ['code' => sanitize_text_field($coupon_code)];
-        } else {
-            self::apply_auto_coupon_if_eligible($cart);
-        }
-        self::recalc_coupon_discount($cart);
-        // Geschenkgutschein (Guthaben): recalc kennt den Typ nicht → wie ajax_apply_coupon
-        if (!empty($cart['coupon']['code']) && class_exists('TIX_Giftcards')) {
-            $card = TIX_Giftcards::get_card((string) $cart['coupon']['code']);
-            if ($card) {
-                $items_total = 0.0;
-                $has_gift = false;
-                foreach ((array) $cart['items'] as $it) {
-                    $items_total += floatval($it['price'] ?? 0) * max(1, intval($it['qty'] ?? 1));
-                    if (!empty($it['meta']['gift'])) $has_gift = true;
-                }
-                $balance = round(floatval($card['balance'] ?? 0), 2);
-                $expired = !empty($card['expires']) && strtotime($card['expires'] . ' 23:59:59') < current_time('timestamp');
-                if ($has_gift || $balance <= 0 || $expired) {
-                    $cart['coupon'] = null; // Gutschein kauft keinen Gutschein / aufgebraucht / abgelaufen
-                } else {
-                    $cart['coupon']['discount'] = round(min($balance, $items_total), 2);
-                    $cart['coupon']['giftcard'] = 1;
-                }
+    public static function resolve_coupon(string $code) {
+        $code = trim($code);
+        if ($code === '') return null;
+        foreach ((array) get_option('tix_coupons', []) as $k => $v) {
+            if (strcasecmp((string) $k, $code) === 0 && is_array($v)) {
+                $v['code'] = (string) $k;
+                return $v;
             }
         }
+        if (class_exists('TIX_Promoter_DB') && method_exists('TIX_Promoter_DB', 'get_assignment_by_promo_code')) {
+            $a = TIX_Promoter_DB::get_assignment_by_promo_code($code);
+            if ($a && !empty($a->discount_type) && floatval($a->discount_value) > 0) {
+                return [
+                    'code'          => strtoupper($code),
+                    'discount_type' => (string) $a->discount_type,
+                    'value'         => floatval($a->discount_value),
+                    'description'   => 'Promoter-Code',
+                    'is_promoter'   => true,
+                    'promoter_id'   => intval($a->promoter_id),
+                    'event_id'      => intval($a->event_id),
+                ];
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Rabatt eines Gutscheins auf die Positionen (Preise nach Mengenrabatt, ohne Gebühren).
+     * Liefert den Betrag (float) oder eine Fehlermeldung (string) für Kunde/App.
+     */
+    public static function coupon_discount(array $coupon, array $items, string $email = '') {
+        $type = (string) ($coupon['discount_type'] ?? 'percent');
+        $now  = time();
+        if (!empty($coupon['expires'])) {
+            // Geschenkgutschein gilt bis Tagesende, andere Codes wie bisher bis Tagesbeginn
+            $ts = strtotime($coupon['expires'] . ($type === 'giftcard' && strlen((string) $coupon['expires']) <= 10 ? ' 23:59:59' : ''));
+            if ($ts && $ts < ($type === 'giftcard' ? current_time('timestamp') : $now)) return 'Dieser Gutschein ist abgelaufen.';
+        }
+        $max_uses = intval($coupon['max_uses'] ?? 0);
+        if ($max_uses > 0 && intval($coupon['used'] ?? 0) >= $max_uses) return 'Dieser Gutschein wurde bereits eingelöst.';
+
+        $items_total = class_exists('TIX_Cart_Pricing') ? TIX_Cart_Pricing::items_total($items) : 0.0;
+        if ($items_total <= 0) return 'Der Warenkorb ist leer.';
+        $qty = 0;
+        $event_ids = [];
+        $tickets   = [];
+        foreach ($items as $it) {
+            $qty += max(1, intval($it['qty'] ?? 1));
+            $eid = intval($it['event_id'] ?? 0);
+            if (!$eid) continue;
+            $event_ids[] = $eid;
+            $cidx = intval($it['cat_index'] ?? 0);
+            $tickets[] = $eid . ':' . $cidx;
+            if (!empty($it['meta']['bundle'])) $tickets[] = $eid . ':' . $cidx . ':bundle';
+            if ($type === 'giftcard' && !empty($it['meta']['gift'])) {
+                return 'Geschenkgutscheine können nicht mit einem Gutschein bezahlt werden.';
+            }
+        }
+        // Promoter-Code gilt nur für sein Event
+        if (!empty($coupon['is_promoter']) && !empty($coupon['event_id']) && !in_array(intval($coupon['event_id']), $event_ids, true)) {
+            return 'Dieser Code gilt nicht für die Tickets in deinem Warenkorb.';
+        }
+        if ($type !== 'giftcard' && class_exists('TIX_Coupons')) {
+            $valid = TIX_Coupons::validate_against_cart($coupon, [
+                'items_total' => $items_total,
+                'event_ids'   => array_values(array_unique($event_ids)),
+                'tickets'     => array_values(array_unique($tickets)),
+                'email'       => $email,
+            ]);
+            if ($valid !== true) return (string) $valid;
+        }
+
+        $value = floatval($coupon['value'] ?? 0);
+        switch ($type) {
+            case 'fixed':              $discount = $value; break;
+            case 'per_ticket_fixed':   $discount = $value * $qty; break;
+            case 'percent':
+            case 'per_ticket_percent': $discount = $items_total * $value / 100; break;
+            case 'giftcard':
+                $balance = round(floatval($coupon['balance'] ?? 0), 2);
+                if ($balance <= 0) return 'Das Guthaben dieses Gutscheins ist aufgebraucht.';
+                $discount = $balance;
+                break;
+            default:                   $discount = 0;
+        }
+        $discount = min($items_total, max(0, $discount));
+        $cap = floatval($coupon['max_amount'] ?? 0);
+        if ($cap > 0 && $discount > $cap) $discount = $cap;
+        return round($discount, 2);
+    }
+
+    /**
+     * Gutschein im Warenkorb vor dem Bestellen mit der Rechnungs-E-Mail prüfen
+     * (einmal pro E-Mail, Gültigkeit). Fehlermeldung oder '' wenn ok/kein Gutschein.
+     */
+    public static function checkout_coupon_error(array $cart, string $email) {
+        if (empty($cart['coupon']['code'])) return '';
+        $coupon = self::resolve_coupon((string) $cart['coupon']['code']);
+        if (!$coupon) return 'Der Gutschein „' . $cart['coupon']['code'] . '“ ist nicht mehr gültig. Bitte entferne ihn.';
+        $d = self::coupon_discount($coupon, (array) $cart['items'], $email);
+        return is_string($d) ? 'Gutschein „' . $coupon['code'] . '“: ' . $d : '';
+    }
+
+    /**
+     * App-Kasse (TIX_App_Checkout): Gutschein auf einen extern gebauten Warenkorb
+     * anwenden – manueller Code oder Auto-Apply – mit derselben Prüfung wie im Web.
+     * Ungültige Codes werden entfernt; der Grund steht in $cart['coupon_error'].
+     */
+    public static function app_prepare_cart(array $cart, string $coupon_code = '', string $email = ''): array {
+        if (class_exists('TIX_Cart_Pricing') && !empty($cart['items'])) {
+            $cart['items'] = TIX_Cart_Pricing::reprice($cart['items']);
+        }
+        $cart['coupon_error'] = '';
+        if ($coupon_code === '') {
+            self::apply_auto_coupon_if_eligible($cart);
+            return $cart;
+        }
+        $coupon = self::resolve_coupon($coupon_code);
+        if (!$coupon) {
+            $cart['coupon'] = null;
+            $cart['coupon_error'] = 'Gutscheincode ungültig.';
+            return $cart;
+        }
+        $d = self::coupon_discount($coupon, (array) $cart['items'], $email);
+        if (is_string($d)) {
+            $cart['coupon'] = null;
+            $cart['coupon_error'] = $d;
+            return $cart;
+        }
+        $cart['coupon'] = array_filter([
+            'code'     => $coupon['code'],
+            'discount' => $d,
+            'email'    => $email ?: null,
+            'giftcard' => ($coupon['discount_type'] ?? '') === 'giftcard' ? 1 : null,
+        ], function ($v) { return $v !== null; });
         return $cart;
     }
 
@@ -733,108 +844,16 @@ class TIX_Native_Checkout {
         }
         if (empty($cart['coupon']) || empty($cart['coupon']['code'])) return;
 
-        // Cart-Total ohne Coupon (= Summe aller Items) + Quantity (für per_ticket_*)
-        $items_total = 0.0;
-        $cart_qty    = 0;
-        if (!empty($cart['items']) && is_array($cart['items'])) {
-            foreach ($cart['items'] as $item) {
-                $price = floatval($item['price'] ?? 0);
-                $qty   = max(1, intval($item['qty'] ?? 1));
-                $items_total += $price * $qty;
-                $cart_qty    += $qty;
-            }
-        }
-
-        // Cart leer → Coupon entfernen
-        if ($items_total <= 0) {
+        $coupon = self::resolve_coupon((string) $cart['coupon']['code']);
+        $email  = (string) ($cart['coupon']['email'] ?? '');
+        if ($email === '' && is_user_logged_in()) $email = (string) wp_get_current_user()->user_email;
+        $d = $coupon ? self::coupon_discount($coupon, (array) ($cart['items'] ?? []), $email) : 'Gutscheincode ungültig.';
+        if (is_string($d)) {
+            // nicht mehr gültig (gelöscht, abgelaufen, Mindestwert, Event entfernt …) → entfernen
             $cart['coupon'] = null;
             return;
         }
-
-        $code = $cart['coupon']['code'];
-        $coupons = get_option('tix_coupons', []);
-
-        // Case-insensitive Lookup
-        $found_key = null;
-        foreach ((array) $coupons as $k => $v) {
-            if (strtolower($k) === strtolower($code)) {
-                $found_key = $k;
-                break;
-            }
-        }
-
-        if (!$found_key) {
-            // Coupon-Definition existiert nicht mehr → entfernen
-            $cart['coupon'] = null;
-            return;
-        }
-
-        $coupon = $coupons[$found_key];
-
-        // Expiry-Check
-        if (!empty($coupon['expires'])) {
-            $expires = strtotime($coupon['expires']);
-            if ($expires && $expires < time()) {
-                $cart['coupon'] = null;
-                return;
-            }
-        }
-
-        // Max-Uses-Check
-        $used = intval($coupon['used'] ?? 0);
-        $max_uses = intval($coupon['max_uses'] ?? 0);
-        if ($max_uses > 0 && $used >= $max_uses) {
-            $cart['coupon'] = null;
-            return;
-        }
-
-        // Restrictions validieren — wenn ungültig (z.B. Min-Amount nicht mehr erfüllt durch Item-Entfernen)
-        // → Coupon entfernen
-        if (class_exists('TIX_Coupons')) {
-            $event_ids = [];
-            $tickets   = [];
-            foreach ($cart['items'] as $item) {
-                $eid = intval($item['event_id'] ?? 0);
-                if ($eid) {
-                    $event_ids[] = $eid;
-                    $cidx        = intval($item['cat_index'] ?? 0);
-                    $tickets[]   = $eid . ':' . $cidx;
-                    // Bundle-Kauf (Gruppenticket) zusätzlich als eigenes Token adressierbar machen
-                    if (!empty($item['meta']['bundle'])) {
-                        $tickets[] = $eid . ':' . $cidx . ':bundle';
-                    }
-                }
-            }
-            $valid = TIX_Coupons::validate_against_cart($coupon, [
-                'items_total' => $items_total,
-                'event_ids'   => array_unique($event_ids),
-                'tickets'     => array_unique($tickets),
-            ]);
-            if ($valid !== true) {
-                $cart['coupon'] = null;
-                return;
-            }
-        }
-
-        // Rabatt neu berechnen auf Basis des aktuellen Items-Totals
-        $discount_type  = $coupon['discount_type'] ?? 'percent';
-        $discount_value = floatval($coupon['value'] ?? 0);
-
-        switch ($discount_type) {
-            case 'fixed':              $discount = $discount_value; break;
-            case 'per_ticket_fixed':   $discount = $discount_value * $cart_qty; break;
-            case 'percent':
-            case 'per_ticket_percent': $discount = $items_total * $discount_value / 100; break;
-            default:                   $discount = 0;
-        }
-        // Niemals mehr als der Cart-Total
-        $discount = min($items_total, max(0, $discount));
-        // max_amount-Cap (falls Coupon-Restriction setzt)
-        $max_cap = floatval($coupon['max_amount'] ?? 0);
-        if ($max_cap > 0 && $discount > $max_cap) $discount = $max_cap;
-        $discount = round($discount, 2);
-
-        $cart['coupon']['discount'] = $discount;
+        $cart['coupon']['discount'] = $d;
     }
 
     /**
@@ -1636,6 +1655,11 @@ class TIX_Native_Checkout {
             }
         }
 
+        // Gutschein mit der Rechnungs-E-Mail prüfen (z. B. „einmal pro E-Mail“) – lieber Hinweis als stiller Preiswechsel
+        if ($cerr = self::checkout_coupon_error($cart, $email)) {
+            wp_send_json_error(['message' => $cerr]);
+        }
+
         // Order erstellen
         $order_id = self::create_order([
             'billing_first_name' => $first_name,
@@ -1720,37 +1744,15 @@ class TIX_Native_Checkout {
         if (!empty($cart['coupon']) && !empty($cart['coupon']['discount'])) {
             $coupon_discount = round(floatval($cart['coupon']['discount']), 2);
 
-            // Re-validate coupon before applying
+            // Neu prüfen (gleiche Regeln wie beim Einlösen, mit Rechnungs-E-Mail)
             $coupon_code = $cart['coupon']['code'] ?? '';
-            if ($coupon_code) {
-                $coupons = get_option('tix_coupons', []);
-                $coupon = null;
-                foreach ($coupons as $k => $v) {
-                    if (strtolower($k) === strtolower($coupon_code)) { $coupon = $v; $coupon_code = $k; break; }
-                }
-                if (!$coupon) {
-                    $coupon_discount = 0; // Coupon no longer exists
-                } else {
-                    // Check expiry
-                    if (!empty($coupon['expires']) && strtotime($coupon['expires']) < time()) {
-                        $coupon_discount = 0;
-                    }
-                    // Check max uses
-                    $used = intval($coupon['used'] ?? 0);
-                    $max_uses = intval($coupon['max_uses'] ?? 0);
-                    if ($max_uses > 0 && $used >= $max_uses) {
-                        $coupon_discount = 0;
-                    }
-                    // Geschenkgutschein: Rabatt auf aktuelles Restguthaben clampen +
-                    // Gutschein-kauft-Gutschein blocken (Server-Sperre, unabhaengig vom Apply)
-                    if (($coupon['discount_type'] ?? '') === 'giftcard') {
-                        foreach ($cart['items'] as $gitem) {
-                            if (!empty($gitem['meta']['gift'])) { $coupon_discount = 0; break; }
-                        }
-                        $gc_balance = round(floatval($coupon['balance'] ?? 0), 2);
-                        $coupon_discount = min($coupon_discount, max(0, $gc_balance));
-                    }
-                }
+            $coupon_def  = $coupon_code ? self::resolve_coupon((string) $coupon_code) : null;
+            if (!$coupon_def) {
+                $coupon_discount = 0;
+            } else {
+                $coupon_code = $coupon_def['code'];
+                $d = self::coupon_discount($coupon_def, (array) $data['items'], (string) ($data['billing_email'] ?? ''));
+                $coupon_discount = is_string($d) ? 0 : $d;
             }
 
             $data['total'] = max(0, round($data['total'] - $coupon_discount, 2));
@@ -1960,176 +1962,35 @@ class TIX_Native_Checkout {
             check_ajax_referer('tix_add_to_cart', 'nonce');
         }
 
-        $code = strtolower(trim(sanitize_text_field($_POST['coupon_code'] ?? '')));
+        $code = trim(sanitize_text_field($_POST['coupon_code'] ?? ''));
         if (!$code) {
             wp_send_json_error(['message' => 'Bitte einen Gutscheincode eingeben.']);
         }
-
-        $coupons = get_option('tix_coupons', []);
-        // Case-insensitive lookup
-        $found_key = null;
-        foreach ($coupons as $k => $v) {
-            if (strtolower($k) === $code) {
-                $found_key = $k;
-                break;
-            }
-        }
-
-        // Wenn KEIN tix_coupons-Eintrag gefunden → Promoter-Code prüfen
-        if (!$found_key && class_exists('TIX_Promoter_DB')) {
-            $assignment = TIX_Promoter_DB::get_assignment_by_promo_code($code);
-            if ($assignment && !empty($assignment->discount_type) && floatval($assignment->discount_value) > 0) {
-                // Synthetischen Coupon erstellen — wird nicht in tix_coupons persistiert,
-                // sondern temporär für diese Order verwendet
-                $found_key = strtoupper($code);
-                $coupon = [
-                    'code'              => $found_key,
-                    'discount_type'     => $assignment->discount_type,           // percent | fixed
-                    'value'             => floatval($assignment->discount_value),
-                    'expires'           => '',
-                    'max_uses'          => 0,
-                    'used'              => 0,
-                    'description'       => 'Promoter-Code',
-                    'is_promoter'       => true,
-                    'promoter_id'       => intval($assignment->promoter_id),
-                    'event_id'          => intval($assignment->event_id),
-                ];
-            }
-        }
-
-        if (!$found_key) {
+        $coupon = self::resolve_coupon($code);
+        if (!$coupon) {
             wp_send_json_error(['message' => 'Gutscheincode ungültig.']);
         }
 
-        // Wenn aus tix_coupons → wie bisher; sonst: $coupon ist schon oben gesetzt
-        if (!isset($coupon)) {
-            $coupon = $coupons[$found_key];
+        $cart = self::get_cart(); // Preise inkl. Mengenrabatt
+        $email = is_user_logged_in() ? (string) wp_get_current_user()->user_email : '';
+        $discount = self::coupon_discount($coupon, (array) $cart['items'], $email);
+        if (is_string($discount)) {
+            wp_send_json_error(['message' => $discount]);
         }
 
-        // Check expiry
-        if (!empty($coupon['expires'])) {
-            $expires = strtotime($coupon['expires']);
-            if ($expires && $expires < time()) {
-                wp_send_json_error(['message' => 'Dieser Gutschein ist abgelaufen.']);
-            }
-        }
-
-        // Check max uses
-        $used = intval($coupon['used'] ?? 0);
-        $max_uses = intval($coupon['max_uses'] ?? 0);
-        if ($max_uses > 0 && $used >= $max_uses) {
-            wp_send_json_error(['message' => 'Dieser Gutschein wurde bereits eingelöst.']);
-        }
-
-        // Restrictions validieren (Min/Max-Amount, Allowed/Excluded Events + Categories, one_per_email)
-        $cart = self::get_cart();
-        $cart_total = self::cart_total();
-        $event_ids = [];
-        $tickets   = [];
-        if (!empty($cart['items']) && is_array($cart['items'])) {
-            foreach ($cart['items'] as $item) {
-                $eid = intval($item['event_id'] ?? 0);
-                if ($eid) {
-                    $event_ids[] = $eid;
-                    $cidx        = intval($item['cat_index'] ?? 0);
-                    $tickets[]   = $eid . ':' . $cidx;
-                    // Bundle-Kauf (Gruppenticket) zusätzlich als eigenes Token adressierbar machen
-                    if (!empty($item['meta']['bundle'])) {
-                        $tickets[] = $eid . ':' . $cidx . ':bundle';
-                    }
-                }
-            }
-        }
-        // Email für one_per_email aus eingeloggtem User holen (falls vorhanden)
-        $email = '';
-        if (is_user_logged_in()) {
-            $u = wp_get_current_user();
-            if ($u && $u->user_email) $email = $u->user_email;
-        }
-        if (class_exists('TIX_Coupons')) {
-            $valid = TIX_Coupons::validate_against_cart($coupon, [
-                'items_total' => $cart_total,
-                'event_ids'   => array_unique($event_ids),
-                'tickets'     => array_unique($tickets),
-                'email'       => $email,
-            ]);
-            if ($valid !== true) {
-                wp_send_json_error(['message' => $valid]);
-            }
-        }
-
-        // Cart-Quantity ermitteln (für per_ticket_*-Discounts)
-        $cart_qty = 0;
-        if (!empty($cart['items']) && is_array($cart['items'])) {
-            foreach ($cart['items'] as $item) {
-                $cart_qty += max(1, intval($item['qty'] ?? $item['quantity'] ?? 1));
-            }
-        }
-
-        // Calculate discount
-        $discount_type = $coupon['discount_type'] ?? 'percent';
-        $discount_value = floatval($coupon['value'] ?? 0);
-
-        // Geschenkgutschein: mit Guthaben keinen neuen Gutschein kaufen (Guthaben-Karussell)
-        if ($discount_type === 'giftcard' && !empty($cart['items'])) {
-            foreach ($cart['items'] as $gitem) {
-                if (!empty($gitem['meta']['gift'])) {
-                    wp_send_json_error(['message' => 'Geschenkgutscheine koennen nicht mit einem Gutschein bezahlt werden.']);
-                }
-            }
-        }
-
-        switch ($discount_type) {
-            case 'percent':
-                // X% auf Cart-Gesamtbetrag
-                $discount = $cart_total * $discount_value / 100;
-                break;
-            case 'fixed':
-                // X € pauschal vom Cart
-                $discount = $discount_value;
-                break;
-            case 'per_ticket_percent':
-                // X% auf jedes Ticket — math gleich wie 'percent', aber semantisch klarer
-                // (für Communication "15% pro Ticket" statt "15% auf den Warenkorb")
-                $discount = $cart_total * $discount_value / 100;
-                break;
-            case 'per_ticket_fixed':
-                // X € pro Ticket × Anzahl Tickets im Cart
-                $discount = $discount_value * $cart_qty;
-                break;
-            case 'giftcard':
-                // Guthaben-Gutschein: Abzug = min(Restguthaben, Warenkorb) — Rest bleibt stehen
-                $gc_balance = round(floatval($coupon['balance'] ?? 0), 2);
-                if ($gc_balance <= 0) {
-                    wp_send_json_error(['message' => 'Das Guthaben dieses Gutscheins ist aufgebraucht.']);
-                }
-                $discount = min($gc_balance, $cart_total);
-                break;
-            default:
-                $discount = 0;
-        }
-
-        // Niemals mehr als der Cart-Total
-        $discount = min($cart_total, max(0, $discount));
-        // max_amount-Cap (falls Coupon-Restriction setzt)
-        $max_cap = floatval($coupon['max_amount'] ?? 0);
-        if ($max_cap > 0 && $discount > $max_cap) $discount = $max_cap;
-        $discount = round($discount, 2);
-
-        // Apply to cart
         $cart['coupon'] = [
-            'code'     => $found_key,
+            'code'     => $coupon['code'],
             'discount' => $discount,
         ];
         self::save_cart($cart);
 
-        $new_total = max(0, round($cart_total - $discount, 2));
+        $new_total = max(0, round(self::cart_total() - $discount, 2));
 
         wp_send_json_success([
             'message'   => 'Gutschein eingelöst! Rabatt: ' . number_format($discount, 2, ',', '.') . ' €',
             'discount'  => $discount,
             'new_total' => $new_total,
-            'code'      => $found_key,
+            'code'      => $coupon['code'],
         ]);
     }
 

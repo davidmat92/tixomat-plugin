@@ -338,6 +338,39 @@ class TIX_App_Checkout {
         return $out;
     }
 
+    /**
+     * Extras (Specials) eines Events, wie die Ticketauswahl der Website sie zeigt
+     * (Einstellung „Specials“ aktiv + am Event „in der Ticketauswahl“ oder „im Checkout“).
+     * Bestellung mit items[] {special_id, qty}.
+     */
+    public static function specials($event_id) {
+        if (!class_exists('TIX_Specials') || !tix_get_settings('specials_enabled')) return [];
+        if (get_post_meta($event_id, '_tix_specials_in_selector', true) !== '1'
+            && get_post_meta($event_id, '_tix_specials_in_checkout', true) !== '1') return [];
+        $out = [];
+        foreach (TIX_Specials::get_event_specials($event_id) as $sp) {
+            $price = floatval($sp['price']);
+            if ($price <= 0) continue; // wie Web: Specials ohne Preis sind nicht kaufbar
+            $remaining = -1;
+            if (intval($sp['qty']) > 0) {
+                $remaining = max(0, intval($sp['qty']) - intval(TIX_Specials::get_sold_count($sp['special_id'], $event_id)));
+            }
+            $value = floatval($sp['value']);
+            $out[] = [
+                'special_id'         => intval($sp['special_id']),
+                'name'               => (string) $sp['name'],
+                'description'        => wp_strip_all_tags((string) $sp['description']),
+                'price'              => round($price, 2),
+                'value'              => $value > $price ? round($value, 2) : null, // regulärer Wert (Ersparnis)
+                'image'              => $sp['image'] ? (string) wp_get_attachment_image_url($sp['image'], 'medium') : '',
+                'quantity_available' => $remaining,
+                'sold_out'           => $remaining === 0,
+                'max_per_order'      => $remaining >= 0 ? min(self::MAX_QTY, $remaining) : self::MAX_QTY,
+            ];
+        }
+        return $out;
+    }
+
     /** Warenkorb im Format des Web-Checkouts aus der Auswahl der App bauen. */
     private static function build_cart($event_id, array $items) {
         if (self::is_syndicated($event_id)) {
@@ -361,8 +394,14 @@ class TIX_App_Checkout {
         $merged = [];   // normale Tickets: je Kategorie eine Zeile
         $gifts  = [];   // Gutscheine: nie mergen (verschiedene Beträge)
         $bundles = [];  // Pakete: je Kategorie eine Zeile, qty = Anzahl Pakete
+        $specials = []; // Extras: special_id => Menge
         foreach ($items as $it) {
             if (!is_array($it)) continue;
+            if (!empty($it['special_id'])) {
+                $sq = intval($it['qty'] ?? ($it['quantity'] ?? 0));
+                if ($sq > 0) $specials[intval($it['special_id'])] = ($specials[intval($it['special_id'])] ?? 0) + $sq;
+                continue;
+            }
             $idx = intval($it['index'] ?? -1);
             $qty = intval($it['qty'] ?? ($it['quantity'] ?? 0));
             if ($qty <= 0) continue;
@@ -465,6 +504,31 @@ class TIX_App_Checkout {
                 'meta'        => ['bundle' => 1],
             ];
         }
+        if ($specials) {
+            $offer = [];
+            foreach (self::specials($event_id) as $sp) $offer[$sp['special_id']] = $sp;
+            foreach ($specials as $sid => $sq) {
+                $sp = $offer[$sid] ?? null;
+                if (!$sp) return self::error('tix_special', 'Dieses Extra ist nicht verfügbar.');
+                if ($sp['quantity_available'] >= 0 && $sq > $sp['quantity_available']) {
+                    return self::error('tix_stock', $sp['quantity_available'] > 0
+                        ? sprintf('%s: nur noch %d verfügbar.', $sp['name'], $sp['quantity_available'])
+                        : $sp['name'] . ' ist ausverkauft.');
+                }
+                if ($sq > self::MAX_QTY) {
+                    return self::error('tix_max_qty', sprintf('Maximal %d Stück pro Extra und Bestellung.', self::MAX_QTY));
+                }
+                $cart['items'][] = [
+                    'event_id'    => intval($event_id),
+                    'cat_index'   => -1, // -1 = kein Kategorie-Slot (wie Web-Kasse)
+                    'name'        => sanitize_text_field($sp['name']),
+                    'event_title' => $event_title,
+                    'price'       => $sp['price'],
+                    'qty'         => $sq,
+                    'meta'        => ['special' => 1, 'special_id' => $sid],
+                ];
+            }
+        }
         if (empty($cart['items'])) {
             return self::error('tix_empty', 'Bitte mindestens ein Ticket wählen.');
         }
@@ -476,10 +540,10 @@ class TIX_App_Checkout {
     }
 
     /** Gutschein (manuell oder Auto-Apply) anwenden – gleiche Logik wie im Web. */
-    private static function apply_coupon(array $cart, $code) {
+    private static function apply_coupon(array $cart, $code, $email = '') {
         $code = sanitize_text_field((string) $code);
         if (method_exists('TIX_Native_Checkout', 'app_prepare_cart')) {
-            return TIX_Native_Checkout::app_prepare_cart($cart, $code);
+            return TIX_Native_Checkout::app_prepare_cart($cart, $code, sanitize_email((string) $email));
         }
         return $cart;
     }
@@ -504,6 +568,7 @@ class TIX_App_Checkout {
                 'list_price'     => isset($meta['list_price']) ? round(floatval($meta['list_price']), 2) : null,
                 'group_discount' => isset($meta['group_discount']) ? floatval($meta['group_discount']) : null,
                 'bundle'         => null,
+                'special_id'     => !empty($meta['special_id']) ? intval($meta['special_id']) : null,
             ];
             if (!empty($meta['bundle']) && class_exists('TIX_Cart_Pricing')
                 && ($b = TIX_Cart_Pricing::bundle(intval($it['event_id']), intval($it['cat_index'])))) {
@@ -847,6 +912,8 @@ class TIX_App_Checkout {
             'categories'      => self::categories($event_id),
             // Mengenrabatt-Staffeln {tiers[{min_qty, percent}], combine_bundle, combine_combo, combine_phase} oder null
             'group_discount'  => class_exists('TIX_Cart_Pricing') ? TIX_Cart_Pricing::group_discount($event_id) : null,
+            // Extras (Specials): Bestellung mit items[] {special_id, qty}
+            'specials'        => self::specials($event_id),
             // Vorverkauf {starts_at, started, waitlist_presale, waitlist_soldout}
             'presale'         => class_exists('TIX_Event_Extras') ? TIX_Event_Extras::presale($event_id) : null,
             'totals'          => null,
@@ -862,7 +929,9 @@ class TIX_App_Checkout {
         if (!empty($items)) {
             $cart = self::build_cart($event_id, $items);
             if (is_wp_error($cart)) return $cart;
-            $cart = self::apply_coupon($cart, $coupon);
+            // E-Mail für „einmal pro E-Mail“: Konto oder (Gast) optional ?email=
+            $email = $user ? (string) $user->user_email : (string) ($req->get_param('email') ?? '');
+            $cart = self::apply_coupon($cart, $coupon, $email);
             $t    = self::totals($cart);
             $resp['totals']          = $t;
             $resp['payment_methods'] = self::payment_methods($t['total'] <= 0);
@@ -870,6 +939,8 @@ class TIX_App_Checkout {
                 'code'     => (string) ($cart['coupon']['code'] ?? $coupon),
                 'valid'    => !empty($cart['coupon']['discount']),
                 'discount' => $t['discount'],
+                // Grund, wenn der eingegebene Code nicht gilt (leer = ok bzw. kein Code)
+                'message'  => (string) ($cart['coupon_error'] ?? ''),
             ];
         }
         return rest_ensure_response($resp);
@@ -999,6 +1070,15 @@ class TIX_App_Checkout {
         // Rechnungsadresse wie im Web-Formular (Konto: E-Mail aus dem Konto; Gast: aus dem Formular)
         $billing = self::read_billing($req, $user);
         if (is_wp_error($billing)) return $billing;
+
+        // Gutschein mit der Rechnungs-E-Mail prüfen (z. B. „einmal pro E-Mail“)
+        $coupon_in = (string) ($req->get_param('coupon') ?? '');
+        if ($coupon_in !== '' && empty($cart['coupon']['code'])) {
+            return self::error('tix_coupon', (string) ($cart['coupon_error'] ?: 'Gutscheincode ungültig.'), 409);
+        }
+        if ($cerr = TIX_Native_Checkout::checkout_coupon_error($cart, $billing['email'])) {
+            return self::error('tix_coupon', $cerr, 409);
+        }
 
         // Gast: optional gleich ein Konto anlegen (wie „Konto anlegen“ im Web-Checkout,
         // aber mit eigenem Passwort → sofort angemeldet, Tickets in der App)
