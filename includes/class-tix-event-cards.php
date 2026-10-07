@@ -163,7 +163,8 @@ class TIX_Event_Cards {
     public static function render_section($atts, $content = '') {
         $atts = shortcode_atts(['title' => '', 'class' => '', 'title_class' => ''], $atts);
         $inner = trim(do_shortcode((string) $content));
-        if ($inner === '' || trim(wp_strip_all_tags($inner)) === '' && stripos($inner, '<img') === false) return '';
+        // leer = kein Text UND keine Medien (Bild, Video, eingebettetes Video)
+        if ($inner === '' || (trim(wp_strip_all_tags($inner)) === '' && !preg_match('~<(img|iframe|video|picture|svg)\b~i', $inner))) return '';
         $title = $atts['title'] !== ''
             ? '<h2 class="tix-sec__title ' . esc_attr($atts['title_class']) . '">' . esc_html($atts['title']) . '</h2>'
             : '';
