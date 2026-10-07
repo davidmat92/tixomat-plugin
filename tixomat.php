@@ -584,6 +584,9 @@ TIX_Settlement::init();
 TIX_Settlement_REST::init();
 TIX_Settlement_Admin::init();
 TIX_Settlement_Organizer::init();
+// Freigabe neuer Veranstalter (nur Mehr-Veranstalter-Modus): Status, Prüfliste, Pflichtangaben, Vertrag
+require_once TIXOMAT_PATH . 'includes/class-tix-org-approval.php';
+TIX_Org_Approval::init();
 if ($use_native) {
     require_once TIXOMAT_PATH . 'includes/class-tix-partner-api.php';
     require_once TIXOMAT_PATH . 'includes/class-tix-partner-broker.php';
