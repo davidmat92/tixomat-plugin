@@ -140,6 +140,8 @@ class TIX_App_Scope {
             'owner'   => $owner,
             'manager' => self::is_org_manager($uid),
             'logo'    => $logo,
+            // Freigabe-Status + fehlende Pflichtangaben (TIX_Org_Approval)
+            'approval' => class_exists('TIX_Org_Approval') ? TIX_Org_Approval::payload($p->ID, $uid) : null,
         ];
     }
 

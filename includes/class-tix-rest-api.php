@@ -583,6 +583,8 @@ class TIX_REST_API {
             'meta_key'       => '_tix_date_start',
             'order'          => 'ASC',
         ];
+        // Mehr-Veranstalter-Modus: auch zurückgehaltene Events (warten auf Freigabe des Veranstalters)
+        if (class_exists('TIX_App_Scope') && TIX_App_Scope::multi()) $args['post_status'][] = 'pending';
 
         if ($search) {
             $args['s'] = $search;
@@ -1669,6 +1671,10 @@ class TIX_REST_API {
         if (!self::can_access_event($event_id)) {
             return new WP_Error('forbidden', 'Kein Zugriff.', ['status' => 403]);
         }
+        // Mehr-Veranstalter-Modus: Kasse erst nach Freigabe des Veranstalters
+        if (class_exists('TIX_Org_Approval') && ($e = TIX_Org_Approval::sale_error($event_id))) {
+            return $e;
+        }
         if (!class_exists('TIX_Native_Checkout')) {
             return new WP_Error('no_native', 'Nativer Checkout nicht aktiv.', ['status' => 500]);
         }
@@ -2160,6 +2166,9 @@ class TIX_REST_API {
             'date_formatted'   => $date_start ? date_i18n('l, d. F Y', strtotime($date_start)) : '',
             'location'         => $location_name,
             'status'           => $status,
+            // Veröffentlichung wartet auf die Freigabe des Veranstalters (TIX_Org_Approval)
+            'post_status'      => (string) $post->post_status,
+            'publish_held'     => get_post_meta($id, '_tix_publish_held', true) !== '',
             'categories'       => $categories,
             'total_capacity'   => $total_capacity,
             'total_available'  => $total_available,

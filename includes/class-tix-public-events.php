@@ -106,6 +106,7 @@ class TIX_Public_Events {
     public static function payload($id, $detailed = false) {
         $post = get_post($id);
         if (!$post || $post->post_type !== 'event' || $post->post_status !== 'publish') return null;
+        if (class_exists('TIX_Org_Approval') && !TIX_Org_Approval::event_allowed($id)) return null;
         list($start, $end) = self::times($id);
         $cats  = self::categories($id);
         $prices = array_map(function ($c) { return floatval($c['price'] ?? 0); }, $cats);

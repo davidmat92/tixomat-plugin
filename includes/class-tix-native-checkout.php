@@ -1649,6 +1649,10 @@ class TIX_Native_Checkout {
                 $site = get_post_meta($event_id, '_tix_source_site', true) ?: 'Veranstalter';
                 wp_send_json_error(['message' => 'Tickets für "' . get_the_title($event_id) . '" gibt es beim Veranstalter (' . esc_html($site) . ').']);
             }
+            // Mehr-Veranstalter-Modus: kein Verkauf, solange der Veranstalter nicht freigegeben ist
+            if (class_exists('TIX_Org_Approval') && ($e = TIX_Org_Approval::sale_error($event_id))) {
+                wp_send_json_error(['message' => $e->get_error_message()]);
+            }
 
             $categories = get_post_meta($event_id, '_tix_ticket_categories', true);
             if (!is_array($categories) || !isset($categories[$cat_index])) {

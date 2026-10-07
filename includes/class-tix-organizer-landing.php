@@ -1848,7 +1848,10 @@ a{display:inline-block;padding:12px 28px;background:#E8445A;color:#fff;border-ra
             'meta_value'     => $slug,
             'no_found_rows'  => true,
         ]);
-        return $q[0] ?? null;
+        $org = $q[0] ?? null;
+        // Mehr-Veranstalter-Modus: Landingpage erst nach Freigabe des Veranstalters
+        if ($org && class_exists('TIX_Org_Approval') && !TIX_Org_Approval::is_public($org->ID)) return null;
+        return $org;
     }
 
     public static function is_approved($org_id) {

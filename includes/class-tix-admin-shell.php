@@ -49,6 +49,7 @@ class TIX_Admin_Shell {
             'tix-organizer-dashboard', 'tix-organizer-orders',
             'tix-organizer-guestlist', 'tix-organizer-email', 'tix-organizer-billing', 'tix-organizer-payouts', 'tix-payouts',
             'tix-organizer-media', 'tix-organizer-landing', 'tix-landing-settings',
+            'tix-org-review', 'tix-org-account',
         ];
         $page = $_GET['page'] ?? '';
         if (in_array($page, $tix_pages, true)) return true;
@@ -236,6 +237,13 @@ class TIX_Admin_Shell {
                         <span class="dashicons dashicons-dashboard"></span>
                         <span>Dashboard</span>
                     </a>
+                    <?php if (class_exists('TIX_Org_Approval') && TIX_Org_Approval::multi()) : ?>
+                    <a href="<?php echo admin_url('admin.php?page=tix-org-account'); ?>"
+                       class="tix-shell-item<?php echo ($current_page === 'tix-org-account') ? ' active' : ''; ?>">
+                        <span class="dashicons dashicons-id-alt"></span>
+                        <span>Mein Konto</span>
+                    </a>
+                    <?php endif; ?>
                 </div>
 
                 <?php if ($can_edit) : ?>
@@ -416,6 +424,13 @@ class TIX_Admin_Shell {
                         <span class="dashicons dashicons-businessperson"></span>
                         <span>Veranstalter</span>
                     </a>
+                    <?php if (class_exists('TIX_Org_Approval') && TIX_Org_Approval::multi()) : $tix_rev_n = TIX_Org_Approval::count_pending(); ?>
+                    <a href="<?php echo admin_url('admin.php?page=tix-org-review'); ?>"
+                       class="tix-shell-item<?php echo ($current_page === 'tix-org-review') ? ' active' : ''; ?>">
+                        <span class="dashicons dashicons-yes-alt"></span>
+                        <span>Veranstalter-Prüfung<?php echo $tix_rev_n ? ' (' . intval($tix_rev_n) . ')' : ''; ?></span>
+                    </a>
+                    <?php endif; ?>
                     <a href="<?php echo admin_url('admin.php?page=tix-templates'); ?>"
                        class="tix-shell-item<?php echo $active === 'templates' ? ' active' : ''; ?>">
                         <span class="dashicons dashicons-screenoptions"></span>
