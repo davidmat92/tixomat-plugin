@@ -188,7 +188,7 @@ class TIX_Event_Cards {
 
         if ($url === '') return '<span class="tix-evorg">' . $inner . '</span>';
         return '<a class="tix-evorg" href="' . esc_url($url) . '">' . $inner
-            . '<svg class="tix-evorg__chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></a>';
+            . '<svg class="tix-evorg__chev" width="14" height="14" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path fill="currentColor" d="m184.49 136.49l-80 80a12 12 0 0 1-17-17L159 128L87.51 56.49a12 12 0 1 1 17-17l80 80a12 12 0 0 1-.02 17"/></svg></a>';
     }
 
     /**
