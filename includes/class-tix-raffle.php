@@ -277,64 +277,60 @@ class TIX_Raffle {
 
     public static function ajax_enter() {
         $event_id = intval($_POST['event_id'] ?? 0);
-        $name     = sanitize_text_field($_POST['name'] ?? '');
-        $email    = sanitize_email($_POST['email'] ?? '');
-        $nonce    = $_POST['nonce'] ?? '';
-
-        // Validierung
-        if (!wp_verify_nonce($nonce, 'tix_raffle_' . $event_id)) {
+        if (!wp_verify_nonce($_POST['nonce'] ?? '', 'tix_raffle_' . $event_id)) {
             wp_send_json_error(['message' => 'Sicherheits-Check fehlgeschlagen. Bitte Seite neu laden.']);
         }
+        $r = self::enter($event_id, $_POST['name'] ?? '', $_POST['email'] ?? '', !empty($_POST['consent']));
+        if (!$r['ok']) wp_send_json_error(['message' => $r['message']]);
+        wp_send_json_success(['message' => $r['message'], 'count' => $r['count']]);
+    }
 
-        if (!$event_id || !$name || !$email || !is_email($email)) {
-            wp_send_json_error(['message' => 'Bitte Name und gültige E-Mail angeben.']);
-        }
-
-        // Zustimmung prüfen
-        $consent_text = get_post_meta($event_id, '_tix_raffle_consent_text', true);
-        if (!empty($consent_text) && empty($_POST['consent'])) {
-            wp_send_json_error(['message' => 'Bitte stimme den Teilnahmebedingungen zu.']);
-        }
-
-        // Gewinnspiel aktiv?
-        if (get_post_meta($event_id, '_tix_raffle_enabled', true) !== '1') {
-            wp_send_json_error(['message' => 'Kein aktives Gewinnspiel.']);
-        }
-
-        $status   = get_post_meta($event_id, '_tix_raffle_status', true) ?: 'open';
-        $end_date = get_post_meta($event_id, '_tix_raffle_end_date', true);
-        $max      = intval(get_post_meta($event_id, '_tix_raffle_max_entries', true));
-
-        // Status dynamisch prüfen
+    /**
+     * Status des Gewinnspiels: open | closed | drawn (nur 'drawn' kommt aus der DB, Rest dynamisch).
+     */
+    public static function status($event_id) {
+        if ((get_post_meta($event_id, '_tix_raffle_status', true) ?: 'open') === 'drawn') return 'drawn';
+        $end_date    = get_post_meta($event_id, '_tix_raffle_end_date', true);
+        $max         = intval(get_post_meta($event_id, '_tix_raffle_max_entries', true));
         $end_passed  = $end_date && strtotime($end_date) <= current_time('timestamp');
         $max_reached = $max > 0 && self::count_entries($event_id) >= $max;
+        return ($end_passed || $max_reached) ? 'closed' : 'open';
+    }
 
-        if ($status === 'drawn') {
-            wp_send_json_error(['message' => 'Die Auslosung hat bereits stattgefunden.']);
-        }
+    /**
+     * Teilnahme eintragen (Web per admin-ajax, Apps per REST). Rate-Limit 5/Minute je IP.
+     * @return array{ok:bool,message:string,count:int}
+     */
+    public static function enter($event_id, $name, $email, $consent) {
+        $event_id = intval($event_id);
+        $name     = sanitize_text_field((string) $name);
+        $email    = sanitize_email((string) $email);
+        $fail = function ($m) { return ['ok' => false, 'message' => $m, 'count' => 0]; };
 
-        if ($end_passed) {
-            wp_send_json_error(['message' => 'Die Teilnahme ist leider beendet.']);
-        }
+        if (!$event_id || !$name || !$email || !is_email($email)) return $fail('Bitte Name und gültige E-Mail angeben.');
+        $consent_text = get_post_meta($event_id, '_tix_raffle_consent_text', true);
+        if (!empty($consent_text) && !$consent) return $fail('Bitte stimme den Teilnahmebedingungen zu.');
+        if (get_post_meta($event_id, '_tix_raffle_enabled', true) !== '1') return $fail('Kein aktives Gewinnspiel.');
 
-        if ($max_reached) {
-            wp_send_json_error(['message' => 'Die maximale Teilnehmerzahl ist erreicht.']);
+        self::ensure_table();
+        $status = self::status($event_id);
+        if ($status === 'drawn') return $fail('Die Auslosung hat bereits stattgefunden.');
+        if ($status === 'closed') {
+            $max = intval(get_post_meta($event_id, '_tix_raffle_max_entries', true));
+            return $fail($max > 0 && self::count_entries($event_id) >= $max
+                ? 'Die maximale Teilnehmerzahl ist erreicht.'
+                : 'Die Teilnahme ist leider beendet.');
         }
 
         // Rate-Limiting: Max 5 Teilnahmen pro IP/Minute
         $ip = self::get_ip();
         $rate_key = 'tix_raffle_rate_' . md5($ip);
         $attempts = intval(get_transient($rate_key));
-        if ($attempts >= 5) {
-            wp_send_json_error(['message' => 'Zu viele Versuche. Bitte warte kurz.']);
-        }
+        if ($attempts >= 5) return $fail('Zu viele Versuche. Bitte warte kurz.');
         set_transient($rate_key, $attempts + 1, 60);
 
-        // Eintrag speichern
-        self::ensure_table();
         global $wpdb;
         $table = $wpdb->prefix . self::TABLE;
-
         $result = $wpdb->insert($table, [
             'event_id'   => $event_id,
             'name'       => $name,
@@ -345,16 +341,50 @@ class TIX_Raffle {
 
         if ($result === false) {
             // Duplicate entry (UNIQUE constraint)
-            if (strpos($wpdb->last_error, 'Duplicate') !== false) {
-                wp_send_json_error(['message' => 'Du nimmst bereits an diesem Gewinnspiel teil.']);
-            }
-            wp_send_json_error(['message' => 'Fehler bei der Teilnahme. Bitte versuche es erneut.']);
+            if (strpos($wpdb->last_error, 'Duplicate') !== false) return $fail('Du nimmst bereits an diesem Gewinnspiel teil.');
+            return $fail('Fehler bei der Teilnahme. Bitte versuche es erneut.');
         }
+        return ['ok' => true, 'message' => 'Du nimmst jetzt teil! Viel Glück!', 'count' => self::count_entries($event_id)];
+    }
 
-        wp_send_json_success([
-            'message' => 'Du nimmst jetzt teil! Viel Glück!',
-            'count'   => self::count_entries($event_id),
-        ]);
+    /**
+     * Öffentliche Gewinnspiel-Daten für Apps/Vorlagen (ohne E-Mails); null, wenn kein Gewinnspiel.
+     */
+    public static function public_info($event_id) {
+        if (get_post_meta($event_id, '_tix_raffle_enabled', true) !== '1') return null;
+        $prizes = get_post_meta($event_id, '_tix_raffle_prizes', true);
+        if (!is_array($prizes) || empty($prizes)) return null;
+        self::ensure_table();
+        $status = self::status($event_id);
+        $hide   = get_post_meta($event_id, '_tix_raffle_hide_count', true) === '1';
+        $winners = [];
+        if ($status === 'drawn') {
+            foreach ((array) get_post_meta($event_id, '_tix_raffle_winners', true) as $w) {
+                // nur Vorname + Initiale, keine E-Mail
+                $parts = preg_split('/\s+/u', trim((string) ($w['name'] ?? '')));
+                $short = ($parts[0] ?? '') . (isset($parts[1]) ? ' ' . mb_substr($parts[1], 0, 1) . '.' : '');
+                $winners[] = ['name' => $short, 'prize' => (string) ($w['prize_name'] ?? '')];
+            }
+        }
+        $end = (string) get_post_meta($event_id, '_tix_raffle_end_date', true);
+        return [
+            'title'        => (string) (get_post_meta($event_id, '_tix_raffle_title', true) ?: 'Gewinnspiel'),
+            'description'  => wp_kses_post(wpautop((string) get_post_meta($event_id, '_tix_raffle_description', true))),
+            'status'       => $status,
+            'end_date'     => $end !== '' ? wp_date('c', strtotime(get_gmt_from_date(str_replace('T', ' ', $end)) . ' UTC')) : '',
+            'entries'      => $hide ? null : self::count_entries($event_id),
+            'max_entries'  => intval(get_post_meta($event_id, '_tix_raffle_max_entries', true)),
+            'consent_text' => (string) get_post_meta($event_id, '_tix_raffle_consent_text', true),
+            'prizes'       => array_values(array_map(function ($p) {
+                return [
+                    'name'       => (string) ($p['name'] ?? ''),
+                    'qty'        => intval($p['qty'] ?? 1),
+                    'per_winner' => max(1, intval($p['per_winner'] ?? 1)),
+                    'free_ticket'=> ($p['type'] ?? 'text') === 'ticket',
+                ];
+            }, $prizes)),
+            'winners'      => $winners,
+        ];
     }
 
     /* ════════════════════════════════════

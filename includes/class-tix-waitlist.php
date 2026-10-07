@@ -46,57 +46,55 @@ class TIX_Waitlist {
        AJAX: Join Waitlist / Presale Notify
        ════════════════════════════════════════ */
     public static function ajax_join() {
-        // Rate limiting
-        $ip_key = 'tix_wl_' . md5($_SERVER['REMOTE_ADDR'] ?? '');
-        if (get_transient($ip_key)) {
-            wp_send_json_error(['message' => 'Bitte warte einen Moment.'], 429);
-        }
-
         $event_id = intval($_POST['event_id'] ?? 0);
-        $email    = sanitize_email($_POST['email'] ?? '');
-        $type     = in_array($_POST['type'] ?? '', ['presale', 'soldout']) ? $_POST['type'] : 'presale';
-        $nonce    = $_POST['nonce'] ?? '';
-
-        if (!wp_verify_nonce($nonce, 'tix_waitlist_' . $event_id)) {
+        if (!wp_verify_nonce($_POST['nonce'] ?? '', 'tix_waitlist_' . $event_id)) {
             wp_send_json_error(['message' => 'Ungültige Anfrage.'], 403);
         }
+        $r = self::join($event_id, $_POST['email'] ?? '', $_POST['type'] ?? '');
+        if (!$r['ok']) wp_send_json_error(['message' => $r['message']], $r['code'] ?? 200);
+        wp_send_json_success(['message' => $r['message']]);
+    }
 
-        if (!$event_id || !is_email($email)) {
-            wp_send_json_error(['message' => 'Bitte gib eine gültige E-Mail-Adresse ein.']);
-        }
+    /**
+     * Auf die Warteliste setzen (Web per admin-ajax, Apps per REST). type: presale | soldout.
+     * Rate-Limit 5 s je IP.
+     * @return array{ok:bool,message:string,code?:int}
+     */
+    public static function join($event_id, $email, $type) {
+        $ip_key = 'tix_wl_' . md5($_SERVER['REMOTE_ADDR'] ?? '');
+        if (get_transient($ip_key)) return ['ok' => false, 'message' => 'Bitte warte einen Moment.', 'code' => 429];
 
-        // Check event exists
-        if (get_post_type($event_id) !== 'event') {
-            wp_send_json_error(['message' => 'Event nicht gefunden.']);
-        }
+        $event_id = intval($event_id);
+        $email    = sanitize_email((string) $email);
+        $type     = in_array($type, ['presale', 'soldout'], true) ? $type : 'presale';
 
-        // Check waitlist enabled
+        if (!$event_id || !is_email($email)) return ['ok' => false, 'message' => 'Bitte gib eine gültige E-Mail-Adresse ein.'];
+        if (get_post_type($event_id) !== 'event') return ['ok' => false, 'message' => 'Event nicht gefunden.'];
         $s = tix_get_settings();
-        if (empty($s['waitlist_enabled'])) {
-            wp_send_json_error(['message' => 'Die Warteliste ist nicht verfügbar.']);
-        }
+        if (empty($s['waitlist_enabled'])) return ['ok' => false, 'message' => 'Die Warteliste ist nicht verfügbar.'];
 
         global $wpdb;
         $table = $wpdb->prefix . self::TABLE;
-
         // Insert (or ignore duplicate)
         $result = $wpdb->query($wpdb->prepare(
             "INSERT IGNORE INTO $table (event_id, email, type) VALUES (%d, %s, %s)",
             $event_id, $email, $type
         ));
-
-        if ($result === false) {
-            wp_send_json_error(['message' => 'Ein Fehler ist aufgetreten. Bitte versuche es erneut.']);
-        }
+        if ($result === false) return ['ok' => false, 'message' => 'Ein Fehler ist aufgetreten. Bitte versuche es erneut.'];
 
         // Rate limit: 5 seconds
         set_transient($ip_key, 1, 5);
-
-        $msg = $type === 'presale'
+        return ['ok' => true, 'message' => $type === 'presale'
             ? 'Du wirst benachrichtigt, sobald der Vorverkauf startet!'
-            : 'Du stehst auf der Warteliste und wirst benachrichtigt, wenn Tickets verfügbar werden!';
+            : 'Du stehst auf der Warteliste und wirst benachrichtigt, wenn Tickets verfügbar werden!'];
+    }
 
-        wp_send_json_success(['message' => $msg]);
+    /** Warteliste für dieses Event möglich? presale = vor Vorverkaufsstart, soldout = ausverkauft + Event-Schalter. */
+    public static function available($event_id, $type) {
+        $s = function_exists('tix_get_settings') ? tix_get_settings() : [];
+        if (empty($s['waitlist_enabled'])) return false;
+        if ($type === 'presale') return true;
+        return get_post_meta($event_id, '_tix_waitlist_enabled', true) === '1';
     }
 
     /* ════════════════════════════════════════

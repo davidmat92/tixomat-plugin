@@ -35,6 +35,40 @@ class TIX_Public_Events {
             'callback'            => [__CLASS__, 'rest_detail'],
             'permission_callback' => '__return_true',
         ]);
+        // Mitmachen ohne Login (Apps; Web nutzt dieselbe Logik per admin-ajax)
+        register_rest_route(self::NS, '/public/events/(?P<id>\d+)/raffle', [
+            'methods'             => 'POST',
+            'callback'            => [__CLASS__, 'rest_raffle_enter'],
+            'permission_callback' => '__return_true',
+        ]);
+        register_rest_route(self::NS, '/public/events/(?P<id>\d+)/waitlist', [
+            'methods'             => 'POST',
+            'callback'            => [__CLASS__, 'rest_waitlist_join'],
+            'permission_callback' => '__return_true',
+        ]);
+    }
+
+    /** POST /public/events/{id}/raffle  {name, email, consent} */
+    public static function rest_raffle_enter(WP_REST_Request $req) {
+        $id = intval($req['id']);
+        if (!class_exists('TIX_Raffle') || !self::payload($id, false)) return new WP_Error('tix_event', 'Event nicht gefunden.', ['status' => 404]);
+        $r = TIX_Raffle::enter($id, $req->get_param('name'), $req->get_param('email'), (bool) $req->get_param('consent'));
+        if (!$r['ok']) return new WP_Error('tix_raffle', $r['message'], ['status' => 400]);
+        self::flush();
+        return rest_ensure_response(['ok' => true, 'message' => $r['message'], 'entries' => $r['count']]);
+    }
+
+    /** POST /public/events/{id}/waitlist  {email, type: presale|soldout} */
+    public static function rest_waitlist_join(WP_REST_Request $req) {
+        $id = intval($req['id']);
+        if (!class_exists('TIX_Waitlist') || !self::payload($id, false)) return new WP_Error('tix_event', 'Event nicht gefunden.', ['status' => 404]);
+        $type = (string) $req->get_param('type');
+        if (!TIX_Waitlist::available($id, $type === 'soldout' ? 'soldout' : 'presale')) {
+            return new WP_Error('tix_waitlist', 'Die Warteliste ist für dieses Event nicht verfügbar.', ['status' => 400]);
+        }
+        $r = TIX_Waitlist::join($id, $req->get_param('email'), $type);
+        if (!$r['ok']) return new WP_Error('tix_waitlist', $r['message'], ['status' => $r['code'] ?? 400]);
+        return rest_ensure_response(['ok' => true, 'message' => $r['message']]);
     }
 
     public static function flush() {
@@ -161,6 +195,23 @@ class TIX_Public_Events {
             $out['specials']    = self::html($id, '_tix_info_specials');
             $out['extra_info']  = self::html($id, '_tix_info_extra_info');
             $out['gallery']     = self::gallery($id);
+            // Optionale Inhalte (1.38.351, App-Vertrag: nur ergänzt) – leer/null, wenn nicht gepflegt
+            if (class_exists('TIX_Event_Extras')) {
+                $notes = TIX_Event_Extras::notes($id);
+                $out['gallery_items'] = TIX_Event_Extras::gallery($id);
+                $out['faq']           = TIX_Event_Extras::faq($id);
+                $out['timetable']     = TIX_Event_Extras::timetable($id);
+                $out['video']         = TIX_Event_Extras::video($id);
+                $out['dresscode']     = $notes['dresscode'];
+                $out['entry_rules']   = $notes['entry_rules'];
+                $out['ticket_notes']  = $notes['ticket_notes'];
+                $out['charity']       = TIX_Event_Extras::charity($id);
+                $out['series']        = TIX_Event_Extras::series($id);
+                $out['box_office']    = TIX_Event_Extras::box_office($id);
+                $out['external_shop'] = TIX_Event_Extras::external_shop($id);
+                $out['presale']       = TIX_Event_Extras::presale($id);
+            }
+            $out['raffle'] = class_exists('TIX_Raffle') ? TIX_Raffle::public_info($id) : null;
         }
         return $out;
     }
