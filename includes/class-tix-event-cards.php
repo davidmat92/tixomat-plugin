@@ -174,9 +174,10 @@ class TIX_Event_Cards {
         }
         if ($name === '') return '';
 
-        $url  = '';
+        // Ziel: Veranstalter-Seite (Mehr-Veranstalter-Modus), sonst freigegebene Landingpage /v/<slug>/
+        $url  = class_exists('TIX_Organizer_Pages') ? TIX_Organizer_Pages::url($oid) : '';
         $slug = $oid ? (string) get_post_meta($oid, '_tix_org_landing_slug', true) : '';
-        if ($slug !== '' && class_exists('TIX_Organizer_Landing') && TIX_Organizer_Landing::is_approved($oid)) {
+        if ($url === '' && $slug !== '' && class_exists('TIX_Organizer_Landing') && TIX_Organizer_Landing::is_approved($oid)) {
             $url = home_url('/v/' . $slug . '/');
         }
 
@@ -216,7 +217,9 @@ class TIX_Event_Cards {
 
         // {organizer} im Titel = Name des Veranstalters des aktuellen Events
         if (strpos($atts['header_title'], '{organizer}') !== false) {
-            $org_name = (string) get_post_meta(get_the_ID(), '_tix_organizer', true);
+            $org_name = get_post_type(get_the_ID()) === 'tix_organizer'
+                ? (string) get_post_field('post_title', get_the_ID())
+                : (string) get_post_meta(get_the_ID(), '_tix_organizer', true);
             $atts['header_title'] = trim(str_replace('{organizer}', $org_name, $atts['header_title']));
         }
 
@@ -499,8 +502,10 @@ class TIX_Event_Cards {
         }
 
         if (!empty($atts['organizer'])) {
+            // „current“: auf einer Veranstalter-Seite dieser Veranstalter, auf einer Event-Seite dessen Veranstalter
+            $cur = get_the_ID();
             $oid = $atts['organizer'] === 'current'
-                ? intval(get_post_meta(get_the_ID(), '_tix_organizer_id', true))
+                ? (get_post_type($cur) === 'tix_organizer' ? intval($cur) : intval(get_post_meta($cur, '_tix_organizer_id', true)))
                 : intval($atts['organizer']);
             $args['meta_query'][] = ['key' => '_tix_organizer_id', 'value' => $oid ?: -1];
         }
