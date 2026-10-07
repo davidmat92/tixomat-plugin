@@ -2,14 +2,14 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.38.345
+ * Version: 1.38.346
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.38.345');
+define('TIXOMAT_VERSION', '1.38.346');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -843,11 +843,14 @@ if (is_admin() && !wp_doing_ajax()) {
     if (tix_has_wc()) {
         add_action('save_post_event', ['TIX_Sync', 'sync'], 20, 2);
     } else {
-        // Ohne WC: nur Breakdance-Meta speichern, keine WC-Produkte
+        // Ohne WC: nur Breakdance-Meta speichern, keine WC-Produkte – mit den Kategorien,
+        // sonst bleiben Preisfelder (_tix_price_min, „ab …“) leer
         add_action('save_post_event', function($post_id, $post) {
             if (defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) return;
             if (wp_is_post_revision($post_id)) return;
-            if (class_exists('TIX_Sync')) TIX_Sync::save_breakdance_meta($post_id, []);
+            if (!class_exists('TIX_Sync')) return;
+            $cats = get_post_meta($post_id, '_tix_ticket_categories', true);
+            TIX_Sync::save_breakdance_meta($post_id, is_array($cats) ? $cats : []);
         }, 20, 2);
     }
     add_action('save_post_event', ['TIX_Series', 'on_save'], 25, 2);

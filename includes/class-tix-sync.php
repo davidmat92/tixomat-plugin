@@ -332,6 +332,25 @@ class TIX_Sync {
             update_post_meta($post_id, '_tix_doors_display', '');
         }
 
+        // Fertige Anzeigetexte für Seitenvorlagen (evendis-Web, „Auf einen Blick“ / Anfahrt)
+        update_post_meta($post_id, '_tix_doors_time_display', $time_doors ? date('H:i', strtotime($time_doors)) . ' Uhr' : '');
+        update_post_meta($post_id, '_tix_time_start_display', $time_start ? date('H:i', strtotime($time_start)) . ' Uhr' : '');
+        $end_display = '';
+        if ($time_end) {
+            $end_display = date('H:i', strtotime($time_end)) . ' Uhr';
+            if ($date_start && $date_end && $date_end !== $date_start) {
+                $end_display .= ' (' . date_i18n('D', strtotime($date_end)) . ')';
+            }
+        }
+        update_post_meta($post_id, '_tix_time_end_display', $end_display);
+        $age_limit = intval(get_post_meta($post_id, '_tix_info_age_limit', true));
+        update_post_meta($post_id, '_tix_age_display', $age_limit > 0 ? 'ab ' . $age_limit . ' Jahren' : '');
+        $maps_query = implode(', ', array_filter([
+            trim((string) get_post_meta($post_id, '_tix_location', true)),
+            trim((string) get_post_meta($post_id, '_tix_address', true)),
+        ]));
+        update_post_meta($post_id, '_tix_maps_url', $maps_query !== '' ? 'https://www.google.com/maps/search/?api=1&query=' . rawurlencode($maps_query) : '');
+
         // Datum-Display
         if ($date_start) {
             $ds = date_i18n('d.m.Y', strtotime($date_start));
@@ -581,6 +600,7 @@ class TIX_Sync {
             update_post_meta($post_id, '_tix_price_min', $min);
             update_post_meta($post_id, '_tix_price_max', $max);
             update_post_meta($post_id, '_tix_price_min_formatted', self::fmt_price($min));
+            update_post_meta($post_id, '_tix_price_from_display', $min > 0 ? number_format($min, 2, ',', '.') . ' €' : ''); // „ab“-Wert ohne MwSt.-Zusatz
             update_post_meta($post_id, '_tix_price_max_formatted', self::fmt_price($max));
 
             if ($min === $max && $min > 0) {
@@ -599,6 +619,7 @@ class TIX_Sync {
             update_post_meta($post_id, '_tix_price_min', 0);
             update_post_meta($post_id, '_tix_price_max', 0);
             update_post_meta($post_id, '_tix_price_min_formatted', '');
+            update_post_meta($post_id, '_tix_price_from_display', '');
             update_post_meta($post_id, '_tix_price_max_formatted', '');
             update_post_meta($post_id, '_tix_price_range', '');
             update_post_meta($post_id, '_tix_price_range_full', '');
@@ -838,6 +859,7 @@ class TIX_Sync {
             update_post_meta($post_id, '_tix_price_min', $min);
             update_post_meta($post_id, '_tix_price_max', $max);
             update_post_meta($post_id, '_tix_price_min_formatted', self::fmt_price($min));
+            update_post_meta($post_id, '_tix_price_from_display', $min > 0 ? number_format($min, 2, ',', '.') . ' €' : ''); // „ab“-Wert ohne MwSt.-Zusatz
             update_post_meta($post_id, '_tix_price_max_formatted', self::fmt_price($max));
 
             if ($min === $max && $min > 0) {
@@ -856,6 +878,7 @@ class TIX_Sync {
             update_post_meta($post_id, '_tix_price_min', 0);
             update_post_meta($post_id, '_tix_price_max', 0);
             update_post_meta($post_id, '_tix_price_min_formatted', '');
+            update_post_meta($post_id, '_tix_price_from_display', '');
             update_post_meta($post_id, '_tix_price_max_formatted', '');
             update_post_meta($post_id, '_tix_price_range', '');
             update_post_meta($post_id, '_tix_price_range_full', '');

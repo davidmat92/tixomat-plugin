@@ -12,6 +12,7 @@ class TIX_Event_Cards {
     public static function init() {
         add_shortcode('tix_events', [__CLASS__, 'render']);
         add_shortcode('tix_search', [__CLASS__, 'render_search']);
+        add_shortcode('tix_event_organizer', [__CLASS__, 'render_event_organizer']);
 
         // Automatische /events/ Archive-Seite
         // Auf `wp` Hook entscheiden wir, WELCHEN template_include-Filter wir nutzen:
@@ -154,6 +155,42 @@ class TIX_Event_Cards {
     }
 
     /**
+     * Shortcode: [tix_event_organizer] – „von <Veranstalter>“ mit Logo für Event-Vorlagen.
+     * Verlinkt auf die Veranstalter-Seite nur, wenn sie freigegeben ist (/v/<slug>/).
+     */
+    public static function render_event_organizer($atts) {
+        $atts = shortcode_atts(['prefix' => 'von'], $atts);
+        $event_id = get_the_ID();
+        if (!$event_id) return '';
+
+        $oid  = intval(get_post_meta($event_id, '_tix_organizer_id', true));
+        $name = (string) get_post_meta($event_id, '_tix_organizer', true);
+        $logo = '';
+        if (class_exists('TIX_Public_Platform')) {
+            $ref  = TIX_Public_Platform::organizer_ref($oid, $name);
+            $name = $ref['name'] !== '' ? $ref['name'] : $name;
+            $logo = $ref['logo'];
+            $oid  = intval($ref['id']);
+        }
+        if ($name === '') return '';
+
+        $url  = '';
+        $slug = $oid ? (string) get_post_meta($oid, '_tix_org_landing_slug', true) : '';
+        if ($slug !== '' && class_exists('TIX_Organizer_Landing') && TIX_Organizer_Landing::is_approved($oid)) {
+            $url = home_url('/v/' . $slug . '/');
+        }
+
+        $initial = function_exists('mb_substr') ? mb_strtoupper(mb_substr($name, 0, 1)) : strtoupper(substr($name, 0, 1));
+        $inner = '<span class="tix-evorg__logo">'
+            . ($logo ? '<img src="' . esc_url($logo) . '" alt="" loading="lazy">' : esc_html($initial))
+            . '</span><span class="tix-evorg__name">' . esc_html(trim($atts['prefix'] . ' ' . $name)) . '</span>';
+
+        if ($url === '') return '<span class="tix-evorg">' . $inner . '</span>';
+        return '<a class="tix-evorg" href="' . esc_url($url) . '">' . $inner
+            . '<svg class="tix-evorg__chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></a>';
+    }
+
+    /**
      * Shortcode: [tix_events]
      */
     public static function render($atts) {
@@ -169,11 +206,21 @@ class TIX_Event_Cards {
             'show_header'  => '0',
             'header_label' => 'Empfehlungen',
             'header_title' => 'Beliebt in deiner Nähe',
+            'organizer'    => '',  // Veranstalter-ID oder „current“ (Veranstalter des aktuellen Events)
+            'exclude'      => '',  // „current“ = aktuelles Event weglassen
+            'hide_empty'   => '0', // 1 = ohne Treffer nichts ausgeben (auch keinen Kopf)
         ], $atts);
 
-        self::enqueue($atts['mode']);
-
         $events = self::query_events($atts);
+        if ($atts['hide_empty'] === '1' && empty($events)) return '';
+
+        // {organizer} im Titel = Name des Veranstalters des aktuellen Events
+        if (strpos($atts['header_title'], '{organizer}') !== false) {
+            $org_name = (string) get_post_meta(get_the_ID(), '_tix_organizer', true);
+            $atts['header_title'] = trim(str_replace('{organizer}', $org_name, $atts['header_title']));
+        }
+
+        self::enqueue($atts['mode']);
         $show_heart = !empty($s['tix_card_show_heart']);
         $show_badges = !empty($s['tix_card_show_badges']);
         $saved = self::get_saved_events();
@@ -449,6 +496,17 @@ class TIX_Event_Cards {
 
         if (!empty($atts['featured'])) {
             $args['meta_query'][] = ['key' => '_tix_is_featured', 'value' => '1'];
+        }
+
+        if (!empty($atts['organizer'])) {
+            $oid = $atts['organizer'] === 'current'
+                ? intval(get_post_meta(get_the_ID(), '_tix_organizer_id', true))
+                : intval($atts['organizer']);
+            $args['meta_query'][] = ['key' => '_tix_organizer_id', 'value' => $oid ?: -1];
+        }
+
+        if (($atts['exclude'] ?? '') === 'current' && get_the_ID()) {
+            $args['post__not_in'] = [get_the_ID()];
         }
 
         $results = get_posts($args);

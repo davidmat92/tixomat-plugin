@@ -343,7 +343,8 @@ class TIX_Register_Event {
 
         // Breakdance-Meta generieren (Sync)
         if (class_exists('TIX_Sync')) {
-            TIX_Sync::save_breakdance_meta($event_id, []);
+            $cats = get_post_meta($event_id, '_tix_ticket_categories', true);
+            TIX_Sync::save_breakdance_meta($event_id, is_array($cats) ? $cats : []);
         }
 
         // ── 4. Auto-Login ──
