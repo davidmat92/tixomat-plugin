@@ -13,6 +13,7 @@ class TIX_Event_Cards {
         add_shortcode('tix_events', [__CLASS__, 'render']);
         add_shortcode('tix_search', [__CLASS__, 'render_search']);
         add_shortcode('tix_event_organizer', [__CLASS__, 'render_event_organizer']);
+        add_shortcode('tix_section', [__CLASS__, 'render_section']);
 
         // Automatische /events/ Archive-Seite
         // Auf `wp` Hook entscheiden wir, WELCHEN template_include-Filter wir nutzen:
@@ -152,6 +153,21 @@ class TIX_Event_Cards {
 
         \Breakdance\Render\getWordPressHtmlOutputWithHeaderAndFooterDependenciesAddedAndDisplayIt($our_tpl);
         return null;
+    }
+
+    /**
+     * Shortcode: [tix_section title="Programm" class="…" title_class="…"]…[/tix_section]
+     * Rahmen für Seitenvorlagen: Überschrift + Inhalt, aber NUR wenn der Inhalt (z. B. [tix_timetable],
+     * [tix_faq]) etwas ausgibt. Breakdance kann leere Listen-Felder nicht als Bedingung prüfen.
+     */
+    public static function render_section($atts, $content = '') {
+        $atts = shortcode_atts(['title' => '', 'class' => '', 'title_class' => ''], $atts);
+        $inner = trim(do_shortcode((string) $content));
+        if ($inner === '' || trim(wp_strip_all_tags($inner)) === '' && stripos($inner, '<img') === false) return '';
+        $title = $atts['title'] !== ''
+            ? '<h2 class="tix-sec__title ' . esc_attr($atts['title_class']) . '">' . esc_html($atts['title']) . '</h2>'
+            : '';
+        return '<div class="tix-sec ' . esc_attr($atts['class']) . '">' . $title . $inner . '</div>';
     }
 
     /**
