@@ -208,21 +208,10 @@ class TIX_Native_Checkout {
         }
         if (!is_array($cart)) return ['items' => [], 'coupon' => null];
 
-        // Preise live nachziehen — falls sich Phase / Sale-Preis nach Hinzufügen geändert hat
-        // (Early-Bird läuft ab, neue Phase startet, Sale aktiviert etc.)
-        if (!empty($cart['items']) && class_exists('TIX_Dynamic_Pricing')) {
-            foreach ($cart['items'] as &$it) {
-                if (empty($it['event_id']) || !isset($it['cat_index'])) continue;
-                // Locked-Price (z.B. Quote/Vorbestellung mit Sonderpreis): NICHT überschreiben
-                if (!empty($it['locked_price'])) continue;
-                // Bundle/Combo/Special: feste Preise, nicht nachjustieren
-                if (!empty($it['meta']['bundle']) || !empty($it['meta']['combo']) || !empty($it['meta']['special'])) continue;
-                $dyn = TIX_Dynamic_Pricing::get_dynamic_price(intval($it['event_id']), intval($it['cat_index']));
-                if ($dyn !== null) {
-                    $it['price'] = floatval($dyn);
-                }
-            }
-            unset($it);
+        // Preise live nachziehen (Phase, Sale-Preis, Paket, Special, Mengenrabatt) — gleicher
+        // Preisdienst wie die App-Kasse; feste Preise (locked_price) bleiben unverändert
+        if (!empty($cart['items']) && class_exists('TIX_Cart_Pricing')) {
+            $cart['items'] = TIX_Cart_Pricing::reprice($cart['items']);
         }
         return $cart;
     }
@@ -423,6 +412,11 @@ class TIX_Native_Checkout {
 
             if (!$event_id) continue;
 
+            // Vorverkauf noch nicht gestartet / beendet → nicht in den Warenkorb
+            if (class_exists('TIX_Cart_Pricing') && ($e = TIX_Cart_Pricing::presale_error($event_id))) {
+                wp_send_json_error(['message' => $e->get_error_message()]);
+            }
+
             // Ticket-Kategorie validieren
             $categories = get_post_meta($event_id, '_tix_ticket_categories', true);
             if (!is_array($categories) || empty($categories)) continue;
@@ -465,7 +459,8 @@ class TIX_Native_Checkout {
             // Prüfe ob schon im Cart → Menge erhöhen
             $found = false;
             foreach ($cart['items'] as &$ci) {
-                if ($ci['event_id'] === $event_id && $ci['cat_index'] === $cat_index && empty($ci['meta']['special']) && empty($ci['meta']['gift'])) {
+                if ($ci['event_id'] === $event_id && $ci['cat_index'] === $cat_index && empty($ci['meta']['special']) && empty($ci['meta']['gift'])
+                    && empty($ci['meta']['bundle']) === empty($item['bundle'])) {
                     $ci['qty'] += $qty;
                     $found = true;
                     break;
@@ -575,6 +570,9 @@ class TIX_Native_Checkout {
      * Mutiert $cart by-reference.
      */
     private static function apply_auto_coupon_if_eligible(array &$cart) {
+        if (!empty($cart['items']) && class_exists('TIX_Cart_Pricing')) {
+            $cart['items'] = TIX_Cart_Pricing::reprice($cart['items']);
+        }
         // Nur wenn noch kein Coupon im Cart
         if (!empty($cart['coupon']) && !empty($cart['coupon']['code'])) return;
 
@@ -729,6 +727,10 @@ class TIX_Native_Checkout {
      * Wird nach jeder Cart-Mutation aufgerufen (Add, Update-Qty, Remove).
      */
     private static function recalc_coupon_discount(array &$cart) {
+        // Stückpreise zuerst neu berechnen (Mengenrabatt hängt von der Menge ab)
+        if (!empty($cart['items']) && class_exists('TIX_Cart_Pricing')) {
+            $cart['items'] = TIX_Cart_Pricing::reprice($cart['items']);
+        }
         if (empty($cart['coupon']) || empty($cart['coupon']['code'])) return;
 
         // Cart-Total ohne Coupon (= Summe aller Items) + Quantity (für per_ticket_*)
@@ -1176,6 +1178,9 @@ class TIX_Native_Checkout {
                                     <div class="tix-co-item-info">
                                         <div class="tix-co-item-name"><?php echo esc_html($item['event_title']); ?></div>
                                         <div style="font-size:0.85rem;opacity:0.7;"><?php echo esc_html($item['name']); ?></div>
+                                        <?php if (!empty($item['meta']['group_discount'])): ?>
+                                        <div class="tix-co-item-gd" style="font-size:0.8rem;color:#16a34a;">Mengenrabatt −<?php echo esc_html(rtrim(rtrim(number_format(floatval($item['meta']['group_discount']), 1, ',', ''), '0'), ',')); ?>&nbsp;%</div>
+                                        <?php endif; ?>
                                     </div>
                                     <div class="tix-co-item-qty">
                                         <button type="button" class="tix-co-qty-btn tix-co-qty-minus" data-index="<?php echo $i; ?>" data-delta="-1">−</button>
@@ -1581,58 +1586,15 @@ class TIX_Native_Checkout {
         }
         $total = self::cart_total();
 
-        // Server-side price validation: use dynamic pricing (phases, sale prices)
+        // Serverseitige Preise: Phase, Sale-Preis, Paket, Special, Mengenrabatt (TIX_Cart_Pricing).
+        // Feste Preise (locked_price) bleiben unverändert.
+        if (class_exists('TIX_Cart_Pricing')) {
+            $cart['items'] = TIX_Cart_Pricing::reprice($cart['items']);
+        }
         $validated_total = 0;
-        foreach ($cart['items'] as &$cart_item) {
-            $event_id  = intval($cart_item['event_id'] ?? 0);
-            $cat_index = intval($cart_item['cat_index'] ?? 0);
-
-            // Locked-Price (Vorbestellung/Quote mit Sonderpreis) → übernehmen, nicht überschreiben
-            if (!empty($cart_item['locked_price'])) {
-                $validated_total += floatval($cart_item['price']) * intval($cart_item['qty']);
-                continue;
-            }
-
-            // Bundle-Item: Basis-/Dynamic-Preis holen, dann mit bundle_pay/bundle_buy Verhältnis rabattieren
-            if (!empty($cart_item['meta']['bundle'])) {
-                $cats = get_post_meta($event_id, '_tix_ticket_categories', true);
-                $cat  = (is_array($cats) && isset($cats[$cat_index])) ? $cats[$cat_index] : null;
-                if ($cat) {
-                    $base = class_exists('TIX_Dynamic_Pricing')
-                        ? (TIX_Dynamic_Pricing::get_dynamic_price($event_id, $cat_index) ?? floatval($cat['price'] ?? 0))
-                        : floatval($cat['price'] ?? 0);
-                    $bbuy = intval($cat['bundle_buy'] ?? 0);
-                    $bpay = intval($cat['bundle_pay'] ?? 0);
-                    if ($bbuy > 0 && $bpay > 0 && $bpay < $bbuy) {
-                        // UNROUNDED — sonst Rundungsfehler beim Total (siehe Kommentar in add_to_cart)
-                        $cart_item['price'] = $base * $bpay / $bbuy;
-                    } else {
-                        $cart_item['price'] = $base; // Bundle in Kategorie entfernt → Fallback
-                    }
-                }
-                $validated_total += floatval($cart_item['price']) * intval($cart_item['qty']);
-                continue;
-            }
-
-            // Use dynamic pricing if available (respects phases + sale prices)
-            if (class_exists('TIX_Dynamic_Pricing')) {
-                $dynamic_price = TIX_Dynamic_Pricing::get_dynamic_price($event_id, $cat_index);
-                if ($dynamic_price !== null) {
-                    $cart_item['price'] = $dynamic_price;
-                    $validated_total += $dynamic_price * intval($cart_item['qty']);
-                    continue;
-                }
-            }
-
-            // Fallback: read base price from ticket categories
-            $categories = get_post_meta($event_id, '_tix_ticket_categories', true);
-            if (is_array($categories) && isset($categories[$cat_index])) {
-                $actual_price = floatval($categories[$cat_index]['price'] ?? 0);
-                $cart_item['price'] = $actual_price;
-            }
+        foreach ($cart['items'] as $cart_item) {
             $validated_total += floatval($cart_item['price']) * intval($cart_item['qty']);
         }
-        unset($cart_item);
         $total = round($validated_total, 2);
 
         // Stock validation — prevent overselling
@@ -1653,6 +1615,13 @@ class TIX_Native_Checkout {
             if (class_exists('TIX_Org_Approval') && ($e = TIX_Org_Approval::sale_error($event_id))) {
                 wp_send_json_error(['message' => $e->get_error_message()]);
             }
+            // Vorverkauf (Start/Ende) auch beim Bezahlen prüfen — der Warenkorb kann älter sein
+            // (feste Preise wie Angebote/Vorbestellungen sind davon ausgenommen)
+            if (empty($cart_item['locked_price']) && class_exists('TIX_Cart_Pricing') && ($e = TIX_Cart_Pricing::presale_error($event_id))) {
+                wp_send_json_error(['message' => $e->get_error_message()]);
+            }
+            // Specials (cat_index -1) haben keinen Kategorie-Slot; ihr Bestand wird beim Hinzufügen geprüft
+            if ($cat_index < 0) continue;
 
             $categories = get_post_meta($event_id, '_tix_ticket_categories', true);
             if (!is_array($categories) || !isset($categories[$cat_index])) {

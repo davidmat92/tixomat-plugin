@@ -220,6 +220,8 @@ class TIX_App_Checkout {
         if (get_post_meta($event_id, '_tix_tickets_enabled', true) !== '1') return false;
         // Mehr-Veranstalter-Modus: Veranstalter noch nicht freigegeben bzw. gesperrt
         if (class_exists('TIX_Org_Approval') && !TIX_Org_Approval::event_allowed($event_id)) return false;
+        // Vorverkauf noch nicht gestartet / beendet (wie die Ticketauswahl der Website)
+        if (class_exists('TIX_Cart_Pricing') && TIX_Cart_Pricing::presale_error($event_id)) return false;
         $status = get_post_meta($event_id, '_tix_status', true);
         return !in_array($status, ['cancelled', 'postponed', 'past', 'sold_out', 'presale_closed'], true);
     }
@@ -278,6 +280,10 @@ class TIX_App_Checkout {
     }
 
     private static function price_for($event_id, $index, array $cat) {
+        if (class_exists('TIX_Cart_Pricing')) {
+            $p = TIX_Cart_Pricing::category_price($event_id, $index);
+            if ($p !== null) return $p;
+        }
         if (class_exists('TIX_Dynamic_Pricing')) {
             $dyn = TIX_Dynamic_Pricing::get_dynamic_price(intval($event_id), intval($index));
             if ($dyn !== null) return floatval($dyn);
@@ -300,6 +306,8 @@ class TIX_App_Checkout {
             $price = self::price_for($event_id, $i, $cat);
             $base  = floatval($cat['price'] ?? 0);
             $stock = isset($cat['stock']) ? intval($cat['stock']) : -1; // -1 = unbegrenzt
+            $phase  = class_exists('TIX_Cart_Pricing') ? TIX_Cart_Pricing::active_phase($event_id, $i) : null;
+            $bundle = (class_exists('TIX_Cart_Pricing') && empty($cat['gift_card'])) ? TIX_Cart_Pricing::bundle($event_id, $i) : null;
             $out[] = [
                 'index'              => intval($i),
                 'name'               => (string) ($cat['name'] ?? 'Ticket'),
@@ -312,6 +320,19 @@ class TIX_App_Checkout {
                 'max_per_order'      => $stock >= 0 ? min(self::MAX_QTY, $stock) : self::MAX_QTY,
                 'gift_card'          => !empty($cat['gift_card']),
                 'gift_free_amount'   => !empty($cat['gift_free_amount']),
+                // Preisphase (z. B. Early Bird): Name, gültig bis (Y-m-d, einschließlich)
+                'phase'              => $phase ? [
+                    'name'  => (string) ($phase['name'] ?? ''),
+                    'until' => (string) ($phase['until'] ?? ''),
+                ] : null,
+                // Paket „kaufe X, zahle Y“: Bestellung mit items[] {index, bundle: true, qty: Anzahl Pakete}
+                'bundle'             => $bundle ? [
+                    'buy'           => $bundle['buy'],
+                    'pay'           => $bundle['pay'],
+                    'name'          => $bundle['label'] !== '' ? $bundle['label'] : $bundle['buy'] . 'er-Paket ' . (string) ($cat['name'] ?? 'Ticket'),
+                    'package_price' => round($price * $bundle['pay'], 2),
+                    'max_packages'  => $stock >= 0 ? min(self::MAX_QTY, intdiv($stock, $bundle['buy'])) : self::MAX_QTY,
+                ] : null,
             ];
         }
         return $out;
@@ -325,6 +346,9 @@ class TIX_App_Checkout {
         if (class_exists('TIX_Org_Approval') && ($e = TIX_Org_Approval::sale_error($event_id))) {
             return $e;
         }
+        if (class_exists('TIX_Cart_Pricing') && ($e = TIX_Cart_Pricing::presale_error($event_id))) {
+            return $e;
+        }
         if (!self::sale_open($event_id)) {
             return self::error('tix_sale_closed', 'Für dieses Event ist aktuell kein Online-Verkauf möglich.');
         }
@@ -336,6 +360,7 @@ class TIX_App_Checkout {
         $cart = ['items' => [], 'coupon' => null];
         $merged = [];   // normale Tickets: je Kategorie eine Zeile
         $gifts  = [];   // Gutscheine: nie mergen (verschiedene Beträge)
+        $bundles = [];  // Pakete: je Kategorie eine Zeile, qty = Anzahl Pakete
         foreach ($items as $it) {
             if (!is_array($it)) continue;
             $idx = intval($it['index'] ?? -1);
@@ -344,6 +369,10 @@ class TIX_App_Checkout {
             $cat = (isset($cats[$idx]) && is_array($cats[$idx])) ? $cats[$idx] : null;
             if ($cat && !empty($cat['gift_card'])) {
                 $gifts[] = ['index' => $idx, 'qty' => $qty, 'custom_amount' => round(floatval($it['custom_amount'] ?? 0), 2)];
+                continue;
+            }
+            if (!empty($it['bundle'])) {
+                $bundles[$idx] = ($bundles[$idx] ?? 0) + $qty;
                 continue;
             }
             $merged[$idx] = ($merged[$idx] ?? 0) + $qty;
@@ -409,8 +438,39 @@ class TIX_App_Checkout {
                 'meta'        => [],
             ];
         }
+        foreach ($bundles as $idx => $packages) {
+            $cat = (isset($cats[$idx]) && is_array($cats[$idx])) ? $cats[$idx] : null;
+            $b   = ($cat && self::is_public_category($cat) && class_exists('TIX_Cart_Pricing')) ? TIX_Cart_Pricing::bundle($event_id, $idx) : null;
+            if (!$b) {
+                return self::error('tix_bundle', 'Dieses Paket ist nicht verfügbar.');
+            }
+            $name    = $b['label'] !== '' ? $b['label'] : $b['buy'] . 'er-Paket ' . (string) ($cat['name'] ?? 'Ticket');
+            $tickets = $packages * $b['buy'];
+            $stock   = isset($cat['stock']) ? intval($cat['stock']) : -1;
+            // Einzeltickets derselben Kategorie teilen sich den Bestand
+            $taken   = $merged[$idx] ?? 0;
+            if ($stock >= 0 && $tickets + $taken > $stock) {
+                return self::error('tix_stock', sprintf('%s: nur noch %d Tickets verfügbar.', $name, max(0, $stock - $taken)));
+            }
+            if ($packages > self::MAX_QTY) {
+                return self::error('tix_max_qty', sprintf('Maximal %d Pakete pro Bestellung.', self::MAX_QTY));
+            }
+            $cart['items'][] = [
+                'event_id'    => intval($event_id),
+                'cat_index'   => intval($idx),
+                'name'        => sanitize_text_field($name),
+                'event_title' => $event_title,
+                'price'       => self::price_for($event_id, $idx, $cat) * $b['pay'] / $b['buy'],
+                'qty'         => $tickets,
+                'meta'        => ['bundle' => 1],
+            ];
+        }
         if (empty($cart['items'])) {
             return self::error('tix_empty', 'Bitte mindestens ein Ticket wählen.');
+        }
+        // Preise zentral: Phase, Paket, Mengenrabatt (gleich wie Web-Kasse)
+        if (class_exists('TIX_Cart_Pricing')) {
+            $cart['items'] = TIX_Cart_Pricing::reprice($cart['items']);
         }
         return $cart;
     }
@@ -433,13 +493,23 @@ class TIX_App_Checkout {
             $line = round(floatval($it['price']) * intval($it['qty']), 2);
             $subtotal += $line;
             $count    += intval($it['qty']);
-            $lines[] = [
+            $meta = (array) ($it['meta'] ?? []);
+            $row  = [
                 'index'      => intval($it['cat_index']),
                 'name'       => (string) $it['name'],
                 'qty'        => intval($it['qty']),
                 'unit_price' => round(floatval($it['price']), 2),
                 'total'      => $line,
+                // Preis vor Mengenrabatt und Rabatt in Prozent (null = kein Mengenrabatt)
+                'list_price'     => isset($meta['list_price']) ? round(floatval($meta['list_price']), 2) : null,
+                'group_discount' => isset($meta['group_discount']) ? floatval($meta['group_discount']) : null,
+                'bundle'         => null,
             ];
+            if (!empty($meta['bundle']) && class_exists('TIX_Cart_Pricing')
+                && ($b = TIX_Cart_Pricing::bundle(intval($it['event_id']), intval($it['cat_index'])))) {
+                $row['bundle'] = ['buy' => $b['buy'], 'pay' => $b['pay'], 'packages' => intdiv(intval($it['qty']), $b['buy'])];
+            }
+            $lines[] = $row;
         }
         $subtotal = round($subtotal, 2);
         $discount = !empty($cart['coupon']['discount']) ? round(floatval($cart['coupon']['discount']), 2) : 0.0;
@@ -471,6 +541,8 @@ class TIX_App_Checkout {
             'lines'         => $lines,
             'count'         => $count,
             'subtotal'      => $subtotal,
+            // Ersparnis durch Mengenrabatt (bereits in subtotal eingerechnet, nur Anzeige)
+            'group_discount' => class_exists('TIX_Cart_Pricing') ? TIX_Cart_Pricing::group_savings($cart['items']) : 0.0,
             'discount'      => $discount,
             'fee'           => $fee,
             'fee_label'     => $fee_label,
@@ -773,6 +845,10 @@ class TIX_App_Checkout {
             'sale_open'       => self::sale_open($event_id),
             'syndicated'      => self::syndicated_info($event_id),
             'categories'      => self::categories($event_id),
+            // Mengenrabatt-Staffeln {tiers[{min_qty, percent}], combine_bundle, combine_combo, combine_phase} oder null
+            'group_discount'  => class_exists('TIX_Cart_Pricing') ? TIX_Cart_Pricing::group_discount($event_id) : null,
+            // Vorverkauf {starts_at, started, waitlist_presale, waitlist_soldout}
+            'presale'         => class_exists('TIX_Event_Extras') ? TIX_Event_Extras::presale($event_id) : null,
             'totals'          => null,
             'payment_methods' => [],
             'coupon'          => null,
