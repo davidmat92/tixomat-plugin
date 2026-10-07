@@ -467,7 +467,7 @@
         showProgress([
             { icon: '👤', label: 'Konto wird erstellt', duration: 1500 },
             { icon: '🏢', label: 'Veranstalter einrichten', duration: 1500 },
-            { icon: '🎉', label: 'Event wird veröffentlicht', duration: 2500 },
+            { icon: '🎉', label: 'Event wird angelegt', duration: 2500 },
             { icon: '🚀', label: 'Fast fertig…', duration: 2000 }
         ]);
 
@@ -480,13 +480,17 @@
             password:         pw,
             password_confirm: pw2,
             organizer_name:   $form.find('[name="organizer_name"]').val(),
+            accept_contract:  $form.find('[name="accept_contract"]:checked').val() || '',
             event_data:       JSON.stringify(eventData)
         }, function(r) {
             if (r.success && r.data) {
                 // Success!
                 finishProgress();
                 $('#tix-re-success-msg').text(r.data.message || '');
-                $('#tix-re-link-event').attr('href', r.data.event_url || '#');
+                if (r.data.heading) $('#tix-re-success-heading').text(r.data.heading);
+                // Konto wird geprüft: Event ist noch nicht öffentlich
+                if (r.data.event_url) $('#tix-re-link-event').attr('href', r.data.event_url);
+                else $('#tix-re-link-event').hide();
                 $('#tix-re-link-dashboard').attr('href', r.data.dashboard_url || '#');
 
                 goToStep(4);

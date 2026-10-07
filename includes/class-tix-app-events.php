@@ -204,6 +204,8 @@ class TIX_App_Events {
             'excerpt'            => $post ? (string) $post->post_excerpt : '',
             'published'          => $post ? $post->post_status === 'publish' : false,
             'post_status'        => $post ? (string) $post->post_status : 'draft',
+            // Veröffentlichen gewünscht, wartet auf die Freigabe des Veranstalters (TIX_Org_Approval)
+            'publish_held'       => $post ? get_post_meta($post->ID, '_tix_publish_held', true) !== '' : false,
             'image'              => $thumb_id ? (wp_get_attachment_image_url($thumb_id, 'large') ?: '') : '',
             'image_id'           => $thumb_id,
             'date_start'         => $m('_tix_date_start'),
@@ -327,7 +329,13 @@ class TIX_App_Events {
             $post_args['post_title'] = $title;
         }
         if (isset($body['excerpt']))   $post_args['post_excerpt'] = sanitize_textarea_field($body['excerpt']);
-        if (isset($body['published'])) $post_args['post_status']  = !empty($body['published']) ? 'publish' : 'draft';
+        if (isset($body['published'])) {
+            // Zurückgehaltenes Event (Veranstalter wartet auf Freigabe, TIX_Org_Approval): die App zeigt
+            // es als nicht veröffentlicht – `published=false` lässt den Veröffentlichungswunsch stehen.
+            $held = !$is_new && empty($body['published']) && get_post_status($post_id) === 'pending'
+                && get_post_meta($post_id, '_tix_publish_held', true) !== '';
+            if (!$held) $post_args['post_status'] = !empty($body['published']) ? 'publish' : 'draft';
+        }
 
         // ── Termin ──
         $date_start = self::date($body['date_start'] ?? null);

@@ -47,6 +47,11 @@ class TIX_Settlement_Admin {
         global $wpdb;
         $h = [];
         if (!TIX_Payout_Details::complete($s->organizer_id)) $h[] = 'Auszahlungsdaten fehlen';
+        if (class_exists('TIX_Org_Approval')) {
+            $ast = TIX_Org_Approval::status($s->organizer_id);
+            if ($ast !== 'approved') $h[] = 'Veranstalter: ' . TIX_Org_Approval::label($ast);
+            if (!TIX_Org_Approval::terms_accepted($s->organizer_id)) $h[] = 'Vermittlungsvertrag nicht zugestimmt';
+        }
         if (floatval($s->gross) > 0) {
             $q = floatval($s->refunds) / floatval($s->gross) * 100;
             if ($q >= floatval(TIX_Settlement::opt('settlement_refund_alert'))) $h[] = sprintf('Erstattungsquote %s %%', number_format($q, 0, ',', '.'));

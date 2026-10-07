@@ -65,7 +65,10 @@ class TIX_Public_Platform {
         $oid = intval($oid);
         if (!$oid) return null;
         $p = get_post($oid);
-        return ($p && $p->post_type === 'tix_organizer' && $p->post_status === 'publish') ? $p : null;
+        if (!$p || $p->post_type !== 'tix_organizer' || $p->post_status !== 'publish') return null;
+        // Noch nicht freigegebene/gesperrte Veranstalter sind nicht öffentlich
+        if (class_exists('TIX_Org_Approval') && !TIX_Org_Approval::is_public($oid)) return null;
+        return $p;
     }
 
     public static function slug($oid) {

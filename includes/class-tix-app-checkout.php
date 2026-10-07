@@ -218,6 +218,8 @@ class TIX_App_Checkout {
         // Geteilte Events verkauft die Quelle, nie die eigene Kasse
         if (self::is_syndicated($event_id)) return false;
         if (get_post_meta($event_id, '_tix_tickets_enabled', true) !== '1') return false;
+        // Mehr-Veranstalter-Modus: Veranstalter noch nicht freigegeben bzw. gesperrt
+        if (class_exists('TIX_Org_Approval') && !TIX_Org_Approval::event_allowed($event_id)) return false;
         $status = get_post_meta($event_id, '_tix_status', true);
         return !in_array($status, ['cancelled', 'postponed', 'past', 'sold_out', 'presale_closed'], true);
     }
@@ -319,6 +321,9 @@ class TIX_App_Checkout {
     private static function build_cart($event_id, array $items) {
         if (self::is_syndicated($event_id)) {
             return self::syndicated_error($event_id);
+        }
+        if (class_exists('TIX_Org_Approval') && ($e = TIX_Org_Approval::sale_error($event_id))) {
+            return $e;
         }
         if (!self::sale_open($event_id)) {
             return self::error('tix_sale_closed', 'Für dieses Event ist aktuell kein Online-Verkauf möglich.');

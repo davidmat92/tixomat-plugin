@@ -356,7 +356,7 @@ class TIX_Organizer_Admin {
         global $pagenow;
 
         // Auszahlungen (Mehr-Veranstalter-Modus): Formulare/PDF über admin-post.php, Prüfung im Handler
-        if ($pagenow === 'admin-post.php' && in_array($_REQUEST['action'] ?? '', ['tix_org_payout', 'tix_org_settlement_pdf'], true)) return;
+        if ($pagenow === 'admin-post.php' && in_array($_REQUEST['action'] ?? '', ['tix_org_payout', 'tix_org_settlement_pdf', 'tix_org_account'], true)) return;
         $allowed_pages = [
             'index.php', 'edit.php', 'post.php', 'post-new.php',
             'edit-tags.php', 'admin.php', 'admin-ajax.php', 'profile.php',
@@ -374,6 +374,7 @@ class TIX_Organizer_Admin {
             $allowed_admin_pages = [
                 'tix-organizer-dashboard',
                 'tix-organizer-guestlist',
+                'tix-org-account', // Freigabe-Status + Pflichtangaben (Mehr-Veranstalter-Modus)
             ];
 
             // Rollen-basiert erweitern

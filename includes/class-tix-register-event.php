@@ -58,6 +58,9 @@ class TIX_Register_Event {
         ]);
 
         $dark = $atts['mode'] === 'dark';
+        // Mehr-Veranstalter-Modus (evendis): neue Veranstalter werden erst geprüft
+        $review = class_exists('TIX_Org_Approval') && TIX_Org_Approval::multi();
+        $terms  = $review ? TIX_Org_Approval::terms() : ['version' => ''];
 
         ob_start();
         ?>
@@ -169,11 +172,19 @@ class TIX_Register_Event {
                     </div>
                     <div class="tix-re-legal">
                         <label><input type="checkbox" name="accept_terms" required> Ich akzeptiere die Nutzungsbedingungen und Datenschutzerklärung.</label>
+                        <?php if ($terms['version'] !== '') : ?>
+                        <label style="display:block;margin-top:8px;"><input type="checkbox" name="accept_contract" value="<?php echo esc_attr($terms['version']); ?>" required>
+                            Ich stimme dem <?php if ($terms['url']) : ?><a href="<?php echo esc_url($terms['url']); ?>" target="_blank" rel="noopener"><?php echo esc_html($terms['title']); ?></a><?php else : echo esc_html($terms['title']); endif; ?>
+                            (Version <?php echo esc_html($terms['version']); ?>) zu.</label>
+                        <?php endif; ?>
+                        <?php if ($review) : ?>
+                        <p style="margin:10px 0 0;font-size:13px;opacity:.75;">Wir prüfen jedes neue Veranstalter-Konto. Dein Event geht online, sobald wir dich freigeschaltet haben.</p>
+                        <?php endif; ?>
                     </div>
                     <div class="tix-re-nav">
                         <button type="button" class="tix-re-btn-back" data-goto="2">← Zurück</button>
                         <button type="submit" class="tix-re-btn-publish" id="tix-re-publish-btn">
-                            <span class="tix-re-btn-text">Event veröffentlichen 🚀</span>
+                            <span class="tix-re-btn-text"><?php echo $review ? 'Registrieren &amp; zur Prüfung einreichen' : 'Event veröffentlichen 🚀'; ?></span>
                             <span class="tix-re-btn-loading" style="display:none;">Wird erstellt…</span>
                         </button>
                     </div>
@@ -186,7 +197,7 @@ class TIX_Register_Event {
                 <div class="tix-re-success">
                     <canvas id="tix-re-fireworks" width="400" height="300" style="position:absolute;top:0;left:0;right:0;pointer-events:none;"></canvas>
                     <div class="tix-re-success-check">🎉</div>
-                    <h2>Geschafft! Dein Event ist live.</h2>
+                    <h2 id="tix-re-success-heading"><?php echo $review ? 'Geschafft! Wir prüfen dein Konto.' : 'Geschafft! Dein Event ist live.'; ?></h2>
                     <p id="tix-re-success-msg"></p>
                     <div class="tix-re-success-links">
                         <a href="#" id="tix-re-link-event" class="tix-re-btn-primary" target="_blank">Event ansehen →</a>
@@ -221,6 +232,14 @@ class TIX_Register_Event {
         if (!$organizer_name) wp_send_json_error(['message' => 'Bitte einen Veranstalternamen angeben.']);
         if (email_exists($email)) wp_send_json_error(['message' => 'Diese E-Mail-Adresse ist bereits registriert.']);
 
+        // Mehr-Veranstalter-Modus: Zustimmung zum Vermittlungsvertrag (aktuelle Version) ist Pflicht
+        $review = class_exists('TIX_Org_Approval') && TIX_Org_Approval::multi();
+        $terms  = $review ? TIX_Org_Approval::terms() : ['version' => ''];
+        $contract = sanitize_text_field(wp_unslash($_POST['accept_contract'] ?? ''));
+        if ($terms['version'] !== '' && $contract !== $terms['version']) {
+            wp_send_json_error(['message' => 'Bitte stimme dem ' . $terms['title'] . ' zu (die Seite wurde ggf. aktualisiert – bitte neu laden).']);
+        }
+
         // ── 1. User erstellen ──
         $username = sanitize_user(strtolower($first_name . '.' . $last_name));
         $base_username = $username;
@@ -250,6 +269,11 @@ class TIX_Register_Event {
 
         if ($org_id && !is_wp_error($org_id)) {
             update_post_meta($org_id, '_tix_org_user_id', $user_id);
+            // Vor dem Event: wartet auf Freigabe (Event wird dann zurückgehalten statt veröffentlicht)
+            if ($review) {
+                TIX_Org_Approval::set_status($org_id, 'pending', ['by' => $user_id, 'note' => 'Registrierung', 'notify' => false]);
+                if ($terms['version'] !== '') TIX_Org_Approval::accept_terms($org_id, $user_id, $terms['version']);
+            }
         }
 
         // ── 3. Event erstellen ──
@@ -357,6 +381,19 @@ class TIX_Register_Event {
         // Dashboard-URL
         $slug = tix_get_settings('organizer_slug');
         $dash_url = $slug ? home_url('/' . $slug . '/') : admin_url('admin.php?page=tix-organizer-dashboard');
+
+        if ($review && $org_id && !is_wp_error($org_id)) {
+            TIX_Org_Approval::notify_organizer($org_id, 'registered');
+            TIX_Org_Approval::notify_admin_new($org_id);
+            wp_send_json_success([
+                'event_id'      => $event_id,
+                'event_url'     => '',
+                'dashboard_url' => admin_url('admin.php?page=' . TIX_Org_Approval::ORG_SLUG),
+                'review'        => true,
+                'heading'       => 'Geschafft! Wir prüfen dein Konto.',
+                'message'       => 'Dein Event "' . $event_title . '" ist angelegt und geht online, sobald wir dein Konto freigeschaltet haben. Ergänze bis dahin bitte deine Angaben (Rechnungsadresse, Steuer, Auszahlung, Telefon).',
+            ]);
+        }
 
         wp_send_json_success([
             'event_id'      => $event_id,
