@@ -216,6 +216,9 @@ class TIX_Public_Events {
             $out['group_discount'] = class_exists('TIX_Cart_Pricing') ? TIX_Cart_Pricing::group_discount($id) : null;
             $out['specials_offer'] = class_exists('TIX_App_Checkout') ? TIX_App_Checkout::specials($id) : [];
             $out['combos']         = class_exists('TIX_App_Checkout') ? TIX_App_Checkout::combos($id) : [];
+            // Tischreservierung: true → Kategorien über /public/events/{id}/tables, Buchung per /customer/table-reservations
+            $tr = get_post_meta($id, '_tix_table_reservation', true);
+            $out['tables'] = class_exists('TIX_Table_Reservation') && is_array($tr) && !empty($tr['enabled']);
             // Saalplan: true → Plätze über /public/events/{id}/seatmap wählen
             $out['seatmap'] = class_exists('TIX_Seatmap') && TIX_Seatmap::event_seatmap($id) > 0;
         }

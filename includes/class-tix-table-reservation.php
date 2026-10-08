@@ -40,6 +40,13 @@ class TIX_Table_Reservation {
         add_action('woocommerce_order_status_cancelled',  [__CLASS__, 'on_order_cancelled']);
         add_action('woocommerce_order_status_refunded',   [__CLASS__, 'on_order_cancelled']);
 
+        // Native Kasse: Zahlung bestätigt / abgebrochen
+        add_action('tix_order_completed', [__CLASS__, 'on_native_paid']);
+        add_action('tix_order_cancelled', [__CLASS__, 'on_native_cancelled']);
+
+        // App-Schnittstelle
+        add_action('rest_api_init', [__CLASS__, 'register_routes']);
+
         // ── Modal Checkout Integration ──
         // AJAX: Tischkategorien für Modal-Checkout
         add_action('wp_ajax_tix_mc_table_categories',        [__CLASS__, 'ajax_mc_table_categories']);
@@ -335,18 +342,23 @@ class TIX_Table_Reservation {
 
     public static function handle_event_detail() {
         check_ajax_referer('tix_table_res', 'nonce');
+        $r = self::event_detail_data(intval($_POST['event_id'] ?? 0));
+        if (is_wp_error($r)) wp_send_json_error(['message' => $r->get_error_message()]);
+        wp_send_json_success($r);
+    }
 
-        $event_id = intval($_POST['event_id'] ?? 0);
-        if (!$event_id) wp_send_json_error(['message' => 'Event fehlt.']);
+    /** Tischkategorien eines Events mit Verfügbarkeit (Web + App). WP_Error, wenn nicht buchbar. */
+    public static function event_detail_data($event_id) {
+        if (!$event_id) return new WP_Error('tix_event', 'Event fehlt.', ['status' => 400]);
 
         $event = get_post($event_id);
-        if (!$event || $event->post_type !== 'event') {
-            wp_send_json_error(['message' => 'Event nicht gefunden.']);
+        if (!$event || $event->post_type !== 'event' || $event->post_status !== 'publish') {
+            return new WP_Error('tix_event', 'Event nicht gefunden.', ['status' => 404]);
         }
 
         $config = get_post_meta($event_id, '_tix_table_reservation', true);
         if (empty($config['enabled'])) {
-            wp_send_json_error(['message' => 'Tischreservierung nicht aktiviert.']);
+            return new WP_Error('tix_tables_off', 'Tischreservierung nicht aktiviert.', ['status' => 404]);
         }
 
         $date       = get_post_meta($event_id, '_tix_date_start', true);
@@ -384,7 +396,7 @@ class TIX_Table_Reservation {
             $reserved = 0;
             if ($wpdb->get_var("SHOW TABLES LIKE '$table'") === $table) {
                 $reserved = (int) $wpdb->get_var($wpdb->prepare(
-                    "SELECT COUNT(*) FROM $table WHERE event_id = %d AND category_index = %d AND status IN ('pending','confirmed')",
+                    "SELECT COUNT(*) FROM $table WHERE event_id = %d AND category_index = %d AND " . self::active_sql(),
                     $event_id, $idx
                 ));
             } else {
@@ -403,7 +415,7 @@ class TIX_Table_Reservation {
                     $t_reserved = 0;
                     if ($wpdb->get_var("SHOW TABLES LIKE '$table'") === $table) {
                         $t_reserved = (int) $wpdb->get_var($wpdb->prepare(
-                            "SELECT COUNT(*) FROM $table WHERE event_id = %d AND category_index = %d AND table_name = %s AND status IN ('pending','confirmed')",
+                            "SELECT COUNT(*) FROM $table WHERE event_id = %d AND category_index = %d AND table_name = %s AND " . self::active_sql(),
                             $event_id, $idx, $t_name
                         ));
                     }
@@ -446,7 +458,7 @@ class TIX_Table_Reservation {
             $date_formatted = $weekdays[date('w', $ts)] . ', ' . date('j', $ts) . '. ' . $months[date('n', $ts)] . ' ' . date('Y', $ts);
         }
 
-        wp_send_json_success([
+        return [
             'event' => [
                 'id'             => $event_id,
                 'title'          => $event->post_title,
@@ -464,7 +476,7 @@ class TIX_Table_Reservation {
             'deposit_type'  => $deposit_type,
             'deposit_value' => $deposit_value,
             'info_text'     => $config['info_text'] ?? '',
-        ]);
+        ];
     }
 
     // ──────────────────────────────────────────
@@ -473,37 +485,48 @@ class TIX_Table_Reservation {
 
     public static function handle_submit() {
         check_ajax_referer('tix_table_res', 'nonce');
+        $r = self::submit(wp_unslash($_POST));
+        if (is_wp_error($r)) wp_send_json_error(['message' => $r->get_error_message()]);
+        wp_send_json_success($r);
+    }
 
-        $event_id    = intval($_POST['event_id'] ?? 0);
-        $cat_index   = intval($_POST['category_index'] ?? 0);
-        $name        = sanitize_text_field($_POST['customer_name'] ?? '');
-        $email       = sanitize_email($_POST['customer_email'] ?? '');
-        $phone       = sanitize_text_field($_POST['customer_phone'] ?? '');
-        $guests      = intval($_POST['guest_count'] ?? 1);
-        $comments    = sanitize_textarea_field($_POST['comments'] ?? '');
-        $table_name  = sanitize_text_field($_POST['table_name'] ?? '');
+    /**
+     * Reservierung anlegen (Web + App). Bei Anzahlung/Vollzahlung ohne WooCommerce:
+     * native Bestellung + Zahlungslink; bestätigt wird erst nach Zahlung (on_native_paid).
+     * Liefert {status: confirmed|payment_required, checkout_url?, order_id?, reservation} oder WP_Error.
+     */
+    public static function submit(array $in) {
+        $event_id    = intval($in['event_id'] ?? 0);
+        $cat_index   = intval($in['category_index'] ?? 0);
+        $name        = sanitize_text_field($in['customer_name'] ?? '');
+        $email       = sanitize_email($in['customer_email'] ?? '');
+        $phone       = sanitize_text_field($in['customer_phone'] ?? '');
+        $guests      = intval($in['guest_count'] ?? 1);
+        $comments    = sanitize_textarea_field($in['comments'] ?? '');
+        $table_name  = sanitize_text_field($in['table_name'] ?? '');
+        $pay_method  = sanitize_text_field($in['payment_method'] ?? '');
 
         // Validierung
         if (!$event_id || !$name || !$email) {
-            wp_send_json_error(['message' => 'Bitte fülle alle Pflichtfelder aus.']);
+            return new WP_Error('tix_table', 'Bitte fülle alle Pflichtfelder aus.', ['status' => 400]);
         }
         if (!is_email($email)) {
-            wp_send_json_error(['message' => 'Bitte gib eine gültige E-Mail-Adresse ein.']);
+            return new WP_Error('tix_table', 'Bitte gib eine gültige E-Mail-Adresse ein.', ['status' => 400]);
         }
 
         $event = get_post($event_id);
         if (!$event || $event->post_type !== 'event') {
-            wp_send_json_error(['message' => 'Event nicht gefunden.']);
+            return new WP_Error('tix_table', 'Event nicht gefunden.', ['status' => 400]);
         }
 
         $config = get_post_meta($event_id, '_tix_table_reservation', true);
         if (empty($config['enabled'])) {
-            wp_send_json_error(['message' => 'Tischreservierung nicht aktiviert.']);
+            return new WP_Error('tix_table', 'Tischreservierung nicht aktiviert.', ['status' => 400]);
         }
 
         $categories = $config['categories'] ?? [];
         if (!isset($categories[$cat_index])) {
-            wp_send_json_error(['message' => 'Tischkategorie nicht gefunden.']);
+            return new WP_Error('tix_table', 'Tischkategorie nicht gefunden.', ['status' => 400]);
         }
         $cat = $categories[$cat_index];
         $cat_name = $cat['name'] ?? '';
@@ -512,7 +535,7 @@ class TIX_Table_Reservation {
         $min_guests = intval($cat['min_guests'] ?? 1);
         $max_guests = intval($cat['max_guests'] ?? 10);
         if ($guests < $min_guests || $guests > $max_guests) {
-            wp_send_json_error(['message' => "Gästeanzahl muss zwischen $min_guests und $max_guests liegen."]);
+            return new WP_Error('tix_table', "Gästeanzahl muss zwischen $min_guests und $max_guests liegen.", ['status' => 400]);
         }
 
         // Verfügbarkeit prüfen (Race-Condition-sicher)
@@ -526,12 +549,12 @@ class TIX_Table_Reservation {
 
         $quantity = intval($cat['quantity'] ?? 0);
         $reserved = (int) $wpdb->get_var($wpdb->prepare(
-            "SELECT COUNT(*) FROM $table WHERE event_id = %d AND category_index = %d AND status IN ('pending','confirmed')",
+            "SELECT COUNT(*) FROM $table WHERE event_id = %d AND category_index = %d AND " . self::active_sql(),
             $event_id, $cat_index
         ));
 
         if ($reserved >= $quantity) {
-            wp_send_json_error(['message' => 'Diese Tischkategorie ist leider ausgebucht.']);
+            return new WP_Error('tix_table', 'Diese Tischkategorie ist leider ausgebucht.', ['status' => 400]);
         }
 
         // Zahlungsmodus
@@ -570,15 +593,15 @@ class TIX_Table_Reservation {
                 }
             }
             if (!$valid_table) {
-                wp_send_json_error(['message' => 'Ungültiger Tisch gewählt.']);
+                return new WP_Error('tix_table', 'Ungültiger Tisch gewählt.', ['status' => 400]);
             }
             // Check if this specific table is already reserved
             $t_reserved = (int) $wpdb->get_var($wpdb->prepare(
-                "SELECT COUNT(*) FROM $table WHERE event_id = %d AND category_index = %d AND table_name = %s AND status IN ('pending','confirmed')",
+                "SELECT COUNT(*) FROM $table WHERE event_id = %d AND category_index = %d AND table_name = %s AND " . self::active_sql(),
                 $event_id, $cat_index, $table_name
             ));
             if ($t_reserved > 0) {
-                wp_send_json_error(['message' => 'Dieser Tisch ist leider bereits reserviert.']);
+                return new WP_Error('tix_table', 'Dieser Tisch ist leider bereits reserviert.', ['status' => 400]);
             }
         }
 
@@ -603,7 +626,7 @@ class TIX_Table_Reservation {
         ], ['%d','%d','%s','%s','%s','%s','%s','%s','%d','%s','%s','%f','%f','%s','%s','%s']);
 
         if (!$inserted) {
-            wp_send_json_error(['message' => 'Datenbankfehler beim Speichern der Reservierung.']);
+            return new WP_Error('tix_table', 'Datenbankfehler beim Speichern der Reservierung.', ['status' => 400]);
         }
 
         $reservation_id = $wpdb->insert_id;
@@ -612,7 +635,7 @@ class TIX_Table_Reservation {
         if ($payment_mode !== 'on_site' && $amount_paid > 0 && class_exists('WooCommerce')) {
             $order = wc_create_order();
             if (is_wp_error($order)) {
-                wp_send_json_error(['message' => 'Bestellung konnte nicht erstellt werden.']);
+                return new WP_Error('tix_table', 'Bestellung konnte nicht erstellt werden.', ['status' => 400]);
             }
 
             // Fee statt Produkt (einfacher, kein WC-Produkt nötig)
@@ -657,7 +680,7 @@ class TIX_Table_Reservation {
             // Checkout-URL
             $checkout_url = $order->get_checkout_payment_url();
 
-            wp_send_json_success([
+            return [
                 'status'       => 'payment_required',
                 'checkout_url' => $checkout_url,
                 'order_id'     => $order_id,
@@ -669,14 +692,35 @@ class TIX_Table_Reservation {
                     'total'      => $amount_total,
                     'to_pay'     => $amount_paid,
                 ],
-            ]);
-            return;
+            ];
+        }
+
+        // Ohne WooCommerce: native Bestellung, Zahlung über den eingestellten Zahlungsanbieter
+        if ($payment_mode !== 'on_site' && $amount_paid > 0) {
+            $pay = self::native_payment($reservation_id, $event, $cat_name, $amount_paid, $payment_mode, $name, $email, $phone, $pay_method);
+            if (is_wp_error($pay)) {
+                $wpdb->update($table, ['status' => 'cancelled', 'cancelled_at' => current_time('mysql')], ['id' => $reservation_id], ['%s', '%s'], ['%d']);
+                return $pay;
+            }
+            return [
+                'status'       => 'payment_required',
+                'checkout_url' => $pay['redirect'],
+                'order_id'     => $pay['order_id'],
+                'reservation'  => [
+                    'id'       => $reservation_id,
+                    'event'    => $event->post_title,
+                    'category' => $cat_name,
+                    'guests'   => $guests,
+                    'total'    => $amount_total,
+                    'to_pay'   => $amount_paid,
+                ],
+            ];
         }
 
         // Bei Vor-Ort: Bestätigungs-E-Mail senden
         self::send_confirmation_email($reservation_id);
 
-        wp_send_json_success([
+        return [
             'status'      => 'confirmed',
             'reservation' => [
                 'id'       => $reservation_id,
@@ -689,7 +733,7 @@ class TIX_Table_Reservation {
                 'total'    => $amount_total,
                 'payment'  => $payment_mode,
             ],
-        ]);
+        ];
     }
 
     // ──────────────────────────────────────────
@@ -730,6 +774,133 @@ class TIX_Table_Reservation {
         }
 
         wp_send_json_success(['message' => 'Reservierung wurde storniert.']);
+    }
+
+    // ──────────────────────────────────────────
+    // Native Kasse (ohne WooCommerce)
+    // ──────────────────────────────────────────
+
+    /** Offene Zahlungen blockieren den Tisch höchstens so lange (Minuten) */
+    const PENDING_MIN = 60;
+
+    /** SQL-Bedingung „belegt“: bestätigt oder Zahlung seit < PENDING_MIN offen */
+    private static function active_sql() {
+        $cutoff = date('Y-m-d H:i:s', current_time('timestamp') - self::PENDING_MIN * 60);
+        return "(status = 'confirmed' OR (status = 'pending' AND created_at > '" . $cutoff . "'))";
+    }
+
+    /**
+     * Native Bestellung für Anzahlung/Vollzahlung anlegen und Zahlung starten.
+     * @return array|WP_Error {order_id, redirect}
+     */
+    public static function native_payment($reservation_id, $event, $cat_name, $amount, $payment_mode, $name, $email, $phone, $method = '') {
+        if (!class_exists('TIX_Native_Checkout')) return new WP_Error('tix_table_pay', 'Online-Zahlung ist nicht verfügbar.', ['status' => 500]);
+        $methods = class_exists('TIX_App_Checkout') ? TIX_App_Checkout::online_methods() : [];
+        if (!$methods) return new WP_Error('tix_table_pay', 'Für Anzahlungen ist kein Online-Zahlungsanbieter eingerichtet.', ['status' => 500]);
+        if ($method === '' || !in_array($method, $methods, true)) $method = $methods[0];
+
+        $label = 'Tischreservierung: ' . $cat_name . ($payment_mode === 'deposit' ? ' (Anzahlung)' : '');
+        $item  = [
+            'event_id'     => intval($event->ID),
+            'cat_index'    => -1,
+            'name'         => $label,
+            'event_title'  => $event->post_title,
+            'price'        => round(floatval($amount), 2),
+            'qty'          => 1,
+            'locked_price' => 1, // fester Betrag, kein Mengenrabatt/Gutschein
+            'meta'         => ['table_reservation' => intval($reservation_id)],
+        ];
+        $parts = explode(' ', trim($name), 2);
+        // create_order liest Gutschein/Gebühren aus dem Warenkorb → kurz einen eigenen Warenkorb setzen
+        $previous = TIX_Native_Checkout::get_cart();
+        TIX_Native_Checkout::save_cart(['items' => [$item], 'coupon' => null]);
+        $gateway = $method;
+        $sub     = '';
+        if (strpos($method, ':') !== false) list($gateway, $sub) = explode(':', $method, 2);
+        $order_id = TIX_Native_Checkout::create_order([
+            'billing_first_name' => $parts[0],
+            'billing_last_name'  => $parts[1] ?? '',
+            'billing_email'      => $email,
+            'billing_phone'      => $phone,
+            'payment_method'     => $gateway,
+            'total'              => $item['price'],
+            'items'              => [$item],
+        ]);
+        if (!empty($previous['items'])) TIX_Native_Checkout::save_cart($previous); else TIX_Native_Checkout::clear_cart();
+        if (!$order_id) return new WP_Error('tix_table_pay', 'Bestellung konnte nicht erstellt werden.', ['status' => 500]);
+
+        global $wpdb;
+        $wpdb->update($wpdb->prefix . self::TABLE, ['order_id' => $order_id], ['id' => $reservation_id], ['%d'], ['%d']);
+        update_option('_tix_order_source_' . $order_id, 'table_reservation', false);
+
+        if ($gateway === 'mollie')      $result = TIX_Gateway_Mollie::process($order_id, $sub);
+        elseif ($gateway === 'stripe')  $result = TIX_Gateway_Stripe::process($order_id, $sub);
+        elseif ($gateway === 'paypal')  $result = TIX_Gateway_PayPal::process($order_id);
+        else                            $result = ['error' => 'Unbekannte Zahlungsart.'];
+        if (isset($result['error']) || empty($result['redirect'])) {
+            TIX_Native_Checkout::update_order_status($order_id, 'failed', 'table_reservation');
+            return new WP_Error('tix_table_pay', (string) ($result['error'] ?? 'Zahlung konnte nicht gestartet werden.'), ['status' => 502]);
+        }
+        return ['order_id' => $order_id, 'redirect' => (string) $result['redirect']];
+    }
+
+    /** Native Zahlung eingegangen → Reservierung bestätigen + Mail */
+    public static function on_native_paid($order_id) {
+        global $wpdb;
+        $table = $wpdb->prefix . self::TABLE;
+        if ($wpdb->get_var("SHOW TABLES LIKE '$table'") !== $table) return;
+        $res = $wpdb->get_row($wpdb->prepare("SELECT * FROM $table WHERE order_id = %d", intval($order_id)));
+        if (!$res || $res->status === 'confirmed') return;
+        if ($res->status === 'cancelled' && class_exists('TIX_Order_Admin') && method_exists('TIX_Order_Admin', 'add_note')) {
+            // Zahlung kam nach Ablauf/Storno: Reservierung wieder aktivieren und Admin informieren
+            TIX_Order_Admin::add_note(intval($order_id), '⚠️ Zahlung für eine bereits stornierte Tischreservierung eingegangen – Reservierung wieder aktiviert, bitte Tischbelegung prüfen.', 'system');
+        }
+        $wpdb->update($table, ['status' => 'confirmed', 'confirmed_at' => current_time('mysql'), 'cancelled_at' => null], ['id' => $res->id]);
+        self::send_confirmation_email($res->id);
+    }
+
+    /** Native Zahlung abgebrochen/fehlgeschlagen → Reservierung freigeben */
+    public static function on_native_cancelled($order_id) {
+        global $wpdb;
+        $table = $wpdb->prefix . self::TABLE;
+        if ($wpdb->get_var("SHOW TABLES LIKE '$table'") !== $table) return;
+        $wpdb->query($wpdb->prepare(
+            "UPDATE $table SET status = 'cancelled', cancelled_at = %s WHERE order_id = %d AND status <> 'cancelled'",
+            current_time('mysql'), intval($order_id)
+        ));
+    }
+
+    // ──────────────────────────────────────────
+    // REST (App)
+    // ──────────────────────────────────────────
+
+    public static function register_routes() {
+        register_rest_route('tixomat/v1', '/public/events/(?P<id>\d+)/tables', [
+            'methods' => 'GET', 'permission_callback' => '__return_true',
+            'callback' => function (WP_REST_Request $req) {
+                $r = self::event_detail_data(intval($req['id']));
+                return is_wp_error($r) ? $r : rest_ensure_response(['ok' => true] + $r);
+            },
+        ]);
+        register_rest_route('tixomat/v1', '/customer/table-reservations', [
+            'methods' => 'POST', 'permission_callback' => '__return_true',
+            'callback' => function (WP_REST_Request $req) {
+                $ip  = sanitize_text_field($_SERVER['REMOTE_ADDR'] ?? '');
+                $key = 'tix_rl_table_' . md5($ip);
+                $n   = intval(get_transient($key)) + 1;
+                set_transient($key, $n, 300);
+                if ($n > 10) return new WP_Error('tix_rate_limit', 'Zu viele Anfragen. Bitte kurz warten.', ['status' => 429]);
+                $in = (array) $req->get_json_params() + (array) $req->get_body_params();
+                // Konto: Name/E-Mail aus dem Konto, wenn nicht angegeben
+                if (is_user_logged_in()) {
+                    $u = wp_get_current_user();
+                    if (empty($in['customer_email'])) $in['customer_email'] = $u->user_email;
+                    if (empty($in['customer_name']))  $in['customer_name']  = trim($u->first_name . ' ' . $u->last_name) ?: $u->display_name;
+                }
+                $r = self::submit($in);
+                return is_wp_error($r) ? $r : rest_ensure_response(['ok' => true] + $r);
+            },
+        ]);
     }
 
     // ──────────────────────────────────────────
@@ -802,7 +973,7 @@ class TIX_Table_Reservation {
         foreach ($categories as $i => $cat) {
             $qty  = intval($cat['quantity'] ?? 0);
             $used = (int) $wpdb->get_var($wpdb->prepare(
-                "SELECT COUNT(*) FROM $table WHERE event_id = %d AND category_index = %d AND status IN ('pending','confirmed')",
+                "SELECT COUNT(*) FROM $table WHERE event_id = %d AND category_index = %d AND " . self::active_sql(),
                 $event_id, $i
             ));
 
@@ -875,7 +1046,7 @@ class TIX_Table_Reservation {
         }
         $qty  = intval($cat['quantity'] ?? 0);
         $used = (int) $wpdb->get_var($wpdb->prepare(
-            "SELECT COUNT(*) FROM $table WHERE event_id = %d AND category_index = %d AND status IN ('pending','confirmed')",
+            "SELECT COUNT(*) FROM $table WHERE event_id = %d AND category_index = %d AND " . self::active_sql(),
             $event_id, $cat_index
         ));
         if ($used >= $qty) {
@@ -956,7 +1127,7 @@ class TIX_Table_Reservation {
 
         $qty  = intval($categories[$cat_index]['quantity'] ?? 0);
         $used = (int) $wpdb->get_var($wpdb->prepare(
-            "SELECT COUNT(*) FROM $table WHERE event_id = %d AND category_index = %d AND status IN ('pending','confirmed')",
+            "SELECT COUNT(*) FROM $table WHERE event_id = %d AND category_index = %d AND " . self::active_sql(),
             $event_id, $cat_index
         ));
         if ($used >= $qty) return; // Ausgebucht – still kein Fehler, Order geht trotzdem durch
@@ -1050,7 +1221,7 @@ class TIX_Table_Reservation {
         foreach ($config['categories'] as $i => $cat) {
             $qty  = intval($cat['quantity'] ?? 0);
             $used = (int) $wpdb->get_var($wpdb->prepare(
-                "SELECT COUNT(*) FROM $table WHERE event_id = %d AND category_index = %d AND status IN ('pending','confirmed')",
+                "SELECT COUNT(*) FROM $table WHERE event_id = %d AND category_index = %d AND " . self::active_sql(),
                 $event_id, $i
             ));
             $avail   = max(0, $qty - $used);
@@ -1316,7 +1487,7 @@ class TIX_Table_Reservation {
         }
         $qty  = intval($cat['quantity'] ?? 0);
         $used = (int) $wpdb->get_var($wpdb->prepare(
-            "SELECT COUNT(*) FROM $table WHERE event_id = %d AND category_index = %d AND status IN ('pending','confirmed')",
+            "SELECT COUNT(*) FROM $table WHERE event_id = %d AND category_index = %d AND " . self::active_sql(),
             $event_id, $cat_index
         ));
         if ($used >= $qty) {

@@ -679,6 +679,13 @@ class TIX_App_Checkout {
     }
 
     /** Zahlarten wie im Web-Checkout (Reihenfolge und Filter aus den Einstellungen). */
+    /** IDs der Online-Zahlarten (ohne Vorkasse) – z. B. für Anzahlungen von Tischreservierungen */
+    public static function online_methods() {
+        return array_values(array_filter(array_column(self::payment_methods(false), 'id'), function ($id) {
+            return $id !== 'bank' && $id !== 'free';
+        }));
+    }
+
     private static function payment_methods($is_free) {
         if ($is_free) {
             return [['id' => 'free', 'title' => 'Kostenlos', 'icon' => '']];

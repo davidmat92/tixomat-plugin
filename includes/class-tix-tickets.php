@@ -6921,6 +6921,8 @@ body{margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',
 
             $qty = intval($item->quantity);
             $meta = $item->meta ? json_decode($item->meta, true) : [];
+            // Anzahlung für eine Tischreservierung ist kein Eintrittsticket
+            if (!empty($meta['table_reservation'])) continue;
             $seat_ids   = $meta['seats'] ?? [];
             $seatmap_id = intval($meta['seatmap_id'] ?? 0);
             $has_seats  = is_array($seat_ids) && !empty($seat_ids);
