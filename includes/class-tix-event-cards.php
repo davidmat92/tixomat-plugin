@@ -322,8 +322,8 @@ class TIX_Event_Cards {
 
         $is_past = $date_start && strtotime($date_start) < current_time('timestamp');
         $is_soldout = ($total_tickets > 0 && $remaining <= 0) || $is_past;
-        $is_free = ($price_min <= 0)
-            || (get_post_meta($id, '_tix_free_entry', true) === '1' && get_post_meta($id, '_tix_tickets_enabled', true) !== '1');
+        // „Eintritt frei“ nur mit Schalter oder bei 0-€-Tickets (ohne Haken = keine Angabe)
+        $is_free = class_exists('TIX_Event_Extras') ? TIX_Event_Extras::shows_free_entry($id, $price_min) : false;
         $is_featured = get_post_meta($id, '_tix_is_featured', true);
         $is_today = $date_start && date('Y-m-d', strtotime($date_start)) === current_time('Y-m-d');
         $is_syndicated = get_post_meta($id, '_tix_syndicated', true);

@@ -181,6 +181,17 @@ class TIX_Event_Extras {
         return ['note' => (string) get_post_meta($id, '_tix_free_entry_note', true)];
     }
 
+    /**
+     * Darf die Website „Eintritt frei“ zeigen? Nur mit Schalter „Freier Eintritt“ oder bei
+     * Online-Tickets für 0 € – nie geraten aus „kein Preis“ (Events ohne Haken = keine Angabe).
+     */
+    public static function shows_free_entry($id, $price_min) {
+        if (self::free_entry($id)) return true;
+        if (get_post_meta($id, '_tix_tickets_enabled', true) !== '1') return false;
+        $cats = get_post_meta($id, '_tix_ticket_categories', true);
+        return is_array($cats) && !empty($cats) && floatval($price_min) <= 0;
+    }
+
     public static function free_entry_body_class($classes) {
         if (is_singular('event') && self::free_entry(get_queried_object_id())) $classes[] = 'tix-free-entry';
         return $classes;

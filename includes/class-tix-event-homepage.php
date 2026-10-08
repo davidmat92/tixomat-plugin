@@ -981,7 +981,8 @@ class TIX_Event_Homepage {
         $sold = intval(get_post_meta($id, '_tix_sold_total', true));
         if (is_array($cats)) foreach ($cats as $c) $total += intval($c['qty'] ?? 0);
         $is_soldout = ($total > 0 && ($total - $sold) <= 0) || $is_past;
-        $is_free = ($price_min <= 0);
+        // „Eintritt frei“ nur mit Schalter oder bei 0-€-Tickets (ohne Haken = keine Angabe)
+        $is_free = class_exists('TIX_Event_Extras') ? TIX_Event_Extras::shows_free_entry($id, $price_min) : false;
 
         $pin = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>';
 

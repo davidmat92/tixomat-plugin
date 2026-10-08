@@ -1462,6 +1462,11 @@ class TIX_Metabox {
             <?php self::tip('Website und Apps zeigen „Eintritt frei“ statt Tickets oder Preis. Schließt „Nur Abendkasse“ aus. Für kostenlose Tickets mit Anmeldung stattdessen Tickets verkaufen und den Preis auf 0 € setzen.'); ?>
         </div>
 
+        <p class="description" id="tix-entry-none-hint" style="margin:4px 0 12px;<?php echo ($enabled === '1' || $box_office_only === '1' || $free_entry === '1') ? 'display:none;' : ''; ?>">
+            Kein Haken gesetzt = keine Angabe zum Eintritt: Website und Apps zeigen weder Preis noch „Eintritt frei“.
+            Ist der Eintritt frei, bitte „Freier Eintritt“ anhaken.
+        </p>
+
         <div id="tix-free-entry-panel" <?php echo ($free_entry !== '1' || $enabled === '1') ? 'style="display:none;"' : ''; ?>>
             <div style="margin:12px 0 16px;">
                 <label style="font-size:12px;font-weight:600;color:#64748b;display:block;margin-bottom:4px;">Hinweis (optional)</label>
@@ -1478,9 +1483,15 @@ class TIX_Metabox {
             var $freeWrap = $('#tix-free-entry-wrap');
             var $freeEntry = $('#tix-free-entry');
             var $freePanel = $('#tix-free-entry-panel');
+            var $noneHint = $('#tix-entry-none-hint');
             var $boxOfficeWrap = $('#tix-box-office-wrap');
             var $boxOfficeOnly = $('#tix-box-office-only');
             var $boxOfficePanel = $('#tix-box-office-panel');
+
+            // Hinweis „kein Haken = keine Angabe“ nur, solange nichts angehakt ist
+            function updateNoneHint() {
+                $noneHint.toggle(!$ticketsEnabled.is(':checked') && !$boxOfficeOnly.is(':checked') && !$freeEntry.is(':checked'));
+            }
 
             function toggleBoxOffice() {
                 if ($ticketsEnabled.is(':checked')) {
@@ -1488,7 +1499,9 @@ class TIX_Metabox {
                     $boxOfficePanel.hide();
                     $freeWrap.hide();
                     $freePanel.hide();
+                    $noneHint.hide();
                 } else {
+                    updateNoneHint();
                     $boxOfficeWrap.show();
                     $boxOfficePanel.toggle($boxOfficeOnly.is(':checked'));
                     $freeWrap.show();
@@ -1502,11 +1515,13 @@ class TIX_Metabox {
                 $boxOfficePanel.toggle(on);
                 // Abendkasse und freier Eintritt schließen sich aus
                 if (on && $freeEntry.is(':checked')) { $freeEntry.prop('checked', false); $freePanel.hide(); }
+                updateNoneHint();
             });
             $freeEntry.on('change', function() {
                 var on = $(this).is(':checked');
                 $freePanel.toggle(on);
                 if (on && $boxOfficeOnly.is(':checked')) { $boxOfficeOnly.prop('checked', false); $boxOfficePanel.hide(); }
+                updateNoneHint();
             });
         });
         </script>
