@@ -242,6 +242,8 @@ class TIX_Ticket_Transfer {
                 fd.append('action','tix_transfer_save');
                 fd.append('nonce',nonce);
                 fd.append('ticket_ids',JSON.stringify(ticketIds));
+                fd.append('order_id',$('tix-tf-order').value.trim());
+                fd.append('order_email',$('tix-tf-email').value.trim());
                 fd.append('first_name',first);
                 fd.append('last_name',last);
                 fd.append('email',email);
@@ -279,6 +281,7 @@ class TIX_Ticket_Transfer {
      */
     public static function ajax_lookup() {
         check_ajax_referer('tix_ticket_transfer', 'nonce');
+        if (class_exists('TIX_Rate_Limit')) TIX_Rate_Limit::check('ticket_transfer', 20, 300, 'ajax');
 
         $order_id = intval($_POST['order_id'] ?? 0);
         $email    = sanitize_email($_POST['email'] ?? '');
@@ -349,6 +352,7 @@ class TIX_Ticket_Transfer {
      */
     public static function ajax_save() {
         check_ajax_referer('tix_ticket_transfer', 'nonce');
+        if (class_exists('TIX_Rate_Limit')) TIX_Rate_Limit::check('ticket_transfer', 20, 300, 'ajax');
 
         // Multi-Ticket: JSON-Array oder Fallback auf einzelne ID
         $ticket_ids_raw = $_POST['ticket_ids'] ?? '';
@@ -357,23 +361,55 @@ class TIX_Ticket_Transfer {
             $single = intval($_POST['ticket_id'] ?? 0);
             $ticket_ids = $single ? [$single] : [];
         }
-        $ticket_ids = array_map('intval', $ticket_ids);
-        $ticket_ids = array_filter($ticket_ids);
-
+        $ticket_ids = array_filter(array_map('intval', $ticket_ids));
         if (empty($ticket_ids)) {
             wp_send_json_error('Bitte mindestens ein Ticket auswählen.');
         }
 
-        $first_name = sanitize_text_field($_POST['first_name'] ?? '');
-        $last_name  = sanitize_text_field($_POST['last_name'] ?? '');
-        $new_email  = sanitize_email($_POST['email'] ?? '');
+        // Nur Tickets der nachgewiesenen Bestellung (Bestellnummer + E-Mail wie im Suchschritt)
+        $order_id    = intval($_POST['order_id'] ?? 0);
+        $order_email = sanitize_email($_POST['order_email'] ?? '');
+        $order = ($order_id && function_exists('wc_get_order')) ? wc_get_order($order_id) : false;
+        if (!$order && $order_id && class_exists('TIX_Order')) $order = TIX_Order::get($order_id);
+        if (!$order || !$order_email || strtolower($order->get_billing_email()) !== strtolower($order_email)) {
+            wp_send_json_error('Bestellung und E-Mail-Adresse passen nicht zusammen.');
+        }
+        foreach ($ticket_ids as $tid) {
+            if (intval(get_post_meta($tid, '_tix_ticket_order_id', true)) !== $order_id) {
+                wp_send_json_error('Diese Tickets gehören nicht zur angegebenen Bestellung.');
+            }
+        }
 
-        if (!$first_name || !$last_name) {
-            wp_send_json_error('Bitte Vor- und Nachname eingeben.');
+        $r = self::transfer($ticket_ids, sanitize_text_field($_POST['first_name'] ?? ''), sanitize_text_field($_POST['last_name'] ?? ''), sanitize_email($_POST['email'] ?? ''));
+        if (is_wp_error($r)) wp_send_json_error($r->get_error_message());
+        wp_send_json_success($r);
+    }
+
+    /** Darf ein Ticket umgeschrieben werden? (globaler Schalter + Event-Einstellung + Status) */
+    public static function can_transfer($ticket_id) {
+        $s = function_exists('tix_get_settings') ? tix_get_settings() : [];
+        if (empty($s['ticket_transfer_enabled'])) return false;
+        if (get_post_type($ticket_id) !== 'tix_ticket') return false;
+        $event_id = intval(get_post_meta($ticket_id, '_tix_ticket_event_id', true));
+        if (!$event_id || get_post_meta($event_id, '_tix_ticket_transfer', true) !== '1') return false;
+        if ((string) get_post_meta($ticket_id, '_tix_ticket_mirror', true) === '1') return false; // Spiegel: bei der Quelle
+        $status = (string) (get_post_meta($ticket_id, '_tix_ticket_status', true) ?: 'valid');
+        if (!in_array($status, ['valid', 'transferred'], true)) return false;
+        if ((string) get_post_meta($ticket_id, '_tix_ticket_checked_in', true) === '1') return false;
+        return true;
+    }
+
+    /**
+     * Tickets auf eine neue Person umschreiben (Web + App). Eigentum prüft der Aufrufer.
+     * @return array|WP_Error {name, count}
+     */
+    public static function transfer(array $ticket_ids, $first_name, $last_name, $new_email) {
+        $ticket_ids = array_values(array_filter(array_map('intval', $ticket_ids)));
+        foreach ($ticket_ids as $tid) {
+            if (!self::can_transfer($tid)) return new WP_Error('tix_transfer', 'Dieses Ticket kann nicht umgeschrieben werden.', ['status' => 403]);
         }
-        if (!$new_email) {
-            wp_send_json_error('Bitte E-Mail-Adresse eingeben.');
-        }
+        if (!$first_name || !$last_name) return new WP_Error('tix_transfer', 'Bitte Vor- und Nachname eingeben.', ['status' => 400]);
+        if (!$new_email || !is_email($new_email)) return new WP_Error('tix_transfer', 'Bitte E-Mail-Adresse eingeben.', ['status' => 400]);
 
         $full_name = $first_name . ' ' . $last_name;
 
@@ -396,7 +432,7 @@ class TIX_Ticket_Transfer {
                 'role'         => class_exists('WooCommerce') ? 'customer' : 'subscriber',
             ]);
             if (is_wp_error($new_user_id)) {
-                wp_send_json_error('Fehler bei der Kontoerstellung: ' . $new_user_id->get_error_message());
+                return new WP_Error('tix_transfer', 'Fehler bei der Kontoerstellung: ' . $new_user_id->get_error_message(), ['status' => 400]);
             }
             $user_created = true;
 
@@ -448,13 +484,13 @@ class TIX_Ticket_Transfer {
         }
 
         if (empty($processed)) {
-            wp_send_json_error('Keine gültigen Tickets gefunden.');
+            return new WP_Error('tix_transfer', 'Keine gültigen Tickets gefunden.', ['status' => 400]);
         }
 
         // ── Transfer-Benachrichtigung senden ──
         self::send_transfer_notification($new_user_id, $new_email, $first_name, $full_name, $processed, $user_created);
 
-        wp_send_json_success(['name' => $full_name, 'count' => count($processed)]);
+        return ['name' => $full_name, 'count' => count($processed)];
     }
 
     /**

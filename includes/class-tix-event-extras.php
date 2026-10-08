@@ -78,6 +78,11 @@ class TIX_Event_Extras {
         $url = (string) get_post_meta($id, '_tix_video_url', true);
         $vid = intval(get_post_meta($id, '_tix_video_id', true));
         if ($url === '' && $vid) $url = (string) wp_get_attachment_url($vid);
+        // Eingebetteter Code aus dem Editor (iframe): Quelle als URL verwenden
+        if ($url === '') {
+            $code = (string) get_post_meta($id, '_tix_video_embed', true);
+            if ($code !== '' && preg_match('~<iframe[^>]+src=["\']([^"\']+)["\']~i', $code, $mm)) $url = html_entity_decode($mm[1]);
+        }
         if ($url === '') return null;
         $type = 'external';
         $embed = '';
@@ -186,7 +191,95 @@ class TIX_Event_Extras {
             'started'          => $started,
             'waitlist_presale' => $wl && !$started && TIX_Waitlist::available($id, 'presale'),
             'waitlist_soldout' => $wl && TIX_Waitlist::available($id, 'soldout'),
+            // Vorverkaufsende (automatisch vor Event-Start oder festes Datum), '' = offen/manuell
+            'ends_at'          => self::presale_end($id),
         ];
+    }
+
+    private static function presale_end($id) {
+        $raw = (string) get_post_meta($id, '_tix_presale_end_computed', true);
+        if ($raw === '' || (get_post_meta($id, '_tix_presale_end_mode', true) ?: 'manual') === 'manual') return '';
+        $ts = strtotime(str_replace('T', ' ', $raw));
+        return $ts ? wp_date('c', strtotime(get_gmt_from_date(date('Y-m-d H:i:s', $ts)) . ' UTC')) : '';
+    }
+
+    /**
+     * Knappheits-Hinweis einer Kategorie wie in der Ticketauswahl („Nur noch 5 verfügbar!“ oder
+     * manueller Text). '' = kein Hinweis. Reihenfolge: Kategorie → Event → global.
+     */
+    public static function low_stock_text($event_id, array $cat) {
+        $stock = isset($cat['stock']) ? intval($cat['stock']) : -1;
+        if ($stock === 0) return '';
+        $mode = $cat['low_stock_mode'] ?? 'inherit';
+        $threshold = 0;
+        $manual = '';
+        if ($mode === 'custom') {
+            $threshold = intval($cat['low_stock_threshold'] ?? 0);
+        } elseif ($mode === 'manual') {
+            $manual = trim((string) ($cat['low_stock_text'] ?? ''));
+        } elseif ($mode !== 'off') {
+            $em = get_post_meta($event_id, '_tix_low_stock_mode', true) ?: 'global';
+            if ($em === 'custom')      $threshold = intval(get_post_meta($event_id, '_tix_low_stock_threshold', true));
+            elseif ($em === 'manual')  $manual = trim((string) get_post_meta($event_id, '_tix_low_stock_text', true));
+            elseif ($em !== 'off')     $threshold = intval(tix_get_settings('low_stock_threshold') ?? 10);
+        }
+        if ($manual !== '') return $manual;
+        if ($stock > 0 && $threshold > 0 && $stock <= $threshold) return 'Nur noch ' . $stock . ' verfügbar!';
+        return '';
+    }
+
+    /** Vom Veranstalter gewählte Empfehlungen („Das könnte dich auch interessieren“), nur kommende */
+    public static function upsell($id) {
+        if (get_post_meta($id, '_tix_upsell_disabled', true) === '1') return [];
+        $ids = get_post_meta($id, '_tix_upsell_events', true);
+        if (empty($ids) || !is_array($ids)) return [];
+        $today = current_time('Y-m-d');
+        $out = [];
+        foreach (array_slice(array_map('intval', $ids), 0, 6) as $eid) {
+            if ($eid === intval($id) || get_post_status($eid) !== 'publish' || get_post_type($eid) !== 'event') continue;
+            if (class_exists('TIX_Org_Approval') && !TIX_Org_Approval::event_allowed($eid)) continue;
+            $date = (string) get_post_meta($eid, '_tix_date_start', true);
+            if ($date !== '' && $date < $today) continue;
+            $out[] = [
+                'id'         => $eid,
+                'title'      => get_the_title($eid),
+                'date_start' => $date,
+                'time_start' => (string) get_post_meta($eid, '_tix_time_start', true),
+                'location'   => (string) get_post_meta($eid, '_tix_location', true),
+                'image'      => get_the_post_thumbnail_url($eid, 'medium_large') ?: '',
+                'url'        => get_permalink($eid),
+            ];
+        }
+        return $out;
+    }
+
+    /** Veranstaltungsort aus dem Ort-Profil: {image, short_description, description (HTML), address} oder null */
+    public static function venue_info($id) {
+        $loc = intval(get_post_meta($id, '_tix_location_id', true));
+        if (!$loc || get_post_type($loc) !== 'tix_location') return null;
+        $img  = intval(get_post_meta($loc, '_tix_loc_image_id', true));
+        $desc = (string) get_post_meta($loc, '_tix_loc_description', true);
+        $info = [
+            'image'             => $img ? (wp_get_attachment_image_url($img, 'large') ?: '') : '',
+            'short_description' => (string) get_post_meta($loc, '_tix_loc_short_desc', true),
+            'description'       => trim(wp_strip_all_tags($desc)) !== '' ? wp_kses_post(wpautop($desc)) : '',
+            'address'           => (string) get_post_meta($loc, '_tix_loc_address', true),
+        ];
+        return ($info['image'] === '' && $info['short_description'] === '' && $info['description'] === '') ? null : $info;
+    }
+
+    /** Ticket-Sponsor (Logo auf dem Ticket): {image, link} oder null */
+    public static function ticket_sponsor($id) {
+        $img = intval(get_post_meta($id, '_tix_ticket_sponsor_image_id', true));
+        $url = $img ? (wp_get_attachment_url($img) ?: '') : esc_url_raw((string) get_post_meta($id, '_tix_ticket_sponsor_image_url', true));
+        if ($url === '') return null;
+        return ['image' => $url, 'link' => esc_url_raw((string) get_post_meta($id, '_tix_ticket_sponsor_link', true))];
+    }
+
+    /** Tickets dieses Events dürfen umgeschrieben werden (globaler Schalter + Event) */
+    public static function ticket_transfer($id) {
+        $s = tix_get_settings();
+        return !empty($s['ticket_transfer_enabled']) && get_post_meta($id, '_tix_ticket_transfer', true) === '1';
     }
 
     /** Galerie-Bilder: [{url (large), thumb (medium_large)}] */

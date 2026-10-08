@@ -210,6 +210,11 @@ class TIX_Public_Events {
                 $out['box_office']    = TIX_Event_Extras::box_office($id);
                 $out['external_shop'] = TIX_Event_Extras::external_shop($id);
                 $out['presale']       = TIX_Event_Extras::presale($id);
+                // Audit 1.38.361: was die Website zeigt, die API aber noch nicht lieferte
+                $out['upsell']          = TIX_Event_Extras::upsell($id);
+                $out['venue_info']      = TIX_Event_Extras::venue_info($id);
+                $out['ticket_sponsor']  = TIX_Event_Extras::ticket_sponsor($id);
+                $out['ticket_transfer'] = TIX_Event_Extras::ticket_transfer($id);
             }
             $out['raffle'] = class_exists('TIX_Raffle') ? TIX_Raffle::public_info($id) : null;
             // Ticket-Optionen (1.38.353): Mengenrabatt-Staffeln; Phasen/Pakete stehen an categories[]

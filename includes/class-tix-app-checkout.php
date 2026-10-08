@@ -163,6 +163,12 @@ class TIX_App_Checkout {
             'callback'            => [__CLASS__, 'giftcards'],
             'permission_callback' => '__return_true',
         ]);
+        // Ticket umschreiben (eigenes Ticket, Event erlaubt es) → {ok, name, count}
+        register_rest_route(self::NS, '/customer/tickets/(?P<id>\d+)/transfer', [
+            'methods'             => 'POST',
+            'callback'            => [__CLASS__, 'transfer_ticket'],
+            'permission_callback' => [__CLASS__, 'check_customer'],
+        ]);
         register_rest_route(self::NS, '/customer/orders/(?P<id>\d+)', [
             'methods'             => 'GET',
             'callback'            => [__CLASS__, 'status'],
@@ -320,6 +326,8 @@ class TIX_App_Checkout {
                 'max_per_order'      => $stock >= 0 ? min(self::MAX_QTY, $stock) : self::MAX_QTY,
                 'gift_card'          => !empty($cat['gift_card']),
                 'gift_free_amount'   => !empty($cat['gift_free_amount']),
+                // Knappheits-Hinweis wie auf der Website („Nur noch 5 verfügbar!“ / Text des Veranstalters), '' = keiner
+                'low_stock_text'     => class_exists('TIX_Event_Extras') ? TIX_Event_Extras::low_stock_text($event_id, $cat) : '',
                 // Preisphase (z. B. Early Bird): Name, gültig bis (Y-m-d, einschließlich)
                 'phase'              => $phase ? [
                     'name'  => (string) ($phase['name'] ?? ''),
@@ -835,6 +843,9 @@ class TIX_App_Checkout {
             'price'          => floatval($m('_tix_ticket_price')),
             'purchased'      => (string) $post->post_date,
             'owner_name'     => (string) $m('_tix_ticket_owner_name'),
+            // Sponsor-Logo auf dem Ticket und ob die App „Ticket umschreiben“ anbieten darf
+            'sponsor'        => ($event_id && class_exists('TIX_Event_Extras')) ? TIX_Event_Extras::ticket_sponsor($event_id) : null,
+            'can_transfer'   => class_exists('TIX_Ticket_Transfer') && TIX_Ticket_Transfer::can_transfer($id),
         ] + self::mirror_fields($id) + self::gift_fields($id);
     }
 
@@ -1218,6 +1229,22 @@ class TIX_App_Checkout {
             $extra = ['token' => $new_token, 'user' => TIX_REST_API::guest_user_payload($user), 'account_created' => true];
         }
         return self::order_response($order_id, $payment_url, $extra);
+    }
+
+    /** POST /customer/tickets/{id}/transfer {first_name, last_name, email} */
+    public static function transfer_ticket(WP_REST_Request $req) {
+        if (!class_exists('TIX_Ticket_Transfer')) return self::error('tix_transfer', 'Umschreiben ist nicht verfügbar.', 404);
+        if (self::rate_limited('transfer', 10, 300)) return self::error('tix_rate_limit', 'Zu viele Anfragen. Bitte kurz warten.', 429);
+        $id   = intval($req['id']);
+        $user = wp_get_current_user();
+        $mine = false;
+        foreach (self::tickets_for_email($user->user_email) as $t) {
+            if (intval($t['id']) === $id) { $mine = true; break; }
+        }
+        if (!$mine) return self::error('tix_not_found', 'Ticket nicht gefunden.', 404);
+        $r = TIX_Ticket_Transfer::transfer([$id], sanitize_text_field((string) $req->get_param('first_name')), sanitize_text_field((string) $req->get_param('last_name')), sanitize_email((string) $req->get_param('email')));
+        if (is_wp_error($r)) return $r;
+        return rest_ensure_response(['ok' => true] + $r);
     }
 
     /** GET /customer/orders/{id} – eigene Bestellung (Konto) oder Gast mit ?key=order_key */
