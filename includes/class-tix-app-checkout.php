@@ -372,7 +372,7 @@ class TIX_App_Checkout {
     }
 
     /** Warenkorb im Format des Web-Checkouts aus der Auswahl der App bauen. */
-    private static function build_cart($event_id, array $items) {
+    private static function build_cart($event_id, array $items, $hold_token = '') {
         if (self::is_syndicated($event_id)) {
             return self::syndicated_error($event_id);
         }
@@ -395,8 +395,13 @@ class TIX_App_Checkout {
         $gifts  = [];   // Gutscheine: nie mergen (verschiedene Beträge)
         $bundles = [];  // Pakete: je Kategorie eine Zeile, qty = Anzahl Pakete
         $specials = []; // Extras: special_id => Menge
+        $seats    = []; // Saalplan: Sitz-IDs (Halter = hold_token)
         foreach ($items as $it) {
             if (!is_array($it)) continue;
+            if (!empty($it['seats']) && is_array($it['seats'])) {
+                foreach ($it['seats'] as $sid) $seats[] = sanitize_text_field((string) $sid);
+                continue;
+            }
             if (!empty($it['special_id'])) {
                 $sq = intval($it['qty'] ?? ($it['quantity'] ?? 0));
                 if ($sq > 0) $specials[intval($it['special_id'])] = ($specials[intval($it['special_id'])] ?? 0) + $sq;
@@ -504,6 +509,24 @@ class TIX_App_Checkout {
                 'meta'        => ['bundle' => 1],
             ];
         }
+        if ($seats) {
+            $holder = class_exists('TIX_Seatmap') ? TIX_Seatmap::app_holder($hold_token) : '';
+            if ($holder === '') return self::error('tix_hold_token', 'Sitzplätze bitte zuerst über /customer/seats/hold reservieren (hold_token fehlt).');
+            $sm   = TIX_Seatmap::event_seatmap($event_id);
+            $data = $sm ? TIX_Seatmap::data($sm) : null;
+            if (!$data) return self::error('tix_no_seatmap', 'Für dieses Event gibt es keinen Saalplan.');
+            $by_section = [];
+            foreach (array_unique($seats) as $sid) {
+                $sec = TIX_Seatmap::section_of($data, $sid);
+                if (!$sec) return self::error('tix_seat', 'Platz ' . TIX_Seatmap::seat_label($sid) . ' ist nicht buchbar.');
+                $by_section[$sec['id']][] = $sid;
+            }
+            foreach ($by_section as $sec_seats) {
+                $line = TIX_Native_Checkout::seat_line($event_id, $sec_seats, $holder);
+                if (is_string($line)) return self::error('tix_seat_taken', $line, 409);
+                $cart['items'][] = $line;
+            }
+        }
         if ($specials) {
             $offer = [];
             foreach (self::specials($event_id) as $sp) $offer[$sp['special_id']] = $sp;
@@ -569,6 +592,7 @@ class TIX_App_Checkout {
                 'group_discount' => isset($meta['group_discount']) ? floatval($meta['group_discount']) : null,
                 'bundle'         => null,
                 'special_id'     => !empty($meta['special_id']) ? intval($meta['special_id']) : null,
+                'seats'          => !empty($meta['seats']) ? array_values((array) $meta['seats']) : null,
             ];
             if (!empty($meta['bundle']) && class_exists('TIX_Cart_Pricing')
                 && ($b = TIX_Cart_Pricing::bundle(intval($it['event_id']), intval($it['cat_index'])))) {
@@ -912,6 +936,8 @@ class TIX_App_Checkout {
             'categories'      => self::categories($event_id),
             // Mengenrabatt-Staffeln {tiers[{min_qty, percent}], combine_bundle, combine_combo, combine_phase} oder null
             'group_discount'  => class_exists('TIX_Cart_Pricing') ? TIX_Cart_Pricing::group_discount($event_id) : null,
+            // Saalplan: true → Plätze über /public/events/{id}/seatmap wählen, items[] {seats: [...]} + hold_token
+            'seatmap'         => class_exists('TIX_Seatmap') && TIX_Seatmap::event_seatmap($event_id) > 0,
             // Extras (Specials): Bestellung mit items[] {special_id, qty}
             'specials'        => self::specials($event_id),
             // Vorverkauf {starts_at, started, waitlist_presale, waitlist_soldout}
@@ -927,7 +953,7 @@ class TIX_App_Checkout {
             ],
         ];
         if (!empty($items)) {
-            $cart = self::build_cart($event_id, $items);
+            $cart = self::build_cart($event_id, $items, (string) $req->get_param('hold_token'));
             if (is_wp_error($cart)) return $cart;
             // E-Mail für „einmal pro E-Mail“: Konto oder (Gast) optional ?email=
             $email = $user ? (string) $user->user_email : (string) ($req->get_param('email') ?? '');
@@ -1042,7 +1068,8 @@ class TIX_App_Checkout {
         }
 
         $items = $req->get_param('items');
-        $cart  = self::build_cart($event_id, is_array($items) ? $items : []);
+        $hold_token = (string) $req->get_param('hold_token');
+        $cart  = self::build_cart($event_id, is_array($items) ? $items : [], $hold_token);
         if (is_wp_error($cart)) return $cart;
         $cart = self::apply_coupon($cart, (string) ($req->get_param('coupon') ?? ''));
         $t    = self::totals($cart);
@@ -1078,6 +1105,11 @@ class TIX_App_Checkout {
         }
         if ($cerr = TIX_Native_Checkout::checkout_coupon_error($cart, $billing['email'])) {
             return self::error('tix_coupon', $cerr, 409);
+        }
+        // Sitzplätze für die Zahlung sichern
+        $seat_holder = class_exists('TIX_Seatmap') ? TIX_Seatmap::app_holder($hold_token) : '';
+        if ($seat_holder !== '' && ($serr = TIX_Seatmap::secure_cart($cart['items'], $seat_holder))) {
+            return self::error('tix_seat_taken', $serr, 409);
         }
 
         // Gast: optional gleich ein Konto anlegen (wie „Konto anlegen“ im Web-Checkout,
@@ -1116,6 +1148,7 @@ class TIX_App_Checkout {
             TIX_Native_Checkout::clear_cart();
         }
         if (!$order_id) return self::error('tix_order_failed', 'Bestellung konnte nicht erstellt werden.', 500);
+        if ($seat_holder !== '') TIX_Seatmap::attach_order($cart['items'], $seat_holder, $order_id);
         update_option('_tix_order_source_' . $order_id, self::$partner ? 'partner:' . self::$partner['id'] : 'app', false);
 
         // Zahlung starten

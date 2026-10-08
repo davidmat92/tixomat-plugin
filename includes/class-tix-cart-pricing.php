@@ -77,6 +77,15 @@ class TIX_Cart_Pricing {
             return floatval(TIX_Specials::get_effective_price($sid, $event_id));
         }
 
+        // Sitzplatz: Preis des Saalplan-Bereichs
+        if (!empty($meta['seats']) && !empty($meta['section']) && class_exists('TIX_Seatmap')) {
+            $data = TIX_Seatmap::data(intval($meta['seatmap_id'] ?? 0));
+            foreach ((array) ($data['sections'] ?? []) as $sec) {
+                if (($sec['id'] ?? '') === $meta['section']) return floatval($sec['price'] ?? 0);
+            }
+            return null;
+        }
+
         $idx   = intval($it['cat_index'] ?? 0);
         $price = self::category_price($event_id, $idx);
         if ($price === null) return null;

@@ -14,6 +14,7 @@ class TIX_Seatmap {
     const CPT          = 'tix_seatmap';
     const TABLE_SUFFIX = 'tix_seat_reservations';
     const RESERVE_MIN  = 15; // Minuten für temporäre Reservierung
+    const CHECKOUT_MIN = 30; // Haltezeit ab „Bestellen“ (Zahlung bei Mollie/Stripe/PayPal)
 
     // ──────────────────────────────────────────
     // Init
@@ -59,6 +60,13 @@ class TIX_Seatmap {
         add_action('woocommerce_order_status_cancelled',  [__CLASS__, 'on_order_cancelled']);
         add_action('woocommerce_order_status_refunded',   [__CLASS__, 'on_order_cancelled']);
         add_action('woocommerce_order_status_failed',     [__CLASS__, 'on_order_cancelled']);
+
+        // Native Kasse: Sitze nach Zahlung (bzw. Vorkasse „on-hold“) fest buchen, bei Storno freigeben
+        add_action('tix_order_status_changed', [__CLASS__, 'on_native_status'], 5, 2);
+        add_action('tix_order_cancelled',      [__CLASS__, 'on_native_cancelled'], 5);
+
+        // App-Schnittstelle
+        add_action('rest_api_init', [__CLASS__, 'register_routes']);
     }
 
     // ──────────────────────────────────────────
@@ -328,28 +336,16 @@ class TIX_Seatmap {
         $seatmap_id = intval($_POST['seatmap_id'] ?? $_GET['seatmap_id'] ?? 0);
         if (!$event_id || !$seatmap_id) wp_send_json_error('Fehlende Parameter');
 
-        // Saalplan-Daten laden
-        $raw  = get_post_meta($seatmap_id, '_tix_seatmap_data', true);
-        $data = $raw ? json_decode($raw, true) : null;
+        $data = self::data($seatmap_id);
         if (!$data) wp_send_json_error('Kein Saalplan gefunden');
-
-        // Belegte Sitze abfragen
-        global $wpdb;
-        $table = $wpdb->prefix . self::TABLE_SUFFIX;
-        $taken = $wpdb->get_col($wpdb->prepare(
-            "SELECT seat_id FROM $table
-             WHERE event_id = %d AND seatmap_id = %d
-             AND status IN ('reserved','sold')
-             AND (status = 'sold' OR expires_at > NOW())",
-            $event_id, $seatmap_id
-        ));
 
         // Sektion-Produkte für Preisinfo laden
         $products = get_post_meta($seatmap_id, '_tix_section_products', true) ?: [];
 
         wp_send_json_success([
             'seatmap'  => $data,
-            'taken'    => $taken,
+            // eigene Reservierungen nicht als belegt zeigen (z. B. nach Neuladen)
+            'taken'    => self::taken($event_id, $seatmap_id, self::get_session_id()),
             'products' => $products,
         ]);
     }
@@ -361,53 +357,19 @@ class TIX_Seatmap {
         $event_id   = intval($_POST['event_id'] ?? 0);
         $seatmap_id = intval($_POST['seatmap_id'] ?? 0);
         $seat_ids   = array_map('sanitize_text_field', (array)($_POST['seat_ids'] ?? []));
-        $session_id = self::get_session_id();
 
         if (!$event_id || !$seatmap_id || empty($seat_ids)) {
             wp_send_json_error('Fehlende Parameter');
         }
-
-        global $wpdb;
-        $table      = $wpdb->prefix . self::TABLE_SUFFIX;
-        $expires_at = gmdate('Y-m-d H:i:s', time() + (self::RESERVE_MIN * 60));
-        $now        = current_time('mysql', true);
-        $reserved   = [];
-        $failed     = [];
-
-        foreach ($seat_ids as $seat_id) {
-            // Atomic: INSERT only if no active reservation exists
-            $sql = $wpdb->prepare(
-                "INSERT INTO $table (event_id, seatmap_id, seat_id, status, session_id, reserved_at, expires_at)
-                 SELECT %d, %d, %s, 'reserved', %s, %s, %s
-                 FROM (SELECT 1) AS tmp
-                 WHERE NOT EXISTS (
-                     SELECT 1 FROM $table
-                     WHERE event_id = %d AND seat_id = %s
-                     AND status IN ('reserved','sold')
-                     AND (status = 'sold' OR expires_at > NOW())
-                 )",
-                $event_id, $seatmap_id, $seat_id, $session_id, $now, $expires_at,
-                $event_id, $seat_id
-            );
-            $result = $wpdb->query($sql);
-
-            if ($result && $wpdb->insert_id) {
-                $reserved[] = $seat_id;
-            } else {
-                $failed[] = $seat_id;
-            }
+        if (class_exists('TIX_Rate_Limit')) {
+            TIX_Rate_Limit::check('seat_reserve', 60, 60, 'ajax');
         }
 
-        if (empty($reserved)) {
-            wp_send_json_error(['message' => 'Sitze bereits belegt', 'failed' => $failed]);
+        $r = self::hold($event_id, $seatmap_id, $seat_ids, self::get_session_id());
+        if (empty($r['reserved'])) {
+            wp_send_json_error(['message' => 'Sitze bereits belegt', 'failed' => $r['failed']]);
         }
-
-        wp_send_json_success([
-            'reserved'   => $reserved,
-            'failed'     => $failed,
-            'expires_at' => $expires_at,
-            'session_id' => $session_id,
-        ]);
+        wp_send_json_success($r + ['session_id' => self::get_session_id()]);
     }
 
     // ──────────────────────────────────────────
@@ -416,24 +378,11 @@ class TIX_Seatmap {
     public static function ajax_release() {
         $event_id   = intval($_POST['event_id'] ?? 0);
         $seat_ids   = array_map('sanitize_text_field', (array)($_POST['seat_ids'] ?? []));
-        $session_id = self::get_session_id();
 
         if (!$event_id || empty($seat_ids)) {
             wp_send_json_error('Fehlende Parameter');
         }
-
-        global $wpdb;
-        $table = $wpdb->prefix . self::TABLE_SUFFIX;
-
-        foreach ($seat_ids as $seat_id) {
-            $wpdb->delete($table, [
-                'event_id'   => $event_id,
-                'seat_id'    => $seat_id,
-                'session_id' => $session_id,
-                'status'     => 'reserved',
-            ], ['%d','%s','%s','%s']);
-        }
-
+        self::release($event_id, $seat_ids, self::get_session_id());
         wp_send_json_success();
     }
 
@@ -443,7 +392,7 @@ class TIX_Seatmap {
     public static function cleanup_expired() {
         global $wpdb;
         $table = $wpdb->prefix . self::TABLE_SUFFIX;
-        $wpdb->query("DELETE FROM $table WHERE status = 'reserved' AND expires_at < NOW()");
+        $wpdb->query("DELETE FROM $table WHERE status = 'reserved' AND expires_at < UTC_TIMESTAMP()");
     }
 
     // ──────────────────────────────────────────
@@ -637,7 +586,7 @@ class TIX_Seatmap {
             "SELECT COUNT(*) FROM $table
              WHERE event_id = %d AND seatmap_id = %d
              AND status IN ('reserved','sold')
-             AND (status = 'sold' OR expires_at > NOW())
+             AND (status = 'sold' OR expires_at > UTC_TIMESTAMP())
              $where_section",
             $event_id, $seatmap_id
         ));
@@ -651,6 +600,10 @@ class TIX_Seatmap {
     private static function get_session_id() {
         if (function_exists('WC') && WC()->session) {
             return WC()->session->get_customer_id();
+        }
+        // Native Kasse: gleicher Schlüssel wie der Warenkorb (Gast-Cookie bzw. Konto)
+        if (class_exists('TIX_Native_Checkout') && method_exists('TIX_Native_Checkout', 'session_key')) {
+            return TIX_Native_Checkout::session_key();
         }
         if (!session_id()) {
             @session_start();
@@ -765,21 +718,10 @@ class TIX_Seatmap {
 
         if (!$event_id || !$seatmap_id) wp_send_json_error('Fehlende Parameter');
 
-        $raw  = get_post_meta($seatmap_id, '_tix_seatmap_data', true);
-        $data = $raw ? json_decode($raw, true) : null;
+        $data = self::data($seatmap_id);
         if (!$data) wp_send_json_error('Kein Saalplan gefunden');
 
-        global $wpdb;
-        $table = $wpdb->prefix . self::TABLE_SUFFIX;
-        $taken = $wpdb->get_col($wpdb->prepare(
-            "SELECT seat_id FROM $table
-             WHERE event_id = %d AND seatmap_id = %d
-             AND status IN ('reserved','sold')
-             AND (status = 'sold' OR expires_at > NOW())",
-            $event_id, $seatmap_id
-        ));
-
-        $best = self::find_best_seats($data, $taken, $section_id, $qty);
+        $best = self::find_best_seats($data, self::taken($event_id, $seatmap_id, self::get_session_id()), $section_id, $qty);
         if (empty($best)) {
             wp_send_json_error('Nicht genügend zusammenhängende Plätze verfügbar');
         }
@@ -927,5 +869,344 @@ class TIX_Seatmap {
                 ]
             );
         }
+    }
+
+    // ══════════════════════════════════════
+    //  Kern: Halten / Buchen (Web-Kasse + App)
+    // ══════════════════════════════════════
+
+    /** Saalplan-Daten (dekodiert) oder null */
+    public static function data($seatmap_id) {
+        $raw  = get_post_meta(intval($seatmap_id), '_tix_seatmap_data', true);
+        $data = $raw ? json_decode($raw, true) : null;
+        return is_array($data) ? $data : null;
+    }
+
+    /** Saalplan eines Events (0 = keiner) */
+    public static function event_seatmap($event_id) {
+        $id = intval(get_post_meta(intval($event_id), '_tix_seatmap_id', true));
+        return ($id && get_post_type($id) === self::CPT) ? $id : 0;
+    }
+
+    /** Sektion eines Sitzes (nur buchbare Sitze), sonst null */
+    public static function section_of(array $data, $seat_id) {
+        foreach (($data['sections'] ?? []) as $sec) {
+            foreach (($sec['rows'] ?? []) as $row) {
+                foreach (($row['seats'] ?? []) as $seat) {
+                    if ((string) ($seat['id'] ?? '') === (string) $seat_id) {
+                        return (($seat['type'] ?? 'standard') === 'blocked') ? null : $sec;
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    /** Belegte Sitze (verkauft oder von anderen gehalten); $holder = eigene Haltungen ausnehmen */
+    public static function taken($event_id, $seatmap_id, $holder = '') {
+        global $wpdb;
+        $table = $wpdb->prefix . self::TABLE_SUFFIX;
+        $sql = $wpdb->prepare(
+            "SELECT DISTINCT seat_id FROM $table
+             WHERE event_id = %d AND seatmap_id = %d
+             AND (status = 'sold' OR (status = 'reserved' AND expires_at > UTC_TIMESTAMP()",
+            $event_id, $seatmap_id
+        );
+        $sql .= $holder !== '' ? $wpdb->prepare(" AND session_id <> %s))", $holder) : '))';
+        return array_values(array_map('strval', (array) $wpdb->get_col($sql)));
+    }
+
+    /** Vom Halter aktuell gehaltene Sitze */
+    public static function held_by($event_id, $holder) {
+        if ($holder === '') return [];
+        global $wpdb;
+        $table = $wpdb->prefix . self::TABLE_SUFFIX;
+        return array_values(array_map('strval', (array) $wpdb->get_col($wpdb->prepare(
+            "SELECT seat_id FROM $table WHERE event_id = %d AND session_id = %s
+             AND status = 'reserved' AND expires_at > UTC_TIMESTAMP()",
+            $event_id, $holder
+        ))));
+    }
+
+    /**
+     * Sitze für einen Halter reservieren bzw. die eigene Haltung verlängern.
+     * Atomar: ein Sitz gilt nur, wenn er weder verkauft noch von anderen gehalten ist.
+     * @return array {reserved[], failed[], expires_at (UTC, Y-m-d H:i:s)}
+     */
+    public static function hold($event_id, $seatmap_id, array $seat_ids, $holder, $minutes = self::RESERVE_MIN) {
+        global $wpdb;
+        $table   = $wpdb->prefix . self::TABLE_SUFFIX;
+        $expires = gmdate('Y-m-d H:i:s', time() + intval($minutes) * 60);
+        $now     = gmdate('Y-m-d H:i:s');
+        $data    = self::data($seatmap_id);
+        $reserved = [];
+        $failed   = [];
+        foreach (array_unique(array_map('strval', $seat_ids)) as $seat_id) {
+            if ($seat_id === '' || !$data || !self::section_of($data, $seat_id) || $holder === '') {
+                $failed[] = $seat_id;
+                continue;
+            }
+            // Abgelaufene Reste löschen (sonst blockiert der UNIQUE-Key bis zum Cron)
+            $wpdb->query($wpdb->prepare(
+                "DELETE FROM $table WHERE event_id = %d AND seat_id = %s AND status = 'reserved' AND expires_at <= UTC_TIMESTAMP()",
+                $event_id, $seat_id
+            ));
+            // Eigene Haltung verlängern (per SELECT prüfen: UPDATE meldet 0 Zeilen, wenn sich der Wert nicht ändert)
+            $own = $wpdb->get_var($wpdb->prepare(
+                "SELECT id FROM $table WHERE event_id = %d AND seat_id = %s AND status = 'reserved' AND session_id = %s LIMIT 1",
+                $event_id, $seat_id, $holder
+            ));
+            if ($own) {
+                $wpdb->query($wpdb->prepare(
+                    "UPDATE $table SET expires_at = GREATEST(expires_at, %s) WHERE id = %d", $expires, $own
+                ));
+                $reserved[] = $seat_id;
+                continue;
+            }
+            $ok = $wpdb->query($wpdb->prepare(
+                "INSERT INTO $table (event_id, seatmap_id, seat_id, status, session_id, reserved_at, expires_at)
+                 SELECT %d, %d, %s, 'reserved', %s, %s, %s FROM (SELECT 1) AS tmp
+                 WHERE NOT EXISTS (
+                     SELECT 1 FROM $table WHERE event_id = %d AND seat_id = %s
+                     AND (status = 'sold' OR (status = 'reserved' AND expires_at > UTC_TIMESTAMP()))
+                 )",
+                $event_id, $seatmap_id, $seat_id, $holder, $now, $expires, $event_id, $seat_id
+            ));
+            if ($ok) $reserved[] = $seat_id; else $failed[] = $seat_id;
+        }
+        return ['reserved' => $reserved, 'failed' => $failed, 'expires_at' => $expires];
+    }
+
+    /** Haltungen eines Halters freigeben (nur noch nicht bestellte) */
+    public static function release($event_id, array $seat_ids, $holder) {
+        global $wpdb;
+        $table = $wpdb->prefix . self::TABLE_SUFFIX;
+        foreach ($seat_ids as $seat_id) {
+            $wpdb->query($wpdb->prepare(
+                "DELETE FROM $table WHERE event_id = %d AND seat_id = %s AND session_id = %s AND status = 'reserved' AND order_id IS NULL",
+                $event_id, (string) $seat_id, $holder
+            ));
+        }
+    }
+
+    /** Beste freie Plätze einer Sektion (ohne sie zu halten) */
+    public static function best($event_id, $seatmap_id, $section_id, $qty, $holder = '') {
+        $data = self::data($seatmap_id);
+        if (!$data) return [];
+        return (array) self::find_best_seats($data, self::taken($event_id, $seatmap_id, $holder), $section_id, max(1, intval($qty)));
+    }
+
+    /**
+     * Sitzplätze der Warenkorb-Positionen vor dem Bestellen festhalten (CHECKOUT_MIN).
+     * Fehlermeldung oder '' wenn alle Plätze gesichert sind.
+     */
+    public static function secure_cart(array $items, $holder) {
+        foreach ($items as $it) {
+            $seats = (array) ($it['meta']['seats'] ?? []);
+            $sm    = intval($it['meta']['seatmap_id'] ?? 0);
+            if (!$seats || !$sm) continue;
+            $r = self::hold(intval($it['event_id']), $sm, $seats, $holder, self::CHECKOUT_MIN);
+            if ($r['failed']) {
+                return 'Diese Plätze sind leider nicht mehr frei: ' . implode(', ', array_map([__CLASS__, 'seat_label'], $r['failed'])) . '. Bitte wähle neue Plätze.';
+            }
+        }
+        return '';
+    }
+
+    /** Gesicherte Plätze einer neuen Bestellung zuordnen */
+    public static function attach_order(array $items, $holder, $order_id) {
+        global $wpdb;
+        $table = $wpdb->prefix . self::TABLE_SUFFIX;
+        foreach ($items as $it) {
+            foreach ((array) ($it['meta']['seats'] ?? []) as $seat_id) {
+                $wpdb->query($wpdb->prepare(
+                    "UPDATE $table SET order_id = %d WHERE event_id = %d AND seat_id = %s AND session_id = %s AND status = 'reserved'",
+                    $order_id, intval($it['event_id']), (string) $seat_id, $holder
+                ));
+            }
+        }
+    }
+
+    /** Lesbare Sitzbezeichnung aus der ID (Sektion_Reihe_Platz) */
+    public static function seat_label($seat_id) {
+        $p = explode('_', (string) $seat_id);
+        if (count($p) >= 3) return 'Reihe ' . $p[count($p) - 2] . ', Platz ' . $p[count($p) - 1];
+        return (string) $seat_id;
+    }
+
+    /** Sitzplätze einer nativen Bestellung: [[event_id, seatmap_id, seat_id], …] */
+    private static function order_seats($order_id) {
+        global $wpdb;
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT event_id, meta FROM {$wpdb->prefix}tix_order_items WHERE order_id = %d", $order_id
+        ));
+        $out = [];
+        foreach ((array) $rows as $r) {
+            $m = $r->meta ? json_decode($r->meta, true) : null;
+            if (empty($m['seats']) || !is_array($m['seats'])) continue;
+            foreach ($m['seats'] as $sid) $out[] = [intval($r->event_id), intval($m['seatmap_id'] ?? 0), (string) $sid];
+        }
+        return $out;
+    }
+
+    /** Native Kasse: bezahlt / Vorkasse offen → Sitze verkauft */
+    public static function on_native_status($order_id, $new_status) {
+        if (!in_array($new_status, ['completed', 'processing', 'on-hold'], true)) return;
+        global $wpdb;
+        $table = $wpdb->prefix . self::TABLE_SUFFIX;
+        $order_id = intval($order_id);
+        $conflicts = [];
+        foreach (self::order_seats($order_id) as list($event_id, $seatmap_id, $seat_id)) {
+            $already = $wpdb->get_var($wpdb->prepare(
+                "SELECT order_id FROM $table WHERE event_id = %d AND seat_id = %s AND status = 'sold' LIMIT 1", $event_id, $seat_id
+            ));
+            if ($already !== null) {
+                if (intval($already) !== $order_id) $conflicts[] = $seat_id;
+                continue;
+            }
+            $wpdb->query($wpdb->prepare(
+                "DELETE FROM $table WHERE event_id = %d AND seat_id = %s AND status = 'reserved'", $event_id, $seat_id
+            ));
+            $wpdb->insert($table, [
+                'event_id'    => $event_id,
+                'seatmap_id'  => $seatmap_id,
+                'seat_id'     => $seat_id,
+                'status'      => 'sold',
+                'order_id'    => $order_id,
+                'reserved_at' => gmdate('Y-m-d H:i:s'),
+            ]);
+        }
+        if ($conflicts && class_exists('TIX_Order_Admin') && method_exists('TIX_Order_Admin', 'add_note')) {
+            TIX_Order_Admin::add_note($order_id, '⚠️ Sitzplatz-Konflikt: bereits an eine andere Bestellung verkauft: ' . implode(', ', $conflicts) . ' – bitte Plätze manuell klären.', 'system');
+        }
+    }
+
+    /** Native Kasse: Storno / fehlgeschlagen → Plätze freigeben */
+    public static function on_native_cancelled($order_id) {
+        global $wpdb;
+        $wpdb->delete($wpdb->prefix . self::TABLE_SUFFIX, ['order_id' => intval($order_id)], ['%d']);
+    }
+
+    // ══════════════════════════════════════
+    //  REST (App)
+    // ══════════════════════════════════════
+
+    public static function register_routes() {
+        $ns = 'tixomat/v1';
+        register_rest_route($ns, '/public/events/(?P<id>\d+)/seatmap', [
+            'methods' => 'GET', 'callback' => [__CLASS__, 'rest_seatmap'], 'permission_callback' => '__return_true',
+        ]);
+        foreach (['hold', 'release', 'best'] as $a) {
+            register_rest_route($ns, '/customer/seats/' . $a, [
+                'methods' => 'POST', 'callback' => [__CLASS__, 'rest_' . $a], 'permission_callback' => '__return_true',
+            ]);
+        }
+    }
+
+    /** Halter für die App: hold_token (vom Server vergeben, von der App bis zur Bestellung mitgeschickt) */
+    public static function app_holder($token) {
+        $token = preg_replace('/[^A-Za-z0-9]/', '', (string) $token);
+        return strlen($token) >= 16 ? 'app_' . substr($token, 0, 64) : '';
+    }
+
+    private static function rest_limit($bucket, $max) {
+        $ip  = sanitize_text_field($_SERVER['REMOTE_ADDR'] ?? '');
+        $key = 'tix_rl_' . $bucket . '_' . md5($ip);
+        $n   = intval(get_transient($key)) + 1;
+        set_transient($key, $n, 60);
+        return $n > $max;
+    }
+
+    private static function rest_event(WP_REST_Request $req) {
+        $event_id = intval($req['id'] ?? $req->get_param('event_id'));
+        if (!$event_id || get_post_type($event_id) !== 'event' || get_post_status($event_id) !== 'publish') {
+            return new WP_Error('tix_event', 'Event nicht gefunden.', ['status' => 404]);
+        }
+        $sm = self::event_seatmap($event_id);
+        if (!$sm || !self::data($sm)) return new WP_Error('tix_no_seatmap', 'Für dieses Event gibt es keinen Saalplan.', ['status' => 404]);
+        return [$event_id, $sm];
+    }
+
+    /** GET /public/events/{id}/seatmap[?hold_token=] */
+    public static function rest_seatmap(WP_REST_Request $req) {
+        $ev = self::rest_event($req);
+        if (is_wp_error($ev)) return $ev;
+        list($event_id, $sm) = $ev;
+        $holder = self::app_holder($req->get_param('hold_token'));
+        $data = self::data($sm);
+        $sections = [];
+        foreach (self::get_section_data($sm, $event_id) as $sec) {
+            $sections[] = [
+                'id' => $sec['id'], 'label' => $sec['label'], 'color' => $sec['color'],
+                'price' => round($sec['price'], 2), 'total' => $sec['total'], 'available' => $sec['available'],
+            ];
+        }
+        return rest_ensure_response([
+            'ok'           => true,
+            'event_id'     => $event_id,
+            'seatmap_id'   => $sm,
+            'mode'         => get_post_meta($event_id, '_tix_seatmap_mode', true) ?: 'manual', // manual | best
+            'hold_minutes' => self::RESERVE_MIN,
+            'layout'       => [
+                'width' => intval($data['width'] ?? 800), 'height' => intval($data['height'] ?? 600),
+                'layout' => (string) ($data['layout'] ?? 'theater'), 'stage_label' => (string) ($data['stage_label'] ?? ''),
+            ],
+            'sections'     => $sections,
+            // Sitze mit Koordinaten: sections[].rows[].seats[] {id, x, y, type}
+            'map'          => $data['sections'] ?? [],
+            'taken'        => self::taken($event_id, $sm, $holder),
+            'held'         => self::held_by($event_id, $holder),
+        ]);
+    }
+
+    /** POST /customer/seats/hold {event_id, seat_ids[], hold_token?} */
+    public static function rest_hold(WP_REST_Request $req) {
+        if (self::rest_limit('seat_hold', 60)) return new WP_Error('tix_rate_limit', 'Zu viele Anfragen. Bitte kurz warten.', ['status' => 429]);
+        $ev = self::rest_event($req);
+        if (is_wp_error($ev)) return $ev;
+        list($event_id, $sm) = $ev;
+        $token  = (string) $req->get_param('hold_token');
+        $holder = self::app_holder($token);
+        if ($holder === '') {
+            $token  = wp_generate_password(32, false);
+            $holder = self::app_holder($token);
+        }
+        $seats = array_slice(array_map('sanitize_text_field', (array) $req->get_param('seat_ids')), 0, 50);
+        if (!$seats) return new WP_Error('tix_seats', 'Bitte Plätze wählen.', ['status' => 400]);
+        $r = self::hold($event_id, $sm, $seats, $holder);
+        return rest_ensure_response(['ok' => !empty($r['reserved']), 'hold_token' => $token,
+            'expires_at' => gmdate('c', strtotime($r['expires_at'] . ' UTC'))] + $r);
+    }
+
+    /** POST /customer/seats/release {event_id, seat_ids[], hold_token} */
+    public static function rest_release(WP_REST_Request $req) {
+        $ev = self::rest_event($req);
+        if (is_wp_error($ev)) return $ev;
+        $holder = self::app_holder($req->get_param('hold_token'));
+        if ($holder === '') return new WP_Error('tix_hold_token', 'hold_token fehlt.', ['status' => 400]);
+        self::release($ev[0], array_map('sanitize_text_field', (array) $req->get_param('seat_ids')), $holder);
+        return rest_ensure_response(['ok' => true]);
+    }
+
+    /** POST /customer/seats/best {event_id, section_id, qty, hold_token?} → beste Plätze finden und halten */
+    public static function rest_best(WP_REST_Request $req) {
+        if (self::rest_limit('seat_hold', 60)) return new WP_Error('tix_rate_limit', 'Zu viele Anfragen. Bitte kurz warten.', ['status' => 429]);
+        $ev = self::rest_event($req);
+        if (is_wp_error($ev)) return $ev;
+        list($event_id, $sm) = $ev;
+        $token  = (string) $req->get_param('hold_token');
+        $holder = self::app_holder($token);
+        if ($holder === '') {
+            $token  = wp_generate_password(32, false);
+            $holder = self::app_holder($token);
+        }
+        $qty  = min(20, max(1, intval($req->get_param('qty'))));
+        $best = self::best($event_id, $sm, sanitize_key((string) $req->get_param('section_id')), $qty, $holder);
+        if (count($best) < $qty) {
+            return new WP_Error('tix_no_seats', 'Nicht genügend freie Plätze verfügbar.', ['status' => 409]);
+        }
+        $r = self::hold($event_id, $sm, $best, $holder);
+        return rest_ensure_response(['ok' => !empty($r['reserved']), 'hold_token' => $token,
+            'expires_at' => gmdate('c', strtotime($r['expires_at'] . ' UTC'))] + $r);
     }
 }

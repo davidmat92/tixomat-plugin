@@ -199,6 +199,11 @@ class TIX_Native_Checkout {
         return 'guest_' . $session_id;
     }
 
+    /** Schlüssel des Warenkorbs (Konto bzw. Gast-Cookie) – auch Halter für Saalplan-Reservierungen */
+    public static function session_key() {
+        return self::cart_key();
+    }
+
     public static function get_cart() {
         $key = self::cart_key();
         if (str_starts_with($key, 'user_')) {
@@ -417,6 +422,14 @@ class TIX_Native_Checkout {
                 wp_send_json_error(['message' => $e->get_error_message()]);
             }
 
+            // ─── Saalplan: Sitzplätze einer Sektion (Preis der Sektion, eigene Zeile) ───
+            if (!empty($item['seats']) && is_array($item['seats']) && class_exists('TIX_Seatmap')) {
+                $line = self::seat_line($event_id, (array) $item['seats']);
+                if (is_string($line)) wp_send_json_error(['message' => $line]);
+                $cart['items'][] = $line;
+                continue;
+            }
+
             // Ticket-Kategorie validieren
             $categories = get_post_meta($event_id, '_tix_ticket_categories', true);
             if (!is_array($categories) || empty($categories)) continue;
@@ -522,6 +535,43 @@ class TIX_Native_Checkout {
             'cart_total'   => self::cart_total(),
             'checkout_url' => $checkout_url,
         ]);
+    }
+
+    /**
+     * Warenkorb-Zeile für Sitzplätze (eine Sektion) bauen und die Plätze für den Halter sichern.
+     * $holder leer = Web-Warenkorb. Liefert die Zeile oder eine Fehlermeldung.
+     */
+    public static function seat_line($event_id, array $seats, $holder = '') {
+        $sm   = TIX_Seatmap::event_seatmap($event_id);
+        $data = $sm ? TIX_Seatmap::data($sm) : null;
+        if (!$data) return 'Für dieses Event gibt es keinen Saalplan.';
+        $seats = array_values(array_unique(array_map('sanitize_text_field', $seats)));
+        $sec = null;
+        foreach ($seats as $sid) {
+            $s2 = TIX_Seatmap::section_of($data, $sid);
+            if (!$s2) return 'Platz ' . TIX_Seatmap::seat_label($sid) . ' ist nicht buchbar.';
+            if ($sec && $s2['id'] !== $sec['id']) return 'Bitte Plätze je Bereich einzeln in den Warenkorb legen.';
+            $sec = $s2;
+        }
+        if (!$sec || floatval($sec['price'] ?? 0) <= 0) return 'Für diesen Bereich gibt es keine Online-Tickets.';
+        $r = TIX_Seatmap::hold($event_id, $sm, $seats, $holder !== '' ? $holder : self::session_key());
+        if ($r['failed']) {
+            return 'Diese Plätze sind leider nicht mehr frei: ' . implode(', ', array_map(['TIX_Seatmap', 'seat_label'], $r['failed'])) . '.';
+        }
+        // Verknüpfte Ticket-Kategorie (seatmap_section), sonst -1 (Ticket heißt wie der Bereich)
+        $cat_index = -1;
+        foreach ((array) get_post_meta($event_id, '_tix_ticket_categories', true) as $ci => $c) {
+            if (is_array($c) && ($c['seatmap_section'] ?? '') === $sec['id']) { $cat_index = intval($ci); break; }
+        }
+        return [
+            'event_id'    => intval($event_id),
+            'cat_index'   => $cat_index,
+            'name'        => sanitize_text_field(!empty($sec['category_name']) ? $sec['category_name'] : ($sec['label'] ?: 'Sitzplatz')),
+            'event_title' => get_the_title($event_id),
+            'price'       => floatval($sec['price']),
+            'qty'         => count($seats),
+            'meta'        => ['seats' => $seats, 'seatmap_id' => $sm, 'section' => $sec['id']],
+        ];
     }
 
     // ──────────────────────────────────────────
@@ -796,6 +846,10 @@ class TIX_Native_Checkout {
         $cart = self::get_cart();
 
         if (isset($cart['items'][$index])) {
+            $removed = $cart['items'][$index];
+            if (!empty($removed['meta']['seats']) && class_exists('TIX_Seatmap')) {
+                TIX_Seatmap::release(intval($removed['event_id']), (array) $removed['meta']['seats'], self::session_key());
+            }
             array_splice($cart['items'], $index, 1);
             self::recalc_coupon_discount($cart);
             self::save_cart($cart);
@@ -815,6 +869,9 @@ class TIX_Native_Checkout {
         $delta = intval($_POST['delta'] ?? 0);
         $cart = self::get_cart();
 
+        if (isset($cart['items'][$index]) && !empty($cart['items'][$index]['meta']['seats'])) {
+            wp_send_json_error(['message' => 'Sitzplätze bitte im Saalplan ändern.']);
+        }
         if (isset($cart['items'][$index])) {
             $cart['items'][$index]['qty'] = max(1, min(20, $cart['items'][$index]['qty'] + $delta));
             self::recalc_coupon_discount($cart);
@@ -1523,6 +1580,8 @@ class TIX_Native_Checkout {
         if (empty($cart['items'])) {
             wp_send_json_error(['message' => 'Warenkorb ist leer.']);
         }
+        // Halter der Sitzplatz-Reservierungen merken (ändert sich, wenn unten ein Konto angelegt wird)
+        $seat_holder = self::session_key();
 
         // Pflichtfelder validieren
         $first_name = sanitize_text_field($_POST['billing_first_name'] ?? '');
@@ -1659,6 +1718,10 @@ class TIX_Native_Checkout {
         if ($cerr = self::checkout_coupon_error($cart, $email)) {
             wp_send_json_error(['message' => $cerr]);
         }
+        // Sitzplätze für die Zahlung sichern (Haltezeit verlängern, sonst Fehler statt Doppelbuchung)
+        if (class_exists('TIX_Seatmap') && ($serr = TIX_Seatmap::secure_cart($cart['items'], $seat_holder))) {
+            wp_send_json_error(['message' => $serr]);
+        }
 
         // Order erstellen
         $order_id = self::create_order([
@@ -1679,6 +1742,7 @@ class TIX_Native_Checkout {
         if (!$order_id) {
             wp_send_json_error(['message' => 'Bestellung konnte nicht erstellt werden.']);
         }
+        if (class_exists('TIX_Seatmap')) TIX_Seatmap::attach_order($cart['items'], $seat_holder, $order_id);
 
         // ── Kontoaktivierung per Email (nur wenn frisch angelegt) ──
         if ($created_user_id && class_exists('TIX_Account_Activation')) {
