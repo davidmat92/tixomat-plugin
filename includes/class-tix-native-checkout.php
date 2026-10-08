@@ -322,16 +322,12 @@ class TIX_Native_Checkout {
     // AJAX: Add to Cart
     // ──────────────────────────────────────────
 
-    public static function ajax_add_to_cart() {
-        check_ajax_referer('tix_add_to_cart', 'nonce');
-
-        $items = json_decode(stripslashes($_POST['items'] ?? '[]'), true);
-        if (!is_array($items) || empty($items)) {
-            wp_send_json_error(['message' => 'Keine Artikel angegeben.']);
-        }
-
-        $cart = self::get_cart();
-
+    /**
+     * Positionen (Format der Ticketauswahl) in einen Warenkorb legen – Tickets, Pakete, Specials,
+     * Kombis, Sitzplätze, Gutscheine. Optional item.group_member (Gemeinsam buchen).
+     * Liefert den Warenkorb oder eine Fehlermeldung (string).
+     */
+    public static function add_items(array $cart, array $items) {
         foreach ($items as $item) {
             $event_id  = intval($item['event_id'] ?? 0);
             $cat_index = intval($item['cat_index'] ?? $item['category_index'] ?? 0);
@@ -367,7 +363,7 @@ class TIX_Native_Checkout {
                 if ($base_qty > 0) {
                     $sold = TIX_Specials::get_sold_count($special_id, $event_id);
                     if ($sold + $qty > $base_qty) {
-                        wp_send_json_error(['message' => 'Special "' . esc_html($name) . '" ist ausverkauft.']);
+                        return 'Special "' . esc_html($name) . '" ist ausverkauft.';
                     }
                 }
 
@@ -423,21 +419,24 @@ class TIX_Native_Checkout {
 
             // Vorverkauf noch nicht gestartet / beendet → nicht in den Warenkorb
             if (class_exists('TIX_Cart_Pricing') && ($e = TIX_Cart_Pricing::presale_error($event_id))) {
-                wp_send_json_error(['message' => $e->get_error_message()]);
+                return $e->get_error_message();
             }
 
             // ─── Kombi-Ticket: je Bestandteil eine Zeile, Preis serverseitig (TIX_Cart_Pricing) ───
             if (!empty($item['combo']) && !empty($item['combo_id']) && class_exists('TIX_Cart_Pricing')) {
                 $lines = TIX_Cart_Pricing::combo_lines($event_id, sanitize_text_field((string) $item['combo_id']), $qty);
-                if (is_string($lines)) wp_send_json_error(['message' => $lines]);
-                foreach ($lines as $l) $cart['items'][] = $l;
+                if (is_string($lines)) return $lines;
+                foreach ($lines as $l) {
+                    if (!empty($item['group_member'])) $l['meta']['group_member'] = sanitize_text_field($item['group_member']);
+                    $cart['items'][] = $l;
+                }
                 continue;
             }
 
             // ─── Saalplan: Sitzplätze einer Sektion (Preis der Sektion, eigene Zeile) ───
             if (!empty($item['seats']) && is_array($item['seats']) && class_exists('TIX_Seatmap')) {
                 $line = self::seat_line($event_id, (array) $item['seats']);
-                if (is_string($line)) wp_send_json_error(['message' => $line]);
+                if (is_string($line)) return $line;
                 $cart['items'][] = $line;
                 continue;
             }
@@ -485,7 +484,8 @@ class TIX_Native_Checkout {
             $found = false;
             foreach ($cart['items'] as &$ci) {
                 if ($ci['event_id'] === $event_id && $ci['cat_index'] === $cat_index && empty($ci['meta']['special']) && empty($ci['meta']['gift'])
-                    && empty($ci['meta']['bundle']) === empty($item['bundle'])) {
+                    && empty($ci['meta']['bundle']) === empty($item['bundle'])
+                    && (string) ($ci['meta']['group_member'] ?? '') === (string) ($item['group_member'] ?? '')) {
                     $ci['qty'] += $qty;
                     $found = true;
                     break;
@@ -504,7 +504,7 @@ class TIX_Native_Checkout {
                     if (!empty($gflags['free_amount'])) {
                         $amount = round(floatval($item['custom_amount'] ?? 0), 2);
                         if ($amount < TIX_Giftcards::MIN_FREE || $amount > TIX_Giftcards::MAX_FREE) {
-                            wp_send_json_error(['message' => sprintf('Gutschein-Betrag muss zwischen %d und %d € liegen.', TIX_Giftcards::MIN_FREE, TIX_Giftcards::MAX_FREE)]);
+                            return sprintf('Gutschein-Betrag muss zwischen %d und %d € liegen.', TIX_Giftcards::MIN_FREE, TIX_Giftcards::MAX_FREE);
                         }
                         $price  = $amount;
                         $locked = 1; // validated_total uebernimmt locked_price unveraendert
@@ -527,9 +527,25 @@ class TIX_Native_Checkout {
                         'bundle'     => $item['bundle'] ?? null,
                         'combo'      => $item['combo'] ?? null,
                         'gift'       => $gift_meta,
+                        'group_member' => !empty($item['group_member']) ? sanitize_text_field($item['group_member']) : null,
                     ]),
                 ], function ($v) { return $v !== null; });
             }
+        }
+        return $cart;
+    }
+
+    public static function ajax_add_to_cart() {
+        check_ajax_referer('tix_add_to_cart', 'nonce');
+
+        $items = json_decode(stripslashes($_POST['items'] ?? '[]'), true);
+        if (!is_array($items) || empty($items)) {
+            wp_send_json_error(['message' => 'Keine Artikel angegeben.']);
+        }
+
+        $cart = self::add_items(self::get_cart(), $items);
+        if (is_string($cart)) {
+            wp_send_json_error(['message' => $cart]);
         }
 
         // Auto-Apply-Coupon einsetzen wenn aktiv und noch keiner im Cart ist
@@ -1965,8 +1981,12 @@ class TIX_Native_Checkout {
         }
 
         // Save group booking data if available
-        $group_key = 'tix_group_order_data_' . get_current_user_id() . '_' . wp_get_session_token();
+        $group_key = 'tix_group_order_data_' . md5(self::session_key()); // native Gruppenbuchung
         $group_data = get_transient($group_key);
+        if (!$group_data) {
+            $group_key  = 'tix_group_order_data_' . get_current_user_id() . '_' . wp_get_session_token();
+            $group_data = get_transient($group_key);
+        }
         if ($group_data) {
             update_option('_tix_order_group_data_' . $order_id, $group_data, false);
             delete_transient($group_key);

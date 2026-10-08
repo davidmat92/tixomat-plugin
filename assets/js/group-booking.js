@@ -310,6 +310,7 @@
                     var bPay = parseInt(cat.dataset.bundlePay, 10) || 0;
                     items.push({
                         product_id: pid,
+                        cat_index: parseInt(cat.dataset.index, 10),
                         quantity: qty * bBuy,
                         bundle: 1,
                         bundle_buy: bBuy,
@@ -317,7 +318,7 @@
                         bundle_label: cat.dataset.bundleLabel || ''
                     });
                 } else {
-                    items.push({ product_id: pid, quantity: qty });
+                    items.push({ product_id: pid, cat_index: parseInt(cat.dataset.index, 10), quantity: qty });
                 }
             });
 

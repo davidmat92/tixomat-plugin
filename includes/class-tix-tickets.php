@@ -6990,6 +6990,10 @@ body{margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',
                     update_post_meta($ticket_id, '_tix_ticket_seat_id', $seat_ids[$i]);
                     update_post_meta($ticket_id, '_tix_ticket_seatmap_id', $seatmap_id);
                 }
+                // Gemeinsam buchen: Name des Gruppenmitglieds am Ticket
+                if (!empty($meta['group_member'])) {
+                    update_post_meta($ticket_id, '_tix_group_member', sanitize_text_field($meta['group_member']));
+                }
 
                 // Ticket-DB (denormalisierte Tabelle)
                 if (class_exists('TIX_Ticket_DB')) {

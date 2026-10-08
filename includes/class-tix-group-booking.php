@@ -127,7 +127,7 @@ class TIX_Group_Booking {
         }
 
         // Sanitize items
-        $clean_items = self::sanitize_items($items);
+        $clean_items = self::sanitize_items($items, intval($session['event_id'] ?? 0));
         if (empty($clean_items)) {
             wp_send_json_error(['message' => 'Ungültige Ticket-Daten.']);
         }
@@ -246,7 +246,43 @@ class TIX_Group_Booking {
         }
 
         if (!function_exists('WC') || !WC()->cart) {
-            wp_send_json_error(['message' => 'WooCommerce nicht verfügbar.']);
+            // Native Kasse: Gruppen-Positionen in den eigenen Warenkorb, Kostensplit für die Bestellung merken
+            if (!class_exists('TIX_Native_Checkout')) {
+                wp_send_json_error(['message' => 'Kasse nicht verfügbar.']);
+            }
+            $event_id = intval($session['event_id'] ?? 0);
+            $native   = [];
+            $split    = [];
+            foreach ($session['members'] as $member) {
+                if (empty($member['items'])) continue;
+                $split[] = [
+                    'name'     => $member['name'],
+                    'items'    => [self::format_member_items($member['items'], self::cat_map($event_id))],
+                    'subtotal' => round(self::calculate_member_subtotal($member['items'], [], $event_id), 2),
+                ];
+                foreach ($member['items'] as $item) {
+                    $n = ['event_id' => $event_id, 'quantity' => intval($item['quantity'] ?? 0), 'group_member' => $member['name']];
+                    if (!empty($item['combo'])) {
+                        $n += ['combo' => 1, 'combo_id' => (string) ($item['combo_id'] ?? '')];
+                    } else {
+                        $n['cat_index'] = intval($item['cat_index'] ?? -1);
+                        if ($n['cat_index'] < 0) continue;
+                        if (!empty($item['bundle'])) $n['bundle'] = 1;
+                    }
+                    $native[] = $n;
+                }
+            }
+            $cart = TIX_Native_Checkout::add_items(['items' => [], 'coupon' => null], $native);
+            if (is_string($cart)) wp_send_json_error(['message' => $cart]);
+            if (empty($cart['items'])) wp_send_json_error(['message' => 'Noch keine Tickets in der Gruppe.']);
+            TIX_Native_Checkout::save_cart($cart);
+            set_transient('tix_group_order_data_' . md5(TIX_Native_Checkout::session_key()), ['members' => $split, 'token' => $token], 3600);
+            $session['status'] = 'completed';
+            self::save_session($token, $session);
+            wp_send_json_success([
+                'checkout_url' => TIX_Native_Checkout::checkout_url(),
+                'message'      => 'Alle Tickets wurden in den Warenkorb gelegt!',
+            ]);
         }
 
         // Cart leeren und mit Gruppen-Items befüllen
@@ -418,9 +454,30 @@ class TIX_Group_Booking {
     // Items Sanitize
     // ══════════════════════════════════════
 
-    private static function sanitize_items($items) {
+    private static function sanitize_items($items, $event_id = 0) {
         $clean = [];
+        $native = !function_exists('WC') && class_exists('TIX_Cart_Pricing');
         foreach ($items as $item) {
+            // Native Kasse: Kategorie-Index / Kombi-ID statt WooCommerce-Produkt
+            if ($native && $event_id) {
+                $qty = intval($item['quantity'] ?? 0);
+                if ($qty <= 0) continue;
+                if (!empty($item['combo'])) {
+                    $cid = sanitize_text_field($item['combo_id'] ?? '');
+                    $def = $cid !== '' ? TIX_Cart_Pricing::combo_def($event_id, $cid) : null;
+                    if (!$def) continue;
+                    $clean[] = ['combo' => 1, 'combo_id' => $cid, 'combo_label' => sanitize_text_field($def['label'] ?? 'Kombi'), 'quantity' => min(20, $qty)];
+                    continue;
+                }
+                $ci = intval($item['cat_index'] ?? -1);
+                if ($ci < 0 || TIX_Cart_Pricing::category_price($event_id, $ci) === null) continue;
+                $entry = ['cat_index' => $ci, 'quantity' => min(200, $qty)];
+                if (!empty($item['bundle']) && ($b = TIX_Cart_Pricing::bundle($event_id, $ci))) {
+                    $entry += ['bundle' => 1, 'bundle_buy' => $b['buy'], 'bundle_pay' => $b['pay'], 'bundle_label' => $b['label']];
+                }
+                $clean[] = $entry;
+                continue;
+            }
             if (!empty($item['combo'])) {
                 $products = [];
                 foreach (($item['products'] ?? []) as $p) {
@@ -467,17 +524,22 @@ class TIX_Group_Booking {
     /**
      * Gibt HTML für die Gruppenübersicht zurück
      */
+    /** Namen der Kategorien: product_id => Name und 'c<index>' => Name (native Kasse) */
+    private static function cat_map($event_id) {
+        $map = [];
+        foreach ((array) get_post_meta($event_id, '_tix_ticket_categories', true) as $i => $cat) {
+            if (!is_array($cat)) continue;
+            $pid = intval($cat['product_id'] ?? 0);
+            if ($pid > 0) $map[$pid] = $cat['name'] ?? 'Ticket';
+            $map['c' . $i] = $cat['name'] ?? 'Ticket';
+        }
+        return $map;
+    }
+
     public static function render_group_overview($session, $token, $is_admin = false, $own_member_id = '') {
         $event_id   = $session['event_id'];
         $members    = $session['members'] ?? [];
-        $categories = get_post_meta($event_id, '_tix_ticket_categories', true);
-        $cat_map    = [];
-        if (is_array($categories)) {
-            foreach ($categories as $cat) {
-                $pid = intval($cat['product_id'] ?? 0);
-                if ($pid > 0) $cat_map[$pid] = $cat['name'] ?? 'Ticket';
-            }
-        }
+        $cat_map    = self::cat_map($event_id);
 
         $total       = 0;
         $member_count = 0;
@@ -489,7 +551,7 @@ class TIX_Group_Booking {
         <?php foreach ($members as $mid => $member):
             $is_self  = ($mid === $own_member_id);
             $is_org   = !empty($member['is_admin']);
-            $subtotal = self::calculate_member_subtotal($member['items'], $cat_map);
+            $subtotal = self::calculate_member_subtotal($member['items'], $cat_map, intval($event_id));
             $total   += $subtotal;
             $member_count++;
             if (!empty($member['items'])) $has_items = true;
@@ -541,9 +603,22 @@ class TIX_Group_Booking {
     /**
      * Berechnet Subtotal eines Members aus seinen Items
      */
-    private static function calculate_member_subtotal($items, $cat_map = []) {
+    private static function calculate_member_subtotal($items, $cat_map = [], $event_id = 0) {
         $subtotal = 0;
         foreach ($items as $item) {
+            // Native Kasse: Preise aus dem Preisdienst (ohne Mengenrabatt – der gilt für die ganze Bestellung)
+            if ($event_id && class_exists('TIX_Cart_Pricing') && (isset($item['cat_index']) || (!empty($item['combo']) && empty($item['products'])))) {
+                $qty = intval($item['quantity'] ?? 0);
+                if (!empty($item['combo'])) {
+                    $def = TIX_Cart_Pricing::combo_def($event_id, (string) ($item['combo_id'] ?? ''));
+                    $subtotal += floatval($def['price'] ?? 0) * $qty;
+                    continue;
+                }
+                $price = floatval(TIX_Cart_Pricing::category_price($event_id, intval($item['cat_index'])));
+                $b = !empty($item['bundle']) ? TIX_Cart_Pricing::bundle($event_id, intval($item['cat_index'])) : null;
+                $subtotal += $b ? $qty * $price * $b['pay'] / $b['buy'] : $qty * $price;
+                continue;
+            }
             if (!empty($item['combo'])) {
                 $subtotal += floatval($item['combo_price'] ?? 0) * intval($item['quantity'] ?? 1);
             } else {
@@ -585,7 +660,7 @@ class TIX_Group_Booking {
             } else {
                 $pid  = intval($item['product_id'] ?? 0);
                 $qty  = intval($item['quantity'] ?? 0);
-                $name = $cat_map[$pid] ?? 'Ticket';
+                $name = isset($item['cat_index']) ? ($cat_map['c' . intval($item['cat_index'])] ?? 'Ticket') : ($cat_map[$pid] ?? 'Ticket');
                 if (!empty($item['bundle'])) {
                     $bl = $item['bundle_label'] ?? '';
                     $name = $bl ?: $name . ' (Paket)';
