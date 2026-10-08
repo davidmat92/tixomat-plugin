@@ -618,7 +618,7 @@
     font-family: var(--tix-card-font-d, var(--tix-font-heading, 'Sora')), sans-serif;
     font-weight: 700; font-size: 0.85rem;
 }
-.tix-hp-list-free { color: var(--tix-card-entdecken, #14B8A6); }
+.tix-hp-list-free { color: var(--tix-card-signal, #E8445A); }
 .tix-hp-list-soldout-label { color: #8C8985; font-weight: 600; font-size: 0.78rem; }
 .tix-hp-list-soldout .tix-hp-list-img { filter: grayscale(0.7) brightness(0.7); }
 

@@ -200,7 +200,10 @@ class TIX_Event_Extras {
     /** evendis-Vorlage: Preisblock zeigt sonst „ab“ über dem Wert (CSS ::before) */
     public static function free_entry_css() {
         if (!is_singular('event') || !self::free_entry(get_queried_object_id())) return;
-        echo '<style id="tix-free-entry-css">body.tix-free-entry .evx-price-v::before{content:"Eintritt"}</style>' . "\n";
+        // „Eintritt / Frei“ statt „ab“; „Frei“ und der Ticket-Bereich in der Akzentfarbe
+        echo '<style id="tix-free-entry-css">body.tix-free-entry .evx-price-v::before{content:"Eintritt"}'
+            . 'body.tix-free-entry .evx-price-v{color:var(--ev-signal,var(--tix-card-signal,#E8445A))}'
+            . '.tix-sel-free-entry .tix-sel-cat-name{color:var(--ev-signal,var(--tix-card-signal,#E8445A))}</style>' . "\n";
     }
 
     /** Externer Ticketshop: {url, text, mode: replace|both} oder null */

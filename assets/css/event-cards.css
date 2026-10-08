@@ -129,7 +129,7 @@
 .ev-footer { padding: 12px 18px 16px; display: flex; justify-content: space-between; align-items: center; }
 .ev-price { font-family: var(--tix-card-font-d, var(--tix-font-heading, 'Sora')), sans-serif; font-weight: 700; font-size: var(--tix-card-font-price, 0.92rem); }
 .section-dark .ev-price { color: #fff; }
-.ev-price-free { color: var(--tix-card-entdecken, #14B8A6) !important; }
+.ev-price-free { color: var(--tix-card-signal, #E8445A) !important; } /* „Eintritt frei“ in der Akzentfarbe (wie „Vorverkauf“) */
 .ev-price-old { text-decoration: line-through; opacity: 0.4; font-weight: 400; font-size: var(--tix-label, 12px); margin-right: 4px; }
 
 /* Buttons */
