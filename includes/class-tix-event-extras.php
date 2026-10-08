@@ -21,6 +21,9 @@ class TIX_Event_Extras {
         add_shortcode('tix_event_hints',   [__CLASS__, 'sc_hints']);
         add_shortcode('tix_event_charity', [__CLASS__, 'sc_charity']);
         add_shortcode('tix_event_series',  [__CLASS__, 'sc_series']);
+        // Freier Eintritt: Seiten-Klasse + „Eintritt / Frei“ im Preisblock der Event-Vorlage
+        add_filter('body_class', [__CLASS__, 'free_entry_body_class']);
+        add_action('wp_head', [__CLASS__, 'free_entry_css']);
     }
 
     // ══════════════════════════════════════
@@ -168,6 +171,27 @@ class TIX_Event_Extras {
         ];
     }
 
+    /**
+     * Freier Eintritt (ohne Online-Tickets): {note} oder null.
+     * Schalter im Event „Tickets“ → „Freier Eintritt (keine Tickets nötig)“ (Meta `_tix_free_entry`).
+     */
+    public static function free_entry($id) {
+        if (get_post_meta($id, '_tix_tickets_enabled', true) === '1') return null;
+        if (get_post_meta($id, '_tix_free_entry', true) !== '1') return null;
+        return ['note' => (string) get_post_meta($id, '_tix_free_entry_note', true)];
+    }
+
+    public static function free_entry_body_class($classes) {
+        if (is_singular('event') && self::free_entry(get_queried_object_id())) $classes[] = 'tix-free-entry';
+        return $classes;
+    }
+
+    /** evendis-Vorlage: Preisblock zeigt sonst „ab“ über dem Wert (CSS ::before) */
+    public static function free_entry_css() {
+        if (!is_singular('event') || !self::free_entry(get_queried_object_id())) return;
+        echo '<style id="tix-free-entry-css">body.tix-free-entry .evx-price-v::before{content:"Eintritt"}</style>' . "\n";
+    }
+
     /** Externer Ticketshop: {url, text, mode: replace|both} oder null */
     public static function external_shop($id) {
         if (get_post_meta($id, '_tix_extshop_enabled', true) !== '1') return null;
@@ -197,6 +221,8 @@ class TIX_Event_Extras {
     }
 
     private static function presale_end($id) {
+        // Ohne Online-Verkauf gibt es kein Vorverkaufsende (Apps zeigten es sonst an)
+        if (get_post_meta($id, '_tix_tickets_enabled', true) !== '1') return '';
         $raw = (string) get_post_meta($id, '_tix_presale_end_computed', true);
         if ($raw === '' || (get_post_meta($id, '_tix_presale_end_mode', true) ?: 'manual') === 'manual') return '';
         $ts = strtotime(str_replace('T', ' ', $raw));

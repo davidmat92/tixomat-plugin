@@ -1373,6 +1373,10 @@ class TIX_Metabox {
         $box_office_price = get_post_meta($post->ID, '_tix_box_office_price', true);
         $box_office_desc  = get_post_meta($post->ID, '_tix_box_office_desc', true);
 
+        // Freier Eintritt (ohne Tickets)
+        $free_entry      = get_post_meta($post->ID, '_tix_free_entry', true);
+        $free_entry_note = get_post_meta($post->ID, '_tix_free_entry_note', true);
+
         // Externer Ticketshop
         $ext_enabled = get_post_meta($post->ID, '_tix_extshop_enabled', true);
         $ext_url     = get_post_meta($post->ID, '_tix_extshop_url', true);
@@ -1447,9 +1451,33 @@ class TIX_Metabox {
             </div>
         </div>
 
+        <?php // ── Freier Eintritt (ohne Tickets) ── ?>
+        <div class="tix-toggle-wrap" id="tix-free-entry-wrap" <?php echo $enabled === '1' ? 'style="display:none;"' : ''; ?>>
+            <label class="tix-toggle-label">
+                <input type="hidden" name="tix_free_entry" value="0">
+                <input type="checkbox" name="tix_free_entry" value="1" id="tix-free-entry"
+                       <?php checked($free_entry, '1'); ?>>
+                <span class="tix-toggle-text">Freier Eintritt (keine Tickets nötig)</span>
+            </label>
+            <?php self::tip('Website und Apps zeigen „Eintritt frei“ statt Tickets oder Preis. Schließt „Nur Abendkasse“ aus. Für kostenlose Tickets mit Anmeldung stattdessen Tickets verkaufen und den Preis auf 0 € setzen.'); ?>
+        </div>
+
+        <div id="tix-free-entry-panel" <?php echo ($free_entry !== '1' || $enabled === '1') ? 'style="display:none;"' : ''; ?>>
+            <div style="margin:12px 0 16px;">
+                <label style="font-size:12px;font-weight:600;color:#64748b;display:block;margin-bottom:4px;">Hinweis (optional)</label>
+                <input type="text" name="tix_free_entry_note"
+                       value="<?php echo esc_attr($free_entry_note); ?>"
+                       placeholder="z.B. Eintritt frei bis 0 Uhr, danach 5 €"
+                       style="width:100%;padding:8px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;">
+            </div>
+        </div>
+
         <script>
         jQuery(function($) {
             var $ticketsEnabled = $('#tix-tickets-enabled');
+            var $freeWrap = $('#tix-free-entry-wrap');
+            var $freeEntry = $('#tix-free-entry');
+            var $freePanel = $('#tix-free-entry-panel');
             var $boxOfficeWrap = $('#tix-box-office-wrap');
             var $boxOfficeOnly = $('#tix-box-office-only');
             var $boxOfficePanel = $('#tix-box-office-panel');
@@ -1458,15 +1486,27 @@ class TIX_Metabox {
                 if ($ticketsEnabled.is(':checked')) {
                     $boxOfficeWrap.hide();
                     $boxOfficePanel.hide();
+                    $freeWrap.hide();
+                    $freePanel.hide();
                 } else {
                     $boxOfficeWrap.show();
                     $boxOfficePanel.toggle($boxOfficeOnly.is(':checked'));
+                    $freeWrap.show();
+                    $freePanel.toggle($freeEntry.is(':checked'));
                 }
             }
 
             $ticketsEnabled.on('change', toggleBoxOffice);
             $boxOfficeOnly.on('change', function() {
-                $boxOfficePanel.toggle($(this).is(':checked'));
+                var on = $(this).is(':checked');
+                $boxOfficePanel.toggle(on);
+                // Abendkasse und freier Eintritt schließen sich aus
+                if (on && $freeEntry.is(':checked')) { $freeEntry.prop('checked', false); $freePanel.hide(); }
+            });
+            $freeEntry.on('change', function() {
+                var on = $(this).is(':checked');
+                $freePanel.toggle(on);
+                if (on && $boxOfficeOnly.is(':checked')) { $boxOfficeOnly.prop('checked', false); $boxOfficePanel.hide(); }
             });
         });
         </script>
@@ -4346,6 +4386,10 @@ class TIX_Metabox {
         update_post_meta($post_id, '_tix_box_office_only', $box_office_only);
         update_post_meta($post_id, '_tix_box_office_price', sanitize_text_field($_POST['tix_box_office_price'] ?? ''));
         update_post_meta($post_id, '_tix_box_office_desc', sanitize_text_field($_POST['tix_box_office_desc'] ?? ''));
+        // Freier Eintritt (schließt „Nur Abendkasse“ aus)
+        update_post_meta($post_id, '_tix_free_entry',
+            (!empty($_POST['tix_free_entry']) && empty($_POST['tix_box_office_only'])) ? '1' : '0');
+        update_post_meta($post_id, '_tix_free_entry_note', sanitize_text_field($_POST['tix_free_entry_note'] ?? ''));
 
         $presale = !empty($_POST['tix_presale_active']) ? '1' : '0';
         update_post_meta($post_id, '_tix_presale_active', $presale);
@@ -5223,6 +5267,10 @@ class TIX_Metabox {
         update_post_meta($post_id, '_tix_box_office_only', !empty($_POST['tix_box_office_only']) ? '1' : '0');
         update_post_meta($post_id, '_tix_box_office_price', sanitize_text_field($_POST['tix_box_office_price'] ?? ''));
         update_post_meta($post_id, '_tix_box_office_desc', sanitize_text_field($_POST['tix_box_office_desc'] ?? ''));
+        // Freier Eintritt (schließt „Nur Abendkasse“ aus)
+        update_post_meta($post_id, '_tix_free_entry',
+            (!empty($_POST['tix_free_entry']) && empty($_POST['tix_box_office_only'])) ? '1' : '0');
+        update_post_meta($post_id, '_tix_free_entry_note', sanitize_text_field($_POST['tix_free_entry_note'] ?? ''));
         update_post_meta($post_id, '_tix_presale_active', !empty($_POST['tix_presale_active']) ? '1' : '0');
         update_post_meta($post_id, '_tix_presale_start', sanitize_text_field($_POST['tix_presale_start'] ?? ''));
         update_post_meta($post_id, '_tix_waitlist_enabled', !empty($_POST['tix_waitlist_enabled']) ? '1' : '');

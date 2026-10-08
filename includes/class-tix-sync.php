@@ -627,6 +627,9 @@ class TIX_Sync {
             update_post_meta($post_id, '_tix_price_label', '');
         }
 
+        // ── Freier Eintritt (ohne Online-Tickets): Anzeige-Texte überschreiben ──
+        self::apply_free_entry_display($post_id);
+
         // ── FAQ: flache Meta-Felder ──
         $faqs = get_post_meta($post_id, '_tix_faq', true);
         if (!is_array($faqs)) $faqs = [];
@@ -885,6 +888,25 @@ class TIX_Sync {
             update_post_meta($post_id, '_tix_price_card', '');
             update_post_meta($post_id, '_tix_price_label', '');
         }
+        self::apply_free_entry_display($post_id);
+    }
+
+    /**
+     * Freier Eintritt (Schalter `_tix_free_entry`, nur ohne Online-Verkauf): Anzeige-Texte für
+     * Karten und Seitenvorlagen auf „Eintritt frei“ setzen (evendis-Vorlage: „Eintritt / Frei“).
+     */
+    private static function apply_free_entry_display($post_id) {
+        if (get_post_meta($post_id, '_tix_free_entry', true) !== '1') return;
+        if (get_post_meta($post_id, '_tix_tickets_enabled', true) === '1') return;
+        update_post_meta($post_id, '_tix_price_min', 0);
+        update_post_meta($post_id, '_tix_price_max', 0);
+        update_post_meta($post_id, '_tix_price_min_formatted', '');
+        update_post_meta($post_id, '_tix_price_from_display', 'Frei');
+        update_post_meta($post_id, '_tix_price_max_formatted', '');
+        update_post_meta($post_id, '_tix_price_range', 'Eintritt frei');
+        update_post_meta($post_id, '_tix_price_range_full', 'Eintritt frei');
+        update_post_meta($post_id, '_tix_price_card', 'Eintritt frei');
+        update_post_meta($post_id, '_tix_price_label', 'Eintritt frei');
     }
 
     /**

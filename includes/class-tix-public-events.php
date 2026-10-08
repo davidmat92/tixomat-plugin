@@ -188,6 +188,9 @@ class TIX_Public_Events {
             'categories'      => $cats,
             'is_past'         => $end > 0 && $end < self::now(),
             'excerpt'         => (string) $post->post_excerpt,
+            // Freier Eintritt ohne Tickets (1.38.363): Apps zeigen „Eintritt frei“ statt Preis/Kasse
+            'free_entry'      => class_exists('TIX_Event_Extras') && TIX_Event_Extras::free_entry($id) !== null,
+            'free_entry_note' => class_exists('TIX_Event_Extras') ? (string) (TIX_Event_Extras::free_entry($id)['note'] ?? '') : '',
         ];
         if ($detailed) {
             $out['description'] = self::html($id, '_tix_info_description');

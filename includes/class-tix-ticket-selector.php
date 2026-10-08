@@ -34,6 +34,10 @@ class TIX_Ticket_Selector {
             if ($box_office_only === '1') {
                 return self::render_box_office_only($post_id);
             }
+            // Freier Eintritt?
+            if (get_post_meta($post_id, '_tix_free_entry', true) === '1') {
+                return self::render_free_entry($post_id);
+            }
             return '';
         }
 
@@ -1500,6 +1504,26 @@ class TIX_Ticket_Selector {
     /**
      * Nur-Abendkasse-Ansicht: Zeigt eine Ticket-Selector-Zeile ohne Kaufmöglichkeit.
      */
+    /** Freier Eintritt: Hinweis statt Ticketauswahl (keine Tickets nötig). */
+    private static function render_free_entry($post_id) {
+        $note = (string) get_post_meta($post_id, '_tix_free_entry_note', true);
+        self::enqueue();
+        ob_start();
+        ?>
+        <div class="tix-sel">
+            <div class="tix-sel-categories">
+                <div class="tix-sel-cat tix-sel-offline tix-sel-free-entry" data-product-id="0" data-price="0" data-index="1">
+                    <div class="tix-sel-cat-info">
+                        <div class="tix-sel-cat-name">Eintritt frei</div>
+                        <div class="tix-sel-cat-desc"><?php echo esc_html($note !== '' ? $note : 'Keine Tickets nötig – einfach vorbeikommen.'); ?></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <?php
+        return ob_get_clean();
+    }
+
     private static function render_box_office_only($post_id) {
         $price = floatval(get_post_meta($post_id, '_tix_box_office_price', true));
         $desc  = get_post_meta($post_id, '_tix_box_office_desc', true);
