@@ -1022,6 +1022,21 @@ class TIX_Native_Checkout {
             );
         }
 
+        // 3) Keine Kassen-Seite vorhanden (z. B. neue Installation): einmalig „Kasse“ mit [tix_checkout] anlegen,
+        //    sonst führt „Weiter zur Kasse“ auf /checkout/ ins Leere (404)
+        if (!$page_id && !get_transient('tix_checkout_page_creating')) {
+            set_transient('tix_checkout_page_creating', 1, 60);
+            $page_id = wp_insert_post([
+                'post_type'      => 'page',
+                'post_status'    => 'publish',
+                'post_title'     => 'Kasse',
+                'post_name'      => 'kasse',
+                'post_content'   => '[tix_checkout]',
+                'comment_status' => 'closed',
+            ]);
+            if (is_wp_error($page_id)) $page_id = 0;
+        }
+
         if ($page_id) {
             update_option('tix_checkout_page_id', $page_id, false);
             $url = get_permalink($page_id);
