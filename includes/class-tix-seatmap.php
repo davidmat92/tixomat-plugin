@@ -285,7 +285,7 @@ class TIX_Seatmap {
 
         $raw = wp_unslash($_POST['tix_seatmap_data'] ?? '');
         $data = self::sanitize_seatmap($raw);
-        update_post_meta($post_id, '_tix_seatmap_data', $data ? wp_json_encode($data) : '');
+        update_post_meta($post_id, '_tix_seatmap_data', $data ? wp_slash(wp_json_encode($data, JSON_UNESCAPED_UNICODE)) : '');
     }
 
     // ──────────────────────────────────────────
@@ -304,7 +304,8 @@ class TIX_Seatmap {
         $data = self::sanitize_seatmap($raw);
         if (!$data) wp_send_json_error('Ungültige Daten');
 
-        update_post_meta($post_id, '_tix_seatmap_data', wp_json_encode($data));
+        // Umlaute direkt speichern + slashen: update_post_meta entfernt sonst den Backslash aus \u00dc → „BU00DCHNE“
+        update_post_meta($post_id, '_tix_seatmap_data', wp_slash(wp_json_encode($data, JSON_UNESCAPED_UNICODE)));
 
         // WC-Produkte pro Sektion synchronisieren
         $products = self::sync_section_products($post_id, $data);
