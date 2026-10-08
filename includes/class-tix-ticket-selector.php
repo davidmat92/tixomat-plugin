@@ -594,89 +594,26 @@ class TIX_Ticket_Selector {
             <?php
             $combos = get_post_meta($post_id, '_tix_combo_deals', true);
             if (is_array($combos) && !empty($combos)):
-                // Batch: Alle Partner-Event-IDs vorladen
-                $partner_event_ids = [];
-                foreach ($combos as $combo) {
-                    foreach (($combo['partners'] ?? []) as $p) {
-                        $partner_event_ids[] = intval($p['event_id']);
-                    }
-                }
-                if (!empty($partner_event_ids)) {
-                    _prime_post_caches(array_unique($partner_event_ids), true, true);
-                }
-
-                // ── Pre-Validierung: nur Header zeigen wenn mind. 1 Kombi gültig ──
-                $any_combo_valid = false;
-                foreach ($combos as $_c) {
-                    $_sci = intval($_c['self_cat_index'] ?? 0);
-                    $_sc  = $categories[$_sci] ?? null;
-                    if (!$_sc || empty($_sc['product_id'])) continue;
-                    $_pv = true;
-                    foreach (($_c['partners'] ?? []) as $_p) {
-                        $_pid = intval($_p['event_id']);
-                        $_pev = get_post($_pid);
-                        if (!$_pev || $_pev->post_status !== 'publish') { $_pv = false; break; }
-                        if (get_post_meta($_pid, '_tix_tickets_enabled', true) !== '1' || !self::check_presale_active($_pid)) { $_pv = false; break; }
-                        $_pcats = get_post_meta($_pid, '_tix_ticket_categories', true);
-                        $_pci = intval($_p['cat_index'] ?? 0);
-                        if (!is_array($_pcats) || !isset($_pcats[$_pci]) || empty($_pcats[$_pci]['product_id'])) { $_pv = false; break; }
-                    }
-                    if ($_pv && !empty($_c['partners'])) { $any_combo_valid = true; break; }
-                }
+                // Kombis zentral auflösen (native Preise/Bestand, Partner-Events + Vorverkauf geprüft)
+                $resolved_combos = class_exists('TIX_Cart_Pricing') ? TIX_Cart_Pricing::combos($post_id) : [];
+                $any_combo_valid = !empty($resolved_combos);
             ?>
                 <?php if ($any_combo_valid): ?>
                 <div class="tix-sel-group-header">Kombi-Tickets</div>
                 <?php endif; ?>
-                <?php foreach ($combos as $ci => $combo):
-                    $combo_label = esc_html($combo['label']);
-                    $combo_price = floatval($combo['price']);
-                    $combo_id    = esc_attr($combo['id'] ?? '');
-
-                    // Self-Event Kategorie auflösen
-                    $self_ci  = intval($combo['self_cat_index'] ?? 0);
-                    $self_cat = $categories[$self_ci] ?? null;
-                    if (!$self_cat || empty($self_cat['product_id'])) continue;
-
+                <?php foreach ($resolved_combos as $ci => $rc):
+                    $combo_label = esc_html($rc['label']);
+                    $combo_price = floatval($rc['price']);
+                    $combo_id    = esc_attr($rc['id']);
+                    $combo       = ['label' => $rc['label']];
                     $combo_items = [];
                     $combo_event_labels = [];
-                    $original_sum = 0;
-                    $all_in_stock = true;
-
-                    // Self-Event
-                    $self_product = wc_get_product(intval($self_cat['product_id']));
-                    if (!$self_product || !$self_product->is_in_stock()) $all_in_stock = false;
-                    $self_price = $self_product ? floatval($self_product->get_price()) : 0;
-                    $original_sum += $self_price;
-                    $combo_items[] = ['product_id' => intval($self_cat['product_id']), 'price' => $self_price];
-                    $combo_event_labels[] = get_the_title($post_id) . ' – ' . esc_html($self_cat['name']);
-
-                    // Partner-Events
-                    $partners_valid = true;
-                    foreach (($combo['partners'] ?? []) as $partner) {
-                        $pev_id = intval($partner['event_id']);
-                        $pev = get_post($pev_id);
-                        if (!$pev || $pev->post_status !== 'publish') { $partners_valid = false; break; }
-
-                        $p_enabled = get_post_meta($pev_id, '_tix_tickets_enabled', true);
-                        if ($p_enabled !== '1' || !self::check_presale_active($pev_id)) { $partners_valid = false; break; }
-
-                        $p_cats = get_post_meta($pev_id, '_tix_ticket_categories', true);
-                        $p_ci = intval($partner['cat_index'] ?? 0);
-                        if (!is_array($p_cats) || !isset($p_cats[$p_ci])) { $partners_valid = false; break; }
-                        $p_cat = $p_cats[$p_ci];
-                        $p_pid = intval($p_cat['product_id'] ?? 0);
-                        if (!$p_pid) { $partners_valid = false; break; }
-
-                        $p_product = wc_get_product($p_pid);
-                        if (!$p_product || !$p_product->is_in_stock()) $all_in_stock = false;
-                        $p_price = $p_product ? floatval($p_product->get_price()) : 0;
-                        $original_sum += $p_price;
-                        $combo_items[] = ['product_id' => $p_pid, 'price' => $p_price];
-                        $combo_event_labels[] = esc_html($pev->post_title) . ' – ' . esc_html($p_cat['name']);
+                    foreach ($rc['items'] as $_it) {
+                        $combo_items[] = ['product_id' => $_it['product_id'], 'price' => $_it['price'], 'event_id' => $_it['event_id'], 'cat_index' => $_it['cat_index']];
+                        $combo_event_labels[] = esc_html($_it['event_title']) . ' – ' . esc_html($_it['name']);
                     }
-
-                    if (!$partners_valid || count($combo_items) < 2) continue;
-
+                    $original_sum = $rc['original_sum'];
+                    $all_in_stock = $rc['in_stock'];
                     $savings = $original_sum - $combo_price;
                     $savings_pct = $original_sum > 0 ? round(($savings / $original_sum) * 100) : 0;
                 ?>
@@ -1214,86 +1151,28 @@ class TIX_Ticket_Selector {
 
                         <?php // ── Kombi-Tickets ── ?>
                         <?php if ($has_combos):
-                            $partner_event_ids = [];
-                            foreach ($combos as $combo) {
-                                foreach (($combo['partners'] ?? []) as $p) {
-                                    $partner_event_ids[] = intval($p['event_id']);
-                                }
-                            }
-                            if (!empty($partner_event_ids)) {
-                                _prime_post_caches(array_unique($partner_event_ids), true, true);
-                            }
-                            // Pre-Validierung: mind. 1 Kombi gültig + auf Lager?
-                            $any_ec_combo_valid = false;
-                            foreach ($combos as $_c) {
-                                $_sci = intval($_c['self_cat_index'] ?? 0);
-                                $_sc  = $categories[$_sci] ?? null;
-                                if (!$_sc || empty($_sc['product_id'])) continue;
-                                $_pv = true; $_ais = true;
-                                $_sp = wc_get_product(intval($_sc['product_id']));
-                                if (!$_sp || !$_sp->is_in_stock()) $_ais = false;
-                                foreach (($_c['partners'] ?? []) as $_p) {
-                                    $_pid = intval($_p['event_id']); $_pev = get_post($_pid);
-                                    if (!$_pev || $_pev->post_status !== 'publish') { $_pv = false; break; }
-                                    if (get_post_meta($_pid, '_tix_tickets_enabled', true) !== '1' || !self::check_presale_active($_pid)) { $_pv = false; break; }
-                                    $_pcats = get_post_meta($_pid, '_tix_ticket_categories', true); $_pci = intval($_p['cat_index'] ?? 0);
-                                    if (!is_array($_pcats) || !isset($_pcats[$_pci]) || empty($_pcats[$_pci]['product_id'])) { $_pv = false; break; }
-                                    $_pp = wc_get_product(intval($_pcats[$_pci]['product_id']));
-                                    if (!$_pp || !$_pp->is_in_stock()) $_ais = false;
-                                }
-                                if ($_pv && $_ais && !empty($_c['partners'])) { $any_ec_combo_valid = true; break; }
-                            }
+                            $resolved_combos = class_exists('TIX_Cart_Pricing') ? array_values(array_filter(TIX_Cart_Pricing::combos($post_id), function ($c) { return $c['in_stock']; })) : [];
+                            $any_ec_combo_valid = !empty($resolved_combos);
                         ?>
                         <?php if ($any_ec_combo_valid): ?>
                         <div class="tix-ec-offer-section">
                             <div class="tix-ec-offer-heading">🎫 Kombi-Tickets</div>
                             <div class="tix-ec-cats">
-                                <?php foreach ($combos as $ci => $combo):
-                                    $combo_label = esc_html($combo['label']);
-                                    $combo_price = floatval($combo['price']);
-                                    $combo_id    = esc_attr($combo['id'] ?? '');
-
-                                    $self_ci  = intval($combo['self_cat_index'] ?? 0);
-                                    $self_cat = $categories[$self_ci] ?? null;
-                                    if (!$self_cat || empty($self_cat['product_id'])) continue;
-
-                                    $combo_items = [];
-                                    $combo_event_labels = [];
-                                    $original_sum = 0;
-                                    $all_in_stock = true;
-
-                                    $self_product = wc_get_product(intval($self_cat['product_id']));
-                                    if (!$self_product || !$self_product->is_in_stock()) $all_in_stock = false;
-                                    $self_price = $self_product ? floatval($self_product->get_price()) : 0;
-                                    $original_sum += $self_price;
-                                    $combo_items[] = ['product_id' => intval($self_cat['product_id']), 'price' => $self_price];
-                                    $combo_event_labels[] = get_the_title($post_id) . ' – ' . esc_html($self_cat['name']);
-
-                                    $partners_valid = true;
-                                    foreach (($combo['partners'] ?? []) as $partner) {
-                                        $pev_id = intval($partner['event_id']);
-                                        $pev = get_post($pev_id);
-                                        if (!$pev || $pev->post_status !== 'publish') { $partners_valid = false; break; }
-                                        $p_enabled = get_post_meta($pev_id, '_tix_tickets_enabled', true);
-                                        if ($p_enabled !== '1' || !self::check_presale_active($pev_id)) { $partners_valid = false; break; }
-                                        $p_cats = get_post_meta($pev_id, '_tix_ticket_categories', true);
-                                        $p_ci = intval($partner['cat_index'] ?? 0);
-                                        if (!is_array($p_cats) || !isset($p_cats[$p_ci])) { $partners_valid = false; break; }
-                                        $p_cat = $p_cats[$p_ci];
-                                        $p_pid = intval($p_cat['product_id'] ?? 0);
-                                        if (!$p_pid) { $partners_valid = false; break; }
-                                        $p_product = wc_get_product($p_pid);
-                                        if (!$p_product || !$p_product->is_in_stock()) $all_in_stock = false;
-                                        $p_price = $p_product ? floatval($p_product->get_price()) : 0;
-                                        $original_sum += $p_price;
-                                        $combo_items[] = ['product_id' => $p_pid, 'price' => $p_price];
-                                        $combo_event_labels[] = esc_html($pev->post_title) . ' – ' . esc_html($p_cat['name']);
-                                    }
-
-                                    if (!$partners_valid || count($combo_items) < 2 || !$all_in_stock) continue;
-
-                                    $savings = $original_sum - $combo_price;
-                                    $savings_pct = $original_sum > 0 ? round(($savings / $original_sum) * 100) : 0;
+                                <?php foreach ($resolved_combos as $ci => $rc):
+                    $combo_label = esc_html($rc['label']);
+                    $combo_price = floatval($rc['price']);
+                    $combo_id    = esc_attr($rc['id']);
+                    $combo       = ['label' => $rc['label']];
+                    $combo_items = [];
+                    $combo_event_labels = [];
+                    foreach ($rc['items'] as $_it) {
+                        $combo_items[] = ['product_id' => $_it['product_id'], 'price' => $_it['price'], 'event_id' => $_it['event_id'], 'cat_index' => $_it['cat_index']];
+                        $combo_event_labels[] = esc_html($_it['event_title']) . ' – ' . esc_html($_it['name']);
+                    }
+                    $original_sum = $rc['original_sum'];
+                    $all_in_stock = $rc['in_stock'];
+                    $savings = $original_sum - $combo_price;
+                    $savings_pct = $original_sum > 0 ? round(($savings / $original_sum) * 100) : 0;
                                 ?>
                                 <div class="tix-ec-cat tix-ec-combo"
                                      data-combo-id="<?php echo $combo_id; ?>"

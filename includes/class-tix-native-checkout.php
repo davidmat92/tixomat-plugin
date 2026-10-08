@@ -335,8 +335,12 @@ class TIX_Native_Checkout {
         foreach ($items as $item) {
             $event_id  = intval($item['event_id'] ?? 0);
             $cat_index = intval($item['cat_index'] ?? $item['category_index'] ?? 0);
-            $qty       = max(1, intval($item['quantity'] ?? 1));
+            $qty       = max(1, intval($item['quantity'] ?? ($item['qty'] ?? 1)));
             $is_special = !empty($item['special']);
+            // Kombi aus älteren Auswahl-Varianten ohne event_id: Ausgangs-Event aus dem ersten Bestandteil
+            if (!$event_id && !empty($item['combo']) && !empty($item['products'][0]['event_id'])) {
+                $event_id = intval($item['products'][0]['event_id']);
+            }
             $special_id = intval($item['special_id'] ?? 0);
 
             // ─── SPECIAL: separater Pfad (kein cat_index, eigener Preis/Name) ───
@@ -420,6 +424,14 @@ class TIX_Native_Checkout {
             // Vorverkauf noch nicht gestartet / beendet → nicht in den Warenkorb
             if (class_exists('TIX_Cart_Pricing') && ($e = TIX_Cart_Pricing::presale_error($event_id))) {
                 wp_send_json_error(['message' => $e->get_error_message()]);
+            }
+
+            // ─── Kombi-Ticket: je Bestandteil eine Zeile, Preis serverseitig (TIX_Cart_Pricing) ───
+            if (!empty($item['combo']) && !empty($item['combo_id']) && class_exists('TIX_Cart_Pricing')) {
+                $lines = TIX_Cart_Pricing::combo_lines($event_id, sanitize_text_field((string) $item['combo_id']), $qty);
+                if (is_string($lines)) wp_send_json_error(['message' => $lines]);
+                foreach ($lines as $l) $cart['items'][] = $l;
+                continue;
             }
 
             // ─── Saalplan: Sitzplätze einer Sektion (Preis der Sektion, eigene Zeile) ───
@@ -850,7 +862,15 @@ class TIX_Native_Checkout {
             if (!empty($removed['meta']['seats']) && class_exists('TIX_Seatmap')) {
                 TIX_Seatmap::release(intval($removed['event_id']), (array) $removed['meta']['seats'], self::session_key());
             }
-            array_splice($cart['items'], $index, 1);
+            $gid = is_array($removed['meta']['combo'] ?? null) ? (string) ($removed['meta']['combo']['group_id'] ?? '') : '';
+            if ($gid !== '') {
+                // Kombi immer komplett entfernen
+                $cart['items'] = array_values(array_filter($cart['items'], function ($it) use ($gid) {
+                    return !is_array($it['meta']['combo'] ?? null) || ($it['meta']['combo']['group_id'] ?? '') !== $gid;
+                }));
+            } else {
+                array_splice($cart['items'], $index, 1);
+            }
             self::recalc_coupon_discount($cart);
             self::save_cart($cart);
         }
@@ -873,7 +893,13 @@ class TIX_Native_Checkout {
             wp_send_json_error(['message' => 'Sitzplätze bitte im Saalplan ändern.']);
         }
         if (isset($cart['items'][$index])) {
-            $cart['items'][$index]['qty'] = max(1, min(20, $cart['items'][$index]['qty'] + $delta));
+            $new_qty = max(1, min(20, $cart['items'][$index]['qty'] + $delta));
+            $gid = is_array($cart['items'][$index]['meta']['combo'] ?? null) ? (string) ($cart['items'][$index]['meta']['combo']['group_id'] ?? '') : '';
+            foreach ($cart['items'] as $k => $it) {
+                if ($k === $index || ($gid !== '' && is_array($it['meta']['combo'] ?? null) && ($it['meta']['combo']['group_id'] ?? '') === $gid)) {
+                    $cart['items'][$k]['qty'] = $new_qty; // Kombi-Bestandteile gemeinsam
+                }
+            }
             self::recalc_coupon_discount($cart);
             self::save_cart($cart);
         }
@@ -1668,6 +1694,9 @@ class TIX_Native_Checkout {
         // Feste Preise (locked_price) bleiben unverändert.
         if (class_exists('TIX_Cart_Pricing')) {
             $cart['items'] = TIX_Cart_Pricing::reprice($cart['items']);
+        }
+        if (class_exists('TIX_Cart_Pricing') && ($cerr = TIX_Cart_Pricing::combo_error($cart['items']))) {
+            wp_send_json_error(['message' => $cerr]);
         }
         $validated_total = 0;
         foreach ($cart['items'] as $cart_item) {

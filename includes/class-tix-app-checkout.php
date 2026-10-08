@@ -371,6 +371,26 @@ class TIX_App_Checkout {
         return $out;
     }
 
+    /** Kombi-Tickets eines Events für die App; Bestellung mit items[] {combo_id, qty} */
+    public static function combos($event_id) {
+        if (!class_exists('TIX_Cart_Pricing')) return [];
+        $out = [];
+        foreach (TIX_Cart_Pricing::combos($event_id) as $c) {
+            $out[] = [
+                'combo_id'      => $c['id'],
+                'name'          => $c['label'],
+                'price'         => round($c['price'], 2),
+                'regular_price' => $c['original_sum'],
+                'sold_out'      => !$c['in_stock'],
+                'max_per_order' => min(self::MAX_QTY, $c['max']),
+                'parts'         => array_map(function ($it) {
+                    return ['event_id' => $it['event_id'], 'event_title' => $it['event_title'], 'category' => $it['name']];
+                }, $c['items']),
+            ];
+        }
+        return $out;
+    }
+
     /** Warenkorb im Format des Web-Checkouts aus der Auswahl der App bauen. */
     private static function build_cart($event_id, array $items, $hold_token = '') {
         if (self::is_syndicated($event_id)) {
@@ -396,8 +416,14 @@ class TIX_App_Checkout {
         $bundles = [];  // Pakete: je Kategorie eine Zeile, qty = Anzahl Pakete
         $specials = []; // Extras: special_id => Menge
         $seats    = []; // Saalplan: Sitz-IDs (Halter = hold_token)
+        $combos   = []; // Kombi-Tickets: combo_id => Anzahl
         foreach ($items as $it) {
             if (!is_array($it)) continue;
+            if (!empty($it['combo_id'])) {
+                $cq = intval($it['qty'] ?? ($it['quantity'] ?? 0));
+                if ($cq > 0) $combos[(string) $it['combo_id']] = ($combos[(string) $it['combo_id']] ?? 0) + $cq;
+                continue;
+            }
             if (!empty($it['seats']) && is_array($it['seats'])) {
                 foreach ($it['seats'] as $sid) $seats[] = sanitize_text_field((string) $sid);
                 continue;
@@ -527,6 +553,12 @@ class TIX_App_Checkout {
                 $cart['items'][] = $line;
             }
         }
+        foreach ($combos as $cid => $cq) {
+            if ($cq > self::MAX_QTY) return self::error('tix_max_qty', sprintf('Maximal %d Kombi-Tickets pro Bestellung.', self::MAX_QTY));
+            $lines = TIX_Cart_Pricing::combo_lines($event_id, sanitize_text_field($cid), $cq);
+            if (is_string($lines)) return self::error('tix_combo', $lines, 409);
+            foreach ($lines as $l) $cart['items'][] = $l;
+        }
         if ($specials) {
             $offer = [];
             foreach (self::specials($event_id) as $sp) $offer[$sp['special_id']] = $sp;
@@ -558,6 +590,7 @@ class TIX_App_Checkout {
         // Preise zentral: Phase, Paket, Mengenrabatt (gleich wie Web-Kasse)
         if (class_exists('TIX_Cart_Pricing')) {
             $cart['items'] = TIX_Cart_Pricing::reprice($cart['items']);
+            if ($cerr = TIX_Cart_Pricing::combo_error($cart['items'])) return self::error('tix_combo', $cerr, 409);
         }
         return $cart;
     }
@@ -582,6 +615,7 @@ class TIX_App_Checkout {
             $count    += intval($it['qty']);
             $meta = (array) ($it['meta'] ?? []);
             $row  = [
+                'event_id'   => intval($it['event_id']), // Kombi-Zeilen können zu Partner-Events gehören
                 'index'      => intval($it['cat_index']),
                 'name'       => (string) $it['name'],
                 'qty'        => intval($it['qty']),
@@ -593,6 +627,7 @@ class TIX_App_Checkout {
                 'bundle'         => null,
                 'special_id'     => !empty($meta['special_id']) ? intval($meta['special_id']) : null,
                 'seats'          => !empty($meta['seats']) ? array_values((array) $meta['seats']) : null,
+                'combo'          => is_array($meta['combo'] ?? null) ? ['combo_id' => (string) $meta['combo']['combo_id'], 'group_id' => (string) $meta['combo']['group_id'], 'name' => (string) $meta['combo']['label']] : null,
             ];
             if (!empty($meta['bundle']) && class_exists('TIX_Cart_Pricing')
                 && ($b = TIX_Cart_Pricing::bundle(intval($it['event_id']), intval($it['cat_index'])))) {
@@ -938,6 +973,8 @@ class TIX_App_Checkout {
             'group_discount'  => class_exists('TIX_Cart_Pricing') ? TIX_Cart_Pricing::group_discount($event_id) : null,
             // Saalplan: true → Plätze über /public/events/{id}/seatmap wählen, items[] {seats: [...]} + hold_token
             'seatmap'         => class_exists('TIX_Seatmap') && TIX_Seatmap::event_seatmap($event_id) > 0,
+            // Kombi-Tickets: Bestellung mit items[] {combo_id, qty}
+            'combos'          => self::combos($event_id),
             // Extras (Specials): Bestellung mit items[] {special_id, qty}
             'specials'        => self::specials($event_id),
             // Vorverkauf {starts_at, started, waitlist_presale, waitlist_soldout}

@@ -71,6 +71,10 @@ class TIX_Cart_Pricing {
 
         if (!empty($it['locked_price'])) return floatval($it['price'] ?? 0);
 
+        if (!empty($meta['combo']) && is_array($meta['combo']) && !empty($meta['combo']['combo_id']) && empty($meta['combo']['broken'])) {
+            return self::combo_share($it);
+        }
+
         if (!empty($meta['special'])) {
             $sid = intval($meta['special_id'] ?? 0);
             if (!$sid || !class_exists('TIX_Specials')) return null;
@@ -133,6 +137,25 @@ class TIX_Cart_Pricing {
      * als ein Stück je Paket, und nur, wenn sie mit dem Rabatt kombinierbar sind.
      */
     public static function reprice(array $items) {
+        // Kombi-Gruppen nur vollständig (alle Bestandteile, gleiche Menge) zum Kombi-Preis –
+        // sonst gelten wieder die normalen Einzelpreise (kein „Rosinenpicken“)
+        $groups = [];
+        foreach ($items as $k => $it) {
+            $gid = is_array($it) && is_array($it['meta']['combo'] ?? null) ? (string) ($it['meta']['combo']['group_id'] ?? '') : '';
+            if ($gid !== '') $groups[$gid][] = $k;
+        }
+        foreach ($groups as $keys) {
+            $cm  = $items[$keys[0]]['meta']['combo'];
+            $def = self::combo_def(intval($cm['source_event'] ?? 0), (string) ($cm['combo_id'] ?? ''));
+            $c   = $def ? self::combo(intval($cm['source_event']), $def) : null;
+            $qtys = array_unique(array_map(function ($k) use ($items) { return intval($items[$k]['qty'] ?? 0); }, $keys));
+            $broken = !$c || count($keys) !== count($c['items']) || count($qtys) !== 1;
+            foreach ($keys as $k) {
+                if ($broken) $items[$k]['meta']['combo']['broken'] = 1; // Einzelpreis + Hinweis in der Kasse
+                else unset($items[$k]['meta']['combo']['broken']);
+            }
+        }
+
         $by_event = [];
         foreach ($items as $k => &$it) {
             if (!is_array($it)) continue;
@@ -159,7 +182,7 @@ class TIX_Cart_Pricing {
                 $meta = $it['meta'];
                 if (!empty($it['locked_price']) || !empty($meta['gift']) || !empty($meta['special'])) continue;
                 $n = max(0, intval($it['qty'] ?? 0));
-                if (!empty($meta['combo'])) {
+                if (!empty($meta['combo']) && empty($meta['combo']['broken'])) {
                     if (!$gd['combine_combo']) continue;
                     $gid = is_array($meta['combo']) ? (string) ($meta['combo']['group_id'] ?? '') : '';
                     if ($gid === '' || !isset($combos[$gid])) $qty += $n; // Paket nur einmal zählen
@@ -189,6 +212,16 @@ class TIX_Cart_Pricing {
         return $items;
     }
 
+    /** Fehlermeldung, wenn ein Kombi-Ticket im Warenkorb nicht mehr gilt, sonst '' */
+    public static function combo_error(array $items) {
+        foreach ($items as $it) {
+            if (!empty($it['meta']['combo']['broken'])) {
+                return 'Das Kombi-Ticket „' . ($it['meta']['combo']['label'] ?? '') . '“ ist nicht mehr verfügbar. Bitte entferne es aus dem Warenkorb.';
+            }
+        }
+        return '';
+    }
+
     /** Summe der Positionen (nach Mengenrabatt, vor Gutschein) */
     public static function items_total(array $items) {
         $sum = 0.0;
@@ -206,6 +239,125 @@ class TIX_Cart_Pricing {
             $sum += (floatval($it['meta']['list_price']) - floatval($it['price'])) * max(0, intval($it['qty'] ?? 0));
         }
         return round($sum, 2);
+    }
+
+    // ══════════════════════════════════════
+    //  Kombi-Tickets (_tix_combo_deals)
+    // ══════════════════════════════════════
+
+    /** Kombi-Definition eines Events per ID */
+    public static function combo_def($event_id, $combo_id) {
+        foreach ((array) get_post_meta(intval($event_id), '_tix_combo_deals', true) as $c) {
+            if (is_array($c) && (string) ($c['id'] ?? '') === (string) $combo_id) return $c;
+        }
+        return null;
+    }
+
+    /**
+     * Kombi auflösen: Bestandteile mit aktuellem Einzelpreis, Gültigkeit und Bestand.
+     * null = nicht kaufbar (Partner-Event offline, kein Vorverkauf, Kategorie fehlt …).
+     * @return array|null {id, label, price, original_sum, in_stock, max, items[{event_id, cat_index, name, event_title, price, product_id}]}
+     */
+    public static function combo($event_id, array $combo) {
+        $event_id = intval($event_id);
+        $parts = [['event_id' => $event_id, 'cat_index' => intval($combo['self_cat_index'] ?? 0)]];
+        foreach ((array) ($combo['partners'] ?? []) as $p) {
+            $parts[] = ['event_id' => intval($p['event_id'] ?? 0), 'cat_index' => intval($p['cat_index'] ?? 0)];
+        }
+        if (count($parts) < 2) return null;
+        $items = [];
+        $sum   = 0.0;
+        $max   = 20;
+        foreach ($parts as $i => $pt) {
+            $eid = $pt['event_id'];
+            if (!$eid || get_post_status($eid) !== 'publish') return null;
+            if (get_post_meta($eid, '_tix_tickets_enabled', true) !== '1') return null;
+            if (get_post_meta($eid, '_tix_syndicated', true) === '1') return null; // verkauft die Quellseite
+            if (class_exists('TIX_Org_Approval') && !TIX_Org_Approval::event_allowed($eid)) return null;
+            if (self::presale_error($eid)) return null;
+            $cats = self::cats($eid);
+            $cat  = $cats[$pt['cat_index']] ?? null;
+            if (!is_array($cat) || !empty($cat['admin_only'])) return null;
+            $price = self::category_price($eid, $pt['cat_index']);
+            $stock = isset($cat['stock']) ? intval($cat['stock']) : -1;
+            if ($stock >= 0) $max = min($max, $stock);
+            $sum += $price;
+            $items[] = [
+                'event_id'    => $eid,
+                'cat_index'   => $pt['cat_index'],
+                'name'        => (string) ($cat['name'] ?? 'Ticket'),
+                'event_title' => get_the_title($eid),
+                'price'       => $price,
+                'product_id'  => intval($cat['product_id'] ?? 0),
+            ];
+        }
+        return [
+            'id'           => (string) ($combo['id'] ?? ''),
+            'label'        => (string) ($combo['label'] ?? 'Kombi-Ticket'),
+            'price'        => floatval($combo['price'] ?? 0),
+            'original_sum' => round($sum, 2),
+            'in_stock'     => $max > 0,
+            'max'          => max(0, $max),
+            'items'        => $items,
+        ];
+    }
+
+    /** Alle kaufbaren Kombis eines Events */
+    public static function combos($event_id) {
+        $out = [];
+        foreach ((array) get_post_meta(intval($event_id), '_tix_combo_deals', true) as $c) {
+            if (!is_array($c)) continue;
+            $r = self::combo($event_id, $c);
+            if ($r && $r['price'] > 0) $out[] = $r;
+        }
+        return $out;
+    }
+
+    /**
+     * Warenkorb-Zeilen für eine Kombi: je Bestandteil eine Zeile, Kombi-Preis anteilig
+     * nach Einzelpreisen verteilt (Summe = Kombi-Preis). meta.combo = {group_id, combo_id, source_event, label}.
+     */
+    public static function combo_lines($event_id, $combo_id, $qty, $group_id = '') {
+        $def = self::combo_def($event_id, $combo_id);
+        $c   = $def ? self::combo($event_id, $def) : null;
+        if (!$c || $c['price'] <= 0) return 'Dieses Kombi-Ticket ist nicht verfügbar.';
+        if ($qty > $c['max']) return $c['max'] > 0 ? sprintf('%s: nur noch %d verfügbar.', $c['label'], $c['max']) : $c['label'] . ' ist ausverkauft.';
+        $gid   = $group_id !== '' ? $group_id : 'cg_' . wp_generate_password(10, false, false);
+        $lines = [];
+        foreach ($c['items'] as $it) {
+            $lines[] = [
+                'event_id'    => $it['event_id'],
+                'cat_index'   => $it['cat_index'],
+                'name'        => sanitize_text_field($c['label'] . ' – ' . $it['name']),
+                'event_title' => $it['event_title'],
+                'price'       => 0.0, // setzt reprice()
+                'qty'         => intval($qty),
+                'meta'        => ['combo' => [
+                    'group_id'     => $gid,
+                    'combo_id'     => $c['id'],
+                    'source_event' => intval($event_id),
+                    'label'        => $c['label'],
+                ]],
+            ];
+        }
+        return $lines;
+    }
+
+    /** Anteiliger Stückpreis einer Kombi-Zeile (null = Kombi nicht mehr gültig) */
+    private static function combo_share(array $it) {
+        $cm  = (array) $it['meta']['combo'];
+        $src = intval($cm['source_event'] ?? 0);
+        $def = $src ? self::combo_def($src, (string) ($cm['combo_id'] ?? '')) : null;
+        $c   = $def ? self::combo($src, $def) : null;
+        if (!$c) return null;
+        $n = count($c['items']);
+        foreach ($c['items'] as $part) {
+            if ($part['event_id'] === intval($it['event_id']) && $part['cat_index'] === intval($it['cat_index'])) {
+                // UNROUNDED, damit die Summe der Zeilen genau den Kombi-Preis ergibt
+                return $c['original_sum'] > 0 ? $c['price'] * $part['price'] / $c['original_sum'] : $c['price'] / $n;
+            }
+        }
+        return null;
     }
 
     // ══════════════════════════════════════

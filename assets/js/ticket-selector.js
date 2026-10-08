@@ -403,6 +403,7 @@
                     items.push({
                         combo: 1,
                         combo_id: combo.dataset.comboId || '',
+                        event_id: parseInt(sel.dataset.eventId, 10) || 0,
                         combo_label: combo.dataset.comboLabel || '',
                         combo_price: parseFloat(combo.dataset.comboPrice) || 0,
                         quantity: qty,
