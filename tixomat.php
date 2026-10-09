@@ -2,14 +2,14 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.38.367
+ * Version: 1.38.368
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.38.367');
+define('TIXOMAT_VERSION', '1.38.368');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -523,7 +523,7 @@ TIX_Loyalty::init(); // Treue-/Prämienprogramm: Stempel per Einlass-QR, Prämie
 require_once TIXOMAT_PATH . 'includes/class-tix-app-config.php';
 TIX_App_Config::init(); // App-Inhalte (Kacheln, FAQ, Ü16 …) ohne WordPress bearbeiten
 require_once TIXOMAT_PATH . 'includes/class-tix-app-tips.php';
-TIX_App_Tips::init(); // App-Tipps („Tipp des Tages“): CPT nur für Admins, GET /public/tips
+TIX_App_Tips::init(); // App-Tipps („Tipp des Tages“): CPT nur für Admins, GET /public/tips, Verwaltung /app/tips (nur Admins)
 require_once TIXOMAT_PATH . 'includes/class-tix-notifications.php';
 TIX_Notifications::init(); // App-Benachrichtigungen: Glocke/Feed, Veranstalter-Nachrichten, Auto-Hinweise, Push (APNs, optional)
 require_once TIXOMAT_PATH . 'includes/class-tix-recurrence.php';

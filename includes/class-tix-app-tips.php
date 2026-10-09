@@ -9,6 +9,16 @@
  *
  *   GET /public/tips[?placement=<slug>]   (öffentlich, 60 s im Transient)
  *
+ * Verwaltung aus den Apps (Veranstalter-Bereich, X-Tix-Token) – nur für
+ * WordPress-Admins (`manage_options`), sonst 403 `rest_forbidden`:
+ *
+ *   GET    /app/tips                 alle Tipps (inkl. Entwürfe/abgelaufene) + Plätze
+ *   POST   /app/tips                 anlegen (JSON)
+ *   POST   /app/tips/{id}            ändern (nur übergebene Felder)
+ *   POST   /app/tips/{id}/delete     in den Papierkorb (auch DELETE /app/tips/{id})
+ *   POST   /app/tips/{id}/image      Bild hochladen (multipart `file`, `kind` = author|image)
+ *   GET    /app/tips/events          Auswahlliste kommender Events
+ *
  * Mehrere Tipps am selben Platz zeigt die App als Slider (Reihenfolge =
  * `menu_order`, danach neueste zuerst).
  */
@@ -136,7 +146,7 @@ class TIX_App_Tips {
 
     /** Link: URL (http/https/mailto/tel) oder App-Aktion wie `event:123`, `page:faq`. */
     private static function sanitize_link($raw) {
-        $raw = trim(wp_unslash((string) $raw));
+        $raw = trim((string) $raw);
         if ($raw === '') return '';
         if (preg_match('#^(https?://|mailto:|tel:)#i', $raw)) return esc_url_raw($raw);
         return sanitize_text_field($raw);
@@ -163,12 +173,12 @@ class TIX_App_Tips {
         return $dt ? $dt->format('c') : '';
     }
 
-    /** Kommende veröffentlichte Events für die Auswahl (+ aktuell gewähltes). */
-    private static function event_options($selected) {
-        $ids = get_posts([
+    /** IDs kommender veröffentlichter Events, nach Datum aufsteigend. */
+    private static function upcoming_event_ids($limit) {
+        return get_posts([
             'post_type'      => 'event',
             'post_status'    => 'publish',
-            'posts_per_page' => 300,
+            'posts_per_page' => $limit,
             'fields'         => 'ids',
             'meta_key'       => '_tix_date_start',
             'orderby'        => 'meta_value',
@@ -180,6 +190,11 @@ class TIX_App_Tips {
                 'type'    => 'DATE',
             ]],
         ]);
+    }
+
+    /** Kommende veröffentlichte Events für die Auswahl (+ aktuell gewähltes). */
+    private static function event_options($selected) {
+        $ids = self::upcoming_event_ids(300);
         if ($selected && !in_array($selected, $ids, true) && get_post_type($selected) === 'event') {
             array_unshift($ids, $selected);
         }
@@ -360,35 +375,66 @@ class TIX_App_Tips {
         if (get_post_type($post_id) !== self::CPT) return;
         if (!current_user_can('manage_options')) return;
 
-        $text = sanitize_textarea_field(wp_unslash($_POST['tix_tip_text'] ?? ''));
-        update_post_meta($post_id, '_tix_tip_text', $text);
+        $p = wp_unslash($_POST);
+        self::apply_fields($post_id, [
+            'text'            => $p['tix_tip_text'] ?? '',
+            'author'          => $p['tix_tip_author'] ?? '',
+            'author_image_id' => $p['tix_tip_author_image'] ?? 0,
+            'image_id'        => $p['tix_tip_image'] ?? 0,
+            'event_id'        => $p['tix_tip_event_id'] ?? 0,
+            'label'           => $p['tix_tip_label'] ?? '',
+            'link'            => $p['tix_tip_link'] ?? '',
+            'placements'      => (isset($p['tix_tip_placements']) && is_array($p['tix_tip_placements'])) ? $p['tix_tip_placements'] : [],
+            'start'           => $p['tix_tip_start'] ?? '',
+            'end'             => $p['tix_tip_end'] ?? '',
+        ]);
 
-        update_post_meta($post_id, '_tix_tip_author', sanitize_text_field(wp_unslash($_POST['tix_tip_author'] ?? '')));
+        self::flush();
+    }
 
-        foreach (['tix_tip_author_image' => '_tix_tip_author_image', 'tix_tip_image' => '_tix_tip_image'] as $field => $key) {
-            $att = absint($_POST[$field] ?? 0);
+    /**
+     * Felder eines Tipps bereinigen und speichern – gemeinsam für Metabox und App-Routen.
+     * Nur die übergebenen Schlüssel werden geändert (Werte ungeslasht; update_post_meta
+     * entfernt selbst Slashes, deshalb wp_slash vor dem Speichern – Backslashes bleiben):
+     * text, author, author_image_id, image_id, event_id, label, link, placements, start, end.
+     */
+    private static function apply_fields($post_id, array $d) {
+        if (array_key_exists('text', $d)) {
+            update_post_meta($post_id, '_tix_tip_text', wp_slash(sanitize_textarea_field((string) $d['text'])));
+        }
+        if (array_key_exists('author', $d)) {
+            update_post_meta($post_id, '_tix_tip_author', wp_slash(sanitize_text_field((string) $d['author'])));
+        }
+        foreach (['author_image_id' => '_tix_tip_author_image', 'image_id' => '_tix_tip_image'] as $field => $key) {
+            if (!array_key_exists($field, $d)) continue;
+            $att = absint($d[$field]);
             if ($att && get_post_type($att) === 'attachment') update_post_meta($post_id, $key, $att);
             else delete_post_meta($post_id, $key);
         }
-
-        $event_id = absint($_POST['tix_tip_event_id'] ?? 0);
-        if ($event_id && get_post_type($event_id) === 'event') update_post_meta($post_id, '_tix_tip_event_id', $event_id);
-        else delete_post_meta($post_id, '_tix_tip_event_id');
-
-        $label = sanitize_text_field(wp_unslash($_POST['tix_tip_label'] ?? ''));
-        update_post_meta($post_id, '_tix_tip_label', $label !== '' ? $label : self::DEFAULT_LABEL);
-
-        update_post_meta($post_id, '_tix_tip_link', self::sanitize_link($_POST['tix_tip_link'] ?? ''));
-
-        $raw = isset($_POST['tix_tip_placements']) && is_array($_POST['tix_tip_placements'])
-            ? array_map('sanitize_key', wp_unslash($_POST['tix_tip_placements']))
-            : [];
-        update_post_meta($post_id, '_tix_tip_placements', array_values(array_intersect(array_keys(self::PLACEMENTS), $raw)));
-
-        update_post_meta($post_id, '_tix_tip_start', self::sanitize_datetime($_POST['tix_tip_start'] ?? ''));
-        update_post_meta($post_id, '_tix_tip_end', self::sanitize_datetime($_POST['tix_tip_end'] ?? ''));
-
-        self::flush();
+        if (array_key_exists('event_id', $d)) {
+            $event_id = absint($d['event_id']);
+            if ($event_id && get_post_type($event_id) === 'event') update_post_meta($post_id, '_tix_tip_event_id', $event_id);
+            else delete_post_meta($post_id, '_tix_tip_event_id');
+        }
+        if (array_key_exists('label', $d)) {
+            $label = sanitize_text_field((string) $d['label']);
+            update_post_meta($post_id, '_tix_tip_label', wp_slash($label !== '' ? $label : self::DEFAULT_LABEL));
+        }
+        if (array_key_exists('link', $d)) {
+            update_post_meta($post_id, '_tix_tip_link', wp_slash(self::sanitize_link($d['link'])));
+        }
+        if (array_key_exists('placements', $d)) {
+            $raw = $d['placements'];
+            if (is_string($raw)) $raw = $raw === '' ? [] : explode(',', $raw);
+            $raw = is_array($raw) ? array_map('sanitize_key', array_map('strval', $raw)) : [];
+            update_post_meta($post_id, '_tix_tip_placements', array_values(array_intersect(array_keys(self::PLACEMENTS), $raw)));
+        }
+        if (array_key_exists('start', $d)) {
+            update_post_meta($post_id, '_tix_tip_start', self::sanitize_datetime($d['start']));
+        }
+        if (array_key_exists('end', $d)) {
+            update_post_meta($post_id, '_tix_tip_end', self::sanitize_datetime($d['end']));
+        }
     }
 
     // ──────────────────────────────────────────
@@ -486,6 +532,34 @@ class TIX_App_Tips {
                 'placement' => ['type' => 'string', 'required' => false],
             ],
         ]);
+
+        // Verwaltung aus den Apps – nur Admins
+        $admin = [__CLASS__, 'check_admin'];
+        register_rest_route(self::NS, '/app/tips', [
+            ['methods' => 'GET',  'callback' => [__CLASS__, 'rest_admin_list'], 'permission_callback' => $admin],
+            ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_create'],     'permission_callback' => $admin],
+        ]);
+        register_rest_route(self::NS, '/app/tips/events', [
+            'methods' => 'GET', 'callback' => [__CLASS__, 'rest_events'], 'permission_callback' => $admin,
+        ]);
+        register_rest_route(self::NS, '/app/tips/(?P<id>\d+)', [
+            ['methods' => 'POST',   'callback' => [__CLASS__, 'rest_update'], 'permission_callback' => $admin],
+            ['methods' => 'DELETE', 'callback' => [__CLASS__, 'rest_delete'], 'permission_callback' => $admin],
+        ]);
+        register_rest_route(self::NS, '/app/tips/(?P<id>\d+)/delete', [
+            'methods' => 'POST', 'callback' => [__CLASS__, 'rest_delete'], 'permission_callback' => $admin,
+        ]);
+        register_rest_route(self::NS, '/app/tips/(?P<id>\d+)/image', [
+            'methods' => 'POST', 'callback' => [__CLASS__, 'rest_image'], 'permission_callback' => $admin,
+        ]);
+    }
+
+    /** Nur WordPress-Admins – auch im Mehr-Veranstalter-Modus nie Veranstalter/Team. */
+    public static function check_admin($req = null) {
+        if (!is_user_logged_in() || !current_user_can('manage_options')) {
+            return new WP_Error('rest_forbidden', 'App-Tipps pflegen nur Admins.', ['status' => 403]);
+        }
+        return true;
     }
 
     /** Tipp im App-Format. */
@@ -552,5 +626,210 @@ class TIX_App_Tips {
         $resp = ['tips' => $tips];
         set_transient($key, $resp, self::TTL);
         return rest_ensure_response($resp);
+    }
+
+    // ──────────────────────────────────────────
+    //  REST: Verwaltung (nur Admins)
+    // ──────────────────────────────────────────
+
+    /** Gespeicherten Zeitpunkt ('Y-m-d H:i') im Eingabeformat 'Y-m-d\TH:i' ('' = unbegrenzt). */
+    private static function input_datetime($value) {
+        $dt = self::to_datetime($value);
+        return $dt ? $dt->format('Y-m-d\TH:i') : '';
+    }
+
+    /** Tipp im Admin-Format: App-Format + Status, Anhang-IDs, Zeitraum zum Bearbeiten, aktiv. */
+    public static function admin_payload($id) {
+        $out = self::payload($id);
+        if (!$out) return null;
+        $post  = get_post($id);
+        $start = (string) get_post_meta($id, '_tix_tip_start', true);
+        $end   = (string) get_post_meta($id, '_tix_tip_end', true);
+        // Verknüpftes Event auch dann nennen, wenn es (nicht mehr) veröffentlicht ist – `event` bleibt dann null
+        $event_id = intval(get_post_meta($id, '_tix_tip_event_id', true));
+        if ($event_id && get_post_type($event_id) === 'event') $out['event_id'] = $event_id;
+
+        $out['status']          = $post->post_status === 'publish' ? 'publish' : 'draft';
+        $out['author_image_id'] = intval(get_post_meta($id, '_tix_tip_author_image', true));
+        $out['image_id']        = intval(get_post_meta($id, '_tix_tip_image', true));
+        $out['start']           = self::input_datetime($start);
+        $out['end']             = self::input_datetime($end);
+        $out['active']          = $post->post_status === 'publish' && self::is_current($id, time());
+        return $out;
+    }
+
+    /** Tipp-Post zur ID (nicht im Papierkorb) oder 404. */
+    private static function find_tip($id) {
+        $post = get_post(absint($id));
+        if (!$post || $post->post_type !== self::CPT || in_array($post->post_status, ['trash', 'auto-draft'], true)) {
+            return new WP_Error('tix_not_found', 'Tipp nicht gefunden.', ['status' => 404]);
+        }
+        return $post;
+    }
+
+    /** Daten aus JSON oder Formular. */
+    private static function request_data(WP_REST_Request $req) {
+        $d = $req->get_json_params();
+        if (!is_array($d) || !$d) $d = $req->get_body_params();
+        return is_array($d) ? $d : [];
+    }
+
+    /** Post-Felder (Titel, Status, Reihenfolge) aus den Daten; WP_Error bei ungültigem Status. */
+    private static function post_fields(array $d) {
+        $post = [];
+        if (array_key_exists('title', $d)) $post['post_title'] = sanitize_text_field((string) $d['title']);
+        if (array_key_exists('status', $d)) {
+            $status = sanitize_key((string) $d['status']);
+            if (!in_array($status, ['publish', 'draft'], true)) {
+                return new WP_Error('tix_tip_status', 'Status muss „publish“ oder „draft“ sein.', ['status' => 400]);
+            }
+            $post['post_status'] = $status;
+        }
+        if (array_key_exists('order', $d)) $post['menu_order'] = intval($d['order']);
+        return $post;
+    }
+
+    /** Ersatztitel für die Admin-Liste, wenn kein Titel kommt (WordPress lehnt leere Tipps sonst ab). */
+    private static function fallback_title($text) {
+        $t = wp_trim_words(sanitize_textarea_field((string) $text), 8, '…');
+        return $t !== '' ? $t : 'App-Tipp';
+    }
+
+    /** GET /app/tips */
+    public static function rest_admin_list(WP_REST_Request $req) {
+        $ids = get_posts([
+            'post_type'        => self::CPT,
+            'post_status'      => ['publish', 'draft', 'pending', 'future', 'private'],
+            'posts_per_page'   => 500,
+            'fields'           => 'ids',
+            'orderby'          => ['menu_order' => 'ASC', 'date' => 'DESC'],
+            'suppress_filters' => true,
+            'no_found_rows'    => true,
+        ]);
+        $tips = [];
+        foreach ($ids as $id) {
+            $p = self::admin_payload($id);
+            if ($p) $tips[] = $p;
+        }
+        $placements = [];
+        foreach (self::PLACEMENTS as $slug => $label) $placements[] = ['slug' => $slug, 'label' => $label];
+        return rest_ensure_response(['tips' => $tips, 'placements' => $placements]);
+    }
+
+    /** POST /app/tips */
+    public static function rest_create(WP_REST_Request $req) {
+        $d = self::request_data($req);
+        $post = self::post_fields($d);
+        if (is_wp_error($post)) return $post;
+        $post += ['post_title' => '', 'post_status' => 'publish', 'menu_order' => 0];
+        if ($post['post_title'] === '') $post['post_title'] = self::fallback_title($d['text'] ?? '');
+        $post['post_type'] = self::CPT;
+
+        $id = wp_insert_post(wp_slash($post), true);
+        if (is_wp_error($id)) {
+            return new WP_Error('tix_tip_save', $id->get_error_message(), ['status' => 500]);
+        }
+        // Neuer Tipp: fehlende Felder mit Standardwerten (wie ein leeres Metabox-Formular)
+        self::apply_fields($id, $d + [
+            'text' => '', 'author' => '', 'label' => '', 'link' => '', 'event_id' => 0,
+            'placements' => [], 'start' => '', 'end' => '',
+        ]);
+        self::flush();
+        return new WP_REST_Response(['tip' => self::admin_payload($id)], 201);
+    }
+
+    /** POST /app/tips/{id} */
+    public static function rest_update(WP_REST_Request $req) {
+        $tip = self::find_tip($req['id']);
+        if (is_wp_error($tip)) return $tip;
+        $d = self::request_data($req);
+        $post = self::post_fields($d);
+        if (is_wp_error($post)) return $post;
+        if ($post) {
+            if (isset($post['post_title']) && $post['post_title'] === '') {
+                $post['post_title'] = self::fallback_title(array_key_exists('text', $d) ? $d['text'] : get_post_meta($tip->ID, '_tix_tip_text', true));
+            }
+            $post['ID'] = $tip->ID;
+            $r = wp_update_post(wp_slash($post), true);
+            if (is_wp_error($r)) {
+                return new WP_Error('tix_tip_save', $r->get_error_message(), ['status' => 500]);
+            }
+        }
+        self::apply_fields($tip->ID, $d);
+        self::flush();
+        return rest_ensure_response(['tip' => self::admin_payload($tip->ID)]);
+    }
+
+    /** POST /app/tips/{id}/delete bzw. DELETE /app/tips/{id} → Papierkorb */
+    public static function rest_delete(WP_REST_Request $req) {
+        $tip = self::find_tip($req['id']);
+        if (is_wp_error($tip)) return $tip;
+        if (!wp_trash_post($tip->ID)) {
+            return new WP_Error('tix_tip_delete', 'Der Tipp konnte nicht gelöscht werden.', ['status' => 500]);
+        }
+        self::flush();
+        return rest_ensure_response(['ok' => true]);
+    }
+
+    /** POST /app/tips/{id}/image (multipart `file`, `kind` = author|image) */
+    public static function rest_image(WP_REST_Request $req) {
+        $tip = self::find_tip($req['id']);
+        if (is_wp_error($tip)) return $tip;
+
+        $kind = sanitize_key((string) $req->get_param('kind'));
+        $keys = ['author' => '_tix_tip_author_image', 'image' => '_tix_tip_image'];
+        if (!isset($keys[$kind])) {
+            return new WP_Error('tix_tip_kind', '„kind“ muss „author“ oder „image“ sein.', ['status' => 400]);
+        }
+
+        $files = $req->get_file_params();
+        $file  = $files['file'] ?? ($files['image'] ?? null);
+        if (empty($file) || empty($file['tmp_name'])) {
+            return new WP_Error('no_file', 'Kein Bild hochgeladen.', ['status' => 400]);
+        }
+        if (!empty($file['error'])) {
+            return new WP_Error('upload_failed', 'Upload fehlgeschlagen.', ['status' => 400]);
+        }
+        if (intval($file['size'] ?? 0) > 8 * MB_IN_BYTES) {
+            return new WP_Error('too_large', 'Das Bild ist zu groß (max. 8 MB).', ['status' => 400]);
+        }
+        $check = wp_check_filetype_and_ext($file['tmp_name'], $file['name'] ?? 'tipp.jpg');
+        $mime  = $check['type'] ?: (string) ($file['type'] ?? '');
+        if (!in_array($mime, ['image/jpeg', 'image/png', 'image/webp'], true)) {
+            return new WP_Error('bad_type', 'Bitte ein JPG-, PNG- oder WebP-Bild wählen.', ['status' => 400]);
+        }
+
+        require_once ABSPATH . 'wp-admin/includes/file.php';
+        require_once ABSPATH . 'wp-admin/includes/media.php';
+        require_once ABSPATH . 'wp-admin/includes/image.php';
+
+        $ext = $mime === 'image/png' ? 'png' : ($mime === 'image/webp' ? 'webp' : 'jpg');
+        $file_array = [
+            'name'     => sanitize_file_name('app-tipp-' . $tip->ID . '-' . ($kind === 'author' ? 'portraet' : 'bild') . '-' . time() . '.' . $ext),
+            'tmp_name' => $file['tmp_name'],
+            'type'     => $mime,
+            'size'     => $file['size'] ?? 0,
+        ];
+        $title = $tip->post_title !== '' ? $tip->post_title : 'App-Tipp ' . $tip->ID;
+        $attachment_id = media_handle_sideload($file_array, $tip->ID, $title);
+        if (is_wp_error($attachment_id)) {
+            return new WP_Error('upload_failed', $attachment_id->get_error_message(), ['status' => 500]);
+        }
+        update_post_meta($tip->ID, $keys[$kind], $attachment_id);
+        self::flush();
+        return rest_ensure_response(['tip' => self::admin_payload($tip->ID)]);
+    }
+
+    /** GET /app/tips/events – Auswahlliste fürs Event-Feld */
+    public static function rest_events(WP_REST_Request $req) {
+        $out = [];
+        foreach (self::upcoming_event_ids(200) as $id) {
+            $out[] = [
+                'id'         => intval($id),
+                'title'      => html_entity_decode(get_the_title($id), ENT_QUOTES, 'UTF-8'),
+                'date_start' => (string) get_post_meta($id, '_tix_date_start', true),
+            ];
+        }
+        return rest_ensure_response(['events' => $out]);
     }
 }
