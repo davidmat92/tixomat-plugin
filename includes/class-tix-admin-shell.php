@@ -34,7 +34,7 @@ class TIX_Admin_Shell {
         $tix_cpts = [
             'tix_ticket', 'tix_ticket_tpl', 'tix_support_ticket',
             'tix_location', 'tix_organizer', 'tix_subscriber',
-            'tix_abandoned_cart', 'tix_seatmap', 'tix_special',
+            'tix_abandoned_cart', 'tix_seatmap', 'tix_special', 'tix_app_tip',
         ];
         if (in_array($screen->post_type, $tix_cpts, true)) return true;
 
@@ -135,6 +135,7 @@ class TIX_Admin_Shell {
         elseif ($post_type === 'tix_subscriber')                                $active = 'subscribers';
         elseif ($post_type === 'tix_abandoned_cart')                            $active = 'abandoned-carts';
         elseif ($post_type === 'tix_special')                                   $active = 'specials';
+        elseif ($post_type === 'tix_app_tip')                                   $active = 'app-tips';
         elseif ($current_page === 'tix-statistics')                             $active = 'statistics';
         elseif ($current_page === 'tix-support')                                $active = 'support';
         elseif ($current_page === 'tix-promoters')                              $active = 'promoter';
@@ -563,6 +564,13 @@ class TIX_Admin_Shell {
                         <span class="dashicons dashicons-email-alt2"></span>
                         <span>E-Mail-Log</span>
                     </a>
+                    <?php if (current_user_can('manage_options')) : ?>
+                    <a href="<?php echo admin_url('edit.php?post_type=tix_app_tip'); ?>"
+                       class="tix-shell-item<?php echo $active === 'app-tips' ? ' active' : ''; ?>">
+                        <span class="dashicons dashicons-lightbulb"></span>
+                        <span>App-Tipps</span>
+                    </a>
+                    <?php endif; ?>
                 </div>
 
                 <?php // ── Kundensupport ── ?>
