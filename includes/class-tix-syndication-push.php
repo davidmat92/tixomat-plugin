@@ -177,6 +177,8 @@ class TIX_Syndication_Push {
                 // Syndication-Meta nicht mitsenden
                 if (strpos($key, '_tix_syndicate') === 0) continue;
                 if ($key === '_tix_partner_sales') continue;
+                // Wiederholung bleibt hier: jeder Termin wird einzeln übertragen
+                if (strpos($key, '_tix_recurrence') === 0) continue;
                 $all_meta[$key] = maybe_unserialize($values[0]);
             }
         }

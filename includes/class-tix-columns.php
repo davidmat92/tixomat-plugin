@@ -808,6 +808,8 @@ class TIX_Columns {
         $meta = get_post_meta($post_id);
         foreach ($meta as $key => $values) {
             if (in_array($key, $skip)) continue;
+            // Wiederholung (Serie/Termin-Verknüpfung) nicht übernehmen – die Kopie ist ein eigenes Event
+            if (strpos($key, '_tix_recurrence') === 0) continue;
             // Ticket-Kategorien: product_id und tc_event_id zurücksetzen
             if ($key === '_tix_ticket_categories') {
                 $cats = maybe_unserialize($values[0]);

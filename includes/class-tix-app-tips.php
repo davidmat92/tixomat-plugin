@@ -135,13 +135,48 @@ class TIX_App_Tips {
         }
     }
 
-    /** Eingabe aus datetime-local ('Y-m-d\TH:i') → 'Y-m-d H:i' oder ''. */
+    /**
+     * Eingabe aus datetime-local ('Y-m-d\TH:i', Seiten-Zeitzone) oder ISO mit Zeitzone
+     * ('2026-10-10T08:00:00Z', '…+02:00', wie `starts_at`) → 'Y-m-d H:i' (Seiten-Zeitzone) oder ''.
+     */
     private static function sanitize_datetime($raw) {
-        $raw = trim(str_replace('T', ' ', sanitize_text_field((string) $raw)));
+        $raw = trim(sanitize_text_field((string) $raw));
         if ($raw === '') return '';
+        if (preg_match('/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})$/', $raw)) {
+            try {
+                $dt = (new DateTimeImmutable($raw))->setTimezone(wp_timezone());
+            } catch (Exception $e) {
+                return '';
+            }
+            return $dt->format('Y-m-d H:i');
+        }
+        $raw = str_replace('T', ' ', $raw);
         if (!preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(:\d{2})?$/', $raw)) return '';
         $dt = self::to_datetime($raw);
         return $dt ? $dt->format('Y-m-d H:i') : '';
+    }
+
+    /**
+     * App-Routen: Zeitraum prüfen, statt ein falsches Datum still als „unbegrenzt“ zu speichern.
+     * $tip_id > 0: fehlende Grenze kommt aus dem gespeicherten Tipp.
+     */
+    private static function validate_dates(array $d, $tip_id = 0) {
+        $vals = [];
+        foreach (['start' => '_tix_tip_start', 'end' => '_tix_tip_end'] as $k => $meta) {
+            if (array_key_exists($k, $d)) {
+                $raw = trim((string) $d[$k]);
+                $vals[$k] = self::sanitize_datetime($raw);
+                if ($raw !== '' && $vals[$k] === '') {
+                    return new WP_Error('tix_tip_date', '„' . $k . '“ bitte als JJJJ-MM-TTTHH:MM oder ISO-Datum angeben.', ['status' => 400]);
+                }
+            } else {
+                $vals[$k] = $tip_id ? (string) get_post_meta($tip_id, $meta, true) : '';
+            }
+        }
+        if ($vals['start'] !== '' && $vals['end'] !== '' && $vals['end'] <= $vals['start']) {
+            return new WP_Error('tix_tip_date', 'Das Ende muss nach dem Start liegen.', ['status' => 400]);
+        }
+        return true;
     }
 
     /** Link: URL (http/https/mailto/tel) oder App-Aktion wie `event:123`, `page:faq`. */
@@ -556,7 +591,11 @@ class TIX_App_Tips {
 
     /** Nur WordPress-Admins – auch im Mehr-Veranstalter-Modus nie Veranstalter/Team. */
     public static function check_admin($req = null) {
-        if (!is_user_logged_in() || !current_user_can('manage_options')) {
+        if (!is_user_logged_in()) {
+            // Abgelaufenes Token: App führt zur Anmeldung (wie die übrigen Routen)
+            return new WP_Error('rest_not_logged_in', 'Authentifizierung erforderlich.', ['status' => 401]);
+        }
+        if (!current_user_can('manage_options')) {
             return new WP_Error('rest_forbidden', 'App-Tipps pflegen nur Admins.', ['status' => 403]);
         }
         return true;
@@ -600,6 +639,10 @@ class TIX_App_Tips {
     /** GET /public/tips[?placement=] */
     public static function rest_list(WP_REST_Request $req) {
         $placement = sanitize_key((string) $req->get_param('placement'));
+        // Unbekannter Platz: sofort leer, ohne Cache-Eintrag (sonst legt jeder Zufallswert einen Transient an)
+        if ($placement !== '' && !isset(self::PLACEMENTS[$placement])) {
+            return rest_ensure_response(['tips' => []]);
+        }
         $key = self::cache_key($placement);
         $cached = get_transient($key);
         if (is_array($cached)) return rest_ensure_response($cached);
@@ -719,6 +762,8 @@ class TIX_App_Tips {
     /** POST /app/tips */
     public static function rest_create(WP_REST_Request $req) {
         $d = self::request_data($req);
+        $ok = self::validate_dates($d);
+        if (is_wp_error($ok)) return $ok;
         $post = self::post_fields($d);
         if (is_wp_error($post)) return $post;
         $post += ['post_title' => '', 'post_status' => 'publish', 'menu_order' => 0];
@@ -743,6 +788,8 @@ class TIX_App_Tips {
         $tip = self::find_tip($req['id']);
         if (is_wp_error($tip)) return $tip;
         $d = self::request_data($req);
+        $ok = self::validate_dates($d, $tip->ID);
+        if (is_wp_error($ok)) return $ok;
         $post = self::post_fields($d);
         if (is_wp_error($post)) return $post;
         if ($post) {

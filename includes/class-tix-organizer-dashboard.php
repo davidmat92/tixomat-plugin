@@ -1213,6 +1213,8 @@ class TIX_Organizer_Dashboard {
         // Alle _tix_ Meta-Felder kopieren
         $meta = get_post_meta($event_id);
         foreach ($meta as $key => $values) {
+            // Wiederholung (Serie/Termin-Verknüpfung) nicht übernehmen – die Kopie ist ein eigenes Event
+            if (strpos($key, '_tix_recurrence') === 0) continue;
             if (strpos($key, '_tix_') === 0) {
                 foreach ($values as $val) {
                     update_post_meta($new_id, $key, maybe_unserialize($val));

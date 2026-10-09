@@ -301,19 +301,31 @@ class TIX_Notifications {
         $posts = get_posts([
             'post_type'      => 'tix_ticket',
             'post_status'    => ['publish', 'private'],
-            'posts_per_page' => 3000,
+            'posts_per_page' => -1,
             'fields'         => 'ids',
+            'no_found_rows'  => true,
             'meta_query'     => [
                 ['key' => '_tix_ticket_event_id', 'value' => intval($event_id), 'compare' => '='],
             ],
         ]);
+        if (!$posts) return [];
+        update_meta_cache('post', $posts);
         $emails = [];
+        $uids = [];
         foreach ($posts as $pid) {
+            // Stornierte Tickets zählen nicht (Admin-Storno lässt den Post veröffentlicht)
+            $status = (string) get_post_meta($pid, '_tix_ticket_status', true);
+            if ($status === 'cancelled') continue;
+            // Weitergegebenes Ticket: Empfänger statt Käufer
+            if ($status === 'transferred') {
+                $to = intval(get_post_meta($pid, '_tix_ticket_transfer_to', true));
+                if ($to > 0) $uids[$to] = true;
+                continue;
+            }
             $e = get_post_meta($pid, '_tix_ticket_owner_email', true);
             if (!$e) $e = get_post_meta($pid, '_tix_email', true);
             if ($e) $emails[strtolower(trim((string) $e))] = true;
         }
-        $uids = [];
         foreach (array_keys($emails) as $e) {
             $u = get_user_by('email', $e);
             if ($u) $uids[$u->ID] = true;
@@ -392,13 +404,21 @@ class TIX_Notifications {
     /** Stündlich: am Event-Tag einmal an das heutige Event erinnern. */
     public static function cron_reminders() {
         $today = current_time('Y-m-d');
+        $reminded = get_option(self::OPT_REMINDED, []);
+        if (!is_array($reminded)) $reminded = [];
+        // Einträge älter als 3 Tage vergessen.
+        $reminded = array_filter($reminded, fn($ts) => intval($ts) > time() - 3 * DAY_IN_SECONDS);
+
         $q = new WP_Query([
             // Beitragstyp der Events ist 'event' (vorher 'tix_event' → die
             // Erinnerung fand nie ein Event und wurde nie verschickt).
             'post_type'      => 'event',
             'post_status'    => 'publish',
-            'posts_per_page' => 30,
+            'posts_per_page' => 200,
             'no_found_rows'  => true,
+            // Schon erinnerte Events belegen keine Plätze (sonst bekämen an Tagen
+            // mit vielen Events die übrigen nie eine Erinnerung)
+            'post__not_in'   => array_map('intval', array_keys($reminded)),
             'meta_query'     => [
                 'relation' => 'OR',
                 ['key' => '_tix_date_start', 'value' => $today, 'compare' => '=', 'type' => 'DATE'],
@@ -410,11 +430,6 @@ class TIX_Notifications {
             ],
         ]);
         if (!$q->have_posts()) return;
-
-        $reminded = get_option(self::OPT_REMINDED, []);
-        if (!is_array($reminded)) $reminded = [];
-        // Einträge älter als 3 Tage vergessen.
-        $reminded = array_filter($reminded, fn($ts) => intval($ts) > time() - 3 * DAY_IN_SECONDS);
 
         $now   = current_time('timestamp');
         $window = self::reminder_hours() * HOUR_IN_SECONDS;
@@ -438,7 +453,12 @@ class TIX_Notifications {
             // Nur an Ticketkäufer dieses Events mit App-Konto (persönlicher
             // Hinweis + Push) – nie als Rundnachricht an alle App-Nutzer
             // (auf evendis.de wären das alle Plattform-Nutzer).
+            // Je Nutzer und Event ein Merker vor dem Versand: bricht der Lauf ab
+            // (viele Push-Aufrufe), macht der nächste dort weiter, ohne doppelt zu senden.
+            $flag = '_tix_notif_rem_' . intval($eid);
             foreach (self::event_ticket_user_ids($eid) as $uid) {
+                if (get_user_meta($uid, $flag, true)) continue;
+                update_user_meta($uid, $flag, time());
                 self::add_user_item(
                     $uid,
                     'Heute: ' . $title,
@@ -447,6 +467,7 @@ class TIX_Notifications {
                 );
             }
             $reminded[$eid] = time();
+            update_option(self::OPT_REMINDED, $reminded, false);
         }
         update_option(self::OPT_REMINDED, $reminded, false);
         wp_reset_postdata();

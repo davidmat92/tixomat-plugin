@@ -148,6 +148,9 @@ class TIX_Syndication_Receive {
         // Beitragsbild importieren
         self::import_featured_image($event_id, $data['featured_image'] ?? '');
 
+        // Tages-Alarme: beim Veröffentlichen fehlten Datum und Ort noch
+        if (class_exists('TIX_Day_Alerts') && get_post_status($event_id) === 'publish') TIX_Day_Alerts::notify_event($event_id);
+
         return rest_ensure_response([
             'event_id' => $event_id,
             'status'   => 'created',
@@ -264,6 +267,7 @@ class TIX_Syndication_Receive {
      * Event updaten
      */
     private static function update_event($event_id, $data) {
+        $was_published = get_post_status($event_id) === 'publish';
         $update = ['ID' => $event_id];
         if (isset($data['title']))   $update['post_title'] = sanitize_text_field($data['title']);
         if (isset($data['excerpt'])) $update['post_excerpt'] = sanitize_textarea_field($data['excerpt']);
@@ -297,6 +301,11 @@ class TIX_Syndication_Receive {
             self::import_featured_image($event_id, $data['featured_image']);
         }
 
+        // Tages-Alarme: erst jetzt veröffentlicht → mit den neuen Metas benachrichtigen
+        if (!$was_published && class_exists('TIX_Day_Alerts') && get_post_status($event_id) === 'publish') {
+            TIX_Day_Alerts::notify_event($event_id);
+        }
+
         return rest_ensure_response([
             'event_id' => $event_id,
             'status'   => 'updated',
@@ -317,6 +326,8 @@ class TIX_Syndication_Receive {
                 if (strpos($key, '_tix_') !== 0) continue;
                 if (strpos($key, '_tix_syndicate') === 0) continue;
                 if (in_array($key, self::PROTECTED_META, true)) continue;
+                // Wiederholung macht die Quelle (Termine kommen einzeln); Serien-Metas tragen fremde IDs
+                if (strpos($key, '_tix_recurrence') === 0) continue;
                 if ($key === '_tix_ticket_categories' && is_array($value)) {
                     foreach ($value as $i => $cat) {
                         if (is_array($cat)) unset($value[$i]['product_id']);
@@ -333,6 +344,16 @@ class TIX_Syndication_Receive {
             delete_post_meta($event_id, '_tix_organizer_id');
         }
         delete_post_meta($event_id, '_tix_location_id');
+
+        // Serien-Metas älterer Übertragungen entfernen; hier daraus angelegte Termine
+        // ohne Verkäufe wegräumen (sonst stünde jeder Partner-Termin doppelt da)
+        if (metadata_exists('post', $event_id, '_tix_recurrence') || metadata_exists('post', $event_id, '_tix_recurrence_parent')) {
+            if (class_exists('TIX_Recurrence')) TIX_Recurrence::retire_future($event_id);
+            foreach (['_tix_recurrence', '_tix_recurrence_until', '_tix_recurrence_count', '_tix_recurrence_skip',
+                      '_tix_recurrence_parent', '_tix_recurrence_date', '_tix_recurrence_hash'] as $k) {
+                delete_post_meta($event_id, $k);
+            }
+        }
     }
 
     /**

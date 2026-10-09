@@ -42,14 +42,14 @@ class TIX_Recurrence {
         '_tix_recurrence', '_tix_series_', '_tix_date_', '_tix_time_', '_tix_doors_',
         '_tix_sold_', '_tix_syndicate_', '_tix_syndicated', '_tix_source_', '_tix_ai_',
         '_tix_feedback_', '_tix_last_sync_', '_tix_promoted', '_tix_day_alert', '_tix_api_key',
-        '_tix_calendar_', '_tix_is_past', '_tix_notif_',
+        '_tix_calendar_', '_tix_is_past', '_tix_notif_', '_tix_archived',
     ];
 
     /** Einzelne Metas, die nie kopiert werden (Statistik, Verkauf, Check-in, Bestellung, Sync). */
     const SKIP_KEYS = [
         '_tix_status', '_tix_status_label', '_tix_countdown_target', '_tix_product_ids',
         '_tix_tc_event_id', '_tix_synced_at', '_tix_ticket_count', '_tix_offline_count',
-        '_tix_partner_sales', '_tix_low_stock_notified', '_tix_notified', '_tix_settled_at',
+        '_tix_event_status', '_tix_low_stock_notified', '_tix_notified', '_tix_settled_at',
         '_tix_guest_list', '_tix_guestlist', '_tix_guests', '_tix_publish_held',
         '_tix_autosave_time', '_tix_special_product_id', '_tix_presale_end_computed',
         '_tix_raffle_status', '_tix_raffle_winners', '_tix_raffle_drawn_at',
@@ -77,12 +77,23 @@ class TIX_Recurrence {
     //  Lesen
     // ──────────────────────────────────────────
 
+    /**
+     * Von einer Partnerseite übernommenes Event (Syndication): Wiederholung macht dort
+     * die Quelle – ihre Termine kommen einzeln an. Hier nie eigene Termine anlegen,
+     * und Serien-Metas der Quelle (fremde Post-IDs) nie auswerten.
+     */
+    public static function is_foreign($id) {
+        return get_post_meta($id, '_tix_syndicated', true) === '1';
+    }
+
     public static function mode($id) {
+        if (self::is_foreign($id)) return 'none';
         $m = (string) get_post_meta($id, self::META_MODE, true);
         return in_array($m, ['weekly', 'biweekly'], true) ? $m : 'none';
     }
 
     public static function parent_of($id) {
+        if (self::is_foreign($id)) return 0;
         return intval(get_post_meta($id, self::META_PARENT, true));
     }
 
@@ -108,6 +119,24 @@ class TIX_Recurrence {
             (string) intval($id)
         ));
         if ($n > 0) return true;
+        // Bestellungen ohne Tickets (Zahlung offen): die Kasse hat den Bestand schon abgezogen
+        $oi = $wpdb->prefix . 'tix_order_items';
+        $ot = $wpdb->prefix . 'tix_orders';
+        if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $oi)) === $oi) {
+            $open = (int) $wpdb->get_var($wpdb->prepare(
+                "SELECT COUNT(*) FROM {$oi} i INNER JOIN {$ot} o ON o.id = i.order_id
+                 WHERE i.event_id = %d AND o.status NOT IN ('cancelled', 'failed', 'refunded', 'trash')",
+                intval($id)
+            ));
+            if ($open > 0) return true;
+        }
+        // Bestand unter Kontingent = es wurde verkauft bzw. reserviert
+        $cats = get_post_meta($id, '_tix_ticket_categories', true);
+        foreach ((array) $cats as $c) {
+            if (!is_array($c) || !isset($c['stock']) || $c['stock'] === '') continue;
+            $qty = intval($c['qty'] ?? ($c['quantity'] ?? 0));
+            if ($qty > 0 && intval($c['stock']) < $qty) return true;
+        }
         if (function_exists('wc_get_product')) {
             $cats = get_post_meta($id, '_tix_ticket_categories', true);
             foreach ((array) $cats as $c) {
@@ -135,6 +164,8 @@ class TIX_Recurrence {
         ]);
         $out = [];
         foreach ($ids as $cid) {
+            // Übernommene Events tragen die Master-ID der Partnerseite (fremde ID)
+            if (self::is_foreign($cid)) continue;
             if (get_post_status($cid) === 'trash' && get_post_meta($cid, self::META_AUTO, true) === '1') continue;
             $d = (string) get_post_meta($cid, self::META_DATE, true);
             if ($d === '') $d = (string) get_post_meta($cid, '_tix_date_start', true);

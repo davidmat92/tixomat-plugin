@@ -5043,6 +5043,8 @@ class TIX_Metabox {
 
         if ($address) update_post_meta($post_id, '_tix_loc_address', $address);
         if ($desc)    update_post_meta($post_id, '_tix_loc_description', $desc);
+        // Koordinaten (beim Anlegen stand die Adresse noch nicht fest)
+        if ($address && class_exists('TIX_Venues')) TIX_Venues::maybe_geocode($post_id);
 
         wp_send_json_success(['id' => $post_id, 'title' => $name, 'address' => $address]);
     }

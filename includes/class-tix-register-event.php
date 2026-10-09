@@ -363,7 +363,11 @@ class TIX_Register_Event {
                 $loc_id = $locations[0]->ID;
             } else {
                 $loc_id = wp_insert_post(['post_type' => 'tix_location', 'post_title' => $loc_name, 'post_status' => 'publish', 'post_author' => $user_id]);
-                if ($loc_id && $loc_addr) update_post_meta($loc_id, '_tix_loc_address', $loc_addr);
+                if ($loc_id && $loc_addr) {
+                    update_post_meta($loc_id, '_tix_loc_address', $loc_addr);
+                    // Koordinaten (beim Anlegen stand die Adresse noch nicht fest)
+                    if (class_exists('TIX_Venues')) TIX_Venues::maybe_geocode($loc_id);
+                }
             }
             if ($loc_id) {
                 update_post_meta($event_id, '_tix_location_id', $loc_id);

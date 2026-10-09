@@ -294,6 +294,26 @@ class TIX_Public_Events {
         return $out;
     }
 
+    /**
+     * meta_query für Events, die [lo, hi] berühren können: Start ≤ hi und
+     * (Start ≥ lo oder Ende ≥ lo). Leere Grenze = offen. Genauer Abgleich danach (day_span/times).
+     */
+    private static function date_window_clause($lo, $hi) {
+        $q = [];
+        if ($hi !== '') {
+            $q[] = ['key' => '_tix_date_start', 'value' => $hi, 'compare' => '<=', 'type' => 'DATE'];
+        }
+        if ($lo !== '') {
+            $q[] = [
+                'relation' => 'OR',
+                ['key' => '_tix_date_start', 'value' => $lo, 'compare' => '>=', 'type' => 'DATE'],
+                ['key' => '_tix_date_end',   'value' => $lo, 'compare' => '>=', 'type' => 'DATE'],
+            ];
+        }
+        if (!$q) return [];
+        return array_merge(['relation' => 'AND'], $q);
+    }
+
     /** "LAT,LNG" → [lat, lng] oder null. */
     public static function parse_near($raw) {
         $raw = trim((string) $raw);
@@ -370,6 +390,12 @@ class TIX_Public_Events {
         $cached   = get_transient($key);
         if (is_array($cached)) return rest_ensure_response($cached);
 
+        // Vorfilter in der Datenbank: sonst belegen vergangene Events (älteste zuerst)
+        // die 1000 Plätze und kommende fehlen. Vortag wegen Events über Mitternacht.
+        $lo = $filter === 'upcoming' ? self::add_days(current_time('Y-m-d'), -1) : '';
+        if ($geo['range'] && $geo['range'][0] > $lo) $lo = $geo['range'][0];
+        $hi = $filter === 'past' ? current_time('Y-m-d') : '';
+        if ($geo['range'] && ($hi === '' || $geo['range'][1] < $hi)) $hi = $geo['range'][1];
         $ids = get_posts([
             'post_type'      => 'event',
             'post_status'    => 'publish',
@@ -378,6 +404,7 @@ class TIX_Public_Events {
             'meta_key'       => '_tix_date_start',
             'orderby'        => 'meta_value',
             'order'          => $filter === 'past' ? 'DESC' : 'ASC',
+            'meta_query'     => self::date_window_clause($lo, $hi),
         ]);
         $now = self::now();
         $matched = [];
@@ -447,6 +474,7 @@ class TIX_Public_Events {
         $cached = get_transient($key);
         if (is_array($cached)) return rest_ensure_response(self::days_response($cached));
 
+        $lo = max($from, $today); // vergangene Tage zählen nicht
         $ids = get_posts([
             'post_type'      => 'event',
             'post_status'    => 'publish',
@@ -455,9 +483,10 @@ class TIX_Public_Events {
             'meta_key'       => '_tix_date_start',
             'orderby'        => 'meta_value',
             'order'          => 'ASC',
+            // Vorfilter wie rest_list: nur Events, deren Tage [lo, to] berühren können
+            'meta_query'     => self::date_window_clause($lo, $to),
         ]);
         $now = self::now();
-        $lo = max($from, $today); // vergangene Tage zählen nicht
         $counts = [];
         $filtering = class_exists('TIX_Public_Platform') && array_filter($f);
         foreach ($ids as $id) {

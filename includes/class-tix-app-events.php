@@ -283,6 +283,8 @@ class TIX_App_Events {
             wp_delete_post($post_id, true);
             return $err;
         }
+        // Tages-Alarme: beim Anlegen als „veröffentlicht“ fehlten Datum und Ort noch
+        if (class_exists('TIX_Day_Alerts') && get_post_status($post_id) === 'publish') TIX_Day_Alerts::notify_event($post_id);
         return self::respond($post_id, 'Event angelegt.');
     }
 
