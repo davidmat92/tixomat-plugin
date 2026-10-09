@@ -2338,6 +2338,10 @@ class TIX_Metabox {
     // Serientermine
     // ──────────────────────────────────────────
     public static function render_series($post) {
+        // Fortlaufende Wiederholung (TIX_Recurrence): Termin aus einer Serie oder aktive
+        // Wiederholung → klassische Serientermine ausblenden (nicht kombinierbar)
+        if (class_exists('TIX_Recurrence') && TIX_Recurrence::render_admin_card($post)) return;
+
         $series_parent = get_post_meta($post->ID, '_tix_series_parent', true);
 
         // Wenn Kind-Event → vereinfachte Ansicht

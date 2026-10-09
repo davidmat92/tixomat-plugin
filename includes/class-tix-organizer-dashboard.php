@@ -846,6 +846,14 @@ class TIX_Organizer_Dashboard {
             'presale_end_mode'  => get_post_meta($event_id, '_tix_presale_end_mode', true),
             'presale_end'       => get_post_meta($event_id, '_tix_presale_end', true),
             'waitlist_enabled'  => get_post_meta($event_id, '_tix_waitlist_enabled', true),
+            // Ticketverkauf oder nur eintragen (1.38.367): online | free | box_office
+            'ticket_mode'       => self::ticket_mode_of($event_id),
+            'box_office_price'  => (string) get_post_meta($event_id, '_tix_box_office_price', true),
+            // Wiederholung (TIX_Recurrence)
+            'recurrence'        => class_exists('TIX_Recurrence') ? TIX_Recurrence::mode($event_id) : 'none',
+            'recurrence_until'  => (string) get_post_meta($event_id, '_tix_recurrence_until', true),
+            'recurrence_count'  => intval(get_post_meta($event_id, '_tix_recurrence_count', true)),
+            'recurrence_parent' => intval(get_post_meta($event_id, '_tix_recurrence_parent', true)),
         ];
 
         // Locations fuer Dropdown
@@ -1095,16 +1103,61 @@ class TIX_Organizer_Dashboard {
             update_post_meta($event_id, '_tix_timetable', $timetable);
         }
 
-        // Sync ausfuehren (falls vorhanden)
-        if (class_exists('TIX_Sync')) {
-            TIX_Sync::sync_event($event_id);
+        // Tickets: online verkaufen oder nur eintragen (Eintritt frei / Abendkasse)
+        if (isset($_POST['ticket_mode'])) {
+            self::apply_ticket_mode($event_id, sanitize_key(wp_unslash($_POST['ticket_mode'])), wp_unslash($_POST['box_office_price'] ?? ''));
         }
+
+        // Wiederholung (wöchentlich / alle 2 Wochen)
+        if (isset($_POST['recurrence']) && class_exists('TIX_Recurrence')) {
+            TIX_Recurrence::save_settings(
+                $event_id,
+                sanitize_key(wp_unslash($_POST['recurrence'])),
+                sanitize_text_field(wp_unslash($_POST['recurrence_until'] ?? '')),
+                intval($_POST['recurrence_count'] ?? 0)
+            );
+        }
+
+        // Sync ausfuehren (falls vorhanden) – TIX_Sync::sync_event gibt es nicht (mehr)
+        if (class_exists('TIX_Sync')) {
+            if (method_exists('TIX_Sync', 'sync_event')) {
+                TIX_Sync::sync_event($event_id);
+            } else {
+                TIX_Sync::sync($event_id, get_post($event_id));
+            }
+        }
+        // Serientermine anlegen/abgleichen, Tages-Erinnerungen (Metas stehen erst jetzt fest)
+        if (class_exists('TIX_Recurrence')) TIX_Recurrence::sync($event_id);
+        if (class_exists('TIX_Day_Alerts') && get_post_status($event_id) === 'publish') TIX_Day_Alerts::notify_event($event_id);
 
         wp_send_json_success([
             'event_id'    => $event_id,
             'post_status' => get_post_status($event_id),
             'message'     => $event_id ? 'Event gespeichert.' : 'Event erstellt.',
         ]);
+    }
+
+    /** Ticket-Modus eines Events: online | free | box_office | '' (keine Angabe, Verkauf aus). */
+    public static function ticket_mode_of($event_id) {
+        if (get_post_meta($event_id, '_tix_tickets_enabled', true) === '1') return 'online';
+        if (get_post_meta($event_id, '_tix_free_entry', true) === '1') return 'free';
+        if (get_post_meta($event_id, '_tix_box_office_only', true) === '1') return 'box_office';
+        return '';
+    }
+
+    /**
+     * Online verkaufen oder nur eintragen: „free“ = Eintritt frei, „box_office“ = Abendkasse
+     * (Preis optional). Nur eintragen schaltet den Online-Verkauf ab (_tix_tickets_enabled = 0).
+     */
+    public static function apply_ticket_mode($event_id, $mode, $price = '') {
+        if (!in_array($mode, ['online', 'free', 'box_office'], true)) return;
+        if ($mode === 'online') {
+            update_post_meta($event_id, '_tix_tickets_enabled', '1');
+            update_post_meta($event_id, '_tix_free_entry', '0');
+            update_post_meta($event_id, '_tix_box_office_only', '0');
+            return;
+        }
+        TIX_Register_Event::apply_listing_mode($event_id, $mode, $price);
     }
 
     /* ══════════════════════════════════════════

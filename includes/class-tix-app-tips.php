@@ -33,6 +33,7 @@ class TIX_App_Tips {
         'event_detail' => 'Event-Seite (unter den Infos)',
         'tickets'      => 'Tickets-Tab oben',
         'saved'        => 'Merkliste oben (evendis)',
+        'day_results'  => 'Ergebnisse nach Datum (evendis)',
         'account'      => 'Konto oben',
     ];
 

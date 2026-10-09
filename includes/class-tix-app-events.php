@@ -561,7 +561,7 @@ class TIX_App_Events {
     }
 
     /** `_tix_status` wie TIX_Sync (läuft ohne WooCommerce sonst nicht). */
-    private static function resolve_status($post_id) {
+    public static function resolve_status($post_id) {
         $manual = (string) get_post_meta($post_id, '_tix_event_status', true);
         $labels = [
             'available'   => 'Verfügbar',

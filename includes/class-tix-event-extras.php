@@ -135,7 +135,7 @@ class TIX_Event_Extras {
     public static function series($id) {
         $parent = intval(get_post_meta($id, '_tix_series_parent', true));
         if (!$parent) {
-            if (get_post_meta($id, '_tix_series_enabled', true) !== '1') return [];
+            if (get_post_meta($id, '_tix_series_enabled', true) !== '1') return self::recurrence_series($id);
             $parent = intval($id);
         }
         $children = get_post_meta($parent, '_tix_series_children', true);
@@ -143,6 +143,38 @@ class TIX_Event_Extras {
         $today = wp_date('Y-m-d');
         $out = [];
         foreach ($children as $cid) {
+            $cid = intval($cid);
+            if ($cid === intval($id) || get_post_status($cid) !== 'publish') continue;
+            $ds = (string) get_post_meta($cid, '_tix_date_start', true);
+            if ($ds === '' || $ds < $today) continue;
+            $out[] = [
+                'id'         => $cid,
+                'title'      => (string) get_post_field('post_title', $cid),
+                'date_start' => $ds,
+                'time_start' => (string) get_post_meta($cid, '_tix_time_start', true),
+                'url'        => (string) get_permalink($cid),
+                'status'     => (string) (get_post_meta($cid, '_tix_status', true) ?: 'available'),
+            ];
+        }
+        usort($out, function ($a, $b) { return strcmp($a['date_start'] . $a['time_start'], $b['date_start'] . $b['time_start']); });
+        return $out;
+    }
+
+    /**
+     * Weitere Termine einer fortlaufenden Wiederholung (TIX_Recurrence, 1.38.367):
+     * Serien-Event selbst + alle Termine, ohne das aktuelle Event.
+     */
+    private static function recurrence_series($id) {
+        if (!class_exists('TIX_Recurrence')) return [];
+        $parent = TIX_Recurrence::parent_of($id);
+        if (!$parent) {
+            if (TIX_Recurrence::mode($id) === 'none') return [];
+            $parent = intval($id);
+        }
+        $ids = array_merge([$parent], array_values(TIX_Recurrence::children($parent)));
+        $today = wp_date('Y-m-d');
+        $out = [];
+        foreach ($ids as $cid) {
             $cid = intval($cid);
             if ($cid === intval($id) || get_post_status($cid) !== 'publish') continue;
             $ds = (string) get_post_meta($cid, '_tix_date_start', true);

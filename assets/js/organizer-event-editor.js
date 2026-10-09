@@ -114,13 +114,17 @@
             + '<div class="tix-oe-row"><label class="tix-oe-label">Endzeit</label><input type="time" class="tix-oe-input" id="tix-oe-wiz-time-end"></div>'
             + '</div>'
             + '<div class="tix-oe-row"><label class="tix-oe-label">Einlass</label><input type="time" class="tix-oe-input" id="tix-oe-wiz-time-doors" style="max-width:200px"></div>'
+            + recurrenceFieldsHtml({}, 'wiz')
             + '</div>'
 
             // Step 2: Tickets
             + '<div class="tix-oe-wiz-pane" data-wiz-step="2">'
+            + ticketModeHtml({ ticket_mode: 'online' }, 'wiz')
+            + '<div class="tix-oe-ticket-cats" data-tm-scope="wiz">'
             + '<div class="tix-oe-section">Ticket-Kategorien</div>'
             + '<div id="tix-oe-wiz-tickets" class="tix-oe-repeater"></div>'
             + '<button type="button" class="tix-oe-repeater-add" id="tix-oe-wiz-add-ticket"><span class="dashicons dashicons-plus-alt2"></span> Ticket hinzuf\u00fcgen</button>'
+            + '</div>'
             + '</div>'
 
             // Step 3: Zusammenfassung
@@ -169,7 +173,9 @@
                 if (!dateStart) { showToast('Bitte w\u00e4hle ein Startdatum.', 'error'); return; }
                 if (!timeStart) { showToast('Bitte gib eine Startzeit ein.', 'error'); return; }
             }
-            if (currentStep === 2) {
+            if (currentStep === 2 && $('#tix-oe-wiz-ticket-mode').val() !== 'online') {
+                buildWizSummary();
+            } else if (currentStep === 2) {
                 var hasTicket = false;
                 $('#tix-oe-wiz-tickets .tix-oe-repeater-item').each(function() {
                     if ($(this).find('.tix-oe-tk-name').val().trim()) hasTicket = true;
@@ -224,6 +230,9 @@
             if (n) tickets.push(n + ' \u2013 ' + p + ' \u20ac \u00d7 ' + q);
         });
 
+        var tmode = $('#tix-oe-wiz-ticket-mode').val();
+        if (tmode === 'free') tickets = ['Nur eintragen \u2013 Eintritt frei'];
+        if (tmode === 'box_office') tickets = ['Nur eintragen \u2013 Abendkasse' + ($('#tix-oe-wiz-box-price').val() ? ' (' + $('#tix-oe-wiz-box-price').val() + ' \u20ac)' : '')];
         var html = '<div style="background:#FAF8F4;padding:16px;border-radius:8px;border:1px solid #EDE9E0;">'
             + '<p><strong>Titel:</strong> ' + escHtml(title) + '</p>'
             + '<p><strong>Datum:</strong> ' + dateStart + ' ' + timeStart + '</p>'
@@ -253,7 +262,13 @@
             time_start: $('#tix-oe-wiz-time-start').val(),
             time_end:   $('#tix-oe-wiz-time-end').val(),
             time_doors: $('#tix-oe-wiz-time-doors').val(),
+            ticket_mode: $('#tix-oe-wiz-ticket-mode').val() || 'online',
+            box_office_price: $('#tix-oe-wiz-box-price').val() || '',
+            recurrence: $('#tix-oe-wiz-recurrence').val() || 'none',
+            recurrence_until: $('#tix-oe-wiz-recurrence-until').val() || '',
+            recurrence_count: $('#tix-oe-wiz-recurrence-count').val() || 0,
         };
+        if (params.ticket_mode !== 'online') ticketCats = [];
 
         ticketCats.forEach(function(tc, i) {
             Object.keys(tc).forEach(function(k) {
@@ -351,6 +366,7 @@
             + '</div>'
             + field('Location', '<select class="tix-oe-select" id="tix-oe-location">' + locOptions + '</select>')
             + field('Event-Status', '<select class="tix-oe-select" id="tix-oe-status" style="max-width:200px">' + statusOpts + '</select>')
+            + recurrenceFieldsHtml(d, 'ed')
             + '</div>';
     }
 
@@ -365,6 +381,7 @@
     function buildTicketsPane(d) {
         var cats = d.ticket_categories || [];
         var html = '<div class="tix-oe-pane" data-oe-pane="tickets">'
+            + ticketModeHtml(d, 'ed')
             + '<div class="tix-oe-section">Ticket-Kategorien</div>'
             + '<div id="tix-oe-tickets" class="tix-oe-repeater">';
 
@@ -495,6 +512,46 @@
         if (!label) return '<div class="tix-oe-row">' + inputHtml + '</div>';
         return '<div class="tix-oe-row"><label class="tix-oe-label">' + label + '</label>' + inputHtml + '</div>';
     }
+
+    /* Tickets: online verkaufen oder nur eintragen (Eintritt frei / Abendkasse) */
+    function ticketModeHtml(d, scope) {
+        var mode = d.ticket_mode === undefined ? 'online' : (d.ticket_mode || '');
+        var opts = '';
+        if (mode === '') opts += '<option value="" selected>\u2013 wie bisher (kein Online-Verkauf) \u2013</option>';
+        [['online', 'Online verkaufen'], ['free', 'Nur eintragen (Eintritt frei)'], ['box_office', 'Nur eintragen (Abendkasse, Preis optional)']].forEach(function(o) {
+            opts += '<option value="' + o[0] + '"' + (mode === o[0] ? ' selected' : '') + '>' + o[1] + '</option>';
+        });
+        return field('Tickets', '<select class="tix-oe-select tix-oe-ticket-mode" id="tix-oe-' + scope + '-ticket-mode" data-tm-scope="' + scope + '">' + opts + '</select>')
+            + '<div class="tix-oe-box-price" data-tm-scope="' + scope + '"' + (mode === 'box_office' ? '' : ' style="display:none"') + '>'
+            + field('Preis an der Abendkasse (\u20ac, optional)', '<input type="number" class="tix-oe-input" id="tix-oe-' + scope + '-box-price" min="0" step="0.01" value="' + escAttr(d.box_office_price || '') + '" style="max-width:200px">')
+            + '</div>';
+    }
+
+    /* Wiederholung: keine / woechentlich / alle 2 Wochen (Termine bis 8 Wochen im Voraus) */
+    function recurrenceFieldsHtml(d, scope) {
+        if (d.recurrence_parent) {
+            return '<p style="color:#64748b;font-size:13px;">Termin aus Serie #' + d.recurrence_parent + ' \u2013 \u00c4nderungen am Serien-Event werden \u00fcbernommen, solange keine Tickets verkauft sind.</p>';
+        }
+        var mode = d.recurrence || 'none';
+        var opts = '';
+        [['none', 'Keine Wiederholung'], ['weekly', 'W\u00f6chentlich'], ['biweekly', 'Alle 2 Wochen']].forEach(function(o) {
+            opts += '<option value="' + o[0] + '"' + (mode === o[0] ? ' selected' : '') + '>' + o[1] + '</option>';
+        });
+        return field('Wiederholung', '<select class="tix-oe-select tix-oe-recurrence" id="tix-oe-' + scope + '-recurrence" data-rc-scope="' + scope + '" style="max-width:220px">' + opts + '</select>')
+            + '<div class="tix-oe-recurrence-end tix-oe-grid-2" data-rc-scope="' + scope + '"' + (mode === 'none' ? ' style="display:none"' : '') + '>'
+            + field('Endet am (optional)', '<input type="date" class="tix-oe-input" id="tix-oe-' + scope + '-recurrence-until" value="' + escAttr(d.recurrence_until || '') + '">')
+            + field('oder nach Terminen (max. 26)', '<input type="number" class="tix-oe-input" id="tix-oe-' + scope + '-recurrence-count" min="0" max="26" placeholder="\u221e" value="' + (d.recurrence_count || '') + '">')
+            + '</div>';
+    }
+
+    $(document).off('change.tixoe_tm').on('change.tixoe_tm', '.tix-oe-ticket-mode', function() {
+        var sc = $(this).data('tm-scope'), v = $(this).val();
+        $('.tix-oe-box-price[data-tm-scope="' + sc + '"]').toggle(v === 'box_office');
+        $('.tix-oe-ticket-cats[data-tm-scope="' + sc + '"]').toggle(v === 'online' || v === '');
+    });
+    $(document).off('change.tixoe_rc').on('change.tixoe_rc', '.tix-oe-recurrence', function() {
+        $('.tix-oe-recurrence-end[data-rc-scope="' + $(this).data('rc-scope') + '"]').toggle($(this).val() !== 'none');
+    });
 
     function ticketRowHtml(c) {
         c = c || {};
@@ -677,6 +734,17 @@
             raffle_end_date:   $('#tix-oe-raffle-end').val(),
             raffle_max_entries: $('#tix-oe-raffle-max').val(),
         };
+        // Tickets-Modus nur senden, wenn gewählt (leer = wie bisher)
+        var tm = $('#tix-oe-ed-ticket-mode').val();
+        if (tm) {
+            params.ticket_mode = tm;
+            params.box_office_price = $('#tix-oe-ed-box-price').val() || '';
+        }
+        if ($('#tix-oe-ed-recurrence').length) {
+            params.recurrence = $('#tix-oe-ed-recurrence').val();
+            params.recurrence_until = $('#tix-oe-ed-recurrence-until').val() || '';
+            params.recurrence_count = $('#tix-oe-ed-recurrence-count').val() || 0;
+        }
 
         // Ticket-Kategorien
         $('#tix-oe-tickets .tix-oe-repeater-item').each(function(i) {

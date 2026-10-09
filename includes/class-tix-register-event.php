@@ -134,6 +134,16 @@ class TIX_Register_Event {
             <div class="tix-re-panel" data-step="2" style="display:none;">
                 <h2 class="tix-re-panel-title">Sieht das richtig aus?</h2>
                 <div class="tix-re-preview" id="tix-re-preview"></div>
+                <?php // Tickets: online verkaufen oder nur eintragen (1.38.367) ?>
+                <div class="tix-re-ticket-mode" id="tix-re-ticket-mode" style="margin:16px 0;">
+                    <div class="tix-re-preview-label" style="margin-bottom:6px;">Tickets</div>
+                    <label style="display:block;margin:4px 0;"><input type="radio" name="tix_re_ticket_mode" value="online" checked> Online verkaufen</label>
+                    <label style="display:block;margin:4px 0;"><input type="radio" name="tix_re_ticket_mode" value="free"> Nur eintragen (Eintritt frei)</label>
+                    <label style="display:block;margin:4px 0;"><input type="radio" name="tix_re_ticket_mode" value="box_office"> Nur eintragen (Abendkasse, Preis optional)</label>
+                    <div id="tix-re-box-price-wrap" style="display:none;margin:6px 0 0 24px;">
+                        <input type="number" id="tix-re-box-price" class="tix-re-input" min="0" step="0.01" placeholder="Preis in € (optional)" style="max-width:200px;">
+                    </div>
+                </div>
                 <div class="tix-re-nav">
                     <button type="button" class="tix-re-btn-back" data-goto="1">← Zurück</button>
                     <button type="button" class="tix-re-btn-primary" data-goto="3">Weiter →</button>
@@ -224,6 +234,9 @@ class TIX_Register_Event {
         $password_confirm = $_POST['password_confirm'] ?? '';
         $organizer_name = sanitize_text_field($_POST['organizer_name'] ?? '');
         $event_data     = json_decode(stripslashes($_POST['event_data'] ?? '{}'), true);
+        // Tickets: online (Standard, wie bisher) | free | box_office (nur eintragen)
+        $ticket_mode    = sanitize_key($_POST['ticket_mode'] ?? 'online');
+        if (!in_array($ticket_mode, ['online', 'free', 'box_office'], true)) $ticket_mode = 'online';
 
         if (!$first_name || !$last_name) wp_send_json_error(['message' => 'Bitte Vor- und Nachname angeben.']);
         if (!$email || !is_email($email)) wp_send_json_error(['message' => 'Bitte eine gültige E-Mail-Adresse angeben.']);
@@ -317,8 +330,13 @@ class TIX_Register_Event {
         }
 
         // Tickets
-        update_post_meta($event_id, '_tix_tickets_enabled', '1');
-        if (!empty($event_data['tickets']) && is_array($event_data['tickets'])) {
+        if ($ticket_mode !== 'online') {
+            // Nur eintragen: kein Online-Verkauf, keine Ticket-Kategorien nötig
+            self::apply_listing_mode($event_id, $ticket_mode, wp_unslash($_POST['box_office_price'] ?? ''));
+        } else {
+            update_post_meta($event_id, '_tix_tickets_enabled', '1');
+        }
+        if ($ticket_mode === 'online' && !empty($event_data['tickets']) && is_array($event_data['tickets'])) {
             $cats = [];
             foreach ($event_data['tickets'] as $t) {
                 $cats[] = [
@@ -371,6 +389,11 @@ class TIX_Register_Event {
             TIX_Sync::save_breakdance_meta($event_id, is_array($cats) ? $cats : []);
         }
 
+        // Tages-Erinnerungen der App (Datum/Ort stehen erst jetzt fest)
+        if (class_exists('TIX_Day_Alerts') && get_post_status($event_id) === 'publish') {
+            TIX_Day_Alerts::notify_event($event_id);
+        }
+
         // ── 4. Auto-Login ──
         wp_set_current_user($user_id);
         wp_set_auth_cookie($user_id, true, is_ssl());
@@ -401,6 +424,19 @@ class TIX_Register_Event {
             'dashboard_url' => $dash_url,
             'message'       => 'Event "' . esc_html($event_title) . '" wurde veröffentlicht!',
         ]);
+    }
+
+    /**
+     * „Nur eintragen“: kein Online-Verkauf; Eintritt frei oder Abendkasse (Preis optional).
+     */
+    public static function apply_listing_mode($event_id, $mode, $price = '') {
+        update_post_meta($event_id, '_tix_tickets_enabled', '0');
+        update_post_meta($event_id, '_tix_free_entry', $mode === 'free' ? '1' : '0');
+        update_post_meta($event_id, '_tix_box_office_only', $mode === 'box_office' ? '1' : '0');
+        if ($mode === 'box_office') {
+            $price = trim(str_replace(',', '.', sanitize_text_field((string) $price)));
+            update_post_meta($event_id, '_tix_box_office_price', ($price !== '' && is_numeric($price)) ? (string) max(0, round(floatval($price), 2)) : '');
+        }
     }
 
     /**

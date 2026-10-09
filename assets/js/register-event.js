@@ -423,6 +423,13 @@
         }
     }
 
+    // Tickets: online verkaufen oder nur eintragen
+    $(document).on('change', 'input[name="tix_re_ticket_mode"]', function() {
+        var v = $('input[name="tix_re_ticket_mode"]:checked').val();
+        $('#tix-re-box-price-wrap').toggle(v === 'box_office');
+        $('.tix-re-preview-ticket-name').closest('.tix-re-preview-row').toggle(v === 'online');
+    });
+
     // Sync preview edits back to eventData
     $(document).on('change', '.tix-re-preview-edit', function() {
         var field = $(this).data('field');
@@ -481,6 +488,8 @@
             password_confirm: pw2,
             organizer_name:   $form.find('[name="organizer_name"]').val(),
             accept_contract:  $form.find('[name="accept_contract"]:checked').val() || '',
+            ticket_mode:      $('input[name="tix_re_ticket_mode"]:checked').val() || 'online',
+            box_office_price: $('#tix-re-box-price').val() || '',
             event_data:       JSON.stringify(eventData)
         }, function(r) {
             if (r.success && r.data) {

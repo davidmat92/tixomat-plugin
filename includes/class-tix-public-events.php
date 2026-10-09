@@ -3,6 +3,8 @@
  * Öffentlicher Event-Katalog für die KitchenKlub-App (ohne Login).
  *
  *   GET /public/events?filter=upcoming|past|all&per_page=50
+ *       [&from=YYYY-MM-DD&to=YYYY-MM-DD][&near=LAT,LNG&radius=KM]   (1.38.367)
+ *   GET /public/events/days?from=YYYY-MM-DD&to=YYYY-MM-DD[&city=][&category=]
  *   GET /public/events/{id}
  *
  * Feldnamen = App-Modell `PublicEvent` (siehe BACKEND-TODO.md der App):
@@ -28,6 +30,12 @@ class TIX_Public_Events {
         register_rest_route(self::NS, '/public/events', [
             'methods'             => 'GET',
             'callback'            => [__CLASS__, 'rest_list'],
+            'permission_callback' => '__return_true',
+        ]);
+        // Anzahl Events je Tag (Kalender-Leiste der evendis-App)
+        register_rest_route(self::NS, '/public/events/days', [
+            'methods'             => 'GET',
+            'callback'            => [__CLASS__, 'rest_days'],
             'permission_callback' => '__return_true',
         ]);
         register_rest_route(self::NS, '/public/events/(?P<id>\d+)', [
@@ -192,6 +200,10 @@ class TIX_Public_Events {
             'free_entry'      => class_exists('TIX_Event_Extras') && TIX_Event_Extras::free_entry($id) !== null,
             'free_entry_note' => class_exists('TIX_Event_Extras') ? (string) (TIX_Event_Extras::free_entry($id)['note'] ?? '') : '',
         ];
+        // Wiederkehrende Events (1.38.367): Serie (Master) oder Termin daraus
+        $rec = class_exists('TIX_Recurrence') ? TIX_Recurrence::info($id) : ['recurring' => false, 'parent' => 0];
+        $out['recurring']         = $rec['recurring'];
+        $out['recurrence_parent'] = $rec['parent'];
         if ($detailed) {
             $out['description'] = self::html($id, '_tix_info_description');
             $out['lineup']      = self::html($id, '_tix_info_lineup');
@@ -234,6 +246,105 @@ class TIX_Public_Events {
     }
 
     // ──────────────────────────────────────────
+    //  Tage, Zeiträume, Umkreis (1.38.367)
+    // ──────────────────────────────────────────
+
+    /** Höchstens so viele Tage fragt /public/events/days auf einmal ab. */
+    const MAX_DAYS_RANGE = 62;
+
+    /** Bis zu dieser Uhrzeit zählt ein Ende am Folgetag nicht als weiterer Tag (Party 23–5 Uhr). */
+    const DAY_CUTOFF_MINUTES = 360; // 06:00
+
+    private static function valid_date($s) {
+        $s = (string) $s;
+        if (!preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $s, $m)) return false;
+        return checkdate(intval($m[2]), intval($m[3]), intval($m[1]));
+    }
+
+    private static function add_days($date, $n) {
+        return gmdate('Y-m-d', strtotime($date . ' 00:00:00 UTC') + intval($n) * DAY_IN_SECONDS);
+    }
+
+    /**
+     * Tage eines Events als [erster, letzter] (Y-m-d) oder null.
+     * Starttag bis Endtag; ein Ende vor 06:00 Uhr zählt nicht als weiterer Tag.
+     * Ohne Enddatum nur der Starttag.
+     */
+    public static function day_span($id) {
+        $ds = (string) get_post_meta($id, '_tix_date_start', true);
+        if (!self::valid_date($ds)) return null;
+        $de = (string) get_post_meta($id, '_tix_date_end', true);
+        if (!self::valid_date($de) || $de < $ds) $de = $ds;
+        if ($de > $ds) {
+            $te = (string) get_post_meta($id, '_tix_time_end', true);
+            if (preg_match('/^(\d{1,2}):(\d{2})/', $te, $m) && (intval($m[1]) * 60 + intval($m[2])) < self::DAY_CUTOFF_MINUTES) {
+                $de = self::add_days($de, -1);
+            }
+        }
+        return [$ds, $de];
+    }
+
+    /** Alle Tage (Y-m-d) eines Events innerhalb [from, to]; höchstens MAX_DAYS_RANGE. */
+    public static function days_in_range($span, $from, $to) {
+        if (!$span) return [];
+        $a = max($span[0], $from);
+        $b = min($span[1], $to);
+        $out = [];
+        for ($d = $a, $i = 0; $d <= $b && $i < self::MAX_DAYS_RANGE; $d = self::add_days($d, 1), $i++) $out[] = $d;
+        return $out;
+    }
+
+    /** "LAT,LNG" → [lat, lng] oder null. */
+    public static function parse_near($raw) {
+        $raw = trim((string) $raw);
+        if (!preg_match('/^(-?\d{1,2}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)$/', $raw, $m)) return null;
+        $lat = floatval($m[1]);
+        $lng = floatval($m[2]);
+        if ($lat < -90 || $lat > 90 || $lng < -180 || $lng > 180) return null;
+        return [$lat, $lng];
+    }
+
+    /** Umkreis in km: Standard 30, höchstens 200. */
+    public static function parse_radius($raw) {
+        $r = ($raw === null || $raw === '') ? 30.0 : floatval($raw);
+        if ($r <= 0) $r = 30.0;
+        return min(200.0, $r);
+    }
+
+    /** Luftlinie in km (Haversine). */
+    public static function distance_km($lat1, $lng1, $lat2, $lng2) {
+        $r = 6371.0;
+        $dlat = deg2rad($lat2 - $lat1);
+        $dlng = deg2rad($lng2 - $lng1);
+        $a = sin($dlat / 2) ** 2 + cos(deg2rad($lat1)) * cos(deg2rad($lat2)) * sin($dlng / 2) ** 2;
+        return 2 * $r * asin(min(1.0, sqrt($a)));
+    }
+
+    /** Zeitraum/Umkreis aus der Anfrage; WP_Error bei falschem Format. */
+    private static function geo_date_params(WP_REST_Request $req) {
+        $from = (string) $req->get_param('from');
+        $to   = (string) $req->get_param('to');
+        $range = null;
+        if ($from !== '' || $to !== '') {
+            if ($from === '') $from = $to;
+            if ($to === '') $to = $from;
+            if (!self::valid_date($from) || !self::valid_date($to) || $to < $from) {
+                return new WP_Error('tix_range', 'Bitte from und to als JJJJ-MM-TT angeben (to nicht vor from).', ['status' => 400]);
+            }
+            $range = [$from, $to];
+        }
+        $near = null;
+        $radius = null;
+        $near_raw = (string) $req->get_param('near');
+        if ($near_raw !== '') {
+            $near = self::parse_near($near_raw);
+            if (!$near) return new WP_Error('tix_near', 'Bitte near als „Breite,Länge“ angeben, z. B. 50.94,6.96.', ['status' => 400]);
+            $radius = self::parse_radius($req->get_param('radius'));
+        }
+        return ['range' => $range, 'near' => $near, 'radius' => $radius];
+    }
+
+    // ──────────────────────────────────────────
     //  REST
     // ──────────────────────────────────────────
 
@@ -248,7 +359,14 @@ class TIX_Public_Events {
             'city'      => sanitize_text_field((string) $req->get_param('city')),
             'q'         => sanitize_text_field((string) $req->get_param('q')),
         ];
-        $key      = 'tix_pub_events_' . md5($filter . '|' . $per_page . '|' . $page . '|' . wp_json_encode($f));
+        $geo = self::geo_date_params($req);
+        if (is_wp_error($geo)) return $geo;
+        $cache_extra = '';
+        if ($geo['range'] || $geo['near']) {
+            // Nur mit den neuen Parametern ändert sich der Schlüssel (alte Antworten bleiben gleich)
+            $cache_extra = '|' . wp_json_encode([$geo['range'], $geo['near'], $geo['radius']]);
+        }
+        $key      = 'tix_pub_events_' . md5($filter . '|' . $per_page . '|' . $page . '|' . wp_json_encode($f) . $cache_extra);
         $cached   = get_transient($key);
         if (is_array($cached)) return rest_ensure_response($cached);
 
@@ -268,9 +386,23 @@ class TIX_Public_Events {
             list($start, $end) = self::times($id);
             if ($filter === 'upcoming' && $end && $end < $now) continue;
             if ($filter === 'past' && (!$end || $end >= $now)) continue;
+            // Zeitraum: Tage des Events schneiden [from, to]
+            if ($geo['range']) {
+                $span = self::day_span($id);
+                if (!$span || $span[0] > $geo['range'][1] || $span[1] < $geo['range'][0]) continue;
+            }
+            // Umkreis: nur Orte mit Koordinaten
+            $dist = null;
+            if ($geo['near']) {
+                $v = class_exists('TIX_Public_Platform') ? TIX_Public_Platform::venue($id) : null;
+                if (!$v || $v['lat'] === null || $v['lng'] === null) continue;
+                $dist = self::distance_km($geo['near'][0], $geo['near'][1], $v['lat'], $v['lng']);
+                if ($dist > $geo['radius']) continue;
+            }
             $p = self::payload($id, false);
             if (!$p) continue;
             if ($filtering && !TIX_Public_Platform::matches($p, $f)) continue;
+            if ($dist !== null) $p['distance_km'] = round($dist, 1);
             $matched[] = $p;
         }
         $total  = count($matched);
@@ -287,6 +419,66 @@ class TIX_Public_Events {
         ];
         set_transient($key, $resp, self::TTL);
         return rest_ensure_response($resp);
+    }
+
+    /**
+     * GET /public/events/days?from=&to=[&city=][&category=][&organizer=]
+     * {"days":{"2026-10-16":3}} – kommende, veröffentlichte Events je Tag (Tage-Regel wie day_span).
+     */
+    public static function rest_days(WP_REST_Request $req) {
+        $today = current_time('Y-m-d');
+        $from = (string) $req->get_param('from');
+        $to   = (string) $req->get_param('to');
+        if ($from === '') $from = $today;
+        if ($to === '') $to = self::add_days($from, 30);
+        if (!self::valid_date($from) || !self::valid_date($to) || $to < $from) {
+            return new WP_Error('tix_range', 'Bitte from und to als JJJJ-MM-TT angeben (to nicht vor from).', ['status' => 400]);
+        }
+        $span_days = intval(round((strtotime($to . ' UTC') - strtotime($from . ' UTC')) / DAY_IN_SECONDS)) + 1;
+        if ($span_days > self::MAX_DAYS_RANGE) {
+            return new WP_Error('tix_range', 'Der Zeitraum darf höchstens ' . self::MAX_DAYS_RANGE . ' Tage umfassen.', ['status' => 400]);
+        }
+        $f = [
+            'category'  => sanitize_text_field((string) $req->get_param('category')),
+            'organizer' => sanitize_text_field((string) $req->get_param('organizer')),
+            'city'      => sanitize_text_field((string) $req->get_param('city')),
+        ];
+        $key = 'tix_pub_events_days_' . md5($from . '|' . $to . '|' . $today . '|' . wp_json_encode($f));
+        $cached = get_transient($key);
+        if (is_array($cached)) return rest_ensure_response(self::days_response($cached));
+
+        $ids = get_posts([
+            'post_type'      => 'event',
+            'post_status'    => 'publish',
+            'posts_per_page' => 1000,
+            'fields'         => 'ids',
+            'meta_key'       => '_tix_date_start',
+            'orderby'        => 'meta_value',
+            'order'          => 'ASC',
+        ]);
+        $now = self::now();
+        $lo = max($from, $today); // vergangene Tage zählen nicht
+        $counts = [];
+        $filtering = class_exists('TIX_Public_Platform') && array_filter($f);
+        foreach ($ids as $id) {
+            list($start, $end) = self::times($id);
+            if ($end && $end < $now) continue;
+            $span = self::day_span($id);
+            if (!$span || $span[0] > $to || $span[1] < $lo) continue;
+            $p = self::payload($id, false);
+            if (!$p) continue;
+            if ($filtering && !TIX_Public_Platform::matches($p, $f)) continue;
+            foreach (self::days_in_range($span, $lo, $to) as $d) $counts[$d] = ($counts[$d] ?? 0) + 1;
+        }
+        ksort($counts);
+        $data = ['from' => $from, 'to' => $to, 'days' => $counts];
+        set_transient($key, $data, self::TTL);
+        return rest_ensure_response(self::days_response($data));
+    }
+
+    private static function days_response(array $data) {
+        // Leere Liste als JSON-Objekt {} (nicht [])
+        return ['ok' => true, 'from' => $data['from'], 'to' => $data['to'], 'days' => (object) $data['days']];
     }
 
     /** GET /public/events/{id} */
