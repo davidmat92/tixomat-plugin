@@ -393,7 +393,9 @@ class TIX_Notifications {
     public static function cron_reminders() {
         $today = current_time('Y-m-d');
         $q = new WP_Query([
-            'post_type'      => 'tix_event',
+            // Beitragstyp der Events ist 'event' (vorher 'tix_event' → die
+            // Erinnerung fand nie ein Event und wurde nie verschickt).
+            'post_type'      => 'event',
             'post_status'    => 'publish',
             'posts_per_page' => 30,
             'no_found_rows'  => true,
@@ -431,13 +433,19 @@ class TIX_Notifications {
             if ($diff > $window) continue;      // noch zu früh
             if ($diff < -2 * HOUR_IN_SECONDS) continue; // Event läuft längst / vorbei
 
-            $title = get_the_title($eid);
+            $title = html_entity_decode(get_the_title($eid), ENT_QUOTES, 'UTF-8');
             $when  = $time ? ('Beginn ' . substr($time, 0, 5) . ' Uhr') : 'heute';
-            self::add_broadcast(
-                'Heute: ' . $title,
-                'Es geht los – ' . $when . '. Wir freuen uns auf dich!',
-                ['type' => 'reminder', 'event_id' => $eid, 'action' => 'event:' . $eid]
-            );
+            // Nur an Ticketkäufer dieses Events mit App-Konto (persönlicher
+            // Hinweis + Push) – nie als Rundnachricht an alle App-Nutzer
+            // (auf evendis.de wären das alle Plattform-Nutzer).
+            foreach (self::event_ticket_user_ids($eid) as $uid) {
+                self::add_user_item(
+                    $uid,
+                    'Heute: ' . $title,
+                    'Es geht los – ' . $when . '. Deine Tickets findest du in der App.',
+                    ['type' => 'reminder', 'event_id' => $eid, 'action' => 'event:' . $eid]
+                );
+            }
             $reminded[$eid] = time();
         }
         update_option(self::OPT_REMINDED, $reminded, false);
