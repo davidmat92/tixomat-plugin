@@ -12,6 +12,8 @@
  *   [tix_app_cards]            große Event-Karten („Demnächst“)
  *   [tix_app_list]             Event-Zeilen (Datums-Kachel + Karte); style="compact" wie auf der Veranstalter-Seite der App
  *   [tix_app_related]          „Das könnte dir auch gefallen“ (kleine Karten, gleiche Sparte)
+ *   [tix_app_live]             „Jetzt & gleich“: läuft gerade oder beginnt in den nächsten 3 Std.
+ *   [tix_app_organizers]       „Veranstalter entdecken“: Kacheln mit Banner, Logo, Folgen
  *   [tix_app_lineup]           Line-up als Reihe runder Initialen-Kreise (ArtistStrip)
  *   [tix_app_heart]            Herz (Merken) für das Event der Seite
  *   [tix_app_follow]           Button „Folgen“ / „Du folgst“ (gleiche Liste wie in der App)
@@ -31,7 +33,11 @@ class TIX_App_Look {
         'app-look-start.json'     => ['Startseite (App-Look)', 'front-page'],
         'app-look-event.json'     => ['Einzel-Event (App-Look)', 'event'],
         'app-look-organizer.json' => ['Veranstalter (App-Look)', 'tix_organizer'],
+        'app-look-page.json'      => ['Seite (App-Look)', 'page'],
     ];
+
+    /** Shortcodes, deren Seiten die Vorlage „Seite (App-Look)“ bekommen (Kasse, Konto/Tickets, Support) */
+    const APP_PAGES = ['tix_checkout', 'tix_account', 'tix_my_tickets', 'tix_support'];
     const OPT_REPLACED = 'tix_app_look_replaced';
 
     /** Lucide-Icons (ISC), Strich 2 */
@@ -77,6 +83,8 @@ class TIX_App_Look {
         add_shortcode('tix_app_lineup', [__CLASS__, 'sc_lineup']);
         add_shortcode('tix_app_heart', [__CLASS__, 'sc_heart']);
         add_shortcode('tix_app_related', [__CLASS__, 'sc_related']);
+        add_shortcode('tix_app_live', [__CLASS__, 'sc_live']);
+        add_shortcode('tix_app_organizers', [__CLASS__, 'sc_organizers']);
         add_action('wp_ajax_tix_app_follow', [__CLASS__, 'ajax_follow']);
         add_action('wp_ajax_nopriv_tix_app_follow', [__CLASS__, 'ajax_follow']);
         // Nach der Anmeldung auf der Kontoseite ([tix_account]) zurück zum Veranstalter (nur mit ?tix_back=…)
@@ -287,6 +295,9 @@ class TIX_App_Look {
             case 'categories':
                 $n = count(self::categories(self::upcoming(60)));
                 return $n ? (string) $n : '';
+            case 'live_now':   return self::live_events() ? '1' : '';
+            case 'app_page':   return self::is_app_page() ? '1' : '';
+            case 'organizers': return self::organizer_list() ? '1' : '';
         }
 
         $d = self::current_event();
@@ -576,6 +587,115 @@ class TIX_App_Look {
         return $html . '</div>';
     }
 
+    /** Seite mit Kasse, Konto, Tickets oder Support (Bedingung der Vorlage „Seite (App-Look)“) */
+    private static function is_app_page() {
+        $id = get_queried_object_id();
+        if (!$id || get_post_type($id) !== 'page') return false;
+        $content = (string) get_post_field('post_content', $id);
+        foreach (self::APP_PAGES as $tag) if (has_shortcode($content, $tag)) return true;
+        return false;
+    }
+
+    // ── „Jetzt & gleich“ ──
+
+    /** Läuft gerade oder beginnt in den nächsten 3 Std.; laufende zuerst (wie liveNowEvents der App). */
+    private static function live_events() {
+        static $out = null;
+        if ($out !== null) return $out;
+        $now = current_time('timestamp');
+        $ids = get_posts([
+            'post_type'      => 'event',
+            'post_status'    => 'publish',
+            'posts_per_page' => 60,
+            'fields'         => 'ids',
+            'meta_query'     => [[
+                'key'     => '_tix_date_start',
+                'value'   => [date('Y-m-d', $now - DAY_IN_SECONDS), date('Y-m-d', $now + DAY_IN_SECONDS)],
+                'compare' => 'BETWEEN',
+                'type'    => 'DATE',
+            ]],
+        ]);
+        $live = $soon = [];
+        foreach ($ids as $id) {
+            $d = self::data($id);
+            if (!$d || !$d['start'] || $d['cancel']) continue;
+            if (self::is_live($d)) $live[] = $d;
+            elseif ($d['start'] > $now && $d['start'] <= $now + 3 * HOUR_IN_SECONDS) $soon[] = $d;
+        }
+        $by = function ($a, $b) { return $a['start'] <=> $b['start']; };
+        usort($live, $by);
+        usort($soon, $by);
+        return $out = array_merge($live, $soon);
+    }
+
+    public static function sc_live($atts) {
+        $list = self::live_events();
+        if (!$list) return '';
+        self::assets();
+        $now = current_time('timestamp');
+        $html = '<div class="evs-lives">';
+        foreach ($list as $d) {
+            $live = self::is_live($d);
+            $min = (int) ceil(($d['start'] - $now) / 60);
+            $label = $live ? 'Läuft gerade' : ($min >= 60 ? 'in ' . floor($min / 60) . ' Std.' . ($min % 60 ? ' ' . ($min % 60) . ' Min.' : '') : 'in ' . max(1, $min) . ' Min.');
+            $html .= '<a class="evs-lcard" href="' . esc_url($d['url']) . '">'
+                . '<span class="evs-lcard__media">' . self::img($d, $d['thumb'], 'evs-img evs-lcard__img')
+                . '<span class="evs-badge evs-badge--' . ($live ? 'live' : 'soon') . '">' . ($live ? '<i class="evs-pulse"></i>' : '') . esc_html($label) . '</span></span>'
+                . '<span class="evs-lcard__t">' . esc_html($d['title']) . '</span>'
+                . ($d['short'] !== '' ? '<span class="evs-lcard__p">' . esc_html($d['short']) . '</span>' : '')
+                . '</a>';
+        }
+        return $html . '</div>';
+    }
+
+    // ── „Veranstalter entdecken“ ──
+
+    /** Veranstalter mit öffentlicher Seite, die mit kommenden Events zuerst (wie _OrganizerStrip der App). */
+    private static function organizer_list($limit = 10) {
+        static $out = null;
+        if ($out !== null) return $out;
+        $out = [];
+        if (!class_exists('TIX_Public_Platform') || !class_exists('TIX_Organizer_Pages')) return $out;
+        $resp = TIX_Public_Platform::rest_organizers(new WP_REST_Request('GET', '/' . TIX_Public_Platform::NS . '/public/organizers'));
+        $data = $resp instanceof WP_REST_Response ? $resp->get_data() : (array) $resp;
+        $list = (array) ($data['organizers'] ?? []);
+        usort($list, function ($a, $b) { return intval($b['upcoming_count']) <=> intval($a['upcoming_count']); });
+        foreach ($list as $o) {
+            $url = TIX_Organizer_Pages::url(intval($o['id']));
+            if ($url === '') continue;
+            $o['url'] = $url;
+            $out[] = $o;
+            if (count($out) >= $limit) break;
+        }
+        return $out;
+    }
+
+    public static function sc_organizers($atts) {
+        $list = self::organizer_list();
+        if (!$list) return '';
+        self::assets();
+        $following = is_user_logged_in() ? self::following(get_current_user_id()) : [];
+        $html = '<div class="evs-otiles">';
+        foreach ($list as $i => $o) {
+            $g = self::GRADIENTS[$i % count(self::GRADIENTS)];
+            $n = intval($o['upcoming_count']);
+            $sub = implode(' · ', array_filter([(string) $o['city'], $n === 0 ? 'keine Events' : ($n === 1 ? '1 Event' : $n . ' Events')]));
+            $ini = self::initials((string) $o['name']);
+            $on = in_array(intval($o['id']), $following, true);
+            $html .= '<div class="evs-otile">'
+                . '<a class="evs-otile__link" href="' . esc_url($o['url']) . '">'
+                . '<span class="evs-otile__banner" style="background:' . ($o['hero'] !== '' ? 'url(\'' . esc_url($o['hero']) . '\') center/cover' : 'linear-gradient(135deg,' . $g[0] . ',' . $g[1] . ')') . '"></span>'
+                . '<span class="evs-otile__logo">' . ($o['logo'] !== '' ? '<img src="' . esc_url($o['logo']) . '" alt="" loading="lazy">' : '<b>' . esc_html($ini) . '</b>') . '</span>'
+                . '<span class="evs-otile__n">' . esc_html($o['name']) . '</span>'
+                . '<span class="evs-otile__s">' . esc_html($sub) . '</span></a>'
+                . '<button type="button" class="evs-follow evs-follow--pill' . ($on ? ' is-on' : '') . '" data-org="' . intval($o['id']) . '" aria-pressed="' . ($on ? 'true' : 'false') . '">'
+                . '<span class="evs-follow__off">' . self::icon('plus') . 'Folgen</span>'
+                . '<span class="evs-follow__on">' . self::icon('check') . 'Folge ich</span></button>'
+                . '</div>';
+        }
+        return $html . '</div>';
+    }
+
     public static function sc_search($atts) {
         $atts = shortcode_atts(['placeholder' => 'Event suchen'], $atts, 'tix_app_search');
         self::assets();
@@ -734,6 +854,8 @@ class TIX_App_Look {
                 \Breakdance\Data\set_meta($id, '_breakdance_data', ['tree_json_string' => $json]);
                 $settings = json_decode((string) \Breakdance\Data\get_meta($id, '_breakdance_template_settings'), true) ?: [];
                 $settings = array_merge(['type' => $type, 'ruleGroups' => [], 'priority' => 30, 'triggers' => []], $settings);
+                // Seiten-Vorlage nur für Kasse/Konto/Tickets/Support: Bedingung „[tix_app key="app_page"] ist nicht leer“
+                if ($type === 'page') $settings['ruleGroups'] = [[self::cli_rule('app_page')]];
                 if ($new) $settings['disabled'] = true;
                 \Breakdance\Data\set_meta($id, '_breakdance_template_settings', wp_json_encode($settings));
                 \Breakdance\Render\generateCacheForPost($id);
@@ -769,6 +891,14 @@ class TIX_App_Look {
                 WP_CLI::log(sprintf('%-14s #%-4d %-34s %s', $type, $p->ID, $p->post_title, empty($s['disabled']) ? 'an' : 'aus'));
             }
         }
+    }
+
+    /** Breakdance-Regel „dynamisches Feld [tix_app key=…] ist nicht leer“ */
+    private static function cli_rule($key) {
+        $sc = '[tix_app key="' . $key . '"]';
+        $dyn = "[breakdance_dynamic field='shortcode' params='" . wp_json_encode(['shortcode' => $sc], JSON_UNESCAPED_SLASHES) . "']";
+        return ['ruleSlug' => 'dynamic-data', 'operand' => 'is not empty', 'ruleDynamic' => $dyn,
+                'ruleDynamicMeta' => ['field' => 'shortcode', 'shortcode' => $dyn, 'attributes' => ['shortcode' => $sc]]];
     }
 
     /** Eigene Vorlagen: Typ => ID (erkannt am Titel). */

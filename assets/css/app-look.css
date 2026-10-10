@@ -158,6 +158,34 @@
 .evs-follow.is-on .evs-follow__off{display:none!important}
 .evs-follow:disabled{opacity:.6;cursor:wait}
 
+/* ── „Jetzt & gleich“ ([tix_app_live]) ────────────────────────────────── */
+.evs-lives{display:grid;grid-auto-flow:column;grid-auto-columns:236px;gap:12px;overflow-x:auto;margin:0 calc(-1 * var(--evs-page));padding:0 var(--evs-page) 2px;scrollbar-width:none;font-family:var(--evs-font)}
+.evs-lives::-webkit-scrollbar{display:none}
+.evs-lcard{display:grid;gap:4px;align-content:start;color:inherit!important;text-decoration:none!important;min-width:0}
+.evs-lcard__media{position:relative;display:block;margin-bottom:4px}
+.evs-lcard__img{width:100%;border-radius:var(--evs-r-card)}
+.evs-badge--live{left:10px;background:var(--evs-green);color:#fff}
+.evs-badge--soon{left:10px;background:var(--evs-red);color:#fff}
+.evs-pulse{display:inline-block;width:7px;height:7px;border-radius:50%;background:#fff;animation:evs-pulse 1.4s ease-in-out infinite}
+@keyframes evs-pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.7)}}
+.evs-lcard__t{font-size:13px;line-height:1.25;font-weight:800;color:var(--evs-text);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.evs-lcard__p{font-size:11px;color:var(--evs-body);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.evs-livedot{display:inline-block;width:8px;height:8px;margin-right:8px;border-radius:50%;background:var(--evs-red);vertical-align:middle;animation:evs-pulse 1.4s ease-in-out infinite}
+
+/* ── „Veranstalter entdecken“ ([tix_app_organizers]) ──────────────────── */
+.evs-otiles{display:grid;grid-auto-flow:column;grid-auto-columns:156px;gap:12px;overflow-x:auto;margin:0 calc(-1 * var(--evs-page));padding:0 var(--evs-page) 2px;scrollbar-width:none;font-family:var(--evs-font)}
+.evs-otiles::-webkit-scrollbar{display:none}
+.evs-otile{display:flex;flex-direction:column;height:222px;background:var(--evs-surface);border-radius:var(--evs-r-card);overflow:hidden;box-sizing:border-box}
+.evs-otile__link{position:relative;display:flex;flex-direction:column;color:inherit!important;text-decoration:none!important;padding-top:92px}
+.evs-otile__banner{position:absolute;left:0;right:0;top:0;height:66px}
+.evs-otile__logo{position:absolute;left:12px;top:38px;width:48px;height:48px;padding:3px;border-radius:50%;background:var(--evs-surface);box-sizing:content-box;overflow:hidden}
+.evs-otile__logo img,.evs-otile__logo b{display:grid;place-items:center;width:48px;height:48px;border-radius:50%;object-fit:cover;background:var(--evs-night);color:#fff;font-size:15px;font-weight:800}
+.evs-otile__n{margin:6px 12px 0;height:38px;font-size:13px;line-height:1.25;font-weight:800;color:var(--evs-text);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.evs-otile__s{margin:2px 12px 0;font-size:12px;font-weight:500;color:var(--evs-body);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.evs-follow--pill{margin:auto 12px 12px;width:auto;height:32px;padding:0 12px;border-radius:999px;background:var(--evs-signal);font-size:11px;font-weight:800}
+.evs-follow--pill .evs-ico{width:14px;height:14px}
+.evs-follow--pill.is-on{background:transparent;color:var(--evs-text);box-shadow:inset 0 0 0 1px var(--evs-muted)}
+
 @media (min-width:900px){
   .evs-search{max-width:640px}
   .evs-cats{flex-wrap:wrap;overflow:visible;margin:0;padding:0}
