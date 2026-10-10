@@ -1111,7 +1111,7 @@ class TIX_Seatmap {
     }
 
     private static function rest_limit($bucket, $max) {
-        $ip  = sanitize_text_field($_SERVER['REMOTE_ADDR'] ?? '');
+        $ip  = TIX_Client_IP::get();
         $key = 'tix_rl_' . $bucket . '_' . md5($ip);
         $n   = intval(get_transient($key)) + 1;
         set_transient($key, $n, 60);

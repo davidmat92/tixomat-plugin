@@ -33,6 +33,7 @@ class TIX_Site_Analytics {
         // AJAX (logged-in + nopriv)
         add_action('wp_ajax_tix_track_pageview',        [__CLASS__, 'ajax_track_pageview']);
         add_action('wp_ajax_nopriv_tix_track_pageview', [__CLASS__, 'ajax_track_pageview']);
+        add_action('rest_api_init', [__CLASS__, 'register_routes']);
 
         // Cleanup-Cron
         add_action('tix_site_views_cleanup', [__CLASS__, 'cleanup']);
@@ -95,21 +96,32 @@ class TIX_Site_Analytics {
             wp_send_json_error('rate_limited');
         }
 
-        $visitor_id = sanitize_text_field(substr($_POST['visitor_id'] ?? '', 0, 40));
-        $session_id = sanitize_text_field(substr($_POST['session_id'] ?? '', 0, 40));
-        $page_path  = self::sanitize_path($_POST['page_path'] ?? '');
-        $page_title = sanitize_text_field(substr(wp_unslash($_POST['page_title'] ?? ''), 0, 255));
-        $source     = sanitize_key(substr($_POST['source'] ?? 'direct', 0, 50));
-        $campaign   = sanitize_text_field(substr($_POST['campaign'] ?? '', 0, 100));
-        $content    = sanitize_text_field(substr($_POST['content'] ?? '', 0, 100));
-        $referrer   = self::sanitize_host($_POST['referrer_host'] ?? '');
-        $device     = self::detect_device($_SERVER['HTTP_USER_AGENT'] ?? '');
-        $first_visit = !empty($_POST['is_first_visit']) ? 1 : 0;
-        $session_start = !empty($_POST['is_session_start']) ? 1 : 0;
-
-        if (!$visitor_id || !$session_id || !$page_path) {
+        if (!self::record_pageview(wp_unslash($_POST))) {
             wp_send_json_error('invalid');
         }
+
+        wp_send_json_success();
+    }
+
+    /**
+     * Seitenaufruf speichern (Website-Pixel per AJAX und POST /public/track).
+     * Felder: visitor_id, session_id, page_path, page_title, source, campaign, content,
+     * referrer_host, is_first_visit, is_session_start. false = Pflichtfeld fehlt.
+     */
+    public static function record_pageview(array $in) {
+        $visitor_id = sanitize_text_field(substr((string) ($in['visitor_id'] ?? ''), 0, 40));
+        $session_id = sanitize_text_field(substr((string) ($in['session_id'] ?? ''), 0, 40));
+        $page_path  = self::sanitize_path((string) ($in['page_path'] ?? ''));
+        $page_title = sanitize_text_field(substr((string) ($in['page_title'] ?? ''), 0, 255));
+        $source     = sanitize_key(substr((string) ($in['source'] ?? '') ?: 'direct', 0, 50));
+        $campaign   = sanitize_text_field(substr((string) ($in['campaign'] ?? ''), 0, 100));
+        $content    = sanitize_text_field(substr((string) ($in['content'] ?? ''), 0, 100));
+        $referrer   = self::sanitize_host((string) ($in['referrer_host'] ?? ''));
+        $device     = self::detect_device($_SERVER['HTTP_USER_AGENT'] ?? '');
+        $first_visit = !empty($in['is_first_visit']) ? 1 : 0;
+        $session_start = !empty($in['is_session_start']) ? 1 : 0;
+
+        if (!$visitor_id || !$session_id || !$page_path) return false;
 
         global $wpdb;
         $wpdb->insert(self::table_name(), [
@@ -127,8 +139,39 @@ class TIX_Site_Analytics {
             'view_date'         => current_time('Y-m-d'),
             'view_time'         => current_time('mysql'),
         ]);
+        return true;
+    }
 
-        wp_send_json_success();
+    /**
+     * POST /public/track – Seitenaufrufe der eigenen Website (z. B. Next.js auf evendis.de),
+     * ohne Nonce, Rate-Limit je Besucher-IP (TIX_Client_IP). `event_id` zählt zusätzlich
+     * in der Kampagnen-Statistik des Events. Antwort 204; Rate-Limit 429 `tix_rate_limit`.
+     */
+    public static function register_routes() {
+        register_rest_route('tixomat/v1', '/public/track', [
+            'methods'             => 'POST',
+            'callback'            => [__CLASS__, 'rest_track'],
+            'permission_callback' => '__return_true',
+        ]);
+    }
+
+    public static function rest_track(WP_REST_Request $req) {
+        $type = sanitize_key((string) ($req->get_param('type') ?: 'pageview'));
+        if ($type !== 'pageview') {
+            return new WP_Error('tix_track_type', 'Unbekannter type (erlaubt: pageview).', ['status' => 400]);
+        }
+        if (!self::check_rate_limit()) {
+            return new WP_Error('tix_rate_limit', 'Zu viele Aufrufe. Bitte kurz warten.', ['status' => 429]);
+        }
+        $in = $req->get_params();
+        if (!self::record_pageview($in)) {
+            return new WP_Error('tix_track_invalid', 'visitor_id, session_id und page_path sind Pflicht.', ['status' => 400]);
+        }
+        $event_id = intval($in['event_id'] ?? 0);
+        if ($event_id > 0 && class_exists('TIX_Campaign_Tracking') && get_post_type($event_id) === 'event') {
+            TIX_Campaign_Tracking::record_event_view($event_id, (string) ($in['source'] ?? ''), (string) ($in['campaign'] ?? ''), (string) ($in['content'] ?? ''));
+        }
+        return new WP_REST_Response(null, 204);
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -165,7 +208,8 @@ class TIX_Site_Analytics {
     }
 
     private static function check_rate_limit() {
-        $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+        // Besucher-IP (hinter der Next.js-Website über X-Forwarded-For, siehe TIX_Client_IP)
+        $ip = TIX_Client_IP::get() ?: '0.0.0.0';
         $key = 'tix_rl_pv_' . md5($ip);
         $count = (int) get_transient($key);
         if ($count >= self::RATE_LIMIT_MAX) return false;

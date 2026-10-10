@@ -38,6 +38,12 @@ class TIX_Public_Events {
             'callback'            => [__CLASS__, 'rest_days'],
             'permission_callback' => '__return_true',
         ]);
+        // Event per Adresse (Website: /events/<slug>/), Antwort wie /public/events/{id}
+        register_rest_route(self::NS, '/public/events/by-slug/(?P<slug>[a-z0-9-]+)', [
+            'methods'             => 'GET',
+            'callback'            => [__CLASS__, 'rest_by_slug'],
+            'permission_callback' => '__return_true',
+        ]);
         register_rest_route(self::NS, '/public/events/(?P<id>\d+)', [
             'methods'             => 'GET',
             'callback'            => [__CLASS__, 'rest_detail'],
@@ -200,6 +206,8 @@ class TIX_Public_Events {
             'free_entry'      => class_exists('TIX_Event_Extras') && TIX_Event_Extras::free_entry($id) !== null,
             'free_entry_note' => class_exists('TIX_Event_Extras') ? (string) (TIX_Event_Extras::free_entry($id)['note'] ?? '') : '',
         ];
+        // Suchmaschinen/Vorschau (Website): Titel, Kurzbeschreibung ≤ 160 Zeichen, großes Bild
+        $out['seo'] = self::seo($post, $out['image']);
         // Wiederkehrende Events (1.38.367): Serie (Master) oder Termin daraus
         $rec = class_exists('TIX_Recurrence') ? TIX_Recurrence::info($id) : ['recurring' => false, 'parent' => 0];
         $out['recurring']         = $rec['recurring'];
@@ -508,6 +516,57 @@ class TIX_Public_Events {
     private static function days_response(array $data) {
         // Leere Liste als JSON-Objekt {} (nicht [])
         return ['ok' => true, 'from' => $data['from'], 'to' => $data['to'], 'days' => (object) $data['days']];
+    }
+
+    /** SEO-Angaben: Kurztext (sonst Beschreibung/Inhalt) ohne HTML, höchstens 160 Zeichen. */
+    private static function seo($post, $image) {
+        $raw = (string) $post->post_excerpt;
+        if (trim($raw) === '') $raw = (string) get_post_meta($post->ID, '_tix_info_description', true);
+        if (trim($raw) === '') $raw = (string) $post->post_content;
+        $text = trim(preg_replace('/\s+/u', ' ', html_entity_decode(wp_strip_all_tags(strip_shortcodes($raw)), ENT_QUOTES, 'UTF-8')));
+        if (mb_strlen($text) > 160) {
+            $cut = mb_substr($text, 0, 159);
+            $sp  = mb_strrpos($cut, ' ');
+            $text = rtrim(($sp !== false && $sp > 100) ? mb_substr($cut, 0, $sp) : $cut, " ,.;:–-") . '…';
+        }
+        return [
+            'title'       => html_entity_decode((string) $post->post_title, ENT_QUOTES, 'UTF-8'),
+            'description' => $text,
+            'image'       => (string) $image,
+        ];
+    }
+
+    /**
+     * GET /public/events/by-slug/{slug} – wie /public/events/{id}. Ein früherer Slug
+     * (`_wp_old_slug`) findet das Event ebenfalls; dann steht der aktuelle in `canonical_slug`
+     * (Website leitet per 301 um).
+     */
+    public static function rest_by_slug(WP_REST_Request $req) {
+        $slug = sanitize_title((string) $req['slug']);
+        $ids = $slug === '' ? [] : get_posts([
+            'post_type' => 'event', 'post_status' => 'publish', 'name' => $slug,
+            'posts_per_page' => 1, 'fields' => 'ids', 'no_found_rows' => true,
+        ]);
+        $old = false;
+        if (!$ids && $slug !== '') {
+            $ids = get_posts([
+                'post_type' => 'event', 'post_status' => 'publish', 'posts_per_page' => 1, 'fields' => 'ids',
+                'no_found_rows' => true, 'meta_key' => '_wp_old_slug', 'meta_value' => $slug,
+                'orderby' => 'modified', 'order' => 'DESC',
+            ]);
+            $old = (bool) $ids;
+        }
+        if (!$ids) return new WP_Error('tix_event', 'Event nicht gefunden.', ['status' => 404]);
+        $sub = new WP_REST_Request('GET', '/' . self::NS . '/public/events/' . intval($ids[0]));
+        $sub->set_url_params(['id' => (string) intval($ids[0])]);
+        $resp = self::rest_detail($sub);
+        if ($old && !is_wp_error($resp)) {
+            $data = $resp->get_data();
+            // aktueller Slug direkt vom Event (das Detail kann bis zu 60 s aus dem Cache kommen)
+            $data['canonical_slug'] = (string) get_post_field('post_name', $ids[0]);
+            $resp->set_data($data);
+        }
+        return $resp;
     }
 
     /** GET /public/events/{id} */

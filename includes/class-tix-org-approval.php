@@ -181,7 +181,7 @@ class TIX_Org_Approval {
             'version'     => $version,
             'accepted_at' => time(),
             'user_id'     => intval($uid),
-            'ip'          => sanitize_text_field((string) ($_SERVER['REMOTE_ADDR'] ?? '')),
+            'ip'          => class_exists('TIX_Client_IP') ? TIX_Client_IP::get() : sanitize_text_field((string) ($_SERVER['REMOTE_ADDR'] ?? '')),
             'url'         => $t['url'],
         ]);
         self::log($oid, 'terms', ['by' => intval($uid), 'note' => 'Vertrag zugestimmt (Version ' . $version . ')']);

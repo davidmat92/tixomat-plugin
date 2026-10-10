@@ -44,8 +44,7 @@ class TIX_App_Log {
     }
 
     private static function client_ip() {
-        $ip = $_SERVER['REMOTE_ADDR'] ?? '';
-        return is_string($ip) ? $ip : '';
+        return TIX_Client_IP::get();
     }
 
     public static function add(WP_REST_Request $req) {

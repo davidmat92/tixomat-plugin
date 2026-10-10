@@ -228,13 +228,8 @@ class TIX_Sponsor_Auth {
     }
 
     private static function client_ip(): string {
-        foreach (['HTTP_CF_CONNECTING_IP', 'HTTP_X_FORWARDED_FOR', 'REMOTE_ADDR'] as $k) {
-            if (!empty($_SERVER[$k])) {
-                $ip = trim(explode(',', $_SERVER[$k])[0]);
-                if (filter_var($ip, FILTER_VALIDATE_IP)) return $ip;
-            }
-        }
-        return '0.0.0.0';
+        $ip = TIX_Client_IP::get();
+        return $ip !== '' ? $ip : '0.0.0.0';
     }
 
     private static function send_magic_link_email($email, $url, $sponsor) {

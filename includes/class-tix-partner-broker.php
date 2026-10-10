@@ -412,6 +412,7 @@ class TIX_Partner_Broker {
                 'payment_url'          => $paid ? '' : (string) $row->payment_url,
                 'created'              => (string) $row->created,
                 'tickets'              => $tickets,
+                'invoice_url'          => '', // Rechnung stellt der Veranstalter aus
                 // Zusatz: Verkauf beim Veranstalter (Bestätigungs-Mail kommt von dort)
                 'seller'               => ['name' => $p ? $p['name'] : '', 'mail_from_seller' => true],
             ],

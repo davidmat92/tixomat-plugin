@@ -756,14 +756,6 @@ class TIX_Raffle {
      * IP-Adresse ermitteln.
      */
     private static function get_ip() {
-        $headers = ['HTTP_CF_CONNECTING_IP', 'HTTP_X_FORWARDED_FOR', 'HTTP_X_REAL_IP', 'REMOTE_ADDR'];
-        foreach ($headers as $header) {
-            if (!empty($_SERVER[$header])) {
-                $ip = explode(',', $_SERVER[$header])[0];
-                $ip = trim($ip);
-                if (filter_var($ip, FILTER_VALIDATE_IP)) return $ip;
-            }
-        }
-        return '';
+        return TIX_Client_IP::get();
     }
 }

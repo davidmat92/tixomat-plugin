@@ -78,19 +78,6 @@ class TIX_Rate_Limit {
      * Ermittelt die Client-IP (berücksichtigt Proxies/CloudFlare/RunCloud).
      */
     private static function get_ip() {
-        $candidates = [
-            'HTTP_CF_CONNECTING_IP',
-            'HTTP_X_FORWARDED_FOR',
-            'HTTP_X_REAL_IP',
-            'REMOTE_ADDR',
-        ];
-        foreach ($candidates as $h) {
-            if (!empty($_SERVER[$h])) {
-                $ip = explode(',', $_SERVER[$h])[0];
-                $ip = trim($ip);
-                if (filter_var($ip, FILTER_VALIDATE_IP)) return $ip;
-            }
-        }
-        return '';
+        return TIX_Client_IP::get();
     }
 }

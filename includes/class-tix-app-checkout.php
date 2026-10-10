@@ -154,9 +154,17 @@ class TIX_App_Checkout {
             'permission_callback' => '__return_true',
         ]);
         register_rest_route(self::NS, '/customer/orders', [
-            'methods'             => 'POST',
-            'callback'            => [__CLASS__, 'create'],
-            'permission_callback' => '__return_true',
+            [
+                'methods'             => 'POST',
+                'callback'            => [__CLASS__, 'create'],
+                'permission_callback' => '__return_true',
+            ],
+            // Bestellliste des Kontos (Website „Meine Bestellungen“)
+            [
+                'methods'             => 'GET',
+                'callback'            => [__CLASS__, 'list_orders'],
+                'permission_callback' => [__CLASS__, 'check_customer'],
+            ],
         ]);
         register_rest_route(self::NS, '/giftcards', [
             'methods'             => 'GET',
@@ -846,7 +854,147 @@ class TIX_App_Checkout {
             // Sponsor-Logo auf dem Ticket und ob die App „Ticket umschreiben“ anbieten darf
             'sponsor'        => ($event_id && class_exists('TIX_Event_Extras')) ? TIX_Event_Extras::ticket_sponsor($event_id) : null,
             'can_transfer'   => class_exists('TIX_Ticket_Transfer') && TIX_Ticket_Transfer::can_transfer($id),
+            // Apple/Google Wallet (signierte Links), null wenn Wallet aus oder Spiegel-Ticket
+            'wallet'         => (string) $m('_tix_ticket_mirror') === '1' ? null : self::wallet_links($id),
         ] + self::mirror_fields($id) + self::gift_fields($id);
+    }
+
+    /** Wallet-Links eines Ticket-Posts: {apple_url, google_url} ('' = Plattform nicht eingerichtet) oder null (Wallet aus). */
+    public static function wallet_links($ticket_post_id) {
+        if (!class_exists('TIX_Wallet') || !TIX_Wallet::is_master_enabled()) return null;
+        $apple  = TIX_Wallet::is_apple_ready()  ? TIX_Wallet::get_apple_pass_url($ticket_post_id)  : '';
+        $google = TIX_Wallet::is_google_ready() ? TIX_Wallet::get_google_save_url($ticket_post_id) : '';
+        if ($apple === '' && $google === '') return null;
+        return ['apple_url' => $apple, 'google_url' => $google];
+    }
+
+    /** Rechnungs-PDF (signiert über den Order-Key) oder '' ohne erstellte Rechnung. */
+    public static function invoice_url($order_id, $order_key = '') {
+        if (!class_exists('TIX_Invoicing') || !TIX_Invoicing::has_downloadable_invoice(intval($order_id))) return '';
+        return TIX_Invoicing::get_download_url(intval($order_id), (string) $order_key);
+    }
+
+    /**
+     * GET /customer/orders?page=&per_page= (≤ 50) – Bestellungen des Kontos, neueste zuerst:
+     * eigene (customer_id bzw. Vermittlung user_id) und – nur mit per Code bestätigter
+     * E-Mail – frühere Gastbestellungen mit dieser E-Mail. Enthält vermittelte Bestellungen
+     * geteilter Events (`seller`).
+     */
+    public static function list_orders(WP_REST_Request $req) {
+        global $wpdb;
+        $user = wp_get_current_user();
+        $per_page = max(1, min(50, intval($req->get_param('per_page') ?: 20)));
+        $page     = max(1, intval($req->get_param('page') ?: 1));
+        $email    = (class_exists('TIX_App_Account') && TIX_App_Account::email_confirmed($user)) ? (string) $user->user_email : '';
+        $cap      = 500;
+
+        $rows = [];
+        $t = $wpdb->prefix . 'tix_orders';
+        if ($email !== '') {
+            $native = $wpdb->get_results($wpdb->prepare(
+                "SELECT id, date_created AS created FROM {$t} WHERE status <> 'trash' AND (customer_id = %d OR billing_email = %s) ORDER BY date_created DESC LIMIT %d",
+                intval($user->ID), $email, $cap
+            ));
+        } else {
+            $native = $wpdb->get_results($wpdb->prepare(
+                "SELECT id, date_created AS created FROM {$t} WHERE status <> 'trash' AND customer_id = %d ORDER BY date_created DESC LIMIT %d",
+                intval($user->ID), $cap
+            ));
+        }
+        foreach ((array) $native as $r) $rows[] = ['type' => 'native', 'id' => intval($r->id), 'created' => (string) $r->created];
+
+        $bt = $wpdb->prefix . 'tix_partner_orders';
+        if (class_exists('TIX_Partner_Broker') && $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $bt)) === $bt) {
+            $broker = $email !== ''
+                ? $wpdb->get_results($wpdb->prepare("SELECT id, created FROM {$bt} WHERE status NOT IN ('creating', 'failed') AND (user_id = %d OR billing_email = %s) ORDER BY created DESC LIMIT %d", intval($user->ID), $email, $cap))
+                : $wpdb->get_results($wpdb->prepare("SELECT id, created FROM {$bt} WHERE status NOT IN ('creating', 'failed') AND user_id = %d ORDER BY created DESC LIMIT %d", intval($user->ID), $cap));
+            foreach ((array) $broker as $r) $rows[] = ['type' => 'broker', 'id' => intval($r->id), 'created' => (string) $r->created];
+        }
+
+        usort($rows, function ($a, $b) { return strcmp($b['created'], $a['created']) ?: ($b['id'] <=> $a['id']); });
+        $total = count($rows);
+        $out = [];
+        foreach (array_slice($rows, ($page - 1) * $per_page, $per_page) as $r) {
+            $o = $r['type'] === 'native' ? self::order_summary($r['id']) : self::broker_summary($r['id']);
+            if ($o) $out[] = $o;
+        }
+        return rest_ensure_response([
+            'ok'       => true,
+            'total'    => $total,
+            'page'     => $page,
+            'per_page' => $per_page,
+            'has_more' => $page * $per_page < $total,
+            'orders'   => $out,
+        ]);
+    }
+
+    /** Event-Kurzinfo für die Bestellliste. */
+    private static function order_event_info($event_id) {
+        $event_id = intval($event_id);
+        if (!$event_id || !($p = get_post($event_id))) return null;
+        return [
+            'id'         => $event_id,
+            'title'      => html_entity_decode((string) $p->post_title, ENT_QUOTES, 'UTF-8'),
+            'date_start' => (string) get_post_meta($event_id, '_tix_date_start', true),
+            'url'        => (string) get_permalink($event_id),
+        ];
+    }
+
+    private static function order_summary($order_id) {
+        global $wpdb;
+        $o = self::order_row($order_id);
+        if (!$o) return null;
+        $items = $wpdb->get_results($wpdb->prepare(
+            "SELECT event_id, quantity FROM {$wpdb->prefix}tix_order_items WHERE order_id = %d ORDER BY id ASC", intval($order_id)
+        ));
+        $event_id = 0;
+        foreach ((array) $items as $it) { if (intval($it->event_id)) { $event_id = intval($it->event_id); break; } }
+        $tickets = (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(DISTINCT post_id) FROM {$wpdb->postmeta} WHERE meta_key IN ('_tix_ticket_order_id', '_tix_order_id') AND meta_value = %s",
+            (string) intval($order_id)
+        ));
+        $status = (string) $o->status;
+        return [
+            'id'           => intval($o->id),
+            'order_number' => (string) $o->order_number,
+            'key'          => (string) $o->order_key,
+            'status'       => $status,
+            'paid'         => in_array($status, ['completed', 'processing'], true),
+            'total'        => round(floatval($o->total), 2),
+            'currency'     => 'EUR',
+            'created'      => (string) $o->date_created,
+            'event'        => self::order_event_info($event_id),
+            'ticket_count' => $tickets,
+            'invoice_url'  => self::invoice_url(intval($o->id), (string) $o->order_key),
+            'seller'       => null,
+        ];
+    }
+
+    private static function broker_summary($id) {
+        global $wpdb;
+        $row = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}tix_partner_orders WHERE id = %d", intval($id)));
+        if (!$row) return null;
+        $status = (string) $row->status;
+        $tickets = (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM {$wpdb->postmeta} m INNER JOIN {$wpdb->postmeta} x ON x.post_id = m.post_id AND x.meta_key = '_tix_ticket_mirror' AND x.meta_value = '1'
+             WHERE m.meta_key = '_tix_ticket_order_id' AND m.meta_value = %s",
+            (string) intval($row->id)
+        ));
+        $p = class_exists('TIX_Partners') ? TIX_Partners::get($row->partner) : null;
+        return [
+            'id'           => intval($row->id),
+            'order_number' => (string) $row->source_order_number,
+            'key'          => (string) $row->order_key,
+            'status'       => $status,
+            'paid'         => in_array($status, ['completed', 'processing'], true),
+            'total'        => round(floatval($row->total), 2),
+            'currency'     => 'EUR',
+            'created'      => (string) $row->created,
+            'event'        => self::order_event_info(intval($row->event_id)),
+            'ticket_count' => $tickets,
+            'invoice_url'  => '', // Rechnung stellt der Veranstalter aus
+            'seller'       => ['name' => $p ? (string) $p['name'] : '', 'mail_from_seller' => true],
+        ];
     }
 
     /** Spiegel-Ticket eines geteilten Events: Einlass beim Veranstalter (`source_site`). */
@@ -910,6 +1058,7 @@ class TIX_App_Checkout {
                     'order_id'     => intval($row['order_id'] ?? 0),
                     'price'        => floatval($row['ticket_price'] ?? 0),
                     'purchased'    => $row['created_at'] ?? '',
+                    'wallet'       => intval($row['ticket_post_id'] ?? 0) ? self::wallet_links(intval($row['ticket_post_id'])) : null,
                 ] + self::gift_fields(intval($row['ticket_post_id'] ?? 0));
             }
         }
@@ -956,6 +1105,8 @@ class TIX_App_Checkout {
                 'payment_url'          => (string) $payment_url,
                 'created'              => (string) $o->date_created,
                 'tickets'              => $paid ? self::order_tickets($order_id) : [],
+                // Rechnung (PDF), '' solange keine erstellt ist
+                'invoice_url'          => self::invoice_url(intval($o->id), (string) $o->order_key),
             ],
         ]);
     }
@@ -1094,6 +1245,14 @@ class TIX_App_Checkout {
             return self::error('tix_terms', 'Bitte AGB und Widerrufsbelehrung akzeptieren.');
         }
 
+        // Rücksprung nach der Zahlung an die eigene Website (nur freigegebene Hosts)
+        $return_url = '';
+        $return_raw = $req->get_param('return_url');
+        if ($return_raw !== null && $return_raw !== '') {
+            $return_url = TIX_Native_Checkout::validate_return_url((string) $return_raw);
+            if (is_wp_error($return_url)) return $return_url;
+        }
+
         $event_id = intval($req->get_param('event_id'));
         if (!$event_id || get_post_type($event_id) !== 'event') return self::error('tix_event', 'Event nicht gefunden.', 404);
 
@@ -1205,6 +1364,8 @@ class TIX_App_Checkout {
         if (!$order_id) return self::error('tix_order_failed', 'Bestellung konnte nicht erstellt werden.', 500);
         if ($seat_holder !== '') TIX_Seatmap::attach_order($cart['items'], $seat_holder, $order_id);
         update_option('_tix_order_source_' . $order_id, self::$partner ? 'partner:' . self::$partner['id'] : 'app', false);
+        if ($return_url !== '') update_post_meta($order_id, TIX_Native_Checkout::META_RETURN_URL, $return_url);
+        if (!self::$partner) self::apply_attribution($order_id, $req->get_param('attribution'), $cart);
 
         // Zahlung starten
         if ($payment_method === 'free') {
@@ -1229,6 +1390,65 @@ class TIX_App_Checkout {
             $extra = ['token' => $new_token, 'user' => TIX_REST_API::guest_user_payload($user), 'account_created' => true];
         }
         return self::order_response($order_id, $payment_url, $extra);
+    }
+
+    /**
+     * Zuordnung einer Website-Bestellung (Feld `attribution`): Promoter-Code wie der
+     * Referral-Cookie, UTM wie TIX_Campaign_Tracking, Meta-Kennungen nur mit Einwilligung
+     * (`fbp`/`fbc`, von der Website nur nach Zustimmung mitgeschickt). Die Apps senden das
+     * Feld nicht → für sie ändert sich nichts.
+     */
+    private static function apply_attribution($order_id, $attr, array $cart) {
+        if (!is_array($attr)) return;
+        $clip = function ($v, $len) { return mb_substr(sanitize_text_field((string) $v), 0, $len); };
+        // Kanal merken (Bestellquelle bleibt „app“, damit die Apps keinen neuen Wert sehen)
+        update_post_meta($order_id, '_tix_order_channel', 'web');
+
+        // Promoter: ein Promo-Code als Gutschein (bereits beim Anlegen zugeordnet) hat Vorrang
+        $code = $clip($attr['promoter_code'] ?? '', 64);
+        if ($code !== '' && class_exists('TIX_Promoter_DB') && !get_post_meta($order_id, '_tix_promoter_id', true)) {
+            $promoter = TIX_Promoter_DB::get_promoter_by_code($code);
+            if ($promoter && !empty($promoter->id)) {
+                update_post_meta($order_id, '_tix_promoter_id', intval($promoter->id));
+                update_post_meta($order_id, '_tix_promoter_attribution', 'referral');
+            }
+        }
+
+        // Kampagne (überschreibt das „direct“ der REST-Anfrage ohne Cookies)
+        $map = [
+            'utm_source'   => ['_tix_campaign_source',  50],
+            'utm_medium'   => ['_tix_campaign_medium',  100],
+            'utm_campaign' => ['_tix_campaign_name',    100],
+            'utm_content'  => ['_tix_campaign_content', 100],
+        ];
+        $any = false;
+        foreach ($map as $field => list($meta, $len)) {
+            $v = $field === 'utm_source' ? sanitize_key((string) ($attr[$field] ?? '')) : $clip($attr[$field] ?? '', $len);
+            $v = mb_substr($v, 0, $len);
+            if ($v === '') continue;
+            update_post_meta($order_id, $meta, $v);
+            $any = true;
+        }
+        $ref = strtolower(preg_replace('/[^A-Za-z0-9.-]/', '', (string) ($attr['referrer_host'] ?? '')));
+        if ($ref !== '') {
+            update_post_meta($order_id, '_tix_campaign_referrer', mb_substr($ref, 0, 190));
+            if (!$any && get_post_meta($order_id, '_tix_campaign_source', true) === 'direct') {
+                update_post_meta($order_id, '_tix_campaign_source', 'referral');
+            }
+        }
+
+        // Meta Conversions-API: nur mit fbp/fbc (= Einwilligung); dann auch Besucher-IP und
+        // Browser für den späteren Kauf-Event speichern (der Webhook kennt sie nicht)
+        $fbp = $clip($attr['fbp'] ?? '', 200);
+        $fbc = $clip($attr['fbc'] ?? '', 500);
+        if ($fbp !== '' || $fbc !== '') {
+            if ($fbp !== '') update_post_meta($order_id, '_tix_meta_fbp', $fbp);
+            if ($fbc !== '') update_post_meta($order_id, '_tix_meta_fbc', $fbc);
+            update_post_meta($order_id, '_tix_meta_client_ip', class_exists('TIX_Client_IP') ? TIX_Client_IP::get() : '');
+            update_post_meta($order_id, '_tix_meta_client_ua', mb_substr(sanitize_text_field((string) ($_SERVER['HTTP_USER_AGENT'] ?? '')), 0, 400));
+        } else {
+            update_post_meta($order_id, '_tix_meta_no_consent', '1');
+        }
     }
 
     /** POST /customer/tickets/{id}/transfer {first_name, last_name, email} */

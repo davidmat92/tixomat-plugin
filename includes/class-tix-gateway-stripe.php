@@ -479,6 +479,8 @@ class TIX_Gateway_Stripe {
             if ($order->status === 'pending') {
                 self::silent_cancel($order_id, 'Kaeufer klickte "Zurueck" auf Stripe-Seite');
             }
+            $back = TIX_Native_Checkout::return_redirect_url($order_id, $order_key);
+            if ($back !== '') { wp_safe_redirect($back); exit; }
             $checkout_url = home_url('/');
             $s = get_option('tix_settings', []);
             if (!empty($s['checkout_page_id'])) {
@@ -490,6 +492,8 @@ class TIX_Gateway_Stripe {
         }
 
         // Bei Erfolg → Thank-You (Webhook setzt eigentlichen Status, wir leiten direkt weiter)
+        $back = TIX_Native_Checkout::return_redirect_url($order_id, $order_key);
+        if ($back !== '') { wp_safe_redirect($back); exit; }
         $thank_url = home_url('/');
         $s = get_option('tix_settings', []);
         if (!empty($s['thank_you_page_id'])) {

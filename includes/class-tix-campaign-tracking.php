@@ -199,19 +199,26 @@ class TIX_Campaign_Tracking {
             wp_send_json_error();
         }
 
+        self::record_event_view($event_id, $source, $campaign, $content);
+
+        wp_send_json_success();
+    }
+
+    /** Event-Aufruf je Quelle/Kampagne/Inhalt und Tag zählen (Pixel und POST /public/track). */
+    public static function record_event_view($event_id, $source, $campaign = '', $content = '') {
         global $wpdb;
-        $table = self::get_table();
-        $today = current_time('Y-m-d');
+        $table    = self::get_table();
+        $source   = sanitize_key(substr((string) $source, 0, 50)) ?: 'direct';
+        $campaign = sanitize_text_field(substr((string) $campaign, 0, 100));
+        $content  = sanitize_text_field(substr((string) $content, 0, 100));
 
         // INSERT ... ON DUPLICATE KEY UPDATE views = views + 1
         $wpdb->query($wpdb->prepare(
             "INSERT INTO $table (event_id, source, campaign, content, view_date, views)
              VALUES (%d, %s, %s, %s, %s, 1)
              ON DUPLICATE KEY UPDATE views = views + 1",
-            $event_id, $source, $campaign, $content, $today
+            intval($event_id), $source, $campaign, $content, current_time('Y-m-d')
         ));
-
-        wp_send_json_success();
     }
 
     // ──────────────────────────────────────────

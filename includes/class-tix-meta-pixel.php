@@ -326,10 +326,16 @@ class TIX_Meta_Pixel {
         $s = self::$settings;
         $pixel_id = $s['meta_pixel_id'] ?? '';
         $token = $s['meta_access_token'] ?? '';
-        if (!empty($s['meta_capi_enabled']) && !empty($pixel_id) && !empty($token)) {
+        // Website-Bestellung über die Schnittstelle ohne Einwilligung (kein fbp/fbc) → nichts an Meta
+        $no_consent = get_post_meta($order_id, '_tix_meta_no_consent', true) === '1';
+        if (!$no_consent && !empty($s['meta_capi_enabled']) && !empty($pixel_id) && !empty($token)) {
+            // Bei Website-Bestellungen kommen IP/Browser/fbp/fbc aus der Bestellung (der Kauf wird
+            // meist im Zahlungs-Webhook abgeschlossen, der den Besucher nicht kennt)
+            $saved_ip = (string) get_post_meta($order_id, '_tix_meta_client_ip', true);
+            $saved_ua = (string) get_post_meta($order_id, '_tix_meta_client_ua', true);
             $user_data = [
-                'client_ip_address' => self::get_client_ip(),
-                'client_user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? '',
+                'client_ip_address' => $saved_ip !== '' ? $saved_ip : self::get_client_ip(),
+                'client_user_agent' => $saved_ua !== '' ? $saved_ua : ($_SERVER['HTTP_USER_AGENT'] ?? ''),
             ];
 
             $billing_email = $order->get_billing_email();
@@ -343,6 +349,10 @@ class TIX_Meta_Pixel {
 
             if (!empty($_COOKIE['_fbc'])) $user_data['fbc'] = sanitize_text_field($_COOKIE['_fbc']);
             if (!empty($_COOKIE['_fbp'])) $user_data['fbp'] = sanitize_text_field($_COOKIE['_fbp']);
+            $saved_fbc = (string) get_post_meta($order_id, '_tix_meta_fbc', true);
+            $saved_fbp = (string) get_post_meta($order_id, '_tix_meta_fbp', true);
+            if ($saved_fbc !== '') $user_data['fbc'] = $saved_fbc;
+            if ($saved_fbp !== '') $user_data['fbp'] = $saved_fbp;
 
             $event_data = [
                 'event_name'    => 'Purchase',
@@ -533,14 +543,8 @@ class TIX_Meta_Pixel {
     }
 
     private static function get_client_ip() {
-        $headers = ['HTTP_CF_CONNECTING_IP', 'HTTP_X_FORWARDED_FOR', 'HTTP_X_REAL_IP', 'REMOTE_ADDR'];
-        foreach ($headers as $h) {
-            if (!empty($_SERVER[$h])) {
-                $ip = explode(',', $_SERVER[$h])[0];
-                return trim($ip);
-            }
-        }
-        return '127.0.0.1';
+        $ip = TIX_Client_IP::get();
+        return $ip !== '' ? $ip : '127.0.0.1';
     }
 }
 

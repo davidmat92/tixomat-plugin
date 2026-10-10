@@ -310,6 +310,8 @@ class TIX_Gateway_PayPal {
                                 'system'
                             );
                         }
+                        $back = TIX_Native_Checkout::return_redirect_url($order_id, $order_key, 'paid');
+                        if ($back !== '') { wp_safe_redirect($back); exit; }
                         $thanks_url = class_exists('TIX_Native_Checkout') && method_exists('TIX_Native_Checkout', 'thanks_url')
                             ? TIX_Native_Checkout::thanks_url($order_id, $order_key)
                             : home_url('/thank-you/?order_id=' . $order_id . '&order_key=' . $order_key);
@@ -319,6 +321,12 @@ class TIX_Gateway_PayPal {
                     // Status ist pending/on-hold → tatsächlich cancellen
                     TIX_Native_Checkout::update_order_status($order_id, 'cancelled', 'paypal');
                 }
+            }
+            if ($order_id && $order_key && class_exists('TIX_Native_Checkout')) {
+                global $wpdb;
+                $known = $wpdb->get_var($wpdb->prepare("SELECT id FROM {$wpdb->prefix}tix_orders WHERE id = %d AND order_key = %s", $order_id, $order_key));
+                $back = $known ? TIX_Native_Checkout::return_redirect_url($order_id, $order_key) : '';
+                if ($back !== '') { wp_safe_redirect($back); exit; }
             }
             $checkout_url = class_exists('TIX_Native_Checkout') ? TIX_Native_Checkout::checkout_url() : home_url('/checkout/');
             wp_safe_redirect(add_query_arg('tix_cancelled', '1', $checkout_url));

@@ -311,14 +311,8 @@ class TIX_Promoter_Auth {
     }
 
     private static function client_ip(): string {
-        $candidates = ['HTTP_CF_CONNECTING_IP', 'HTTP_X_FORWARDED_FOR', 'REMOTE_ADDR'];
-        foreach ($candidates as $key) {
-            if (!empty($_SERVER[$key])) {
-                $ip = trim(explode(',', $_SERVER[$key])[0]);
-                if (filter_var($ip, FILTER_VALIDATE_IP)) return $ip;
-            }
-        }
-        return '0.0.0.0';
+        $ip = TIX_Client_IP::get();
+        return $ip !== '' ? $ip : '0.0.0.0';
     }
 
     /**

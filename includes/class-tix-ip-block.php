@@ -66,7 +66,7 @@ class TIX_IP_Block {
     /* ─────────── Blocklogik ─────────── */
 
     public static function get_client_ip(): string {
-        return trim((string) ($_SERVER['REMOTE_ADDR'] ?? ''));
+        return TIX_Client_IP::get();
     }
 
     public static function get_blocked(): array {

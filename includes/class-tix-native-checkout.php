@@ -15,6 +15,8 @@ class TIX_Native_Checkout {
     public static function init() {
 
         add_action('init', [__CLASS__, 'init_cart_session'], 1);
+        // Rücksprung an die eigene Website (z. B. Next.js): freigegebene Hosts für wp_safe_redirect
+        add_filter('allowed_redirect_hosts', [__CLASS__, 'allow_return_hosts']);
 
         // AJAX: Cart-Aktionen
         add_action('wp_ajax_tix_native_add_to_cart',        [__CLASS__, 'ajax_add_to_cart']);
@@ -1048,11 +1050,78 @@ class TIX_Native_Checkout {
     }
 
     public static function thankyou_url($order_id, $order_key) {
+        // Bestellung mit Rücksprung-Adresse (POST /customer/orders return_url) → dorthin
+        $back = self::return_redirect_url($order_id, $order_key);
+        if ($back !== '') return $back;
         return add_query_arg([
             'tix_thankyou' => 1,
             'order_id'     => $order_id,
             'key'          => $order_key,
         ], home_url('/'));
+    }
+
+    // ──────────────────────────────────────────
+    // RÜCKSPRUNG AN EINE EIGENE WEBSITE (return_url)
+    // ──────────────────────────────────────────
+    // Site-Option `tix_app_return_hosts` = erlaubte Hosts (Liste, Standard leer → keine Wirkung).
+    // Nach Zahlung, Abbruch oder Fehler leiten Mollie/Stripe/PayPal auf die bei der Bestellung
+    // gespeicherte Adresse (Bestell-Meta `_tix_return_url`) mit order_id, key und status.
+
+    const OPT_RETURN_HOSTS  = 'tix_app_return_hosts';
+    const META_RETURN_URL   = '_tix_return_url';
+
+    /** Erlaubte Rücksprung-Hosts (klein, ohne Port). */
+    public static function return_hosts() {
+        $raw = get_option(self::OPT_RETURN_HOSTS, []);
+        $list = is_array($raw) ? $raw : preg_split('/[\s,]+/', (string) $raw);
+        $out = [];
+        foreach ((array) $list as $h) {
+            $h = strtolower(trim((string) $h));
+            if ($h !== '' && preg_match('/^[a-z0-9.-]+$/', $h) && $h !== 'localhost' && substr($h, -10) !== '.localhost') $out[] = $h;
+        }
+        return array_values(array_unique($out));
+    }
+
+    public static function allow_return_hosts($hosts) {
+        return array_values(array_unique(array_merge((array) $hosts, self::return_hosts())));
+    }
+
+    /** Geprüfte Rücksprung-Adresse (nur https, Host aus der Liste) oder WP_Error. */
+    public static function validate_return_url($url) {
+        $url = trim((string) $url);
+        $p = wp_parse_url($url);
+        $host = strtolower((string) ($p['host'] ?? ''));
+        $ok = is_array($p) && strtolower((string) ($p['scheme'] ?? '')) === 'https' && $host !== ''
+            && empty($p['user']) && empty($p['pass']) && (empty($p['port']) || intval($p['port']) === 443)
+            && in_array($host, self::return_hosts(), true) && strlen($url) <= 500;
+        if (!$ok) {
+            return new WP_Error('tix_return_url', 'return_url ist nicht erlaubt (nur https und freigegebene Adressen).', ['status' => 400]);
+        }
+        // Fragment weglassen (Parameter werden angehängt)
+        return esc_url_raw(preg_replace('/#.*$/', '', $url), ['https']);
+    }
+
+    /** paid | pending | failed | cancelled aus dem Bestellstatus. */
+    public static function return_status($order_id) {
+        global $wpdb;
+        $st = (string) $wpdb->get_var($wpdb->prepare("SELECT status FROM {$wpdb->prefix}tix_orders WHERE id = %d", intval($order_id)));
+        if (in_array($st, ['completed', 'processing'], true)) return 'paid';
+        if ($st === 'failed') return 'failed';
+        if (in_array($st, ['cancelled', 'refunded', 'trash'], true)) return 'cancelled';
+        return 'pending';
+    }
+
+    /** Rücksprung-URL der Bestellung mit order_id, key, status – '' ohne gespeicherte Adresse. */
+    public static function return_redirect_url($order_id, $order_key, $status = '') {
+        $back = (string) get_post_meta(intval($order_id), self::META_RETURN_URL, true);
+        if ($back === '') return '';
+        // Erneut prüfen: Host könnte inzwischen aus der Liste entfernt worden sein
+        if (is_wp_error(self::validate_return_url($back))) return '';
+        return add_query_arg([
+            'order_id' => intval($order_id),
+            'key'      => rawurlencode((string) $order_key),
+            'status'   => $status !== '' ? $status : self::return_status($order_id),
+        ], $back);
     }
 
     // ──────────────────────────────────────────

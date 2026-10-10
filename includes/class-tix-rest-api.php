@@ -21,6 +21,88 @@ class TIX_REST_API {
         // Token-basierte Authentifizierung für Guest-User
         add_filter('determine_current_user', [__CLASS__, 'authenticate_by_token'], 30);
         add_action('init', [__CLASS__, 'ensure_staff_role'], 5);
+        // Token-Index (Suche per Hash statt Schleife über alle Konten): folgt jeder
+        // Änderung der Token-Listen, egal über welchen Weg (Login, Logout, Passwort …)
+        add_action('added_user_meta',   [__CLASS__, 'on_token_meta'], 10, 3);
+        add_action('updated_user_meta', [__CLASS__, 'on_token_meta'], 10, 3);
+        add_action('deleted_user_meta', [__CLASS__, 'on_token_meta'], 10, 3);
+        add_action(self::TOKEN_REINDEX_HOOK, [__CLASS__, 'reindex_app_tokens']);
+        add_action('init', [__CLASS__, 'maybe_schedule_token_reindex'], 20);
+        if (defined('WP_CLI') && WP_CLI && class_exists('WP_CLI')) {
+            WP_CLI::add_command('tixomat app-tokens', [__CLASS__, 'cli_app_tokens']);
+        }
+    }
+
+    // ── Token-Index (`_tix_app_token_h` = SHA-256 je gültigem Token, mehrfach je Konto) ──
+
+    const META_TOKEN_H       = '_tix_app_token_h';
+    const OPT_TOKEN_INDEX    = 'tix_app_token_index_v1';
+    const TOKEN_REINDEX_HOOK = 'tix_app_token_reindex';
+
+    /** Index eines Kontos aus `_tix_app_tokens` (+ Legacy `_tix_app_token`) neu schreiben. */
+    public static function sync_token_index($user_id) {
+        $user_id = intval($user_id);
+        if ($user_id <= 0) return;
+        $now = time();
+        $hashes = [];
+        $list = get_user_meta($user_id, '_tix_app_tokens', true);
+        foreach (is_array($list) ? $list : [] as $t) {
+            if (is_array($t) && !empty($t['token']) && intval($t['expires'] ?? 0) > $now) $hashes[(string) $t['token']] = true;
+        }
+        $legacy = get_user_meta($user_id, '_tix_app_token', true);
+        if (is_array($legacy) && !empty($legacy['token']) && intval($legacy['expires'] ?? 0) > $now) $hashes[(string) $legacy['token']] = true;
+        delete_user_meta($user_id, self::META_TOKEN_H);
+        foreach (array_keys($hashes) as $h) add_user_meta($user_id, self::META_TOKEN_H, $h);
+    }
+
+    public static function on_token_meta($meta_id, $user_id, $meta_key) {
+        if ($meta_key === '_tix_app_tokens' || $meta_key === '_tix_app_token') self::sync_token_index($user_id);
+    }
+
+    /** Einmalig alle Konten mit Tokens indizieren. Rückgabe: Anzahl Konten. */
+    public static function reindex_app_tokens() {
+        $users = get_users([
+            'meta_query' => [
+                'relation' => 'OR',
+                ['key' => '_tix_app_tokens', 'compare' => 'EXISTS'],
+                ['key' => '_tix_app_token',  'compare' => 'EXISTS'],
+            ],
+            'number' => 0,
+            'fields' => 'ids',
+        ]);
+        foreach ($users as $uid) self::sync_token_index($uid);
+        update_option(self::OPT_TOKEN_INDEX, '1', true);
+        return count($users);
+    }
+
+    /** Nach dem Update den Altbestand einmal im Hintergrund indizieren (alternativ per WP-CLI). */
+    public static function maybe_schedule_token_reindex() {
+        if (get_option(self::OPT_TOKEN_INDEX) === '1') return;
+        if (!wp_next_scheduled(self::TOKEN_REINDEX_HOOK)) wp_schedule_single_event(time() + 30, self::TOKEN_REINDEX_HOOK);
+    }
+
+    /**
+     * Token-Index der App-Anmeldung pflegen.
+     *
+     * ## OPTIONS
+     *
+     * <action>
+     * : `reindex` (alle Konten neu indizieren) oder `status`.
+     *
+     * ## EXAMPLES
+     *
+     *     wp tixomat app-tokens reindex
+     */
+    public static function cli_app_tokens($args, $assoc) {
+        $action = $args[0] ?? 'status';
+        if ($action === 'reindex') {
+            $n = self::reindex_app_tokens();
+            WP_CLI::success("{$n} Konten indiziert.");
+            return;
+        }
+        global $wpdb;
+        $rows = (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$wpdb->usermeta} WHERE meta_key = %s", self::META_TOKEN_H));
+        WP_CLI::log('Index ' . (get_option(self::OPT_TOKEN_INDEX) === '1' ? 'fertig' : 'noch nicht aufgebaut') . ", {$rows} Einträge.");
     }
 
     /**
@@ -75,9 +157,23 @@ class TIX_REST_API {
 
         $hashed = hash('sha256', $token);
 
+        // Zuerst per Index (eine Abfrage); Prüfung wie bisher über die Token-Liste des Kontos
+        $hit = get_users(['meta_key' => self::META_TOKEN_H, 'meta_value' => $hashed, 'number' => 1, 'fields' => 'ids']);
+        if ($hit) {
+            $found = self::match_token_for_user(intval($hit[0]), $hashed);
+            if ($found !== null) return $found ?: $user_id;
+        }
+        // Index fertig: nur noch Legacy-Einzeltokens durchsuchen (werden mit der Zeit weniger)
+        $legacy_only = get_option(self::OPT_TOKEN_INDEX) === '1';
+
         // Mehrere Geräte pro Konto: Liste in _tix_app_tokens (seit 1.38.288);
         // Legacy-Einzeltoken in _tix_app_token bleibt gültig, bis es ausläuft.
-        $users = get_users([
+        $users = $legacy_only ? get_users([
+            'meta_key' => '_tix_app_token',
+            'meta_compare' => 'EXISTS',
+            'number' => 0,
+            'fields' => 'ids',
+        ]) : get_users([
             'meta_query' => [
                 'relation' => 'OR',
                 ['key' => '_tix_app_tokens', 'compare' => 'EXISTS'],
@@ -109,6 +205,33 @@ class TIX_REST_API {
         }
 
         return $user_id;
+    }
+
+    /**
+     * Token im Konto prüfen: Konto-ID (gültig), 0 (gefunden, aber abgelaufen – aufgeräumt)
+     * oder null (nicht in diesem Konto).
+     */
+    private static function match_token_for_user($uid, $hashed) {
+        $list = get_user_meta($uid, '_tix_app_tokens', true);
+        if (is_array($list)) {
+            foreach ($list as $data) {
+                if (!is_array($data) || !isset($data['token'], $data['expires'])) continue;
+                if (hash_equals((string) $data['token'], $hashed)) {
+                    if (intval($data['expires']) > time()) return $uid;
+                    self::prune_app_tokens($uid);
+                    return 0;
+                }
+            }
+        }
+        $data = get_user_meta($uid, '_tix_app_token', true);
+        if (is_array($data) && isset($data['token'], $data['expires']) && hash_equals((string) $data['token'], $hashed)) {
+            if (intval($data['expires']) > time()) return $uid;
+            delete_user_meta($uid, '_tix_app_token');
+            return 0;
+        }
+        // Index veraltet (z. B. Meta direkt in der Datenbank geändert) → neu schreiben
+        self::sync_token_index($uid);
+        return null;
     }
 
     /** Neues Geräte-Token ausstellen (90 Tage), ohne andere Geräte abzumelden. */

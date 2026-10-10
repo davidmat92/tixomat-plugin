@@ -28,6 +28,14 @@ class TIX_App_Account {
     const META_PASSWORDLESS = '_tix_app_passwordless';
     /** Konto per App registriert, E-Mail-Adresse noch nicht bestätigt (seit 1.38.323). */
     const META_UNVERIFIED = '_tix_app_unverified';
+    const META_EMAIL_CONFIRMED = '_tix_email_confirmed';
+
+    /** Hat das Konto seine aktuelle E-Mail-Adresse per Code bestätigt? */
+    public static function email_confirmed($user) {
+        if (!$user || empty($user->ID)) return false;
+        $c = (string) get_user_meta($user->ID, self::META_EMAIL_CONFIRMED, true);
+        return $c !== '' && strcasecmp($c, (string) $user->user_email) === 0;
+    }
 
     public static function init() {
         add_action('rest_api_init', [__CLASS__, 'register_routes']);
@@ -108,13 +116,9 @@ class TIX_App_Account {
     }
 
     public static function client_ip() {
-        foreach (['HTTP_CF_CONNECTING_IP', 'HTTP_X_REAL_IP', 'HTTP_X_FORWARDED_FOR', 'REMOTE_ADDR'] as $k) {
-            if (!empty($_SERVER[$k])) {
-                $ip = trim(explode(',', (string) $_SERVER[$k])[0]);
-                if (filter_var($ip, FILTER_VALIDATE_IP)) return $ip;
-            }
-        }
-        return '0.0.0.0';
+        // Proxy-Kopfzeilen nur von vertrauenswürdigen Proxys (TIX_Client_IP)
+        $ip = TIX_Client_IP::get();
+        return $ip !== '' ? $ip : '0.0.0.0';
     }
 
     /** Rate-Limit (REST-tauglich, liefert bool). Schlüssel: IP oder eigener Wert. */
@@ -371,6 +375,8 @@ class TIX_App_Account {
             $created = true;
         }
         // Der Code beweist die E-Mail-Adresse: ein frisch registriertes Konto ist damit bestätigt
+        // (Merker `_tix_email_confirmed`: frühere Gastbestellungen dieser E-Mail in GET /customer/orders)
+        update_user_meta($user->ID, self::META_EMAIL_CONFIRMED, (string) $user->user_email);
         $verified = (bool) get_user_meta($user->ID, self::META_UNVERIFIED, true);
         if ($verified) {
             delete_user_meta($user->ID, self::META_UNVERIFIED);
