@@ -2,14 +2,14 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.38.370
+ * Version: 1.38.371
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.38.370');
+define('TIXOMAT_VERSION', '1.38.371');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -514,6 +514,8 @@ require_once TIXOMAT_PATH . 'includes/class-tix-event-extras.php';
 TIX_Event_Extras::init(); // Optionale Event-Inhalte: eine Quelle für App-Schnittstelle + Website-Bausteine
 require_once TIXOMAT_PATH . 'includes/class-tix-organizer-pages.php';
 TIX_Organizer_Pages::init(); // Veranstalter-Seiten /veranstalter/<name>/ für Seitenvorlagen (nur Mehr-Veranstalter-Modus)
+require_once TIXOMAT_PATH . 'includes/class-tix-app-look.php';
+TIX_App_Look::init(); // App-Look-Bausteine [tix_app*] für Breakdance-Vorlagen + wp tixomat app-look; ohne Shortcodes keine Änderung
 
 require_once TIXOMAT_PATH . 'includes/class-tix-app-events.php';
 TIX_App_Events::init(); // Event-Editor + Bestell-Details für den Veranstalter-Bereich der App

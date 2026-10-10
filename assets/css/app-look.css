@@ -1,0 +1,168 @@
+/* ==========================================================================
+   App-Look-Bausteine ([tix_app_*]) – nur geladen, wenn ein Baustein auf der Seite steht.
+   Design der evendis-App (Stand 2026-10-10): Manrope, Grund #F2F3F7, Karten weiß Radius 20 ohne
+   Schatten, Bilder/Buttons Radius 12, Markenrot #FC2F55, Signalrot #E8445A, Nachtblau #2C2F3F.
+   Seitenaufbau, Abschnitte und Überschriften stehen in den Breakdance-Vorlagen (CSS-Block der Section).
+   ========================================================================== */
+
+@font-face{font-family:'Manrope';font-weight:400;font-display:swap;src:url(../fonts/manrope/Manrope-400.ttf) format('truetype')}
+@font-face{font-family:'Manrope';font-weight:500;font-display:swap;src:url(../fonts/manrope/Manrope-500.ttf) format('truetype')}
+@font-face{font-family:'Manrope';font-weight:600;font-display:swap;src:url(../fonts/manrope/Manrope-600.ttf) format('truetype')}
+@font-face{font-family:'Manrope';font-weight:700;font-display:swap;src:url(../fonts/manrope/Manrope-700.ttf) format('truetype')}
+@font-face{font-family:'Manrope';font-weight:800;font-display:swap;src:url(../fonts/manrope/Manrope-800.ttf) format('truetype')}
+
+:root{
+  --evs-font:'Manrope',system-ui,-apple-system,'Segoe UI',sans-serif;
+  --evs-bg:#F2F3F7;
+  --evs-surface:#FFFFFF;
+  --evs-night:#2C2F3F;
+  --evs-text:#2C2F3F;
+  --evs-body:#6B6F82;
+  --evs-muted:#C9CCD6;
+  --evs-sep:#E3E5EC;
+  --evs-rowline:#EFEFF1;
+  --evs-red:#FC2F55;       /* Markenrot: Köpfe, Datums-Kacheln */
+  --evs-signal:#E8445A;    /* Aktionen, Pillen, Icon-Kreise */
+  --evs-green:#1F8F5F;
+  --evs-r-card:20px;
+  --evs-r:12px;
+  --evs-page:16px;
+}
+@media (min-width:900px){:root{--evs-page:32px}}
+
+.evs-ico{width:16px;height:16px;flex:none;display:block}
+.evs-list,.evs-cards,.evs-cats,.evs-finder,.evs-follow,.evs-empty,.evs-reset,.evs-minis,.evs-artists,.evs-artist1{font-family:var(--evs-font)}
+.evs-list *,.evs-cards *,.evs-cats *,.evs-finder *,.evs-minis *,.evs-artists *,.evs-artist1 *{font-family:inherit}
+.evs-empty{margin:0;padding:24px 16px;text-align:center;background:var(--evs-surface);border-radius:var(--evs-r-card);color:var(--evs-body);font-size:13.5px}
+.evs-empty[hidden]{display:none}
+
+/* Datums-Kachel: Markenrot, weiße Schrift (EventRow) */
+.evs-dtile{flex:none;width:48px;align-self:stretch;min-height:64px;display:flex;flex-direction:column;align-items:center;justify-content:center;border-radius:var(--evs-r);background:var(--evs-red);color:#fff;line-height:1.15;text-align:center;box-sizing:border-box}
+.evs-dtile__wd{font-size:11px;font-weight:600;color:rgba(255,255,255,.85)}
+.evs-dtile__d{font-size:18px;font-weight:800;line-height:1.2}
+.evs-dtile__m{font-size:11px;font-weight:800}
+
+/* Bilder: 16:9; deutlich andere Formate ganz zeigen, Ränder mit unscharfer Kopie (EvLetterbox) */
+.evs-img{position:relative;display:block;overflow:hidden;aspect-ratio:16/9;border-radius:var(--evs-r);background:#4A4D5E;flex:none}
+.evs-img img{position:relative;z-index:1;display:block;width:100%;height:100%;object-fit:cover;margin:0;max-width:none}
+.evs-img--fit::before{content:"";position:absolute;inset:-12px;background:var(--evs-img) center/cover no-repeat;filter:blur(14px) brightness(.7);transform:scale(1.1)}
+.evs-img--fit img{object-fit:contain}
+.evs-img--none{background:linear-gradient(135deg,#3B3450,#151221)}
+
+/* Pille + Stadt unter dem Titel */
+.evs-meta{display:flex;align-items:center;gap:6px;min-width:0;flex-wrap:nowrap}
+.evs-tag{flex:none;display:inline-flex;align-items:center;gap:4px;padding:2px 8px 2px 6px;border-radius:100px;font-size:11px;line-height:16px;font-weight:800;white-space:nowrap}
+.evs-tag .evs-ico{width:12px;height:12px}
+.evs-tag--presale{color:var(--evs-signal);background:rgba(232,68,90,.12)}
+.evs-tag--free{color:var(--evs-green);background:rgba(31,143,95,.12)}
+.evs-tag--off{color:var(--evs-night);background:rgba(44,47,63,.10)}
+.evs-meta__loc{display:flex;align-items:center;gap:3px;min-width:0;color:var(--evs-body);font-size:12.5px;line-height:1.3}
+.evs-meta__loc .evs-ico{width:13px;height:13px}
+.evs-meta__loc span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* Merken-Herz (event-cards.js): Umriss in Textfarbe, gemerkt gefüllt in Signalrot */
+.evs-save{position:static!important;inset:auto!important;flex:none;align-self:flex-start;width:28px!important;height:28px!important;margin:-5px -5px 0 0;padding:0;display:grid;place-items:center;border:0!important;border-radius:50%;background:transparent!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important;color:var(--evs-text)!important;cursor:pointer;box-shadow:none!important;opacity:1!important;transform:none!important}
+.evs-save.saved{color:var(--evs-signal)!important}
+.evs-save svg{width:16px;height:16px}
+
+/* ── Event-Zeile (EventRow) ────────────────────────────────────────────── */
+.evs-list{display:grid;grid-template-columns:minmax(0,1fr);gap:14px;width:100%}
+.evs-row{display:flex;align-items:stretch;gap:10px;color:inherit!important;text-decoration:none!important;min-width:0}
+.evs-row[hidden]{display:none}
+.evs-row__card{flex:1;min-width:0;display:flex;align-items:center;gap:12px;padding:8px;background:var(--evs-surface);border-radius:var(--evs-r-card)}
+.evs-row__img{width:100px;border-radius:var(--evs-r)}
+.evs-row__b{flex:1;min-width:0;display:grid;gap:6px}
+.evs-row__top{display:flex;gap:6px;align-items:flex-start}
+.evs-row__t{flex:1;min-width:0;font-size:13px;line-height:1.25;font-weight:800;color:var(--evs-text);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere}
+.evs-reset{border:0;background:transparent;color:var(--evs-signal);font-size:13px;font-weight:700;cursor:pointer;padding:4px 0}
+.evs-reset[hidden]{display:none}
+
+/* ── Kompakte Zeile (Veranstalter-Seite) ───────────────────────────────── */
+.evs-list--compact{gap:0;background:var(--evs-surface);border-radius:var(--evs-r-card);padding:2px 14px}
+.evs-crow{display:flex;align-items:center;gap:12px;padding:12px 0;color:inherit!important;text-decoration:none!important;min-width:0}
+.evs-crow+.evs-crow{border-top:1px solid var(--evs-rowline)}
+.evs-crow__img{width:112px;border-radius:var(--evs-r)}
+.evs-crow__b{flex:1;min-width:0;display:grid;gap:3px}
+.evs-crow__d{font-size:11px;font-weight:800;color:var(--evs-signal);text-transform:uppercase;letter-spacing:.4px}
+.evs-crow__t{font-size:14px;line-height:1.25;font-weight:800;color:var(--evs-text);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.evs-crow__s{font-size:12.5px;color:var(--evs-body);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* ── Große Karte (EventCardLarge) ──────────────────────────────────────── */
+.evs-cards{display:grid;grid-auto-flow:column;grid-auto-columns:min(292px,82%);gap:14px;overflow-x:auto;scroll-snap-type:x mandatory;scroll-padding-inline:var(--evs-page);margin:0 calc(-1 * var(--evs-page));padding:0 var(--evs-page) 4px;scrollbar-width:none}
+.evs-cards::-webkit-scrollbar{display:none}
+.evs-card{scroll-snap-align:start;display:flex;flex-direction:column;background:var(--evs-surface);border-radius:var(--evs-r-card);overflow:hidden;color:inherit!important;text-decoration:none!important;min-width:0}
+.evs-card__media{position:relative;display:block}
+.evs-card__img{width:100%;border-radius:0}
+.evs-badge{position:absolute;z-index:2;top:10px;display:inline-flex;align-items:center;gap:4px;padding:4px 8px;border-radius:8px;font-size:10.5px;line-height:14px;font-weight:600;white-space:nowrap}
+.evs-badge .evs-ico{width:12px;height:12px}
+.evs-badge--price{left:10px;background:#fff;color:var(--evs-night)}
+.evs-badge--presale,.evs-badge--free,.evs-badge--off{right:10px;color:#fff}
+.evs-badge--presale{background:var(--evs-signal)}
+.evs-badge--free{background:var(--evs-green)}
+.evs-badge--off{background:var(--evs-night)}
+.evs-card__b{display:grid;gap:4px;padding:14px 12px 12px}
+.evs-card__over{display:flex;align-items:center;justify-content:space-between;gap:8px;height:24px;font-size:11px;font-weight:800;letter-spacing:.4px;color:var(--evs-signal);text-transform:uppercase;min-width:0}
+.evs-card__over>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.evs-card__over .evs-save{margin:0 -4px 0 0;align-self:center}
+.evs-card__t{font-size:14.5px;line-height:1.3;font-weight:800;color:var(--evs-text);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:2.6em;overflow-wrap:anywhere}
+
+/* ── Kleine Karte („Das könnte dir auch gefallen“) ─────────────────────── */
+.evs-minis{display:grid;grid-auto-flow:column;grid-auto-columns:200px;gap:12px;overflow-x:auto;scrollbar-width:none;padding-bottom:2px}
+.evs-minis::-webkit-scrollbar{display:none}
+.evs-mini{display:grid;gap:3px;align-content:start;color:inherit!important;text-decoration:none!important;min-width:0}
+.evs-mini__img{width:100%;margin-bottom:5px}
+.evs-mini__d{font-size:11px;font-weight:800;letter-spacing:.4px;color:var(--evs-signal);text-transform:uppercase}
+.evs-mini__t{font-size:12.5px;line-height:1.3;font-weight:800;color:var(--evs-text);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.evs-mini__p{font-size:11px;color:var(--evs-body);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* ── Line-up (ArtistStrip) ─────────────────────────────────────────────── */
+.evs-artists{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;margin:0 -14px;padding:0 14px 2px 14px;-webkit-mask:linear-gradient(90deg,#000 calc(100% - 28px),transparent);mask:linear-gradient(90deg,#000 calc(100% - 28px),transparent)}
+.evs-artists::-webkit-scrollbar{display:none}
+.evs-artist{flex:none;width:84px;display:grid;justify-items:center;gap:6px;color:inherit!important;text-decoration:none!important}
+.evs-artist:first-child{margin-left:-10px}
+.evs-artist__c{width:64px;height:64px;border-radius:50%;display:grid;place-items:center;background:rgba(232,68,90,.12);box-shadow:inset 0 0 0 1.5px rgba(232,68,90,.35);color:var(--evs-signal);font-size:18px;font-weight:800;letter-spacing:-.2px}
+.evs-artist__n{width:84px;height:30px;font-size:11px;line-height:15px;font-weight:700;text-align:center;color:var(--evs-text);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.evs-artist1{display:flex;align-items:center;gap:12px;padding:6px 0;color:inherit!important;text-decoration:none!important}
+.evs-artist1 .evs-artist__c{width:48px;height:48px;font-size:15px}
+.evs-artist1__n{flex:1;min-width:0;font-size:14px;font-weight:700;color:var(--evs-text)}
+.evs-artist1__play{width:32px;height:32px;border-radius:50%;display:grid;place-items:center;background:var(--evs-signal);color:#fff}
+.evs-artist1__play .evs-ico{width:14px;height:14px;fill:currentColor}
+
+/* ── Suche + Chips auf Rot ([tix_app_search]) ──────────────────────────── */
+.evs-finder{width:100%}
+.evs-search{display:flex;align-items:center;gap:10px;height:50px;padding:0 14px;border-radius:var(--evs-r);background:#fff;color:var(--evs-text);box-sizing:border-box;cursor:text}
+.evs-search .evs-ico{width:22px;height:22px;stroke-width:1.8}
+.evs-search__in{flex:1;min-width:0;height:100%;border:0!important;outline:0;background:transparent!important;padding:0!important;margin:0;box-shadow:none!important;font-size:15px!important;font-weight:500;color:var(--evs-text)}
+.evs-search__in::placeholder{color:var(--evs-muted)}
+.evs-chips{display:flex;gap:8px;margin-top:14px;overflow-x:auto;scrollbar-width:none}
+.evs-chip{flex:none;height:36px;padding:0 16px;border-radius:999px;border:0;background:rgba(255,255,255,.2);color:#fff;font-size:13px;font-weight:500;cursor:pointer;transition:background .15s}
+.evs-chip:hover{background:rgba(255,255,255,.3)}
+.evs-chip.is-on{background:#fff;color:var(--evs-red);font-weight:700}
+
+/* ── Kategorien: weiße Pillen mit rot getöntem Icon-Kreis ──────────────── */
+.evs-cats{display:flex;gap:10px;overflow-x:auto;margin:0 calc(-1 * var(--evs-page));padding:0 var(--evs-page) 2px;scrollbar-width:none}
+.evs-cats::-webkit-scrollbar{display:none}
+.evs-cat{flex:none;display:flex;align-items:center;gap:10px;height:46px;padding:0 16px 0 6px;border:0;border-radius:999px;background:var(--evs-surface);color:var(--evs-text);cursor:pointer;box-shadow:inset 0 0 0 1.5px transparent;transition:box-shadow .15s}
+.evs-cat.is-on{box-shadow:inset 0 0 0 1.5px var(--evs-signal)}
+.evs-cat__ic{width:34px;height:34px;flex:none;display:grid;place-items:center;border-radius:50%;background:rgba(232,68,90,.12);color:var(--evs-signal)}
+.evs-cat__ic .evs-ico{width:18px;height:18px}
+.evs-cat__n{font-size:13px;font-weight:600;white-space:nowrap}
+
+/* ── Folgen ([tix_app_follow]): nachtblau „Folgen“, Umriss „Du folgst“ ──── */
+.evs-follow{display:inline-flex;align-items:center;justify-content:center;width:100%;height:50px;padding:0 20px;border-radius:var(--evs-r);border:0;background:var(--evs-night);color:#fff;font-size:15px;font-weight:600;cursor:pointer}
+.evs-follow span{display:inline-flex;align-items:center;gap:8px}
+.evs-follow .evs-ico{width:18px;height:18px;stroke-width:2.4}
+.evs-follow__on{display:none!important}
+.evs-follow.is-on{background:transparent;color:var(--evs-text);box-shadow:inset 0 0 0 1px var(--evs-muted)}
+.evs-follow.is-on .evs-follow__on{display:inline-flex!important}
+.evs-follow.is-on .evs-follow__off{display:none!important}
+.evs-follow:disabled{opacity:.6;cursor:wait}
+
+@media (min-width:900px){
+  .evs-search{max-width:640px}
+  .evs-cats{flex-wrap:wrap;overflow:visible;margin:0;padding:0}
+  .evs-cards{grid-auto-flow:row;grid-template-columns:repeat(3,minmax(0,1fr));overflow:visible;margin:0;padding:0}
+  .evs-list{grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 16px}
+  .evs-list--compact{grid-template-columns:minmax(0,1fr)}
+  .evs-row__img{width:128px}
+}

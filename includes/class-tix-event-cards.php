@@ -161,13 +161,15 @@ class TIX_Event_Cards {
      * [tix_faq]) etwas ausgibt. Breakdance kann leere Listen-Felder nicht als Bedingung prüfen.
      */
     public static function render_section($atts, $content = '') {
-        $atts = shortcode_atts(['title' => '', 'class' => '', 'title_class' => ''], $atts);
+        $atts = shortcode_atts(['title' => '', 'class' => '', 'title_class' => '', 'body_class' => ''], $atts);
         $inner = trim(do_shortcode((string) $content));
         // leer = kein Text UND keine Medien (Bild, Video, eingebettetes Video)
         if ($inner === '' || (trim(wp_strip_all_tags($inner)) === '' && !preg_match('~<(img|iframe|video|picture|svg)\b~i', $inner))) return '';
         $title = $atts['title'] !== ''
             ? '<h2 class="tix-sec__title ' . esc_attr($atts['title_class']) . '">' . esc_html($atts['title']) . '</h2>'
             : '';
+        // body_class: Inhalt in eine eigene Hülle (z. B. weiße Karte unter dem Titel)
+        if ($atts['body_class'] !== '') $inner = '<div class="' . esc_attr($atts['body_class']) . '">' . $inner . '</div>';
         return '<div class="tix-sec ' . esc_attr($atts['class']) . '">' . $title . $inner . '</div>';
     }
 
@@ -176,7 +178,7 @@ class TIX_Event_Cards {
      * Verlinkt auf die Veranstalter-Seite nur, wenn sie freigegeben ist (/v/<slug>/).
      */
     public static function render_event_organizer($atts) {
-        $atts = shortcode_atts(['prefix' => 'von'], $atts);
+        $atts = shortcode_atts(['prefix' => 'von', 'bold' => '0'], $atts);
         $event_id = get_the_ID();
         if (!$event_id) return '';
 
@@ -201,7 +203,9 @@ class TIX_Event_Cards {
         $initial = function_exists('mb_substr') ? mb_strtoupper(mb_substr($name, 0, 1)) : strtoupper(substr($name, 0, 1));
         $inner = '<span class="tix-evorg__logo">'
             . ($logo ? '<img src="' . esc_url($logo) . '" alt="" loading="lazy">' : esc_html($initial))
-            . '</span><span class="tix-evorg__name">' . esc_html(trim($atts['prefix'] . ' ' . $name)) . '</span>';
+            . '</span><span class="tix-evorg__name">' . ($atts['bold'] === '1'
+                ? esc_html(trim($atts['prefix'] . ' ')) . ' <b>' . esc_html($name) . '</b>'  // „von **Name**“ (App-Look)
+                : esc_html(trim($atts['prefix'] . ' ' . $name))) . '</span>';
 
         if ($url === '') return '<span class="tix-evorg">' . $inner . '</span>';
         return '<a class="tix-evorg" href="' . esc_url($url) . '">' . $inner
