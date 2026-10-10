@@ -5438,7 +5438,7 @@ body{margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',
             : '<html><body>' . $body . '</body></html>';
 
         $subject = $count_label . ' – ' . $event_name;
-        $sent = wp_mail($email, $subject, $html, ['Content-Type: text/html; charset=UTF-8'], $attachments);
+        $sent = TIX_Customer_URL::mail($email, $subject, $html, ['Content-Type: text/html; charset=UTF-8'], $attachments);
 
         // Aufräumen
         foreach ($temp_files as $f) { @unlink($f); }

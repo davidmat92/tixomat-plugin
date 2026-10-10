@@ -957,7 +957,7 @@ class TIX_My_Tickets {
             : '<html><body>' . $body . '</body></html>';
 
         $headers = ['Content-Type: text/html; charset=UTF-8'];
-        wp_mail($email, $subject, $html, $headers);
+        TIX_Customer_URL::mail($email, $subject, $html, $headers);
     }
 
     // ═══════════════════════════════════════════════════════════════

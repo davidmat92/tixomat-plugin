@@ -283,7 +283,7 @@ class TIX_App_Account {
         $html = class_exists('TIX_Emails')
             ? TIX_Emails::build_generic_email_html($verify ? 'Konto bestätigen' : ($login ? 'Dein Anmeldecode' : 'Passwort zurücksetzen'), $body, $site . ' App')
             : '<html><body>' . $body . '</body></html>';
-        return wp_mail($email, $subject, $html, ['Content-Type: text/html; charset=UTF-8']);
+        return TIX_Customer_URL::mail($email, $subject, $html, ['Content-Type: text/html; charset=UTF-8']);
     }
 
     // ──────────────────────────────────────────

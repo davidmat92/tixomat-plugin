@@ -334,7 +334,7 @@ class TIX_Sponsor_Dashboard {
             }
         }
 
-        wp_mail($email, $subject, $html, ['Content-Type: text/html; charset=UTF-8'], $attachments);
+        TIX_Customer_URL::mail($email, $subject, $html, ['Content-Type: text/html; charset=UTF-8'], $attachments);
 
         // Tmp-Files aufräumen
         foreach ($attachments as $f) @unlink($f);

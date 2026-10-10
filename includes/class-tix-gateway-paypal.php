@@ -312,9 +312,8 @@ class TIX_Gateway_PayPal {
                         }
                         $back = TIX_Native_Checkout::return_redirect_url($order_id, $order_key, 'paid');
                         if ($back !== '') { wp_safe_redirect($back); exit; }
-                        $thanks_url = class_exists('TIX_Native_Checkout') && method_exists('TIX_Native_Checkout', 'thanks_url')
-                            ? TIX_Native_Checkout::thanks_url($order_id, $order_key)
-                            : home_url('/thank-you/?order_id=' . $order_id . '&order_key=' . $order_key);
+                        // Danke-Seite (thanks_url() gab es nie → vorher /thank-you/, eine leere Adresse)
+                        $thanks_url = TIX_Native_Checkout::thankyou_url($order_id, $order_key);
                         wp_safe_redirect($thanks_url);
                         exit;
                     }

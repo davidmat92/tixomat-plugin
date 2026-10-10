@@ -572,7 +572,8 @@ class TIX_Wallet {
             'aud'     => 'google',
             'typ'     => 'savetowallet',
             'iat'     => time(),
-            'origins' => [parse_url(home_url(), PHP_URL_HOST)],
+            // Herkunft der „In Google Wallet speichern“-Knöpfe: WordPress und ggf. Kunden-Adresse
+            'origins' => array_values(array_filter(array_unique([parse_url(home_url(), PHP_URL_HOST), TIX_Customer_URL::host()]))),
             'payload' => [
                 'eventTicketClasses'  => [$event_class],
                 'eventTicketObjects'  => [$event_object],

@@ -481,12 +481,8 @@ class TIX_Gateway_Stripe {
             }
             $back = TIX_Native_Checkout::return_redirect_url($order_id, $order_key);
             if ($back !== '') { wp_safe_redirect($back); exit; }
-            $checkout_url = home_url('/');
-            $s = get_option('tix_settings', []);
-            if (!empty($s['checkout_page_id'])) {
-                $cp = get_permalink(intval($s['checkout_page_id']));
-                if ($cp) $checkout_url = $cp;
-            }
+            // Zur Kasse (es gibt keine Einstellung checkout_page_id – Kassen-Seite wie bei PayPal)
+            $checkout_url = TIX_Native_Checkout::checkout_url();
             wp_safe_redirect(add_query_arg('tix_payment_cancelled', '1', $checkout_url));
             exit;
         }
@@ -494,17 +490,8 @@ class TIX_Gateway_Stripe {
         // Bei Erfolg → Thank-You (Webhook setzt eigentlichen Status, wir leiten direkt weiter)
         $back = TIX_Native_Checkout::return_redirect_url($order_id, $order_key);
         if ($back !== '') { wp_safe_redirect($back); exit; }
-        $thank_url = home_url('/');
-        $s = get_option('tix_settings', []);
-        if (!empty($s['thank_you_page_id'])) {
-            $tp = get_permalink(intval($s['thank_you_page_id']));
-            if ($tp) $thank_url = $tp;
-        }
-        $thank_url = add_query_arg([
-            'order_id'  => $order_id,
-            'order_key' => $order_key,
-        ], $thank_url);
-        wp_safe_redirect($thank_url);
+        // Danke-Seite wie bei Mollie/PayPal (vorher Startseite: thank_you_page_id gibt es nicht)
+        wp_safe_redirect(TIX_Native_Checkout::thankyou_url($order_id, $order_key));
         exit;
     }
 

@@ -1340,7 +1340,7 @@ class TIX_Emails {
         if (function_exists('WC') && WC()->mailer()) {
             WC()->mailer()->send($to, $subject, $html, $headers);
         } else {
-            wp_mail($to, $subject, $html, $headers);
+            TIX_Customer_URL::mail($to, $subject, $html, $headers);
         }
     }
 
@@ -1402,7 +1402,7 @@ class TIX_Emails {
         if (function_exists('WC') && WC()->mailer()) {
             WC()->mailer()->send($to, $subject, $html, $headers);
         } else {
-            wp_mail($to, $subject, $html, $headers);
+            TIX_Customer_URL::mail($to, $subject, $html, $headers);
         }
     }
 
@@ -1430,7 +1430,8 @@ class TIX_Emails {
         self::send_html_mail(
             $order->get_billing_email(),
             $brand_name . ' – Deine Tickets sind bereit!',
-            $html
+            $html,
+            true
         );
 
         // Marker setzen — verhindert Doppel-Versand durch Auto-Heal-Mechanismus
@@ -1502,15 +1503,17 @@ class TIX_Emails {
             self::send_html_mail(get_option('admin_email'), $subject, $html);
         } else {
             // on-hold, cancelled, refunded: send to customer
-            self::send_html_mail($order->get_billing_email(), $subject, $html);
+            self::send_html_mail($order->get_billing_email(), $subject, $html, true);
         }
     }
 
     /**
      * HTML-Mail versenden via wp_mail mit korrektem Content-Type Header.
      */
-    public static function send_html_mail($to, $subject, $html) {
+    public static function send_html_mail($to, $subject, $html, $for_customer = false) {
         $headers = ['Content-Type: text/html; charset=UTF-8'];
+        // Mails an Kunden: Links auf die Kunden-Adresse (TIX_Customer_URL); Admin-Mails unverändert
+        if ($for_customer && class_exists('TIX_Customer_URL')) $html = TIX_Customer_URL::in_text($html);
         wp_mail($to, $subject, $html, $headers);
     }
 
@@ -1738,7 +1741,7 @@ class TIX_Emails {
         $subject = 'Gästeliste: ' . $event->post_title;
         $headers = ['Content-Type: text/html; charset=UTF-8'];
 
-        return wp_mail($guest['email'], $subject, $html, $headers);
+        return TIX_Customer_URL::mail($guest['email'], $subject, $html, $headers);
     }
 
     // ══════════════════════════════════════
@@ -1831,7 +1834,7 @@ class TIX_Emails {
         if (function_exists('WC') && WC()->mailer()) {
             WC()->mailer()->send($email, $subject, $html, $headers);
         } else {
-            wp_mail($email, $subject, $html, $headers);
+            TIX_Customer_URL::mail($email, $subject, $html, $headers);
         }
 
         // Status aktualisieren

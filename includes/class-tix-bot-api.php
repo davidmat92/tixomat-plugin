@@ -481,7 +481,7 @@ class TIX_Bot_API {
             'id'               => $id,
             'title'            => $post->post_title,
             'excerpt'          => wp_strip_all_tags($post->post_excerpt),
-            'url'              => $url,
+            'url'              => TIX_Customer_URL::to((string) $url),
             'thumbnail'        => $thumbnail,
             'date_start'       => $date_start,
             'date_end'         => $date_end,

@@ -862,8 +862,8 @@ class TIX_App_Checkout {
     /** Wallet-Links eines Ticket-Posts: {apple_url, google_url} ('' = Plattform nicht eingerichtet) oder null (Wallet aus). */
     public static function wallet_links($ticket_post_id) {
         if (!class_exists('TIX_Wallet') || !TIX_Wallet::is_master_enabled()) return null;
-        $apple  = TIX_Wallet::is_apple_ready()  ? TIX_Wallet::get_apple_pass_url($ticket_post_id)  : '';
-        $google = TIX_Wallet::is_google_ready() ? TIX_Wallet::get_google_save_url($ticket_post_id) : '';
+        $apple  = TIX_Wallet::is_apple_ready()  ? TIX_Customer_URL::to(TIX_Wallet::get_apple_pass_url($ticket_post_id))  : '';
+        $google = TIX_Wallet::is_google_ready() ? TIX_Customer_URL::to(TIX_Wallet::get_google_save_url($ticket_post_id)) : '';
         if ($apple === '' && $google === '') return null;
         return ['apple_url' => $apple, 'google_url' => $google];
     }
@@ -871,7 +871,7 @@ class TIX_App_Checkout {
     /** Rechnungs-PDF (signiert über den Order-Key) oder '' ohne erstellte Rechnung. */
     public static function invoice_url($order_id, $order_key = '') {
         if (!class_exists('TIX_Invoicing') || !TIX_Invoicing::has_downloadable_invoice(intval($order_id))) return '';
-        return TIX_Invoicing::get_download_url(intval($order_id), (string) $order_key);
+        return TIX_Customer_URL::to(TIX_Invoicing::get_download_url(intval($order_id), (string) $order_key));
     }
 
     /**
@@ -936,7 +936,7 @@ class TIX_App_Checkout {
             'id'         => $event_id,
             'title'      => html_entity_decode((string) $p->post_title, ENT_QUOTES, 'UTF-8'),
             'date_start' => (string) get_post_meta($event_id, '_tix_date_start', true),
-            'url'        => (string) get_permalink($event_id),
+            'url'        => TIX_Customer_URL::to((string) get_permalink($event_id)),
         ];
     }
 

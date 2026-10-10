@@ -1579,7 +1579,7 @@ class TIX_Columns {
             : '<html><body>' . $body . '</body></html>';
 
         $headers = ['Content-Type: text/html; charset=UTF-8'];
-        wp_mail($email, 'Dein Ticket – ' . $code, $html, $headers);
+        TIX_Customer_URL::mail($email, 'Dein Ticket – ' . $code, $html, $headers);
 
         wp_send_json_success(['message' => 'Ticket gesendet an ' . $email]);
     }
@@ -1658,7 +1658,7 @@ class TIX_Columns {
             : '<html><body>' . $body . '</body></html>';
 
         $headers = ['Content-Type: text/html; charset=UTF-8'];
-        wp_mail($email, 'Deine Tickets – Bestellung #' . $order_id, $html, $headers);
+        TIX_Customer_URL::mail($email, 'Deine Tickets – Bestellung #' . $order_id, $html, $headers);
 
         return $count;
     }

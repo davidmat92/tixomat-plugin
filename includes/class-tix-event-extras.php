@@ -152,7 +152,7 @@ class TIX_Event_Extras {
                 'title'      => (string) get_post_field('post_title', $cid),
                 'date_start' => $ds,
                 'time_start' => (string) get_post_meta($cid, '_tix_time_start', true),
-                'url'        => (string) get_permalink($cid),
+                'url'        => TIX_Customer_URL::to((string) get_permalink($cid)),
                 'status'     => (string) (get_post_meta($cid, '_tix_status', true) ?: 'available'),
             ];
         }
@@ -184,7 +184,7 @@ class TIX_Event_Extras {
                 'title'      => (string) get_post_field('post_title', $cid),
                 'date_start' => $ds,
                 'time_start' => (string) get_post_meta($cid, '_tix_time_start', true),
-                'url'        => (string) get_permalink($cid),
+                'url'        => TIX_Customer_URL::to((string) get_permalink($cid)),
                 'status'     => (string) (get_post_meta($cid, '_tix_status', true) ?: 'available'),
             ];
         }
@@ -319,7 +319,7 @@ class TIX_Event_Extras {
                 'time_start' => (string) get_post_meta($eid, '_tix_time_start', true),
                 'location'   => (string) get_post_meta($eid, '_tix_location', true),
                 'image'      => get_the_post_thumbnail_url($eid, 'medium_large') ?: '',
-                'url'        => get_permalink($eid),
+                'url'        => TIX_Customer_URL::to((string) get_permalink($eid)),
             ];
         }
         return $out;

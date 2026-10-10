@@ -97,7 +97,7 @@ class TIX_Account_Activation {
             : '<html><body>' . $body . '</body></html>';
 
         $headers = ['Content-Type: text/html; charset=UTF-8'];
-        return wp_mail($user->user_email, $subject, $html, $headers);
+        return TIX_Customer_URL::mail($user->user_email, $subject, $html, $headers);
     }
 
     /**

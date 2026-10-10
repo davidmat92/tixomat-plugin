@@ -255,7 +255,7 @@ class TIX_Waitlist {
             $headers[] = 'From: ' . $brand . ' <' . $from . '>';
         }
 
-        wp_mail($email, $subject, $body, $headers);
+        TIX_Customer_URL::mail($email, $subject, $body, $headers);
     }
 
     /* ════════════════════════════════════════

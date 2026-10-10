@@ -1635,7 +1635,7 @@ class TIX_CRM {
             : '<html><body>' . $body . '</body></html>';
 
         $headers = ['Content-Type: text/html; charset=UTF-8'];
-        $sent = wp_mail($email, $subject, $html, $headers, $attachments);
+        $sent = TIX_Customer_URL::mail($email, $subject, $html, $headers, $attachments);
 
         // Temp-PDFs nach Versand wieder löschen
         foreach ($temp_files as $f) { @unlink($f); }

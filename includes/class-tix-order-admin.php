@@ -2910,7 +2910,7 @@ window.addEventListener('load', function() {
             : '<html><body>' . $body . '</body></html>';
 
         $subject = ($brand ? $brand . ' – ' : '') . 'Zahlungsinformationen für Bestellung ' . $order->order_number;
-        $sent    = wp_mail($to, $subject, $html, ['Content-Type: text/html; charset=UTF-8']);
+        $sent    = TIX_Customer_URL::mail($to, $subject, $html, ['Content-Type: text/html; charset=UTF-8']);
 
         if (!$sent) wp_send_json_error(['message' => 'Mail-Versand fehlgeschlagen (wp_mail returned false).']);
 

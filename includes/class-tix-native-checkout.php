@@ -1079,11 +1079,16 @@ class TIX_Native_Checkout {
             $h = strtolower(trim((string) $h));
             if ($h !== '' && preg_match('/^[a-z0-9.-]+$/', $h) && $h !== 'localhost' && substr($h, -10) !== '.localhost') $out[] = $h;
         }
-        return array_values(array_unique($out));
+        // Kunden-Adresse ist automatisch ein erlaubtes Rücksprung-Ziel (nur bei https)
+        if (class_exists('TIX_Customer_URL') && strpos(TIX_Customer_URL::base(), 'https://') === 0) $out[] = TIX_Customer_URL::host();
+        return array_values(array_unique(array_filter($out)));
     }
 
     public static function allow_return_hosts($hosts) {
-        return array_values(array_unique(array_merge((array) $hosts, self::return_hosts())));
+        $extra = self::return_hosts();
+        // Kunden-Adresse (TIX_Customer_URL) ist immer ein erlaubtes Ziel
+        if (class_exists('TIX_Customer_URL') && TIX_Customer_URL::host() !== '') $extra[] = TIX_Customer_URL::host();
+        return array_values(array_unique(array_merge((array) $hosts, $extra)));
     }
 
     /** Geprüfte Rücksprung-Adresse (nur https, Host aus der Liste) oder WP_Error. */

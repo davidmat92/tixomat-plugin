@@ -174,7 +174,8 @@ class TIX_Public_Events {
             'id'              => intval($id),
             'title'           => (string) $post->post_title,
             'slug'            => (string) $post->post_name,
-            'url'             => get_permalink($id),
+            // Kunden-Adresse (z. B. evendis.de statt veranstalter.evendis.de), sonst unverändert
+            'url'             => TIX_Customer_URL::to((string) get_permalink($id)),
             // Bildgrößen passend zur App: Detail/Karten „large“ (1024), Slider/Karten
             // „medium_large“ (768), Zeilen + Blur-Platzhalter „medium“ (300)
             'image'           => get_the_post_thumbnail_url($id, 'large') ?: (get_the_post_thumbnail_url($id, 'full') ?: ''),

@@ -1008,7 +1008,7 @@ class TIX_Support {
         $subject = 'Dein Ticket – ' . $code;
 
         $headers = ['Content-Type: text/html; charset=UTF-8'];
-        wp_mail($email, $subject, $html, $headers);
+        TIX_Customer_URL::mail($email, $subject, $html, $headers);
 
         wp_send_json_success(['message' => 'Ticket-E-Mail wurde erneut gesendet an ' . $email]);
     }
@@ -2278,7 +2278,7 @@ class TIX_Support {
         if (class_exists('TIX_Support_Mail')) {
             return TIX_Support_Mail::send_customer_mail($ticket_id, $email, $subject, $html, $kind, $attachments);
         }
-        return wp_mail($email, $subject, $html, ['Content-Type: text/html; charset=UTF-8'], $attachments);
+        return TIX_Customer_URL::mail($email, $subject, $html, ['Content-Type: text/html; charset=UTF-8'], $attachments);
     }
 
     /**

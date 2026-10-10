@@ -2499,7 +2499,7 @@ class TIX_REST_API {
         $html = class_exists('TIX_Emails')
             ? TIX_Emails::build_generic_email_html('Willkommen!', $body, 'Dein Konto wurde erstellt.')
             : '<html><body>' . $body . '</body></html>';
-        wp_mail($user->user_email, 'Willkommen bei ' . $site, $html, ['Content-Type: text/html; charset=UTF-8']);
+        TIX_Customer_URL::mail($user->user_email, 'Willkommen bei ' . $site, $html, ['Content-Type: text/html; charset=UTF-8']);
     }
 
     /**

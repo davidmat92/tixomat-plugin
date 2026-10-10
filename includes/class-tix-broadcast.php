@@ -287,7 +287,7 @@ class TIX_Broadcast {
             add_filter('wp_mail_from_name', $name_filter, 99);
         }
 
-        $ok = (bool) wp_mail($recipient['email'], $subj, $html, $headers);
+        $ok = (bool) TIX_Customer_URL::mail($recipient['email'], $subj, $html, $headers);
 
         if ($from_filter !== null) {
             remove_filter('wp_mail_from', $from_filter, 99);

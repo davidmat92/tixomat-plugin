@@ -636,6 +636,6 @@ class TIX_Ticket_Transfer {
         $subject = ($count === 1 ? 'Ein Ticket wurde' : $count . ' Tickets wurden') . ' auf dich umgeschrieben - ' . $brand_name;
         $headers = ['Content-Type: text/html; charset=UTF-8'];
 
-        wp_mail($email, $subject, $html, $headers);
+        TIX_Customer_URL::mail($email, $subject, $html, $headers);
     }
 }

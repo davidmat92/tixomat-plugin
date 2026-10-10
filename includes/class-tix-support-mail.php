@@ -258,7 +258,7 @@ class TIX_Support_Mail {
         }
         $mid = self::new_message_id($ticket_id);
         self::$pending_mid = $mid;
-        $ok = wp_mail($to, $subject, $html, $headers, $attachments);
+        $ok = TIX_Customer_URL::mail($to, $subject, $html, $headers, $attachments);
         self::$pending_mid = '';
         $thread[] = $mid;
         update_post_meta($ticket_id, '_tix_sp_mail_thread', array_slice($thread, -20));

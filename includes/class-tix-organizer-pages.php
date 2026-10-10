@@ -97,7 +97,7 @@ class TIX_Organizer_Pages {
     /** URL der Veranstalter-Seite oder '' (nicht öffentlich / Modus aus). */
     public static function url($oid) {
         if (!self::enabled() || !$oid || !self::is_public($oid)) return '';
-        return (string) get_permalink($oid);
+        return TIX_Customer_URL::to((string) get_permalink($oid));
     }
 
     public static function guard() {

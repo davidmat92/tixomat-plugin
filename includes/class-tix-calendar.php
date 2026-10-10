@@ -138,7 +138,8 @@ class TIX_Calendar {
         if ($address) $loc_full .= ', ' . $address;
 
         $title = get_the_title($post_id);
-        $url   = get_permalink($post_id);
+        // Link im Kalendereintrag auf die Kunden-Adresse (UID bleibt an der WordPress-Adresse)
+        $url   = TIX_Customer_URL::to((string) get_permalink($post_id));
 
         // Beschreibung: Einlass + URL
         $desc_parts = [];

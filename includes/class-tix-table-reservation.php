@@ -1608,7 +1608,7 @@ class TIX_Table_Reservation {
         $body .= '</table></td></tr></table></body></html>';
 
         $headers = ['Content-Type: text/html; charset=UTF-8'];
-        wp_mail($res->customer_email, $subject, $body, $headers);
+        TIX_Customer_URL::mail($res->customer_email, $subject, $body, $headers);
 
         // Admin-Benachrichtigung
         $admin_email = get_option('admin_email');

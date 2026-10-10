@@ -688,7 +688,7 @@ class TIX_Raffle {
             $headers[] = "From: {$from_name} <{$s['email_from_address']}>";
         }
 
-        wp_mail($winner['email'], $subject, $body, $headers);
+        TIX_Customer_URL::mail($winner['email'], $subject, $body, $headers);
     }
 
     /* ════════════════════════════════════
