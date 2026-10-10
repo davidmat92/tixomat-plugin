@@ -148,9 +148,11 @@ class TIX_Giftcards {
         $pt = $query->get('post_type');
         $has_event = $pt === 'event' || (is_array($pt) && in_array('event', $pt, true));
         if (!$has_event) return;
-        $mq = (array) $query->get('meta_query');
-        $mq[] = ['key' => '_tix_system_giftcard_event', 'compare' => 'NOT EXISTS'];
-        $query->set('meta_query', $mq);
+        $mq = array_filter((array) $query->get('meta_query'), function ($v) { return $v !== '' && $v !== null; });
+        $hide = ['key' => '_tix_system_giftcard_event', 'compare' => 'NOT EXISTS'];
+        // Vorhandene Bedingungen per UND verknüpfen: einfach angehängt würde ein oberstes
+        // relation=OR zu „… ODER kein Gutschein-Event“ und die Abfrage träfe fast alles
+        $query->set('meta_query', $mq ? ['relation' => 'AND', $mq, $hide] : [$hide]);
     }
 
     /* ─────────── Kategorie-Helpers ─────────── */

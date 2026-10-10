@@ -201,6 +201,9 @@ class TIX_Syndication_Push {
             'partner_sales'   => self::partner_sales_enabled($post_id),
             'categories'      => $categories,
             'meta'            => $all_meta,
+            // Ort mit Koordinaten: die Location bleibt hier, der Empfänger
+            // kennt sonst nur Ort/Adresse als Text (Wetter, Umkreissuche brauchen lat/lng)
+            'venue'           => self::venue_payload($post_id),
         ];
 
         // Push oder Update?
@@ -228,6 +231,26 @@ class TIX_Syndication_Push {
             update_post_meta($post_id, '_tix_syndicate_error', $error);
             error_log('[TIX Syndication] Push-Fehler für Event #' . $post_id . ': ' . $error);
         }
+    }
+
+    /** Ort des Events für den Empfänger; fehlen der Location Koordinaten, einmal ermitteln. */
+    public static function venue_payload($post_id) {
+        if (!class_exists('TIX_Public_Platform')) return null;
+        $loc_id = intval(get_post_meta($post_id, '_tix_location_id', true));
+        if ($loc_id && class_exists('TIX_Venues') && get_post_type($loc_id) === 'tix_location') {
+            TIX_Venues::maybe_geocode($loc_id); // merkt Fehlschläge, fragt also nicht bei jedem Push
+        }
+        $v = TIX_Public_Platform::venue($post_id);
+        $addr = trim((string) get_post_meta($post_id, '_tix_address', true));
+        if ($addr === '' && $loc_id) $addr = trim((string) get_post_meta($loc_id, '_tix_loc_address', true));
+        return [
+            'name'    => (string) $v['name'],
+            'address' => $addr,
+            'city'    => (string) $v['city'],
+            'zip'     => (string) $v['zip'],
+            'lat'     => $v['lat'],
+            'lng'     => $v['lng'],
+        ];
     }
 
     /**

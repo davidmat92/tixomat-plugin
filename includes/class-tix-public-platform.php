@@ -146,6 +146,13 @@ class TIX_Public_Platform {
         }
         if ($city === '') list($city, $zip2) = self::parse_city($addr);
         if ($zip === '' && !empty($zip2)) $zip = $zip2;
+        // Ohne Location-Koordinaten: am Event gespeicherte (übernommene Events von der
+        // Quelle bzw. aus der Event-Adresse ermittelt, TIX_Venues::maybe_geocode_event)
+        if ($lat === null) {
+            $la = get_post_meta($event_id, '_tix_venue_lat', true);
+            $ln = get_post_meta($event_id, '_tix_venue_lng', true);
+            if (is_numeric($la) && is_numeric($ln) && floatval($la) != 0) { $lat = floatval($la); $lng = floatval($ln); }
+        }
         return [
             'id'   => $loc_id,
             'name' => $name,

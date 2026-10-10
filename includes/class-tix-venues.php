@@ -21,6 +21,7 @@ class TIX_Venues {
     const TTL  = 60;
     const DAYS = ['mon' => 'Montag', 'tue' => 'Dienstag', 'wed' => 'Mittwoch', 'thu' => 'Donnerstag', 'fri' => 'Freitag', 'sat' => 'Samstag', 'sun' => 'Sonntag'];
     const NOMINATIM = 'https://nominatim.openstreetmap.org/search';
+    const EVENT_GEO_HOOK = 'tix_geocode_event';
 
     public static function init() {
         add_action('rest_api_init', [__CLASS__, 'register_routes']);
@@ -28,8 +29,11 @@ class TIX_Venues {
         add_action('save_post_tix_location', [__CLASS__, 'save'], 20, 2);
         add_action('save_post_tix_location', [__CLASS__, 'on_save_geocode'], 30, 2);
         if (class_exists('TIX_Public_Events')) add_action('save_post_tix_location', ['TIX_Public_Events', 'flush'], 40);
+        // Übernommene Events ohne Koordinaten: im Hintergrund aus der Adresse ermitteln
+        add_action(self::EVENT_GEO_HOOK, [__CLASS__, 'run_event_geocode']);
         if (defined('WP_CLI') && WP_CLI && class_exists('WP_CLI')) {
             WP_CLI::add_command('tixomat geocode-locations', [__CLASS__, 'cli_geocode']);
+            WP_CLI::add_command('tixomat geocode-events', [__CLASS__, 'cli_geocode_events']);
         }
     }
 
@@ -283,7 +287,19 @@ class TIX_Venues {
     }
 
     /** Eine Nominatim-Abfrage: [lat, lng] oder null (Fehler werden ignoriert). */
-    public static function geocode($query) {
+    public static function geocode($query, $retry = false) {
+        // Gleicher Suchtext (z. B. mehrere Events am selben Ort) nur einmal fragen:
+        // Treffer 30 Tage, Fehlschlag 1 Tag merken (Nominatim erlaubt 1 Anfrage/Sekunde);
+        // $retry = gemerkten Fehlschlag ignorieren
+        $ckey = 'tix_geo_' . md5(strtolower(trim((string) $query)));
+        $hit = get_transient($ckey);
+        if (is_array($hit) && (!empty($hit['c']) || !$retry)) return $hit['c'] ?? null;
+        $c = self::geocode_remote($query);
+        set_transient($ckey, ['c' => $c], $c ? 30 * DAY_IN_SECONDS : DAY_IN_SECONDS);
+        return $c;
+    }
+
+    private static function geocode_remote($query) {
         $url = self::NOMINATIM . '?' . http_build_query(['format' => 'json', 'limit' => 1, 'q' => $query], '', '&', PHP_QUERY_RFC3986);
         $res = wp_remote_get($url, [
             'timeout'    => 5,
@@ -310,7 +326,7 @@ class TIX_Venues {
             if (!$auto || get_post_meta($loc_id, '_tix_loc_geo_query', true) === $query) return 'skip';
         }
         if (!$force && get_post_meta($loc_id, '_tix_loc_geo_failed', true) === $query) return 'skip';
-        $c = self::geocode($query);
+        $c = self::geocode($query, $force);
         if (!$c) {
             update_post_meta($loc_id, '_tix_loc_geo_failed', $query);
             return 'failed';
@@ -321,6 +337,86 @@ class TIX_Venues {
         update_post_meta($loc_id, '_tix_loc_geo_query', $query);
         delete_post_meta($loc_id, '_tix_loc_geo_failed');
         return 'ok';
+    }
+
+    // ── Koordinaten am Event (ohne Location-Koordinaten, v. a. übernommene Events) ──
+    //   _tix_venue_lat/_tix_venue_lng, _tix_venue_geo_auto ('source' = von der Quellseite
+    //   übertragen, '1' = hier aus der Adresse ermittelt), _tix_venue_geo_query, _tix_venue_geo_failed
+
+    /** Koordinaten am Event [lat, lng] oder [null, null]. */
+    public static function event_coords($event_id) {
+        $la = get_post_meta($event_id, '_tix_venue_lat', true);
+        $ln = get_post_meta($event_id, '_tix_venue_lng', true);
+        if (!is_numeric($la) || !is_numeric($ln) || floatval($la) == 0) return [null, null];
+        return [floatval($la), floatval($ln)];
+    }
+
+    /** Gültige Koordinaten aus einer Eingabe (z. B. Push-Feld `venue`) oder null. */
+    public static function clean_coords($lat, $lng) {
+        if (!is_numeric($lat) || !is_numeric($lng)) return null;
+        $lat = round(floatval($lat), 7);
+        $lng = round(floatval($lng), 7);
+        if ($lat == 0 || $lat < -90 || $lat > 90 || $lng < -180 || $lng > 180) return null;
+        return [$lat, $lng];
+    }
+
+    /** Suchtext für ein Event: Adresse (mit PLZ/Ort), sonst Ortsname + PLZ/Ort; '' = nichts Brauchbares. */
+    public static function event_geo_query($event_id) {
+        $addr = trim((string) get_post_meta($event_id, '_tix_address', true));
+        $name = trim((string) get_post_meta($event_id, '_tix_location', true));
+        list($city, $zip) = class_exists('TIX_Public_Platform') ? TIX_Public_Platform::parse_city($addr) : ['', ''];
+        if ($addr !== '' && $city !== '') return $addr;
+        $vcity = trim((string) get_post_meta($event_id, '_tix_venue_city', true));
+        $vzip  = trim((string) get_post_meta($event_id, '_tix_venue_zip', true));
+        $place = trim($vzip . ' ' . $vcity);
+        if ($place === '') return ''; // ohne Ort nicht raten
+        $first = $addr !== '' ? $addr : $name;
+        return $first !== '' ? $first . ', ' . $place : '';
+    }
+
+    /**
+     * Event-Koordinaten aus der Adresse ermitteln, wenn weder Location noch Event welche hat
+     * (bzw. automatisch ermittelte nach Adressänderung). Von der Quelle übertragene bleiben.
+     * Rückgabe: 'ok'|'failed'|'skip'.
+     */
+    public static function maybe_geocode_event($event_id, $force = false) {
+        $event_id = intval($event_id);
+        $loc_id = intval(get_post_meta($event_id, '_tix_location_id', true));
+        if ($loc_id && get_post_type($loc_id) === 'tix_location') {
+            list($llat) = self::coords($loc_id);
+            if ($llat !== null) return 'skip';
+        }
+        $auto = (string) get_post_meta($event_id, '_tix_venue_geo_auto', true);
+        list($lat) = self::event_coords($event_id);
+        $query = self::event_geo_query($event_id);
+        if ($lat !== null && ($auto !== '1' || get_post_meta($event_id, '_tix_venue_geo_query', true) === $query)) return 'skip';
+        if ($query === '') return 'skip';
+        if (!$force && get_post_meta($event_id, '_tix_venue_geo_failed', true) === $query) return 'skip';
+        $c = self::geocode($query, $force);
+        if (!$c) {
+            update_post_meta($event_id, '_tix_venue_geo_failed', $query);
+            return 'failed';
+        }
+        update_post_meta($event_id, '_tix_venue_lat', (string) $c[0]);
+        update_post_meta($event_id, '_tix_venue_lng', (string) $c[1]);
+        update_post_meta($event_id, '_tix_venue_geo_auto', '1');
+        update_post_meta($event_id, '_tix_venue_geo_query', $query);
+        delete_post_meta($event_id, '_tix_venue_geo_failed');
+        if (class_exists('TIX_Public_Events')) TIX_Public_Events::flush();
+        return 'ok';
+    }
+
+    /** Im Hintergrund ermitteln (Empfang einer Übertragung soll nicht auf Nominatim warten). */
+    public static function queue_event_geocode($event_id) {
+        $event_id = intval($event_id);
+        if ($event_id && !wp_next_scheduled(self::EVENT_GEO_HOOK, [$event_id])) {
+            wp_schedule_single_event(time() + 10, self::EVENT_GEO_HOOK, [$event_id]);
+        }
+    }
+
+    public static function run_event_geocode($event_id) {
+        if (get_post_type(intval($event_id)) !== 'event') return;
+        self::maybe_geocode_event(intval($event_id));
     }
 
     public static function on_save_geocode($post_id, $post) {
@@ -370,6 +466,68 @@ class TIX_Venues {
         }
         if (class_exists('TIX_Public_Events')) TIX_Public_Events::flush();
         if ($dry) WP_CLI::success("{$todo} Locations ohne Koordinaten.");
+        else WP_CLI::success("{$done} ergänzt, {$failed} nicht gefunden.");
+    }
+
+    /**
+     * Koordinaten für kommende, veröffentlichte Events ohne Koordinaten nachtragen:
+     * Location mit Adresse → Location geocoden, sonst Event-Adresse (v. a. übernommene Events).
+     * Gleiche Adressen werden nur einmal abgefragt.
+     *
+     * ## OPTIONS
+     *
+     * [--dry-run]
+     * : Nur auflisten, nichts abfragen.
+     *
+     * [--all]
+     * : Auch vergangene Events.
+     *
+     * [--sleep=<sekunden>]
+     * : Pause zwischen den Anfragen (Standard 1).
+     *
+     * ## EXAMPLES
+     *
+     *     wp tixomat geocode-events --dry-run
+     *     wp tixomat geocode-events
+     */
+    public static function cli_geocode_events($args, $assoc) {
+        $dry   = !empty($assoc['dry-run']);
+        $sleep = isset($assoc['sleep']) ? max(0, floatval($assoc['sleep'])) : 1.0;
+        $q = ['post_type' => 'event', 'post_status' => 'publish', 'posts_per_page' => -1, 'fields' => 'ids'];
+        if (empty($assoc['all'])) {
+            $lo = gmdate('Y-m-d', strtotime(current_time('Y-m-d') . ' 00:00:00 UTC') - DAY_IN_SECONDS);
+            $q['meta_query'] = [
+                'relation' => 'OR',
+                ['key' => '_tix_date_start', 'value' => $lo, 'compare' => '>=', 'type' => 'DATE'],
+                ['key' => '_tix_date_end',   'value' => $lo, 'compare' => '>=', 'type' => 'DATE'],
+            ];
+        }
+        $done = 0; $failed = 0; $todo = 0; $asked = [];
+        foreach (get_posts($q) as $eid) {
+            $v = class_exists('TIX_Public_Platform') ? TIX_Public_Platform::venue($eid) : null;
+            if (!$v || $v['lat'] !== null) continue;
+            $loc_id = intval($v['id']);
+            $use_loc = $loc_id && self::geo_query($loc_id) !== '';
+            $query = $use_loc ? self::geo_query($loc_id) : self::event_geo_query($eid);
+            $label = "#{$eid} " . html_entity_decode(get_the_title($eid), ENT_QUOTES, 'UTF-8');
+            if ($query === '') { WP_CLI::log("{$label}: keine Adresse – übersprungen"); continue; }
+            $todo++;
+            if ($dry) { WP_CLI::log("{$label}: " . ($use_loc ? "Location #{$loc_id}" : 'Event') . " – {$query}"); continue; }
+            $key = strtolower($query);
+            if (!isset($asked[$key]) && $asked && $sleep > 0) usleep(intval($sleep * 1000000));
+            $asked[$key] = true;
+            $r = $use_loc ? self::maybe_geocode($loc_id, true) : self::maybe_geocode_event($eid, true);
+            $v = TIX_Public_Platform::venue($eid);
+            if ($v['lat'] !== null) {
+                $done++;
+                WP_CLI::log("{$label}: {$v['lat']}, {$v['lng']}");
+            } else {
+                $failed++;
+                WP_CLI::warning("{$label}: nicht gefunden ({$query})" . ($r === 'skip' ? ' – übersprungen' : ''));
+            }
+        }
+        if (class_exists('TIX_Public_Events')) TIX_Public_Events::flush();
+        if ($dry) WP_CLI::success("{$todo} Events ohne Koordinaten.");
         else WP_CLI::success("{$done} ergänzt, {$failed} nicht gefunden.");
     }
 }

@@ -328,6 +328,8 @@ class TIX_Syndication_Receive {
                 if (in_array($key, self::PROTECTED_META, true)) continue;
                 // Wiederholung macht die Quelle (Termine kommen einzeln); Serien-Metas tragen fremde IDs
                 if (strpos($key, '_tix_recurrence') === 0) continue;
+                // Ort-Koordinaten setzt nur das Feld `venue` bzw. das Geocoding hier (apply_venue)
+                if (strpos($key, '_tix_venue_') === 0) continue;
                 if ($key === '_tix_ticket_categories' && is_array($value)) {
                     foreach ($value as $i => $cat) {
                         if (is_array($cat)) unset($value[$i]['product_id']);
@@ -345,6 +347,9 @@ class TIX_Syndication_Receive {
         }
         delete_post_meta($event_id, '_tix_location_id');
 
+        // Nur-Bestand-Update: Ort bleibt unverändert
+        if (empty($data['stock_only'])) self::apply_venue($event_id, $data);
+
         // Serien-Metas älterer Übertragungen entfernen; hier daraus angelegte Termine
         // ohne Verkäufe wegräumen (sonst stünde jeder Partner-Termin doppelt da)
         if (metadata_exists('post', $event_id, '_tix_recurrence') || metadata_exists('post', $event_id, '_tix_recurrence_parent')) {
@@ -354,6 +359,39 @@ class TIX_Syndication_Receive {
                 delete_post_meta($event_id, $k);
             }
         }
+    }
+
+    /**
+     * Ort-Koordinaten der Quelle übernehmen (Feld `venue`). Ältere Partner
+     * schicken es nicht → bisherige Koordinaten bleiben. Fehlen danach Koordinaten,
+     * ermittelt diese Seite sie im Hintergrund aus der Adresse (TIX_Venues).
+     */
+    private static function apply_venue($event_id, $data) {
+        $v = (isset($data['venue']) && is_array($data['venue'])) ? $data['venue'] : null;
+        if ($v !== null) {
+            $city = sanitize_text_field((string) ($v['city'] ?? ''));
+            $zip  = sanitize_text_field((string) ($v['zip'] ?? ''));
+            if ($city !== '') update_post_meta($event_id, '_tix_venue_city', $city); else delete_post_meta($event_id, '_tix_venue_city');
+            if ($zip !== '')  update_post_meta($event_id, '_tix_venue_zip', $zip);   else delete_post_meta($event_id, '_tix_venue_zip');
+            $c = class_exists('TIX_Venues') ? TIX_Venues::clean_coords($v['lat'] ?? null, $v['lng'] ?? null) : null;
+            if ($c) {
+                update_post_meta($event_id, '_tix_venue_lat', (string) $c[0]);
+                update_post_meta($event_id, '_tix_venue_lng', (string) $c[1]);
+                update_post_meta($event_id, '_tix_venue_geo_auto', 'source');
+                delete_post_meta($event_id, '_tix_venue_geo_query');
+                delete_post_meta($event_id, '_tix_venue_geo_failed');
+            } elseif (get_post_meta($event_id, '_tix_venue_geo_auto', true) === 'source') {
+                // Quelle hat keine Koordinaten (mehr) → ihre alten nicht stehen lassen
+                foreach (['_tix_venue_lat', '_tix_venue_lng', '_tix_venue_geo_auto'] as $k) delete_post_meta($event_id, $k);
+            }
+        }
+        if (class_exists('TIX_Venues')) {
+            list($lat) = TIX_Venues::event_coords($event_id);
+            $auto = get_post_meta($event_id, '_tix_venue_geo_auto', true);
+            // fehlend oder automatisch ermittelt (Adresse kann sich geändert haben)
+            if ($lat === null || $auto === '1') TIX_Venues::queue_event_geocode($event_id);
+        }
+        if (class_exists('TIX_Public_Events')) TIX_Public_Events::flush();
     }
 
     /**
