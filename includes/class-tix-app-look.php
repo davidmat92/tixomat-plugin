@@ -39,6 +39,14 @@ class TIX_App_Look {
     /** Shortcodes, deren Seiten die Vorlage „Seite (App-Look)“ bekommen (Kasse, Konto/Tickets, Support) */
     const APP_PAGES = ['tix_checkout', 'tix_account', 'tix_my_tickets', 'tix_support'];
     const OPT_REPLACED = 'tix_app_look_replaced';
+    const META_HASH    = '_tix_app_look_md5';
+
+    /** md5 früher ausgelieferter Vorlagen (1.38.371); unverändert = darf überschrieben werden */
+    const SHIPPED = [
+        '614d0b872e77ec7c349fac22059476a2', // Startseite 1.38.371
+        'e62e7a6f57639db3e99df904ef86b066', // Einzel-Event 1.38.371
+        '90c2e6aa043426f86c4e46d3cdb7e15f', // Veranstalter 1.38.371
+    ];
 
     /** Lucide-Icons (ISC), Strich 2 */
     const ICONS = [
@@ -826,6 +834,9 @@ class TIX_App_Look {
      *
      * ## OPTIONS
      *
+     * [--force]
+     * : bei install auch Vorlagen überschreiben, die im Builder geändert wurden
+     *
      * [<aktion>]
      * : install = Vorlagen anlegen/aktualisieren (neue bleiben aus), on = App-Look an (bisherige Vorlagen
      * gleichen Typs aus), off = zurück zu den bisherigen Vorlagen, status = Übersicht (Standard)
@@ -833,10 +844,11 @@ class TIX_App_Look {
      * ## EXAMPLES
      *
      *     wp tixomat app-look install
+     *     wp tixomat app-look install --force   (auch im Builder geänderte Vorlagen überschreiben)
      *     wp tixomat app-look on
      *     wp tixomat app-look off
      */
-    public static function cli($args) {
+    public static function cli($args, $assoc_args = []) {
         $action = $args[0] ?? 'status';
         if (!function_exists('\Breakdance\Data\set_meta')) WP_CLI::error('Breakdance ist nicht aktiv.');
         $ours = self::cli_templates();
@@ -847,11 +859,22 @@ class TIX_App_Look {
                 if (!json_decode($json, true)) WP_CLI::error("$file fehlt oder ist kein JSON.");
                 $id = $ours[$type] ?? 0;
                 $new = !$id;
+                // Im Builder geändert (weder ausgeliefert noch zuletzt eingespielt)? Dann nicht ungefragt überschreiben.
+                if (!$new) {
+                    $cur = (array) \Breakdance\Data\get_meta($id, '_breakdance_data');
+                    $md5 = md5((string) ($cur['tree_json_string'] ?? ''));
+                    $known = array_merge(self::SHIPPED, [(string) get_post_meta($id, self::META_HASH, true), md5($json)]);
+                    if (!in_array($md5, $known, true) && empty($assoc_args['force'])) {
+                        WP_CLI::warning("#$id $title wurde im Builder geändert – übersprungen (mit --force überschreiben).");
+                        continue;
+                    }
+                }
                 if ($new) {
                     $id = wp_insert_post(['post_type' => 'breakdance_template', 'post_status' => 'publish', 'post_title' => $title], true);
                     if (is_wp_error($id)) WP_CLI::error($id->get_error_message());
                 }
                 \Breakdance\Data\set_meta($id, '_breakdance_data', ['tree_json_string' => $json]);
+                update_post_meta($id, self::META_HASH, md5($json));
                 $settings = json_decode((string) \Breakdance\Data\get_meta($id, '_breakdance_template_settings'), true) ?: [];
                 $settings = array_merge(['type' => $type, 'ruleGroups' => [], 'priority' => 30, 'triggers' => []], $settings);
                 // Seiten-Vorlage nur für Kasse/Konto/Tickets/Support: Bedingung „[tix_app key="app_page"] ist nicht leer“
