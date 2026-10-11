@@ -68,6 +68,13 @@ class TIX_Legal {
         add_action('admin_menu', [__CLASS__, 'register_admin_page'], 50);
         add_action('admin_init', [__CLASS__, 'register_settings']);
 
+        // Öffentliche Schnittstelle für Apps/Website: GET /public/legal/{slug}
+        add_action('rest_api_init', [__CLASS__, 'register_routes']);
+        // Gespeicherte Texte sofort ausliefern (Zwischenspeicher leeren)
+        add_action('update_option_' . self::OPTION_KEY, [__CLASS__, 'flush_cache']);
+        add_action('add_option_' . self::OPTION_KEY, [__CLASS__, 'flush_cache']);
+        add_action('update_option_tix_legal_updated_at', [__CLASS__, 'flush_cache']);
+
         // Shortcodes registrieren
         $pages = self::pages();
         foreach ($pages as $slug => $page) {
@@ -122,6 +129,61 @@ class TIX_Legal {
         $title   = !empty($stored[$slug]['title'])   ? $stored[$slug]['title']   : $page['default_title'];
         $content = !empty($stored[$slug]['content']) ? $stored[$slug]['content'] : $page['default'];
         return ['title' => $title, 'content' => $content];
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // REST: GET /public/legal/{slug}
+    // ════════════════════════════════════════════════════════════
+
+    public static function register_routes() {
+        register_rest_route('tixomat/v1', '/public/legal/(?P<slug>[a-z]+)', [
+            'methods'             => 'GET',
+            'callback'            => [__CLASS__, 'rest_get'],
+            'permission_callback' => '__return_true',
+        ]);
+    }
+
+    /** Hat der Admin für diese Seite einen eigenen Text gespeichert (sonst Mustertext)? */
+    public static function is_configured($slug) {
+        $stored = get_option(self::OPTION_KEY, []);
+        return is_array($stored) && !empty($stored[$slug]['content']) && trim(wp_strip_all_tags((string) $stored[$slug]['content'])) !== '';
+    }
+
+    /**
+     * {ok, slug, title, content (HTML wie der Shortcode), updated_at (ISO 8601, '' = nie gespeichert),
+     *  configured (false = Mustertext mit Platzhaltern)} – 60 s zwischengespeichert, cachebar.
+     */
+    public static function rest_get(WP_REST_Request $req) {
+        $slug = sanitize_key((string) $req['slug']);
+        $key  = 'tix_pub_legal_' . $slug;
+        $data = get_transient($key);
+        if (!is_array($data)) {
+            $page = self::get_page($slug);
+            if (!$page) {
+                return new WP_Error('tix_legal', 'Unbekannte Rechtsseite (erlaubt: ' . implode(', ', array_keys(self::pages())) . ').', ['status' => 404]);
+            }
+            $updated = (string) get_option('tix_legal_updated_at', '');
+            $iso = '';
+            if ($updated !== '') {
+                try { $iso = (new DateTimeImmutable($updated, wp_timezone()))->format('c'); } catch (Exception $e) { $iso = ''; }
+            }
+            $data = [
+                'ok'         => true,
+                'slug'       => $slug,
+                'title'      => html_entity_decode((string) $page['title'], ENT_QUOTES, 'UTF-8'),
+                'content'    => wp_kses_post(wpautop(self::convert_basic((string) $page['content']))),
+                'updated_at' => $iso,
+                'configured' => self::is_configured($slug),
+            ];
+            set_transient($key, $data, 60);
+        }
+        $resp = rest_ensure_response($data);
+        $resp->header('Cache-Control', 'public, max-age=60');
+        return $resp;
+    }
+
+    public static function flush_cache() {
+        foreach (array_keys(self::pages()) as $slug) delete_transient('tix_pub_legal_' . $slug);
     }
 
     // ════════════════════════════════════════════════════════════
