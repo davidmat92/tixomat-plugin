@@ -76,6 +76,7 @@ class TIX_My_Account {
 
         ob_start();
         ?>
+        <?php if (class_exists('TIX_Customer_Auth')) echo TIX_Customer_Auth::notice_html(); ?>
         <div class="tix-account" style="--tix-acc-primary: <?php echo esc_attr($primary); ?>;">
             <nav class="tix-account-nav">
                 <ul>
@@ -190,8 +191,16 @@ class TIX_My_Account {
         <div class="tix-account">
             <div class="tix-account-login">
                 <div class="tix-account-login-icon">&#128100;</div>
+                <?php
+                // Passwort vergessen / neues Passwort / Registrieren (ohne wp-login.php)
+                $auth_view = class_exists('TIX_Customer_Auth') ? TIX_Customer_Auth::view() : '';
+                if ($auth_view !== ''):
+                    echo TIX_Customer_Auth::render_view($auth_view);
+                else:
+                ?>
                 <h2>Mein Konto</h2>
                 <p>Melde dich an, um dein Konto zu verwalten.</p>
+                <?php if (class_exists('TIX_Customer_Auth')) echo TIX_Customer_Auth::notice_html(); ?>
                 <?php
                 if (defined('TIX_ON_ORG_SUBDOMAIN') && defined('TIX_LANDING_PARENT_HOST')):
                     $parent = TIX_LANDING_PARENT_HOST;
@@ -201,14 +210,16 @@ class TIX_My_Account {
                     </p>
                 <?php endif; ?>
                 <?php
+                $redirect = wp_validate_redirect(wp_unslash((string) ($_GET['redirect_to'] ?? '')), '');
                 wp_login_form([
-                    'redirect'       => get_permalink(),
+                    'redirect'       => $redirect !== '' ? $redirect : get_permalink(),
                     'form_id'        => 'tix-account-login-form',
                     'label_username' => 'E-Mail oder Benutzername',
                     'label_password' => 'Passwort',
                     'label_remember' => 'Angemeldet bleiben',
                     'label_log_in'   => 'Anmelden',
                 ]);
+                if (class_exists('TIX_Customer_Auth')) echo TIX_Customer_Auth::lost_link_html();
                 ?>
                 <?php if (get_option('users_can_register')): ?>
                     <p class="tix-account-login-register">
@@ -225,6 +236,7 @@ class TIX_My_Account {
                         'id'      => 'tix-magic-account',
                     ]); ?>
                 <?php endif; ?>
+                <?php endif; // Gast-Ansicht ?>
             </div>
         </div>
         <?php
@@ -237,7 +249,8 @@ class TIX_My_Account {
 
     private static function render_dashboard($user) {
         global $wpdb;
-        $email = $user->user_email;
+        // Zuordnung per E-Mail nur mit bestätigter E-Mail (TIX_App_Account::email_trusted)
+        $email = class_exists('TIX_App_Account') ? TIX_App_Account::match_email($user) : $user->user_email;
 
         // Ticket-Anzahl
         $ticket_count = intval($wpdb->get_var($wpdb->prepare(
@@ -343,7 +356,8 @@ class TIX_My_Account {
 
     private static function render_orders($user) {
         global $wpdb;
-        $email = $user->user_email;
+        $email = class_exists('TIX_App_Account') ? TIX_App_Account::match_email($user) : $user->user_email;
+        $email_ok = !class_exists('TIX_App_Account') || TIX_App_Account::email_trusted($user);
 
         // Native TIX_Orders + WC-Orders zusammen sammeln
         $orders = [];
@@ -363,8 +377,9 @@ class TIX_My_Account {
 
             // Bonus: Gast-Bestellungen (customer_id=0) jetzt rückwirkend dem User zuordnen,
             // damit beim nächsten Aufruf nur eine Query nötig ist.
+            // (nur mit bestätigter E-Mail – sonst würden fremde Bestellungen dauerhaft zugeordnet)
             global $wpdb;
-            $wpdb->query($wpdb->prepare(
+            if ($email_ok) $wpdb->query($wpdb->prepare(
                 "UPDATE " . TIX_Order::table_name() . "
                  SET customer_id = %d
                  WHERE customer_id = 0 AND billing_email = %s",
@@ -863,7 +878,8 @@ class TIX_My_Account {
         $user = wp_get_current_user();
         if (!$user->ID) wp_die('Nicht eingeloggt.');
 
-        $email = $user->user_email;
+        // Daten per E-Mail nur mit bestätigter E-Mail
+        $email = class_exists('TIX_App_Account') ? TIX_App_Account::match_email($user) : $user->user_email;
         global $wpdb;
 
         // ── WP-User + Meta ──
@@ -1045,7 +1061,8 @@ class TIX_My_Account {
             wp_send_json_error(['message' => 'Passwort ist falsch.']);
         }
 
-        $email   = $user->user_email;
+        // Anonymisieren per E-Mail nur mit bestätigter E-Mail (sonst nur eigene Bestellungen über die Konto-ID)
+        $email   = class_exists('TIX_App_Account') ? TIX_App_Account::match_email($user) : $user->user_email;
         $user_id = $user->ID;
 
         global $wpdb;

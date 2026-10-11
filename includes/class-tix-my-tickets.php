@@ -91,7 +91,8 @@ class TIX_My_Tickets {
         if (is_user_logged_in()) {
             $user_id = get_current_user_id();
             $u = get_userdata($user_id);
-            $email = $u ? $u->user_email : '';
+            // Bestellungen per E-Mail nur mit bestätigter E-Mail, sonst nur die des Kontos
+            $email = $u ? (class_exists('TIX_App_Account') ? TIX_App_Account::trusted_email($u) : $u->user_email) : '';
         } else {
             // Magic-Link-Flow (per Email)
             $token = isset($_GET['tix_mt_token']) ? sanitize_text_field(wp_unslash($_GET['tix_mt_token'])) : '';
@@ -101,6 +102,8 @@ class TIX_My_Tickets {
                     // Existiert ein User-Account für diese Email? → automatisch einloggen
                     $existing_user = get_user_by('email', $verified_email);
                     if ($existing_user) {
+                        // Der Link kam per Mail → E-Mail-Adresse bewiesen
+                        if (class_exists('TIX_App_Account')) TIX_App_Account::mark_confirmed($existing_user, 'magic_link');
                         wp_set_current_user($existing_user->ID);
                         wp_set_auth_cookie($existing_user->ID, true);
                         // Reload Page ohne Token (sauberer URL + Auth-Cookie greift)
@@ -421,6 +424,7 @@ class TIX_My_Tickets {
                 <div class="tix-mt-login-icon">&#128274;</div>
                 <h2 class="tix-mt-login-title">Melde dich an</h2>
                 <p class="tix-mt-login-text">Um deine Tickets zu sehen, melde dich mit deinem Konto an.</p>
+                <?php if (class_exists('TIX_Customer_Auth')) echo TIX_Customer_Auth::notice_html(); ?>
                 <?php
                 // Hinweis auf Subdomain: evendis.de-Konto gilt auch hier
                 if (defined('TIX_ON_ORG_SUBDOMAIN') && defined('TIX_LANDING_PARENT_HOST')):
@@ -439,6 +443,7 @@ class TIX_My_Tickets {
                     'label_remember' => 'Angemeldet bleiben',
                     'label_log_in'   => 'Anmelden',
                 ]);
+                if (class_exists('TIX_Customer_Auth')) echo TIX_Customer_Auth::lost_link_html();
                 ?>
                 <?php if (get_option('users_can_register')): ?>
                     <p class="tix-mt-login-register">
@@ -1979,9 +1984,11 @@ class TIX_My_Tickets {
             'customer_id' => $user_id,
             'limit'       => 50,
         ]);
-        if (empty($orders) && $user) {
+        // Fallback per E-Mail nur mit bestätigter E-Mail
+        $trusted = $user && class_exists('TIX_App_Account') ? TIX_App_Account::trusted_email($user) : ($user ? $user->user_email : '');
+        if (empty($orders) && $trusted !== '') {
             $orders = TIX_Order::query([
-                'email' => $user->user_email,
+                'email' => $trusted,
                 'limit' => 50,
             ]);
         }

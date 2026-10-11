@@ -425,11 +425,16 @@ class TIX_Partner_Broker {
         if (!$row) return new WP_Error('tix_order_missing', 'Bestellung nicht gefunden.', ['status' => 404]);
         $mine = $user && (
             (intval($row->user_id) > 0 && intval($row->user_id) === intval($user->ID))
-            || strcasecmp((string) $row->billing_email, (string) $user->user_email) === 0
+            || (class_exists('TIX_App_Account') && TIX_App_Account::trusted_email($user) !== ''
+                && strcasecmp((string) $row->billing_email, (string) $user->user_email) === 0)
         );
         if (!$mine) {
             $key = sanitize_text_field((string) ($req->get_param('key') ?? ''));
+            if ($key !== '' && TIX_App_Checkout::order_key_blocked()) {
+                return new WP_Error('tix_rate_limit', 'Zu viele Anfragen. Bitte kurz warten.', ['status' => 429]);
+            }
             if ($key === '' || !hash_equals((string) $row->order_key, $key)) {
+                if ($key !== '') TIX_App_Checkout::order_key_failed();
                 return new WP_Error($user ? 'rest_forbidden' : 'rest_not_logged_in', $user ? 'Keine Berechtigung.' : 'Authentifizierung erforderlich.', ['status' => $user ? 403 : 401]);
             }
         }

@@ -885,7 +885,7 @@ class TIX_App_Checkout {
         $user = wp_get_current_user();
         $per_page = max(1, min(50, intval($req->get_param('per_page') ?: 20)));
         $page     = max(1, intval($req->get_param('page') ?: 1));
-        $email    = (class_exists('TIX_App_Account') && TIX_App_Account::email_confirmed($user)) ? (string) $user->user_email : '';
+        $email    = class_exists('TIX_App_Account') ? TIX_App_Account::trusted_email($user) : '';
         $cap      = 500;
 
         $rows = [];
@@ -1021,6 +1021,36 @@ class TIX_App_Checkout {
                 ['key' => '_tix_ticket_owner_email', 'value' => $email, 'compare' => '='],
                 ['key' => '_tix_email',              'value' => $email, 'compare' => '='],
             ],
+        ]);
+        $out = [];
+        foreach ($posts as $p) {
+            $t = self::ticket_from_post($p);
+            if ($t) $out[] = $t;
+        }
+        return $out;
+    }
+
+    /**
+     * Tickets des Kontos: mit bestätigter E-Mail alle Tickets dieser E-Mail (Käufer oder Inhaber),
+     * sonst nur Tickets aus Bestellungen, die im Konto selbst gekauft wurden.
+     */
+    public static function tickets_for_user($user) {
+        if (!$user || empty($user->ID)) return [];
+        $email = class_exists('TIX_App_Account') ? TIX_App_Account::trusted_email($user) : (string) $user->user_email;
+        if ($email !== '') return self::tickets_for_email($email);
+        global $wpdb;
+        $order_ids = $wpdb->get_col($wpdb->prepare(
+            "SELECT id FROM {$wpdb->prefix}tix_orders WHERE customer_id = %d AND status <> 'trash' ORDER BY id DESC LIMIT 200",
+            intval($user->ID)
+        ));
+        if (!$order_ids) return [];
+        $posts = get_posts([
+            'post_type'      => 'tix_ticket',
+            'post_status'    => ['publish', 'private'],
+            'posts_per_page' => 300,
+            'orderby'        => 'ID',
+            'order'          => 'DESC',
+            'meta_query'     => [['key' => '_tix_ticket_order_id', 'value' => array_map('strval', $order_ids), 'compare' => 'IN']],
         ]);
         $out = [];
         foreach ($posts as $p) {
@@ -1458,13 +1488,28 @@ class TIX_App_Checkout {
         $id   = intval($req['id']);
         $user = wp_get_current_user();
         $mine = false;
-        foreach (self::tickets_for_email($user->user_email) as $t) {
+        foreach (self::tickets_for_user($user) as $t) {
             if (intval($t['id']) === $id) { $mine = true; break; }
         }
         if (!$mine) return self::error('tix_not_found', 'Ticket nicht gefunden.', 404);
         $r = TIX_Ticket_Transfer::transfer([$id], sanitize_text_field((string) $req->get_param('first_name')), sanitize_text_field((string) $req->get_param('last_name')), sanitize_email((string) $req->get_param('email')));
         if (is_wp_error($r)) return $r;
         return rest_ensure_response(['ok' => true] + $r);
+    }
+
+    /** Raten des Bestellschlüssels (?key=) begrenzen: 20 Fehlversuche je Besucher-IP in 10 min. */
+    const ORDER_KEY_FAILS = 20;
+
+    private static function order_key_rl() {
+        return 'tix_order_key_fail_' . md5(class_exists('TIX_Client_IP') ? TIX_Client_IP::get() : (string) ($_SERVER['REMOTE_ADDR'] ?? ''));
+    }
+
+    public static function order_key_blocked() {
+        return intval(get_transient(self::order_key_rl())) >= self::ORDER_KEY_FAILS;
+    }
+
+    public static function order_key_failed() {
+        set_transient(self::order_key_rl(), intval(get_transient(self::order_key_rl())) + 1, 600);
     }
 
     /** GET /customer/orders/{id} – eigene Bestellung (Konto) oder Gast mit ?key=order_key */
@@ -1477,13 +1522,18 @@ class TIX_App_Checkout {
         }
         $o    = self::order_row($id);
         if (!$o) return self::error('tix_order_missing', 'Bestellung nicht gefunden.', 404);
+        $trusted = $user && class_exists('TIX_App_Account') ? TIX_App_Account::trusted_email($user) : '';
         $mine = $user && (
             (intval($o->customer_id) > 0 && intval($o->customer_id) === intval($user->ID))
-            || strcasecmp((string) $o->billing_email, (string) $user->user_email) === 0
+            || ($trusted !== '' && strcasecmp((string) $o->billing_email, $trusted) === 0)
         );
         if (!$mine) {
             $key = sanitize_text_field((string) ($req->get_param('key') ?? ''));
+            if ($key !== '' && self::order_key_blocked()) {
+                return self::error('tix_rate_limit', 'Zu viele Anfragen. Bitte kurz warten.', 429);
+            }
             if ($key === '' || !hash_equals((string) $o->order_key, $key)) {
+                if ($key !== '') self::order_key_failed();
                 return self::error($user ? 'rest_forbidden' : 'rest_not_logged_in', $user ? 'Keine Berechtigung.' : 'Authentifizierung erforderlich.', $user ? 403 : 401);
             }
         }

@@ -115,7 +115,7 @@ class TIX_Admin_Only {
     }
 
     /** Veranstalter, Team, Bearbeiter oder Admin? */
-    private static function is_staff($user) {
+    public static function is_staff($user) {
         if (!$user || !$user->ID) return false;
         if (user_can($user, 'edit_posts')) return true;
         return (bool) array_intersect((array) $user->roles, ['tix_organizer', 'tix_staff', 'tix_entrance', 'tix_dj', 'tix_promoter']);

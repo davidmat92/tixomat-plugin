@@ -1196,7 +1196,7 @@ class TIX_Checkout {
         $user = sanitize_text_field($_POST['user'] ?? ''); $pass = $_POST['pass'] ?? '';
         if (!$user || !$pass) wp_send_json_error(['message' => 'Bitte E-Mail und Passwort eingeben.']);
         $result = wp_signon(['user_login' => $user, 'user_password' => $pass, 'remember' => true], is_ssl());
-        if (is_wp_error($result)) wp_send_json_error(['message' => 'Anmeldung fehlgeschlagen. Bitte prüfe deine Zugangsdaten.']);
+        if (is_wp_error($result)) wp_send_json_error(['message' => $result->get_error_code() === 'tix_too_many' ? $result->get_error_message() : 'Anmeldung fehlgeschlagen. Bitte prüfe deine Zugangsdaten.']);
         wp_set_current_user($result->ID); wp_send_json_success(['message' => 'Erfolgreich angemeldet!', 'reload' => true]);
     }
 

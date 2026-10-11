@@ -976,7 +976,7 @@ class TIX_Native_Checkout {
         $result = wp_signon($creds, is_ssl());
 
         if (is_wp_error($result)) {
-            wp_send_json_error(['message' => 'E-Mail oder Passwort ungültig.']);
+            wp_send_json_error(['message' => $result->get_error_code() === 'tix_too_many' ? $result->get_error_message() : 'E-Mail oder Passwort ungültig.']);
         }
 
         wp_set_current_user($result->ID);

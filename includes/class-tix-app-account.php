@@ -37,8 +37,72 @@ class TIX_App_Account {
         return $c !== '' && strcasecmp($c, (string) $user->user_email) === 0;
     }
 
+    /** Zeitpunkt der Einführung von email_trusted() – ältere Konten mit eigenem Kauf gelten als bestätigt. */
+    const OPTION_TRUST_SINCE = 'tix_email_trust_since';
+    const NOTICE_UNCONFIRMED = 'Bestätige deine E-Mail-Adresse (Anmeldung per Code oder Passwort zurücksetzen), damit wir dir auch Tickets und Anfragen zeigen, die nicht in diesem Konto gekauft wurden.';
+
+    private static $trusted = [];
+
+    /**
+     * Darf das Konto Daten sehen, die nur über die E-Mail-Adresse zugeordnet sind (Tickets,
+     * Gastbestellungen, Support-Anfragen)? Ja, wenn die E-Mail bestätigt ist (Code, Passwort-Reset
+     * per Mail, Magic Link) oder das Konto schon vor OPTION_TRUST_SINCE bestand und mindestens
+     * eine eigene Bestellung hat (dann wird die Bestätigung gespeichert). Sonst nur Eigenes.
+     */
+    public static function email_trusted($user) {
+        if (!$user || empty($user->ID)) return false;
+        $id = intval($user->ID);
+        if (!empty(self::$trusted[$id])) return true;
+        if (self::email_confirmed($user)) return self::$trusted[$id] = true;
+        $since = intval(get_option(self::OPTION_TRUST_SINCE, 0));
+        $registered = strtotime((string) $user->user_registered . ' UTC');
+        if ($since > 0 && $registered && $registered < $since && self::has_own_order($id, (string) $user->user_email)) {
+            update_user_meta($id, self::META_EMAIL_CONFIRMED, (string) $user->user_email);
+            update_user_meta($id, '_tix_email_confirmed_by', 'legacy_order');
+            return self::$trusted[$id] = true;
+        }
+        return false; // „nein“ nicht merken – eine Bestätigung kann noch in derselben Anfrage folgen
+    }
+
+    /** Platzhalter für Abfragen per E-Mail, der zu keiner gespeicherten Adresse passt (kein @). */
+    const NO_EMAIL_MATCH = '~nicht-bestaetigt~';
+
+    /** E-Mail für Abfragen „per E-Mail“: bestätigte Adresse oder NO_EMAIL_MATCH. */
+    public static function match_email($user) {
+        $e = self::trusted_email($user);
+        return $e !== '' ? $e : self::NO_EMAIL_MATCH;
+    }
+
+    /** E-Mail des Kontos für E-Mail-Zuordnungen, '' wenn nicht bestätigt. */
+    public static function trusted_email($user) {
+        return self::email_trusted($user) ? (string) $user->user_email : '';
+    }
+
+    /** Bestätigung speichern (Beweis über die E-Mail: Code, Reset-Link, Magic Link). */
+    public static function mark_confirmed($user, $by = '') {
+        if (!$user || empty($user->ID)) return;
+        update_user_meta($user->ID, self::META_EMAIL_CONFIRMED, (string) $user->user_email);
+        if ($by !== '') update_user_meta($user->ID, '_tix_email_confirmed_by', $by);
+        unset(self::$trusted[intval($user->ID)]);
+    }
+
+    /** Mindestens eine bezahlte Bestellung, die im Konto selbst gekauft wurde (customer_id). */
+    private static function has_own_order($user_id, $email) {
+        global $wpdb;
+        $t = $wpdb->prefix . 'tix_orders';
+        if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $t)) !== $t) return false;
+        return (bool) $wpdb->get_var($wpdb->prepare(
+            "SELECT id FROM {$t} WHERE customer_id = %d AND billing_email = %s AND status IN ('completed','processing','refunded') LIMIT 1",
+            intval($user_id), (string) $email
+        ));
+    }
+
     public static function init() {
         add_action('rest_api_init', [__CLASS__, 'register_routes']);
+        // Stichtag einmalig beim ersten Laden nach dem Update setzen
+        if (get_option(self::OPTION_TRUST_SINCE, false) === false) add_option(self::OPTION_TRUST_SINCE, time(), '', false);
+        // Passwort per Reset-Link (Mail) gesetzt → E-Mail bewiesen
+        add_action('after_password_reset', function ($user) { TIX_App_Account::mark_confirmed($user, 'password_reset'); }, 10, 1);
     }
 
     public static function register_routes() {
@@ -376,7 +440,7 @@ class TIX_App_Account {
         }
         // Der Code beweist die E-Mail-Adresse: ein frisch registriertes Konto ist damit bestätigt
         // (Merker `_tix_email_confirmed`: frühere Gastbestellungen dieser E-Mail in GET /customer/orders)
-        update_user_meta($user->ID, self::META_EMAIL_CONFIRMED, (string) $user->user_email);
+        self::mark_confirmed($user, 'code');
         $verified = (bool) get_user_meta($user->ID, self::META_UNVERIFIED, true);
         if ($verified) {
             delete_user_meta($user->ID, self::META_UNVERIFIED);
@@ -477,7 +541,17 @@ class TIX_App_Account {
     // ──────────────────────────────────────────
 
     /** Ticket-Post-ID zu einer App-Ticket-ID (Tabellenzeile oder Post) – nur eigene Tickets. */
-    private static function own_ticket_post($id, $email) {
+    private static function own_ticket_post($id, $user) {
+        // Ohne bestätigte E-Mail nur Tickets aus im Konto gekauften Bestellungen
+        $email = self::trusted_email($user);
+        if ($email === '') {
+            foreach (class_exists('TIX_App_Checkout') ? TIX_App_Checkout::tickets_for_user($user) : [] as $t) {
+                if (intval($t['id'] ?? 0) === intval($id)) {
+                    return ['post_id' => intval($id), 'code' => (string) get_post_meta(intval($id), '_tix_ticket_code', true)];
+                }
+            }
+            return null;
+        }
         global $wpdb;
         $table = $wpdb->prefix . 'tix_tickets';
         if ($wpdb->get_var("SHOW TABLES LIKE '{$table}'") === $table) {
@@ -540,7 +614,7 @@ class TIX_App_Account {
     /** GET /customer/tickets/{id}/pdf – Binärantwort (application/pdf). */
     public static function ticket_pdf(WP_REST_Request $req) {
         $user = wp_get_current_user();
-        $own  = self::own_ticket_post(intval($req['id']), (string) $user->user_email);
+        $own  = self::own_ticket_post(intval($req['id']), $user);
         if (!$own || !$own['post_id']) return self::error('tix_ticket_missing', 'Ticket nicht gefunden.', 404);
         $pdf = null;
         if (class_exists('TIX_Tickets') && method_exists('TIX_Tickets', 'get_pdf_binary')) {
@@ -630,17 +704,27 @@ class TIX_App_Account {
         ]);
     }
 
+    /** 0 = alle Anfragen der E-Mail; sonst (E-Mail nicht bestätigt) nur vom Konto selbst angelegte. */
+    private static function support_author($user) {
+        return self::email_trusted($user) ? 0 : intval($user->ID);
+    }
+
     /** GET /customer/support */
     public static function support_list(WP_REST_Request $req) {
         if (!self::support_enabled() || !method_exists('TIX_Support', 'app_list')) {
             return rest_ensure_response(['ok' => true, 'enabled' => false, 'requests' => []]);
         }
         $user = wp_get_current_user();
-        return rest_ensure_response([
+        $out = [
             'ok'       => true,
             'enabled'  => true,
-            'requests' => TIX_Support::app_list((string) $user->user_email),
-        ]);
+            'requests' => TIX_Support::app_list((string) $user->user_email, self::support_author($user)),
+        ];
+        if (self::support_author($user)) {
+            $out['email_confirmed'] = false;
+            $out['notice'] = self::NOTICE_UNCONFIRMED;
+        }
+        return rest_ensure_response($out);
     }
 
     /** GET /customer/support/{id} */
@@ -649,7 +733,7 @@ class TIX_App_Account {
             return self::error('tix_support_disabled', 'Der Support in der App ist aktuell nicht aktiv.', 404);
         }
         $user   = wp_get_current_user();
-        $detail = TIX_Support::app_detail(intval($req['id']), (string) $user->user_email);
+        $detail = TIX_Support::app_detail(intval($req['id']), (string) $user->user_email, self::support_author($user));
         if (is_wp_error($detail)) return $detail;
         return rest_ensure_response(['ok' => true, 'request' => $detail]);
     }
@@ -665,7 +749,7 @@ class TIX_App_Account {
         $user    = wp_get_current_user();
         $content = mb_substr(sanitize_textarea_field((string) $req->get_param('message')), 0, 5000);
         if ($content === '') return self::error('missing_message', 'Bitte deine Nachricht eingeben.', 400, ['field' => 'message']);
-        $detail = TIX_Support::app_reply(intval($req['id']), (string) $user->user_email, $content);
+        $detail = TIX_Support::app_reply(intval($req['id']), (string) $user->user_email, $content, self::support_author($user));
         if (is_wp_error($detail)) return $detail;
         return rest_ensure_response(['ok' => true, 'request' => $detail]);
     }

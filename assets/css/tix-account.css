@@ -317,11 +317,13 @@ a.tix-account-stat:hover {
     margin: 0 0 24px 0;
 }
 
-.tix-account-login #tix-account-login-form {
+.tix-account-login #tix-account-login-form,
+.tix-account-login .tix-auth-form {
     text-align: left;
 }
 
-.tix-account-login #tix-account-login-form label {
+.tix-account-login #tix-account-login-form label,
+.tix-account-login .tix-auth-form label {
     display: block;
     font-size: 13px;
     font-weight: 600;
@@ -329,7 +331,10 @@ a.tix-account-stat:hover {
 }
 
 .tix-account-login #tix-account-login-form input[type="text"],
-.tix-account-login #tix-account-login-form input[type="password"] {
+.tix-account-login #tix-account-login-form input[type="password"],
+.tix-account-login .tix-auth-form input[type="text"],
+.tix-account-login .tix-auth-form input[type="email"],
+.tix-account-login .tix-auth-form input[type="password"] {
     width: 100%;
     padding: 10px 14px;
     border: 1px solid var(--_border);
@@ -340,7 +345,8 @@ a.tix-account-stat:hover {
 }
 
 .tix-account-login #tix-account-login-form input[type="text"]:focus,
-.tix-account-login #tix-account-login-form input[type="password"]:focus {
+.tix-account-login #tix-account-login-form input[type="password"]:focus,
+.tix-account-login .tix-auth-form input:focus {
     outline: none;
     border-color: var(--_primary);
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--_primary) 15%, transparent);
@@ -350,7 +356,8 @@ a.tix-account-stat:hover {
     margin-bottom: 16px;
 }
 
-.tix-account-login #tix-account-login-form input[type="submit"] {
+.tix-account-login #tix-account-login-form input[type="submit"],
+.tix-account-login .tix-auth-form input[type="submit"] {
     width: 100%;
     padding: 10px 24px;
     background: var(--_primary);
@@ -363,7 +370,8 @@ a.tix-account-stat:hover {
     font-family: inherit;
 }
 
-.tix-account-login #tix-account-login-form input[type="submit"]:hover {
+.tix-account-login #tix-account-login-form input[type="submit"]:hover,
+.tix-account-login .tix-auth-form input[type="submit"]:hover {
     opacity: 0.9;
 }
 
@@ -378,6 +386,19 @@ a.tix-account-stat:hover {
     text-decoration: none;
     font-weight: 600;
 }
+
+/* Hinweise und „Passwort vergessen?“ (TIX_Customer_Auth) */
+.tix-auth-notice {
+    text-align: left;
+    font-size: 14px;
+    padding: 10px 14px;
+    border-radius: var(--_radius, 8px);
+    margin: 0 0 16px 0;
+}
+.tix-auth-notice-error { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
+.tix-auth-notice-ok { background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; }
+.tix-auth-lost { margin: 12px 0 0 0; font-size: 13px; text-align: center; }
+.tix-auth-lost a { color: var(--_primary, inherit); text-decoration: none; }
 
 /* ══════════════════════════════════════
    RESPONSIVE

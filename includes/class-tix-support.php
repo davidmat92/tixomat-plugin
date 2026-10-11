@@ -1580,7 +1580,7 @@ class TIX_Support {
 
         // Option 1: Eingeloggter User → E-Mail muss zur WP-Adresse passen → kein Order nötig
         $user = wp_get_current_user();
-        if ($user->ID && strtolower($user->user_email) === strtolower($email)) {
+        if (self::logged_in_owner($email)) {
             $access_key = self::ensure_access_key_for_email($email);
 
             // Bestellungen des Users laden
@@ -1710,7 +1710,7 @@ class TIX_Support {
 
         $tickets = [];
         foreach ($posts as $p) {
-            $t = self::format_support_ticket($p);
+            $t = self::customer_ticket($p);
             // Letzte Nachricht als Vorschau (nur customer + admin, keine notes)
             $messages = self::get_messages($p->ID);
             $visible = array_filter($messages, function($m) { return $m['type'] !== 'note'; });
@@ -1743,7 +1743,7 @@ class TIX_Support {
         }
 
         $post = get_post($ticket_id);
-        $ticket = self::format_support_ticket($post);
+        $ticket = self::customer_ticket($post);
 
         // Nur sichtbare Nachrichten (keine internen Notizen)
         $messages = self::get_messages($ticket_id);
@@ -1918,24 +1918,33 @@ class TIX_Support {
     // ZUGRIFFS-PRÜFUNG (Frontend)
     // ══════════════════════════════════════════════
 
+    /** Angemeldet mit dieser E-Mail und die E-Mail ist bestätigt (TIX_App_Account::email_trusted)? */
+    private static function logged_in_owner($email) {
+        $user = wp_get_current_user();
+        if (!$user->ID || strtolower((string) $user->user_email) !== strtolower((string) $email)) return false;
+        return !class_exists('TIX_App_Account') || TIX_App_Account::email_trusted($user);
+    }
+
     private static function verify_customer_access($ticket_id, $email, $access_key) {
         $stored_email = get_post_meta($ticket_id, '_tix_sp_email', true);
-        $stored_key   = get_post_meta($ticket_id, '_tix_sp_access_key', true);
+        $stored_key   = (string) get_post_meta($ticket_id, '_tix_sp_access_key', true);
 
         if (strtolower($stored_email) !== strtolower($email)) return false;
-        if ($stored_key && $stored_key === $access_key) return true;
+        if ($stored_key !== '' && hash_equals($stored_key, (string) $access_key)) return true;
 
-        // Eingeloggter User-Check
+        // Eingeloggter User mit bestätigter E-Mail, sonst nur selbst angelegte Anfragen
+        if (self::logged_in_owner($email)) return true;
         $user = wp_get_current_user();
-        if ($user->ID && strtolower($user->user_email) === strtolower($email)) return true;
+        if ($user->ID && intval(get_post_field('post_author', $ticket_id)) === intval($user->ID)
+            && strtolower((string) $user->user_email) === strtolower((string) $email)) return true;
 
         return false;
     }
 
     private static function verify_email_access($email, $access_key) {
-        // Eingeloggter User
-        $user = wp_get_current_user();
-        if ($user->ID && strtolower($user->user_email) === strtolower($email)) return true;
+        // Eingeloggter User mit bestätigter E-Mail
+        if (self::logged_in_owner($email)) return true;
+        if ((string) $access_key === '') return false;
 
         // Mindestens ein Ticket mit diesem Access-Key
         $posts = get_posts([
@@ -2071,6 +2080,13 @@ class TIX_Support {
     // ══════════════════════════════════════════════
     // FORMAT HELPERS
     // ══════════════════════════════════════════════
+
+    /** Anfrage für Kunden (Portal, App): ohne interne Felder wie ai_summary. */
+    private static function customer_ticket($post) {
+        $t = self::format_support_ticket($post);
+        unset($t['ai_summary']);
+        return $t;
+    }
 
     private static function format_support_ticket($post) {
         $statuses = self::get_statuses();
@@ -2449,6 +2465,8 @@ class TIX_Support {
             if ($cand && strcasecmp((string) $cand->user_email, (string) $email) === 0) $user = $cand;
         }
         if (!$user) return;
+        if (class_exists('TIX_App_Account') && !TIX_App_Account::email_trusted($user)
+            && intval(get_post_field('post_author', $ticket_id)) !== intval($user->ID)) return;
 
         $text = trim(preg_replace('/\s+/u', ' ', wp_strip_all_tags((string) $reply_content)));
         if (function_exists('mb_strlen') && mb_strlen($text) > 120) {
@@ -2832,11 +2850,14 @@ class TIX_Support {
         return intval($post_id);
     }
 
-    /** Anfragen einer E-Mail (neueste zuerst) mit Vorschau der letzten Nachricht. */
-    public static function app_list($email) {
+    /**
+     * Anfragen einer E-Mail (neueste zuerst) mit Vorschau der letzten Nachricht.
+     * $author > 0: nur Anfragen, die dieses Konto selbst angelegt hat (E-Mail nicht bestätigt).
+     */
+    public static function app_list($email, $author = 0) {
         $email = sanitize_email($email);
         if (!is_email($email)) return [];
-        $posts = get_posts([
+        $args = [
             'post_type'   => 'tix_support_ticket',
             'post_status' => ['tix_open', 'tix_progress', 'tix_resolved', 'tix_closed'],
             'meta_key'    => '_tix_sp_email',
@@ -2844,10 +2865,12 @@ class TIX_Support {
             'numberposts' => 50,
             'orderby'     => 'date',
             'order'       => 'DESC',
-        ]);
+        ];
+        if (intval($author) > 0) $args['author'] = intval($author);
+        $posts = get_posts($args);
         $out = [];
         foreach ($posts as $p) {
-            $t = self::format_support_ticket($p);
+            $t = self::customer_ticket($p);
             $visible = array_values(array_filter(self::get_messages($p->ID), function ($m) { return ($m['type'] ?? '') !== 'note'; }));
             $last = $visible ? end($visible) : null;
             $t['message_count']        = count($visible);
@@ -2859,8 +2882,8 @@ class TIX_Support {
         return $out;
     }
 
-    /** Verlauf einer Anfrage (nur sichtbare Nachrichten) – Zugriff über die E-Mail. */
-    public static function app_detail($ticket_id, $email) {
+    /** Verlauf einer Anfrage (nur sichtbare Nachrichten) – Zugriff über die E-Mail ($author > 0: nur eigene). */
+    public static function app_detail($ticket_id, $email, $author = 0) {
         $ticket_id = intval($ticket_id);
         $email     = sanitize_email($email);
         $post      = $ticket_id ? get_post($ticket_id) : null;
@@ -2868,17 +2891,18 @@ class TIX_Support {
             return new WP_Error('tix_support_missing', 'Anfrage nicht gefunden.', ['status' => 404]);
         }
         $stored = (string) get_post_meta($ticket_id, '_tix_sp_email', true);
-        if (!is_email($email) || strcasecmp($stored, $email) !== 0) {
+        if (!is_email($email) || strcasecmp($stored, $email) !== 0
+            || (intval($author) > 0 && intval($post->post_author) !== intval($author))) {
             return new WP_Error('rest_forbidden', 'Keine Berechtigung.', ['status' => 403]);
         }
-        $t = self::format_support_ticket($post);
+        $t = self::customer_ticket($post);
         $t['messages'] = array_values(array_filter(self::get_messages($ticket_id), function ($m) { return ($m['type'] ?? '') !== 'note'; }));
         return $t;
     }
 
     /** Antwort des Kunden aus der App. Liefert den aktualisierten Verlauf oder WP_Error. */
-    public static function app_reply($ticket_id, $email, $content) {
-        $detail = self::app_detail($ticket_id, $email);
+    public static function app_reply($ticket_id, $email, $content, $author = 0) {
+        $detail = self::app_detail($ticket_id, $email, $author);
         if (is_wp_error($detail)) return $detail;
         $content = sanitize_textarea_field((string) $content);
         if ($content === '') {
@@ -2902,6 +2926,6 @@ class TIX_Support {
             wp_update_post(['ID' => $ticket_id, 'post_status' => 'tix_open']);
         }
         self::send_email_customer_reply_admin($ticket_id, $post->post_title, $email, $content);
-        return self::app_detail($ticket_id, $email);
+        return self::app_detail($ticket_id, $email, $author);
     }
 }

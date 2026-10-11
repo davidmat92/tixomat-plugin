@@ -2382,6 +2382,10 @@ class TIX_REST_API {
         if ($login === '' || empty($password)) {
             return new WP_Error('missing_fields', 'E-Mail und Passwort sind erforderlich.', ['status' => 400]);
         }
+        // Sperre nach Fehlversuchen je Besucher-IP und Konto (nicht von fail2ban überwacht)
+        if (class_exists('TIX_Customer_Auth') && TIX_Customer_Auth::login_blocked($login)) {
+            return new WP_Error('tix_rate_limit', 'Zu viele Versuche. Bitte warte ein paar Minuten und versuche es dann erneut.', ['status' => 429]);
+        }
 
         $user = false;
         if (is_email($login)) {
@@ -2393,10 +2397,12 @@ class TIX_REST_API {
         }
 
         if (!$user) {
+            if (class_exists('TIX_Customer_Auth')) TIX_Customer_Auth::login_failed($login);
             return new WP_Error('invalid_credentials', 'Ungültige E-Mail oder Passwort.', ['status' => 401]);
         }
 
         if (!wp_check_password($password, $user->user_pass, $user->ID)) {
+            if (class_exists('TIX_Customer_Auth')) TIX_Customer_Auth::login_failed($login);
             return new WP_Error('invalid_credentials', 'Ungültige E-Mail oder Passwort.', ['status' => 401]);
         }
         if (class_exists('TIX_App_Account') && get_user_meta($user->ID, TIX_App_Account::META_UNVERIFIED, true)) {
@@ -2676,16 +2682,18 @@ class TIX_REST_API {
      */
     public static function customer_tickets(WP_REST_Request $req) {
         $user = wp_get_current_user();
+        // Zuordnung per E-Mail nur mit bestätigter E-Mail (sonst nur im Konto gekaufte Tickets)
+        $trusted = class_exists('TIX_App_Account') ? TIX_App_Account::trusted_email($user) : (string) $user->user_email;
         // Ticket-Posts (CPT) sind die Quelle der Wahrheit – kitchenklub.de hat keine Ticket-Tabelle
-        $tickets = class_exists('TIX_App_Checkout') ? TIX_App_Checkout::tickets_for_email($user->user_email) : [];
-        if (empty($tickets)) {
+        $tickets = class_exists('TIX_App_Checkout') ? TIX_App_Checkout::tickets_for_user($user) : [];
+        if (empty($tickets) && $trusted !== '') {
             // Aus Ticket-DB
             global $wpdb;
             $table = $wpdb->prefix . 'tix_tickets';
             if ($wpdb->get_var("SHOW TABLES LIKE '{$table}'") === $table) {
                 $rows = $wpdb->get_results($wpdb->prepare(
                     "SELECT * FROM {$table} WHERE buyer_email = %s ORDER BY id DESC",
-                    $user->user_email
+                    $trusted
                 ), ARRAY_A);
 
                 foreach ($rows as $row) {
@@ -2714,11 +2722,16 @@ class TIX_REST_API {
         // Sortierung: neueste zuerst
         usort($tickets, fn($a, $b) => strcmp($b['purchased'] ?? '', $a['purchased'] ?? ''));
 
-        return rest_ensure_response([
+        $out = [
             'success' => true,
             'tickets' => $tickets,
             'count'   => count($tickets),
-        ]);
+        ];
+        if ($trusted === '') {
+            $out['email_confirmed'] = false;
+            $out['notice'] = TIX_App_Account::NOTICE_UNCONFIRMED;
+        }
+        return rest_ensure_response($out);
     }
 
     /**
@@ -2727,19 +2740,20 @@ class TIX_REST_API {
     public static function customer_events(WP_REST_Request $req) {
         $user = wp_get_current_user();
         $event_ids = [];
+        $trusted = class_exists('TIX_App_Account') ? TIX_App_Account::trusted_email($user) : (string) $user->user_email;
         if (class_exists('TIX_App_Checkout')) {
-            foreach (TIX_App_Checkout::tickets_for_email($user->user_email) as $t) {
+            foreach (TIX_App_Checkout::tickets_for_user($user) as $t) {
                 if (!empty($t['event_id'])) $event_ids[intval($t['event_id'])] = true;
             }
         }
-        // Fallback: Ticket-Tabelle
-        if (empty($event_ids)) {
+        // Fallback: Ticket-Tabelle (nur mit bestätigter E-Mail)
+        if (empty($event_ids) && $trusted !== '') {
             global $wpdb;
             $table = $wpdb->prefix . 'tix_tickets';
             if ($wpdb->get_var("SHOW TABLES LIKE '{$table}'") === $table) {
                 $rows = $wpdb->get_results($wpdb->prepare(
                     "SELECT DISTINCT event_id FROM {$table} WHERE buyer_email = %s",
-                    $user->user_email
+                    $trusted
                 ), ARRAY_A);
                 foreach ($rows as $row) {
                     $eid = intval($row['event_id'] ?? 0);
@@ -2795,13 +2809,14 @@ class TIX_REST_API {
         // Ticket-Statistiken (Ticket-Posts zuerst, sonst Ticket-Tabelle)
         $tickets_count = 0;
         $upcoming_events = 0;
-        $rows = class_exists('TIX_App_Checkout') ? TIX_App_Checkout::tickets_for_email($user->user_email) : [];
+        $rows = class_exists('TIX_App_Checkout') ? TIX_App_Checkout::tickets_for_user($user) : [];
+        $trusted = class_exists('TIX_App_Account') ? TIX_App_Account::trusted_email($user) : (string) $user->user_email;
         global $wpdb;
         $table = $wpdb->prefix . 'tix_tickets';
-        if (empty($rows) && $wpdb->get_var("SHOW TABLES LIKE '{$table}'") === $table) {
+        if (empty($rows) && $trusted !== '' && $wpdb->get_var("SHOW TABLES LIKE '{$table}'") === $table) {
             $rows = $wpdb->get_results($wpdb->prepare(
                 "SELECT event_id FROM {$table} WHERE buyer_email = %s",
-                $user->user_email
+                $trusted
             ), ARRAY_A);
         }
         $tickets_count = count($rows);
