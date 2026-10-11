@@ -112,8 +112,10 @@ class TIX_User_Switch {
         wp_set_current_user($target_id);
         wp_set_auth_cookie($target_id, false);
 
-        // Redirect zur Frontend-Page (Mein-Konto)
-        $redirect = home_url('/mein-konto/');
+        // Redirect zur Konto-Seite von WordPress ([tix_account]). Der tix_-Parameter hält die Anfrage
+        // bei WordPress (Weiche der Kundenseite, „Nur Verwaltung“), dort gilt die gerade gesetzte Sitzung.
+        $pages = get_posts(['post_type' => 'page', 'post_status' => 'publish', 'posts_per_page' => 1, 'fields' => 'ids', 's' => '[tix_account']);
+        $redirect = add_query_arg('tix_switched', '1', $pages ? get_permalink($pages[0]) : home_url('/mein-konto/'));
         wp_safe_redirect($redirect);
         exit;
     }

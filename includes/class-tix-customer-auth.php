@@ -20,6 +20,8 @@ if (!defined('ABSPATH')) exit;
 class TIX_Customer_Auth {
 
     const ACTION = 'tix_auth';
+    /** Site-Option: Ansichten auf eigene Seiten umleiten, z. B. {"lost":"https://evendis.de/passwort-vergessen/","register":"…","rp":"…"} */
+    const OPTION_REDIRECTS = 'tix_auth_redirects';
 
     /** Fehlversuche Anmeldung: je IP / je Konto in WINDOW Sekunden */
     const LOGIN_FAIL_IP    = 10;
@@ -60,6 +62,8 @@ class TIX_Customer_Auth {
 
         // Reset-Links in Mails an Kunden → Konto-Seite der Kunden-Adresse
         add_filter('retrieve_password_message',      [__CLASS__, 'filter_reset_message'], 100, 4);
+        // Konto-Ansichten (?tix_auth=lost|register|rp) auf eigene Seiten umleiten (Option tix_auth_redirects)
+        add_action('template_redirect', [__CLASS__, 'maybe_redirect_view'], 1);
         add_filter('wp_new_user_notification_email', [__CLASS__, 'filter_new_user_email'], 100, 3);
 
         if (!class_exists('TIX_Customer_URL') || !TIX_Customer_URL::is_proxied()) return;
@@ -113,11 +117,36 @@ class TIX_Customer_Auth {
     }
 
     public static function filter_lostpassword_url($url, $redirect = '') {
-        return self::account_url(['tix_auth' => 'lost']);
+        return self::redirect_target('lost') ?: self::account_url(['tix_auth' => 'lost']);
     }
 
     public static function filter_register_url($url) {
-        return self::account_url(['tix_auth' => 'register']);
+        return self::redirect_target('register') ?: self::account_url(['tix_auth' => 'register']);
+    }
+
+    /** Eingestelltes Ziel für eine Ansicht (nur https/http auf erlaubten Hosts) oder ''. */
+    public static function redirect_target($view) {
+        $map = get_option(self::OPTION_REDIRECTS, []);
+        if (is_string($map)) $map = json_decode($map, true);
+        $url = is_array($map) ? trim((string) ($map[$view] ?? '')) : '';
+        if ($url === '' || !preg_match('#^https?://#i', $url)) return '';
+        $hosts = [strtolower((string) wp_parse_url(home_url(), PHP_URL_HOST)), strtolower((string) wp_parse_url((string) get_option('home'), PHP_URL_HOST))];
+        if (class_exists('TIX_Customer_URL') && TIX_Customer_URL::host() !== '') $hosts[] = TIX_Customer_URL::host();
+        return in_array(strtolower((string) wp_parse_url($url, PHP_URL_HOST)), $hosts, true) ? esc_url_raw($url) : '';
+    }
+
+    /** ?tix_auth=lost|register|rp ohne Hinweis → eingestellte Seite (übrige Parameter wie tix_rp_key/tix_rp_login bleiben). */
+    public static function maybe_redirect_view() {
+        $view = sanitize_key((string) ($_GET['tix_auth'] ?? ''));
+        if (!in_array($view, ['lost', 'register', 'rp'], true) || isset($_GET['tix_auth_err']) || isset($_GET['tix_auth_msg'])) return;
+        $target = self::redirect_target($view);
+        if ($target === '') return;
+        $keep = [];
+        foreach (['tix_rp_key', 'tix_rp_login', 'redirect_to'] as $k) {
+            if (isset($_GET[$k])) $keep[$k] = rawurlencode((string) wp_unslash($_GET[$k]));
+        }
+        wp_safe_redirect($keep ? add_query_arg($keep, $target) : $target, 302);
+        exit;
     }
 
     /** Formular-Ziele auf wp-login.php (wp_login_form, Seitenpasswort, Login-Formulare) → Handler. */

@@ -575,7 +575,7 @@ class TIX_Support_Mail {
         $stored = [];
         foreach ($files['keep'] as $f) {
             $r = TIX_Support::store_attachment_data($ticket_id, $f['name'], $f['data']);
-            if (!is_wp_error($r)) $stored[] = ['url' => $r['url'], 'name' => $r['name'], 'mime' => $r['mime']];
+            if (!is_wp_error($r)) $stored[] = ['file' => $r['file'], 'name' => $r['name'], 'mime' => $r['mime']];
             else $files['dropped'][] = $f['name'] . ' (' . $r->get_error_message() . ')';
         }
         if ($content === '' ) $content = '(Anhang)';

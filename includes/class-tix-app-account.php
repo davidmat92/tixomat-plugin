@@ -159,6 +159,17 @@ class TIX_App_Account {
             'callback'            => [__CLASS__, 'support_reply'],
             'permission_callback' => [__CLASS__, 'check_customer'],
         ]);
+        // Gäste mit dem Schlüssel aus der Support-Mail (?tix_sp_ticket=…&tix_sp_key=…), ohne Konto
+        register_rest_route(self::NS, '/public/support/(?P<id>\d+)', [
+            'methods'             => 'GET',
+            'callback'            => [__CLASS__, 'support_guest_detail'],
+            'permission_callback' => '__return_true',
+        ]);
+        register_rest_route(self::NS, '/public/support/(?P<id>\d+)/reply', [
+            'methods'             => 'POST',
+            'callback'            => [__CLASS__, 'support_guest_reply'],
+            'permission_callback' => '__return_true',
+        ]);
     }
 
     public static function check_customer(WP_REST_Request $req) {
@@ -707,6 +718,47 @@ class TIX_App_Account {
     /** 0 = alle Anfragen der E-Mail; sonst (E-Mail nicht bestätigt) nur vom Konto selbst angelegte. */
     private static function support_author($user) {
         return self::email_trusted($user) ? 0 : intval($user->ID);
+    }
+
+    /** Schlüssel aus der Support-Mail prüfen → E-Mail der Anfrage oder WP_Error (10 Fehlversuche je IP in 10 min → 429). */
+    private static function support_guest_email(WP_REST_Request $req) {
+        if (!self::support_enabled() || !method_exists('TIX_Support', 'guest_email')) {
+            return self::error('tix_support_disabled', 'Der Support ist aktuell nicht aktiv.', 404);
+        }
+        $fail_key = 'tix_sp_guest_fail_' . md5(self::client_ip());
+        if (intval(get_transient($fail_key)) >= 10) {
+            return self::error('tix_rate_limit', 'Zu viele Versuche. Bitte in ein paar Minuten erneut versuchen.', 429);
+        }
+        $key   = (string) ($req->get_param('key') ?? $req->get_param('tix_sp_key') ?? '');
+        $email = TIX_Support::guest_email(intval($req['id']), $key);
+        if ($email === '') {
+            set_transient($fail_key, intval(get_transient($fail_key)) + 1, 600);
+            return self::error('rest_forbidden', 'Der Link ist ungültig. Bitte öffne ihn erneut aus der E-Mail.', 403);
+        }
+        return $email;
+    }
+
+    /** GET /public/support/{id}?key= – Verlauf für Gäste (gleiches Format wie /customer/support/{id}) */
+    public static function support_guest_detail(WP_REST_Request $req) {
+        $email = self::support_guest_email($req);
+        if (is_wp_error($email)) return $email;
+        $detail = TIX_Support::app_detail(intval($req['id']), $email);
+        if (is_wp_error($detail)) return $detail;
+        return rest_ensure_response(['ok' => true, 'request' => $detail]);
+    }
+
+    /** POST /public/support/{id}/reply {key, message} – Antwort als Gast */
+    public static function support_guest_reply(WP_REST_Request $req) {
+        $email = self::support_guest_email($req);
+        if (is_wp_error($email)) return $email;
+        if (self::rate_limited('support_guest_reply', 20, 600)) {
+            return self::error('tix_rate_limit', 'Zu viele Nachrichten. Bitte kurz warten.', 429);
+        }
+        $content = mb_substr(sanitize_textarea_field((string) $req->get_param('message')), 0, 5000);
+        if ($content === '') return self::error('missing_message', 'Bitte deine Nachricht eingeben.', 400, ['field' => 'message']);
+        $detail = TIX_Support::app_reply(intval($req['id']), $email, $content);
+        if (is_wp_error($detail)) return $detail;
+        return rest_ensure_response(['ok' => true, 'request' => $detail]);
     }
 
     /** GET /customer/support */

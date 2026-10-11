@@ -20,6 +20,10 @@ class TIX_Support {
     // ══════════════════════════════════════════════
 
     public static function init() {
+        // Geschützte Anhänge: Auslieferung nur über signierte Links (?tix_sp_file=…), alte öffentliche Dateien übernehmen
+        add_action('init', [__CLASS__, 'maybe_serve_file'], 0);
+        add_action('init', [__CLASS__, 'maybe_migrate_files'], 20);
+
         // CPT + Custom Statuses immer registrieren
         add_action('init', [__CLASS__, 'register_post_type']);
         add_action('init', [__CLASS__, 'register_post_statuses']);
@@ -725,7 +729,7 @@ class TIX_Support {
         }
 
         $ticket = self::format_support_ticket($post);
-        $ticket['messages'] = self::get_messages($ticket_id);
+        $ticket['messages'] = self::present_messages($ticket_id, self::get_messages($ticket_id));
 
         // Verknüpfte Order-Infos
         $order_id    = intval(get_post_meta($ticket_id, '_tix_sp_order_id', true));
@@ -811,21 +815,8 @@ class TIX_Support {
             }
         }
 
-        // Attachments validieren — URLs müssen aus unserer Upload-Struktur stammen
-        $upload_dir = wp_upload_dir();
-        $allowed_prefix = trailingslashit($upload_dir['baseurl']) . 'tix-support/' . intval($ticket_id) . '/';
-        $valid_files = [];
-        foreach ($attached_files as $f) {
-            if (!is_array($f)) continue;
-            $url = esc_url_raw($f['url'] ?? '');
-            if ($url && strpos($url, $allowed_prefix) === 0) {
-                $valid_files[] = [
-                    'url'  => $url,
-                    'name' => sanitize_text_field($f['name'] ?? basename($url)),
-                    'mime' => sanitize_text_field($f['mime'] ?? ''),
-                ];
-            }
-        }
+        // Anhänge: nur Dateien, die zu diesem Ticket hochgeladen wurden (Angaben aus der Ticket-Meta)
+        $valid_files = self::accept_attachments($ticket_id, $attached_files);
 
         $user = wp_get_current_user();
         $msg = [
@@ -858,7 +849,7 @@ class TIX_Support {
         // Feed-Eintrag + Push in der App (nur mit Kundenkonto)
         self::notify_customer_app($ticket_id, $post->post_title, $email, $content);
 
-        $response = ['message' => $msg];
+        $response = ['message' => self::present_message($ticket_id, $msg)];
         if ($attach_message) {
             $response['attach_message'] = $attach_message;
             // Interne Notiz im Thread: was wurde angehängt
@@ -1252,50 +1243,248 @@ class TIX_Support {
         return isset(self::allowed_upload_mimes()[self::detect_mime_of_data($data)]);
     }
 
-    /** Zielpfad in /uploads/tix-support/{ticket_id}/ mit sicherem, eindeutigem Dateinamen */
+    /** Zielpfad im geschützten Ordner /uploads/tix-private/support/{ticket_id}/, zufälliger Name ohne Endung */
     private static function attachment_target($ticket_id, $orig_name, $ext) {
-        $upload_dir = wp_upload_dir();
-        $base_dir   = trailingslashit($upload_dir['basedir']) . 'tix-support';
-        if (!file_exists($base_dir)) {
-            wp_mkdir_p($base_dir);
-            // .htaccess: Direktzugriff erlaubt aber kein PHP execute
-            file_put_contents($base_dir . '/.htaccess', "Options -Indexes\n<FilesMatch \"\\.(php|php\\..*)$\">\nRequire all denied\n</FilesMatch>\n");
-        }
-        $ticket_dir = $base_dir . '/' . intval($ticket_id);
-        if (!file_exists($ticket_dir)) wp_mkdir_p($ticket_dir);
-
-        $base_name = pathinfo($orig_name, PATHINFO_FILENAME) ?: 'upload';
-        $base_name = substr(preg_replace('/[^a-zA-Z0-9._-]/', '_', $base_name), 0, 50);
-        $filename  = $base_name . '_' . wp_generate_password(6, false, false) . '.' . $ext;
-        return [
-            'path'     => $ticket_dir . '/' . $filename,
-            'filename' => $filename,
-            'url'      => trailingslashit($upload_dir['baseurl']) . 'tix-support/' . intval($ticket_id) . '/' . $filename,
-        ];
+        $ticket_dir = self::private_dir(intval($ticket_id));
+        $filename   = wp_generate_password(32, false, false);
+        return ['path' => $ticket_dir . '/' . $filename, 'filename' => $filename];
     }
 
-    /** Anhang in der Ticket-Meta vermerken */
+    /** Anhang in der Ticket-Meta vermerken (Schlüssel `file`, keine öffentliche URL) */
     private static function register_attachment($ticket_id, $orig_name, array $target, $size, $mime, $by) {
         $existing = get_post_meta($ticket_id, '_tix_sp_attachments', true);
         if (!is_array($existing)) $existing = [];
         $existing[] = [
-            'id'        => uniqid('att_', true),
-            'name'      => $orig_name,
-            'filename'  => $target['filename'],
-            'url'       => $target['url'],
-            'size'      => intval($size),
-            'mime'      => $mime,
+            'id'          => uniqid('att_', true),
+            'name'        => $orig_name,
+            'file'        => $target['filename'],
+            'size'        => intval($size),
+            'mime'        => $mime,
             'uploaded_by' => $by,
-            'date'      => current_time('c'),
+            'date'        => current_time('c'),
         ];
         update_post_meta($ticket_id, '_tix_sp_attachments', $existing);
 
         return [
             'name' => $orig_name,
-            'url'  => $target['url'],
+            'file' => $target['filename'],
+            'url'  => self::file_url($ticket_id, $target['filename']),
             'size' => intval($size),
             'mime' => $mime,
         ];
+    }
+
+    // ══════════════════════════════════════════════
+    // GESCHÜTZTE ANHÄNGE
+    // ══════════════════════════════════════════════
+
+    const FILE_TTL      = 6 * HOUR_IN_SECONDS;   // Links in Oberflächen und Schnittstellen
+    const FILE_TTL_MAIL = 30 * DAY_IN_SECONDS;   // Links in Mails an Kunden
+    const FILES_VERSION = 1;
+
+    /** Geschützter Ordner (Direktabruf gesperrt), optional Unterordner je Ticket. */
+    public static function private_dir($ticket_id = 0) {
+        $upload_dir = wp_upload_dir();
+        $root = trailingslashit($upload_dir['basedir']) . 'tix-private';
+        $base = $root . '/support';
+        if (!file_exists($base)) wp_mkdir_p($base);
+        if (!file_exists($root . '/.htaccess') || strpos((string) @file_get_contents($root . '/.htaccess'), 'RewriteRule') === false) {
+            @file_put_contents($root . '/.htaccess', "# Tixomat: kein Direktabruf (Auslieferung nur über geprüfte Links)\n<IfModule mod_rewrite.c>\nRewriteEngine On\nRewriteRule .* - [F,L]\n</IfModule>\n<IfModule mod_authz_core.c>\nRequire all denied\n</IfModule>\n<IfModule !mod_authz_core.c>\nOrder deny,allow\nDeny from all\n</IfModule>\nOptions -Indexes\n");
+        }
+        if (!file_exists($root . '/index.php')) @file_put_contents($root . '/index.php', "<?php // Silence is golden.\n");
+        // Prüfdatei: https://<seite>/wp-content/uploads/tix-private/probe.txt muss 403 liefern
+        if (!file_exists($root . '/probe.txt')) @file_put_contents($root . '/probe.txt', "Wenn du das lesen kannst, ist der Ordner nicht gesperrt.\n");
+        if (!$ticket_id) return $base;
+        $dir = $base . '/' . intval($ticket_id);
+        if (!file_exists($dir)) wp_mkdir_p($dir);
+        return $dir;
+    }
+
+    private static function file_sig($ticket_id, $file, $exp) {
+        return hash_hmac('sha256', intval($ticket_id) . '|' . $file . '|' . intval($exp), wp_salt('auth') . 'tix_sp_file');
+    }
+
+    /** Signierter, befristeter Link (Kunden-Adresse, tix_-Parameter → landet bei WordPress). */
+    public static function file_url($ticket_id, $file, $ttl = self::FILE_TTL) {
+        $exp = time() + intval($ttl);
+        // auf die Stunde runden: gleiche Links innerhalb einer Stunde (Cache im Browser/App)
+        $exp = $exp - ($exp % HOUR_IN_SECONDS) + HOUR_IN_SECONDS;
+        $url = add_query_arg([
+            'tix_sp_file' => intval($ticket_id) . '-' . $file,
+            'exp'         => $exp,
+            'sig'         => self::file_sig($ticket_id, $file, $exp),
+        ], home_url('/'));
+        return class_exists('TIX_Customer_URL') ? TIX_Customer_URL::to($url) : $url;
+    }
+
+    /** Eintrag der Ticket-Meta zu einem Datei-Schlüssel (oder null). */
+    private static function find_attachment($ticket_id, $file) {
+        $list = get_post_meta(intval($ticket_id), '_tix_sp_attachments', true);
+        if (!is_array($list) || $file === '') return null;
+        foreach ($list as $a) {
+            if (is_array($a) && (($a['file'] ?? '') === $file)) return $a;
+        }
+        return null;
+    }
+
+    /** Datei-Schlüssel aus einem Anhang (neu: file, Link mit tix_sp_file; alt: öffentliche URL). */
+    private static function attachment_key($ticket_id, $a) {
+        if (!is_array($a)) return '';
+        if (!empty($a['file']) && is_string($a['file'])) return preg_replace('/[^A-Za-z0-9]/', '', $a['file']);
+        $url = (string) ($a['url'] ?? '');
+        if ($url === '') return '';
+        parse_str((string) wp_parse_url($url, PHP_URL_QUERY), $q);
+        if (!empty($q['tix_sp_file']) && preg_match('/^(\d+)-([A-Za-z0-9]+)$/', (string) $q['tix_sp_file'], $m) && intval($m[1]) === intval($ticket_id)) return $m[2];
+        // Altbestand (vor der Übernahme): Zuordnung über den alten Dateinamen
+        $map = get_post_meta(intval($ticket_id), '_tix_sp_file_map', true);
+        $old = basename((string) wp_parse_url($url, PHP_URL_PATH));
+        return (is_array($map) && isset($map[$old])) ? (string) $map[$old] : '';
+    }
+
+    /** Vom Client gemeldete Anhänge → Einträge aus der Ticket-Meta ['file','name','mime'] (Fremdes fällt weg). */
+    private static function accept_attachments($ticket_id, $files) {
+        $out = [];
+        foreach ((array) $files as $f) {
+            $key = self::attachment_key($ticket_id, $f);
+            $a = $key !== '' ? self::find_attachment($ticket_id, $key) : null;
+            if ($a) $out[] = ['file' => $key, 'name' => (string) ($a['name'] ?? ''), 'mime' => (string) ($a['mime'] ?? '')];
+        }
+        return $out;
+    }
+
+    /** Anhänge für die Ausgabe: signierte Links statt Speicherort. */
+    public static function present_attachments($ticket_id, $list, $ttl = self::FILE_TTL) {
+        $out = [];
+        foreach ((array) $list as $a) {
+            $key = self::attachment_key($ticket_id, $a);
+            if ($key === '') continue;
+            $meta = self::find_attachment($ticket_id, $key) ?: [];
+            $out[] = array_filter([
+                'id'   => $meta['id'] ?? null,
+                'file' => $key,
+                'name' => (string) ($a['name'] ?? ($meta['name'] ?? 'Anhang')),
+                'mime' => (string) ($a['mime'] ?? ($meta['mime'] ?? '')),
+                'size' => isset($meta['size']) ? intval($meta['size']) : null,
+                'date' => $meta['date'] ?? null,
+                'url'  => self::file_url($ticket_id, $key, $ttl),
+            ], function ($v) { return $v !== null; });
+        }
+        return $out;
+    }
+
+    public static function present_message($ticket_id, $m) {
+        if (is_array($m) && !empty($m['attachments'])) $m['attachments'] = self::present_attachments($ticket_id, $m['attachments']);
+        return $m;
+    }
+
+    public static function present_messages($ticket_id, $messages) {
+        return array_map(function ($m) use ($ticket_id) { return self::present_message($ticket_id, $m); }, (array) $messages);
+    }
+
+    /** Absoluter Pfad einer Datei des Tickets (oder ''). */
+    public static function attachment_path($ticket_id, $file) {
+        $file = preg_replace('/[^A-Za-z0-9]/', '', (string) $file);
+        if ($file === '' || !self::find_attachment($ticket_id, $file)) return '';
+        $path = self::private_dir(intval($ticket_id)) . '/' . $file;
+        return is_file($path) ? $path : '';
+    }
+
+    /** ?tix_sp_file=<ticket>-<file>&exp=&sig= → Datei ausliefern (Signatur + Ablauf geprüft). */
+    public static function maybe_serve_file() {
+        if (!isset($_GET['tix_sp_file'])) return;
+        $raw = (string) wp_unslash($_GET['tix_sp_file']);
+        $exp = intval($_GET['exp'] ?? 0);
+        $sig = (string) wp_unslash($_GET['sig'] ?? '');
+        $deny = function ($code, $msg) { status_header($code); nocache_headers(); header('Content-Type: text/plain; charset=utf-8'); header('X-Robots-Tag: noindex, nofollow'); echo $msg; exit; };
+        if (!preg_match('/^(\d+)-([A-Za-z0-9]{8,64})$/', $raw, $m)) $deny(404, 'Datei nicht gefunden.');
+        $ticket_id = intval($m[1]); $file = $m[2];
+        if ($exp < time()) $deny(403, 'Der Link ist abgelaufen. Bitte öffne die Anfrage erneut.');
+        if ($sig === '' || !hash_equals(self::file_sig($ticket_id, $file, $exp), $sig)) $deny(403, 'Kein Zugriff.');
+        if (get_post_type($ticket_id) !== 'tix_support_ticket') $deny(404, 'Datei nicht gefunden.');
+        $meta = self::find_attachment($ticket_id, $file);
+        $path = self::attachment_path($ticket_id, $file);
+        if (!$meta || $path === '') $deny(404, 'Datei nicht gefunden.');
+        $mime = (string) ($meta['mime'] ?? '');
+        if (!isset(self::allowed_upload_mimes()[$mime])) $mime = 'application/octet-stream';
+        $inline = in_array($mime, ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'application/pdf'], true);
+        $name = sanitize_file_name((string) ($meta['name'] ?? 'anhang')) ?: 'anhang';
+        while (ob_get_level()) ob_end_clean();
+        status_header(200);
+        header('Content-Type: ' . $mime);
+        header('Content-Length: ' . filesize($path));
+        header('Content-Disposition: ' . ($inline ? 'inline' : 'attachment') . '; filename="' . str_replace('"', '', $name) . '"; filename*=UTF-8\'\'' . rawurlencode($name));
+        header('X-Content-Type-Options: nosniff');
+        header('X-Robots-Tag: noindex, nofollow');
+        header('Cache-Control: private, max-age=3600');
+        header("Content-Security-Policy: default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox");
+        readfile($path);
+        exit;
+    }
+
+    /**
+     * Einmalige Übernahme: Dateien aus dem früher öffentlichen /uploads/tix-support/{id}/ in den
+     * geschützten Ordner verschieben (zufälliger Name), Meta + Nachrichten anpassen. In Portionen.
+     */
+    public static function maybe_migrate_files() {
+        if (intval(get_option('tix_support_files_version', 0)) >= self::FILES_VERSION) return;
+        if (get_transient('tix_support_files_lock')) return;
+        set_transient('tix_support_files_lock', 1, 60);
+        $done = self::migrate_files_batch(100);
+        if ($done) update_option('tix_support_files_version', self::FILES_VERSION, false);
+        delete_transient('tix_support_files_lock');
+    }
+
+    /** @return bool true, wenn nichts mehr zu tun ist */
+    public static function migrate_files_batch($limit = 100) {
+        $upload_dir = wp_upload_dir();
+        $old_base = trailingslashit($upload_dir['basedir']) . 'tix-support';
+        if (!is_dir($old_base)) return true;
+        // Altordner sofort sperren (auch wenn die Übernahme noch läuft)
+        @file_put_contents($old_base . '/.htaccess', "<IfModule mod_rewrite.c>\nRewriteEngine On\nRewriteRule .* - [F,L]\n</IfModule>\n<IfModule mod_authz_core.c>\nRequire all denied\n</IfModule>\n<IfModule !mod_authz_core.c>\nOrder deny,allow\nDeny from all\n</IfModule>\nOptions -Indexes\n");
+        $moved = 0;
+        foreach ((array) glob($old_base . '/*', GLOB_ONLYDIR) as $dir) {
+            $ticket_id = intval(basename($dir));
+            if (!$ticket_id) continue;
+            $map = get_post_meta($ticket_id, '_tix_sp_file_map', true);
+            if (!is_array($map)) $map = [];
+            foreach ((array) glob($dir . '/*') as $src) {
+                if (!is_file($src)) continue;
+                $old = basename($src);
+                if (!isset($map[$old])) {
+                    $new = wp_generate_password(32, false, false);
+                    if (!@rename($src, self::private_dir($ticket_id) . '/' . $new)) continue;
+                    $map[$old] = $new;
+                } else {
+                    @unlink($src);
+                }
+                if (++$moved >= $limit) break;
+            }
+            update_post_meta($ticket_id, '_tix_sp_file_map', $map);
+            self::migrate_ticket_meta($ticket_id, $map);
+            if (!glob($dir . '/*')) @rmdir($dir);
+            if ($moved >= $limit) return false;
+        }
+        return !glob($old_base . '/*', GLOB_ONLYDIR);
+    }
+
+    /** Meta-Einträge (Liste + Nachrichten) von alten URLs auf Datei-Schlüssel umstellen. */
+    private static function migrate_ticket_meta($ticket_id, array $map) {
+        $conv = function ($a) use ($map) {
+            if (!is_array($a) || !empty($a['file'])) return $a;
+            $old = basename((string) wp_parse_url((string) ($a['url'] ?? ''), PHP_URL_PATH)) ?: (string) ($a['filename'] ?? '');
+            if ($old !== '' && isset($map[$old])) { $a['file'] = $map[$old]; unset($a['url'], $a['filename']); }
+            return $a;
+        };
+        $list = get_post_meta($ticket_id, '_tix_sp_attachments', true);
+        if (is_array($list)) update_post_meta($ticket_id, '_tix_sp_attachments', array_map($conv, $list));
+        $raw = get_post_meta($ticket_id, '_tix_sp_messages', true);
+        if (is_array($raw)) {
+            foreach ($raw as &$m) {
+                if (is_array($m) && !empty($m['attachments'])) $m['attachments'] = array_map($conv, (array) $m['attachments']);
+            }
+            unset($m);
+            update_post_meta($ticket_id, '_tix_sp_messages', $raw);
+        }
     }
 
     /**
@@ -1521,21 +1710,8 @@ class TIX_Support {
             wp_send_json_error('Zugriff verweigert.');
         }
 
-        // Attachments validieren (URL muss aus dieser Ticket-Upload-Struktur stammen)
-        $upload_dir = wp_upload_dir();
-        $allowed_prefix = trailingslashit($upload_dir['baseurl']) . 'tix-support/' . intval($ticket_id) . '/';
-        $valid_files = [];
-        foreach ($attached_files as $f) {
-            if (!is_array($f)) continue;
-            $url = esc_url_raw($f['url'] ?? '');
-            if ($url && strpos($url, $allowed_prefix) === 0) {
-                $valid_files[] = [
-                    'url'  => $url,
-                    'name' => sanitize_text_field($f['name'] ?? basename($url)),
-                    'mime' => sanitize_text_field($f['mime'] ?? ''),
-                ];
-            }
-        }
+        // Anhänge: nur Dateien, die zu diesem Ticket hochgeladen wurden (Angaben aus der Ticket-Meta)
+        $valid_files = self::accept_attachments($ticket_id, $attached_files);
 
         $post = get_post($ticket_id);
         $name = get_post_meta($ticket_id, '_tix_sp_name', true) ?: $email;
@@ -1561,7 +1737,7 @@ class TIX_Support {
         // Admin benachrichtigen
         self::send_email_customer_reply_admin($ticket_id, $post->post_title, $email, $content);
 
-        wp_send_json_success(['message' => $msg]);
+        wp_send_json_success(['message' => self::present_message($ticket_id, $msg)]);
     }
 
     // ══════════════════════════════════════════════
@@ -1745,11 +1921,11 @@ class TIX_Support {
         $post = get_post($ticket_id);
         $ticket = self::customer_ticket($post);
 
-        // Nur sichtbare Nachrichten (keine internen Notizen)
+        // Nur sichtbare Nachrichten (keine internen Notizen), Anhänge als signierte Links
         $messages = self::get_messages($ticket_id);
-        $ticket['messages'] = array_values(array_filter($messages, function($m) {
+        $ticket['messages'] = self::present_messages($ticket_id, array_values(array_filter($messages, function($m) {
             return $m['type'] !== 'note';
-        }));
+        })));
 
         wp_send_json_success($ticket);
     }
@@ -2119,7 +2295,7 @@ class TIX_Support {
             'date'         => $post->post_date,
             'date_formatted' => wp_date('d.m.Y H:i', strtotime($post->post_date)),
             'ai_summary'   => is_array($ai_summary) ? ($ai_summary['text'] ?? '') : '',
-            'attachments'  => is_array($attachments) ? array_values($attachments) : [],
+            'attachments'  => is_array($attachments) ? self::present_attachments($post->ID, $attachments) : [],
         ];
     }
 
@@ -2345,18 +2521,24 @@ class TIX_Support {
 
         // ── Datei-Anhänge des Admins (vom Upload-Toolbar) ──
         $extra_attach_files = [];
+        $temp_files_extra   = [];
         $upload_dir = wp_upload_dir();
         if (!empty($extra_files)) {
             $body .= '<div style="margin:16px 0;padding:12px 14px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;">';
             $body .= '<strong style="font-size:13px;color:#475569;">📎 Anhänge:</strong><ul style="margin:8px 0 0;padding-left:20px;">';
             foreach ($extra_files as $f) {
-                $url = $f['url'] ?? '';
-                $name_f = $f['name'] ?? basename($url);
-                $body .= '<li style="font-size:13px;margin:3px 0;"><a href="' . esc_url($url) . '" style="color:#2563eb;text-decoration:none;">' . esc_html($name_f) . '</a></li>';
-                // URL → Dateipfad ableiten und als wp_mail-Attachment beilegen
-                $rel = str_replace(trailingslashit($upload_dir['baseurl']), '', $url);
-                $abs = trailingslashit($upload_dir['basedir']) . $rel;
-                if (file_exists($abs)) $extra_attach_files[] = $abs;
+                $key = self::attachment_key($ticket_id, $f);
+                if ($key === '') continue;
+                $name_f = $f['name'] ?? 'Anhang';
+                $body .= '<li style="font-size:13px;margin:3px 0;"><a href="' . esc_url(self::file_url($ticket_id, $key, self::FILE_TTL_MAIL)) . '" style="color:#2563eb;text-decoration:none;">' . esc_html($name_f) . '</a></li>';
+                // Datei als wp_mail-Anhang beilegen (Kopie mit lesbarem Namen im gesperrten Temp-Ordner)
+                $abs = self::attachment_path($ticket_id, $key);
+                if ($abs !== '') {
+                    $tmp_dir = trailingslashit($upload_dir['basedir']) . 'tix-support-mail-tmp';
+                    if (!file_exists($tmp_dir)) { @wp_mkdir_p($tmp_dir); @file_put_contents($tmp_dir . '/.htaccess', "deny from all\n"); }
+                    $copy = $tmp_dir . '/' . wp_generate_password(8, false, false) . '-' . (sanitize_file_name($name_f) ?: 'anhang');
+                    if (@copy($abs, $copy)) { $extra_attach_files[] = $copy; $temp_files_extra[] = $copy; }
+                }
             }
             $body .= '</ul></div>';
         }
@@ -2438,7 +2620,7 @@ class TIX_Support {
         self::send_customer_mail($ticket_id, $email, self::customer_subject('Neue Antwort zu deiner Anfrage', $ticket_id), $html, 'reply', $all_attachments);
 
         // Temp-PDFs aufräumen (Datei-Uploads bleiben — sind permanent gespeichert)
-        foreach ($temp_files as $f) { @unlink($f); }
+        foreach (array_merge($temp_files, $temp_files_extra) as $f) { @unlink($f); }
 
         // Anhang-Status erweitern
         if (!empty($extra_attach_files)) {
@@ -2896,8 +3078,18 @@ class TIX_Support {
             return new WP_Error('rest_forbidden', 'Keine Berechtigung.', ['status' => 403]);
         }
         $t = self::customer_ticket($post);
-        $t['messages'] = array_values(array_filter(self::get_messages($ticket_id), function ($m) { return ($m['type'] ?? '') !== 'note'; }));
+        $t['messages'] = self::present_messages($ticket_id, array_values(array_filter(self::get_messages($ticket_id), function ($m) { return ($m['type'] ?? '') !== 'note'; })));
         return $t;
+    }
+
+    /** E-Mail der Anfrage, wenn der Schlüssel aus der Support-Mail stimmt (zeitkonstant), sonst ''. */
+    public static function guest_email($ticket_id, $key) {
+        $ticket_id = intval($ticket_id);
+        $key = trim((string) $key);
+        if (!$ticket_id || $key === '' || get_post_type($ticket_id) !== 'tix_support_ticket') return '';
+        $stored = (string) get_post_meta($ticket_id, '_tix_sp_access_key', true);
+        if ($stored === '' || !hash_equals($stored, $key)) return '';
+        return sanitize_email((string) get_post_meta($ticket_id, '_tix_sp_email', true));
     }
 
     /** Antwort des Kunden aus der App. Liefert den aktualisierten Verlauf oder WP_Error. */
