@@ -11,6 +11,32 @@ if (!defined('ABSPATH')) exit;
 
 class TIX_Register_Event {
 
+    /** Lucide-Icons (ISC) für den evendis-Look: Name → innere SVG-Elemente (viewBox 24, Strich) */
+    const LUCIDE = [
+        'pencil'   => '<path d="M12 20h9"/><path d="M16.376 3.622a1 1 0 0 1 3.002 3.002L7.368 18.635a2 2 0 0 1-.855.506l-2.872.838a.5.5 0 0 1-.62-.62l.838-2.872a2 2 0 0 1 .506-.854z"/>',
+        'camera'   => '<path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/>',
+        'link'     => '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
+        'upload'   => '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/>',
+        'search'   => '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+        'file'     => '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>',
+        'check'    => '<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
+        'globe'    => '<circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/>',
+        'user'     => '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+        'building' => '<path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/><path d="M10 18h4"/>',
+        'calendar' => '<path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/><path d="M10 16h4"/><path d="M12 14v4"/>',
+        'rocket'   => '<path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"/><path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"/><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0"/><path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"/>',
+    ];
+
+    public static function icon($name, $size = 24) {
+        if (!isset(self::LUCIDE[$name])) return '';
+        return '<svg xmlns="http://www.w3.org/2000/svg" width="' . intval($size) . '" height="' . intval($size) . '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' . self::LUCIDE[$name] . '</svg>';
+    }
+
+    /** evendis-Look (Mehr-Veranstalter-Modus): Manrope, Rot/Nachtblau, Lucide statt Emojis. */
+    private static function evendis_look() {
+        return (bool) apply_filters('tix_register_event_evendis_look', class_exists('TIX_Org_Approval') && TIX_Org_Approval::multi());
+    }
+
     public static function init() {
         add_shortcode('tix_register_event', [__CLASS__, 'render']);
 
@@ -50,11 +76,21 @@ class TIX_Register_Event {
         wp_enqueue_style('tix-register-event', TIXOMAT_URL . 'assets/css/register-event.css', [], TIXOMAT_VERSION);
         wp_enqueue_script('tix-register-event', TIXOMAT_URL . 'assets/js/register-event.js', ['jquery'], TIXOMAT_VERSION, true);
         $ai_name = tix_get_settings('ai_assistant_name') ?: 'Evendis-Assistent';
+        $evendis = self::evendis_look();
+        if ($evendis) wp_enqueue_style('tix-register-evendis', TIXOMAT_URL . 'assets/css/register-evendis.css', ['tix-register-event'], TIXOMAT_VERSION);
+        $icons = [];
+        if ($evendis) {
+            // Emoji der Fortschrittsschritte → Lucide
+            foreach (['📤' => 'upload', '🔍' => 'search', '📝' => 'file', '✅' => 'check', '🌐' => 'globe', '👤' => 'user', '🏢' => 'building', '🎉' => 'calendar', '🚀' => 'rocket'] as $emoji => $name) {
+                $icons[$emoji] = self::icon($name, 18);
+            }
+        }
         wp_localize_script('tix-register-event', 'tixRegister', [
             'ajaxUrl' => admin_url('admin-ajax.php'),
             'nonce'   => wp_create_nonce('tix_register_event'),
             'aiNonce' => wp_create_nonce('tix_admin_action'),
             'aiName'  => $ai_name,
+            'icons'   => (object) $icons,
         ]);
 
         $dark = $atts['mode'] === 'dark';
@@ -64,7 +100,7 @@ class TIX_Register_Event {
 
         ob_start();
         ?>
-        <div class="tix-re <?php echo $dark ? 'tix-re-dark' : ''; ?>">
+        <div class="tix-re <?php echo $dark ? 'tix-re-dark' : ''; ?><?php echo $evendis ? ' tix-re-evendis' : ''; ?>">
 
             <div class="tix-re-header">
                 <h1 class="tix-re-title"><?php echo esc_html($atts['title']); ?></h1>
@@ -86,17 +122,17 @@ class TIX_Register_Event {
 
                 <div class="tix-re-modes">
                     <button type="button" class="tix-re-mode" data-mode="chat">
-                        <span class="tix-re-mode-icon">📝</span>
+                        <span class="tix-re-mode-icon"><?php echo $evendis ? self::icon('pencil') : '📝'; ?></span>
                         <strong>Beschreiben</strong>
                         <span>In Stichpunkten oder Text</span>
                     </button>
                     <button type="button" class="tix-re-mode" data-mode="upload">
-                        <span class="tix-re-mode-icon">📸</span>
+                        <span class="tix-re-mode-icon"><?php echo $evendis ? self::icon('camera') : '📸'; ?></span>
                         <strong>Flyer hochladen</strong>
                         <span>Bild analysieren lassen</span>
                     </button>
                     <button type="button" class="tix-re-mode" data-mode="url">
-                        <span class="tix-re-mode-icon">🔗</span>
+                        <span class="tix-re-mode-icon"><?php echo $evendis ? self::icon('link') : '🔗'; ?></span>
                         <strong>URL eingeben</strong>
                         <span>Eventseite analysieren</span>
                     </button>
@@ -115,7 +151,7 @@ class TIX_Register_Event {
                 <div class="tix-re-input-area" id="tix-re-upload-area" style="display:none;">
                     <div class="tix-re-dropzone" id="tix-re-dropzone">
                         <input type="file" id="tix-re-file" accept="image/*" style="display:none;">
-                        <span class="tix-re-dropzone-text">📸 Flyer hierher ziehen oder <a href="#" id="tix-re-browse">durchsuchen</a></span>
+                        <span class="tix-re-dropzone-text"><?php echo $evendis ? self::icon('upload', 20) : '📸'; ?> Flyer hierher ziehen oder <a href="#" id="tix-re-browse">durchsuchen</a></span>
                         <span class="tix-re-dropzone-hint">JPG, PNG, WEBP — Foto aufnehmen oder aus Galerie wählen</span>
                     </div>
                     <div id="tix-re-upload-preview" style="display:none;"></div>
@@ -194,7 +230,7 @@ class TIX_Register_Event {
                     <div class="tix-re-nav">
                         <button type="button" class="tix-re-btn-back" data-goto="2">← Zurück</button>
                         <button type="submit" class="tix-re-btn-publish" id="tix-re-publish-btn">
-                            <span class="tix-re-btn-text"><?php echo $review ? 'Registrieren &amp; zur Prüfung einreichen' : 'Event veröffentlichen 🚀'; ?></span>
+                            <span class="tix-re-btn-text"><?php echo $review ? 'Registrieren &amp; zur Prüfung einreichen' : ($evendis ? 'Event veröffentlichen' : 'Event veröffentlichen 🚀'); ?></span>
                             <span class="tix-re-btn-loading" style="display:none;">Wird erstellt…</span>
                         </button>
                     </div>
@@ -206,7 +242,7 @@ class TIX_Register_Event {
             <div class="tix-re-panel" data-step="4" style="display:none;">
                 <div class="tix-re-success">
                     <canvas id="tix-re-fireworks" width="400" height="300" style="position:absolute;top:0;left:0;right:0;pointer-events:none;"></canvas>
-                    <div class="tix-re-success-check">🎉</div>
+                    <div class="tix-re-success-check"><?php echo $evendis ? self::icon('check', 44) : '🎉'; ?></div>
                     <h2 id="tix-re-success-heading"><?php echo $review ? 'Geschafft! Wir prüfen dein Konto.' : 'Geschafft! Dein Event ist live.'; ?></h2>
                     <p id="tix-re-success-msg"></p>
                     <div class="tix-re-success-links">

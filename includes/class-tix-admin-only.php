@@ -74,6 +74,14 @@ class TIX_Admin_Only {
         add_action('login_enqueue_scripts', [__CLASS__, 'login_style']);
         add_filter('login_headerurl', [__CLASS__, 'login_logo_url']);
         add_filter('login_headertext', [__CLASS__, 'login_logo_text']);
+        add_filter('login_message', [__CLASS__, 'login_head'], 5);
+        // SEO der öffentlichen Seiten (Infoseite): Titel, Beschreibung, OG, Canonical, FAQ als JSON-LD
+        add_filter('pre_get_document_title', [__CLASS__, 'seo_title'], 20);
+        add_action('wp_head', [__CLASS__, 'seo_head'], 2);
+        // Google Fonts (Breakdance-Global) → lokale Schriften des Plugins
+        add_action('template_redirect', [__CLASS__, 'start_font_rewrite'], -999);
+        add_action('login_init', [__CLASS__, 'start_font_rewrite'], -999);
+        add_action('login_footer', [__CLASS__, 'login_footer']);
         // Nach dem Login (wp-login.php) ins passende Ziel, sofern kein anderes verlangt ist
         add_filter('login_redirect', [__CLASS__, 'login_redirect'], 30, 3);
     }
@@ -281,26 +289,196 @@ class TIX_Admin_Only {
         return $args;
     }
 
-    // ── Login im evendis-Look ──
+    // ── SEO der öffentlichen Seiten ──
 
+    /** Eigene SEO-Ausgabe nur auf öffentlichen Seiten der Verwaltung und ohne SEO-Plugin. */
+    private static function seo_active() {
+        if (TIX_Customer_URL::is_proxied() || is_admin() || !is_page()) return false;
+        if (defined('WPSEO_VERSION') || defined('RANK_MATH_VERSION') || defined('AIOSEO_VERSION') || defined('SEOPRESS_VERSION')) return false;
+        return self::is_public_request();
+    }
+
+    public static function seo_title($title) {
+        if (!self::seo_active()) return $title;
+        $post = get_queried_object();
+        if (!$post || empty($post->post_title)) return $title;
+        $t = wp_strip_all_tags(html_entity_decode((string) $post->post_title, ENT_QUOTES, 'UTF-8'));
+        // Startseite: Seitentitel pur; Unterseiten mit Marke
+        return is_front_page() ? $t : $t . ' – ' . get_bloginfo('name');
+    }
+
+    private static function seo_description($post) {
+        $text = (string) $post->post_excerpt;
+        if ($text === '') $text = wp_strip_all_tags(strip_shortcodes((string) $post->post_content));
+        $text = trim(preg_replace('/\s+/u', ' ', wp_strip_all_tags(html_entity_decode($text, ENT_QUOTES, 'UTF-8'))));
+        if (mb_strlen($text) > 160) $text = rtrim(mb_substr($text, 0, 157)) . '…';
+        return $text;
+    }
+
+    public static function seo_head() {
+        if (!self::seo_active()) return;
+        $post = get_queried_object();
+        if (!$post) return;
+        $title = self::seo_title('');
+        $desc  = self::seo_description($post);
+        $url   = is_front_page() ? home_url('/') : (string) get_permalink($post);
+        $img   = has_post_thumbnail($post) ? (string) get_the_post_thumbnail_url($post, 'large') : self::media_url('konzert');
+        echo "\n<!-- Tixomat: SEO der Infoseite -->\n";
+        if ($desc !== '') echo '<meta name="description" content="' . esc_attr($desc) . "\">\n";
+        if (!has_action('wp_head', 'rel_canonical')) echo '<link rel="canonical" href="' . esc_url($url) . "\">\n";
+        $og = ['og:type' => 'website', 'og:locale' => 'de_DE', 'og:site_name' => get_bloginfo('name'), 'og:title' => $title, 'og:description' => $desc, 'og:url' => $url, 'og:image' => $img];
+        foreach ($og as $k => $v) {
+            if ($v !== '') echo '<meta property="' . esc_attr($k) . '" content="' . esc_attr($v) . "\">\n";
+        }
+        echo '<meta name="twitter:card" content="' . ($img !== '' ? 'summary_large_image' : 'summary') . "\">\n";
+        $faq = self::faq_items($post->ID);
+        if ($faq) {
+            $ld = ['@context' => 'https://schema.org', '@type' => 'FAQPage', 'mainEntity' => array_map(function ($q) {
+                return ['@type' => 'Question', 'name' => $q['q'], 'acceptedAnswer' => ['@type' => 'Answer', 'text' => $q['a']]];
+            }, $faq)];
+            echo '<script type="application/ld+json">' . wp_json_encode($ld, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . "</script>\n";
+        }
+    }
+
+    /** Fragen/Antworten aus dem Breakdance-Element „FrequentlyAskedQuestions“ der Seite. */
+    public static function faq_items($post_id) {
+        $raw = get_post_meta(intval($post_id), '_breakdance_data', true);
+        $data = is_string($raw) ? json_decode($raw, true) : $raw;
+        if (is_array($data) && isset($data['tree_json_string'])) $data = json_decode((string) $data['tree_json_string'], true);
+        if (!is_array($data) || empty($data['root'])) return [];
+        $out = [];
+        $walk = function ($node) use (&$walk, &$out) {
+            if (!is_array($node)) return;
+            $type = (string) ($node['data']['type'] ?? '');
+            if (substr($type, -strlen('FrequentlyAskedQuestions')) === 'FrequentlyAskedQuestions') {
+                foreach ((array) ($node['data']['properties']['content']['settings']['items'] ?? []) as $it) {
+                    $q = trim(wp_strip_all_tags((string) ($it['question'] ?? '')));
+                    $a = trim(preg_replace('/\s+/u', ' ', wp_strip_all_tags((string) ($it['answer'] ?? ''))));
+                    if ($q !== '' && $a !== '') $out[] = ['q' => $q, 'a' => $a];
+                }
+            }
+            foreach ((array) ($node['children'] ?? []) as $c) $walk($c);
+        };
+        $walk($data['root']);
+        return $out;
+    }
+
+    // ── Google Fonts → lokale Schriften ──
+
+    public static function start_font_rewrite() {
+        static $started = false;
+        if ($started || is_admin() || wp_doing_ajax()) return;
+        $started = true;
+        ob_start([__CLASS__, 'local_fonts']);
+    }
+
+    /** <link> auf fonts.googleapis.com → fonts-local.css (Outfit, Inter, Sora, DM Sans lokal); Preconnects und @import entfernen. */
+    public static function local_fonts($html) {
+        if (!is_string($html) || stripos($html, 'fonts.g') === false) return $html;
+        $local = '<link rel="stylesheet" id="tix-fonts-local-css" href="' . esc_url(TIXOMAT_URL . 'assets/css/fonts-local.css?ver=' . TIXOMAT_VERSION) . '" media="all" />';
+        $done = false;
+        $html = preg_replace_callback('~<link\b[^>]*fonts\.(?:googleapis|gstatic)\.com[^>]*>~i', function ($m) use (&$done, $local) {
+            if (stripos($m[0], 'stylesheet') === false || $done) return '';
+            $done = true;
+            return $local;
+        }, $html);
+        $html = preg_replace('~@import\s+url\(\s*[\'"]?https?://fonts\.googleapis\.com[^)]*\)\s*;?~i', '', $html);
+        return $html;
+    }
+
+    // ── Login im evendis-Look (login-vorgabe.jpg) ──
+
+    /** Bild aus der Mediathek, das der Infoseiten-Installer mit `_ev_org_img` markiert hat ('' wenn keins). */
+    private static function media_url($key) {
+        $ids = get_posts(['post_type' => 'attachment', 'post_status' => 'inherit', 'numberposts' => 1, 'fields' => 'ids',
+                          'meta_key' => '_ev_org_img', 'meta_value' => $key]);
+        return $ids ? (string) wp_get_attachment_url($ids[0]) : '';
+    }
+
+    private static function login_logo() {
+        $logo = self::media_url('logo');
+        if ($logo === '') {
+            $s = function_exists('tix_get_settings') ? tix_get_settings() : [];
+            $logo = esc_url_raw((string) ($s['admin_logo_url'] ?? ''));
+        }
+        return $logo;
+    }
+
+    /** Logo → Infoseite (Startseite der Verwaltung). */
     public static function login_logo_url() {
-        return TIX_Customer_URL::base() . '/';
+        return home_url('/');
     }
 
     public static function login_logo_text() {
         return get_bloginfo('name');
     }
 
+    private static function login_action() {
+        return sanitize_key((string) ($_REQUEST['action'] ?? 'login'));
+    }
+
+    /** Titel + Untertitel über dem Formular (nur Anmelden). */
+    public static function login_head($message) {
+        if (!in_array(self::login_action(), ['login', ''], true)) return $message;
+        return '<div class="tix-login-head"><h2>Willkommen zurück</h2><p>Melde dich an, um deine Events, Verkäufe und dein Team zu verwalten.</p></div>' . $message;
+    }
+
     public static function login_style() {
         $s = function_exists('tix_get_settings') ? tix_get_settings() : [];
-        $accent = preg_match('/^#[0-9a-f]{3,8}$/i', (string) ($s['color_primary'] ?? '')) ? $s['color_primary'] : '#FC2F55';
-        $logo = esc_url_raw((string) ($s['admin_logo_url'] ?? ''));
-        if ($logo === '' && function_exists('get_site_icon_url')) $logo = (string) get_site_icon_url(192);
+        $accent = preg_match('/^#[0-9a-f]{6}$/i', (string) ($s['color_primary'] ?? '')) ? $s['color_primary'] : '#FC2F55';
         wp_enqueue_style('tix-login', TIXOMAT_URL . 'assets/css/login-evendis.css', [], TIXOMAT_VERSION);
         $css = ':root{--tix-login-accent:' . $accent . '}';
-        if ($logo !== '') {
-            $css .= '.login h1 a{background-image:url("' . esc_url($logo) . '")!important;background-size:contain!important;width:200px!important;height:72px!important}';
-        }
+        $logo = self::login_logo();
+        if ($logo !== '') $css .= '.login h1 a.tix-login-has-logo{background-image:url("' . esc_url($logo) . '")}';
+        $photo = self::media_url('comedy') ?: self::media_url('publikum');
+        if ($photo !== '') $css .= '.tix-login-photo{background-image:url("' . esc_url($photo) . '")}';
         wp_add_inline_style('tix-login', $css);
+    }
+
+    /** Foto-Karte, „Jetzt Veranstalter werden“, Fußzeile; kleine Umstellungen im Formular. */
+    public static function login_footer() {
+        $register = self::page_url_with('tix_register_event');
+        $base = TIX_Customer_URL::base();
+        $lost = wp_lostpassword_url();
+        $action = self::login_action();
+        ?>
+        <div class="tix-login-extra" hidden>
+            <a class="tix-login-lost" href="<?php echo esc_url($lost); ?>">Passwort vergessen?</a>
+            <?php if ($register !== '' && in_array($action, ['login', ''], true)) : ?>
+                <p class="tix-login-register">Noch kein Veranstalter-Konto? <a href="<?php echo esc_url($register); ?>">Jetzt Veranstalter werden</a></p>
+            <?php elseif ($action !== 'login' && $action !== '') : ?>
+                <p class="tix-login-register"><a href="<?php echo esc_url(wp_login_url()); ?>">Zurück zur Anmeldung</a></p>
+            <?php endif; ?>
+            <nav class="tix-login-foot">
+                <a href="<?php echo esc_url(home_url('/')); ?>">&larr; Zur Infoseite</a>
+                <?php if ($base !== '') : ?>
+                    <a href="<?php echo esc_url($base . '/impressum/'); ?>">Impressum</a>
+                    <a href="<?php echo esc_url($base . '/datenschutz/'); ?>">Datenschutz</a>
+                <?php endif; ?>
+            </nav>
+        </div>
+        <aside class="tix-login-photo" aria-hidden="true">
+            <strong>Dein Event. Deine Gäste. Ein Konto.</strong>
+            <span class="tix-login-photo-text">Tickets, Einlass, Abendkasse und Auszahlung – auf evendis.de und in der evendis-App.</span>
+            <div class="tix-login-pills"><span>Verkäufe</span><span>Check-in</span><span>Abendkasse</span><span>Auszahlung</span></div>
+        </aside>
+        <script>
+        (function () {
+            var x = document.querySelector('.tix-login-extra'), login = document.getElementById('login');
+            if (!x || !login) return;
+            var logo = document.querySelector('.login h1 a');
+            if (logo && <?php echo self::login_logo() !== '' ? 'true' : 'false'; ?>) logo.classList.add('tix-login-has-logo');
+            var label = document.querySelector('label[for="user_login"]');
+            if (label && document.getElementById('loginform')) label.textContent = 'E-Mail oder Benutzername';
+            var row = document.querySelector('#loginform .forgetmenot'), lost = x.querySelector('.tix-login-lost');
+            if (row && lost) row.appendChild(lost); else if (lost) lost.remove();
+            var form = login.querySelector('form'), reg = x.querySelector('.tix-login-register');
+            if (form && reg) form.parentNode.insertBefore(reg, form.nextSibling);
+            var foot = x.querySelector('.tix-login-foot');
+            if (foot) login.appendChild(foot);
+            x.remove();
+        })();
+        </script>
+        <?php
     }
 }

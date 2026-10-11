@@ -289,7 +289,7 @@
 
         steps.forEach(function(s, i) {
             html += '<div class="tix-re-progress-step' + (i === 0 ? ' active' : '') + '" data-pi="' + i + '">' +
-                '<span class="tix-re-prog-icon">' + s.icon + '</span>' +
+                '<span class="tix-re-prog-icon">' + ((window.tixRegister && tixRegister.icons && tixRegister.icons[s.icon]) || s.icon) + '</span>' +
                 '<span class="tix-re-prog-label">' + s.label + '</span>' +
             '</div>';
         });

@@ -1,0 +1,59 @@
+/* „Veranstalter werden“ ([tix_register_event]) im evendis-Look (Mehr-Veranstalter-Modus):
+   Manrope lokal, Akzent evendis-Rot, Hauptknöpfe Nachtblau, Lucide-Icons im getönten Kreis. */
+@font-face{font-family:'Manrope';font-weight:400;font-display:swap;src:url(../fonts/manrope/Manrope-400.ttf) format('truetype')}
+@font-face{font-family:'Manrope';font-weight:500;font-display:swap;src:url(../fonts/manrope/Manrope-500.ttf) format('truetype')}
+@font-face{font-family:'Manrope';font-weight:600;font-display:swap;src:url(../fonts/manrope/Manrope-600.ttf) format('truetype')}
+@font-face{font-family:'Manrope';font-weight:700;font-display:swap;src:url(../fonts/manrope/Manrope-700.ttf) format('truetype')}
+@font-face{font-family:'Manrope';font-weight:800;font-display:swap;src:url(../fonts/manrope/Manrope-800.ttf) format('truetype')}
+
+.tix-re.tix-re-evendis{
+    --re-primary:#FC2F55;
+    --re-night:#2C2F3F;
+    --re-text:#2C2F3F;
+    --re-muted:#6B6F82;
+    --re-border:#E3E5EC;
+    --re-surface:#fff;
+    --re-radius:16px;
+    --tix-font-heading:'Manrope';
+    --tix-font-body:'Manrope';
+    font-family:'Manrope',system-ui,-apple-system,'Segoe UI',sans-serif;
+}
+.tix-re.tix-re-evendis,.tix-re.tix-re-evendis *:not(svg):not(path):not(circle):not(rect):not(line):not(polyline){font-family:'Manrope',system-ui,-apple-system,'Segoe UI',sans-serif!important}
+.tix-re-evendis .tix-re-title,
+.tix-re-evendis .tix-re-panel-title,
+.tix-re-evendis .tix-re-preview-title,
+.tix-re-evendis .tix-re-success h2{font-family:'Manrope',system-ui,sans-serif;font-weight:800;letter-spacing:-.02em;color:var(--re-night)}
+.tix-re-evendis input,.tix-re-evendis textarea,.tix-re-evendis select,.tix-re-evendis button{font-family:inherit}
+
+/* Schrittanzeige */
+.tix-re-evendis .tix-re-step.active{color:var(--re-primary)}
+.tix-re-evendis .tix-re-step.active .tix-re-step-num{background:var(--re-primary);border-color:var(--re-primary);color:#fff}
+.tix-re-evendis .tix-re-step.done .tix-re-step-num{background:var(--re-night);border-color:var(--re-night);color:#fff}
+
+/* Auswahl-Karten mit Icon im getönten Kreis */
+.tix-re-evendis .tix-re-mode{background:#fff;border:1px solid var(--re-border);border-radius:16px;padding:22px 12px;box-shadow:0 1px 2px rgba(44,47,63,.04)}
+.tix-re-evendis .tix-re-mode:hover,.tix-re-evendis .tix-re-mode.active{border-color:var(--re-primary);background:#fff;box-shadow:0 0 0 3px rgba(252,47,85,.12)}
+.tix-re-evendis .tix-re-mode-icon{display:inline-flex;align-items:center;justify-content:center;width:48px;height:48px;border-radius:50%;background:rgba(252,47,85,.1);color:var(--re-primary);font-size:0;margin-bottom:4px}
+.tix-re-evendis .tix-re-mode-icon svg{width:24px;height:24px}
+.tix-re-evendis .tix-re-dropzone-text svg{vertical-align:-4px;color:var(--re-primary);margin-right:4px}
+
+/* Fortschritt */
+.tix-re-evendis .tix-re-progress-fill{background:var(--re-primary)}
+.tix-re-evendis .tix-re-prog-icon{display:inline-flex;align-items:center;color:var(--re-primary)}
+.tix-re-evendis .tix-re-prog-icon svg{width:16px;height:16px}
+.tix-re-evendis .tix-re-progress-step.done .tix-re-prog-icon{color:var(--re-night)}
+.tix-re-evendis .tix-re-progress-step.done .tix-re-prog-icon::after{content:''}
+
+/* Knöpfe: Hauptaktion Nachtblau, Akzent für Links */
+.tix-re-evendis .tix-re-btn-primary,
+.tix-re-evendis .tix-re-btn-publish{background:var(--re-night);border-radius:12px;font-weight:700;box-shadow:none}
+.tix-re-evendis .tix-re-btn-primary:hover,
+.tix-re-evendis .tix-re-btn-publish:hover{background:#1B1D29;transform:none;box-shadow:0 0 0 3px rgba(44,47,63,.15)}
+.tix-re-evendis .tix-re-btn-send{background:var(--re-night);border-radius:12px}
+.tix-re-evendis .tix-re-btn-back{border-radius:12px;font-weight:700}
+.tix-re-evendis a{color:var(--re-primary)}
+.tix-re-evendis .tix-re-input,.tix-re-evendis .tix-re-chat-footer textarea{border-color:var(--re-border);border-radius:12px}
+.tix-re-evendis .tix-re-input:focus,.tix-re-evendis .tix-re-chat-footer textarea:focus{border-color:var(--re-primary);box-shadow:0 0 0 3px rgba(252,47,85,.15);outline:0}
+
+/* Erfolg */
+.tix-re-evendis .tix-re-success-check{display:inline-flex;align-items:center;justify-content:center;width:84px;height:84px;border-radius:50%;background:rgba(252,47,85,.1);color:var(--re-primary);font-size:0}

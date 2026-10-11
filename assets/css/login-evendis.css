@@ -1,23 +1,73 @@
-/* Tixomat „Nur Verwaltung“: Login (wp-login.php) im evendis-Look – Manrope lokal, Grund #F2F3F7,
-   Karte weiß Radius 20, Akzent = Primärfarbe (Vorgabe evendis-Rot #FC2F55). */
+/* Tixomat „Nur Verwaltung“: Login (wp-login.php) im evendis-Look nach login-vorgabe.jpg –
+   Desktop zweispaltig (Formular links, Foto-Karte rechts), mobil nur Formular. Manrope lokal. */
 @font-face{font-family:'Manrope';font-weight:400;font-display:swap;src:url(../fonts/manrope/Manrope-400.ttf) format('truetype')}
+@font-face{font-family:'Manrope';font-weight:500;font-display:swap;src:url(../fonts/manrope/Manrope-500.ttf) format('truetype')}
 @font-face{font-family:'Manrope';font-weight:600;font-display:swap;src:url(../fonts/manrope/Manrope-600.ttf) format('truetype')}
 @font-face{font-family:'Manrope';font-weight:700;font-display:swap;src:url(../fonts/manrope/Manrope-700.ttf) format('truetype')}
 @font-face{font-family:'Manrope';font-weight:800;font-display:swap;src:url(../fonts/manrope/Manrope-800.ttf) format('truetype')}
-:root{--tix-login-accent:#FC2F55;--tix-login-night:#2C2F3F;--tix-login-body:#6B6F82;--tix-login-bg:#F2F3F7}
-body.login{background:var(--tix-login-bg);font-family:'Manrope',system-ui,-apple-system,'Segoe UI',sans-serif;color:var(--tix-login-night)}
-body.login #login{width:360px;max-width:calc(100vw - 32px);padding:8vh 0 24px}
-.login h1 a{background-image:none;font-size:26px;font-weight:800;color:var(--tix-login-night);text-indent:0;width:auto;height:auto;line-height:1.2;margin-bottom:20px}
-.login form{background:#fff;border:0;border-radius:20px;box-shadow:0 10px 30px rgba(44,47,63,.08);padding:26px 24px 30px;margin-top:12px}
-.login label{font-weight:600;color:var(--tix-login-night);font-size:14px}
-.login input[type=text],.login input[type=password],.login input[type=email]{border:1px solid #E3E5EC;border-radius:12px;background:#fff;font-size:16px;padding:10px 12px;box-shadow:none;font-family:inherit}
-.login input[type=text]:focus,.login input[type=password]:focus,.login input[type=email]:focus{border-color:var(--tix-login-accent);box-shadow:0 0 0 3px rgba(252,47,85,.15)}
-.wp-core-ui .button-primary{background:var(--tix-login-accent);border-color:var(--tix-login-accent);border-radius:12px;font-weight:700;font-family:inherit;min-height:44px;padding:0 20px;text-shadow:none;box-shadow:none}
-.wp-core-ui .button-primary:hover,.wp-core-ui .button-primary:focus{background:var(--tix-login-accent);border-color:var(--tix-login-accent);filter:brightness(.95)}
+:root{--tix-login-accent:#FC2F55;--tix-login-link:#E8445A;--tix-login-night:#2C2F3F;--tix-login-deep:#1B1D29;--tix-login-body:#6B6F82;--tix-login-line:#E3E5EC;--tix-login-sep:#EFEFF1}
+
+body.login{background:#fff;font-family:'Manrope',system-ui,-apple-system,'Segoe UI',sans-serif;color:var(--tix-login-night);min-height:100vh;display:block}
+body.login #login{width:400px;max-width:calc(100vw - 48px);padding:0;margin:0 auto}
+body.login .language-switcher,body.login #backtoblog,body.login .privacy-policy-page-link{display:none}
+
+/* Logo oben links */
+.login h1{margin:0}
+.login h1 a{display:block;width:auto;height:30px;margin:0;text-indent:0;font-size:22px;font-weight:800;line-height:30px;color:var(--tix-login-night);background:none;overflow:hidden}
+.login h1 a.tix-login-has-logo{text-indent:-9999px;background-repeat:no-repeat;background-position:left center;background-size:auto 30px;width:160px}
+
+/* Kopf */
+.tix-login-head{margin:0 0 26px}
+.tix-login-head h2{font-size:32px;font-weight:800;line-height:1.15;letter-spacing:-.02em;margin:0 0 10px;color:var(--tix-login-night)}
+.tix-login-head p{font-size:15.5px;line-height:1.55;color:var(--tix-login-body);margin:0}
+.login .message,.login .notice,.login #login_error{border:0;border-left:4px solid var(--tix-login-accent);border-radius:12px;box-shadow:none;background:#FFF5F7;color:var(--tix-login-night);margin:0 0 18px;padding:12px 14px;font-size:14px}
+.login .message.register,.login .message{border-left-color:var(--tix-login-night);background:#F4F5F8}
+
+/* Formular */
+.login form{background:transparent;border:0;box-shadow:none;padding:0;margin:0;overflow:visible}
+.login label{font-size:13px;font-weight:700;color:var(--tix-login-night);margin-bottom:6px;display:inline-block}
+.login form .input,.login input[type=text],.login input[type=password],.login input[type=email]{height:50px;border:1px solid var(--tix-login-line);border-radius:12px;background:#fff;font-size:15.5px;padding:0 14px;box-shadow:none;font-family:inherit;color:var(--tix-login-night);margin:0 0 18px}
+.login form .input:focus,.login input[type=text]:focus,.login input[type=password]:focus,.login input[type=email]:focus{border-color:var(--tix-login-accent);box-shadow:0 0 0 3px rgba(252,47,85,.15);outline:0}
+.login .button.wp-hide-pw{height:50px;color:var(--tix-login-body)}
 .login .button.wp-hide-pw .dashicons{color:var(--tix-login-body)}
-.login #nav,.login #backtoblog{text-align:center;padding:0;margin:14px 0 0}
-.login #nav a,.login #backtoblog a,.login .privacy-policy-page-link a{color:var(--tix-login-body);font-weight:600}
-.login #nav a:hover,.login #backtoblog a:hover{color:var(--tix-login-accent)}
-.login .message,.login .notice,.login #login_error{border-radius:12px;border-left-color:var(--tix-login-accent);box-shadow:none}
-input[type=checkbox]:checked::before{filter:hue-rotate(0)}
-.login .language-switcher{display:none}
+.login form .forgetmenot{float:none;display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 18px}
+.login form .forgetmenot label{margin:0 auto 0 0;font-weight:600;font-size:14px}
+.login form .forgetmenot .wp-tooltip{display:none}
+.login input[type=checkbox]{border-radius:5px;border-color:var(--tix-login-line)}
+.login input[type=checkbox]:checked{background:var(--tix-login-night);border-color:var(--tix-login-night)}
+.login input[type=checkbox]:checked::before{filter:brightness(0) invert(1)}
+.tix-login-lost{font-size:14px;font-weight:700;color:var(--tix-login-link);text-decoration:none}
+.tix-login-lost:hover{text-decoration:underline}
+.login .submit{padding:0;margin:0;float:none;clear:both}
+.wp-core-ui .button-primary,.login .button-primary{float:none;width:100%;height:50px;min-height:50px;background:var(--tix-login-night);border:0;border-radius:12px;font-size:15.5px;font-weight:700;font-family:inherit;text-shadow:none;box-shadow:none;color:#fff}
+.wp-core-ui .button-primary:hover,.wp-core-ui .button-primary:focus{background:var(--tix-login-deep);color:#fff;box-shadow:0 0 0 3px rgba(44,47,63,.15)}
+.login #nav{display:none}
+
+/* Registrieren + Fußzeile */
+.tix-login-register{border-top:1px solid var(--tix-login-sep);margin:24px 0 0;padding:20px 0 0;text-align:center;font-size:14px;color:var(--tix-login-body)}
+.tix-login-register a{color:var(--tix-login-link);font-weight:700;text-decoration:none}
+.tix-login-foot{display:flex;flex-wrap:wrap;gap:18px;font-size:13px;margin:40px 0 24px}
+.tix-login-foot a{color:var(--tix-login-body);text-decoration:none}
+.tix-login-foot a:hover{color:var(--tix-login-night)}
+
+/* Foto-Karte (nur Desktop) */
+.tix-login-photo{display:none}
+
+@media (min-width:900px){
+    body.login{display:grid;grid-template-columns:1fr 1fr;min-height:100vh}
+    body.login #login{grid-column:1;align-self:center;padding:96px 0 64px}
+    .login h1{position:absolute;top:32px;left:56px}
+    .tix-login-foot{position:absolute;bottom:20px;left:56px;margin:0}
+    .tix-login-photo{box-sizing:border-box;display:flex;grid-column:2;grid-row:1;position:sticky;top:16px;height:calc(100vh - 32px);margin:16px 16px 16px 0;border-radius:28px;overflow:hidden;background:var(--tix-login-deep) center/cover no-repeat;color:#fff;flex-direction:column;justify-content:flex-end;padding:40px}
+    .tix-login-photo::before{content:'';position:absolute;inset:0;background:linear-gradient(180deg,rgba(27,29,41,0) 35%,rgba(27,29,41,.92) 100%)}
+    .tix-login-photo > *{position:relative}
+    .tix-login-photo strong{display:block;font-size:30px;font-weight:800;line-height:1.2;letter-spacing:-.01em;margin:0 0 10px}
+    .tix-login-photo span.tix-login-photo-text{display:block;font-size:15px;opacity:.85;margin:0 0 18px}
+    .tix-login-pills{display:flex;flex-wrap:wrap;gap:8px}
+    .tix-login-pills span{background:rgba(255,255,255,.14);border-radius:999px;padding:7px 12px;font-size:13px;font-weight:700}
+}
+@media (max-width:899px){
+    body.login #login{padding:28px 0 0}
+    .login h1{margin:0 0 40px}
+    .tix-login-head h2{font-size:28px}
+}
