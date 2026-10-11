@@ -2,14 +2,14 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.38.380
+ * Version: 1.38.381
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.38.380');
+define('TIXOMAT_VERSION', '1.38.381');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -240,11 +240,15 @@ add_action('wp_enqueue_scripts', function() {
     if (class_exists('TIX_Settings')) TIX_Settings::enqueue_card_fonts();
 }, 4);
 
-// ── Google Fonts: Outfit (Display) + Inter (Body) – Tixomat CI ──
+// ── Schriften: Outfit (Display) + Inter (Body) – Tixomat CI, lokal ausgeliefert ──
+// (früher Google Fonts; Handle-Name bleibt, viele Stylesheets hängen davon ab)
+function tix_register_local_fonts() {
+    if (!wp_style_is('tix-google-fonts', 'registered')) {
+        wp_register_style('tix-google-fonts', TIXOMAT_URL . 'assets/css/fonts-local.css', [], TIXOMAT_VERSION);
+    }
+}
 add_action('wp_enqueue_scripts', function() {
-    wp_register_style('tix-google-fonts',
-        'https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Inter:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap',
-        [], null);
+    tix_register_local_fonts();
     // Utility: fullwidth für alle Shortcode-Buttons via [shortcode fullwidth="1"]
     wp_add_inline_style('tix-google-fonts',
         '.tix-fullwidth{display:block!important;width:100%!important}'
@@ -255,12 +259,9 @@ add_action('wp_enqueue_scripts', function() {
         .'.tix-fullwidth .tix-table-btn,'
         .'.tix-fullwidth .tix-raffle-submit{width:100%!important;display:flex!important;justify-content:center}'
     );
-}, 5);
-add_action('admin_enqueue_scripts', function() {
-    wp_register_style('tix-google-fonts',
-        'https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Inter:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap',
-        [], null);
-}, 5);
+}, 3);
+add_action('admin_enqueue_scripts', 'tix_register_local_fonts', 3);
+add_action('login_enqueue_scripts', 'tix_register_local_fonts', 3);
 
 /**
  * Ticket-System Modus-Helper.

@@ -68,13 +68,9 @@ class TIX_Organizer_Dashboard {
     private static function enqueue() {
         wp_enqueue_style('dashicons');
 
-        // Google Fonts: Outfit (Display) + Inter (Body/UI) – Tixomat CI
-        wp_enqueue_style(
-            'tix-google-fonts',
-            'https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Inter:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap',
-            [],
-            null
-        );
+        // Schriften Outfit + Inter – Tixomat CI, lokal (assets/css/fonts-local.css)
+        if (function_exists('tix_register_local_fonts')) tix_register_local_fonts();
+        wp_enqueue_style('tix-google-fonts');
 
         wp_enqueue_style(
             'tix-organizer-dashboard',

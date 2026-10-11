@@ -1840,6 +1840,7 @@ Gibt den Branding-Footer fuer E-Mails und den Embed-Modus zurueck. Enthaelt das 
 
 | Datei | Beschreibung |
 |---|---|
+| `fonts-local.css` (Handle `tix-google-fonts`, seit 1.38.381) | Schriften **lokal** statt Google Fonts: Outfit, Inter (auch kursiv), Sora, DM Sans als Variable Fonts (100–900, latin + latin-ext, `assets/fonts/<schrift>/`, OFL). Frontend, wp-admin, Login, eigene Login-Seite, Frontend-Dashboard, Gäste-QR- und Weitergabe-Seite; Mails laden keine Webschrift mehr. Karten-/Typografie-Schriften außerhalb dieser vier (`TIX_Settings::LOCAL_FONTS`) kommen weiter von Google (`tix-card-fonts`, Hinweis in den Einstellungen). |
 | `tix-admin.css` / `tix-admin.min.css` | Admin-Bereich Styles (Metabox, Settings, Spalten) |
 | `tix-frontend.css` / `tix-frontend.min.css` | Allgemeine Frontend-Styles |
 | `tix-ticket-selector.css` / `tix-ticket-selector.min.css` | Ticket-Selector-Styles |

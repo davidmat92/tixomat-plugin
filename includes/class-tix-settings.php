@@ -2527,6 +2527,9 @@ class TIX_Settings {
     /**
      * Google Fonts laden (globale Typografie + Event-Karten)
      */
+    /** Schriften, die das Plugin selbst ausliefert (keine Anfrage an Google). */
+    const LOCAL_FONTS = ['Outfit', 'Inter', 'Sora', 'DM Sans'];
+
     public static function enqueue_card_fonts() {
         $s = self::get();
         if (!empty($s['tix_card_font_self_host'])) return;
@@ -2556,10 +2559,18 @@ class TIX_Settings {
         }
 
         $families = [];
+        $local = false;
         foreach (array_keys($all_fonts) as $f) {
+            // Outfit, Inter, Sora, DM Sans liegen im Plugin (assets/css/fonts-local.css)
+            if (in_array($f, self::LOCAL_FONTS, true)) { $local = true; continue; }
             $families[] = str_replace(' ', '+', $f) . ':wght@100;200;300;400;500;600;700;800;900';
         }
+        if ($local) {
+            if (function_exists('tix_register_local_fonts')) tix_register_local_fonts();
+            wp_enqueue_style('tix-google-fonts');
+        }
 
+        // Andere gewählte Schriften weiter von Google (Hinweis in den Einstellungen)
         if (!empty($families)) {
             $url = 'https://fonts.googleapis.com/css2?family=' . implode('&family=', $families) . '&display=swap';
             wp_enqueue_style('tix-card-fonts', $url, [], null);
@@ -5435,6 +5446,7 @@ class TIX_Settings {
                                         <h3>Globale Schriftarten</h3>
                                     </div>
                                     <div class="tix-card-body">
+                                        <p class="tix-field-hint" style="color:#6b7280;font-size:12px;margin:0 0 12px;">Sora, DM Sans, Inter und Outfit liefert Tixomat selbst aus (keine Verbindung zu Google, DSGVO-freundlich). Jede andere Schrift wird von Google Fonts geladen – dann in der Datenschutzerklärung nennen.</p>
                                         <div class="tix-field-grid">
                                             <?php
                                             $fonts = ['Sora', 'DM Sans', 'Inter', 'Outfit', 'Poppins', 'Montserrat', 'Open Sans', 'Roboto', 'Lato', 'Nunito', 'Raleway', 'Playfair Display', 'Oswald', 'Source Sans 3', 'Work Sans', 'Manrope', 'Plus Jakarta Sans', 'Figtree'];
