@@ -783,6 +783,9 @@ class TIX_Table_Reservation {
     /** Offene Zahlungen blockieren den Tisch höchstens so lange (Minuten) */
     const PENDING_MIN = 60;
 
+    /** Rücksprung-Adresse der laufenden REST-Anfrage (POST /customer/table-reservations return_url) */
+    private static $return_url = '';
+
     /** SQL-Bedingung „belegt“: bestätigt oder Zahlung seit < PENDING_MIN offen */
     private static function active_sql() {
         $cutoff = date('Y-m-d H:i:s', current_time('timestamp') - self::PENDING_MIN * 60);
@@ -832,6 +835,7 @@ class TIX_Table_Reservation {
         global $wpdb;
         $wpdb->update($wpdb->prefix . self::TABLE, ['order_id' => $order_id], ['id' => $reservation_id], ['%d'], ['%d']);
         update_option('_tix_order_source_' . $order_id, 'table_reservation', false);
+        if (self::$return_url !== '') update_post_meta($order_id, TIX_Native_Checkout::META_RETURN_URL, self::$return_url);
 
         if ($gateway === 'mollie')      $result = TIX_Gateway_Mollie::process($order_id, $sub);
         elseif ($gateway === 'stripe')  $result = TIX_Gateway_Stripe::process($order_id, $sub);
@@ -885,12 +889,20 @@ class TIX_Table_Reservation {
         register_rest_route('tixomat/v1', '/customer/table-reservations', [
             'methods' => 'POST', 'permission_callback' => '__return_true',
             'callback' => function (WP_REST_Request $req) {
-                $ip  = sanitize_text_field($_SERVER['REMOTE_ADDR'] ?? '');
+                // Besucher-IP (hinter der Durchleitung der Website sonst eine IP für alle)
+                $ip  = class_exists('TIX_Client_IP') ? TIX_Client_IP::get() : sanitize_text_field($_SERVER['REMOTE_ADDR'] ?? '');
                 $key = 'tix_rl_table_' . md5($ip);
                 $n   = intval(get_transient($key)) + 1;
                 set_transient($key, $n, 300);
                 if ($n > 10) return new WP_Error('tix_rate_limit', 'Zu viele Anfragen. Bitte kurz warten.', ['status' => 429]);
                 $in = (array) $req->get_json_params() + (array) $req->get_body_params();
+                // Rücksprung nach der Anzahlung an die eigene Website (wie POST /customer/orders)
+                self::$return_url = '';
+                if (!empty($in['return_url']) && class_exists('TIX_Native_Checkout')) {
+                    $ru = TIX_Native_Checkout::validate_return_url((string) $in['return_url']);
+                    if (is_wp_error($ru)) return $ru;
+                    self::$return_url = $ru;
+                }
                 // Konto: Name/E-Mail aus dem Konto, wenn nicht angegeben
                 if (is_user_logged_in()) {
                     $u = wp_get_current_user();

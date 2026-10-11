@@ -61,7 +61,7 @@ class TIX_Waitlist {
      * @return array{ok:bool,message:string,code?:int}
      */
     public static function join($event_id, $email, $type) {
-        $ip_key = 'tix_wl_' . md5($_SERVER['REMOTE_ADDR'] ?? '');
+        $ip_key = 'tix_wl_' . md5(class_exists('TIX_Client_IP') ? TIX_Client_IP::get() : ($_SERVER['REMOTE_ADDR'] ?? ''));
         if (get_transient($ip_key)) return ['ok' => false, 'message' => 'Bitte warte einen Moment.', 'code' => 429];
 
         $event_id = intval($event_id);

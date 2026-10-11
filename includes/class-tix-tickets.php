@@ -5450,7 +5450,7 @@ body{margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',
             'email' => $email,
             'scope' => $scope,
             'date'  => current_time('c'),
-            'ip'    => $_SERVER['REMOTE_ADDR'] ?? '',
+            'ip'    => class_exists('TIX_Client_IP') ? TIX_Client_IP::get() : ($_SERVER['REMOTE_ADDR'] ?? ''),
         ];
         // Keep last 20
         if (count($log) > 20) $log = array_slice($log, -20);

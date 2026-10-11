@@ -1,32 +1,29 @@
 <?php
 /**
- * „Nur Verwaltung“: Die WordPress-Installation dient nur noch als Verwaltung (evendis:
- * veranstalter.evendis.de); Kunden sind ausschließlich auf der Kunden-Adresse (TIX_Customer_URL,
- * evendis.de). Feste Regel: Kunden landen nie auf der Verwaltungs-Adresse.
+ * „Nur Verwaltung“: Die WordPress-Installation dient als Verwaltung mit öffentlicher Infoseite
+ * für Veranstalter (evendis: veranstalter.evendis.de); Kunden sind ausschließlich auf der
+ * Kunden-Adresse (TIX_Customer_URL, evendis.de). Feste Regel: Kunden landen nie auf der Verwaltung.
  *
  * Option `tix_admin_only` (Vorgabe aus; wirkt nur mit gesetzter Kunden-Adresse):
- *   enabled (bool)   Schalter
- *   root    (string) 'login' (Vorgabe): `/` der Verwaltung → Login bzw. Ziel je Rolle;
- *                    'customer': `/` für Gäste → Kunden-Adresse
- * Setzen: wp option update tix_admin_only '{"enabled":true}' --format=json
+ *   enabled      (bool)  Schalter
+ *   public_pages (Liste) zusätzliche öffentliche, indexierbare Seiten der Infoseite (IDs oder
+ *                        Slugs/Pfade, z. B. ["funktionen","preise","faq","kontakt"]);
+ *                        Filter `tix_admin_only_public_pages` (Array von Seiten-IDs)
+ * Setzen: wp option update tix_admin_only '{"enabled":true,"public_pages":["preise","faq"]}' --format=json
+ *
+ * Öffentlich + indexierbar: Startseite (Infoseite), die Seiten aus `public_pages`, „Veranstalter
+ * werden“ (`[tix_register_event]`), die Vertragsseite, Login/„Passwort vergessen“.
+ * Erreichbar, aber noindex: Verwaltungsseiten (Promoter, Sponsoren, Check-in, Kasse am Eingang,
+ * DJ, Veranstalter-Dashboard), Anfragen mit tix_*-Parametern, AASA, /wp-json, wp-admin inkl.
+ * admin-ajax/admin-post (Webhooks). Angemeldete Veranstalter/Team/Bearbeiter sehen alles.
+ * Kundenpfade (Kasse, Konto, Support, Events, Veranstalter-Seiten /veranstalter/<slug>/,
+ * Landingpages /v/<slug>/, Archive, Feeds und alle übrigen Seiten) → 301 auf die Kunden-Adresse,
+ * gleicher Pfad (Rechtstext-Seiten außerhalb der Liste → /impressum/ usw.; Query bleibt).
+ * Angemeldete Kunden auf `/` → Konto auf der Kunden-Adresse.
  *
  * Kaufablauf, Konto, Support, Danke-Seite usw. rendert WordPress weiter – aber nur über die
- * Durchleitung der Kundenseite (Host = Verwaltung, X-Forwarded-Host = Kunden-Host von einem
- * vertrauten Proxy). Solche Anfragen werden nie umgeleitet (sonst Schleife) und sehen sich
- * vollständig als Kunden-Adresse (TIX_Customer_URL::boot_proxied()).
- *
- * Direkte Aufrufe der Verwaltung:
- *   - immer erreichbar: /wp-json, wp-admin (inkl. admin-ajax/admin-post), Login/„Passwort
- *     vergessen“, AASA, Anfragen mit tix_*-Parametern, Seiten mit Verwaltungs-Shortcodes
- *     (Veranstalter werden, Promoter, Sponsoren, Check-in, Kasse am Eingang, DJ, Veranstalter-
- *     Dashboard) und die Vertragsseite; angemeldete Veranstalter/Team/Bearbeiter sehen alles
- *   - `/`: siehe `root`; angemeldet → Ziel je Rolle (Admin → wp-admin, Veranstalter/Team →
- *     Veranstalter-Dashboard, Promoter → Promoter-Seite, Kunde → Konto auf der Kunden-Adresse)
- *   - alle übrigen öffentlichen Seiten (Kasse, Konto, Support, Events, Veranstalter, Seiten,
- *     Archive, Feeds) → 301 auf die Kunden-Adresse, gleicher Pfad (Veranstalter-/Landingpages →
- *     /veranstalter/<slug>/, Archive/Suche/Feeds → /, Rechtstexte → /impressum/ usw.; Query bleibt)
- *   - noindex: wp_robots, X-Robots-Tag, robots.txt „Disallow: /“, WordPress-Sitemaps aus
- *   - Login (wp-login.php) im evendis-Look
+ * Durchleitung der Kundenseite (TIX_Customer_URL::boot_proxied()); solche Anfragen werden nie
+ * umgeleitet. Sitemap: nur die öffentlichen Seiten. Login (wp-login.php) im evendis-Look.
  */
 if (!defined('ABSPATH')) exit;
 
@@ -53,9 +50,11 @@ class TIX_Admin_Only {
             if ($v === null) return $default;
             return !($v === false || $v === 0 || $v === '0' || $v === 'false' || $v === '');
         };
+        $pages = $raw['public_pages'] ?? [];
+        if (is_string($pages)) $pages = preg_split('/[\s,]+/', $pages);
         return [
-            'enabled' => $flag($raw['enabled'] ?? null, false),
-            'root'    => (($raw['root'] ?? 'login') === 'customer') ? 'customer' : 'login',
+            'enabled'      => $flag($raw['enabled'] ?? null, false),
+            'public_pages' => array_values(array_filter(array_map('strval', (array) $pages))),
         ];
     }
 
@@ -68,9 +67,10 @@ class TIX_Admin_Only {
         add_action('template_redirect', [__CLASS__, 'route'], 0);
         add_filter('wp_robots', [__CLASS__, 'robots_meta'], 999);
         add_action('send_headers', [__CLASS__, 'robots_header']);
-        add_action('login_init', [__CLASS__, 'robots_header']);
-        add_filter('robots_txt', [__CLASS__, 'robots_txt'], 999, 2);
-        add_filter('wp_sitemaps_enabled', '__return_false');
+        // Sitemap: nur die öffentlichen Seiten der Infoseite (keine Events/Veranstalter/Benutzer)
+        add_filter('wp_sitemaps_post_types', [__CLASS__, 'sitemap_post_types']);
+        add_filter('wp_sitemaps_add_provider', [__CLASS__, 'sitemap_providers'], 10, 2);
+        add_filter('wp_sitemaps_posts_query_args', [__CLASS__, 'sitemap_query_args'], 10, 2);
         add_action('login_enqueue_scripts', [__CLASS__, 'login_style']);
         add_filter('login_headerurl', [__CLASS__, 'login_logo_url']);
         add_filter('login_headertext', [__CLASS__, 'login_logo_text']);
@@ -121,6 +121,35 @@ class TIX_Admin_Only {
         return (bool) array_intersect((array) $user->roles, ['tix_organizer', 'tix_staff', 'tix_entrance', 'tix_dj', 'tix_promoter']);
     }
 
+    /** IDs der öffentlichen Seiten: Startseite, Liste aus der Option, Registrierung, Vertrag. */
+    public static function public_page_ids() {
+        static $ids = null;
+        if ($ids !== null) return $ids;
+        $ids = [];
+        $front = intval(get_option('page_on_front'));
+        if ($front) $ids[] = $front;
+        foreach (self::settings()['public_pages'] as $p) {
+            if (ctype_digit($p)) { $ids[] = intval($p); continue; }
+            $page = get_page_by_path(trim($p, '/'));
+            if ($page) $ids[] = intval($page->ID);
+        }
+        global $wpdb;
+        $reg = $wpdb->get_col("SELECT ID FROM {$wpdb->posts} WHERE post_type = 'page' AND post_status = 'publish' AND post_content LIKE '%[tix_register_event%'");
+        foreach ((array) $reg as $r) $ids[] = intval($r);
+        if (class_exists('TIX_Org_Approval')) {
+            $s = get_option(TIX_Org_Approval::OPTION, []);
+            if (is_array($s) && intval($s['terms_page_id'] ?? 0)) $ids[] = intval($s['terms_page_id']);
+        }
+        $ids = array_values(array_unique(array_filter(array_map('intval', (array) apply_filters('tix_admin_only_public_pages', $ids)))));
+        return $ids;
+    }
+
+    /** Ist die aktuelle Anfrage eine öffentliche Seite der Infoseite? */
+    private static function is_public_request() {
+        if (is_front_page()) return true;
+        return is_page() && in_array(intval(get_queried_object_id()), self::public_page_ids(), true);
+    }
+
     public static function route() {
         if (is_admin() || wp_doing_ajax() || is_robots() || is_favicon()) return;
         // Durchleitung der Kundenseite: nie umleiten (läuft schon unter der Kunden-Adresse)
@@ -128,31 +157,30 @@ class TIX_Admin_Only {
         if (self::has_tix_query()) return;
         // Breakdance-Editor/-Vorschau
         if (isset($_GET['breakdance']) || isset($_GET['breakdance_iframe']) || isset($_GET['preview'])) return;
+        if (function_exists('is_sitemap') && is_sitemap()) return;
 
         $user = wp_get_current_user();
-        $path = self::path_of($_SERVER['REQUEST_URI'] ?? '/');
-        $is_root = ($path === '/' || is_front_page()) && !is_feed();
+        $logged = $user && $user->ID;
 
-        if ($is_root) {
-            if ($user && $user->ID) {
-                wp_safe_redirect(self::landing_for_user($user));
-                exit;
-            }
-            // Gäste: alte Kunden-Links (?ref=, utm_* …) bzw. Einstellung „customer“ → Kundenseite
-            if ($_GET || self::settings()['root'] === 'customer') self::redirect_customer('/');
-            wp_safe_redirect(wp_login_url());
+        // Angemeldete Kunden gehören auf die Kundenseite (Konto)
+        if ($logged && !self::is_staff($user) && (is_front_page() || self::path_of($_SERVER['REQUEST_URI'] ?? '/') === '/')) {
+            wp_redirect(self::landing_for_user($user), 302);
             exit;
         }
-
+        // Gäste auf der Startseite mit alten Kunden-Parametern (?ref=, ?coupon=, utm_*) → Kundenseite
+        if (!$logged && is_front_page() && (isset($_GET['ref']) || isset($_GET['coupon']) || isset($_GET['utm_source']))) {
+            self::redirect_customer('/');
+        }
+        // Öffentliche Infoseite (Startseite, Liste, Registrierung, Vertrag)
+        if (self::is_public_request()) return;
         // Veranstalter, Team, Bearbeiter: alles sichtbar (Vorschau, Gestaltung, Verwaltung)
         if (self::is_staff($user)) return;
 
         if (is_page()) {
             $post = get_queried_object();
             if (self::page_has($post, self::ADMIN_SHORTCODES)) return;
-            if (self::is_contract_page(intval($post->ID ?? 0))) return;
         }
-        if (is_404()) return; // bleibt 404 (noindex)
+        if (is_404()) return; // bleibt 404
         self::redirect_customer(self::customer_path());
     }
 
@@ -218,16 +246,39 @@ class TIX_Admin_Only {
 
     // ── Indexierung ──
 
+    /** Nicht öffentlich (Verwaltungsseiten, tix_-Handler, durchgeleitete Kundenseiten)? */
+    private static function wants_noindex() {
+        if (TIX_Customer_URL::is_proxied() || self::has_tix_query()) return true;
+        if (is_admin()) return true;
+        if (did_action('wp') && !self::is_public_request()) return true;
+        return false;
+    }
+
     public static function robots_meta($robots) {
+        if (!self::wants_noindex()) return $robots;
         return ['noindex' => true, 'nofollow' => true] + array_diff_key((array) $robots, ['index' => 1, 'follow' => 1, 'max-image-preview' => 1]);
     }
 
     public static function robots_header() {
-        if (!headers_sent()) header('X-Robots-Tag: noindex, nofollow', true);
+        if (headers_sent()) return;
+        // send_headers läuft vor der Abfrage: Handler- und Durchleitungs-Anfragen sicher kennzeichnen
+        if (TIX_Customer_URL::is_proxied() || self::has_tix_query()) header('X-Robots-Tag: noindex, nofollow', true);
     }
 
-    public static function robots_txt($output, $public) {
-        return "User-agent: *\nDisallow: /\n";
+    public static function sitemap_post_types($types) {
+        return array_intersect_key((array) $types, ['page' => 1]);
+    }
+
+    public static function sitemap_providers($provider, $name) {
+        return in_array($name, ['users', 'taxonomies'], true) ? false : $provider;
+    }
+
+    public static function sitemap_query_args($args, $post_type) {
+        if ($post_type !== 'page') return $args;
+        // Vertragsplatzhalter bleibt erreichbar, ist aber noindex (TIX_Org_Approval) → nicht in die Sitemap
+        $ids = array_values(array_filter(self::public_page_ids(), function ($id) { return !self::is_contract_page($id); }));
+        $args['post__in'] = $ids ?: [0];
+        return $args;
     }
 
     // ── Login im evendis-Look ──

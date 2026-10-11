@@ -3374,7 +3374,7 @@ a{display:inline-block;padding:12px 28px;background:#E8445A;color:#fff;border-ra
             'utm_source'   => sanitize_text_field($_GET['utm_source']   ?? ''),
             'utm_medium'   => sanitize_text_field($_GET['utm_medium']   ?? ''),
             'utm_campaign' => sanitize_text_field($_GET['utm_campaign'] ?? ''),
-            'ip_hash'      => substr(md5(($_SERVER['REMOTE_ADDR'] ?? '') . date('Ymd')), 0, 32),
+            'ip_hash'      => substr(md5((class_exists('TIX_Client_IP') ? TIX_Client_IP::get() : ($_SERVER['REMOTE_ADDR'] ?? '')) . date('Ymd')), 0, 32),
             'is_bot'       => $is_bot,
             'created_at'   => current_time('mysql'),
         ]);

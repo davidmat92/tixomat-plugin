@@ -8,6 +8,15 @@
  * bleiben im Browser. App-IDs je Seite in der Option tix_app_link_ids
  * („TEAMID.bundle.id“), leer = 404.
  *
+ * Zusätzliche Pfade je Seite (seit 1.38.385, Option `tix_app_link_paths`, Liste):
+ *   events       → /events/*            (Event-Seiten)
+ *   veranstalter → /veranstalter/*      (Veranstalter-Seiten)
+ *   suche        → /suche/*             (Suche)
+ *   start_p      → / mit ?p=…           (Startseite mit Parameter p)
+ * Kasse, Konto und Rechtstexte werden nie aufgenommen (bleiben im Browser).
+ * Beispiel evendis: wp option update tix_app_link_paths '["events","veranstalter","suche","start_p"]' --format=json
+ *          KitchenKlub: wp option update tix_app_link_paths '["events"]' --format=json
+ *
  * @since 1.38.342
  */
 if (!defined('ABSPATH')) exit;
@@ -15,6 +24,27 @@ if (!defined('ABSPATH')) exit;
 class TIX_App_Links {
 
     const OPTION = 'tix_app_link_ids';
+    const OPTION_PATHS = 'tix_app_link_paths';
+
+    /** Freigebbare Pfad-Bausteine (AASA-Komponenten). */
+    const PATH_PRESETS = [
+        'events'       => ['/' => '/events/*',       'comment' => 'Event-Seiten'],
+        'veranstalter' => ['/' => '/veranstalter/*', 'comment' => 'Veranstalter-Seiten'],
+        'suche'        => ['/' => '/suche/*',        'comment' => 'Suche'],
+        'start_p'      => ['/' => '/', '?' => ['p' => '?*'], 'comment' => 'Startseite mit Parameter p'],
+    ];
+
+    /** Eingestellte Pfad-Bausteine (nur bekannte). */
+    public static function paths() {
+        $raw = get_option(self::OPTION_PATHS, []);
+        if (is_string($raw)) $raw = json_decode($raw, true) ?: preg_split('/[\s,]+/', $raw);
+        $out = [];
+        foreach ((array) $raw as $k) {
+            $k = sanitize_key((string) $k);
+            if (isset(self::PATH_PRESETS[$k])) $out[] = $k;
+        }
+        return array_values(array_unique($out));
+    }
 
     public static function init() {
         add_action('init', [__CLASS__, 'maybe_serve'], 0);
@@ -35,16 +65,20 @@ class TIX_App_Links {
         return array_values(array_unique($out));
     }
 
-    public static function document(array $ids) {
+    public static function document(array $ids, $paths = null) {
+        $components = [[
+            '/'       => '*',
+            '?'       => ['tix_sp_ticket' => '?*'],
+            'comment' => 'Support-Verlauf in der App',
+        ]];
+        foreach (($paths === null ? self::paths() : $paths) as $k) {
+            if (isset(self::PATH_PRESETS[$k])) $components[] = self::PATH_PRESETS[$k];
+        }
         return [
             'applinks' => [
                 'details' => [[
                     'appIDs'     => $ids,
-                    'components' => [[
-                        '/'       => '*',
-                        '?'       => ['tix_sp_ticket' => '?*'],
-                        'comment' => 'Support-Verlauf in der App',
-                    ]],
+                    'components' => $components,
                 ]],
             ],
         ];

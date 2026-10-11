@@ -1399,7 +1399,7 @@ class TIX_Checkout {
             $session_id = sanitize_text_field($_COOKIE['PHPSESSID']);
         } else {
             // Native: Cookie aus Email + IP (stabilisiert Duplikate aus gleichem Browser)
-            $session_id = substr(md5($email . ($_SERVER['REMOTE_ADDR'] ?? '')), 0, 16);
+            $session_id = substr(md5($email . (class_exists('TIX_Client_IP') ? TIX_Client_IP::get() : ($_SERVER['REMOTE_ADDR'] ?? ''))), 0, 16);
         }
 
         // Vorhandenen offenen Cart für diese E-Mail suchen
