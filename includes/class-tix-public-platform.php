@@ -240,7 +240,9 @@ class TIX_Public_Platform {
             'slug'           => self::slug($oid),
             'name'           => (string) $p->post_title,
             'logo'           => self::image($oid, ['_tix_org_landing_logo_id', '_tix_org_image_id'], 'medium'),
-            'hero'           => self::image($oid, ['_tix_org_landing_hero_id', '_tix_org_image_id'], 'large'),
+            // Nur ein eigenes Titelbild; '' = keins (kein Rückfall auf _tix_org_image_id – das ist bei
+            // Partner-Veranstaltern das Logo, App/Website zeigen dann ihren Platzhalter), wie /organizer/profile
+            'hero'           => self::image($oid, ['_tix_org_landing_hero_id'], 'large'),
             'tagline'        => (string) get_post_meta($oid, '_tix_org_landing_tagline', true),
             'short_desc'     => wp_strip_all_tags($short),
             'city'           => $city,
