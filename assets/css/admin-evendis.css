@@ -1,0 +1,82 @@
+/* Tixomat Admin-Shell im evendis-Look (nur Mehr-Veranstalter-Modus, TIX_Admin_Shell::enqueue).
+   Gleiche Tokens wie login-evendis.css: Manrope lokal, Grund #F2F3F7, Karten weiß Radius 20,
+   Akzent = Primärfarbe (--tix-evendis-accent, Vorgabe evendis-Rot #FC2F55). */
+@font-face{font-family:'Manrope';font-weight:400;font-display:swap;src:url(../fonts/manrope/Manrope-400.ttf) format('truetype')}
+@font-face{font-family:'Manrope';font-weight:600;font-display:swap;src:url(../fonts/manrope/Manrope-600.ttf) format('truetype')}
+@font-face{font-family:'Manrope';font-weight:700;font-display:swap;src:url(../fonts/manrope/Manrope-700.ttf) format('truetype')}
+@font-face{font-family:'Manrope';font-weight:800;font-display:swap;src:url(../fonts/manrope/Manrope-800.ttf) format('truetype')}
+
+body.tix-fullscreen{
+    --tix-evendis-accent:#FC2F55;
+    --tix-evendis-accent-soft:rgba(252,47,85,.08);
+    --tix-evendis-night:#2C2F3F;
+    --tix-evendis-body:#6B6F82;
+    --tix-evendis-bg:#F2F3F7;
+    --tix-evendis-line:#E3E5EC;
+    --tix-primary:var(--tix-evendis-accent);
+    background:var(--tix-evendis-bg);
+}
+body.tix-fullscreen,
+body.tix-fullscreen #wpbody-content,
+body.tix-fullscreen .wrap,
+body.tix-fullscreen .tix-shell-sidebar,
+body.tix-fullscreen .tix-dashboard,
+body.tix-fullscreen .tix-db-filter-btn,
+body.tix-fullscreen input,
+body.tix-fullscreen select,
+body.tix-fullscreen textarea,
+body.tix-fullscreen button{font-family:'Manrope',system-ui,-apple-system,'Segoe UI',sans-serif}
+body.tix-fullscreen .wrap h1,
+body.tix-fullscreen .wrap h2,
+body.tix-fullscreen .wrap h3{color:var(--tix-evendis-night);font-weight:800;letter-spacing:-.01em}
+
+/* ── Seitenleiste ── */
+body.tix-fullscreen .tix-shell-sidebar{background:#fff;color:var(--tix-evendis-night);border-right:1px solid var(--tix-evendis-line)}
+body.tix-fullscreen .tix-shell-group-label{color:#A0A4B4;font-weight:700}
+body.tix-fullscreen .tix-shell-item{color:var(--tix-evendis-body);font-weight:600;border-radius:12px;margin:1px 10px;width:calc(100% - 20px);padding:8px 12px}
+body.tix-fullscreen .tix-shell-item .dashicons{color:#A0A4B4}
+body.tix-fullscreen .tix-shell-item:hover{color:var(--tix-evendis-night);background:var(--tix-evendis-bg)}
+body.tix-fullscreen .tix-shell-item.active{color:var(--tix-evendis-accent);background:var(--tix-evendis-accent-soft);font-weight:700}
+body.tix-fullscreen .tix-shell-item.active::before{display:none}
+body.tix-fullscreen .tix-shell-item.active .dashicons{color:var(--tix-evendis-accent)}
+body.tix-fullscreen .tix-shell-badge{background:var(--tix-evendis-accent)}
+
+/* ── Karten, Tabellen, Formulare ── */
+body.tix-fullscreen .wrap > div[style*="background:#fff"],
+body.tix-fullscreen .wrap div[style*="border-radius:12px"][style*="background:#fff"]{border-radius:20px!important;box-shadow:0 10px 30px rgba(44,47,63,.06)!important}
+body.tix-fullscreen .wp-list-table{border:0;border-radius:20px;overflow:hidden;box-shadow:0 10px 30px rgba(44,47,63,.06)}
+body.tix-fullscreen .wp-list-table thead th{color:var(--tix-evendis-body);font-weight:700;background:#fff}
+body.tix-fullscreen input[type=text],
+body.tix-fullscreen input[type=email],
+body.tix-fullscreen input[type=month],
+body.tix-fullscreen input[type=number],
+body.tix-fullscreen select,
+body.tix-fullscreen textarea{border-color:var(--tix-evendis-line)!important;border-radius:12px!important}
+body.tix-fullscreen input:focus,
+body.tix-fullscreen select:focus,
+body.tix-fullscreen textarea:focus{border-color:var(--tix-evendis-accent)!important;box-shadow:0 0 0 3px var(--tix-evendis-accent-soft)!important;outline:0}
+body.tix-fullscreen .wp-core-ui .button-primary,
+body.tix-fullscreen .button-primary{background:var(--tix-evendis-accent)!important;border-color:var(--tix-evendis-accent)!important;border-radius:12px!important;font-weight:700;box-shadow:none;text-shadow:none}
+body.tix-fullscreen .button{border-radius:12px}
+body.tix-fullscreen a{color:var(--tix-evendis-accent)}
+body.tix-fullscreen .tix-shell-sidebar a.tix-shell-item{color:var(--tix-evendis-body)}
+body.tix-fullscreen .tix-shell-sidebar a.tix-shell-item.active{color:var(--tix-evendis-accent)}
+
+/* ── Dashboard (TIX_Dashboard) ── */
+body.tix-fullscreen .tix-dashboard{color:var(--tix-evendis-night)}
+body.tix-fullscreen .tix-db-kpi,
+body.tix-fullscreen .tix-db-chart-wrap,
+body.tix-fullscreen .tix-db-upcoming,
+body.tix-fullscreen .tix-db-orders,
+body.tix-fullscreen .tix-db-support,
+body.tix-fullscreen .tix-db-actions,
+body.tix-fullscreen .tix-db-alerts{border:0;border-radius:20px;box-shadow:0 10px 30px rgba(44,47,63,.06)}
+body.tix-fullscreen .tix-db-kpi-val,
+body.tix-fullscreen .tix-db-card-header h3{font-family:'Manrope',system-ui,sans-serif;color:var(--tix-evendis-night)}
+body.tix-fullscreen .tix-db-kpi-label,
+body.tix-fullscreen .tix-db-filter-label{color:var(--tix-evendis-body)}
+body.tix-fullscreen .tix-db-kpi-icon{background:var(--tix-evendis-accent-soft)}
+body.tix-fullscreen .tix-db-kpi-icon .dashicons,
+body.tix-fullscreen .tix-db-link{color:var(--tix-evendis-accent)}
+body.tix-fullscreen .tix-db-filter-group{background:#E8EAF0}
+body.tix-fullscreen .tix-db-filter-btn.active{color:var(--tix-evendis-night)}

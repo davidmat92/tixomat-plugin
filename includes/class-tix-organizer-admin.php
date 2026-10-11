@@ -24,8 +24,8 @@ class TIX_Organizer_Admin {
     }
 
     public static function init() {
-        // Capabilities beim Plugin-Load sicherstellen
-        add_action('admin_init', [__CLASS__, 'ensure_capabilities'], 1);
+        // Capabilities früh sicherstellen (vor dem Rechte-Check der ersten Admin-Seite)
+        add_action('init', [__CLASS__, 'ensure_capabilities'], 1);
 
         // Query-Filter: nur eigene Events
         add_action('pre_get_posts', [__CLASS__, 'filter_events_query']);
@@ -70,9 +70,8 @@ class TIX_Organizer_Admin {
         // Bulk E-Mail AJAX
         add_action('wp_ajax_tix_organizer_send_email', [__CLASS__, 'ajax_send_email']);
 
-        // Benachrichtigungen: Neue Bestellung + Low-Stock
-        add_action('woocommerce_order_status_completed', [__CLASS__, 'notify_new_order']);
-        add_action('woocommerce_order_status_processing', [__CLASS__, 'notify_new_order']);
+        // Benachrichtigungen: Neue Bestellung + Low-Stock (native Kasse)
+        add_action('tix_order_status_changed', [__CLASS__, 'on_order_status'], 20, 2);
 
         // Medien: wp.media Modal nur eigene Bilder zeigen
         add_filter('ajax_query_attachments_args', [__CLASS__, 'filter_media_library']);
@@ -129,6 +128,12 @@ class TIX_Organizer_Admin {
 
         // edit_others_posts ist nötig für Media, aber wir beschränken
         // den Zugriff auf Events über map_meta_cap und pre_get_posts
+
+        // Rechte des angemeldeten Nutzers für diese Anfrage auffrischen (sonst 403 beim ersten Admin-Aufruf)
+        if ($changed && did_action('set_current_user')) {
+            $u = wp_get_current_user();
+            if ($u && $u->ID) $u->get_role_caps();
+        }
     }
 
     /**
@@ -147,12 +152,21 @@ class TIX_Organizer_Admin {
 
         // Nur Events filtern
         if ($post->post_type !== 'event') {
-            // Locations und Organizer CPTs auch erlauben
-            if (in_array($post->post_type, ['tix_location', 'tix_organizer'], true)) {
+            $multi = class_exists('TIX_App_Scope') && TIX_App_Scope::multi();
+            $write = in_array($cap, ['edit_post', 'delete_post'], true);
+            // Mehr-Veranstalter: nur das eigene Veranstalter-Profil bearbeiten
+            if ($post->post_type === 'tix_organizer') {
+                if ($multi && $write && intval($post->ID) !== intval(self::get_organizer_id($user_id))) return ['do_not_allow'];
                 return $caps;
             }
-            // Attachments (Medien) erlauben
+            // Locations: im Mehr-Veranstalter-Modus nur selbst angelegte bearbeiten (lesen/auswählen geht)
+            if ($post->post_type === 'tix_location') {
+                if ($multi && $write && intval($post->post_author) !== intval($user_id)) return ['do_not_allow'];
+                return $caps;
+            }
+            // Attachments (Medien): im Mehr-Veranstalter-Modus nur eigene bearbeiten/löschen
             if ($post->post_type === 'attachment') {
+                if ($multi && $write && intval($post->post_author) !== intval($user_id)) return ['do_not_allow'];
                 return $caps;
             }
             // Alles andere: do_not_allow
@@ -214,7 +228,7 @@ class TIX_Organizer_Admin {
             $event_ids = self::get_organizer_event_ids();
             $meta_query = $query->get('meta_query') ?: [];
             $meta_query[] = [
-                'key'     => '_tix_event_id',
+                'key'     => '_tix_ticket_event_id',
                 'value'   => $event_ids,
                 'compare' => 'IN',
                 'type'    => 'NUMERIC',
@@ -302,7 +316,7 @@ class TIX_Organizer_Admin {
         if (!$user || is_wp_error($user)) return $redirect_to;
         if (!in_array('tix_organizer', (array) $user->roles, true)) return $redirect_to;
 
-        return admin_url('admin.php?page=tix-organizer-dashboard');
+        return admin_url('admin.php?page=tixomat');
     }
 
     /**
@@ -325,7 +339,7 @@ class TIX_Organizer_Admin {
         }
 
         if ($has_shortcode) {
-            wp_redirect(admin_url('admin.php?page=tix-organizer-dashboard'));
+            wp_redirect(admin_url('admin.php?page=tixomat'));
             exit;
         }
     }
@@ -356,7 +370,11 @@ class TIX_Organizer_Admin {
         global $pagenow;
 
         // Auszahlungen (Mehr-Veranstalter-Modus): Formulare/PDF über admin-post.php, Prüfung im Handler
-        if ($pagenow === 'admin-post.php' && in_array($_REQUEST['action'] ?? '', ['tix_org_payout', 'tix_org_settlement_pdf', 'tix_org_account'], true)) return;
+        // CSV-Exporte (Gästeliste, Tickets, Gesamt, Abrechnung): Handler prüfen Nonce + eigenes Event selbst
+        if ($pagenow === 'admin-post.php' && in_array($_REQUEST['action'] ?? '', [
+            'tix_org_payout', 'tix_org_settlement_pdf', 'tix_org_account',
+            'tix_organizer_guestlist_csv', 'tix_organizer_tickets_csv', 'tix_organizer_combined_csv', 'tix_organizer_billing_csv',
+        ], true)) return;
         $allowed_pages = [
             'index.php', 'edit.php', 'post.php', 'post-new.php',
             'edit-tags.php', 'admin.php', 'admin-ajax.php', 'profile.php',
@@ -364,7 +382,7 @@ class TIX_Organizer_Admin {
         ];
 
         if (!in_array($pagenow, $allowed_pages, true)) {
-            wp_redirect(admin_url('admin.php?page=tix-organizer-dashboard'));
+            wp_redirect(admin_url('admin.php?page=tixomat'));
             exit;
         }
 
@@ -372,7 +390,8 @@ class TIX_Organizer_Admin {
         if ($pagenow === 'admin.php') {
             $page = $_GET['page'] ?? '';
             $allowed_admin_pages = [
-                'tix-organizer-dashboard',
+                'tixomat',                 // Dashboard (TIX_Dashboard, auf eigene Events gefiltert)
+                'tix-organizer-dashboard', // alter Slug → leitet auf tixomat
                 'tix-organizer-guestlist',
                 'tix-org-account', // Freigabe-Status + Pflichtangaben (Mehr-Veranstalter-Modus)
             ];
@@ -399,7 +418,7 @@ class TIX_Organizer_Admin {
             }
 
             if ($page && !in_array($page, $allowed_admin_pages, true)) {
-                wp_redirect(admin_url('admin.php?page=tix-organizer-dashboard'));
+                wp_redirect(admin_url('admin.php?page=tixomat'));
                 exit;
             }
         }
@@ -413,7 +432,7 @@ class TIX_Organizer_Admin {
             }
             $allowed_types = ['event', 'tix_location', 'tix_ticket', 'tix_seatmap', 'tix_ticket_tpl', 'tix_subscriber', 'attachment', ''];
             if ($pt && !in_array($pt, $allowed_types, true)) {
-                wp_redirect(admin_url('admin.php?page=tix-organizer-dashboard'));
+                wp_redirect(admin_url('admin.php?page=tixomat'));
                 exit;
             }
         }
@@ -477,6 +496,84 @@ class TIX_Organizer_Admin {
         add_submenu_page('tixomat', 'Meine Medien', 'Meine Medien', 'upload_files', 'tix-organizer-media', [__CLASS__, 'render_media_page']);
     }
 
+    // ══════════════════════════════════════
+    // NATIVE BESTELLUNGEN (tix_orders)
+    // ══════════════════════════════════════
+
+    const STATUS_LABELS = [
+        'completed'  => 'Abgeschlossen',
+        'processing' => 'In Bearbeitung',
+        'on-hold'    => 'Wartend',
+        'pending'    => 'Ausstehend',
+        'refunded'   => 'Erstattet',
+        'cancelled'  => 'Storniert',
+        'failed'     => 'Fehlgeschlagen',
+    ];
+
+    /**
+     * Native Bestellungen mit Positionen der Events, neueste zuerst.
+     * $args: status[], search, date_from (Y-m-d), date_to (Y-m-d), limit (0 = alle), offset.
+     * @return array [int $total, array $rows] – je Zeile ['order' => object, 'items' => object[] (nur diese Events)]
+     */
+    private static function event_orders(array $event_ids, array $args = []) {
+        global $wpdb;
+        if (!class_exists('TIX_Order')) return [0, []];
+        $ids = array_values(array_unique(array_filter(array_map('intval', $event_ids))));
+        if (!$ids) return [0, []];
+        $t  = TIX_Order::table_name();
+        $ti = TIX_Order::items_table_name();
+        $statuses = (array) ($args['status'] ?? ['completed', 'processing', 'on-hold', 'refunded', 'cancelled']);
+        $where  = 'o.status IN (' . implode(',', array_fill(0, count($statuses), '%s')) . ')'
+                . ' AND EXISTS (SELECT 1 FROM ' . $ti . ' i WHERE i.order_id = o.id AND i.event_id IN (' . implode(',', array_fill(0, count($ids), '%d')) . '))';
+        $params = array_merge($statuses, $ids);
+        $search = trim((string) ($args['search'] ?? ''));
+        if ($search !== '') {
+            $like = '%' . $wpdb->esc_like($search) . '%';
+            $where .= ' AND (o.order_number LIKE %s OR o.billing_email LIKE %s OR CONCAT(o.billing_first_name, \' \', o.billing_last_name) LIKE %s' . (ctype_digit($search) ? ' OR o.id = %d' : '') . ')';
+            array_push($params, $like, $like, $like);
+            if (ctype_digit($search)) $params[] = intval($search);
+        }
+        if (!empty($args['date_from'])) { $where .= ' AND o.date_created >= %s'; $params[] = $args['date_from'] . ' 00:00:00'; }
+        if (!empty($args['date_to']))   { $where .= ' AND o.date_created <= %s'; $params[] = $args['date_to'] . ' 23:59:59'; }
+
+        $total = intval($wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM $t o WHERE $where", ...$params)));
+        $sql = "SELECT o.* FROM $t o WHERE $where ORDER BY o.date_created DESC, o.id DESC";
+        $limit = intval($args['limit'] ?? 0);
+        if ($limit > 0) { $sql .= ' LIMIT %d OFFSET %d'; array_push($params, $limit, max(0, intval($args['offset'] ?? 0))); }
+        $orders = $wpdb->get_results($wpdb->prepare($sql, ...$params));
+        if (!$orders) return [$total, []];
+
+        $oids = array_map(function ($o) { return intval($o->id); }, $orders);
+        $items = $wpdb->get_results($wpdb->prepare(
+            "SELECT * FROM $ti WHERE order_id IN (" . implode(',', array_fill(0, count($oids), '%d')) . ") AND event_id IN (" . implode(',', array_fill(0, count($ids), '%d')) . ") ORDER BY id ASC",
+            ...array_merge($oids, $ids)
+        ));
+        $by_order = [];
+        foreach ((array) $items as $it) $by_order[intval($it->order_id)][] = $it;
+        $rows = [];
+        foreach ($orders as $o) $rows[] = ['order' => $o, 'items' => $by_order[intval($o->id)] ?? []];
+        return [$total, $rows];
+    }
+
+    private static function money($v) {
+        return number_format(floatval($v), 2, ',', '.') . '&nbsp;&euro;';
+    }
+
+    /** Team-Recht des aktuellen Nutzers (ohne TIX_Team: erlaubt). */
+    private static function team_can($perm) {
+        return !class_exists('TIX_Team') || TIX_Team::user_can(get_current_user_id(), $perm);
+    }
+
+    /** Ist das Event eines der eigenen (Haupt- oder Co-Veranstalter)? */
+    private static function owns_event($event_id, $user_id = null) {
+        $org_id = self::get_organizer_id($user_id);
+        if (!$org_id || !$event_id) return false;
+        return in_array($org_id, [
+            intval(get_post_meta($event_id, '_tix_organizer_id', true)),
+            intval(get_post_meta($event_id, '_tix_co_organizer_id', true)),
+        ], true);
+    }
+
     /**
      * Bestellungen-Seite für Veranstalter (eigene, reduzierte Ansicht).
      */
@@ -497,68 +594,31 @@ class TIX_Organizer_Admin {
             'orderby' => 'date', 'order' => 'DESC',
         ]);
 
-        // Orders abfragen
-        global $wpdb;
-        $product_ids = [];
-        foreach ($event_ids as $eid) {
-            $cats = get_post_meta($eid, '_tix_ticket_categories', true);
-            if (is_array($cats)) {
-                foreach ($cats as $cat) {
-                    if (!empty($cat['product_id'])) $product_ids[] = intval($cat['product_id']);
-                }
-            }
-        }
-
+        // Bestellungen (native Kasse) mit Positionen der eigenen Events
+        $scope = ($filter_event && in_array($filter_event, $event_ids)) ? [$filter_event] : $event_ids;
+        list($total, $result) = self::event_orders($scope, [
+            'search' => $filter_search,
+            'limit'  => $per_page,
+            'offset' => ($paged - 1) * $per_page,
+        ]);
         $orders = [];
-        $total = 0;
-        if ($product_ids) {
-            $pids = implode(',', $product_ids);
-            $where = "oi.order_item_type = 'line_item' AND oim.meta_key = '_product_id' AND oim.meta_value IN ($pids)";
-
-            if ($filter_event && in_array($filter_event, $event_ids)) {
-                $evt_pids = [];
-                $cats = get_post_meta($filter_event, '_tix_ticket_categories', true);
-                if (is_array($cats)) foreach ($cats as $c) if (!empty($c['product_id'])) $evt_pids[] = intval($c['product_id']);
-                if ($evt_pids) $where = "oi.order_item_type = 'line_item' AND oim.meta_key = '_product_id' AND oim.meta_value IN (" . implode(',', $evt_pids) . ")";
+        foreach ($result as $r) {
+            $o = $r['order'];
+            $tickets = [];
+            $own_total = 0;
+            foreach ($r['items'] as $it) {
+                $tickets[] = esc_html($it->name) . ' &times;' . intval($it->quantity);
+                $own_total += floatval($it->total);
             }
-
-            $order_ids_sql = "SELECT DISTINCT oi.order_id FROM {$wpdb->prefix}woocommerce_order_items oi
-                JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim ON oi.order_item_id = oim.order_item_id
-                WHERE $where ORDER BY oi.order_id DESC";
-
-            $total = count($wpdb->get_col($order_ids_sql));
-            $offset = ($paged - 1) * $per_page;
-            $order_ids = $wpdb->get_col($order_ids_sql . " LIMIT $per_page OFFSET $offset");
-
-            foreach ($order_ids as $oid) {
-                $order = wc_get_order($oid);
-                if (!$order) continue;
-
-                if ($filter_search) {
-                    $match = stripos($order->get_billing_first_name() . ' ' . $order->get_billing_last_name(), $filter_search) !== false
-                        || stripos($order->get_billing_email(), $filter_search) !== false
-                        || stripos((string)$order->get_id(), $filter_search) !== false;
-                    if (!$match) { $total--; continue; }
-                }
-
-                $tickets = [];
-                foreach ($order->get_items() as $item) {
-                    $pid = $item->get_product_id();
-                    if (in_array($pid, $product_ids)) {
-                        $tickets[] = $item->get_name() . ' &times;' . $item->get_quantity();
-                    }
-                }
-
-                $orders[] = [
-                    'id'      => $order->get_id(),
-                    'date'    => $order->get_date_created() ? $order->get_date_created()->date_i18n('d.m.Y H:i') : '-',
-                    'name'    => trim($order->get_billing_first_name() . ' ' . $order->get_billing_last_name()),
-                    'email'   => $order->get_billing_email(),
-                    'tickets' => $tickets,
-                    'total'   => $order->get_total(),
-                    'status'  => wc_get_order_status_name($order->get_status()),
-                ];
-            }
+            $orders[] = [
+                'id'      => $o->order_number ?: $o->id,
+                'date'    => $o->date_created ? date_i18n('d.m.Y H:i', strtotime($o->date_created)) : '-',
+                'name'    => trim($o->billing_first_name . ' ' . $o->billing_last_name),
+                'email'   => $o->billing_email,
+                'tickets' => $tickets,
+                'total'   => $own_total,
+                'status'  => self::STATUS_LABELS[$o->status] ?? ucfirst($o->status),
+            ];
         }
 
         $total_pages = ceil($total / $per_page);
@@ -604,12 +664,12 @@ class TIX_Organizer_Admin {
                         <tr><td colspan="7" style="text-align:center;padding:40px;color:#94a3b8;">Keine Bestellungen gefunden.</td></tr>
                     <?php else : foreach ($orders as $o) : ?>
                         <tr>
-                            <td><strong>#<?php echo $o['id']; ?></strong></td>
+                            <td><strong>#<?php echo esc_html($o['id']); ?></strong></td>
                             <td><?php echo $o['date']; ?></td>
                             <td><?php echo esc_html($o['name']); ?></td>
                             <td><a href="mailto:<?php echo esc_attr($o['email']); ?>"><?php echo esc_html($o['email']); ?></a></td>
                             <td><?php echo implode('<br>', $o['tickets']); ?></td>
-                            <td style="text-align:right;font-weight:600;"><?php echo wc_price($o['total']); ?></td>
+                            <td style="text-align:right;font-weight:600;"><?php echo self::money($o['total']); ?></td>
                             <td><?php echo esc_html($o['status']); ?></td>
                         </tr>
                     <?php endforeach; endif; ?>
@@ -758,7 +818,7 @@ class TIX_Organizer_Admin {
                 $phone = ''; $address = ''; $first_name = ''; $last_name = ''; $date = ''; $date_sort = '';
                 if ($order_id) {
                     if (!isset($order_cache[$order_id])) {
-                        $o = wc_get_order($order_id);
+                        $o = class_exists('TIX_Order') ? TIX_Order::get(intval($order_id)) : null;
                         if ($o) {
                             $a = trim($o->get_billing_address_1() . ' ' . $o->get_billing_address_2());
                             $c = trim($o->get_billing_postcode() . ' ' . $o->get_billing_city());
@@ -866,6 +926,7 @@ class TIX_Organizer_Admin {
      */
     private static function validate_export_access($nonce_action, $nonce_field) {
         if (!self::is_organizer() && !current_user_can('manage_options')) wp_die('Kein Zugriff.');
+        if (self::is_organizer() && !current_user_can('manage_options') && !self::team_can('view_guestlist')) wp_die('Kein Zugriff.');
         check_admin_referer($nonce_action, $nonce_field);
         $event_id = intval($_POST['event_id'] ?? 0);
         if (!$event_id) wp_die('Kein Event gewählt.');
@@ -901,133 +962,8 @@ class TIX_Organizer_Admin {
     // ══════════════════════════════════════
 
     public static function render_dashboard_page() {
-        $org_id = self::get_organizer_id();
-        $event_ids = self::get_organizer_event_ids();
-
-        // Product IDs sammeln
-        global $wpdb;
-        $product_ids = [];
-        $event_products = [];
-        foreach ($event_ids as $eid) {
-            $cats = get_post_meta($eid, '_tix_ticket_categories', true);
-            if (is_array($cats)) {
-                foreach ($cats as $cat) {
-                    if (!empty($cat['product_id'])) {
-                        $pid = intval($cat['product_id']);
-                        $product_ids[] = $pid;
-                        $event_products[$eid][] = $pid;
-                    }
-                }
-            }
-        }
-
-        // KPIs berechnen
-        $total_revenue = 0;
-        $total_tickets = 0;
-        if ($product_ids) {
-            $pids = implode(',', array_unique($product_ids));
-            $order_join = (class_exists('Automattic\WooCommerce\Utilities\OrderUtil') && \Automattic\WooCommerce\Utilities\OrderUtil::custom_orders_table_usage_is_enabled())
-                ? "INNER JOIN {$wpdb->prefix}wc_orders wco ON oi.order_id = wco.id AND wco.status IN ('wc-completed','wc-processing','wc-on-hold')"
-                : "INNER JOIN {$wpdb->posts} wcp ON oi.order_id = wcp.ID AND wcp.post_status IN ('wc-completed','wc-processing','wc-on-hold')";
-            $r = $wpdb->get_row("
-                SELECT COALESCE(SUM(oim_total.meta_value),0) as revenue,
-                       COALESCE(SUM(oim_qty.meta_value),0) as tickets
-                FROM {$wpdb->prefix}woocommerce_order_items oi
-                $order_join
-                JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim_pid ON oi.order_item_id = oim_pid.order_item_id AND oim_pid.meta_key = '_product_id' AND oim_pid.meta_value IN ($pids)
-                LEFT JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim_total ON oi.order_item_id = oim_total.order_item_id AND oim_total.meta_key = '_line_total'
-                LEFT JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim_qty ON oi.order_item_id = oim_qty.order_item_id AND oim_qty.meta_key = '_qty'
-                WHERE oi.order_item_type = 'line_item'
-            ");
-            $total_revenue = floatval($r->revenue ?? 0);
-            $total_tickets = intval($r->tickets ?? 0);
-        }
-
-        // Aktive Events (inkl. Co-Veranstalter)
-        $org_meta_q = ['relation' => 'OR', ['key' => '_tix_organizer_id', 'value' => $org_id, 'type' => 'NUMERIC'], ['key' => '_tix_co_organizer_id', 'value' => $org_id, 'type' => 'NUMERIC']];
-        $active_events = get_posts([
-            'post_type' => 'event', 'post_status' => 'publish', 'posts_per_page' => -1,
-            'fields' => 'ids',
-            'meta_query' => [$org_meta_q, ['key' => '_tix_start_date', 'value' => date('Y-m-d'), 'compare' => '>=']],
-        ]);
-
-        // Nächstes Event
-        $next_event = get_posts([
-            'post_type' => 'event', 'post_status' => 'publish', 'posts_per_page' => 1,
-            'meta_key' => '_tix_start_date', 'orderby' => 'meta_value', 'order' => 'ASC',
-            'meta_query' => [
-                $org_meta_q,
-                ['key' => '_tix_start_date', 'value' => date('Y-m-d'), 'compare' => '>='],
-            ],
-        ]);
-        $next = $next_event ? $next_event[0] : null;
-
-        // Top 5 Events nach Umsatz
-        $top_events = [];
-        foreach ($event_products as $eid => $pids) {
-            if (empty($pids)) continue;
-            $pp = implode(',', $pids);
-            $oj = (class_exists('Automattic\WooCommerce\Utilities\OrderUtil') && \Automattic\WooCommerce\Utilities\OrderUtil::custom_orders_table_usage_is_enabled())
-                ? "INNER JOIN {$wpdb->prefix}wc_orders wco ON oi.order_id = wco.id AND wco.status IN ('wc-completed','wc-processing','wc-on-hold')"
-                : "INNER JOIN {$wpdb->posts} wcp ON oi.order_id = wcp.ID AND wcp.post_status IN ('wc-completed','wc-processing','wc-on-hold')";
-            $r = $wpdb->get_row("
-                SELECT COALESCE(SUM(oim_total.meta_value),0) as rev, COALESCE(SUM(oim_qty.meta_value),0) as tix
-                FROM {$wpdb->prefix}woocommerce_order_items oi
-                $oj
-                JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim_pid ON oi.order_item_id = oim_pid.order_item_id AND oim_pid.meta_key = '_product_id' AND oim_pid.meta_value IN ($pp)
-                LEFT JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim_total ON oi.order_item_id = oim_total.order_item_id AND oim_total.meta_key = '_line_total'
-                LEFT JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim_qty ON oi.order_item_id = oim_qty.order_item_id AND oim_qty.meta_key = '_qty'
-                WHERE oi.order_item_type = 'line_item'
-            ");
-            $top_events[] = ['id' => $eid, 'title' => get_the_title($eid), 'revenue' => floatval($r->rev ?? 0), 'tickets' => intval($r->tix ?? 0)];
-        }
-        usort($top_events, fn($a, $b) => $b['revenue'] <=> $a['revenue']);
-        $top_events = array_slice($top_events, 0, 5);
-
-        ?>
-        <div class="wrap">
-            <h1>Dashboard</h1>
-            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin:20px 0;">
-                <div style="background:#fff;border-radius:12px;padding:20px;box-shadow:0 1px 3px rgba(0,0,0,.04);">
-                    <div style="font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px;">Gesamtumsatz</div>
-                    <div style="font-size:28px;font-weight:700;color:#0D0B09;margin-top:4px;"><?php echo number_format($total_revenue, 2, ',', '.'); ?>&nbsp;&euro;</div>
-                </div>
-                <div style="background:#fff;border-radius:12px;padding:20px;box-shadow:0 1px 3px rgba(0,0,0,.04);">
-                    <div style="font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px;">Tickets verkauft</div>
-                    <div style="font-size:28px;font-weight:700;color:#0D0B09;margin-top:4px;"><?php echo number_format($total_tickets, 0, ',', '.'); ?></div>
-                </div>
-                <div style="background:#fff;border-radius:12px;padding:20px;box-shadow:0 1px 3px rgba(0,0,0,.04);">
-                    <div style="font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px;">Aktive Events</div>
-                    <div style="font-size:28px;font-weight:700;color:#0D0B09;margin-top:4px;"><?php echo count($active_events); ?></div>
-                </div>
-                <div style="background:#fff;border-radius:12px;padding:20px;box-shadow:0 1px 3px rgba(0,0,0,.04);">
-                    <div style="font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px;">N&auml;chstes Event</div>
-                    <div style="font-size:14px;font-weight:600;color:#0D0B09;margin-top:8px;"><?php echo $next ? esc_html($next->post_title) : '&ndash;'; ?></div>
-                    <?php if ($next) : ?>
-                        <div style="font-size:12px;color:#64748b;margin-top:2px;"><?php echo get_post_meta($next->ID, '_tix_start_date', true); ?></div>
-                    <?php endif; ?>
-                </div>
-            </div>
-
-            <?php if ($top_events) : ?>
-            <div style="background:#fff;border-radius:12px;padding:24px;box-shadow:0 1px 3px rgba(0,0,0,.04);margin-top:8px;">
-                <h3 style="font-size:15px;font-weight:700;margin:0 0 16px;color:#0D0B09;">Top Events nach Umsatz</h3>
-                <table class="wp-list-table widefat fixed striped">
-                    <thead><tr><th>Event</th><th style="width:100px;text-align:right;">Tickets</th><th style="width:120px;text-align:right;">Umsatz</th></tr></thead>
-                    <tbody>
-                    <?php foreach ($top_events as $te) : ?>
-                        <tr>
-                            <td><a href="<?php echo get_edit_post_link($te['id']); ?>"><?php echo esc_html($te['title']); ?></a></td>
-                            <td style="text-align:right;"><?php echo $te['tickets']; ?></td>
-                            <td style="text-align:right;font-weight:600;"><?php echo number_format($te['revenue'], 2, ',', '.'); ?>&nbsp;&euro;</td>
-                        </tr>
-                    <?php endforeach; ?>
-                    </tbody>
-                </table>
-            </div>
-            <?php endif; ?>
-        </div>
-        <?php
+        // Normalerweise leitet TIX_Dashboard den alten Slug auf page=tixomat um
+        if (class_exists('TIX_Dashboard')) TIX_Dashboard::render_page();
     }
 
     // ══════════════════════════════════════
@@ -1104,7 +1040,7 @@ class TIX_Organizer_Admin {
 
     public static function ajax_send_email() {
         check_ajax_referer('tix_organizer_email');
-        if (!self::is_organizer()) wp_send_json_error(['message' => 'Kein Zugriff.']);
+        if (!self::is_organizer() || !self::team_can('manage_billing')) wp_send_json_error(['message' => 'Kein Zugriff.']);
 
         $event_id = intval($_POST['event_id'] ?? 0);
         $subject = sanitize_text_field($_POST['subject'] ?? '');
@@ -1124,27 +1060,12 @@ class TIX_Organizer_Admin {
             wp_send_json_error(['message' => 'Heute wurde bereits eine E-Mail f&uuml;r dieses Event versendet.']);
         }
 
-        // Käufer-E-Mails sammeln
-        $cats = get_post_meta($event_id, '_tix_ticket_categories', true);
-        $product_ids = [];
-        if (is_array($cats)) foreach ($cats as $c) if (!empty($c['product_id'])) $product_ids[] = intval($c['product_id']);
-
-        if (!$product_ids) wp_send_json_error(['message' => 'Keine Tickets/Produkte f&uuml;r dieses Event.']);
-
-        global $wpdb;
-        $pids = implode(',', $product_ids);
-        $order_ids = $wpdb->get_col("
-            SELECT DISTINCT oi.order_id FROM {$wpdb->prefix}woocommerce_order_items oi
-            JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim ON oi.order_item_id = oim.order_item_id
-            WHERE oi.order_item_type = 'line_item' AND oim.meta_key = '_product_id' AND oim.meta_value IN ($pids)
-        ");
-
+        // Käufer-E-Mails sammeln (bezahlte native Bestellungen mit Positionen dieses Events)
+        list(, $result) = self::event_orders([$event_id], ['status' => ['completed', 'processing']]);
         $emails = [];
-        foreach ($order_ids as $oid) {
-            $order = wc_get_order($oid);
-            if (!$order || $order->get_status() === 'cancelled') continue;
-            $email = $order->get_billing_email();
-            if ($email && !in_array($email, $emails)) $emails[] = $email;
+        foreach ($result as $r) {
+            $email = sanitize_email((string) $r['order']->billing_email);
+            if ($email && !in_array(strtolower($email), array_map('strtolower', $emails), true)) $emails[] = $email;
         }
 
         if (empty($emails)) wp_send_json_error(['message' => 'Keine K&auml;ufer gefunden.']);
@@ -1158,10 +1079,22 @@ class TIX_Organizer_Admin {
               . '<p style="color:#94a3b8;font-size:12px;">Diese Nachricht bezieht sich auf: ' . esc_html($event_title) . '</p>'
               . '</div>';
 
+        if (class_exists('TIX_Emails') && method_exists('TIX_Emails', 'build_generic_email_html')) {
+            $html = TIX_Emails::build_generic_email_html(
+                esc_html($subject),
+                '<p style="margin:0 0 14px;font-size:14px;line-height:1.6;">' . nl2br($message) . '</p>',
+                esc_html($event_title)
+            );
+        }
         $headers = ['Content-Type: text/html; charset=UTF-8'];
+        // Antworten gehen an den Veranstalter
+        $reply = sanitize_email((string) get_post_meta($org_id, '_tix_org_email', true));
+        if (!$reply) { $u = wp_get_current_user(); $reply = $u ? (string) $u->user_email : ''; }
+        if ($reply) $headers[] = 'Reply-To: ' . $reply;
         $sent = 0;
         foreach ($emails as $to) {
-            if (wp_mail($to, $subject, $html, $headers)) $sent++;
+            $ok = class_exists('TIX_Customer_URL') ? TIX_Customer_URL::mail($to, $subject, $html, $headers) : wp_mail($to, $subject, $html, $headers);
+            if ($ok) $sent++;
         }
 
         update_post_meta($event_id, $today_key, time());
@@ -1211,7 +1144,7 @@ class TIX_Organizer_Admin {
     }
 
     public static function export_billing_csv() {
-        if (!self::is_organizer()) wp_die('Kein Zugriff.');
+        if (!self::is_organizer() || !self::team_can('manage_billing')) wp_die('Kein Zugriff.');
         check_admin_referer('tix_billing_csv', '_tix_nonce');
 
         $org_id = self::get_organizer_id();
@@ -1223,61 +1156,31 @@ class TIX_Organizer_Admin {
             $event_ids = [$filter_event];
         }
 
-        // Product IDs + Event-Name Mapping
-        $product_ids = [];
-        $pid_to_event = [];
-        $pid_to_cat = [];
-        foreach ($event_ids as $eid) {
-            $cats = get_post_meta($eid, '_tix_ticket_categories', true);
-            if (is_array($cats)) {
-                foreach ($cats as $cat) {
-                    if (!empty($cat['product_id'])) {
-                        $pid = intval($cat['product_id']);
-                        $product_ids[] = $pid;
-                        $pid_to_event[$pid] = get_the_title($eid);
-                        $pid_to_cat[$pid] = $cat['name'] ?? '';
-                    }
-                }
-            }
-        }
-
         $rows = [];
-        if ($product_ids) {
-            global $wpdb;
-            $pids = implode(',', array_unique($product_ids));
-            $date_from = $month . '-01';
-            $date_to = date('Y-m-t', strtotime($date_from));
-
-            $order_ids = $wpdb->get_col("
-                SELECT DISTINCT oi.order_id FROM {$wpdb->prefix}woocommerce_order_items oi
-                JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim ON oi.order_item_id = oim.order_item_id
-                WHERE oi.order_item_type = 'line_item' AND oim.meta_key = '_product_id' AND oim.meta_value IN ($pids)
-                ORDER BY oi.order_id DESC
-            ");
-
-            foreach ($order_ids as $oid) {
-                $order = wc_get_order($oid);
-                if (!$order || $order->get_status() === 'cancelled') continue;
-                $date = $order->get_date_created();
-                if (!$date) continue;
-                $d = $date->format('Y-m-d');
-                if ($d < $date_from || $d > $date_to) continue;
-
-                foreach ($order->get_items() as $item) {
-                    $pid = $item->get_product_id();
-                    if (!in_array($pid, $product_ids)) continue;
-                    $total = floatval($item->get_total());
-                    $tax = floatval($item->get_total_tax());
-                    $rows[] = [
-                        $order->get_id(),
-                        $date->date_i18n('d.m.Y'),
-                        $pid_to_event[$pid] ?? '',
-                        ($pid_to_cat[$pid] ?? $item->get_name()) . ' x' . $item->get_quantity(),
-                        number_format($total + $tax, 2, ',', ''),
-                        number_format($tax, 2, ',', ''),
-                        number_format($total, 2, ',', ''),
-                    ];
-                }
+        if (!preg_match('/^\d{4}-\d{2}$/', $month)) $month = date('Y-m');
+        $date_from = $month . '-01';
+        $date_to   = date('Y-m-t', strtotime($date_from));
+        list(, $result) = self::event_orders($event_ids, ['status' => ['completed', 'processing'], 'date_from' => $date_from, 'date_to' => $date_to]);
+        $s = function_exists('tix_get_settings') ? tix_get_settings() : [];
+        $rate = !empty($s['tax_enabled']) ? floatval($s['tax_rate'] ?? 0) : 0.0;
+        $inclusive = !empty($s['tax_inclusive']);
+        foreach (array_reverse($result) as $r) {
+            $o = $r['order'];
+            foreach ($r['items'] as $it) {
+                $amount = floatval($it->total);
+                // Positionen speichern den Preis × Menge; MwSt nach den Steuer-Einstellungen
+                if ($rate > 0 && $inclusive)      { $gross = $amount; $tax = round($amount - $amount / (1 + $rate / 100), 2); }
+                elseif ($rate > 0)                { $tax = round($amount * $rate / 100, 2); $gross = $amount + $tax; }
+                else                              { $gross = $amount; $tax = 0.0; }
+                $rows[] = [
+                    $o->order_number ?: $o->id,
+                    date_i18n('d.m.Y', strtotime($o->date_created)),
+                    get_the_title(intval($it->event_id)),
+                    ($it->cat_name ?: $it->name) . ' x' . intval($it->quantity),
+                    number_format($gross, 2, ',', ''),
+                    number_format($tax, 2, ',', ''),
+                    number_format($gross - $tax, 2, ',', ''),
+                ];
             }
         }
 
@@ -1296,62 +1199,53 @@ class TIX_Organizer_Admin {
     // BENACHRICHTIGUNGEN
     // ══════════════════════════════════════
 
+    /** tix_order_status_changed: bei bezahlter Bestellung die Veranstalter benachrichtigen. */
+    public static function on_order_status($order_id, $new_status = '') {
+        if (in_array($new_status, ['completed', 'processing'], true)) self::notify_new_order($order_id);
+    }
+
     public static function notify_new_order($order_id) {
-        $order = wc_get_order($order_id);
+        $order_id = intval($order_id);
+        if (!$order_id || !class_exists('TIX_Order')) return;
+        // Bereits benachrichtigt? (Bestellungen sind keine Posts → Option)
+        if (get_option('_tix_org_notified_' . $order_id)) return;
+        $order = TIX_Order::get($order_id);
         if (!$order) return;
+        update_option('_tix_org_notified_' . $order_id, 1, false);
 
-        // Bereits benachrichtigt?
-        if (get_post_meta($order_id, '_tix_org_notified', true)) return;
-
-        // Events in dieser Bestellung finden
-        $notified_orgs = [];
+        // Positionen je Event sammeln
+        $by_event = [];
         foreach ($order->get_items() as $item) {
-            $product_id = $item->get_product_id();
-            $event_id = get_post_meta($product_id, '_tix_parent_event_id', true);
-            if (!$event_id) continue;
-
+            $eid = intval($item->get_event_id());
+            if (!$eid) continue;
+            if (!isset($by_event[$eid])) $by_event[$eid] = ['qty' => 0, 'total' => 0.0];
+            $by_event[$eid]['qty']   += $item->get_quantity();
+            $by_event[$eid]['total'] += $item->get_total();
+        }
+        $buyer = trim($order->get_billing_first_name() . ' ' . $order->get_billing_last_name());
+        $notified = [];
+        foreach ($by_event as $event_id => $sum) {
             // Beide Veranstalter (Haupt + Co) benachrichtigen
-            $org_ids_to_notify = array_filter([
-                intval(get_post_meta($event_id, '_tix_organizer_id', true)),
-                intval(get_post_meta($event_id, '_tix_co_organizer_id', true)),
-            ]);
-
-            foreach ($org_ids_to_notify as $org_id) {
-                if (!$org_id || in_array($org_id, $notified_orgs)) continue;
-
-                // Organizer-User finden
-                $org_post = get_post($org_id);
-                if (!$org_post) continue;
-                $user_id = get_post_meta($org_id, '_tix_org_user_id', true);
-                if (!$user_id) continue;
-                $user = get_userdata($user_id);
-                if (!$user || !$user->user_email) continue;
-
-                // Benachrichtigung senden
+            foreach (array_filter([intval(get_post_meta($event_id, '_tix_organizer_id', true)), intval(get_post_meta($event_id, '_tix_co_organizer_id', true))]) as $org_id) {
+                if (isset($notified[$org_id . ':' . $event_id])) continue;
+                $email = sanitize_email((string) get_post_meta($org_id, '_tix_org_email', true));
+                if (!$email) {
+                    $user = get_userdata(intval(get_post_meta($org_id, '_tix_org_user_id', true)));
+                    $email = $user ? (string) $user->user_email : '';
+                }
+                if (!$email) continue;
                 $event_title = get_the_title($event_id);
-                $buyer = trim($order->get_billing_first_name() . ' ' . $order->get_billing_last_name());
-                $total = $order->get_total();
-                $tickets = $item->get_quantity();
-
-                $html = '<div style="font-family:Inter,system-ui,sans-serif;max-width:500px;margin:0 auto;padding:20px;">'
-                      . '<h2 style="color:#0D0B09;font-size:16px;margin:0 0 12px;">Neue Bestellung</h2>'
-                      . '<p style="color:#475569;font-size:14px;line-height:1.6;margin:0 0 8px;">'
-                      . '<strong>' . esc_html($buyer) . '</strong> hat <strong>' . $tickets . ' Ticket(s)</strong> f&uuml;r <strong>' . esc_html($event_title) . '</strong> gekauft.'
-                      . '</p>'
-                      . '<p style="color:#0D0B09;font-size:18px;font-weight:700;margin:8px 0;">' . wc_price($total) . '</p>'
-                      . '<p style="color:#94a3b8;font-size:12px;margin-top:16px;">Bestellung #' . $order->get_id() . '</p>'
-                      . '</div>';
-
-                wp_mail($user->user_email, 'Neue Bestellung: ' . $event_title, $html, ['Content-Type: text/html; charset=UTF-8']);
-
-                $notified_orgs[] = $org_id;
-
-                // Low-Stock Check
-                self::check_low_stock($event_id, $org_id, $user->user_email);
+                $body = '<p style="margin:0 0 12px;font-size:14px;line-height:1.6;"><strong>' . esc_html($buyer ?: $order->get_billing_email()) . '</strong> hat <strong>' . intval($sum['qty']) . ' Ticket(s)</strong> f&uuml;r <strong>' . esc_html($event_title) . '</strong> gekauft.</p>'
+                      . '<p style="margin:0 0 12px;font-size:18px;font-weight:700;">' . self::money($sum['total']) . '</p>'
+                      . '<p style="margin:0;font-size:12px;color:#94a3b8;">Bestellung #' . esc_html($order->get_order_number()) . '</p>';
+                $html = (class_exists('TIX_Emails') && method_exists('TIX_Emails', 'build_generic_email_html'))
+                    ? TIX_Emails::build_generic_email_html('Neue Bestellung', $body, esc_html($event_title))
+                    : '<div style="font-family:Inter,system-ui,sans-serif;max-width:500px;margin:0 auto;padding:20px;"><h2 style="font-size:16px;">Neue Bestellung</h2>' . $body . '</div>';
+                wp_mail($email, 'Neue Bestellung: ' . $event_title, $html, ['Content-Type: text/html; charset=UTF-8']);
+                $notified[$org_id . ':' . $event_id] = true;
+                self::check_low_stock($event_id, $org_id, $email);
             }
         }
-
-        update_post_meta($order_id, '_tix_org_notified', 1);
     }
 
     private static function check_low_stock($event_id, $org_id, $email) {

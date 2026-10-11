@@ -232,11 +232,20 @@ class TIX_Admin_Only {
     /** Ziel nach dem Login bzw. auf `/` je Rolle. */
     public static function landing_for_user($user) {
         if (!$user || !$user->ID) return wp_login_url();
-        if (user_can($user, 'manage_options') || user_can($user, 'edit_others_posts')) return admin_url();
+        if (user_can($user, 'manage_options')) return admin_url();
         $roles = (array) $user->roles;
-        if (array_intersect($roles, ['tix_organizer', 'tix_staff', 'tix_entrance', 'tix_dj'])) {
-            return tix_get_settings('organizer_dashboard_enabled') ? admin_url('admin.php?page=tix-organizer-dashboard') : admin_url();
+        // Veranstalter (Inhaber, Team-Admin): Dashboard – vor edit_others_posts prüfen, die Rolle bekommt
+        // dieses Recht für die Mediathek (TIX_Organizer_Admin::ensure_capabilities)
+        if (in_array('tix_organizer', $roles, true)) {
+            return tix_get_settings('organizer_dashboard_enabled') ? admin_url('admin.php?page=tixomat') : admin_url();
         }
+        // App-Rollen ohne wp-admin-Menüs: Check-in- bzw. DJ-Seite, sonst Profil
+        if (array_intersect($roles, ['tix_staff', 'tix_entrance', 'tix_dj'])) {
+            $tag = in_array('tix_dj', $roles, true) && !array_intersect($roles, ['tix_staff', 'tix_entrance']) ? 'tix_musikwunsch_dj' : 'tix_checkin';
+            $page = self::page_url_with($tag);
+            return $page !== '' ? $page : admin_url('profile.php');
+        }
+        if (user_can($user, 'edit_others_posts')) return admin_url();
         if (in_array('tix_promoter', $roles, true) && class_exists('TIX_Promoter_Auth')) {
             return TIX_Promoter_Auth::get_promoter_page_url();
         }

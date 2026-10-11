@@ -50,7 +50,7 @@ class TIX_Custom_URLs {
             if (is_user_logged_in()) {
                 $user = wp_get_current_user();
                 if (in_array('tix_organizer', (array) $user->roles, true)) {
-                    wp_redirect(admin_url('admin.php?page=tix-organizer-dashboard'));
+                    wp_redirect(admin_url('admin.php?page=tixomat'));
                 } else {
                     wp_redirect(admin_url());
                 }
@@ -66,7 +66,7 @@ class TIX_Custom_URLs {
                 wp_redirect(home_url('/' . ($login_slug ?: 'wp-login.php') . '/'));
                 exit;
             }
-            wp_redirect(admin_url('admin.php?page=tix-organizer-dashboard'));
+            wp_redirect(admin_url('admin.php?page=tixomat'));
             exit;
         }
     }
@@ -124,7 +124,7 @@ class TIX_Custom_URLs {
                         $redirect = admin_url();
                     } elseif (in_array('tix_organizer', (array) $user->roles, true)) {
                         // Veranstalter → Organizer-Dashboard
-                        $redirect = admin_url('admin.php?page=tix-organizer-dashboard');
+                        $redirect = admin_url('admin.php?page=tixomat');
                     } else {
                         // Alle anderen → Einstellung oder Backend
                         $login_redir = $s['login_redirect'] ?? '';

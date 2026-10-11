@@ -27,7 +27,14 @@ class TIX_Dashboard {
     // Page Render (HTML Skeleton + AJAX Load)
     // ═══════════════════════════════════════════
 
+    /** Veranstalter-Ansicht (kein Admin): eigene Events, eigene Links, kein Support-Widget. */
+    private static function organizer_view() {
+        return !current_user_can('manage_options')
+            && class_exists('TIX_Organizer_Admin') && TIX_Organizer_Admin::is_organizer();
+    }
+
     public static function render_page() {
+        $org_view = self::organizer_view();
         wp_enqueue_script('chartjs', 'https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js', [], '4.4.0', true);
         wp_enqueue_script('chartjs-adapter', 'https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3/dist/chartjs-adapter-date-fns.bundle.min.js', ['chartjs'], '3.0.0', true);
         ?>
@@ -73,7 +80,7 @@ class TIX_Dashboard {
             </div>
 
             <?php // Neueste Support-Anfragen (nur wenn Feature aktiviert) ?>
-            <?php if (!empty(tix_get_settings('support_enabled'))) : ?>
+            <?php if (!$org_view && !empty(tix_get_settings('support_enabled'))) : ?>
             <div class="tix-db-support tix-db-skeleton" id="tix-db-support">
                 <div class="tix-db-card-header">
                     <h3>Neueste Anfragen</h3>
@@ -88,7 +95,7 @@ class TIX_Dashboard {
                 <div class="tix-db-orders tix-db-skeleton" id="tix-db-orders">
                     <div class="tix-db-card-header">
                         <h3>Letzte Bestellungen</h3>
-                        <a href="<?php echo admin_url('admin.php?page=tix-orders'); ?>" class="tix-db-link">Alle anzeigen &rarr;</a>
+                        <a href="<?php echo admin_url($org_view ? 'admin.php?page=tix-organizer-orders' : 'admin.php?page=tix-orders'); ?>" class="tix-db-link">Alle anzeigen &rarr;</a>
                     </div>
                     <div id="tix-db-orders-table"></div>
                 </div>
@@ -101,6 +108,20 @@ class TIX_Dashboard {
                                 <span class="dashicons dashicons-plus-alt2"></span>
                                 <span>Neues Event</span>
                             </a>
+                            <?php if ($org_view) : ?>
+                            <a href="<?php echo admin_url('admin.php?page=tix-organizer-orders'); ?>" class="tix-db-action">
+                                <span class="dashicons dashicons-cart"></span>
+                                <span>Bestellungen</span>
+                            </a>
+                            <a href="<?php echo admin_url('admin.php?page=tix-organizer-guestlist'); ?>" class="tix-db-action">
+                                <span class="dashicons dashicons-groups"></span>
+                                <span>G&auml;steliste</span>
+                            </a>
+                            <a href="<?php echo admin_url(class_exists('TIX_App_Scope') && TIX_App_Scope::multi() ? 'admin.php?page=tix-organizer-payouts' : 'admin.php?page=tix-organizer-billing'); ?>" class="tix-db-action">
+                                <span class="dashicons dashicons-money-alt"></span>
+                                <span><?php echo class_exists('TIX_App_Scope') && TIX_App_Scope::multi() ? 'Auszahlungen' : 'Abrechnung'; ?></span>
+                            </a>
+                            <?php else : ?>
                             <a href="<?php echo admin_url('admin.php?page=tix-statistics'); ?>" class="tix-db-action">
                                 <span class="dashicons dashicons-chart-area"></span>
                                 <span>Statistiken</span>
@@ -113,6 +134,7 @@ class TIX_Dashboard {
                                 <span class="dashicons dashicons-admin-generic"></span>
                                 <span>Einstellungen</span>
                             </a>
+                            <?php endif; ?>
                         </div>
                     </div>
                     <!-- Alerts -->
@@ -417,6 +439,7 @@ class TIX_Dashboard {
 
     public static function ajax_data() {
         check_ajax_referer('tix_dashboard');
+        if (!current_user_can('edit_posts')) wp_send_json_error(['message' => 'Kein Zugriff.'], 403);
 
         // DB-Fehler nicht als HTML ausgeben (bricht JSON)
         global $wpdb;
@@ -438,7 +461,7 @@ class TIX_Dashboard {
             'chart'       => self::get_chart_data($event_ids, $chart_days),
             'upcoming'    => self::get_upcoming_events($event_ids, 5),
             'orders'      => self::get_recent_orders($event_ids, 8),
-            'support'     => self::get_recent_support_tickets(6),
+            'support'     => self::organizer_view() ? [] : self::get_recent_support_tickets(6),
             'alerts'      => self::get_alerts($event_ids),
             'range_label' => $ranges['label'],
         ]);
@@ -578,8 +601,14 @@ class TIX_Dashboard {
         $t  = TIX_Order::table_name();
         $ti = TIX_Order::items_table_name();
 
-        // Revenue aktueller Zeitraum (nutzt TIX_Statistics → inkl. CPT-Fallback für migrierte Sites)
-        if (class_exists('TIX_Statistics') && method_exists('TIX_Statistics', 'query_revenue')) {
+        // Veranstalter: Umsatz/Tickets nur aus Positionen der eigenen Events (gemischte Bestellungen
+        // mit Events anderer Veranstalter zählen nicht voll; gleiche Rechnung wie die App-Statistik)
+        if (self::organizer_view() && !empty($event_ids)) {
+            $cur  = self::own_items_totals($event_ids, $from, $to);
+            $prev = self::own_items_totals($event_ids, $prev_from, $prev_to);
+            $rev = $cur['revenue']; $prev_rev = $prev['revenue'];
+            $tix = $cur['tickets']; $prev_tix = $prev['tickets'];
+        } elseif (class_exists('TIX_Statistics') && method_exists('TIX_Statistics', 'query_revenue')) {
             $rev_row  = TIX_Statistics::query_revenue($from, $to, $event_ids);
             $prev_row = TIX_Statistics::query_revenue($prev_from, $prev_to, $event_ids);
             $rev      = $rev_row ? floatval($rev_row->revenue) : 0;
@@ -590,7 +619,9 @@ class TIX_Dashboard {
         }
 
         // Tickets aktueller Zeitraum (nutzt TIX_Statistics → inkl. CPT-Fallback)
-        if (class_exists('TIX_Statistics') && method_exists('TIX_Statistics', 'query_tickets_sold')) {
+        if (self::organizer_view() && !empty($event_ids)) {
+            // schon oben aus den eigenen Positionen
+        } elseif (class_exists('TIX_Statistics') && method_exists('TIX_Statistics', 'query_tickets_sold')) {
             $tix      = intval(TIX_Statistics::query_tickets_sold($from, $to, $event_ids));
             $prev_tix = intval(TIX_Statistics::query_tickets_sold($prev_from, $prev_to, $event_ids));
         } else {
@@ -643,6 +674,24 @@ class TIX_Dashboard {
                 'trend' => null,
             ],
         ];
+    }
+
+    /** Umsatz + Tickets aus Positionen der Events (bezahlte Bestellungen, Zeitraum nach Bestelldatum). */
+    private static function own_items_totals($event_ids, $from, $to) {
+        global $wpdb;
+        $t  = TIX_Order::table_name();
+        $ti = TIX_Order::items_table_name();
+        $ids = array_values(array_filter(array_map('intval', (array) $event_ids)));
+        if (!$ids) return ['revenue' => 0.0, 'tickets' => 0];
+        $ph = implode(',', array_fill(0, count($ids), '%d'));
+        $row = $wpdb->get_row($wpdb->prepare(
+            "SELECT COALESCE(SUM(i.total), 0) AS revenue, COALESCE(SUM(i.quantity), 0) AS tickets
+             FROM $t o INNER JOIN $ti i ON i.order_id = o.id
+             WHERE o.status IN ('completed','processing') AND i.event_id IN ($ph)
+               AND o.date_created >= %s AND o.date_created <= %s",
+            ...array_merge($ids, [$from . ' 00:00:00', $to . ' 23:59:59'])
+        ));
+        return ['revenue' => floatval($row->revenue ?? 0), 'tickets' => intval($row->tickets ?? 0)];
     }
 
     private static function query_revenue_kpi($t, $ti, $event_ids, $from, $to) {
@@ -758,7 +807,19 @@ class TIX_Dashboard {
         // Bevorzugt TIX_Statistics::query_revenue_over_time verwenden.
         // Das mergt automatisch WC + native Orders UND nutzt auf migrierten Sites
         // den CPT-Fallback (tix_ticket-Posts) → funktioniert identisch auf allen Setups.
-        if (class_exists('TIX_Statistics') && method_exists('TIX_Statistics', 'query_revenue_over_time')) {
+        if (self::organizer_view() && !empty($event_ids)) {
+            $t  = TIX_Order::table_name();
+            $ti = TIX_Order::items_table_name();
+            $ids = array_values(array_filter(array_map('intval', (array) $event_ids))) ?: [0];
+            $ph = implode(',', array_fill(0, count($ids), '%d'));
+            $rows = $wpdb->get_results($wpdb->prepare(
+                "SELECT DATE(o.date_created) AS day, COALESCE(SUM(i.total), 0) AS revenue, COALESCE(SUM(i.quantity), 0) AS tickets
+                 FROM $t o INNER JOIN $ti i ON i.order_id = o.id
+                 WHERE o.status IN ('completed','processing') AND i.event_id IN ($ph) AND o.date_created >= %s
+                 GROUP BY DATE(o.date_created) ORDER BY day ASC",
+                ...array_merge($ids, [$from . ' 00:00:00'])
+            ));
+        } elseif (class_exists('TIX_Statistics') && method_exists('TIX_Statistics', 'query_revenue_over_time')) {
             $stats_rows = TIX_Statistics::query_revenue_over_time($from, $to, $event_ids, 'day');
             foreach ((array) $stats_rows as $r) {
                 // Normalisieren: statistics liefert "period", wir arbeiten mit "day"
@@ -1158,11 +1219,17 @@ class TIX_Dashboard {
             $event_filter = "AND o.id IN (SELECT order_id FROM $ti WHERE event_id IN ($eids))";
         }
 
+        $org_view = self::organizer_view() && !empty($event_ids);
+        // Veranstalter: nur Positionen der eigenen Events (Name, Menge, Summe)
+        $item_join = $org_view
+            ? "INNER JOIN $ti i ON o.id = i.order_id AND i.event_id IN (" . implode(',', array_map('intval', $event_ids)) . ")"
+            : "LEFT JOIN $ti i ON o.id = i.order_id";
         $sql = $wpdb->prepare(
             "SELECT o.*, GROUP_CONCAT(DISTINCT i.name SEPARATOR ', ') as event_names,
-                    COALESCE(SUM(i.quantity), 0) as ticket_count
+                    COALESCE(SUM(i.quantity), 0) as ticket_count,
+                    COALESCE(SUM(i.total), 0) as own_total
              FROM $t o
-             LEFT JOIN $ti i ON o.id = i.order_id
+             $item_join
              WHERE 1=1 $event_filter
              GROUP BY o.id
              ORDER BY o.date_created DESC
@@ -1207,11 +1274,11 @@ class TIX_Dashboard {
                 'customer'     => trim(($r->billing_first_name ?? '') . ' ' . ($r->billing_last_name ?? '')) ?: ($r->billing_email ?? ''),
                 'event'        => mb_strimwidth($r->event_names ?? '', 0, 40, '...'),
                 'tickets'      => intval($r->ticket_count),
-                'total'        => number_format(floatval($r->total), 2, ',', '.') . ' €',
+                'total'        => number_format(floatval($org_view ? $r->own_total : $r->total), 2, ',', '.') . ' €',
                 'status'       => $r->status,
                 'status_label' => $status_labels[$r->status] ?? ucfirst($r->status),
                 'date'         => $r->date_created ? date_i18n('d.m.Y H:i', strtotime($r->date_created)) : '',
-                'url'          => admin_url('admin.php?page=tix-orders&order_id=' . $r->id),
+                'url'          => $org_view ? admin_url('admin.php?page=tix-organizer-orders&s=' . $r->id) : admin_url('admin.php?page=tix-orders&order_id=' . $r->id),
             ];
         }
         return $result;
