@@ -2057,7 +2057,7 @@ Jede Nachricht im `_tix_sp_messages`-Array hat folgende Struktur:
 |---|---|
 | Ticket oeffnen | Oeffnet den Ticket-Post (tix_ticket) in einem neuen Tab |
 | Download-Link kopieren | Kopiert den Ticket-Download-Link in die Zwischenablage |
-| Ticket-E-Mail erneut senden | Sendet die Ticket-E-Mail erneut an den Kunden |
+| Ticket-E-Mail erneut senden | Sendet die Ticket-E-Mail erneut an den Kunden (Inhaber-E-Mail des Tickets, sonst Rechnungs-E-Mail der Bestellung, oder die eingegebene Adresse) mit Knopf „Ticket herunterladen“ = Ticket-Online-Seite `/?tix_dl=<Token>` (`TIX_Tickets::get_download_url`, Token wird bei Bedarf erzeugt) und Ticket-Code; Versand wird im Ticket protokolliert (`_tix_ticket_send_log`, `scope: support`). Bis 1.38.375 zeigte der Link auf die nicht existierende Adresse `/ticket-download/?code=…`. Ohne Ticket-Code oder bei Mailfehler kommt eine Fehlermeldung statt „gesendet“. |
 | Ticketinhaber aendern | Aendert Name + E-Mail des Ticket-Besitzers |
 | Bestellung oeffnen | Link zur WooCommerce-Bestellung |
 | Als geloest markieren | Setzt Status auf „Geloest" + Kunden-E-Mail |

@@ -990,25 +990,38 @@ class TIX_Support {
             wp_send_json_error('Keine gültige E-Mail-Adresse gefunden.');
         }
 
-        // TIX_Emails nutzen um Ticket-Mail zu senden
-        if (class_exists('TIX_Emails') && method_exists('TIX_Emails', 'send_ticket_email')) {
-            TIX_Emails::send_ticket_email($ticket_post_id, $email);
-            wp_send_json_success(['message' => 'Ticket-E-Mail wurde erneut gesendet an ' . $email]);
+        // Download-Link wie „Ticket erneut senden“ in der Ticket-Liste (TIX_Columns):
+        // /?tix_dl=<Token>, Token wird bei Bedarf erzeugt. Vorher: /ticket-download/?code=…
+        // (die Route gibt es nicht) bzw. TIX_Emails::send_ticket_email (gibt es nicht).
+        $code         = (string) get_post_meta($ticket_post_id, '_tix_ticket_code', true);
+        $download_url = class_exists('TIX_Tickets') ? TIX_Tickets::get_download_url($ticket_post_id) : '';
+        if ($code === '' || $download_url === '') {
+            wp_send_json_error('Das Ticket hat keinen Ticket-Code – es kann nicht verschickt werden.');
+        }
+        $event_id   = intval(get_post_meta($ticket_post_id, '_tix_ticket_event_id', true));
+        $event      = $event_id ? get_post($event_id) : null;
+        $event_name = $event ? html_entity_decode($event->post_title, ENT_QUOTES, 'UTF-8') : '';
+
+        $body  = '<p>Hier ist dein Ticket' . ($event_name !== '' ? ' für <strong>' . esc_html($event_name) . '</strong>' : '') . ':</p>';
+        $body .= '<p style="margin:20px 0;"><a href="' . esc_url($download_url) . '" style="display:inline-block;padding:14px 28px;' . tix_btn_style() . 'text-decoration:none;font-weight:700;font-size:16px;">Ticket herunterladen</a></p>';
+        $body .= '<p style="color:#64748b;font-size:13px;">Ticket-Code: <strong>' . esc_html($code) . '</strong></p>';
+
+        $html = class_exists('TIX_Emails')
+            ? TIX_Emails::build_generic_email_html('Dein Ticket', $body, 'Ticket erneut gesendet')
+            : '<html><body>' . $body . '</body></html>';
+        $subject = 'Dein Ticket – ' . ($event_name !== '' ? $event_name . ' – ' : '') . $code;
+
+        $sent = TIX_Customer_URL::mail($email, $subject, $html, ['Content-Type: text/html; charset=UTF-8']);
+        if (!$sent) {
+            wp_send_json_error('Die E-Mail konnte nicht verschickt werden (Mailversand prüfen).');
         }
 
-        // Fallback: generische E-Mail mit Download-Link
-        $code = get_post_meta($ticket_post_id, '_tix_ticket_code', true);
-        $download_url = home_url('/ticket-download/?code=' . $code);
-
-        $body = '<p>Hier ist dein Ticket-Download-Link:</p>';
-        $body .= '<p><a href="' . esc_url($download_url) . '" style="display:inline-block;padding:12px 24px;' . tix_btn_style() . 'text-decoration:none;font-weight:700;">Ticket herunterladen</a></p>';
-        $body .= '<p>Dein Ticket-Code: <strong>' . esc_html($code) . '</strong></p>';
-
-        $html = TIX_Emails::build_generic_email_html('Dein Ticket', $body, 'Ticket erneut gesendet');
-        $subject = 'Dein Ticket – ' . $code;
-
-        $headers = ['Content-Type: text/html; charset=UTF-8'];
-        TIX_Customer_URL::mail($email, $subject, $html, $headers);
+        // Versand am Ticket merken (wie die Ticket-Online-Seite, letzte 20)
+        $log = get_post_meta($ticket_post_id, '_tix_ticket_send_log', true);
+        if (!is_array($log)) $log = [];
+        $log[] = ['email' => $email, 'scope' => 'support', 'date' => current_time('c'), 'ip' => ''];
+        if (count($log) > 20) $log = array_slice($log, -20);
+        update_post_meta($ticket_post_id, '_tix_ticket_send_log', $log);
 
         wp_send_json_success(['message' => 'Ticket-E-Mail wurde erneut gesendet an ' . $email]);
     }
