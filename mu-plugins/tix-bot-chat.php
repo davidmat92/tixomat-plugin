@@ -158,8 +158,13 @@ function tix_ajax_clear_cart() {
 // CSS
 // ============================================================
 function tix_css($c, $height = '700px') {
+    // Schrift lokal aus dem Tixomat-Plugin (Inter/Outfit/Sora/DM Sans), sonst wie bisher Google Fonts
+    $local = defined('TIXOMAT_URL') && in_array(TIX_CHAT_FONT, ['Inter', 'Outfit', 'Sora', 'DM Sans'], true);
+    $font_import = $local
+        ? '@import url("' . esc_url(TIXOMAT_URL . 'assets/css/fonts-local.css') . '");'
+        : '@import url("https://fonts.googleapis.com/css2?family=' . urlencode(TIX_CHAT_FONT) . ':wght@400;500;600;700&display=swap");';
     return '
-@import url("https://fonts.googleapis.com/css2?family='.urlencode(TIX_CHAT_FONT).':wght@400;500;600;700&display=swap");
+' . $font_import . '
 
 .tix-chat{font-family:"'.esc_attr(TIX_CHAT_FONT).'",-apple-system,BlinkMacSystemFont,sans-serif;background:'.$c['bg'].';border-radius:24px;overflow:hidden;display:flex;flex-direction:column;height:'.$height.';max-height:85vh;min-height:400px;position:relative;box-shadow:0 4px 30px rgba(0,0,0,.08)}
 .tix-chat *{margin:0;padding:0;box-sizing:border-box}

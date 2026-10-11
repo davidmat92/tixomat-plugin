@@ -116,7 +116,8 @@ class TIX_Custom_URLs {
                 wp_set_current_user($user->ID);
                 wp_set_auth_cookie($user->ID, !empty($_POST['rememberme']));
 
-                $redirect = $_POST['redirect_to'] ?? '';
+                // Nur Ziele auf erlaubten Hosts (vorher ungeprüft → offene Weiterleitung)
+                $redirect = wp_validate_redirect(wp_unslash((string) ($_POST['redirect_to'] ?? '')), '');
                 if (!$redirect) {
                     if (user_can($user, 'manage_options')) {
                         // Admins → Backend
@@ -130,7 +131,7 @@ class TIX_Custom_URLs {
                         $redirect = $login_redir ? home_url('/' . ltrim($login_redir, '/')) : admin_url();
                     }
                 }
-                wp_redirect($redirect);
+                wp_safe_redirect($redirect);
                 exit;
             }
             $error = $user->get_error_message();

@@ -2,14 +2,14 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.38.383
+ * Version: 1.38.384
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.38.383');
+define('TIXOMAT_VERSION', '1.38.384');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -167,8 +167,12 @@ require_once TIXOMAT_PATH . 'includes/class-tix-consent.php';
 TIX_Consent::init();
 require_once TIXOMAT_PATH . 'includes/class-tix-consent-banner.php';
 add_action('init', ['TIX_Consent_Banner', 'init'], 5);
+require_once TIXOMAT_PATH . 'includes/class-tix-admin-only.php';
+add_action('init', ['TIX_Admin_Only', 'init'], 5);
 require_once TIXOMAT_PATH . 'includes/class-tix-customer-url.php';
 TIX_Customer_URL::init();
+// Durchleitung der Kundenseite (X-Forwarded-Host vom vertrauten Proxy): Anfrage als Kunden-Adresse ausliefern
+TIX_Customer_URL::boot_proxied();
 require_once TIXOMAT_PATH . 'includes/class-tix-cpt.php';
 add_action('init', ['TIX_CPT', 'register']);
 

@@ -1,0 +1,23 @@
+/* Tixomat „Nur Verwaltung“: Login (wp-login.php) im evendis-Look – Manrope lokal, Grund #F2F3F7,
+   Karte weiß Radius 20, Akzent = Primärfarbe (Vorgabe evendis-Rot #FC2F55). */
+@font-face{font-family:'Manrope';font-weight:400;font-display:swap;src:url(../fonts/manrope/Manrope-400.ttf) format('truetype')}
+@font-face{font-family:'Manrope';font-weight:600;font-display:swap;src:url(../fonts/manrope/Manrope-600.ttf) format('truetype')}
+@font-face{font-family:'Manrope';font-weight:700;font-display:swap;src:url(../fonts/manrope/Manrope-700.ttf) format('truetype')}
+@font-face{font-family:'Manrope';font-weight:800;font-display:swap;src:url(../fonts/manrope/Manrope-800.ttf) format('truetype')}
+:root{--tix-login-accent:#FC2F55;--tix-login-night:#2C2F3F;--tix-login-body:#6B6F82;--tix-login-bg:#F2F3F7}
+body.login{background:var(--tix-login-bg);font-family:'Manrope',system-ui,-apple-system,'Segoe UI',sans-serif;color:var(--tix-login-night)}
+body.login #login{width:360px;max-width:calc(100vw - 32px);padding:8vh 0 24px}
+.login h1 a{background-image:none;font-size:26px;font-weight:800;color:var(--tix-login-night);text-indent:0;width:auto;height:auto;line-height:1.2;margin-bottom:20px}
+.login form{background:#fff;border:0;border-radius:20px;box-shadow:0 10px 30px rgba(44,47,63,.08);padding:26px 24px 30px;margin-top:12px}
+.login label{font-weight:600;color:var(--tix-login-night);font-size:14px}
+.login input[type=text],.login input[type=password],.login input[type=email]{border:1px solid #E3E5EC;border-radius:12px;background:#fff;font-size:16px;padding:10px 12px;box-shadow:none;font-family:inherit}
+.login input[type=text]:focus,.login input[type=password]:focus,.login input[type=email]:focus{border-color:var(--tix-login-accent);box-shadow:0 0 0 3px rgba(252,47,85,.15)}
+.wp-core-ui .button-primary{background:var(--tix-login-accent);border-color:var(--tix-login-accent);border-radius:12px;font-weight:700;font-family:inherit;min-height:44px;padding:0 20px;text-shadow:none;box-shadow:none}
+.wp-core-ui .button-primary:hover,.wp-core-ui .button-primary:focus{background:var(--tix-login-accent);border-color:var(--tix-login-accent);filter:brightness(.95)}
+.login .button.wp-hide-pw .dashicons{color:var(--tix-login-body)}
+.login #nav,.login #backtoblog{text-align:center;padding:0;margin:14px 0 0}
+.login #nav a,.login #backtoblog a,.login .privacy-policy-page-link a{color:var(--tix-login-body);font-weight:600}
+.login #nav a:hover,.login #backtoblog a:hover{color:var(--tix-login-accent)}
+.login .message,.login .notice,.login #login_error{border-radius:12px;border-left-color:var(--tix-login-accent);box-shadow:none}
+input[type=checkbox]:checked::before{filter:hue-rotate(0)}
+.login .language-switcher{display:none}
