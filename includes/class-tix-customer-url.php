@@ -89,8 +89,12 @@ class TIX_Customer_URL {
         // sie, ihre AJAX-Aufrufe gehen an die WordPress-Adresse. Ausnahme: der Support-Link
         // ?tix_sp_ticket= (Universal Link der App, muss auf der Kunden-Domain liegen).
         if ($q !== '' && preg_match_all('/(?:^|&|&amp;)(tix_[a-z0-9_]+)=/i', $q, $m)) {
-            foreach ($m[1] as $key) {
-                if (strtolower($key) !== 'tix_sp_ticket') return true;
+            $keys = array_map('strtolower', $m[1]);
+            // Support-Link (Universal Link): tix_sp_ticket + Zugangsschlüssel tix_sp_key
+            $support = in_array('tix_sp_ticket', $keys, true);
+            foreach ($keys as $key) {
+                if ($support && in_array($key, ['tix_sp_ticket', 'tix_sp_key'], true)) continue;
+                return true;
             }
         }
         return false;
