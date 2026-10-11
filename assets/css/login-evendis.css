@@ -30,17 +30,21 @@ body.login .language-switcher,body.login #backtoblog,body.login .privacy-policy-
 .login form .input:focus,.login input[type=text]:focus,.login input[type=password]:focus,.login input[type=email]:focus{border-color:var(--tix-login-accent);box-shadow:0 0 0 3px rgba(252,47,85,.15);outline:0}
 .login .button.wp-hide-pw{height:50px;color:var(--tix-login-body)}
 .login .button.wp-hide-pw .dashicons{color:var(--tix-login-body)}
-.login form .forgetmenot{float:none;display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 18px}
-.login form .forgetmenot label{margin:0 auto 0 0;font-weight:600;font-size:14px}
-.login form .forgetmenot .wp-tooltip{display:none}
-.login input[type=checkbox]{border-radius:5px;border-color:var(--tix-login-line)}
-.login input[type=checkbox]:checked{background:var(--tix-login-night);border-color:var(--tix-login-night)}
-.login input[type=checkbox]:checked::before{filter:brightness(0) invert(1)}
+.login form .forgetmenot{float:none!important;display:flex;align-items:center;gap:8px;margin:4px 0 18px!important}
+.login form .forgetmenot label{margin:0!important;font-weight:600!important;font-size:14px!important}
+.login form .forgetmenot .tix-login-lost{margin-left:auto}
+.login form .forgetmenot .wp-tooltip__toggle{background:none!important;border:0!important;box-shadow:none!important;padding:0!important;width:22px;height:22px;cursor:pointer}
+.login form .forgetmenot .wp-tooltip__toggle .dashicons{color:#A0A4B4!important;font-size:18px;width:18px;height:18px}
+.login form .forgetmenot .wp-tooltip__bubble{border-radius:12px;border:1px solid var(--tix-login-sep);box-shadow:0 10px 30px rgba(44,47,63,.12);font-size:13px;color:var(--tix-login-night)}
+.login input[type=checkbox]{width:20px!important;height:20px!important;min-width:20px;margin:0!important;border:1.5px solid #A0A4B4!important;border-radius:6px!important;box-shadow:none!important}
+.login input[type=checkbox]:checked{background:var(--tix-login-night)!important;border-color:var(--tix-login-night)!important}
+.login input[type=checkbox]:checked::before{filter:brightness(0) invert(1);margin:-2px 0 0 -2px!important}
 .tix-login-lost{font-size:14px;font-weight:700;color:var(--tix-login-link);text-decoration:none}
 .tix-login-lost:hover{text-decoration:underline}
 .login .submit{padding:0;margin:0;float:none;clear:both}
-.wp-core-ui .button-primary,.login .button-primary{float:none;width:100%;height:50px;min-height:50px;background:var(--tix-login-night);border:0;border-radius:12px;font-size:15.5px;font-weight:700;font-family:inherit;text-shadow:none;box-shadow:none;color:#fff}
-.wp-core-ui .button-primary:hover,.wp-core-ui .button-primary:focus{background:var(--tix-login-deep);color:#fff;box-shadow:0 0 0 3px rgba(44,47,63,.15)}
+.wp-core-ui .button-primary,.login .button-primary,.login #wp-submit{float:none!important;width:100%!important;height:50px!important;min-height:50px!important;padding:0 20px!important;background:var(--tix-login-night)!important;border:0!important;border-radius:12px!important;font-size:15.5px!important;font-weight:700!important;line-height:50px!important;font-family:inherit;text-shadow:none!important;box-shadow:none!important;color:#fff!important}
+.wp-core-ui .button-primary:hover,.login #wp-submit:hover{background:#3C4158!important}
+.wp-core-ui .button-primary:focus,.login #wp-submit:focus{box-shadow:0 0 0 3px rgba(44,47,63,.25)!important}
 .login #nav{display:none}
 
 /* Registrieren + Fußzeile */
@@ -67,7 +71,9 @@ body.login .language-switcher,body.login #backtoblog,body.login .privacy-policy-
     .tix-login-pills span{background:rgba(255,255,255,.14);border-radius:999px;padding:7px 12px;font-size:13px;font-weight:700}
 }
 @media (max-width:899px){
+    body.login{display:flex;flex-direction:column;min-height:100vh}
     body.login #login{padding:28px 0 0}
+    body.login .tix-login-foot{margin:auto auto 24px;width:400px;max-width:calc(100vw - 48px);padding-top:40px}
     .login h1{margin:0 0 40px}
     .tix-login-head h2{font-size:28px}
 }

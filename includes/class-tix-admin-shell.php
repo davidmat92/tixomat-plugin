@@ -84,14 +84,10 @@ class TIX_Admin_Shell {
             [],
             TIXOMAT_VERSION
         );
-        // evendis-Look (Mehr-Veranstalter-Modus): Manrope, helle Seitenleiste, Akzent = Primärfarbe
+        // evendis-Look (Mehr-Veranstalter-Modus): Manrope, helle Seitenleiste, Akzent evendis-Rot
         if (class_exists('TIX_App_Scope') && TIX_App_Scope::multi()) {
             wp_enqueue_style('tix-admin-evendis', TIXOMAT_URL . 'assets/css/admin-evendis.css', ['tix-admin-shell'], TIXOMAT_VERSION);
-            $accent = function_exists('tix_get_settings') ? (string) tix_get_settings('color_primary') : '';
-            if (preg_match('/^#[0-9a-fA-F]{6}$/', $accent)) {
-                list($r, $g, $b) = sscanf($accent, '#%02x%02x%02x');
-                wp_add_inline_style('tix-admin-evendis', 'body.tix-fullscreen{--tix-evendis-accent:' . $accent . ';--tix-evendis-accent-soft:rgba(' . $r . ',' . $g . ',' . $b . ',.08)}');
-            }
+            // Farben fest im evendis-Look (color_primary der Seite kann abweichen)
         }
         wp_enqueue_script(
             'tix-admin-shell',

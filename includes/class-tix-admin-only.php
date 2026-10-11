@@ -426,17 +426,26 @@ class TIX_Admin_Only {
         return sanitize_key((string) ($_REQUEST['action'] ?? 'login'));
     }
 
-    /** Titel + Untertitel über dem Formular (nur Anmelden). */
+    /** Titel + Untertitel über dem Formular (Anmelden, Passwort vergessen, Neues Passwort). */
     public static function login_head($message) {
-        if (!in_array(self::login_action(), ['login', ''], true)) return $message;
-        return '<div class="tix-login-head"><h2>Willkommen zurück</h2><p>Melde dich an, um deine Events, Verkäufe und dein Team zu verwalten.</p></div>' . $message;
+        $texts = [
+            'login'        => ['Willkommen zurück', 'Melde dich an, um deine Events, Verkäufe und dein Team zu verwalten.'],
+            'lostpassword' => ['Passwort vergessen?', 'Gib deine E-Mail-Adresse ein – wir schicken dir einen Link für ein neues Passwort.'],
+            'rp'           => ['Neues Passwort', 'Lege ein neues Passwort für dein Konto fest.'],
+            'resetpass'    => ['Neues Passwort', 'Lege ein neues Passwort für dein Konto fest.'],
+        ];
+        $a = self::login_action() ?: 'login';
+        if ($a === 'retrievepassword') $a = 'lostpassword';
+        if (!isset($texts[$a])) return $message;
+        // WordPress-Hinweis („Bitte gib deinen Benutzernamen …“) ersetzt die Unterzeile
+        if ($a === 'lostpassword') $message = '';
+        return '<div class="tix-login-head"><h2>' . esc_html($texts[$a][0]) . '</h2><p>' . esc_html($texts[$a][1]) . '</p></div>' . $message;
     }
 
     public static function login_style() {
-        $s = function_exists('tix_get_settings') ? tix_get_settings() : [];
-        $accent = preg_match('/^#[0-9a-f]{6}$/i', (string) ($s['color_primary'] ?? '')) ? $s['color_primary'] : '#FC2F55';
         wp_enqueue_style('tix-login', TIXOMAT_URL . 'assets/css/login-evendis.css', [], TIXOMAT_VERSION);
-        $css = ':root{--tix-login-accent:' . $accent . '}';
+        // Farben fest im evendis-Look (color_primary der Seite kann abweichen, z. B. Orange)
+        $css = '';
         $logo = self::login_logo();
         if ($logo !== '') $css .= '.login h1 a.tix-login-has-logo{background-image:url("' . esc_url($logo) . '")}';
         $photo = self::media_url('comedy') ?: self::media_url('publikum');
@@ -484,7 +493,7 @@ class TIX_Admin_Only {
             var form = login.querySelector('form'), reg = x.querySelector('.tix-login-register');
             if (form && reg) form.parentNode.insertBefore(reg, form.nextSibling);
             var foot = x.querySelector('.tix-login-foot');
-            if (foot) login.appendChild(foot);
+            if (foot) login.parentNode.insertBefore(foot, login.nextSibling);
             x.remove();
         })();
         </script>
