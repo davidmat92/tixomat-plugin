@@ -342,13 +342,16 @@ class TIX_Public_Platform {
         }
         $out = [];
         foreach ($terms as $t) {
-            $out[] = [
+            $row = [
                 'id'       => intval($t->term_id),
                 'slug'     => (string) $t->slug,
                 'name'     => (string) $t->name,
                 'count'    => intval($t->count),
                 'upcoming' => intval($upcoming[$t->term_id] ?? 0),
             ];
+            // Redaktionelle Texte (TIX_SEO_Texts): intro (HTML), image {url, thumb, alt} | null
+            if (class_exists('TIX_SEO_Texts')) $row += TIX_SEO_Texts::category_extra($t->term_id);
+            $out[] = $row;
         }
         usort($out, function ($a, $b) {
             $d = $b['upcoming'] <=> $a['upcoming'];
@@ -366,7 +369,12 @@ class TIX_Public_Platform {
             $cities[$c] = ($cities[$c] ?? 0) + 1;
         }
         $out = [];
-        foreach ($cities as $name => $n) $out[] = ['name' => $name, 'upcoming' => $n];
+        foreach ($cities as $name => $n) {
+            $row = ['name' => $name, 'upcoming' => $n];
+            // Redaktionelle Texte (TIX_SEO_Texts): slug, intro (HTML), image {url, thumb, alt} | null
+            if (class_exists('TIX_SEO_Texts')) $row += TIX_SEO_Texts::city_extra($name);
+            $out[] = $row;
+        }
         usort($out, function ($a, $b) {
             $d = $b['upcoming'] <=> $a['upcoming'];
             return $d !== 0 ? $d : strcasecmp($a['name'], $b['name']);
