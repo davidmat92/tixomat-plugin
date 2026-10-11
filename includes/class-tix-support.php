@@ -23,6 +23,7 @@ class TIX_Support {
         // Geschützte Anhänge: Auslieferung nur über signierte Links (?tix_sp_file=…), alte öffentliche Dateien übernehmen
         add_action('init', [__CLASS__, 'maybe_serve_file'], 0);
         add_action('init', [__CLASS__, 'maybe_migrate_files'], 20);
+        add_action('admin_notices', [__CLASS__, 'private_dir_notice']);
 
         // CPT + Custom Statuses immer registrieren
         add_action('init', [__CLASS__, 'register_post_type']);
@@ -1280,24 +1281,93 @@ class TIX_Support {
 
     const FILE_TTL      = 6 * HOUR_IN_SECONDS;   // Links in Oberflächen und Schnittstellen
     const FILE_TTL_MAIL = 30 * DAY_IN_SECONDS;   // Links in Mails an Kunden
-    const FILES_VERSION = 1;
+    const FILES_VERSION = 2;
 
-    /** Geschützter Ordner (Direktabruf gesperrt), optional Unterordner je Ticket. */
-    public static function private_dir($ticket_id = 0) {
+    const OPTION_PRIVATE_DIR  = 'tix_private_dir';   // manuell: Ordner außerhalb des Webroots
+    const OPTION_PRIVATE_BASE = 'tix_private_base';  // automatisch ermittelt (im Web-Request geprüft)
+
+    /** Rückfall im Webroot: uploads/tix-private (Schutz per .htaccess – hängt vom Webserver ab). */
+    private static function uploads_private() {
         $upload_dir = wp_upload_dir();
-        $root = trailingslashit($upload_dir['basedir']) . 'tix-private';
+        return trailingslashit($upload_dir['basedir']) . 'tix-private';
+    }
+
+    private static function inside_webroot($dir) {
+        $root = rtrim(str_replace('\\', '/', (string) (realpath(ABSPATH) ?: ABSPATH)), '/') . '/';
+        $real = realpath($dir);
+        $d = rtrim(str_replace('\\', '/', (string) ($real ?: $dir)), '/') . '/';
+        return strpos($d, $root) === 0;
+    }
+
+    /** Ordner anlegbar, beschreibbar (Schreibtest, damit auch open_basedir greift) und außerhalb des Webroots? */
+    private static function usable_dir($dir) {
+        $dir = untrailingslashit((string) $dir);
+        if ($dir === '' || $dir[0] !== '/' || self::inside_webroot($dir)) return false;
+        if (!@is_dir($dir) && !@wp_mkdir_p($dir)) return false;
+        $probe = $dir . '/.tix-write-test-' . wp_generate_password(8, false, false);
+        if (@file_put_contents($probe, '1') === false) return false;
+        @unlink($probe);
+        return true;
+    }
+
+    /**
+     * Basisordner für geschützte Dateien. Reihenfolge: Konstante TIX_PRIVATE_DIR, Option tix_private_dir,
+     * gespeicherter Ort, automatisch zwei Ebenen über dem Webroot (/home/runcloud/tix-private/<app>).
+     * Automatisch ermittelt wird nur im Web-Request (open_basedir gilt dort, nicht in WP-CLI).
+     * Sonst Rückfall uploads/tix-private (mit Hinweis im Admin).
+     */
+    public static function private_base() {
+        static $base = null;
+        if ($base !== null) return $base;
+        $manual = defined('TIX_PRIVATE_DIR') && TIX_PRIVATE_DIR ? (string) TIX_PRIVATE_DIR : (string) get_option(self::OPTION_PRIVATE_DIR, '');
+        if ($manual !== '') return $base = (self::usable_dir($manual) ? untrailingslashit($manual) : self::uploads_private());
+        $stored = (string) get_option(self::OPTION_PRIVATE_BASE, '');
+        if ($stored !== '') return $base = (self::usable_dir($stored) ? $stored : self::uploads_private());
+        if (defined('WP_CLI') && WP_CLI) return $base = self::uploads_private();
+        $auto = rtrim(dirname(dirname(rtrim(ABSPATH, '/'))), '/') . '/tix-private/' . basename(rtrim(ABSPATH, '/'));
+        if (self::usable_dir($auto)) {
+            update_option(self::OPTION_PRIVATE_BASE, $auto, false);
+            return $base = $auto;
+        }
+        return $base = self::uploads_private();
+    }
+
+    /** Liegen die geschützten Dateien außerhalb des Webroots? */
+    public static function private_outside() {
+        return !self::inside_webroot(self::private_base());
+    }
+
+    /** Geschützter Ordner (außerhalb des Webroots bzw. gesperrt), optional Unterordner je Ticket. */
+    public static function private_dir($ticket_id = 0) {
+        $root = self::private_base();
         $base = $root . '/support';
         if (!file_exists($base)) wp_mkdir_p($base);
         if (!file_exists($root . '/.htaccess') || strpos((string) @file_get_contents($root . '/.htaccess'), 'RewriteRule') === false) {
             @file_put_contents($root . '/.htaccess', "# Tixomat: kein Direktabruf (Auslieferung nur über geprüfte Links)\n<IfModule mod_rewrite.c>\nRewriteEngine On\nRewriteRule .* - [F,L]\n</IfModule>\n<IfModule mod_authz_core.c>\nRequire all denied\n</IfModule>\n<IfModule !mod_authz_core.c>\nOrder deny,allow\nDeny from all\n</IfModule>\nOptions -Indexes\n");
         }
         if (!file_exists($root . '/index.php')) @file_put_contents($root . '/index.php', "<?php // Silence is golden.\n");
-        // Prüfdatei: https://<seite>/wp-content/uploads/tix-private/probe.txt muss 403 liefern
-        if (!file_exists($root . '/probe.txt')) @file_put_contents($root . '/probe.txt', "Wenn du das lesen kannst, ist der Ordner nicht gesperrt.\n");
+        // Prüfdatei nur im Webroot-Rückfall: https://<seite>/wp-content/uploads/tix-private/probe.txt muss 403 liefern
+        if (!self::private_outside() && !file_exists($root . '/probe.txt')) @file_put_contents($root . '/probe.txt', "Wenn du das lesen kannst, ist der Ordner nicht gesperrt.\n");
         if (!$ticket_id) return $base;
         $dir = $base . '/' . intval($ticket_id);
         if (!file_exists($dir)) wp_mkdir_p($dir);
         return $dir;
+    }
+
+    /** Temporärer Ordner für Mail-Anhänge (Kopien mit lesbarem Namen, werden nach dem Versand gelöscht). */
+    private static function mail_tmp_dir() {
+        $dir = self::private_base() . '/mail-tmp';
+        if (!file_exists($dir)) { @wp_mkdir_p($dir); @file_put_contents($dir . '/.htaccess', "deny from all\n"); }
+        return $dir;
+    }
+
+    /** Hinweis für Admins, wenn die Anhänge im Webroot liegen (Schutz hängt am Webserver). */
+    public static function private_dir_notice() {
+        if (!current_user_can('manage_options') || empty(tix_get_settings('support_enabled')) || self::private_outside()) return;
+        $screen = function_exists('get_current_screen') ? get_current_screen() : null;
+        if ($screen && strpos((string) $screen->id, 'tix') === false) return;
+        echo '<div class="notice notice-warning"><p><strong>Tixomat:</strong> Support-Anhänge liegen im Webroot (<code>wp-content/uploads/tix-private</code>) und sind nur per <code>.htaccess</code> geschützt. '
+           . 'Prüfen: <code>' . esc_html(content_url('uploads/tix-private/probe.txt')) . '</code> muss 403 liefern. Besser: Ordner außerhalb des Webroots per Konstante <code>TIX_PRIVATE_DIR</code> oder Option <code>tix_private_dir</code> festlegen.</p></div>';
     }
 
     private static function file_sig($ticket_id, $file, $exp) {
@@ -1386,7 +1456,13 @@ class TIX_Support {
         $file = preg_replace('/[^A-Za-z0-9]/', '', (string) $file);
         if ($file === '' || !self::find_attachment($ticket_id, $file)) return '';
         $path = self::private_dir(intval($ticket_id)) . '/' . $file;
-        return is_file($path) ? $path : '';
+        if (is_file($path)) return $path;
+        // Während/nach einem Ortswechsel: zuletzt genutzter Ort, dann Rückfall im Webroot
+        foreach (array_unique(array_filter([(string) get_option('tix_support_files_base', ''), self::uploads_private()])) as $root) {
+            $old = $root . '/support/' . intval($ticket_id) . '/' . $file;
+            if (is_file($old)) return $old;
+        }
+        return '';
     }
 
     /** ?tix_sp_file=<ticket>-<file>&exp=&sig= → Datei ausliefern (Signatur + Ablauf geprüft). */
@@ -1426,12 +1502,59 @@ class TIX_Support {
      * geschützten Ordner verschieben (zufälliger Name), Meta + Nachrichten anpassen. In Portionen.
      */
     public static function maybe_migrate_files() {
-        if (intval(get_option('tix_support_files_version', 0)) >= self::FILES_VERSION) return;
+        // Nur im Web-Request (dort gelten open_basedir und die Rechte des Webservers), nicht in WP-CLI
+        if (defined('WP_CLI') && WP_CLI) return;
+        $base = self::private_base();
+        $prev = (string) get_option('tix_support_files_base', '');
+        if (intval(get_option('tix_support_files_version', 0)) >= self::FILES_VERSION && $prev === $base) return;
+        // Nie aus einem Ort außerhalb zurück in den Webroot verschieben (Rückfall: am alten Ort weiterlesen)
+        if (!self::private_outside() && $prev !== '' && !self::inside_webroot($prev) && is_dir($prev)) return;
         if (get_transient('tix_support_files_lock')) return;
         set_transient('tix_support_files_lock', 1, 60);
-        $done = self::migrate_files_batch(100);
-        if ($done) update_option('tix_support_files_version', self::FILES_VERSION, false);
+        $done = self::migrate_files_batch(100)
+            && ($prev === '' || $prev === $base || self::move_private_batch(200, $prev))
+            && self::move_private_batch(200, self::uploads_private());
+        if ($done) {
+            self::private_dir(); // Ordner (und im Rückfall die Prüfdatei) immer anlegen
+            update_option('tix_support_files_version', self::FILES_VERSION, false);
+            update_option('tix_support_files_base', $base, false);
+        }
         delete_transient('tix_support_files_lock');
+    }
+
+    /** Geschützte Dateien von $old (Standard uploads/tix-private) zum aktuellen Ort außerhalb verschieben (gleiche Namen). @return bool fertig */
+    public static function move_private_batch($limit = 200, $old = '') {
+        if (!self::private_outside()) return true;
+        $old = $old !== '' ? untrailingslashit($old) : self::uploads_private();
+        if ($old === self::private_base() || !is_dir($old)) return true;
+        $moved = 0;
+        foreach ((array) glob($old . '/support/*', GLOB_ONLYDIR) as $dir) {
+            $ticket_id = intval(basename($dir));
+            if (!$ticket_id) continue;
+            foreach ((array) glob($dir . '/*') as $src) {
+                if (!is_file($src)) continue;
+                $dst = self::private_dir($ticket_id) . '/' . basename($src);
+                if (!file_exists($dst) && !@rename($src, $dst)) {
+                    if (!@copy($src, $dst)) continue;
+                    @unlink($src);
+                } elseif (file_exists($dst)) {
+                    @unlink($src);
+                }
+                if (++$moved >= $limit) return false;
+            }
+            @rmdir($dir);
+        }
+        // lose Dateien direkt im Support-Ordner (ohne Ticket) mitnehmen
+        foreach ((array) glob($old . '/support/*') as $src) {
+            if (is_file($src) && !@rename($src, self::private_dir() . '/' . basename($src)) && @copy($src, self::private_dir() . '/' . basename($src))) @unlink($src);
+        }
+        foreach ((array) glob($old . '/mail-tmp/*') as $f) @unlink($f);
+        @unlink($old . '/mail-tmp/.htaccess'); @rmdir($old . '/mail-tmp');
+        @rmdir($old . '/support');
+        // Altordner ganz entfernen (Sperrdatei, index.php, Prüfdatei)
+        foreach (['.htaccess', 'index.php', 'probe.txt'] as $f) @unlink($old . '/' . $f);
+        @rmdir($old);
+        return true;
     }
 
     /** @return bool true, wenn nichts mehr zu tun ist */
@@ -2534,8 +2657,7 @@ class TIX_Support {
                 // Datei als wp_mail-Anhang beilegen (Kopie mit lesbarem Namen im gesperrten Temp-Ordner)
                 $abs = self::attachment_path($ticket_id, $key);
                 if ($abs !== '') {
-                    $tmp_dir = trailingslashit($upload_dir['basedir']) . 'tix-support-mail-tmp';
-                    if (!file_exists($tmp_dir)) { @wp_mkdir_p($tmp_dir); @file_put_contents($tmp_dir . '/.htaccess', "deny from all\n"); }
+                    $tmp_dir = self::mail_tmp_dir();
                     $copy = $tmp_dir . '/' . wp_generate_password(8, false, false) . '-' . (sanitize_file_name($name_f) ?: 'anhang');
                     if (@copy($abs, $copy)) { $extra_attach_files[] = $copy; $temp_files_extra[] = $copy; }
                 }
@@ -2551,12 +2673,7 @@ class TIX_Support {
         if ($attach_order_id > 0 && class_exists('TIX_Tickets')) {
             $tickets = TIX_Tickets::get_all_tickets_for_order($attach_order_id);
             if (!empty($tickets)) {
-                $upload_dir = wp_upload_dir();
-                $tmp_dir = trailingslashit($upload_dir['basedir']) . 'tix-support-mail-tmp';
-                if (!file_exists($tmp_dir)) {
-                    @wp_mkdir_p($tmp_dir);
-                    @file_put_contents($tmp_dir . '/.htaccess', "deny from all\n");
-                }
+                $tmp_dir = self::mail_tmp_dir();
 
                 $ticket_items = [];
                 foreach ($tickets as $t) {
