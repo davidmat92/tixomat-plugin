@@ -166,22 +166,8 @@ class TIX_Waitlist {
         );
 
         foreach ($events as $event_id) {
-            // Check if any ticket category has stock
-            $cats = get_post_meta($event_id, '_tix_ticket_categories', true);
-            if (!is_array($cats)) continue;
-
-            $has_stock = false;
-            foreach ($cats as $cat) {
-                $pid = intval($cat['product_id'] ?? 0);
-                if (!$pid) continue;
-                $product = wc_get_product($pid);
-                if ($product && $product->is_in_stock()) {
-                    $has_stock = true;
-                    break;
-                }
-            }
-
-            if (!$has_stock) continue;
+            // Wieder Tickets da? (native Kasse; WooCommerce-Produkte nur, wenn WooCommerce aktiv ist)
+            if (!self::has_stock(intval($event_id))) continue;
 
             $entries = $wpdb->get_results($wpdb->prepare(
                 "SELECT email FROM $table WHERE event_id = %d AND type = 'soldout' AND notified = 0",
@@ -223,6 +209,36 @@ class TIX_Waitlist {
                 ['%d', '%s', '%d']
             );
         }
+    }
+
+    /**
+     * Gibt es für das Event wieder Tickets im Verkauf? Event veröffentlicht, Verkauf an, nicht
+     * abgesagt/verschoben/vorbei; mindestens eine öffentliche Kategorie mit Bestand > 0 oder
+     * unbegrenzt (native Kasse: `stock` in `_tix_ticket_categories`, -1/fehlt = unbegrenzt).
+     */
+    public static function has_stock($event_id) {
+        $event_id = intval($event_id);
+        if (!$event_id || get_post_status($event_id) !== 'publish') return false;
+        if (get_post_meta($event_id, '_tix_tickets_enabled', true) !== '1') return false;
+        if (in_array((string) get_post_meta($event_id, '_tix_status', true), ['cancelled', 'postponed', 'past'], true)) return false;
+        wp_cache_delete($event_id, 'post_meta');
+        $cats = get_post_meta($event_id, '_tix_ticket_categories', true);
+        if (!is_array($cats)) return false;
+        $wc = function_exists('wc_get_product');
+        foreach ($cats as $cat) {
+            if (!is_array($cat)) continue;
+            // nur Kategorien, die Gäste online kaufen können
+            if (!empty($cat['admin_only']) || !empty($cat['offline_ticket']) || (isset($cat['online']) && (string) $cat['online'] === '0')) continue;
+            if (!empty($cat['hidden']) && empty($cat['gift_card'])) continue;
+            $pid = intval($cat['product_id'] ?? 0);
+            if ($wc && $pid && ($product = wc_get_product($pid))) {
+                if ($product->is_in_stock()) return true;
+                continue;
+            }
+            $stock = isset($cat['stock']) && $cat['stock'] !== '' ? intval($cat['stock']) : -1;
+            if ($stock < 0 || $stock > 0) return true;
+        }
+        return false;
     }
 
     /**

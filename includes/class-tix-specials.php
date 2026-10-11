@@ -358,6 +358,10 @@ class TIX_Specials {
     public static function ajax_add_special() {
         check_ajax_referer('tix_add_special', 'nonce');
 
+        // Specials im Checkout gibt es nur mit WooCommerce-Warenkorb
+        if (!function_exists('WC') || !WC()->cart) {
+            wp_send_json_error(['message' => 'Specials sind in dieser Kasse nicht verfügbar.']);
+        }
         $special_id = intval($_POST['special_id'] ?? 0);
         $event_id   = intval($_POST['event_id'] ?? 0);
         $quantity   = max(1, intval($_POST['quantity'] ?? 1));

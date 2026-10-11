@@ -624,7 +624,7 @@ class TIX_Group_Booking {
             } else {
                 $pid     = intval($item['product_id'] ?? 0);
                 $qty     = intval($item['quantity'] ?? 0);
-                $product = wc_get_product($pid);
+                $product = function_exists('wc_get_product') ? wc_get_product($pid) : null;
                 if ($product) {
                     $price = floatval($product->get_price());
                     if (!empty($item['bundle'])) {

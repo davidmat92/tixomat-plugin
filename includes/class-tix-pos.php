@@ -12,6 +12,24 @@ if (!defined('ABSPATH')) exit;
 class TIX_POS {
 
     public static function init() {
+        // User profile: POS PIN field (auch ohne WooCommerce)
+        add_action('show_user_profile', [__CLASS__, 'render_pin_field']);
+        add_action('edit_user_profile', [__CLASS__, 'render_pin_field']);
+        add_action('personal_options_update', [__CLASS__, 'save_pin_field']);
+        add_action('edit_user_profile_update', [__CLASS__, 'save_pin_field']);
+
+        // Die Web-Kasse arbeitet mit WooCommerce-Produkten. Ohne WooCommerce: Hinweis statt fatalem Fehler
+        // (am Eingang die Kasse der App nutzen – POST /pos/orders, native Kasse).
+        if (!function_exists('wc_get_product')) {
+            add_shortcode('tix_pos', function () {
+                return '<div style="max-width:520px;margin:40px auto;padding:20px;border-radius:12px;background:#f8fafc;border:1px solid #e2e8f0;font-family:system-ui,sans-serif;">'
+                    . '<strong>Web-Kasse nicht verfügbar</strong><p style="margin:8px 0 0;color:#475569;">Diese Kasse braucht WooCommerce. Bitte die Kasse in der App verwenden.</p></div>';
+            });
+            foreach (['auth', 'events', 'event_tickets', 'create_order', 'send_email', 'void_order', 'daily_report', 'transactions', 'sumup_checkout', 'sumup_status'] as $a) {
+                add_action('wp_ajax_tix_pos_' . $a, function () { wp_send_json_error(['message' => 'Die Web-Kasse braucht WooCommerce. Bitte die Kasse in der App verwenden.']); });
+            }
+            return;
+        }
         add_shortcode('tix_pos', [__CLASS__, 'render_shortcode']);
 
         // AJAX endpoints (logged in only – POS is admin-level)
@@ -31,11 +49,6 @@ class TIX_POS {
             add_action('wp_ajax_' . $a, [__CLASS__, 'handle_' . str_replace('tix_pos_', '', $a)]);
         }
 
-        // User profile: POS PIN field
-        add_action('show_user_profile', [__CLASS__, 'render_pin_field']);
-        add_action('edit_user_profile', [__CLASS__, 'render_pin_field']);
-        add_action('personal_options_update', [__CLASS__, 'save_pin_field']);
-        add_action('edit_user_profile_update', [__CLASS__, 'save_pin_field']);
     }
 
     // ──────────────────────────────────────────

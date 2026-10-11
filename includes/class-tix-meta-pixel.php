@@ -445,7 +445,8 @@ class TIX_Meta_Pixel {
     public static function ajax_store_event_id() {
         $order_id = intval($_POST['order_id'] ?? 0);
         $event_id = sanitize_text_field($_POST['event_id'] ?? '');
-        if ($order_id && $event_id) {
+        // nur WooCommerce-Bestellungen (native Kasse: eigene Zuordnung) – ohne WooCommerce kein Fehler
+        if ($order_id && $event_id && function_exists('wc_get_order')) {
             $order = wc_get_order($order_id);
             if ($order) {
                 $order->update_meta_data('_tix_meta_event_id', $event_id);
