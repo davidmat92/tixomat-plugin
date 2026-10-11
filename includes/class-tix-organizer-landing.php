@@ -893,9 +893,11 @@ body.tix-org-subdomain .tix-org-brand-footer { display: block !important; }
         $s = function_exists('tix_get_settings') ? tix_get_settings() : [];
         if (!empty($s['landing_pages_enabled'])) return true;
 
-        // Default-Whitelist: nur evendis.de
-        $host = parse_url(home_url(), PHP_URL_HOST);
-        return ($host === 'evendis.de' || $host === 'www.evendis.de');
+        // Default-Whitelist: nur evendis.de (auch als Kunden-Adresse, wenn WordPress unter
+        // einer Verwaltungs-Adresse wie veranstalter.evendis.de läuft)
+        $hosts = [parse_url(home_url(), PHP_URL_HOST)];
+        if (class_exists('TIX_Customer_URL') && TIX_Customer_URL::host() !== '') $hosts[] = TIX_Customer_URL::host();
+        return (bool) array_intersect(array_map('strtolower', array_filter($hosts)), ['evendis.de', 'www.evendis.de']);
     }
 
     // ══════════════════════════════════════════════════════════════════

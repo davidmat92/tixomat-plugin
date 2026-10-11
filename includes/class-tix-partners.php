@@ -132,6 +132,10 @@ class TIX_Partners {
 
     /** Hostname dieser Seite – Kennung der Plattform gegenüber der Quelle. */
     public static function platform_id() {
+        // Öffentliche Adresse der Plattform: Die Quellen kennen sie aus ihrer syndication_api_url
+        // (z. B. evendis.de). Zieht WordPress auf eine Verwaltungs-Adresse um
+        // (veranstalter.evendis.de), bleibt die Kennung über die Kunden-Adresse gleich.
+        if (class_exists('TIX_Customer_URL') && TIX_Customer_URL::host() !== '') return TIX_Customer_URL::host();
         return strtolower((string) wp_parse_url(home_url(), PHP_URL_HOST));
     }
 
