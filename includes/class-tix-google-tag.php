@@ -51,9 +51,12 @@ class TIX_Google_Tag {
             || ($g['gtm_enabled'] && $g['gtm_id']);
         if (!$any_active) return;
 
-        // Bei Consent-required: nur laden wenn Cookie vorhanden ist
-        if ($g['consent_mode'] === 'consent_required' && empty($_COOKIE[$g['consent_cookie']])) {
-            return;
+        // Bei Consent-required: nur mit Einwilligung (TIX_Consent: Banner, Cookiebot, CookieConsent,
+        // Borlabs oder eingestelltes Cookie). Werbung (Ads/GTM) = Marketing, nur GA4 = Statistik.
+        if ($g['consent_mode'] === 'consent_required') {
+            $needs = (($g['ads_enabled'] && $g['ads_id']) || ($g['gtm_enabled'] && $g['gtm_id'])) ? 'marketing' : 'statistics';
+            $ok = class_exists('TIX_Consent') ? TIX_Consent::has($needs) : !empty($_COOKIE[$g['consent_cookie']]);
+            if (!$ok) return;
         }
 
         // GTM eigenständig (lädt selbst gtag.js falls dort GA4/Ads konfiguriert)

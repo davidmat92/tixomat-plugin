@@ -62,7 +62,8 @@ class TIX_Meta_Pixel {
                     document.dispatchEvent(new Event('tix:metaPixelReady'));
                 }
                 if(hasCookie(window.tixMetaConsentCookie)){loadPixel()}
-                document.addEventListener('tix:consentGranted',loadPixel);
+                // Nur bei Einwilligung „Marketing“ (Ereignis ohne Kategorien = alles, ältere Banner)
+                document.addEventListener('tix:consentGranted',function(e){var c=e&&e.detail&&e.detail.categories;if(!c||c.indexOf('marketing')!==-1)loadPixel()});
                 // Check common consent plugins
                 if(window.Cookiebot){window.addEventListener('CookiebotOnAccept',function(){if(Cookiebot.consent.marketing)loadPixel()})}
                 if(window.borlabsCookieConfig){document.addEventListener('borlabs-cookie-consent-saved',function(){loadPixel()})}

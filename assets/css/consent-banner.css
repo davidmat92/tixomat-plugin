@@ -1,0 +1,20 @@
+/* Tixomat – Einwilligungs-Banner (selbst gehostet). Akzentfarbe = Primärfarbe der Seite. */
+.tix-cc{--tix-cc-accent:#111827;position:fixed;left:0;right:0;bottom:0;z-index:2147483000;padding:12px;font-family:inherit;}
+.tix-cc[hidden]{display:none}
+.tix-cc__box{max-width:760px;margin:0 auto;background:#fff;color:#1f2430;border-radius:16px;box-shadow:0 12px 40px rgba(16,24,40,.18);padding:18px 20px;font-size:14px;line-height:1.5}
+.tix-cc__title{margin:0 0 6px;font-weight:700;font-size:16px;color:#111}
+.tix-cc__text{margin:0 0 12px;color:#4b5060}
+.tix-cc__text a{color:var(--tix-cc-accent);text-decoration:underline}
+.tix-cc__prefs{display:grid;gap:8px;margin:0 0 12px}
+.tix-cc__prefs[hidden]{display:none}
+.tix-cc__row{display:flex;gap:10px;align-items:flex-start;cursor:pointer}
+.tix-cc__row input{margin-top:3px;width:18px;height:18px;accent-color:var(--tix-cc-accent);flex:0 0 auto}
+.tix-cc__btns{display:flex;flex-wrap:wrap;gap:8px}
+/* „Nur notwendige“ und „Alle akzeptieren“ gleich groß und gleich gewichtet */
+.tix-cc__btn{flex:1 1 160px;min-height:44px;border-radius:10px;border:2px solid var(--tix-cc-accent);background:var(--tix-cc-accent);color:#fff;font:inherit;font-weight:700;cursor:pointer;padding:8px 14px}
+.tix-cc__btn--link{flex:0 1 auto;background:transparent;border-color:transparent;color:var(--tix-cc-accent);text-decoration:underline;font-weight:600}
+.tix-cc__btn[hidden]{display:none}
+.tix-cc__btn:focus-visible{outline:3px solid rgba(0,0,0,.35);outline-offset:2px}
+.tix-cc-footer{text-align:center;margin:8px 0 16px;font-size:12px}
+.tix-cc-footer a,.tix-cc-open{color:inherit;opacity:.75;text-decoration:underline;cursor:pointer}
+@media (max-width:520px){.tix-cc{padding:8px}.tix-cc__box{padding:14px}.tix-cc__btn{flex-basis:100%}}

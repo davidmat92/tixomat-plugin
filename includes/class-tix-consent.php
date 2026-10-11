@@ -30,7 +30,35 @@ class TIX_Consent {
     ];
 
     public static function init() {
-        add_action('wp_enqueue_scripts', [__CLASS__, 'register_script'], 2);
+        add_action('wp_enqueue_scripts', [__CLASS__, 'register_script'], 0);
+        // Tracking-Cookies ohne (bzw. nach entzogener) Einwilligung löschen – auch httpOnly-Cookies
+        add_action('init', [__CLASS__, 'cleanup_cookies'], 2);
+    }
+
+    /** Kategorie-Bezeichnungen inkl. eigener Banner-Schlüssel (Filter tix_consent_aliases). */
+    public static function aliases() {
+        $a = (array) apply_filters('tix_consent_aliases', self::ALIASES);
+        foreach ($a as $k => $v) $a[$k] = array_values(array_unique(array_map('strtolower', array_map('strval', (array) $v))));
+        return $a;
+    }
+
+    /** Cookies je Kategorie, die Tixomat ohne Einwilligung nicht stehen lässt. */
+    const TRACKING_COOKIES = [
+        'statistics' => ['tix_campaign', 'tix_session', 'tix_visitor_fallback', 'tix_ol_src', 'tix_visitor'],
+        'marketing'  => ['tix_promoter_ref'],
+    ];
+
+    public static function cleanup_cookies() {
+        if (headers_sent() || is_admin() || wp_doing_ajax() || (defined('REST_REQUEST') && REST_REQUEST) || wp_doing_cron()) return;
+        foreach (self::TRACKING_COOKIES as $cat => $names) {
+            $present = array_filter($names, function ($n) { return isset($_COOKIE[$n]); });
+            if (!$present || self::has($cat)) continue;
+            foreach ($present as $n) {
+                setcookie($n, '', time() - YEAR_IN_SECONDS, COOKIEPATH ?: '/', COOKIE_DOMAIN);
+                if ((COOKIEPATH ?: '/') !== '/') setcookie($n, '', time() - YEAR_IN_SECONDS, '/', COOKIE_DOMAIN);
+                unset($_COOKIE[$n]);
+            }
+        }
     }
 
     /** Namen frei eingestellter Consent-Cookies (vorhanden = volle Einwilligung). */
@@ -51,7 +79,7 @@ class TIX_Consent {
     }
 
     private static function detect($category) {
-        $aliases = self::ALIASES[$category];
+        $aliases = self::aliases()[$category] ?? [$category];
         // Cookiebot: "{stamp:'…',necessary:true,preferences:true,statistics:true,marketing:false,…}"
         if (!empty($_COOKIE['CookieConsent'])) {
             $v = urldecode((string) $_COOKIE['CookieConsent']);
@@ -81,7 +109,7 @@ class TIX_Consent {
     public static function register_script() {
         wp_register_script('tix-consent', TIXOMAT_URL . 'assets/js/consent.js', [], TIXOMAT_VERSION, true);
         wp_localize_script('tix-consent', 'tixConsentCfg', [
-            'aliases' => self::ALIASES,
+            'aliases' => self::aliases(),
             'cookies' => self::generic_cookies(),
         ]);
     }
