@@ -1,6 +1,7 @@
 /**
  * Tixomat Campaign Tracking Pixel
  * Lightweight (~2.5KB): URL-Param + Referrer-Detection + Cookie-Attribution + Pageview-AJAX.
+ * Läuft erst nach Einwilligung „Statistik“ (window.tixConsent, assets/js/consent.js).
  *
  * Quellen-Priorität (First-Touch):
  *  1. tix_src / utm_source URL-Parameter (manuell gesetzt)
@@ -13,6 +14,12 @@
 
     var cfg = window.tixCampaign;
     if (!cfg) return;
+
+    // Erst nach Einwilligung „Statistik“: vorher weder Cookies noch lokaler Speicher (TIX_Consent)
+    if (!window.tixConsent) return;
+    window.tixConsent.onGrant('statistics', start);
+
+    function start() {
 
     var params = new URLSearchParams(window.location.search);
 
@@ -232,5 +239,6 @@
         d.setTime(d.getTime() + ms);
         document.cookie = name + '=' + encodeURIComponent(value) +
             ';path=/;expires=' + d.toUTCString() + ';SameSite=Lax';
+    }
     }
 })();

@@ -169,7 +169,7 @@ class TIX_Campaign_Tracking {
         wp_enqueue_script(
             'tix-campaign-pixel',
             TIXOMAT_URL . 'assets/js/campaign-pixel.js',
-            [],
+            ['tix-consent'],
             TIXOMAT_VERSION,
             true
         );

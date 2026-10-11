@@ -82,10 +82,10 @@ class TIX_Promoter {
             }
         }
 
-        // 2) Sonst: Referral-Cookie auflösen
-        if (!$promoter_id && !empty($_COOKIE[self::COOKIE_NAME])) {
-            $code = sanitize_text_field($_COOKIE[self::COOKIE_NAME]);
-            $promoter = TIX_Promoter_DB::get_promoter_by_code($code);
+        // 2) Sonst: Referral-Cookie (mit Einwilligung) bzw. Zuordnung aus diesem Besuch
+        $ref_code = !empty($_COOKIE[self::COOKIE_NAME]) ? sanitize_text_field($_COOKIE[self::COOKIE_NAME]) : self::session_ref();
+        if (!$promoter_id && $ref_code !== '') {
+            $promoter = TIX_Promoter_DB::get_promoter_by_code($ref_code);
             if ($promoter) {
                 $promoter_id = intval($promoter->id);
                 $attribution = 'referral';
@@ -99,11 +99,36 @@ class TIX_Promoter {
         update_post_meta($order_id, '_tix_promoter_id',          $promoter_id);
         update_post_meta($order_id, '_tix_promoter_attribution', $attribution);
 
+        // Zuordnung dieses Besuchs verbrauchen (nächste Bestellung neu zuordnen)
+        $k = self::session_key();
+        if ($k !== '') delete_transient('tix_pref_' . md5($k));
+
         // Cookie löschen damit es nicht für die nächste Order erneut greift
         if (!empty($_COOKIE[self::COOKIE_NAME])) {
             setcookie(self::COOKIE_NAME, '', time() - 3600, COOKIEPATH, COOKIE_DOMAIN);
             unset($_COOKIE[self::COOKIE_NAME]);
         }
+    }
+
+    // ──────────────────────────────────────────
+    // Zuordnung im selben Besuch (ohne Einwilligung)
+    // ──────────────────────────────────────────
+
+    /** Schlüssel der laufenden Shop-Sitzung (Konto bzw. Warenkorb-Sitzung), '' ohne Sitzung. */
+    private static function session_key() {
+        if (is_user_logged_in()) return 'u' . get_current_user_id();
+        $sid = isset($_COOKIE['tix_cart_session']) ? preg_replace('/[^A-Za-z0-9]/', '', (string) $_COOKIE['tix_cart_session']) : '';
+        return $sid !== '' ? 's' . $sid : '';
+    }
+
+    private static function remember_session_ref($code) {
+        $k = self::session_key();
+        if ($k !== '') set_transient('tix_pref_' . md5($k), (string) $code, 2 * HOUR_IN_SECONDS);
+    }
+
+    public static function session_ref() {
+        $k = self::session_key();
+        return $k !== '' ? (string) get_transient('tix_pref_' . md5($k)) : '';
     }
 
     // ──────────────────────────────────────────
@@ -129,10 +154,15 @@ class TIX_Promoter {
         $promoter = TIX_Promoter_DB::get_promoter_by_code($code);
         if (!$promoter) return;
 
-        // Cookie setzen (konfigurierbare Laufzeit)
-        $expire = time() + (self::get_cookie_days() * DAY_IN_SECONDS);
-        setcookie(self::COOKIE_NAME, $code, $expire, COOKIEPATH, COOKIE_DOMAIN, is_ssl(), true);
-        $_COOKIE[self::COOKIE_NAME] = $code;
+        if (class_exists('TIX_Consent') && TIX_Consent::has('marketing')) {
+            // Mit Einwilligung „Marketing“: Cookie (konfigurierbare Laufzeit)
+            $expire = time() + (self::get_cookie_days() * DAY_IN_SECONDS);
+            if (!headers_sent()) setcookie(self::COOKIE_NAME, $code, $expire, COOKIEPATH, COOKIE_DOMAIN, is_ssl(), true);
+            $_COOKIE[self::COOKIE_NAME] = $code;
+        }
+        // Immer: Zuordnung für diesen Besuch serverseitig an der (technisch notwendigen)
+        // Warenkorb-Sitzung – kein zusätzliches Cookie, gilt bis zum Ende der Sitzung
+        self::remember_session_ref($code);
 
         // WC Session als Fallback
         if (function_exists('WC') && WC()->session) {
@@ -151,13 +181,10 @@ class TIX_Promoter {
         $promoter_id = intval($promoter->id);
         if (!$promoter_id) return;
 
-        // Visitor-ID aus Cookie/Session ableiten — wenn nichts da, eine neue erzeugen
-        $vid_cookie = 'tix_visitor';
-        $visitor_id = isset($_COOKIE[$vid_cookie]) ? sanitize_text_field($_COOKIE[$vid_cookie]) : '';
-        if (!$visitor_id) {
-            $visitor_id = bin2hex(random_bytes(8));
-            setcookie($vid_cookie, $visitor_id, time() + YEAR_IN_SECONDS, COOKIEPATH, COOKIE_DOMAIN, is_ssl(), true);
-        }
+        // Besucher-Kennung ohne Cookie: Hash aus IP + Browser + Tagessalz (nur zum Entdoppeln,
+        // nicht rückrechenbar, wechselt täglich) – früher Cookie tix_visitor (1 Jahr)
+        $ip = class_exists('TIX_Client_IP') ? TIX_Client_IP::get() : ($_SERVER['REMOTE_ADDR'] ?? '');
+        $visitor_id = substr(hash_hmac('sha256', $ip . '|' . ($_SERVER['HTTP_USER_AGENT'] ?? ''), wp_salt('nonce') . gmdate('Y-m-d')), 0, 16);
 
         // Dedup: Transient-Lock für 30 Min — derselbe Visitor zählt pro Promoter nur 1× /30min
         $lock_key = 'tix_pclick_' . md5($visitor_id . '_' . $promoter_id);

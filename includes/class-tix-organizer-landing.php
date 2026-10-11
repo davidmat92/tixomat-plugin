@@ -2061,6 +2061,8 @@ a{display:inline-block;padding:12px 28px;background:#E8445A;color:#fff;border-ra
 
     private static function set_attribution_cookie($slug) {
         if (!$slug || headers_sent()) return;
+        // Nur mit Einwilligung „Statistik“ (TIX_Consent)
+        if (class_exists('TIX_Consent') && !TIX_Consent::has('statistics')) return;
         $cookie = 'tix_ol_src';
         // 7 Tage gültig, SameSite=Lax
         setcookie($cookie, $slug, [
