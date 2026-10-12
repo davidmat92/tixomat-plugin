@@ -103,6 +103,7 @@ class TIX_Settlement_Organizer {
                     <?php endforeach; ?>
                     </div>
                     <?php if ($fee['gateway_note']) : ?><p style="color:#6b7280;font-size:12px;"><?php echo esc_html($fee['gateway_note']); ?></p><?php endif; ?>
+                    <?php if (empty($fee['own_choice']) && $fee['mode'] === 'customer') : ?><p class="tix-fee-default-hint" style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;padding:8px 12px;">Voreinstellung: Gäste zahlen die Gebühr. Du kannst es jederzeit ändern.</p><?php endif; ?>
                     <p><button class="button button-primary">Speichern</button></p>
                 </form>
             </div>

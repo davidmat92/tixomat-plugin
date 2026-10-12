@@ -129,4 +129,48 @@ class TIX_Price_Watch {
                 : sprintf('Die Plattform ist für dich günstiger. Ein eigener Shop lohnt sich ab etwa %d Tickets im Monat.', $per_ticket > 0 ? (int) ceil($ps['shop_monthly'] / $per_ticket) : 0),
         ];
     }
+
+    /** Darf der aktuelle Nutzer die Finanz-Karte sehen? (Inhaber bzw. Team mit Abrechnungs-Recht) */
+    public static function can_view() {
+        if (!class_exists('TIX_App_Scope') || !TIX_App_Scope::multi() || !TIX_App_Scope::organizer_id_for_user()) return false;
+        return !class_exists('TIX_Team') || TIX_Team::user_can(get_current_user_id(), 'manage_billing');
+    }
+
+    /** Karte fürs Veranstalter-Dashboard (wp-admin) – nur bei eingeschaltetem Preis-Wächter, wie in der App. */
+    public static function render_card() {
+        if (!self::settings()['enabled'] || !self::can_view()) return '';
+        $d = self::payload(intval(TIX_App_Scope::organizer_id_for_user()), 12);
+        if (empty($d['enabled'])) return '';
+        $eur = function ($v) { return number_format(floatval($v), 2, ',', '.') . ' €'; };
+        $max = 0.0;
+        foreach ($d['months'] as $m) $max = max($max, abs($m['savings']));
+        $rows = '';
+        foreach (array_reverse($d['months']) as $m) {
+            if ($m['paid_tickets'] === 0 && $m['fee'] == 0) continue;
+            $w = $max > 0 ? max(2, round(abs($m['savings']) / $max * 100)) : 2;
+            $plus = $m['savings'] > 0;
+            $rows .= '<tr><td style="padding:3px 8px 3px 0;white-space:nowrap;">' . esc_html(date_i18n('M Y', strtotime($m['month'] . '-01'))) . '</td>'
+                . '<td style="padding:3px 8px;color:#6b7280;white-space:nowrap;">' . intval($m['paid_tickets']) . ' Tickets · Gebühr ' . esc_html($eur($m['fee'])) . '</td>'
+                . '<td style="padding:3px 0;width:40%;"><div style="height:8px;border-radius:4px;width:' . $w . '%;background:' . ($plus ? '#16a34a' : '#d1d5db') . ';"></div></td>'
+                . '<td style="padding:3px 0 3px 8px;text-align:right;white-space:nowrap;font-weight:600;color:' . ($plus ? '#16a34a' : '#6b7280') . ';">' . ($plus ? '+' : '') . esc_html($eur($m['savings'])) . '</td></tr>';
+        }
+        $link = 'https://veranstalter.evendis.de/eigener-shop/';
+        ob_start(); ?>
+        <div class="tix-db-pricewatch" id="tix-db-pricewatch" style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:18px 20px;margin:0 0 18px;">
+            <div class="tix-db-card-header" style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+                <h3 style="margin:0;">Preis-Wächter</h3>
+                <a href="<?php echo esc_url($link); ?>" target="_blank" rel="noopener" class="tix-db-link">Mehr zum eigenen Shop &rarr;</a>
+            </div>
+            <p style="font-size:15px;margin:10px 0 4px;"><strong><?php echo esc_html($d['message']); ?></strong></p>
+            <p style="color:#6b7280;margin:0 0 10px;">Letzte <?php echo intval($d['total']['months']); ?> Monate: <?php echo intval($d['total']['paid_tickets']); ?> Tickets, Gebühr <?php echo esc_html($eur($d['total']['fee'])); ?>, eigener Shop <?php echo esc_html($eur($d['total']['shop'])); ?><?php
+                echo $d['break_even_tickets_month'] ? ' · lohnt sich ab etwa ' . intval($d['break_even_tickets_month']) . ' Tickets im Monat' : ''; ?>.</p>
+            <?php if ($rows !== '') : ?>
+            <details><summary style="cursor:pointer;color:#374151;">Monate anzeigen</summary>
+                <table style="margin-top:8px;width:100%;border-collapse:collapse;font-size:13px;"><?php echo $rows; ?></table>
+            </details>
+            <?php endif; ?>
+        </div>
+        <?php
+        return (string) ob_get_clean();
+    }
 }

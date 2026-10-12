@@ -60,6 +60,9 @@ class TIX_Dashboard {
                 <div class="tix-db-kpi tix-db-skeleton"><div class="tix-db-kpi-val">&nbsp;</div><div class="tix-db-kpi-label">&nbsp;</div></div>
             </div>
 
+            <?php // Preis-Wächter (evendis, nur eingeschaltet + Finanz-Rechte) ?>
+            <?php if ($org_view && class_exists('TIX_Price_Watch')) echo TIX_Price_Watch::render_card(); ?>
+
             <!-- Middle Row -->
             <div class="tix-db-mid">
                 <div class="tix-db-chart-wrap tix-db-skeleton" id="tix-db-chart-wrap">
