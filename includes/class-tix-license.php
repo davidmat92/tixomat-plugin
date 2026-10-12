@@ -102,6 +102,12 @@ class TIX_License {
             'last_ok'     => !empty($data['valid']) ? time() : intval($prev['last_ok'] ?? 0),
             'unreachable' => false,
         ];
+        // Module der Lizenz (null = alle); unbekannter Schlüssel ändert die zuletzt bekannte Freischaltung nicht
+        if (array_key_exists('modules', $data) && ($data['status'] ?? '') !== 'invalid') {
+            $status['modules'] = is_array($data['modules']) ? array_values(array_map('sanitize_key', $data['modules'])) : null;
+        } elseif (array_key_exists('modules', $prev)) {
+            $status['modules'] = $prev['modules'];
+        }
         update_option(self::OPT_STATUS, $status, false);
         return $status;
     }

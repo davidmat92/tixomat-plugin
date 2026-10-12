@@ -376,6 +376,7 @@ class TIX_Giftcards {
      * Kategorie muss gift_card + gift_free_amount Flags tragen (Server prueft beim Add).
      */
     public static function shortcode_amount($atts) {
+        if (class_exists('TIX_Modules') && !TIX_Modules::allowed('giftcards')) return '';
         $atts = shortcode_atts(['id' => 0, 'cat' => -1, 'min' => self::MIN_FREE, 'max' => self::MAX_FREE], $atts, 'tix_giftcard_amount');
         $event_id  = intval($atts['id']);
         $cat_index = intval($atts['cat']);
@@ -441,6 +442,7 @@ class TIX_Giftcards {
     /* ─────────── Eigenstaendiger Gutschein-Shop: [tix_giftcards] ─────────── */
 
     public static function shortcode_shop($atts) {
+        if (class_exists('TIX_Modules') && !TIX_Modules::allowed('giftcards')) return '';
         $settings = self::get_settings();
         if (empty($settings['enabled'])) {
             return current_user_can('manage_options')

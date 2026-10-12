@@ -80,6 +80,7 @@ class TIX_Music {
     }
 
     public static function enabled() {
+        if (class_exists('TIX_Modules') && !TIX_Modules::allowed('music')) return false; // Plattform-Freischaltung
         return !empty(self::settings()['enabled']);
     }
 

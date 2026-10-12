@@ -73,6 +73,7 @@ class TIX_Loyalty {
 
     // ── Einstellungen ─────────────────────────────────────────────
     public static function enabled() {
+        if (class_exists('TIX_Modules') && !TIX_Modules::allowed('loyalty')) return false; // Plattform-Freischaltung
         if (self::$org) {
             $c = self::org_config();
             if (array_key_exists('enabled', $c)) return !empty($c['enabled']);

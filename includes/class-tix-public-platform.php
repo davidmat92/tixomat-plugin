@@ -111,7 +111,7 @@ class TIX_Public_Platform {
                 if (array_key_exists($k, $raw)) $out[$k] = (bool) $raw[$k];
             }
         }
-        return $out;
+        return class_exists('TIX_Modules') ? TIX_Modules::mask($out) : $out;
     }
 
     /** Sparte des Events (erster Begriff der Taxonomie `event_category`). */

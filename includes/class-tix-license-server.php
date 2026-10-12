@@ -10,13 +10,14 @@ if (!defined('ABSPATH')) exit;
  *   POST /license/check   {key, site, version, wp, php} → Status + neueste Version + signierter Download-Link
  *   GET  /license/package ?l&h&v&e&sig                → ZIP der hier laufenden Plugin-Version
  *   GET  /license/releases                            → [{version, released_at}] (für die Mindest-Version der Apps)
+ * Module je Lizenz (`modules`, JSON-Liste; NULL = alle) → Antwort `modules`, beim Kunden TIX_Modules.
  * Das Update-Paket ist die hier installierte Version (Whitelist: tixomat.php, includes/, assets/, templates/)
  * plus `self-hosted.flag` – daran erkennt das Plugin den Selbstbetrieb (TIX_License).
  */
 class TIX_License_Server {
 
     const NS          = 'tixomat/v1';
-    const DB_VERSION  = '1';
+    const DB_VERSION  = '2';
     const LINK_TTL    = 43200; // Download-Link 12 h gültig
     const REQUIRES_PHP = '8.1';
     const REQUIRES_WP  = '6.4';
@@ -59,6 +60,7 @@ class TIX_License_Server {
             status varchar(20) NOT NULL DEFAULT 'active',
             valid_until date NULL,
             note text NULL,
+            modules text NULL,
             created_at datetime NOT NULL,
             PRIMARY KEY  (id),
             UNIQUE KEY license_key (license_key)
@@ -150,6 +152,20 @@ class TIX_License_Server {
         return $wpdb->get_results($wpdb->prepare("SELECT * FROM " . self::t('tix_license_sites') . " WHERE license_id = %d ORDER BY dev ASC, first_seen ASC", $license_id));
     }
 
+    /** Module der Lizenz: Liste oder null = alle. */
+    public static function license_modules($lic) {
+        if (!$lic || $lic->modules === null || $lic->modules === '') return null;
+        $m = json_decode((string) $lic->modules, true);
+        return is_array($m) ? array_values(array_intersect(TIX_Modules::keys(), $m)) : null;
+    }
+
+    /** Aus dem Formular: „alle“ → NULL, sonst JSON-Liste. */
+    private static function modules_from_post() {
+        if (($_POST['modules_mode'] ?? 'all') === 'all') return null;
+        $sel = array_map('sanitize_key', (array) ($_POST['modules'] ?? []));
+        return wp_json_encode(array_values(array_intersect(TIX_Modules::keys(), $sel)));
+    }
+
     /** Status einer Lizenz ohne Website: active | expired | suspended | revoked. */
     public static function license_state($lic) {
         if (!$lic) return 'invalid';
@@ -227,6 +243,7 @@ class TIX_License_Server {
                 'requires_wp'  => self::REQUIRES_WP,
             ],
             'package_url' => null,
+            'modules'     => $lic ? self::license_modules($lic) : null,
             'message'     => $msgs[$state] ?? '',
         ];
         if ($state !== 'active') return rest_ensure_response($out);
@@ -417,6 +434,7 @@ class TIX_License_Server {
                     'max_sites'   => max(1, intval($_POST['max_sites'] ?? 1)),
                     'valid_until' => self::date_or_null($_POST['valid_until'] ?? ''),
                     'note'        => sanitize_textarea_field(wp_unslash($_POST['note'] ?? '')),
+                    'modules'     => self::modules_from_post(),
                 ], ['id' => $id]);
                 $msg = 'saved';
             } elseif ($do === 'unbind') {
@@ -461,6 +479,17 @@ class TIX_License_Server {
                     <tr><th>Gültig bis</th><td><input type="date" name="valid_until" value="<?php echo esc_attr((string) $lic->valid_until); ?>"></td></tr>
                     <tr><th>Websites</th><td><input type="number" name="max_sites" min="1" value="<?php echo intval($lic->max_sites); ?>" style="width:80px;"></td></tr>
                     <tr><th>Notiz</th><td><textarea name="note" rows="3" class="large-text"><?php echo esc_textarea((string) $lic->note); ?></textarea></td></tr>
+                    <?php $lm = self::license_modules($lic); ?>
+                    <tr><th>Module</th><td>
+                        <label><input type="radio" name="modules_mode" value="all" <?php checked($lm === null); ?>> Alle Module</label>
+                        <label style="margin-left:14px;"><input type="radio" name="modules_mode" value="select" <?php checked($lm !== null); ?>> Nur diese:</label>
+                        <div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:12px;">
+                        <?php foreach (TIX_Modules::MODULES as $mk => $mv) : ?>
+                            <label><input type="checkbox" name="modules[]" value="<?php echo esc_attr($mk); ?>" <?php checked($lm !== null && in_array($mk, $lm, true)); ?>> <?php echo esc_html($mv[0]); ?></label>
+                        <?php endforeach; ?>
+                        </div>
+                        <p class="description">Grundlage für Modul-Abos. Die Website übernimmt die Auswahl bei der nächsten Lizenzprüfung (täglich bzw. „Neu prüfen“).</p>
+                    </td></tr>
                 </table>
                 <p><button class="button button-primary">Speichern</button></p>
             </form>

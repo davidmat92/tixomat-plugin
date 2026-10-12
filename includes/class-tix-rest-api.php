@@ -649,6 +649,8 @@ class TIX_REST_API {
             'api_version'    => '1.0.0',
             'features'       => $features,
             'compat'         => class_exists('TIX_App_Compat') ? TIX_App_Compat::info_payload($req) : null,
+            'modules'        => class_exists('TIX_Modules') ? TIX_Modules::info_payload() : null,
+            'modules_source' => class_exists('TIX_Modules') ? TIX_Modules::source() : 'all',
         ]);
     }
 
