@@ -838,12 +838,14 @@ class TIX_CPT {
         if (!empty($_POST['tix_fee_mode_only']) && class_exists('TIX_Fees') && TIX_Fees::multi()) {
             // Mehr-Veranstalter-Modus: nur der Modus, Beträge bleiben zentral
             $mode = sanitize_key($_POST['tix_fee_mode'] ?? '');
+            $was  = get_post_meta($post_id, '_tix_fee_override', true) ? (string) get_post_meta($post_id, '_tix_fee_mode', true) : '';
             if (in_array($mode, TIX_Fees::MODES, true)) {
                 update_post_meta($post_id, '_tix_fee_override', 1);
                 update_post_meta($post_id, '_tix_fee_mode', $mode);
             } else {
                 update_post_meta($post_id, '_tix_fee_override', 0);
             }
+            if ($mode !== $was) delete_post_meta($post_id, '_tix_fee_mode_default'); // Vorgabe beim Anlegen geändert
             // Eigene Gebührenhöhe: nur Plattform-Admins (das Formular zeigt die Felder nur ihnen)
             if (!empty($_POST['tix_fee_custom_form']) && current_user_can('manage_options')) {
                 if (!empty($_POST['tix_fee_custom'])) {

@@ -66,6 +66,23 @@ class TIX_Fees {
     }
 
     /**
+     * Mehr-Veranstalter-Modus: neu angelegte Veranstalter bekommen den Vorgabe-Modus
+     * (Einstellung `fee_mode_new_org`, Vorgabe „Gäste zahlen“). Bestehende bleiben unverändert;
+     * ein beim Anlegen ausdrücklich gesetzter Modus (`_tix_fee_override`) hat Vorrang.
+     * `_tix_fee_mode_default=1` markiert „nicht selbst gewählt“ (REST `own_choice: false`).
+     */
+    public static function default_mode_for_new_organizer($post_id, $post, $update) {
+        if ($update || !$post || $post->post_type !== 'tix_organizer' || !self::multi()) return;
+        if (metadata_exists('post', $post_id, '_tix_fee_override')) return;
+        $s = function_exists('tix_get_settings') ? tix_get_settings() : [];
+        $mode = (string) ($s['fee_mode_new_org'] ?? 'customer');
+        if (!in_array($mode, self::MODES, true)) return;
+        update_post_meta($post_id, '_tix_fee_override', 1);
+        update_post_meta($post_id, '_tix_fee_mode', $mode);
+        update_post_meta($post_id, '_tix_fee_mode_default', 1);
+    }
+
+    /**
      * Fügt Plattform-Provision + Gateway-Fee als WC Cart Fee hinzu (nur wenn Kunde zahlt).
      */
     public static function wc_add_platform_fee($cart) {

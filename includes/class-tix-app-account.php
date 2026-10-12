@@ -655,7 +655,9 @@ class TIX_App_Account {
         $out = [];
         foreach ((array) $cats as $c) {
             if (is_array($c) && !empty($c['slug'])) {
-                $out[] = ['slug' => (string) $c['slug'], 'label' => (string) ($c['label'] ?? $c['slug'])];
+                $row = ['slug' => (string) $c['slug'], 'label' => (string) ($c['label'] ?? $c['slug'])];
+                if (!empty($c['audience'])) $row['audience'] = (string) $c['audience'];
+                $out[] = $row;
             }
         }
         return $out;

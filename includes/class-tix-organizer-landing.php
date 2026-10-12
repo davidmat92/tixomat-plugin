@@ -1288,7 +1288,7 @@ body.tix-org-subdomain .tix-org-brand-footer { display: block !important; }
                         ajax:       <?php echo wp_json_encode(admin_url('admin-ajax.php')); ?>,
                         nonce:      <?php echo wp_json_encode(wp_create_nonce('tix_support_action')); ?>,
                         statuses:   <?php echo wp_json_encode(class_exists('TIX_Support') ? TIX_Support::get_statuses() : []); ?>,
-                        categories: <?php echo wp_json_encode(class_exists('TIX_Support') ? TIX_Support::get_categories() : []); ?>,
+                        categories: <?php echo wp_json_encode(class_exists('TIX_Support') ? TIX_Support::get_organizer_contact_categories() : []); ?>,
                         isAdmin:    false,
                         isFrontend: true,
                         userEmail:  <?php echo wp_json_encode(is_user_logged_in() ? wp_get_current_user()->user_email : ''); ?>,

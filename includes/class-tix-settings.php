@@ -392,6 +392,7 @@ class TIX_Settings {
             'gateway_fee_mode'     => 'organizer', // organizer oder customer
             'gateway_fee_included' => 0,       // 1 = Zahlungsgebühr ist in der Plattformgebühr enthalten (Plattform trägt sie)
             'fee_split_customer_share' => 50,  // Modus „geteilt“: Kundenanteil an der Plattformgebühr in %
+            'fee_mode_new_org'     => 'customer', // Mehr-Veranstalter-Modus: Modus für neu angelegte Veranstalter ('' = zentraler Modus)
             // ── Abrechnung & Auszahlung (nur Mehr-Veranstalter-Modus, evendis.de) ──
             'settlement_enabled'       => 1,      // Abrechnungen automatisch erstellen
             'settlement_delay_days'    => 7,      // Auszahlung X Tage nach Event-Ende
@@ -1279,6 +1280,11 @@ class TIX_Settings {
         $clean['gateway_fee_mode']  = in_array($input['gateway_fee_mode'] ?? '', ['organizer', 'customer']) ? $input['gateway_fee_mode'] : 'organizer';
         $clean['gateway_fee_included'] = !empty($input['gateway_fee_included']) ? 1 : 0;
         $clean['fee_split_customer_share'] = max(0, min(100, floatval($input['fee_split_customer_share'] ?? 50)));
+        if (array_key_exists('fee_mode_new_org', $input)) {
+            $clean['fee_mode_new_org'] = in_array($input['fee_mode_new_org'], ['', 'organizer', 'split', 'customer'], true) ? $input['fee_mode_new_org'] : 'customer';
+        } else {
+            $clean['fee_mode_new_org'] = (string) (get_option(self::OPTION_KEY, [])['fee_mode_new_org'] ?? 'customer');
+        }
 
         // Abrechnung & Auszahlung (Mehr-Veranstalter-Modus)
         $clean['settlement_enabled']        = !empty($input['settlement_enabled']) ? 1 : 0;
@@ -6915,6 +6921,21 @@ class TIX_Settings {
                                                 </p>
                                                 <?php endif; ?>
                                             </div>
+
+                                            <?php if (class_exists('TIX_Fees') && TIX_Fees::multi()) : $new_org_mode = (string) ($s['fee_mode_new_org'] ?? 'customer'); ?>
+                                            <div class="tix-field">
+                                                <label>Vorgabe für neue Veranstalter</label>
+                                                <select name="tix_settings[fee_mode_new_org]" style="width:240px;">
+                                                    <option value="customer" <?php selected($new_org_mode, 'customer'); ?>>Gäste zahlen (wird aufgeschlagen)</option>
+                                                    <option value="split" <?php selected($new_org_mode, 'split'); ?>>Geteilt</option>
+                                                    <option value="organizer" <?php selected($new_org_mode, 'organizer'); ?>>Veranstalter</option>
+                                                    <option value="" <?php selected($new_org_mode, ''); ?>>Wie oben (zentraler Modus)</option>
+                                                </select>
+                                                <p class="tix-field-hint" style="color:#9ca3af;font-size:12px;margin:4px 0 0;">
+                                                    Wird beim Anlegen eines Veranstalters gesetzt (Registrierung, Admin, Partner-Kopplung). Bestehende Veranstalter bleiben unverändert; jeder kann den Modus später selbst ändern.
+                                                </p>
+                                            </div>
+                                            <?php endif; ?>
 
                                             <div class="tix-field" id="tix-fee-split-wrap">
                                                 <label>Kundenanteil bei „Geteilt“</label>

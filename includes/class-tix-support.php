@@ -162,6 +162,29 @@ class TIX_Support {
      * Support-Kategorien aus Settings laden (mit Defaults)
      */
     public static function get_categories() {
+        return self::with_platform_categories(self::configured_categories());
+    }
+
+    /**
+     * Mehr-Veranstalter-Modus (evendis): Thema „Beratung für Veranstalter“ (slug `beratung`) immer
+     * anbieten – Ziel von „Beratung anfragen“ auf veranstalter.evendis.de (evendis.de/support/?topic=beratung).
+     * `audience: organizer` = Anfrage an die Plattform, nicht an einen Veranstalter.
+     */
+    private static function with_platform_categories(array $cats) {
+        if (class_exists('TIX_Fees') && TIX_Fees::multi() && !in_array('beratung', array_column($cats, 'slug'), true)) {
+            $cats[] = ['slug' => 'beratung', 'label' => 'Beratung für Veranstalter', 'audience' => 'organizer'];
+        }
+        return apply_filters('tix_support_categories', $cats);
+    }
+
+    /** Kategorien an Veranstalter (ohne Plattform-Themen wie „Beratung“) – Kontaktformular der Landingpage. */
+    public static function get_organizer_contact_categories() {
+        return array_values(array_filter(self::get_categories(), function ($c) {
+            return !is_array($c) || ($c['audience'] ?? '') !== 'organizer';
+        }));
+    }
+
+    private static function configured_categories() {
         $raw = tix_get_settings('support_categories');
 
         // JSON-String versuchen

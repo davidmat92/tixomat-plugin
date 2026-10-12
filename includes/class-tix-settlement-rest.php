@@ -91,7 +91,7 @@ class TIX_Settlement_REST {
         return [
             'mode'         => $mode,
             'default_mode' => $glob['fee_mode'],
-            'own_choice'   => (bool) get_post_meta($oid, '_tix_fee_override', true),
+            'own_choice'   => (bool) get_post_meta($oid, '_tix_fee_override', true) && !get_post_meta($oid, '_tix_fee_mode_default', true),
             'choosable'    => true,
             'modes'        => TIX_Fees::MODES,
             'applies_to'   => 'new_orders',
@@ -136,6 +136,7 @@ class TIX_Settlement_REST {
         update_post_meta(intval($oid), '_tix_fee_override', 1);
         update_post_meta(intval($oid), '_tix_fee_mode', $mode);
         update_post_meta(intval($oid), '_tix_fee_mode_changed', ['mode' => $mode, 'by' => get_current_user_id(), 'at' => current_time('mysql')]);
+        delete_post_meta(intval($oid), '_tix_fee_mode_default');
     }
 
     // ──────────────────────────────────────────
