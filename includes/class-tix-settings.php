@@ -393,6 +393,10 @@ class TIX_Settings {
             'gateway_fee_included' => 0,       // 1 = Zahlungsgebühr ist in der Plattformgebühr enthalten (Plattform trägt sie)
             'fee_split_customer_share' => 50,  // Modus „geteilt“: Kundenanteil an der Plattformgebühr in %
             'fee_mode_new_org'     => 'customer', // Mehr-Veranstalter-Modus: Modus für neu angelegte Veranstalter ('' = zentraler Modus)
+            'price_watch_enabled'      => 0,     // Preis-Wächter in App/Web anzeigen (erst nach Freigabe der Preise)
+            'price_watch_shop_monthly' => 79,    // Vergleich: eigener Shop je Monat in €
+            'price_watch_ref_percent'  => 2.5,   // Rechensatz, solange die Plattformgebühr 0 ist
+            'price_watch_ref_fixed'    => 0.59,
             // ── Abrechnung & Auszahlung (nur Mehr-Veranstalter-Modus, evendis.de) ──
             'settlement_enabled'       => 1,      // Abrechnungen automatisch erstellen
             'settlement_delay_days'    => 7,      // Auszahlung X Tage nach Event-Ende
@@ -1280,6 +1284,15 @@ class TIX_Settings {
         $clean['gateway_fee_mode']  = in_array($input['gateway_fee_mode'] ?? '', ['organizer', 'customer']) ? $input['gateway_fee_mode'] : 'organizer';
         $clean['gateway_fee_included'] = !empty($input['gateway_fee_included']) ? 1 : 0;
         $clean['fee_split_customer_share'] = max(0, min(100, floatval($input['fee_split_customer_share'] ?? 50)));
+        if (array_key_exists('price_watch_shop_monthly', $input)) {
+            $clean['price_watch_enabled']      = !empty($input['price_watch_enabled']) ? 1 : 0;
+            $clean['price_watch_shop_monthly'] = max(0, round(floatval(str_replace(',', '.', (string) $input['price_watch_shop_monthly'])), 2));
+            $clean['price_watch_ref_percent']  = max(0, min(100, floatval(str_replace(',', '.', (string) ($input['price_watch_ref_percent'] ?? 2.5)))));
+            $clean['price_watch_ref_fixed']    = max(0, round(floatval(str_replace(',', '.', (string) ($input['price_watch_ref_fixed'] ?? 0.59))), 2));
+        } else {
+            $prev = get_option(self::OPTION_KEY, []);
+            foreach (['price_watch_enabled' => 0, 'price_watch_shop_monthly' => 79, 'price_watch_ref_percent' => 2.5, 'price_watch_ref_fixed' => 0.59] as $k => $d) $clean[$k] = $prev[$k] ?? $d;
+        }
         if (array_key_exists('fee_mode_new_org', $input)) {
             $clean['fee_mode_new_org'] = in_array($input['fee_mode_new_org'], ['', 'organizer', 'split', 'customer'], true) ? $input['fee_mode_new_org'] : 'customer';
         } else {
@@ -6934,6 +6947,19 @@ class TIX_Settings {
                                                 <p class="tix-field-hint" style="color:#9ca3af;font-size:12px;margin:4px 0 0;">
                                                     Wird beim Anlegen eines Veranstalters gesetzt (Registrierung, Admin, Partner-Kopplung). Bestehende Veranstalter bleiben unverändert; jeder kann den Modus später selbst ändern.
                                                 </p>
+                                            </div>
+
+                                            <div class="tix-field">
+                                                <label>Preis-Wächter</label>
+                                                <label style="display:flex;align-items:center;gap:8px;font-weight:400;">
+                                                    <input type="checkbox" name="tix_settings[price_watch_enabled]" value="1" <?php checked(!empty($s['price_watch_enabled'])); ?> />
+                                                    Veranstaltern zeigen, ab wann der eigene Shop günstiger ist
+                                                </label>
+                                                <div style="display:flex;flex-wrap:wrap;gap:14px;margin-top:8px;">
+                                                    <span>Eigener Shop <input type="number" name="tix_settings[price_watch_shop_monthly]" value="<?php echo esc_attr($s['price_watch_shop_monthly'] ?? 79); ?>" step="1" min="0" style="width:80px;"> € / Monat</span>
+                                                    <span>Rechensatz, solange die Gebühr 0 ist: <input type="number" name="tix_settings[price_watch_ref_percent]" value="<?php echo esc_attr($s['price_watch_ref_percent'] ?? 2.5); ?>" step="0.01" min="0" style="width:70px;"> % + <input type="number" name="tix_settings[price_watch_ref_fixed]" value="<?php echo esc_attr($s['price_watch_ref_fixed'] ?? 0.59); ?>" step="0.01" min="0" style="width:70px;"> €</span>
+                                                </div>
+                                                <p class="tix-field-hint" style="color:#9ca3af;font-size:12px;margin:4px 0 0;">Daten für App und Web: <code>GET /organizer/price-watch</code>. Ausgeschaltet liefert die Route die Zahlen trotzdem mit <code>enabled: false</code>; App und Web zeigen dann nichts.</p>
                                             </div>
                                             <?php endif; ?>
 
