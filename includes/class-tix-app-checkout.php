@@ -929,11 +929,13 @@ class TIX_App_Checkout {
     }
 
     /** Event-Kurzinfo für die Bestellliste. */
-    private static function order_event_info($event_id) {
+    /** Event einer Bestellung {id, slug, title, date_start, url} oder null. */
+    public static function order_event_info($event_id) {
         $event_id = intval($event_id);
         if (!$event_id || !($p = get_post($event_id))) return null;
         return [
             'id'         => $event_id,
+            'slug'       => (string) $p->post_name,
             'title'      => html_entity_decode((string) $p->post_title, ENT_QUOTES, 'UTF-8'),
             'date_start' => (string) get_post_meta($event_id, '_tix_date_start', true),
             'url'        => TIX_Customer_URL::to((string) get_permalink($event_id)),
@@ -1118,6 +1120,11 @@ class TIX_App_Checkout {
         if (!$o) return self::error('tix_order_missing', 'Bestellung nicht gefunden.', 404);
         $status = (string) $o->status;
         $paid   = in_array($status, ['completed', 'processing'], true);
+        // Event der Bestellung – auch unbezahlt (Web-Kasse: Rücksprung zur Event-Seite)
+        global $wpdb;
+        $event_id = intval($wpdb->get_var($wpdb->prepare(
+            "SELECT event_id FROM {$wpdb->prefix}tix_order_items WHERE order_id = %d AND event_id > 0 ORDER BY id ASC LIMIT 1", intval($order_id)
+        )));
         return rest_ensure_response($extra + [
             'ok'    => true,
             'order' => [
@@ -1134,6 +1141,7 @@ class TIX_App_Checkout {
                 'payment_method_title' => (string) $o->payment_method_title,
                 'payment_url'          => (string) $payment_url,
                 'created'              => (string) $o->date_created,
+                'event'                => self::order_event_info($event_id),
                 'tickets'              => $paid ? self::order_tickets($order_id) : [],
                 // Rechnung (PDF), '' solange keine erstellt ist
                 'invoice_url'          => self::invoice_url(intval($o->id), (string) $o->order_key),

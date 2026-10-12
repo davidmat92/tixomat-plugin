@@ -411,6 +411,7 @@ class TIX_Partner_Broker {
                 'payment_method_title' => (string) $row->payment_method_title,
                 'payment_url'          => $paid ? '' : (string) $row->payment_url,
                 'created'              => (string) $row->created,
+                'event'                => TIX_App_Checkout::order_event_info(intval($row->event_id ?? 0)),
                 'tickets'              => $tickets,
                 'invoice_url'          => '', // Rechnung stellt der Veranstalter aus
                 // Zusatz: Verkauf beim Veranstalter (Bestätigungs-Mail kommt von dort)
