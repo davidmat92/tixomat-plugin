@@ -146,6 +146,7 @@ class TIX_Fees {
             'gateway_fee_fixed'   => floatval($s['gateway_fee_fixed'] ?? 0),
             'gateway_fee_percent' => floatval($s['gateway_fee_percent'] ?? 0),
             'gateway_fee_mode'    => $s['gateway_fee_mode'] ?? 'organizer',
+            'gateway_fee_included'=> !empty($s['gateway_fee_included']),
             'fee_rounding'        => $s['fee_rounding'] ?? 'none',
             'fee_rounding_custom' => floatval($s['fee_rounding_custom'] ?? 0),
             'fee_max_per_ticket'  => floatval($s['fee_max_per_ticket'] ?? 0),
@@ -156,15 +157,25 @@ class TIX_Fees {
         if (!in_array($config['fee_mode'], self::MODES, true)) $config['fee_mode'] = 'organizer';
         $config['fee_split_share'] = self::split_share($s);
 
+        // Mehr-Veranstalter-Modus (evendis): zentrale Gebühr; eigene Höhe je Veranstalter nur durch
+        // Plattform-Admins (`_tix_fee_custom`), „wer trägt sie“ wählt der Veranstalter selbst (`_tix_fee_override`).
+        if ($organizer_id && self::multi()) {
+            $config['fee_custom'] = false;
+            if (get_post_meta($organizer_id, '_tix_fee_custom', true)) {
+                $config['fee_fixed']   = max(0.0, floatval(get_post_meta($organizer_id, '_tix_fee_fixed', true)));
+                $config['fee_percent'] = max(0.0, min(100.0, floatval(get_post_meta($organizer_id, '_tix_fee_percent', true))));
+                $config['fee_custom']  = true;
+            }
+            if (get_post_meta($organizer_id, '_tix_fee_override', true)) {
+                $org_mode = (string) get_post_meta($organizer_id, '_tix_fee_mode', true);
+                if (in_array($org_mode, self::MODES, true)) $config['fee_mode'] = $org_mode;
+            }
+            return $config;
+        }
+
         // Per-Organizer Override
         if ($organizer_id && get_post_meta($organizer_id, '_tix_fee_override', true)) {
             $org_mode = (string) get_post_meta($organizer_id, '_tix_fee_mode', true);
-            if (self::multi()) {
-                // Mehr-Veranstalter-Modus (evendis): eine zentrale Gebühr für alle,
-                // der Veranstalter wählt nur, wer sie trägt – keine eigenen Beträge.
-                if (in_array($org_mode, self::MODES, true)) $config['fee_mode'] = $org_mode;
-                return $config;
-            }
             $config['fee_fixed']   = floatval(get_post_meta($organizer_id, '_tix_fee_fixed', true));
             $config['fee_percent'] = floatval(get_post_meta($organizer_id, '_tix_fee_percent', true));
             $config['fee_mode']    = in_array($org_mode, self::MODES, true) ? $org_mode : 'organizer';
@@ -346,7 +357,7 @@ class TIX_Fees {
             'fee_fixed' => 0, 'fee_percent' => 0, 'fee_mode' => 'organizer', 'fee_label' => 'Servicegebühr',
             'gateway_fee_fixed' => 0, 'gateway_fee_percent' => 0, 'gateway_fee_mode' => 'organizer',
             'fee_rounding' => 'none', 'fee_rounding_custom' => 0, 'fee_max_per_ticket' => 0,
-            'fee_max_per_order' => 0, 'fee_split_share' => 50,
+            'fee_max_per_order' => 0, 'fee_split_share' => 50, 'gateway_fee_included' => false,
         ];
         if (!in_array($cfg['fee_mode'], self::MODES, true)) $cfg['fee_mode'] = 'organizer';
 
@@ -376,8 +387,9 @@ class TIX_Fees {
         // Charge-Base für Gateway
         $charge_base = $subtotal + $platform_fee_customer;
 
-        // Gateway-Fee
-        $gateway_fee = self::calc_gateway_fee($charge_base, $cfg['gateway_fee_mode'], $cfg);
+        // Gateway-Fee (0, wenn sie in der Plattformgebühr enthalten ist – die Plattform trägt sie)
+        $included = !empty($cfg['gateway_fee_included']);
+        $gateway_fee = $included ? 0.0 : self::calc_gateway_fee($charge_base, $cfg['gateway_fee_mode'], $cfg);
 
         // Endbeträge
         $customer_fee_line = $platform_fee_customer;
@@ -420,6 +432,7 @@ class TIX_Fees {
             'platform_fee_customer'  => $platform_fee_customer,
             'platform_fee_organizer' => $platform_fee_organizer,
             'fee_customer_share'     => round($share * 100, 2),
+            'gateway_fee_included'   => $included,
         ];
     }
 }

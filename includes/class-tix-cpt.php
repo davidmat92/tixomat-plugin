@@ -535,12 +535,36 @@ class TIX_CPT {
                             <?php endforeach; ?>
                         </select>
                         <p style="color:#9ca3af;font-size:12px;margin:6px 0 0;">
-                            Die Höhe der Gebühr (<?php echo number_format_i18n(floatval($mo_global['fee_fixed'] ?? 0), 2); ?> € +
-                            <?php echo number_format_i18n(floatval($mo_global['fee_percent'] ?? 0), 1); ?> %) gilt für alle Veranstalter
-                            und wird nur in den Tixomat-Einstellungen festgelegt. Der Veranstalter kann den Modus auch selbst wählen
-                            (App und Veranstalter-Bereich). Gilt für neue Bestellungen.
+                            Der Veranstalter kann den Modus auch selbst wählen (App und Veranstalter-Bereich). Gilt für neue Bestellungen.
                         </p>
                     </div>
+                    <?php
+                    $mo_custom = (bool) get_post_meta($post->ID, '_tix_fee_custom', true);
+                    $mo_fixed  = get_post_meta($post->ID, '_tix_fee_fixed', true);
+                    $mo_pct    = get_post_meta($post->ID, '_tix_fee_percent', true);
+                    $mo_gfix   = number_format_i18n(floatval($mo_global['fee_fixed'] ?? 0), 2);
+                    $mo_gpct   = number_format_i18n(floatval($mo_global['fee_percent'] ?? 0), 2);
+                    if (current_user_can('manage_options')) : ?>
+                    <div class="tix-field tix-field-full" style="margin-top:14px;">
+                        <input type="hidden" name="tix_fee_custom_form" value="1" />
+                        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                            <input type="checkbox" name="tix_fee_custom" value="1" <?php checked($mo_custom); ?> id="tix-fee-custom-toggle" />
+                            <strong>Eigene Gebührenhöhe für diesen Veranstalter</strong>
+                        </label>
+                        <p style="color:#9ca3af;font-size:12px;margin:4px 0 0 26px;">
+                            Sonst gilt die zentrale Gebühr: <?php echo esc_html($mo_gpct); ?> % + <?php echo esc_html($mo_gfix); ?> € je Ticket
+                            <?php echo !empty($mo_global['gateway_fee_included']) ? '(inkl. Zahlung)' : ''; ?> – änderbar unter Tixomat → Einstellungen → Gebühren.
+                            Nur Plattform-Admins sehen und ändern diese Höhe. Gilt für neue Bestellungen.
+                        </p>
+                        <div id="tix-fee-custom-fields" style="display:<?php echo $mo_custom ? 'flex' : 'none'; ?>;gap:18px;margin:10px 0 0 26px;">
+                            <label>Prozent je Ticket<br><input type="number" name="tix_fee_percent" value="<?php echo esc_attr($mo_custom ? $mo_pct : ''); ?>" step="0.01" min="0" max="100" style="width:100px;" placeholder="<?php echo esc_attr($mo_global['fee_percent'] ?? 0); ?>"> %</label>
+                            <label>Fixbetrag je Ticket<br><input type="number" name="tix_fee_fixed" value="<?php echo esc_attr($mo_custom ? $mo_fixed : ''); ?>" step="0.01" min="0" style="width:100px;" placeholder="<?php echo esc_attr($mo_global['fee_fixed'] ?? 0); ?>"> €</label>
+                        </div>
+                        <script>document.getElementById('tix-fee-custom-toggle').addEventListener('change',function(){document.getElementById('tix-fee-custom-fields').style.display=this.checked?'flex':'none';});</script>
+                    </div>
+                    <?php else : ?>
+                    <p style="color:#6b7280;font-size:13px;margin:12px 0 0;">Gebühr: <?php echo $mo_custom ? esc_html(number_format_i18n(floatval($mo_pct), 2) . ' % + ' . number_format_i18n(floatval($mo_fixed), 2) . ' € je Ticket (eigene Höhe)') : esc_html($mo_gpct . ' % + ' . $mo_gfix . ' € je Ticket'); ?></p>
+                    <?php endif; ?>
                 </div>
             </div>
             <?php else : ?>
@@ -819,6 +843,17 @@ class TIX_CPT {
                 update_post_meta($post_id, '_tix_fee_mode', $mode);
             } else {
                 update_post_meta($post_id, '_tix_fee_override', 0);
+            }
+            // Eigene Gebührenhöhe: nur Plattform-Admins (das Formular zeigt die Felder nur ihnen)
+            if (!empty($_POST['tix_fee_custom_form']) && current_user_can('manage_options')) {
+                if (!empty($_POST['tix_fee_custom'])) {
+                    update_post_meta($post_id, '_tix_fee_custom', 1);
+                    update_post_meta($post_id, '_tix_fee_fixed',   max(0, round(floatval(str_replace(',', '.', (string) ($_POST['tix_fee_fixed'] ?? 0))), 2)));
+                    update_post_meta($post_id, '_tix_fee_percent', max(0, min(100, round(floatval(str_replace(',', '.', (string) ($_POST['tix_fee_percent'] ?? 0))), 4))));
+                    update_post_meta($post_id, '_tix_fee_custom_changed', ['by' => get_current_user_id(), 'at' => current_time('mysql')]);
+                } else {
+                    delete_post_meta($post_id, '_tix_fee_custom');
+                }
             }
             return;
         }

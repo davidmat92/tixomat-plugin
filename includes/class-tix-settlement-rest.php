@@ -78,7 +78,9 @@ class TIX_Settlement_REST {
         $examples = [];
         foreach (TIX_Fees::MODES as $m) $examples[$m] = self::example($oid, $m, $price);
         $note = '';
-        if ($cfg['gateway_fee_mode'] === 'organizer' && ($cfg['gateway_fee_fixed'] > 0 || $cfg['gateway_fee_percent'] > 0)) {
+        if (!empty($cfg['gateway_fee_included'])) {
+            $note = 'Zahlungsgebühren (Kartenzahlung, PayPal usw.) sind in der Gebühr enthalten – es wird nichts zusätzlich abgezogen.';
+        } elseif ($cfg['gateway_fee_mode'] === 'organizer' && ($cfg['gateway_fee_fixed'] > 0 || $cfg['gateway_fee_percent'] > 0)) {
             $parts = [];
             if ($cfg['gateway_fee_fixed'] > 0) $parts[] = number_format($cfg['gateway_fee_fixed'], 2, ',', '.') . ' €';
             if ($cfg['gateway_fee_percent'] > 0) $parts[] = number_format($cfg['gateway_fee_percent'], 2, ',', '.') . ' %';
@@ -101,6 +103,9 @@ class TIX_Settlement_REST {
                 'label'                => (string) $cfg['fee_label'],
                 'split_customer_share' => round(floatval($cfg['fee_split_share']), 2),
                 'rounding'             => (string) $cfg['fee_rounding'],
+                // 1.38.396: eigene Höhe für diesen Veranstalter (vom Plattform-Admin) und Zahlungsgebühr enthalten
+                'custom'               => !empty($cfg['fee_custom']),
+                'gateway_included'     => !empty($cfg['gateway_fee_included']),
             ],
             'example'      => $examples[$mode] ?? $examples['organizer'],
             'examples'     => $examples,

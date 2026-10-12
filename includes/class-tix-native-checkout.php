@@ -2048,6 +2048,11 @@ class TIX_Native_Checkout {
                 'customer_fee_line' => $fee_data['customer_fee_line'],
                 'organizer_payout'  => $fee_data['organizer_payout'],
                 'fee_label'         => $fee_data['fee_label'],
+                // Aufteilung (Modus „geteilt“) und Zahlungsgebühr enthalten – für die Abrechnung
+                'platform_fee_customer'  => $fee_data['platform_fee_customer'] ?? null,
+                'platform_fee_organizer' => $fee_data['platform_fee_organizer'] ?? null,
+                'rounding_surplus'       => $fee_data['rounding_surplus'] ?? 0,
+                'gateway_fee_included'   => !empty($fee_data['gateway_fee_included']),
             ], false);
         }
 

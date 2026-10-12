@@ -188,6 +188,66 @@ eq('Alt customer: keine Gebühr', 0.0, $l['platform_fee']);
 eq('Alt customer: Zahlungsgebühr trägt Kunde', 'customer', $l['gateway_fee_source']);
 eq('Alt customer: Netto', 20.00, $l['amount']);
 
+// ── 11. evendis-Gebühr 2,5 % + 0,59 € je Ticket, Zahlung enthalten (1.38.396) ──
+$evendis = ['fee_fixed' => 0.59, 'fee_percent' => 2.5, 'gateway_fee_included' => 1, 'gateway_fee_fixed' => 0.25, 'gateway_fee_percent' => 1.4];
+reset_env($evendis);
+$r = $calc($one(20, 2), ['fee_mode' => 'organizer']);
+eq('evendis: Gebühr 2 × (0,59 + 0,50)', 2.18, $r['platform_fee']);
+eq('evendis: keine Zahlungsgebühr', 0.0, $r['gateway_fee']);
+eq('evendis: Veranstalter erhält', 37.82, $r['organizer_payout']);
+eq('evendis: Flag gespeichert', true, $r['gateway_fee_included']);
+$r = $calc($one(20, 2), ['fee_mode' => 'customer']);
+eq('evendis Kunde: zahlt', 42.18, $r['customer_total']);
+eq('evendis Kunde: Veranstalter erhält', 40.00, $r['organizer_payout']);
+$r = $calc($one(20, 2), ['fee_mode' => 'split']);
+eq('evendis geteilt: Kunde', 1.09, $r['platform_fee_customer']);
+eq('evendis geteilt: Veranstalter erhält', 38.91, $r['organizer_payout']);
+// Ohne „enthalten“: Zahlungsgebühr wie bisher
+reset_env(['fee_fixed' => 0.59, 'fee_percent' => 2.5, 'gateway_fee_fixed' => 0.25, 'gateway_fee_percent' => 1.4]);
+$r = $calc($one(20, 2), ['fee_mode' => 'organizer']);
+eq('ohne enthalten: Zahlungsgebühr 0,25 + 1,4 % von 40', 0.81, $r['gateway_fee']);
+
+// Abrechnung: Zahlung enthalten → kein Abzug, auch wenn die tatsächliche Anbietergebühr bekannt ist
+$fees_inc = ['platform_fee' => 2.18, 'platform_fee_mode' => 'split', 'platform_fee_customer' => 1.09, 'platform_fee_organizer' => 1.09,
+             'customer_fee_line' => 1.09, 'gateway_fee' => 0, 'gateway_fee_mode' => 'organizer', 'gateway_fee_included' => true];
+reset_env($evendis, ['_tix_order_fees_8' => $fees_inc], [8 => ['_tix_payment_fee' => 0.85, '_tix_payment_fee_currency' => 'EUR']]);
+$l = TIX_Settlement::order_line($row(8, 41.09, 'completed', 'mollie', 40, 40, 2), 9, false);
+eq('Abrechnung enthalten: Umsatz', 40.00, $l['gross']);
+eq('Abrechnung enthalten: Gebühr Veranstalter', 1.09, $l['platform_fee']);
+eq('Abrechnung enthalten: keine Zahlungsgebühr', 0.0, $l['gateway_fee']);
+eq('Abrechnung enthalten: Quelle', 'included', $l['gateway_fee_source']);
+eq('Abrechnung enthalten: Netto', 38.91, $l['amount']);
+
+// Alte „geteilt“-Bestellung ohne gespeicherte Aufteilung: Kundenanteil aus der Gebührenzeile
+reset_env([], ['_tix_order_fees_9' => ['platform_fee' => 2.18, 'platform_fee_mode' => 'split', 'customer_fee_line' => 1.09, 'gateway_fee' => 0, 'gateway_fee_mode' => 'organizer']]);
+$l = TIX_Settlement::order_line($row(9, 41.09, 'completed', 'bank', 40, 40, 2), 9, false);
+eq('Alt geteilt: Veranstalter trägt nur seinen Anteil', 1.09, $l['platform_fee']);
+eq('Alt geteilt: Netto', 38.91, $l['amount']);
+// … mit Zahlungs-Aufschlag für den Kunden in der Gebührenzeile
+reset_env([], ['_tix_order_fees_10' => ['platform_fee' => 2.18, 'platform_fee_mode' => 'split', 'customer_fee_line' => 1.70, 'gateway_fee' => 0.61, 'gateway_fee_mode' => 'customer']]);
+$l = TIX_Settlement::order_line($row(10, 41.70, 'completed', 'stripe', 40, 40, 2), 9, false);
+eq('Alt geteilt + Kunden-Zahlungsgebühr: Veranstalter-Anteil', 1.09, $l['platform_fee']);
+
+// Eigene Höhe je Veranstalter im Mehr-Veranstalter-Modus (nur vom Admin gesetzt)
+reset_env($evendis, ['tix_multi_organizer' => '1'], [77 => ['_tix_fee_custom' => '1', '_tix_fee_fixed' => '0.30', '_tix_fee_percent' => '1.5']]);
+$cfg = TIX_Fees::get_fee_config(77);
+eq('eigene Höhe: Prozent', 1.5, $cfg['fee_percent']);
+eq('eigene Höhe: Fix', 0.30, $cfg['fee_fixed']);
+eq('eigene Höhe: Merker', true, $cfg['fee_custom']);
+eq('eigene Höhe: Zahlung bleibt enthalten', true, $cfg['gateway_fee_included']);
+$r = TIX_Fees::calc_with_config($one(20), $cfg);
+eq('eigene Höhe: Gebühr 0,30 + 1,5 % von 20', 0.60, $r['platform_fee']);
+// Wahl „wer trägt“ des Veranstalters bleibt erhalten, Höhe zentral ohne eigene Höhe
+reset_env($evendis, ['tix_multi_organizer' => '1'], [78 => ['_tix_fee_override' => '1', '_tix_fee_mode' => 'customer', '_tix_fee_fixed' => '9', '_tix_fee_percent' => '9']]);
+$cfg = TIX_Fees::get_fee_config(78);
+eq('Mehr-Veranstalter ohne eigene Höhe: zentrale Prozent', 2.5, $cfg['fee_percent']);
+eq('Mehr-Veranstalter ohne eigene Höhe: zentraler Fixbetrag (alte Werte ignoriert)', 0.59, $cfg['fee_fixed']);
+eq('Mehr-Veranstalter: Modus des Veranstalters', 'customer', $cfg['fee_mode']);
+reset_env($evendis, ['tix_multi_organizer' => '1'], [79 => ['_tix_fee_custom' => '1', '_tix_fee_fixed' => '0', '_tix_fee_percent' => '0', '_tix_fee_override' => '1', '_tix_fee_mode' => 'split']]);
+$cfg = TIX_Fees::get_fee_config(79);
+eq('eigene Höhe 0 (gebührenfrei)', 0.0, TIX_Fees::calc_with_config($one(20), $cfg)['platform_fee']);
+eq('eigene Höhe + Modus', 'split', $cfg['fee_mode']);
+
 // IBAN-Prüfung
 require __DIR__ . '/../includes/class-tix-payout-details.php';
 eq('IBAN gültig (DE89…3000)', true, TIX_Payout_Details::iban_valid('DE89 3704 0044 0532 0130 00'));

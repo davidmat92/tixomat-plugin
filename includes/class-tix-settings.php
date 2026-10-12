@@ -390,6 +390,7 @@ class TIX_Settings {
             'gateway_fee_fixed'    => 0,       // Gateway-Fixkosten pro Transaktion
             'gateway_fee_percent'  => 0,       // Gateway-Prozent pro Transaktion
             'gateway_fee_mode'     => 'organizer', // organizer oder customer
+            'gateway_fee_included' => 0,       // 1 = Zahlungsgebühr ist in der Plattformgebühr enthalten (Plattform trägt sie)
             'fee_split_customer_share' => 50,  // Modus „geteilt“: Kundenanteil an der Plattformgebühr in %
             // ── Abrechnung & Auszahlung (nur Mehr-Veranstalter-Modus, evendis.de) ──
             'settlement_enabled'       => 1,      // Abrechnungen automatisch erstellen
@@ -1110,7 +1111,7 @@ class TIX_Settings {
         $clean['show_company_field']   = !empty($input['show_company_field']) ? 1 : 0;
         $clean['show_coupon_selector'] = !empty($input['show_coupon_selector']) ? 1 : 0;
         $clean['checkout_steps']       = !empty($input['checkout_steps']) ? 1 : 0;
-        $clean['checkout_btn_variant'] = in_array($input['checkout_btn_variant'] ?? '1', ['1', '2']) ? $input['checkout_btn_variant'] : '1';
+        $clean['checkout_btn_variant'] = in_array($input['checkout_btn_variant'] ?? '', ['1', '2']) ? $input['checkout_btn_variant'] : '1';
         $clean['checkout_countdown']         = !empty($input['checkout_countdown']) ? 1 : 0;
         $clean['checkout_countdown_minutes'] = max(1, min(60, intval($input['checkout_countdown_minutes'] ?? 10)));
         $clean['show_upsell']          = !empty($input['show_upsell']) ? 1 : 0;
@@ -1265,7 +1266,7 @@ class TIX_Settings {
         // Gebühren / Provisionen
         $clean['fee_fixed']         = max(0, floatval($input['fee_fixed'] ?? 0));
         $clean['fee_percent']       = max(0, min(100, floatval($input['fee_percent'] ?? 0)));
-        $clean['fee_mode']          = in_array($input['fee_mode'] ?? 'organizer', ['organizer', 'split', 'customer']) ? $input['fee_mode'] : 'organizer';
+        $clean['fee_mode']          = in_array($input['fee_mode'] ?? '', ['organizer', 'split', 'customer']) ? $input['fee_mode'] : 'organizer';
         $clean['fee_label']         = sanitize_text_field($input['fee_label'] ?? 'Servicegebühr');
         $valid_rounding = ['none', '0.90', '0.99', '0.50', '0.00', 'custom'];
         $clean['fee_rounding']      = in_array($input['fee_rounding'] ?? 'none', $valid_rounding) ? $input['fee_rounding'] : 'none';
@@ -1275,7 +1276,8 @@ class TIX_Settings {
         $clean['fee_show_in_selector'] = !empty($input['fee_show_in_selector']) ? 1 : 0;
         $clean['gateway_fee_fixed'] = max(0, floatval($input['gateway_fee_fixed'] ?? 0));
         $clean['gateway_fee_percent'] = max(0, min(100, floatval($input['gateway_fee_percent'] ?? 0)));
-        $clean['gateway_fee_mode']  = in_array($input['gateway_fee_mode'] ?? 'organizer', ['organizer', 'customer']) ? $input['gateway_fee_mode'] : 'organizer';
+        $clean['gateway_fee_mode']  = in_array($input['gateway_fee_mode'] ?? '', ['organizer', 'customer']) ? $input['gateway_fee_mode'] : 'organizer';
+        $clean['gateway_fee_included'] = !empty($input['gateway_fee_included']) ? 1 : 0;
         $clean['fee_split_customer_share'] = max(0, min(100, floatval($input['fee_split_customer_share'] ?? 50)));
 
         // Abrechnung & Auszahlung (Mehr-Veranstalter-Modus)
@@ -1300,7 +1302,7 @@ class TIX_Settings {
         $clean['tax_inclusive'] = !empty($input['tax_inclusive']) ? 1 : 0;
 
         // Checkout-Modus + Payment Gateways
-        $clean['checkout_mode'] = in_array($input['checkout_mode'] ?? 'auto', ['auto', 'woocommerce', 'native']) ? $input['checkout_mode'] : 'auto';
+        $clean['checkout_mode'] = in_array($input['checkout_mode'] ?? '', ['auto', 'woocommerce', 'native']) ? $input['checkout_mode'] : 'auto';
         if (isset($input['gateway_provider_order'])) {
             // Whitelist auf bekannte Provider, Reihenfolge respektieren
             $allowed_providers = ['stripe', 'mollie', 'paypal', 'bank'];
@@ -1385,7 +1387,7 @@ class TIX_Settings {
         $clean['tix_card_font_self_host'] = !empty($input['tix_card_font_self_host']) ? 1 : 0;
         $clean['tix_card_show_heart']     = !empty($input['tix_card_show_heart']) ? 1 : 0;
         $clean['tix_card_show_badges']    = !empty($input['tix_card_show_badges']) ? 1 : 0;
-        $clean['tix_card_default_mode']   = in_array($input['tix_card_default_mode'] ?? 'light', ['light', 'dark']) ? $input['tix_card_default_mode'] : 'light';
+        $clean['tix_card_default_mode']   = in_array($input['tix_card_default_mode'] ?? '', ['light', 'dark']) ? $input['tix_card_default_mode'] : 'light';
 
         // Event-Homepage
         $clean['hp_enabled']            = !empty($input['hp_enabled']) ? 1 : 0;
@@ -1397,7 +1399,7 @@ class TIX_Settings {
         $clean['hp_show_load_more']     = !empty($input['hp_show_load_more']) ? 1 : 0;
         $clean['hp_exclude_categories'] = sanitize_text_field($input['hp_exclude_categories'] ?? '');
         $clean['hp_only_featured_hero'] = !empty($input['hp_only_featured_hero']) ? 1 : 0;
-        $clean['hp_hero_style']         = in_array($input['hp_hero_style'] ?? 'grid', ['grid', 'slider', 'fullwidth']) ? $input['hp_hero_style'] : 'grid';
+        $clean['hp_hero_style']         = in_array($input['hp_hero_style'] ?? '', ['grid', 'slider', 'fullwidth']) ? $input['hp_hero_style'] : 'grid';
         $clean['hp_show_popular']       = !empty($input['hp_show_popular']) ? 1 : 0;
         $clean['hp_popular_count']      = max(2, min(12, intval($input['hp_popular_count'] ?? 4)));
         $clean['hp_show_countdown']     = !empty($input['hp_show_countdown']) ? 1 : 0;
@@ -1745,7 +1747,7 @@ class TIX_Settings {
             $v = $input[$k] ?? '';
             $clean[$k] = $v ? (self::sanitize_color($v) ?: '') : '';
         }
-        $clean['table_button_style'] = in_array($input['table_button_style'] ?? '1', ['1', '2']) ? $input['table_button_style'] : '1';
+        $clean['table_button_style'] = in_array($input['table_button_style'] ?? '', ['1', '2']) ? $input['table_button_style'] : '1';
         // Default table categories (JSON)
         $raw_defaults = $input['table_default_categories'] ?? '[]';
         if (is_string($raw_defaults)) {
@@ -7025,6 +7027,17 @@ class TIX_Settings {
                                                 </select>
                                             </div>
 
+                                            <div class="tix-field tix-field-full">
+                                                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                                                    <input type="checkbox" name="tix_settings[gateway_fee_included]" value="1" <?php checked(!empty($s['gateway_fee_included'])); ?> />
+                                                    <strong>Zahlungsgebühr ist in der Plattform-Provision enthalten</strong>
+                                                </label>
+                                                <p style="color:#9ca3af;font-size:12px;margin:4px 0 0 26px;">
+                                                    Die Plattform trägt die Gebühren der Zahlungsanbieter selbst: weder Aufschlag für Kunden noch Abzug bei der Auszahlung
+                                                    (z. B. evendis: „2,5 % + 0,59 € je Ticket inkl. MwSt. und Zahlung“). Gilt für neue Bestellungen.
+                                                </p>
+                                            </div>
+
                                         </div>
                                     </div>
                                 </div>
@@ -7123,12 +7136,13 @@ class TIX_Settings {
                                                             <?php echo esc_html($org->post_title); ?>
                                                         </a>
                                                     </td>
-                                                    <td><?php echo ($override && !$o_multi) ? number_format_i18n(floatval($o_fixed), 2) . ' €' : ($override ? 'zentral' : '—'); ?></td>
-                                                    <td><?php echo ($override && !$o_multi) ? number_format_i18n(floatval($o_pct), 1) . ' %' : ($override ? 'zentral' : '—'); ?></td>
+                                                    <?php $o_custom = $o_multi ? (bool) get_post_meta($org->ID, '_tix_fee_custom', true) : ($override ? true : false); ?>
+                                                    <td><?php echo $o_custom ? number_format_i18n(floatval($o_fixed), 2) . ' €' : ($override ? 'zentral' : '—'); ?></td>
+                                                    <td><?php echo $o_custom ? number_format_i18n(floatval($o_pct), 2) . ' %' : ($override ? 'zentral' : '—'); ?></td>
                                                     <td><?php echo $override ? ($o_mode === 'customer' ? 'Kunde' : ($o_mode === 'split' ? 'Geteilt' : 'Veranstalter')) : '—'; ?></td>
                                                     <td>
-                                                        <?php if ($override) : ?>
-                                                            <span style="color:#16a34a;font-weight:600;">Individuell</span>
+                                                        <?php if ($override || $o_custom) : ?>
+                                                            <span style="color:#16a34a;font-weight:600;"><?php echo ($o_multi && $o_custom) ? 'Eigene Höhe' : 'Individuell'; ?></span>
                                                         <?php else : ?>
                                                             <span style="color:#9ca3af;">Global</span>
                                                         <?php endif; ?>

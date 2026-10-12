@@ -204,6 +204,12 @@ class TIX_Settlement {
         if (isset($f['platform_fee_customer'])) {
             $pfc = round(floatval($f['platform_fee_customer']), 2);
             $pfo = round(floatval($f['platform_fee_organizer'] ?? ($pf - $pfc)), 2);
+        } elseif ($mode === 'split') {
+            // Ältere Bestellungen ohne Aufteilung: Kundenanteil = Gebührenzeile ohne Zahlungs-Aufschlag
+            $line = round(floatval($f['customer_fee_line'] ?? 0), 2);
+            if (($f['gateway_fee_mode'] ?? '') === 'customer') $line -= round(floatval($f['gateway_fee'] ?? 0), 2);
+            $pfc = round(max(0.0, min($pf, $line)), 2);
+            $pfo = round($pf - $pfc, 2);
         } else {
             $pfc = $mode === 'customer' ? $pf : 0.0;
             $pfo = $mode === 'customer' ? 0.0 : $pf;
@@ -215,6 +221,7 @@ class TIX_Settlement {
             'customer_fee_line'      => round(floatval($f['customer_fee_line'] ?? 0), 2),
             'gateway_fee'            => round(floatval($f['gateway_fee'] ?? 0), 2),
             'gateway_fee_mode'       => (string) ($f['gateway_fee_mode'] ?? 'organizer'),
+            'gateway_fee_included'   => !empty($f['gateway_fee_included']),
             'mode'                   => $mode,
         ];
     }
@@ -242,6 +249,8 @@ class TIX_Settlement {
     public static function gateway_fee_for_order($order, array $fees, $fetch = true) {
         $gw = (string) $order->payment_method;
         if (!in_array($gw, self::GATEWAYS, true)) return [0.0, 'none'];
+        // Zahlungsgebühr in der Plattformgebühr enthalten (zur Bestellzeit): die Plattform trägt sie
+        if (!empty($fees['gateway_fee_included'])) return [0.0, 'included'];
         if ($fees['gateway_fee_mode'] === 'customer') return [0.0, 'customer'];
         $id = intval($order->id);
         $actual = get_post_meta($id, '_tix_payment_fee', true);
