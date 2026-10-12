@@ -295,6 +295,8 @@ class TIX_App_Scope {
             'phone'       => $m('_tix_org_phone'),
             'social'      => (object) $social,
             'modules'     => (object) $modules,
+            // Gutscheine je Veranstalter (Modul giftcards): Beträge, Wunschbetrag, Gültigkeit in Jahren
+            'giftcards'   => class_exists('TIX_Giftcards') ? (function ($st) { return ['amounts' => array_values($st['amounts']), 'free_amount' => (bool) $st['free_amount'], 'validity_years' => intval($st['validity_years'])]; })(TIX_Giftcards::organizer_settings(intval($oid))) : null,
             'logo'        => $img('_tix_org_landing_logo_id', 'medium') ?: $img('_tix_org_image_id', 'medium'),
             'hero'        => $img('_tix_org_landing_hero_id', 'large'),
         ];
@@ -355,6 +357,22 @@ class TIX_App_Scope {
             $mods['tickets'] = true; // Tickets sind immer an
             update_post_meta($oid, TIX_Public_Platform::META_MODULES, wp_json_encode($mods));
         }
+        if (array_key_exists('giftcards', $b) && is_array($b['giftcards'])) {
+            $g = get_post_meta($oid, '_tix_giftcard_settings', true);
+            $g = is_array($g) ? $g : [];
+            if (array_key_exists('amounts', $b['giftcards'])) {
+                $am = [];
+                foreach ((array) $b['giftcards']['amounts'] as $a) { $a = round(floatval(str_replace(',', '.', (string) $a)), 2); if ($a > 0 && $a <= 10000) $am[] = $a; }
+                $am = array_values(array_unique($am)); sort($am);
+                if (!$am) return new WP_Error('tix_invalid_field', 'Bitte mindestens einen Gutscheinbetrag angeben.', ['status' => 400, 'field' => 'giftcards.amounts']);
+                $g['amounts'] = array_slice($am, 0, 8);
+            }
+            if (array_key_exists('free_amount', $b['giftcards'])) $g['free_amount'] = filter_var($b['giftcards']['free_amount'], FILTER_VALIDATE_BOOLEAN) ? 1 : 0;
+            if (array_key_exists('validity_years', $b['giftcards'])) $g['validity_years'] = max(1, min(10, intval($b['giftcards']['validity_years'])));
+            update_post_meta($oid, '_tix_giftcard_settings', $g);
+        }
+        // Gutschein-Event an Modul/Beträge angleichen (legt es beim ersten Einschalten an)
+        if (class_exists('TIX_Giftcards') && (array_key_exists('giftcards', $b) || array_key_exists('modules', $b))) TIX_Giftcards::ensure_organizer_event(intval($oid));
         self::flush_public_cache();
         return self::rest_profile($req);
     }

@@ -13,6 +13,12 @@
  *     discount_type: 'giftcard', value: Ausgabewert, balance: Rest,
  *     expires: Y-m-d (Default +3 Jahre, Option tix_giftcard_settings[validity_years]),
  *     ticket_id, order_id, redemptions: [{ts, amount, channel, ref, rest}]
+ *     organizer_id (nur Gutscheine je Veranstalter): einlösbar nur bei Events dieses Veranstalters
+ *
+ *   Je Veranstalter (Mehr-Veranstalter-Modus, Modul „giftcards“ des Veranstalters, evendis-App Paket 3a):
+ *   eigenes verstecktes Gutschein-Event (Meta `_tix_giftcard_organizer` = ID, `_tix_organizer_id` = ID),
+ *   Beträge/Wunschbetrag/Gültigkeit am Veranstalter (`_tix_giftcard_settings`, sonst wie die Seite).
+ *   GET /giftcards?organizer=ID liefert dessen Konfiguration mit `organizer_id`.
  */
 if (!defined('ABSPATH')) exit;
 
@@ -60,10 +66,77 @@ class TIX_Giftcards {
     public static function system_event_id(): int {
         $ids = get_posts([
             'post_type' => 'event', 'post_status' => 'publish', 'posts_per_page' => 1, 'fields' => 'ids',
-            'meta_query' => [['key' => '_tix_system_giftcard_event', 'value' => '1']],
+            'meta_query' => [['key' => '_tix_system_giftcard_event', 'value' => '1'], ['key' => '_tix_giftcard_organizer', 'compare' => 'NOT EXISTS']],
             'tix_include_system' => 1,
         ]);
         return $ids ? intval($ids[0]) : 0;
+    }
+
+    /* ─────────── Je Veranstalter (Mehr-Veranstalter-Modus) ─────────── */
+
+    /** Modul „giftcards“ beim (freigegebenen) Veranstalter an? */
+    public static function organizer_enabled(int $oid): bool {
+        if ($oid <= 0 || !class_exists('TIX_App_Scope') || !TIX_App_Scope::multi() || get_post_type($oid) !== 'tix_organizer' || get_post_status($oid) !== 'publish') return false;
+        if (class_exists('TIX_Org_Approval') && !TIX_Org_Approval::is_public($oid)) return false;
+        if (class_exists('TIX_Modules') && !TIX_Modules::allowed('giftcards')) return false;
+        $mods = class_exists('TIX_Public_Platform') ? TIX_Public_Platform::modules($oid) : [];
+        return !empty($mods['giftcards']);
+    }
+
+    /** Einstellungen des Veranstalters (Rückfall: Einstellungen der Seite). */
+    public static function organizer_settings(int $oid): array {
+        $base = self::get_settings();
+        $o = get_post_meta($oid, '_tix_giftcard_settings', true);
+        $o = is_array($o) ? $o : [];
+        $amounts = array_values(array_filter(array_map('floatval', (array) ($o['amounts'] ?? $base['amounts'])), function ($a) { return $a > 0 && $a <= 10000; }));
+        return [
+            'enabled'        => self::organizer_enabled($oid),
+            'amounts'        => $amounts ?: $base['amounts'],
+            'free_amount'    => array_key_exists('free_amount', $o) ? !empty($o['free_amount']) : $base['free_amount'],
+            'validity_years' => max(1, min(10, intval($o['validity_years'] ?? $base['validity_years']) ?: 3)),
+        ];
+    }
+
+    public static function organizer_event_id(int $oid): int {
+        if ($oid <= 0) return 0;
+        $ids = get_posts([
+            'post_type' => 'event', 'post_status' => 'any', 'posts_per_page' => 1, 'fields' => 'ids',
+            'meta_query' => [['key' => '_tix_system_giftcard_event', 'value' => '1'], ['key' => '_tix_giftcard_organizer', 'value' => (string) $oid]],
+            'tix_include_system' => 1,
+        ]);
+        return $ids ? intval($ids[0]) : 0;
+    }
+
+    /** Gutschein-Event des Veranstalters anlegen bzw. Kategorien angleichen. */
+    public static function ensure_organizer_event(int $oid): int {
+        if (!self::organizer_enabled($oid)) return 0;
+        $st = self::organizer_settings($oid);
+        $event_id = self::organizer_event_id($oid);
+        if (!$event_id) {
+            $event_id = wp_insert_post([
+                'post_type'   => 'event',
+                'post_status' => 'publish',
+                'post_title'  => 'Geschenkgutschein – ' . html_entity_decode(get_the_title($oid), ENT_QUOTES, 'UTF-8'),
+                'post_name'   => 'tix-geschenkgutschein-' . $oid,
+                'meta_input'  => [
+                    '_tix_system_giftcard_event' => '1',
+                    '_tix_giftcard_organizer'    => (string) $oid,
+                    '_tix_organizer_id'          => $oid,
+                    '_tix_tickets_enabled'       => '1',
+                ],
+            ]);
+            if (!$event_id || is_wp_error($event_id)) return 0;
+        } elseif (get_post_status($event_id) !== 'publish') {
+            wp_update_post(['ID' => $event_id, 'post_status' => 'publish']);
+        }
+        $cats = self::build_categories($st);
+        if (get_post_meta($event_id, '_tix_ticket_categories', true) != $cats) update_post_meta($event_id, '_tix_ticket_categories', $cats);
+        return $event_id;
+    }
+
+    /** Veranstalter-ID eines Gutschein-Events (0 = Gutschein der Seite). */
+    public static function event_organizer(int $event_id): int {
+        return intval(get_post_meta($event_id, '_tix_giftcard_organizer', true));
     }
 
     /**
@@ -108,6 +181,12 @@ class TIX_Giftcards {
             // Bewusst KEIN Datum — Checkin behaelt datumslose Events, Listen blenden es eh aus
         }
 
+        update_post_meta($event_id, '_tix_ticket_categories', self::build_categories($settings));
+        return $event_id;
+    }
+
+    /** Kategorien aus den Beträgen (je fester Betrag eine, optional Wunschbetrag). */
+    private static function build_categories(array $settings): array {
         // Kategorien aus den Betraegen aufbauen (Sync bei jedem Speichern)
         $cats = [];
         foreach ($settings['amounts'] as $a) {
@@ -132,8 +211,7 @@ class TIX_Giftcards {
                 'seatmap_id' => 0, 'seatmap_section' => '', 'low_stock_mode' => 'off', 'phases' => [],
             ];
         }
-        update_post_meta($event_id, '_tix_ticket_categories', $cats);
-        return $event_id;
+        return $cats;
     }
 
     /**
@@ -249,11 +327,14 @@ class TIX_Giftcards {
                 $coupons = get_option('tix_coupons', []);
             }
             $code = self::generate_code($coupons);
+            $gift_org = self::event_organizer($event_id);
+            $years = $gift_org ? self::organizer_settings($gift_org)['validity_years'] : self::validity_years();
             $coupons[$code] = [
                 'discount_type' => 'giftcard',
                 'value'         => round($amount, 2),
                 'balance'       => round($amount, 2),
-                'expires'       => date('Y-m-d', strtotime('+' . self::validity_years() . ' years')),
+                'expires'       => date('Y-m-d', strtotime('+' . $years . ' years')),
+                'organizer_id'  => $gift_org ?: null,
                 'ticket_id'     => intval($t->ID),
                 'order_id'      => $order_id,
                 'redemptions'   => [],
@@ -358,6 +439,12 @@ class TIX_Giftcards {
         if (empty($tickets)) wp_send_json_error(['message' => 'Ticket nicht gefunden.']);
         $gift_code = get_post_meta($tickets[0], '_tix_ticket_gift_code', true);
         if (!$gift_code) wp_send_json_error(['message' => 'Kein Gutschein-Ticket.']);
+        // Gutschein eines Veranstalters: nur dessen Personal (bzw. Admin) löst ein
+        $card = self::get_card($gift_code);
+        if ($card && !empty($card['organizer_id']) && class_exists('TIX_App_Scope') && TIX_App_Scope::multi() && !TIX_App_Scope::is_admin()
+            && intval(TIX_App_Scope::organizer_id_for_user()) !== intval($card['organizer_id'])) {
+            wp_send_json_error(['message' => 'Gilt nur bei ' . html_entity_decode(get_the_title(intval($card['organizer_id'])), ENT_QUOTES, 'UTF-8') . '.']);
+        }
 
         $res = self::redeem($gift_code, $amount, 'scan', is_user_logged_in() ? wp_get_current_user()->user_login : 'door');
         if (!$res['ok']) wp_send_json_error(['message' => $res['message'], 'balance' => $res['balance']]);

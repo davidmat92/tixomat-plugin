@@ -9,9 +9,10 @@
  * Es werden nur Metadaten gespeichert (Titel, Artist, Cover-URL, Deezer-ID).
  *
  * REST (tixomat/v1):
- *   GET  /music/status                       öffentlich: aktiv?, läuft gerade ein Event?, nächstes Event
+ *   GET  /music/status[?event_id=]           öffentlich: aktiv?, läuft gerade ein Event?, nächstes Event
+ *                                            (mit event_id: nur dieses Event – Modul „music“ des Veranstalters, eigenes Zeitfenster)
  *   GET  /music/search?q=                    öffentlich: Songs (lokal + Deezer)
- *   POST /music/requests                     öffentlich (Token optional): Wunsch senden
+ *   POST /music/requests                     öffentlich (Token optional): Wunsch senden (optional event_id)
  *   GET  /music/requests/mine?ids=&device=   öffentlich: Status der eigenen Wünsche
  *   GET  /music/dj/requests?event_id=        DJ-Key (?key=) oder Veranstalter-Login
  *   POST /music/dj/requests/{id}/status      DJ-Key oder Veranstalter-Login
@@ -547,8 +548,45 @@ class TIX_Music {
         return new WP_Error('rest_forbidden', 'DJ-Link oder Veranstalter-Login erforderlich.', ['status' => 401]);
     }
 
-    private static function status_payload() {
+    /**
+     * Wünsche für ein bestimmtes Event (evendis-App, Paket 3a): Seite erlaubt Musikwünsche und – im
+     * Mehr-Veranstalter-Modus – das Modul „music“ des Veranstalters ist an. Zeitfenster wie event_window().
+     * @return array|null {id, window, enabled, open} oder null, wenn es das Event nicht gibt
+     */
+    public static function event_state($event_id) {
+        $event_id = intval($event_id);
+        if (!$event_id || get_post_type($event_id) !== 'event' || get_post_status($event_id) !== 'publish') return null;
+        $w = self::event_window($event_id);
+        if (!$w) return null;
+        $enabled = self::enabled() && get_post_meta($event_id, '_tix_status', true) !== 'cancelled';
+        if ($enabled && class_exists('TIX_App_Scope') && TIX_App_Scope::multi()) {
+            $oid = intval(get_post_meta($event_id, '_tix_organizer_id', true));
+            $mods = ($oid && class_exists('TIX_Public_Platform')) ? TIX_Public_Platform::modules($oid) : [];
+            $enabled = !empty($mods['music']);
+        }
+        $now = self::now();
+        return ['id' => $event_id, 'window' => $w, 'enabled' => $enabled, 'open' => $enabled && $now >= $w['opens'] && $now <= $w['closes']];
+    }
+
+    private static function status_payload($event_id = 0) {
         $s   = self::settings();
+        if ($event_id) {
+            $st = self::event_state($event_id);
+            return [
+                'ok'      => true,
+                'enabled' => $st ? $st['enabled'] : false,
+                'open'    => $st ? $st['open'] : false,
+                'event'   => $st ? self::event_payload($st['id'], $st['window']) : null,
+                // Noch nicht offen → dieses Event als „nächstes“ (Hinweis „Wünsche ab …“)
+                'next'    => ($st && $st['enabled'] && !$st['open'] && $st['window']['opens'] > self::now()) ? self::event_payload($st['id'], $st['window']) : null,
+                'now'     => gmdate('Y-m-d H:i', self::now()),
+                'limits'  => [
+                    'max_per_night'    => intval($s['max_per_night']),
+                    'min_interval_min' => intval($s['min_interval_min']),
+                    'before_min'       => intval($s['before_min']),
+                ],
+            ];
+        }
         $cur = self::current_event();
         $nxt = $cur ? null : self::next_event();
         return [
@@ -568,7 +606,7 @@ class TIX_Music {
 
     /** GET /music/status */
     public static function rest_status(WP_REST_Request $req) {
-        return rest_ensure_response(self::status_payload());
+        return rest_ensure_response(self::status_payload(absint($req->get_param('event_id'))));
     }
 
     /** GET /music/search?q= */
@@ -606,7 +644,21 @@ class TIX_Music {
             return self::error('tix_rate_limit', 'Zu viele Wünsche von diesem Gerät. Bitte später erneut.', 429);
         }
         $s   = self::settings();
-        $cur = self::current_event();
+        $want = absint($req->get_param('event_id'));
+        if ($want) {
+            // Wunsch für ein bestimmtes Event (Modul des Veranstalters + Zeitfenster dieses Events)
+            $st = self::event_state($want);
+            if (!$st) return self::error('tix_music_event', 'Event nicht gefunden.', 404, ['field' => 'event_id']);
+            if (!$st['enabled']) return self::error('tix_music_off', 'Für dieses Event gibt es keine Musikwünsche.', 404);
+            if (!$st['open']) {
+                return self::error('tix_music_closed', 'Musikwünsche gibt es nur während der Party.', 409, [
+                    'next' => $st['window']['opens'] > self::now() ? self::event_payload($st['id'], $st['window']) : null,
+                ]);
+            }
+            $cur = ['id' => $st['id'], 'window' => $st['window']];
+        } else {
+            $cur = self::current_event();
+        }
         if (!$cur) {
             $nxt = self::next_event();
             return self::error('tix_music_closed', 'Musikwünsche gibt es nur während einer laufenden Party.', 409, [

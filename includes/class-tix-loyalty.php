@@ -23,6 +23,8 @@ if (!defined('ABSPATH')) exit;
  * Punkte/Verlauf/Stempel je Veranstalter (User-Meta mit Endung `_o{ID}`).
  * Personal stempelt nur für den eigenen Veranstalter, Gäste fragen ihren
  * Stand mit `?organizer=ID` ab. Ohne Modus bleibt alles wie oben.
+ * `GET /loyalty/cards` (Token): alle Stempelkarten des Gasts auf einmal (je Veranstalter mit aktivem Programm;
+ * ohne Modus eine Karte für die Seite).
  */
 class TIX_Loyalty {
     const NS = 'tixomat/v1';
@@ -310,6 +312,36 @@ class TIX_Loyalty {
         ]);
     }
 
+    /** GET /loyalty/cards – alle Karten des angemeldeten Gasts (Karten mit Punkten zuerst). */
+    public static function rest_cards(WP_REST_Request $req) {
+        $uid = get_current_user_id();
+        if (!$uid) return new WP_Error('not_logged_in', 'Nicht angemeldet.', ['status' => 401]);
+        $multi = class_exists('TIX_App_Scope') && TIX_App_Scope::multi();
+        $orgs = $multi ? array_map('intval', get_posts(['post_type' => 'tix_organizer', 'post_status' => 'publish', 'posts_per_page' => 500, 'fields' => 'ids', 'orderby' => 'title', 'order' => 'ASC'])) : [0];
+        $cards = [];
+        foreach ($orgs as $oid) {
+            if ($oid && class_exists('TIX_Org_Approval') && !TIX_Org_Approval::is_public($oid)) continue;
+            self::$org = $oid;
+            if (!self::enabled()) continue;
+            $log = get_user_meta($uid, self::mk('_tix_loyalty_log'), true);
+            $img = $oid ? intval(get_post_meta($oid, '_tix_org_image_id', true)) : 0;
+            $cards[] = [
+                'organizer_id'     => $oid ?: null,
+                'organizer_name'   => $oid ? html_entity_decode(get_the_title($oid), ENT_QUOTES, 'UTF-8') : wp_specialchars_decode(get_bloginfo('name'), ENT_QUOTES),
+                'organizer_image'  => $img ? (string) wp_get_attachment_image_url($img, 'thumbnail') : '',
+                'points'           => self::points($uid),
+                'stamps_per_visit' => self::stamps_per_visit(),
+                'rewards'          => self::reward_state($uid),
+                'last_activity'    => (is_array($log) && !empty($log[0]['ts'])) ? (string) $log[0]['ts'] : null,
+            ];
+        }
+        self::$org = 0;
+        usort($cards, function ($a, $b) {
+            return ($b['points'] <=> $a['points']) ?: strcasecmp($a['organizer_name'], $b['organizer_name']);
+        });
+        return rest_ensure_response(['ok' => true, 'cards' => $cards]);
+    }
+
     public static function rest_token(WP_REST_Request $req) {
         self::guest_context($req);
         $uid = get_current_user_id();
@@ -441,6 +473,10 @@ class TIX_Loyalty {
         ]);
         register_rest_route(self::NS, '/loyalty/me', [
             'methods' => 'GET', 'callback' => [__CLASS__, 'rest_me'],
+            'permission_callback' => 'is_user_logged_in',
+        ]);
+        register_rest_route(self::NS, '/loyalty/cards', [
+            'methods' => 'GET', 'callback' => [__CLASS__, 'rest_cards'],
             'permission_callback' => 'is_user_logged_in',
         ]);
         register_rest_route(self::NS, '/loyalty/token', [

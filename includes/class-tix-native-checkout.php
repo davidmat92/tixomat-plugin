@@ -670,6 +670,15 @@ class TIX_Native_Checkout {
                 return 'Geschenkgutscheine können nicht mit einem Gutschein bezahlt werden.';
             }
         }
+        // Gutschein eines Veranstalters gilt nur bei dessen Events
+        if ($type === 'giftcard' && !empty($coupon['organizer_id'])) {
+            $gift_org = intval($coupon['organizer_id']);
+            foreach (array_unique($event_ids) as $eid) {
+                if (intval(get_post_meta($eid, '_tix_organizer_id', true)) !== $gift_org) {
+                    return 'Gilt nur bei ' . html_entity_decode(get_the_title($gift_org), ENT_QUOTES, 'UTF-8') . '.';
+                }
+            }
+        }
         // Promoter-Code gilt nur für sein Event
         if (!empty($coupon['is_promoter']) && !empty($coupon['event_id']) && !in_array(intval($coupon['event_id']), $event_ids, true)) {
             return 'Dieser Code gilt nicht für die Tickets in deinem Warenkorb.';

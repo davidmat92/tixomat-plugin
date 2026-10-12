@@ -262,11 +262,18 @@ class TIX_App_Checkout {
     }
 
     /** Geschenkgutschein-Einstellungen (wie [tix_giftcards]) */
-    private static function giftcard_config() {
+    private static function giftcard_config($organizer_id = 0) {
         if (!class_exists('TIX_Giftcards')) return ['enabled' => false];
-        $st = TIX_Giftcards::get_settings();
-        if (empty($st['enabled'])) return ['enabled' => false];
-        $event_id = TIX_Giftcards::system_event_id();
+        if ($organizer_id) {
+            // Je Veranstalter (Modul „giftcards“): eigenes Gutschein-Event, Antwort mit organizer_id
+            $st = TIX_Giftcards::organizer_settings($organizer_id);
+            if (empty($st['enabled'])) return ['enabled' => false];
+            $event_id = TIX_Giftcards::ensure_organizer_event($organizer_id);
+        } else {
+            $st = TIX_Giftcards::get_settings();
+            if (empty($st['enabled'])) return ['enabled' => false];
+            $event_id = TIX_Giftcards::system_event_id();
+        }
         if (!$event_id) return ['enabled' => false];
         $cats = get_post_meta($event_id, '_tix_ticket_categories', true);
         $fixed = [];
@@ -285,12 +292,13 @@ class TIX_App_Checkout {
             'min'            => TIX_Giftcards::MIN_FREE,
             'max'            => TIX_Giftcards::MAX_FREE,
             'validity_years' => intval($st['validity_years']),
-        ];
+        ] + ($organizer_id ? ['organizer_id' => intval($organizer_id)] : []);
     }
 
-    /** GET /giftcards – öffentlich (Kachel nur zeigen, wenn aktiv) */
+    /** GET /giftcards[?organizer=ID] – öffentlich (Kachel nur zeigen, wenn aktiv) */
     public static function giftcards(WP_REST_Request $req) {
-        return rest_ensure_response(['ok' => true] + self::giftcard_config());
+        $oid = (class_exists('TIX_App_Scope') && TIX_App_Scope::multi()) ? absint($req->get_param('organizer')) : 0;
+        return rest_ensure_response(['ok' => true] + self::giftcard_config($oid));
     }
 
     private static function price_for($event_id, $index, array $cat) {

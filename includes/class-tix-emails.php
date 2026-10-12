@@ -110,9 +110,9 @@ class TIX_Emails {
         if (!$order) return $content;
 
         $s       = self::get_settings();
-        $accent  = $s['color_accent']      ?: '#c8ff00';
-        $a_text  = $s['color_accent_text'] ?: '#000000';
-        $radius  = intval($s['radius_general'] ?: 8);
+        $accent  = ($s['color_accent'] ?? '')      ?: '#c8ff00';
+        $a_text  = ($s['color_accent_text'] ?? '') ?: '#000000';
+        $radius  = intval(($s['radius_general'] ?? '') ?: 8);
         $extra   = '';
 
         // Customer Note
@@ -186,12 +186,12 @@ class TIX_Emails {
     public static function build_email_html($type, $order, $heading = '', $extra_content = '') {
         $s = self::get_settings();
 
-        $accent      = $s['color_accent']      ?: '#c8ff00';
-        $accent_text = $s['color_accent_text'] ?: '#000000';
-        $border      = $s['color_border']       ?: '#333333';
-        $radius      = intval($s['radius_general'] ?: 8);
-        $brand_name  = $s['email_brand_name']  ?: get_bloginfo('name');
-        $logo_url    = $s['email_logo_url']    ?: '';
+        $accent      = ($s['color_accent'] ?? '')      ?: '#c8ff00';
+        $accent_text = ($s['color_accent_text'] ?? '') ?: '#000000';
+        $border      = ($s['color_border'] ?? '')       ?: '#333333';
+        $radius      = intval(($s['radius_general'] ?? '') ?: 8);
+        $brand_name  = ($s['email_brand_name'] ?? '')  ?: get_bloginfo('name');
+        $logo_url    = ($s['email_logo_url'] ?? '')    ?: '';
         $logo_height = intval($s['email_logo_height'] ?? 40) ?: 40;
         $footer_text = $s['email_footer_text'] ?: '';
 
@@ -278,7 +278,7 @@ class TIX_Emails {
         // CTA für Meine Tickets
         if (in_array($type, ['order_confirmation', 'order_complete'])) {
             $s = tix_get_settings();
-            $my_tickets_url = home_url('/' . ($s['my_tickets_slug'] ?: 'tickets') . '/');
+            $my_tickets_url = home_url('/' . (($s['my_tickets_slug'] ?? '') ?: 'tickets') . '/');
             $cta_html = '
             <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 24px 0 0;">
                 <tr>
@@ -467,11 +467,11 @@ class TIX_Emails {
     public static function build_generic_email_html($heading, $body_html, $subtitle = '', $footer_note = '') {
         $s = self::get_settings();
 
-        $accent      = $s['color_accent']      ?: '#c8ff00';
-        $accent_text = $s['color_accent_text'] ?: '#000000';
-        $radius      = intval($s['radius_general'] ?: 8);
-        $brand_name  = $s['email_brand_name']  ?: get_bloginfo('name');
-        $logo_url    = $s['email_logo_url']    ?: '';
+        $accent      = ($s['color_accent'] ?? '')      ?: '#c8ff00';
+        $accent_text = ($s['color_accent_text'] ?? '') ?: '#000000';
+        $radius      = intval(($s['radius_general'] ?? '') ?: 8);
+        $brand_name  = ($s['email_brand_name'] ?? '')  ?: get_bloginfo('name');
+        $logo_url    = ($s['email_logo_url'] ?? '')    ?: '';
         $logo_height = intval($s['email_logo_height'] ?? 40) ?: 40;
         $footer_text = $footer_note ?: ($s['email_footer_text'] ?: '');
 
@@ -580,9 +580,9 @@ class TIX_Emails {
      */
     private static function wrap_wc_account_email($email, $type, $heading) {
         $s       = self::get_settings();
-        $accent  = $s['color_accent']      ?: '#c8ff00';
-        $a_text  = $s['color_accent_text'] ?: '#000000';
-        $radius  = intval($s['radius_general'] ?: 8);
+        $accent  = ($s['color_accent'] ?? '')      ?: '#c8ff00';
+        $a_text  = ($s['color_accent_text'] ?? '') ?: '#000000';
+        $radius  = intval(($s['radius_general'] ?? '') ?: 8);
 
         $user = isset($email->object) && $email->object instanceof \WP_User ? $email->object : null;
         $login = $user ? $user->user_login : (isset($email->user_login) ? $email->user_login : '');
@@ -669,9 +669,9 @@ class TIX_Emails {
         $reset_url = network_site_url("wp-login.php?action=rp&key=$key&login=" . rawurlencode($user_login), 'login');
 
         $s       = self::get_settings();
-        $accent  = $s['color_accent']      ?: '#c8ff00';
-        $a_text  = $s['color_accent_text'] ?: '#000000';
-        $radius  = intval($s['radius_general'] ?: 8);
+        $accent  = ($s['color_accent'] ?? '')      ?: '#c8ff00';
+        $a_text  = ($s['color_accent_text'] ?? '') ?: '#000000';
+        $radius  = intval(($s['radius_general'] ?? '') ?: 8);
 
         $body = '
         <p style="margin: 0 0 14px; font-size: 14px;">Jemand hat f&uuml;r den folgenden Account ein neues Passwort angefordert:</p>
@@ -697,9 +697,9 @@ class TIX_Emails {
      */
     public static function wrap_new_user_email($email, $user, $blogname) {
         $s       = self::get_settings();
-        $accent  = $s['color_accent']      ?: '#c8ff00';
-        $a_text  = $s['color_accent_text'] ?: '#000000';
-        $radius  = intval($s['radius_general'] ?: 8);
+        $accent  = ($s['color_accent'] ?? '')      ?: '#c8ff00';
+        $a_text  = ($s['color_accent_text'] ?? '') ?: '#000000';
+        $radius  = intval(($s['radius_general'] ?? '') ?: 8);
 
         // Set-Password URL aus der Original-Nachricht extrahieren
         $set_pw_url = '';
@@ -1311,12 +1311,12 @@ class TIX_Emails {
         if (!in_array($order->get_status(), ['completed', 'processing'])) return;
 
         $s = self::get_settings();
-        $accent      = $s['color_accent']      ?: '#c8ff00';
-        $accent_text = $s['color_accent_text'] ?: '#000000';
+        $accent      = ($s['color_accent'] ?? '')      ?: '#c8ff00';
+        $accent_text = ($s['color_accent_text'] ?? '') ?: '#000000';
         $text_color  = '#1a1a1a';
         $muted       = '#6b7280';
         $divider     = '#e5e7eb';
-        $radius      = intval($s['radius_general'] ?: 8);
+        $radius      = intval(($s['radius_general'] ?? '') ?: 8);
         // E-Mail-spezifische Button-Farben (mit Fallback auf Accent)
         $btn_bg      = !empty($s['email_btn_bg'])   ? $s['email_btn_bg']   : $accent;
         $btn_text    = !empty($s['email_btn_text']) ? $s['email_btn_text'] : $accent_text;
@@ -1354,12 +1354,12 @@ class TIX_Emails {
         if (!in_array($order->get_status(), ['completed', 'processing'])) return;
 
         $s = self::get_settings();
-        $accent      = $s['color_accent']      ?: '#c8ff00';
-        $accent_text = $s['color_accent_text'] ?: '#000000';
+        $accent      = ($s['color_accent'] ?? '')      ?: '#c8ff00';
+        $accent_text = ($s['color_accent_text'] ?? '') ?: '#000000';
         $text_color  = '#1a1a1a';
         $muted       = '#6b7280';
-        $radius      = intval($s['radius_general'] ?: 8);
-        $brand_name  = $s['email_brand_name']  ?: get_bloginfo('name');
+        $radius      = intval(($s['radius_general'] ?? '') ?: 8);
+        $brand_name  = ($s['email_brand_name'] ?? '')  ?: get_bloginfo('name');
         $followup_url = $s['email_followup_url'] ?: '';
 
         $extra = '
@@ -1640,12 +1640,12 @@ class TIX_Emails {
         if (!$guest || empty($guest['email'])) return false;
 
         $s = self::get_settings();
-        $accent      = $s['color_accent']      ?: '#c8ff00';
-        $accent_text = $s['color_accent_text'] ?: '#000000';
-        $border      = $s['color_border']       ?: '#333333';
-        $radius      = intval($s['radius_general'] ?: 8);
-        $brand_name  = $s['email_brand_name']  ?: get_bloginfo('name');
-        $logo_url    = $s['email_logo_url']    ?: '';
+        $accent      = ($s['color_accent'] ?? '')      ?: '#c8ff00';
+        $accent_text = ($s['color_accent_text'] ?? '') ?: '#000000';
+        $border      = ($s['color_border'] ?? '')       ?: '#333333';
+        $radius      = intval(($s['radius_general'] ?? '') ?: 8);
+        $brand_name  = ($s['email_brand_name'] ?? '')  ?: get_bloginfo('name');
+        $logo_url    = ($s['email_logo_url'] ?? '')    ?: '';
         $footer_text = $s['email_footer_text'] ?: '';
 
         // Event-Daten
@@ -1795,9 +1795,9 @@ class TIX_Emails {
         }
 
         $s = self::get_settings();
-        $accent      = $s['color_accent']      ?: '#c8ff00';
-        $accent_text = $s['color_accent_text'] ?: '#000000';
-        $radius      = intval($s['radius_general'] ?: 8);
+        $accent      = ($s['color_accent'] ?? '')      ?: '#c8ff00';
+        $accent_text = ($s['color_accent_text'] ?? '') ?: '#000000';
+        $radius      = intval(($s['radius_general'] ?? '') ?: 8);
 
         // CTA-Button
         $cta_html = '<div style="text-align: center; margin: 24px 0;">
