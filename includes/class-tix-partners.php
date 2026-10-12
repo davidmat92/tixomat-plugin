@@ -76,6 +76,10 @@ class TIX_Partners {
             'auto'          => 0,   // über „Mit Plattform verbinden“ gekoppelt
             'connected'     => '',
             'pending'       => 0,   // gekoppelt, wartet auf Freigabe des Verkaufs
+            // Gebühr im evendis-Kanal (TIX_Channel_Fee): Bestand ohne Feld = aus; Satz leer = Vorgabe
+            'channel_fee'         => 0,
+            'channel_fee_percent' => '',
+            'channel_fee_fixed'   => '',
         ];
     }
 
@@ -252,6 +256,10 @@ class TIX_Partners {
             'auto'          => 1,
             'connected'     => current_time('mysql'),
             'pending'       => $existing ? intval($existing['pending'] ?? 0) : 1,
+            // Neukunden: Gebühr im Kanal nach Vorgabe; bekannte Partner behalten ihren Stand
+            'channel_fee'         => $existing ? intval($existing['channel_fee'] ?? 0) : ((class_exists('TIX_Channel_Fee') && TIX_Channel_Fee::settings()['new_partners']) ? 1 : 0),
+            'channel_fee_percent' => $existing ? (string) ($existing['channel_fee_percent'] ?? '') : '',
+            'channel_fee_fixed'   => $existing ? (string) ($existing['channel_fee_fixed'] ?? '') : '',
         ];
         update_option(self::OPTION, $all, false);
         if (class_exists('TIX_Public_Events')) TIX_Public_Events::flush();
@@ -514,6 +522,14 @@ class TIX_Partners {
                             <p class="description">Geteilte Events dieser Quelle werden diesem Veranstalter zugeordnet.</p></td></tr>
                         <tr><th>Verkauf über diese Seite</th><td>
                             <label><input type="checkbox" name="sales_enabled" value="1" <?php checked(!empty($p['sales_enabled'])); ?>> Tickets für geteilte Events dieser Quelle in der App verkaufen (Zahlung beim Veranstalter)</label></td></tr>
+                        <?php $cfs = class_exists('TIX_Channel_Fee') ? TIX_Channel_Fee::settings() : ['percent' => 2.5, 'fixed' => 0.59]; ?>
+                        <tr><th>Gebühr im evendis-Kanal</th><td>
+                            <label><input type="checkbox" name="channel_fee" value="1" <?php checked(!empty($p['channel_fee'])); ?>> Gebühr für Verkäufe über die App/Website berechnen</label>
+                            <div style="margin-top:6px;">
+                                <input type="number" name="channel_fee_percent" step="0.01" min="0" max="20" style="width:80px;" value="<?php echo esc_attr((string) ($p['channel_fee_percent'] ?? '')); ?>" placeholder="<?php echo esc_attr($cfs['percent']); ?>"> % +
+                                <input type="number" name="channel_fee_fixed" step="0.01" min="0" max="5" style="width:80px;" value="<?php echo esc_attr((string) ($p['channel_fee_fixed'] ?? '')); ?>" placeholder="<?php echo esc_attr($cfs['fixed']); ?>"> € je Ticket
+                            </div>
+                            <p class="description">Leer = Vorgabe unter Tixomat → Kanal-Gebühren. Wer sie trägt, wählt die Quelle (Gäste, halb-halb oder Veranstalter). Abrechnung per Monatsrechnung. Bestandspartner (KitchenKlub, Mallorca): aus.</p></td></tr>
                         <tr><th><label for="tpterms">AGB des Veranstalters</label></th><td>
                             <input id="tpterms" name="terms_url" type="url" class="regular-text" style="width:100%;" value="<?php echo esc_attr($p['terms_url']); ?>" placeholder="https://kitchenklub.de/agb">
                             <p class="description">Optional; sonst wird der AGB-Link aus dem Angebot der Quelle genutzt.</p></td></tr>
@@ -602,6 +618,9 @@ class TIX_Partners {
             'sales_enabled' => !empty($_POST['sales_enabled']) ? 1 : 0,
             'terms_url'     => esc_url_raw(trim(wp_unslash($_POST['terms_url'] ?? ''))),
             'created'       => $old['created'] ?? current_time('mysql'),
+            'channel_fee'         => !empty($_POST['channel_fee']) ? 1 : 0,
+            'channel_fee_percent' => ($_POST['channel_fee_percent'] ?? '') === '' ? '' : (string) max(0, min(20, round(floatval(str_replace(',', '.', (string) $_POST['channel_fee_percent'])), 4))),
+            'channel_fee_fixed'   => ($_POST['channel_fee_fixed'] ?? '') === '' ? '' : (string) max(0, min(5, round(floatval(str_replace(',', '.', (string) $_POST['channel_fee_fixed'])), 2))),
         ];
         if (!empty($old['auto'])) {
             $all[$id]['auto'] = 1;

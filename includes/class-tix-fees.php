@@ -174,6 +174,9 @@ class TIX_Fees {
         if (!in_array($config['fee_mode'], self::MODES, true)) $config['fee_mode'] = 'organizer';
         $config['fee_split_share'] = self::split_share($s);
 
+        // Partner-Anfrage mit Gebühr im evendis-Kanal: ersetzt die eigene Gebühr der Quelle (TIX_Channel_Fee)
+        if (class_exists('TIX_Channel_Fee') && TIX_Channel_Fee::current()) return TIX_Channel_Fee::override($config);
+
         // Mehr-Veranstalter-Modus (evendis): zentrale Gebühr; eigene Höhe je Veranstalter nur durch
         // Plattform-Admins (`_tix_fee_custom`), „wer trägt sie“ wählt der Veranstalter selbst (`_tix_fee_override`).
         if ($organizer_id && self::multi()) {

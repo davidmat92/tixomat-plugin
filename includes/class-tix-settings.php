@@ -571,6 +571,7 @@ class TIX_Settings {
             'partner_autoconnect'         => 1, // Plattform: Tixomat-Seiten dürfen sich koppeln (Verkauf erst nach Freigabe)
             // Partner-API (Quelle): Verkauf geteilter Events über die Plattform
             'partner_api_enabled'         => 0,
+            'channel_fee_mode'            => 'customer', // Gebühr im evendis-Kanal: customer | split | organizer (wer trägt sie)
             'partner_api_key'             => '',
             // ── Mein-Konto Styling ──
             'myaccount_restyle'  => 0,
@@ -1389,6 +1390,7 @@ class TIX_Settings {
         $clean['syndication_shared_key_enabled'] = !empty($input['syndication_shared_key_enabled']) ? 1 : 0;
         $clean['partner_autoconnect']        = !empty($input['partner_autoconnect']) ? 1 : 0;
         $clean['partner_api_enabled']        = !empty($input['partner_api_enabled']) ? 1 : 0;
+        $clean['channel_fee_mode']           = in_array($input['channel_fee_mode'] ?? '', ['customer', 'split', 'organizer'], true) ? $input['channel_fee_mode'] : (string) (get_option(self::OPTION_KEY, [])['channel_fee_mode'] ?? 'customer');
         $clean['partner_api_key']            = sanitize_text_field($input['partner_api_key'] ?? '');
 
         // Event-Karten
@@ -7540,6 +7542,16 @@ class TIX_Settings {
                                                 <?php self::checkbox_row('partner_api_enabled', 'Verkauf über die Plattform erlauben', $s, 'Schaltet die Partner-API frei (Angebot, Bestellung, Status für die Plattform).'); ?>
                                             </div>
                                             <?php self::text_row('partner_api_key', 'Partner-Schlüssel (von der Plattform)', $s, 'tix_pout_...'); ?>
+                                            <div class="tix-field">
+                                                <label class="tix-field-label">Gebühr der Plattform (evendis-Kanal)</label>
+                                                <?php $cfm = (string) ($s['channel_fee_mode'] ?? 'customer'); ?>
+                                                <select name="tix_settings[channel_fee_mode]" style="width:280px;">
+                                                    <option value="customer" <?php selected($cfm, 'customer'); ?>>Gäste zahlen (wird aufgeschlagen)</option>
+                                                    <option value="split" <?php selected($cfm, 'split'); ?>>Halb-halb</option>
+                                                    <option value="organizer" <?php selected($cfm, 'organizer'); ?>>Ich trage sie (Gäste zahlen den Ticketpreis)</option>
+                                                </select>
+                                                <p class="tix-field-hint" style="color:#9ca3af;font-size:12px;margin:4px 0 0;">Nur für Verkäufe über die App/Website der Plattform, wenn die Plattform eine Gebühr vereinbart hat. Verkäufe in deinem eigenen Shop sind nicht betroffen. Die Plattform rechnet die Gebühr monatlich ab.</p>
+                                            </div>
                                             <div class="tix-field tix-field-full" style="border-top:1px solid #e5e7eb;padding-top:12px;margin-top:4px;">
                                                 <label class="tix-field-label">Mit Plattform verbinden</label>
                                                 <?php

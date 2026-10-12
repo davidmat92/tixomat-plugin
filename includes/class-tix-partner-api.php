@@ -144,6 +144,7 @@ class TIX_Partner_API {
             'ref'     => (string) TIX_App_Checkout::$partner['ref'],
             'created' => time(),
         ], false);
+        if (class_exists('TIX_Channel_Fee')) TIX_Channel_Fee::record($order_id);
     }
 
     private static function order_row($order_id) {
@@ -204,6 +205,8 @@ class TIX_Partner_API {
             ],
             'partner_ref' => $m ? (string) $m['ref'] : '',
             'tickets'     => $tickets,
+            // Gebühr im evendis-Kanal (null = keine) – Grundlage der Monatsrechnung der Plattform
+            'channel_fee' => class_exists('TIX_Channel_Fee') ? TIX_Channel_Fee::for_order($order_id) : null,
         ];
     }
 
@@ -233,6 +236,7 @@ class TIX_Partner_API {
         $event_id = self::check_event($req->get_param('event_id'));
         if (is_wp_error($event_id)) return $event_id;
         TIX_App_Checkout::$partner = ['id' => TIX_Partners::source_platform_id(), 'ref' => ''];
+        if (class_exists('TIX_Channel_Fee')) TIX_Channel_Fee::begin($req);
         try {
             $data = self::data(TIX_App_Checkout::quote(self::sub_request('/customer/cart/quote', [
                 'event_id' => $event_id,
@@ -241,6 +245,7 @@ class TIX_Partner_API {
             ])));
         } finally {
             TIX_App_Checkout::$partner = null;
+            if (class_exists('TIX_Channel_Fee')) TIX_Channel_Fee::end();
         }
         if (is_wp_error($data)) return $data;
         $data['legal'] = self::legal();
@@ -258,6 +263,7 @@ class TIX_Partner_API {
             return new WP_Error('tix_partner_request', 'partner_ref, idempotency_token und billing.email sind Pflicht.', ['status' => 400]);
         }
         TIX_App_Checkout::$partner = ['id' => TIX_Partners::source_platform_id(), 'ref' => $ref];
+        if (class_exists('TIX_Channel_Fee')) TIX_Channel_Fee::begin($req);
         try {
             $data = self::data(TIX_App_Checkout::create(self::sub_request('/customer/orders', [
                 'event_id'          => $event_id,
@@ -270,6 +276,7 @@ class TIX_Partner_API {
             ])));
         } finally {
             TIX_App_Checkout::$partner = null;
+            if (class_exists('TIX_Channel_Fee')) TIX_Channel_Fee::end();
         }
         if (is_wp_error($data)) return $data;
         $order_id = intval($data['order']['id'] ?? 0);

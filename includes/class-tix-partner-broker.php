@@ -24,7 +24,7 @@ class TIX_Partner_Broker {
 
     const NS         = 'tixomat/v1';
     const TABLE      = 'tix_partner_orders';
-    const DB_VERSION = '1';
+    const DB_VERSION = '2'; // 2: Gebühr im evendis-Kanal (channel_fee, paid_at, channel_invoice_id, channel_credit_id)
     const ID_START   = 800000001;
     const PAID       = ['completed', 'processing'];
     const FINAL      = ['completed', 'processing', 'cancelled', 'failed', 'refunded'];
@@ -89,6 +89,10 @@ class TIX_Partner_Broker {
             created datetime NOT NULL DEFAULT '0000-00-00 00:00:00',
             updated datetime NOT NULL DEFAULT '0000-00-00 00:00:00',
             synced datetime NOT NULL DEFAULT '0000-00-00 00:00:00',
+            channel_fee decimal(10,2) NOT NULL DEFAULT 0,
+            paid_at datetime NULL,
+            channel_invoice_id bigint(20) unsigned NOT NULL DEFAULT 0,
+            channel_credit_id bigint(20) unsigned NOT NULL DEFAULT 0,
             PRIMARY KEY  (id),
             KEY partner_source (partner, source_order_id),
             KEY billing_email (billing_email),
@@ -184,11 +188,13 @@ class TIX_Partner_Broker {
     /** POST /customer/cart/quote für ein geteiltes Event – Antwort im Format der App-Kasse. */
     public static function quote(array $p, $event_id, WP_REST_Request $req, $user) {
         $items = $req->get_param('items');
-        $data = self::call($p, 'POST', '/partner/quote', [
+        $data = self::call($p, 'POST', '/partner/quote', array_filter([
             'event_id' => intval(get_post_meta($event_id, '_tix_source_id', true)),
             'items'    => is_array($items) ? $items : [],
             'coupon'   => (string) ($req->get_param('coupon') ?? ''),
-        ]);
+            // Gebühr im evendis-Kanal (nur wenn für den Partner an) – die Quelle rechnet sie ins Angebot
+            'channel_fee' => class_exists('TIX_Channel_Fee') ? TIX_Channel_Fee::for_partner($p) : null,
+        ], function ($v) { return $v !== null; }));
         if (is_wp_error($data)) return $data;
         $legal = isset($data['legal']) && is_array($data['legal']) ? $data['legal'] : [];
         unset($data['legal']);
@@ -249,6 +255,7 @@ class TIX_Partner_Broker {
             'payment_method'    => sanitize_text_field((string) ($req->get_param('payment_method') ?? '')),
             'idempotency_token' => 'p' . $idem,
             'partner_ref'       => (string) $id,
+            'channel_fee'       => class_exists('TIX_Channel_Fee') ? TIX_Channel_Fee::for_partner($p) : null,
         ]);
         if (is_wp_error($data) || empty($data['order']['id'])) {
             $wpdb->delete(self::table(), ['id' => $id]);
@@ -269,7 +276,11 @@ class TIX_Partner_Broker {
         if (!$row || empty($snap['order']) || intval($snap['order']['id']) !== intval($row->source_order_id)) return;
         $o = $snap['order'];
         $status = sanitize_key((string) ($o['status'] ?? $row->status));
-        self::update_row($row->id, [
+        $extra = [];
+        // Gebühr im evendis-Kanal laut Quelle; Zahlungszeitpunkt für die Monatsrechnung
+        if (array_key_exists('channel_fee', $snap)) $extra['channel_fee'] = is_array($snap['channel_fee']) ? round(max(0, floatval($snap['channel_fee']['fee'] ?? 0)), 2) : 0;
+        if (in_array($status, self::PAID, true) && empty($row->paid_at)) $extra['paid_at'] = current_time('mysql');
+        self::update_row($row->id, $extra + [
             'status'               => $status,
             'total'                => round(floatval($o['total'] ?? 0), 2),
             'payment_method'       => sanitize_text_field((string) ($o['payment_method'] ?? '')),

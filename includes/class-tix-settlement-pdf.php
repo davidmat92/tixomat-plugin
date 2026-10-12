@@ -334,4 +334,68 @@ class TIX_Settlement_PDF {
         $pdf->set_footer(self::footer_text());
         return $pdf->output();
     }
+
+    // ──────────────────────────────────────────
+    //  Monatsrechnung Gebühr im evendis-Kanal (TIX_Channel_Invoice)
+    // ──────────────────────────────────────────
+
+    /** PDF-Bytes der Kanal-Rechnung ($inv: Zeile aus tix_channel_invoices). */
+    public static function channel_invoice($inv) {
+        $lines = json_decode((string) $inv->items, true);
+        $lines = is_array($lines) ? $lines : [];
+        $total = round(floatval($inv->amount), 2);
+        $rate  = floatval(TIX_Settlement::opt('settlement_fee_vat_rate'));
+        $net   = round($total / (1 + $rate / 100), 2);
+        $vat   = round($total - $net, 2);
+        $credit = $total < 0;
+        $ym = (string) $inv->period;
+        $month = date_i18n('F Y', strtotime($ym . '-01'));
+
+        $pdf = new TIX_Simple_PDF(self::W, self::H, self::M, 40);
+        $pdf->add_page();
+        $y = self::head($pdf, $inv, ($credit ? 'Gutschrift ' : 'Rechnung ') . $inv->number, [
+            ($credit ? 'Gutschriftnr.' : 'Rechnungsnr.') => $inv->number,
+            'Datum'     => mysql2date('d.m.Y', $inv->created),
+            'Leistung'  => $month,
+            'Fällig'    => (!$credit && $inv->due_date) ? mysql2date('d.m.Y', $inv->due_date) : '',
+        ]);
+        $y = self::paragraph($pdf, $y, 'Gebühr für Ticketverkäufe deiner geteilten Events über die App und Website der Plattform (evendis-Kanal).', 9);
+        $y -= 8;
+        $pdf->set_font('Helvetica-Bold', 8);
+        $pdf->set_color(0.4, 0.4, 0.4);
+        $pdf->text(self::M, $y, 'Datum');
+        $pdf->text(self::M + 60, $y, 'Bestellung');
+        $pdf->text(self::M + 150, $y, 'Event');
+        self::rtext($pdf, self::W - self::M, $y, 'Gebühr', 8);
+        $pdf->set_color(0, 0, 0);
+        $y -= 13;
+        foreach ($lines as $ln) {
+            if ($y < 140) { $pdf->set_footer(self::footer_text()); $pdf->add_page(); $y = self::H - self::M - 30; }
+            $amount = floatval($ln['fee'] ?? 0) * (($ln['type'] ?? '') === 'credit' ? -1 : 1);
+            $pdf->set_font('Helvetica', 8);
+            $pdf->text(self::M, $y, (string) ($ln['date'] ?? ''));
+            $pdf->text(self::M + 60, $y, mb_substr((string) ($ln['order'] ?? ''), 0, 16));
+            $label = (($ln['type'] ?? '') === 'credit' ? 'Gutschrift (Storno/Erstattung): ' : '') . (string) ($ln['event'] ?? '');
+            $pdf->text(self::M + 150, $y, mb_substr($label, 0, 62));
+            self::rtext($pdf, self::W - self::M, $y, self::eur($amount), 8);
+            $y -= 12;
+        }
+        self::line($pdf, $y + 4);
+        $y -= 10;
+        $y = self::row($pdf, $y, 'Nettobetrag', self::eur($net));
+        $y = self::row($pdf, $y, sprintf('Umsatzsteuer %s %%', rtrim(rtrim(number_format($rate, 1, ',', ''), '0'), ',')), self::eur($vat));
+        $y = self::row($pdf, $y, $credit ? 'Gutschriftbetrag' : 'Rechnungsbetrag', self::eur($total), true);
+        $y -= 12;
+        if ($credit) {
+            $text = 'Der Betrag wird mit der nächsten Rechnung verrechnet bzw. auf Wunsch überwiesen.';
+        } elseif (($inv->payment ?? 'sepa') === 'sepa') {
+            $text = 'Wir ziehen den Rechnungsbetrag zum Fälligkeitsdatum per SEPA-Lastschrift von deinem hinterlegten Konto ein (Mandat laut Vereinbarung).';
+        } else {
+            $iban = (string) TIX_Settlement::opt('settlement_debtor_iban');
+            $text = 'Bitte überweise den Rechnungsbetrag bis zum Fälligkeitsdatum' . ($iban !== '' ? ' auf ' . trim(chunk_split($iban, 4, ' ')) : '') . ' mit dem Verwendungszweck ' . $inv->number . '.';
+        }
+        self::paragraph($pdf, $y, $text);
+        $pdf->set_footer(self::footer_text());
+        return $pdf->output();
+    }
 }

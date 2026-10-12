@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.38.401
+ * Version: 1.38.402
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  * Update URI: https://veranstalter.evendis.de/tixomat
@@ -10,7 +10,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.38.401');
+define('TIXOMAT_VERSION', '1.38.402');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -628,6 +628,10 @@ TIX_Price_Watch::init();
 // CSV-Exporte für Veranstalter (App: GET /organizer/export, Web: Bestellungen → „Als CSV exportieren“)
 require_once TIXOMAT_PATH . 'includes/class-tix-export.php';
 TIX_Export::init();
+// Gebühr im evendis-Kanal (Quelle + Plattform) und Monatsrechnung (Plattform)
+require_once TIXOMAT_PATH . 'includes/class-tix-channel-fee.php';
+require_once TIXOMAT_PATH . 'includes/class-tix-channel-invoice.php';
+TIX_Channel_Invoice::init();
 // Gebühren-Vorgabe für neu angelegte Veranstalter (Admin, Registrierung, REST – daher nicht in TIX_Fees::init)
 add_action('wp_insert_post', ['TIX_Fees', 'default_mode_for_new_organizer'], 10, 3);
 TIX_Payout_Details::init();
