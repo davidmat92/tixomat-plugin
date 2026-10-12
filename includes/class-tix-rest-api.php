@@ -648,6 +648,7 @@ class TIX_REST_API {
             'plugin_version' => defined('TIXOMAT_VERSION') ? TIXOMAT_VERSION : 'unknown',
             'api_version'    => '1.0.0',
             'features'       => $features,
+            'compat'         => class_exists('TIX_App_Compat') ? TIX_App_Compat::info_payload($req) : null,
         ]);
     }
 

@@ -9,3 +9,6 @@ bot/.env.deploy
 bot/__pycache__/
 bot/dp_connect_bot/__pycache__/
 bot/*.db
+
+# Markierung Selbstbetrieb (kommt nur ins Paket vom Lizenz-Server)
+self-hosted.flag
