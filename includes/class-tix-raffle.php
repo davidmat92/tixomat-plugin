@@ -350,6 +350,20 @@ class TIX_Raffle {
     /**
      * Öffentliche Gewinnspiel-Daten für Apps/Vorlagen (ohne E-Mails); null, wenn kein Gewinnspiel.
      */
+    /** Kurzform für Event-Listen: {title, status open|closed|drawn, end_date} oder null (ohne Teilnehmerliste). */
+    public static function list_info($event_id) {
+        if (get_post_meta($event_id, '_tix_raffle_enabled', true) !== '1') return null;
+        $prizes = get_post_meta($event_id, '_tix_raffle_prizes', true);
+        if (!is_array($prizes) || empty($prizes)) return null;
+        self::ensure_table();
+        $end = (string) get_post_meta($event_id, '_tix_raffle_end_date', true);
+        return [
+            'title'    => (string) (get_post_meta($event_id, '_tix_raffle_title', true) ?: 'Gewinnspiel'),
+            'status'   => self::status($event_id),
+            'end_date' => $end !== '' ? wp_date('c', strtotime(get_gmt_from_date(str_replace('T', ' ', $end)) . ' UTC')) : '',
+        ];
+    }
+
     public static function public_info($event_id) {
         if (get_post_meta($event_id, '_tix_raffle_enabled', true) !== '1') return null;
         $prizes = get_post_meta($event_id, '_tix_raffle_prizes', true);

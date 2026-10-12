@@ -47,6 +47,7 @@ class TIX_Public_Platform {
         register_rest_route(self::NS, '/public/organizers/(?P<key>[A-Za-z0-9_-]+)', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_organizer']] + $public);
         register_rest_route(self::NS, '/public/categories', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_categories']] + $public);
         register_rest_route(self::NS, '/public/cities', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_cities']] + $public);
+        register_rest_route(self::NS, '/public/collections', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_collections']] + $public);
 
         $customer = ['permission_callback' => ['TIX_App_Account', 'check_customer']];
         register_rest_route(self::NS, '/customer/favorites', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_favorites_get']] + $customer);
@@ -358,6 +359,12 @@ class TIX_Public_Platform {
             return $d !== 0 ? $d : strcasecmp($a['name'], $b['name']);
         });
         return rest_ensure_response(['ok' => true, 'categories' => $out]);
+    }
+
+    /** GET /public/collections – sichtbare Themen-Sammlungen mit kommenden Events (TIX_Collections). */
+    public static function rest_collections(WP_REST_Request $req) {
+        $list = class_exists('TIX_Collections') ? TIX_Collections::public_list(self::upcoming_payloads()) : [];
+        return rest_ensure_response(['ok' => true, 'collections' => $list]);
     }
 
     /** GET /public/cities – Städte kommender Events. */

@@ -78,7 +78,7 @@ class TIX_SEO_Texts {
         $page = $_GET['page'] ?? '';
         $tax  = $_GET['taxonomy'] ?? '';
         if (!in_array($hook, ['edit-tags.php', 'term.php'], true) && $page !== self::PAGE) return;
-        if (in_array($hook, ['edit-tags.php', 'term.php'], true) && $tax !== 'event_category') return;
+        if (in_array($hook, ['edit-tags.php', 'term.php'], true) && !in_array($tax, ['event_category', 'tix_collection'], true)) return;
         wp_enqueue_media();
         wp_add_inline_script('jquery-core', "jQuery(function($){\n"
             . "$(document).on('click','.tix-seo-pick',function(e){e.preventDefault();var w=$(this).closest('.tix-seo-image'),f=wp.media({title:'Bild wählen',library:{type:'image'},multiple:false});"
@@ -87,7 +87,8 @@ class TIX_SEO_Texts {
             . "});");
     }
 
-    private static function image_field($name, $id) {
+    /** Bildauswahl (Mediathek) für Admin-Formulare – auch TIX_Collections. */
+    public static function image_field($name, $id) {
         $id = intval($id);
         $img = $id ? wp_get_attachment_image_url($id, 'medium') : '';
         ob_start(); ?>

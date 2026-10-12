@@ -213,6 +213,10 @@ class TIX_Public_Events {
         $rec = class_exists('TIX_Recurrence') ? TIX_Recurrence::info($id) : ['recurring' => false, 'parent' => 0];
         $out['recurring']         = $rec['recurring'];
         $out['recurrence_parent'] = $rec['parent'];
+        // Themen-Sammlungen (1.38.395): Slugs, siehe GET /public/collections
+        $out['collections'] = class_exists('TIX_Collections') ? TIX_Collections::event_slugs($id) : [];
+        // Gewinnspiel in der Liste (1.38.395): {title, status, end_date} | null – das Detail liefert die volle Form
+        if (!$detailed) $out['raffle'] = class_exists('TIX_Raffle') ? TIX_Raffle::list_info($id) : null;
         if ($detailed) {
             $out['description'] = self::html($id, '_tix_info_description');
             $out['lineup']      = self::html($id, '_tix_info_lineup');
@@ -390,11 +394,15 @@ class TIX_Public_Events {
         ];
         $geo = self::geo_date_params($req);
         if (is_wp_error($geo)) return $geo;
+        // Themen-Sammlung (?collection=<slug>) und offene Gewinnspiele (?raffle=1), 1.38.395
+        $collection = sanitize_title((string) $req->get_param('collection'));
+        $raffle     = in_array((string) $req->get_param('raffle'), ['1', 'true'], true);
         $cache_extra = '';
         if ($geo['range'] || $geo['near']) {
             // Nur mit den neuen Parametern ändert sich der Schlüssel (alte Antworten bleiben gleich)
             $cache_extra = '|' . wp_json_encode([$geo['range'], $geo['near'], $geo['radius']]);
         }
+        if ($collection !== '' || $raffle) $cache_extra .= '|' . wp_json_encode([$collection, $raffle]);
         $key      = 'tix_pub_events_' . md5($filter . '|' . $per_page . '|' . $page . '|' . wp_json_encode($f) . $cache_extra);
         $cached   = get_transient($key);
         if (is_array($cached)) return rest_ensure_response($cached);
@@ -438,6 +446,8 @@ class TIX_Public_Events {
             $p = self::payload($id, false);
             if (!$p) continue;
             if ($filtering && !TIX_Public_Platform::matches($p, $f)) continue;
+            if ($collection !== '' && !in_array($collection, (array) ($p['collections'] ?? []), true)) continue;
+            if ($raffle && (($p['raffle']['status'] ?? '') !== 'open')) continue;
             if ($dist !== null) $p['distance_km'] = round($dist, 1);
             $matched[] = $p;
         }
