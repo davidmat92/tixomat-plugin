@@ -1882,7 +1882,8 @@ class TIX_CRM {
         header('Content-Disposition: attachment; filename="kunden-' . date('Y-m-d') . '.csv"');
 
         $out = fopen('php://output', 'w');
-        fputcsv($out, ['Vorname', 'Nachname', 'E-Mail', 'Telefon', 'Bestellungen', 'Umsatz', 'Erste Bestellung', 'Letzte Bestellung', 'Quelle', 'Rolle']);
+        fwrite($out, "\xEF\xBB\xBF"); // Excel (deutsch): UTF-8 mit BOM, Semikolon – wie die übrigen Exporte
+        fputcsv($out, ['Vorname', 'Nachname', 'E-Mail', 'Telefon', 'Bestellungen', 'Umsatz', 'Erste Bestellung', 'Letzte Bestellung', 'Quelle', 'Rolle'], ';');
         foreach ($result['rows'] as $r) {
             fputcsv($out, [
                 $r['first_name'],
@@ -1895,7 +1896,7 @@ class TIX_CRM {
                 $r['last_order']  ? date_i18n('Y-m-d', strtotime($r['last_order']))  : '',
                 $r['source'],
                 $r['user_roles'],
-            ]);
+            ], ';');
         }
         fclose($out);
         exit;

@@ -562,7 +562,7 @@ class TIX_REST_API {
         return self::format_event($post, $detailed);
     }
 
-    private static function can_access_event($event_id) {
+    public static function can_access_event($event_id) {
         // Mehr-Veranstalter-Modus: nur Events des eigenen Veranstalters (Admins alle)
         if (class_exists('TIX_App_Scope') && TIX_App_Scope::multi()) {
             return TIX_App_Scope::event_allowed($event_id);

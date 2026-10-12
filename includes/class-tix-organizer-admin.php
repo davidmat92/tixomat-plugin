@@ -66,6 +66,7 @@ class TIX_Organizer_Admin {
         add_action('admin_post_tix_organizer_tickets_csv', [__CLASS__, 'export_tickets_csv']);
         add_action('admin_post_tix_organizer_combined_csv', [__CLASS__, 'export_combined_csv']);
         add_action('admin_post_tix_organizer_billing_csv', [__CLASS__, 'export_billing_csv']);
+        add_action('admin_post_tix_organizer_orders_csv', [__CLASS__, 'export_orders_csv']);
 
         // Bulk E-Mail AJAX
         add_action('wp_ajax_tix_organizer_send_email', [__CLASS__, 'ajax_send_email']);
@@ -373,7 +374,7 @@ class TIX_Organizer_Admin {
         // CSV-Exporte (Gästeliste, Tickets, Gesamt, Abrechnung): Handler prüfen Nonce + eigenes Event selbst
         if ($pagenow === 'admin-post.php' && in_array($_REQUEST['action'] ?? '', [
             'tix_org_payout', 'tix_org_settlement_pdf', 'tix_org_account',
-            'tix_organizer_guestlist_csv', 'tix_organizer_tickets_csv', 'tix_organizer_combined_csv', 'tix_organizer_billing_csv',
+            'tix_organizer_guestlist_csv', 'tix_organizer_tickets_csv', 'tix_organizer_combined_csv', 'tix_organizer_billing_csv', 'tix_organizer_orders_csv',
         ], true)) return;
         $allowed_pages = [
             'index.php', 'edit.php', 'post.php', 'post-new.php',
@@ -515,7 +516,7 @@ class TIX_Organizer_Admin {
      * $args: status[], search, date_from (Y-m-d), date_to (Y-m-d), limit (0 = alle), offset.
      * @return array [int $total, array $rows] – je Zeile ['order' => object, 'items' => object[] (nur diese Events)]
      */
-    private static function event_orders(array $event_ids, array $args = []) {
+    public static function event_orders(array $event_ids, array $args = []) {
         global $wpdb;
         if (!class_exists('TIX_Order')) return [0, []];
         $ids = array_values(array_unique(array_filter(array_map('intval', $event_ids))));
@@ -644,6 +645,24 @@ class TIX_Organizer_Admin {
                                style="padding:7px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:13px;width:200px;">
                     </div>
                     <button type="submit" class="button" style="padding:7px 16px;border-radius:8px;">Filtern</button>
+                </form>
+                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin-left:auto;">
+                    <input type="hidden" name="action" value="tix_organizer_orders_csv">
+                    <input type="hidden" name="event_id" value="<?php echo intval($filter_event); ?>">
+                    <?php wp_nonce_field('tix_orders_csv', '_tix_nonce'); ?>
+                    <div>
+                        <label style="font-size:12px;font-weight:600;color:#64748b;display:block;margin-bottom:4px;">Export von – bis</label>
+                        <input type="date" name="from" style="padding:6px 8px;border:1px solid #d1d5db;border-radius:8px;font-size:13px;">
+                        <input type="date" name="to" style="padding:6px 8px;border:1px solid #d1d5db;border-radius:8px;font-size:13px;">
+                    </div>
+                    <div>
+                        <label style="font-size:12px;font-weight:600;color:#64748b;display:block;margin-bottom:4px;">Status</label>
+                        <select name="status" style="padding:7px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:13px;">
+                            <option value="paid">Nur bezahlte</option>
+                            <option value="all">Alle (auch storniert/erstattet)</option>
+                        </select>
+                    </div>
+                    <button type="submit" class="button" style="padding:7px 16px;border-radius:8px;">Als CSV exportieren</button>
                 </form>
             </div>
 
@@ -784,7 +803,7 @@ class TIX_Organizer_Admin {
      * @param string $type  'tickets' | 'guestlist' | 'combined'
      * @return array  Rows mit einheitlichem Schema, sortiert nach Kaufdatum.
      */
-    private static function collect_export_rows($event_id, $type = 'combined') {
+    public static function collect_export_rows($event_id, $type = 'combined') {
         $rows = [];
 
         // ── Ticket-Kategorien ──
@@ -1141,6 +1160,21 @@ class TIX_Organizer_Admin {
             </div>
         </div>
         <?php
+    }
+
+    /** Bestellungen mit Käuferdaten als CSV (Zeitraum frei, nur bezahlt oder alle; nur eigene Positionen). */
+    public static function export_orders_csv() {
+        if (!self::is_organizer() || !self::team_can('view_orders')) wp_die('Kein Zugriff.');
+        check_admin_referer('tix_orders_csv', '_tix_nonce');
+        $event_ids = self::get_organizer_event_ids();
+        $filter = intval($_POST['event_id'] ?? 0);
+        if ($filter && in_array($filter, $event_ids)) $event_ids = [$filter];
+        $status = (($_POST['status'] ?? '') === 'all') ? 'all' : 'paid';
+        $rows = TIX_Export::order_rows($event_ids, sanitize_text_field($_POST['from'] ?? ''), sanitize_text_field($_POST['to'] ?? ''), $status);
+        header('Content-Type: text/csv; charset=utf-8');
+        header('Content-Disposition: attachment; filename="bestellungen-' . current_time('Y-m-d') . '.csv"');
+        echo TIX_Export::csv(TIX_Export::ORDER_HEADER, $rows);
+        exit;
     }
 
     public static function export_billing_csv() {
