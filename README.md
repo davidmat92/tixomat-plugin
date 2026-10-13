@@ -241,7 +241,7 @@ tixomat/
 ├── assets/
 │   ├── css/                                 30+ Stylesheets + Minified
 │   ├── js/                                  30+ JavaScript-Dateien + Minified
-│   └── fonts/                               OpenSans, RobotoMono (TTF)
+│   └── fonts/                               Manrope (TTF, Tickets), Web-Schriften (woff2)
 └── .github/
     └── workflows/
         └── deploy.yml                       Auto-Deploy via GitHub Actions

@@ -410,27 +410,29 @@ class TIX_Ticket_Template {
     /**
      * Font-Datei-Pfad basierend auf font_family + font_weight
      */
-    private static function get_font_path($family, $weight) {
-        $fonts_dir = TIXOMAT_PATH . 'assets/fonts/';
+    /**
+     * TrueType-Schrift für GD. Manrope (OFL, assets/fonts/manrope) – die früheren OpenSans-/RobotoMono-Dateien waren
+     * keine Schriften (gespeicherte HTML-Seiten), dadurch fehlte in allen gerenderten Tickets der Text (behoben 1.38.419).
+     */
+    public static function get_font_path($family, $weight) {
+        $fonts_dir = TIXOMAT_PATH . 'assets/fonts/manrope/';
         $map = [
-            'sans-serif' => [
-                'normal' => 'OpenSans-Regular.ttf',
-                'bold'   => 'OpenSans-Bold.ttf',
-            ],
-            'serif' => [
-                'normal' => 'OpenSans-Regular.ttf', // Fallback
-                'bold'   => 'OpenSans-Bold.ttf',
-            ],
-            'monospace' => [
-                'normal' => 'RobotoMono-Regular.ttf',
-                'bold'   => 'RobotoMono-Regular.ttf',
-            ],
+            'sans-serif' => ['normal' => 'Manrope-500.ttf', 'bold' => 'Manrope-800.ttf'],
+            'serif'      => ['normal' => 'Manrope-500.ttf', 'bold' => 'Manrope-800.ttf'],
+            'monospace'  => ['normal' => 'Manrope-700.ttf', 'bold' => 'Manrope-800.ttf'],
         ];
-
-        $file = $map[$family][$weight] ?? $map['sans-serif']['normal'];
+        $file = $map[$family][$weight] ?? $map['sans-serif'][$weight === 'bold' ? 'bold' : 'normal'];
         $path = $fonts_dir . $file;
+        return self::is_font($path) ? $path : null;
+    }
 
-        return file_exists($path) ? $path : null;
+    /** Echte TrueType/OpenType-Datei? (erste 4 Bytes) */
+    private static function is_font($path) {
+        static $ok = [];
+        if (isset($ok[$path])) return $ok[$path];
+        $head = (is_readable($path) && ($fh = @fopen($path, 'rb'))) ? (string) fread($fh, 4) : '';
+        if (!empty($fh)) fclose($fh);
+        return $ok[$path] = in_array($head, ["\x00\x01\x00\x00", 'OTTO', 'true'], true);
     }
 
     /**

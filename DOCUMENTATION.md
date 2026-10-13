@@ -217,9 +217,7 @@ tixomat/
 │   ├── css/                              CSS-Dateien (admin-shell, event-page, ticket-selector, ...)
 │   ├── js/                               JS-Dateien (admin-shell, event-page, feedback, ...)
 │   └── fonts/
-│       ├── OpenSans-Regular.ttf
-│       ├── OpenSans-Bold.ttf
-│       └── RobotoMono-Regular.ttf
+│       └── manrope/ (Manrope-400…800.ttf, OFL)
 ```
 
 ---
@@ -335,7 +333,7 @@ Die Ticket-Bilder und PDFs werden mit der PHP-GD-Bibliothek gerendert:
 - Hintergrundbild wird als Basis verwendet.
 - Felder werden an den konfigurierten X/Y-Positionen gerendert.
 - Schriftart, Schriftgroesse und Farbe sind pro Feld konfigurierbar.
-- Verfuegbare Schriftarten: `OpenSans-Regular.ttf`, `OpenSans-Bold.ttf`, `RobotoMono-Regular.ttf`.
+- Verfuegbare Schriftarten (seit 1.38.419): Manrope aus `assets/fonts/manrope/` (normal = 500, fett = 800, „monospace“ = 700).
 - Ausgabe als PNG-Bild oder PDF.
 
 ### Template-Modi
@@ -1874,9 +1872,9 @@ Gibt den Branding-Footer fuer E-Mails und den Embed-Modus zurueck. Enthaelt das 
 
 | Datei | Verwendung |
 |---|---|
-| `OpenSans-Regular.ttf` | Standard-Schrift fuer Ticket-Templates |
-| `OpenSans-Bold.ttf` | Fette Schrift fuer Ticket-Templates |
-| `RobotoMono-Regular.ttf` | Monospace-Schrift fuer Ticket-Codes |
+| `manrope/Manrope-500.ttf` | Standard-Schrift fuer Ticket-Templates |
+| `manrope/Manrope-800.ttf` | Fette Schrift fuer Ticket-Templates |
+| `manrope/Manrope-700.ttf` | Schrift fuer Ticket-Codes |
 
 ---
 
@@ -2787,6 +2785,7 @@ Alles nur hinzufügend; ohne Nutzung bleibt jede Antwort gleich (Apps, KitchenKl
 | Musik hören: Künstler-Links | Seit 1.38.416 (`TIX_Lineup_Links`, alle Seiten): Line-up-Zeilen wie in den Apps (je Absatz/Zeile, Aufzählungszeichen weg; Künstler = Teil hinter dem ersten „:“; mehr als 20 Zeilen oder eine Zeile über 40 Zeichen = Fließtext, keine Links). Auflösung nur im Hintergrund (beim Speichern vorgemerkt, beim ersten Lauf einmalig alle kommenden Events, Cron stündlich + kurz nach dem Speichern, je Lauf und Dienst 15 Künstler, bei 429/Fehler Pause): Apple Music über die iTunes Search API (ohne Schlüssel), Spotify über die Web API mit Client Credentials (Optionen `tix_spotify_client_id` / `tix_spotify_client_secret`, Tixomat → **Künstler-Links**). Übernommen wird nur ein Treffer mit gleichem Namen (normalisiert: Groß/klein, Akzente, Satzzeichen, „&“ = „and“, „DJ“/„MC“ vorne und „(live)“ egal); ohne Treffer erneuter Versuch nach 30 Tagen. Tabelle `{prefix}tix_artist_links` je Künstlername. `GET /public/events/{id}` und `GET /events/{id}/edit` → `lineup_links [{name, artist, spotify, apple_music, source}]` (`source` auto|manual|none; URL, `null` = noch kein Treffer → Suche wie bisher, `""` = kein Link); Editor zusätzlich `auto {spotify, apple_music}`. `POST /events/{id}` → `lineup_links [{name, spotify, apple_music, source}]`: auto = Korrektur entfernen, manual = Links festhalten (bleibt bei jedem Abgleich), none = für dieses Event kein Link; ungültige Links 400 `tix_invalid_field` (`lineup_links.spotify`/`.apple_music`). Meta `_tix_lineup_links`. WP-Admin: Metabox „Musik hören: Künstler-Links“ am Event. Website (`[tix_app_lineup]`): Künstlerseite (Spotify vor Apple Music), ohne Treffer Spotify-Suche wie bisher, „kein Link“ ohne Link. | alle | 1.38.416 |
 | Design der Veranstalter-Seite | Seit 1.38.417 (`TIX_Organizer_Page`, nur Mehr-Veranstalter-Modus, Vertrag evendis-web): `page_design` = `galerie` (Standard) \| `clubnacht` \| `profil` \| `ticketschalter` \| `bento`; leer/unbekannt = `galerie`. `GET /public/organizers` und `/public/organizers/{id\|slug}` → `page_design` (immer gesetzt). `GET/POST /organizer/profile` → `page_design` (nur eigener Veranstalter; andere Werte 400 `tix_invalid_design`, `field` `page_design`). Auswahl als fünf Kacheln mit schematischer Vorschau, Namen und einem Satz im WP-Admin (Metabox am Veranstalter) und auf „Meine Landingpage“. Speichern leert die öffentlichen Zwischenspeicher (`tix_pub_*`). Meta `_tix_org_page_design`. | evendis | 1.38.417 |
 | Website sofort aktualisieren (evendis.de) | Seit 1.38.418 (`TIX_Web_Revalidate`, nur mit Schlüssel): nach dem Speichern eines Veranstalters (WP-Admin, „Meine Landingpage“, `POST /organizer/profile` inkl. Bild) bzw. eines Events (Speichern, Veröffentlichen, Absagen, Papierkorb/Löschen, App-Editor `POST /events/{id}`) einmal je Request beim Beenden `POST <URL>` mit Header `x-revalidate-secret` und `{"organizer":"<slug>","events":["<slug>",…]}` (Veranstalter: seine kommenden Events; Slugs nur `[a-z0-9-]`, sortiert, max. 50; Event ohne Veranstalter nur `events`). Nicht blockierend, Zeitlimit 2 s, nur IPv4 (`CURLOPT_IPRESOLVE_V4`), Fehler nur im Server-Log, letzter Aufruf in `tix_web_revalidate_last`. Käufe lösen nichts aus (nur „Ausverkauft“ über `_tix_status`). Schlüssel: Konstante `TIX_WEB_REVALIDATE_SECRET` bzw. Option `tix_web_revalidate_secret`; URL: Konstante `TIX_WEB_REVALIDATE_URL` bzw. Option `tix_web_revalidate_url`, Standard Kunden-Adresse + `/api/revalidate/`. Ohne Schlüssel kein Aufruf. | evendis | 1.38.418 |
+| Ticket-PDF: Schriften + Ersatz-Ticket | Seit 1.38.419 (alle Seiten): Die GD-Schriften für gerenderte Tickets waren seit dem Start keine Schriften (`assets/fonts/OpenSans-*.ttf`, `RobotoMono-Regular.ttf` = gespeicherte HTML-Seiten) – in allen Bild-/PDF-Tickets fehlte der Text (Vorlagen-Tickets in Mails/CRM/Support/Sponsoren, `GET /customer/tickets/{id}/pdf`). `TIX_Ticket_Template::get_font_path()` nutzt jetzt Manrope (OFL, `assets/fonts/manrope/`, normal 500, fett 800, „monospace“ 700) und prüft, ob die Datei eine echte TrueType-Schrift ist; die kaputten Dateien sind entfernt. Ersatz-PDF ohne Ticket-Vorlage (`GET /customer/tickets/{id}/pdf`): hell und druckfreundlich – Kopf mit Seitenname (Akzentfarbe nur bei genug Kontrast, sonst Dunkelgrau; evendis Rot), Titel, Datum/Uhrzeit, Einlass, Ort, Kategorie/Sitz, Name, Preis, Bestellung, großer QR-Code, Ticketcode, Hinweis „Bitte am Einlass vorzeigen“. | alle | 1.38.419 |
 | Bestellung: Event | Seit 1.38.394: `GET /customer/orders/{id}` (Konto oder `?key=`, auch vermittelte Bestellungen) enthält zusätzlich `order.event` = `{id, slug, title, date_start, url}` oder `null` – **auch bei unbezahlten Bestellungen** (Web-Kasse: Rücksprung zur Event-Seite ohne Slug im `return_url`). Beispiel: `"event":{"id":6,"slug":"sommerfest-2026","title":"Sommerfest","date_start":"2026-10-21","url":"https://evendis.de/events/sommerfest-2026/"}` | beide | 1.38.394 |
 | WooCommerce-Reste (nativ abgesichert) | Seit 1.38.393 ohne WooCommerce keine fatalen Fehler mehr: Warteliste „wieder verfügbar“ (siehe §50), `admin-ajax tix_meta_store_event_id` (nur noch für WooCommerce-Bestellungen, sonst `{"success":true}`), `tix_add_special` (Specials nur mit WooCommerce-Warenkorb, sonst Fehlermeldung), Web-Kasse `[tix_pos]` (ohne WooCommerce Hinweis „Bitte die Kasse in der App verwenden“, AJAX `tix_pos_*` → `{"success":false,"data":{"message":…}}`; PIN-Feld im Profil bleibt; die App-Kasse `POST /pos/orders` ist nativ), Gruppenbuchung (WooCommerce-Preis nur mit WooCommerce). | alle | 1.38.393 |
 | Sparten- und Städte-Texte | Seit 1.38.392 (`TIX_SEO_Texts`), nur hinzufügend: `GET /public/categories` je Sparte zusätzlich `intro` (HTML, `''` ohne Text) und `image` (`{url, thumb, alt}` oder `null`) – gepflegt unter Events → Kategorien (Term-Meta `_tix_intro`, `_tix_image_id`, Recht `manage_categories`). `GET /public/cities` je Stadt zusätzlich `slug` (Köln → `koeln`, Düsseldorf → `duesseldorf`: ä/ö/ü/ß → ae/oe/ue/ss, dann `sanitize_title`), `intro`, `image` – gepflegt unter Tixomat → Städte-Texte (Option `tix_city_texts` `{slug: {name, intro, image_id}}`, nur Admins; die Seite listet Städte kommender Events, weitere frei ergänzbar; in der API erscheinen weiterhin nur Städte mit kommenden Events). HTML per `wp_kses_post`. Beispiel: `{"id":12,"slug":"comedy","name":"Comedy","count":8,"upcoming":5,"intro":"<p>Die besten Comedy-Abende …</p>","image":{"url":"https://…/comedy-1024x683.jpg","thumb":"https://…/comedy-300x200.jpg","alt":"Bühne"}}` bzw. `{"name":"Köln","upcoming":14,"slug":"koeln","intro":"","image":null}` | beide | 1.38.392 |

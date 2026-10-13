@@ -590,30 +590,71 @@ class TIX_App_Account {
         return null;
     }
 
-    /** Generisches PDF-Ticket, wenn das Event kein Ticket-Template hat. */
+    /**
+     * Generisches PDF-Ticket (A4 hochkant, 150 dpi), wenn das Event keine Ticket-Vorlage hat: hell und druckfreundlich,
+     * Kopf in der Markenfarbe, Eventdaten, großer QR-Code, Ticketcode.
+     */
     private static function generic_pdf($ticket_post_id) {
         if (!class_exists('TIX_Ticket_Template') || !function_exists('imagecreatetruecolor')) return null;
         $w = 1240;
         $h = 1754;
         $img = imagecreatetruecolor($w, $h);
         if (!$img) return null;
-        $bg = imagecolorallocate($img, 0x13, 0x10, 0x20);
-        imagefilledrectangle($img, 0, 0, $w, $h, $bg);
-        $fields = TIX_Ticket_Template::default_fields($w, $h);
-        $data   = TIX_Ticket_Template::gather_ticket_data($ticket_post_id);
-        foreach (['owner_name', 'price', 'order_id'] as $extra) {
-            if (isset($fields[$extra])) $fields[$extra]['enabled'] = true;
+        $d = TIX_Ticket_Template::gather_ticket_data($ticket_post_id);
+        $hex = function ($c, $fallback) { $c = ltrim((string) $c, '#'); return preg_match('/^[0-9a-f]{6}$/i', $c) ? $c : $fallback; };
+        $rgb = function ($img, $c) { return imagecolorallocate($img, hexdec(substr($c, 0, 2)), hexdec(substr($c, 2, 2)), hexdec(substr($c, 4, 2))); };
+        // Kopf in der Akzentfarbe, wenn weiße Schrift darauf lesbar ist (Kontrast ≥ 3:1 für große Schrift, relative Helligkeit < 0,3); sonst evendis-Rot bzw. Dunkelgrau
+        $fallback = (class_exists('TIX_App_Scope') && TIX_App_Scope::multi()) ? 'E8445A' : '2C2F3F';
+        $brand = $hex(function_exists('tix_get_settings') ? tix_get_settings('color_accent') : '', $fallback);
+        $lum = function ($c) { $f = function ($v) { $v /= 255; return $v <= 0.03928 ? $v / 12.92 : pow(($v + 0.055) / 1.055, 2.4); }; return 0.2126 * $f(hexdec(substr($c, 0, 2))) + 0.7152 * $f(hexdec(substr($c, 2, 2))) + 0.0722 * $f(hexdec(substr($c, 4, 2))); };
+        if ($lum($brand) >= 0.3 || (class_exists('TIX_App_Scope') && TIX_App_Scope::multi())) $brand = $fallback;
+        $white = $rgb($img, 'ffffff');
+        imagefilledrectangle($img, 0, 0, $w, $h, $white);
+        $m = 90;                                    // Rand
+        imagefilledrectangle($img, 0, 0, $w, 230, $rgb($img, $brand));
+        $text = function ($str, $x, $y, $width, $size, $bold = false, $color = '2C2F3F', $align = 'left') use ($img) {
+            if ((string) $str === '') return;
+            TIX_Ticket_Template::render_text_field($img, ['enabled' => true, 'x' => $x, 'y' => $y, 'width' => $width, 'height' => intval($size * 3),
+                'font_size' => $size, 'font_family' => 'sans-serif', 'font_weight' => $bold ? 'bold' : 'normal', 'color' => '#' . $color, 'alignment' => $align, 'line_height' => 1.7], (string) $str);
+        };
+        $site = html_entity_decode(get_bloginfo('name'), ENT_QUOTES, 'UTF-8');
+        $text($site, $m, 70, $w - 2 * $m, 20, true, 'ffffff');
+        $text('Ticket', $m, 130, $w - 2 * $m, 14, false, 'ffffff');
+        // Titel (bis 2 Zeilen)
+        $y = 290;
+        $text($d['event_name'] ?? '', $m, $y, $w - 2 * $m, 34, true);
+        $title_lines = (function () use ($d, $w, $m) {
+            $font = TIX_Ticket_Template::get_font_path('sans-serif', 'bold');
+            if (!$font || !function_exists('imagettfbbox')) return 1;
+            $words = explode(' ', (string) ($d['event_name'] ?? '')); $lines = 1; $line = '';
+            foreach ($words as $wd) { $t = trim($line . ' ' . $wd); $b = imagettfbbox(34, 0, $font, $t); if ($b && abs($b[2] - $b[0]) > $w - 2 * $m && $line !== '') { $lines++; $line = $wd; } else { $line = $t; } }
+            return $lines;
+        })();
+        $y += 50 + $title_lines * 58; // Zeilenabstand 34 pt × 1,7
+        $rows = [
+            ['Datum', trim(($d['event_date'] ?? '') . (($d['event_time'] ?? '') !== '' ? ' · ' . $d['event_time'] : ''))],
+            ['Einlass', $d['event_doors'] ?? ''],
+            ['Ort', trim(($d['event_location'] ?? '') . (($d['event_address'] ?? '') !== '' ? ', ' . $d['event_address'] : ''), ', ')],
+            ['Kategorie', trim(($d['cat_name'] ?? '') . (($d['seat'] ?? '') !== '' ? ' · ' . $d['seat'] : ''))],
+            ['Name', $d['owner_name'] ?? ''],
+            ['Preis', $d['price'] ?? ''],
+            ['Bestellung', $d['order_id'] ?? ''],
+        ];
+        $line = $rgb($img, 'E3E5EC');
+        foreach ($rows as $r) {
+            if ((string) $r[1] === '') continue;
+            $text($r[0], $m, $y, 280, 15, false, '6B6F82');
+            $text($r[1], $m + 300, $y, $w - 2 * $m - 300, 17, true);
+            $y += mb_strlen($r[1]) > 46 ? 112 : 78;
+            imageline($img, $m, $y - 22, $w - $m, $y - 22, $line);
         }
-        foreach ($fields as $key => $cfg) {
-            if (empty($cfg['enabled'])) continue;
-            if ($key === 'qr_code') {
-                TIX_Ticket_Template::render_qr_code($img, $cfg, $data['qr_code'] ?? '');
-            } elseif ($key === 'barcode' || $key === 'logo' || $key === 'custom_text') {
-                continue;
-            } else {
-                TIX_Ticket_Template::render_text_field($img, $cfg, (string) ($data[$key] ?? ''));
-            }
-        }
+        // QR-Code groß und mittig
+        $qs = 560;
+        $qy = max($y + 30, 1000);
+        if ($qy + $qs + 200 > $h) { $qs = max(380, $h - 200 - $qy); }
+        TIX_Ticket_Template::render_qr_code($img, ['enabled' => true, 'x' => intval(($w - $qs) / 2), 'y' => $qy, 'width' => $qs, 'height' => $qs], $d['qr_code'] ?? '');
+        $text($d['ticket_code'] ?? '', $m, $qy + $qs + 30, $w - 2 * $m, 26, true, '2C2F3F', 'center');
+        $text('Bitte am Einlass vorzeigen – ausgedruckt oder auf dem Handy.', $m, $h - 110, $w - 2 * $m, 13, false, '6B6F82', 'center');
         ob_start();
         imagejpeg($img, null, 92);
         $jpeg = ob_get_clean();
