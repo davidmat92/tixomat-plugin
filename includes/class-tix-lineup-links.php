@@ -444,9 +444,10 @@ class TIX_Lineup_Links {
         $out = [];
         $missing = false;
         $am = class_exists('TIX_Apple_Music');
+        $limit = $req->get_param('top') !== null ? max(1, min(10, intval($req->get_param('top')))) : 10; // ?top= begrenzt die Titel je Act
         foreach (self::for_event($id) as $r) {
             $out[] = ['name' => $r['name'], 'artist' => $r['artist'], 'picture' => $r['picture'], 'picture_thumb' => $r['picture_thumb'],
-                'deezer_url' => null, 'top' => $am ? TIX_Apple_Music::top_for($r, $missing) : [], 'spotify' => $r['spotify'], 'apple_music' => $r['apple_music'], 'source' => $r['source']];
+                'deezer_url' => null, 'top' => $am ? TIX_Apple_Music::top_for($r, $missing, $limit) : [], 'spotify' => $r['spotify'], 'apple_music' => $r['apple_music'], 'source' => $r['source']];
         }
         if ($missing) TIX_Apple_Music::kick();
         return rest_ensure_response(['ok' => true, 'event_id' => $id, 'artists' => $out]);

@@ -2,7 +2,7 @@
 if (!defined('ABSPATH')) exit;
 
 /**
- * TIX_Apple_Music – „Bekannt für“: die drei meistgestreamten Titel je Act (Apple Music Top-Songs, 1.38.428, alle Seiten).
+ * TIX_Apple_Music – „Bekannt für“: die meistgestreamten Titel je Act (Apple Music Top-Songs, 1.38.428, bis zu 10 seit 1.38.429, alle Seiten).
  *
  * Quelle: Apple Music API `GET /v1/catalog/de/artists/{id}/view/top-songs` mit Developer-Token (ES256-JWT,
  * MusicKit-Schlüssel – gleiches Verfahren wie der APNs-JWT). Optionen wie bei APNs (der User trägt sie ein):
@@ -19,7 +19,8 @@ if (!defined('ABSPATH')) exit;
  * die Route einen Lauf an). Je Künstler-ID etwa 24 h zwischengespeichert. Gespeichert werden nur die Adressen –
  * Hörproben und Cover lädt das Gerät direkt von Apple, nichts läuft über den eigenen Server.
  *
- * Format je Titel (meistgestreamt zuerst, höchstens 3, nur mit Hörprobe):
+ * Format je Titel (meistgestreamt zuerst, bis zu 10 seit 1.38.429 – vorher 3 –, nur mit Hörprobe; die Apps zeigen 3 und
+ * „Mehr anzeigen“; `?top=1…10` begrenzt die Antwort):
  *   {title, preview (previews[0].url), link (attributes.url), artwork (artwork.url mit 200x200), year (int|null)}
  */
 class TIX_Apple_Music {
@@ -30,6 +31,8 @@ class TIX_Apple_Music {
     const KEEP     = 7 * DAY_IN_SECONDS;  // so lange bleibt sie lesbar (falls Apple nicht erreichbar ist)
     const BUDGET   = 40;                  // Anfragen je Lauf
     const MAX_EVENTS = 300;
+    const TOP_MAX  = 10;                  // Titel je Künstler (Apple liefert bei view/top-songs höchstens 10 je Seite)
+    const CACHE_VER = 2;                  // 2: bis zu 10 Titel (ältere Einträge gelten als veraltet, bleiben aber lesbar)
 
     public static function init() {
         add_action(self::CRON, [__CLASS__, 'cron']);
@@ -37,6 +40,14 @@ class TIX_Apple_Music {
             if (!wp_next_scheduled(TIX_Apple_Music::CRON)) wp_schedule_event(time() + 900, 'hourly', TIX_Apple_Music::CRON);
         }, 25);
         add_action('admin_post_tix_apple_music', [__CLASS__, 'save_admin']);
+        add_action('init', [__CLASS__, 'maybe_upgrade'], 26);
+    }
+
+    /** Nach einem Update mit neuem Zwischenspeicher-Format gleich einen Lauf anstoßen (Daten sofort, nicht erst zur vollen Stunde). */
+    public static function maybe_upgrade() {
+        if (intval(get_option('tix_apple_music_ver', 0)) >= self::CACHE_VER) return;
+        update_option('tix_apple_music_ver', self::CACHE_VER, false);
+        self::kick();
     }
 
     // ── Zugang ──
@@ -173,8 +184,8 @@ class TIX_Apple_Music {
 
     // ── Rangliste ──
 
-    /** Apple-Antwort → höchstens 3 Titel im App-Format (nur mit Hörprobe). */
-    public static function map_songs($data) {
+    /** Apple-Antwort → höchstens $max Titel im App-Format (nur mit Hörprobe). */
+    public static function map_songs($data, $max = self::TOP_MAX) {
         $out = [];
         foreach ((array) $data as $s) {
             $a = (array) ($s['attributes'] ?? []);
@@ -191,7 +202,7 @@ class TIX_Apple_Music {
                 'artwork' => strpos($art, 'https://') === 0 ? esc_url_raw($art) : '',
                 'year'    => $year,
             ];
-            if (count($out) >= 3) break;
+            if (count($out) >= $max) break;
         }
         return $out;
     }
@@ -201,23 +212,28 @@ class TIX_Apple_Music {
         return is_array($c) ? $c : null;
     }
 
+    /** Rangliste neu holen? (älter als TTL oder altes Format mit nur 3 Titeln) */
+    private static function stale($c) {
+        return !$c || intval($c['at'] ?? 0) < time() - self::TTL || intval($c['v'] ?? 1) < self::CACHE_VER;
+    }
+
     private static function fetch_top($id) {
-        $j = self::api('/artists/' . rawurlencode($id) . '/view/top-songs', ['limit' => 5]);
+        $j = self::api('/artists/' . rawurlencode($id) . '/view/top-songs', ['limit' => self::TOP_MAX]);
         if ($j === false) return false;
         $top = is_array($j) ? self::map_songs($j['data'] ?? []) : [];
-        set_transient('tix_am_top_' . $id, ['at' => time(), 'top' => $top], self::KEEP);
+        set_transient('tix_am_top_' . $id, ['at' => time(), 'v' => self::CACHE_VER, 'top' => $top], self::KEEP);
         return true;
     }
 
-    /** `top` für eine Zeile aus for_event() – liest nur den Zwischenspeicher. */
-    public static function top_for(array $row, &$missing = false) {
+    /** `top` für eine Zeile aus for_event() – liest nur den Zwischenspeicher (höchstens $limit Titel). */
+    public static function top_for(array $row, &$missing = false, $limit = self::TOP_MAX) {
         if (!self::configured()) return [];
         $t = self::target($row);
         if (!$t) return [];
         if (isset($t['search'])) { $missing = true; return []; }
         $c = self::cached($t['id']);
-        if (!$c || $c['at'] < time() - self::TTL) $missing = true;
-        return $c ? (array) $c['top'] : [];
+        if (self::stale($c)) $missing = true;
+        return $c ? array_slice((array) $c['top'], 0, max(1, min(self::TOP_MAX, intval($limit)))) : [];
     }
 
     /** Hintergrundlauf gleich anstoßen (fehlende oder veraltete Ranglisten). */
@@ -253,7 +269,7 @@ class TIX_Apple_Music {
                 if (isset($seen['t:' . $t['id']])) continue;
                 $seen['t:' . $t['id']] = 1;
                 $c = self::cached($t['id']);
-                if ($c && $c['at'] >= time() - self::TTL) continue;
+                if (!self::stale($c)) continue;
                 $budget--;
                 if (self::fetch_top($t['id']) === false) return $done;
                 $done['top']++;
@@ -302,7 +318,7 @@ class TIX_Apple_Music {
         <?php if (strpos($am, 'run') === 0) : $p = explode('-', $am); ?><div class="notice notice-success is-dismissible"><p>Lauf fertig: <?php echo intval($p[1] ?? 0); ?> Künstler gesucht, <?php echo intval($p[2] ?? 0); ?> Ranglisten geladen.</p></div><?php endif; ?>
         <form method="post" enctype="multipart/form-data" action="<?php echo esc_url(admin_url('admin-post.php')); ?>"><?php wp_nonce_field('tix_apple_music_admin'); ?><input type="hidden" name="action" value="tix_apple_music">
             <h2>„Bekannt für“: Apple Music Top-Songs</h2>
-            <p class="description">Die Apps zeigen je Act die drei meistgestreamten Titel mit Hörprobe (direkt von Apple). Dafür braucht es einen MusicKit-Schlüssel aus dem Apple-Developer-Konto (Keys → „Media Services“). Ohne Schlüssel zeigen die Apps keine Titel. Falsche Künstler korrigiert ihr über den Apple-Music-Link im Kasten „Künstler-Links“ am Event.</p>
+            <p class="description">Die Apps zeigen je Act die meistgestreamten Titel mit Hörprobe (drei, mit „Mehr anzeigen“ bis zu zehn; direkt von Apple). Dafür braucht es einen MusicKit-Schlüssel aus dem Apple-Developer-Konto (Keys → „Media Services“). Ohne Schlüssel zeigen die Apps keine Titel. Falsche Künstler korrigiert ihr über den Apple-Music-Link im Kasten „Künstler-Links“ am Event.</p>
             <table class="form-table" role="presentation">
                 <tr><th><label for="tix_am_team">Team-ID</label></th><td><input type="text" class="regular-text" id="tix_am_team" name="team_id" value="<?php echo esc_attr(get_option('_tix_apple_music_team_id', '')); ?>" placeholder="<?php echo esc_attr($c['team_id'] !== '' ? $c['team_id'] . ' (wie Push)' : ''); ?>" autocomplete="off"></td></tr>
                 <tr><th><label for="tix_am_kid">Key-ID</label></th><td><input type="text" class="regular-text" id="tix_am_kid" name="key_id" value="<?php echo esc_attr($c['key_id']); ?>" autocomplete="off"></td></tr>
