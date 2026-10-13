@@ -234,6 +234,8 @@ class TIX_App_Events {
             'awareness_mode'      => class_exists('TIX_Awareness') ? TIX_Awareness::event_mode($id) : 'inherit',
             'awareness'           => class_exists('TIX_Awareness') ? (function ($a) { unset($a['enabled']); return $a; })(TIX_Awareness::sanitize(get_post_meta($id, TIX_Awareness::META, true))) : null,
             'awareness_effective' => class_exists('TIX_Awareness') ? TIX_Awareness::effective($id) : null,
+            // Muttizettel-Hinweis (gilt nur mit Modul „muttizettel“ des Veranstalters)
+            'muttizettel_note'    => (string) get_post_meta($id, '_tix_muttizettel_note', true),
         ];
     }
 
@@ -427,6 +429,7 @@ class TIX_App_Events {
             if (is_wp_error($err)) return $err;
         }
 
+        if (isset($body['muttizettel_note']) && class_exists('TIX_Muttizettel')) TIX_Muttizettel::set_note($post_id, (string) $body['muttizettel_note']);
         // ── Awareness (awareness_mode inherit|custom|off, awareness = eigene Angaben) ──
         if (class_exists('TIX_Awareness') && (isset($body['awareness_mode']) || isset($body['awareness']))) {
             if (isset($body['awareness_mode'])) {

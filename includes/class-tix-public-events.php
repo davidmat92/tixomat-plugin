@@ -217,6 +217,8 @@ class TIX_Public_Events {
         $out['collections'] = class_exists('TIX_Collections') ? TIX_Collections::event_slugs($id) : [];
         // Gewinnspiel in der Liste (1.38.395): {title, status, end_date} | null – das Detail liefert die volle Form
         if (!$detailed) $out['raffle'] = class_exists('TIX_Raffle') ? TIX_Raffle::list_info($id) : null;
+        // Muttizettel-Hinweis (1.38.409, nur Mehr-Veranstalter-Modus; `modules` des Veranstalters steht schon oben)
+        if (class_exists('TIX_Muttizettel') && TIX_Muttizettel::multi()) $out['muttizettel_note'] = TIX_Muttizettel::note($id);
         // Awareness (1.38.405): Etikett „Awareness-Team“ in der Liste, volle Angaben im Detail
         if (!$detailed) $out['awareness_team'] = class_exists('TIX_Awareness') && TIX_Awareness::has_team($id);
         if ($detailed) {
