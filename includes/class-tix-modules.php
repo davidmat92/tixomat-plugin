@@ -83,6 +83,8 @@ class TIX_Modules {
     public static function info_payload() {
         $out = [];
         foreach (self::MODULES as $key => $m) $out[$key] = ['label' => $m[0], 'allowed' => self::allowed($key)];
+        // Awareness ist in jedem Paket enthalten (Leitlinie 10) – nicht abschaltbar über Freischaltungen
+        if (class_exists('TIX_Awareness')) $out['awareness'] = ['label' => 'Awareness', 'allowed' => true];
         return $out;
     }
 

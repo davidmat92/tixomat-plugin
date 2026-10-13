@@ -158,7 +158,7 @@ class TIX_Awareness_Live {
     public static function rest_status(WP_REST_Request $req) {
         $eid = absint($req->get_param('event_id'));
         $active = self::alarm_possible($eid);
-        return rest_ensure_response(['ok' => true, 'active' => $active, 'on_duty' => $active && (bool) self::on_duty_users($eid)]);
+        return rest_ensure_response(['ok' => true, 'active' => $active, 'on_duty' => $active && (bool) self::on_duty_users($eid), 'report_enabled' => self::flags()['report_enabled']]);
     }
 
     /** Darf der Nutzer Team-Routen dieses Events nutzen? */
@@ -253,7 +253,9 @@ class TIX_Awareness_Live {
                 TIX_Notifications::add_user_item($uid, 'Neuer Hinweis für das Awareness-Team', '', ['type' => 'awareness', 'event_id' => $eid, 'action' => 'awareness']);
             }
         }
-        return rest_ensure_response(['ok' => true, 'alert' => self::guest_payload(self::alert_row($id), true), 'point' => self::point($eid)]);
+        $g = self::guest_payload(self::alert_row($id), true);
+        // id/key/status zusätzlich oben (Vertrag Web/App), ausführlich unter `alert`
+        return rest_ensure_response(['ok' => true, 'id' => $g['id'], 'key' => $g['key'], 'status' => $g['status'], 'alert' => $g, 'point' => self::point($eid)]);
     }
 
     private static function guest_payload($r, $with_key = false) {
@@ -274,7 +276,8 @@ class TIX_Awareness_Live {
         $r = self::alert_row(intval($req['id']));
         $key = (string) $req->get_param('key');
         if (!$r || $key === '' || !hash_equals((string) $r->access_key, $key)) return self::error('rest_forbidden', 'Kein Zugriff.', 403);
-        return rest_ensure_response(['ok' => true, 'alert' => self::guest_payload($r), 'point' => self::point(intval($r->event_id))]);
+        $g = self::guest_payload($r);
+        return rest_ensure_response(['ok' => true, 'status' => $g['status'], 'status_label' => $g['status_label'], 'alert' => $g, 'point' => self::point(intval($r->event_id))]);
     }
 
     private static function team_payload($r) {

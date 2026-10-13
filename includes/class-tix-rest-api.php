@@ -655,6 +655,8 @@ class TIX_REST_API {
             'compat'         => class_exists('TIX_App_Compat') ? TIX_App_Compat::info_payload($req) : null,
             'modules'        => class_exists('TIX_Modules') ? TIX_Modules::info_payload() : null,
             'modules_source' => class_exists('TIX_Modules') ? TIX_Modules::source() : 'all',
+            // Awareness (kostenlos, nie gesperrt): was die Seite freigeschaltet hat – maßgeblich für Melden/Feedback bzw. Hilfe vor Ort
+            'awareness'      => class_exists('TIX_Awareness_Live') ? TIX_Awareness_Live::flags() : ['report_enabled' => false, 'alarm_live' => false],
         ]);
     }
 

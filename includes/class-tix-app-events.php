@@ -229,6 +229,11 @@ class TIX_App_Events {
             'info'               => $info,
             'info_markup'        => $markup,
             'categories'         => $cats,
+            // Awareness: inherit (Vorgabe Veranstalter/Seite) | custom (eigene Angaben) | off; `awareness` = eigene Angaben,
+            // `awareness_effective` = was Gäste sehen (null = nichts)
+            'awareness_mode'      => class_exists('TIX_Awareness') ? TIX_Awareness::event_mode($id) : 'inherit',
+            'awareness'           => class_exists('TIX_Awareness') ? (function ($a) { unset($a['enabled']); return $a; })(TIX_Awareness::sanitize(get_post_meta($id, TIX_Awareness::META, true))) : null,
+            'awareness_effective' => class_exists('TIX_Awareness') ? TIX_Awareness::effective($id) : null,
         ];
     }
 
@@ -422,6 +427,21 @@ class TIX_App_Events {
             if (is_wp_error($err)) return $err;
         }
 
+        // ── Awareness (awareness_mode inherit|custom|off, awareness = eigene Angaben) ──
+        if (class_exists('TIX_Awareness') && (isset($body['awareness_mode']) || isset($body['awareness']))) {
+            if (isset($body['awareness_mode'])) {
+                $am = sanitize_key((string) $body['awareness_mode']);
+                if (!in_array($am, ['inherit', 'custom', 'off'], true)) return new WP_Error('tix_invalid_field', 'Ungültige Awareness-Einstellung.', ['status' => 400, 'field' => 'awareness_mode']);
+                if ($am === 'inherit') delete_post_meta($post_id, TIX_Awareness::META_MODE); else update_post_meta($post_id, TIX_Awareness::META_MODE, $am);
+            }
+            if (isset($body['awareness']) && is_array($body['awareness'])) {
+                $cur = TIX_Awareness::sanitize(get_post_meta($post_id, TIX_Awareness::META, true));
+                $a = TIX_Awareness::sanitize(array_merge($cur, $body['awareness']));
+                $a['enabled'] = true;
+                update_post_meta($post_id, TIX_Awareness::META, $a);
+            }
+            TIX_Awareness::flush();
+        }
         // Titel/Kurztext/Status zuletzt: löst save_post_event aus (Breakdance-Meta etc.)
         if (count($post_args) > 1) {
             $res = wp_update_post($post_args, true);
