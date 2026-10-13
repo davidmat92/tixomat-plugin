@@ -1302,6 +1302,7 @@ class TIX_Emails {
      * Erinnerungsmail senden (24h vor Event)
      */
     public static function send_reminder($order_id, $event_id) {
+        $domain_scope = class_exists('TIX_Org_Domains') ? TIX_Org_Domains::scope_order($order_id) : null; // Links auf die eigene Domain, wenn die Bestellung von dort kam
         $order = function_exists('wc_get_order') ? wc_get_order($order_id) : null;
         if (!$order && class_exists('TIX_Order')) $order = TIX_Order::get($order_id);
         $event = get_post($event_id);
@@ -1346,6 +1347,7 @@ class TIX_Emails {
      * Nachbefragungsmail senden (24h nach Event)
      */
     public static function send_followup($order_id, $event_id) {
+        $domain_scope = class_exists('TIX_Org_Domains') ? TIX_Org_Domains::scope_order($order_id) : null; // Links auf die eigene Domain, wenn die Bestellung von dort kam
         $order = function_exists('wc_get_order') ? wc_get_order($order_id) : null;
         if (!$order && class_exists('TIX_Order')) $order = TIX_Order::get($order_id);
         $event = get_post($event_id);
@@ -1412,6 +1414,7 @@ class TIX_Emails {
      * Sendet Bestätigungsmail bei abgeschlossener nativer Bestellung.
      */
     public static function send_native_completed($order_id) {
+        $domain_scope = class_exists('TIX_Org_Domains') ? TIX_Org_Domains::scope_order($order_id) : null; // Links auf die eigene Domain, wenn die Bestellung von dort kam
         if (!class_exists('TIX_Order')) return;
 
         $order = TIX_Order::get($order_id);
@@ -1456,6 +1459,7 @@ class TIX_Emails {
      * Sendet Status-Änderungs-Mails für native Bestellungen.
      */
     public static function send_native_status_email($order_id, $new_status, $old_status, $gateway) {
+        $domain_scope = class_exists('TIX_Org_Domains') ? TIX_Org_Domains::scope_order($order_id) : null; // Links auf die eigene Domain, wenn die Bestellung von dort kam
         if (!class_exists('TIX_Order')) return;
 
         // No email needed if status didn't change

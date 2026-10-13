@@ -28,6 +28,19 @@ if (!defined('ABSPATH')) exit;
 class TIX_Customer_URL {
 
     const OPTION = 'tix_customer_base_url';
+    /** Aktive eigene Domains der Veranstalter (host → organizer_id), gepflegt von TIX_Org_Domains. */
+    const OPTION_DOMAINS = 'tix_org_domains_active';
+    /** Durchleitung von einer eigenen Domain: Basis für diese Anfrage. */
+    private static $request_base = null;
+    /** Vorübergehende Basis (z. B. Mails einer Bestellung, die über eine eigene Domain kam). */
+    private static $override_base = null;
+
+    /** Basis vorübergehend setzen (null = zurück); liefert die vorherige. */
+    public static function use_base($base) {
+        $prev = self::$override_base;
+        self::$override_base = ($base === null || $base === '') ? null : untrailingslashit((string) $base);
+        return $prev;
+    }
 
     public static function init() {
         // Neue Kunden-Adresse sofort in den Schnittstellen-Antworten (Event-Cache leeren)
@@ -43,6 +56,8 @@ class TIX_Customer_URL {
 
     /** Geprüfte Kunden-Adresse ohne Schrägstrich am Ende ('' = aus). */
     public static function base() {
+        if (self::$override_base !== null) return self::$override_base;
+        if (self::$request_base !== null) return self::$request_base;
         $raw = trim((string) get_option(self::OPTION, ''));
         $out = '';
         if ($raw !== '') {
@@ -159,9 +174,16 @@ class TIX_Customer_URL {
         if ($host === '') return false;
         $xfh = strtolower(trim(explode(',', (string) $_SERVER['HTTP_X_FORWARDED_HOST'])[0]));
         $xfh = preg_replace('/:\d+$/', '', $xfh);
-        if ($xfh !== $host) return false;
+        // Eigene Domain eines Veranstalters (aktiv, Mehr-Veranstalter-Modus) wird wie die Kunden-Adresse durchgeleitet
+        $custom = false;
+        if ($xfh !== $host) {
+            $doms = get_option('tix_multi_organizer') ? get_option(self::OPTION_DOMAINS, []) : [];
+            if (!is_array($doms) || !isset($doms[$xfh])) return false;
+            $custom = true;
+        }
         $remote = isset($_SERVER['REMOTE_ADDR']) ? trim((string) $_SERVER['REMOTE_ADDR']) : '';
         if (!class_exists('TIX_Client_IP') || !TIX_Client_IP::in_list($remote, TIX_Client_IP::trusted_proxies())) return false;
+        if ($custom) self::$request_base = 'https://' . $xfh;
         return self::$proxied = true;
     }
 

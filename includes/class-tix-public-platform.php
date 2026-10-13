@@ -255,6 +255,8 @@ class TIX_Public_Platform {
         ];
         // Design der Veranstalter-Seite (evendis): immer gesetzt, Standard „galerie“
         if (class_exists('TIX_Organizer_Page') && TIX_Organizer_Page::multi()) $out['page_design'] = TIX_Organizer_Page::page_design($oid);
+        // Eigene Domain (aktiv) oder null
+        if (class_exists('TIX_Org_Domains') && TIX_Org_Domains::multi()) $out['custom_domain'] = TIX_Org_Domains::active_host($oid) ?: null;
         if ($detailed) {
             $desc = (string) (get_post_meta($oid, '_tix_org_landing_description', true) ?: get_post_meta($oid, '_tix_org_description', true));
             $out['description'] = wp_kses_post($desc);

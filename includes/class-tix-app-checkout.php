@@ -1435,6 +1435,10 @@ class TIX_App_Checkout {
         update_option('_tix_order_source_' . $order_id, self::$partner ? 'partner:' . self::$partner['id'] : 'app', false);
         if ($return_url !== '') update_post_meta($order_id, TIX_Native_Checkout::META_RETURN_URL, $return_url);
         if (!self::$partner) self::apply_attribution($order_id, $req->get_param('attribution'), $cart);
+        // Herkunft: Bestellung über die eigene Domain eines beteiligten Veranstalters (Mails zeigen dann dorthin)
+        if (!self::$partner && class_exists('TIX_Org_Domains') && $req->get_param('origin_host')) {
+            TIX_Org_Domains::remember_origin($order_id, (string) $req->get_param('origin_host'), array_map('intval', array_column((array) ($cart['items'] ?? []), 'event_id')));
+        }
 
         // Zahlung starten
         if ($payment_method === 'free') {
