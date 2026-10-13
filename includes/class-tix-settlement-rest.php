@@ -110,6 +110,10 @@ class TIX_Settlement_REST {
             'example'      => $examples[$mode] ?? $examples['organizer'],
             'examples'     => $examples,
             'gateway_note' => $note,
+            // Geplante Änderungen laut Vermittlungsvertrag (gelten ab valid_from; bis dahin rechnen Beispiele/Kasse mit den aktuellen Werten)
+            'planned'      => (class_exists('TIX_Planned_Values') && TIX_Planned_Values::active())
+                ? TIX_Planned_Values::public_list(!empty($cfg['fee_custom']) ? ['gateway_fee_included', 'fee_split_customer_share'] : ['fee_percent', 'fee_fixed', 'gateway_fee_included', 'fee_split_customer_share'])
+                : [],
         ];
     }
 

@@ -344,6 +344,8 @@ class TIX_Org_Approval {
                     'outdated'            => TIX_Contract_Template::outdated($oid),
                     'missing_master_data' => $miss,
                     'can_accept'          => !$miss,
+                    // Geplante Werte (gelten ab valid_from, null = Ankündigung steht noch aus)
+                    'planned_values'      => class_exists('TIX_Planned_Values') ? TIX_Planned_Values::public_list() : [],
                 ];
             })() : ['source' => 'page']),
             // Offene Zusatzvereinbarung (individuelle Konditionen) oder null – Details: GET /organizer/approval/addendum

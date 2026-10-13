@@ -6911,6 +6911,7 @@ class TIX_Settings {
                                                            step="0.01" min="0" style="width:100px;" />
                                                     <span style="color:#6b7280;">€</span>
                                                 </div>
+                                                <?php if (class_exists('TIX_Planned_Values')) echo TIX_Planned_Values::hint('tix_settings', 'fee_fixed'); ?>
                                             </div>
 
                                             <div class="tix-field">
@@ -6921,6 +6922,7 @@ class TIX_Settings {
                                                            step="0.01" min="0" max="100" style="width:100px;" />
                                                     <span style="color:#6b7280;">%</span>
                                                 </div>
+                                                <?php if (class_exists('TIX_Planned_Values')) echo TIX_Planned_Values::hint('tix_settings', 'fee_percent'); ?>
                                             </div>
 
                                             <div class="tix-field">
@@ -6973,6 +6975,7 @@ class TIX_Settings {
                                                            step="1" min="0" max="100" style="width:80px;" />
                                                     <span style="color:#6b7280;">% der Gebühr zahlt der Kunde, den Rest der Veranstalter</span>
                                                 </div>
+                                                <?php if (class_exists('TIX_Planned_Values')) echo TIX_Planned_Values::hint('tix_settings', 'fee_split_customer_share'); ?>
                                             </div>
 
                                             <div class="tix-field" id="tix-fee-label-wrap" style="<?php echo $s['fee_mode'] !== 'organizer' ? '' : 'display:none;'; ?>">
@@ -7081,6 +7084,7 @@ class TIX_Settings {
                                                     <input type="checkbox" name="tix_settings[gateway_fee_included]" value="1" <?php checked(!empty($s['gateway_fee_included'])); ?> />
                                                     <strong>Zahlungsgebühr ist in der Plattform-Provision enthalten</strong>
                                                 </label>
+                                                <?php if (class_exists('TIX_Planned_Values')) echo TIX_Planned_Values::hint('tix_settings', 'gateway_fee_included'); ?>
                                                 <p style="color:#9ca3af;font-size:12px;margin:4px 0 0 26px;">
                                                     Die Plattform trägt die Gebühren der Zahlungsanbieter selbst: weder Aufschlag für Kunden noch Abzug bei der Auszahlung
                                                     (z. B. evendis: „2,5 % + 0,59 € je Ticket inkl. MwSt. und Zahlung“). Gilt für neue Bestellungen.
@@ -7277,6 +7281,7 @@ class TIX_Settings {
                                                     <input type="number" name="tix_settings[settlement_delay_days]" value="<?php echo esc_attr($s['settlement_delay_days'] ?? 7); ?>" min="0" max="365" style="width:80px;" />
                                                     <span style="color:#6b7280;">Tage (Sonderregeln je Veranstalter unter Auszahlungen)</span>
                                                 </div>
+                                                <?php if (class_exists('TIX_Planned_Values')) echo TIX_Planned_Values::hint('tix_settings', 'settlement_delay_days'); ?>
                                             </div>
                                             <div class="tix-field">
                                                 <label>Abrechnen ab Event-Ende am</label>

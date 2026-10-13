@@ -149,7 +149,7 @@ class TIX_Contract_Template {
         sort($pm);
         $mode_new = (string) ($s['fee_mode_new_org'] ?? 'customer');
         if ($mode_new === '') $mode_new = (string) ($s['fee_mode'] ?? 'organizer');
-        return [
+        $raw = [
             'evendis_firma'          => trim((string) ($s['invoice_company_name'] ?? '')),
             'evendis_anschrift'      => trim(preg_replace('/\s*\R\s*/u', ', ', (string) ($s['invoice_company_address'] ?? ''))),
             'evendis_vertreten_durch'=> trim((string) $c['evendis_vertreten_durch']),
@@ -172,6 +172,15 @@ class TIX_Contract_Template {
             'gerichtsstand'          => trim((string) $c['gerichtsstand']),
             'vorlage'                => hash('sha256', self::template()),
         ];
+        // Geplante Werte (TIX_Planned_Values) sind Teil der nächsten Fassung
+        if (class_exists('TIX_Planned_Values') && TIX_Planned_Values::active()) {
+            foreach (TIX_Planned_Values::target_fields() as $f => $v) {
+                if (!array_key_exists($f, $raw)) continue;
+                $raw[$f] = in_array($f, ['zahlungskosten', 'auszahlung_tage'], true) ? intval($v)
+                    : (in_array($f, ['gebuehr_fix', 'kanal_gebuehr_fix', 'anteil_gast_prozent'], true) ? round(floatval($v), 2) : round(floatval($v), 4));
+            }
+        }
+        return $raw;
     }
 
     /** Stammdaten, ohne die nicht zugestimmt werden kann. */
@@ -403,7 +412,41 @@ class TIX_Contract_Template {
         $a = get_post_meta(intval($oid), TIX_Org_Approval::META_TERMS, true);
         if (!is_array($a) || empty($a['version'])) return false;
         $i = self::index_of($a['version']);
+        if ($i < 0) { // zurückgenommene Version: letzte noch vorhandene Zustimmung aus dem Verlauf
+            $hist = get_post_meta(intval($oid), TIX_Contract::META_HISTORY, true);
+            foreach (array_reverse(is_array($hist) ? $hist : []) as $h) { $i = self::index_of($h['version'] ?? ''); if ($i >= 0) break; }
+        }
         return $i >= 0 && $i >= self::index_of($req['version']);
+    }
+
+    /**
+     * Angekündigte Version zurücknehmen, wenn die Ziel-Werte wieder der gültigen Fassung entsprechen (z. B. geplante
+     * Änderung zurückgezogen). Zustimmungen zur zurückgenommenen Version fallen auf die vorherige zurück; Mail an die Inhaber.
+     */
+    public static function retract_obsolete() {
+        $pend = self::pending();
+        $cur = self::current();
+        if (!$pend || !$cur || $cur['values'] != self::raw_values()) return null;
+        $vs = array_values(array_filter(self::versions(), function ($v) use ($pend) { return $v['version'] !== $pend['version']; }));
+        update_option(self::OPTION_VERSIONS, $vs, false);
+        $snaps = TIX_Contract::snapshots(); unset($snaps[$pend['version']]); update_option(TIX_Contract::OPTION_SNAPS, $snaps, false);
+        delete_option(self::OPTION_DRAFT);
+        $t = TIX_Org_Approval::terms();
+        foreach (get_posts(['post_type' => 'tix_organizer', 'post_status' => 'publish', 'posts_per_page' => 1000, 'fields' => 'ids', 'no_found_rows' => true]) as $oid) {
+            $a = get_post_meta($oid, TIX_Org_Approval::META_TERMS, true);
+            if (is_array($a) && ($a['version'] ?? '') === $pend['version']) {
+                $hist = get_post_meta($oid, TIX_Contract::META_HISTORY, true);
+                $prev = null;
+                foreach (array_reverse(is_array($hist) ? $hist : []) as $h) if (($h['version'] ?? '') !== $pend['version'] && self::find($h['version'] ?? '')) { $prev = $h; break; }
+                if ($prev) update_post_meta($oid, TIX_Org_Approval::META_TERMS, $prev); else delete_post_meta($oid, TIX_Org_Approval::META_TERMS);
+            }
+            $u = get_user_by('id', intval(get_post_meta($oid, '_tix_org_user_id', true)));
+            if ($u && is_email($u->user_email) && class_exists('TIX_Payout_Details')) {
+                TIX_Payout_Details::mail($u->user_email, $t['title'] . ': angekündigte Änderung zurückgenommen', 'Vermittlungsvertrag',
+                    '<p>Hallo,</p><p>die zum ' . esc_html(wp_date('d.m.Y', intval($pend['valid_from']))) . ' angekündigte Version ' . esc_html($pend['version']) . ' des ' . esc_html($t['title']) . ' wird nicht wirksam. Es bleibt bei der Version ' . esc_html($cur['version']) . ' – du musst nichts tun.</p>');
+            }
+        }
+        return $pend;
     }
 
     /** Hatte zugestimmt, aber nicht der nötigen Version (tix_terms_outdated). */
@@ -432,6 +475,7 @@ class TIX_Contract_Template {
     /** Neuen Entwurf anlegen/aktualisieren, wenn sich allgemeine Werte geändert haben (nur Vorlagen-Modus). */
     public static function detect() {
         if (!self::active()) return null;
+        self::retract_obsolete();
         $raw = self::raw_values();
         $vs = self::versions();
         $last = $vs ? end($vs) : null;
@@ -495,10 +539,12 @@ class TIX_Contract_Template {
             'html' => $html, 'text' => $text, 'sha256' => $ver['sha256'], 'frozen_at' => $now, 'by' => $ver['by'], 'valid_from' => $valid];
         update_option(TIX_Contract::OPTION_SNAPS, $snaps, false);
         self::notify($ver);
+        if (class_exists('TIX_Planned_Values')) TIX_Planned_Values::link_version($ver);
         return $ver;
     }
 
     public static function cron() {
+        if (class_exists('TIX_Planned_Values')) TIX_Planned_Values::apply_due();
         self::detect();
         $d = self::draft();
         if ($d && time() - intval($d['created_at']) >= self::DRAFT_AUTOPUBLISH && !self::missing_master_data($d['values'])) self::publish(null, 0);
@@ -670,6 +716,7 @@ class TIX_Contract_Template {
         } else {
             echo '<p>Keine offenen Änderungen.</p>';
         }
+        if (class_exists('TIX_Planned_Values')) TIX_Planned_Values::render_box();
         $vs = array_reverse(self::versions());
         if ($vs) {
             echo '<table class="widefat striped" style="margin-top:10px;"><thead><tr><th>Version</th><th>gültig ab</th><th>Einstufung</th><th>Zustimmung</th><th>SHA-256</th></tr></thead><tbody>';
