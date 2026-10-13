@@ -214,6 +214,10 @@ class TIX_Awareness {
             <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
                 <?php wp_nonce_field('tix_awareness_site'); ?><input type="hidden" name="action" value="tix_awareness_site">
                 <?php echo self::fields_html('tix_awareness', self::site(), true, 'Awareness-Angaben für alle Events anzeigen'); ?>
+                <?php $fl = class_exists('TIX_Awareness_Live') ? TIX_Awareness_Live::flags() : ['report_enabled' => false, 'alarm_live' => false]; ?>
+                <h2>Freischaltung (für alle Veranstalter dieser Seite)</h2>
+                <p><label><input type="checkbox" name="tix_awareness_flags[report_enabled]" value="1" <?php checked($fl['report_enabled']); ?>> <strong>Melden &amp; Feedback</strong> (Vorfall melden, auch anonym; „Hast du dich sicher gefühlt?“) – erst mit Datenschutz-Absatz einschalten</label></p>
+                <p><label><input type="checkbox" name="tix_awareness_flags[alarm_live]" value="1" <?php checked($fl['alarm_live']); ?>> <strong>„Hilfe vor Ort“</strong> (stiller Alarm an das Awareness-Team im Dienst) – <strong>erst nach der rechtlichen Prüfung</strong> einschalten</label></p>
                 <p><button class="button button-primary">Speichern</button></p>
             </form>
         </div>
@@ -224,6 +228,8 @@ class TIX_Awareness {
         if (!current_user_can('manage_options')) wp_die('Kein Zugriff.');
         check_admin_referer('tix_awareness_site');
         update_option(self::OPTION, self::sanitize(wp_unslash((array) ($_POST['tix_awareness'] ?? []))), false);
+        $fl = (array) ($_POST['tix_awareness_flags'] ?? []);
+        update_option('tix_awareness_flags', ['report_enabled' => !empty($fl['report_enabled']) ? 1 : 0, 'alarm_live' => !empty($fl['alarm_live']) ? 1 : 0], false);
         self::flush();
         wp_safe_redirect(admin_url('admin.php?page=tix-awareness&saved=1'));
         exit;

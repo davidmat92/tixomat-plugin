@@ -120,13 +120,17 @@ class TIX_REST_API {
         }
         // Rolle „Eingang (App)“: darf nur einchecken/scannen und die Namensliste
         // sehen (kein Zugriff auf Adressen, Bestellungen, Statistik, Kasse, Editor).
+        // Rolle „Awareness (App)“: nur Awareness-Routen (Dienst, Hinweise) für die Events des eigenen Veranstalters
+        if (!get_role('tix_awareness')) {
+            add_role('tix_awareness', 'Awareness (App)', ['read' => true, 'tix_app_awareness' => true]);
+        }
         if (!get_role('tix_entrance')) {
             add_role('tix_entrance', 'Eingang (App)', ['read' => true, 'tix_app_entrance' => true]);
         }
     }
 
     /** Admin, Mitarbeiter (App) oder Veranstalter-Rolle? */
-    private static function is_staff_user($user) {
+    public static function is_staff_user($user) {
         if (!$user || !$user->ID) return false;
         if ($user->has_cap('manage_options')) return true;
         $roles = (array) $user->roles;

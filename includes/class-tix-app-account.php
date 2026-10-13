@@ -657,6 +657,7 @@ class TIX_App_Account {
             if (is_array($c) && !empty($c['slug'])) {
                 $row = ['slug' => (string) $c['slug'], 'label' => (string) ($c['label'] ?? $c['slug'])];
                 if (!empty($c['audience'])) $row['audience'] = (string) $c['audience'];
+                if (!empty($c['anonymous'])) $row['anonymous'] = true;
                 $out[] = $row;
             }
         }
@@ -682,6 +683,27 @@ class TIX_App_Account {
             return self::error('tix_rate_limit', 'Zu viele Anfragen. Bitte in ein paar Minuten erneut versuchen.', 429);
         }
         $user = is_user_logged_in() ? wp_get_current_user() : null;
+        // Awareness-Meldung (Stufe 2): Name/E-Mail optional, Bezug zum Event
+        if ((string) $req->get_param('category') === 'awareness' && class_exists('TIX_Awareness_Live')) {
+            $anon = $req->get_param('anonymous') === null ? !$user : filter_var($req->get_param('anonymous'), FILTER_VALIDATE_BOOLEAN);
+            $tid = TIX_Awareness_Live::create_report([
+                'event_id' => $req->get_param('event_id'),
+                'subject'  => (string) $req->get_param('subject'),
+                'content'  => (string) $req->get_param('message'),
+                'email'    => $anon ? (string) ($req->get_param('email') ?? '') : ($user ? (string) $user->user_email : (string) $req->get_param('email')),
+                'name'     => $anon ? '' : ($user ? (string) $user->display_name : (string) $req->get_param('name')),
+                'user_id'  => (!$anon && $user) ? intval($user->ID) : 0,
+                'source'   => 'app',
+            ]);
+            if (is_wp_error($tid)) return $tid;
+            $e = (string) get_post_meta($tid, '_tix_sp_email', true);
+            return rest_ensure_response([
+                'ok'        => true,
+                'anonymous' => $e === '',
+                'notice'    => $e === '' ? 'Ohne Kontaktangabe können wir dir nicht antworten.' : '',
+                'request'   => ['id' => intval($tid), 'category' => 'awareness', 'status' => 'tix_open'],
+            ]);
+        }
         if ($user) {
             $email = (string) $user->user_email;
             $name  = trim($user->first_name . ' ' . $user->last_name) ?: (string) $user->display_name;

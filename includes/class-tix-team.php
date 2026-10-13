@@ -6,6 +6,7 @@
  *   - "admin"    -> Rolle tix_organizer (voller Veranstalter-Bereich)
  *   - "dj"       -> Rolle tix_dj (nur Musikwunsch-Liste)
  *   - "entrance" -> Rolle tix_entrance (nur Einlass/Scan + Namensliste)
+ *   - "awareness" -> Rolle tix_awareness (nur Awareness: Dienst + Hinweise, TIX_Awareness_Live)
  *
  * Echte WordPress-Administratoren werden angezeigt, aber NICHT über die App
  * geaendert (Schutz vor versehentlichem Aussperren). Basisrollen (z. B.
@@ -30,6 +31,7 @@ class TIX_Team {
         'admin'    => 'tix_organizer',
         'dj'       => 'tix_dj',
         'entrance' => 'tix_entrance',
+        'awareness' => 'tix_awareness',
     ];
 
     public static function init() {

@@ -171,6 +171,10 @@ class TIX_Support {
      * `audience: organizer` = Anfrage an die Plattform, nicht an einen Veranstalter.
      */
     private static function with_platform_categories(array $cats) {
+        // Awareness-Meldungen (Stufe 2, Schalter „Melden & Feedback“): anonym ohne E-Mail möglich
+        if (class_exists('TIX_Awareness_Live') && TIX_Awareness_Live::flags()['report_enabled'] && !in_array('awareness', array_column($cats, 'slug'), true)) {
+            $cats[] = ['slug' => 'awareness', 'label' => 'Awareness', 'audience' => 'organizer_event', 'anonymous' => true];
+        }
         if (class_exists('TIX_Fees') && TIX_Fees::multi() && !in_array('beratung', array_column($cats, 'slug'), true)) {
             $cats[] = ['slug' => 'beratung', 'label' => 'Beratung für Veranstalter', 'audience' => 'organizer'];
         }
@@ -180,7 +184,7 @@ class TIX_Support {
     /** Kategorien an Veranstalter (ohne Plattform-Themen wie „Beratung“) – Kontaktformular der Landingpage. */
     public static function get_organizer_contact_categories() {
         return array_values(array_filter(self::get_categories(), function ($c) {
-            return !is_array($c) || ($c['audience'] ?? '') !== 'organizer';
+            return !is_array($c) || !in_array($c['audience'] ?? '', ['organizer', 'organizer_event'], true);
         }));
     }
 
@@ -2307,7 +2311,7 @@ class TIX_Support {
     /**
      * Stellt sicher, dass alle Tickets einer E-Mail denselben Access-Key haben.
      */
-    private static function ensure_access_key_for_email($email) {
+    public static function ensure_access_key_for_email($email) {
         $posts = get_posts([
             'post_type'   => 'tix_support_ticket',
             'post_status' => ['tix_open', 'tix_progress', 'tix_resolved', 'tix_closed'],
