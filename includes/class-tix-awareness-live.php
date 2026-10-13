@@ -15,6 +15,8 @@ if (!defined('ABSPATH')) exit;
  *   GET  /awareness/alerts?event_id=           Team/Veranstalter: Liste
  *   POST /awareness/alerts/{id}/status         Team {status: taken|done|no_action}
  *   POST /awareness/duty                       Team {event_id, on} → im Dienst bis Event-Ende + 60 min
+ *   GET  /awareness/events                     Team: betreute Events (laufend + nächste 30 Tage) mit Fenster und eigenem Dienst
+ * Mitteilungs-Ziele (`action`): `awareness:alert:<id>` (Team: neuer Hinweis, Gast: Neuigkeit), `event_id` steht im Push dabei.
  *   GET  /awareness/report?event_id=           Inhaber/Admin: Bericht ohne Namen (je Bereich, Median Reaktionszeit, Feedback)
  *   POST /awareness/feedback                   öffentlich {event_id, answer: yes|partly|no, note?, device}
  *   GET  /awareness/feedback?event_id=         Team/Veranstalter: Summe erst ab 5 Antworten
@@ -182,6 +184,45 @@ class TIX_Awareness_Live {
         return class_exists('TIX_REST_API') && TIX_REST_API::is_staff_user(wp_get_current_user());
     }
 
+    /** GET /awareness/events – Events, die das Konto betreut (eigener Veranstalter bzw. alle), mit Team. */
+    public static function rest_events(WP_REST_Request $req) {
+        $u = wp_get_current_user();
+        $team = $u->has_cap('tix_app_awareness') || $u->has_cap('manage_options') || (class_exists('TIX_REST_API') && TIX_REST_API::is_staff_user($u));
+        if (!$team) return self::error('rest_forbidden', 'Nur für das Awareness-Team.', 403);
+        $from = gmdate('Y-m-d', self::now_ts() - DAY_IN_SECONDS);
+        $to   = gmdate('Y-m-d', self::now_ts() + 30 * DAY_IN_SECONDS);
+        $args = ['post_type' => 'event', 'post_status' => 'publish', 'posts_per_page' => 100, 'fields' => 'ids',
+            'meta_key' => '_tix_date_start', 'orderby' => 'meta_value', 'order' => 'ASC',
+            'meta_query' => [['key' => '_tix_date_start', 'value' => [$from, $to], 'compare' => 'BETWEEN', 'type' => 'DATE']]];
+        if (class_exists('TIX_App_Scope') && TIX_App_Scope::scoped()) {
+            $oid = TIX_App_Scope::organizer_id_for_user();
+            if (!$oid) return rest_ensure_response(['ok' => true, 'events' => []]);
+            $args['meta_query'][] = TIX_App_Scope::event_meta_clause($oid);
+        }
+        $me = get_user_meta(get_current_user_id(), self::META_DUTY, true);
+        $now = self::now_ts();
+        $plain = function ($ts) { return gmdate('Y-m-d H:i', $ts); };
+        $out = [];
+        foreach (get_posts($args) as $eid) {
+            $a = class_exists('TIX_Awareness') ? TIX_Awareness::effective($eid) : null;
+            $w = self::window($eid);
+            if (!$a || empty($a['team']) || !$w || $now > $w['closes']) continue;
+            $out[] = [
+                'id'            => intval($eid),
+                'title'         => html_entity_decode(get_the_title($eid), ENT_QUOTES, 'UTF-8'),
+                'starts_at'     => $plain($w['start']),
+                'ends_at'       => $plain($w['end']),
+                'opens_at'      => $plain($w['opens']),
+                'closes_at'     => $plain($w['closes']),
+                'running'       => $now >= $w['opens'],
+                'alarm_enabled' => !empty($a['alarm_enabled']) && self::flags()['alarm_live'],
+                'point'         => (string) $a['point'],
+                'on_duty'       => is_array($me) && intval($me['event_id'] ?? 0) === intval($eid) && intval($me['until'] ?? 0) >= $now,
+            ];
+        }
+        return rest_ensure_response(['ok' => true, 'events' => $out]);
+    }
+
     public static function rest_duty(WP_REST_Request $req) {
         $eid = absint($req->get_param('event_id'));
         if (!self::team_can_event($eid)) return self::error('rest_forbidden', 'Kein Zugriff auf dieses Event.', 403);
@@ -250,7 +291,7 @@ class TIX_Awareness_Live {
         // Push an alle im Dienst – ohne Inhalt auf dem Sperrbildschirm
         if (class_exists('TIX_Notifications')) {
             foreach (self::on_duty_users($eid) as $uid) {
-                TIX_Notifications::add_user_item($uid, 'Neuer Hinweis für das Awareness-Team', '', ['type' => 'awareness', 'event_id' => $eid, 'action' => 'awareness']);
+                TIX_Notifications::add_user_item($uid, 'Neuer Hinweis für das Awareness-Team', '', ['type' => 'awareness', 'event_id' => $eid, 'action' => 'awareness:alert:' . $id]);
             }
         }
         $g = self::guest_payload(self::alert_row($id), true);
@@ -325,7 +366,7 @@ class TIX_Awareness_Live {
         $wpdb->update(self::t('tix_awareness_alerts'), $upd, ['id' => $r->id]);
         // Gast mit Konto (nicht anonym): Mitteilung ohne Inhalt
         if (intval($r->user_id) && class_exists('TIX_Notifications')) {
-            TIX_Notifications::add_user_item(intval($r->user_id), 'Neuigkeit zu deinem Hinweis', '', ['type' => 'awareness_guest', 'event_id' => intval($r->event_id), 'action' => 'awareness']);
+            TIX_Notifications::add_user_item(intval($r->user_id), 'Neuigkeit zu deinem Hinweis', '', ['type' => 'awareness_guest', 'event_id' => intval($r->event_id), 'action' => 'awareness:alert:' . intval($r->id)]);
         }
         return rest_ensure_response(['ok' => true, 'alert' => self::team_payload(self::alert_row($r->id))]);
     }
@@ -503,6 +544,7 @@ class TIX_Awareness_Live {
         register_rest_route(self::NS, '/awareness/alerts/(?P<id>\d+)', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_guest_alert'], 'permission_callback' => $pub]);
         register_rest_route(self::NS, '/awareness/alerts/(?P<id>\d+)/status', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_alert_status'], 'permission_callback' => $in]);
         register_rest_route(self::NS, '/awareness/duty', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_duty'], 'permission_callback' => $in]);
+        register_rest_route(self::NS, '/awareness/events', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_events'], 'permission_callback' => $in]);
         register_rest_route(self::NS, '/awareness/report', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_report'], 'permission_callback' => $in]);
         register_rest_route(self::NS, '/awareness/feedback', [
             ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_feedback'], 'permission_callback' => $pub],
