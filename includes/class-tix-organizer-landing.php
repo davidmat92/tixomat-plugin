@@ -2822,6 +2822,8 @@ a{display:inline-block;padding:12px 28px;background:#E8445A;color:#fff;border-ra
                 .tix-ol-rep-remove:hover { background:#fee2e2; }
                 </style>
 
+                <?php if (class_exists('TIX_Organizer_Page') && TIX_Organizer_Page::multi()) echo TIX_Organizer_Page::design_picker($org_id); ?>
+
                 <div class="tix-ol-save-bar">
                     <div class="tix-ol-save-status" id="tix-ol-save-status"></div>
                     <button type="button" class="tix-ol-save" id="tix-ol-save-btn">Speichern</button>
@@ -3293,6 +3295,12 @@ a{display:inline-block;padding:12px 28px;background:#E8445A;color:#fff;border-ra
 
         update_post_meta($org_id, '_tix_org_landing_partners_heading',
             sanitize_text_field($_POST['landing_partners_heading'] ?? ''));
+
+        // Design der Seite auf der Plattform (evendis)
+        if (isset($_POST['page_design']) && class_exists('TIX_Organizer_Page') && TIX_Organizer_Page::multi()) {
+            $r = TIX_Organizer_Page::set_design($org_id, sanitize_key(wp_unslash($_POST['page_design'])));
+            if (is_wp_error($r)) wp_send_json_error(['message' => $r->get_error_message()]);
+        }
 
         wp_send_json_success(['message' => 'Gespeichert']);
     }

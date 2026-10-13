@@ -13,6 +13,9 @@ if (!defined('ABSPATH')) exit;
  *   venue {name, address, city, lat, lng, transit, parking} | null   (Hauptort bzw. Adresse des Veranstalters)
  *   schema_type "" | NightClub | EventVenue | MusicVenue | BarOrPub | Organization | PerformingGroup
  * GET /public/events → je Event series_id (Serie bzw. Wiederholungs-Elter, 0 = keine Serie)
+ * Design der Seite (1.38.417): page_design galerie (Standard) | clubnacht | profil | ticketschalter | bento – in
+ *   /public/organizers (Liste + Detail, immer gesetzt) und /organizer/profile (GET/POST, sonst 400 tix_invalid_design);
+ *   Auswahl als Kacheln im WP-Admin (Veranstalter) und auf „Meine Landingpage“. Meta _tix_org_page_design.
  * Pflege: /organizer/profile (GET/POST: facts, faq, schema_type, transit, parking), WP-Admin (Veranstalter, Ort).
  * Meta: _tix_org_facts, _tix_org_faq [{q, a}] (Format wie _tix_faq), _tix_org_schema_type, _tix_org_transit,
  *       _tix_org_parking, am Ort _tix_loc_transit, _tix_loc_parking.
@@ -23,6 +26,14 @@ class TIX_Organizer_Page {
     const SCHEMA_TYPES = ['NightClub', 'EventVenue', 'MusicVenue', 'BarOrPub', 'Organization', 'PerformingGroup'];
     const GALLERY_MAX  = 24;
     const FAQ_MAX      = 20;
+    const DESIGN_DEFAULT = 'galerie';
+    const DESIGNS = [
+        'galerie'        => ['Galerie', 'hell und luftig, das nächste Event groß'],
+        'clubnacht'      => ['Clubnacht', 'dunkel und filmisch, mit Countdown und Spielplan'],
+        'profil'         => ['Profil', 'wie ein App-Profil, mit Filtern'],
+        'ticketschalter' => ['Ticketschalter', 'Monatskalender, Events als Ticketabschnitte'],
+        'bento'          => ['Bento', 'moderne Kacheln'],
+    ];
 
     public static function multi() {
         return class_exists('TIX_App_Scope') && TIX_App_Scope::multi();
@@ -153,6 +164,66 @@ class TIX_Organizer_Page {
         ];
     }
 
+    /** Design der Seite; leer/unbekannt = galerie. */
+    public static function page_design($oid) {
+        $d = (string) get_post_meta($oid, '_tix_org_page_design', true);
+        return isset(self::DESIGNS[$d]) ? $d : self::DESIGN_DEFAULT;
+    }
+
+    /** Design setzen (nur die fünf Werte) und öffentliche Zwischenspeicher leeren. */
+    public static function set_design($oid, $value) {
+        $v = (string) $value;
+        if (!isset(self::DESIGNS[$v])) {
+            return new WP_Error('tix_invalid_design', 'Unbekanntes Design. Erlaubt: ' . implode(', ', array_keys(self::DESIGNS)) . '.', ['status' => 400, 'field' => 'page_design']);
+        }
+        update_post_meta($oid, '_tix_org_page_design', $v);
+        self::flush();
+        return true;
+    }
+
+    private static function flush() {
+        if (class_exists('TIX_App_Scope') && method_exists('TIX_App_Scope', 'flush_public_cache')) TIX_App_Scope::flush_public_cache();
+        elseif (class_exists('TIX_Public_Events')) TIX_Public_Events::flush();
+    }
+
+    /** Auswahl als fünf Kacheln mit schematischer Vorschau (Radio-Feld „page_design“). */
+    public static function design_picker($oid) {
+        $cur = self::page_design($oid);
+        $h = '<fieldset class="tix-pd"><legend class="tix-pd-legend">Design deiner Seite</legend><div class="tix-pd-grid">';
+        foreach (self::DESIGNS as $k => $d) {
+            $h .= '<label class="tix-pd-tile"><input type="radio" name="page_design" value="' . esc_attr($k) . '" ' . checked($cur, $k, false) . '>'
+                . '<span class="tix-pd-card"><span class="tix-pd-prev tix-pd-' . esc_attr($k) . '" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></span>'
+                . '<span class="tix-pd-name">' . esc_html($d[0]) . ($k === self::DESIGN_DEFAULT ? ' <small>Standard</small>' : '') . '</span>'
+                . '<span class="tix-pd-desc">' . esc_html($d[1]) . '</span></span></label>';
+        }
+        $h .= '</div></fieldset>';
+        return $h . '<style>
+.tix-pd{border:0;margin:16px 0;padding:0}.tix-pd-legend{font-weight:700;font-size:14px;margin-bottom:8px}
+.tix-pd-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px}
+.tix-pd-tile{cursor:pointer;display:block}.tix-pd-tile input{position:absolute;opacity:0;pointer-events:none}
+.tix-pd-card{display:flex;flex-direction:column;gap:4px;border:2px solid #e5e7eb;border-radius:12px;padding:10px;background:#fff;height:100%;box-sizing:border-box}
+.tix-pd-tile input:checked+.tix-pd-card{border-color:#E8445A;box-shadow:0 0 0 3px rgba(232,68,90,.15)}
+.tix-pd-tile input:focus-visible+.tix-pd-card{outline:2px solid #2271b1;outline-offset:2px}
+.tix-pd-name{font-weight:700;font-size:14px;color:#1d2327}.tix-pd-name small{font-weight:600;font-size:11px;color:#E8445A;margin-left:4px}
+.tix-pd-desc{font-size:12px;color:#646970;line-height:1.4}
+.tix-pd-prev{position:relative;display:block;height:92px;border-radius:8px;overflow:hidden;background:#F2F3F7;margin-bottom:4px}
+.tix-pd-prev i{position:absolute;display:block;border-radius:4px;background:#C9CCD6}
+.tix-pd-galerie i:nth-child(1){left:8%;top:10%;width:84%;height:44%;background:#E8445A;opacity:.85}
+.tix-pd-galerie i:nth-child(2){left:8%;top:62%;width:26%;height:26%}.tix-pd-galerie i:nth-child(3){left:37%;top:62%;width:26%;height:26%}.tix-pd-galerie i:nth-child(4){left:66%;top:62%;width:26%;height:26%}
+.tix-pd-clubnacht{background:#15161E}.tix-pd-clubnacht i{background:#3A3D4F}
+.tix-pd-clubnacht i:nth-child(1){left:8%;top:10%;width:60%;height:14%;background:#fff;opacity:.9}.tix-pd-clubnacht i:nth-child(2){left:8%;top:30%;width:34%;height:12%;background:#FC2F55;border-radius:99px}
+.tix-pd-clubnacht i:nth-child(3){left:8%;top:52%;width:84%;height:10%}.tix-pd-clubnacht i:nth-child(4){left:8%;top:66%;width:84%;height:10%}.tix-pd-clubnacht i:nth-child(5){left:8%;top:80%;width:84%;height:10%}
+.tix-pd-profil i:nth-child(1){left:8%;top:10%;width:22%;height:30%;border-radius:50%;background:#E8445A;opacity:.85}.tix-pd-profil i:nth-child(2){left:36%;top:16%;width:50%;height:9%;background:#2C2F3F}
+.tix-pd-profil i:nth-child(3){left:8%;top:48%;width:20%;height:9%;border-radius:99px}.tix-pd-profil i:nth-child(4){left:31%;top:48%;width:20%;height:9%;border-radius:99px}
+.tix-pd-profil i:nth-child(5){left:8%;top:63%;width:40%;height:28%}.tix-pd-profil i:nth-child(6){left:52%;top:63%;width:40%;height:28%}
+.tix-pd-ticketschalter i:nth-child(1){left:8%;top:10%;width:40%;height:42%;background:repeating-linear-gradient(90deg,#C9CCD6 0 5px,transparent 5px 9px),repeating-linear-gradient(0deg,#C9CCD6 0 4px,transparent 4px 8px);background-blend-mode:multiply;opacity:.8}
+.tix-pd-ticketschalter i:nth-child(2){left:54%;top:10%;width:38%;height:22%;background:#fff;border:1px dashed #E8445A}.tix-pd-ticketschalter i:nth-child(3){left:54%;top:38%;width:38%;height:22%;background:#fff;border:1px dashed #E8445A}
+.tix-pd-ticketschalter i:nth-child(4){left:8%;top:62%;width:84%;height:26%;background:#fff;border:1px dashed #C9CCD6}
+.tix-pd-bento i:nth-child(1){left:6%;top:8%;width:52%;height:50%;background:#E8445A;opacity:.85}.tix-pd-bento i:nth-child(2){left:62%;top:8%;width:32%;height:23%}.tix-pd-bento i:nth-child(3){left:62%;top:35%;width:32%;height:23%;background:#2C2F3F}
+.tix-pd-bento i:nth-child(4){left:6%;top:62%;width:26%;height:30%}.tix-pd-bento i:nth-child(5){left:36%;top:62%;width:58%;height:30%}
+</style>';
+    }
+
     public static function schema_type($oid) {
         $t = (string) get_post_meta($oid, '_tix_org_schema_type', true);
         return in_array($t, self::SCHEMA_TYPES, true) ? $t : '';
@@ -195,6 +266,7 @@ class TIX_Organizer_Page {
             'schema_type' => self::schema_type($oid),
             'transit'     => (string) get_post_meta($oid, '_tix_org_transit', true),
             'parking'     => (string) get_post_meta($oid, '_tix_org_parking', true),
+            'page_design' => self::page_design($oid),
         ];
     }
 
@@ -228,6 +300,10 @@ class TIX_Organizer_Page {
 
     /** POST /organizer/profile: facts (Teil-Update), faq (ganze Liste), schema_type, transit, parking. */
     public static function save_from_profile($oid, array $b) {
+        if (array_key_exists('page_design', $b)) {
+            $r = self::set_design($oid, (string) $b['page_design']);
+            if (is_wp_error($r)) return $r;
+        }
         if (array_key_exists('facts', $b)) {
             if (!is_array($b['facts'])) return new WP_Error('tix_invalid_field', 'facts muss ein Objekt sein.', ['status' => 400, 'field' => 'facts']);
             update_post_meta($oid, '_tix_org_facts', self::clean_facts($b['facts'], get_post_meta($oid, '_tix_org_facts', true)));
@@ -265,6 +341,7 @@ class TIX_Organizer_Page {
         $faq[] = ['q' => '', 'a' => ''];
         $type = self::schema_type($post->ID);
         ?>
+        <?php echo self::design_picker($post->ID); ?>
         <p class="description">Erscheint auf der Veranstalter-Seite. Leere Felder werden nicht angezeigt.</p>
         <table class="form-table" role="presentation">
             <?php foreach ($labels as $k => $l) : ?>
@@ -311,7 +388,8 @@ class TIX_Organizer_Page {
         $t = (string) ($b['tix_org_schema_type'] ?? '');
         update_post_meta($post_id, '_tix_org_schema_type', in_array($t, self::SCHEMA_TYPES, true) ? $t : '');
         foreach (['transit', 'parking'] as $k) update_post_meta($post_id, '_tix_org_' . $k, mb_substr(sanitize_text_field((string) ($b['tix_org_' . $k] ?? '')), 0, 200));
-        if (class_exists('TIX_Public_Events')) TIX_Public_Events::flush();
+        if (isset($b['page_design']) && isset(self::DESIGNS[(string) $b['page_design']])) update_post_meta($post_id, '_tix_org_page_design', (string) $b['page_design']);
+        self::flush();
     }
 
     public static function save_location_admin($post_id, $post) {
