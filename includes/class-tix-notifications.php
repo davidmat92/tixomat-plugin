@@ -288,10 +288,12 @@ class TIX_Notifications {
                 'action'   => $action,
             ]);
         }
+        // Weitere Kanäle (z. B. Folgen per E-Mail, TIX_Mail_Follow) – liefert die Zahl zusätzlicher Empfänger
+        $extra = intval(apply_filters('tix_organizer_broadcast', 0, $oid, $title, $body, $event_id, $target));
         return new WP_REST_Response([
             'ok'         => true,
             'pushed'     => self::apns_configured(),
-            'recipients' => count($uids),
+            'recipients' => count($uids) + $extra,
             'target'     => $target,
         ], 200);
     }

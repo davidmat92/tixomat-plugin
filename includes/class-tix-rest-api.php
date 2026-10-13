@@ -660,6 +660,8 @@ class TIX_REST_API {
         ] + ((class_exists('TIX_Weekly_Mail') && TIX_Weekly_Mail::multi()) ? [
             // Wochenmail (evendis): Karte „Was geht am Wochenende?“ nur bei enabled
             'newsletter'     => ['enabled' => TIX_Weekly_Mail::enabled()],
+            // Folgen per E-Mail ohne Konto (Veranstalter-Seite): Feld nur bei enabled zeigen
+            'mail_follow'    => ['enabled' => class_exists('TIX_Mail_Follow') && TIX_Mail_Follow::enabled()],
         ] : []) + [
         ]);
     }
