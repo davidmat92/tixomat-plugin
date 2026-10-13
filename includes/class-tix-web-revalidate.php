@@ -23,6 +23,7 @@ class TIX_Web_Revalidate {
     const EVENT_META  = ['_tix_info_', '_tix_date_', '_tix_time_', '_tix_status', '_thumbnail_id', '_tix_lineup_links', '_tix_location', '_tix_organizer_id', '_tix_price_range'];
 
     private static $orgs = [];
+    private static $domains = [];
     private static $events = [];   // event_id => [slug, organizer_id]
     private static $hooked = false;
 
@@ -92,6 +93,15 @@ class TIX_Web_Revalidate {
         self::hook();
     }
 
+    /** Eigene Domain angelegt/geändert/abgeschaltet → {domains: [host]} (TIX_Org_Domains). */
+    public static function touch_domain($host) {
+        if (self::secret() === '') return;
+        $h = strtolower(trim((string) $host));
+        if ($h === '' || !preg_match('/^[a-z0-9.-]+$/', $h)) return;
+        self::$domains[$h] = true;
+        self::hook();
+    }
+
     public static function touch_event($eid) {
         if (self::secret() === '' || get_post_type($eid) !== 'event') return;
         $p = get_post($eid);
@@ -142,15 +152,16 @@ class TIX_Web_Revalidate {
             if ($p) $out[] = $p;
         }
         foreach (array_chunk(array_values(array_unique($loose)), self::MAX_EVENTS) as $chunk) $out[] = ['events' => $chunk];
+        if (self::$domains) { $d = array_keys(self::$domains); sort($d); $out[] = ['domains' => $d]; }
         return $out;
     }
 
     /** Beim Beenden des Requests: einmal je Veranstalter senden. */
     public static function flush() {
         $secret = self::secret();
-        if ($secret === '' || self::url() === '' || (!self::$orgs && !self::$events)) return;
+        if ($secret === '' || self::url() === '' || (!self::$orgs && !self::$events && !self::$domains)) return;
         $payloads = self::payloads();
-        self::$orgs = []; self::$events = [];
+        self::$orgs = []; self::$events = []; self::$domains = [];
         $sent = [];
         // Die Weiche auf evendis.de lässt nur die IPv4-Adresse des WordPress-Servers durch
         $v4 = function ($handle) { if (defined('CURLOPT_IPRESOLVE')) curl_setopt($handle, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4); };

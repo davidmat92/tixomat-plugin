@@ -90,7 +90,15 @@ class TIX_Org_Domains {
             if (is_array($d) && ($d['status'] ?? '') === 'active' && !empty($d['host']) && get_post_status($r->post_id) === 'publish' && self::allowed($r->post_id)) $map[$d['host']] = intval($r->post_id);
         }
         ksort($map);
+        $old = get_option(TIX_Customer_URL::OPTION_DOMAINS, []);
         update_option(TIX_Customer_URL::OPTION_DOMAINS, $map, true);
+        // Website neu aufbauen für angelegte, geänderte oder abgeschaltete Domains (Vertrag evendis-web)
+        if (class_exists('TIX_Web_Revalidate')) {
+            $old = is_array($old) ? $old : [];
+            foreach (array_unique(array_merge(array_keys($old), array_keys($map))) as $h) {
+                if (($old[$h] ?? null) !== ($map[$h] ?? null)) TIX_Web_Revalidate::touch_domain($h);
+            }
+        }
         if (class_exists('TIX_App_Scope') && method_exists('TIX_App_Scope', 'flush_public_cache')) TIX_App_Scope::flush_public_cache();
         return $map;
     }
@@ -242,10 +250,9 @@ class TIX_Org_Domains {
 
     /** Herkunft einer Bestellung merken, wenn sie über eine aktive eigene Domain eines beteiligten Veranstalters kam. */
     public static function remember_origin($order_id, $host, array $event_ids = []) {
-        $h = strtolower(preg_replace('/:\\d+$/', '', trim((string) $host)));
+        $h = self::resolve_host($host);
         if ($h === '') return false;
         $map = get_option(TIX_Customer_URL::OPTION_DOMAINS, []);
-        if (!is_array($map) || !isset($map[$h])) return false;
         $oid = intval($map[$h]);
         if ($event_ids) {
             $hit = false;
@@ -309,12 +316,23 @@ class TIX_Org_Domains {
             'design' => class_exists('TIX_Organizer_Page') ? TIX_Organizer_Page::page_design($oid) : 'galerie', 'active' => true];
     }
 
-    /** Öffentlich: Domain → Veranstalter (nur aktive, keine persönlichen Daten). */
-    public static function rest_resolve(WP_REST_Request $req) {
-        $h = strtolower((string) $req['host']);
+    /** Aktive Domain zu einem Host – auch mit bzw. ohne „www.“ (liefert die eingetragene Hauptadresse) oder ''. */
+    public static function resolve_host($host) {
+        $h = strtolower(rtrim(preg_replace('/:\d+$/', '', trim((string) $host)), '.'));
         $map = get_option(TIX_Customer_URL::OPTION_DOMAINS, []);
-        if (!is_array($map) || !isset($map[$h]) || (class_exists('TIX_Org_Approval') && !TIX_Org_Approval::is_public($map[$h]))) return new WP_Error('tix_domain', 'Unbekannte Domain.', ['status' => 404]);
-        $res = rest_ensure_response(['ok' => true] + self::public_entry($h, $map[$h]));
+        if (!is_array($map)) return '';
+        foreach ([$h, strpos($h, 'www.') === 0 ? substr($h, 4) : 'www.' . $h] as $c) if (isset($map[$c])) return $c;
+        return '';
+    }
+
+    /** Öffentlich: Domain → Veranstalter (nur aktive, keine persönlichen Daten); www.-Variante liefert die Hauptadresse. */
+    public static function rest_resolve(WP_REST_Request $req) {
+        $h = self::resolve_host((string) $req['host']);
+        $map = get_option(TIX_Customer_URL::OPTION_DOMAINS, []);
+        if ($h === '' || (class_exists('TIX_Org_Approval') && !TIX_Org_Approval::is_public($map[$h]))) return new WP_Error('tix_domain', 'Unbekannte Domain.', ['status' => 404]);
+        $entry = self::public_entry($h, $map[$h]);
+        // Vertrag evendis-web: {domain: {host, organizer_id, slug, design, active}}; die flachen Felder bleiben zusätzlich
+        $res = rest_ensure_response(['ok' => true, 'domain' => $entry] + $entry);
         $res->header('Cache-Control', 'public, max-age=300');
         return $res;
     }
@@ -333,9 +351,8 @@ class TIX_Org_Domains {
     public static function rest_allowed(WP_REST_Request $req) {
         $s = self::settings();
         if ($s['ask_secret'] !== '' && !hash_equals($s['ask_secret'], (string) $req->get_param('secret'))) return new WP_Error('tix_forbidden', 'Nicht erlaubt.', ['status' => 404]);
-        $h = strtolower(trim((string) ($req->get_param('domain') ?: $req->get_param('host'))));
-        $map = get_option(TIX_Customer_URL::OPTION_DOMAINS, []);
-        if (!is_array($map) || !isset($map[$h])) return new WP_Error('tix_domain', 'Unbekannte Domain.', ['status' => 404]);
+        // Zertifikat auch für die www.-Variante (das Web leitet sie auf die Hauptadresse um)
+        if (self::resolve_host((string) ($req->get_param('domain') ?: $req->get_param('host'))) === '') return new WP_Error('tix_domain', 'Unbekannte Domain.', ['status' => 404]);
         return rest_ensure_response(['ok' => true]);
     }
 

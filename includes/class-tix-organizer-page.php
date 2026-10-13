@@ -242,6 +242,9 @@ class TIX_Organizer_Page {
             'gallery'     => self::gallery($past),
             'venue'       => self::venue($oid, $ids),
             'schema_type' => self::schema_type($oid),
+            // Impressum für die eigene Domain (optional, vom Veranstalter gepflegt): HTML bzw. Adresse, sonst null
+            'imprint'     => (($im = trim((string) get_post_meta($oid, '_tix_org_imprint', true))) !== '') ? wp_kses_post(wpautop($im)) : null,
+            'imprint_url' => (($iu = (string) get_post_meta($oid, '_tix_org_imprint_url', true)) !== '') ? $iu : null,
         ];
     }
 
@@ -267,6 +270,8 @@ class TIX_Organizer_Page {
             'transit'     => (string) get_post_meta($oid, '_tix_org_transit', true),
             'parking'     => (string) get_post_meta($oid, '_tix_org_parking', true),
             'page_design' => self::page_design($oid),
+            'imprint'     => (string) get_post_meta($oid, '_tix_org_imprint', true),
+            'imprint_url' => (string) get_post_meta($oid, '_tix_org_imprint_url', true),
         ];
     }
 
@@ -322,6 +327,12 @@ class TIX_Organizer_Page {
         foreach (['transit', 'parking'] as $k) {
             if (array_key_exists($k, $b)) update_post_meta($oid, '_tix_org_' . $k, mb_substr(sanitize_text_field((string) $b[$k]), 0, 200));
         }
+        if (array_key_exists('imprint', $b)) update_post_meta($oid, '_tix_org_imprint', mb_substr(wp_kses_post((string) $b['imprint']), 0, 5000));
+        if (array_key_exists('imprint_url', $b)) {
+            $u = trim((string) $b['imprint_url']);
+            if ($u !== '' && !preg_match('#^https://#i', $u)) return new WP_Error('tix_invalid_field', 'Bitte eine https-Adresse für das Impressum angeben.', ['status' => 400, 'field' => 'imprint_url']);
+            update_post_meta($oid, '_tix_org_imprint_url', $u !== '' ? esc_url_raw($u, ['https']) : '');
+        }
         return true;
     }
 
@@ -354,6 +365,9 @@ class TIX_Organizer_Page {
                 </select></td></tr>
             <tr><th><label for="tix_org_transit">Anfahrt mit Bus &amp; Bahn</label></th>
                 <td><input type="text" class="large-text" id="tix_org_transit" name="tix_org_transit" value="<?php echo esc_attr(get_post_meta($post->ID, '_tix_org_transit', true)); ?>" placeholder="Bus 620 bis Aue, 2 min"><p class="description">Gilt, wenn am Ort nichts eingetragen ist.</p></td></tr>
+            <tr><th><label for="tix_org_imprint">Impressum (eigene Domain)</label></th>
+                <td><textarea class="large-text" rows="4" id="tix_org_imprint" name="tix_org_imprint" placeholder="Firma, Anschrift, Vertretung, Kontakt, USt-IdNr. …"><?php echo esc_textarea(get_post_meta($post->ID, '_tix_org_imprint', true)); ?></textarea>
+                <input type="url" class="large-text" name="tix_org_imprint_url" value="<?php echo esc_attr(get_post_meta($post->ID, '_tix_org_imprint_url', true)); ?>" placeholder="oder Link auf ein bestehendes Impressum (https://…)"></td></tr>
             <tr><th><label for="tix_org_parking">Parken</label></th>
                 <td><input type="text" class="large-text" id="tix_org_parking" name="tix_org_parking" value="<?php echo esc_attr(get_post_meta($post->ID, '_tix_org_parking', true)); ?>" placeholder="Parkhaus am Markt"></td></tr>
         </table>
@@ -388,6 +402,8 @@ class TIX_Organizer_Page {
         $t = (string) ($b['tix_org_schema_type'] ?? '');
         update_post_meta($post_id, '_tix_org_schema_type', in_array($t, self::SCHEMA_TYPES, true) ? $t : '');
         foreach (['transit', 'parking'] as $k) update_post_meta($post_id, '_tix_org_' . $k, mb_substr(sanitize_text_field((string) ($b['tix_org_' . $k] ?? '')), 0, 200));
+        if (isset($b['tix_org_imprint'])) update_post_meta($post_id, '_tix_org_imprint', mb_substr(wp_kses_post((string) $b['tix_org_imprint']), 0, 5000));
+        if (isset($b['tix_org_imprint_url'])) { $iu = trim((string) $b['tix_org_imprint_url']); update_post_meta($post_id, '_tix_org_imprint_url', preg_match('#^https://#i', $iu) ? esc_url_raw($iu, ['https']) : ''); }
         if (isset($b['page_design']) && isset(self::DESIGNS[(string) $b['page_design']])) update_post_meta($post_id, '_tix_org_page_design', (string) $b['page_design']);
         self::flush();
     }

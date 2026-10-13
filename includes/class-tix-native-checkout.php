@@ -1090,6 +1090,11 @@ class TIX_Native_Checkout {
         }
         // Kunden-Adresse ist automatisch ein erlaubtes Rücksprung-Ziel (nur bei https)
         if (class_exists('TIX_Customer_URL') && strpos(TIX_Customer_URL::base(), 'https://') === 0) $out[] = TIX_Customer_URL::host();
+        // Aktive eigene Domains der Veranstalter (Mehr-Veranstalter-Modus, TIX_Org_Domains)
+        if (class_exists('TIX_Customer_URL') && get_option('tix_multi_organizer')) {
+            $doms = get_option(TIX_Customer_URL::OPTION_DOMAINS, []);
+            if (is_array($doms)) foreach (array_keys($doms) as $d) $out[] = (string) $d;
+        }
         return array_values(array_unique(array_filter($out)));
     }
 
