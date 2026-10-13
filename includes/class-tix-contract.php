@@ -62,6 +62,7 @@ class TIX_Contract {
     }
 
     public static function on_settings($old, $new) {
+        if (is_array($new) && ($new['terms_source'] ?? 'page') === 'template') return; // Versionen macht TIX_Contract_Template
         $v = is_array($new) ? (string) ($new['terms_version'] ?? '') : '';
         if ($v !== '' && !self::snapshot($v)) self::freeze($v);
     }
@@ -248,13 +249,21 @@ class TIX_Contract {
         $snap = $snap ?: self::snapshot($record['version'] ?? '');
         $t = TIX_Org_Approval::terms();
         $title = ($snap['title'] ?? $t['title']) . ' – Version ' . ($record['version'] ?? '');
-        return self::pdf_doc($title, [
+        $proof = [
             'Veranstalter' => self::org_name($oid) . ' (ID ' . intval($oid) . ')',
             'Zugestimmt von' => self::user_line($record['user_id'] ?? 0),
             'Zeitpunkt' => self::when($record['accepted_at'] ?? 0),
             'IP-Adresse' => (string) ($record['ip'] ?? ''),
             'Fundstelle' => (string) ($record['url'] ?? ($snap['url'] ?? '')),
-        ], (string) ($snap['text'] ?? ''), (string) ($record['sha256'] ?? ($snap['sha256'] ?? '')));
+        ];
+        // Vorlagen-Modus: Wortlaut mit den Angaben des Veranstalters + Anlage „Aktuelle Konditionen“ zum Zeitpunkt der Zustimmung
+        $text = (string) ($snap['text'] ?? '');
+        if (!empty($record['doc_text'])) {
+            $text = (string) $record['doc_text'] . (!empty($record['annex_text']) ? "\n\n" . (string) $record['annex_text'] : '');
+            if (!empty($snap['valid_from'])) $proof['Gültig ab'] = wp_date('d.m.Y', intval($snap['valid_from']));
+            if (!empty($record['doc_sha256'])) $proof['Prüfsumme Dokument'] = substr((string) $record['doc_sha256'], 0, 32) . '…';
+        }
+        return self::pdf_doc($title, $proof, $text, (string) ($record['sha256'] ?? ($snap['sha256'] ?? '')));
     }
 
     public static function pdf_addendum($oid, $a) {

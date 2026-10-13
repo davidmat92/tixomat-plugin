@@ -133,6 +133,13 @@ class TIX_Org_Approval {
 
     /** null = Verkauf erlaubt, sonst WP_Error für Kasse/App/Kasse vor Ort. */
     public static function sale_error($event_id) {
+        // Vorlagen-Modus: nach Inkrafttreten einer zustimmungspflichtigen Version erst nach Zustimmung verkaufen (§ 11 Abs. 3)
+        if (self::multi() && self::tpl() && !self::is_syndicated(intval($event_id))) {
+            $oid = intval(get_post_meta(intval($event_id), '_tix_organizer_id', true));
+            if ($oid && self::is_public($oid) && TIX_Contract_Template::outdated($oid)) {
+                return new WP_Error('tix_terms_outdated', 'Der Veranstalter muss der aktuellen Version des Vermittlungsvertrags zustimmen, bevor wieder Tickets verkauft werden können.', ['status' => 403, 'approval' => 'terms_outdated']);
+            }
+        }
         if (self::event_allowed($event_id)) return null;
         $oid = intval(get_post_meta(intval($event_id), '_tix_organizer_id', true));
         $msg = self::status($oid) === 'blocked'
@@ -155,18 +162,39 @@ class TIX_Org_Approval {
             'notify_email'  => '',
             'push_admins'   => 1,
             'contract_copy_admin' => 0,
+            'terms_source'  => 'page',   // page = Seite/Link + Version von Hand, template = Vorlage im Plugin (TIX_Contract_Template)
+            'contract'      => [],
         ], is_array($s) ? $s : []);
     }
 
     /** Aktueller Vertrag: {title, url, version}; version '' = kein Vertrag eingerichtet. */
     public static function terms() {
         $s = self::settings();
+        // Vorlage im Plugin: gültige Version aus TIX_Contract_Template (solange noch keine veröffentlicht ist, die bisherige)
+        if (class_exists('TIX_Contract_Template') && TIX_Contract_Template::active() && ($cur = TIX_Contract_Template::current())) {
+            return ['title' => (string) $s['terms_title'], 'url' => TIX_Contract_Template::view_url(), 'version' => (string) $cur['version']];
+        }
         $url = (string) $s['terms_url'];
         if ($url === '' && intval($s['terms_page_id'])) $url = (string) get_permalink(intval($s['terms_page_id']));
         return ['title' => (string) $s['terms_title'], 'url' => $url, 'version' => (string) $s['terms_version']];
     }
 
+    /** Vorlagen-Modus mit veröffentlichter Version? */
+    private static function tpl() {
+        return class_exists('TIX_Contract_Template') && TIX_Contract_Template::active() && TIX_Contract_Template::versions();
+    }
+
+    /** Versionen, denen jetzt zugestimmt werden kann: gültige + angekündigte (Vorlagen-Modus) bzw. die eingestellte. */
+    public static function acceptable_versions() {
+        if (!self::tpl()) { $v = self::terms()['version']; return $v !== '' ? [$v] : []; }
+        $out = [];
+        if ($c = TIX_Contract_Template::current()) $out[] = $c['version'];
+        if ($p = TIX_Contract_Template::pending()) $out[] = $p['version'];
+        return $out;
+    }
+
     public static function terms_accepted($oid) {
+        if (self::tpl()) return TIX_Contract_Template::accepted($oid);
         $t = self::terms();
         if ($t['version'] === '') return true;
         $a = get_post_meta(intval($oid), self::META_TERMS, true);
@@ -177,7 +205,9 @@ class TIX_Org_Approval {
     public static function accept_terms($oid, $uid, $version = null) {
         $t = self::terms();
         $version = $version === null ? $t['version'] : (string) $version;
-        if ($t['version'] === '' || $version !== $t['version']) return false;
+        if ($t['version'] === '' || !in_array($version, self::acceptable_versions(), true)) return false;
+        if (self::tpl() && TIX_Contract_Template::missing_master_data()) return false; // Stammdaten fehlen
+        $t['url'] = self::tpl() ? TIX_Contract_Template::view_url($version) : $t['url'];
         $record = [
             'version'     => $version,
             'accepted_at' => time(),
@@ -187,6 +217,13 @@ class TIX_Org_Approval {
             // Prüfsumme der eingefrorenen Fassung (TIX_Contract, Mehr-Veranstalter-Modus)
             'sha256'      => (class_exists('TIX_Contract') && TIX_Contract::multi()) ? TIX_Contract::sha_for($version) : '',
         ];
+        // Vorlagen-Modus: Prüfsumme des Dokuments mit den Angaben des Veranstalters und der Anlage
+        if (self::tpl() && ($ver = TIX_Contract_Template::find($version))) {
+            $doc = TIX_Contract_Template::document(intval($oid), $ver);
+            $record['doc_sha256'] = hash('sha256', $doc['text'] . "\n\n" . $doc['annex_text']);
+            $record['doc_text']   = $doc['text'];
+            $record['annex_text'] = $doc['annex_text'];
+        }
         update_post_meta(intval($oid), self::META_TERMS, $record);
         self::log($oid, 'terms', ['by' => intval($uid), 'note' => 'Vertrag zugestimmt (Version ' . $version . ')']);
         do_action('tix_org_terms_accepted', intval($oid), intval($uid), $record);
@@ -293,7 +330,22 @@ class TIX_Org_Approval {
                 'accepted_version' => (string) ($acc['version'] ?? ''),
                 'accepted_at'      => self::iso($acc['accepted_at'] ?? 0),
                 'sha256'           => (string) ($acc['sha256'] ?? ''),
-            ],
+            ] + (self::tpl() ? (function () use ($oid) {
+                // Vorlage im Plugin: angekündigte Version, Inkrafttreten, Stammdaten, veraltete Zustimmung
+                $p = TIX_Contract_Template::pending();
+                $c = TIX_Contract_Template::current();
+                $miss = TIX_Contract_Template::missing_master_data();
+                return [
+                    'source'              => 'template',
+                    'valid_from'          => $c ? gmdate('Y-m-d\TH:i:s\Z', intval($c['valid_from'])) : null,
+                    'pending_version'     => $p ? (string) $p['version'] : null,
+                    'effective_at'        => $p ? gmdate('Y-m-d\TH:i:s\Z', intval($p['valid_from'])) : null,
+                    'pending_requires_consent' => $p ? !empty($p['requires_consent']) : false,
+                    'outdated'            => TIX_Contract_Template::outdated($oid),
+                    'missing_master_data' => $miss,
+                    'can_accept'          => !$miss,
+                ];
+            })() : ['source' => 'page']),
             // Offene Zusatzvereinbarung (individuelle Konditionen) oder null – Details: GET /organizer/approval/addendum
             'addendum'     => (class_exists('TIX_Contract') && TIX_Contract::multi()) ? TIX_Contract::public_addendum(TIX_Contract::pending($oid)) : null,
             'submitted_at' => self::iso($info['submitted_at'] ?? 0),
@@ -662,8 +714,11 @@ class TIX_Org_Approval {
         $t = self::terms();
         if ($t['version'] === '') return new WP_Error('tix_no_terms', 'Es ist kein Vertrag hinterlegt.', ['status' => 409]);
         $v = (string) ($req->get_param('version') ?? '');
-        if ($v !== $t['version']) {
+        if (!in_array($v, self::acceptable_versions(), true)) {
             return new WP_Error('tix_terms_outdated', 'Der Vertrag wurde aktualisiert. Bitte lies die aktuelle Fassung.', ['status' => 409, 'terms' => $t]);
+        }
+        if (self::tpl() && ($miss = TIX_Contract_Template::missing_master_data())) {
+            return new WP_Error('tix_contract_incomplete', 'Der Vertrag ist noch nicht vollständig (Stammdaten fehlen). Bitte versuche es später.', ['status' => 409, 'missing' => $miss]);
         }
         self::accept_terms($oid, get_current_user_id(), $v);
         return rest_ensure_response(self::payload($oid));
@@ -807,7 +862,25 @@ class TIX_Org_Approval {
         <?php if ($p['terms']['required']) : ?>
         <div id="tix-acc-terms" style="<?php echo $box; ?>">
             <h2 style="margin-top:0;"><?php echo esc_html($p['terms']['title']); ?></h2>
-            <?php if ($p['terms']['accepted']) : ?>
+            <?php if (($p['terms']['source'] ?? '') === 'template') :
+                $pv = $p['terms']['pending_version'];
+                $miss = $p['terms']['missing_master_data'];
+                $acc_v = (string) $p['terms']['accepted_version'];
+                $target = ($pv && $p['terms']['pending_requires_consent']) ? $pv : $p['terms']['version'];
+                ?>
+                <?php if ($miss) : ?><p style="background:#fef2f2;border-left:4px solid #ef4444;padding:8px 12px;"><strong>Stammdaten fehlen</strong> (<?php echo esc_html(implode(', ', $miss)); ?>) – der Vertrag kann gerade nicht bestätigt werden. Bestehende Zustimmungen bleiben gültig.</p><?php endif; ?>
+                <?php if ($p['terms']['outdated']) : ?><p style="background:#fef2f2;border-left:4px solid #ef4444;padding:8px 12px;"><strong>Neue Version in Kraft:</strong> Bitte stimme zu, damit du wieder Tickets verkaufen kannst.</p><?php endif; ?>
+                <?php if ($pv) : ?><p style="background:#fff7ed;border-left:4px solid #f59e0b;padding:8px 12px;">Ab <strong><?php echo esc_html(wp_date('d.m.Y', strtotime($p['terms']['effective_at']))); ?></strong> gilt Version <?php echo esc_html($pv); ?>. <a href="<?php echo esc_url(TIX_Contract_Template::view_url($pv)); ?>" target="_blank">Neue Fassung lesen</a><?php echo $p['terms']['pending_requires_consent'] ? '' : ' (zu deinen Gunsten, keine Zustimmung nötig)'; ?></p><?php endif; ?>
+                <p>Gültige Version: <strong><?php echo esc_html($p['terms']['version']); ?></strong> · <a href="<?php echo esc_url($p['terms']['url']); ?>" target="_blank">Vertrag mit deinen Konditionen lesen</a><?php echo $acc_v !== '' ? ' · zugestimmt: Version ' . esc_html($acc_v) . ' am ' . esc_html(wp_date('d.m.Y H:i', strtotime($p['terms']['accepted_at']))) : ''; ?></p>
+                <?php if (!$miss && $acc_v !== $target && ($p['terms']['outdated'] || !$p['terms']['accepted'] || $target === $pv)) : ?>
+                <form method="post" action="<?php echo $action; ?>"><?php echo $nonce; ?>
+                    <input type="hidden" name="action" value="tix_org_account"><input type="hidden" name="do" value="terms">
+                    <input type="hidden" name="version" value="<?php echo esc_attr($target); ?>">
+                    <p><label><input type="checkbox" name="accept" value="1" required> Ich habe den <a href="<?php echo esc_url(TIX_Contract_Template::view_url($target)); ?>" target="_blank"><?php echo esc_html($p['terms']['title']); ?></a> (Version <?php echo esc_html($target); ?>) gelesen und stimme ihm zu.</label></p>
+                    <button class="button button-primary">Zustimmen</button>
+                </form>
+                <?php endif; ?>
+            <?php elseif ($p['terms']['accepted']) : ?>
                 <p>✓ Du hast der Version <strong><?php echo esc_html($p['terms']['version']); ?></strong> am <?php echo esc_html(wp_date('d.m.Y H:i', strtotime($p['terms']['accepted_at']))); ?> zugestimmt.
                 <?php if ($p['terms']['url']) : ?><a href="<?php echo esc_url($p['terms']['url']); ?>" target="_blank" rel="noopener">Vertrag ansehen</a><?php endif; ?></p>
             <?php else : ?>
@@ -1091,8 +1164,13 @@ class TIX_Org_Approval {
                     <p class="description">Eingefrorene Fassungen: <?php echo $snaps ? esc_html(implode(', ', array_map(function ($x) { return $x['version'] . ' (' . substr($x['sha256'], 0, 12) . '…)'; }, $snaps))) : '– noch keine –'; ?>. Beim Speichern einer neuen Version wird ihr Wortlaut gespeichert und ändert sich danach nicht mehr.</p>
                     <?php endif; ?></td></tr>
             </table>
+            <?php if (class_exists('TIX_Contract_Template') && TIX_Contract::multi()) : ?>
+            <h2>Vermittlungsvertrag als Vorlage</h2>
+            <table class="form-table"><?php TIX_Contract_Template::render_settings($s); ?></table>
+            <?php endif; ?>
             <?php submit_button('Speichern'); ?>
         </form>
+        <?php if (class_exists('TIX_Contract_Template')) TIX_Contract_Template::render_draft_box(); ?>
         <?php
     }
 
@@ -1107,6 +1185,7 @@ class TIX_Org_Approval {
         $s['notify_email']  = sanitize_email(wp_unslash($_POST['notify_email'] ?? ''));
         $s['push_admins']   = empty($_POST['push_admins']) ? 0 : 1;
         $s['contract_copy_admin'] = empty($_POST['contract_copy_admin']) ? 0 : 1;
+        if (class_exists('TIX_Contract_Template') && class_exists('TIX_Contract') && TIX_Contract::multi()) TIX_Contract_Template::save_settings_post($s);
         update_option(self::OPTION, $s, false);
         wp_safe_redirect(self::admin_url_args(['tab' => 'settings', 'msg' => 'Einstellungen gespeichert.']));
         exit;
