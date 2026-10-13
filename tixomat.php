@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.38.429
+ * Version: 1.38.430
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  * Update URI: https://veranstalter.evendis.de/tixomat
@@ -10,7 +10,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.38.429');
+define('TIXOMAT_VERSION', '1.38.430');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -648,6 +648,8 @@ require_once TIXOMAT_PATH . 'includes/class-tix-lineup-links.php';
 TIX_Lineup_Links::init();
 require_once TIXOMAT_PATH . 'includes/class-tix-apple-music.php';
 TIX_Apple_Music::init(); // „Bekannt für“: Apple Music Top-Songs je Act (MusicKit-Schlüssel, ohne Schlüssel leer)
+require_once TIXOMAT_PATH . 'includes/class-tix-party-rooms.php';
+TIX_Party_Rooms::init(); // Partyspiel „Mehrere Handys“: Räume mit Code, ohne Konto (Schalter Tixomat → Partyspiel)
 // evendis.de (Next.js) nach Änderungen sofort neu aufbauen lassen (nur mit Schlüssel)
 require_once TIXOMAT_PATH . 'includes/class-tix-web-revalidate.php';
 TIX_Web_Revalidate::init();
