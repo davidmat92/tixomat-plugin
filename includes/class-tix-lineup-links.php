@@ -24,10 +24,19 @@ if (!defined('ABSPATH')) exit;
  *   POST /events/{id} lineup_links [{name, spotify, apple_music, source}]: auto = Korrektur entfernen,
  *     manual = Links festhalten (leer = kein Link für den Dienst), none = für dieses Event kein Link.
  *     Nicht genannte Zeilen bleiben unverändert.
+ *
+ * Künstlerfoto (1.38.425, Rückfall statt Deezer – die Deezer-API erlaubt keine kommerzielle Nutzung):
+ *   je Act im Event vom Team gepflegt (Meta `_tix_lineup_photos` {artist_key: attachment_id}); das zuletzt gesetzte Foto
+ *   eines Künstlers gilt auch in anderen Events (Spalte photo_id in tix_artist_links), bis dort eins gesetzt ist.
+ *   lineup_links-Zeilen tragen zusätzlich picture / picture_thumb (URL oder null), im Editor photo_id;
+ *   POST /events/{id} lineup_links[{name, photo_id}] (0 = entfernen), POST /events/{id}/lineup-photo (multipart: name, file),
+ *   GET /public/events/{id}/artists → {artists: [{name, artist, picture, picture_thumb, deezer_url: null, top: [], spotify, apple_music, source}]}.
+ *   Bilder liegen in der eigenen Mediathek – kein Abruf bei Dritten.
  */
 class TIX_Lineup_Links {
 
-    const DB_VER   = '1';
+    const DB_VER   = '2'; // 2: photo_id (Künstlerfoto)
+    const META_PHOTOS = '_tix_lineup_photos';
     const META     = '_tix_lineup_links';
     const CRON     = 'tix_lineup_links_cron';
     const BATCH    = 15;          // Künstler je Lauf und Dienst (iTunes erlaubt rund 20 Anfragen je Minute)
@@ -49,6 +58,7 @@ class TIX_Lineup_Links {
         add_action('save_post_event', [__CLASS__, 'save_box'], 30, 2);
         add_action('admin_menu', [__CLASS__, 'menu'], 46);
         add_action('admin_post_tix_lineup_links', [__CLASS__, 'save_admin']);
+        add_action('rest_api_init', [__CLASS__, 'register_routes']);
     }
 
     private static function t() {
@@ -72,6 +82,7 @@ class TIX_Lineup_Links {
             apple_music varchar(255) NOT NULL DEFAULT '',
             spotify_at datetime NULL,
             apple_at datetime NULL,
+            photo_id bigint(20) unsigned NOT NULL DEFAULT 0,
             created datetime NOT NULL,
             PRIMARY KEY  (id),
             UNIQUE KEY name_key (name_key)
@@ -255,7 +266,7 @@ class TIX_Lineup_Links {
     private static function auto_rows($keys) {
         global $wpdb;
         if (!$keys || !self::ready()) return [];
-        $rows = $wpdb->get_results($wpdb->prepare("SELECT name_key, spotify, apple_music, spotify_at, apple_at FROM " . self::t() . " WHERE name_key IN (" . implode(',', array_fill(0, count($keys), '%s')) . ")", ...$keys));
+        $rows = $wpdb->get_results($wpdb->prepare("SELECT name_key, spotify, apple_music, spotify_at, apple_at, photo_id FROM " . self::t() . " WHERE name_key IN (" . implode(',', array_fill(0, count($keys), '%s')) . ")", ...$keys));
         $out = [];
         foreach ((array) $rows as $r) $out[$r->name_key] = $r;
         return $out;
@@ -274,6 +285,7 @@ class TIX_Lineup_Links {
         foreach ($lines as $l) $keys[] = self::norm(self::artist($l));
         $auto = self::auto_rows(array_values(array_unique(array_filter($keys))));
         $ov = self::overrides($event_id);
+        $photos = self::photos($event_id);
         $out = [];
         foreach ($lines as $i => $line) {
             $k = $keys[$i];
@@ -286,7 +298,12 @@ class TIX_Lineup_Links {
             elseif ($src === 'manual') { $row['spotify'] = (string) ($o['spotify'] ?? ''); $row['apple_music'] = (string) ($o['apple_music'] ?? ''); }
             else { $row['spotify'] = $auto_vals['spotify']; $row['apple_music'] = $auto_vals['apple_music']; }
             $row['source'] = $src;
-            if ($editor) $row['auto'] = $auto_vals;
+            // Künstlerfoto: im Event gesetzt, sonst das zuletzt gesetzte des Künstlers
+            $pid = isset($photos[$k]) ? intval($photos[$k]) : (($a && !empty($a->photo_id)) ? intval($a->photo_id) : 0);
+            $big = $pid ? wp_get_attachment_image_url($pid, 'large') : '';
+            $row['picture'] = $big ?: null;
+            $row['picture_thumb'] = $big ? (wp_get_attachment_image_url($pid, 'medium') ?: $big) : null;
+            if ($editor) { $row['auto'] = $auto_vals; $row['photo_id'] = $big ? $pid : 0; }
             $out[] = $row;
         }
         return $out;
@@ -325,6 +342,11 @@ class TIX_Lineup_Links {
             $name = trim((string) ($row['artist'] ?? '')) !== '' ? (string) $row['artist'] : self::artist((string) ($row['name'] ?? ''));
             $k = self::norm($name);
             if ($k === '') continue;
+            if (array_key_exists('photo_id', $row)) {
+                $ph = self::set_photo($event_id, $name, intval($row['photo_id']));
+                if (is_wp_error($ph)) return $ph;
+            }
+            if (!array_key_exists('source', $row) && !array_key_exists('spotify', $row) && !array_key_exists('apple_music', $row)) continue; // nur Foto
             $src = (string) ($row['source'] ?? 'manual');
             if ($src === 'none') { $ov[$k] = ['source' => 'none']; continue; }
             if ($src !== 'manual') { unset($ov[$k]); continue; } // auto (oder unbekannt): Korrektur entfernen
@@ -339,6 +361,86 @@ class TIX_Lineup_Links {
         return true;
     }
 
+    // ── Künstlerfoto ──
+
+    public static function photos($event_id) {
+        $p = get_post_meta($event_id, self::META_PHOTOS, true);
+        return is_array($p) ? $p : [];
+    }
+
+    /** Foto eines Acts im Event setzen (0 = entfernen); merkt es auch als Vorgabe für den Künstler. */
+    public static function set_photo($event_id, $name, $attachment_id) {
+        global $wpdb;
+        $k = self::norm(self::artist($name));
+        if ($k === '') return new WP_Error('tix_invalid_field', 'Unbekannter Künstler.', ['status' => 400, 'field' => 'lineup_links.name']);
+        $att = intval($attachment_id);
+        if ($att && (get_post_type($att) !== 'attachment' || strpos((string) get_post_mime_type($att), 'image/') !== 0)) {
+            return new WP_Error('tix_invalid_field', 'Bitte ein Bild aus der Mediathek wählen.', ['status' => 400, 'field' => 'lineup_links.photo_id']);
+        }
+        $photos = self::photos($event_id);
+        $prev = intval($photos[$k] ?? 0);
+        $photos[$k] = $att; // 0 = in diesem Event bewusst ohne Foto (keine Vorgabe aus anderen Events)
+        update_post_meta($event_id, self::META_PHOTOS, $photos);
+        self::maybe_install();
+        if ($att) {
+            $wpdb->query($wpdb->prepare("INSERT INTO " . self::t() . " (name_key, name, photo_id, created) VALUES (%s, %s, %d, %s) ON DUPLICATE KEY UPDATE photo_id = VALUES(photo_id)", $k, mb_substr(self::artist($name), 0, 190), $att, current_time('mysql')));
+        } elseif ($prev) {
+            // falsches Foto: auch als Vorgabe für andere Events entfernen, wenn es von hier stammte
+            $wpdb->query($wpdb->prepare("UPDATE " . self::t() . " SET photo_id = 0 WHERE name_key = %s AND photo_id = %d", $k, $prev));
+        }
+        if (class_exists('TIX_Public_Events')) TIX_Public_Events::flush();
+        return true;
+    }
+
+    public static function register_routes() {
+        register_rest_route('tixomat/v1', '/public/events/(?P<id>\d+)/artists', [
+            'methods' => 'GET', 'callback' => [__CLASS__, 'rest_artists'], 'permission_callback' => '__return_true',
+        ]);
+        register_rest_route('tixomat/v1', '/events/(?P<id>\d+)/lineup-photo', [
+            'methods' => 'POST', 'callback' => [__CLASS__, 'rest_upload'], 'permission_callback' => ['TIX_REST_API', 'check_organizer'],
+        ]);
+    }
+
+    /** Öffentlich: Künstler des Line-ups mit Foto und Links (Deezer-Felder leer: Deezer ist für kommerzielle Apps nicht erlaubt). */
+    public static function rest_artists(WP_REST_Request $req) {
+        $id = intval($req['id']);
+        $public = class_exists('TIX_Public_Events') ? TIX_Public_Events::payload($id, false) : null;
+        if (!$public) return new WP_Error('tix_event', 'Event nicht gefunden.', ['status' => 404]);
+        $out = [];
+        foreach (self::for_event($id) as $r) {
+            $out[] = ['name' => $r['name'], 'artist' => $r['artist'], 'picture' => $r['picture'], 'picture_thumb' => $r['picture_thumb'],
+                'deezer_url' => null, 'top' => [], 'spotify' => $r['spotify'], 'apple_music' => $r['apple_music'], 'source' => $r['source']];
+        }
+        return rest_ensure_response(['ok' => true, 'event_id' => $id, 'artists' => $out]);
+    }
+
+    /** POST /events/{id}/lineup-photo (multipart: name, file) → Foto hochladen und dem Act zuordnen. */
+    public static function rest_upload(WP_REST_Request $req) {
+        $id = absint($req['id']);
+        if (get_post_type($id) !== 'event') return new WP_Error('not_found', 'Event nicht gefunden.', ['status' => 404]);
+        if (!TIX_REST_API::user_can_access_event($id)) return new WP_Error('forbidden', 'Kein Zugriff auf dieses Event.', ['status' => 403]);
+        $name = trim((string) $req->get_param('name'));
+        if ($name === '' || self::norm(self::artist($name)) === '') return new WP_Error('tix_invalid_field', 'Bitte den Künstler angeben.', ['status' => 400, 'field' => 'name']);
+        $files = $req->get_file_params();
+        $file = $files['file'] ?? ($files['image'] ?? null);
+        if (empty($file) || empty($file['tmp_name']) || !empty($file['error'])) return new WP_Error('no_file', 'Kein Bild hochgeladen.', ['status' => 400]);
+        if (intval($file['size'] ?? 0) > 10 * MB_IN_BYTES) return new WP_Error('too_large', 'Das Bild ist zu groß (max. 10 MB).', ['status' => 400]);
+        $check = wp_check_filetype_and_ext($file['tmp_name'], $file['name'] ?? 'foto.jpg');
+        $mime = $check['type'] ?: '';
+        if (!in_array($mime, ['image/jpeg', 'image/png', 'image/webp'], true)) return new WP_Error('bad_type', 'Bitte ein JPG-, PNG- oder WebP-Bild wählen.', ['status' => 400]);
+        require_once ABSPATH . 'wp-admin/includes/file.php';
+        require_once ABSPATH . 'wp-admin/includes/media.php';
+        require_once ABSPATH . 'wp-admin/includes/image.php';
+        $ext = $mime === 'image/png' ? 'png' : ($mime === 'image/webp' ? 'webp' : 'jpg');
+        $att = media_handle_sideload(['name' => sanitize_file_name('artist-' . sanitize_title(self::artist($name)) . '-' . time() . '.' . $ext), 'tmp_name' => $file['tmp_name'], 'type' => $mime, 'size' => $file['size'] ?? 0], $id, self::artist($name));
+        if (is_wp_error($att)) return new WP_Error('upload_failed', $att->get_error_message(), ['status' => 500]);
+        $r = self::set_photo($id, $name, intval($att));
+        if (is_wp_error($r)) return $r;
+        $row = null;
+        foreach (self::for_event($id, true) as $x) if (self::norm($x['artist']) === self::norm(self::artist($name))) $row = $x;
+        return rest_ensure_response(['ok' => true, 'photo_id' => intval($att), 'artist' => $row]);
+    }
+
     // ── WP-Admin ──
 
     public static function render_box($post) {
@@ -349,10 +451,14 @@ class TIX_Lineup_Links {
             return;
         }
         echo '<p class="description">Links werden automatisch gesucht (Apple Music immer, Spotify mit Zugangsdaten unter Tixomat → Künstler-Links). Felder leer = automatisch; eigener Link = festhalten; „Kein Link“ = nichts anzeigen.</p>';
-        echo '<table class="widefat striped"><thead><tr><th>Künstler</th><th>Spotify</th><th>Apple Music</th><th>Kein Link</th></tr></thead><tbody>';
+        wp_enqueue_media();
+        echo '<table class="widefat striped"><thead><tr><th>Foto</th><th>Künstler</th><th>Spotify</th><th>Apple Music</th><th>Kein Link</th></tr></thead><tbody>';
         foreach ($rows as $i => $r) {
             $manual = $r['source'] === 'manual';
-            echo '<tr><td><strong>' . esc_html($r['artist']) . '</strong><input type="hidden" name="tix_ll[' . intval($i) . '][name]" value="' . esc_attr($r['name']) . '"></td>';
+            echo '<tr><td style="width:72px;"><span class="tix-ll-photo" style="display:block;width:56px;height:56px;border-radius:50%;background:#f0f0f1 center/cover no-repeat;' . ($r['picture_thumb'] ? 'background-image:url(' . esc_url($r['picture_thumb']) . ');' : '') . '"></span>'
+                . '<input type="hidden" name="tix_ll[' . intval($i) . '][photo_id]" value="' . intval($r['photo_id']) . '"><input type="hidden" name="tix_ll[' . intval($i) . '][photo_orig]" value="' . intval($r['photo_id']) . '">'
+                . '<a href="#" class="tix-ll-pick" style="font-size:12px;">' . ($r['picture'] ? 'Ändern' : 'Foto') . '</a>' . ($r['picture'] ? ' · <a href="#" class="tix-ll-clear" style="font-size:12px;">weg</a>' : '') . '</td>';
+            echo '<td><strong>' . esc_html($r['artist']) . '</strong><input type="hidden" name="tix_ll[' . intval($i) . '][name]" value="' . esc_attr($r['name']) . '"></td>';
             foreach (['spotify', 'apple_music'] as $svc) {
                 $ph = $r['auto'][$svc] ? 'automatisch: ' . $r['auto'][$svc] : 'automatisch (noch kein Treffer)';
                 echo '<td><input type="url" class="large-text" name="tix_ll[' . intval($i) . '][' . $svc . ']" value="' . esc_attr($manual ? $r[$svc] : '') . '" placeholder="' . esc_attr($ph) . '"></td>';
@@ -360,6 +466,8 @@ class TIX_Lineup_Links {
             echo '<td><input type="checkbox" name="tix_ll[' . intval($i) . '][none]" value="1" ' . checked($r['source'], 'none', false) . ' aria-label="Kein Link für ' . esc_attr($r['artist']) . '"></td></tr>';
         }
         echo '</tbody></table>';
+        echo "<script>jQuery(function($){ $(document).on('click','.tix-ll-pick',function(e){ e.preventDefault(); var td=$(this).closest('td'); var f=wp.media({title:'Künstlerfoto',library:{type:'image'},multiple:false}); f.on('select',function(){ var a=f.state().get('selection').first().toJSON(); td.find('input').val(a.id); var u=(a.sizes&&a.sizes.medium?a.sizes.medium.url:a.url); td.find('.tix-ll-photo').css('background-image','url('+u+')'); }); f.open(); }); $(document).on('click','.tix-ll-clear',function(e){ e.preventDefault(); var td=$(this).closest('td'); td.find('input').val(0); td.find('.tix-ll-photo').css('background-image','none'); }); });</script>";
+        echo '<p class="description">Künstlerfoto: wird in den Apps auf der Künstler-Karte gezeigt und gilt auch für andere Events mit diesem Künstler, bis dort ein eigenes gesetzt ist. Nur Bilder verwenden, an denen ihr die Rechte habt (z. B. Pressefotos der Künstler).</p>';
     }
 
     public static function save_box($post_id, $post) {
@@ -374,7 +482,9 @@ class TIX_Lineup_Links {
             $sp = is_wp_error($sp) ? '' : $sp; // ungültige Eingabe im Admin: verworfen
             $am = is_wp_error($am) ? '' : $am;
             $src = !empty($row['none']) ? 'none' : (($sp !== '' || $am !== '') ? 'manual' : 'auto');
-            $list[] = ['name' => (string) ($row['name'] ?? ''), 'spotify' => $sp, 'apple_music' => $am, 'source' => $src];
+            $item = ['name' => (string) ($row['name'] ?? ''), 'spotify' => $sp, 'apple_music' => $am, 'source' => $src];
+            if (isset($row['photo_id']) && intval($row['photo_id']) !== intval($row['photo_orig'] ?? -1)) $item['photo_id'] = max(0, intval($row['photo_id'])); // nur geänderte Fotos
+            $list[] = $item;
         }
         self::apply($post_id, $list);
     }

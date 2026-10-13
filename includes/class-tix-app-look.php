@@ -579,6 +579,14 @@ class TIX_App_Look {
         self::assets();
         // Künstlerseite (TIX_Lineup_Links), sonst Spotify-Suche wie bisher; '' = bewusst kein Link
         $links = class_exists('TIX_Lineup_Links') ? TIX_Lineup_Links::web_links($d['id']) : [];
+        // Künstlerfoto (vom Team gepflegt) statt Initialen
+        $pics = [];
+        if (class_exists('TIX_Lineup_Links')) foreach (TIX_Lineup_Links::for_event($d['id']) as $r) if (!empty($r['picture_thumb'])) $pics[$r['name']] = $r['picture_thumb'];
+        $circle = function ($line, $n) use ($pics) {
+            $k = trim(preg_replace('/^[\s•\-–·*]+/u', '', $line));
+            $st = isset($pics[$k]) ? ' style="background:center/cover no-repeat url(' . esc_url($pics[$k]) . ');color:transparent"' : '';
+            return '<span class="evs-artist__c"' . $st . '>' . esc_html(self::initials($n)) . '</span>';
+        };
         $href = function ($line, $n) use ($links) {
             $k = trim(preg_replace('/^[\s•\-–·*]+/u', '', $line)); // Zeile wie in TIX_Lineup_Links::lines()
             return array_key_exists($k, $links) ? $links[$k] : 'https://open.spotify.com/search/' . rawurlencode($n);
@@ -591,7 +599,7 @@ class TIX_App_Look {
             $n = self::artist($names[0]);
             $u = $href($names[0], $n);
             return $open('evs-artist1', $u)
-                . '<span class="evs-artist__c">' . esc_html(self::initials($n)) . '</span>'
+                . $circle($names[0], $n)
                 . '<span class="evs-artist1__n">' . esc_html($names[0]) . '</span>'
                 . ($u !== '' ? '<span class="evs-artist1__play">' . self::icon('play') . '</span></a>' : '</span>');
         }
@@ -600,7 +608,7 @@ class TIX_App_Look {
             $n = self::artist($line);
             $u = $href($line, $n);
             $html .= $open('evs-artist', $u, $line)
-                . '<span class="evs-artist__c">' . esc_html(self::initials($n)) . '</span>'
+                . $circle($line, $n)
                 . '<span class="evs-artist__n">' . esc_html($n) . '</span>' . ($u !== '' ? '</a>' : '</span>');
         }
         return $html . '</div>';
