@@ -301,7 +301,8 @@ class TIX_App_Scope {
             'awareness'   => class_exists('TIX_Awareness') ? TIX_Awareness::organizer(intval($oid)) : null,
             'logo'        => $img('_tix_org_landing_logo_id', 'medium') ?: $img('_tix_org_image_id', 'medium'),
             'hero'        => $img('_tix_org_landing_hero_id', 'large'),
-        ] + ((class_exists('TIX_Organizer_Link') && TIX_Organizer_Link::multi()) ? TIX_Organizer_Link::profile_extra(intval($oid)) : []);
+        ] + ((class_exists('TIX_Organizer_Link') && TIX_Organizer_Link::multi()) ? TIX_Organizer_Link::profile_extra(intval($oid)) : [])
+          + ((class_exists('TIX_Organizer_Page') && TIX_Organizer_Page::multi()) ? TIX_Organizer_Page::profile_extra(intval($oid)) : []);
     }
 
     public static function rest_profile(WP_REST_Request $req) {
@@ -375,6 +376,11 @@ class TIX_App_Scope {
         }
         if (array_key_exists('awareness', $b) && is_array($b['awareness']) && class_exists('TIX_Awareness')) {
             TIX_Awareness::save_organizer(intval($oid), array_merge(TIX_Awareness::organizer(intval($oid)), $b['awareness']));
+        }
+        // Veranstalter-Seite (evendis): Steckbrief, FAQ, schema_type, Anfahrt
+        if (class_exists('TIX_Organizer_Page') && TIX_Organizer_Page::multi()) {
+            $r = TIX_Organizer_Page::save_from_profile(intval($oid), $b);
+            if (is_wp_error($r)) return $r;
         }
         // Gutschein-Event an Modul/Beträge angleichen (legt es beim ersten Einschalten an)
         if (class_exists('TIX_Giftcards') && (array_key_exists('giftcards', $b) || array_key_exists('modules', $b))) TIX_Giftcards::ensure_organizer_event(intval($oid));

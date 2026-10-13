@@ -213,6 +213,8 @@ class TIX_Public_Events {
         $rec = class_exists('TIX_Recurrence') ? TIX_Recurrence::info($id) : ['recurring' => false, 'parent' => 0];
         $out['recurring']         = $rec['recurring'];
         $out['recurrence_parent'] = $rec['parent'];
+        // Serien-Kennung zum Bündeln in Listen (evendis): Wiederholungs-Elter bzw. manuelle Serie, 0 = keine
+        if (class_exists('TIX_Organizer_Page') && TIX_Organizer_Page::multi()) $out['series_id'] = TIX_Organizer_Page::series_id($id, $rec);
         // Themen-Sammlungen (1.38.395): Slugs, siehe GET /public/collections
         $out['collections'] = class_exists('TIX_Collections') ? TIX_Collections::event_slugs($id) : [];
         // Gewinnspiel in der Liste (1.38.395): {title, status, end_date} | null – das Detail liefert die volle Form

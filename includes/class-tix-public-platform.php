@@ -260,6 +260,8 @@ class TIX_Public_Platform {
             $out['phone']       = (string) get_post_meta($oid, '_tix_org_phone', true);
             $out['address']     = (string) get_post_meta($oid, '_tix_org_address', true);
             $out['events']      = array_slice($mine, 0, 50);
+            // Veranstalter-Seite (evendis): Steckbrief, FAQ, Vertrauen, Galerie, Anfahrt, schema_type
+            if (class_exists('TIX_Organizer_Page') && TIX_Organizer_Page::multi()) $out += TIX_Organizer_Page::public_extra($oid);
         }
         return $out;
     }
