@@ -662,6 +662,8 @@ class TIX_REST_API {
             'newsletter'     => ['enabled' => TIX_Weekly_Mail::enabled()],
             // Folgen per E-Mail ohne Konto (Veranstalter-Seite): Feld nur bei enabled zeigen
             'mail_follow'    => ['enabled' => class_exists('TIX_Mail_Follow') && TIX_Mail_Follow::enabled()],
+            // Aktive Zahlarten (Vertrauens-Leiste im Web) – nur Anzeige, maßgeblich bleibt das Angebot der Kasse
+            'payment_methods' => class_exists('TIX_App_Checkout') ? TIX_App_Checkout::info_methods() : [],
         ] : []) + [
         ]);
     }

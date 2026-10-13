@@ -14,11 +14,14 @@ if (!defined('ABSPATH')) exit;
  *   - Besuche: POST /public/track mit source=veranstalter-link und medium=<slug> (neu: medium → campaign, wenn leer).
  * REST:
  *   GET /organizer/profile → zusätzlich `link`, `link_source`, `followers {total, account, mail}`, `completeness {percent, items[]}`
- *   GET /organizer/link-stats[?days=30] → {link, days, visits, orders, tickets, revenue, followers}
+ *   GET /organizer/link-stats[?days=30] → {link, days, visits, orders, tickets, revenue, followers, followers_total, followers_new}
+ * Follow-Zeitpunkt: User-Meta `_tix_app_following_since` {organizer_id: unix} – wird bei jeder Änderung von
+ *   `_tix_app_following` mitgeschrieben (ab 1.38.414; ältere Konto-Follows zählen nicht als „neu“).
  */
 class TIX_Organizer_Link {
 
     const SOURCE = 'veranstalter-link';
+    const META_SINCE = '_tix_app_following_since';
 
     public static function multi() {
         return class_exists('TIX_App_Scope') && TIX_App_Scope::multi();
@@ -27,6 +30,35 @@ class TIX_Organizer_Link {
     public static function init() {
         if (!self::multi()) return;
         add_action('rest_api_init', [__CLASS__, 'register_routes']);
+        add_action('add_user_meta', function ($uid, $key, $value) {
+            if ($key === '_tix_app_following') TIX_Organizer_Link::record_since($uid, [], $value);
+        }, 10, 3);
+        add_action('update_user_meta', function ($mid, $uid, $key, $value) {
+            if ($key === '_tix_app_following') TIX_Organizer_Link::record_since($uid, get_user_meta($uid, '_tix_app_following', true), $value);
+        }, 10, 4);
+    }
+
+    /** Zeitpunkt neuer Follows merken, entfernte vergessen. */
+    public static function record_since($uid, $old, $new) {
+        $old = is_array($old) ? array_map('intval', $old) : [];
+        $new = is_array($new) ? array_map('intval', $new) : [];
+        $since = get_user_meta($uid, self::META_SINCE, true);
+        $since = is_array($since) ? $since : [];
+        foreach ($new as $oid) if (!in_array($oid, $old, true) && !isset($since[$oid])) $since[$oid] = time();
+        foreach (array_keys($since) as $oid) if (!in_array(intval($oid), $new, true)) unset($since[$oid]);
+        update_user_meta($uid, self::META_SINCE, $since);
+    }
+
+    /** Neue Follower seit $ts (Konto + bestätigte Mail-Follower). */
+    public static function followers_new($oid, $ts) {
+        global $wpdb;
+        $n = 0;
+        foreach ((array) $wpdb->get_col($wpdb->prepare("SELECT meta_value FROM {$wpdb->usermeta} WHERE meta_key = %s", self::META_SINCE)) as $raw) {
+            $map = maybe_unserialize($raw);
+            if (is_array($map) && isset($map[intval($oid)]) && intval($map[intval($oid)]) >= $ts) $n++;
+        }
+        if (class_exists('TIX_Mail_Follow')) $n += TIX_Mail_Follow::count($oid, wp_date('Y-m-d H:i:s', $ts));
+        return $n;
     }
 
     public static function register_routes() {
@@ -142,7 +174,9 @@ class TIX_Organizer_Link {
                 }
             }
         }
-        return ['link' => self::link($oid), 'days' => $days, 'visits' => $visits, 'orders' => $orders, 'tickets' => $tickets, 'revenue' => $revenue, 'followers' => self::followers($oid)];
+        $followers = self::followers($oid);
+        return ['link' => self::link($oid), 'days' => $days, 'visits' => $visits, 'orders' => $orders, 'tickets' => $tickets, 'revenue' => $revenue,
+            'followers' => $followers, 'followers_total' => $followers['total'], 'followers_new' => self::followers_new($oid, strtotime($since . ' 00:00:00 ' . wp_timezone_string()) ?: 0)];
     }
 
     public static function rest_stats(WP_REST_Request $req) {

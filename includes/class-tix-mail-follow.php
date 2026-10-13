@@ -83,10 +83,13 @@ class TIX_Mail_Follow {
         update_option('tix_mail_follow_db', self::DB_VER, false);
     }
 
-    public static function count($oid) {
+    /** Bestätigte Mail-Follower; mit $since (Ortszeit 'Y-m-d H:i:s') nur die seitdem bestätigten. */
+    public static function count($oid, $since = '') {
         global $wpdb;
         if (get_option('tix_mail_follow_db') !== self::DB_VER) return 0;
-        return intval($wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM " . self::t() . " WHERE organizer_id = %d AND status = 'active'", $oid)));
+        $sql = $wpdb->prepare("SELECT COUNT(*) FROM " . self::t() . " WHERE organizer_id = %d AND status = 'active'", $oid);
+        if ($since !== '') $sql .= $wpdb->prepare(" AND confirmed_at >= %s", $since);
+        return intval($wpdb->get_var($sql));
     }
 
     private static function name($oid) {

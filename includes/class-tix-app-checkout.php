@@ -144,6 +144,9 @@ class TIX_App_Checkout {
 
     public static function init() {
         add_action('rest_api_init', [__CLASS__, 'register_routes']);
+        // Zahlarten in /info neu lesen, sobald sich die Einstellungen ändern
+        add_action('update_option_tix_settings', function () { delete_transient('tix_info_payment_methods'); });
+        add_action('add_option_tix_settings', function () { delete_transient('tix_info_payment_methods'); });
     }
 
     public static function register_routes() {
@@ -708,6 +711,16 @@ class TIX_App_Checkout {
         return array_values(array_filter(array_column(self::payment_methods(false), 'id'), function ($id) {
             return $id !== 'bank' && $id !== 'free';
         }));
+    }
+
+    /** Aktive Zahlarten [{id, title}] für /info (Vertrauens-Leiste im Web), 10 Minuten zwischengespeichert. */
+    public static function info_methods() {
+        $c = get_transient('tix_info_payment_methods');
+        if (is_array($c)) return $c;
+        $out = [];
+        foreach (self::payment_methods(false) as $m) $out[] = ['id' => (string) $m['id'], 'title' => html_entity_decode(wp_strip_all_tags((string) $m['title']), ENT_QUOTES, 'UTF-8')];
+        set_transient('tix_info_payment_methods', $out, 10 * MINUTE_IN_SECONDS);
+        return $out;
     }
 
     private static function payment_methods($is_free) {

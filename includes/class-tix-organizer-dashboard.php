@@ -121,6 +121,97 @@ class TIX_Organizer_Dashboard {
     }
 
     /* ══════════════════════════════════════════
+     * „Dein Link“ + „Deine Seite ist zu X % fertig“ (Mehr-Veranstalter-Modus, wie in der evendis-App)
+     * ══════════════════════════════════════════ */
+
+    private static function link_cards_visible($org) {
+        return $org && class_exists('TIX_Organizer_Link') && TIX_Organizer_Link::multi()
+            && class_exists('TIX_App_Scope') && TIX_App_Scope::is_org_manager();
+    }
+
+    public static function render_link_cards($org) {
+        if (!self::link_cards_visible($org)) return '';
+        $oid   = intval($org->ID);
+        $url   = TIX_Organizer_Link::link($oid);
+        $short = untrailingslashit(preg_replace('#^https?://(www\.)?#', '', $url));
+        $name  = html_entity_decode(get_the_title($oid), ENT_QUOTES, 'UTF-8');
+        $img   = function ($keys, $size) use ($oid) {
+            foreach ($keys as $k) { $id = intval(get_post_meta($oid, $k, true)); if ($id && ($u = wp_get_attachment_image_url($id, $size))) return $u; }
+            return '';
+        };
+        $data = [
+            'url' => $url, 'short' => $short, 'name' => $name, 'slug' => TIX_Organizer_Link::slug($oid),
+            'city' => (string) get_post_meta($oid, '_tix_org_city', true),
+            'hero' => $img(['_tix_org_landing_hero_id'], 'large'), 'logo' => $img(['_tix_org_landing_logo_id', '_tix_org_image_id'], 'medium'),
+            'share_text' => 'Tickets für alle Events von ' . $name,
+        ];
+        $c     = TIX_Organizer_Link::completeness($oid);
+        $st    = TIX_Organizer_Link::stats($oid, 30);
+        $edit  = current_user_can('edit_posts') ? admin_url('admin.php?page=tix-organizer-landing') : '';
+        $has_events = (bool) get_posts(['post_type' => 'event', 'post_status' => ['publish', 'draft', 'future'], 'posts_per_page' => 1, 'fields' => 'ids', 'meta_query' => [['key' => '_tix_organizer_id', 'value' => (string) $oid]]]);
+        $check = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><path d="m5 12 5 5L20 7"/></svg>';
+        wp_enqueue_script('tix-qrcode-generator', TIXOMAT_URL . 'assets/js/qrcode-generator.js', [], TIXOMAT_VERSION, true);
+        wp_enqueue_script('tix-organizer-link', TIXOMAT_URL . 'assets/js/organizer-link.js', ['tix-qrcode-generator'], TIXOMAT_VERSION, true);
+        ob_start();
+        ?>
+        <div class="tix-od-link" id="tix-od-link" data-link="<?php echo esc_attr(wp_json_encode($data)); ?>">
+            <section class="tix-od-link-card">
+                <div class="tix-od-link-head">
+                    <span class="tix-od-link-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg></span>
+                    <div><h3 class="tix-od-link-h">Dein Link</h3><div class="tix-od-link-sub">Deine Seite auf evendis – dort stehen nur deine Events.</div></div>
+                </div>
+                <div class="tix-od-link-url">
+                    <span class="tix-od-link-u" title="<?php echo esc_attr($url); ?>"><?php echo esc_html($short); ?></span>
+                    <button type="button" class="tix-od-link-btn pri" data-act="copy"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/></svg><span>Kopieren</span></button>
+                    <button type="button" class="tix-od-link-btn gh" data-act="share"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 3v13"/><path d="m7 8 5-5 5 5"/><path d="M5 14v5a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-5"/></svg><span>Teilen</span></button>
+                </div>
+                <div class="tix-od-link-qr">
+                    <div class="tix-od-link-qrbox"><canvas width="184" height="184" data-qr-preview aria-label="QR-Code zu <?php echo esc_attr($short); ?>"></canvas></div>
+                    <div class="tix-od-link-qrt"><b>QR-Code für Flyer und Plakate</b><span class="tix-od-link-sub">Führt direkt auf deine Seite.</span>
+                        <div class="tix-od-link-row">
+                            <button type="button" class="tix-od-link-btn gh sm" data-act="png">PNG laden</button>
+                            <button type="button" class="tix-od-link-btn gh sm" data-act="pdf">PDF laden</button>
+                            <button type="button" class="tix-od-link-btn gh sm" data-act="story">Story-Bild 9:16</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="tix-od-link-tip"><span><b>Tipp:</b> Setz den Link in deine Instagram-Bio und auf Flyer – dort stehen alle deine Events mit Ticketkauf.</span></div>
+                <div class="tix-od-link-stats">
+                    <div class="tix-od-link-stats-h">Über deinen Link · <?php echo intval($st['days']); ?> Tage</div>
+                    <div class="tix-od-link-kpis">
+                        <div><span>Besuche</span><b><?php echo intval($st['visits']); ?></b></div>
+                        <div><span>Käufe</span><b><?php echo intval($st['orders']); ?></b><?php if ($st['tickets'] > 0) : ?><small><?php echo intval($st['tickets']); ?> Tickets</small><?php endif; ?></div>
+                        <div><span>Umsatz</span><b><?php echo esc_html(number_format_i18n($st['revenue'], 2)); ?> €</b></div>
+                        <div><span>Follower</span><b><?php echo intval($st['followers_total']); ?></b><?php if ($st['followers_new'] > 0) : ?><small>+<?php echo intval($st['followers_new']); ?> neue</small><?php endif; ?></div>
+                    </div>
+                </div>
+            </section>
+            <section class="tix-od-link-card tix-od-ready">
+                <h3 class="tix-od-link-h">Deine Seite ist zu <span><?php echo intval($c['percent']); ?> %</span> fertig</h3>
+                <div class="tix-od-ready-bar"><i style="width:<?php echo intval($c['percent']); ?>%"></i></div>
+                <div class="tix-od-ready-list">
+                    <?php foreach ($c['items'] as $i) :
+                        $label = ($i['key'] === 'event' && !$has_events) ? 'Erstes Event anlegen (mit Bild)' : $i['label'];
+                        ?>
+                        <div class="tix-od-ready-item<?php echo $i['done'] ? ' done' : ''; ?>" data-key="<?php echo esc_attr($i['key']); ?>">
+                            <span class="tix-od-ready-st <?php echo $i['done'] ? 'ok' : 'no'; ?>"><?php echo $i['done'] ? $check : ''; ?></span>
+                            <span class="tix-od-ready-l"><?php echo esc_html($label); ?></span>
+                            <?php if (!$i['done']) :
+                                if ($i['key'] === 'event') : ?>
+                                <a href="#" data-act="new-event">Anlegen →</a>
+                                <?php elseif ($edit) : ?>
+                                <a href="<?php echo esc_url($edit); ?>"><?php echo in_array($i['key'], ['logo', 'hero'], true) ? 'Hinzufügen →' : 'Ergänzen →'; ?></a>
+                            <?php endif; endif; ?>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+            </section>
+        </div>
+        <?php
+        return ob_get_clean();
+    }
+
+    /* ══════════════════════════════════════════
      * Organizer-Lookup
      * ══════════════════════════════════════════ */
 
@@ -280,6 +371,7 @@ class TIX_Organizer_Dashboard {
 
                 <!-- Uebersicht -->
                 <div class="tix-od-panel active" id="tix-od-panel-overview" role="tabpanel" data-tab="overview">
+                    <?php echo self::render_link_cards($org); ?>
                     <div class="tix-od-kpis" id="tix-od-kpis">
                         <div class="tix-od-kpi" data-kpi="events_total">
                             <div class="tix-od-kpi-icon"><span class="dashicons dashicons-calendar-alt"></span></div>
