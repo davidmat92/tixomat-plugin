@@ -238,7 +238,10 @@ class TIX_App_Events {
             'muttizettel_note'    => (string) get_post_meta($id, '_tix_muttizettel_note', true),
             // „Musik hören“: Künstler-Links wie im Event-Detail (source auto|manual|none) + auto = automatische Treffer
             'lineup_links'        => class_exists('TIX_Lineup_Links') ? TIX_Lineup_Links::for_event($id, true) : [],
-        ] + ((class_exists('TIX_Event_Facts') && TIX_Event_Facts::multi()) ? TIX_Event_Facts::editor_payload($id) : []);
+        ] + ((class_exists('TIX_Contract') && TIX_Contract::multi()) ? [
+            // Hinweis beim ersten Online-Verkauf (evendis): {version, title, url, text} oder null – ohne Häkchen
+            'contract_notice'     => TIX_Contract::first_sale_notice($id),
+        ] : []) + ((class_exists('TIX_Event_Facts') && TIX_Event_Facts::multi()) ? TIX_Event_Facts::editor_payload($id) : []);
     }
 
     // ──────────────────────────────────────────

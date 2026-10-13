@@ -544,6 +544,15 @@ class TIX_CPT {
                     $mo_pct    = get_post_meta($post->ID, '_tix_fee_percent', true);
                     $mo_gfix   = number_format_i18n(floatval($mo_global['fee_fixed'] ?? 0), 2);
                     $mo_gpct   = number_format_i18n(floatval($mo_global['fee_percent'] ?? 0), 2);
+                    // Digitaler Vertrag: offener Vorschlag steht im Formular (erneutes Speichern behält ihn)
+                    $mo_contract = class_exists('TIX_Contract') && TIX_Contract::multi();
+                    $mo_pend     = $mo_contract ? TIX_Contract::pending($post->ID) : null;
+                    $mo_extra    = '';
+                    if ($mo_contract) {
+                        $mo_acc = TIX_Contract::accepted_list($post->ID);
+                        $mo_extra = $mo_pend ? (string) $mo_pend['values']['extra'] : ($mo_acc ? (string) (end($mo_acc)['values']['extra'] ?? '') : '');
+                    }
+                    if ($mo_pend) { $mo_custom = !empty($mo_pend['values']['fee']['custom']); $mo_pct = $mo_pend['values']['fee']['percent']; $mo_fixed = $mo_pend['values']['fee']['fixed']; }
                     if (current_user_can('manage_options')) : ?>
                     <div class="tix-field tix-field-full" style="margin-top:14px;">
                         <input type="hidden" name="tix_fee_custom_form" value="1" />
@@ -561,6 +570,12 @@ class TIX_CPT {
                             <label>Fixbetrag je Ticket<br><input type="number" name="tix_fee_fixed" value="<?php echo esc_attr($mo_custom ? $mo_fixed : ''); ?>" step="0.01" min="0" style="width:100px;" placeholder="<?php echo esc_attr($mo_global['fee_fixed'] ?? 0); ?>"> €</label>
                         </div>
                         <script>document.getElementById('tix-fee-custom-toggle').addEventListener('change',function(){document.getElementById('tix-fee-custom-fields').style.display=this.checked?'flex':'none';});</script>
+                        <?php if ($mo_contract) : ?>
+                        <label style="display:block;margin:12px 0 0 26px;">Weitere Sonderkonditionen (Text, optional)<br>
+                            <textarea name="tix_special_terms" rows="3" style="width:100%;max-width:520px;" placeholder="z. B. Auszahlung wöchentlich, Startbonus …"><?php echo esc_textarea($mo_extra); ?></textarea></label>
+                        <p style="color:#9ca3af;font-size:12px;margin:4px 0 0 26px;">Änderungen an Gebühr oder Sonderkonditionen werden dem Veranstalter als <strong>Zusatzvereinbarung</strong> zur Bestätigung vorgelegt (App und „Mein Konto“, Mail mit PDF). Bis dahin gilt die bisherige Kondition.</p>
+                        <?php if ($mo_pend) : ?><p style="background:#fff7ed;border-radius:6px;padding:8px 10px;margin:8px 0 0 26px;font-size:13px;"><strong>Wartet auf Bestätigung</strong> seit <?php echo esc_html(wp_date('d.m.Y H:i', intval($mo_pend['created_at']))); ?> – die Werte oben sind der Vorschlag. Zurückziehen: die bisherige Kondition wieder eintragen und speichern.</p><?php endif; ?>
+                        <?php endif; ?>
                     </div>
                     <?php else : ?>
                     <p style="color:#6b7280;font-size:13px;margin:12px 0 0;">Gebühr: <?php echo $mo_custom ? esc_html(number_format_i18n(floatval($mo_pct), 2) . ' % + ' . number_format_i18n(floatval($mo_fixed), 2) . ' € je Ticket (eigene Höhe)') : esc_html($mo_gpct . ' % + ' . $mo_gfix . ' € je Ticket'); ?></p>
@@ -847,7 +862,14 @@ class TIX_CPT {
             }
             if ($mode !== $was) delete_post_meta($post_id, '_tix_fee_mode_default'); // Vorgabe beim Anlegen geändert
             // Eigene Gebührenhöhe: nur Plattform-Admins (das Formular zeigt die Felder nur ihnen)
-            if (!empty($_POST['tix_fee_custom_form']) && current_user_can('manage_options')) {
+            if (!empty($_POST['tix_fee_custom_form']) && current_user_can('manage_options') && class_exists('TIX_Contract') && TIX_Contract::multi()) {
+                // Digitaler Vertrag: neue Kondition erst nach Zustimmung des Veranstalters (Zusatzvereinbarung)
+                TIX_Contract::propose($post_id, [
+                    'custom'  => !empty($_POST['tix_fee_custom']),
+                    'percent' => floatval(str_replace(',', '.', (string) ($_POST['tix_fee_percent'] ?? 0))),
+                    'fixed'   => floatval(str_replace(',', '.', (string) ($_POST['tix_fee_fixed'] ?? 0))),
+                ], wp_unslash((string) ($_POST['tix_special_terms'] ?? '')));
+            } elseif (!empty($_POST['tix_fee_custom_form']) && current_user_can('manage_options')) {
                 if (!empty($_POST['tix_fee_custom'])) {
                     update_post_meta($post_id, '_tix_fee_custom', 1);
                     update_post_meta($post_id, '_tix_fee_fixed',   max(0, round(floatval(str_replace(',', '.', (string) ($_POST['tix_fee_fixed'] ?? 0))), 2)));

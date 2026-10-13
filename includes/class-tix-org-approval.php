@@ -154,6 +154,7 @@ class TIX_Org_Approval {
             'terms_version' => '',
             'notify_email'  => '',
             'push_admins'   => 1,
+            'contract_copy_admin' => 0,
         ], is_array($s) ? $s : []);
     }
 
@@ -177,14 +178,18 @@ class TIX_Org_Approval {
         $t = self::terms();
         $version = $version === null ? $t['version'] : (string) $version;
         if ($t['version'] === '' || $version !== $t['version']) return false;
-        update_post_meta(intval($oid), self::META_TERMS, [
+        $record = [
             'version'     => $version,
             'accepted_at' => time(),
             'user_id'     => intval($uid),
             'ip'          => class_exists('TIX_Client_IP') ? TIX_Client_IP::get() : sanitize_text_field((string) ($_SERVER['REMOTE_ADDR'] ?? '')),
             'url'         => $t['url'],
-        ]);
+            // Prüfsumme der eingefrorenen Fassung (TIX_Contract, Mehr-Veranstalter-Modus)
+            'sha256'      => (class_exists('TIX_Contract') && TIX_Contract::multi()) ? TIX_Contract::sha_for($version) : '',
+        ];
+        update_post_meta(intval($oid), self::META_TERMS, $record);
         self::log($oid, 'terms', ['by' => intval($uid), 'note' => 'Vertrag zugestimmt (Version ' . $version . ')']);
+        do_action('tix_org_terms_accepted', intval($oid), intval($uid), $record);
         return true;
     }
 
@@ -287,7 +292,10 @@ class TIX_Org_Approval {
                 'accepted'         => self::terms_accepted($oid),
                 'accepted_version' => (string) ($acc['version'] ?? ''),
                 'accepted_at'      => self::iso($acc['accepted_at'] ?? 0),
+                'sha256'           => (string) ($acc['sha256'] ?? ''),
             ],
+            // Offene Zusatzvereinbarung (individuelle Konditionen) oder null – Details: GET /organizer/approval/addendum
+            'addendum'     => (class_exists('TIX_Contract') && TIX_Contract::multi()) ? TIX_Contract::public_addendum(TIX_Contract::pending($oid)) : null,
             'submitted_at' => self::iso($info['submitted_at'] ?? 0),
             'decided_at'   => self::iso($info['decided_at'] ?? 0),
         ];
@@ -815,6 +823,7 @@ class TIX_Org_Approval {
         </div>
         <?php endif; ?>
         <?php endif; ?>
+        <?php do_action('tix_org_account_sections', $oid, $manager); ?>
         </div>
         <?php
     }
@@ -1077,6 +1086,10 @@ class TIX_Org_Approval {
                 <tr><th>Benachrichtigung an</th><td><input type="email" name="notify_email" value="<?php echo esc_attr($s['notify_email']); ?>" class="regular-text" placeholder="<?php echo esc_attr(self::admin_email()); ?>">
                     <p class="description">E-Mail bei neuer Registrierung. Leer = Rechnungs-E-Mail bzw. Admin-Adresse.</p></td></tr>
                 <tr><th>Feed/Push an Admins</th><td><label><input type="checkbox" name="push_admins" value="1" <?php checked(intval($s['push_admins'])); ?>> Admin-Konten bekommen bei neuer Registrierung einen Hinweis in der App</label></td></tr>
+                <tr><th>Vertragsbestätigungen</th><td><label><input type="checkbox" name="contract_copy_admin" value="1" <?php checked(intval($s['contract_copy_admin'])); ?>> Kopie jeder Bestätigungs-Mail (Vertrag/Zusatzvereinbarung mit PDF) an die Benachrichtigungs-Adresse</label>
+                    <?php if (class_exists('TIX_Contract') && TIX_Contract::multi()) : $snaps = TIX_Contract::snapshots(); ?>
+                    <p class="description">Eingefrorene Fassungen: <?php echo $snaps ? esc_html(implode(', ', array_map(function ($x) { return $x['version'] . ' (' . substr($x['sha256'], 0, 12) . '…)'; }, $snaps))) : '– noch keine –'; ?>. Beim Speichern einer neuen Version wird ihr Wortlaut gespeichert und ändert sich danach nicht mehr.</p>
+                    <?php endif; ?></td></tr>
             </table>
             <?php submit_button('Speichern'); ?>
         </form>
@@ -1093,6 +1106,7 @@ class TIX_Org_Approval {
         $s['terms_version'] = sanitize_text_field(wp_unslash($_POST['terms_version'] ?? ''));
         $s['notify_email']  = sanitize_email(wp_unslash($_POST['notify_email'] ?? ''));
         $s['push_admins']   = empty($_POST['push_admins']) ? 0 : 1;
+        $s['contract_copy_admin'] = empty($_POST['contract_copy_admin']) ? 0 : 1;
         update_option(self::OPTION, $s, false);
         wp_safe_redirect(self::admin_url_args(['tab' => 'settings', 'msg' => 'Einstellungen gespeichert.']));
         exit;
