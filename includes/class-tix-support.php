@@ -178,13 +178,17 @@ class TIX_Support {
         if (class_exists('TIX_Fees') && TIX_Fees::multi() && !in_array('beratung', array_column($cats, 'slug'), true)) {
             $cats[] = ['slug' => 'beratung', 'label' => 'Beratung für Veranstalter', 'audience' => 'organizer'];
         }
+        // „Event melden“ (DSA Art. 16): Meldung an das Plattform-Team, nicht an den Veranstalter
+        if (class_exists('TIX_Fees') && TIX_Fees::multi() && !in_array('event_report', array_column($cats, 'slug'), true)) {
+            $cats[] = ['slug' => 'event_report', 'label' => 'Event melden', 'audience' => 'platform'];
+        }
         return apply_filters('tix_support_categories', $cats);
     }
 
     /** Kategorien an Veranstalter (ohne Plattform-Themen wie „Beratung“) – Kontaktformular der Landingpage. */
     public static function get_organizer_contact_categories() {
         return array_values(array_filter(self::get_categories(), function ($c) {
-            return !is_array($c) || !in_array($c['audience'] ?? '', ['organizer', 'organizer_event'], true);
+            return !is_array($c) || !in_array($c['audience'] ?? '', ['organizer', 'organizer_event', 'platform'], true);
         }));
     }
 

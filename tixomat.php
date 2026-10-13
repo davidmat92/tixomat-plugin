@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.38.409
+ * Version: 1.38.410
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  * Update URI: https://veranstalter.evendis.de/tixomat
@@ -10,7 +10,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.38.409');
+define('TIXOMAT_VERSION', '1.38.410');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -404,8 +404,8 @@ function tix_primary() {
 /** Button-1 Style-Attribute für inline HTML (E-Mails, Admin etc.). */
 function tix_btn_style() {
     $s = tix_get_settings();
-    $bg    = $s['btn1_bg']    ?: '#c8ff00';
-    $color = $s['btn1_color'] ?: '#000000';
+    $bg    = ($s['btn1_bg'] ?? '')    ?: '#c8ff00';
+    $color = ($s['btn1_color'] ?? '') ?: '#000000';
     $r     = intval($s['radius_button'] ?? 8);
     return "background:{$bg};color:{$color};border-radius:{$r}px;";
 }
@@ -625,6 +625,9 @@ TIX_Awareness::init();
 // Muttizettel je Veranstalter (Mehr-Veranstalter-Modus): Modul-Schalter im Admin, Hinweis am Event
 require_once TIXOMAT_PATH . 'includes/class-tix-muttizettel.php';
 TIX_Muttizettel::init();
+// Barrierefreiheit + Erstattungsregel am Event (Mehr-Veranstalter-Modus)
+require_once TIXOMAT_PATH . 'includes/class-tix-event-facts.php';
+TIX_Event_Facts::init();
 require_once TIXOMAT_PATH . 'includes/class-tix-awareness-live.php';
 TIX_Awareness_Live::init();
 TIX_License_Server::init();

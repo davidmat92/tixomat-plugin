@@ -249,6 +249,11 @@ class TIX_Public_Events {
                 $out['ticket_transfer'] = TIX_Event_Extras::ticket_transfer($id);
             }
             $out['raffle'] = class_exists('TIX_Raffle') ? TIX_Raffle::public_info($id) : null;
+            // Barrierefreiheit + Erstattungsregel (1.38.410, nur Mehr-Veranstalter-Modus)
+            if (class_exists('TIX_Event_Facts') && TIX_Event_Facts::multi()) {
+                $out['accessibility'] = TIX_Event_Facts::accessibility($id);
+                $out['refund_policy'] = TIX_Event_Facts::refund_policy($id);
+            }
             // Awareness (1.38.405): {team, sign, point, codeword, areas[], drink_tests, taxi, rules, alarm_enabled} | null
             $out['awareness'] = class_exists('TIX_Awareness') ? TIX_Awareness::public_info($id) : null;
             $out['awareness_team'] = is_array($out['awareness']) && !empty($out['awareness']['team']);

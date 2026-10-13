@@ -732,6 +732,15 @@ class TIX_App_Account {
             'source'      => 'app',
         ]);
         if (is_wp_error($ticket_id)) return $ticket_id;
+        // Event-Bezug (z. B. „Event melden“ nach DSA Art. 16: Grund, Bestätigung „nach bestem Wissen“)
+        $rep_eid = absint($req->get_param('event_id'));
+        if ($rep_eid && get_post_type($rep_eid) === 'event') update_post_meta($ticket_id, '_tix_sp_event_id', $rep_eid);
+        if ($category === 'event_report') {
+            update_post_meta($ticket_id, '_tix_sp_priority', 'high');
+            $reason = sanitize_key((string) $req->get_param('reason'));
+            if ($reason !== '') update_post_meta($ticket_id, '_tix_sp_reason', mb_substr($reason, 0, 40));
+            update_post_meta($ticket_id, '_tix_sp_good_faith', filter_var($req->get_param('good_faith'), FILTER_VALIDATE_BOOLEAN) ? 1 : 0);
+        }
         $detail = TIX_Support::app_detail($ticket_id, $email);
         return rest_ensure_response([
             'ok'      => true,
