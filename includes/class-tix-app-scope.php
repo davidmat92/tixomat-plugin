@@ -297,6 +297,8 @@ class TIX_App_Scope {
             'modules'     => (object) $modules,
             // Gutscheine je Veranstalter (Modul giftcards): Beträge, Wunschbetrag, Gültigkeit in Jahren
             'giftcards'   => class_exists('TIX_Giftcards') ? (function ($st) { return ['amounts' => array_values($st['amounts']), 'free_amount' => (bool) $st['free_amount'], 'validity_years' => intval($st['validity_years'])]; })(TIX_Giftcards::organizer_settings(intval($oid))) : null,
+            // Awareness-Vorgabe für die Events des Veranstalters (enabled + Felder)
+            'awareness'   => class_exists('TIX_Awareness') ? TIX_Awareness::organizer(intval($oid)) : null,
             'logo'        => $img('_tix_org_landing_logo_id', 'medium') ?: $img('_tix_org_image_id', 'medium'),
             'hero'        => $img('_tix_org_landing_hero_id', 'large'),
         ];
@@ -370,6 +372,9 @@ class TIX_App_Scope {
             if (array_key_exists('free_amount', $b['giftcards'])) $g['free_amount'] = filter_var($b['giftcards']['free_amount'], FILTER_VALIDATE_BOOLEAN) ? 1 : 0;
             if (array_key_exists('validity_years', $b['giftcards'])) $g['validity_years'] = max(1, min(10, intval($b['giftcards']['validity_years'])));
             update_post_meta($oid, '_tix_giftcard_settings', $g);
+        }
+        if (array_key_exists('awareness', $b) && is_array($b['awareness']) && class_exists('TIX_Awareness')) {
+            TIX_Awareness::save_organizer(intval($oid), array_merge(TIX_Awareness::organizer(intval($oid)), $b['awareness']));
         }
         // Gutschein-Event an Modul/Beträge angleichen (legt es beim ersten Einschalten an)
         if (class_exists('TIX_Giftcards') && (array_key_exists('giftcards', $b) || array_key_exists('modules', $b))) TIX_Giftcards::ensure_organizer_event(intval($oid));

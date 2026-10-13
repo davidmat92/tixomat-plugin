@@ -204,6 +204,8 @@ class TIX_Syndication_Push {
             // Ort mit Koordinaten: die Location bleibt hier, der Empfänger
             // kennt sonst nur Ort/Adresse als Text (Wetter, Umkreissuche brauchen lat/lng)
             'venue'           => self::venue_payload($post_id),
+            // Awareness: wirksame Angaben (Event, Veranstalter- oder Seiten-Vorgabe) – null = keine
+            'awareness'       => class_exists('TIX_Awareness') ? TIX_Awareness::effective($post_id) : null,
         ];
 
         // Push oder Update?

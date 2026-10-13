@@ -330,6 +330,8 @@ class TIX_Syndication_Receive {
                 if (strpos($key, '_tix_recurrence') === 0) continue;
                 // Ort-Koordinaten setzt nur das Feld `venue` bzw. das Geocoding hier (apply_venue)
                 if (strpos($key, '_tix_venue_') === 0) continue;
+                // Awareness setzt das Feld `awareness` (wirksame Angaben der Quelle)
+                if (array_key_exists('awareness', $data) && strpos($key, '_tix_awareness') === 0) continue;
                 if ($key === '_tix_ticket_categories' && is_array($value)) {
                     foreach ($value as $i => $cat) {
                         if (is_array($cat)) unset($value[$i]['product_id']);
@@ -349,6 +351,19 @@ class TIX_Syndication_Receive {
 
         // Nur-Bestand-Update: Ort bleibt unverändert
         if (empty($data['stock_only'])) self::apply_venue($event_id, $data);
+
+        // Awareness der Quelle übernehmen (ältere Quellen ohne Feld: Event-Metas wie bisher)
+        if (empty($data['stock_only']) && array_key_exists('awareness', $data) && class_exists('TIX_Awareness')) {
+            if (is_array($data['awareness'])) {
+                $a = TIX_Awareness::sanitize($data['awareness']);
+                $a['enabled'] = true;
+                update_post_meta($event_id, TIX_Awareness::META, $a);
+                update_post_meta($event_id, TIX_Awareness::META_MODE, 'custom');
+            } else {
+                delete_post_meta($event_id, TIX_Awareness::META);
+                update_post_meta($event_id, TIX_Awareness::META_MODE, 'off');
+            }
+        }
 
         // Serien-Metas älterer Übertragungen entfernen; hier daraus angelegte Termine
         // ohne Verkäufe wegräumen (sonst stünde jeder Partner-Termin doppelt da)

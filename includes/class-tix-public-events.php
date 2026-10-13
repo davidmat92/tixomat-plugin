@@ -217,6 +217,8 @@ class TIX_Public_Events {
         $out['collections'] = class_exists('TIX_Collections') ? TIX_Collections::event_slugs($id) : [];
         // Gewinnspiel in der Liste (1.38.395): {title, status, end_date} | null – das Detail liefert die volle Form
         if (!$detailed) $out['raffle'] = class_exists('TIX_Raffle') ? TIX_Raffle::list_info($id) : null;
+        // Awareness (1.38.405): Etikett „Awareness-Team“ in der Liste, volle Angaben im Detail
+        if (!$detailed) $out['awareness_team'] = class_exists('TIX_Awareness') && TIX_Awareness::has_team($id);
         if ($detailed) {
             $out['description'] = self::html($id, '_tix_info_description');
             $out['lineup']      = self::html($id, '_tix_info_lineup');
@@ -245,6 +247,9 @@ class TIX_Public_Events {
                 $out['ticket_transfer'] = TIX_Event_Extras::ticket_transfer($id);
             }
             $out['raffle'] = class_exists('TIX_Raffle') ? TIX_Raffle::public_info($id) : null;
+            // Awareness (1.38.405): {team, sign, point, codeword, areas[], drink_tests, taxi, rules, alarm_enabled} | null
+            $out['awareness'] = class_exists('TIX_Awareness') ? TIX_Awareness::public_info($id) : null;
+            $out['awareness_team'] = is_array($out['awareness']) && !empty($out['awareness']['team']);
             // Ticket-Optionen (1.38.353): Mengenrabatt-Staffeln; Phasen/Pakete stehen an categories[]
             $out['group_discount'] = class_exists('TIX_Cart_Pricing') ? TIX_Cart_Pricing::group_discount($id) : null;
             $out['specials_offer'] = class_exists('TIX_App_Checkout') ? TIX_App_Checkout::specials($id) : [];
@@ -397,12 +402,14 @@ class TIX_Public_Events {
         // Themen-Sammlung (?collection=<slug>) und offene Gewinnspiele (?raffle=1), 1.38.395
         $collection = sanitize_title((string) $req->get_param('collection'));
         $raffle     = in_array((string) $req->get_param('raffle'), ['1', 'true'], true);
+        $awareness  = in_array((string) $req->get_param('awareness'), ['1', 'true'], true);
         $cache_extra = '';
         if ($geo['range'] || $geo['near']) {
             // Nur mit den neuen Parametern ändert sich der Schlüssel (alte Antworten bleiben gleich)
             $cache_extra = '|' . wp_json_encode([$geo['range'], $geo['near'], $geo['radius']]);
         }
         if ($collection !== '' || $raffle) $cache_extra .= '|' . wp_json_encode([$collection, $raffle]);
+        if ($awareness) $cache_extra .= '|awareness';
         $key      = 'tix_pub_events_' . md5($filter . '|' . $per_page . '|' . $page . '|' . wp_json_encode($f) . $cache_extra);
         $cached   = get_transient($key);
         if (is_array($cached)) return rest_ensure_response($cached);
@@ -448,6 +455,7 @@ class TIX_Public_Events {
             if ($filtering && !TIX_Public_Platform::matches($p, $f)) continue;
             if ($collection !== '' && !in_array($collection, (array) ($p['collections'] ?? []), true)) continue;
             if ($raffle && (($p['raffle']['status'] ?? '') !== 'open')) continue;
+            if ($awareness && empty($p['awareness_team'])) continue;
             if ($dist !== null) $p['distance_km'] = round($dist, 1);
             $matched[] = $p;
         }
