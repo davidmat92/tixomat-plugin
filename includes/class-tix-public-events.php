@@ -226,6 +226,8 @@ class TIX_Public_Events {
         if ($detailed) {
             $out['description'] = self::html($id, '_tix_info_description');
             $out['lineup']      = self::html($id, '_tix_info_lineup');
+            // „Musik hören“: Künstlerseiten je Line-up-Zeile (URL | "" kein Link | null → Suche wie bisher)
+            $out['lineup_links'] = class_exists('TIX_Lineup_Links') ? TIX_Lineup_Links::for_event($id) : [];
             $out['specials']    = self::html($id, '_tix_info_specials');
             $out['extra_info']  = self::html($id, '_tix_info_extra_info');
             $out['gallery']     = self::gallery($id);

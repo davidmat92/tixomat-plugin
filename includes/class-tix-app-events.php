@@ -236,6 +236,8 @@ class TIX_App_Events {
             'awareness_effective' => class_exists('TIX_Awareness') ? TIX_Awareness::effective($id) : null,
             // Muttizettel-Hinweis (gilt nur mit Modul „muttizettel“ des Veranstalters)
             'muttizettel_note'    => (string) get_post_meta($id, '_tix_muttizettel_note', true),
+            // „Musik hören“: Künstler-Links wie im Event-Detail (source auto|manual|none) + auto = automatische Treffer
+            'lineup_links'        => class_exists('TIX_Lineup_Links') ? TIX_Lineup_Links::for_event($id, true) : [],
         ] + ((class_exists('TIX_Event_Facts') && TIX_Event_Facts::multi()) ? TIX_Event_Facts::editor_payload($id) : []);
     }
 
@@ -429,6 +431,10 @@ class TIX_App_Events {
             if (is_wp_error($err)) return $err;
         }
 
+        if (array_key_exists('lineup_links', $body) && class_exists('TIX_Lineup_Links')) {
+            $ll = TIX_Lineup_Links::apply($post_id, $body['lineup_links']);
+            if (is_wp_error($ll)) return $ll;
+        }
         if (isset($body['muttizettel_note']) && class_exists('TIX_Muttizettel')) TIX_Muttizettel::set_note($post_id, (string) $body['muttizettel_note']);
         if (class_exists('TIX_Event_Facts') && TIX_Event_Facts::multi() && (isset($body['accessibility_mode']) || isset($body['accessibility']) || array_key_exists('refund_policy', $body))) {
             $fr = TIX_Event_Facts::apply_editor($post_id, $body);

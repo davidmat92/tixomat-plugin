@@ -577,20 +577,31 @@ class TIX_App_Look {
         $names = $d ? self::lineup_names($d['id']) : [];
         if (!$names) return '';
         self::assets();
-        $spotify = function ($n) { return 'https://open.spotify.com/search/' . rawurlencode($n); };
+        // Künstlerseite (TIX_Lineup_Links), sonst Spotify-Suche wie bisher; '' = bewusst kein Link
+        $links = class_exists('TIX_Lineup_Links') ? TIX_Lineup_Links::web_links($d['id']) : [];
+        $href = function ($line, $n) use ($links) {
+            $k = trim(preg_replace('/^[\s•\-–·*]+/u', '', $line)); // Zeile wie in TIX_Lineup_Links::lines()
+            return array_key_exists($k, $links) ? $links[$k] : 'https://open.spotify.com/search/' . rawurlencode($n);
+        };
+        $open = function ($cls, $url, $title = '') {
+            $t = $title !== '' ? ' title="' . esc_attr($title) . '"' : '';
+            return $url !== '' ? '<a class="' . $cls . '" href="' . esc_url($url) . '" target="_blank" rel="noopener"' . $t . '>' : '<span class="' . $cls . '"' . $t . '>';
+        };
         if (count($names) === 1) {
             $n = self::artist($names[0]);
-            return '<a class="evs-artist1" href="' . esc_url($spotify($n)) . '" target="_blank" rel="noopener">'
+            $u = $href($names[0], $n);
+            return $open('evs-artist1', $u)
                 . '<span class="evs-artist__c">' . esc_html(self::initials($n)) . '</span>'
                 . '<span class="evs-artist1__n">' . esc_html($names[0]) . '</span>'
-                . '<span class="evs-artist1__play">' . self::icon('play') . '</span></a>';
+                . ($u !== '' ? '<span class="evs-artist1__play">' . self::icon('play') . '</span></a>' : '</span>');
         }
         $html = '<div class="evs-artists">';
         foreach ($names as $line) {
             $n = self::artist($line);
-            $html .= '<a class="evs-artist" href="' . esc_url($spotify($n)) . '" target="_blank" rel="noopener" title="' . esc_attr($line) . '">'
+            $u = $href($line, $n);
+            $html .= $open('evs-artist', $u, $line)
                 . '<span class="evs-artist__c">' . esc_html(self::initials($n)) . '</span>'
-                . '<span class="evs-artist__n">' . esc_html($n) . '</span></a>';
+                . '<span class="evs-artist__n">' . esc_html($n) . '</span>' . ($u !== '' ? '</a>' : '</span>');
         }
         return $html . '</div>';
     }
