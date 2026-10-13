@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.38.427
+ * Version: 1.38.428
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  * Update URI: https://veranstalter.evendis.de/tixomat
@@ -10,7 +10,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.38.427');
+define('TIXOMAT_VERSION', '1.38.428');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -539,7 +539,7 @@ TIX_App_Look::init(); // App-Look-Bausteine [tix_app*] für Breakdance-Vorlagen 
 
 require_once TIXOMAT_PATH . 'includes/class-tix-app-events.php';
 TIX_App_Events::init(); // Event-Editor + Bestell-Details für den Veranstalter-Bereich der App
-TIX_Music::init(); // Musikwünsche: Deezer-Autocomplete, Wünsche nur während Events, DJ-Link + App
+TIX_Music::init(); // Musikwünsche: Autocomplete (eigene Liste + Apple iTunes Search), Wünsche nur während Events, DJ-Link + App
 require_once TIXOMAT_PATH . 'includes/class-tix-loyalty.php';
 TIX_Loyalty::init(); // Treue-/Prämienprogramm: Stempel per Einlass-QR, Prämien einlösen
 require_once TIXOMAT_PATH . 'includes/class-tix-app-config.php';
@@ -646,6 +646,8 @@ TIX_Org_Domains::init();
 // Line-up: Künstlerseiten bei Spotify/Apple Music statt Suche (alle Seiten)
 require_once TIXOMAT_PATH . 'includes/class-tix-lineup-links.php';
 TIX_Lineup_Links::init();
+require_once TIXOMAT_PATH . 'includes/class-tix-apple-music.php';
+TIX_Apple_Music::init(); // „Bekannt für“: Apple Music Top-Songs je Act (MusicKit-Schlüssel, ohne Schlüssel leer)
 // evendis.de (Next.js) nach Änderungen sofort neu aufbauen lassen (nur mit Schlüssel)
 require_once TIXOMAT_PATH . 'includes/class-tix-web-revalidate.php';
 TIX_Web_Revalidate::init();

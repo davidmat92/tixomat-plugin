@@ -4,7 +4,8 @@ if (!defined('ABSPATH')) exit;
 /**
  * TIX_Lineup_Links – „Musik hören“ direkt auf der Künstlerseite statt in einer Suche (alle Seiten).
  *
- * Line-up (`_tix_info_lineup`, sonst `_tix_lineup`) → Zeilen wie in den Apps (je Absatz/Zeile eine, Aufzählungszeichen
+ * Künstler: Titel aus dem Programm (`_tix_timetable`, eindeutig, Reihenfolge wie im Programm; 1.38.428, z. B. Mallorca),
+ * danach weitere Zeilen aus dem Line-up (`_tix_info_lineup`, sonst `_tix_lineup`) → Zeilen wie in den Apps (je Absatz/Zeile eine, Aufzählungszeichen
  * vorne weg). Künstler = Teil hinter dem ersten „:“ („Floor 1: DJ Rawkey“ → „DJ Rawkey“). Fließtext (mehr als 20 Zeilen
  * oder eine Zeile länger als 40 Zeichen) wird nicht aufgelöst.
  *
@@ -30,7 +31,8 @@ if (!defined('ABSPATH')) exit;
  *   eines Künstlers gilt auch in anderen Events (Spalte photo_id in tix_artist_links), bis dort eins gesetzt ist.
  *   lineup_links-Zeilen tragen zusätzlich picture / picture_thumb (URL oder null), im Editor photo_id;
  *   POST /events/{id} lineup_links[{name, photo_id}] (0 = entfernen), POST /events/{id}/lineup-photo (multipart: name, file),
- *   GET /public/events/{id}/artists → {artists: [{name, artist, picture, picture_thumb, deezer_url: null, top: [], spotify, apple_music, source}]}.
+ *   GET /public/events/{id}/artists → {artists: [{name, artist, picture, picture_thumb, deezer_url: null, top, spotify, apple_music, source}]}
+ *   (top = Apple Music Top-Songs seit 1.38.428, siehe TIX_Apple_Music; ohne Schlüssel []).
  *   Bilder liegen in der eigenen Mediathek – kein Abruf bei Dritten.
  */
 class TIX_Lineup_Links {
@@ -43,6 +45,7 @@ class TIX_Lineup_Links {
     const RETRY    = 30;          // Tage bis zur erneuten Suche ohne Treffer
     const MAX_LINES = 20;
     const MAX_LEN   = 40;
+    const MAX_SLOTS = 60;         // Künstler aus dem Programm (1.38.428)
 
     public static function init() {
         add_action('init', [__CLASS__, 'maybe_install'], 8);
@@ -92,8 +95,37 @@ class TIX_Lineup_Links {
 
     // ── Namen ──
 
-    /** Zeilen des Line-ups wie in den Apps; [] bei Fließtext. */
+    /**
+     * Künstler wie in den Apps (festivalArtists): zuerst die Titel aus dem Programm (`_tix_timetable`, Tage nach Datum,
+     * Reihenfolge wie im Programm), dann die Zeilen des Line-ups (ohne Fließtext); jeder Künstler einmal (norm()).
+     */
     public static function lines($event_id) {
+        $out = [];
+        $seen = [];
+        $add = function ($t) use (&$out, &$seen) {
+            $k = self::norm(self::artist($t));
+            if ($k === '' || isset($seen[$k])) return;
+            $seen[$k] = true;
+            $out[] = $t;
+        };
+        $tt = get_post_meta($event_id, '_tix_timetable', true);
+        if (is_array($tt) && $tt) {
+            ksort($tt);
+            foreach ($tt as $slots) {
+                if (!is_array($slots)) continue;
+                foreach ($slots as $sl) {
+                    $t = trim(html_entity_decode(wp_strip_all_tags((string) ($sl['title'] ?? '')), ENT_QUOTES, 'UTF-8'));
+                    if ($t !== '' && mb_strlen($t) <= self::MAX_LEN && count($out) < self::MAX_SLOTS) $add($t);
+                }
+            }
+        }
+        // Line-up-Zeilen dazu (Events mit Programm und Line-up behalten ihre bisherigen Zeilen)
+        foreach (self::lineup_lines($event_id) as $l) $add($l);
+        return $out;
+    }
+
+    /** Zeilen des Line-up-Felds wie in den Apps; [] bei Fließtext. */
+    private static function lineup_lines($event_id) {
         $html = (string) get_post_meta($event_id, '_tix_info_lineup', true);
         if ($html === '') $html = (string) get_post_meta($event_id, '_tix_lineup', true);
         if (trim($html) === '') return [];
@@ -135,7 +167,7 @@ class TIX_Lineup_Links {
     // ── Warteschlange ──
 
     public static function on_meta($meta_id, $post_id, $key, $value) {
-        if ($key !== '_tix_info_lineup' && $key !== '_tix_lineup') return;
+        if ($key !== '_tix_info_lineup' && $key !== '_tix_lineup' && $key !== '_tix_timetable') return;
         if (get_post_type($post_id) !== 'event') return;
         self::enqueue_event($post_id);
     }
@@ -401,16 +433,22 @@ class TIX_Lineup_Links {
         ]);
     }
 
-    /** Öffentlich: Künstler des Line-ups mit Foto und Links (Deezer-Felder leer: Deezer ist für kommerzielle Apps nicht erlaubt). */
+    /**
+     * Öffentlich: Künstler des Line-ups mit Foto, Links und `top` = Apple Music Top-Songs (TIX_Apple_Music, nur aus dem
+     * Zwischenspeicher; fehlt etwas, holt es ein Hintergrundlauf). deezer_url bleibt null (Deezer nur nicht-kommerziell).
+     */
     public static function rest_artists(WP_REST_Request $req) {
         $id = intval($req['id']);
         $public = class_exists('TIX_Public_Events') ? TIX_Public_Events::payload($id, false) : null;
         if (!$public) return new WP_Error('tix_event', 'Event nicht gefunden.', ['status' => 404]);
         $out = [];
+        $missing = false;
+        $am = class_exists('TIX_Apple_Music');
         foreach (self::for_event($id) as $r) {
             $out[] = ['name' => $r['name'], 'artist' => $r['artist'], 'picture' => $r['picture'], 'picture_thumb' => $r['picture_thumb'],
-                'deezer_url' => null, 'top' => [], 'spotify' => $r['spotify'], 'apple_music' => $r['apple_music'], 'source' => $r['source']];
+                'deezer_url' => null, 'top' => $am ? TIX_Apple_Music::top_for($r, $missing) : [], 'spotify' => $r['spotify'], 'apple_music' => $r['apple_music'], 'source' => $r['source']];
         }
+        if ($missing) TIX_Apple_Music::kick();
         return rest_ensure_response(['ok' => true, 'event_id' => $id, 'artists' => $out]);
     }
 
@@ -533,6 +571,7 @@ class TIX_Lineup_Links {
                 </table>
                 <p><button class="button button-primary">Speichern</button> <button class="button" name="run" value="1">Offene Künstler jetzt suchen</button></p>
             </form>
+            <?php if (class_exists('TIX_Apple_Music')) TIX_Apple_Music::render_admin(); ?>
         </div>
         <?php
     }

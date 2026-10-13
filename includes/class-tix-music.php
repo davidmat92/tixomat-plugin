@@ -1,17 +1,19 @@
 <?php
 /**
- * Musikwünsche: Song-Autocomplete (Deezer), Wünsche der Gäste nur während
- * laufender Events, DJ-Ansicht per geheimem Link und in der Veranstalter-App.
+ * Musikwünsche: Song-Autocomplete (eigene Liste + Apple iTunes Search), Wünsche
+ * der Gäste nur während laufender Events, DJ-Ansicht per geheimem Link und in der
+ * Veranstalter-App.
  *
- * Song-Datenbank: eigene Tabelle, die sich selbst füllt – täglicher Import der
- * Deezer-Charts/-Playlists (Cron), Live-Suche bei Deezer für alles, was lokal
- * fehlt (Ergebnisse werden gespeichert), plus jeder Wunsch zählt hoch.
- * Es werden nur Metadaten gespeichert (Titel, Artist, Cover-URL, Deezer-ID).
+ * Song-Datenbank: eigene Tabelle, die sich selbst füllt – Live-Suche bei Apple
+ * (iTunes Search API) für alles, was lokal fehlt (Ergebnisse werden gespeichert),
+ * plus jeder Wunsch zählt hoch. Gespeichert werden nur Titel, Artist, Dauer,
+ * Explicit und die Apple-Track-ID – keine Cover, keine Hörproben (1.38.428;
+ * vorher Deezer, dessen API nur nicht-kommerziell erlaubt ist).
  *
  * REST (tixomat/v1):
  *   GET  /music/status[?event_id=]           öffentlich: aktiv?, läuft gerade ein Event?, nächstes Event
  *                                            (mit event_id: nur dieses Event – Modul „music“ des Veranstalters, eigenes Zeitfenster)
- *   GET  /music/search?q=                    öffentlich: Songs (lokal + Deezer)
+ *   GET  /music/search?q=                    öffentlich: Songs (lokal + Apple)
  *   POST /music/requests                     öffentlich (Token optional): Wunsch senden (optional event_id)
  *   GET  /music/requests/mine?ids=&device=   öffentlich: Status der eigenen Wünsche
  *   GET  /music/dj/requests?event_id=        DJ-Key (?key=) oder Veranstalter-Login
@@ -28,23 +30,22 @@ class TIX_Music {
     const NS          = 'tixomat/v1';
     const OPT         = 'tix_music';
     const OPT_DB      = 'tix_music_db';
-    const DB_VERSION  = 1;
-    const CRON        = 'tix_music_import';
+    const DB_VERSION  = 2;
+    const CRON        = 'tix_music_import';   // alter Deezer-Chart-Import, wird nur noch abgemeldet
     const T_SONGS     = 'tix_songs';
     const T_REQ       = 'tix_song_requests';
-    const DEEZER      = 'https://api.deezer.com';
+    const ITUNES      = 'https://itunes.apple.com/search';
+    const ITUNES_PER_MIN = 18;                 // Apple: etwa 20 Anfragen pro Minute
     const STATUSES    = ['open' => 'Offen', 'played' => 'Gespielt', 'rejected' => 'Abgelehnt'];
 
     public static function init() {
         add_action('init', [__CLASS__, 'maybe_install'], 20);
         add_action('rest_api_init', [__CLASS__, 'register_routes']);
         add_shortcode('tix_musikwunsch_dj', [__CLASS__, 'shortcode_dj']);
-        add_action(self::CRON, [__CLASS__, 'import_charts']);
         add_action('template_redirect', [__CLASS__, 'maybe_render_dj_page']);
         add_filter('wp_robots', [__CLASS__, 'robots_noindex']);
         add_action('admin_menu', [__CLASS__, 'register_admin_menu']);
         add_action('admin_post_tix_music_save', [__CLASS__, 'admin_save']);
-        add_action('admin_post_tix_music_import', [__CLASS__, 'admin_import']);
         add_action('admin_post_tix_music_newkey', [__CLASS__, 'admin_newkey']);
     }
 
@@ -63,10 +64,6 @@ class TIX_Music {
             'default_start'    => '22:00',
             'max_per_night'    => 5,
             'min_interval_min' => 3,
-            'deezer_genres'    => '0,113,106,116,132,459,165',
-            'deezer_playlists' => '1111143121,65490170',
-            'last_import'      => '',
-            'last_import_info' => '',
         ];
     }
 
@@ -97,13 +94,14 @@ class TIX_Music {
     }
 
     public static function maybe_install() {
-        if (intval(get_option(self::OPT_DB, 0)) < self::DB_VERSION) {
+        $db = intval(get_option(self::OPT_DB, 0));
+        if ($db < self::DB_VERSION) {
             self::create_tables();
+            if ($db === 1) self::drop_deezer_covers();
             update_option(self::OPT_DB, self::DB_VERSION, false);
         }
-        if (!wp_next_scheduled(self::CRON)) {
-            wp_schedule_event(time() + 300, 'daily', self::CRON);
-        }
+        // Deezer-Chart-Import gibt es nicht mehr
+        if (wp_next_scheduled(self::CRON)) wp_clear_scheduled_hook(self::CRON);
         self::ensure_dj_page();
     }
 
@@ -116,6 +114,7 @@ class TIX_Music {
         dbDelta("CREATE TABLE $songs (
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
             deezer_id BIGINT UNSIGNED DEFAULT NULL,
+            apple_id BIGINT UNSIGNED DEFAULT NULL,
             title VARCHAR(255) NOT NULL DEFAULT '',
             artist VARCHAR(255) NOT NULL DEFAULT '',
             search VARCHAR(512) NOT NULL DEFAULT '',
@@ -123,13 +122,14 @@ class TIX_Music {
             duration INT UNSIGNED NOT NULL DEFAULT 0,
             rank BIGINT UNSIGNED NOT NULL DEFAULT 0,
             explicit TINYINT UNSIGNED NOT NULL DEFAULT 0,
-            source VARCHAR(20) NOT NULL DEFAULT 'deezer',
+            source VARCHAR(20) NOT NULL DEFAULT 'apple',
             requests INT UNSIGNED NOT NULL DEFAULT 0,
             charted_at DATETIME DEFAULT NULL,
             created_at DATETIME DEFAULT NULL,
             updated_at DATETIME DEFAULT NULL,
             PRIMARY KEY  (id),
             UNIQUE KEY deezer_id (deezer_id),
+            UNIQUE KEY apple_id (apple_id),
             KEY search (search(191)),
             KEY rank (rank),
             KEY requests (requests)
@@ -158,6 +158,18 @@ class TIX_Music {
             KEY device (device),
             KEY created_at (created_at)
         ) $charset;");
+    }
+
+    /** 1.38.428: Deezer-Cover-Adressen (fremdes CDN, nicht erlaubt) aus Songs und Wünschen entfernen. */
+    private static function drop_deezer_covers() {
+        global $wpdb;
+        $wpdb->query("UPDATE {$wpdb->prefix}" . self::T_SONGS . " SET cover = '' WHERE cover <> ''");
+        $wpdb->query("UPDATE {$wpdb->prefix}" . self::T_REQ . " SET cover = '' WHERE cover <> ''");
+        $s = get_option(self::OPT, []);
+        if (is_array($s)) {
+            unset($s['deezer_genres'], $s['deezer_playlists'], $s['last_import'], $s['last_import_info']);
+            update_option(self::OPT, $s, false);
+        }
     }
 
     /** Seite mit dem DJ-Shortcode anlegen (einmalig), Zugriff nur mit ?key=. */
@@ -350,101 +362,125 @@ class TIX_Music {
     }
 
     // ──────────────────────────────────────────
-    //  Deezer
+    //  Apple iTunes Search (seit 1.38.428, vorher Deezer)
     // ──────────────────────────────────────────
+    //  Deezer erlaubt seine API nur nicht-kommerziell → raus. Die iTunes Search
+    //  API liefert Titel/Artist für die Autovervollständigung. Cover und Hörproben
+    //  sind dort „Promotional Content“ (nur zur Store-Werbung, nur neben einem
+    //  Apple-Badge, nicht speichern) → werden weder gespeichert noch ausgeliefert.
+    //  Apple drosselt auf etwa 20 Anfragen pro Minute: eigener Zähler, Pause bei
+    //  429/403, Suchergebnisse 15 Minuten zwischengespeichert.
 
-    private static function deezer($path, array $args = []) {
-        $url = self::DEEZER . $path . ($args ? '?' . http_build_query($args) : '');
-        // Deezer beantwortet den WordPress-User-Agent mit 403 → neutraler UA
-        $res = wp_remote_get($url, [
-            'timeout'    => 8,
-            'user-agent' => 'Mozilla/5.0 (compatible; TixomatMusic/1.0; +' . home_url('/') . ')',
-            'headers'    => ['Accept' => 'application/json'],
+    /** iTunes-Search-Aufruf (null = nicht verfügbar → nur eigene Liste). */
+    private static function itunes(array $args) {
+        if (get_transient('tix_music_itunes_pause')) return null;
+        $bucket = 'tix_music_itunes_' . gmdate('YmdHi');
+        $used = intval(get_transient($bucket));
+        if ($used >= self::ITUNES_PER_MIN) return null;
+        set_transient($bucket, $used + 1, 2 * MINUTE_IN_SECONDS);
+        $res = wp_remote_get(self::ITUNES . '?' . http_build_query($args), [
+            'timeout' => 5,
+            'headers' => ['Accept' => 'application/json'],
         ]);
-        if (is_wp_error($res) || wp_remote_retrieve_response_code($res) !== 200) return null;
+        if (is_wp_error($res)) return null;
+        $code = intval(wp_remote_retrieve_response_code($res));
+        if ($code === 429 || $code === 403) {
+            set_transient('tix_music_itunes_pause', 1, 10 * MINUTE_IN_SECONDS);
+            return null;
+        }
+        if ($code !== 200) return null;
         $data = json_decode(wp_remote_retrieve_body($res), true);
-        if (!is_array($data) || isset($data['error'])) return null;
-        return $data;
+        return is_array($data) && isset($data['results']) && is_array($data['results']) ? $data : null;
     }
 
-    /** Deezer-Track → Song-Zeile (nur Metadaten). */
-    private static function song_from_track(array $t) {
-        $title  = (string) ($t['title'] ?? '');
-        $artist = (string) ($t['artist']['name'] ?? '');
-        if ($title === '' || empty($t['id'])) return null;
+    /** iTunes-Ergebnis → Song-Zeile (nur Titel, Artist, Dauer, Explicit – kein Cover). */
+    private static function song_from_itunes(array $t) {
+        $title  = (string) ($t['trackName'] ?? '');
+        $artist = (string) ($t['artistName'] ?? '');
+        if ($title === '' || empty($t['trackId']) || ($t['kind'] ?? 'song') !== 'song') return null;
         return [
-            'deezer_id' => intval($t['id']),
-            'title'     => mb_substr($title, 0, 255),
-            'artist'    => mb_substr($artist, 0, 255),
-            'search'    => mb_substr(self::normalize($title . ' ' . $artist), 0, 512),
-            'cover'     => (string) ($t['album']['cover_medium'] ?? ($t['album']['cover_small'] ?? '')),
-            'duration'  => intval($t['duration'] ?? 0),
-            'rank'      => intval($t['rank'] ?? 0),
-            'explicit'  => !empty($t['explicit_lyrics']) ? 1 : 0,
+            'apple_id' => intval($t['trackId']),
+            'title'    => mb_substr($title, 0, 255),
+            'artist'   => mb_substr($artist, 0, 255),
+            'search'   => mb_substr(self::normalize($title . ' ' . $artist), 0, 512),
+            'duration' => intval(round(intval($t['trackTimeMillis'] ?? 0) / 1000)),
+            'explicit' => ($t['trackExplicitness'] ?? '') === 'explicit' ? 1 : 0,
         ];
     }
 
-    /** Song speichern/aktualisieren (Schlüssel: Deezer-ID). Liefert die lokale ID. */
-    private static function upsert_song(array $s, $source = 'deezer', $charted = false) {
+    /**
+     * Apple-Song speichern/aktualisieren (Schlüssel: Apple-Track-ID). Gibt es den
+     * Song schon aus der Deezer-Zeit (gleicher Titel + Artist), bekommt diese Zeile
+     * die Apple-ID – die Wunsch-Zähler bleiben. Liefert die DB-Zeile.
+     */
+    private static function upsert_apple(array $s) {
         global $wpdb;
         $t   = $wpdb->prefix . self::T_SONGS;
         $now = self::mysql_now();
-        $wpdb->query($wpdb->prepare(
-            "INSERT INTO $t (deezer_id, title, artist, search, cover, duration, rank, explicit, source, charted_at, created_at, updated_at)
-             VALUES (%d, %s, %s, %s, %s, %d, %d, %d, %s, %s, %s, %s)
-             ON DUPLICATE KEY UPDATE title = VALUES(title), artist = VALUES(artist), search = VALUES(search),
-               cover = VALUES(cover), duration = VALUES(duration), rank = GREATEST(rank, VALUES(rank)),
-               explicit = VALUES(explicit), updated_at = VALUES(updated_at)" . ($charted ? ", charted_at = VALUES(charted_at)" : ''),
-            $s['deezer_id'], $s['title'], $s['artist'], $s['search'], $s['cover'], $s['duration'], $s['rank'], $s['explicit'],
-            $source, $charted ? $now : null, $now, $now
-        ));
-        return intval($wpdb->get_var($wpdb->prepare("SELECT id FROM $t WHERE deezer_id = %d", $s['deezer_id'])));
+        $id  = intval($wpdb->get_var($wpdb->prepare("SELECT id FROM $t WHERE apple_id = %d", $s['apple_id'])));
+        if (!$id) {
+            $id = intval($wpdb->get_var($wpdb->prepare("SELECT id FROM $t WHERE apple_id IS NULL AND search = %s ORDER BY requests DESC, id ASC LIMIT 1", $s['search'])));
+            if ($id) $wpdb->update($t, ['apple_id' => $s['apple_id'], 'updated_at' => $now], ['id' => $id]);
+        }
+        if ($id) {
+            $wpdb->update($t, [
+                'title' => $s['title'], 'artist' => $s['artist'], 'search' => $s['search'],
+                'duration' => $s['duration'], 'explicit' => $s['explicit'], 'cover' => '', 'updated_at' => $now,
+            ], ['id' => $id]);
+        } else {
+            $wpdb->query($wpdb->prepare(
+                "INSERT IGNORE INTO $t (apple_id, title, artist, search, cover, duration, rank, explicit, source, created_at, updated_at)
+                 VALUES (%d, %s, %s, %s, '', %d, 0, %d, 'apple', %s, %s)",
+                $s['apple_id'], $s['title'], $s['artist'], $s['search'], $s['duration'], $s['explicit'], $now, $now
+            ));
+        }
+        return $wpdb->get_row($wpdb->prepare("SELECT * FROM $t WHERE apple_id = %d", $s['apple_id']), ARRAY_A);
     }
 
-    /** Täglicher Import: Deezer-Charts je Genre + Playlists (z. B. „Top Germany“). */
-    public static function import_charts() {
-        $s = self::settings();
-        $count = 0;
-        $calls = 0;
-        foreach (array_filter(array_map('intval', explode(',', (string) $s['deezer_genres'])), 'is_int') as $genre) {
-            $data = self::deezer('/chart/' . $genre . '/tracks', ['limit' => 100]);
-            $calls++;
-            foreach ((array) ($data['data'] ?? []) as $track) {
-                $song = is_array($track) ? self::song_from_track($track) : null;
-                if ($song) { self::upsert_song($song, 'chart', true); $count++; }
-            }
-            usleep(250000);
+    /**
+     * Song-Referenz für die Apps. Das Feld heißt aus Vertragsgründen weiter
+     * `deezer_id`: alte Songs behalten ihre Deezer-ID, neue tragen die Apple-Track-ID.
+     */
+    private static function song_ref(array $r) {
+        return intval($r['deezer_id'] ?? 0) ?: intval($r['apple_id'] ?? 0);
+    }
+
+    /** Wunsch-Schlüssel eines Songs aus der Datenbank (gleicher Song = eine DJ-Zeile). */
+    private static function row_key(array $r) {
+        if (intval($r['deezer_id'] ?? 0) > 0) return 'dz:' . intval($r['deezer_id']);
+        if (intval($r['apple_id'] ?? 0) > 0) return 'am:' . intval($r['apple_id']);
+        return 'id:' . intval($r['id']);
+    }
+
+    /** Song zur Referenz aus der Suche finden; bei (seltener) Doppelbelegung entscheidet der Titel. */
+    private static function find_by_ref($ref, $title = '') {
+        global $wpdb;
+        $t = $wpdb->prefix . self::T_SONGS;
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT * FROM $t WHERE deezer_id = %d OR (apple_id = %d AND deezer_id IS NULL) LIMIT 5", $ref, $ref
+        ), ARRAY_A);
+        if (!$rows) return null;
+        $want = self::normalize($title);
+        if ($want !== '') {
+            foreach ($rows as $r) if (self::normalize($r['title']) === $want) return $r;
         }
-        foreach (array_filter(array_map('intval', explode(',', (string) $s['deezer_playlists']))) as $pl) {
-            $data = self::deezer('/playlist/' . $pl . '/tracks', ['limit' => 200]);
-            $calls++;
-            foreach ((array) ($data['data'] ?? []) as $track) {
-                $song = is_array($track) ? self::song_from_track($track) : null;
-                if ($song) { self::upsert_song($song, 'chart', true); $count++; }
-            }
-            usleep(250000);
-        }
-        self::update_settings([
-            'last_import'      => self::mysql_now(),
-            'last_import_info' => sprintf('%d Titel aus %d Abfragen', $count, $calls),
-        ]);
-        return $count;
+        return $rows[0];
     }
 
     private static function row_to_song(array $r) {
         return [
             'id'        => intval($r['id']),
-            'deezer_id' => intval($r['deezer_id']),
+            'deezer_id' => self::song_ref($r),
             'title'     => (string) $r['title'],
             'artist'    => (string) $r['artist'],
-            'cover'     => (string) $r['cover'],
+            'cover'     => '',
             'duration'  => intval($r['duration']),
             'explicit'  => !empty($r['explicit']),
             'requests'  => intval($r['requests']),
         ];
     }
 
-    /** Suche: lokal (Wunsch-Häufigkeit, Beliebtheit) + Deezer live, zusammengeführt. */
+    /** Suche: eigene Tabelle (Wunsch-Häufigkeit) + Apple iTunes Search live, zusammengeführt. */
     public static function search($q, $limit = 20) {
         global $wpdb;
         $t    = $wpdb->prefix . self::T_SONGS;
@@ -462,25 +498,27 @@ class TIX_Music {
             ...$params
         ), ARRAY_A);
 
+        // Apple erst ab 3 Zeichen (spart das Kontingent beim Tippen)
         $remote = [];
-        $cache_key = 'tix_music_q_' . md5($norm);
-        $cached = get_transient($cache_key);
-        if (is_array($cached)) {
-            $remote = $cached;
-        } else {
-            $data = self::deezer('/search', ['q' => $norm, 'limit' => 25, 'order' => 'RANKING']);
-            if (is_array($data)) {
-                foreach ((array) ($data['data'] ?? []) as $track) {
-                    $song = is_array($track) ? self::song_from_track($track) : null;
-                    if (!$song) continue;
-                    $song['id'] = self::upsert_song($song, 'deezer');
-                    $remote[] = $song;
+        if (mb_strlen($norm) >= 3) {
+            $cache_key = 'tix_music_q_' . md5('itunes|' . $norm);
+            $cached = get_transient($cache_key);
+            if (is_array($cached)) {
+                $remote = $cached;
+            } else {
+                $data = self::itunes(['term' => $norm, 'media' => 'music', 'entity' => 'song', 'country' => 'DE', 'limit' => 25]);
+                if (is_array($data)) {
+                    foreach ($data['results'] as $track) {
+                        $song = is_array($track) ? self::song_from_itunes($track) : null;
+                        $row  = $song ? self::upsert_apple($song) : null;
+                        if ($row) $remote[] = self::row_to_song($row);
+                    }
+                    set_transient($cache_key, $remote, 15 * MINUTE_IN_SECONDS);
                 }
-                set_transient($cache_key, $remote, 15 * MINUTE_IN_SECONDS);
             }
         }
 
-        // Gleicher Song in mehreren Deezer-Releases (Single, Album, Remix-Fassung mit
+        // Gleicher Song in mehreren Releases (Single, Album, Remix-Fassung mit
         // gleichem Namen) → nur einmal anzeigen: Schlüssel = normalisierter Titel + Artist
         $out  = [];
         $seen = [];
@@ -495,10 +533,7 @@ class TIX_Music {
             if (intval($r['requests']) > 0) $take(self::row_to_song($r));
         }
         foreach ($remote as $s) {
-            $take([
-                'id' => intval($s['id'] ?? 0), 'deezer_id' => intval($s['deezer_id']), 'title' => $s['title'], 'artist' => $s['artist'],
-                'cover' => $s['cover'], 'duration' => $s['duration'], 'explicit' => (bool) $s['explicit'], 'requests' => 0,
-            ]);
+            $take($s);
         }
         foreach ((array) $local as $r) {
             $take(self::row_to_song($r));
@@ -673,28 +708,23 @@ class TIX_Music {
             : mb_substr(sanitize_text_field((string) $req->get_param('name')), 0, 40);
         $message = mb_substr(sanitize_text_field((string) $req->get_param('message')), 0, 200);
 
-        // Song bestimmen: Deezer-ID (aus der Suche) oder Freitext
+        // Song bestimmen: Referenz aus der Suche (Feld `deezer_id`, seit 1.38.428 bei
+        // neuen Songs die Apple-Track-ID) oder Freitext. Kein Abruf bei Deezer/Apple:
+        // alles, was die Suche geliefert hat, steht schon in der eigenen Tabelle.
         $deezer_id = intval($req->get_param('deezer_id'));
         $title  = mb_substr(sanitize_text_field((string) $req->get_param('title')), 0, 120);
         $artist = mb_substr(sanitize_text_field((string) $req->get_param('artist')), 0, 120);
-        $cover  = '';
         $song_id = 0;
+        $key     = '';
         $t = $wpdb->prefix . self::T_SONGS;
         if ($deezer_id > 0) {
-            $row = $wpdb->get_row($wpdb->prepare("SELECT * FROM $t WHERE deezer_id = %d", $deezer_id), ARRAY_A);
-            if (!$row) {
-                $track = self::deezer('/track/' . $deezer_id);
-                $song  = is_array($track) ? self::song_from_track($track) : null;
-                if ($song) {
-                    self::upsert_song($song, 'request');
-                    $row = $wpdb->get_row($wpdb->prepare("SELECT * FROM $t WHERE deezer_id = %d", $deezer_id), ARRAY_A);
-                }
-            }
+            $row = self::find_by_ref($deezer_id, $title);
             if ($row) {
-                $song_id = intval($row['id']);
-                $title   = (string) $row['title'];
-                $artist  = (string) $row['artist'];
-                $cover   = (string) $row['cover'];
+                $song_id   = intval($row['id']);
+                $deezer_id = self::song_ref($row);
+                $title     = (string) $row['title'];
+                $artist    = (string) $row['artist'];
+                $key       = self::row_key($row);
             } else {
                 $deezer_id = 0;
             }
@@ -702,7 +732,7 @@ class TIX_Music {
         if ($title === '') return self::error('tix_music_title', 'Bitte einen Songtitel angeben.', 400, ['field' => 'title']);
 
         $event_id = intval($cur['id']);
-        $key      = self::song_key($deezer_id, $title, $artist);
+        if ($key === '') $key = self::song_key(0, $title, $artist);
         $rt       = $wpdb->prefix . self::T_REQ;
         $mine_where = $user
             ? $wpdb->prepare('(device = %s OR user_id = %d)', $device, $user->ID)
@@ -732,7 +762,7 @@ class TIX_Music {
             'song_key'   => $key,
             'title'      => $title,
             'artist'     => $artist,
-            'cover'      => $cover,
+            'cover'      => '',
             'guest_name' => $name,
             'user_id'    => $user ? intval($user->ID) : 0,
             'message'    => $message,
@@ -1067,18 +1097,8 @@ class TIX_Music {
             'default_start'    => preg_match('/^\d{2}:\d{2}$/', (string) ($in['default_start'] ?? '')) ? $in['default_start'] : '22:00',
             'max_per_night'    => max(1, intval($in['max_per_night'] ?? 5)),
             'min_interval_min' => max(0, intval($in['min_interval_min'] ?? 3)),
-            'deezer_genres'    => implode(',', array_filter(array_map('intval', explode(',', (string) ($in['deezer_genres'] ?? ''))), function ($v) { return $v >= 0; })),
-            'deezer_playlists' => implode(',', array_filter(array_map('intval', explode(',', (string) ($in['deezer_playlists'] ?? ''))))),
         ]);
         wp_safe_redirect(admin_url('admin.php?page=tix-music&saved=1'));
-        exit;
-    }
-
-    public static function admin_import() {
-        if (!current_user_can('manage_options')) wp_die('Keine Berechtigung.');
-        check_admin_referer('tix_music_import');
-        $n = self::import_charts();
-        wp_safe_redirect(admin_url('admin.php?page=tix-music&imported=' . intval($n)));
         exit;
     }
 
@@ -1103,14 +1123,13 @@ class TIX_Music {
         <div class="wrap">
             <h1>🎧 Musikwünsche</h1>
             <?php if (!empty($_GET['saved'])): ?><div class="notice notice-success"><p>Einstellungen gespeichert.</p></div><?php endif; ?>
-            <?php if (isset($_GET['imported'])): ?><div class="notice notice-success"><p><?php echo intval($_GET['imported']); ?> Titel importiert.</p></div><?php endif; ?>
             <?php if (!empty($_GET['newkey'])): ?><div class="notice notice-warning"><p>Neuer DJ-Link erzeugt – der alte Link funktioniert nicht mehr.</p></div><?php endif; ?>
 
             <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;max-width:900px;margin:12px 0 20px;">
                 <div class="card" style="margin:0;padding:14px;"><strong>Status</strong><br><?php echo self::enabled() ? ($cur ? '🟢 Aktiv – Party läuft: ' . esc_html(get_the_title($cur['id'])) : '🟡 Aktiv – gerade kein Event') : '⚪ Deaktiviert'; ?></div>
                 <div class="card" style="margin:0;padding:14px;"><strong>Songs in der Datenbank</strong><br><?php echo number_format_i18n($songs); ?></div>
                 <div class="card" style="margin:0;padding:14px;"><strong>Wünsche heute</strong><br><?php echo $today; ?></div>
-                <div class="card" style="margin:0;padding:14px;"><strong>Letzter Chart-Import</strong><br><?php echo $s['last_import'] ? esc_html($s['last_import'] . ' (' . $s['last_import_info'] . ')') : 'noch nie'; ?></div>
+                <div class="card" style="margin:0;padding:14px;"><strong>Songsuche</strong><br>Eigene Liste + Apple iTunes Search<?php echo get_transient('tix_music_itunes_pause') ? ' – <em>Apple pausiert (Limit), nur eigene Liste</em>' : ''; ?></div>
             </div>
 
             <h2>DJ-Ansicht</h2>
@@ -1121,10 +1140,6 @@ class TIX_Music {
                 <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="display:inline" onsubmit="return confirm('Neuen Link erzeugen? Der alte funktioniert dann nicht mehr.');">
                     <?php wp_nonce_field('tix_music_newkey'); ?><input type="hidden" name="action" value="tix_music_newkey">
                     <button class="button">Neuen Link erzeugen</button>
-                </form>
-                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="display:inline">
-                    <?php wp_nonce_field('tix_music_import'); ?><input type="hidden" name="action" value="tix_music_import">
-                    <button class="button">Charts jetzt importieren</button>
                 </form>
             </p>
 
@@ -1143,8 +1158,7 @@ class TIX_Music {
                         maximal <input type="number" name="max_per_night" value="<?php echo intval($s['max_per_night']); ?>" style="width:60px"> Wünsche pro Party,
                         mindestens <input type="number" name="min_interval_min" value="<?php echo intval($s['min_interval_min']); ?>" style="width:60px"> Minuten Abstand.
                     </td></tr>
-                    <tr><th>Deezer-Charts (Genre-IDs)</th><td><input type="text" class="regular-text" name="deezer_genres" value="<?php echo esc_attr($s['deezer_genres']); ?>"><br><span class="description">0 = Alle, 113 Dance, 106 Electro, 116 Rap/Hip-Hop, 132 Pop, 459 Deutsche Musik, 165 R&amp;B, 197 Latin. Täglicher Import je Genre.</span></td></tr>
-                    <tr><th>Deezer-Playlists (IDs)</th><td><input type="text" class="regular-text" name="deezer_playlists" value="<?php echo esc_attr($s['deezer_playlists']); ?>"><br><span class="description">1111143121 = „Top Germany“ (Deezer Charts), 65490170 = „Hits von heute“. Eigene Playlists: ID aus der Deezer-URL.</span></td></tr>
+                    <tr><th>Songsuche</th><td><span class="description">Gäste finden Songs aus der eigenen Liste (alles, was schon gesucht oder gewünscht wurde) und live über die Apple iTunes Search (Titel und Artist, keine Cover). Was nicht gefunden wird, geht als Freitext.</span></td></tr>
                 </table>
                 <?php submit_button('Speichern'); ?>
             </form>
