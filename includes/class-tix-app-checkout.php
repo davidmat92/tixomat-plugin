@@ -877,7 +877,17 @@ class TIX_App_Checkout {
             'can_transfer'   => class_exists('TIX_Ticket_Transfer') && TIX_Ticket_Transfer::can_transfer($id),
             // Apple/Google Wallet (signierte Links), null wenn Wallet aus oder Spiegel-Ticket
             'wallet'         => (string) $m('_tix_ticket_mirror') === '1' ? null : self::wallet_links($id),
+            // Online-Ticket zum Teilen/Öffnen (Kunden-Adresse, Token wie in den Mails); '' bei Spiegel-Tickets (gelten bei der Quelle)
+            'online_url'     => self::online_url($id, (string) $m('_tix_ticket_mirror') === '1'),
         ] + self::mirror_fields($id) + self::gift_fields($id);
+    }
+
+    /** Link auf das Online-Ticket (?tix_dl=…) auf der Kunden-Adresse; '' ohne Code oder bei Spiegel-Tickets. */
+    public static function online_url($ticket_post_id, $mirror = false) {
+        if ($mirror || !class_exists('TIX_Tickets') || (string) get_post_meta($ticket_post_id, '_tix_ticket_code', true) === '') return '';
+        TIX_Tickets::ensure_download_token($ticket_post_id);
+        $url = (string) TIX_Tickets::get_download_url($ticket_post_id);
+        return $url !== '' && class_exists('TIX_Customer_URL') ? TIX_Customer_URL::to($url) : $url;
     }
 
     /** Wallet-Links eines Ticket-Posts: {apple_url, google_url} ('' = Plattform nicht eingerichtet) oder null (Wallet aus). */
