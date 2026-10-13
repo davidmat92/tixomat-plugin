@@ -301,7 +301,7 @@ class TIX_App_Scope {
             'awareness'   => class_exists('TIX_Awareness') ? TIX_Awareness::organizer(intval($oid)) : null,
             'logo'        => $img('_tix_org_landing_logo_id', 'medium') ?: $img('_tix_org_image_id', 'medium'),
             'hero'        => $img('_tix_org_landing_hero_id', 'large'),
-        ];
+        ] + ((class_exists('TIX_Organizer_Link') && TIX_Organizer_Link::multi()) ? TIX_Organizer_Link::profile_extra(intval($oid)) : []);
     }
 
     public static function rest_profile(WP_REST_Request $req) {

@@ -2324,6 +2324,8 @@ class TIX_REST_API {
             $event['tickets_enabled'] = (bool) get_post_meta($id, '_tix_tickets_enabled', true);
             $event['presale_active']  = (bool) get_post_meta($id, '_tix_presale_active', true);
         }
+        // Teilen aus dem Veranstalter-Bereich: Event-Link mit Herkunft „veranstalter-link“ (evendis)
+        if (class_exists('TIX_Organizer_Link') && TIX_Organizer_Link::multi()) $event['share_url'] = TIX_Organizer_Link::share_url($id);
 
         return $event;
     }

@@ -115,6 +115,8 @@ class TIX_Site_Analytics {
         $page_title = sanitize_text_field(substr((string) ($in['page_title'] ?? ''), 0, 255));
         $source     = sanitize_key(substr((string) ($in['source'] ?? '') ?: 'direct', 0, 50));
         $campaign   = sanitize_text_field(substr((string) ($in['campaign'] ?? ''), 0, 100));
+        // utm_medium (z. B. Slug beim Veranstalter-Link) landet in campaign, wenn keine Kampagne angegeben ist
+        if ($campaign === '' && !empty($in['medium'])) $campaign = sanitize_text_field(substr((string) $in['medium'], 0, 100));
         $content    = sanitize_text_field(substr((string) ($in['content'] ?? ''), 0, 100));
         $referrer   = self::sanitize_host((string) ($in['referrer_host'] ?? ''));
         $device     = self::detect_device($_SERVER['HTTP_USER_AGENT'] ?? '');

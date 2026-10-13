@@ -11,6 +11,7 @@
  * Zusätzliche Pfade je Seite (seit 1.38.385, Option `tix_app_link_paths`, Liste):
  *   events       → /events/*            (Event-Seiten)
  *   veranstalter → /veranstalter/*      (Veranstalter-Seiten)
+ *   v            → /v/*                 (Link des Veranstalters, seit 1.38.412)
  *   suche        → /suche/*             (Suche)
  *   start_p      → / mit ?p=…           (Startseite mit Parameter p)
  * Kasse, Konto und Rechtstexte werden nie aufgenommen (bleiben im Browser).
@@ -30,6 +31,7 @@ class TIX_App_Links {
     const PATH_PRESETS = [
         'events'       => ['/' => '/events/*',       'comment' => 'Event-Seiten'],
         'veranstalter' => ['/' => '/veranstalter/*', 'comment' => 'Veranstalter-Seiten'],
+        'v'            => ['/' => '/v/*',            'comment' => 'Link des Veranstalters'],
         'suche'        => ['/' => '/suche/*',        'comment' => 'Suche'],
         'start_p'      => ['/' => '/', '?' => ['p' => '?*'], 'comment' => 'Startseite mit Parameter p'],
     ];

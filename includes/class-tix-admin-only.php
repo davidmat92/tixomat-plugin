@@ -196,7 +196,11 @@ class TIX_Admin_Only {
     private static function customer_path() {
         if (is_feed()) return '/';
         $landing = (string) get_query_var('tix_org_landing');
-        if ($landing !== '') return '/veranstalter/' . sanitize_title($landing) . '/';
+        if ($landing !== '') {
+            // Link des Veranstalters (/v/<slug>): Herkunft anhängen, damit Besuche und Käufe über den Link zählen
+            $slug = sanitize_title($landing);
+            return '/veranstalter/' . $slug . '/' . (isset($_GET['utm_source']) ? '' : '?utm_source=veranstalter-link&utm_medium=' . rawurlencode($slug));
+        }
         if (is_singular('tix_organizer')) {
             $id = get_queried_object_id();
             $slug = class_exists('TIX_Public_Platform') ? TIX_Public_Platform::slug($id) : get_post_field('post_name', $id);
