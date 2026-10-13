@@ -833,6 +833,8 @@ class TIX_Org_Approval {
             <?php endif; ?>
         </div>
 
+        <?php do_action('tix_org_account_top', $oid, $manager); // Hinweise: angekündigte Fassung, gesperrte Kasse, Zusatzvereinbarung, Konditionen ?>
+
         <div style="<?php echo $box; ?>">
             <h2 style="margin-top:0;">Pflichtangaben</h2>
             <p style="color:#6b7280;margin-top:0;">Diese Angaben brauchen wir vor dem ersten Verkauf und der ersten Auszahlung.</p>

@@ -81,6 +81,7 @@ class TIX_Contract_Template {
         }, 26);
         add_action('admin_init', function () { if (current_user_can('manage_options') && !get_transient('tix_contract_detect')) { set_transient('tix_contract_detect', 1, 600); TIX_Contract_Template::detect(); } });
         add_action('admin_notices', [__CLASS__, 'admin_notices']);
+        add_action('tix_org_account_top', [__CLASS__, 'render_account_top'], 10, 2);
         add_action('admin_post_tix_contract_publish', [__CLASS__, 'handle_publish']);
         add_action('admin_post_tix_contract_view', [__CLASS__, 'handle_view']);
         add_action('rest_api_init', function () {
@@ -446,6 +447,7 @@ class TIX_Contract_Template {
                     '<p>Hallo,</p><p>die zum ' . esc_html(wp_date('d.m.Y', intval($pend['valid_from']))) . ' angekündigte Version ' . esc_html($pend['version']) . ' des ' . esc_html($t['title']) . ' wird nicht wirksam. Es bleibt bei der Version ' . esc_html($cur['version']) . ' – du musst nichts tun.</p>');
             }
         }
+        self::push_all(['Vertragsänderung zurückgenommen', 'Version ' . $pend['version'] . ' wird nicht wirksam – es bleibt bei Version ' . $cur['version'] . '.']);
         return $pend;
     }
 
@@ -580,6 +582,24 @@ class TIX_Contract_Template {
             }
             if (class_exists('TIX_Payout_Details')) TIX_Payout_Details::mail($u->user_email, $subj, 'Vermittlungsvertrag', $body);
         }
+        self::push_all($ver['classification'] === 'favorable'
+            ? ['Vertrag verbessert', 'Version ' . $ver['version'] . ' gilt ab sofort – du musst nichts tun.']
+            : ($ver['classification'] === 'immediate'
+                ? ['Neue Vertragsfassung', 'Bitte lies Version ' . $ver['version'] . ' und stimme zu.']
+                : ['Vertrag ändert sich zum ' . $date, 'Bitte stimme Version ' . $ver['version'] . ' bis dahin zu, damit dein Ticketverkauf weiterläuft.']));
+    }
+
+    /** Mitteilung (Feed/Push) an Inhaber + Team-Admins aller Veranstalter, Aktion organizer:approval. */
+    public static function push_all(array $msg) {
+        if (!class_exists('TIX_Notifications') || !method_exists('TIX_Notifications', 'add_user_item')) return 0;
+        $n = 0;
+        foreach (get_posts(['post_type' => 'tix_organizer', 'post_status' => 'publish', 'posts_per_page' => 1000, 'fields' => 'ids', 'no_found_rows' => true]) as $oid) {
+            foreach (TIX_Org_Approval::manager_ids($oid) as $uid) {
+                TIX_Notifications::add_user_item($uid, $msg[0], $msg[1], ['type' => 'message', 'action' => 'organizer:approval']);
+                $n++;
+            }
+        }
+        return $n;
     }
 
     // ── Anzeige / REST ──
@@ -637,6 +657,53 @@ class TIX_Contract_Template {
         echo '<p class="m">Version ' . esc_html($ver['version']) . ' · gültig ab ' . esc_html(wp_date('d.m.Y', intval($ver['valid_from']))) . ($ver['sha256'] ? ' · SHA-256 ' . esc_html($ver['sha256']) : '') . '</p>';
         echo $d['html'] . ($d['annex_html'] !== '' ? '<hr>' . $d['annex_html'] : '') . '</body></html>';
         exit;
+    }
+
+    /** „Mein Konto“ oben: gesperrte Kasse, angekündigte Fassung (alt → neu, Datum), Konditionen mit geplanten Werten. */
+    public static function render_account_top($oid, $manager) {
+        if (!self::active() || !self::versions()) return;
+        $box = 'border-radius:12px;padding:14px 18px;margin:0 0 18px;max-width:820px;';
+        $acc = get_post_meta($oid, TIX_Org_Approval::META_TERMS, true);
+        $acc_v = is_array($acc) ? (string) ($acc['version'] ?? '') : '';
+        if (self::outdated($oid)) {
+            $cur = self::current();
+            echo '<div style="' . $box . 'background:#fef2f2;border:1px solid #fecaca;border-left:4px solid #ef4444;"><strong>Ticketverkauf pausiert</strong><br>'
+                . 'Seit ' . esc_html(wp_date('d.m.Y', intval($cur['valid_from']))) . ' gilt Version ' . esc_html($cur['version']) . ' des Vermittlungsvertrags. Bis du ihr zustimmst, können keine neuen Tickets verkauft werden; bereits verkaufte bleiben gültig und werden zu den bisherigen Konditionen abgerechnet.'
+                . ($manager ? ' <a class="button button-primary" style="margin-left:6px;" href="#tix-acc-terms">Lesen und zustimmen</a>' : ' Zustimmen kann der Inhaber oder ein Team-Admin.') . '</div>';
+        }
+        $p = self::pending();
+        if ($p && $acc_v !== $p['version']) {
+            $rows = '';
+            foreach ((array) $p['changes'] as $c) {
+                $rows .= '<li>' . esc_html($c['label']) . ($c['key'] === 'vorlage' ? ': Wortlaut überarbeitet' : ': ' . esc_html(self::change_value($c['key'], $c['old'])) . ' → <strong>' . esc_html(self::change_value($c['key'], $c['new'])) . '</strong>') . '</li>';
+            }
+            $need = !empty($p['requires_consent']);
+            echo '<div style="' . $box . 'background:#fffbeb;border:1px solid #fde68a;border-left:4px solid #f59e0b;"><strong>Vertrag ändert sich zum ' . esc_html(wp_date('d.m.Y', intval($p['valid_from']))) . '</strong> (Version ' . esc_html($p['version']) . ')'
+                . ($rows !== '' ? '<ul style="margin:6px 0 6px 18px;list-style:disc;">' . $rows . '</ul>' : '<br>')
+                . ($need ? 'Bitte stimme bis dahin zu, damit dein Ticketverkauf ohne Pause weiterläuft. Bist du nicht einverstanden, kannst du zum Stichtag kündigen.' : 'Die Änderung ist zu deinen Gunsten, du musst nichts tun.')
+                . ' <a class="button' . ($need && $manager ? ' button-primary' : '') . '" style="margin-left:6px;" href="' . esc_url($need && $manager ? '#tix-acc-terms' : self::view_url($p['version'])) . '"' . ($need && $manager ? '' : ' target="_blank"') . '>' . ($need && $manager ? 'Lesen und zustimmen' : 'Neue Fassung lesen') . '</a></div>';
+        }
+        // Konditionen mit geplanten Werten
+        $cfg = class_exists('TIX_Fees') ? TIX_Fees::get_fee_config($oid) : [];
+        $planned = class_exists('TIX_Planned_Values') ? TIX_Planned_Values::public_list(!empty($cfg['fee_custom']) ? ['gateway_fee_included', 'fee_split_customer_share', 'settlement_delay_days'] : null) : [];
+        $planned = array_values(array_filter($planned, function ($x) { return $x['setting'] !== 'percent' && $x['setting'] !== 'fixed'; })); // Kanal-Gebühr betrifft Partner-Shops
+        $fee = self::num($cfg['fee_percent'] ?? 0) . ' % + ' . self::eur($cfg['fee_fixed'] ?? 0) . ' € je Ticket' . (!empty($cfg['fee_custom']) ? ' (Zusatzvereinbarung)' : '');
+        echo '<div style="' . $box . 'background:#fff;border:1px solid #e5e7eb;"><strong>Deine Konditionen</strong><br>Gebühr: ' . esc_html($fee) . ' · Zahlungskosten: ' . (!empty($cfg['gateway_fee_included']) ? 'in der Gebühr enthalten' : 'zusätzlich') . ' · Auszahlung: ' . esc_html((string) (class_exists('TIX_Settlement') ? TIX_Settlement::delay_days($oid) : 7)) . ' Tage nach dem Event';
+        foreach ($planned as $x) {
+            echo '<br><span style="color:#92400e;">' . ($x['valid_from'] ? 'Ab ' . esc_html(wp_date('d.m.Y', strtotime($x['valid_from']))) : 'Geplant (Ankündigung folgt)') . ': ' . esc_html($x['label']) . ' ' . esc_html($x['current_label']) . ' → ' . esc_html($x['planned_label']) . '</span>';
+        }
+        echo '</div>';
+    }
+
+    /** Anzeigewert einer Änderung (Zahlen deutsch, Ja/Nein). */
+    private static function change_value($key, $v) {
+        if ($key === 'zahlungskosten') return $v ? 'enthalten' : 'zusätzlich';
+        if (in_array($key, ['gebuehr_fix', 'kanal_gebuehr_fix'], true)) return self::eur($v) . ' €';
+        if (in_array($key, ['gebuehr_prozent', 'kanal_gebuehr_prozent', 'anteil_gast_prozent'], true)) return self::num($v) . ' %';
+        if ($key === 'gebuehr_modus_vorgabe') return self::mode_label((string) $v);
+        if (in_array($key, ['auszahlung_tage', 'zahlungsziel_tage', 'einwand_frist_tage', 'aenderung_vorlauf'], true)) return intval($v) . ' Tage';
+        if ($key === 'kuendigungsfrist') return self::months_text($v);
+        return (string) $v;
     }
 
     // ── Admin ──

@@ -46,6 +46,7 @@ class TIX_Contract {
         add_action('admin_post_tix_contract_doc', [__CLASS__, 'handle_doc']);
         add_action('admin_post_tix_contract_addendum', [__CLASS__, 'handle_accept_form']);
         add_action('tix_org_account_sections', [__CLASS__, 'render_account_section'], 10, 2);
+        add_action('tix_org_account_top', [__CLASS__, 'render_account_top'], 30, 2);
         add_action('admin_notices', [__CLASS__, 'admin_notices']);
     }
 
@@ -532,6 +533,16 @@ class TIX_Contract {
             echo '</p>';
         }
         echo '</div>';
+    }
+
+    /** „Mein Konto“ oben: offene Zusatzvereinbarung deutlich als Hinweis. */
+    public static function render_account_top($oid, $manager) {
+        $p = self::pending($oid);
+        if (!$p) return;
+        echo '<div style="background:#fff7ed;border:1px solid #fed7aa;border-left:4px solid #f59e0b;border-radius:12px;padding:14px 18px;margin:0 0 18px;max-width:820px;">'
+            . '<strong>Zusatzvereinbarung wartet auf deine Zustimmung</strong><br>Neue Konditionen: ' . esc_html(self::fee_sentence($p['values']['fee']))
+            . ($p['values']['extra'] !== '' ? ' · ' . esc_html(mb_substr($p['values']['extra'], 0, 120)) : '') . '. Bis zur Zustimmung gilt die bisherige Kondition.'
+            . ($manager ? ' <a class="button button-primary" style="margin-left:6px;" href="#tix-acc-addendum">Lesen und zustimmen</a>' : '') . '</div>';
     }
 
     /** „Mein Konto“: offene Zusatzvereinbarung bestätigen + Dokumente. */
