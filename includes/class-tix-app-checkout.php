@@ -1243,6 +1243,14 @@ class TIX_App_Checkout {
                 // Grund, wenn der eingegebene Code nicht gilt (leer = ok bzw. kein Code)
                 'message'  => (string) ($cart['coupon_error'] ?? ''),
             ];
+            // App-Gutscheine (1.38.431): eingelöst → freundliche Meldung; im Web → app_only + Link in die App
+            if (!empty($cart['coupon']['code']) && class_exists('TIX_App_Coupons')) {
+                $def = TIX_Native_Checkout::resolve_coupon((string) $cart['coupon']['code']);
+                $resp['coupon']['app_only'] = !empty($def['app_only']);
+                if ($resp['coupon']['valid'] && ($msg = TIX_App_Coupons::applied_message($def)) !== '') $resp['coupon']['message'] = $msg;
+            } elseif (!empty($cart['coupon_app_only'])) {
+                $resp['coupon'] += ['app_only' => true, 'error_code' => 'tix_coupon_app_only'] + (array) $cart['coupon_app_only'];
+            }
         }
         return rest_ensure_response($resp);
     }
@@ -1355,6 +1363,10 @@ class TIX_App_Checkout {
         $cart  = self::build_cart($event_id, is_array($items) ? $items : [], $hold_token);
         if (is_wp_error($cart)) return $cart;
         $cart = self::apply_coupon($cart, (string) ($req->get_param('coupon') ?? ''));
+        // Nur-App-Gutschein außerhalb der App: zuerst melden (vor Zahlart/Adresse), mit Link in die App
+        if (!empty($cart['coupon_app_only'])) {
+            return new WP_Error('tix_coupon_app_only', (string) $cart['coupon_error'], ['status' => 409] + (array) $cart['coupon_app_only']);
+        }
         $t    = self::totals($cart);
 
         // Zahlart prüfen

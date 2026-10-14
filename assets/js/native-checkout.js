@@ -230,6 +230,11 @@
                 setTimeout(function() { location.reload(); }, 800);
             } else {
                 $msg.html('<span style="color:#ef4444;">' + (res.data.message || 'Fehler') + '</span>');
+                // Nur-App-Gutschein: Link in die App (Universal Link bzw. App-Store)
+                var appUrl = res.data && res.data.code === 'tix_coupon_app_only' ? (res.data.app_url || res.data.store_url || '') : '';
+                if (/^https:\/\//.test(appUrl)) {
+                    $msg.append(' ').append($('<a>', { href: appUrl, text: 'In der App einlösen →', style: 'font-weight:600;' }));
+                }
                 $btn.prop('disabled', false).text('Einlösen');
             }
         }).fail(function() {

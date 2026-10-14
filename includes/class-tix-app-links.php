@@ -14,6 +14,7 @@
  *   v            → /v/*                 (Link des Veranstalters, seit 1.38.412)
  *   suche        → /suche/*             (Suche)
  *   start_p      → / mit ?p=…           (Startseite mit Parameter p)
+ *   kasse        → /app/kasse/*         (App-Kasse eines Events, Gutscheine nur in der App, seit 1.38.431)
  * Kasse, Konto und Rechtstexte werden nie aufgenommen (bleiben im Browser).
  * Beispiel evendis: wp option update tix_app_link_paths '["events","veranstalter","suche","start_p"]' --format=json
  *          KitchenKlub: wp option update tix_app_link_paths '["events"]' --format=json
@@ -34,6 +35,7 @@ class TIX_App_Links {
         'v'            => ['/' => '/v/*',            'comment' => 'Link des Veranstalters'],
         'suche'        => ['/' => '/suche/*',        'comment' => 'Suche'],
         'start_p'      => ['/' => '/', '?' => ['p' => '?*'], 'comment' => 'Startseite mit Parameter p'],
+        'kasse'        => ['/' => '/app/kasse/*',    'comment' => 'App-Kasse eines Events (Gutscheine nur in der App, seit 1.38.431)'],
     ];
 
     /** Eingestellte Pfad-Bausteine (nur bekannte). */

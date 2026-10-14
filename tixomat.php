@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.38.430
+ * Version: 1.38.431
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  * Update URI: https://veranstalter.evendis.de/tixomat
@@ -10,7 +10,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.38.430');
+define('TIXOMAT_VERSION', '1.38.431');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -466,6 +466,8 @@ TIX_Quotes::init();
 // ── Gutscheine (globale Codes für native Checkout) ──
 require_once TIXOMAT_PATH . 'includes/class-tix-coupons.php';
 TIX_Coupons::init();
+require_once TIXOMAT_PATH . 'includes/class-tix-app-coupons.php';
+TIX_App_Coupons::init(); // Gutscheine nur in der App / in der App bewerben (/public/app-coupons, /organizer/coupons)
 
 // ── Migration (Domain-zu-Domain Transfer) ──
 require_once TIXOMAT_PATH . 'includes/class-tix-migration.php';

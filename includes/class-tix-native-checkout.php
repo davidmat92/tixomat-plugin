@@ -670,6 +670,8 @@ class TIX_Native_Checkout {
                 return 'Geschenkgutscheine können nicht mit einem Gutschein bezahlt werden.';
             }
         }
+        // Nur in der App einlösbar / Gutschein eines Veranstalters (TIX_App_Coupons, seit 1.38.431)
+        if (class_exists('TIX_App_Coupons') && ($app_err = TIX_App_Coupons::check($coupon, $event_ids)) !== '') return $app_err;
         // Gutschein eines Veranstalters gilt nur bei dessen Events
         if ($type === 'giftcard' && !empty($coupon['organizer_id'])) {
             $gift_org = intval($coupon['organizer_id']);
@@ -748,6 +750,10 @@ class TIX_Native_Checkout {
         if (is_string($d)) {
             $cart['coupon'] = null;
             $cart['coupon_error'] = $d;
+            // Nur-App-Gutschein außerhalb der App: Link in die App mitgeben (Kasse antwortet tix_coupon_app_only)
+            if (class_exists('TIX_App_Coupons') && TIX_App_Coupons::blocks($coupon)) {
+                $cart['coupon_app_only'] = TIX_App_Coupons::web_error_data($coupon, array_values(array_unique(array_filter(array_map(function ($it) { return intval($it['event_id'] ?? 0); }, (array) $cart['items'])))));
+            }
             return $cart;
         }
         $cart['coupon'] = array_filter([
@@ -835,6 +841,8 @@ class TIX_Native_Checkout {
             }
         }
         if ($items_total <= 0) return;
+        // Nur-App-Gutschein im Web bzw. Gutschein eines anderen Veranstalters: nicht automatisch anwenden
+        if (class_exists('TIX_App_Coupons') && TIX_App_Coupons::check($coupon, array_unique($event_ids)) !== '') return;
 
         // Restrictions validieren — wenn Coupon nicht passt, NICHT auto-applizieren
         $valid = TIX_Coupons::validate_against_cart($coupon, [
@@ -2193,6 +2201,10 @@ class TIX_Native_Checkout {
         }
 
         $cart = self::get_cart(); // Preise inkl. Mengenrabatt
+        if (class_exists('TIX_App_Coupons') && TIX_App_Coupons::blocks($coupon)) {
+            $eids = array_values(array_unique(array_filter(array_map(function ($it) { return intval($it['event_id'] ?? 0); }, (array) $cart['items']))));
+            wp_send_json_error(['message' => TIX_App_Coupons::app_only_message(), 'code' => 'tix_coupon_app_only'] + TIX_App_Coupons::web_error_data($coupon, $eids));
+        }
         $email = is_user_logged_in() ? (string) wp_get_current_user()->user_email : '';
         $discount = self::coupon_discount($coupon, (array) $cart['items'], $email);
         if (is_string($discount)) {

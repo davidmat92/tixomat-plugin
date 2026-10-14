@@ -280,6 +280,8 @@ class TIX_Coupons {
             'one_per_email'        => $one_per_email,
             'individual_use'       => $individual_use,
         ]);
+        // App: nur in der App, bewerben, Art, Veranstalter (TIX_App_Coupons)
+        if (class_exists('TIX_App_Coupons')) $coupons[$code] = TIX_App_Coupons::from_admin_post($coupons[$code], $_POST);
 
         update_option(self::OPTION, $coupons);
 
@@ -297,6 +299,7 @@ class TIX_Coupons {
 
         foreach ($coupons as $code => $c) {
             if (empty($c['auto_apply'])) continue;
+            if (class_exists('TIX_App_Coupons') && TIX_App_Coupons::blocks($c)) continue; // nur in der App
 
             // Expiry-Check
             if (!empty($c['expires'])) {
@@ -746,6 +749,7 @@ class TIX_Coupons {
                                     <?php endif; ?>
                                 </td>
                             </tr>
+                            <?php if (class_exists('TIX_App_Coupons')) TIX_App_Coupons::render_admin_fields($edit); ?>
                         </table>
 
                         <p class="submit">
@@ -795,6 +799,12 @@ class TIX_Coupons {
                                         <strong style="font-family:monospace;font-size:13px;letter-spacing:1px;"><?php echo esc_html($code); ?></strong>
                                         <?php if (!empty($c['auto_apply'])): ?>
                                             <span style="background:#dcfce7;color:#166534;padding:1px 7px;border-radius:6px;font-size:10px;font-weight:700;margin-left:4px;" title="Wird automatisch im Warenkorb angewendet">🪄 AUTO</span>
+                                        <?php endif; ?>
+                                        <?php if (!empty($c['app_only'])): ?>
+                                            <span style="background:#e0e7ff;color:#3730a3;padding:1px 7px;border-radius:6px;font-size:10px;font-weight:700;margin-left:4px;" title="Nur in der App einlösbar">📱 NUR APP</span>
+                                        <?php endif; ?>
+                                        <?php if (!empty($c['app_promote'])): ?>
+                                            <span style="background:#fae8ff;color:#86198f;padding:1px 7px;border-radius:6px;font-size:10px;font-weight:700;margin-left:4px;" title="Wird in der App beworben">📣 APP</span>
                                         <?php endif; ?>
                                         <?php if (!empty($c['description'])): ?>
                                             <div style="font-size:11px;color:#9ca3af;"><?php echo esc_html($c['description']); ?></div>
@@ -930,6 +940,7 @@ class TIX_Coupons {
                     </p>
                 </form>
             </div>
+            <?php if (class_exists('TIX_App_Coupons')) TIX_App_Coupons::render_settings(); ?>
         </div>
         <?php
     }
