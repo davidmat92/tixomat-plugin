@@ -220,6 +220,8 @@ class TIX_Awareness {
                 <p><label><input type="checkbox" name="tix_awareness_flags[alarm_live]" value="1" <?php checked($fl['alarm_live']); ?>> <strong>„Hilfe vor Ort“</strong> (stiller Alarm an das Awareness-Team im Dienst) – <strong>erst nach der rechtlichen Prüfung</strong> einschalten</label></p>
                 <p><button class="button button-primary">Speichern</button></p>
             </form>
+            <?php if (class_exists('TIX_Awareness_Live')) TIX_Awareness_Live::render_admin_alerts(); ?>
+            <?php if (class_exists('TIX_Awareness_Test')) TIX_Awareness_Test::render_admin(); ?>
             <?php if (class_exists('TIX_App_Sos')) TIX_App_Sos::render_admin(); ?>
         </div>
         <?php

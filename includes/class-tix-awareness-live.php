@@ -10,9 +10,10 @@ if (!defined('ABSPATH')) exit;
  *
  * REST (tixomat/v1):
  *   GET  /awareness/status?event_id=           öffentlich → {active, on_duty} (nur Ja/Nein)
- *   POST /awareness/alerts                     öffentlich {event_id, area, text?, sign?, anonymous, device} → {alert{id, key, status}, point}
+ *   POST /awareness/alerts                     öffentlich {event_id, area, category?, text?, sign?, anonymous, device} → {alert{id, key, status}, point}
+ *                                              category: harassment|sexual_harassment|threat|health|other (unbekannt/fehlend → other)
  *   GET  /awareness/alerts/{id}?key=           Gast: Status seines Hinweises
- *   GET  /awareness/alerts?event_id=           Team/Veranstalter: Liste
+ *   GET  /awareness/alerts?event_id=           Team/Veranstalter: Liste (offen zuerst, darin sexual_harassment/health zuerst)
  *   POST /awareness/alerts/{id}/status         Team {status: taken|done|no_action}
  *   POST /awareness/duty                       Team {event_id, on} → im Dienst bis Event-Ende + 60 min
  *   GET  /awareness/events                     Team: betreute Events (laufend + nächste 30 Tage) mit Fenster und eigenem Dienst
@@ -28,22 +29,27 @@ if (!defined('ABSPATH')) exit;
  * Push an alle im Dienst ohne Inhalt („Neuer Hinweis für das Awareness-Team“). Höchstens 3 Hinweise je Gerät und Event.
  * Löschung (Cron täglich): Hinweise und Feedback-Einzelantworten 30 Tage nach dem Event (Feedback-Summe bleibt am Event),
  * Awareness-Meldungen nach 6 Monaten.
+ * Test-Modus (unsichtbares Test-Event nur für Tester): TIX_Awareness_Test. Admin: Liste der Hinweise + CSV-Export.
  */
 class TIX_Awareness_Live {
 
     const NS        = 'tixomat/v1';
     const FLAGS     = 'tix_awareness_flags';
-    const DB_VER    = '1';
+    const DB_VER    = '2';
     const CRON      = 'tix_awareness_cleanup';
     const META_DUTY = '_tix_awareness_duty';
     const MAX_PER_DEVICE = 3;
     const STATUSES  = ['open' => 'Das Team ist informiert', 'taken' => 'Jemand ist unterwegs', 'done' => 'Erledigt', 'no_action' => 'Kein Einsatz nötig'];
     const ANSWERS   = ['yes', 'partly', 'no'];
+    // Art des Hinweises (1.38.439); PRIORITY steht in der Team-Liste zuerst
+    const CATEGORIES = ['harassment' => 'Belästigung', 'sexual_harassment' => 'Sexuelle Belästigung', 'threat' => 'Bedrohung', 'health' => 'Gesundheit', 'other' => 'Sonstiges'];
+    const PRIORITY   = ['sexual_harassment', 'health'];
 
     public static function init() {
         add_action('init', [__CLASS__, 'maybe_install'], 7);
         add_action('rest_api_init', [__CLASS__, 'register_routes']);
         add_action(self::CRON, [__CLASS__, 'cleanup']);
+        add_action('admin_post_tix_awareness_alerts_csv', [__CLASS__, 'export_csv']);
         add_action('init', function () {
             if (!wp_next_scheduled(TIX_Awareness_Live::CRON)) wp_schedule_event(time() + 900, 'daily', TIX_Awareness_Live::CRON);
         }, 22);
@@ -70,6 +76,7 @@ class TIX_Awareness_Live {
             event_id bigint(20) unsigned NOT NULL,
             organizer_id bigint(20) unsigned NOT NULL DEFAULT 0,
             area varchar(60) NOT NULL DEFAULT '',
+            category varchar(24) NOT NULL DEFAULT 'other',
             text varchar(255) NOT NULL DEFAULT '',
             sign varchar(150) NOT NULL DEFAULT '',
             anonymous tinyint(1) NOT NULL DEFAULT 1,
@@ -121,7 +128,15 @@ class TIX_Awareness_Live {
     }
 
     private static function event_ok($event_id) {
-        return $event_id && get_post_type($event_id) === 'event' && get_post_status($event_id) === 'publish';
+        if (!$event_id || get_post_type($event_id) !== 'event') return false;
+        if (get_post_status($event_id) === 'publish') return true;
+        // Test-Event (privat) nur für Tester
+        return class_exists('TIX_Awareness_Test') && TIX_Awareness_Test::visible($event_id);
+    }
+
+    public static function category($raw) {
+        $c = sanitize_key((string) $raw);
+        return isset(self::CATEGORIES[$c]) ? $c : 'other';
     }
 
     private static function event_organizer($event_id) {
@@ -203,7 +218,11 @@ class TIX_Awareness_Live {
         $now = self::now_ts();
         $plain = function ($ts) { return gmdate('Y-m-d H:i', $ts); };
         $out = [];
-        foreach (get_posts($args) as $eid) {
+        $ids = get_posts($args);
+        if (class_exists('TIX_Awareness_Test') && TIX_Awareness_Test::is_tester()) {
+            foreach (TIX_Awareness_Test::event_ids() as $tid) if (TIX_Awareness_Test::visible($tid)) array_unshift($ids, $tid);
+        }
+        foreach ($ids as $eid) {
             $a = class_exists('TIX_Awareness') ? TIX_Awareness::effective($eid) : null;
             $w = self::window($eid);
             if (!$a || empty($a['team']) || !$w || $now > $w['closes']) continue;
@@ -218,6 +237,7 @@ class TIX_Awareness_Live {
                 'alarm_enabled' => !empty($a['alarm_enabled']) && self::flags()['alarm_live'],
                 'point'         => (string) $a['point'],
                 'on_duty'       => is_array($me) && intval($me['event_id'] ?? 0) === intval($eid) && intval($me['until'] ?? 0) >= $now,
+                'test'          => class_exists('TIX_Awareness_Test') && TIX_Awareness_Test::is_test_event($eid),
             ];
         }
         return rest_ensure_response(['ok' => true, 'events' => $out]);
@@ -265,6 +285,7 @@ class TIX_Awareness_Live {
         $a = TIX_Awareness::effective($eid);
         $area = mb_substr(sanitize_text_field((string) $req->get_param('area')), 0, 60);
         if (!in_array($area, $a['areas'], true)) $area = 'Weiß nicht';
+        $category = self::category($req->get_param('category'));
         $anon = $req->get_param('anonymous') === null ? true : filter_var($req->get_param('anonymous'), FILTER_VALIDATE_BOOLEAN);
         $user = is_user_logged_in() ? wp_get_current_user() : null;
         if (!$user) $anon = true;
@@ -274,6 +295,7 @@ class TIX_Awareness_Live {
             'event_id'     => $eid,
             'organizer_id' => self::event_organizer($eid),
             'area'         => $area,
+            'category'     => $category,
             'text'         => mb_substr(sanitize_text_field((string) $req->get_param('text')), 0, 200),
             'sign'         => mb_substr(sanitize_text_field((string) $req->get_param('sign')), 0, 120),
             'anonymous'    => $anon ? 1 : 0,
@@ -288,10 +310,12 @@ class TIX_Awareness_Live {
         ]);
         $id = intval($wpdb->insert_id);
         if (!$id) return self::error('tix_awareness_failed', 'Hinweis konnte nicht gesendet werden. Bitte geh zum Awareness-Punkt.', 500, ['point' => self::point($eid)]);
-        // Push an alle im Dienst – ohne Inhalt auf dem Sperrbildschirm
+        // Push an alle im Dienst – nur die Art, ohne Text, Bereich oder Namen auf dem Sperrbildschirm
         if (class_exists('TIX_Notifications')) {
+            $title = $category === 'other' ? 'Neuer Hinweis für das Awareness-Team' : 'Neuer Hinweis: ' . self::CATEGORIES[$category];
+            if (in_array($category, self::PRIORITY, true)) $title = 'Dringend – ' . $title;
             foreach (self::on_duty_users($eid) as $uid) {
-                TIX_Notifications::add_user_item($uid, 'Neuer Hinweis für das Awareness-Team', '', ['type' => 'awareness', 'event_id' => $eid, 'action' => 'awareness:alert:' . $id]);
+                TIX_Notifications::add_user_item($uid, $title, '', ['type' => 'awareness', 'event_id' => $eid, 'action' => 'awareness:alert:' . $id]);
             }
         }
         $g = self::guest_payload(self::alert_row($id), true);
@@ -327,6 +351,9 @@ class TIX_Awareness_Live {
             'id'         => intval($r->id),
             'event_id'   => intval($r->event_id),
             'area'       => (string) $r->area,
+            'category'   => self::category($r->category ?? 'other'),
+            'category_label' => self::CATEGORIES[self::category($r->category ?? 'other')],
+            'priority'   => in_array(self::category($r->category ?? 'other'), self::PRIORITY, true),
             'text'       => (string) $r->text,
             'sign'       => (string) $r->sign,
             'anonymous'  => (bool) $r->anonymous,
@@ -344,7 +371,7 @@ class TIX_Awareness_Live {
         $eid = absint($req->get_param('event_id'));
         if (!self::team_can_event($eid)) return self::error('rest_forbidden', 'Kein Zugriff auf dieses Event.', 403);
         self::maybe_install();
-        $rows = $wpdb->get_results($wpdb->prepare("SELECT * FROM " . self::t('tix_awareness_alerts') . " WHERE event_id = %d ORDER BY (status = 'open') DESC, id DESC LIMIT 200", $eid));
+        $rows = $wpdb->get_results($wpdb->prepare("SELECT * FROM " . self::t('tix_awareness_alerts') . " WHERE event_id = %d ORDER BY (status = 'open') DESC, (category IN ('sexual_harassment','health')) DESC, id DESC LIMIT 200", $eid));
         $me = get_user_meta(get_current_user_id(), self::META_DUTY, true);
         return rest_ensure_response([
             'ok'      => true,
@@ -376,10 +403,11 @@ class TIX_Awareness_Live {
         $eid = absint($req->get_param('event_id'));
         if (!self::manager_can_event($eid)) return self::error('rest_forbidden', 'Kein Zugriff auf dieses Event.', 403);
         self::maybe_install();
-        $rows = $wpdb->get_results($wpdb->prepare("SELECT area, status, created, taken_at FROM " . self::t('tix_awareness_alerts') . " WHERE event_id = %d", $eid));
-        $by = []; $mins = [];
+        $rows = $wpdb->get_results($wpdb->prepare("SELECT area, category, status, created, taken_at FROM " . self::t('tix_awareness_alerts') . " WHERE event_id = %d", $eid));
+        $by = []; $mins = []; $cats = array_fill_keys(array_keys(self::CATEGORIES), 0);
         foreach ((array) $rows as $r) {
             $by[$r->area] = ($by[$r->area] ?? 0) + 1;
+            $cats[self::category($r->category)]++;
             if ($r->taken_at) $mins[] = max(0, (strtotime($r->taken_at) - strtotime($r->created)) / 60);
         }
         sort($mins);
@@ -391,6 +419,7 @@ class TIX_Awareness_Live {
             'event_id'            => $eid,
             'alerts_total'        => count((array) $rows),
             'by_area'             => (object) $by,
+            'by_category'         => (object) $cats,
             'median_response_min' => $median === null ? null : round($median, 1),
             'feedback'            => self::feedback_summary($eid),
         ]);
@@ -500,6 +529,72 @@ class TIX_Awareness_Live {
     /** Alle Status der Support-Anfragen (eigene Status, die post_status 'any' nicht findet). */
     private static function support_statuses() {
         return class_exists('TIX_Support') ? array_keys(TIX_Support::get_statuses()) : ['tix_open'];
+    }
+
+    // ── Admin: Liste der Hinweise + CSV ──
+
+    private static function admin_rows($event_id = 0, $limit = 100) {
+        global $wpdb;
+        self::maybe_install();
+        $t = self::t('tix_awareness_alerts');
+        $sql = "SELECT * FROM $t" . ($event_id ? $wpdb->prepare(' WHERE event_id = %d', $event_id) : '') . ' ORDER BY id DESC' . ($limit ? ' LIMIT ' . intval($limit) : '');
+        return (array) $wpdb->get_results($sql);
+    }
+
+    private static function status_label($st) {
+        return ['open' => 'offen', 'taken' => 'unterwegs', 'done' => 'erledigt', 'no_action' => 'kein Einsatz'][$st] ?? $st;
+    }
+
+    private static function reaction_min($r) {
+        return $r->taken_at ? round(max(0, strtotime($r->taken_at) - strtotime($r->created)) / 60, 1) : null;
+    }
+
+    /** Tabelle auf Tixomat → Awareness (nur Admins). */
+    public static function render_admin_alerts() {
+        if (!current_user_can('manage_options')) return;
+        $rows = self::admin_rows(0, 100);
+        ?>
+        <hr style="margin:28px 0 8px;">
+        <h2>Hinweise „Hilfe vor Ort“</h2>
+        <p class="description">Die letzten 100 Hinweise aller Events. Hinweise werden 30 Tage nach dem Event automatisch gelöscht. <a href="<?php echo esc_url(wp_nonce_url(admin_url('admin-post.php?action=tix_awareness_alerts_csv'), 'tix_awareness_alerts_csv')); ?>">Als CSV exportieren</a></p>
+        <?php if (!$rows) : ?><p>Noch keine Hinweise.</p><?php else : ?>
+        <table class="widefat striped" style="max-width:1100px"><thead><tr><th>Zeit</th><th>Event</th><th>Art</th><th>Bereich</th><th>Text</th><th>Status</th><th>Reaktion</th></tr></thead><tbody>
+        <?php foreach ($rows as $r) : $c = self::category($r->category ?? 'other'); $m = self::reaction_min($r); ?>
+            <tr>
+                <td><?php echo esc_html(mysql2date('d.m.Y H:i', $r->created)); ?></td>
+                <td><?php echo esc_html(html_entity_decode(get_the_title(intval($r->event_id)), ENT_QUOTES, 'UTF-8') ?: '#' . intval($r->event_id)); ?></td>
+                <td><?php echo in_array($c, self::PRIORITY, true) ? '<strong>' . esc_html(self::CATEGORIES[$c]) . '</strong>' : esc_html(self::CATEGORIES[$c]); ?></td>
+                <td><?php echo esc_html($r->area); ?></td>
+                <td><?php echo esc_html($r->text); ?></td>
+                <td><?php echo esc_html(self::status_label($r->status)); ?></td>
+                <td><?php echo $m === null ? '–' : esc_html(str_replace('.', ',', (string) $m) . ' min'); ?></td>
+            </tr>
+        <?php endforeach; ?>
+        </tbody></table>
+        <?php endif;
+    }
+
+    /** admin-post.php?action=tix_awareness_alerts_csv[&event_id=] */
+    public static function export_csv() {
+        if (!current_user_can('manage_options')) wp_die('Kein Zugriff.');
+        check_admin_referer('tix_awareness_alerts_csv');
+        $rows = self::admin_rows(absint($_GET['event_id'] ?? 0), 0);
+        nocache_headers();
+        header('Content-Type: text/csv; charset=utf-8');
+        header('Content-Disposition: attachment; filename="awareness-hinweise-' . current_time('Y-m-d') . '.csv"');
+        $out = fopen('php://output', 'w');
+        fwrite($out, "\xEF\xBB\xBF");
+        fputcsv($out, ['ID', 'Zeit', 'Event-ID', 'Event', 'Art', 'Art (Schlüssel)', 'Bereich', 'Text', 'Erkennungszeichen', 'Anonym', 'Status', 'Übernommen', 'Erledigt', 'Reaktion (min)'], ';');
+        foreach ($rows as $r) {
+            $c = self::category($r->category ?? 'other');
+            fputcsv($out, [
+                intval($r->id), $r->created, intval($r->event_id), html_entity_decode(get_the_title(intval($r->event_id)), ENT_QUOTES, 'UTF-8'),
+                self::CATEGORIES[$c], $c, $r->area, $r->text, $r->sign, $r->anonymous ? 'ja' : 'nein',
+                self::status_label($r->status), (string) $r->taken_at, (string) $r->done_at, (string) self::reaction_min($r),
+            ], ';');
+        }
+        fclose($out);
+        exit;
     }
 
     // ── Löschung ──

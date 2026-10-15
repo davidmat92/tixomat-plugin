@@ -93,7 +93,10 @@ class TIX_App_Sos {
         $r = function ($d) { $x = new WP_REST_Response($d); $x->header('Cache-Control', 'no-store'); $x->header('X-LiteSpeed-Cache-Control', 'no-cache'); return $x; };
         if (!$s['enabled']) return $r(['ok' => true, 'enabled' => false]);
         $eid = absint($req->get_param('event_id'));
-        if ($eid && (get_post_type($eid) !== 'event' || get_post_status($eid) !== 'publish')) $eid = 0;
+        $test = class_exists('TIX_Awareness_Test');
+        if ($eid && (get_post_type($eid) !== 'event' || get_post_status($eid) !== 'publish') && !($test && TIX_Awareness_Test::visible($eid))) $eid = 0;
+        // Test-Modus: Tester sehen das laufende Test-Event vor echten Events
+        if (!$eid && $test) $eid = TIX_Awareness_Test::running_for_current_user();
         if (!$eid) $eid = self::current_event();
         $event = null; $aw = null;
         $flags = class_exists('TIX_Awareness_Live') ? TIX_Awareness_Live::flags() : ['report_enabled' => false, 'alarm_live' => false];
@@ -104,6 +107,7 @@ class TIX_App_Sos {
                 'id' => $eid, 'title' => html_entity_decode(get_the_title($eid), ENT_QUOTES, 'UTF-8'),
                 'date' => (string) get_post_meta($eid, '_tix_date_start', true), 'location' => (string) get_post_meta($eid, '_tix_location', true),
                 'starts_at' => $w ? gmdate('Y-m-d H:i', $w['start']) : null, 'ends_at' => $w ? gmdate('Y-m-d H:i', $w['end']) : null,
+                'test' => $test && TIX_Awareness_Test::is_test_event($eid),
             ];
             $aw = class_exists('TIX_Awareness') ? TIX_Awareness::public_info($eid) : null;
             if (class_exists('TIX_Awareness_Live')) {
