@@ -1225,27 +1225,13 @@ class TIX_Organizer_Dashboard {
         ]);
     }
 
-    /** Ticket-Modus eines Events: online | free | box_office | '' (keine Angabe, Verkauf aus). */
+    /** Ticket-Modus eines Events (Logik in TIX_Register_Event, auch ohne Veranstalter-Dashboard verfügbar). */
     public static function ticket_mode_of($event_id) {
-        if (get_post_meta($event_id, '_tix_tickets_enabled', true) === '1') return 'online';
-        if (get_post_meta($event_id, '_tix_free_entry', true) === '1') return 'free';
-        if (get_post_meta($event_id, '_tix_box_office_only', true) === '1') return 'box_office';
-        return '';
+        return TIX_Register_Event::ticket_mode_of($event_id);
     }
 
-    /**
-     * Online verkaufen oder nur eintragen: „free“ = Eintritt frei, „box_office“ = Abendkasse
-     * (Preis optional). Nur eintragen schaltet den Online-Verkauf ab (_tix_tickets_enabled = 0).
-     */
-    public static function apply_ticket_mode($event_id, $mode, $price = '') {
-        if (!in_array($mode, ['online', 'free', 'box_office'], true)) return;
-        if ($mode === 'online') {
-            update_post_meta($event_id, '_tix_tickets_enabled', '1');
-            update_post_meta($event_id, '_tix_free_entry', '0');
-            update_post_meta($event_id, '_tix_box_office_only', '0');
-            return;
-        }
-        TIX_Register_Event::apply_listing_mode($event_id, $mode, $price);
+    public static function apply_ticket_mode($event_id, $mode, $price = '', $external_url = '') {
+        return TIX_Register_Event::apply_ticket_mode($event_id, $mode, $price, $external_url);
     }
 
     /* ══════════════════════════════════════════

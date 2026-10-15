@@ -1251,6 +1251,13 @@ class TIX_App_Checkout {
             if ($topup) $resp['wallet_topup'] = TIX_Wallet_Balance::quote_info($cart);
             $resp['totals']          = $t;
             $resp['payment_methods'] = self::payment_methods($t['total'] <= 0);
+            // Mit Guthaben bezahlen (1.38.436): erst Gutschein (in totals), dann Guthaben; Rest normal
+            if (class_exists('TIX_Wallet_Balance') && filter_var($req->get_param('use_wallet'), FILTER_VALIDATE_BOOLEAN)) {
+                $resp['wallet'] = TIX_Wallet_Balance::checkout_info($user, $cart, $t['total']);
+                if ($resp['wallet']['applied'] > 0 && $resp['wallet']['rest'] <= 0) {
+                    $resp['payment_methods'] = [['id' => 'wallet', 'title' => 'Guthaben', 'icon' => '']];
+                }
+            }
             $resp['coupon'] = [
                 'code'     => (string) ($cart['coupon']['code'] ?? $coupon),
                 'valid'    => !empty($cart['coupon']['discount']),
@@ -1390,11 +1397,21 @@ class TIX_App_Checkout {
         }
         $t    = self::totals($cart);
 
+        // Mit Guthaben bezahlen (1.38.436): Anteil bis zum Saldo, Rest über die gewählte Zahlart
+        $wallet = null;
+        if (!self::$partner && class_exists('TIX_Wallet_Balance') && filter_var($req->get_param('use_wallet'), FILTER_VALIDATE_BOOLEAN) && $t['total'] > 0) {
+            $wallet = TIX_Wallet_Balance::checkout_info($user, $cart, $t['total']);
+            if (empty($wallet['applied'])) $wallet = null;
+        }
+        $due = $wallet ? round($t['total'] - $wallet['applied'], 2) : $t['total'];
+
         // Zahlart prüfen
         $payment_method = sanitize_text_field((string) ($req->get_param('payment_method') ?? ''));
         $mollie_method  = '';
         $stripe_method  = '';
-        if ($t['total'] <= 0) {
+        if ($wallet && $due <= 0) {
+            $payment_method = 'wallet';
+        } elseif ($t['total'] <= 0) {
             $payment_method = 'free';
         } else {
             $allowed = array_column(self::payment_methods(false), 'id');
@@ -1464,6 +1481,19 @@ class TIX_App_Checkout {
             TIX_Native_Checkout::clear_cart();
         }
         if (!$order_id) return self::error('tix_order_failed', 'Bestellung konnte nicht erstellt werden.', 500);
+        // Guthaben-Anteil atomar abbuchen; reicht es nicht mehr (zweite Bestellung zugleich), Bestellung abbrechen
+        if ($wallet) {
+            $wtx = TIX_Wallet_Balance::pay_order($order_id, $wallet['wallet_id'], TIX_Wallet_Balance::cents($wallet['applied']));
+            if (is_wp_error($wtx)) {
+                TIX_Native_Checkout::update_order_status($order_id, 'failed', 'wallet');
+                return self::error($wtx->get_error_code() === 'tix_wallet_locked' ? 'tix_wallet_locked' : 'tix_wallet_insufficient', 'Dein Guthaben hat sich geändert – bitte prüfe den Betrag und bestelle erneut.', 409);
+            }
+            global $wpdb;
+            $wpdb->query($wpdb->prepare("UPDATE {$wpdb->prefix}tix_orders SET total = GREATEST(0, ROUND(total - %f, 2)) WHERE id = %d", floatval($wallet['applied']), $order_id));
+            if ($payment_method === 'wallet') {
+                $wpdb->update($wpdb->prefix . 'tix_orders', ['payment_method' => 'wallet', 'payment_method_title' => 'Guthaben'], ['id' => $order_id]);
+            }
+        }
         if ($seat_holder !== '') TIX_Seatmap::attach_order($cart['items'], $seat_holder, $order_id);
         update_option('_tix_order_source_' . $order_id, self::$partner ? 'partner:' . self::$partner['id'] : 'app', false);
         if ($return_url !== '') update_post_meta($order_id, TIX_Native_Checkout::META_RETURN_URL, $return_url);
@@ -1474,7 +1504,10 @@ class TIX_App_Checkout {
         }
 
         // Zahlung starten
-        if ($payment_method === 'free') {
+        if ($payment_method === 'wallet') {
+            TIX_Native_Checkout::update_order_status($order_id, 'completed', 'wallet');
+            $result = ['success' => true];
+        } elseif ($payment_method === 'free') {
             $result = TIX_Gateway_Free::process($order_id);
         } elseif ($payment_method === 'mollie') {
             $result = TIX_Gateway_Mollie::process($order_id, $mollie_method);
@@ -1492,6 +1525,7 @@ class TIX_App_Checkout {
         $payment_url = (string) ($result['redirect'] ?? '');
         set_transient($tkey, ['order_id' => $order_id, 'payment_url' => $payment_url], self::TOKEN_TTL);
         $extra = [];
+        if ($wallet) $extra['wallet'] = ['applied' => $wallet['applied'], 'rest' => max(0, $due), 'wallet_id' => $wallet['wallet_id']];
         if ($new_token !== '' && $user && method_exists('TIX_REST_API', 'guest_user_payload')) {
             $extra = ['token' => $new_token, 'user' => TIX_REST_API::guest_user_payload($user), 'account_created' => true];
         }

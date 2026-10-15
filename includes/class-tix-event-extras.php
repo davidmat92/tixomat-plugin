@@ -247,6 +247,8 @@ class TIX_Event_Extras {
             'url'  => esc_url_raw($url),
             'text' => (string) (get_post_meta($id, '_tix_extshop_text', true) ?: 'Tickets kaufen'),
             'mode' => (string) (get_post_meta($id, '_tix_extshop_mode', true) ?: 'replace'),
+            // „ab“-Preis (optional, 1.38.436) – Zahl oder null
+            'price_from' => ($pf = (string) get_post_meta($id, '_tix_extshop_price', true)) !== '' ? round(floatval($pf), 2) : null,
         ];
     }
 

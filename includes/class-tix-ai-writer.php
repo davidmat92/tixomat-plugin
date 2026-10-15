@@ -500,15 +500,23 @@ PROMPT;
             return new \WP_Error('url_unreadable', TIX_Event_Import::unreadable_message(), ['status' => 422, 'reason' => 'zu wenig Inhalt (' . $text_len . ' Zeichen)']);
         }
         $content = trim(TIX_Event_Import::summary($st) . "\n\n" . $ex['text']);
+        // Vorschlag „Tickets bei einem anderen Shop“ (1.38.436)
+        $shop = TIX_Event_Import::shop_suggestion($final, $st);
+        $shop_price = $st['tickets'] ? min(array_column($st['tickets'], 'price')) : null;
+        $with_shop = function (array $f) use ($shop, $shop_price) {
+            $f['external_shop_url'] = $shop;
+            $f['external_shop_price'] = $shop !== '' && $shop_price !== null ? round(floatval($shop_price), 2) : null;
+            return $f;
+        };
         $ai = self::run_extraction($content, null, null, $image, $st);
         if (!is_wp_error($ai)) {
             $ai['_source'] = $st['_found'] === 'jsonld' ? 'structured+ai' : 'ai';
-            return $ai;
+            return $with_shop($ai);
         }
         if (TIX_Event_Import::usable($st)) {
             $f = self::finalize_fields($st, $image);
             $f['_source'] = 'structured';
-            return $f;
+            return $with_shop($f);
         }
         return new \WP_Error('ai_unavailable', 'Die automatische Analyse ist gerade nicht verfügbar – lade den Flyer hoch oder beschreibe dein Event.', ['status' => 503, 'reason' => $ai->get_error_message()]);
     }

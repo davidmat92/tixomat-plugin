@@ -365,6 +365,13 @@
         var $p = $('#tix-re-preview').empty();
         var d = eventData;
 
+        // Aus der URL-Analyse: Seite ist ein fremder Ticketshop → „anderer Shop“ vorbelegen
+        if (d && d.external_shop_url) {
+            $('input[name="tix_re_ticket_mode"][value="external"]').prop('checked', true).trigger('change');
+            if (!$('#tix-re-ext-url').val()) $('#tix-re-ext-url').val(d.external_shop_url);
+            if (d.external_shop_price && !$('#tix-re-ext-price').val()) $('#tix-re-ext-price').val(d.external_shop_price);
+        }
+
         // Title
         if (d.title) {
             $p.append('<div class="tix-re-preview-title">' + escHtml(d.title) + '</div>');
@@ -445,6 +452,7 @@
     $(document).on('change', 'input[name="tix_re_ticket_mode"]', function() {
         var v = $('input[name="tix_re_ticket_mode"]:checked').val();
         $('#tix-re-box-price-wrap').toggle(v === 'box_office');
+        $('#tix-re-ext-wrap').toggle(v === 'external');
         $('.tix-re-preview-ticket-name').closest('.tix-re-preview-row').toggle(v === 'online');
     });
 
@@ -508,6 +516,8 @@
             accept_contract:  $form.find('[name="accept_contract"]:checked').val() || '',
             ticket_mode:      $('input[name="tix_re_ticket_mode"]:checked').val() || 'online',
             box_office_price: $('#tix-re-box-price').val() || '',
+            external_url:     $('#tix-re-ext-url').val() || '',
+            external_price:   $('#tix-re-ext-price').val() || '',
             event_data:       JSON.stringify(eventData)
         }, function(r) {
             if (r.success && r.data) {

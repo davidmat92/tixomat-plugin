@@ -179,6 +179,11 @@ class TIX_Register_Event {
                     <div id="tix-re-box-price-wrap" style="display:none;margin:6px 0 0 24px;">
                         <input type="number" id="tix-re-box-price" class="tix-re-input" min="0" step="0.01" placeholder="Preis in € (optional)" style="max-width:200px;">
                     </div>
+                    <label style="display:block;margin:4px 0;"><input type="radio" name="tix_re_ticket_mode" value="external"> Nur eintragen – Tickets bei einem anderen Shop</label>
+                    <div id="tix-re-ext-wrap" style="display:none;margin:6px 0 0 24px;">
+                        <input type="url" id="tix-re-ext-url" class="tix-re-input" placeholder="https://dein-ticketshop.de/event" style="max-width:420px;margin-bottom:6px;">
+                        <input type="number" id="tix-re-ext-price" class="tix-re-input" min="0" step="0.01" placeholder="Preis ab in € (optional)" style="max-width:200px;">
+                    </div>
                 </div>
                 <div class="tix-re-nav">
                     <button type="button" class="tix-re-btn-back" data-goto="1">← Zurück</button>
@@ -270,9 +275,14 @@ class TIX_Register_Event {
         $password_confirm = $_POST['password_confirm'] ?? '';
         $organizer_name = sanitize_text_field($_POST['organizer_name'] ?? '');
         $event_data     = json_decode(stripslashes($_POST['event_data'] ?? '{}'), true);
-        // Tickets: online (Standard, wie bisher) | free | box_office (nur eintragen)
+        // Tickets: online (Standard, wie bisher) | free | box_office | external (nur eintragen, 1.38.436: anderer Shop)
         $ticket_mode    = sanitize_key($_POST['ticket_mode'] ?? 'online');
-        if (!in_array($ticket_mode, ['online', 'free', 'box_office'], true)) $ticket_mode = 'online';
+        if (!in_array($ticket_mode, ['online', 'free', 'box_office', 'external'], true)) $ticket_mode = 'online';
+        $external_url   = '';
+        if ($ticket_mode === 'external') {
+            $external_url = self::clean_shop_url(wp_unslash($_POST['external_url'] ?? ''));
+            if ($external_url === '') wp_send_json_error(['message' => 'Bitte die Adresse deines Ticketshops angeben (https://…).', 'field' => 'external_url']);
+        }
 
         if (!$first_name || !$last_name) wp_send_json_error(['message' => 'Bitte Vor- und Nachname angeben.']);
         if (!$email || !is_email($email)) wp_send_json_error(['message' => 'Bitte eine gültige E-Mail-Adresse angeben.']);
@@ -368,7 +378,7 @@ class TIX_Register_Event {
         // Tickets
         if ($ticket_mode !== 'online') {
             // Nur eintragen: kein Online-Verkauf, keine Ticket-Kategorien nötig
-            self::apply_listing_mode($event_id, $ticket_mode, wp_unslash($_POST['box_office_price'] ?? ''));
+            self::apply_listing_mode($event_id, $ticket_mode, wp_unslash($_POST[$ticket_mode === 'external' ? 'external_price' : 'box_office_price'] ?? ''), $external_url);
         } else {
             update_post_meta($event_id, '_tix_tickets_enabled', '1');
         }
@@ -469,14 +479,65 @@ class TIX_Register_Event {
     /**
      * „Nur eintragen“: kein Online-Verkauf; Eintritt frei oder Abendkasse (Preis optional).
      */
-    public static function apply_listing_mode($event_id, $mode, $price = '') {
+    public static function apply_listing_mode($event_id, $mode, $price = '', $external_url = '') {
         update_post_meta($event_id, '_tix_tickets_enabled', '0');
         update_post_meta($event_id, '_tix_free_entry', $mode === 'free' ? '1' : '0');
         update_post_meta($event_id, '_tix_box_office_only', $mode === 'box_office' ? '1' : '0');
-        if ($mode === 'box_office') {
-            $price = trim(str_replace(',', '.', sanitize_text_field((string) $price)));
-            update_post_meta($event_id, '_tix_box_office_price', ($price !== '' && is_numeric($price)) ? (string) max(0, round(floatval($price), 2)) : '');
+        $p = trim(str_replace(',', '.', sanitize_text_field((string) $price)));
+        $p = ($p !== '' && is_numeric($p)) ? (string) max(0, round(floatval($p), 2)) : '';
+        if ($mode === 'box_office') update_post_meta($event_id, '_tix_box_office_price', $p);
+        if ($mode === 'external') {
+            // Externer Ticketshop (Felder wie im Event-Editor „Externer Shop“): Knopf ersetzt den Ticket-Kauf
+            update_post_meta($event_id, '_tix_extshop_enabled', '1');
+            update_post_meta($event_id, '_tix_extshop_url', esc_url_raw($external_url));
+            update_post_meta($event_id, '_tix_extshop_mode', 'replace');
+            if (!get_post_meta($event_id, '_tix_extshop_text', true)) update_post_meta($event_id, '_tix_extshop_text', 'Tickets kaufen');
+            update_post_meta($event_id, '_tix_extshop_price', $p);
+        } elseif (get_post_meta($event_id, '_tix_extshop_enabled', true) === '1' && get_post_meta($event_id, '_tix_extshop_mode', true) !== 'both') {
+            update_post_meta($event_id, '_tix_extshop_enabled', '0'); // von „anderer Shop“ auf frei/Abendkasse gewechselt
         }
+    }
+
+    /** Ticket-Modus eines Events: online | free | box_office | '' (keine Angabe, Verkauf aus). */
+    public static function ticket_mode_of($event_id) {
+        if (get_post_meta($event_id, '_tix_tickets_enabled', true) === '1') return 'online';
+        if (get_post_meta($event_id, '_tix_free_entry', true) === '1') return 'free';
+        if (get_post_meta($event_id, '_tix_box_office_only', true) === '1') return 'box_office';
+        if (get_post_meta($event_id, '_tix_extshop_enabled', true) === '1' && get_post_meta($event_id, '_tix_extshop_url', true) !== '') return 'external';
+        return '';
+    }
+
+    /**
+     * Online verkaufen oder nur eintragen: „free“ = Eintritt frei, „box_office“ = Abendkasse
+     * (Preis optional). Nur eintragen schaltet den Online-Verkauf ab (_tix_tickets_enabled = 0).
+     */
+    public static function apply_ticket_mode($event_id, $mode, $price = '', $external_url = '') {
+        if (!in_array($mode, ['online', 'free', 'box_office', 'external'], true)) return new WP_Error('tix_invalid_field', 'Unbekannte Ticket-Art.', ['status' => 400, 'field' => 'ticket_mode']);
+        if ($mode === 'online') {
+            update_post_meta($event_id, '_tix_tickets_enabled', '1');
+            update_post_meta($event_id, '_tix_free_entry', '0');
+            update_post_meta($event_id, '_tix_box_office_only', '0');
+            if (self::ticket_mode_of($event_id) === 'external' || (get_post_meta($event_id, '_tix_extshop_enabled', true) === '1' && get_post_meta($event_id, '_tix_extshop_mode', true) !== 'both')) {
+                update_post_meta($event_id, '_tix_extshop_enabled', '0');
+            }
+            return true;
+        }
+        if ($mode === 'external') {
+            $external_url = self::clean_shop_url($external_url);
+            if ($external_url === '') return new WP_Error('tix_invalid_field', 'Bitte die Adresse des Ticketshops angeben (https://…).', ['status' => 400, 'field' => 'external_shop.url']);
+        }
+        self::apply_listing_mode($event_id, $mode, $price, $external_url);
+        return true;
+    }
+
+    /** Ticketshop-Adresse prüfen: nur https mit echtem Host, sonst ''. */
+    public static function clean_shop_url($url) {
+        $url = trim((string) $url);
+        if ($url !== '' && !preg_match('#^[a-z]+://#i', $url)) $url = 'https://' . $url;
+        if (!preg_match('#^https://#i', $url)) return '';
+        $url = esc_url_raw($url, ['https']);
+        $host = (string) wp_parse_url($url, PHP_URL_HOST);
+        return ($host !== '' && strpos($host, '.') !== false && !preg_match('/^(localhost|[0-9.]+)$/', $host)) ? $url : '';
     }
 
     /**

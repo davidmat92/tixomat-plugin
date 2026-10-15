@@ -187,7 +187,7 @@ class TIX_Event_Import {
      */
     public static function structured($html, $url = '') {
         $f = ['title' => '', 'description' => '', 'lineup' => '', 'date_start' => '', 'date_end' => '', 'time_start' => '', 'time_end' => '', 'time_doors' => '',
-            'location' => '', 'location_address' => '', 'tickets' => [], 'event_type' => '', 'age_limit' => '', 'excerpt' => '', '_found' => 'none', '_image' => ''];
+            'location' => '', 'location_address' => '', 'tickets' => [], 'event_type' => '', 'age_limit' => '', 'excerpt' => '', '_found' => 'none', '_image' => '', '_ticket_url' => ''];
         $ev = null;
         foreach (self::jsonld_nodes($html) as $n) { if (self::is_event($n)) { $ev = $n; break; } }
         if ($ev) {
@@ -207,6 +207,7 @@ class TIX_Event_Import {
             foreach ((isset($perf['name']) || is_string($perf) ? [$perf] : (array) $perf) as $p) { $x = self::text($p); if ($x !== '') $names[] = esc_html($x); }
             $f['lineup'] = implode('<br>', array_slice(array_unique($names), 0, 20));
             $f['tickets'] = self::tickets($ev['offers'] ?? []);
+            $f['_ticket_url'] = self::offer_url($ev['offers'] ?? []);
             $f['event_type'] = self::guess_type($ev, $f['title']);
             $age = self::text($ev['typicalAgeRange'] ?? '');
             if (preg_match('/(\d{1,2})/', $age, $mm)) $f['age_limit'] = intval($mm[1]);
@@ -226,6 +227,41 @@ class TIX_Event_Import {
         $plain = wp_strip_all_tags($f['description']);
         $f['excerpt'] = $plain !== '' ? mb_substr(preg_replace('/\s+/', ' ', $plain), 0, 158) : '';
         return $f;
+    }
+
+    /** Erste Kauf-Adresse aus offers. */
+    private static function offer_url($offers) {
+        if (!is_array($offers)) return '';
+        $list = isset($offers['@type']) || isset($offers['url']) ? [$offers] : $offers;
+        foreach ($list as $o) {
+            if (!is_array($o)) continue;
+            if (!empty($o['url']) && is_string($o['url']) && preg_match('#^https://#i', $o['url'])) return $o['url'];
+            if (!empty($o['offers'])) { $u = self::offer_url($o['offers']); if ($u !== '') return $u; }
+        }
+        return '';
+    }
+
+    /** Bekannte Ticketshops (Host-Endungen). */
+    const SHOPS = ['eventbrite.de', 'eventbrite.com', 'eventbrite.co.uk', 'eventim.de', 'eventim.com', 'oeticket.com', 'reservix.de', 'ra.co', 'residentadvisor.net',
+        'ticketmaster.de', 'ticketmaster.com', 'dice.fm', 'tickettailor.com', 'pretix.eu', 'ticket.io', 'eventix.io', 'tixforgigs.com', 'adticket.de', 'myticket.de',
+        'ticketcorner.ch', 'koelnticket.de', 'universe.com', 'ticketino.com', 'eventfrog.de', 'eventfrog.ch', 'xceed.me', 'shotgun.live', 'vivenu.com', 'ticketpay.de', 'tickets.de', 'ticketswap.com'];
+
+    public static function is_shop_host($url) {
+        $h = strtolower((string) wp_parse_url((string) $url, PHP_URL_HOST));
+        if ($h === '') return false;
+        foreach (self::SHOPS as $d) if ($h === $d || substr($h, -strlen('.' . $d)) === '.' . $d) return true;
+        return false;
+    }
+
+    /**
+     * Vorschlag „Tickets bei einem anderen Shop“: die importierte Seite ist selbst ein Ticketshop, oder ihre Event-Daten
+     * verweisen auf einen. Nie die eigene Seite. '' = kein Vorschlag.
+     */
+    public static function shop_suggestion($page_url, array $st) {
+        $own = strtolower((string) wp_parse_url(home_url('/'), PHP_URL_HOST));
+        $cand = self::is_shop_host($page_url) ? $page_url : (self::is_shop_host($st['_ticket_url'] ?? '') ? (string) $st['_ticket_url'] : '');
+        if ($cand === '' || strtolower((string) wp_parse_url($cand, PHP_URL_HOST)) === $own) return '';
+        return esc_url_raw($cand);
     }
 
     public static function absolute($src, $base) {

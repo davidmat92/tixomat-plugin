@@ -39,7 +39,8 @@ class TIX_Wallet_Balance {
     const OPT_ALERTS = 'tix_wallet_alerts';
     const CAP       = 'tix_app_wallet_charge';
     const TYPES     = ['topup', 'bonus', 'charge', 'reversal', 'refund', 'adjust', 'expire', 'payout'];
-    const CHANNELS  = ['app', 'web', 'pos_cash', 'pos_card', 'sumup', 'admin', 'system'];
+    const CHANNELS  = ['app', 'web', 'pos_cash', 'pos_card', 'sumup', 'admin', 'system', 'giftcard'];
+    const PAY_CRON  = 'tix_wallet_pay_timeout';   // offene Bestellungen mit Guthaben-Anteil nach 3 h stornieren
     const PER_PAGE  = 30;
 
     public static function init() {
@@ -51,6 +52,10 @@ class TIX_Wallet_Balance {
         add_action('tix_order_chargeback', [__CLASS__, 'on_chargeback'], 10, 3);
         add_action('pre_get_posts', [__CLASS__, 'hide_system_event']);
         add_action('delete_user', [__CLASS__, 'on_delete_user']);
+        add_action(self::PAY_CRON, [__CLASS__, 'cron_pay_timeout']);
+        add_action('init', function () {
+            if (!wp_next_scheduled(TIX_Wallet_Balance::PAY_CRON)) wp_schedule_event(time() + 1200, 'hourly', TIX_Wallet_Balance::PAY_CRON);
+        }, 27);
         add_action('admin_menu', [__CLASS__, 'menu'], 48);
         add_action('admin_post_tix_wallet_settings', [__CLASS__, 'admin_save_settings']);
         add_action('admin_post_tix_wallet_adjust', [__CLASS__, 'admin_adjust']);
@@ -650,6 +655,171 @@ class TIX_Wallet_Balance {
         if (in_array($new, ['cancelled', 'refunded', 'failed'], true) && in_array($old, ['completed', 'processing'], true)) {
             self::reverse_order($order_id, $new === 'refunded' ? 'Erstattung' : 'Storno');
         }
+        // Mit Guthaben bezahlt (1.38.436): Restzahlung gescheitert/verfallen, Storno oder Erstattung → zurück ins Guthaben
+        if (in_array($new, ['cancelled', 'refunded', 'failed'], true)) {
+            self::refund_payment($order_id, $new === 'refunded' ? 'Erstattung' : ($old === 'pending' || $old === 'on-hold' ? 'Zahlung nicht abgeschlossen' : 'Storno'));
+        }
+    }
+
+    // ═══════════════ Mit Guthaben bezahlen (App-Kasse, 1.38.436) ═══════════════
+
+    /** Bereich, aus dem ein Warenkorb bezahlt werden kann: Seite (0) bzw. gemeinsamer Veranstalter; null = nicht möglich. */
+    public static function checkout_scope(array $cart) {
+        $items = (array) ($cart['items'] ?? []);
+        if (!$items || self::cart_topups($cart)) return null;
+        if (!self::multi()) return 0;
+        $common = null;
+        foreach ($items as $it) {
+            $orgs = class_exists('TIX_App_Scope') ? TIX_App_Scope::event_org_ids(intval($it['event_id'] ?? 0)) : [];
+            $common = $common === null ? $orgs : array_values(array_intersect($common, $orgs));
+            if (!$common) return null;
+        }
+        return $common ? intval($common[0]) : null;
+    }
+
+    /**
+     * Guthaben für eine Bestellung: {available, applied, rest, wallet_id, organizer_id} (Euro).
+     * `reason` wenn nichts angerechnet wird: login_required | no_wallet | locked | topup | scope | zero.
+     */
+    public static function checkout_info($user, array $cart, $total) {
+        $total_c = self::cents($total);
+        $out = ['available' => 0.0, 'applied' => 0.0, 'rest' => self::euro($total_c), 'wallet_id' => null, 'organizer_id' => null];
+        if (!$user || empty($user->ID)) return $out + ['reason' => 'login_required'];
+        if (self::cart_topups($cart)) return $out + ['reason' => 'topup'];
+        $oid = self::checkout_scope($cart);
+        if ($oid === null) return $out + ['reason' => 'scope'];
+        $w = self::find_wallet($user->ID, $oid);
+        if (!$w) return $out + ['organizer_id' => $oid, 'reason' => 'no_wallet'];
+        $bal = intval($w['balance_paid']) + intval($w['balance_bonus']);
+        $out['available'] = self::euro($bal); $out['wallet_id'] = intval($w['id']); $out['organizer_id'] = $oid;
+        if ($w['status'] !== 'active') return ['available' => self::euro($bal), 'applied' => 0.0, 'rest' => self::euro($total_c), 'wallet_id' => intval($w['id']), 'organizer_id' => $oid, 'reason' => 'locked'];
+        if ($total_c <= 0 || $bal <= 0) return $out + ['reason' => 'zero'];
+        $apply = min($bal, $total_c);
+        $out['applied'] = self::euro($apply);
+        $out['rest'] = self::euro($total_c - $apply);
+        return $out;
+    }
+
+    /** Guthaben-Anteil einer Bestellung abbuchen (Idempotenz = Bestellung). */
+    public static function pay_order($order_id, $wallet_id, $cents) {
+        $tx = self::post_tx(intval($wallet_id), ['type' => 'charge', 'amount' => -intval($cents), 'order_id' => intval($order_id), 'channel' => 'app',
+            'idempotency_key' => 'order:' . intval($order_id) . ':wallet', 'meta' => ['reason' => 'Bestellung']]);
+        if (!is_wp_error($tx)) self::note($order_id, '💳 Mit Guthaben bezahlt: ' . self::fmt(-intval($tx['amount_paid']) - intval($tx['amount_bonus'])) . ' (Geldbörse #' . intval($wallet_id) . ').');
+        return $tx;
+    }
+
+    /** Guthaben-Zahlung einer Bestellung (Abbuchung) oder null. */
+    public static function order_payment($order_id) {
+        global $wpdb;
+        if (!self::ready()) return null;
+        $r = $wpdb->get_row($wpdb->prepare("SELECT * FROM " . self::t('wallet_tx') . " WHERE order_id = %d AND type = 'charge' ORDER BY id ASC LIMIT 1", intval($order_id)), ARRAY_A);
+        return $r ?: null;
+    }
+
+    /** Guthaben-Anteil zurückbuchen (genau die Aufteilung bezahlt/Bonus der Abbuchung, nur einmal). */
+    public static function refund_payment($order_id, $reason) {
+        $tx = self::order_payment($order_id);
+        if (!$tx) return null;
+        $r = self::post_tx(intval($tx['wallet_id']), ['type' => 'reversal', 'amount_paid' => -intval($tx['amount_paid']), 'amount_bonus' => -intval($tx['amount_bonus']),
+            'order_id' => intval($order_id), 'ref_tx_id' => intval($tx['id']), 'channel' => 'system', 'allow_locked' => true,
+            'idempotency_key' => 'order:' . intval($order_id) . ':wallet-back', 'meta' => ['reason' => $reason]]);
+        if (!is_wp_error($r) && empty($r['replay'])) {
+            $amount = -intval($tx['amount_paid']) - intval($tx['amount_bonus']);
+            self::note($order_id, '↩️ ' . self::fmt($amount) . ' zurück ins Guthaben (' . $reason . ').');
+            $w = self::get_wallet($tx['wallet_id']);
+            if ($w && intval($w['user_id']) > 0 && class_exists('TIX_Notifications')) {
+                TIX_Notifications::add_user_item(intval($w['user_id']), 'Guthaben zurückgebucht', self::fmt($amount) . ' zurück ins Guthaben (' . $reason . ')', ['type' => 'wallet', 'action' => 'wallet']);
+            }
+        }
+        return $r;
+    }
+
+    /** Stündlich: offene Bestellungen mit Guthaben-Anteil, deren Restzahlung nach 3 h nicht kam → stornieren (bucht zurück). */
+    public static function cron_pay_timeout() {
+        global $wpdb;
+        if (!self::ready()) return 0;
+        $T = self::t('wallet_tx');
+        $rows = $wpdb->get_col($wpdb->prepare(
+            "SELECT o.id FROM {$wpdb->prefix}tix_orders o JOIN $T t ON t.order_id = o.id AND t.type = 'charge'
+             WHERE o.status IN ('pending','on-hold') AND t.created < %s
+             AND NOT EXISTS (SELECT 1 FROM $T r WHERE r.ref_tx_id = t.id AND r.type = 'reversal') LIMIT 50",
+            gmdate('Y-m-d H:i:s', time() - 3 * HOUR_IN_SECONDS)
+        ));
+        foreach ((array) $rows as $oid) {
+            if (class_exists('TIX_Order_Admin')) TIX_Order_Admin::add_note(intval($oid), '⏱️ Restzahlung nicht abgeschlossen (3 h) – Bestellung storniert, Guthaben zurückgebucht.', 'system');
+            TIX_Native_Checkout::update_order_status(intval($oid), 'cancelled', 'wallet');
+        }
+        return count((array) $rows);
+    }
+
+    // ═══════════════ Geschenkgutschein ins Guthaben (1.38.436) ═══════════════
+
+    /** Gutschein-Code aus Eingabe oder Scan: „GS-XXXX-XXXX“ bzw. Ticket-QR „GL-<event>-<ticketcode>“ des Gutschein-Tickets. */
+    public static function giftcard_code_from_input($raw) {
+        $raw = strtoupper(trim(preg_replace('/\s+/', '', (string) $raw)));
+        if (preg_match('/^GL-(\d+)-([A-Z0-9-]{3,20})$/', $raw, $m) && class_exists('TIX_Tickets') && method_exists('TIX_Tickets', 'get_ticket_by_code')) {
+            $t = TIX_Tickets::get_ticket_by_code($m[2]);
+            $id = is_object($t) ? intval($t->ID ?? 0) : (is_array($t) ? intval($t['ID'] ?? ($t['id'] ?? 0)) : intval($t));
+            $code = $id ? (string) get_post_meta($id, '_tix_ticket_gift_code', true) : '';
+            return $code !== '' ? $code : '';
+        }
+        return $raw;
+    }
+
+    /** POST /wallet/redeem-giftcard {code[, organizer]} – Restwert ins Guthaben, Gutschein danach aufgebraucht. */
+    public static function rest_redeem_giftcard(WP_REST_Request $req) {
+        global $wpdb;
+        $uid = get_current_user_id();
+        if (class_exists('TIX_App_Account') && method_exists('TIX_App_Account', 'rate_limited') && TIX_App_Account::rate_limited('wallet_gc', 10, 300, 'u' . $uid)) {
+            return new WP_Error('tix_wallet_rate_limited', 'Zu viele Versuche – bitte kurz warten.', ['status' => 429]);
+        }
+        $code = self::giftcard_code_from_input($req->get_param('code'));
+        $card = ($code !== '' && class_exists('TIX_Giftcards')) ? TIX_Giftcards::get_card($code) : null;
+        if (!$card) return new WP_Error('tix_giftcard_unknown', 'Diesen Gutschein kennen wir nicht. Bitte den Code prüfen.', ['status' => 404]);
+        $code = (string) $card['code'];
+        if (!empty($card['expires']) && strtotime($card['expires'] . ' 23:59:59') < current_time('timestamp')) {
+            return new WP_Error('tix_giftcard_expired', 'Dieser Gutschein ist abgelaufen (' . date_i18n('d.m.Y', strtotime($card['expires'])) . ').', ['status' => 410]);
+        }
+        if (round(floatval($card['balance'] ?? 0), 2) <= 0) return new WP_Error('tix_giftcard_used', 'Dieser Gutschein wurde schon eingelöst.', ['status' => 409]);
+        $oid = intval($card['organizer_id'] ?? 0);
+        $want = $req->get_param('organizer') ?? $req->get_param('organizer_id');
+        if ($want !== null && $want !== '' && intval($want) !== $oid) return new WP_Error('tix_giftcard_scope', 'Dieser Gutschein gilt bei einem anderen Veranstalter.', ['status' => 409]);
+        if (!self::scope_enabled($oid)) {
+            return new WP_Error('tix_giftcard_scope', $oid ? 'Bei diesem Veranstalter gibt es kein Guthaben.' : 'Dieser Gutschein lässt sich hier nicht ins Guthaben übernehmen.', ['status' => 409]);
+        }
+        $w = self::get_or_create($uid, $oid);
+        if (!$w) return new WP_Error('tix_wallet_unavailable', 'Guthaben ist nicht eingerichtet.', ['status' => 503]);
+        if ($w['status'] !== 'active') return new WP_Error('tix_wallet_locked', 'Deine Geldbörse ist gesperrt. Bitte wende dich an das Team.', ['status' => 423]);
+        $lock = 'tix_gc_' . md5(strtoupper($code));
+        if (!intval($wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s, 5)', $lock)))) return new WP_Error('tix_wallet_busy', 'Gerade viel los – bitte nochmal.', ['status' => 409]);
+        try {
+            // frisch aus der Datenbank lesen (unter Sperre; der Options-Zwischenspeicher dieses Aufrufs kann veraltet sein)
+            wp_cache_delete('alloptions', 'options');
+            wp_cache_delete('tix_coupons', 'options');
+            $card = TIX_Giftcards::get_card($code);
+            $bal = $card ? self::cents($card['balance'] ?? 0) : 0;
+            if ($bal <= 0) return new WP_Error('tix_giftcard_used', 'Dieser Gutschein wurde schon eingelöst.', ['status' => 409]);
+            $s = self::settings($oid);
+            $w = self::get_wallet($w['id']);
+            $cur = intval($w['balance_paid']) + intval($w['balance_bonus']);
+            if ($cur + $bal > self::cents($s['max_balance'])) {
+                return new WP_Error('tix_wallet_limit_balance', 'Höchstguthaben ' . self::fmt(self::cents($s['max_balance'])) . ' – der Gutschein (' . self::fmt($bal) . ') passt nicht mehr hinein. Löse ihn an der Kasse ein.', ['status' => 409, 'limit' => $s['max_balance'], 'room' => self::euro(max(0, self::cents($s['max_balance']) - $cur))]);
+            }
+            $n = count((array) ($card['redemptions'] ?? []));
+            $tx = self::post_tx($w['id'], ['type' => 'topup', 'amount_paid' => $bal, 'channel' => 'giftcard', 'idempotency_key' => 'giftcard:' . $code . ':' . $n, 'meta' => ['giftcard' => $code]]);
+            if (is_wp_error($tx)) return $tx;
+            if (!empty($tx['replay'])) return new WP_Error('tix_giftcard_used', 'Dieser Gutschein wurde schon eingelöst.', ['status' => 409]);
+            $red = TIX_Giftcards::redeem($code, self::euro($bal), 'wallet', 'wallet:' . $w['id'] . ':tx' . $tx['id']);
+            if (empty($red['ok'])) {
+                self::post_tx($w['id'], ['type' => 'reversal', 'amount_paid' => -$bal, 'ref_tx_id' => intval($tx['id']), 'channel' => 'system', 'allow_locked' => true, 'idempotency_key' => 'giftcard:' . $code . ':' . $n . ':back', 'meta' => ['reason' => 'Gutschein nicht eingelöst']]);
+                return new WP_Error('tix_giftcard_used', 'Dieser Gutschein wurde schon eingelöst.', ['status' => 409]);
+            }
+        } finally {
+            $wpdb->query($wpdb->prepare('SELECT RELEASE_LOCK(%s)', $lock));
+        }
+        if (class_exists('TIX_Notifications')) TIX_Notifications::add_user_item($uid, 'Gutschein eingelöst', self::fmt($bal) . ' ins Guthaben übernommen', ['type' => 'wallet', 'action' => 'wallet']);
+        $w = self::get_wallet($w['id']);
+        return self::out(['ok' => true, 'amount' => self::euro($bal), 'code' => $code, 'wallet' => self::wallet_payload($w), 'tx' => self::tx_payload($tx)]);
     }
 
     public static function on_chargeback($order_id, $amount = 0, $gateway = '') {
@@ -746,8 +916,9 @@ class TIX_Wallet_Balance {
 
     public static function tx_payload(array $tx, $for_staff = false) {
         $a = intval($tx['amount_paid']) + intval($tx['amount_bonus']);
+        $title = ($tx['channel'] ?? '') === 'giftcard' && $tx['type'] === 'topup' ? 'Gutschein eingelöst' : self::type_title($tx['type'], $a);
         $out = [
-            'id' => intval($tx['id']), 'type' => (string) $tx['type'], 'title' => self::type_title($tx['type'], $a),
+            'id' => intval($tx['id']), 'type' => (string) $tx['type'], 'title' => $title,
             'amount' => self::euro($a), 'amount_paid' => self::euro($tx['amount_paid']), 'amount_bonus' => self::euro($tx['amount_bonus']),
             'balance_after' => self::euro(intval($tx['balance_after_paid']) + intval($tx['balance_after_bonus'])),
             'station' => (string) $tx['station'], 'channel' => (string) $tx['channel'], 'order_id' => intval($tx['order_id']) ?: null,
@@ -809,6 +980,7 @@ class TIX_Wallet_Balance {
         $reg('/wallet/admin/config', 'GET', 'rest_admin_config', [__CLASS__, 'check_staff']);
         $reg('/wallet/admin/config', 'POST', 'rest_admin_save', [__CLASS__, 'check_manager']);
         $reg('/wallet/admin/report', 'GET', 'rest_report', [__CLASS__, 'check_staff']);
+        $reg('/wallet/redeem-giftcard', 'POST', 'rest_redeem_giftcard', $login);
     }
 
     private static function org_param(WP_REST_Request $req) {

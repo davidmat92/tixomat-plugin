@@ -2176,6 +2176,7 @@ class TIX_Native_Checkout {
     private static function gateway_title($id) {
         $titles = [
             'free'   => 'Kostenlos',
+            'wallet' => 'Guthaben',
             'mollie' => 'Online bezahlen (Mollie)',
             'paypal' => 'PayPal',
             'bank'   => 'Banküberweisung (Vorkasse)',

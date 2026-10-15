@@ -645,9 +645,11 @@ class TIX_Giftcards {
         $expires = !empty($card['expires']) ? date_i18n('d.m.Y', strtotime($card['expires'])) : '';
         return '<div style="margin:18px 30px;padding:18px 22px;background:#fefce8;border:2px dashed #ca8a04;border-radius:12px;text-align:center;">'
             . '<div style="font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:#a16207;font-weight:700;margin-bottom:6px;">💳 Geschenkgutschein</div>'
+            // QR mit dem Gutschein-Code (1.38.436): in der App scannen → ins Guthaben übernehmen (POST /wallet/redeem-giftcard)
+            . '<img src="' . esc_url('https://api.qrserver.com/v1/create-qr-code/?size=160x160&margin=0&data=' . rawurlencode($code)) . '" width="120" height="120" alt="QR ' . esc_attr($code) . '" style="display:block;margin:6px auto 8px;">'
             . '<div style="font-size:26px;font-weight:900;letter-spacing:0.04em;color:#1c1917;font-family:monospace;">' . esc_html($code) . '</div>'
             . '<div style="font-size:14px;color:#44403c;margin-top:8px;">Wert: <strong>' . esc_html($value) . ' €</strong> &middot; Restguthaben: <strong>' . esc_html($balance) . ' €</strong></div>'
-            . '<div style="font-size:12px;color:#78716c;margin-top:6px;">Einloesbar online im Checkout (Code eingeben) oder vor Ort per Scan.'
+            . '<div style="font-size:12px;color:#78716c;margin-top:6px;">Einlösbar online im Checkout (Code eingeben), vor Ort per Scan oder in der App ins Guthaben übernehmen.'
             . ($expires ? ' Gueltig bis ' . esc_html($expires) . '.' : '') . '</div>'
             . '</div>';
     }

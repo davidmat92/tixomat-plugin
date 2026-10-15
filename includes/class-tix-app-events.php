@@ -219,6 +219,10 @@ class TIX_App_Events {
             'status'             => $m('_tix_event_status'),          // manueller Override, '' = automatisch
             'status_resolved'    => $m('_tix_status', 'available'),
             'tickets_enabled'    => $m('_tix_tickets_enabled', '0') === '1',
+            // Ticket-Art (1.38.436): online | free | box_office | external | '' – dazu Preis bzw. externer Shop
+            'ticket_mode'        => $id && class_exists('TIX_Register_Event') ? (TIX_Register_Event::ticket_mode_of($id) ?: '') : 'online',
+            'box_office_price'   => $m('_tix_box_office_price') !== '' ? round(floatval($m('_tix_box_office_price')), 2) : null,
+            'external_shop'      => ['url' => $m('_tix_extshop_url'), 'price_from' => $m('_tix_extshop_price') !== '' ? round(floatval($m('_tix_extshop_price')), 2) : null, 'text' => $m('_tix_extshop_text') ?: 'Tickets kaufen'],
             'presale_active'     => $m('_tix_presale_active', '0') === '1',
             'presale_start'      => $m('_tix_presale_start'),
             'presale_end_mode'   => $m('_tix_presale_end_mode', 'manual'),
@@ -406,6 +410,14 @@ class TIX_App_Events {
         // ── Tickets / Vorverkauf ──
         if (array_key_exists('tickets_enabled', $body)) {
             update_post_meta($post_id, '_tix_tickets_enabled', !empty($body['tickets_enabled']) ? '1' : '0');
+        }
+        // Ticket-Art (1.38.436): online | free | box_office (box_office_price) | external (external_shop {url, price_from})
+        if (array_key_exists('ticket_mode', $body) && $body['ticket_mode'] !== '' && $body['ticket_mode'] !== null && class_exists('TIX_Register_Event')) {
+            $mode = sanitize_key((string) $body['ticket_mode']);
+            $ext = is_array($body['external_shop'] ?? null) ? $body['external_shop'] : [];
+            $price = $mode === 'external' ? ($ext['price_from'] ?? '') : ($body['box_office_price'] ?? '');
+            $r = TIX_Register_Event::apply_ticket_mode($post_id, $mode, $price === null ? '' : (string) $price, (string) ($ext['url'] ?? ''));
+            if (is_wp_error($r)) return $r;
         }
         if (array_key_exists('presale_active', $body)) {
             update_post_meta($post_id, '_tix_presale_active', !empty($body['presale_active']) ? '1' : '0');
