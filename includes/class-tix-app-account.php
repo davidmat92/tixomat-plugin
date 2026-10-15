@@ -7,6 +7,8 @@
  *   POST /auth/code/confirm            Code bestätigen → Geräte-Token (Login ohne Passwort,
  *                                      Gäste ohne Konto bekommen automatisch ein Konto;
  *                                      bei „reset“ wird das neue Passwort gesetzt)
+ *                                      `context: staff` (evendis Studio): nur vorhandene Veranstalter-/
+ *                                      Team-/Admin-Konten, nie ein neues Konto
  *   POST /auth/password                Passwort ändern (altes Passwort nötig, außer das
  *                                      Konto wurde per Code angelegt und hat noch keins)
  *   GET  /customer/tickets/{id}/pdf    Ticket als PDF (Template des Events, sonst generisch)
@@ -365,6 +367,23 @@ class TIX_App_Account {
     //  Einmal-Codes
     // ──────────────────────────────────────────
 
+    /** `context: staff` – nur vorhandene Veranstalter-, Team- oder Admin-Konten (evendis Studio). */
+    private static function staff_context(WP_REST_Request $req) {
+        return sanitize_key((string) $req->get_param('context')) === 'staff';
+    }
+
+    /** Admin, Veranstalter oder Team-Konto (App-Rollen bzw. einem Veranstalter zugeordnet)? */
+    public static function is_staff_account($user) {
+        if (!$user || empty($user->ID)) return false;
+        if (user_can($user, 'manage_options')) return true;
+        if (array_intersect((array) $user->roles, ['tix_organizer', 'tix_staff', 'tix_entrance', 'tix_dj', 'tix_awareness'])) return true;
+        return class_exists('TIX_App_Scope') && (bool) TIX_App_Scope::organizer_post_for_user($user->ID);
+    }
+
+    private static function staff_error() {
+        return self::error('tix_staff_not_found', 'Zu dieser E-Mail-Adresse gibt es kein Veranstalter- oder Team-Konto. Neu hier? Dann registriere dich unter „Veranstalter werden“.', 404);
+    }
+
     /** POST /auth/code */
     public static function request_code(WP_REST_Request $req) {
         $email   = sanitize_email((string) $req->get_param('email'));
@@ -377,6 +396,7 @@ class TIX_App_Account {
             return self::error('tix_rate_limit', 'Für diese E-Mail-Adresse wurden gerade schon Codes verschickt. Bitte kurz warten und den Posteingang prüfen.', 429);
         }
         $user = get_user_by('email', $email);
+        if (self::staff_context($req) && !self::is_staff_account($user)) return self::staff_error();
         if ($purpose === 'reset' && !$user) {
             return self::error('not_found', 'Zu dieser E-Mail-Adresse gibt es kein Konto.', 404);
         }
@@ -429,6 +449,8 @@ class TIX_App_Account {
 
         $user    = get_user_by('email', $email);
         $created = false;
+        // Studio: kein neues Kundenkonto, keine Rollenänderung – nur vorhandene Staff-Konten
+        if (self::staff_context($req) && !self::is_staff_account($user)) return self::staff_error();
         if ($purpose === 'verify' && !$user) {
             return self::error('not_found', 'Zu dieser E-Mail-Adresse gibt es kein Konto.', 404);
         }

@@ -109,6 +109,22 @@ class TIX_App_Events {
         return $out;
     }
 
+    /** Sparten (Taxonomie `event_category`) für die Auswahl im Editor. */
+    private static function event_categories() {
+        $terms = get_terms(['taxonomy' => 'event_category', 'hide_empty' => false, 'orderby' => 'name', 'order' => 'ASC']);
+        $out = [];
+        foreach (is_wp_error($terms) ? [] : $terms as $t) {
+            $out[] = ['id' => intval($t->term_id), 'slug' => (string) $t->slug, 'name' => html_entity_decode((string) $t->name, ENT_QUOTES, 'UTF-8')];
+        }
+        return $out;
+    }
+
+    /** Sparte des Events als Slug ('' = keine). */
+    private static function event_category_slug($id) {
+        $terms = $id ? get_the_terms($id, 'event_category') : [];
+        return (is_array($terms) && $terms) ? (string) $terms[0]->slug : '';
+    }
+
     /** HTML aus dem WP-Admin → Text für das Eingabefeld der App. */
     private static function html_to_text($html) {
         $html = (string) $html;
@@ -132,10 +148,11 @@ class TIX_App_Events {
 
     public static function form(WP_REST_Request $req) {
         return rest_ensure_response([
-            'ok'            => true,
-            'locations'     => self::locations(),
-            'info_sections' => self::info_sections(),
-            'event'         => self::edit_payload(0),
+            'ok'               => true,
+            'locations'        => self::locations(),
+            'event_categories' => self::event_categories(),
+            'info_sections'    => self::info_sections(),
+            'event'            => self::edit_payload(0),
         ]);
     }
 
@@ -149,10 +166,11 @@ class TIX_App_Events {
             return new WP_Error('forbidden', 'Kein Zugriff auf dieses Event.', ['status' => 403]);
         }
         return rest_ensure_response([
-            'ok'            => true,
-            'locations'     => self::locations(),
-            'info_sections' => self::info_sections(),
-            'event'         => self::edit_payload($id),
+            'ok'               => true,
+            'locations'        => self::locations(),
+            'event_categories' => self::event_categories(),
+            'info_sections'    => self::info_sections(),
+            'event'            => self::edit_payload($id),
         ]);
     }
 
@@ -233,6 +251,8 @@ class TIX_App_Events {
             'info'               => $info,
             'info_markup'        => $markup,
             'categories'         => $cats,
+            // Sparte (Slug aus `event_categories`, '' = keine)
+            'event_category'     => self::event_category_slug($id),
             // Awareness: inherit (Vorgabe Veranstalter/Seite) | custom (eigene Angaben) | off; `awareness` = eigene Angaben,
             // `awareness_effective` = was Gäste sehen (null = nichts)
             'awareness_mode'      => class_exists('TIX_Awareness') ? TIX_Awareness::event_mode($id) : 'inherit',
@@ -339,6 +359,22 @@ class TIX_App_Events {
      * geändert (die App schickt immer das ganze Formular).
      */
     private static function apply($post_id, array $body, $is_new) {
+        // Sparte zuerst prüfen (Slug oder ID; '' entfernt sie; `category` als Alias) – vor allen Änderungen
+        $cat_term = null;
+        $cat_in = array_key_exists('event_category', $body) ? $body['event_category'] : (array_key_exists('category', $body) && !is_array($body['category']) ? $body['category'] : null);
+        if (is_array($cat_in)) $cat_in = $cat_in['slug'] ?? ($cat_in['id'] ?? '');
+        if ($cat_in !== null) {
+            $cat_in = trim((string) $cat_in);
+            $cat_term = 0;
+            if ($cat_in !== '') {
+                $term = ctype_digit($cat_in) ? get_term(intval($cat_in), 'event_category') : get_term_by('slug', sanitize_title($cat_in), 'event_category');
+                if (!$term || is_wp_error($term)) {
+                    return new WP_Error('tix_invalid_field', 'Diese Sparte gibt es nicht.', ['status' => 400, 'field' => 'event_category']);
+                }
+                $cat_term = intval($term->term_id);
+            }
+        }
+
         // ── Titel / Kurztext / Sichtbarkeit ──
         $post_args = ['ID' => $post_id];
         if (isset($body['title'])) {
@@ -470,6 +506,9 @@ class TIX_App_Events {
             }
             TIX_Awareness::flush();
         }
+        // ── Sparte (vorab geprüft) ──
+        if ($cat_term !== null) wp_set_object_terms($post_id, $cat_term ? [$cat_term] : [], 'event_category');
+
         // Titel/Kurztext/Status zuletzt: löst save_post_event aus (Breakdance-Meta etc.)
         if (count($post_args) > 1) {
             $res = wp_update_post($post_args, true);

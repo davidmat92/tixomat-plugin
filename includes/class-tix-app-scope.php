@@ -136,6 +136,9 @@ class TIX_App_Scope {
         return [
             'id'      => intval($p->ID),
             'name'    => html_entity_decode((string) $p->post_title, ENT_QUOTES, 'UTF-8'),
+            // Adresse der Veranstalter-Seite (evendis.de/v/<slug>/)
+            'slug'    => class_exists('TIX_Public_Platform') ? TIX_Public_Platform::slug($p->ID) : (string) $p->post_name,
+            'link'    => class_exists('TIX_Organizer_Link') ? TIX_Organizer_Link::link($p->ID) : '',
             'status'  => (string) $p->post_status,
             'owner'   => $owner,
             'manager' => self::is_org_manager($uid),
