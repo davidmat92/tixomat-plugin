@@ -263,13 +263,31 @@
                 goToStep(2);
             } else {
                 finishProgress();
-                showStatus('Konnte keine Infos extrahieren: ' + (r.data ? r.data.message : ''));
+                showUrlError((r && r.data && r.data.message) || '');
             }
         }).fail(function() {
             $btn.prop('disabled', false).text('Analysieren');
             finishProgress();
-            showStatus('Netzwerkfehler.');
+            showUrlError('');
         });
+    });
+
+    // Ausweg bei nicht lesbaren Seiten: Flyer hochladen oder Event beschreiben
+    function showUrlError(msg) {
+        msg = msg || 'Wir konnten die Seite nicht lesen – lade den Flyer hoch oder beschreibe dein Event.';
+        $('#tix-re-status').show().html(
+            '<div class="tix-re-status-simple tix-re-status-error" role="alert">' +
+                '<span>' + escHtml(msg) + '</span>' +
+                '<div class="tix-re-status-actions" style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;justify-content:center;">' +
+                    '<button type="button" class="tix-re-btn-primary tix-re-switch-mode" data-mode="upload">Flyer hochladen</button>' +
+                    '<button type="button" class="tix-re-btn-secondary tix-re-switch-mode" data-mode="chat">Event beschreiben</button>' +
+                '</div>' +
+            '</div>'
+        );
+    }
+    $(document).on('click', '.tix-re-switch-mode', function() {
+        $('#tix-re-status').hide().empty();
+        $('.tix-re-mode[data-mode="' + $(this).data('mode') + '"]').trigger('click');
     });
 
     // ══════════════════════════════════════

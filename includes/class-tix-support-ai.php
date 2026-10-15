@@ -195,11 +195,7 @@ class TIX_Support_AI {
     private static function call_anthropic($system, $user, $max_tokens) {
         $response = wp_remote_post('https://api.anthropic.com/v1/messages', [
             'timeout' => 30,
-            'headers' => [
-                'x-api-key'         => self::get_api_key(),
-                'content-type'      => 'application/json',
-                'anthropic-version' => '2023-06-01',
-            ],
+            'headers' => class_exists('TIX_AI_Writer') ? TIX_AI_Writer::anthropic_headers(self::get_api_key()) : ['x-api-key' => self::get_api_key(), 'content-type' => 'application/json', 'anthropic-version' => '2023-06-01'],
             'body' => wp_json_encode([
                 'model'      => self::get_model(),
                 'max_tokens' => $max_tokens,

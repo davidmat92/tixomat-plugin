@@ -372,6 +372,7 @@ class TIX_Settings {
             'support_chat_enabled' => 0,
             // ── KI / Künstliche Intelligenz ──
             'anthropic_api_key' => '',
+            'anthropic_workspace_id' => '', // nur für Schlüssel ohne Workspace (Header anthropic-workspace-id), 1.38.435
             'openai_api_key'    => '',
             'ai_model'          => 'claude-sonnet-4-20250514',
             'ai_assistant_name' => 'Evendis-Assistent',
@@ -1639,6 +1640,7 @@ class TIX_Settings {
         // KI / Künstliche Intelligenz
         $clean['ai_assistant_name'] = sanitize_text_field($input['ai_assistant_name'] ?? 'Evendis-Assistent');
         $clean['anthropic_api_key'] = sanitize_text_field($input['anthropic_api_key'] ?? '');
+        $clean['anthropic_workspace_id'] = preg_replace('/[^A-Za-z0-9_-]/', '', (string) ($input['anthropic_workspace_id'] ?? ''));
         $clean['openai_api_key'] = sanitize_text_field($input['openai_api_key'] ?? '');
         $clean['ai_model'] = sanitize_text_field($input['ai_model'] ?? 'claude-sonnet-4-20250514');
         $clean['ai_guard_enabled'] = !empty($input['ai_guard_enabled']) ? 1 : 0;
@@ -7476,6 +7478,7 @@ class TIX_Settings {
                                                 </p>
                                             </div>
                                             <?php self::text_row('anthropic_api_key', 'Anthropic API Key', $s, 'sk-ant-…'); ?>
+                                            <?php self::text_row('anthropic_workspace_id', 'Anthropic Workspace-ID', $s, 'wrkspc_… (nur nötig, wenn der Schlüssel keinem Workspace zugeordnet ist)'); ?>
                                             <div class="tix-field tix-field-full">
                                                 <p class="tix-settings-hint">
                                                     <a href="https://console.anthropic.com/settings/keys" target="_blank">Anthropic Key erstellen →</a>

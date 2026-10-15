@@ -1042,7 +1042,7 @@ class TIX_Meta_Ads {
         } else {
             $response = wp_remote_post('https://api.anthropic.com/v1/messages', [
                 'timeout' => 30,
-                'headers' => ['x-api-key' => $api_key, 'content-type' => 'application/json', 'anthropic-version' => '2023-06-01'],
+                'headers' => class_exists('TIX_AI_Writer') ? TIX_AI_Writer::anthropic_headers($api_key) : ['x-api-key' => $api_key, 'content-type' => 'application/json', 'anthropic-version' => '2023-06-01'],
                 'body'    => wp_json_encode(['model' => $model, 'max_tokens' => 1500, 'system' => $system, 'messages' => [
                     ['role' => 'user', 'content' => $context],
                 ]]),

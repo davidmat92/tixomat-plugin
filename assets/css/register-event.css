@@ -632,3 +632,8 @@
     .tix-re-progress-steps { flex-direction: column; gap: 2px; }
     .tix-re-progress-step { font-size: 12px; padding: 5px 10px; }
 }
+
+/* URL-Analyse: Fehler mit Ausweg (1.38.435) */
+.tix-re-status-error { flex-direction: column; text-align: center; }
+.tix-re-btn-secondary { background: transparent; color: inherit; border: 1.5px solid currentColor; border-radius: 10px; padding: 10px 18px; font-weight: 600; cursor: pointer; opacity: .85; }
+.tix-re-btn-secondary:hover { opacity: 1; }

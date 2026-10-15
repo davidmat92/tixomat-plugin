@@ -32,6 +32,17 @@ class TIX_AI_Writer {
         add_action('wp_ajax_tix_ai_generate_field',    [__CLASS__, 'ajax_generate_field']);
     }
 
+    /**
+     * Header für die Anthropic-API (alle KI-Stellen des Plugins). Schlüssel, die keinem Workspace zugeordnet sind,
+     * brauchen `anthropic-workspace-id` (Einstellung `anthropic_workspace_id`, 1.38.435).
+     */
+    public static function anthropic_headers($api_key) {
+        $h = ['x-api-key' => $api_key, 'content-type' => 'application/json', 'anthropic-version' => '2023-06-01'];
+        $ws = trim((string) (tix_get_settings('anthropic_workspace_id') ?? ''));
+        if ($ws !== '') $h['anthropic-workspace-id'] = $ws;
+        return $h;
+    }
+
     private static function get_api_key() {
         if (self::is_openai()) {
             $key = trim(tix_get_settings('openai_api_key') ?? '');
@@ -57,11 +68,7 @@ class TIX_AI_Writer {
 
         $response = wp_remote_post('https://api.anthropic.com/v1/messages', [
             'timeout' => 30,
-            'headers' => [
-                'x-api-key'         => $api_key,
-                'content-type'      => 'application/json',
-                'anthropic-version' => '2023-06-01',
-            ],
+            'headers' => self::anthropic_headers($api_key),
             'body' => wp_json_encode([
                 'model'      => self::get_model(),
                 'max_tokens' => $max_tokens,
@@ -102,11 +109,7 @@ class TIX_AI_Writer {
 
         $response = wp_remote_post('https://api.anthropic.com/v1/messages', [
             'timeout' => 45,
-            'headers' => [
-                'x-api-key'         => $api_key,
-                'content-type'      => 'application/json',
-                'anthropic-version' => '2023-06-01',
-            ],
+            'headers' => self::anthropic_headers($api_key),
             'body' => wp_json_encode([
                 'model'      => self::get_model(),
                 'max_tokens' => $max_tokens,
@@ -156,6 +159,11 @@ class TIX_AI_Writer {
         if ($code < 200 || $code >= 300) {
             $error_data = json_decode($body, true);
             $error_msg = $error_data['error']['message'] ?? ('HTTP ' . $code);
+            if (stripos($error_msg, 'not scoped to a workspace') !== false) {
+                $error_msg = 'Der Anthropic-Schlüssel ist keinem Workspace zugeordnet. Bitte unter Einstellungen → KI die Workspace-ID eintragen oder einen Schlüssel aus einem Workspace verwenden.';
+            } elseif (stripos($error_msg, 'model') !== false && in_array($code, [400, 404], true)) {
+                $error_msg = 'Das eingestellte KI-Modell ist nicht verfügbar (' . self::get_model() . '). Bitte unter Einstellungen → KI ein aktuelles Modell wählen.';
+            }
             if ($code === 401) $error_msg = 'Ungültiger Anthropic API-Key.';
             if ($code === 429) $error_msg = 'Rate-Limit erreicht. Bitte kurz warten.';
             return ['error' => $error_msg];
@@ -345,42 +353,15 @@ PROMPT;
             $media_type = $mime;
 
         } elseif ($source_type === 'url') {
-            $url = esc_url_raw($_POST['source_url'] ?? '');
-            if (empty($url)) {
-                wp_send_json_error(['message' => 'Keine URL angegeben.']);
+            // Eventseite (1.38.435): strukturierte Daten zuerst, KI ergänzt; klare Meldung mit Ausweg
+            $result = self::import_url((string) ($_POST['source_url'] ?? ''));
+            if (is_wp_error($result)) {
+                $data = ['message' => $result->get_error_message(), 'code' => $result->get_error_code(), 'alternatives' => ['upload', 'chat']];
+                $ed = $result->get_error_data();
+                if (current_user_can('manage_options') && is_array($ed) && !empty($ed['reason'])) $data['reason'] = (string) $ed['reason'];
+                wp_send_json_error($data);
             }
-
-            // URL-Inhalt fetchen
-            $response = wp_remote_get($url, [
-                'timeout' => 15,
-                'user-agent' => 'TixomatBot/1.0',
-            ]);
-            if (is_wp_error($response)) {
-                wp_send_json_error(['message' => 'URL konnte nicht geladen werden: ' . $response->get_error_message()]);
-            }
-
-            $body = wp_remote_retrieve_body($response);
-            $content_type = wp_remote_retrieve_header($response, 'content-type');
-
-            // Prüfen ob es ein Bild ist
-            if (strpos($content_type, 'image/') === 0) {
-                $allowed_types = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-                $detected_mime = explode(';', $content_type)[0];
-                if (in_array($detected_mime, $allowed_types)) {
-                    $image_data = base64_encode($body);
-                    $media_type = $detected_mime;
-                } else {
-                    wp_send_json_error(['message' => 'Bildformat der URL nicht unterstützt.']);
-                }
-            } else {
-                // HTML → Text + Bild extrahieren
-                $extracted = self::extract_text_from_html($body, $url);
-                $source_content = $extracted['text'];
-                $og_image_url = $extracted['image_url'] ?? '';
-                if (empty(trim($source_content))) {
-                    wp_send_json_error(['message' => 'Kein verwertbarer Inhalt auf der Seite gefunden.']);
-                }
-            }
+            wp_send_json_success(['fields' => $result, 'source' => $result['_source'] ?? 'ai']);
         } else {
             wp_send_json_error(['message' => 'Ungültiger Quellentyp.']);
         }
@@ -492,50 +473,50 @@ PROMPT;
      * @return array|WP_Error  Erfolg: sanitized fields array, Fehler: WP_Error
      */
     public static function analyze_url($url) {
-        $url = esc_url_raw($url);
-        if (empty($url)) return new \WP_Error('empty_url', 'Keine URL angegeben.');
+        return self::import_url($url);
+    }
 
-        // URL-Inhalt fetchen
-        $response = wp_remote_get($url, [
-            'timeout'    => 15,
-            'user-agent' => 'TixomatBot/1.0',
-        ]);
-        if (is_wp_error($response)) {
-            return new \WP_Error('fetch_error', 'URL konnte nicht geladen werden: ' . $response->get_error_message());
+    /**
+     * Eventseite einlesen (TIX_Event_Import): Abruf, JSON-LD/OpenGraph, dann KI. Felder (sanitized, mit
+     * `_source` structured|structured+ai|ai) oder WP_Error (url_invalid, url_unreadable, ai_unavailable).
+     */
+    public static function import_url($url) {
+        $page = TIX_Event_Import::fetch($url);
+        if (is_wp_error($page)) return $page;
+        $final = $page['final_url'];
+        if (strpos($page['content_type'], 'image/') === 0) {
+            $mime = trim(explode(';', $page['content_type'])[0]);
+            if (!in_array($mime, ['image/jpeg', 'image/png', 'image/gif', 'image/webp'], true)) return new \WP_Error('url_unreadable', TIX_Event_Import::unreadable_message());
+            $r = self::run_extraction('', base64_encode($page['body']), $mime, '');
+            if (is_wp_error($r)) return new \WP_Error('ai_unavailable', 'Die automatische Analyse ist gerade nicht verfügbar – beschreibe dein Event kurz im Chat.', ['status' => 503, 'reason' => $r->get_error_message()]);
+            $r['_source'] = 'ai';
+            return $r;
         }
-
-        $body         = wp_remote_retrieve_body($response);
-        $content_type = wp_remote_retrieve_header($response, 'content-type');
-        $image_data   = null;
-        $media_type   = null;
-        $source_content = '';
-        $og_image_url   = '';
-
-        if (strpos($content_type, 'image/') === 0) {
-            $detected_mime = explode(';', $content_type)[0];
-            $allowed_types = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-            if (in_array($detected_mime, $allowed_types)) {
-                $image_data = base64_encode($body);
-                $media_type = $detected_mime;
-            } else {
-                return new \WP_Error('mime_error', 'Bildformat der URL nicht unterstützt.');
-            }
-        } else {
-            $extracted      = self::extract_text_from_html($body, $url);
-            $source_content = $extracted['text'];
-            $og_image_url   = $extracted['image_url'] ?? '';
-            if (empty(trim($source_content))) {
-                return new \WP_Error('empty_content', 'Kein verwertbarer Inhalt auf der Seite gefunden.');
-            }
+        $st = TIX_Event_Import::structured($page['body'], $final);
+        $ex = self::extract_text_from_html($page['body'], $final);
+        $image = $st['_image'] ?: ($ex['image_url'] ?? '');
+        $text_len = mb_strlen(trim(preg_replace('/^.*?Seitentext:\s*/s', '', $ex['text'])));
+        if (!TIX_Event_Import::usable($st) && $st['title'] === '' && $text_len < 200) {
+            return new \WP_Error('url_unreadable', TIX_Event_Import::unreadable_message(), ['status' => 422, 'reason' => 'zu wenig Inhalt (' . $text_len . ' Zeichen)']);
         }
-
-        return self::run_extraction($source_content, $image_data, $media_type, $og_image_url);
+        $content = trim(TIX_Event_Import::summary($st) . "\n\n" . $ex['text']);
+        $ai = self::run_extraction($content, null, null, $image, $st);
+        if (!is_wp_error($ai)) {
+            $ai['_source'] = $st['_found'] === 'jsonld' ? 'structured+ai' : 'ai';
+            return $ai;
+        }
+        if (TIX_Event_Import::usable($st)) {
+            $f = self::finalize_fields($st, $image);
+            $f['_source'] = 'structured';
+            return $f;
+        }
+        return new \WP_Error('ai_unavailable', 'Die automatische Analyse ist gerade nicht verfügbar – lade den Flyer hoch oder beschreibe dein Event.', ['status' => 503, 'reason' => $ai->get_error_message()]);
     }
 
     /**
      * Kern-Extraktion: Text/Bild → KI → sanitized fields
      */
-    private static function run_extraction($source_content, $image_data, $media_type, $og_image_url) {
+    private static function run_extraction($source_content, $image_data, $media_type, $og_image_url, array $structured = []) {
         $system = self::get_extraction_system_prompt();
 
         $text_prompt = 'Extrahiere die Event-Informationen aus dieser Quelle.';
@@ -559,10 +540,18 @@ PROMPT;
         }
 
         $fields = json_decode($text, true);
+        if (!is_array($fields) && preg_match('/\{.*\}/s', $text, $mm)) $fields = json_decode($mm[0], true);
         if (!is_array($fields)) {
             return new \WP_Error('parse_error', 'KI-Antwort konnte nicht verarbeitet werden.');
         }
+        // Strukturierte Daten der Seite haben Vorrang (Datum, Zeit, Ort, Titel)
+        if ($structured && class_exists('TIX_Event_Import')) $fields = TIX_Event_Import::merge($fields, $structured);
 
+        return self::finalize_fields($fields, $og_image_url);
+    }
+
+    /** Felder säubern, Ort/Kategorie zuordnen, Beitragsbild übernehmen. */
+    private static function finalize_fields(array $fields, $og_image_url) {
         $clean = self::sanitize_extracted_fields($fields);
 
         // Location Matching

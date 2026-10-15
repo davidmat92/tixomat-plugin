@@ -248,11 +248,7 @@ PROMPT;
 
         $response = wp_remote_post(self::API_URL, [
             'timeout' => 20,
-            'headers' => [
-                'x-api-key'         => $api_key,
-                'content-type'      => 'application/json',
-                'anthropic-version' => '2023-06-01',
-            ],
+            'headers' => class_exists('TIX_AI_Writer') ? TIX_AI_Writer::anthropic_headers($api_key) : ['x-api-key' => $api_key, 'content-type' => 'application/json', 'anthropic-version' => '2023-06-01'],
             'body' => wp_json_encode([
                 'model'      => self::MODEL,
                 'max_tokens' => 256,
