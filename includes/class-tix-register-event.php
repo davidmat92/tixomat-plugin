@@ -454,6 +454,9 @@ class TIX_Register_Event {
         // Dashboard-URL
         $slug = tix_get_settings('organizer_slug');
         $dash_url = $slug ? home_url('/' . $slug . '/') : admin_url('admin.php?page=tix-organizer-dashboard');
+        // evendis Studio (Option tix_studio_url): mit Einmal-Code direkt angemeldet ins Studio
+        $studio_url = class_exists('TIX_Studio') ? TIX_Studio::registration_target($user_id) : '';
+        if ($studio_url !== '') $dash_url = $studio_url;
 
         if ($review && $org_id && !is_wp_error($org_id)) {
             TIX_Org_Approval::notify_organizer($org_id, 'registered');
@@ -461,7 +464,7 @@ class TIX_Register_Event {
             wp_send_json_success([
                 'event_id'      => $event_id,
                 'event_url'     => '',
-                'dashboard_url' => admin_url('admin.php?page=' . TIX_Org_Approval::ORG_SLUG),
+                'dashboard_url' => $studio_url !== '' ? $studio_url : admin_url('admin.php?page=' . TIX_Org_Approval::ORG_SLUG),
                 'review'        => true,
                 'heading'       => 'Geschafft! Wir prüfen dein Konto.',
                 'message'       => 'Dein Event "' . $event_title . '" ist angelegt und geht online, sobald wir dein Konto freigeschaltet haben. Ergänze bis dahin bitte deine Angaben (Rechnungsadresse, Steuer, Auszahlung, Telefon).',
