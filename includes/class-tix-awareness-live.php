@@ -286,6 +286,7 @@ class TIX_Awareness_Live {
         $area = mb_substr(sanitize_text_field((string) $req->get_param('area')), 0, 60);
         if (!in_array($area, $a['areas'], true)) $area = 'Weiß nicht';
         $category = self::category($req->get_param('category'));
+        // Vorname nur, wenn der angemeldete Gast ihn mitschickt (anonymous=false); nie Nachname oder E-Mail
         $anon = $req->get_param('anonymous') === null ? true : filter_var($req->get_param('anonymous'), FILTER_VALIDATE_BOOLEAN);
         $user = is_user_logged_in() ? wp_get_current_user() : null;
         if (!$user) $anon = true;
@@ -300,7 +301,7 @@ class TIX_Awareness_Live {
             'sign'         => mb_substr(sanitize_text_field((string) $req->get_param('sign')), 0, 120),
             'anonymous'    => $anon ? 1 : 0,
             'user_id'      => (!$anon && $user) ? intval($user->ID) : 0,
-            'first_name'   => (!$anon && $user) ? mb_substr((string) ($user->first_name ?: $user->display_name), 0, 60) : '',
+            'first_name'   => (!$anon && $user) ? self::first_name_of($user) : '',
             'device'       => $device,
             'access_key'   => $key,
             'status'       => 'open',
@@ -323,10 +324,22 @@ class TIX_Awareness_Live {
         return rest_ensure_response(['ok' => true, 'id' => $g['id'], 'key' => $g['key'], 'status' => $g['status'], 'alert' => $g, 'point' => self::point($eid)]);
     }
 
+    /** Nur der Vorname: Profil-Vorname, sonst das erste Wort des Anzeigenamens (nicht Login, nicht E-Mail). */
+    public static function first_name_of($user) {
+        $f = trim((string) $user->first_name);
+        if ($f === '') {
+            $d = trim((string) $user->display_name);
+            if ($d !== '' && strpos($d, '@') === false && $d !== $user->user_login) $f = (string) preg_split('/\s+/', $d)[0];
+        }
+        if (strpos($f, '@') !== false) $f = '';
+        return mb_substr(sanitize_text_field($f), 0, 60);
+    }
+
     private static function guest_payload($r, $with_key = false) {
         $out = [
             'id'           => intval($r->id),
             'event_id'     => intval($r->event_id),
+            'category'     => self::category($r->category ?? 'other'),
             'status'       => (string) $r->status,
             'status_label' => self::STATUSES[$r->status] ?? (string) $r->status,
             'taken'        => $r->status !== 'open',
@@ -357,7 +370,7 @@ class TIX_Awareness_Live {
             'text'       => (string) $r->text,
             'sign'       => (string) $r->sign,
             'anonymous'  => (bool) $r->anonymous,
-            'first_name' => (string) $r->first_name,
+            'first_name' => $r->anonymous ? '' : (string) $r->first_name,
             'status'     => (string) $r->status,
             'taken_by'   => $by ? ['id' => $by, 'name' => (string) get_the_author_meta('display_name', $by)] : null,
             'taken_at'   => $r->taken_at ? (string) $r->taken_at : null,
@@ -558,7 +571,7 @@ class TIX_Awareness_Live {
         <h2>Hinweise „Hilfe vor Ort“</h2>
         <p class="description">Die letzten 100 Hinweise aller Events. Hinweise werden 30 Tage nach dem Event automatisch gelöscht. <a href="<?php echo esc_url(wp_nonce_url(admin_url('admin-post.php?action=tix_awareness_alerts_csv'), 'tix_awareness_alerts_csv')); ?>">Als CSV exportieren</a></p>
         <?php if (!$rows) : ?><p>Noch keine Hinweise.</p><?php else : ?>
-        <table class="widefat striped" style="max-width:1100px"><thead><tr><th>Zeit</th><th>Event</th><th>Art</th><th>Bereich</th><th>Text</th><th>Status</th><th>Reaktion</th></tr></thead><tbody>
+        <table class="widefat striped" style="max-width:1100px"><thead><tr><th>Zeit</th><th>Event</th><th>Art</th><th>Bereich</th><th>Text</th><th>Vorname</th><th>Status</th><th>Reaktion</th></tr></thead><tbody>
         <?php foreach ($rows as $r) : $c = self::category($r->category ?? 'other'); $m = self::reaction_min($r); ?>
             <tr>
                 <td><?php echo esc_html(mysql2date('d.m.Y H:i', $r->created)); ?></td>
@@ -566,6 +579,7 @@ class TIX_Awareness_Live {
                 <td><?php echo in_array($c, self::PRIORITY, true) ? '<strong>' . esc_html(self::CATEGORIES[$c]) . '</strong>' : esc_html(self::CATEGORIES[$c]); ?></td>
                 <td><?php echo esc_html($r->area); ?></td>
                 <td><?php echo esc_html($r->text); ?></td>
+                <td><?php echo $r->anonymous ? '<span style="color:#888">anonym</span>' : esc_html($r->first_name); ?></td>
                 <td><?php echo esc_html(self::status_label($r->status)); ?></td>
                 <td><?php echo $m === null ? '–' : esc_html(str_replace('.', ',', (string) $m) . ' min'); ?></td>
             </tr>
@@ -584,12 +598,12 @@ class TIX_Awareness_Live {
         header('Content-Disposition: attachment; filename="awareness-hinweise-' . current_time('Y-m-d') . '.csv"');
         $out = fopen('php://output', 'w');
         fwrite($out, "\xEF\xBB\xBF");
-        fputcsv($out, ['ID', 'Zeit', 'Event-ID', 'Event', 'Art', 'Art (Schlüssel)', 'Bereich', 'Text', 'Erkennungszeichen', 'Anonym', 'Status', 'Übernommen', 'Erledigt', 'Reaktion (min)'], ';');
+        fputcsv($out, ['ID', 'Zeit', 'Event-ID', 'Event', 'Art', 'Art (Schlüssel)', 'Bereich', 'Text', 'Erkennungszeichen', 'Anonym', 'Vorname', 'Status', 'Übernommen', 'Erledigt', 'Reaktion (min)'], ';');
         foreach ($rows as $r) {
             $c = self::category($r->category ?? 'other');
             fputcsv($out, [
                 intval($r->id), $r->created, intval($r->event_id), html_entity_decode(get_the_title(intval($r->event_id)), ENT_QUOTES, 'UTF-8'),
-                self::CATEGORIES[$c], $c, $r->area, $r->text, $r->sign, $r->anonymous ? 'ja' : 'nein',
+                self::CATEGORIES[$c], $c, $r->area, $r->text, $r->sign, $r->anonymous ? 'ja' : 'nein', $r->anonymous ? '' : $r->first_name,
                 self::status_label($r->status), (string) $r->taken_at, (string) $r->done_at, (string) self::reaction_min($r),
             ], ';');
         }

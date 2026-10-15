@@ -13,6 +13,7 @@ if (!defined('ABSPATH')) exit;
  * Ausgabe nur mit Inhalt (Team, Getränke-Tests oder Text). REST: `awareness` im Event-Detail,
  * `awareness_team` in der Liste, Filter `?awareness=1` (TIX_Public_Events). Event-Verteilung schickt die
  * wirksamen Angaben als `awareness` mit; der Empfänger speichert sie am Event (custom).
+ * REST (1.38.440): GET/POST /awareness/settings[?event_id=|?organizer=] – Angaben ohne WP-Admin pflegen.
  */
 class TIX_Awareness {
 
@@ -20,6 +21,8 @@ class TIX_Awareness {
     const META     = '_tix_awareness';
     const META_MODE = '_tix_awareness_mode';
     const DEFAULT_AREAS = ['Tanzfläche', 'Bar', 'Toiletten', 'Eingang', 'Draußen', 'Weiß nicht'];
+    const MAX_AREAS = 12;
+    const SIGN_MAX  = 160;
 
     public static function init() {
         add_action('add_meta_boxes', [__CLASS__, 'add_metabox']);
@@ -27,6 +30,7 @@ class TIX_Awareness {
         add_action('save_post_tix_organizer', [__CLASS__, 'save_organizer_box'], 20, 2);
         add_action('admin_menu', [__CLASS__, 'menu'], 42);
         add_action('admin_post_tix_awareness_site', [__CLASS__, 'save_site']);
+        add_action('rest_api_init', [__CLASS__, 'register_routes']);
     }
 
     /** Felder bereinigen (Text kurz, Bereiche 1–12 Einträge). */
@@ -39,10 +43,10 @@ class TIX_Awareness {
         return [
             'enabled'       => !empty($in['enabled']),
             'team'          => !empty($in['team']),
-            'sign'          => $t('sign', 120),
+            'sign'          => $t('sign', self::SIGN_MAX),
             'point'         => $t('point', 120),
             'codeword'      => $t('codeword', 120),
-            'areas'         => array_slice($areas ?: self::DEFAULT_AREAS, 0, 12),
+            'areas'         => array_slice($areas ?: self::DEFAULT_AREAS, 0, self::MAX_AREAS),
             'drink_tests'   => !empty($in['drink_tests']),
             'taxi'          => $t('taxi', 60),
             'rules'         => mb_substr(sanitize_textarea_field((string) ($in['rules'] ?? '')), 0, 1000),
@@ -192,6 +196,131 @@ class TIX_Awareness {
 
     public static function flush() {
         if (class_exists('TIX_Public_Events')) TIX_Public_Events::flush();
+    }
+
+    // ── REST: Angaben ohne WP-Admin pflegen (App, evendis Studio, evendis-App) ──
+
+    const FIELDS = ['enabled', 'team', 'sign', 'point', 'codeword', 'areas', 'drink_tests', 'taxi', 'rules', 'alarm_enabled'];
+
+    public static function register_routes() {
+        register_rest_route('tixomat/v1', '/awareness/settings', [
+            ['methods' => 'GET',  'callback' => [__CLASS__, 'rest_settings'],      'permission_callback' => [__CLASS__, 'perm_settings']],
+            ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_save_settings'], 'permission_callback' => [__CLASS__, 'perm_settings']],
+        ]);
+    }
+
+    /** Staff (Admin, Veranstalter, Mitarbeiter) oder Awareness-Team; Mehr-Veranstalter-Modus über TIX_App_Scope. */
+    public static function perm_settings(WP_REST_Request $req) {
+        if (!is_user_logged_in()) return new WP_Error('rest_not_logged_in', 'Authentifizierung erforderlich.', ['status' => 401]);
+        $u = wp_get_current_user();
+        $staff = class_exists('TIX_REST_API') && TIX_REST_API::is_staff_user($u);
+        if (!$staff && !$u->has_cap('tix_app_awareness')) return new WP_Error('rest_forbidden', 'Keine Berechtigung.', ['status' => 403]);
+        if (!$u->has_cap('manage_options') && class_exists('TIX_App_Scope') && TIX_App_Scope::multi()) {
+            $r = TIX_App_Scope::require_organizer();
+            if (is_wp_error($r)) return $r;
+        }
+        return true;
+    }
+
+    /**
+     * Ziel der Anfrage: ['scope' => event|organizer|site, 'id' => …] oder WP_Error.
+     * $write: Vorgaben (Veranstalter/Seite) ändern nur Admin bzw. Inhaber/Team-Admin; Events wie im Event-Editor.
+     */
+    private static function settings_target(WP_REST_Request $req, $write) {
+        $u = wp_get_current_user();
+        $admin = $u->has_cap('manage_options');
+        $multi = class_exists('TIX_App_Scope') && TIX_App_Scope::multi();
+        $staff = class_exists('TIX_REST_API') && TIX_REST_API::is_staff_user($u);
+        $eid = absint($req->get_param('event_id'));
+        if ($eid) {
+            if (get_post_type($eid) !== 'event') return new WP_Error('not_found', 'Event nicht gefunden.', ['status' => 404]);
+            $ok = $admin || (class_exists('TIX_REST_API') ? TIX_REST_API::user_can_access_event($eid) : !$multi);
+            if (!$ok) {
+                return new WP_Error('rest_forbidden', 'Kein Zugriff auf dieses Event.', ['status' => 403]);
+            }
+            if ($write && !$staff) return new WP_Error('rest_forbidden', 'Nur Veranstalter und Mitarbeiter können Events ändern.', ['status' => 403]);
+            return ['scope' => 'event', 'id' => $eid];
+        }
+        if ($multi) {
+            $oid = $admin ? absint($req->get_param('organizer')) : TIX_App_Scope::organizer_id_for_user();
+            if ($admin && $oid && get_post_type($oid) !== 'tix_organizer') return new WP_Error('not_found', 'Veranstalter nicht gefunden.', ['status' => 404]);
+            if ($oid) {
+                if ($write && !$admin && !TIX_App_Scope::is_org_manager()) {
+                    return new WP_Error('rest_forbidden', 'Nur der Veranstalter selbst (Inhaber oder Team-Admin) kann die Vorgabe ändern.', ['status' => 403]);
+                }
+                return ['scope' => 'organizer', 'id' => $oid];
+            }
+            if (!$admin) return new WP_Error('no_organizer', 'Dieses Konto ist keinem Veranstalter zugeordnet.', ['status' => 403]);
+        }
+        if ($write && !$admin && !$staff) return new WP_Error('rest_forbidden', 'Keine Berechtigung.', ['status' => 403]);
+        return ['scope' => 'site', 'id' => 0];
+    }
+
+    private static function settings_payload(array $t) {
+        $out = ['ok' => true, 'scope' => $t['scope']];
+        if ($t['scope'] === 'event') {
+            $a = self::sanitize(get_post_meta($t['id'], self::META, true));
+            $out += ['event_id' => intval($t['id']), 'mode' => self::event_mode($t['id'])];
+            unset($a['enabled']);
+            $out['settings'] = $a;
+            $out['effective'] = self::effective($t['id']);
+            $oid = intval(get_post_meta($t['id'], '_tix_organizer_id', true));
+            $out['source'] = ($oid && self::organizer($oid)['enabled']) ? 'organizer' : (self::site()['enabled'] ? 'site' : 'none');
+        } else {
+            if ($t['scope'] === 'organizer') $out['organizer_id'] = intval($t['id']);
+            $out['settings'] = $t['scope'] === 'organizer' ? self::organizer($t['id']) : self::site();
+        }
+        $out['default_areas'] = self::DEFAULT_AREAS;
+        $out['limits'] = ['areas' => self::MAX_AREAS, 'sign' => self::SIGN_MAX];
+        $out['alarm_live'] = class_exists('TIX_Awareness_Live') && TIX_Awareness_Live::flags()['alarm_live'];
+        return $out;
+    }
+
+    /** GET /awareness/settings[?event_id=|?organizer=] */
+    public static function rest_settings(WP_REST_Request $req) {
+        $t = self::settings_target($req, false);
+        return is_wp_error($t) ? $t : rest_ensure_response(self::settings_payload($t));
+    }
+
+    /** POST /awareness/settings {mode?, settings{…} | Felder oben} – nur übergebene Felder ändern sich. */
+    public static function rest_save_settings(WP_REST_Request $req) {
+        $t = self::settings_target($req, true);
+        if (is_wp_error($t)) return $t;
+        $body = $req->get_json_params();
+        if (!is_array($body)) $body = $req->get_body_params();
+        $body = is_array($body) ? $body : [];
+        $in = isset($body['settings']) && is_array($body['settings']) ? $body['settings'] : $body;
+        $in = array_intersect_key($in, array_flip(self::FIELDS));
+        if (isset($in['areas'])) {
+            $areas = is_string($in['areas']) ? preg_split('/\r\n|\r|\n|,/', $in['areas']) : (array) $in['areas'];
+            $areas = array_filter(array_map('trim', array_map('strval', $areas)), 'strlen');
+            if (count($areas) > self::MAX_AREAS) return new WP_Error('tix_invalid_field', 'Höchstens ' . self::MAX_AREAS . ' Orte.', ['status' => 400, 'field' => 'areas']);
+            $in['areas'] = array_values($areas);
+        }
+        if (isset($in['sign']) && mb_strlen((string) $in['sign']) > self::SIGN_MAX) {
+            return new WP_Error('tix_invalid_field', 'Das Erkennungszeichen darf höchstens ' . self::SIGN_MAX . ' Zeichen lang sein.', ['status' => 400, 'field' => 'sign']);
+        }
+        if ($t['scope'] === 'event') {
+            if (isset($body['mode'])) {
+                $m = sanitize_key((string) $body['mode']);
+                if (!in_array($m, ['inherit', 'custom', 'off'], true)) return new WP_Error('tix_invalid_field', 'Ungültiger Modus (inherit, custom, off).', ['status' => 400, 'field' => 'mode']);
+                if ($m === 'inherit') delete_post_meta($t['id'], self::META_MODE); else update_post_meta($t['id'], self::META_MODE, $m);
+            }
+            unset($in['enabled']);
+            if ($in) {
+                $a = self::sanitize(array_merge(self::sanitize(get_post_meta($t['id'], self::META, true)), $in));
+                $a['enabled'] = true;
+                update_post_meta($t['id'], self::META, $a);
+                // Eigene Angaben ohne Modus → eigene Angaben gelten
+                if (!isset($body['mode']) && self::event_mode($t['id']) === 'inherit') update_post_meta($t['id'], self::META_MODE, 'custom');
+            }
+        } elseif ($t['scope'] === 'organizer') {
+            self::save_organizer($t['id'], array_merge(self::organizer($t['id']), $in));
+        } else {
+            update_option(self::OPTION, self::sanitize(array_merge(self::site(), $in)), false);
+        }
+        self::flush();
+        return rest_ensure_response(self::settings_payload($t));
     }
 
     // ── Seite (Ein-Veranstalter-Betrieb, Rückfall im Mehr-Veranstalter-Modus) ──
