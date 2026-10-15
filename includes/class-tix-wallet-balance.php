@@ -31,7 +31,7 @@ if (!defined('ABSPATH')) exit;
 class TIX_Wallet_Balance {
 
     const NS        = 'tixomat/v1';
-    const DB_VER    = '1';
+    const DB_VER    = '2'; // 2: Geräte-Bestätigung + Zahlungsvorgänge (Phase 2, TIX_Wallet_Pay)
     const OPT       = '_tix_wallet';
     const META_ORG  = '_tix_org_wallet';
     const OPT_SPEND = '_tix_wallet_spend_order';
@@ -125,6 +125,9 @@ class TIX_Wallet_Balance {
             status varchar(10) NOT NULL DEFAULT 'pending',
             verified_at datetime NULL,
             last_used datetime NULL,
+            code_hash varchar(64) NULL,
+            code_expires int(10) unsigned NOT NULL DEFAULT 0,
+            code_tries tinyint(3) unsigned NOT NULL DEFAULT 0,
             created datetime NOT NULL,
             PRIMARY KEY  (id),
             UNIQUE KEY key_id (key_id),
@@ -134,8 +137,17 @@ class TIX_Wallet_Balance {
             device_id bigint(20) unsigned NOT NULL,
             nonce varchar(32) NOT NULL,
             used_at int(10) unsigned NOT NULL DEFAULT 0,
+            wallet_id bigint(20) unsigned NOT NULL DEFAULT 0,
+            kind varchar(10) NOT NULL DEFAULT 'charge',
+            state varchar(10) NOT NULL DEFAULT 'used',
+            amount bigint(20) NOT NULL DEFAULT 0,
+            station varchar(60) NOT NULL DEFAULT '',
+            staff_user_id bigint(20) unsigned NOT NULL DEFAULT 0,
+            tx_id bigint(20) unsigned NOT NULL DEFAULT 0,
+            idempotency_key varchar(80) NOT NULL DEFAULT '',
             PRIMARY KEY  (device_id,nonce),
-            KEY used_at (used_at)
+            KEY used_at (used_at),
+            KEY staff_idem (staff_user_id,idempotency_key)
         ) ENGINE=InnoDB $c;");
         update_option('tix_wallet_db', self::DB_VER, false);
     }
@@ -703,6 +715,8 @@ class TIX_Wallet_Balance {
         global $wpdb;
         if (!self::ready()) return;
         $W = self::t('wallets');
+        // Geräte-Schlüssel (Phase 2) entfernen – ohne Konto kein Bezahlen mehr
+        $wpdb->delete(self::t('wallet_devices'), ['user_id' => intval($user_id)]);
         foreach ((array) $wpdb->get_results($wpdb->prepare("SELECT id, balance_paid, balance_bonus FROM $W WHERE user_id = %d", intval($user_id)), ARRAY_A) as $w) {
             $wpdb->update($W, ['user_id' => -intval($w['id']), 'status' => 'closed', 'updated' => current_time('mysql', true)], ['id' => intval($w['id'])]);
             if (intval($w['balance_paid']) + intval($w['balance_bonus']) > 0) {
