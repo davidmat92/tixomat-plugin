@@ -48,7 +48,7 @@ class TIX_Muttizettel {
     public static function render_organizer($post) {
         wp_nonce_field('tix_org_modules', '_tix_org_modules_nonce');
         $mods = TIX_Public_Platform::modules($post->ID);
-        $labels = ['tickets' => 'Tickets', 'music' => 'Musikwunsch', 'loyalty' => 'Prämien (Stempelkarte)', 'giftcards' => 'Gutscheine', 'support' => 'Support', 'muttizettel' => 'Muttizettel'];
+        $labels = ['tickets' => 'Tickets', 'music' => 'Musikwunsch', 'loyalty' => 'Prämien (Stempelkarte)', 'giftcards' => 'Gutscheine', 'support' => 'Support', 'muttizettel' => 'Muttizettel', 'wallet' => 'Guthaben (Bezahlen vor Ort)'];
         foreach ($mods as $k => $on) {
             $dis = $k === 'tickets' ? ' disabled' : '';
             echo '<p style="margin:4px 0;"><label><input type="checkbox" name="tix_org_modules[' . esc_attr($k) . ']" value="1"' . checked($on || $k === 'tickets', true, false) . $dis . '> ' . esc_html($labels[$k] ?? $k) . '</label></p>';

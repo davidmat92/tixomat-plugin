@@ -526,6 +526,8 @@ class TIX_App_Account {
             return self::error('tix_delete_forbidden', 'Dieses Konto kann nicht in der App gelöscht werden. Bitte wende dich an den Support.', 403);
         }
         $uid = $user->ID;
+        // Offenes Guthaben: nur mit Richtlinie „block“ verweigern (Entscheidung offen, Apple 5.1.1(v)); sonst anonymisiert
+        if (class_exists('TIX_Wallet_Balance') && ($werr = TIX_Wallet_Balance::delete_block_error($uid))) return $werr;
         // Profilbild-Datei entfernen (liegt außerhalb der Mediathek).
         $file = basename((string) get_user_meta($uid, '_tix_avatar_file', true));
         if ($file !== '' && $file !== '.' && $file !== '..') {

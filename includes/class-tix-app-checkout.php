@@ -464,6 +464,13 @@ class TIX_App_Checkout {
             $qty = intval($it['qty'] ?? ($it['quantity'] ?? 0));
             if ($qty <= 0) continue;
             $cat = (isset($cats[$idx]) && is_array($cats[$idx])) ? $cats[$idx] : null;
+            // Guthaben aufladen (TIX_Wallet_Balance, 1.38.432): eigene Position, Betrag fest bzw. Wunschbetrag
+            if ($cat && !empty($cat['wallet_topup']) && class_exists('TIX_Wallet_Balance')) {
+                $wi = TIX_Wallet_Balance::cart_item($event_id, $idx, $cat, $qty, $it['custom_amount'] ?? 0);
+                if (is_wp_error($wi)) return $wi;
+                $cart['items'][] = $wi;
+                continue;
+            }
             if ($cat && !empty($cat['gift_card'])) {
                 $gifts[] = ['index' => $idx, 'qty' => $qty, 'custom_amount' => round(floatval($it['custom_amount'] ?? 0), 2)];
                 continue;
@@ -1232,8 +1239,16 @@ class TIX_App_Checkout {
             if (is_wp_error($cart)) return $cart;
             // E-Mail für „einmal pro E-Mail“: Konto oder (Gast) optional ?email=
             $email = $user ? (string) $user->user_email : (string) ($req->get_param('email') ?? '');
-            $cart = self::apply_coupon($cart, $coupon, $email);
+            // Guthaben aufladen: Konto Pflicht, Limits schon hier, keine Gutscheine
+            $topup = class_exists('TIX_Wallet_Balance') && TIX_Wallet_Balance::cart_topups($cart);
+            if ($topup) {
+                if ($coupon !== '') return self::error('tix_wallet_coupon', 'Gutscheine gelten nicht für das Aufladen von Guthaben.', 400);
+                if ($e = TIX_Wallet_Balance::cart_error($cart, $user)) return $e;
+            } else {
+                $cart = self::apply_coupon($cart, $coupon, $email);
+            }
             $t    = self::totals($cart);
+            if ($topup) $resp['wallet_topup'] = TIX_Wallet_Balance::quote_info($cart);
             $resp['totals']          = $t;
             $resp['payment_methods'] = self::payment_methods($t['total'] <= 0);
             $resp['coupon'] = [
@@ -1362,7 +1377,13 @@ class TIX_App_Checkout {
         $hold_token = (string) $req->get_param('hold_token');
         $cart  = self::build_cart($event_id, is_array($items) ? $items : [], $hold_token);
         if (is_wp_error($cart)) return $cart;
-        $cart = self::apply_coupon($cart, (string) ($req->get_param('coupon') ?? ''));
+        if (class_exists('TIX_Wallet_Balance') && TIX_Wallet_Balance::cart_topups($cart)) {
+            // Guthaben aufladen: Konto Pflicht, Limits erneut prüfen, keine Gutscheine
+            if ((string) ($req->get_param('coupon') ?? '') !== '') return self::error('tix_wallet_coupon', 'Gutscheine gelten nicht für das Aufladen von Guthaben.', 400);
+            if ($e = TIX_Wallet_Balance::cart_error($cart, $user)) return $e;
+        } else {
+            $cart = self::apply_coupon($cart, (string) ($req->get_param('coupon') ?? ''));
+        }
         // Nur-App-Gutschein außerhalb der App: zuerst melden (vor Zahlart/Adresse), mit Link in die App
         if (!empty($cart['coupon_app_only'])) {
             return new WP_Error('tix_coupon_app_only', (string) $cart['coupon_error'], ['status' => 409] + (array) $cart['coupon_app_only']);

@@ -222,7 +222,7 @@ class TIX_Mail_Follow {
         delete_option('tix_mail_follow_new');
         foreach ($q as $eid) {
             $eid = intval($eid);
-            if (get_post_status($eid) !== 'publish' || get_post_meta($eid, '_tix_system_giftcard_event', true)) continue;
+            if (get_post_status($eid) !== 'publish' || get_post_meta($eid, '_tix_system_giftcard_event', true) || get_post_meta($eid, '_tix_system_wallet_event', true)) continue;
             $oid = intval(get_post_meta($eid, '_tix_organizer_id', true));
             if (!$oid) continue;
             $list = get_post_meta($oid, self::META_QUEUE, true);

@@ -31,6 +31,7 @@ class TIX_Public_Platform {
         'giftcards'   => false,
         'support'     => false,
         'muttizettel' => false,
+        'wallet'      => false, // Guthaben (TIX_Wallet_Balance, 1.38.432)
     ];
 
     public static function init() {

@@ -296,6 +296,12 @@ class TIX_Gateway_Mollie {
 
         $tix_status = $map[$status] ?? 'pending';
 
+        // Rückbuchung (Chargeback): Mollie meldet sie bei Status „paid“ mit amountChargedBack → eigener Hook
+        // (Guthaben-Gegenbuchung, idempotent in TIX_Wallet_Balance)
+        if (!empty($body['amountChargedBack']['value']) && floatval($body['amountChargedBack']['value']) > 0) {
+            do_action('tix_order_chargeback', $order_id, floatval($body['amountChargedBack']['value']), 'mollie');
+        }
+
         // Atomic idempotency via transient lock
         $lock_key = 'tix_mollie_lock_' . $order_id;
         if (get_transient($lock_key)) {

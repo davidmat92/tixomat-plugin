@@ -332,6 +332,10 @@ class TIX_Native_Checkout {
     public static function add_items(array $cart, array $items) {
         foreach ($items as $item) {
             $event_id  = intval($item['event_id'] ?? 0);
+            // Guthaben lädt man nur in der App mit Konto auf (TIX_Wallet_Balance)
+            if (class_exists('TIX_Wallet_Balance') && TIX_Wallet_Balance::is_wallet_event($event_id)) {
+                return 'Guthaben kannst du nur in der App mit deinem Konto aufladen.';
+            }
             $cat_index = intval($item['cat_index'] ?? $item['category_index'] ?? 0);
             $qty       = max(1, intval($item['quantity'] ?? ($item['qty'] ?? 1)));
             $is_special = !empty($item['special']);
@@ -2314,6 +2318,7 @@ class TIX_Native_Checkout {
                     'meta_key'       => '_tix_ticket_order_id',
                     'meta_value'     => $order_id,
                 ]))->found_posts;
+                if ($existing === 0 && class_exists('TIX_Wallet_Balance') && TIX_Wallet_Balance::order_is_wallet_only($order_id)) $existing = -1; // nur Guthaben, keine Tickets
                 if ($existing === 0) {
                     // Hook hat keine Tickets erstellt → direkt nachholen
                     TIX_Tickets::on_native_order_completed($order_id);
