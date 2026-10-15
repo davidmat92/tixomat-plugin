@@ -127,6 +127,10 @@ class TIX_REST_API {
         if (!get_role('tix_entrance')) {
             add_role('tix_entrance', 'Eingang (App)', ['read' => true, 'tix_app_entrance' => true]);
         }
+        // Rolle „Kasse & Bar (App)“ (1.38.441): nur Abendkasse (/pos/*) und Guthaben abbuchen/aufladen
+        if (!get_role('tix_cashier')) {
+            add_role('tix_cashier', 'Kasse & Bar (App)', ['read' => true, 'tix_app_pos' => true, 'tix_app_wallet_charge' => true]);
+        }
     }
 
     /** Admin, Mitarbeiter (App) oder Veranstalter-Rolle? */
@@ -406,41 +410,46 @@ class TIX_REST_API {
             'permission_callback' => [__CLASS__, 'check_organizer'],
         ]);
 
-        // ── POS ──
+        // ── POS ── (auch Rolle „Kasse & Bar“, check_pos)
+        register_rest_route($ns, '/pos/events', [
+            'methods'             => 'GET',
+            'callback'            => [__CLASS__, 'pos_events'],
+            'permission_callback' => [__CLASS__, 'check_pos'],
+        ]);
         register_rest_route($ns, '/pos/events/(?P<id>\d+)/categories', [
             'methods'             => 'GET',
             'callback'            => [__CLASS__, 'pos_categories'],
-            'permission_callback' => [__CLASS__, 'check_organizer'],
+            'permission_callback' => [__CLASS__, 'check_pos'],
         ]);
 
         register_rest_route($ns, '/pos/orders', [
             'methods'             => 'POST',
             'callback'            => [__CLASS__, 'pos_create_order'],
-            'permission_callback' => [__CLASS__, 'check_organizer'],
+            'permission_callback' => [__CLASS__, 'check_pos'],
         ]);
 
         register_rest_route($ns, '/pos/orders/(?P<id>\d+)/email', [
             'methods'             => 'POST',
             'callback'            => [__CLASS__, 'pos_send_email'],
-            'permission_callback' => [__CLASS__, 'check_organizer'],
+            'permission_callback' => [__CLASS__, 'check_pos'],
         ]);
 
         register_rest_route($ns, '/pos/orders/(?P<id>\d+)/void', [
             'methods'             => 'POST',
             'callback'            => [__CLASS__, 'pos_void_order'],
-            'permission_callback' => [__CLASS__, 'check_organizer'],
+            'permission_callback' => [__CLASS__, 'check_pos'],
         ]);
 
         register_rest_route($ns, '/pos/report', [
             'methods'             => 'GET',
             'callback'            => [__CLASS__, 'pos_report'],
-            'permission_callback' => [__CLASS__, 'check_organizer'],
+            'permission_callback' => [__CLASS__, 'check_pos'],
         ]);
 
         register_rest_route($ns, '/pos/transactions', [
             'methods'             => 'GET',
             'callback'            => [__CLASS__, 'pos_transactions'],
-            'permission_callback' => [__CLASS__, 'check_organizer'],
+            'permission_callback' => [__CLASS__, 'check_pos'],
         ]);
 
         // ── Guest / Customer Auth (unauthenticated) ──
@@ -524,6 +533,48 @@ class TIX_REST_API {
         return new WP_Error('rest_forbidden', 'Keine Berechtigung. Rolle „Veranstalter“ oder „Mitarbeiter (App)“ erforderlich.', ['status' => 403]);
     }
 
+    /** Abendkasse: Staff (wie check_organizer) oder Rolle „Kasse & Bar“ (Recht tix_app_pos). */
+    public static function check_pos(WP_REST_Request $req) {
+        if (!is_user_logged_in()) return new WP_Error('rest_not_logged_in', 'Authentifizierung erforderlich.', ['status' => 401]);
+        $u = wp_get_current_user();
+        if (self::is_staff_user($u)) return self::check_organizer($req);
+        if (!$u->has_cap('tix_app_pos')) return new WP_Error('rest_forbidden', 'Keine Berechtigung für die Kasse.', ['status' => 403]);
+        if (class_exists('TIX_App_Scope') && TIX_App_Scope::multi()) return TIX_App_Scope::require_organizer();
+        return true;
+    }
+
+    /** Rolle „Kasse & Bar“ ohne weitere Staff-Rolle? */
+    public static function is_cashier_only($user) {
+        return $user && $user->ID && $user->has_cap('tix_app_pos') && !self::is_staff_user($user);
+    }
+
+    /** GET /pos/events – Events für die Kasse (laufend und die nächsten 30 Tage, im Mehr-Veranstalter-Modus nur eigene). */
+    public static function pos_events(WP_REST_Request $req) {
+        $now = current_time('timestamp');
+        $args = ['post_type' => 'event', 'post_status' => 'publish', 'posts_per_page' => 50, 'fields' => 'ids',
+            'meta_key' => '_tix_date_start', 'orderby' => 'meta_value', 'order' => 'ASC',
+            'meta_query' => [['key' => '_tix_date_start', 'value' => [gmdate('Y-m-d', $now - 2 * DAY_IN_SECONDS), gmdate('Y-m-d', $now + 30 * DAY_IN_SECONDS)], 'compare' => 'BETWEEN', 'type' => 'DATE']]];
+        if (class_exists('TIX_App_Scope') && TIX_App_Scope::scoped()) {
+            $oid = TIX_App_Scope::organizer_id_for_user();
+            if (!$oid) return rest_ensure_response(['ok' => true, 'events' => []]);
+            $args['meta_query'][] = TIX_App_Scope::event_meta_clause($oid);
+        }
+        $out = [];
+        foreach (get_posts($args) as $eid) {
+            $end = (string) (get_post_meta($eid, '_tix_date_end', true) ?: get_post_meta($eid, '_tix_date_start', true));
+            if ($end !== '' && strtotime($end) < strtotime(gmdate('Y-m-d', $now - DAY_IN_SECONDS))) continue;
+            $out[] = [
+                'id'         => intval($eid),
+                'title'      => html_entity_decode(get_the_title($eid), ENT_QUOTES, 'UTF-8'),
+                'date_start' => (string) get_post_meta($eid, '_tix_date_start', true),
+                'time_start' => (string) get_post_meta($eid, '_tix_time_start', true),
+                'date_end'   => (string) get_post_meta($eid, '_tix_date_end', true),
+                'location'   => (string) get_post_meta($eid, '_tix_location', true),
+            ];
+        }
+        return rest_ensure_response(['ok' => true, 'events' => $out]);
+    }
+
     /** Hat der Nutzer die Rolle „Eingang (App)“? */
     public static function is_entrance_user($user) {
         return $user && $user->ID && (
@@ -576,7 +627,8 @@ class TIX_REST_API {
         // die restlichen Endpunkte sperrt bereits die jeweilige permission_callback).
         if ($user->has_cap('manage_options')
             || in_array('tix_staff', (array) $user->roles, true)
-            || self::is_entrance_user($user)) {
+            || self::is_entrance_user($user)
+            || $user->has_cap('tix_app_pos')) {
             return true;
         }
         // Veranstalter: nur eigene Events – ohne Verknüpfung alle (Ein-Club-Setup)
@@ -672,6 +724,15 @@ class TIX_REST_API {
     //  AUTH
     // ═══════════════════════════════════════════
 
+    private static function app_role_key($user) {
+        $roles = (array) $user->roles;
+        if (in_array('administrator', $roles, true)) return 'admin_wp';
+        foreach (['admin' => 'tix_organizer', 'cashier' => 'tix_cashier', 'entrance' => 'tix_entrance', 'awareness' => 'tix_awareness', 'dj' => 'tix_dj', 'staff' => 'tix_staff'] as $k => $r) {
+            if (in_array($r, $roles, true)) return $k;
+        }
+        return null;
+    }
+
     public static function get_me(WP_REST_Request $req) {
         $user = wp_get_current_user();
         $organizer_id = null;
@@ -695,6 +756,8 @@ class TIX_REST_API {
                 'role'         => implode(',', (array) $user->roles),
                 'organizer_id' => $organizer_id,
                 'avatar'       => get_avatar_url($user->ID, ['size' => 96]),
+                // App-Rolle wie in /team: admin_wp|admin|dj|entrance|awareness|cashier|staff|null (1.38.441)
+                'app_role'     => self::app_role_key($user),
             ],
         ];
         // Mehr-Veranstalter-Modus: Veranstalter (Name, Status, Inhaber?) zusätzlich
@@ -913,9 +976,20 @@ class TIX_REST_API {
             return new WP_Error('forbidden', 'Kein Zugriff.', ['status' => 403]);
         }
         // Native Bestellungen mit Positionen dieses Events (kein WooCommerce)
+        // Seitenweise (1.38.441): page, per_page (1–100), status paid|open|cancelled|all, search; ohne page/per_page wie bisher bis 200
+        $groups = ['paid' => ['completed', 'processing'], 'open' => ['pending', 'on-hold'], 'cancelled' => ['cancelled', 'refunded', 'failed']];
+        $status = sanitize_key((string) ($req->get_param('status') ?? 'all'));
+        $search = mb_substr(sanitize_text_field((string) ($req->get_param('search') ?? '')), 0, 80);
+        $paged  = $req->get_param('page') !== null || $req->get_param('per_page') !== null;
+        $per    = $paged ? max(1, min(100, intval($req->get_param('per_page') ?: 25))) : 200;
+        $page   = max(1, intval($req->get_param('page') ?: 1));
+        $base   = ['event_id' => $id, 'search' => $search];
+        $filter = $base + (isset($groups[$status]) ? ['status' => $groups[$status]] : []);
         $orders_out = [];
+        $total = 0;
         if (class_exists('TIX_Order')) {
-            $orders = TIX_Order::query(['event_id' => $id, 'limit' => 200]);
+            $total  = TIX_Order::count($filter);
+            $orders = TIX_Order::query($filter + ['limit' => $per, 'offset' => ($page - 1) * $per]);
             foreach ($orders as $order) {
                 $items = [];
                 $event_total = 0;
@@ -946,10 +1020,20 @@ class TIX_REST_API {
                 ];
             }
         }
+        $counts = ['all' => 0, 'paid' => 0, 'open' => 0, 'cancelled' => 0];
+        if (class_exists('TIX_Order')) {
+            $counts['all'] = TIX_Order::count($base);
+            foreach ($groups as $k => $sts) $counts[$k] = TIX_Order::count($base + ['status' => $sts]);
+        }
         return rest_ensure_response([
-            'ok'     => true,
-            'orders' => $orders_out,
-            'count'  => count($orders_out),
+            'ok'       => true,
+            'orders'   => $orders_out,
+            'count'    => count($orders_out),
+            'total'    => $total,
+            'page'     => $page,
+            'per_page' => $per,
+            'has_more' => $page * $per < $total,
+            'counts'   => $counts,
         ]);
     }
 

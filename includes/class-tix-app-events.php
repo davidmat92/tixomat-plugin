@@ -11,6 +11,12 @@
  *   POST /events/{id}/image          → Flyer (Beitragsbild) hochladen, multipart `image`
  *   GET  /orders/{id}/detail         → Bestellung mit Positionen, Kunde, Tickets
  *   POST /orders/{id}/resend-email   → Bestellbestätigung mit Tickets erneut senden
+ *   (1.38.441, evendis Studio Stufe 2)
+ *   POST /events/{id}/duplicate      → Kopie als Entwurf {title?, date_start?, date_end?}
+ *   POST /events/import-url          → Eventseite einlesen {url} → {fields} (TIX_AI_Writer::import_url)
+ *   POST /orders/{id}/refund         → erstatten {amount?, cancel_tickets?, reason?} (Inhaber/Team-Admin)
+ *   POST /orders/{id}/cancel         → unbezahlte Bestellung stornieren
+ *   Kategorien: `bundle {buy, pay, label}`; Event: `group_discount {enabled, tiers[{min_qty, percent}], combine_*}`
  *
  * Kategorien werden nach Index gemischt: Felder, die die App nicht kennt
  * (Preisphasen, Gutschein-Flags, Bilder, Bundles …), bleiben erhalten.
@@ -58,6 +64,26 @@ class TIX_App_Events {
             'methods'             => 'POST',
             'callback'            => [__CLASS__, 'order_resend'],
             'permission_callback' => $perm,
+        ]);
+        register_rest_route($ns, '/events/(?P<id>\d+)/duplicate', [
+            'methods'             => 'POST',
+            'callback'            => [__CLASS__, 'duplicate'],
+            'permission_callback' => $perm,
+        ]);
+        register_rest_route($ns, '/events/import-url', [
+            'methods'             => 'POST',
+            'callback'            => [__CLASS__, 'import_url'],
+            'permission_callback' => $perm,
+        ]);
+        register_rest_route($ns, '/orders/(?P<id>\d+)/refund', [
+            'methods'             => 'POST',
+            'callback'            => [__CLASS__, 'order_refund'],
+            'permission_callback' => [__CLASS__, 'perm_money'],
+        ]);
+        register_rest_route($ns, '/orders/(?P<id>\d+)/cancel', [
+            'methods'             => 'POST',
+            'callback'            => [__CLASS__, 'order_cancel'],
+            'permission_callback' => [__CLASS__, 'perm_money'],
         ]);
     }
 
@@ -211,6 +237,8 @@ class TIX_App_Events {
                     'stock'      => (isset($c['stock']) && $c['stock'] !== '') ? intval($c['stock']) : -1,
                     'phases'     => is_array($c['phases'] ?? null) ? count($c['phases']) : 0,
                     'phase_list' => self::phase_list($c['phases'] ?? []),
+                    // Paket „kaufe X, zahle Y“ oder null
+                    'bundle'     => self::bundle_of($c),
                 ];
             }
         }
@@ -251,6 +279,8 @@ class TIX_App_Events {
             'info'               => $info,
             'info_markup'        => $markup,
             'categories'         => $cats,
+            // Mengenrabatt (Staffeln „ab X Tickets Y %“)
+            'group_discount'     => self::group_discount_of($id),
             // Sparte (Slug aus `event_categories`, '' = keine)
             'event_category'     => self::event_category_slug($id),
             // Awareness: inherit (Vorgabe Veranstalter/Seite) | custom (eigene Angaben) | off; `awareness` = eigene Angaben,
@@ -359,6 +389,10 @@ class TIX_App_Events {
      * geändert (die App schickt immer das ganze Formular).
      */
     private static function apply($post_id, array $body, $is_new) {
+        // Pakete und Mengenrabatt vorab prüfen (vor allen Änderungen)
+        $pricing = self::check_pricing($body);
+        if (is_wp_error($pricing)) return $pricing;
+
         // Sparte zuerst prüfen (Slug oder ID; '' entfernt sie; `category` als Alias) – vor allen Änderungen
         $cat_term = null;
         $cat_in = array_key_exists('event_category', $body) ? $body['event_category'] : (array_key_exists('category', $body) && !is_array($body['category']) ? $body['category'] : null);
@@ -506,6 +540,12 @@ class TIX_App_Events {
             }
             TIX_Awareness::flush();
         }
+        // ── Mengenrabatt (vorab geprüft; null = aus) ──
+        if (array_key_exists('group_discount', $pricing)) {
+            if ($pricing['group_discount'] === null) delete_post_meta($post_id, '_tix_group_discount');
+            else update_post_meta($post_id, '_tix_group_discount', $pricing['group_discount']);
+        }
+
         // ── Sparte (vorab geprüft) ──
         if ($cat_term !== null) wp_set_object_terms($post_id, $cat_term ? [$cat_term] : [], 'event_category');
 
@@ -599,6 +639,13 @@ class TIX_App_Events {
             if (array_key_exists('phase_list', $in) && is_array($in['phase_list'])) {
                 $cat['phases'] = self::clean_phases($in['phase_list']);
             }
+            // Paket nur, wenn mitgeschickt (null = kein Paket; geprüft in check_pricing)
+            if (array_key_exists('bundle', $in)) {
+                $b = is_array($in['bundle']) ? $in['bundle'] : null;
+                $cat['bundle_buy']   = $b ? intval($b['buy']) : 0;
+                $cat['bundle_pay']   = $b ? intval($b['pay']) : 0;
+                $cat['bundle_label'] = $b ? mb_substr(sanitize_text_field((string) ($b['label'] ?? '')), 0, 60) : '';
+            }
 
             // Restbestand für den nativen Checkout: Kontingent minus verkaufte
             $sold_here = $has_index ? $sold(intval($in['index'])) : 0;
@@ -612,6 +659,191 @@ class TIX_App_Events {
 
         update_post_meta($post_id, '_tix_ticket_categories', array_values($new));
         return true;
+    }
+
+    // ── Pakete und Mengenrabatt (1.38.441) ──
+
+    /** Paket einer Kategorie {buy, pay, label} oder null. */
+    private static function bundle_of(array $c) {
+        $buy = intval($c['bundle_buy'] ?? 0);
+        $pay = intval($c['bundle_pay'] ?? 0);
+        if ($buy < 2 || $pay < 1 || $pay >= $buy) return null;
+        return ['buy' => $buy, 'pay' => $pay, 'label' => (string) ($c['bundle_label'] ?? '')];
+    }
+
+    /** Mengenrabatt des Events (immer ein Objekt; enabled false = aus). */
+    private static function group_discount_of($id) {
+        $gd = $id ? get_post_meta($id, '_tix_group_discount', true) : [];
+        $gd = is_array($gd) ? $gd : [];
+        $tiers = [];
+        foreach ((array) ($gd['tiers'] ?? []) as $t) {
+            if (!is_array($t)) continue;
+            $min = intval($t['min_qty'] ?? 0); $pct = floatval($t['percent'] ?? 0);
+            if ($min >= 2 && $pct > 0 && $pct < 100) $tiers[] = ['min_qty' => $min, 'percent' => $pct];
+        }
+        usort($tiers, function ($a, $b) { return $a['min_qty'] - $b['min_qty']; });
+        return [
+            'enabled'        => !empty($gd['enabled']) && (bool) $tiers,
+            'tiers'          => $tiers,
+            'combine_bundle' => !empty($gd['combine_bundle']),
+            'combine_combo'  => !empty($gd['combine_combo']),
+            'combine_phase'  => !empty($gd['combine_phase']),
+        ];
+    }
+
+    /**
+     * Pakete (`categories[].bundle`) und `group_discount` prüfen, bevor etwas gespeichert wird.
+     * Liefert ['group_discount' => Meta|null] (nur wenn mitgeschickt) oder WP_Error 400 tix_invalid_field.
+     */
+    private static function check_pricing(array $body) {
+        $bad = function ($field, $msg) { return new WP_Error('tix_invalid_field', $msg, ['status' => 400, 'field' => $field]); };
+        if (isset($body['categories']) && is_array($body['categories'])) {
+            foreach (array_values($body['categories']) as $i => $c) {
+                if (!is_array($c) || !array_key_exists('bundle', $c) || $c['bundle'] === null || $c['bundle'] === false) continue;
+                $b = $c['bundle'];
+                if (!is_array($b)) return $bad("categories[$i].bundle", 'Ungültiges Paket.');
+                $buy = filter_var($b['buy'] ?? null, FILTER_VALIDATE_INT); $pay = filter_var($b['pay'] ?? null, FILTER_VALIDATE_INT);
+                if ($buy === false || $pay === false || $buy < 2 || $buy > 100 || $pay < 1 || $pay >= $buy) {
+                    return $bad("categories[$i].bundle", 'Paket: „kaufe“ mindestens 2, „zahle“ mindestens 1 und weniger als „kaufe“.');
+                }
+            }
+        }
+        $out = [];
+        if (array_key_exists('group_discount', $body)) {
+            $gd = $body['group_discount'];
+            if ($gd === null || $gd === false) { $out['group_discount'] = null; return $out; }
+            if (!is_array($gd)) return $bad('group_discount', 'Ungültiger Mengenrabatt.');
+            $tiers = []; $seen = [];
+            foreach (array_values((array) ($gd['tiers'] ?? [])) as $i => $t) {
+                $min = filter_var($t['min_qty'] ?? null, FILTER_VALIDATE_INT);
+                $pct = is_numeric($t['percent'] ?? null) ? round(floatval($t['percent']), 2) : null;
+                if ($min === false || $min < 2 || $min > 1000) return $bad("group_discount.tiers[$i].min_qty", 'Staffel: „ab“ mindestens 2 Tickets.');
+                if ($pct === null || $pct < 1 || $pct > 99) return $bad("group_discount.tiers[$i].percent", 'Staffel: Rabatt zwischen 1 und 99 %.');
+                if (isset($seen[$min])) return $bad("group_discount.tiers[$i].min_qty", 'Jede Staffel braucht eine andere Ticketzahl.');
+                $seen[$min] = true;
+                $tiers[] = ['min_qty' => $min, 'percent' => $pct];
+            }
+            if (count($tiers) > 10) return $bad('group_discount.tiers', 'Höchstens 10 Staffeln.');
+            $enabled = !empty($gd['enabled']);
+            if ($enabled && !$tiers) return $bad('group_discount.tiers', 'Bitte mindestens eine Staffel angeben.');
+            usort($tiers, function ($a, $b) { return $a['min_qty'] - $b['min_qty']; });
+            $out['group_discount'] = [
+                'enabled'        => $enabled ? 1 : 0,
+                'tiers'          => $tiers,
+                'combine_bundle' => !empty($gd['combine_bundle']) ? 1 : 0,
+                'combine_combo'  => !empty($gd['combine_combo']) ? 1 : 0,
+                'combine_phase'  => !empty($gd['combine_phase']) ? 1 : 0,
+            ];
+        }
+        return $out;
+    }
+
+    // ── Duplizieren, Import per URL (1.38.441) ──
+
+    /** POST /events/{id}/duplicate {title?, date_start?, date_end?} → {ok, event, edit} */
+    public static function duplicate(WP_REST_Request $req) {
+        $id = absint($req['id']);
+        if (get_post_type($id) !== 'event') return new WP_Error('not_found', 'Event nicht gefunden.', ['status' => 404]);
+        if (!TIX_REST_API::user_can_access_event($id)) return new WP_Error('forbidden', 'Kein Zugriff auf dieses Event.', ['status' => 403]);
+        if (!class_exists('TIX_Columns')) require_once TIXOMAT_PATH . 'includes/class-tix-columns.php';
+        $body = $req->get_json_params();
+        $body = is_array($body) ? $body : $req->get_params();
+        foreach (['date_start', 'date_end'] as $k) {
+            if (!empty($body[$k]) && !self::date($body[$k])) return new WP_Error('tix_invalid_field', 'Datum bitte als JJJJ-MM-TT.', ['status' => 400, 'field' => $k]);
+        }
+        $new = TIX_Columns::duplicate_event($id, [
+            'title'      => (string) ($body['title'] ?? ''),
+            'date_start' => (string) ($body['date_start'] ?? ''),
+            'date_end'   => (string) ($body['date_end'] ?? ''),
+        ]);
+        if (is_wp_error($new)) return $new;
+        self::resolve_status($new);
+        $post = get_post($new);
+        return rest_ensure_response([
+            'ok'    => true,
+            'event' => TIX_REST_API::event_payload($post),
+            'edit'  => self::edit_payload($new),
+        ]);
+    }
+
+    /** POST /events/import-url {url} → {ok, source, fields} */
+    public static function import_url(WP_REST_Request $req) {
+        $url = esc_url_raw(trim((string) $req->get_param('url')));
+        if ($url === '' || !preg_match('#^https?://#i', $url)) return new WP_Error('url_invalid', 'Bitte eine vollständige Adresse (https://…) angeben.', ['status' => 400, 'field' => 'url']);
+        if (class_exists('TIX_App_Account') && TIX_App_Account::rate_limited('import_url', 10, 300, 'u' . get_current_user_id())) {
+            return new WP_Error('tix_rate_limit', 'Zu viele Anfragen. Bitte warte ein paar Minuten.', ['status' => 429]);
+        }
+        if (!class_exists('TIX_AI_Writer') || !method_exists('TIX_AI_Writer', 'import_url')) return new WP_Error('ai_unavailable', 'Der Import ist hier nicht verfügbar.', ['status' => 503]);
+        $f = TIX_AI_Writer::import_url($url);
+        if (is_wp_error($f)) {
+            $code = $f->get_error_code();
+            $map = ['url_invalid' => 400, 'url_unreadable' => 422, 'ai_unavailable' => 503];
+            $code = isset($map[$code]) ? $code : 'url_unreadable';
+            return new WP_Error($code, $f->get_error_message(), ['status' => $map[$code], 'field' => 'url']);
+        }
+        $source = (string) ($f['_source'] ?? 'ai');
+        unset($f['_source']);
+        // Sparte als Slug (wie im Event-Editor)
+        $ids = array_map('intval', (array) ($f['category_ids'] ?? []));
+        $t = $ids ? get_term($ids[0], 'event_category') : null;
+        $f['event_category'] = ($t && !is_wp_error($t)) ? (string) $t->slug : '';
+        return rest_ensure_response(['ok' => true, 'source' => $source, 'fields' => $f]);
+    }
+
+    // ── Erstatten, Stornieren (1.38.441) ──
+
+    /** Geld zurück: Admin; Mehr-Veranstalter-Modus Inhaber/Team-Admin; sonst Rolle Veranstalter (Team-Admin). */
+    public static function perm_money(WP_REST_Request $req) {
+        $r = TIX_REST_API::check_organizer($req);
+        if ($r !== true) return $r;
+        $u = wp_get_current_user();
+        if ($u->has_cap('manage_options')) return true;
+        if (class_exists('TIX_App_Scope') && TIX_App_Scope::multi()) {
+            return TIX_App_Scope::is_org_manager() ? true : new WP_Error('rest_forbidden', 'Nur der Veranstalter selbst (Inhaber oder Team-Admin) kann erstatten oder stornieren.', ['status' => 403]);
+        }
+        return in_array('tix_organizer', (array) $u->roles, true) ? true : new WP_Error('rest_forbidden', 'Nur Admins und Team-Admins können erstatten oder stornieren.', ['status' => 403]);
+    }
+
+    private static function is_pos_order($order_id) {
+        global $wpdb;
+        $pm = (string) $wpdb->get_var($wpdb->prepare("SELECT payment_method FROM {$wpdb->prefix}tix_orders WHERE id = %d", $order_id));
+        return strpos($pm, 'pos_') === 0 || get_option('_tix_order_source_' . $order_id) === 'pos';
+    }
+
+    private static function order_state($order_id) {
+        global $wpdb;
+        $r = $wpdb->get_row($wpdb->prepare("SELECT status, total FROM {$wpdb->prefix}tix_orders WHERE id = %d", $order_id));
+        return ['status' => (string) ($r->status ?? ''), 'total' => round(floatval($r->total ?? 0), 2),
+                'refunded_total' => class_exists('TIX_Order_Admin') ? TIX_Order_Admin::refunded_total($order_id) : 0.0];
+    }
+
+    /** POST /orders/{id}/refund {amount?, cancel_tickets? (Vorgabe: true ohne amount, false mit amount), reason?} */
+    public static function order_refund(WP_REST_Request $req) {
+        $order = self::order_or_error($req['id']);
+        if (is_wp_error($order)) return $order;
+        $id = intval($order->get_id());
+        if (self::is_pos_order($id)) return new WP_Error('pos_order', 'Kassen-Bestellungen bitte an der Kasse stornieren.', ['status' => 409]);
+        $amount = $req->get_param('amount');
+        if ($amount !== null && $amount !== '' && !is_numeric(str_replace(',', '.', (string) $amount))) return new WP_Error('amount_invalid', 'Ungültiger Erstattungsbetrag.', ['status' => 400, 'field' => 'amount']);
+        $amount = ($amount === null || $amount === '') ? null : floatval(str_replace(',', '.', (string) $amount));
+        // Ohne Angabe: Tickets nur bei voller Erstattung stornieren (Teilbetrag lässt sie gültig)
+        $cancel = $req->get_param('cancel_tickets') === null ? $amount === null : filter_var($req->get_param('cancel_tickets'), FILTER_VALIDATE_BOOLEAN);
+        $r = TIX_Order_Admin::process_refund($id, $amount, $cancel, mb_substr(sanitize_textarea_field((string) $req->get_param('reason')), 0, 500), 'studio');
+        if (is_wp_error($r)) return $r;
+        return rest_ensure_response(['ok' => true, 'refunded' => $r['amount'], 'full' => $r['full'], 'tickets_cancelled' => $r['tickets_cancelled'], 'order' => self::order_state($id)]);
+    }
+
+    /** POST /orders/{id}/cancel – nur unbezahlte Bestellungen (offen/wartend). */
+    public static function order_cancel(WP_REST_Request $req) {
+        $order = self::order_or_error($req['id']);
+        if (is_wp_error($order)) return $order;
+        $id = intval($order->get_id());
+        $st = self::order_state($id)['status'];
+        if (in_array($st, ['completed', 'processing'], true)) return new WP_Error('already_paid', 'Die Bestellung ist bezahlt – bitte erstatten.', ['status' => 409]);
+        if (in_array($st, ['cancelled', 'refunded', 'failed'], true)) return new WP_Error('already_cancelled', 'Die Bestellung ist bereits storniert.', ['status' => 409]);
+        TIX_Native_Checkout::update_order_status($id, 'cancelled', 'admin');
+        if (class_exists('TIX_Order_Admin')) TIX_Order_Admin::add_note($id, 'Storniert (studio, ' . wp_get_current_user()->display_name . ')', 'status_change');
+        return rest_ensure_response(['ok' => true, 'order' => self::order_state($id)]);
     }
 
     /** Preisphasen für die App: [{name, price, until (Y-m-d)}], nach Datum sortiert. */

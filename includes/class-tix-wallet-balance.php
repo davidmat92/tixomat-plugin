@@ -159,7 +159,7 @@ class TIX_Wallet_Balance {
 
     /** Recht „Guthaben kassieren“ für Personal und Veranstalter (einmal je Rolle). */
     public static function ensure_caps() {
-        foreach (['tix_staff', 'tix_organizer', 'administrator'] as $r) {
+        foreach (['tix_staff', 'tix_organizer', 'tix_cashier', 'administrator'] as $r) {
             $role = get_role($r);
             if ($role && !$role->has_cap(self::CAP)) $role->add_cap(self::CAP);
         }

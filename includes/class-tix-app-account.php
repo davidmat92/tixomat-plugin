@@ -376,7 +376,7 @@ class TIX_App_Account {
     public static function is_staff_account($user) {
         if (!$user || empty($user->ID)) return false;
         if (user_can($user, 'manage_options')) return true;
-        if (array_intersect((array) $user->roles, ['tix_organizer', 'tix_staff', 'tix_entrance', 'tix_dj', 'tix_awareness'])) return true;
+        if (array_intersect((array) $user->roles, ['tix_organizer', 'tix_staff', 'tix_entrance', 'tix_dj', 'tix_awareness', 'tix_cashier'])) return true;
         return class_exists('TIX_App_Scope') && (bool) TIX_App_Scope::organizer_post_for_user($user->ID);
     }
 

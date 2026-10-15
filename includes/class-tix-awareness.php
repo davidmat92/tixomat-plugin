@@ -269,11 +269,26 @@ class TIX_Awareness {
         } else {
             if ($t['scope'] === 'organizer') $out['organizer_id'] = intval($t['id']);
             $out['settings'] = $t['scope'] === 'organizer' ? self::organizer($t['id']) : self::site();
+            // Kommende Events mit ihrem Modus (gesammelt setzbar über POST events[{id, mode}])
+            $out['events'] = array_map(function ($eid) {
+                return ['id' => $eid, 'title' => html_entity_decode(get_the_title($eid), ENT_QUOTES, 'UTF-8'), 'date_start' => (string) get_post_meta($eid, '_tix_date_start', true),
+                        'mode' => self::event_mode($eid), 'effective' => self::effective($eid)];
+            }, self::scope_events($t));
         }
         $out['default_areas'] = self::DEFAULT_AREAS;
         $out['limits'] = ['areas' => self::MAX_AREAS, 'sign' => self::SIGN_MAX];
         $out['alarm_live'] = class_exists('TIX_Awareness_Live') && TIX_Awareness_Live::flags()['alarm_live'];
         return $out;
+    }
+
+    /** Kommende Events des Ziels (Veranstalter bzw. Seite; heute bis +90 Tage, höchstens 50). */
+    private static function scope_events(array $t) {
+        $today = current_time('Y-m-d');
+        $args = ['post_type' => 'event', 'post_status' => ['publish', 'draft', 'pending', 'future'], 'posts_per_page' => 50, 'fields' => 'ids',
+            'meta_key' => '_tix_date_start', 'orderby' => 'meta_value', 'order' => 'ASC', 'suppress_filters' => true,
+            'meta_query' => [['key' => '_tix_date_start', 'value' => [$today, gmdate('Y-m-d', strtotime($today) + 90 * DAY_IN_SECONDS)], 'compare' => 'BETWEEN', 'type' => 'DATE']]];
+        if ($t['scope'] === 'organizer') $args['meta_query'][] = TIX_App_Scope::event_meta_clause($t['id']);
+        return array_map('intval', get_posts($args));
     }
 
     /** GET /awareness/settings[?event_id=|?organizer=] */
@@ -299,6 +314,22 @@ class TIX_Awareness {
         }
         if (isset($in['sign']) && mb_strlen((string) $in['sign']) > self::SIGN_MAX) {
             return new WP_Error('tix_invalid_field', 'Das Erkennungszeichen darf höchstens ' . self::SIGN_MAX . ' Zeichen lang sein.', ['status' => 400, 'field' => 'sign']);
+        }
+        // Modus je Event gesammelt (nur Vorgabe-Ziele): events[{id, mode}] – erst alles prüfen
+        $bulk = [];
+        if ($t['scope'] !== 'event' && isset($body['events']) && is_array($body['events'])) {
+            $allowed = array_flip(self::scope_events($t));
+            foreach (array_values($body['events']) as $i => $e) {
+                $eid = absint($e['id'] ?? 0); $m = sanitize_key((string) ($e['mode'] ?? ''));
+                if (!in_array($m, ['inherit', 'custom', 'off'], true)) return new WP_Error('tix_invalid_field', 'Ungültiger Modus (inherit, custom, off).', ['status' => 400, 'field' => "events[$i].mode"]);
+                if (!isset($allowed[$eid]) && !(get_post_type($eid) === 'event' && TIX_REST_API::user_can_access_event($eid) && ($t['scope'] !== 'organizer' || in_array(intval($t['id']), TIX_App_Scope::event_org_ids($eid), true)))) {
+                    return new WP_Error('rest_forbidden', 'Kein Zugriff auf dieses Event.', ['status' => 403, 'field' => "events[$i].id"]);
+                }
+                $bulk[$eid] = $m;
+            }
+        }
+        foreach ($bulk as $eid => $m) {
+            if ($m === 'inherit') delete_post_meta($eid, self::META_MODE); else update_post_meta($eid, self::META_MODE, $m);
         }
         if ($t['scope'] === 'event') {
             if (isset($body['mode'])) {

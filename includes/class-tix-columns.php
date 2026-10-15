@@ -787,48 +787,82 @@ class TIX_Columns {
         $post_id = intval($_GET['post'] ?? 0);
         if (!$post_id || !wp_verify_nonce($_GET['_wpnonce'] ?? '', 'tix_duplicate_' . $post_id)) wp_die('Ungültig.');
         if (!current_user_can('edit_posts')) wp_die('Keine Berechtigung.');
+        $new_id = self::duplicate_event($post_id);
+        if (is_wp_error($new_id)) wp_die(esc_html($new_id->get_error_message()));
+        wp_redirect(admin_url('post.php?action=edit&post=' . $new_id));
+        exit;
+    }
 
+    /** Laufende Werte, Verknüpfungen und Zähler, die eine Kopie nicht übernimmt. */
+    const DUPLICATE_SKIP = ['_tix_api_key', '_tix_tc_event_id', '_tix_product_ids', '_tix_synced_at',
+        '_tix_series_children', '_tix_series_parent', '_tix_series_index', '_tix_series_detached',
+        '_tix_guest_list', '_tix_awareness_feedback_sum', '_tix_feedback_avg', '_tix_feedback_count',
+        '_tix_last_sync_log', '_tix_last_sync_time', '_tix_low_stock_notified', '_tix_notified', '_tix_offline_count',
+        '_tix_raffle_drawn_at', '_tix_raffle_status', '_tix_settled_at', '_tix_sold_display', '_tix_sold_percent', '_tix_sold_total',
+        '_tix_syndicate_last', '_tix_syndicate_remote_id', '_tix_syndicate_status', '_tix_ticket_count', '_tix_publish_held',
+        '_tix_ai_checked_at', '_tix_awareness_test', '_tix_status', '_tix_status_label', '_edit_lock', '_edit_last'];
+
+    /**
+     * Event als Entwurf kopieren (wp-admin „Duplizieren“ und REST POST /events/{id}/duplicate).
+     * $args: title (sonst „<Titel> (Kopie)“), date_start, date_end (Y-m-d; nur Beginn → Ende um denselben Abstand verschoben).
+     * Ohne Gästeliste, Sync, Serien, Zähler und Verkaufszahlen; Kategorien mit vollem Kontingent.
+     */
+    public static function duplicate_event($post_id, array $args = []) {
         $original = get_post($post_id);
-        if (!$original || $original->post_type !== 'event') wp_die('Event nicht gefunden.');
+        if (!$original || $original->post_type !== 'event') return new WP_Error('not_found', 'Event nicht gefunden.', ['status' => 404]);
 
-        // Neuen Post als Entwurf erstellen
+        $title = isset($args['title']) && trim((string) $args['title']) !== '' ? sanitize_text_field($args['title']) : $original->post_title . ' (Kopie)';
         $new_id = wp_insert_post([
             'post_type'    => 'event',
-            'post_title'   => $original->post_title . ' (Kopie)',
+            'post_title'   => $title,
             'post_content' => $original->post_content,
+            'post_excerpt' => $original->post_excerpt,
             'post_status'  => 'draft',
             'post_author'  => get_current_user_id(),
-        ]);
+        ], true);
+        if (is_wp_error($new_id)) return new WP_Error('duplicate_failed', 'Fehler beim Erstellen.', ['status' => 500]);
 
-        if (is_wp_error($new_id)) wp_die('Fehler beim Erstellen.');
-
-        // Alle Meta kopieren AUSSER Sync-IDs, API-Key und Serien-Links
-        $skip = ['_tix_api_key', '_tix_tc_event_id', '_tix_product_ids', '_tix_synced_at',
-                 '_tix_series_children', '_tix_series_parent', '_tix_series_index', '_tix_series_detached'];
         $meta = get_post_meta($post_id);
         foreach ($meta as $key => $values) {
-            if (in_array($key, $skip)) continue;
+            if (in_array($key, self::DUPLICATE_SKIP, true)) continue;
             // Wiederholung (Serie/Termin-Verknüpfung) nicht übernehmen – die Kopie ist ein eigenes Event
             if (strpos($key, '_tix_recurrence') === 0) continue;
-            // Ticket-Kategorien: product_id und tc_event_id zurücksetzen
+            // Ticket-Kategorien: product_id und tc_event_id zurücksetzen, Bestand wieder voll
             if ($key === '_tix_ticket_categories') {
                 $cats = maybe_unserialize($values[0]);
                 if (is_array($cats)) {
                     foreach ($cats as &$cat) {
+                        if (!is_array($cat)) continue;
                         $cat['product_id']  = '';
                         $cat['tc_event_id'] = '';
                         $cat['sku']         = '';
+                        $qty = intval($cat['qty'] ?? ($cat['quantity'] ?? 0));
+                        if ($qty > 0) $cat['stock'] = $qty; else unset($cat['stock']);
                     }
                     unset($cat);
                     add_post_meta($new_id, $key, $cats);
                 }
                 continue;
             }
-            // Guest list nicht kopieren
-            if ($key === '_tix_guest_list') continue;
             foreach ($values as $v) {
                 add_post_meta($new_id, $key, maybe_unserialize($v));
             }
+        }
+
+        // Neues Datum (Ende um denselben Abstand verschieben, wenn nur der Beginn kommt)
+        $d = function ($v) { $v = trim((string) $v); return preg_match('/^\d{4}-\d{2}-\d{2}$/', $v) && strtotime($v) ? $v : ''; };
+        $start = $d($args['date_start'] ?? '');
+        $end = $d($args['date_end'] ?? '');
+        if ($start !== '') {
+            $old_start = (string) get_post_meta($post_id, '_tix_date_start', true);
+            $old_end = (string) get_post_meta($post_id, '_tix_date_end', true);
+            if ($end === '' && $old_start !== '' && $old_end !== '' && strtotime($old_end) && strtotime($old_start)) {
+                $end = gmdate('Y-m-d', strtotime($start) + (strtotime($old_end) - strtotime($old_start)));
+            }
+            update_post_meta($new_id, '_tix_date_start', $start);
+            if ($end !== '') update_post_meta($new_id, '_tix_date_end', $end);
+        } elseif ($end !== '') {
+            update_post_meta($new_id, '_tix_date_end', $end);
         }
 
         // Taxonomien kopieren
@@ -841,8 +875,7 @@ class TIX_Columns {
         $thumb = get_post_thumbnail_id($post_id);
         if ($thumb) set_post_thumbnail($new_id, $thumb);
 
-        wp_redirect(admin_url('post.php?action=edit&post=' . $new_id));
-        exit;
+        return intval($new_id);
     }
 
     // ══════════════════════════════════════

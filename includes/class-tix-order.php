@@ -221,6 +221,33 @@ class TIX_Order {
     public static function query($args = []) {
         global $wpdb;
         $t = self::table_name();
+        list($where, $params) = self::query_where($args);
+
+        $allowed_cols = ['date_created', 'id', 'total', 'status', 'order_number', 'billing_email', 'billing_last_name'];
+        $requested_col = $args['orderby'] ?? 'date_created';
+        $order_col = in_array($requested_col, $allowed_cols, true) ? $requested_col : 'date_created';
+        $order_dir = strtoupper($args['order'] ?? 'DESC') === 'ASC' ? 'ASC' : 'DESC';
+        $limit = intval($args['limit'] ?? 0);
+        $offset = intval($args['offset'] ?? 0);
+
+        $sql = "SELECT o.* FROM $t o WHERE " . implode(' AND ', $where) . " ORDER BY o.$order_col $order_dir";
+        if ($limit > 0) $sql .= " LIMIT $limit OFFSET $offset";
+
+        $rows = $params ? $wpdb->get_results($wpdb->prepare($sql, ...$params)) : $wpdb->get_results($sql);
+        return array_map(fn($r) => new self($r), $rows ?: []);
+    }
+
+    /** Anzahl passender Bestellungen (gleiche Filter wie query, ohne limit/offset). */
+    public static function count($args = []) {
+        global $wpdb;
+        list($where, $params) = self::query_where($args);
+        $sql = "SELECT COUNT(*) FROM " . self::table_name() . " o WHERE " . implode(' AND ', $where);
+        return intval($params ? $wpdb->get_var($wpdb->prepare($sql, ...$params)) : $wpdb->get_var($sql));
+    }
+
+    /** WHERE-Teile für query/count: status, email, customer_id, date_from/to, event_id, search (Nummer, Name, E-Mail). */
+    private static function query_where($args) {
+        global $wpdb;
         $ti = self::items_table_name();
         $where = ['1=1'];
         $params = [];
@@ -256,18 +283,13 @@ class TIX_Order {
             $params[] = intval($args['event_id']);
         }
 
-        $allowed_cols = ['date_created', 'id', 'total', 'status', 'order_number', 'billing_email', 'billing_last_name'];
-        $requested_col = $args['orderby'] ?? 'date_created';
-        $order_col = in_array($requested_col, $allowed_cols, true) ? $requested_col : 'date_created';
-        $order_dir = strtoupper($args['order'] ?? 'DESC') === 'ASC' ? 'ASC' : 'DESC';
-        $limit = intval($args['limit'] ?? 0);
-        $offset = intval($args['offset'] ?? 0);
+        if (isset($args['search']) && trim((string) $args['search']) !== '') {
+            $q = '%' . $wpdb->esc_like(trim((string) $args['search'])) . '%';
+            $where[] = "(o.order_number LIKE %s OR o.billing_email LIKE %s OR CONCAT(o.billing_first_name, ' ', o.billing_last_name) LIKE %s OR o.id = %d)";
+            array_push($params, $q, $q, $q, intval(ltrim(trim((string) $args['search']), '#')));
+        }
 
-        $sql = "SELECT o.* FROM $t o WHERE " . implode(' AND ', $where) . " ORDER BY o.$order_col $order_dir";
-        if ($limit > 0) $sql .= " LIMIT $limit OFFSET $offset";
-
-        $rows = $params ? $wpdb->get_results($wpdb->prepare($sql, ...$params)) : $wpdb->get_results($sql);
-        return array_map(fn($r) => new self($r), $rows ?: []);
+        return [$where, $params];
     }
 
     public static function get_by_customer($email, $args = []) {

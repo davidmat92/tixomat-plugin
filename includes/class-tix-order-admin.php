@@ -1547,59 +1547,79 @@ class TIX_Order_Admin {
         if (!current_user_can('manage_options')) {
             wp_send_json_error(['message' => 'Keine Berechtigung.']);
         }
+        $order_id    = intval($_POST['order_id'] ?? 0);
+        $refund_type = sanitize_text_field($_POST['refund_type'] ?? 'full');
+        $amount      = floatval($_POST['amount'] ?? 0);
+        $r = self::process_refund(
+            $order_id,
+            ($refund_type === 'partial' && $amount > 0) ? $amount : null,
+            ($_POST['cancel_tickets'] ?? '1') === '1',
+            sanitize_textarea_field($_POST['reason'] ?? '')
+        );
+        if (is_wp_error($r)) wp_send_json_error(['message' => $r->get_error_message()]);
+        wp_send_json_success(['message' => 'Erstattung erfolgreich durchgeführt.']);
+    }
 
-        $order_id       = intval($_POST['order_id'] ?? 0);
-        $refund_type     = sanitize_text_field($_POST['refund_type'] ?? 'full');
-        $amount          = floatval($_POST['amount'] ?? 0);
-        $reason          = sanitize_textarea_field($_POST['reason'] ?? '');
-        $cancel_tickets  = ($_POST['cancel_tickets'] ?? '1') === '1';
-
-        if (!$order_id) {
-            wp_send_json_error(['message' => 'Ungültige Bestellnummer.']);
+    /** Bisher erstattete Summe einer Bestellung. */
+    public static function refunded_total($order_id) {
+        $sum = get_option('_tix_refund_total_' . $order_id, false);
+        if ($sum === false) {
+            $last = get_option('_tix_refund_' . $order_id);
+            $sum = is_array($last) ? floatval($last['amount'] ?? 0) : 0;
         }
+        return round(floatval($sum), 2);
+    }
 
+    /**
+     * Erstattung (Admin-AJAX und REST POST /orders/{id}/refund): Zahlungsanbieter, Status, Notiz, Tickets.
+     * $amount null = alles, was noch offen ist. Liefert ['order_id', 'amount', 'full', 'tickets_cancelled', 'refunded_total'] oder WP_Error
+     * (not_found 404, not_paid 409, already_refunded 409, amount_invalid 400, gateway_error 502).
+     */
+    public static function process_refund($order_id, $amount = null, $cancel_tickets = true, $reason = '', $source = 'admin') {
         global $wpdb;
-        $order = $wpdb->get_row($wpdb->prepare(
-            "SELECT * FROM {$wpdb->prefix}tix_orders WHERE id = %d", $order_id
-        ));
-
-        if (!$order) {
-            wp_send_json_error(['message' => 'Bestellung nicht gefunden.']);
+        $order_id = intval($order_id);
+        $order = $order_id ? $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}tix_orders WHERE id = %d", $order_id)) : null;
+        if (!$order) return new WP_Error('not_found', 'Bestellung nicht gefunden.', ['status' => 404]);
+        if ($order->status === 'refunded') return new WP_Error('already_refunded', 'Diese Bestellung ist bereits erstattet.', ['status' => 409]);
+        if (!in_array($order->status, ['completed', 'processing'], true)) {
+            return new WP_Error('not_paid', 'Erstattung nur für abgeschlossene oder in Bearbeitung befindliche Bestellungen möglich.', ['status' => 409]);
         }
 
-        if (!in_array($order->status, ['completed', 'processing'])) {
-            wp_send_json_error(['message' => 'Erstattung nur für abgeschlossene oder in Bearbeitung befindliche Bestellungen möglich.']);
+        $total = floatval($order->total);
+        $before = self::refunded_total($order_id);
+        $open = round($total - $before, 2);
+        // Bestellung ohne Restbetrag (kostenlos bzw. ganz mit Guthaben): Erstattung = Storno, Guthaben-Rückbuchung über den Status
+        if ($total <= 0) {
+            if ($amount !== null && floatval($amount) > 0) return new WP_Error('amount_invalid', 'Ungültiger Erstattungsbetrag.', ['status' => 400, 'field' => 'amount']);
+            $refund_amount = 0.0;
+        } else {
+            if ($open <= 0) return new WP_Error('already_refunded', 'Diese Bestellung ist bereits vollständig erstattet.', ['status' => 409]);
+            $refund_amount = $amount === null ? $open : round(floatval($amount), 2);
+            if ($refund_amount <= 0 || $refund_amount > $open) {
+                return new WP_Error('amount_invalid', 'Ungültiger Erstattungsbetrag (höchstens ' . number_format($open, 2, ',', '.') . ' €).', ['status' => 400, 'field' => 'amount']);
+            }
         }
-
-        // Determine refund amount
-        $refund_amount = ($refund_type === 'partial' && $amount > 0) ? $amount : floatval($order->total);
-
-        if ($refund_amount <= 0 || $refund_amount > floatval($order->total)) {
-            wp_send_json_error(['message' => 'Ungültiger Erstattungsbetrag.']);
-        }
-
-        $is_full_refund = ($refund_amount >= floatval($order->total));
-        $gateway_amount = $is_full_refund ? null : $refund_amount;
+        $is_full_refund = ($total <= 0) || ($before + $refund_amount >= $total);
+        $gateway_amount = ($is_full_refund && $before <= 0) ? null : $refund_amount;
 
         // Process refund via payment gateway
         $gateway = $order->payment_method;
         $result  = ['success' => true]; // default for non-API gateways
-
-        if ($gateway === 'mollie' && class_exists('TIX_Gateway_Mollie')) {
-            $result = TIX_Gateway_Mollie::refund($order_id, $gateway_amount);
-        } elseif ($gateway === 'stripe' && class_exists('TIX_Gateway_Stripe')) {
-            $result = TIX_Gateway_Stripe::refund($order_id, $gateway_amount);
-        } elseif ($gateway === 'paypal' && class_exists('TIX_Gateway_PayPal')) {
-            $result = TIX_Gateway_PayPal::refund($order_id, $gateway_amount);
+        if ($refund_amount > 0) {
+            if ($gateway === 'mollie' && class_exists('TIX_Gateway_Mollie')) {
+                $result = TIX_Gateway_Mollie::refund($order_id, $gateway_amount);
+            } elseif ($gateway === 'stripe' && class_exists('TIX_Gateway_Stripe')) {
+                $result = TIX_Gateway_Stripe::refund($order_id, $gateway_amount);
+            } elseif ($gateway === 'paypal' && class_exists('TIX_Gateway_PayPal')) {
+                $result = TIX_Gateway_PayPal::refund($order_id, $gateway_amount);
+            }
         }
         // bank / free / unknown → no API call, just update status
-
         if (!empty($result['error'])) {
-            wp_send_json_error(['message' => $result['error']]);
+            return new WP_Error('gateway_error', (string) $result['error'], ['status' => 502]);
         }
 
         // Update order status — only set to refunded for full refunds
-        $new_status = $is_full_refund ? 'refunded' : $order->status;
         $tickets_cancelled = false;
         if ($is_full_refund) {
             if (class_exists('TIX_Native_Checkout')) {
@@ -1610,7 +1630,7 @@ class TIX_Order_Admin {
                 } finally {
                     TIX_Native_Checkout::$refund_cancels_tickets = true;
                 }
-                $tickets_cancelled = (bool) $cancel_tickets && $order->status !== 'refunded';
+                $tickets_cancelled = (bool) $cancel_tickets;
             } else {
                 $wpdb->update($wpdb->prefix . 'tix_orders', ['status' => 'refunded'], ['id' => $order_id]);
             }
@@ -1624,28 +1644,32 @@ class TIX_Order_Admin {
             'date'       => current_time('mysql'),
             'admin_user' => get_current_user_id(),
             'gateway'    => $gateway,
+            'source'     => $source,
         ];
         // Summe aller Erstattungen dieser Bestellung (_tix_refund_ hält nur die letzte)
-        $refund_before = get_option('_tix_refund_total_' . $order_id, false);
-        if ($refund_before === false) {
-            $last = get_option('_tix_refund_' . $order_id);
-            $refund_before = is_array($last) ? floatval($last['amount'] ?? 0) : 0;
-        }
         update_option('_tix_refund_' . $order_id, $refund_data, false);
-        update_option('_tix_refund_total_' . $order_id, round(floatval($refund_before) + $refund_amount, 2), false);
+        update_option('_tix_refund_total_' . $order_id, round($before + $refund_amount, 2), false);
         do_action('tix_order_refund_recorded', $order_id, $refund_amount, $is_full_refund);
 
         // Write refund order note
         $refund_note = ($is_full_refund ? 'Vollständige' : 'Teilweise') . ' Erstattung: ' . number_format($refund_amount, 2, ',', '.') . ' €';
+        if ($source !== 'admin') $refund_note .= ' (' . $source . ', ' . wp_get_current_user()->display_name . ')';
         if ($reason) $refund_note .= ' — Grund: ' . $reason;
         self::add_note($order_id, $refund_note, 'refund');
 
         // Cancel tickets if requested (bei voller Erstattung schon über den Status erledigt)
         if ($cancel_tickets && !$tickets_cancelled) {
             do_action('tix_order_cancelled', $order_id);
+            $tickets_cancelled = true;
         }
 
-        wp_send_json_success(['message' => 'Erstattung erfolgreich durchgeführt.']);
+        return [
+            'order_id'          => $order_id,
+            'amount'            => $refund_amount,
+            'full'              => $is_full_refund,
+            'tickets_cancelled' => $tickets_cancelled,
+            'refunded_total'    => round($before + $refund_amount, 2),
+        ];
     }
 
     // ──────────────────────────────────────────

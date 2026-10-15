@@ -7,6 +7,9 @@
  *   - "dj"       -> Rolle tix_dj (nur Musikwunsch-Liste)
  *   - "entrance" -> Rolle tix_entrance (nur Einlass/Scan + Namensliste)
  *   - "awareness" -> Rolle tix_awareness (nur Awareness: Dienst + Hinweise, TIX_Awareness_Live)
+ *   - "cashier"  -> Rolle tix_cashier „Kasse & Bar“ (nur Abendkasse /pos/* und Guthaben abbuchen/aufladen)
+ *
+ * POST /team {email, name?, role, invite?} – mit invite: true geht eine Einladungs-Mail raus (1.38.441).
  *
  * Echte WordPress-Administratoren werden angezeigt, aber NICHT über die App
  * geaendert (Schutz vor versehentlichem Aussperren). Basisrollen (z. B.
@@ -32,7 +35,24 @@ class TIX_Team {
         'dj'       => 'tix_dj',
         'entrance' => 'tix_entrance',
         'awareness' => 'tix_awareness',
+        'cashier'  => 'tix_cashier',
     ];
+
+    /** Rollen-Liste für die Auswahl (App, evendis Studio). */
+    private static function role_list($multi) {
+        return [
+            ['key' => 'admin', 'label' => $multi ? 'Team-Admin' : 'Admin', 'hint' => $multi ? 'Voller Veranstalter-Bereich (Events, Kasse, Bestellungen)' : 'Voller Veranstalter-Bereich'],
+            ['key' => 'entrance', 'label' => 'Eingang', 'hint' => 'Nur Einlass: scannen + Namensliste'],
+            ['key' => 'cashier', 'label' => 'Kasse & Bar', 'hint' => 'Nur verkaufen (Abendkasse) und Guthaben abbuchen bzw. aufladen'],
+            ['key' => 'awareness', 'label' => 'Awareness', 'hint' => 'Nur Awareness: Dienst und Hinweise'],
+            ['key' => 'dj', 'label' => 'DJ', 'hint' => 'Nur Musikwunsch-Liste'],
+        ];
+    }
+
+    private static function role_label($key) {
+        foreach (self::role_list(false) as $r) if ($r['key'] === $key) return $key === 'admin' ? 'Team-Admin' : $r['label'];
+        return $key;
+    }
 
     public static function init() {
         add_action('rest_api_init', [__CLASS__, 'register_routes']);
@@ -141,11 +161,7 @@ class TIX_Team {
         return new WP_REST_Response([
             'ok'    => true,
             'team'  => $out,
-            'roles' => [
-                ['key' => 'admin', 'label' => 'Team-Admin', 'hint' => 'Voller Veranstalter-Bereich (Events, Kasse, Bestellungen)'],
-                ['key' => 'entrance', 'label' => 'Eingang', 'hint' => 'Nur Einlass: scannen + Namensliste'],
-                ['key' => 'dj', 'label' => 'DJ', 'hint' => 'Nur Musikwunsch-Liste'],
-            ],
+            'roles' => self::role_list(true),
         ], 200);
     }
 
@@ -167,11 +183,7 @@ class TIX_Team {
         return new WP_REST_Response([
             'ok'    => true,
             'team'  => $out,
-            'roles' => [
-                ['key' => 'admin', 'label' => 'Admin', 'hint' => 'Voller Veranstalter-Bereich'],
-                ['key' => 'entrance', 'label' => 'Eingang', 'hint' => 'Nur Einlass: scannen + Namensliste'],
-                ['key' => 'dj', 'label' => 'DJ', 'hint' => 'Nur Musikwunsch-Liste'],
-            ],
+            'roles' => self::role_list(false),
         ], 200);
     }
 
@@ -189,6 +201,7 @@ class TIX_Team {
 
         $org  = self::scope_org();
         $user = get_user_by('email', $email);
+        $created = false;
         if ($org && $user) {
             if (in_array('administrator', (array) $user->roles, true) || self::belongs_elsewhere($user, $org)) {
                 return new WP_Error('tix_other_team', 'Diese Person gehoert bereits zu einem anderen Veranstalter.', ['status' => 409]);
@@ -208,6 +221,7 @@ class TIX_Team {
             ]);
             if (is_wp_error($uid)) return $uid;
             $user = get_user_by('id', $uid);
+            $created = true;
             if ($org) update_user_meta($user->ID, TIX_App_Scope::META_TEAM_ORG, intval($org));
         } else {
             if (in_array('administrator', (array) $user->roles, true)) {
@@ -219,7 +233,36 @@ class TIX_Team {
             self::apply_role($user, $role);
             if ($org) update_user_meta($user->ID, TIX_App_Scope::META_TEAM_ORG, intval($org));
         }
-        return new WP_REST_Response(['ok' => true, 'member' => self::member(get_user_by('id', $user->ID))], 200);
+        $out = ['ok' => true, 'member' => self::member(get_user_by('id', $user->ID)), 'created' => $created];
+        if (filter_var($req->get_param('invite'), FILTER_VALIDATE_BOOLEAN)) {
+            $out['invited'] = (bool) self::send_invite(get_user_by('id', $user->ID), $role, $org, $created);
+        }
+        return new WP_REST_Response($out, 200);
+    }
+
+    /** Einladungs-Mail: Rolle, Anmeldung per Code (ohne Passwort), bei neuem Konto Link zum Passwort-Setzen. */
+    private static function send_invite(WP_User $user, $role, $org, $created) {
+        $site  = get_bloginfo('name');
+        $team  = $org ? html_entity_decode(get_the_title($org), ENT_QUOTES, 'UTF-8') : $site;
+        $by    = wp_get_current_user()->display_name;
+        $body  = '<p>Hallo ' . esc_html($user->display_name ?: '') . ',</p>';
+        $body .= '<p>' . esc_html($by) . ' hat dich ins Team von <strong>' . esc_html($team) . '</strong> eingeladen. Deine Rolle: <strong>' . esc_html(self::role_label($role)) . '</strong>.</p>';
+        $body .= '<p>So meldest du dich an: In der App ' . ((class_exists('TIX_Studio') && TIX_Studio::active() && $role === 'admin') ? 'oder im <a href="' . esc_url(TIX_Studio::url('/anmelden/')) . '">evendis Studio</a> ' : '')
+               . 'mit dieser E-Mail-Adresse (' . esc_html($user->user_email) . ') „Code per E-Mail“ wählen – ganz ohne Passwort.</p>';
+        if ($created) {
+            $key = get_password_reset_key($user);
+            if (!is_wp_error($key)) {
+                $url = network_site_url('wp-login.php?action=rp&key=' . rawurlencode($key) . '&login=' . rawurlencode($user->user_login), 'login');
+                $body .= '<p style="text-align:center;margin:24px 0;"><a href="' . esc_url($url) . '" style="display:inline-block;padding:12px 22px;background:#131020;color:#fff;border-radius:10px;text-decoration:none;font-weight:700;">Passwort festlegen</a></p>';
+                $body .= '<p style="color:#64748b;font-size:13px;">Der Link ist 24 Stunden gültig. Ein Passwort ist optional – der Code per E-Mail reicht.</p>';
+            }
+        }
+        $body .= '<p style="color:#94a3b8;font-size:12px;margin-top:24px;">Du kennst das Team nicht? Dann ignoriere diese E-Mail.</p>';
+        $html = class_exists('TIX_Emails') ? TIX_Emails::build_generic_email_html('Einladung ins Team', $body, $team) : '<html><body>' . $body . '</body></html>';
+        $subject = 'Einladung ins Team von ' . $team;
+        return class_exists('TIX_Customer_URL')
+            ? TIX_Customer_URL::mail($user->user_email, $subject, $html, ['Content-Type: text/html; charset=UTF-8'])
+            : wp_mail($user->user_email, $subject, $html, ['Content-Type: text/html; charset=UTF-8']);
     }
 
     /** POST /team/{id} {role} - Rolle aendern (admin|dj|entrance|none). */

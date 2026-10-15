@@ -126,7 +126,7 @@ class TIX_Admin_Only {
     public static function is_staff($user) {
         if (!$user || !$user->ID) return false;
         if (user_can($user, 'edit_posts')) return true;
-        return (bool) array_intersect((array) $user->roles, ['tix_organizer', 'tix_staff', 'tix_entrance', 'tix_dj', 'tix_awareness', 'tix_promoter']);
+        return (bool) array_intersect((array) $user->roles, ['tix_organizer', 'tix_staff', 'tix_entrance', 'tix_dj', 'tix_awareness', 'tix_cashier', 'tix_promoter']);
     }
 
     /** IDs der öffentlichen Seiten: Startseite, Liste aus der Option, Registrierung, Vertrag. */
@@ -244,7 +244,7 @@ class TIX_Admin_Only {
             return tix_get_settings('organizer_dashboard_enabled') ? admin_url('admin.php?page=tixomat') : admin_url();
         }
         // App-Rollen ohne wp-admin-Menüs: Check-in- bzw. DJ-Seite, sonst Profil
-        if (in_array('tix_awareness', $roles, true) && !array_intersect($roles, ['tix_staff', 'tix_entrance', 'tix_dj'])) {
+        if (array_intersect($roles, ['tix_awareness', 'tix_cashier']) && !array_intersect($roles, ['tix_staff', 'tix_entrance', 'tix_dj'])) {
             return admin_url('profile.php'); // Awareness-Team arbeitet in der App
         }
         if (array_intersect($roles, ['tix_staff', 'tix_entrance', 'tix_dj'])) {
