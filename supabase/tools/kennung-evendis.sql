@@ -11,7 +11,8 @@ insert into mirror_rename values ('veranstalter.evendis.de', 'evendis.de');
 create temporary table mirror_rename_tables (t text) on commit drop;
 insert into mirror_rename_tables values ('sites'), ('events'), ('ticket_categories'), ('guests'), ('customers'), ('loyalty'),
   ('orders'), ('order_items'), ('payments'), ('tickets'), ('checkins'), ('refunds'), ('organizers'), ('coupons'),
-  ('wallets'), ('wallet_transactions'), ('settlements'), ('settlement_items'), ('sync_reports'), ('change_log');
+  ('wallets'), ('wallet_transactions'), ('settlements'), ('settlement_items'), ('invoices'), ('invoice_counters'),
+  ('sync_reports'), ('change_log');
 
 do $$
 declare

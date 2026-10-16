@@ -215,6 +215,43 @@ if ($wpdb->get_var("SHOW TABLES LIKE '" . TIX_Settlement::table() . "'")) {
     echo "      (Abrechnungs-Tabellen fehlen – übersprungen)\n";
 }
 
+// ── 6b. Rechnungs-Kern (1.38.485): Beleg + Nummernkreis, PDF nur als Pfad/Hash, IBAN im Text maskiert ──
+if (class_exists('TIX_Invoices')) {
+    TIX_Invoices::maybe_install();
+    $ts_inv = get_option('tix_settings', []);
+    $ts_new = is_array($ts_inv) ? $ts_inv : [];
+    $ts_new['invoice_company_name'] = "Spiegel GmbH $sfx";
+    $ts_new['invoice_company_address'] = "Teststraße 1\n50667 Köln";
+    $ts_new['invoice_company_tax_id'] = '214/5678/0000';
+    $ts_new['invoice_footer_text'] = 'Bank: DE89 3704 0044 0532 0130 00';
+    update_option('tix_settings', $ts_new);
+    $en_prev = get_option('tix_invoices_enabled', null);
+    update_option('tix_invoices_enabled', '1');
+    $ioid = TIX_Native_Checkout::create_order(['total' => 30.0, 'payment_method' => 'bank', 'billing_first_name' => 'Rita', 'billing_last_name' => 'Rechnung',
+        'billing_email' => "rechnung$sfx@example.test", 'billing_address_1' => 'Weg 2', 'billing_postcode' => '50667', 'billing_city' => 'Köln',
+        'items' => [['event_id' => $ev, 'cat_index' => 0, 'qty' => 3, 'price' => 10.0, 'name' => 'N', 'event_title' => 'x']]]);
+    TIX_Native_Checkout::update_order_status($ioid, 'completed', 'admin');
+    $invs = TIX_Invoices::for_order($ioid);
+    t2_true('Beleg in WordPress angelegt', count($invs) >= 1);
+    m2_run();
+    if ($invs) {
+        $inv = $invs[0];
+        $mi = m2_one('invoices', (int) $inv->id);
+        t2_eq('Beleg im Spiegel (Nummer)', (string) $inv->number, $mi['number'] ?? null);
+        t2_eq('Brutto', 30.0, (float) ($mi['gross'] ?? 0));
+        t2_eq('PDF-Prüfsumme gespiegelt', (string) $inv->pdf_sha256, $mi['pdf_sha256'] ?? null);
+        t2_true('keine PDF-Datei im Spiegel', strlen(wp_json_encode($mi)) < 200000 && strpos(wp_json_encode($mi), '%PDF') === false);
+        t2_true('IBAN im Text maskiert', strpos(wp_json_encode($mi), 'DE89370400440532013000') === false && strpos(wp_json_encode($mi), 'DE89 3704 0044 0532 0130 00') === false);
+        $cid = $inv->issuer_key . '|' . $inv->series . '|' . (int) $inv->year;
+        t2_eq('Nummernkreis gespiegelt', (int) $inv->seq, (int) (m2_one('invoice_counters', $cid)['last'] ?? -1));
+    }
+    // Konto löschen lässt Belege stehen (10 Jahre)
+    $rep = m2_reconcile();
+    t2_eq('Abgleich: Belege ohne Abweichung', 0, (int) ($rep['tables']['invoices']['missing'] ?? 0) + (int) ($rep['tables']['invoices']['differ'] ?? 0));
+    if ($en_prev === null) delete_option('tix_invoices_enabled'); else update_option('tix_invoices_enabled', $en_prev);
+    update_option('tix_settings', $ts_inv);
+}
+
 // ── 7. Täglicher Abgleich: erkennt Fehlendes, Überzähliges, Abweichendes ──
 m2_run(2);
 $rep = m2_reconcile();

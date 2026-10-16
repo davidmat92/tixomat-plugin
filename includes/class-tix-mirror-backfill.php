@@ -20,7 +20,7 @@ class TIX_Mirror_Backfill {
     const CHUNK    = 500;   // IDs je Schritt
     const MAX_OUT  = 3000;  // höchstens so viele offene Einträge, sonst warten
     // Neue Schritte nur hinten anhängen: Seiten mit fertiger Erstbefüllung holen dann nur die neuen nach.
-    const STEPS    = ['site', 'event', 'customer', 'order', 'ticket', 'organizer', 'coupons', 'wallet', 'wallet_tx', 'settlement', 'settlement_item'];
+    const STEPS    = ['site', 'event', 'customer', 'order', 'ticket', 'organizer', 'coupons', 'wallet', 'wallet_tx', 'settlement', 'settlement_item', 'invoice', 'invoice_counters'];
 
     public static function init() {
         // Nichts zu registrieren: step() läuft in TIX_Mirror::cron_run().
@@ -94,8 +94,8 @@ class TIX_Mirror_Backfill {
                 }
                 $ids = self::next_ids($entity, (int) $s['last_id']);
                 if (!$ids) { $s['step']++; $s['last_id'] = 0; continue; }
-                $single = in_array($entity, ['site', 'coupons'], true);
-                foreach ($ids as $id) TIX_Mirror::touch($entity, $entity === 'site' ? 'site' : ($entity === 'coupons' ? 'all' : (int) $id));
+                $single = in_array($entity, ['site', 'coupons', 'invoice_counters'], true);
+                foreach ($ids as $id) TIX_Mirror::touch($entity, $entity === 'site' ? 'site' : ($single ? 'all' : (int) $id));
                 if ($entity === 'coupons') delete_option(TIX_Mirror_Extra::COUPON_FP); // alles senden, Überzähliges löschen
                 TIX_Mirror::flush_buffer();
                 $s['last_id'] = $single ? PHP_INT_MAX : (int) end($ids);
@@ -113,6 +113,7 @@ class TIX_Mirror_Backfill {
         switch ($entity) {
             case 'site':
             case 'coupons':
+            case 'invoice_counters':
                 return $after > 0 ? [] : [1];
             case 'organizer':
                 return array_map('intval', $wpdb->get_col($wpdb->prepare(
@@ -123,7 +124,8 @@ class TIX_Mirror_Backfill {
             case 'wallet_tx':
             case 'settlement':
             case 'settlement_item':
-                $tables = ['wallet' => 'tix_wallets', 'wallet_tx' => 'tix_wallet_tx', 'settlement' => 'tix_settlements', 'settlement_item' => 'tix_settlement_items'];
+            case 'invoice':
+                $tables = ['wallet' => 'tix_wallets', 'wallet_tx' => 'tix_wallet_tx', 'settlement' => 'tix_settlements', 'settlement_item' => 'tix_settlement_items', 'invoice' => 'tix_invoices'];
                 $prev = $wpdb->suppress_errors(true);
                 $ids = $wpdb->get_col($wpdb->prepare(
                     "SELECT id FROM {$wpdb->prefix}{$tables[$entity]} WHERE id > %d ORDER BY id LIMIT %d", $after, self::CHUNK

@@ -31,6 +31,8 @@ class TIX_Mirror_Extra {
             case 'wallet_tx':       return self::plan_wallet_tx($site, (int) $id);
             case 'settlement':      return self::plan_settlement($site, (int) $id);
             case 'settlement_item': return self::plan_settlement_item($site, (int) $id);
+            case 'invoice':         return self::plan_invoice($site, (int) $id);
+            case 'invoice_counters':return self::plan_invoice_counters($site);
         }
         return null;
     }
@@ -292,6 +294,81 @@ class TIX_Mirror_Extra {
         return [['upsert', 'settlement_items', [self::settlement_item_row($site, $i)]]];
     }
 
+    // ═══════════════ Rechnungs-Kern (1.38.485) ═══════════════
+
+    /** IBAN-artige Stellen in freiem Text (z. B. Fußzeile mit Bankverbindung) maskieren. */
+    public static function mask_iban_text($v) {
+        if (is_string($v)) {
+            return preg_replace_callback('/\b([A-Z]{2}\d{2})((?:\s?[A-Z0-9]){11,30})\b/', function ($m) {
+                $plain = preg_replace('/\s+/', '', $m[0]);
+                return substr($plain, 0, 4) . ' **** ' . substr($plain, -4);
+            }, $v);
+        }
+        if (is_array($v)) { foreach ($v as $k => $x) $v[$k] = self::mask_iban_text($x); }
+        return $v;
+    }
+
+    public static function invoice_row($site, array $r) {
+        $data = json_decode((string) $r['data'], true);
+        $data = is_array($data) ? self::mask_iban_text($data) : [];
+        return TIX_Mirror_Map::clean([
+            'site' => $site, 'id' => (int) $r['id'],
+            'number'          => (string) $r['number'],
+            'kind'            => (string) $r['kind'],
+            'series'          => (string) $r['series'],
+            'issuer_key'      => (string) $r['issuer_key'],
+            'organizer_id'    => (int) $r['organizer_id'],
+            'code'            => (string) $r['code'],
+            'year'            => (int) $r['year'],
+            'seq'             => (int) $r['seq'],
+            'order_id'        => self::idn($r['order_id']),
+            'order_number'    => (string) $r['order_number'],
+            'ref_invoice_id'  => self::idn($r['ref_invoice_id']),
+            'reason'          => (string) $r['reason'],
+            'currency'        => (string) $r['currency'],
+            'net'             => self::num($r['net']),
+            'tax'             => self::num($r['tax']),
+            'gross'           => self::num($r['gross']),
+            'small_business'  => !empty($r['small_business']),
+            'recipient_name'  => (string) $r['recipient_name'],
+            'recipient_email' => (string) $r['recipient_email'],
+            'service_date'    => $r['service_date'] && strpos((string) $r['service_date'], '0000') !== 0 ? (string) $r['service_date'] : null,
+            'data'            => (object) $data,
+            'pdf_path'        => (string) $r['pdf_path'],     // nur Pfad + Prüfsumme, die PDF-Datei wird nicht gespiegelt
+            'pdf_sha256'      => (string) $r['pdf_sha256'],
+            'created_at'      => self::gmt_iso($r['created_gmt']),
+        ]);
+    }
+
+    private static function counter_row($site, array $c) {
+        return [
+            'site' => $site, 'id' => $c['issuer_key'] . '|' . $c['series'] . '|' . (int) $c['year'],
+            'issuer_key' => (string) $c['issuer_key'], 'series' => (string) $c['series'], 'year' => (int) $c['year'], 'last' => (int) $c['last'],
+        ];
+    }
+
+    /** Beleg (nie geändert, nie gelöscht) + sein Nummernkreis. Der Löschweg fasst Belege nicht an (10 Jahre). */
+    private static function plan_invoice($site, $id) {
+        global $wpdb;
+        $r = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}tix_invoices WHERE id = %d", $id), ARRAY_A);
+        if (!$r) return [self::del('invoices', $site, $id)];
+        $ops = [['upsert', 'invoices', [self::invoice_row($site, $r)]]];
+        $c = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}tix_invoice_counters WHERE issuer_key = %s AND series = %s AND year = %d",
+            $r['issuer_key'], $r['series'], (int) $r['year']), ARRAY_A);
+        if ($c) $ops[] = ['upsert', 'invoice_counters', [self::counter_row($site, $c)]];
+        return $ops;
+    }
+
+    /** Alle Nummernkreise (klein; Erstbefüllung und täglicher Abgleich). */
+    private static function plan_invoice_counters($site) {
+        global $wpdb;
+        $prev = $wpdb->suppress_errors(true);
+        $rows = $wpdb->get_results("SELECT * FROM {$wpdb->prefix}tix_invoice_counters", ARRAY_A);
+        $wpdb->suppress_errors($prev);
+        if (!$rows) return [];
+        return [['upsert', 'invoice_counters', array_map(function ($c) use ($site) { return self::counter_row($site, $c); }, $rows)]];
+    }
+
     // ═══════════════ Nachlauf (Tabellen ohne Hooks) ═══════════════
 
     /**
@@ -304,6 +381,7 @@ class TIX_Mirror_Extra {
             ['wallet_tx',       $wpdb->prefix . 'tix_wallet_tx',        'id',      'id',         true],
             ['settlement',      $wpdb->prefix . 'tix_settlements',      'updated', 'time_local', true],
             ['settlement_item', $wpdb->prefix . 'tix_settlement_items', 'id',      'id',         true],
+            ['invoice',         $wpdb->prefix . 'tix_invoices',         'id',      'id',         true],  // Sicherheitsnetz zum Hook
         ];
     }
 }

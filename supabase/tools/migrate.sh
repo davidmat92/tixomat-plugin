@@ -4,7 +4,8 @@
 # Supabase → Project Settings → Database) und wird nie ausgegeben; nur Host und Region werden gezeigt.
 #
 #   bash supabase/tools/migrate.sh ~/.private_keys/supabase_datenspiegel_db.txt --check   # nur prüfen
-#   bash supabase/tools/migrate.sh ~/.private_keys/supabase_datenspiegel_db.txt           # einspielen
+#   bash supabase/tools/migrate.sh ~/.private_keys/supabase_datenspiegel_db.txt           # neue Migrationen einspielen
+#   bash supabase/tools/migrate.sh ~/.private_keys/supabase_datenspiegel_db.txt --all     # alle erneut einspielen
 #   bash supabase/tools/migrate.sh ~/.private_keys/supabase_datenspiegel_db.txt --verify  # RLS + Rechte prüfen
 #   bash supabase/tools/migrate.sh ~/.private_keys/supabase_datenspiegel_db.txt --sql datei.sql  # einzelne SQL-Datei
 #
@@ -116,8 +117,11 @@ alter table public.mirror_migrations enable row level security;
 revoke all on public.mirror_migrations from anon, authenticated;
 SQL
 
+applied="$(psql_raw -t -A -c "select string_agg(name, ' ') from public.mirror_migrations" 2>/dev/null || true)"
 for f in "$DIR"/*.sql; do
     name="$(basename "$f")"
+    # Schon eingespielte Dateien überspringen (laufende Seiten schreiben weiter); --all spielt alles neu ein
+    if [ "$MODE" != "--all" ] && [[ " $applied " == *" $name "* ]]; then echo "= $name (schon eingespielt)"; continue; fi
     echo "→ $name"
     if ! psql_run < "$f"; then
         echo "Abbruch in $name (nichts weiter eingespielt)." >&2

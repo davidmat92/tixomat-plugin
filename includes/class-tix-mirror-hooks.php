@@ -60,6 +60,7 @@ class TIX_Mirror_Hooks {
         add_action('tix_order_chargeback', [__CLASS__, 'on_chargeback'], 99, 3);
         add_action('tix_ticket_checked_in', [__CLASS__, 'on_checkin'], 99, 1);
         add_action('tix_ticket_checkin_reset', [__CLASS__, 'on_checkin_reset'], 99, 1);
+        add_action('tix_invoice_created', [__CLASS__, 'on_invoice'], 99, 1); // Rechnungs-Kern (1.38.485)
     }
 
     private static function type_entity($type) {
@@ -181,6 +182,8 @@ class TIX_Mirror_Hooks {
         $row['data'] = (object) (is_array($row['data']) ? $row['data'] : []);
         TIX_Mirror::touch('refund', $order_id . ':' . $kind . ':' . substr(str_replace('.', '', (string) microtime(true)), 0, 16), 'upsert', $row);
     }
+
+    public static function on_invoice($invoice_id) { TIX_Mirror::touch('invoice', (int) $invoice_id); }
 
     public static function on_checkin($ticket_id) { self::checkin_event($ticket_id, 'in'); }
     public static function on_checkin_reset($ticket_id) { self::checkin_event($ticket_id, 'reset'); }

@@ -33,6 +33,7 @@ class TIX_Mirror_Reconcile {
             'wallet_transactions' => 'wallet_tx',
             'settlements'         => 'settlement',
             'settlement_items'    => 'settlement_item',
+            'invoices'            => 'invoice',
         ];
     }
 
@@ -51,6 +52,7 @@ class TIX_Mirror_Reconcile {
             delete_option(TIX_Mirror_Extra::COUPON_FP);
             $m = TIX_Mirror::unmuted_begin();
             TIX_Mirror::touch('coupons', 'all');
+            TIX_Mirror::touch('invoice_counters', 'all');
             TIX_Mirror::flush_buffer();
             TIX_Mirror::unmuted_end($m);
         }
@@ -252,6 +254,13 @@ class TIX_Mirror_Reconcile {
                     $out[(int) $p->ID] = self::fp([$p->post_status, html_entity_decode($p->post_title, ENT_QUOTES, 'UTF-8'),
                         (string) (get_post_meta($p->ID, '_tix_org_approval', true) ?: 'approved'), $masked]);
                 }
+                return $out;
+
+            case 'invoices':
+                $prev = $wpdb->suppress_errors(true);
+                $rows = $wpdb->get_results($wpdb->prepare("SELECT id, number, kind, gross, pdf_sha256 FROM {$wpdb->prefix}tix_invoices WHERE id > %d ORDER BY id LIMIT %d", $after, $limit), ARRAY_A);
+                $wpdb->suppress_errors($prev);
+                foreach ((array) $rows as $r) $out[(int) $r['id']] = self::fp([$r['number'], $r['kind'], self::money($r['gross']), $r['pdf_sha256']]);
                 return $out;
 
             case 'wallets':
