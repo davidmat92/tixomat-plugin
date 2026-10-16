@@ -310,7 +310,10 @@ class TIX_Mail_Gallery {
                         <p><strong>Kopf</strong><br>
                             <label><input type="radio" name="mail_header" value="" <?php checked(empty($o['mail_header'])); ?>> automatisch (<?php echo $br['logo_on_accent'] ? 'Markenfarbe' : 'hell'; ?>)</label><br>
                             <label><input type="radio" name="mail_header" value="light" <?php checked(($o['mail_header'] ?? '') === 'light'); ?>> hell (Logo auf Weiß, Linie in Markenfarbe)</label><br>
-                            <label><input type="radio" name="mail_header" value="brand" <?php checked(($o['mail_header'] ?? '') === 'brand'); ?>> Markenfarbe (braucht ein Logo für farbigen Grund)</label></p>
+                            <label><input type="radio" name="mail_header" value="brand" <?php checked(($o['mail_header'] ?? '') === 'brand'); ?>> Markenfarbe (braucht ein Logo für farbigen Grund)</label><br>
+                            <label><input type="radio" name="mail_header" value="color" <?php checked(($o['mail_header'] ?? '') === 'color'); ?>> eigene Farbe:</label>
+                            <input type="text" name="mail_header_color" value="<?php echo esc_attr($o['mail_header_color'] ?? ''); ?>" placeholder="<?php echo esc_attr($br['accent']); ?>" style="width:100px;" pattern="#?[0-9A-Fa-f]{3}([0-9A-Fa-f]{3})?">
+                            <span class="description">Knöpfe und Linien bleiben in der Markenfarbe.</span></p>
                         <?php foreach (['mail_logo_id' => ['Logo auf hellem Grund', '#ffffff', $br['logo'], 'leer = normales Logo'], 'mail_logo_on_color_id' => ['Logo für farbigen Kopf', $br['accent'], $br['logo_on_accent'], 'hell bzw. weiß']] as $fk => $f): ?>
                         <p><strong><?php echo esc_html($f[0]); ?></strong> <span class="description">(<?php echo esc_html($f[3]); ?>)</span><br>
                             <input type="hidden" name="<?php echo esc_attr($fk); ?>" class="tix-ml-id" value="<?php echo intval($o[$fk] ?? 0) ?: ''; ?>">

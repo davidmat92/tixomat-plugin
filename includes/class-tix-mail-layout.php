@@ -7,7 +7,7 @@ if (!defined('ABSPATH')) exit;
  * Marke kommt aus der Seite (Studio-Marke, Seiten-Konfiguration), Lizenzseiten bekommen dasselbe ohne Anpassung:
  *   Name, Akzentfarbe (TIX_Studio::accent), Fußzeile mit Impressum/Datenschutz, Hilfe, Social, App-Links.
  * Mail-Felder der Studio-Marke (tix_studio_brand, 1.38.473, alle optional, im Studio unter „Marke“):
- *   mail_header light | brand · mail_logo_id (Logo auf hellem Grund, sonst das normale Logo) · mail_logo_on_color_id
+ *   mail_header light | brand | color (mail_header_color, Hex; leer = Akzent) · mail_logo_id (Logo auf hellem Grund, sonst das normale Logo) · mail_logo_on_color_id
  *   (Logo für farbigen Kopf; fehlt es, gilt light) · mail_from (Vorgabe noreply@<Domain der Seite>) · mail_from_name
  *   (Vorgabe Marke) · mail_reply_to (Vorgabe Kontakt- bzw. Support-Adresse).
  *
@@ -104,11 +104,17 @@ class TIX_Mail_Layout {
             $host = preg_replace('/^www\./', '', strtolower((string) wp_parse_url($url, PHP_URL_HOST)));
             $support = trim((string) ($o['mail_reply_to'] ?? '')) ?: trim((string) ($contact['email'] ?? '')) ?: trim((string) ($s['support_email'] ?? ''));
             $hdr = (string) ($o['mail_header'] ?? '');
-            $header = $logo_on_accent === '' ? 'light' : ($hdr === 'light' ? 'light' : 'accent'); // „brand“ ohne Logo für farbigen Grund → hell
+            $header = $logo_on_accent === '' ? 'light' : ($hdr === 'light' ? 'light' : 'accent'); // „brand“/„color“ ohne Logo für farbigen Grund → hell
+            // Eigene Kopf-Farbe (1.38.479): mail_header = color + mail_header_color; leer = Akzentfarbe. Knöpfe/Linien bleiben Akzent.
+            $hcol = self::hex($o['mail_header_color'] ?? '', '');
+            $head_bg = ($hdr === 'color' && $hcol !== '') ? $hcol : $accent;
             self::$brand = [
                 'name' => $name,
                 'accent' => $accent,
                 'on_accent' => self::on_color($accent),
+                'head_bg' => $head_bg,
+                'on_head' => self::on_color($head_bg),
+                'header_mode' => $header === 'light' ? 'light' : ($hdr === 'color' && $hcol !== '' ? 'color' : 'brand'),
                 'logo' => $logo,
                 'logo_on_accent' => $logo_on_accent,
                 'header' => $header,
@@ -137,6 +143,7 @@ class TIX_Mail_Layout {
         return [
             'bg' => '#F3F4F6', 'card' => '#FFFFFF', 'text' => '#111827', 'muted' => '#6B7280', 'line' => '#E5E7EB', 'soft' => '#F9FAFB',
             'accent' => $b['accent'], 'on_accent' => $b['on_accent'],
+            'head_bg' => $b['head_bg'] ?? $b['accent'], 'on_head' => $b['on_head'] ?? $b['on_accent'],
         ];
     }
 
@@ -283,9 +290,9 @@ class TIX_Mail_Layout {
         $logo = $accent_head ? ($b['logo_on_accent'] ?: '') : $b['logo'];
         $brand_html = $logo !== ''
             ? '<img src="' . esc_url($logo) . '" alt="' . esc_attr($b['name']) . '" height="44" style="display:block;height:44px;width:auto;max-width:220px;border:0;margin:0 auto;">'
-            : '<span style="font-size:22px;font-weight:800;color:' . ($accent_head ? $c['on_accent'] : $c['text']) . ';">' . self::e($b['name']) . '</span>';
+            : '<span style="font-size:22px;font-weight:800;color:' . ($accent_head ? $c['on_head'] : $c['text']) . ';">' . self::e($b['name']) . '</span>';
         $head = $accent_head
-            ? '<tr><td align="center" bgcolor="' . $c['accent'] . '" class="tm-head-accent" style="background:' . $c['accent'] . ';padding:24px 24px;border-radius:16px 16px 0 0;">' . $brand_html . '</td></tr>'
+            ? '<tr><td align="center" bgcolor="' . $c['head_bg'] . '" class="tm-head-accent" style="background:' . $c['head_bg'] . ';padding:24px 24px;border-radius:16px 16px 0 0;">' . $brand_html . '</td></tr>'
             : '<tr><td align="center" class="tm-head" style="background:' . $c['card'] . ';padding:24px 24px 18px;border-radius:16px 16px 0 0;">' . $brand_html . '</td></tr>'
               . '<tr><td style="height:4px;line-height:4px;font-size:4px;background:' . $c['accent'] . ';">&nbsp;</td></tr>';
 
@@ -333,7 +340,7 @@ class TIX_Mail_Layout {
             . '.tm-muted,.tm-foot,.tm-foot a,.tm-foot div,.tm-foot span{color:#A1A1AA!important;}.tm-accent-text,.tm-legacy a{color:' . self::accent_on_dark($c['accent']) . '!important;}'
             . '.tm-line{border-color:#2A2A35!important;}.tm-soft{background:' . $dark_soft . '!important;border-color:#2A2A35!important;}.tm-card2{border-color:#2A2A35!important;}'
             . '.tm-notice-info{background:#172036!important;}.tm-notice-warn{background:#2A2012!important;}.tm-notice-success{background:#10261D!important;}.tm-notice-error{background:#2C1416!important;}'
-            . '.tm-btn,.tm-btn-td,.tm-legacy .tm-btn{color:' . $c['on_accent'] . '!important;}.tm-head-accent,.tm-head-accent *{color:' . $c['on_accent'] . '!important;}}'
+            . '.tm-btn,.tm-btn-td,.tm-legacy .tm-btn{color:' . $c['on_accent'] . '!important;}.tm-head-accent,.tm-head-accent *{color:' . $c['on_head'] . '!important;}}'
             . '[data-ogsc] .tm-card,[data-ogsc] .tm-head{background:#16161D!important;}[data-ogsc] .tm-text,[data-ogsc] .tm-title{color:#ECECF1!important;}[data-ogsc] .tm-soft{background:' . $dark_soft . '!important;}'
             . '</style></head>'
             . '<body class="tm-bg" style="margin:0;padding:0;background:' . $c['bg'] . ';font-family:' . $font . ';">'

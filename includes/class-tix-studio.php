@@ -274,7 +274,7 @@ class TIX_Studio {
     }
 
     // ── Mail-Marke (1.38.473): Kopf, Logos, Absender – Felder der Studio-Marke ──
-    const MAIL_KEYS = ['mail_header', 'mail_logo_id', 'mail_logo_on_color_id', 'mail_from', 'mail_from_name', 'mail_reply_to'];
+    const MAIL_KEYS = ['mail_header', 'mail_header_color', 'mail_logo_id', 'mail_logo_on_color_id', 'mail_from', 'mail_from_name', 'mail_reply_to'];
 
     /** Gespeicherte Mail-Felder (nur gesetzte). */
     public static function mail_settings() {
@@ -287,8 +287,11 @@ class TIX_Studio {
         $m = TIX_Mail_Layout::brand();
         $o = self::mail_settings();
         return [
-            'header' => $m['header'] === 'accent' ? 'brand' : 'light',
+            'header' => (string) ($m['header_mode'] ?? ($m['header'] === 'accent' ? 'brand' : 'light')),
             'header_set' => isset($o['mail_header']) ? (string) $o['mail_header'] : null,
+            // 1.38.479: eigene Kopf-Farbe (gespeichert bzw. null) und wirksame Kopf-Farbe
+            'header_color' => isset($o['mail_header_color']) ? (string) $o['mail_header_color'] : null,
+            'head_color' => $m['header'] === 'accent' ? (string) ($m['head_bg'] ?? $m['accent']) : null,
             'logo' => $m['logo'] !== '' ? $m['logo'] : null,
             'logo_custom' => !empty($o['mail_logo_id']),
             'logo_on_color' => $m['logo_on_accent'] !== '' ? $m['logo_on_accent'] : null,
@@ -304,8 +307,13 @@ class TIX_Studio {
             switch ($k) {
                 case 'mail_header':
                     if ($empty) { unset($b[$k]); break; }
-                    if (!in_array($v, ['light', 'brand'], true)) return new WP_Error('tix_invalid_field', 'Kopf: light oder brand.', ['status' => 400, 'field' => $k]);
+                    if (!in_array($v, ['light', 'brand', 'color'], true)) return new WP_Error('tix_invalid_field', 'Kopf: light, brand oder color.', ['status' => 400, 'field' => $k]);
                     $b[$k] = $v; break;
+                case 'mail_header_color':
+                    if ($empty) { unset($b[$k]); break; }
+                    $h = self::hex($v);
+                    if ($h === '') return new WP_Error('tix_invalid_field', 'Bitte die Kopf-Farbe als Hex-Wert angeben, z. B. #1A1A2E.', ['status' => 400, 'field' => $k]);
+                    $b[$k] = $h; break;
                 case 'mail_logo_id': case 'mail_logo_on_color_id':
                     if ($empty) { unset($b[$k]); break; }
                     $ok = self::check_logo_attachment(intval($v));
