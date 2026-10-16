@@ -285,8 +285,10 @@ class TIX_Order {
 
         if (isset($args['search']) && trim((string) $args['search']) !== '') {
             $q = '%' . $wpdb->esc_like(trim((string) $args['search'])) . '%';
-            $where[] = "(o.order_number LIKE %s OR o.billing_email LIKE %s OR CONCAT(o.billing_first_name, ' ', o.billing_last_name) LIKE %s OR o.id = %d)";
-            array_push($params, $q, $q, $q, intval(ltrim(trim((string) $args['search']), '#')));
+            // Bestellnummer tolerant (1.38.481): ohne Bindestrich/Leerzeichen, Groß-/Kleinschreibung egal – altes und neues Format
+            $nq = '%' . $wpdb->esc_like(self::number_norm($args['search'])) . '%';
+            $where[] = "(o.order_number LIKE %s OR " . self::number_norm_sql('o.order_number') . " LIKE %s OR o.billing_email LIKE %s OR CONCAT(o.billing_first_name, ' ', o.billing_last_name) LIKE %s OR o.id = %d)";
+            array_push($params, $q, $nq, $q, $q, intval(ltrim(trim((string) $args['search']), '#')));
         }
 
         return [$where, $params];
@@ -401,10 +403,52 @@ class TIX_Order {
         self::write_items($tix_order_id, $wc_order);
     }
 
+    /** Bestellnummer in Vergleichsform (TIX_Order_Number::normalize). */
+    public static function number_norm($s) {
+        return strtoupper(preg_replace('/[\s\-#_.]+/', '', trim((string) $s)));
+    }
+
+    /** SQL-Ausdruck: Spalte in Vergleichsform (ohne Bindestrich/Leerzeichen, Großbuchstaben). */
+    public static function number_norm_sql($col) {
+        return "REPLACE(REPLACE(UPPER($col), '-', ''), ' ', '')";
+    }
+
+    /**
+     * Bestellung zu einer eingegebenen Nummer (1.38.481): neues Kurzformat (KK-7HQ4M2) und altes Format,
+     * tolerant ohne Bindestrich/Leerzeichen und Groß-/Kleinschreibung; „#123“ bzw. reine Zahl = interne ID. 0 = keine.
+     */
+    public static function find_by_number($input) {
+        global $wpdb;
+        $raw = trim((string) $input);
+        if ($raw === '') return 0;
+        $t = self::table_name();
+        $id = intval($wpdb->get_var($wpdb->prepare("SELECT id FROM $t WHERE order_number = %s LIMIT 1", $raw)));
+        if ($id) return $id;
+        $norm = self::number_norm($raw);
+        if ($norm !== '') {
+            $id = intval($wpdb->get_var($wpdb->prepare("SELECT id FROM $t WHERE " . self::number_norm_sql('order_number') . " = %s LIMIT 1", $norm)));
+            if ($id) return $id;
+        }
+        if (preg_match('/^#?(\d+)$/', $raw, $m)) {
+            $id = intval($wpdb->get_var($wpdb->prepare("SELECT id FROM $t WHERE id = %d", intval($m[1]))));
+            if ($id) return $id;
+        }
+        return 0;
+    }
+
+    /** Hinweis zu einer nicht gefundenen Nummer: 'check' = neues Format, aber Prüfzeichen passt nicht (Tippfehler). */
+    public static function number_hint($input) {
+        if (!class_exists('TIX_Order_Number')) return '';
+        $p = TIX_Order_Number::parse($input);
+        return ($p && !$p[2]) ? 'check' : '';
+    }
+
     /**
      * Generiert die nächste eigene Bestellnummer (unabhängig von WC).
+     * Seit 1.38.481 mit Schalter `tix_order_number_mode` = short: zufälliges Kurzformat (TIX_Order_Number).
      */
     public static function next_order_number() {
+        if (class_exists('TIX_Order_Number') && TIX_Order_Number::mode() === 'short') return TIX_Order_Number::generate();
         $s = function_exists('tix_get_settings') ? tix_get_settings() : [];
         $prefix = $s['order_number_prefix'] ?? 'TIX-';
         $digits = max(3, intval($s['order_number_digits'] ?? 5));

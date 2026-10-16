@@ -460,7 +460,9 @@ class TIX_Notifications {
         $kind = class_exists('TIX_Emails') && method_exists('TIX_Emails', 'order_kind') ? TIX_Emails::order_kind($order) : 'tickets';
         if ($kind === 'topup') return;
         if ($kind === 'giftcard') {
-            self::add_user_item($uid, 'Dein Gutschein ist da', 'Den Gutschein-Code findest du in der Bestätigung und unter Gutscheine in der App.', ['type' => 'giftcard', 'action' => 'giftcards']);
+            // Aktion giftcard:<Code> öffnet in der App genau den gekauften Gutschein (1.38.481; „giftcards“ öffnet die Kaufseite)
+            $codes = class_exists('TIX_Giftcard_Gift') ? (array) TIX_Giftcard_Gift::codes_for_order($order_id) : [];
+            self::add_user_item($uid, 'Dein Gutschein ist da', 'Den Gutschein-Code findest du in der Bestätigung und unter Gutscheine in der App.', ['type' => 'giftcard', 'action' => $codes ? 'giftcard:' . $codes[0] : 'tab:tickets']);
             return;
         }
         self::add_user_item(

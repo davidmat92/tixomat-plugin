@@ -433,6 +433,8 @@ class TIX_Studio {
             'brand'      => ['accent' => self::accent(), 'logo' => self::logo(), 'placeholder' => (function () { $p = self::placeholder(); return $p ? ['url' => $p['url'], 'url_small' => $p['url_small']] : null; })(),
                 // 1.38.473: Mail-Marke (Kopf light|brand, Logos, Absender, Antworten an)
                 'mail' => self::mail_payload()],
+            // 1.38.481: Bestellnummern (legacy = bisheriges Format, short = KK-7HQ4M2)
+            'order_number' => class_exists('TIX_Order_Number') ? ['mode' => TIX_Order_Number::mode(), 'code' => TIX_Order_Number::code(), 'example' => TIX_Order_Number::make()] : null,
             'profile'    => $multi ? 'platform' : 'single',
             'features'   => [
                 'register'  => $multi && class_exists('TIX_Register_API'),
@@ -595,6 +597,18 @@ class TIX_Studio {
                 $b[$ik] = intval($mid);
             }
         }
+        // Bestellnummern (1.38.481): order_number_mode legacy|short, order_number_code (2–5 Zeichen A–Z/0–9; auf evendis fest EV)
+        if ($has('order_number_mode')) {
+            $om = (string) $req->get_param('order_number_mode');
+            if (!in_array($om, ['legacy', 'short'], true)) return new WP_Error('tix_invalid_field', 'Bestellnummer: legacy oder short.', ['status' => 400, 'field' => 'order_number_mode']);
+        }
+        if ($has('order_number_code')) {
+            $oc = strtoupper(trim((string) $req->get_param('order_number_code')));
+            if ($oc !== '' && !preg_match('/^[A-Z0-9]{2,5}$/', $oc)) return new WP_Error('tix_invalid_field', 'Kürzel: 2 bis 5 Zeichen (A–Z, 0–9).', ['status' => 400, 'field' => 'order_number_code']);
+            if (self::multi() && $oc !== '' && $oc !== 'EV') return new WP_Error('tix_invalid_field', 'Auf evendis ist das Kürzel immer EV.', ['status' => 400, 'field' => 'order_number_code']);
+        }
+        if ($has('order_number_mode')) update_option('tix_order_number_mode', (string) $req->get_param('order_number_mode'), false);
+        if ($has('order_number_code')) { if ($oc === '') delete_option('tix_order_number_code'); else update_option('tix_order_number_code', $oc, false); }
         $mail_in = [];
         foreach (self::MAIL_KEYS as $mk) if ($has($mk)) $mail_in[$mk] = $req->get_param($mk);
         if ($mail_in) {
@@ -602,7 +616,7 @@ class TIX_Studio {
             if (is_wp_error($nb)) return $nb;
             $b = $nb;
         }
-        $unknown = array_diff(array_keys((array) $p), array_merge(['accent', 'logo_id', 'logo', 'has_app', 'app_layout', 'placeholder_id', 'placeholder', 'syndicate_default', 'syndicate_default_partner_sales', 'mail_logo', 'mail_logo_on_color'], self::MAIL_KEYS));
+        $unknown = array_diff(array_keys((array) $p), array_merge(['accent', 'logo_id', 'logo', 'has_app', 'app_layout', 'placeholder_id', 'placeholder', 'syndicate_default', 'syndicate_default_partner_sales', 'mail_logo', 'mail_logo_on_color', 'order_number_mode', 'order_number_code'], self::MAIL_KEYS));
         // Vorgabe „alle Events auf evendis teilen“ (1.38.465): true | false | null (nicht eingestellt)
         if ($has('syndicate_default') || $has('syndicate_default_partner_sales')) {
             $avail = class_exists('TIX_Syndication_Push') && TIX_Syndication_Push::is_configured() && !self::multi();

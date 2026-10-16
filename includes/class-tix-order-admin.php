@@ -85,11 +85,12 @@ class TIX_Order_Admin {
             // Auch nach Legacy-WC-Order-Nummer suchen (für migrierte Bestellungen)
             $pm = $wpdb->postmeta;
             $clean = ltrim($search, '#');
-            $where .= " AND (order_number LIKE %s OR billing_email LIKE %s OR billing_last_name LIKE %s
+            $where .= " AND (order_number LIKE %s OR " . TIX_Order::number_norm_sql('order_number') . " LIKE %s OR billing_email LIKE %s OR billing_last_name LIKE %s
                           OR id IN (SELECT post_id FROM $pm WHERE meta_key IN ('_tix_legacy_wc_order_number','_tix_legacy_wc_order_id') AND meta_value LIKE %s))";
             $like = '%' . $wpdb->esc_like($search) . '%';
             $like_clean = '%' . $wpdb->esc_like($clean) . '%';
             $params[] = $like;
+            $params[] = '%' . $wpdb->esc_like(TIX_Order::number_norm($search)) . '%';
             $params[] = $like;
             $params[] = $like;
             $params[] = $like_clean;

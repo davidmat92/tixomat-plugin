@@ -446,7 +446,10 @@ class TIX_Support_Model {
         if ($q !== '' && ctype_digit(ltrim($q, '#'))) $args['post__in'] = [intval(ltrim($q, '#'))];
         $ids = get_posts($args);
         if ($q !== '' && !ctype_digit(ltrim($q, '#'))) {
-            $ids = array_values(array_filter($ids, function ($tid) use ($q) {
+            // Bestellnummer (alt und neu, tolerant, 1.38.481) → Anfragen zu dieser Bestellung
+            $q_order = class_exists('TIX_Order') && method_exists('TIX_Order', 'find_by_number') ? TIX_Order::find_by_number($q) : 0;
+            $ids = array_values(array_filter($ids, function ($tid) use ($q, $q_order) {
+                if ($q_order && intval(get_post_meta($tid, '_tix_sp_order_id', true)) === $q_order) return true;
                 foreach ([get_the_title($tid), get_post_meta($tid, '_tix_sp_email', true), get_post_meta($tid, '_tix_sp_name', true), get_post_meta($tid, '_tix_sp_ticket_code', true)] as $h) {
                     if ($h !== '' && mb_stripos((string) $h, $q) !== false) return true;
                 }

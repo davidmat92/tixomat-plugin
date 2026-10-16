@@ -530,8 +530,8 @@ class TIX_Organizer_Admin {
         $search = trim((string) ($args['search'] ?? ''));
         if ($search !== '') {
             $like = '%' . $wpdb->esc_like($search) . '%';
-            $where .= ' AND (o.order_number LIKE %s OR o.billing_email LIKE %s OR CONCAT(o.billing_first_name, \' \', o.billing_last_name) LIKE %s' . (ctype_digit($search) ? ' OR o.id = %d' : '') . ')';
-            array_push($params, $like, $like, $like);
+            $where .= ' AND (o.order_number LIKE %s OR ' . TIX_Order::number_norm_sql('o.order_number') . ' LIKE %s OR o.billing_email LIKE %s OR CONCAT(o.billing_first_name, \' \', o.billing_last_name) LIKE %s' . (ctype_digit($search) ? ' OR o.id = %d' : '') . ')';
+            array_push($params, $like, '%' . $wpdb->esc_like(TIX_Order::number_norm($search)) . '%', $like, $like);
             if (ctype_digit($search)) $params[] = intval($search);
         }
         if (!empty($args['date_from'])) { $where .= ' AND o.date_created >= %s'; $params[] = $args['date_from'] . ' 00:00:00'; }
