@@ -204,6 +204,8 @@ class TIX_Awareness_Live {
         $u = wp_get_current_user();
         $team = $u->has_cap('tix_app_awareness') || $u->has_cap('manage_options') || (class_exists('TIX_REST_API') && TIX_REST_API::is_staff_user($u));
         if (!$team) return self::error('rest_forbidden', 'Nur für das Awareness-Team.', 403);
+        // ?range=recent (1.38.468): Events der letzten 30 Tage mit Meldungen bzw. Rückmeldungen (Studio „Meldungen“)
+        if ((string) $req->get_param('range') === 'recent') return self::recent_events();
         $from = gmdate('Y-m-d', self::now_ts() - DAY_IN_SECONDS);
         $to   = gmdate('Y-m-d', self::now_ts() + 30 * DAY_IN_SECONDS);
         $args = ['post_type' => 'event', 'post_status' => 'publish', 'posts_per_page' => 100, 'fields' => 'ids',
@@ -241,6 +243,52 @@ class TIX_Awareness_Live {
             ];
         }
         return rest_ensure_response(['ok' => true, 'events' => $out]);
+    }
+
+    /**
+     * Events der letzten 30 Tage (bis heute) mit mindestens einer Meldung (Alarm) oder Rückmeldung, neueste zuerst.
+     * Abschottung wie die Event-Liste (eigener Veranstalter). → {ok, range: recent, events: [{id, title, date_start, starts_at, ends_at,
+     * alerts, alerts_open, feedback, feedback_notes, last_at}]}
+     */
+    private static function recent_events() {
+        global $wpdb;
+        $from = gmdate('Y-m-d', self::now_ts() - 30 * DAY_IN_SECONDS);
+        $to   = gmdate('Y-m-d', self::now_ts());
+        $args = ['post_type' => 'event', 'post_status' => ['publish', 'private'], 'posts_per_page' => 300, 'fields' => 'ids',
+            'meta_key' => '_tix_date_start', 'orderby' => 'meta_value', 'order' => 'DESC',
+            'meta_query' => [['key' => '_tix_date_start', 'value' => [$from, $to], 'compare' => 'BETWEEN', 'type' => 'DATE']]];
+        if (class_exists('TIX_App_Scope') && TIX_App_Scope::scoped()) {
+            $oid = TIX_App_Scope::organizer_id_for_user();
+            if (!$oid) return rest_ensure_response(['ok' => true, 'range' => 'recent', 'events' => []]);
+            $args['meta_query'][] = TIX_App_Scope::event_meta_clause($oid);
+        }
+        $ids = array_map('intval', get_posts($args));
+        $out = [];
+        if ($ids) {
+            $in = implode(',', $ids);
+            $al = []; $fb = [];
+            foreach ((array) $wpdb->get_results("SELECT event_id, COUNT(*) n, SUM(status IN ('open','taken')) o, MAX(created) l FROM " . self::t('tix_awareness_alerts') . " WHERE event_id IN ($in) GROUP BY event_id", ARRAY_A) as $r) $al[intval($r['event_id'])] = $r;
+            foreach ((array) $wpdb->get_results("SELECT event_id, COUNT(*) n, SUM(note <> '') m, MAX(created) l FROM " . self::t('tix_awareness_feedback') . " WHERE event_id IN ($in) GROUP BY event_id", ARRAY_A) as $r) $fb[intval($r['event_id'])] = $r;
+            $plain = function ($ts) { return $ts ? gmdate('Y-m-d H:i', $ts) : null; };
+            foreach ($ids as $eid) {
+                if (empty($al[$eid]) && empty($fb[$eid])) continue;
+                $w = self::window($eid);
+                $last = max((string) ($al[$eid]['l'] ?? ''), (string) ($fb[$eid]['l'] ?? ''));
+                $out[] = [
+                    'id'             => $eid,
+                    'title'          => html_entity_decode(get_the_title($eid), ENT_QUOTES, 'UTF-8'),
+                    'date_start'     => (string) get_post_meta($eid, '_tix_date_start', true),
+                    'starts_at'      => $w ? $plain($w['start']) : null,
+                    'ends_at'        => $w ? $plain($w['end']) : null,
+                    'alerts'         => intval($al[$eid]['n'] ?? 0),
+                    'alerts_open'    => intval($al[$eid]['o'] ?? 0),
+                    'feedback'       => intval($fb[$eid]['n'] ?? 0),
+                    'feedback_notes' => intval($fb[$eid]['m'] ?? 0),
+                    'last_at'        => $last !== '' ? substr($last, 0, 16) : null,
+                ];
+            }
+        }
+        return rest_ensure_response(['ok' => true, 'range' => 'recent', 'events' => $out]);
     }
 
     public static function rest_duty(WP_REST_Request $req) {
