@@ -113,6 +113,12 @@ class TIX_App_Account {
             'callback'            => [__CLASS__, 'request_code'],
             'permission_callback' => '__return_true',
         ]);
+        // Magic Link ohne WordPress-Seite (1.38.459): {token} aus ?tix_mt_token= → Kunden-Token + Profil
+        register_rest_route(self::NS, '/auth/magic', [
+            'methods'             => 'POST',
+            'callback'            => [__CLASS__, 'magic_login'],
+            'permission_callback' => '__return_true',
+        ]);
         register_rest_route(self::NS, '/auth/code/confirm', [
             'methods'             => 'POST',
             'callback'            => [__CLASS__, 'confirm_code'],
@@ -420,6 +426,30 @@ class TIX_App_Account {
     }
 
     /** POST /auth/code/confirm */
+    /**
+     * POST /auth/magic {token, device?} – Link aus der Mail „Meine Tickets“ (?tix_mt_token=) einlösen, einmalig.
+     * Vorhandenes Kundenkonto → angemeldet (E-Mail gilt als bestätigt); sonst neues Konto ohne Passwort (wie der Code-Weg).
+     * Personal-Konten nicht (normal anmelden). → {ok, success, token, user, created}
+     */
+    public static function magic_login(WP_REST_Request $req) {
+        if (self::rate_limited('magic_ip', 20, 600)) return self::error('tix_rate_limit', 'Zu viele Versuche. Bitte später erneut versuchen.', 429);
+        $token = (string) $req->get_param('token');
+        if (!preg_match('/^[a-f0-9]{64}$/i', $token) || !class_exists('TIX_My_Tickets')) return self::error('tix_magic_invalid', 'Der Link ist ungültig oder abgelaufen. Bitte fordere einen neuen an.', 400);
+        $email = TIX_My_Tickets::consume_guest_token($token);
+        if (!$email) return self::error('tix_magic_invalid', 'Der Link ist ungültig oder abgelaufen. Bitte fordere einen neuen an.', 400);
+        $user = get_user_by('email', $email);
+        if ($user && self::is_staff_account($user)) return self::error('tix_magic_staff', 'Bitte melde dich mit deinem Passwort an.', 403);
+        $created = false;
+        if (!$user) {
+            $user = self::create_passwordless_user($email);
+            if (is_wp_error($user)) return self::error('registration_failed', $user->get_error_message(), 500);
+            $created = true;
+        }
+        self::mark_confirmed($user, 'magic_link');
+        $user = get_user_by('ID', $user->ID);
+        return rest_ensure_response(['ok' => true, 'success' => true, 'token' => self::issue_token($user->ID, $req), 'user' => self::user_payload($user), 'created' => $created]);
+    }
+
     public static function confirm_code(WP_REST_Request $req) {
         $email   = sanitize_email((string) $req->get_param('email'));
         $purpose = self::normalize_purpose($req->get_param('purpose'));

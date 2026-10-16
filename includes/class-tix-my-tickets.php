@@ -637,6 +637,13 @@ class TIX_My_Tickets {
     /**
      * Validiert einen Guest-Token und gibt die zugehörige Email zurück (oder null).
      */
+    /** Gast-Token aus dem Magic Link einlösen (einmalig, 1.38.459 REST POST /auth/magic) → E-Mail oder null. */
+    public static function consume_guest_token($token) {
+        $email = self::verify_guest_token($token);
+        if ($email) delete_transient('tix_mt_guest_' . hash('sha256', preg_replace('/[^a-f0-9]/i', '', (string) $token)));
+        return $email;
+    }
+
     private static function verify_guest_token($token) {
         $token = preg_replace('/[^a-f0-9]/i', '', (string) $token);
         if (strlen($token) !== 64) return null;

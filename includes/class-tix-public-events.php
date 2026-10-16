@@ -115,6 +115,11 @@ class TIX_Public_Events {
         return [$start, $end];
     }
 
+    /** Lokaler Zeitstempel (Konvention times()) → ISO 8601 mit Versatz der Seiten-Zeitzone. */
+    private static function iso_local($ts) {
+        try { return (new DateTime(gmdate('Y-m-d H:i:s', intval($ts)), wp_timezone()))->format('c'); } catch (\Throwable $e) { return null; }
+    }
+
     private static function age_label($id) {
         $n = (string) get_post_meta($id, '_tix_info_age_limit', true);
         if ($n !== '' && intval($n) > 0) return 'ab ' . intval($n) . ' Jahren';
@@ -186,6 +191,12 @@ class TIX_Public_Events {
             'time_start'      => (string) get_post_meta($id, '_tix_time_start', true),
             'time_end'        => (string) get_post_meta($id, '_tix_time_end', true),
             'time_doors'      => (string) get_post_meta($id, '_tix_time_doors', true),
+            // 1.38.459: Beginn/Ende als ISO 8601 mit Zeitzone der Seite (Sommerzeit), Ende ohne Angabe geschätzt (8 h bzw. Tagesende)
+            'starts_at'       => $start ? self::iso_local($start) : null,
+            'ends_at'         => $end ? self::iso_local($end) : null,
+            'ends_at_estimated' => $start ? ((string) get_post_meta($id, '_tix_date_end', true) === '' && (string) get_post_meta($id, '_tix_time_end', true) === '') : null,
+            // letzte Änderung (Sitemap lastmod, Cache)
+            'modified'        => ($post->post_modified_gmt && $post->post_modified_gmt !== '0000-00-00 00:00:00') ? gmdate('Y-m-d\TH:i:s\Z', strtotime($post->post_modified_gmt . ' UTC')) : null,
             'location'        => (string) get_post_meta($id, '_tix_location', true),
             'address'         => (string) get_post_meta($id, '_tix_address', true),
             'organizer'       => $organizer,
@@ -603,6 +614,8 @@ class TIX_Public_Events {
             $data = $resp->get_data();
             // aktueller Slug direkt vom Event (das Detail kann bis zu 60 s aus dem Cache kommen)
             $data['canonical_slug'] = (string) get_post_field('post_name', $ids[0]);
+            // 1.38.459: Website setzt eine 301 auf den neuen Slug
+            $data['redirect'] = $data['canonical_slug'];
             $resp->set_data($data);
         }
         return $resp;
