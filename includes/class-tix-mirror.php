@@ -27,7 +27,8 @@ class TIX_Mirror {
     const OPTION       = 'tix_mirror';          // Einstellungen: enabled, url, key, site, alert_email
     const STATE        = 'tix_mirror_state';    // Laufzeit: letzter Lauf, Fehler, Zähler
     const DB_OPTION    = 'tix_mirror_db';
-    const DB_VERSION   = '1';
+    const DB_VERSION   = '2';                   // 2 (1.38.470): alle Konten einmal neu senden (Erlaubnisliste)
+    const REQUEUE      = 'tix_mirror_requeue';  // [entity => letzte ID] – einmaliges Neu-Senden ganzer Typen
     const LOCK         = 'tix_mirror_lock';
     const CRON         = 'tix_mirror_flush';
     const SCHEDULE     = 'tix_every_minute';
@@ -157,8 +158,36 @@ class TIX_Mirror {
             UNIQUE KEY entity_object (entity,object_id),
             KEY next_try (next_try)
         ) {$charset};");
+        $prev_db = get_option(self::DB_OPTION);
         update_option(self::DB_OPTION, self::DB_VERSION, true);
         self::migrate_legacy();
+        // Update von 1 auf 2: customers.data hatte vor 1.38.470 mehr Felder → alle Konten einmal neu senden.
+        if ($prev_db === '1') self::requeue('customer');
+    }
+
+    /** Einen ganzen Typ einmal neu senden (im Cron, in Paketen, unabhängig von der Erstbefüllung). */
+    public static function requeue($entity) {
+        $q = get_option(self::REQUEUE, []);
+        $q = is_array($q) ? $q : [];
+        $q[$entity] = 0;
+        update_option(self::REQUEUE, $q, false);
+    }
+
+    /** Im Cron: bis zu 500 IDs je Typ aus der Neu-Senden-Liste in den Postausgang. */
+    private static function requeue_step() {
+        global $wpdb;
+        $q = get_option(self::REQUEUE, []);
+        if (!is_array($q) || !$q) return;
+        $m = self::unmuted_begin();
+        foreach ($q as $entity => $after) {
+            if ($entity !== 'customer') { unset($q[$entity]); continue; }
+            $ids = array_map('intval', $wpdb->get_col($wpdb->prepare("SELECT ID FROM {$wpdb->users} WHERE ID > %d ORDER BY ID LIMIT 500", (int) $after)));
+            foreach ($ids as $id) self::touch('customer', $id);
+            if (count($ids) < 500) unset($q[$entity]); else $q[$entity] = end($ids);
+        }
+        self::flush_buffer();
+        self::unmuted_end($m);
+        if ($q) update_option(self::REQUEUE, $q, false); else delete_option(self::REQUEUE);
     }
 
     /**
@@ -260,6 +289,7 @@ class TIX_Mirror {
                 $m = self::unmuted_begin(); self::touch('site', 'site'); self::flush_buffer(); self::unmuted_end($m);
                 self::set_state(['site_at' => time()]);
             }
+            self::requeue_step();
             if (class_exists('TIX_Mirror_Backfill')) TIX_Mirror_Backfill::step(max(5, self::RUN_SECONDS / 2));
             if (class_exists('TIX_Mirror_Reconcile')) TIX_Mirror_Reconcile::step(10);
             do {

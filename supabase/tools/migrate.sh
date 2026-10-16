@@ -6,6 +6,7 @@
 #   bash supabase/tools/migrate.sh ~/.private_keys/supabase_datenspiegel_db.txt --check   # nur prüfen
 #   bash supabase/tools/migrate.sh ~/.private_keys/supabase_datenspiegel_db.txt           # einspielen
 #   bash supabase/tools/migrate.sh ~/.private_keys/supabase_datenspiegel_db.txt --verify  # RLS + Rechte prüfen
+#   bash supabase/tools/migrate.sh ~/.private_keys/supabase_datenspiegel_db.txt --sql datei.sql  # einzelne SQL-Datei
 #
 # Alle Migrationen sind wiederholbar. Eingespielte Dateien stehen in public.mirror_migrations.
 # Hinweis: Der direkte Host db.<ref>.supabase.co ist nur per IPv6 erreichbar; aus Docker auf dem Mac
@@ -70,6 +71,14 @@ if [ "$MODE" = "--check" ]; then
         echo "Eingespielt: - (noch keine)"
     fi
     exit 0
+fi
+
+if [ "$MODE" = "--sql" ]; then
+    SQLFILE="${3:?--sql braucht eine SQL-Datei}"
+    [ -r "$SQLFILE" ] || { echo "Datei nicht lesbar: $SQLFILE" >&2; exit 2; }
+    echo "Führe $(basename "$SQLFILE") aus …"
+    psql_run -t -A < "$SQLFILE"
+    exit $?
 fi
 
 if [ "$MODE" = "--verify" ]; then

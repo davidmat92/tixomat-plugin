@@ -22,7 +22,23 @@ class TIX_Mirror_Map {
     /** Meta-Schlüssel, die nie in den Spiegel gehen (Teilstrings, ohne Groß/klein). */
     const DENY = ['pass', 'token', 'secret', 'iban', 'session', 'nonce', 'otp', 'awareness', 'api_key', 'apikey',
                   'private', 'id_photo', 'ausweis', '_tix_cart', 'guest_list', 'guestlist', 'checkin_password', 'webhook',
-                  'pushover', 'payout_pending', 'code_hash', 'public_key'];
+                  'pushover', 'payout_pending', 'code_hash', 'public_key',
+                  // 1.38.470 (Fund KitchenKlub: Kassen-PIN-Hash): PINs, Hashes, Schlüssel, 2FA, Wiederherstellung
+                  '_pin', 'pin_', 'hash', '_key', 'wfls_', '2fa', 'totp', 'recovery', 'application_password', 'credential'];
+
+    /**
+     * Konto-Meta im Spiegel: NUR diese Felder (Erlaubnisliste, 1.38.470). Alles andere – auch neue _tix_-Felder –
+     * bleibt draußen, bis es hier bewusst aufgenommen wird. Prämien laufen getrennt (loyalty).
+     */
+    const CUSTOMER_META_ALLOW = ['_tix_phone', '_tix_email_confirmed', '_tix_email_confirmed_by', '_tix_team_organizer_id',
+                  '_tix_organizer_name', '_tix_saved_events', '_tix_app_following', '_tix_app_verified',
+                  '_tix_app_created', '_tix_first_event_celebrated', '_tix_legacy_source', '_tix_legacy_user_id',
+                  '_tix_avatar_url', '_tix_avatar_id'];
+
+    /** Werte, die wie Passwort-/PIN-Hashes aussehen, gehen nie in den Spiegel (egal unter welchem Feldnamen). */
+    public static function looks_like_hash($v) {
+        return is_string($v) && preg_match('/^\$(P|H|wp|2y|2a|2b|argon2id?|scrypt|pbkdf2[^$]*|[156])\$/', $v) === 1;
+    }
 
     public static function is_sensitive($key) {
         $k = strtolower((string) $key);
@@ -100,9 +116,11 @@ class TIX_Mirror_Map {
     public static function clean($v) { return self::json_safe($v); }
 
     private static function json_safe($v) {
-        // Ungültiges UTF-8 würde den ganzen Bündel-Upsert scheitern lassen.
-        if (is_string($v)) return wp_check_invalid_utf8($v, true);
+        // Hash-artige Werte nie senden; ungültiges UTF-8 würde den ganzen Bündel-Upsert scheitern lassen.
+        if (is_string($v)) return self::looks_like_hash($v) ? null : wp_check_invalid_utf8($v, true);
         if (is_array($v)) { foreach ($v as $k => $x) $v[$k] = self::json_safe($x); }
+        // (object)-Felder wie data/billing ebenfalls prüfen (sonst entgehen ihre Werte dem Filter)
+        if ($v instanceof \stdClass) { $a = (array) $v; foreach ($a as $k => $x) $a[$k] = self::json_safe($x); $v = (object) $a; }
         return $v;
     }
 
@@ -245,8 +263,15 @@ class TIX_Mirror_Map {
 
     /** Löst eine Nutzer-Meta-Änderung einen Spiegel-Eintrag aus? */
     public static function user_meta_relevant($key) {
+        if (strpos($key, '_tix_loyalty_points') === 0 || strpos($key, '_tix_loyalty_log') === 0 || strpos($key, '_tix_loyalty_stamped') === 0) return true;
+        if (substr($key, -12) === 'capabilities') return true;
+        return self::customer_meta_allowed($key);
+    }
+
+    /** Darf dieses Konto-Meta-Feld in customers.data? (Erlaubnisliste + Sperrliste als zweite Sicherung) */
+    public static function customer_meta_allowed($key) {
         if (self::is_sensitive($key)) return false;
-        return in_array($key, self::USER_META, true) || strpos($key, '_tix_') === 0 || substr($key, -12) === 'capabilities';
+        return in_array($key, self::USER_META, true) || in_array($key, self::CUSTOMER_META_ALLOW, true);
     }
 
     private static function plan_customer($site, $id, $op, $payload) {
@@ -261,9 +286,7 @@ class TIX_Mirror_Map {
         }
         $meta = [];
         foreach ((array) get_user_meta($id) as $k => $vals) {
-            if (!self::user_meta_relevant($k) || substr($k, -12) === 'capabilities' || substr($k, -10) === 'user_level') continue;
-            if (in_array($k, ['_tix_avatar_file', '_tix_app_created'], true)) continue;
-            if (strpos($k, '_tix_loyalty_') === 0) continue; // eigene Tabelle loyalty
+            if (!self::customer_meta_allowed($k)) continue; // Erlaubnisliste (1.38.470); Prämien → loyalty
             $meta[$k] = maybe_unserialize($vals[0] ?? null);
         }
         ksort($meta);

@@ -7,7 +7,7 @@
  *
  * 1. Anzahlen je Tabelle (WordPress gezählt wie die Erstbefüllung, Spiegel per count=exact)
  * 2. Stichproben: neueste Bestellungen, Tickets, Events, Geldbörsen Feld für Feld
- * 3. Datenschutz: Passwort-Hashes, Tokens, Klartext-IBAN in den ersten 1000 Zeilen je Tabelle
+ * 3. Datenschutz: Passwort-/PIN-Hashes, geheime Feldnamen, Klartext-IBAN in ALLEN Zeilen je Tabelle und im Verlauf
  */
 if (!defined('ABSPATH') || !class_exists('TIX_Mirror')) { echo "WordPress mit Tixomat (Datenspiegel) nötig\n"; return; }
 if (!TIX_Mirror_Client::configured()) { echo "Spiegel nicht eingerichtet (TIX_MIRROR_URL/TIX_MIRROR_KEY).\n"; return; }
@@ -127,23 +127,34 @@ if ($wp['wallets']) {
     }
 }
 
-// ── 3. Datenschutz ──
-echo "\n3. Datenschutz (erste 1000 Zeilen je Tabelle)\n";
-$patterns = [
-    'Passwort-Hash'  => '/\$(P|H|wp|2y|2a|argon2id?)\$/',
-    'Token-Feld'     => '/"[^"]*(token|password|passwort|secret|nonce|code_hash|public_key|pushover)[^"]*"\s*:/i',
-    'Klartext-IBAN'  => '/\b[A-Z]{2}\d{2}(?:\s?[A-Z0-9]){11,30}\b/',
-];
-foreach (['customers', 'organizers', 'orders', 'tickets', 'settlements', 'wallet_transactions', 'coupons', 'events', 'guests'] as $table) {
-    $r = TIX_Mirror_Client::select($table, ['site' => 'eq.' . $site, 'limit' => '1000']);
-    if (!$r['ok']) { echo "   {$table}: FEHLER beim Lesen\n"; $problems[] = "Lesen {$table}"; continue; }
-    $hits = [];
-    foreach ((array) $r['body'] as $row) {
-        // Verschlüsselte Werte (m1:/v1:) und Maskierungen sind erlaubt
-        $json = preg_replace('/"(iban_enc|iban_masked)"\s*:\s*"[^"]*"/', '', wp_json_encode($row));
-        foreach ($patterns as $name => $re) if (preg_match($re, $json)) $hits[$name] = ($hits[$name] ?? 0) + 1;
+// ── 3. Datenschutz: ALLE Zeilen je Tabelle, auch der Verlauf (change_log) ──
+echo "\n3. Datenschutz (alle Zeilen, inkl. Verlauf)\n";
+// Feldnamen wie in TIX_Mirror_Map::DENY; Spalten, die bewusst so heißen, sind ausgenommen.
+$key_re  = '/"([^"]*(pass|token|secret|nonce|code_hash|public_key|pushover|_pin|pin_|hash|_key|wfls_|2fa|totp|recovery|application_password|credential|session)[^"]*)"\s*:/i';
+$key_ok  = ['idempotency_key'];
+$hash_re = '/"\$(P|H|wp|2y|2a|2b|argon2id?|scrypt|[156])\$/';
+$iban_re = '/\b[A-Z]{2}\d{2}(?:\s?[A-Z0-9]){11,30}\b/';
+foreach (['customers', 'organizers', 'orders', 'order_items', 'payments', 'tickets', 'events', 'guests', 'loyalty', 'coupons',
+          'wallets', 'wallet_transactions', 'settlements', 'settlement_items', 'checkins', 'refunds', 'change_log'] as $table) {
+    $hits = []; $rows = 0; $err = '';
+    for ($offset = 0; ; $offset += 1000) {
+        $r = TIX_Mirror_Client::select($table, ['site' => 'eq.' . $site, 'order' => $table === 'change_log' ? 'id.asc' : 'id.asc', 'limit' => '1000', 'offset' => (string) $offset]);
+        if (!$r['ok']) { $err = $r['error']; break; }
+        $chunk = (array) $r['body'];
+        foreach ($chunk as $row) {
+            // Verschlüsselte Werte (m1:/v1:) und Maskierungen sind erlaubt
+            $json = preg_replace('/"(iban_enc|iban_masked)"\s*:\s*"[^"]*"/', '', wp_json_encode($row));
+            if (preg_match_all($key_re, $json, $m)) {
+                foreach ($m[1] as $k) if (!in_array($k, $key_ok, true)) { $hits['Feld ' . $k] = ($hits['Feld ' . $k] ?? 0) + 1; }
+            }
+            if (preg_match($hash_re, $json)) $hits['Hash-Wert'] = ($hits['Hash-Wert'] ?? 0) + 1;
+            if (preg_match($iban_re, $json)) $hits['Klartext-IBAN'] = ($hits['Klartext-IBAN'] ?? 0) + 1;
+        }
+        $rows += count($chunk);
+        if (count($chunk) < 1000) break;
     }
-    echo "   {$table}: " . count((array) $r['body']) . " Zeilen · " . ($hits ? 'TREFFER ' . implode(', ', array_map(function ($k, $v) { return "{$k} {$v}×"; }, array_keys($hits), $hits)) : 'sauber') . "\n";
+    if ($err !== '') { echo "   {$table}: FEHLER beim Lesen\n"; $problems[] = "Lesen {$table}"; continue; }
+    echo "   {$table}: {$rows} Zeilen · " . ($hits ? 'TREFFER ' . implode(', ', array_map(function ($k, $v) { return "{$k} {$v}×"; }, array_keys($hits), $hits)) : 'sauber') . "\n";
     foreach ($hits as $k => $v) $problems[] = "{$table}: {$k}";
 }
 

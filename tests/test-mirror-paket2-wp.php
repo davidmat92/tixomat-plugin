@@ -130,6 +130,26 @@ delete_user_meta($uid, '_tix_loyalty_points_o' . $org);
 m2_run();
 t2_eq('entfernte Karte gelöscht', null, m2_one('loyalty', $uid . ':' . $org));
 
+// ── 3b. Konto-Meta nur per Erlaubnisliste (1.38.470, Fund KitchenKlub: Kassen-PIN-Hash) ──
+update_user_meta($uid, '_tix_pos_pin', wp_hash_password('1234'));
+update_user_meta($uid, '_tix_irgendwas_neues', 'x');
+update_user_meta($uid, '_tix_phone', '0221 99');
+update_user_meta($uid, 'billing_company', '$wp$2y$10$nichtwirklicheinhashabervonderform');
+m2_run();
+$cj = wp_json_encode(m2_one('customers', $uid));
+t2_eq('PIN-Hash nicht im Spiegel', false, strpos($cj, '_tix_pos_pin') !== false);
+t2_eq('unbekanntes _tix_-Feld nicht im Spiegel', false, strpos($cj, '_tix_irgendwas_neues') !== false);
+t2_eq('erlaubtes Feld im Spiegel', '0221 99', m2_one('customers', $uid)['data']['_tix_phone'] ?? null);
+t2_eq('Hash-artiger Wert unter erlaubtem Feld verworfen', false, strpos($cj, '$wp$2y$') !== false);
+t2_eq('kein Hash im Verlauf', 0, count(array_filter(m2_rows('change_log', ['entity' => 'eq.customers', 'object_id' => 'eq.' . $uid]), function ($r) { return strpos(wp_json_encode($r), '$wp$') !== false || strpos(wp_json_encode($r), '_tix_pos_pin') !== false; })));
+delete_user_meta($uid, 'billing_company');
+// Update auf DB 2: alle Konten einmal neu senden
+update_option(TIX_Mirror::DB_OPTION, '1');
+TIX_Mirror::maybe_install();
+t2_true('Update merkt Neu-Senden der Konten vor', isset(get_option(TIX_Mirror::REQUEUE, [])['customer']));
+m2_run();
+t2_eq('Neu-Senden erledigt', false, (bool) get_option(TIX_Mirror::REQUEUE, false));
+
 // ── 4. Guthaben: Geldbörse und Buchungen über den Nachlauf ──
 if (class_exists('TIX_Wallet_Balance') && TIX_Wallet_Balance::ready()) {
     $w = TIX_Wallet_Balance::get_or_create($uid, 0);
