@@ -497,23 +497,8 @@ class TIX_Raffle {
             wp_send_json_error(['message' => 'Ungültige Event-ID.']);
         }
 
-        self::ensure_table();
-        global $wpdb;
-        $table = $wpdb->prefix . self::TABLE;
-
-        // is_winner + prize_index in DB zuruecksetzen
-        $wpdb->update(
-            $table,
-            ['is_winner' => 0, 'prize_index' => null],
-            ['event_id' => $event_id],
-            ['%d', '%s'],
-            ['%d']
-        );
-
-        // Meta zuruecksetzen
-        update_post_meta($event_id, '_tix_raffle_status', 'open');
-        delete_post_meta($event_id, '_tix_raffle_winners');
-        delete_post_meta($event_id, '_tix_raffle_drawn_at');
+        $r = self::reset_draw($event_id); // Freikarten werden storniert, eingecheckte verhindern das Zurücksetzen (1.38.489)
+        if (is_wp_error($r)) wp_send_json_error(['message' => $r->get_error_message()]);
 
         wp_send_json_success(['message' => 'Auslosung zurückgesetzt. Kann erneut ausgelost werden.']);
     }
@@ -528,7 +513,7 @@ class TIX_Raffle {
      * @param int $event_id
      * @return array|WP_Error Gewinner-Array oder Fehler
      */
-    public static function draw_winners($event_id) {
+    public static function draw_winners($event_id, $notify = true) {
         self::ensure_table();
         global $wpdb;
         $table = $wpdb->prefix . self::TABLE;
@@ -611,12 +596,10 @@ class TIX_Raffle {
         update_post_meta($event_id, '_tix_raffle_winners', $winners);
         update_post_meta($event_id, '_tix_raffle_drawn_at', current_time('mysql'));
 
-        // Gewinner benachrichtigen
-        foreach ($winners as $w) {
-            self::send_winner_email($event_id, $w);
-        }
+        // Gewinner benachrichtigen – abschaltbar (Studio: auslosen ohne Mail, später über notify(), 1.38.489)
+        if ($notify) self::notify($event_id);
 
-        return $winners;
+        return (array) get_post_meta($event_id, '_tix_raffle_winners', true);
     }
 
     /**
@@ -658,51 +641,90 @@ class TIX_Raffle {
     }
 
     /**
-     * Gewinner-E-Mail senden.
+     * Gewinner-E-Mail senden (seit 1.38.489 im Mail-Layout der Seite). @return bool
      */
     private static function send_winner_email($event_id, $winner) {
         $event = get_post($event_id);
-        if (!$event) return;
-
-        $s          = function_exists('tix_get_settings') ? tix_get_settings() : [];
-        $brand_name = $s['email_brand_name'] ?? get_bloginfo('name');
-        $first_name = explode(' ', $winner['name'])[0];
-
+        if (!$event || !is_email((string) ($winner['email'] ?? ''))) return false;
+        $first_name = explode(' ', trim((string) $winner['name']))[0];
         $per_winner = intval($winner['per_winner'] ?? 1);
-        $prize_label = $winner['prize_name'];
-        if ($per_winner > 1) {
-            $prize_label .= " ({$per_winner}×)";
-        }
-
+        $prize_label = (string) $winner['prize_name'] . ($per_winner > 1 ? " ({$per_winner}×)" : '');
+        $title = html_entity_decode(get_the_title($event_id), ENT_QUOTES, 'UTF-8');
         $subject = 'Herzlichen Glückwunsch! Du hast gewonnen!';
-        $body    = "Hallo {$first_name},\n\n";
-        $body   .= "du hast beim Gewinnspiel für \"{$event->post_title}\" gewonnen!\n\n";
-        $body   .= "Dein Preis: {$prize_label}\n\n";
-
-        // Wenn Tickets erstellt wurden, Download-Links einfügen
         $ticket_ids = !empty($winner['ticket_ids']) ? $winner['ticket_ids'] : (!empty($winner['ticket_id']) ? [$winner['ticket_id']] : []);
-        if (!empty($ticket_ids)) {
-            $body .= count($ticket_ids) > 1 ? "Deine Tickets kannst du hier herunterladen:\n" : "Dein Ticket kannst du hier herunterladen:\n";
-            foreach ($ticket_ids as $tid) {
-                $dl_token = get_post_meta($tid, '_tix_ticket_download_token', true);
-                if ($dl_token) {
-                    $dl_url = add_query_arg('tix_dl', $dl_token, home_url('/'));
-                    $body .= "{$dl_url}\n";
-                }
+        $links = [];
+        foreach ($ticket_ids as $tid) {
+            $dl_token = get_post_meta($tid, '_tix_ticket_download_token', true);
+            if ($dl_token) $links[] = add_query_arg('tix_dl', $dl_token, home_url('/'));
+        }
+        if (class_exists('TIX_Mail_Layout')) {
+            $blocks = [
+                ['type' => 'text', 'html' => 'Hallo ' . esc_html($first_name) . ',<br>du hast beim Gewinnspiel für <strong>' . esc_html($title) . '</strong> gewonnen!'],
+                ['type' => 'info', 'rows' => [['Dein Preis', esc_html($prize_label)]]],
+            ];
+            foreach ($links as $i => $u) {
+                $blocks[] = ['type' => 'button', 'label' => count($links) > 1 ? 'Ticket ' . ($i + 1) . ' herunterladen' : 'Ticket herunterladen', 'url' => class_exists('TIX_Customer_URL') ? TIX_Customer_URL::to($u) : $u];
             }
-            $body .= "\n";
+            $blocks[] = ['type' => 'text', 'html' => 'Viel Spaß bei der Veranstaltung!'];
+            return (bool) TIX_Mail_Layout::send($winner['email'], $subject, ['title' => 'Du hast gewonnen!', 'kind' => 'customer', 'blocks' => $blocks], ['customer' => true]);
         }
+        $body = "Hallo {$first_name},\n\ndu hast beim Gewinnspiel für \"{$title}\" gewonnen!\n\nDein Preis: {$prize_label}\n\n";
+        if ($links) $body .= (count($links) > 1 ? "Deine Tickets:\n" : "Dein Ticket:\n") . implode("\n", $links) . "\n\n";
+        $body .= "Viel Spaß bei der Veranstaltung!";
+        return (bool) TIX_Customer_URL::mail($winner['email'], $subject, $body, ['Content-Type: text/plain; charset=UTF-8']);
+    }
 
-        $body .= "Viel Spaß bei der Veranstaltung!\n\n";
-        $body .= "Dein {$brand_name}-Team";
-
-        $headers = ['Content-Type: text/plain; charset=UTF-8'];
-        if (!empty($s['email_from_address'])) {
-            $from_name = $brand_name;
-            $headers[] = "From: {$from_name} <{$s['email_from_address']}>";
+    /**
+     * Gewinner benachrichtigen (alle oder einen, $entry_id) und notified_at setzen (1.38.489). @return int gesendet
+     */
+    public static function notify($event_id, $entry_id = 0) {
+        $winners = get_post_meta($event_id, '_tix_raffle_winners', true);
+        if (!is_array($winners)) return 0;
+        $sent = 0;
+        foreach ($winners as $i => $w) {
+            if ($entry_id && intval($w['entry_id'] ?? 0) !== intval($entry_id)) continue;
+            if (self::send_winner_email($event_id, $w)) {
+                $winners[$i]['notified_at'] = current_time('mysql');
+                $sent++;
+            }
         }
+        update_post_meta($event_id, '_tix_raffle_winners', $winners);
+        return $sent;
+    }
 
-        TIX_Customer_URL::mail($winner['email'], $subject, $body, $headers);
+    /** Freikarten-IDs aller Gewinner. */
+    public static function prize_ticket_ids($event_id) {
+        $ids = [];
+        foreach ((array) get_post_meta($event_id, '_tix_raffle_winners', true) as $w) {
+            foreach ((array) ($w['ticket_ids'] ?? (!empty($w['ticket_id']) ? [$w['ticket_id']] : [])) as $tid) $ids[] = intval($tid);
+        }
+        return array_values(array_unique(array_filter($ids)));
+    }
+
+    /**
+     * Auslosung zurücksetzen (1.38.489): nicht mehr, sobald eine gewonnene Freikarte eingecheckt ist; sonst Freikarten
+     * stornieren, Gewinner-Markierung und Status zurück. @return true|WP_Error
+     */
+    public static function reset_draw($event_id) {
+        $tickets = self::prize_ticket_ids($event_id);
+        foreach ($tickets as $tid) {
+            if (get_post_meta($tid, '_tix_ticket_checked_in', true) || get_post_meta($tid, '_tix_ticket_status', true) === 'used') {
+                return new \WP_Error('tix_raffle_checked_in', 'Zurücksetzen geht nicht mehr: Eine gewonnene Freikarte wurde schon eingecheckt.');
+            }
+        }
+        foreach ($tickets as $tid) update_post_meta($tid, '_tix_ticket_status', 'cancelled');
+        self::ensure_table();
+        global $wpdb;
+        $wpdb->update($wpdb->prefix . self::TABLE, ['is_winner' => 0, 'prize_index' => null], ['event_id' => intval($event_id)], ['%d', '%s'], ['%d']);
+        update_post_meta($event_id, '_tix_raffle_status', 'open');
+        delete_post_meta($event_id, '_tix_raffle_winners');
+        delete_post_meta($event_id, '_tix_raffle_drawn_at');
+        return true;
+    }
+
+    /** Automatische Auslosung am Teilnahmeschluss an? (Vorgabe an, `_tix_raffle_auto_draw` = '0' schaltet ab, 1.38.489) */
+    public static function auto_draw_on($event_id) {
+        return get_post_meta($event_id, '_tix_raffle_auto_draw', true) !== '0';
     }
 
     /* ════════════════════════════════════
@@ -730,6 +752,7 @@ class TIX_Raffle {
         ]);
 
         foreach ($events as $event) {
+            if (!self::auto_draw_on($event->ID)) continue; // je Gewinnspiel abschaltbar (1.38.489)
             // Status schliessen
             update_post_meta($event->ID, '_tix_raffle_status', 'closed');
             // Auslosen
