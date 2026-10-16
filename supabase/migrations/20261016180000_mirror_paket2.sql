@@ -27,12 +27,12 @@ create table if not exists public.organizers (
     primary key (site, id)
 );
 
--- ── Gästelisten (id = "<event>:<gast-id>" bzw. "<event>:d<index>" für die Dashboard-Liste) ──
+-- ── Gästelisten (id = "<event>:<gast-id>", "<event>:d<index>" Dashboard-Liste, "<event>:t<index>" Liste je Ticket) ──
 create table if not exists public.guests (
     site              text not null,
     id                text not null,
     event_id          bigint not null,
-    source            text not null default 'guest_list',   -- guest_list | dashboard
+    source            text not null default 'guest_list',   -- guest_list | dashboard | tickets
     name              text not null default '',
     email             text not null default '',
     plus              integer not null default 0,

@@ -120,7 +120,7 @@ class TIX_Mirror_Map {
         if (!$p || $p->post_type !== 'event' || $p->post_status === 'auto-draft') {
             return [self::del('events', $site, $id), ['delete', 'ticket_categories', ['site' => 'eq.' . $site, 'event_id' => 'eq.' . $id]]];
         }
-        $m = self::post_meta($id, ['_tix_ticket_categories']);
+        $m = self::post_meta($id, ['_tix_ticket_categories', '_tix_guests']);
         $g = function ($k) use ($id) { return get_post_meta($id, $k, true); };
         $date = (string) $g('_tix_date_start');
         $starts = null;
@@ -195,6 +195,11 @@ class TIX_Mirror_Map {
             if (isset($seen[$key])) $key .= ':' . $i; // doppelte IDs nicht verlieren
             $seen[$key] = true;
             $rows[] = self::guest_row($site, $event_id, $key, 'guest_list', $g);
+        }
+        $legacy = get_post_meta($event_id, '_tix_guests', true); // ältere Liste je Ticket (Name/E-Mail zum Code)
+        foreach (is_array($legacy) ? $legacy : [] as $i => $g) {
+            if (!is_array($g)) continue;
+            $rows[] = self::guest_row($site, $event_id, $event_id . ':t' . $i, 'tickets', $g);
         }
         $dash = get_post_meta($event_id, '_tix_guestlist', true);
         foreach (is_array($dash) ? $dash : [] as $i => $g) {
@@ -345,6 +350,9 @@ class TIX_Mirror_Map {
         $newsletter = $opt('_tix_order_newsletter');
         $coupon = $opt('_tix_order_coupon');
         $data = [];
+        // Pixel-Einwilligung (1.38.458) als Post-Meta an der Bestell-ID
+        if (get_post_meta($id, '_tix_meta_consent', true) === '1') $data['meta_consent'] = true;
+        elseif (get_post_meta($id, '_tix_meta_no_consent', true) === '1') $data['meta_consent'] = false;
         foreach (['fees' => '_tix_order_fees', 'campaign' => '_tix_order_campaign', 'group' => '_tix_order_group_data',
                   'partner' => '_tix_order_partner', 'pos' => '_tix_pos_order', 'coupon' => '_tix_order_coupon',
                   'last_refund' => '_tix_refund'] as $name => $key) {

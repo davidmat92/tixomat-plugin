@@ -77,8 +77,11 @@ class TIX_Mirror_Hooks {
 
     public static function on_post_meta($meta_id, $object_id, $meta_key) {
         if (in_array($meta_key, self::IGNORE_POST_META, true)) return;
-        // Gebühren der Zahlungsanbieter hängen an der Bestell-ID (nicht an einem Post).
-        if (strpos((string) $meta_key, '_tix_payment_') === 0) { TIX_Mirror::touch('order', (int) $object_id); return; }
+        // Gebühren der Zahlungsanbieter und die Pixel-Einwilligung hängen an der Bestell-ID (nicht an einem Post).
+        if (strpos((string) $meta_key, '_tix_payment_') === 0 || $meta_key === '_tix_meta_consent' || $meta_key === '_tix_meta_no_consent') {
+            TIX_Mirror::touch('order', (int) $object_id);
+            return;
+        }
         if (!TIX_Mirror::capturing()) return;
         if ($e = self::type_entity(get_post_type($object_id))) TIX_Mirror::touch($e, (int) $object_id);
     }

@@ -74,8 +74,11 @@ update_post_meta($ev, '_tix_guest_list', [
     ['id' => 'd4e5f6', 'name' => 'Paul Plus', 'email' => '', 'plus' => 0, 'note' => '', 'checked_in' => false, 'checked_in_count' => 0, 'checkin_time' => '', 'checkin_by' => ''],
 ]);
 update_post_meta($ev, '_tix_guestlist', [['name' => 'Dora Dashboard', 'email' => '', 'tickets' => 3, 'checked_in' => false]]);
+update_post_meta($ev, '_tix_guests', [['ticket_code' => "TC$sfx", 'name' => 'Tom Ticket', 'email' => "tom$sfx@example.test"]]);
 m2_run();
-t2_eq('3 Gäste im Spiegel', 3, count(m2_rows('guests', ['event_id' => 'eq.' . $ev])));
+t2_eq('4 Gäste im Spiegel (drei Listen)', 4, count(m2_rows('guests', ['event_id' => 'eq.' . $ev])));
+t2_eq('Liste je Ticket', 'tickets', m2_one('guests', $ev . ':t0')['source'] ?? null);
+t2_eq('alte Liste nicht in events.data', false, strpos(wp_json_encode(m2_one('events', $ev)), 'Tom Ticket') !== false);
 t2_eq('Dashboard-Gast: Begleitung aus tickets', 2, (int) (m2_one('guests', $ev . ':d0')['plus'] ?? -1));
 t2_eq('Gästeliste nicht in events.data', false, strpos(wp_json_encode(m2_one('events', $ev)), 'Gina') !== false);
 $gl = get_post_meta($ev, '_tix_guest_list', true);
@@ -193,6 +196,17 @@ $rep = m2_reconcile();
 t2_eq('11 Jahre alter Eintrag gekürzt', 0, count(m2_rows('change_log', ['object_id' => "eq.alt$sfx"])));
 t2_eq('5 Jahre alter Eintrag bleibt', 1, count(m2_rows('change_log', ['object_id' => "eq.jung$sfx"])));
 TIX_Mirror_Client::delete('change_log', ['site' => 'eq.' . $site, 'entity' => 'eq.test']);
+
+// ── 8b. Pixel-Einwilligung an der Bestellung (1.38.458, Post-Meta an der Bestell-ID) ──
+$oid = TIX_Native_Checkout::create_order(['total' => 10.0, 'payment_method' => 'bank', 'billing_first_name' => 'E', 'billing_last_name' => 'W',
+    'billing_email' => "einw$sfx@example.test", 'items' => [['event_id' => $ev, 'cat_index' => 0, 'qty' => 1, 'price' => 10.0, 'name' => 'N', 'event_title' => 'x']]]);
+m2_run();
+update_post_meta($oid, '_tix_meta_consent', '1');
+m2_run();
+t2_eq('Einwilligung an der Bestellung', true, m2_one('orders', $oid)['data']['meta_consent'] ?? null);
+$wpdb->delete($wpdb->prefix . 'tix_order_items', ['order_id' => $oid]); $wpdb->delete($wpdb->prefix . 'tix_orders', ['id' => $oid]);
+delete_post_meta($oid, '_tix_meta_consent');
+TIX_Mirror::touch('order', $oid);
 
 // ── 9. Konto löschen: Prämien weg, Geldbörse anonymisiert ──
 require_once ABSPATH . 'wp-admin/includes/user.php';
