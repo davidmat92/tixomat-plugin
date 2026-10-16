@@ -383,23 +383,29 @@ class TIX_Register_Event {
         // Tickets
         if ($ticket_mode !== 'online') {
             // Nur eintragen: kein Online-Verkauf, keine Ticket-Kategorien nötig
-            self::apply_listing_mode($event_id, $ticket_mode, wp_unslash($_POST[$ticket_mode === 'external' ? 'external_price' : 'box_office_price'] ?? ''), $external_url);
+            self::apply_listing_mode($event_id, $ticket_mode, (string) ($in[$ticket_mode === 'external' ? 'external_price' : 'box_office_price'] ?? ''), $external_url);
         } else {
             update_post_meta($event_id, '_tix_tickets_enabled', '1');
         }
         if ($ticket_mode === 'online' && !empty($event_data['tickets']) && is_array($event_data['tickets'])) {
             $cats = [];
             foreach ($event_data['tickets'] as $t) {
+                if (!is_array($t)) continue;
+                // Anzahl je Ticketart (0 bzw. leer = unbegrenzt); Bestand für die native Kasse
+                $qty = max(0, intval($t['qty'] ?? ($t['quantity'] ?? 0)));
                 $cats[] = [
                     'name'       => sanitize_text_field($t['name'] ?? 'Standard'),
-                    'price'      => floatval($t['price'] ?? 0),
-                    'qty'        => 0, // unbegrenzt
+                    'price'      => max(0, round(floatval(str_replace(',', '.', (string) ($t['price'] ?? 0))), 2)),
+                    'qty'        => $qty,
+                    'desc'       => sanitize_text_field((string) ($t['desc'] ?? ($t['description'] ?? ''))),
                     'sale_mode'  => 'online',
                     'product_id' => '',
                     'tc_event_id' => '',
                     'sku'        => '',
                 ];
             }
+            foreach ($cats as &$c) { if ($c['qty'] > 0) $c['stock'] = $c['qty']; }
+            unset($c);
             update_post_meta($event_id, '_tix_ticket_categories', $cats);
         }
 
