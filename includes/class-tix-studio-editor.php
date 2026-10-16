@@ -9,6 +9,13 @@ if (!defined('ABSPATH')) exit;
  *   low_stock       {mode: global|custom|manual|off, threshold, text}  (+ low_stock_global nur lesend)
  *   ticket_transfer bool  (+ ticket_transfer_available nur lesend: globaler Schalter)
  *   ticket_sponsor  {image, image_id, link} | null löscht;  POST /events/{id}/sponsor-image (multipart `image`) → {image_id, image}
+ *   (1.38.449)
+ *   specials        {in_selector, in_checkout, items[{special_id, enabled, price_override, qty_override}]} + specials_catalog (nur lesend)
+ *   combo_deals     [{id, label, price, self_cat_index, partners[{event_id, cat_index}]}] + combo_partner_options (nur lesend)
+ *   syndication     {available, active, partner_sales, partner_sales_available, status, last, error}; POST `syndicate`, `partner_sales`
+ *   table_reservation {enabled, payment_mode, deposit_type, deposit_value, info_text, show_in_checkout,
+ *                      categories[{index, name, desc, min_spend, min_guests, max_guests, quantity}], has_floor_plan}
+ *   GET/POST /specials – Extras-Katalog (Mehr-Veranstalter: eigene + vom Admin freigegebene `_tix_special_shared`)
  * Orte (CPT tix_location):
  *   GET /locations · POST /locations · POST /locations/{id} · DELETE /locations/{id} (nur ohne Events, sonst 409)
  *   Rechte: lesen Staff; ändern Admin bzw. Rolle Veranstalter. Mehr-Veranstalter: eigene Orte (selbst angelegt oder dem
@@ -62,7 +69,289 @@ class TIX_Studio_Editor {
             'ticket_transfer' => $m('_tix_ticket_transfer') === '1',
             'ticket_transfer_available' => function_exists('tix_get_settings') && (bool) tix_get_settings('ticket_transfer_enabled'),
             'ticket_sponsor'  => ['image' => $simg, 'image_id' => $sid, 'link' => $m('_tix_ticket_sponsor_link')],
+        ] + self::payload2($id);
+    }
+
+    // ── Teil 2 (1.38.449): Extras, Kombis, Verteilung, Tische ──
+
+    /** Extras, die das Konto nutzen darf (Admin/Ein-Veranstalter: alle aktiven; Mehr-Veranstalter: eigene + freigegebene). */
+    public static function specials_allowed() {
+        if (!class_exists('TIX_Specials')) return [];
+        $out = [];
+        foreach (TIX_Specials::get_all_active() as $sp) {
+            if (self::special_visible($sp->ID)) $out[] = intval($sp->ID);
+        }
+        return $out;
+    }
+
+    private static function special_visible($sid) {
+        if (!self::multi() || current_user_can('manage_options')) return true;
+        return self::special_own($sid) || get_post_meta($sid, '_tix_special_shared', true) === '1';
+    }
+
+    private static function special_own($sid) {
+        if (current_user_can('manage_options') || !self::multi()) return true;
+        $oid = TIX_App_Scope::organizer_id_for_user();
+        if ($oid && intval(get_post_meta($sid, '_tix_special_organizer_id', true)) === $oid) return true;
+        return intval(get_post_field('post_author', $sid)) === get_current_user_id();
+    }
+
+    public static function special_payload($sid) {
+        $img = get_post_thumbnail_id($sid);
+        return [
+            'id'          => intval($sid),
+            'name'        => html_entity_decode(get_the_title($sid), ENT_QUOTES, 'UTF-8'),
+            'description' => wp_strip_all_tags((string) get_post_field('post_content', $sid)),
+            'price'       => round(floatval(get_post_meta($sid, '_tix_special_price', true)), 2),
+            'value'       => round(floatval(get_post_meta($sid, '_tix_special_value', true)), 2),
+            'qty'         => intval(get_post_meta($sid, '_tix_special_qty', true)),
+            'image'       => $img ? (string) (wp_get_attachment_image_url($img, 'medium') ?: '') : '',
+            'editable'    => self::special_own($sid),
         ];
+    }
+
+    private static function cat_list($eid) {
+        $cats = get_post_meta($eid, '_tix_ticket_categories', true);
+        $out = [];
+        foreach (is_array($cats) ? $cats : [] as $i => $c) {
+            if (is_array($c)) $out[] = ['index' => intval($i), 'name' => (string) ($c['name'] ?? ''), 'price' => round(floatval($c['price'] ?? 0), 2)];
+        }
+        return $out;
+    }
+
+    /** Kommende Events, die Partner einer Kombi sein dürfen (Mehr-Veranstalter: eigene). */
+    private static function combo_partner_ids($exclude) {
+        $args = ['post_type' => 'event', 'post_status' => ['publish', 'future', 'draft'], 'posts_per_page' => 100, 'fields' => 'ids',
+            'meta_key' => '_tix_date_start', 'orderby' => 'meta_value', 'order' => 'ASC', 'suppress_filters' => true, 'post__not_in' => $exclude ? [intval($exclude)] : [],
+            'meta_query' => [['key' => '_tix_date_start', 'value' => current_time('Y-m-d'), 'compare' => '>=', 'type' => 'DATE']]];
+        if (self::multi() && !current_user_can('manage_options')) {
+            $oid = TIX_App_Scope::organizer_id_for_user();
+            if (!$oid) return [];
+            $args['meta_query'][] = TIX_App_Scope::event_meta_clause($oid);
+        }
+        return array_map('intval', get_posts($args));
+    }
+
+    private static function syndication_available() {
+        return !self::multi() && class_exists('TIX_Syndication_Push') && TIX_Syndication_Push::is_configured();
+    }
+
+    private static function payload2($id) {
+        $m = function ($k) use ($id) { return $id ? (string) get_post_meta($id, $k, true) : ''; };
+        // Extras
+        $items = [];
+        $raw = $id ? get_post_meta($id, '_tix_specials', true) : [];
+        if (is_array($raw) && isset($raw['special_id'])) $raw = [$raw];
+        foreach (is_array($raw) ? $raw : [] as $es) {
+            if (!is_array($es) || !intval($es['special_id'] ?? 0)) continue;
+            $items[] = ['special_id' => intval($es['special_id']), 'enabled' => !empty($es['enabled']),
+                'price_override' => ($es['price_override'] ?? '') === '' ? null : round(floatval($es['price_override']), 2),
+                'qty_override' => ($es['qty_override'] ?? '') === '' ? null : intval($es['qty_override'])];
+        }
+        // Kombis
+        $combos = [];
+        foreach ((array) ($id ? get_post_meta($id, '_tix_combo_deals', true) : []) as $c) {
+            if (!is_array($c)) continue;
+            $combos[] = ['id' => (string) ($c['id'] ?? ''), 'label' => (string) ($c['label'] ?? ''), 'price' => round(floatval($c['price'] ?? 0), 2), 'self_cat_index' => intval($c['self_cat_index'] ?? 0),
+                'partners' => array_values(array_map(function ($p) { return ['event_id' => intval($p['event_id'] ?? 0), 'cat_index' => intval($p['cat_index'] ?? 0)]; }, (array) ($c['partners'] ?? [])))];
+        }
+        $partner_opts = [];
+        foreach (self::combo_partner_ids($id) as $eid) {
+            $partner_opts[] = ['event_id' => $eid, 'title' => html_entity_decode(get_the_title($eid), ENT_QUOTES, 'UTF-8'), 'date_start' => (string) get_post_meta($eid, '_tix_date_start', true), 'categories' => self::cat_list($eid)];
+        }
+        // Tische
+        $tr = $id ? get_post_meta($id, '_tix_table_reservation', true) : [];
+        $tr = is_array($tr) ? $tr : [];
+        $tcats = [];
+        foreach ((array) ($tr['categories'] ?? []) as $i => $c) {
+            if (!is_array($c)) continue;
+            $tcats[] = ['index' => intval($i), 'name' => (string) ($c['name'] ?? ''), 'desc' => (string) ($c['desc'] ?? ''), 'min_spend' => round(floatval($c['min_spend'] ?? 0), 2),
+                'min_guests' => intval($c['min_guests'] ?? 1), 'max_guests' => intval($c['max_guests'] ?? 10), 'quantity' => intval($c['quantity'] ?? 0), 'tables' => count((array) ($c['tables'] ?? []))];
+        }
+        $syn_avail = self::syndication_available();
+        return [
+            'specials'         => ['available' => class_exists('TIX_Specials'), 'in_selector' => $m('_tix_specials_in_selector') === '1', 'in_checkout' => $m('_tix_specials_in_checkout') === '1', 'items' => $items],
+            'specials_catalog' => array_map([__CLASS__, 'special_payload'], self::specials_allowed()),
+            'combo_deals'      => $combos,
+            'combo_partner_options' => $partner_opts,
+            'syndication'      => [
+                'available' => $syn_avail,
+                'active' => $m('_tix_syndicate') === '1',
+                'partner_sales' => $id && class_exists('TIX_Syndication_Push') ? TIX_Syndication_Push::partner_sales_enabled($id) : false,
+                'partner_sales_available' => class_exists('TIX_Partners') && TIX_Partners::source_api_enabled(),
+                'status' => $m('_tix_syndicate_status') ?: null, 'last' => $m('_tix_syndicate_last') ?: null, 'error' => $m('_tix_syndicate_error') ?: null,
+            ],
+            'table_reservation' => [
+                'available' => class_exists('TIX_Table_Reservation'),
+                'enabled' => !empty($tr['enabled']), 'payment_mode' => (string) ($tr['payment_mode'] ?? 'on_site'), 'deposit_type' => (string) ($tr['deposit_type'] ?? 'percent'),
+                'deposit_value' => round(floatval($tr['deposit_value'] ?? 50), 2), 'info_text' => (string) ($tr['info_text'] ?? ''), 'show_in_checkout' => !empty($tr['show_in_checkout']),
+                'categories' => $tcats, 'has_floor_plan' => intval($tr['floor_plan_id'] ?? 0) > 0,
+            ],
+        ];
+    }
+
+    /** Aktive Tischreservierungen je Kategorie-Index. */
+    private static function table_bookings($post_id) {
+        global $wpdb;
+        $t = $wpdb->prefix . 'tix_table_reservations';
+        if (!$post_id || $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $t)) !== $t) return [];
+        $out = [];
+        foreach ((array) $wpdb->get_results($wpdb->prepare("SELECT category_index, COUNT(*) n FROM $t WHERE event_id = %d AND status NOT IN ('cancelled','expired','failed','refunded') GROUP BY category_index", $post_id)) as $r) {
+            $out[intval($r->category_index)] = intval($r->n);
+        }
+        return $out;
+    }
+
+    private static function check2(array $body, $post_id) {
+        $out = [];
+        // ── Extras ──
+        if (array_key_exists('specials', $body)) {
+            $sp = $body['specials'];
+            if (!class_exists('TIX_Specials')) return new WP_Error('tix_specials_unavailable', 'Extras sind auf dieser Seite nicht eingeschaltet.', ['status' => 409, 'field' => 'specials']);
+            if (!is_array($sp)) return self::bad('specials', 'Ungültige Extras.');
+            $c = [];
+            foreach (['in_selector', 'in_checkout'] as $k) if (array_key_exists($k, $sp)) $c[$k] = !empty($sp[$k]);
+            if (array_key_exists('items', $sp)) {
+                if (!is_array($sp['items'])) return self::bad('specials.items', 'Ungültige Extras.');
+                $allowed = array_flip(self::specials_allowed());
+                $items = []; $seen = [];
+                foreach (array_values($sp['items']) as $i => $it) {
+                    $sid = intval($it['special_id'] ?? 0);
+                    if (!isset($allowed[$sid])) return self::bad("specials.items[$i].special_id", 'Dieses Extra gibt es nicht oder es ist nicht freigegeben.');
+                    if (isset($seen[$sid])) continue;
+                    $seen[$sid] = true;
+                    $po = $it['price_override'] ?? null; $qo = $it['qty_override'] ?? null;
+                    if ($po !== null && $po !== '' && (!is_numeric($po) || floatval($po) < 0)) return self::bad("specials.items[$i].price_override", 'Ungültiger Preis.');
+                    if ($qo !== null && $qo !== '' && (!is_numeric($qo) || intval($qo) < 0)) return self::bad("specials.items[$i].qty_override", 'Ungültige Anzahl.');
+                    $items[] = ['special_id' => $sid, 'enabled' => !empty($it['enabled']) ? '1' : '',
+                        'price_override' => ($po === null || $po === '') ? '' : round(floatval($po), 2), 'qty_override' => ($qo === null || $qo === '') ? '' : intval($qo)];
+                }
+                $c['items'] = $items;
+            }
+            $out['specials'] = $c;
+        }
+        // ── Kombis ──
+        if (array_key_exists('combo_deals', $body)) {
+            $cd = $body['combo_deals'];
+            if ($cd === null) $cd = [];
+            if (!is_array($cd)) return self::bad('combo_deals', 'Ungültige Kombis.');
+            $own_cats = isset($body['categories']) && is_array($body['categories']) ? count(array_filter($body['categories'], function ($x) { return is_array($x) && trim((string) ($x['name'] ?? '')) !== ''; }))
+                : count(self::cat_list($post_id));
+            $partners_ok = array_flip(self::combo_partner_ids($post_id));
+            $list = [];
+            foreach (array_values($cd) as $i => $c) {
+                if (!is_array($c)) return self::bad("combo_deals[$i]", 'Ungültige Kombi.');
+                $label = mb_substr(sanitize_text_field((string) ($c['label'] ?? '')), 0, 80);
+                if ($label === '') return self::bad("combo_deals[$i].label", 'Bitte einen Namen für die Kombi angeben.');
+                if (!is_numeric($c['price'] ?? null) || floatval($c['price']) <= 0) return self::bad("combo_deals[$i].price", 'Bitte einen Preis über 0 angeben.');
+                $self = intval($c['self_cat_index'] ?? 0);
+                if ($self < 0 || $self >= max(1, $own_cats)) return self::bad("combo_deals[$i].self_cat_index", 'Diese Ticketart gibt es bei diesem Event nicht.');
+                $parts = [];
+                foreach (array_values((array) ($c['partners'] ?? [])) as $j => $pt) {
+                    $eid = intval($pt['event_id'] ?? 0); $ci = intval($pt['cat_index'] ?? 0);
+                    if (!$eid || $eid === intval($post_id) || !isset($partners_ok[$eid])) return self::bad("combo_deals[$i].partners[$j].event_id", 'Dieses Event kann nicht Partner der Kombi sein.');
+                    if ($ci < 0 || $ci >= count(self::cat_list($eid))) return self::bad("combo_deals[$i].partners[$j].cat_index", 'Diese Ticketart gibt es beim Partner-Event nicht.');
+                    $parts[] = ['event_id' => $eid, 'cat_index' => $ci];
+                }
+                if (!$parts) return self::bad("combo_deals[$i].partners", 'Eine Kombi braucht mindestens ein Partner-Event.');
+                $cid = sanitize_key((string) ($c['id'] ?? ''));
+                $list[] = ['id' => $cid !== '' ? $cid : 'combo_' . wp_generate_password(8, false, false), 'label' => $label, 'price' => round(floatval($c['price']), 2), 'self_cat_index' => $self, 'partners' => $parts];
+            }
+            if (count($list) > 20) return self::bad('combo_deals', 'Höchstens 20 Kombis.');
+            $out['combo_deals'] = $list;
+        }
+        // ── Verteilung ──
+        $syn = $body['syndication'] ?? null;
+        $has_syn = array_key_exists('syndicate', $body) || array_key_exists('partner_sales', $body) || is_array($syn);
+        if ($has_syn) {
+            if (!self::syndication_available()) return new WP_Error('tix_syndication_unavailable', 'Die Verteilung auf die Plattform ist hier nicht eingerichtet.', ['status' => 409, 'field' => 'syndicate']);
+            $c = [];
+            $a = array_key_exists('syndicate', $body) ? $body['syndicate'] : (is_array($syn) && array_key_exists('active', $syn) ? $syn['active'] : null);
+            if ($a !== null) $c['syndicate'] = !empty($a);
+            $ps = array_key_exists('partner_sales', $body) ? $body['partner_sales'] : (is_array($syn) && array_key_exists('partner_sales', $syn) ? $syn['partner_sales'] : null);
+            if ($ps !== null) $c['partner_sales'] = !empty($ps);
+            $out['syndication'] = $c;
+        }
+        // ── Tische ──
+        if (array_key_exists('table_reservation', $body)) {
+            $tr = $body['table_reservation'];
+            if (!class_exists('TIX_Table_Reservation')) return new WP_Error('tix_table_reservation_unavailable', 'Die Tischreservierung ist auf dieser Seite nicht eingeschaltet.', ['status' => 409, 'field' => 'table_reservation']);
+            if (!is_array($tr)) return self::bad('table_reservation', 'Ungültige Tischreservierung.');
+            $old = $post_id ? get_post_meta($post_id, '_tix_table_reservation', true) : [];
+            $old = is_array($old) ? $old : [];
+            $new = $old + ['enabled' => '', 'payment_mode' => 'on_site', 'deposit_type' => 'percent', 'deposit_value' => 50, 'floor_plan_id' => 0, 'info_text' => '', 'show_in_checkout' => '', 'categories' => []];
+            if (array_key_exists('enabled', $tr)) $new['enabled'] = !empty($tr['enabled']) ? '1' : '';
+            if (array_key_exists('show_in_checkout', $tr)) $new['show_in_checkout'] = !empty($tr['show_in_checkout']) ? '1' : '';
+            if (array_key_exists('payment_mode', $tr)) {
+                if (!in_array($tr['payment_mode'], ['deposit', 'full', 'on_site'], true)) return self::bad('table_reservation.payment_mode', 'Zahlung: deposit, full oder on_site.');
+                $new['payment_mode'] = $tr['payment_mode'];
+            }
+            if (array_key_exists('deposit_type', $tr)) {
+                if (!in_array($tr['deposit_type'], ['percent', 'fixed'], true)) return self::bad('table_reservation.deposit_type', 'Anzahlung: percent oder fixed.');
+                $new['deposit_type'] = $tr['deposit_type'];
+            }
+            if (array_key_exists('deposit_value', $tr)) {
+                $dv = $tr['deposit_value'];
+                if (!is_numeric($dv) || floatval($dv) <= 0 || ($new['deposit_type'] === 'percent' && floatval($dv) > 100)) return self::bad('table_reservation.deposit_value', 'Ungültige Anzahlung.');
+                $new['deposit_value'] = round(floatval($dv), 2);
+            }
+            if (array_key_exists('info_text', $tr)) $new['info_text'] = mb_substr(sanitize_textarea_field((string) $tr['info_text']), 0, 2000);
+            if (array_key_exists('categories', $tr)) {
+                if (!is_array($tr['categories'])) return self::bad('table_reservation.categories', 'Ungültige Tisch-Kategorien.');
+                $old_cats = array_values((array) ($old['categories'] ?? []));
+                $book = self::table_bookings($post_id);
+                $kept = []; $last = -1; $cats = [];
+                foreach (array_values($tr['categories']) as $i => $c) {
+                    if (!is_array($c)) continue;
+                    $name = mb_substr(sanitize_text_field((string) ($c['name'] ?? '')), 0, 100);
+                    if ($name === '') return self::bad("table_reservation.categories[$i].name", 'Bitte einen Namen für die Tisch-Kategorie angeben.');
+                    $has_idx = isset($c['index']) && $c['index'] !== '' && $c['index'] !== null && isset($old_cats[intval($c['index'])]);
+                    if ($has_idx) {
+                        $idx = intval($c['index']);
+                        if ($idx < $last) return new WP_Error('table_category_order', 'Die Reihenfolge bestehender Tisch-Kategorien kann nicht geändert werden.', ['status' => 409]);
+                        $last = $idx; $kept[$idx] = true;
+                    }
+                    $min = max(1, intval($c['min_guests'] ?? 1)); $max = max(1, intval($c['max_guests'] ?? 10));
+                    if ($max < $min) return self::bad("table_reservation.categories[$i].max_guests", 'Höchstzahl muss mindestens die Mindestzahl sein.');
+                    if (isset($c['min_spend']) && (!is_numeric($c['min_spend']) || floatval($c['min_spend']) < 0)) return self::bad("table_reservation.categories[$i].min_spend", 'Ungültiger Mindestumsatz.');
+                    $base = $has_idx ? $old_cats[intval($c['index'])] : ['tables' => []];
+                    $cats[] = array_merge($base, ['name' => $name, 'desc' => mb_substr(sanitize_textarea_field((string) ($c['desc'] ?? ($base['desc'] ?? ''))), 0, 500),
+                        'min_spend' => round(floatval($c['min_spend'] ?? ($base['min_spend'] ?? 0)), 2), 'min_guests' => $min, 'max_guests' => $max,
+                        'quantity' => max(0, intval($c['quantity'] ?? ($base['quantity'] ?? 0))), 'tables' => (array) ($base['tables'] ?? [])]);
+                }
+                // Gelöschte Kategorie bzw. Indizes dahinter mit Reservierungen → 409 (Reservierungen hängen am Index)
+                for ($k = 0; $k < count($old_cats); $k++) {
+                    if (isset($kept[$k])) continue;
+                    for ($j = $k; $j < count($old_cats); $j++) {
+                        if (!empty($book[$j])) return new WP_Error('table_category_in_use', 'Die Tisch-Kategorie „' . (string) ($old_cats[$k]['name'] ?? '') . '“ kann nicht gelöscht werden, weil dahinter Reservierungen bestehen.', ['status' => 409]);
+                    }
+                }
+                $new['categories'] = $cats;
+            }
+            $out['table_reservation'] = $new;
+        }
+        return $out;
+    }
+
+    private static function apply2($post_id, array $c) {
+        if (array_key_exists('specials', $c)) {
+            $sp = $c['specials'];
+            if (array_key_exists('in_selector', $sp)) update_post_meta($post_id, '_tix_specials_in_selector', $sp['in_selector'] ? '1' : '');
+            if (array_key_exists('in_checkout', $sp)) update_post_meta($post_id, '_tix_specials_in_checkout', $sp['in_checkout'] ? '1' : '');
+            if (array_key_exists('items', $sp)) update_post_meta($post_id, '_tix_specials', $sp['items']);
+        }
+        if (array_key_exists('combo_deals', $c)) update_post_meta($post_id, '_tix_combo_deals', $c['combo_deals']);
+        if (array_key_exists('syndication', $c)) {
+            if (array_key_exists('syndicate', $c['syndication'])) update_post_meta($post_id, '_tix_syndicate', $c['syndication']['syndicate'] ? '1' : '0');
+            if (array_key_exists('partner_sales', $c['syndication'])) update_post_meta($post_id, '_tix_partner_sales', $c['syndication']['partner_sales'] ? '1' : '0');
+        }
+        if (array_key_exists('table_reservation', $c)) update_post_meta($post_id, '_tix_table_reservation', $c['table_reservation']);
+    }
+
+    /** Nach dem Speichern: Verteilung anstoßen, wenn das Speichern selbst kein save_post ausgelöst hat (sonst macht es on_save). */
+    public static function after_save($post_id, array $c, $post_updated) {
+        if (!array_key_exists('syndication', $c) || $post_updated || !class_exists('TIX_Syndication_Push')) return;
+        TIX_Syndication_Push::on_save($post_id, get_post($post_id));
     }
 
     /** Vorab prüfen (vor allen Änderungen). Liefert bereinigte Werte je mitgeschicktem Schlüssel oder WP_Error. */
@@ -164,7 +453,9 @@ class TIX_Studio_Editor {
                 $out['ticket_sponsor'] = $c;
             }
         }
-        return $out;
+        $more = self::check2($body, $post_id);
+        if (is_wp_error($more)) return $more;
+        return $out + $more;
     }
 
     /** Bild aus der Mediathek: Bild-Anhang, im Mehr-Veranstalter-Modus nur eigene bzw. am Event hängende. */
@@ -177,6 +468,7 @@ class TIX_Studio_Editor {
 
     /** Geprüfte Werte speichern. */
     public static function apply($post_id, array $c) {
+        self::apply2($post_id, $c);
         if (array_key_exists('timetable', $c)) {
             $t = $c['timetable'];
             if ($t === null) {
@@ -218,6 +510,11 @@ class TIX_Studio_Editor {
     public static function register_routes() {
         $staff = ['TIX_REST_API', 'check_organizer'];
         register_rest_route(self::NS, '/events/(?P<id>\d+)/sponsor-image', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_sponsor_image'], 'permission_callback' => $staff]);
+        register_rest_route(self::NS, '/specials', [
+            ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_specials'], 'permission_callback' => $staff],
+            ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_special_save'], 'permission_callback' => [__CLASS__, 'perm_location_write']],
+        ]);
+        register_rest_route(self::NS, '/specials/(?P<id>\d+)', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_special_save'], 'permission_callback' => [__CLASS__, 'perm_location_write']]);
         register_rest_route(self::NS, '/locations', [
             ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_locations'], 'permission_callback' => $staff],
             ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_location_save'], 'permission_callback' => [__CLASS__, 'perm_location_write']],
@@ -250,6 +547,46 @@ class TIX_Studio_Editor {
         update_post_meta($id, '_tix_ticket_sponsor_image_id', $aid);
         delete_post_meta($id, '_tix_ticket_sponsor_image_url');
         return rest_ensure_response(['ok' => true, 'image_id' => intval($aid), 'image' => (string) (wp_get_attachment_image_url($aid, 'large') ?: '')]);
+    }
+
+    // ═══════════════ Extras-Katalog ═══════════════
+
+    /** GET /specials */
+    public static function rest_specials(WP_REST_Request $req) {
+        return rest_ensure_response(['ok' => true, 'specials' => array_map([__CLASS__, 'special_payload'], self::specials_allowed())]);
+    }
+
+    /** POST /specials[/{id}] {name, description, price, value, qty} – eigene Extras (Mehr-Veranstalter: dem Veranstalter zugeordnet) */
+    public static function rest_special_save(WP_REST_Request $req) {
+        if (!class_exists('TIX_Specials')) return new WP_Error('tix_unavailable', 'Extras sind hier nicht verfügbar.', ['status' => 404]);
+        $sid = absint($req['id'] ?? 0);
+        if ($sid) {
+            if (get_post_type($sid) !== TIX_Specials::CPT) return new WP_Error('not_found', 'Extra nicht gefunden.', ['status' => 404]);
+            if (!self::special_own($sid)) return new WP_Error('rest_forbidden', 'Dieses Extra kannst du nicht ändern.', ['status' => 403]);
+        }
+        $p = $req->get_json_params();
+        $p = is_array($p) ? $p : $req->get_params();
+        if (!$sid || array_key_exists('name', $p)) {
+            $name = mb_substr(sanitize_text_field((string) ($p['name'] ?? '')), 0, 120);
+            if ($name === '') return self::bad('name', 'Bitte einen Namen für das Extra angeben.');
+        }
+        foreach (['price', 'value'] as $k) if (array_key_exists($k, $p) && (!is_numeric($p[$k]) || floatval($p[$k]) < 0)) return self::bad($k, 'Ungültiger Betrag.');
+        if (array_key_exists('qty', $p) && (!is_numeric($p['qty']) || intval($p['qty']) < 0)) return self::bad('qty', 'Ungültige Anzahl.');
+        if (!$sid) {
+            $sid = wp_insert_post(['post_type' => TIX_Specials::CPT, 'post_status' => 'publish', 'post_title' => $name, 'post_content' => sanitize_textarea_field((string) ($p['description'] ?? '')), 'post_author' => get_current_user_id()], true);
+            if (is_wp_error($sid)) return new WP_Error('tix_save_failed', 'Extra konnte nicht angelegt werden.', ['status' => 500]);
+            if (self::multi() && ($oid = TIX_App_Scope::organizer_id_for_user())) update_post_meta($sid, '_tix_special_organizer_id', $oid);
+            $created = true;
+        } else {
+            $upd = ['ID' => $sid];
+            if (isset($name)) $upd['post_title'] = $name;
+            if (array_key_exists('description', $p)) $upd['post_content'] = sanitize_textarea_field((string) $p['description']);
+            if (count($upd) > 1) wp_update_post($upd);
+        }
+        if (array_key_exists('price', $p) || !empty($created)) update_post_meta($sid, '_tix_special_price', round(floatval($p['price'] ?? 0), 2));
+        if (array_key_exists('value', $p) || !empty($created)) update_post_meta($sid, '_tix_special_value', round(floatval($p['value'] ?? 0), 2));
+        if (array_key_exists('qty', $p) || !empty($created)) update_post_meta($sid, '_tix_special_qty', intval($p['qty'] ?? 0));
+        return new WP_REST_Response(['ok' => true, 'special' => self::special_payload($sid)], !empty($created) ? 201 : 200);
     }
 
     // ═══════════════ Orte ═══════════════

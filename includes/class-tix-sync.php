@@ -457,6 +457,13 @@ class TIX_Sync {
                 $content = get_post_meta($post_id, "_tix_info_{$key}", true);
                 $label   = get_post_meta($post_id, "_tix_info_{$key}_label", true) ?: $def['label'];
 
+                // `_tix_specials` ist auch die Extra-Zuordnung (TIX_Specials, Liste) – die nie mit dem Text überschreiben
+                // (sonst löschte jedes Speichern über App/REST die zugeordneten Extras; 1.38.449)
+                if ($key === 'specials' && is_array(get_post_meta($post_id, '_tix_specials', true))) {
+                    update_post_meta($post_id, "_tix_{$key}_label", $label);
+                    continue;
+                }
+
                 // Flache Felder für Breakdance (wpautop nur auf alte Daten ohne <p>)
                 if ($def['type'] === 'textarea' && $content && strpos($content, '<p>') === false) {
                     update_post_meta($post_id, "_tix_{$key}", wpautop($content));

@@ -557,6 +557,7 @@ class TIX_App_Events {
         if ($cat_term !== null) wp_set_object_terms($post_id, $cat_term ? [$cat_term] : [], 'event_category');
 
         // Titel/Kurztext/Status zuletzt: löst save_post_event aus (Breakdance-Meta etc.)
+        $post_updated = count($post_args) > 1;
         if (count($post_args) > 1) {
             $res = wp_update_post($post_args, true);
             if (is_wp_error($res)) return $res;
@@ -566,6 +567,9 @@ class TIX_App_Events {
                 TIX_Sync::sync($post_id, get_post($post_id));
             }
         }
+
+        // Verteilung anstoßen, falls kein save_post lief (Studio Stufe 3)
+        if ($studio) TIX_Studio_Editor::after_save($post_id, $studio, $post_updated);
 
         self::resolve_status($post_id);
         return true;
