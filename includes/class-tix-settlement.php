@@ -511,6 +511,26 @@ class TIX_Settlement {
         return intval($wpdb->insert_id);
     }
 
+    /**
+     * Cashless mit dem Plattform-Guthaben (1.38.466): offener Posten „cashless“ beim Veranstalter (Abbuchung positiv,
+     * Storno negativ), geht mit der nächsten Event- bzw. Saldo-Abrechnung raus. Idempotent je Buchung.
+     */
+    public static function add_cashless($organizer_id, $cents, $tx_id, $note = '') {
+        global $wpdb;
+        if (!self::enabled() || intval($organizer_id) <= 0 || intval($cents) === 0) return 0;
+        $dup = $wpdb->get_var($wpdb->prepare("SELECT id FROM " . self::items_table() . " WHERE type = 'cashless' AND ref_id = %d", intval($tx_id)));
+        if ($dup) return intval($dup);
+        return self::insert_item(['settlement_id' => 0, 'organizer_id' => intval($organizer_id), 'type' => 'cashless',
+            'amount' => round(intval($cents) / 100, 2), 'ref_id' => intval($tx_id), 'note' => mb_substr((string) $note, 0, 120)]);
+    }
+
+    /** Summe und Anzahl der Cashless-Posten einer Abrechnung. */
+    public static function cashless_total($sid) {
+        global $wpdb;
+        $r = $wpdb->get_row($wpdb->prepare("SELECT COALESCE(SUM(amount),0) AS a, COUNT(*) AS n FROM " . self::items_table() . " WHERE settlement_id = %d AND type = 'cashless'", intval($sid)));
+        return ['amount' => round(floatval($r->a ?? 0), 2), 'count' => intval($r->n ?? 0)];
+    }
+
     /** Nächste fortlaufende Nummer (atomar, je Jahr): EV-2026-0001. */
     public static function next_number($kind = 'settlement') {
         global $wpdb;
@@ -1026,9 +1046,12 @@ class TIX_Settlement {
         $snap = self::snap($s);
         $lines = [];
         foreach (self::items($s->id) as $it) {
-            if (in_array($it->type, ['order'], true)) continue;
+            if (in_array($it->type, ['order', 'cashless'], true)) continue;
             $lines[] = ['label' => self::item_label($it), 'amount' => round(floatval($it->amount), 2), 'type' => (string) $it->type];
         }
+        // Cashless mit evendis-Guthaben: ein Posten (1.38.466)
+        $cl = self::cashless_total($s->id);
+        if ($cl['count']) $lines[] = ['label' => sprintf('Cashless mit evendis-Guthaben (%d Zahlungen)', $cl['count']), 'amount' => $cl['amount'], 'type' => 'cashless'];
         return self::list_payload($s) + [
             'period_from'   => $s->period_from ? substr($s->period_from, 0, 10) : null,
             'period_to'     => $s->period_to ? substr($s->period_to, 0, 10) : null,
@@ -1041,6 +1064,7 @@ class TIX_Settlement {
             'carry_over'    => round(floatval($s->carry_over), 2),
             'customer_fees' => round(floatval($s->customer_fees), 2),
             'pos_total'     => round(floatval($s->pos_total), 2),
+            'cashless'      => $cl['amount'],
             'tickets'       => intval($s->tickets),
             'orders'        => intval($s->orders),
             'held_reason'   => $s->status === 'held' ? (string) $s->held_reason : '',
@@ -1059,6 +1083,7 @@ class TIX_Settlement {
             case 'carry_out': return $it->note ?: 'Übertrag auf die nächste Abrechnung';
             case 'advance':   return $it->note ?: 'Abschlag';
             case 'correction':return $it->note ?: 'Korrektur';
+            case 'cashless':  return 'Cashless mit evendis-Guthaben' . ($it->note ? ' · ' . $it->note : '');
         }
         return (string) $it->note;
     }

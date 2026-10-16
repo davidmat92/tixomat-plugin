@@ -27,11 +27,19 @@ if (!defined('ABSPATH')) exit;
  *
  * Mehr-Veranstalter-Modus (evendis): Einstellungen je Veranstalter (`_tix_org_wallet`), aktiv nur mit Modul `wallet`
  * und freigegebenem Veranstalter. Aufladen bleibt dort AUS, bis das Geld direkt an den Veranstalter geht (Phase 5).
+ *
+ * Plattform-Guthaben (1.38.466, User-Entscheid 2026-10-16, Schalter `tix_wallet_platform`, Vorgabe AUS – live erst nach
+ * Klärung mit dem Anwalt, E-Geld/ZAG): im Mehr-Veranstalter-Modus EINE Geldbörse je Kunde (organizer_id 0, scope_type
+ * `platform`). Aufladen über das evendis-Zahlungskonto (Einstellungen = Bereich 0), mit Seiten-Gutscheinen aufladen,
+ * Tickets JEDES Veranstalters damit bezahlen, Cashless bei Veranstaltern mit Modul `wallet` (Buchung trägt
+ * `organizer_id`, Abrechnung als offener Posten `cashless` mit der nächsten Event-Abrechnung). Vorerst KEIN Bonus.
+ * Aufladen an der Kasse eines Veranstalters geht für das Plattform-Guthaben nicht (das Geld wäre beim Veranstalter).
  */
 class TIX_Wallet_Balance {
 
     const NS        = 'tixomat/v1';
-    const DB_VER    = '2'; // 2: Geräte-Bestätigung + Zahlungsvorgänge (Phase 2, TIX_Wallet_Pay)
+    const DB_VER    = '3'; // 2: Geräte-Bestätigung + Zahlungsvorgänge (Phase 2, TIX_Wallet_Pay); 3: organizer_id an Buchung/Vorgang (Plattform-Cashless)
+    const OPT_PLATFORM = 'tix_wallet_platform';   // '1' = Plattform-Guthaben an (nur Mehr-Veranstalter-Modus), Vorgabe aus
     const OPT       = '_tix_wallet';
     const META_ORG  = '_tix_org_wallet';
     const OPT_SPEND = '_tix_wallet_spend_order';
@@ -112,11 +120,13 @@ class TIX_Wallet_Balance {
             channel varchar(12) NOT NULL DEFAULT '',
             idempotency_key varchar(100) DEFAULT NULL,
             meta longtext NULL,
+            organizer_id bigint(20) unsigned NOT NULL DEFAULT 0,
             created datetime NOT NULL,
             PRIMARY KEY  (id),
             UNIQUE KEY wallet_idem (wallet_id,idempotency_key),
             KEY wallet_id (wallet_id,id),
             KEY order_id (order_id),
+            KEY tx_org (organizer_id),
             KEY ref_tx_id (ref_tx_id),
             KEY created (created)
         ) ENGINE=InnoDB $c;");
@@ -150,6 +160,7 @@ class TIX_Wallet_Balance {
             staff_user_id bigint(20) unsigned NOT NULL DEFAULT 0,
             tx_id bigint(20) unsigned NOT NULL DEFAULT 0,
             idempotency_key varchar(80) NOT NULL DEFAULT '',
+            organizer_id bigint(20) unsigned NOT NULL DEFAULT 0,
             PRIMARY KEY  (device_id,nonce),
             KEY used_at (used_at),
             KEY staff_idem (staff_user_id,idempotency_key)
@@ -251,10 +262,25 @@ class TIX_Wallet_Balance {
         return self::sanitize_settings(is_array($raw) ? $raw : []);
     }
 
-    /** Ist der Bereich aktiv? Seite: Schalter (im Mehr-Veranstalter-Modus nie); Veranstalter: Modul + Freigabe. */
+    /** Plattform-Guthaben an? (Mehr-Veranstalter-Modus + Schalter tix_wallet_platform = '1') */
+    public static function platform_on() {
+        return self::multi() && get_option(self::OPT_PLATFORM, '0') === '1';
+    }
+
+    /** Geldbörse des Plattform-Guthabens (Mehr-Veranstalter-Modus, Bereich 0)? */
+    public static function is_platform_wallet($w) {
+        return is_array($w) && self::multi() && intval($w['organizer_id'] ?? -1) === 0;
+    }
+
+    /** Bonus erlaubt? Auf dem Plattform-Guthaben vorerst nicht (User-Entscheid bis Anwalt/Steuerberater). */
+    public static function bonus_allowed($oid = 0) {
+        return !(self::multi() && !intval($oid)) || (bool) apply_filters('tix_wallet_platform_bonus', false);
+    }
+
+    /** Ist der Bereich aktiv? Seite: Schalter (im Mehr-Veranstalter-Modus = Plattform-Guthaben); Veranstalter: Modul + Freigabe. */
     public static function scope_enabled($oid = 0) {
         $oid = intval($oid);
-        if (!$oid) return !self::multi() && !empty(self::stored(0)['enabled']);
+        if (!$oid) return self::multi() ? self::platform_on() : !empty(self::stored(0)['enabled']);
         if (!self::multi() || get_post_type($oid) !== 'tix_organizer' || get_post_status($oid) !== 'publish') return false;
         if (class_exists('TIX_Org_Approval') && !TIX_Org_Approval::is_public($oid)) return false;
         $mods = class_exists('TIX_Public_Platform') ? TIX_Public_Platform::modules($oid) : [];
@@ -317,7 +343,7 @@ class TIX_Wallet_Balance {
         $now = current_time('mysql', true);
         $wpdb->query($wpdb->prepare(
             "INSERT IGNORE INTO " . self::t('wallets') . " (user_id, scope_type, organizer_id, balance_paid, balance_bonus, status, created, updated) VALUES (%d, %s, %d, 0, 0, 'active', %s, %s)",
-            $user_id, $oid ? 'organizer' : 'site', $oid, $now, $now
+            $user_id, $oid ? 'organizer' : (self::multi() ? 'platform' : 'site'), $oid, $now, $now
         ));
         return self::find_wallet($user_id, $oid);
     }
@@ -389,6 +415,7 @@ class TIX_Wallet_Balance {
             'staff_user_id' => intval($args['staff_user_id'] ?? 0), 'station' => mb_substr(sanitize_text_field((string) ($args['station'] ?? '')), 0, 60),
             'device_id' => intval($args['device_id'] ?? 0), 'channel' => $channel, 'idempotency_key' => $key,
             'meta' => !empty($args['meta']) ? wp_json_encode($args['meta']) : null,
+            'organizer_id' => intval($args['organizer_id'] ?? 0),
             'created' => current_time('mysql', true),
         ]);
         if (!$ok) {
@@ -531,7 +558,7 @@ class TIX_Wallet_Balance {
             $amount = round(floatval($cat['price'] ?? 0), 2);
         }
         if ($amount <= 0) return new WP_Error('tix_wallet_amount', 'Betrag ungültig.', ['status' => 400]);
-        $bonus = self::bonus_for(self::cents($amount), $s);
+        $bonus = self::bonus_allowed($oid) ? self::bonus_for(self::cents($amount), $s) : 0;
         return [
             'event_id' => intval($event_id), 'cat_index' => intval($idx), 'name' => 'Guthaben ' . self::fmt(self::cents($amount)),
             'event_title' => 'Guthaben', 'price' => $amount, 'qty' => 1, 'locked_price' => 1,
@@ -668,6 +695,14 @@ class TIX_Wallet_Balance {
         $items = (array) ($cart['items'] ?? []);
         if (!$items || self::cart_topups($cart)) return null;
         if (!self::multi()) return 0;
+        if (self::platform_on()) return 0; // Plattform-Guthaben: Tickets jedes Veranstalters
+        return self::organizer_scope($cart);
+    }
+
+    /** Gemeinsamer Veranstalter aller Positionen (Veranstalter-Geldbörsen) oder null. */
+    public static function organizer_scope(array $cart) {
+        $items = (array) ($cart['items'] ?? []);
+        if (!$items || !self::multi()) return null;
         $common = null;
         foreach ($items as $it) {
             $orgs = class_exists('TIX_App_Scope') ? TIX_App_Scope::event_org_ids(intval($it['event_id'] ?? 0)) : [];
@@ -689,6 +724,12 @@ class TIX_Wallet_Balance {
         $oid = self::checkout_scope($cart);
         if ($oid === null) return $out + ['reason' => 'scope'];
         $w = self::find_wallet($user->ID, $oid);
+        // Plattform-Guthaben leer: vorhandenes Veranstalter-Guthaben (z. B. aus einem Veranstalter-Gutschein) nutzen
+        if (self::platform_on() && $oid === 0 && (!$w || intval($w['balance_paid']) + intval($w['balance_bonus']) <= 0)) {
+            $alt = self::organizer_scope($cart);
+            $aw = $alt ? self::find_wallet($user->ID, $alt) : null;
+            if ($aw && intval($aw['balance_paid']) + intval($aw['balance_bonus']) > 0) { $oid = intval($alt); $w = $aw; }
+        }
         if (!$w) return $out + ['organizer_id' => $oid, 'reason' => 'no_wallet'];
         $bal = intval($w['balance_paid']) + intval($w['balance_bonus']);
         $out['available'] = self::euro($bal); $out['wallet_id'] = intval($w['id']); $out['organizer_id'] = $oid;
@@ -813,7 +854,8 @@ class TIX_Wallet_Balance {
         if ($want_amount !== null && $want_amount !== '' && $part <= 0) return new WP_Error('tix_invalid_field', 'Bitte einen Betrag über 0 € angeben.', ['status' => 400, 'field' => 'amount']);
         $oid = intval($card['organizer_id'] ?? 0);
         $want = $req->get_param('organizer') ?? $req->get_param('organizer_id');
-        if ($want !== null && $want !== '' && intval($want) !== $oid) return new WP_Error('tix_giftcard_scope', 'Dieser Gutschein gilt bei einem anderen Veranstalter.', ['status' => 409]);
+        // Plattform-Guthaben: Seiten-Gutscheine gehen immer in die Plattform-Geldbörse (organizer der App egal)
+        if ($want !== null && $want !== '' && intval($want) !== $oid && !($oid === 0 && self::platform_on())) return new WP_Error('tix_giftcard_scope', 'Dieser Gutschein gilt bei einem anderen Veranstalter.', ['status' => 409]);
         if (!self::scope_enabled($oid)) {
             return new WP_Error('tix_giftcard_scope', $oid ? 'Bei diesem Veranstalter gibt es kein Guthaben.' : 'Dieser Gutschein lässt sich hier nicht ins Guthaben übernehmen.', ['status' => 409]);
         }
@@ -934,7 +976,7 @@ class TIX_Wallet_Balance {
         $p = intval($w['balance_paid']); $b = intval($w['balance_bonus']);
         $oid = intval($w['organizer_id']);
         return [
-            'id' => intval($w['id']), 'scope' => $oid ? 'organizer' : 'site', 'organizer_id' => $oid,
+            'id' => intval($w['id']), 'scope' => $oid ? 'organizer' : (self::multi() ? 'platform' : 'site'), 'organizer_id' => $oid,
             'organizer_name' => $oid ? html_entity_decode(get_the_title($oid), ENT_QUOTES, 'UTF-8') : html_entity_decode(get_bloginfo('name'), ENT_QUOTES, 'UTF-8'),
             'status' => (string) $w['status'], 'balance' => self::euro($p + $b), 'balance_paid' => self::euro($p), 'balance_bonus' => self::euro($b),
             'currency' => 'EUR', 'updated_at' => mysql2date('c', get_date_from_gmt($w['updated']), false),
@@ -955,6 +997,9 @@ class TIX_Wallet_Balance {
             'amount' => self::euro($a), 'amount_paid' => self::euro($tx['amount_paid']), 'amount_bonus' => self::euro($tx['amount_bonus']),
             'balance_after' => self::euro(intval($tx['balance_after_paid']) + intval($tx['balance_after_bonus'])),
             'station' => (string) $tx['station'], 'channel' => (string) $tx['channel'], 'order_id' => intval($tx['order_id']) ?: null,
+            // Plattform-Guthaben: bei welchem Veranstalter bezahlt (Cashless), sonst null
+            'organizer_id' => intval($tx['organizer_id'] ?? 0) ?: null,
+            'organizer_name' => intval($tx['organizer_id'] ?? 0) ? html_entity_decode(get_the_title(intval($tx['organizer_id'])), ENT_QUOTES, 'UTF-8') : null,
             'created_at' => mysql2date('c', get_date_from_gmt($tx['created']), false),
         ];
         if ($for_staff) {
@@ -978,13 +1023,18 @@ class TIX_Wallet_Balance {
             if (!is_array($c) || empty($c['wallet_topup'])) continue;
             if (!empty($c['wallet_free_amount'])) { $free_index = intval($i); continue; }
             $a = round(floatval($c['price']), 2);
-            $bonus = self::bonus_for(self::cents($a), $s);
+            $bonus = self::bonus_allowed($oid) ? self::bonus_for(self::cents($a), $s) : 0;
             $amounts[] = ['index' => intval($i), 'amount' => $a, 'bonus' => self::euro($bonus), 'credit' => self::euro(self::cents($a) + $bonus)];
         }
         $tiers = [];
-        foreach ($s['bonus_tiers'] as $t) $tiers[] = $t + ['text' => self::tier_text($t)];
+        if (self::bonus_allowed($oid)) foreach ($s['bonus_tiers'] as $t) $tiers[] = $t + ['text' => self::tier_text($t)];
+        $platform = self::multi() && !$oid;
         return [
             'enabled' => true, 'organizer_id' => $oid, 'topup_enabled' => $topup && $event_id > 0,
+            // 1.38.466: Bereich + Plattform-Guthaben (evendis): wofür es gilt, wo Cashless geht
+            'scope' => $oid ? 'organizer' : ($platform ? 'platform' : 'site'), 'platform' => $platform,
+            'usable_for' => ['tickets' => true, 'cashless' => $platform ? (bool) self::cashless_organizers() : true],
+            'cashless_organizers' => $platform ? self::cashless_organizers() : null,
             'topup_disabled_reason' => $topup ? null : 'direct_payment_pending',
             'event_id' => $event_id ?: null, 'amounts' => $amounts,
             'free_amount' => !empty($s['free_amount']) && $free_index >= 0, 'free_index' => $free_index, 'min' => $s['free_min'], 'max' => $s['free_max'],
@@ -1025,10 +1075,26 @@ class TIX_Wallet_Balance {
         return $f ? intval($f[0]) : -1;
     }
 
-    /** GET /wallet/config[?organizer=] */
+    /** Veranstalter, bei denen das Plattform-Guthaben Cashless gilt (Modul „wallet“, freigegeben): [{id, name, slug}] */
+    public static function cashless_organizers() {
+        static $list = null;
+        if ($list !== null) return $list;
+        $list = [];
+        if (!self::multi()) return $list;
+        foreach (get_posts(['post_type' => 'tix_organizer', 'post_status' => 'publish', 'posts_per_page' => 500, 'fields' => 'ids']) as $oid) {
+            if (!self::scope_enabled(intval($oid))) continue;
+            $list[] = ['id' => intval($oid), 'name' => html_entity_decode(get_the_title($oid), ENT_QUOTES, 'UTF-8'), 'slug' => (string) (get_post_meta($oid, '_tix_org_landing_slug', true) ?: get_post_field('post_name', $oid))];
+        }
+        return $list;
+    }
+
+    /** GET /wallet/config[?organizer=] – mit Plattform-Guthaben (1.38.466) gilt für jeden Veranstalter die Plattform-Antwort. */
     public static function rest_config(WP_REST_Request $req) {
         $oid = self::org_param($req);
         if ($oid < 0) return self::out(['ok' => true, 'enabled' => false]);
+        if ($oid > 0 && self::platform_on()) {
+            return self::out(array_merge(['ok' => true], self::config_payload(0), ['organizer_id' => $oid, 'cashless_here' => self::scope_enabled($oid)]));
+        }
         return self::out(['ok' => true] + self::config_payload($oid));
     }
 
@@ -1039,7 +1105,7 @@ class TIX_Wallet_Balance {
         $oid = self::org_param($req);
         $rows = [];
         if (self::ready() && $oid >= 0) {
-            $sql = "SELECT * FROM " . self::t('wallets') . " WHERE user_id = %d" . ($req->get_param('organizer') !== null || $req->get_param('organizer_id') !== null ? $wpdb->prepare(' AND organizer_id = %d', $oid) : '') . " ORDER BY id";
+            $sql = "SELECT * FROM " . self::t('wallets') . " WHERE user_id = %d" . ($req->get_param('organizer') !== null || $req->get_param('organizer_id') !== null ? $wpdb->prepare(' AND organizer_id = %d', $oid) : '') . " ORDER BY organizer_id = 0 DESC, id";
             $rows = (array) $wpdb->get_results($wpdb->prepare($sql, $uid), ARRAY_A);
         }
         $out = [];
@@ -1105,6 +1171,7 @@ class TIX_Wallet_Balance {
     public static function rest_admin_config(WP_REST_Request $req) {
         $oid = self::staff_scope($req);
         return self::out(['ok' => true, 'organizer_id' => $oid, 'active' => self::scope_enabled($oid), 'topup_enabled' => self::topup_enabled($oid),
+            'platform' => self::multi() && !$oid, 'platform_on' => self::platform_on(), 'bonus_allowed' => self::bonus_allowed($oid),
             'settings' => self::settings($oid), 'spend_order' => self::spend_order(), 'module_required' => $oid > 0,
             'can_edit' => self::check_manager($req) === true,
             // Ausgabe-Reihenfolge ist seitenweit: änderbar für Admin bzw. auf Einzel-Seiten für den Veranstalter (1.38.464)
@@ -1130,8 +1197,10 @@ class TIX_Wallet_Balance {
             unset($s['enabled']); // evendis: an/aus über das Modul „wallet“
             update_post_meta($oid, self::META_ORG, $s);
         } else {
+            if (self::multi()) unset($s['enabled']); // Plattform-Guthaben: an/aus nur über den Schalter tix_wallet_platform
             update_option(self::OPT, $s, false);
-            if ($s['enabled']) self::ensure_event(0); else self::sync_event_off(0);
+            if (self::multi()) { if (self::platform_on()) self::ensure_event(0); }
+            elseif ($s['enabled']) self::ensure_event(0); else self::sync_event_off(0);
         }
         return self::rest_admin_config($req);
     }
@@ -1159,7 +1228,10 @@ class TIX_Wallet_Balance {
         $tz = wp_timezone();
         $from = (new DateTime($date . ' 00:00:00', $tz))->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i:s');
         $to   = (new DateTime($date . ' 00:00:00', $tz))->modify('+1 day')->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i:s');
-        $where = $wpdb->prepare("w.organizer_id = %d AND t.created >= %s AND t.created < %s", intval($oid), $from, $to);
+        // Veranstalter: eigene Geldbörsen + Cashless mit dem Plattform-Guthaben bei ihm (Buchung trägt organizer_id)
+        $where = intval($oid)
+            ? $wpdb->prepare("(w.organizer_id = %d OR (w.organizer_id = 0 AND t.organizer_id = %d)) AND t.created >= %s AND t.created < %s", intval($oid), intval($oid), $from, $to)
+            : $wpdb->prepare("w.organizer_id = 0 AND t.created >= %s AND t.created < %s", $from, $to);
         if ($station !== '') $where .= $wpdb->prepare(' AND t.station = %s', $station);
         $base = "FROM $T t JOIN $W w ON w.id = t.wallet_id WHERE $where";
         $sum = function ($r) { return ['count' => intval($r['n']), 'paid' => self::euro($r['p']), 'bonus' => self::euro($r['b']), 'total' => self::euro(intval($r['p']) + intval($r['b']))]; };

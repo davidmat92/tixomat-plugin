@@ -212,8 +212,10 @@ class TIX_Settlement_PDF {
             if (floatval($s->refunds) > 0) $y = self::row($pdf, $y, 'abzüglich Erstattungen', '-' . self::eur($s->refunds));
             if (floatval($s->platform_fee) > 0) $y = self::row($pdf, $y, 'abzüglich Plattformgebühr (Ihr Anteil)', '-' . self::eur($s->platform_fee));
             if (floatval($s->gateway_fees) > 0) $y = self::row($pdf, $y, 'abzüglich Zahlungsgebühren (weiterberechnet)', '-' . self::eur($s->gateway_fees));
+            $cl = TIX_Settlement::cashless_total($s->id);
+            if ($cl['count']) $y = self::row($pdf, $y, sprintf('Cashless mit evendis-Guthaben (%d Zahlungen)', $cl['count']), ($cl['amount'] < 0 ? '-' : '+') . self::eur(abs($cl['amount'])));
             foreach (TIX_Settlement::items($s->id) as $it) {
-                if (in_array($it->type, ['order'], true)) continue;
+                if (in_array($it->type, ['order', 'cashless'], true)) continue;
                 if ($y < 120) { $pdf->add_page(); $y = self::H - 60; }
                 $amt = floatval($it->amount);
                 $y = self::row($pdf, $y, mb_substr(TIX_Settlement::item_label($it), 0, 80), ($amt < 0 ? '-' : '+') . self::eur(abs($amt)));
@@ -229,7 +231,8 @@ class TIX_Settlement_PDF {
         // Steuer
         $y -= 10;
         if ($reseller && $s->type !== 'advance') {
-            $base = floatval($s->payout_amount) + floatval($s->advances) - floatval($s->carry_over);
+            // Cashless ist kein Ticket-Ankauf (Mehrzweck-Gutschein, die Leistung erbringt der Veranstalter) → nicht in die Ticket-Gutschrift
+            $base = floatval($s->payout_amount) + floatval($s->advances) - floatval($s->carry_over) - TIX_Settlement::cashless_total($s->id)['amount'];
             if (($snap['tax_status'] ?? '') === 'small_business') {
                 $y = self::paragraph($pdf, $y, 'Gutschrift über den Ankauf der Tickets. Der Leistende ist Kleinunternehmer; gemäß § 19 UStG wird keine Umsatzsteuer ausgewiesen.');
             } else {
@@ -240,6 +243,7 @@ class TIX_Settlement_PDF {
             }
         } elseif (!$reseller) {
             $txt = 'Die Ticketumsätze haben wir im Namen und für Rechnung des Veranstalters vereinnahmt.';
+            if (TIX_Settlement::cashless_total($s->id)['count']) $txt .= ' Cashless-Zahlungen mit evendis-Guthaben (Mehrzweck-Gutschein) zahlen wir in eingelöster Höhe aus; die Leistung vor Ort erbringt der Veranstalter.';
             if ($s->invoice_number !== '' && floatval($s->invoice_total) > 0) {
                 $txt .= ' Unsere Gebühren berechnen wir mit Rechnung ' . $s->invoice_number . ' (' . self::eur($s->invoice_total) . ' brutto); sie sind im Auszahlungsbetrag bereits verrechnet.';
             }

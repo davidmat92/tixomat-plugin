@@ -242,7 +242,9 @@ class TIX_Wallet_Pay {
             return self::err('tix_wallet_code_signature', 'Code ungültig (Signatur stimmt nicht).', 403);
         }
         if ($scope !== null && intval($w['organizer_id']) !== intval($scope)) {
-            return self::err('tix_wallet_scope', 'Dieses Guthaben gilt hier nicht.', 403);
+            // Plattform-Guthaben (1.38.466): gilt bei jedem Veranstalter mit Cashless (Modul „wallet“)
+            $platform_ok = TIX_Wallet_Balance::is_platform_wallet($w) && TIX_Wallet_Balance::platform_on() && intval($scope) > 0 && TIX_Wallet_Balance::scope_enabled(intval($scope));
+            if (!$platform_ok) return self::err('tix_wallet_scope', 'Dieses Guthaben gilt hier nicht.', 403);
         }
         if (!TIX_Wallet_Balance::scope_enabled($w['organizer_id']) && $scope !== null) {
             return self::err('tix_wallet_off', 'Guthaben ist hier nicht aktiv.', 404);
@@ -256,10 +258,10 @@ class TIX_Wallet_Pay {
     private static function consume(array $c, array $row) {
         global $wpdb;
         $n = $wpdb->query($wpdb->prepare(
-            "INSERT IGNORE INTO " . self::T('wallet_nonces') . " (device_id, nonce, used_at, wallet_id, state, amount, station, staff_user_id, tx_id, idempotency_key, kind)
-             VALUES (%d, %s, %d, %d, %s, %d, %s, %d, 0, %s, %s)",
+            "INSERT IGNORE INTO " . self::T('wallet_nonces') . " (device_id, nonce, used_at, wallet_id, state, amount, station, staff_user_id, tx_id, idempotency_key, kind, organizer_id)
+             VALUES (%d, %s, %d, %d, %s, %d, %s, %d, 0, %s, %s, %d)",
             intval($c['device']['id']), $c['nonce'], time(), intval($c['wallet']['id']), $row['state'], intval($row['amount']), (string) $row['station'],
-            intval($row['staff_user_id']), (string) $row['idempotency_key'], (string) $row['kind']
+            intval($row['staff_user_id']), (string) $row['idempotency_key'], (string) $row['kind'], intval($row['organizer_id'] ?? 0)
         ));
         return $n === 1;
     }
@@ -317,6 +319,8 @@ class TIX_Wallet_Pay {
         $scope = self::staff_scope_for($peek);
         $c = self::check_code($req->get_param('code'), $scope === null ? ($peek ? intval($peek['organizer_id']) : 0) : $scope);
         if (is_wp_error($c)) return $c;
+        // Wo wird bezahlt? Plattform-Guthaben beim Veranstalter des Personals, sonst der Bereich der Geldbörse
+        $c['cash_org'] = (TIX_Wallet_Balance::is_platform_wallet($c['wallet']) && intval($scope) > 0) ? intval($scope) : intval($c['wallet']['organizer_id']);
         if (self::limited('device', $c['device']['id']) || self::limited('wallet', $c['wallet']['id'])) return self::rate_error();
         return $c;
     }
@@ -329,7 +333,8 @@ class TIX_Wallet_Pay {
     private static function preview(array $c, $amount) {
         $w = $c['wallet'];
         $bal = intval($w['balance_paid']) + intval($w['balance_bonus']);
-        $s = TIX_Wallet_Balance::settings($w['organizer_id']);
+        $cash_org = intval($c['cash_org'] ?? $w['organizer_id']);
+        $s = TIX_Wallet_Balance::settings($cash_org);
         $th = TIX_Wallet_Balance::cents($s['approval_threshold']);
         return [
             'wallet_id' => intval($w['id']), 'first_name' => self::first_name($w['user_id']), 'avatar' => self::avatar($w['user_id']),
@@ -340,7 +345,8 @@ class TIX_Wallet_Pay {
             'approval_required' => $amount ? ($th > 0 && $amount >= $th) : false,
             'approval_threshold' => $s['approval_threshold'],
             'code_used' => $c['used'] !== null,
-            'stations' => self::stations($w['organizer_id']),
+            'stations' => self::stations($cash_org),
+            'platform' => TIX_Wallet_Balance::is_platform_wallet($w),
         ];
     }
 
@@ -385,11 +391,16 @@ class TIX_Wallet_Pay {
         $tx = TIX_Wallet_Balance::post_tx(intval($r['wallet_id']), [
             'type' => 'charge', 'amount' => -intval($r['amount']), 'idempotency_key' => 'charge:' . $r['idempotency_key'], 'staff_user_id' => intval($r['staff_user_id']),
             'station' => (string) $r['station'], 'device_id' => intval($r['device_id']), 'channel' => 'app', 'meta' => ['nonce' => (string) $r['nonce']],
+            'organizer_id' => intval($r['organizer_id'] ?? 0),
         ]);
         if (is_wp_error($tx)) { self::set_state($r, 'failed'); return $tx; }
         self::set_state($r, 'paid', $tx['id']);
         if (empty($tx['replay'])) {
             $w = TIX_Wallet_Balance::get_wallet($r['wallet_id']);
+            // Plattform-Guthaben: Betrag geht mit der nächsten Abrechnung an den Veranstalter (offener Posten „cashless“)
+            if (TIX_Wallet_Balance::is_platform_wallet($w) && intval($r['organizer_id'] ?? 0) > 0 && class_exists('TIX_Settlement')) {
+                TIX_Settlement::add_cashless(intval($r['organizer_id']), -intval($tx['amount_paid']) - intval($tx['amount_bonus']), intval($tx['id']), (string) $r['station']);
+            }
             if ($w && class_exists('TIX_Notifications')) {
                 TIX_Notifications::add_user_item(intval($w['user_id']), 'Bezahlt', TIX_Wallet_Balance::fmt($r['amount']) . ' bezahlt · ' . $r['station'], ['type' => 'wallet', 'action' => 'wallet']);
             }
@@ -426,7 +437,7 @@ class TIX_Wallet_Pay {
         if ($c['used'] !== null) return self::err('tix_wallet_code_used', 'Dieser Code wurde schon benutzt – der Gast soll den Bezahl-Bildschirm neu laden.', 409);
         $amount = self::amount_cents($req);
         if (is_wp_error($amount)) return $amount;
-        $oid = intval($c['wallet']['organizer_id']);
+        $oid = intval($c['cash_org'] ?? $c['wallet']['organizer_id']);
         $station = self::station($req, $oid);
         if (is_wp_error($station)) return $station;
         $bal = intval($c['wallet']['balance_paid']) + intval($c['wallet']['balance_bonus']);
@@ -435,7 +446,7 @@ class TIX_Wallet_Pay {
         }
         $th = TIX_Wallet_Balance::cents(TIX_Wallet_Balance::settings($oid)['approval_threshold']);
         $needs = $th > 0 && $amount >= $th;
-        $row = ['state' => $needs ? 'approval' : 'pending', 'amount' => $amount, 'station' => $station, 'staff_user_id' => $staff, 'idempotency_key' => $key, 'kind' => 'charge'];
+        $row = ['state' => $needs ? 'approval' : 'pending', 'amount' => $amount, 'station' => $station, 'staff_user_id' => $staff, 'idempotency_key' => $key, 'kind' => 'charge', 'organizer_id' => $oid];
         if (!self::consume($c, $row)) return self::err('tix_wallet_code_used', 'Dieser Code wurde schon benutzt – der Gast soll den Bezahl-Bildschirm neu laden.', 409);
         $r = self::pay_row($c['device']['id'], $c['nonce']);
         if ($needs) {
@@ -464,7 +475,8 @@ class TIX_Wallet_Pay {
         if (!$tx || $tx['type'] !== 'charge') return self::err('tix_wallet_tx_unknown', 'Buchung nicht gefunden.', 404);
         $w = TIX_Wallet_Balance::get_wallet($tx['wallet_id']);
         $scope = self::staff_scope_for($w);
-        if ($scope !== null && intval($w['organizer_id']) !== intval($scope)) return self::err('tix_wallet_tx_unknown', 'Buchung nicht gefunden.', 404);
+        $own_platform = TIX_Wallet_Balance::is_platform_wallet($w) && intval($scope) > 0 && intval($tx['organizer_id'] ?? 0) === intval($scope);
+        if ($scope !== null && intval($w['organizer_id']) !== intval($scope) && !$own_platform) return self::err('tix_wallet_tx_unknown', 'Buchung nicht gefunden.', 404);
         $reason = trim(sanitize_text_field((string) $req->get_param('reason')));
         if ($reason === '') return self::err('tix_wallet_reason', 'Bitte einen Grund angeben.', 400);
         $age = time() - strtotime($tx['created'] . ' UTC');
@@ -475,8 +487,11 @@ class TIX_Wallet_Pay {
         if ($done) return self::out(['ok' => true, 'tx' => TIX_Wallet_Balance::tx_payload($done, true), 'already' => true]);
         $r = TIX_Wallet_Balance::post_tx(intval($tx['wallet_id']), ['type' => 'reversal', 'amount_paid' => -intval($tx['amount_paid']), 'amount_bonus' => -intval($tx['amount_bonus']),
             'ref_tx_id' => intval($tx['id']), 'staff_user_id' => get_current_user_id(), 'station' => (string) $tx['station'], 'channel' => 'app',
-            'idempotency_key' => 'reverse:' . $tx['id'], 'allow_locked' => true, 'meta' => ['reason' => $reason]]);
+            'idempotency_key' => 'reverse:' . $tx['id'], 'allow_locked' => true, 'meta' => ['reason' => $reason], 'organizer_id' => intval($tx['organizer_id'] ?? 0)]);
         if (is_wp_error($r)) return $r;
+        if (empty($r['replay']) && TIX_Wallet_Balance::is_platform_wallet($w) && intval($tx['organizer_id'] ?? 0) > 0 && class_exists('TIX_Settlement')) {
+            TIX_Settlement::add_cashless(intval($tx['organizer_id']), -(intval($r['amount_paid']) + intval($r['amount_bonus'])), intval($r['id']), 'Storno ' . (string) $tx['station']);
+        }
         if (empty($r['replay']) && class_exists('TIX_Notifications')) {
             TIX_Notifications::add_user_item(intval($w['user_id']), 'Zahlung storniert', TIX_Wallet_Balance::fmt(-intval($tx['amount_paid']) - intval($tx['amount_bonus'])) . ' zurück · ' . $tx['station'], ['type' => 'wallet', 'action' => 'wallet']);
         }
@@ -499,6 +514,8 @@ class TIX_Wallet_Pay {
         $amount = self::amount_cents($req);
         if (is_wp_error($amount)) return $amount;
         $w = $c['wallet']; $oid = intval($w['organizer_id']);
+        // Plattform-Guthaben nur in der App aufladen (an der Kasse läge das Geld beim Veranstalter, nicht bei evendis)
+        if (TIX_Wallet_Balance::is_platform_wallet($w)) return self::err('tix_wallet_platform_pos', 'Das evendis-Guthaben lässt sich nur in der App aufladen.', 409);
         $station = self::station($req, $oid);
         if (is_wp_error($station)) return $station;
         $s = TIX_Wallet_Balance::settings($oid);
