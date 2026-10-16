@@ -22,6 +22,121 @@ class TIX_Event_Report {
         add_action('admin_enqueue_scripts', [__CLASS__, 'enqueue']);
         add_action('wp_ajax_tix_event_report_repair_analyze', [__CLASS__, 'ajax_repair_analyze']);
         add_action('wp_ajax_tix_event_report_repair_apply',   [__CLASS__, 'ajax_repair_apply']);
+        // Studio (1.38.464): Bericht + Export als Staff-Routen; die Reparatur-Werkzeuge bleiben im WP-Admin
+        add_action('rest_api_init', [__CLASS__, 'rest_routes']);
+    }
+
+    /** true, solange export_bytes() den Export einsammelt (keine Kopfzeilen senden) */
+    private static $capture = false;
+
+    public static function rest_routes() {
+        $perm = [__CLASS__, 'rest_perm'];
+        register_rest_route('tixomat/v1', '/events/(?P<id>\d+)/report', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_report'], 'permission_callback' => $perm]);
+        register_rest_route('tixomat/v1', '/events/(?P<id>\d+)/report/export', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_export'], 'permission_callback' => $perm]);
+    }
+
+    /** Wie Statistik/Bestellungen (Staff, Veranstalter, Admin; Mehr-Veranstalter abgeschottet), ohne Kasse und Einlass. */
+    public static function rest_perm(WP_REST_Request $req) {
+        $r = TIX_REST_API::check_organizer($req);
+        if ($r !== true) return $r;
+        if (TIX_REST_API::is_cashier_only(wp_get_current_user())) return new WP_Error('rest_forbidden', 'Der Bericht ist dem Veranstalter vorbehalten.', ['status' => 403]);
+        return true;
+    }
+
+    /** Gab es Vorverkauf, also mindestens eine bezahlte (ggf. später erstattete) Online-Bestellung für das Event? */
+    public static function has_presale($event_id) {
+        global $wpdb;
+        static $cache = [];
+        $event_id = intval($event_id);
+        if (isset($cache[$event_id])) return $cache[$event_id];
+        $t = $wpdb->prefix . 'tix_orders';
+        $ti = $wpdb->prefix . 'tix_order_items';
+        if ($wpdb->get_var("SHOW TABLES LIKE '$t'") !== $t) return $cache[$event_id] = false;
+        return $cache[$event_id] = (bool) $wpdb->get_var($wpdb->prepare(
+            "SELECT 1 FROM $ti i INNER JOIN $t o ON o.id = i.order_id WHERE i.event_id = %d AND o.status IN ('completed','processing','refunded','partially-refunded') LIMIT 1", $event_id));
+    }
+
+    private static function rest_event($req) {
+        $id = absint($req['id']);
+        $post = get_post($id);
+        if (!$post || $post->post_type !== 'event') return new WP_Error('not_found', 'Event nicht gefunden.', ['status' => 404]);
+        if (!TIX_REST_API::can_access_event($id)) return new WP_Error('forbidden', 'Kein Zugriff auf dieses Event.', ['status' => 403]);
+        if (!self::has_presale($id)) return new WP_Error('tix_no_presale', 'Für dieses Event gab es keinen Vorverkauf – daher keinen Bericht.', ['status' => 404, 'has_presale' => false]);
+        return $post;
+    }
+
+    /** GET /events/{id}/report → Daten der Admin-Seite „Event-Bericht“ */
+    public static function rest_report(WP_REST_Request $req) {
+        $post = self::rest_event($req);
+        if (is_wp_error($post)) return $post;
+        $id = intval($post->ID);
+        $data = self::get_event_data($id);
+        $loc_id = intval(get_post_meta($id, '_tix_location_id', true));
+        $cats = (array) $data['categories'];
+        $r = new WP_REST_Response([
+            'ok'          => true,
+            'has_presale' => true,
+            'event'       => [
+                'id' => $id, 'title' => (string) $post->post_title, 'post_status' => (string) $post->post_status,
+                'date_start' => (string) get_post_meta($id, '_tix_date_start', true), 'time_start' => (string) get_post_meta($id, '_tix_time_start', true),
+                'location' => $loc_id ? (string) get_the_title($loc_id) : (string) get_post_meta($id, '_tix_location', true),
+            ],
+            'kpis'        => $data['kpis'],
+            'categories'  => array_values(array_map(function ($c) {
+                return ['name' => (string) $c['name'], 'sold' => intval($c['sold']), 'checked_in' => intval($c['checked_in']), 'revenue' => round(floatval($c['revenue']), 2),
+                    'avg_price' => round(floatval($c['avg_price']), 2), 'capacity' => intval($c['capacity']), 'available' => intval($c['available']),
+                    'sold_through' => floatval($c['sold_through']), 'stock_status' => (string) $c['stock_status']];
+            }, $cats)),
+            // Hinweise wie auf der Admin-Seite (Kapazität fast erschöpft bzw. ausverkauft)
+            'warnings'    => [
+                'low'      => array_values(array_map(function ($c) { return (string) $c['name']; }, array_filter($cats, function ($c) { return $c['stock_status'] === 'low'; }))),
+                'sold_out' => array_values(array_map(function ($c) { return (string) $c['name']; }, array_filter($cats, function ($c) { return $c['stock_status'] === 'soldout'; }))),
+            ],
+            'tickets'     => array_values(array_map(function ($t) {
+                return ['id' => intval($t['id']), 'code' => (string) $t['code'], 'owner_name' => (string) $t['owner_name'], 'owner_email' => (string) $t['owner_email'],
+                    'category' => (string) $t['category'], 'price' => round(floatval($t['price']), 2), 'order_id' => intval($t['order_id']), 'order_number' => (string) $t['order_number'],
+                    'order_date' => (string) $t['order_date'], 'seat' => (string) $t['seat'], 'status' => (string) $t['status'], 'checked_in' => (bool) $t['checked_in'], 'checkin_time' => (string) $t['checkin_time']];
+            }, (array) $data['tickets'])),
+            'exports'     => ['csv', 'xlsx', 'pdf'],
+        ]);
+        $r->header('Cache-Control', 'no-store');
+        return $r;
+    }
+
+    /** Export als Bytes (derselbe wie im WP-Admin) → ['bytes', 'filename', 'mime'] */
+    public static function export_bytes($event_id, $format) {
+        $event_id = intval($event_id);
+        $format = in_array($format, ['csv', 'xlsx', 'pdf'], true) ? $format : 'csv';
+        $data  = self::get_event_data($event_id);
+        $event = get_post($event_id);
+        $title = $event ? $event->post_title : 'Event';
+        $slug  = sanitize_file_name(strtolower(str_replace(' ', '-', $title)));
+        $filename = "tix-bericht-{$slug}-" . date('Y-m-d') . '.' . $format;
+        $mime = ['csv' => 'text/csv', 'xlsx' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'pdf' => 'application/pdf'][$format];
+        self::$capture = true;
+        ob_start();
+        try {
+            if ($format === 'xlsx') self::export_xlsx($data, $event, $filename);
+            elseif ($format === 'pdf') self::export_pdf($data, $event, $filename);
+            else self::export_csv($data, $event, $filename);
+        } finally {
+            $bytes = (string) ob_get_clean();
+            self::$capture = false;
+        }
+        return ['bytes' => $bytes, 'filename' => $filename, 'mime' => $mime];
+    }
+
+    /** GET /events/{id}/report/export?format=pdf|xlsx|csv → {filename, mime, data} (Base64) */
+    public static function rest_export(WP_REST_Request $req) {
+        $post = self::rest_event($req);
+        if (is_wp_error($post)) return $post;
+        $format = sanitize_key((string) ($req->get_param('format') ?: 'pdf'));
+        if (!in_array($format, ['csv', 'xlsx', 'pdf'], true)) return new WP_Error('tix_invalid_field', 'format: pdf, xlsx oder csv.', ['status' => 400, 'field' => 'format']);
+        $x = self::export_bytes($post->ID, $format);
+        if ($x['bytes'] === '') return new WP_Error('tix_export_failed', 'Der Export konnte nicht erzeugt werden.', ['status' => 500]);
+        $r = new WP_REST_Response(['ok' => true, 'filename' => $x['filename'], 'mime' => $x['mime'], 'data' => base64_encode($x['bytes'])]);
+        $r->header('Cache-Control', 'no-store');
+        return $r;
     }
 
     public static function ajax_repair_analyze() {
@@ -1003,9 +1118,11 @@ class TIX_Event_Report {
     // ═══════════════════════════════════════════
 
     private static function export_csv($data, $event, $filename) {
-        nocache_headers();
-        header('Content-Type: text/csv; charset=utf-8');
-        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        if (!self::$capture) {
+            nocache_headers();
+            header('Content-Type: text/csv; charset=utf-8');
+            header('Content-Disposition: attachment; filename="' . $filename . '"');
+        }
 
         $out = fopen('php://output', 'w');
         // BOM für Excel-Umlaute
@@ -1297,10 +1414,12 @@ class TIX_Event_Report {
         $bytes = file_get_contents($tmp);
         @unlink($tmp);
 
-        nocache_headers();
-        header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-        header('Content-Disposition: attachment; filename="' . $filename . '"');
-        header('Content-Length: ' . strlen($bytes));
+        if (!self::$capture) {
+            nocache_headers();
+            header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+            header('Content-Disposition: attachment; filename="' . $filename . '"');
+            header('Content-Length: ' . strlen($bytes));
+        }
         echo $bytes;
     }
 
@@ -1563,10 +1682,12 @@ class TIX_Event_Report {
 
         $bytes = $pdf->output();
 
-        nocache_headers();
-        header('Content-Type: application/pdf');
-        header('Content-Disposition: attachment; filename="' . $filename . '"');
-        header('Content-Length: ' . strlen($bytes));
+        if (!self::$capture) {
+            nocache_headers();
+            header('Content-Type: application/pdf');
+            header('Content-Disposition: attachment; filename="' . $filename . '"');
+            header('Content-Length: ' . strlen($bytes));
+        }
         echo $bytes;
     }
 

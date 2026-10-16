@@ -52,12 +52,29 @@ class TIX_Giftcards {
         $s = get_option(self::OPT_SETTINGS, []);
         if (!is_array($s)) $s = [];
         $amounts = array_values(array_filter(array_map('floatval', (array) ($s['amounts'] ?? [25, 50, 100])), function ($a) { return $a > 0; }));
+        list($fmin, $fmax) = self::clamp_limits($s['free_min'] ?? self::MIN_FREE, $s['free_max'] ?? self::MAX_FREE);
         return [
             'enabled'        => !empty($s['enabled']),
             'amounts'        => $amounts ?: [25, 50, 100],
             'free_amount'    => !isset($s['free_amount']) ? true : !empty($s['free_amount']),
+            'free_min'       => $fmin,
+            'free_max'       => $fmax,
             'validity_years' => max(1, min(10, intval($s['validity_years'] ?? 3) ?: 3)),
         ];
+    }
+
+    /** Wunschbetrag-Grenzen säubern (1.38.464 einstellbar, Vorgabe 10–500 €): [min, max] in ganzen Euro, 1–10000, max ≥ min. */
+    public static function clamp_limits($min, $max): array {
+        $min = max(1, min(10000, intval(round(floatval(str_replace(',', '.', (string) $min))))));
+        $max = max(1, min(10000, intval(round(floatval(str_replace(',', '.', (string) $max))))));
+        return [$min, max($min, $max)];
+    }
+
+    /** Wunschbetrag-Grenzen für ein Gutschein-Event (Veranstalter-Gutschein: dessen Einstellung, sonst die Seite). */
+    public static function free_limits_for_event(int $event_id): array {
+        $oid = self::event_organizer($event_id);
+        $st = $oid ? self::organizer_settings($oid) : self::get_settings();
+        return [intval($st['free_min']), intval($st['free_max'])];
     }
 
     public static function validity_years(): int {
@@ -92,10 +109,13 @@ class TIX_Giftcards {
         $o = get_post_meta($oid, '_tix_giftcard_settings', true);
         $o = is_array($o) ? $o : [];
         $amounts = array_values(array_filter(array_map('floatval', (array) ($o['amounts'] ?? $base['amounts'])), function ($a) { return $a > 0 && $a <= 10000; }));
+        list($fmin, $fmax) = self::clamp_limits($o['free_min'] ?? $base['free_min'], $o['free_max'] ?? $base['free_max']);
         return [
             'enabled'        => self::organizer_enabled($oid),
             'amounts'        => $amounts ?: $base['amounts'],
             'free_amount'    => array_key_exists('free_amount', $o) ? !empty($o['free_amount']) : $base['free_amount'],
+            'free_min'       => $fmin,
+            'free_max'       => $fmax,
             'validity_years' => max(1, min(10, intval($o['validity_years'] ?? $base['validity_years']) ?: 3)),
         ];
     }
@@ -155,10 +175,15 @@ class TIX_Giftcards {
         $amounts = array_values(array_unique($amounts)) ?: [25, 50, 100];
         sort($amounts);
 
+        $old = get_option(self::OPT_SETTINGS, []);
+        $old = is_array($old) ? $old : [];
+        list($fmin, $fmax) = self::clamp_limits($in['free_min'] ?? ($old['free_min'] ?? self::MIN_FREE), $in['free_max'] ?? ($old['free_max'] ?? self::MAX_FREE));
         $settings = [
             'enabled'        => !empty($in['enabled']) ? 1 : 0,
             'amounts'        => $amounts,
             'free_amount'    => !empty($in['free_amount']) ? 1 : 0,
+            'free_min'       => $fmin,
+            'free_max'       => $fmax,
             'validity_years' => max(1, min(10, intval($in['validity_years'] ?? 3))),
         ];
         update_option(self::OPT_SETTINGS, $settings, false);
@@ -475,7 +500,8 @@ class TIX_Giftcards {
      */
     public static function shortcode_amount($atts) {
         if (class_exists('TIX_Modules') && !TIX_Modules::allowed('giftcards')) return '';
-        $atts = shortcode_atts(['id' => 0, 'cat' => -1, 'min' => self::MIN_FREE, 'max' => self::MAX_FREE], $atts, 'tix_giftcard_amount');
+        $lim  = self::free_limits_for_event(intval($atts['id'] ?? 0));
+        $atts = shortcode_atts(['id' => 0, 'cat' => -1, 'min' => $lim[0], 'max' => $lim[1]], $atts, 'tix_giftcard_amount');
         $event_id  = intval($atts['id']);
         $cat_index = intval($atts['cat']);
         if ($event_id <= 0 || $cat_index < 0) return '';
@@ -581,9 +607,9 @@ class TIX_Giftcards {
 
             <?php if ($free_idx >= 0): ?>
             <div style="margin-top:14px;background:#fff;border:2px solid #e2e8f0;border-radius:14px;padding:18px 20px;">
-                <div style="font-weight:700;font-size:14px;margin-bottom:8px;">Wunschbetrag (<?php echo self::MIN_FREE; ?>–<?php echo self::MAX_FREE; ?> €)</div>
+                <div style="font-weight:700;font-size:14px;margin-bottom:8px;">Wunschbetrag (<?php echo intval($settings['free_min']); ?>–<?php echo intval($settings['free_max']); ?> €)</div>
                 <div style="display:flex;gap:10px;">
-                    <input type="number" class="tix-gcs-free-input" min="<?php echo self::MIN_FREE; ?>" max="<?php echo self::MAX_FREE; ?>" step="1" placeholder="z.B. 40"
+                    <input type="number" class="tix-gcs-free-input" min="<?php echo intval($settings['free_min']); ?>" max="<?php echo intval($settings['free_max']); ?>" step="1" placeholder="z.B. 40"
                            style="flex:1;min-width:0;padding:11px 14px;border:1px solid #cbd5e1;border-radius:10px;font-size:16px;box-sizing:border-box;">
                     <button type="button" class="tix-gcs-free-add" data-cat="<?php echo intval($free_idx); ?>"
                             style="padding:11px 20px;background:#0f172a;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;white-space:nowrap;">Kaufen</button>
@@ -630,9 +656,9 @@ class TIX_Giftcards {
                 freeBtn.addEventListener('click', function(){
                     var input = box.querySelector('.tix-gcs-free-input');
                     var amount = parseFloat(input.value);
-                    if (!amount || amount < <?php echo self::MIN_FREE; ?> || amount > <?php echo self::MAX_FREE; ?>) {
+                    if (!amount || amount < <?php echo intval($settings['free_min']); ?> || amount > <?php echo intval($settings['free_max']); ?>) {
                         msg.style.color = '#dc2626';
-                        msg.textContent = 'Bitte Betrag zwischen <?php echo self::MIN_FREE; ?> und <?php echo self::MAX_FREE; ?> € eingeben.';
+                        msg.textContent = 'Bitte Betrag zwischen <?php echo intval($settings['free_min']); ?> und <?php echo intval($settings['free_max']); ?> € eingeben.';
                         return;
                     }
                     addToCart(parseInt(this.getAttribute('data-cat'), 10), amount, this);

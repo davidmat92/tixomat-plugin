@@ -1106,7 +1106,9 @@ class TIX_Wallet_Balance {
         $oid = self::staff_scope($req);
         return self::out(['ok' => true, 'organizer_id' => $oid, 'active' => self::scope_enabled($oid), 'topup_enabled' => self::topup_enabled($oid),
             'settings' => self::settings($oid), 'spend_order' => self::spend_order(), 'module_required' => $oid > 0,
-            'can_edit' => self::check_manager($req) === true]);
+            'can_edit' => self::check_manager($req) === true,
+            // Ausgabe-Reihenfolge ist seitenweit: änderbar für Admin bzw. auf Einzel-Seiten für den Veranstalter (1.38.464)
+            'spend_order_editable' => self::check_manager($req) === true && (!self::multi() || current_user_can('manage_options'))]);
     }
 
     /** POST /wallet/admin/config – Teil-Update der Einstellungen des Bereichs. */

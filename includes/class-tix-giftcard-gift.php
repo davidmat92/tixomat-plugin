@@ -31,10 +31,13 @@ class TIX_Giftcard_Gift {
             'methods' => 'GET', 'callback' => [__CLASS__, 'rest_pdf'], 'permission_callback' => '__return_true', // Konto oder ?key=
         ]);
         if (class_exists('TIX_Wallet_Balance')) {
-            register_rest_route(self::NS, '/giftcards/admin/config', [
-                ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_admin_config'], 'permission_callback' => ['TIX_Wallet_Balance', 'check_staff']],
-                ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_admin_save'], 'permission_callback' => ['TIX_Wallet_Balance', 'check_manager']],
-            ]);
+            // /giftcards/admin (Studio, 1.38.464, mit stats + recent); /giftcards/admin/config wie 1.38.463
+            foreach (['/giftcards/admin', '/giftcards/admin/config'] as $path) {
+                register_rest_route(self::NS, $path, [
+                    ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_admin_config'], 'permission_callback' => ['TIX_Wallet_Balance', 'check_staff']],
+                    ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_admin_save'], 'permission_callback' => ['TIX_Wallet_Balance', 'check_manager']],
+                ]);
+            }
         }
     }
 
@@ -58,13 +61,26 @@ class TIX_Giftcard_Gift {
         return ($out['recipient_name'] === '' && $out['from_name'] === '' && $out['message'] === '') ? null : $out;
     }
 
-    /** Antwortfelder eines Gutscheins. */
+    /**
+     * Antwortfelder eines Gutscheins (verbindlicher Vertrag 1.38.464): gift_recipient_name, gift_message, gift_from_name,
+     * gift_organizer_id (Einzel-Seite 0), gift_organizer_name (Einzel-Seite: Seitenname), gift_pdf (URL, '' = keins).
+     * Zusätzlich die Namen aus 1.38.463 (gift_recipient, gift_from) – nur noch zur Verträglichkeit.
+     */
     public static function fields($card) {
         $g = is_array($card['gift'] ?? null) ? $card['gift'] : [];
+        $oid = intval($card['organizer_id'] ?? 0);
+        $rec = ($g['recipient_name'] ?? '') !== '' ? (string) $g['recipient_name'] : null;
+        $from = ($g['from_name'] ?? '') !== '' ? (string) $g['from_name'] : null;
+        $pdf_ok = !empty($card['code']) && function_exists('imagecreatetruecolor') && class_exists('TIX_Ticket_Template');
         return [
-            'gift_recipient' => ($g['recipient_name'] ?? '') !== '' ? (string) $g['recipient_name'] : null,
-            'gift_message'   => ($g['message'] ?? '') !== '' ? (string) $g['message'] : null,
-            'gift_from'      => ($g['from_name'] ?? '') !== '' ? (string) $g['from_name'] : null,
+            'gift_recipient_name' => $rec,
+            'gift_message'        => ($g['message'] ?? '') !== '' ? (string) $g['message'] : null,
+            'gift_from_name'      => $from,
+            'gift_organizer_id'   => $oid,
+            'gift_organizer_name' => $oid ? html_entity_decode((string) get_the_title($oid), ENT_QUOTES, 'UTF-8') : html_entity_decode((string) get_bloginfo('name'), ENT_QUOTES, 'UTF-8'),
+            'gift_pdf'            => $pdf_ok ? rest_url(self::NS . '/customer/giftcards/' . rawurlencode((string) $card['code']) . '/pdf') : '',
+            'gift_recipient'      => $rec,
+            'gift_from'           => $from,
         ];
     }
 
@@ -241,9 +257,12 @@ class TIX_Giftcard_Gift {
             if ($trusted !== '' && $tid && strcasecmp((string) get_post_meta($tid, '_tix_ticket_owner_email', true), $trusted) === 0) return true;
         }
         $key = sanitize_text_field((string) ($req->get_param('key') ?? ''));
+        $want = $req->get_param('order_id');
         if ($key !== '') {
             if (class_exists('TIX_App_Account') && TIX_App_Account::rate_limited('gift_pdf_key', 20, 600, 'ip')) return new WP_Error('tix_rate_limit', 'Zu viele Anfragen. Bitte kurz warten.', ['status' => 429]);
-            if ($o && (string) $o->order_key !== '' && hash_equals((string) $o->order_key, $key)) return true;
+            // order_id (Web schickt ?order_id=&key=) muss zur Bestellung des Gutscheins passen
+            $id_ok = $want === null || $want === '' || ($o && intval($want) === intval($o->id));
+            if ($id_ok && $o && (string) $o->order_key !== '' && hash_equals((string) $o->order_key, $key)) return true;
         }
         return $user ? new WP_Error('rest_forbidden', 'Keine Berechtigung.', ['status' => 403]) : new WP_Error('rest_not_logged_in', 'Bitte anmelden oder den Link aus der Bestellung nutzen.', ['status' => 401]);
     }
@@ -338,15 +357,58 @@ class TIX_Giftcard_Gift {
     public static function rest_admin_config(WP_REST_Request $req) {
         $oid = self::scope($req);
         $st = $oid ? TIX_Giftcards::organizer_settings($oid) : TIX_Giftcards::get_settings();
+        $can = TIX_Wallet_Balance::check_manager($req) === true;
+        list($stats, $recent) = self::stats($oid, $can);
         $r = new WP_REST_Response(['ok' => true, 'organizer_id' => $oid, 'settings' => [
             'enabled' => !empty($st['enabled']), 'amounts' => array_values(array_map('floatval', $st['amounts'])), 'free_amount' => !empty($st['free_amount']),
-            'free_min' => TIX_Giftcards::MIN_FREE, 'free_max' => TIX_Giftcards::MAX_FREE, 'validity_years' => intval($st['validity_years']),
-        ], 'enabled_via_module' => $oid > 0, 'can_edit' => TIX_Wallet_Balance::check_manager($req) === true]);
+            'free_min' => intval($st['free_min']), 'free_max' => intval($st['free_max']), 'validity_years' => intval($st['validity_years']),
+        ], 'enabled_via_module' => $oid > 0, 'can_edit' => $can, 'stats' => $stats, 'recent' => $recent]);
         $r->header('Cache-Control', 'no-store');
         return $r;
     }
 
-    /** POST /giftcards/admin/config {enabled?, amounts?, free_amount?, validity_years?} – Teil-Update. */
+    /**
+     * Kennzahlen + letzte Gutscheine des Bereichs (Seite bzw. Veranstalter). Stornierte Käufe zählen nicht.
+     * stats {sold_count, sold_value, redeemed_value, open_value (nicht abgelaufen)}; recent (20) {code, value, balance, expires, created, buyer}
+     * – den vollen Code sehen nur, die ändern dürfen (sonst GS-XXXX-••••).
+     */
+    private static function stats($oid, $full_codes) {
+        global $wpdb;
+        wp_cache_delete('tix_coupons', 'options');
+        $today = current_time('Y-m-d');
+        $s = ['sold_count' => 0, 'sold_value' => 0.0, 'redeemed_value' => 0.0, 'open_value' => 0.0];
+        $rows = [];
+        foreach ((array) get_option('tix_coupons', []) as $code => $c) {
+            if (($c['discount_type'] ?? '') !== 'giftcard') continue;
+            if (intval($c['organizer_id'] ?? 0) !== intval($oid) && ($oid || !empty($c['organizer_id']))) continue;
+            $storno = 0.0;
+            foreach ((array) ($c['redemptions'] ?? []) as $r) if (is_array($r) && ($r['channel'] ?? '') === 'storno') $storno += floatval($r['amount'] ?? 0);
+            if ($storno > 0 && $storno + 0.001 >= floatval($c['value'] ?? 0)) continue; // ganz storniert
+            $value = round(floatval($c['value'] ?? 0), 2);
+            $bal = round(floatval($c['balance'] ?? 0), 2);
+            $s['sold_count']++;
+            $s['sold_value'] += $value;
+            $s['redeemed_value'] += max(0, $value - $bal - $storno);
+            if ($bal > 0 && (empty($c['expires']) || $c['expires'] >= $today)) $s['open_value'] += $bal;
+            $rows[] = ['code' => (string) $code, 'value' => $value, 'balance' => $bal, 'expires' => (string) ($c['expires'] ?? ''), 'created' => (string) ($c['created'] ?? ''), 'order_id' => intval($c['order_id'] ?? 0)];
+        }
+        foreach (['sold_value', 'redeemed_value', 'open_value'] as $k) $s[$k] = round($s[$k], 2);
+        usort($rows, function ($a, $b) { return strcmp($b['created'], $a['created']); });
+        $rows = array_slice($rows, 0, 20);
+        $recent = [];
+        foreach ($rows as $r) {
+            $buyer = '';
+            if ($r['order_id']) {
+                $o = $wpdb->get_row($wpdb->prepare("SELECT billing_first_name, billing_last_name FROM {$wpdb->prefix}tix_orders WHERE id = %d", $r['order_id']));
+                if ($o) $buyer = trim($o->billing_first_name . ' ' . $o->billing_last_name);
+            }
+            $recent[] = ['code' => $full_codes ? $r['code'] : preg_replace('/[A-Z0-9]{4}$/', '••••', $r['code']), 'value' => $r['value'], 'balance' => $r['balance'],
+                'expires' => $r['expires'], 'created' => $r['created'], 'buyer' => $buyer];
+        }
+        return [$s, $recent];
+    }
+
+    /** POST /giftcards/admin[/config] {settings: {enabled?, amounts?, free_amount?, free_min?, free_max?, validity_years?}} – Teil-Update. */
     public static function rest_admin_save(WP_REST_Request $req) {
         $oid = self::scope($req);
         $in = $req->get_json_params();
@@ -367,6 +429,19 @@ class TIX_Giftcard_Gift {
         if (array_key_exists('validity_years', $in) && (intval($in['validity_years']) < 1 || intval($in['validity_years']) > 10)) {
             return new WP_Error('tix_invalid_field', 'Gültigkeit 1 bis 10 Jahre.', ['status' => 400, 'field' => 'validity_years']);
         }
+        // Wunschbetrag-Grenzen (1.38.464 einstellbar): ganze Euro 1–10000, max ≥ min
+        $cur_st = $oid ? TIX_Giftcards::organizer_settings($oid) : TIX_Giftcards::get_settings();
+        $fmin = array_key_exists('free_min', $in) ? $in['free_min'] : $cur_st['free_min'];
+        $fmax = array_key_exists('free_max', $in) ? $in['free_max'] : $cur_st['free_max'];
+        foreach (['free_min' => $fmin, 'free_max' => $fmax] as $fk => $fv) {
+            if (!is_numeric(str_replace(',', '.', (string) $fv)) || floatval(str_replace(',', '.', (string) $fv)) < 1 || floatval(str_replace(',', '.', (string) $fv)) > 10000) {
+                return new WP_Error('tix_invalid_field', 'Wunschbetrag-Grenzen 1 bis 10.000 €.', ['status' => 400, 'field' => $fk]);
+            }
+        }
+        if (floatval(str_replace(',', '.', (string) $fmax)) < floatval(str_replace(',', '.', (string) $fmin))) {
+            return new WP_Error('tix_invalid_field', 'Der Höchstbetrag muss mindestens so groß sein wie der Mindestbetrag.', ['status' => 400, 'field' => 'free_max']);
+        }
+        list($fmin, $fmax) = TIX_Giftcards::clamp_limits($fmin, $fmax);
         if ($oid) {
             // je Veranstalter: an/aus über das Modul „giftcards“
             $g = get_post_meta($oid, '_tix_giftcard_settings', true);
@@ -374,6 +449,8 @@ class TIX_Giftcard_Gift {
             if ($amounts !== null) $g['amounts'] = $amounts;
             if (array_key_exists('free_amount', $in)) $g['free_amount'] = filter_var($in['free_amount'], FILTER_VALIDATE_BOOLEAN) ? 1 : 0;
             if (array_key_exists('validity_years', $in)) $g['validity_years'] = intval($in['validity_years']);
+            $g['free_min'] = $fmin;
+            $g['free_max'] = $fmax;
             update_post_meta($oid, '_tix_giftcard_settings', $g);
             TIX_Giftcards::ensure_organizer_event($oid);
         } else {
@@ -383,6 +460,8 @@ class TIX_Giftcard_Gift {
                 'amounts'        => implode(',', $amounts ?? $cur['amounts']),
                 'free_amount'    => array_key_exists('free_amount', $in) ? filter_var($in['free_amount'], FILTER_VALIDATE_BOOLEAN) : $cur['free_amount'],
                 'validity_years' => array_key_exists('validity_years', $in) ? intval($in['validity_years']) : $cur['validity_years'],
+                'free_min'       => $fmin,
+                'free_max'       => $fmax,
             ]);
         }
         return self::rest_admin_config($req);

@@ -509,8 +509,9 @@ class TIX_Native_Checkout {
                     $found = false; // Gutscheine immer als eigene Zeile (verschiedene Betraege)
                     if (!empty($gflags['free_amount'])) {
                         $amount = round(floatval($item['custom_amount'] ?? 0), 2);
-                        if ($amount < TIX_Giftcards::MIN_FREE || $amount > TIX_Giftcards::MAX_FREE) {
-                            return sprintf('Gutschein-Betrag muss zwischen %d und %d € liegen.', TIX_Giftcards::MIN_FREE, TIX_Giftcards::MAX_FREE);
+                        list($gmin, $gmax) = TIX_Giftcards::free_limits_for_event(intval($event_id));
+                        if ($amount < $gmin || $amount > $gmax) {
+                            return sprintf('Gutschein-Betrag muss zwischen %d und %d € liegen.', $gmin, $gmax);
                         }
                         $price  = $amount;
                         $locked = 1; // validated_total uebernimmt locked_price unveraendert

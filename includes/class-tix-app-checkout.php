@@ -292,8 +292,8 @@ class TIX_App_Checkout {
             'amounts'        => $fixed,
             'free_amount'    => !empty($st['free_amount']) && $free_index >= 0,
             'free_index'     => $free_index,
-            'min'            => TIX_Giftcards::MIN_FREE,
-            'max'            => TIX_Giftcards::MAX_FREE,
+            'min'            => intval($st['free_min'] ?? TIX_Giftcards::MIN_FREE),
+            'max'            => intval($st['free_max'] ?? TIX_Giftcards::MAX_FREE),
             'validity_years' => intval($st['validity_years']),
         ] + ($organizer_id ? ['organizer_id' => intval($organizer_id)] : []);
     }
@@ -494,8 +494,7 @@ class TIX_App_Checkout {
             $locked = 0;
             if (!empty($cat['gift_free_amount'])) {
                 $amount = $g['custom_amount'];
-                $min = class_exists('TIX_Giftcards') ? TIX_Giftcards::MIN_FREE : 10;
-                $max = class_exists('TIX_Giftcards') ? TIX_Giftcards::MAX_FREE : 500;
+                list($min, $max) = class_exists('TIX_Giftcards') ? TIX_Giftcards::free_limits_for_event(intval($event_id)) : [10, 500];
                 if ($amount < $min || $amount > $max) {
                     return self::error('tix_gift_amount', sprintf('Gutschein-Betrag muss zwischen %d und %d € liegen.', $min, $max));
                 }
@@ -838,7 +837,7 @@ class TIX_App_Checkout {
             'gift_value'   => $card ? round(floatval($card['value'] ?? 0), 2) : 0,
             'gift_balance' => $card ? round(floatval($card['balance'] ?? 0), 2) : 0,
             'gift_expires' => $card ? (string) ($card['expires'] ?? '') : '',
-        ] + ($card && class_exists('TIX_Giftcard_Gift') ? TIX_Giftcard_Gift::fields($card) : ['gift_recipient' => null, 'gift_message' => null, 'gift_from' => null]);
+        ] + ($card && class_exists('TIX_Giftcard_Gift') ? TIX_Giftcard_Gift::fields($card) : ['gift_recipient_name' => null, 'gift_message' => null, 'gift_from_name' => null, 'gift_organizer_id' => 0, 'gift_organizer_name' => '', 'gift_pdf' => '', 'gift_recipient' => null, 'gift_from' => null]);
     }
 
     /**

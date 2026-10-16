@@ -2503,6 +2503,11 @@ class TIX_REST_API {
             'total_sold'       => $total_sold,
             'has_guest_list'   => (bool) get_post_meta($id, '_tix_guest_list_enabled', true),
             'has_checkin_password' => !empty(get_post_meta($id, '_tix_checkin_password', true)),
+            // Studio (1.38.464, alle Seiten, auch Entwürfe): Ticket-Art + Bericht vorhanden
+            'tickets_enabled'  => get_post_meta($id, '_tix_tickets_enabled', true) === '1',
+            'ticket_mode'      => (class_exists('TIX_Register_Event') ? TIX_Register_Event::ticket_mode_of($id) : '') ?: 'none',
+            'free_entry'       => get_post_meta($id, '_tix_free_entry', true) === '1' && get_post_meta($id, '_tix_tickets_enabled', true) !== '1',
+            'has_report'       => class_exists('TIX_Event_Report') && method_exists('TIX_Event_Report', 'has_presale') && TIX_Event_Report::has_presale($id),
         ];
 
         if ($checkin_stats) {
@@ -2513,7 +2518,6 @@ class TIX_REST_API {
         if (class_exists('TIX_App_Scope') && TIX_App_Scope::multi()) {
             $event['image']           = $thumb_id ? (wp_get_attachment_image_url($thumb_id, 'large') ?: '') : '';
             $event['post_status']     = (string) $post->post_status;
-            $event['tickets_enabled'] = (bool) get_post_meta($id, '_tix_tickets_enabled', true);
             $event['presale_active']  = (bool) get_post_meta($id, '_tix_presale_active', true);
         }
         // Teilen aus dem Veranstalter-Bereich: Event-Link mit Herkunft „veranstalter-link“ (evendis)
