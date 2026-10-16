@@ -857,6 +857,7 @@ class TIX_Metabox {
         return [
             'description' => ['label' => 'Beschreibung',           'type' => 'textarea'],
             'lineup'      => ['label' => 'Line-Up',                'type' => 'textarea'],
+            'artist'      => ['label' => 'Künstler-Info',          'type' => 'textarea'], // 1.38.455 (Meta wie das alte Veranstalter-Dashboard)
             'specials'    => ['label' => 'Specials',               'type' => 'textarea'],
             'age_limit'   => ['label' => 'Altersbegrenzung',       'type' => 'number'],
             'extra_info'  => ['label' => 'Weitere Informationen',  'type' => 'textarea'],

@@ -60,12 +60,10 @@ class TIX_Event_Page {
                 <div class="tix-ep-grid">
                     <?php self::render_title($post_id); ?>
                     <div class="tix-ep-main">
-                        <?php self::render_info_section($post_id, 'description', 'Beschreibung'); ?>
-                        <?php self::render_info_section($post_id, 'lineup', 'Line-Up'); ?>
-                        <?php self::render_info_section($post_id, 'specials', 'Specials'); ?>
+                        <?php self::render_infos($post_id, 'top'); ?>
                         <?php self::render_gallery($post_id); ?>
                         <?php self::render_video($post_id); ?>
-                        <?php self::render_info_section($post_id, 'extra_info', 'Weitere Informationen'); ?>
+                        <?php self::render_infos($post_id, 'bottom'); ?>
                         <?php self::render_faq($post_id); ?>
                         <?php self::render_timetable($post_id); ?>
                         <?php self::render_raffle($post_id); ?>
@@ -89,12 +87,10 @@ class TIX_Event_Page {
                 <?php self::render_title($post_id); ?>
                 <?php self::render_header($post_id); ?>
                 <?php self::render_tickets($post_id); ?>
-                <?php self::render_info_section($post_id, 'description', 'Beschreibung'); ?>
-                <?php self::render_info_section($post_id, 'lineup', 'Line-Up'); ?>
-                <?php self::render_info_section($post_id, 'specials', 'Specials'); ?>
+                <?php self::render_infos($post_id, 'top'); ?>
                 <?php self::render_gallery($post_id); ?>
                 <?php self::render_video($post_id); ?>
-                <?php self::render_info_section($post_id, 'extra_info', 'Weitere Informationen'); ?>
+                <?php self::render_infos($post_id, 'bottom'); ?>
                 <?php self::render_faq($post_id); ?>
                 <?php self::render_timetable($post_id); ?>
                 <?php self::render_raffle($post_id); ?>
@@ -278,6 +274,24 @@ class TIX_Event_Page {
             <?php endif; ?>
         </div>
         <?php
+    }
+
+    /**
+     * Info-Abschnitte (1.38.455): ohne eigene Reihenfolge wie bisher – oben Beschreibung, Line-Up, Künstler-Info, Specials,
+     * unten (nach Galerie/Video) Weitere Informationen, Barrierefreiheit; mit eigener Reihenfolge alle oben.
+     */
+    private static function render_infos($id, $part) {
+        $custom = TIX_Event_Texts::stored_order($id) !== null;
+        foreach (TIX_Event_Texts::sections($id) as $sec) {
+            $bottom = !$custom && in_array($sec['key'], ['extra_info', 'accessibility'], true);
+            if (($part === 'bottom') !== $bottom) continue;
+            ?>
+            <div class="tix-ep-section tix-ep-<?php echo esc_attr($sec['key']); ?>">
+                <h2 class="tix-ep-section-title"><?php echo esc_html($sec['label']); ?></h2>
+                <div class="tix-ep-section-body"><?php echo wp_kses_post($sec['html']); ?></div>
+            </div>
+            <?php
+        }
     }
 
     /* ── 4/5/6/9. Info-Sektionen (generisch) ── */

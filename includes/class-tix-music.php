@@ -18,6 +18,7 @@
  *   GET  /music/requests/mine?ids=&device=   öffentlich: Status der eigenen Wünsche
  *   GET  /music/dj/requests?event_id=        DJ-Key (?key=) oder Veranstalter-Login
  *   POST /music/dj/requests/{id}/status      DJ-Key oder Veranstalter-Login
+ *   GET/POST /music/settings                 Inhaber/Team-Admin (Einzelseite) bzw. Admin (Plattform): an/aus, Zeitfenster, Limits (1.38.455)
  *
  * Shortcode [tix_musikwunsch_dj] (Seite wird automatisch angelegt, Aufruf nur
  * mit ?key=…): Live-Liste in Reihenfolge mit Uhrzeit, Doppelwünsche gebündelt,
@@ -564,6 +565,56 @@ class TIX_Music {
         register_rest_route(self::NS, '/music/dj/requests/(?P<id>\d+)/status', [
             'methods' => 'POST', 'callback' => [__CLASS__, 'rest_dj_status'], 'permission_callback' => [__CLASS__, 'check_dj'],
         ]);
+        register_rest_route(self::NS, '/music/settings', [
+            ['methods' => 'GET',  'callback' => [__CLASS__, 'rest_settings'],      'permission_callback' => [__CLASS__, 'check_settings']],
+            ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_settings_save'], 'permission_callback' => [__CLASS__, 'check_settings']],
+        ]);
+    }
+
+    /** Einstellungen gelten für die ganze Seite: Einzelseite Inhaber/Team-Admin, Plattform nur Admin. */
+    public static function check_settings(WP_REST_Request $req) {
+        if (!is_user_logged_in()) return new WP_Error('rest_not_logged_in', 'Authentifizierung erforderlich.', ['status' => 401]);
+        if (current_user_can('manage_options')) return true;
+        if (class_exists('TIX_App_Scope') && TIX_App_Scope::multi()) return new WP_Error('rest_forbidden', 'Den Musikwunsch der Plattform stellt evendis ein.', ['status' => 403]);
+        return class_exists('TIX_Studio_Stats') && TIX_Studio_Stats::is_manager() ? true : new WP_Error('rest_forbidden', 'Nur Inhaber und Team-Admins ändern den Musikwunsch.', ['status' => 403]);
+    }
+
+    private static function settings_payload() {
+        $s = self::settings();
+        return ['ok' => true, 'settings' => [
+            'enabled' => !empty($s['enabled']),
+            'before_min' => intval($s['before_min']), 'after_hours' => intval($s['after_hours']), 'grace_min' => intval($s['grace_min']),
+            'default_start' => (string) $s['default_start'], 'max_per_night' => intval($s['max_per_night']), 'min_interval_min' => intval($s['min_interval_min']),
+        ], 'active' => self::enabled(), 'module_allowed' => !class_exists('TIX_Modules') || TIX_Modules::allowed('music'), 'dj_url' => self::dj_url()];
+    }
+
+    /** GET /music/settings */
+    public static function rest_settings(WP_REST_Request $req) {
+        return rest_ensure_response(self::settings_payload());
+    }
+
+    /** POST /music/settings {enabled?, before_min?, after_hours?, grace_min?, default_start?, max_per_night?, min_interval_min?} – Teil-Update. */
+    public static function rest_settings_save(WP_REST_Request $req) {
+        $in = $req->get_json_params();
+        if (!is_array($in)) $in = $req->get_body_params();
+        if (isset($in['settings']) && is_array($in['settings'])) $in = $in['settings'];
+        $limits = ['before_min' => [0, 1440], 'after_hours' => [1, 24], 'grace_min' => [0, 600], 'max_per_night' => [1, 100], 'min_interval_min' => [0, 120]];
+        $patch = [];
+        foreach ((array) $in as $k => $v) {
+            if ($k === 'enabled') { $patch['enabled'] = filter_var($v, FILTER_VALIDATE_BOOLEAN) ? 1 : 0; continue; }
+            if ($k === 'default_start') {
+                if (!is_string($v) || !preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $v)) return new WP_Error('tix_invalid_field', 'Uhrzeit im Format HH:MM, z. B. 22:00.', ['status' => 400, 'field' => 'default_start']);
+                $patch['default_start'] = $v; continue;
+            }
+            if (isset($limits[$k])) {
+                if (!is_numeric($v) || intval($v) < $limits[$k][0] || intval($v) > $limits[$k][1]) return new WP_Error('tix_invalid_field', sprintf('Bitte einen Wert zwischen %d und %d angeben.', $limits[$k][0], $limits[$k][1]), ['status' => 400, 'field' => $k]);
+                $patch[$k] = intval($v); continue;
+            }
+            if (in_array($k, ['active', 'module_allowed', 'dj_url', 'ok'], true)) continue; // Rückgabe des GET mitgeschickt
+            return new WP_Error('tix_invalid_field', 'Unbekannte Einstellung.', ['status' => 400, 'field' => (string) $k]);
+        }
+        if ($patch) self::update_settings($patch);
+        return rest_ensure_response(self::settings_payload());
     }
 
     /** DJ-Zugang: geheimer Schlüssel (?key= oder Header X-Tix-DJ-Key) oder Veranstalter-Login. */

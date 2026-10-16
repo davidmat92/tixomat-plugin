@@ -133,10 +133,10 @@ class TIX_Single_Event {
 
         switch ($section) {
             case 'hero':        return !empty($s['ep_show_hero']);
-            case 'description': return (bool) get_post_meta($post_id, '_tix_info_description', true);
-            case 'lineup':      return (bool) get_post_meta($post_id, '_tix_info_lineup', true);
-            case 'specials':    return (bool) get_post_meta($post_id, '_tix_info_specials', true);
-            case 'extra_info':  return (bool) get_post_meta($post_id, '_tix_info_extra_info', true);
+            case 'description':
+            case 'lineup':
+            case 'specials':
+            case 'extra_info':  return (bool) get_post_meta($post_id, '_tix_info_' . $section, true) && TIX_Event_Texts::is_visible($post_id, $section);
             case 'tickets':     return get_post_meta($post_id, '_tix_tickets_enabled', true) === '1';
             case 'faq':         return !empty($s['ep_show_faq']) && !empty(get_post_meta($post_id, '_tix_faq', true));
             case 'timetable':   return !empty($s['ep_show_timetable']) && !empty(get_post_meta($post_id, '_tix_timetable', true));
@@ -276,6 +276,16 @@ class TIX_Single_Event {
         <div class="tse-sec m-<?php echo esc_attr($key); ?>" <?php echo $id_attr ? 'id="' . esc_attr($id_attr) . '"' : ''; ?>>
             <div class="tse-sec-label"><?php echo esc_html($label); ?></div>
             <div class="tse-sec-content"><?php echo wp_kses_post(wpautop($content)); ?></div>
+        </div>
+        <?php
+    }
+
+    /** Ein Info-Abschnitt aus TIX_Event_Texts::sections() ({key, label, html}). */
+    public static function render_block(array $sec, $id_attr = '') {
+        ?>
+        <div class="tse-sec m-<?php echo esc_attr($sec['key']); ?>" <?php echo $id_attr ? 'id="' . esc_attr($id_attr) . '"' : ''; ?>>
+            <div class="tse-sec-label"><?php echo esc_html($sec['label']); ?></div>
+            <div class="tse-sec-content"><?php echo wp_kses_post($sec['html']); ?></div>
         </div>
         <?php
     }

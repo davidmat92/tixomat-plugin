@@ -296,7 +296,9 @@ class TIX_App_Events {
         ] + (class_exists('TIX_Studio_Editor') ? TIX_Studio_Editor::payload($id) : []) + ((class_exists('TIX_Contract') && TIX_Contract::multi()) ? [
             // Hinweis beim ersten Online-Verkauf (evendis): {version, title, url, text} oder null – ohne Häkchen
             'contract_notice'     => TIX_Contract::first_sale_notice($id),
-        ] : []) + ((class_exists('TIX_Event_Facts') && TIX_Event_Facts::multi()) ? TIX_Event_Facts::editor_payload($id) : []);
+        ] : []) + (class_exists('TIX_Event_Facts') ? TIX_Event_Facts::editor_payload($id) : [])
+          // 1.38.455: info_labels, faq, video, charity, box_office_desc, info_order
+          + (class_exists('TIX_Event_Texts') ? TIX_Event_Texts::editor_payload($id) : []);
     }
 
     // ──────────────────────────────────────────
@@ -395,6 +397,8 @@ class TIX_App_Events {
         if (is_wp_error($pricing)) return $pricing;
         // Studio Stufe 3 (Programm, Restbestand, Übertragung, Sponsor …) vorab prüfen
         $studio = class_exists('TIX_Studio_Editor') ? TIX_Studio_Editor::check($body, $is_new ? 0 : $post_id) : [];
+        $texts = class_exists('TIX_Event_Texts') ? TIX_Event_Texts::check($body, $is_new ? 0 : $post_id) : [];
+        if (is_wp_error($texts)) return $texts;
         if (is_wp_error($studio)) return $studio;
 
         // Sparte zuerst prüfen (Slug oder ID; '' entfernt sie; `category` als Alias) – vor allen Änderungen
@@ -525,7 +529,7 @@ class TIX_App_Events {
             if (is_wp_error($ll)) return $ll;
         }
         if (isset($body['muttizettel_note']) && class_exists('TIX_Muttizettel')) TIX_Muttizettel::set_note($post_id, (string) $body['muttizettel_note']);
-        if (class_exists('TIX_Event_Facts') && TIX_Event_Facts::multi() && (isset($body['accessibility_mode']) || isset($body['accessibility']) || array_key_exists('refund_policy', $body))) {
+        if (class_exists('TIX_Event_Facts') && (isset($body['accessibility_mode']) || isset($body['accessibility']) || array_key_exists('refund_policy', $body))) {
             $fr = TIX_Event_Facts::apply_editor($post_id, $body);
             if (is_wp_error($fr)) return $fr;
         }
@@ -546,6 +550,7 @@ class TIX_App_Events {
         }
         // ── Studio Stufe 3 (vorab geprüft) ──
         if ($studio) TIX_Studio_Editor::apply($post_id, $studio);
+        if ($texts) TIX_Event_Texts::apply($post_id, $texts);
 
         // ── Mengenrabatt (vorab geprüft; null = aus) ──
         if (array_key_exists('group_discount', $pricing)) {

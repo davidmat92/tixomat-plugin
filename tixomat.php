@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.38.454
+ * Version: 1.38.455
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  * Update URI: https://veranstalter.evendis.de/tixomat
@@ -10,7 +10,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.38.454');
+define('TIXOMAT_VERSION', '1.38.455');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -685,6 +685,9 @@ TIX_Export::init();
 // ── Studio Paket 2: Statistik, Kanäle, Einlass-/Gutschein-Export, Ticket umschreiben (1.38.454) ──
 require_once TIXOMAT_PATH . 'includes/class-tix-studio-stats.php';
 TIX_Studio_Stats::init();
+// ── Info-Abschnitte (Reihenfolge, Künstler-Info, Barrierefreiheit) + Textfelder im Editor (1.38.455) ──
+require_once TIXOMAT_PATH . 'includes/class-tix-event-texts.php';
+TIX_Event_Texts::init();
 // Gebühr im evendis-Kanal (Quelle + Plattform) und Monatsrechnung (Plattform)
 require_once TIXOMAT_PATH . 'includes/class-tix-channel-fee.php';
 require_once TIXOMAT_PATH . 'includes/class-tix-channel-invoice.php';

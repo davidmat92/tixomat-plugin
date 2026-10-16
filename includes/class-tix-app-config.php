@@ -47,7 +47,32 @@ class TIX_App_Config {
         if (class_exists('TIX_App_Scope') && TIX_App_Scope::multi() && TIX_App_Scope::scoped()) {
             return TIX_App_Scope::deny('Die App-Inhalte pflegt der Plattform-Betreiber.');
         }
-        return rest_ensure_response(['config' => (object) self::stored()] + (class_exists('TIX_App_Sos') ? ['nav_sos' => TIX_App_Sos::settings()] : []));
+        return rest_ensure_response(['config' => (object) self::stored(), 'defaults' => self::defaults()] + (class_exists('TIX_App_Sos') ? ['nav_sos' => TIX_App_Sos::settings()] : []));
+    }
+
+    /**
+     * Standard-Inhalte, wenn nichts gespeichert ist (1.38.455): aus der WordPress-Seite `app-config` (JSON im Inhalt, wie die App sie liest).
+     * {source: page|none, tiles: [...], faq: [{q, a}], pages: {slug: {...}}}. Die in der App gebündelten Standards kennt nur die App.
+     */
+    public static function defaults() {
+        $out = ['source' => 'none', 'tiles' => [], 'faq' => [], 'pages' => new stdClass()];
+        $p = get_page_by_path('app-config');
+        if (!$p || $p->post_status !== 'publish') return $out;
+        $raw = html_entity_decode(wp_strip_all_tags((string) $p->post_content), ENT_QUOTES, 'UTF-8');
+        $raw = strtr($raw, ["\u{201C}" => '"', "\u{201D}" => '"', "\u{201E}" => '"', "\u{2033}" => '"']);
+        $a = strpos($raw, '{'); $b = strrpos($raw, '}');
+        $j = ($a !== false && $b > $a) ? json_decode(substr($raw, $a, $b - $a + 1), true) : null;
+        if (!is_array($j)) return $out;
+        $home = isset($j['home']) && is_array($j['home']) ? $j['home'] : [];
+        $tiles = $home['tiles'] ?? ($j['tiles'] ?? []);
+        $pages = isset($j['pages']) && is_array($j['pages']) ? $j['pages'] : [];
+        $faq = [];
+        foreach ((array) ($pages['faq']['faq'] ?? ($j['faq'] ?? [])) as $f) {
+            if (!is_array($f)) continue;
+            $q = (string) ($f['q'] ?? ($f['question'] ?? ($f['title'] ?? '')));
+            if ($q !== '') $faq[] = ['q' => $q, 'a' => (string) ($f['a'] ?? ($f['answer'] ?? ($f['html'] ?? ($f['content'] ?? ''))))];
+        }
+        return ['source' => 'page', 'tiles' => array_values(array_filter((array) $tiles, 'is_array')), 'faq' => $faq, 'pages' => $pages ? $pages : new stdClass()];
     }
 
     public static function rest_save(WP_REST_Request $req) {

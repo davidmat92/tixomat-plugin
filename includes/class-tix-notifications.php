@@ -24,6 +24,8 @@ class TIX_Notifications {
     const OPT_TOKENS    = '_tix_push_tokens';            // Geräte-Token → Meta
     const OPT_REMINDED  = '_tix_app_notif_reminded';     // bereits erinnerte Event-IDs
     const META_USER     = '_tix_app_notif_user';         // nutzerbezogene Hinweise
+    const OPT_LOG       = '_tix_app_broadcast_log';      // gesendete Mitteilungen (Verlauf, 1.38.455)
+    const MAX_LOG       = 200;
     const MAX_FEED      = 50;
     const MAX_USER      = 25;
     const CRON_HOOK     = 'tix_app_notif_cron';
@@ -138,6 +140,11 @@ class TIX_Notifications {
             'callback'            => [__CLASS__, 'rest_broadcast'],
             'permission_callback' => ['TIX_REST_API', 'check_organizer'],
         ]);
+        register_rest_route(self::NS, '/notifications/broadcasts', [
+            'methods'             => 'GET',
+            'callback'            => [__CLASS__, 'rest_broadcast_log'],
+            'permission_callback' => [__CLASS__, 'check_log'],
+        ]);
         register_rest_route(self::NS, '/push/register', [
             'methods'             => 'POST',
             'callback'            => [__CLASS__, 'rest_register_device'],
@@ -185,6 +192,56 @@ class TIX_Notifications {
      * des Events mit App-Konto). Ist ein event_id gesetzt, verlinkt die
      * Nachricht automatisch auf das Event.
      */
+    /** Gesendete Mitteilung merken (Verlauf „Zuletzt gesendet“). */
+    private static function log_broadcast($title, $body, $target, $event_id, $recipients, $oid = 0) {
+        $u = wp_get_current_user();
+        $log = get_option(self::OPT_LOG, []);
+        $log = is_array($log) ? $log : [];
+        array_unshift($log, ['id' => 'l_' . wp_generate_uuid4(), 'title' => $title, 'body' => $body, 'target' => $target, 'event_id' => intval($event_id),
+            'recipients' => intval($recipients), 'created' => time(), 'sender_id' => intval($u->ID), 'sender' => (string) ($u->display_name ?: $u->user_login), 'organizer_id' => intval($oid)]);
+        update_option(self::OPT_LOG, array_slice($log, 0, self::MAX_LOG), false);
+    }
+
+    /** Verlauf: Inhaber und Team-Admins (Plattform: eigener Veranstalter). */
+    public static function check_log(WP_REST_Request $req) {
+        $c = TIX_REST_API::check_organizer($req);
+        if ($c !== true) return $c;
+        return !class_exists('TIX_Studio_Stats') || TIX_Studio_Stats::is_manager() ? true : new WP_Error('rest_forbidden', 'Den Verlauf sehen nur Inhaber und Team-Admins.', ['status' => 403]);
+    }
+
+    /**
+     * GET /notifications/broadcasts?per_page=&page= → {ok, total, page, per_page, broadcasts: [{id, title, body, target, event {id, title}|null,
+     * recipients, created (ISO), sender {id, name}|null}]}. Vor 1.38.455 gesendete Mitteilungen an alle kommen aus dem Feed (ohne Absender/Empfänger).
+     */
+    public static function rest_broadcast_log(WP_REST_Request $req) {
+        $per = max(1, min(100, intval($req->get_param('per_page') ?: 20)));
+        $page = max(1, intval($req->get_param('page') ?: 1));
+        $multi = class_exists('TIX_App_Scope') && TIX_App_Scope::multi();
+        $oid = $multi && !current_user_can('manage_options') ? intval(TIX_App_Scope::organizer_id_for_user()) : 0;
+        $log = get_option(self::OPT_LOG, []);
+        $log = is_array($log) ? $log : [];
+        if (!$multi) {
+            // Ältere Mitteilungen an alle (Feed, type message) ohne Verlaufseintrag ergänzen
+            $known = array_flip(array_map(function ($l) { return intval($l['created']) . '|' . $l['title']; }, $log));
+            foreach (self::broadcasts() as $b) {
+                if (($b['type'] ?? '') !== 'message' || isset($known[intval($b['created'] ?? 0) . '|' . ($b['title'] ?? '')])) continue;
+                $log[] = ['id' => (string) $b['id'], 'title' => (string) $b['title'], 'body' => (string) $b['body'], 'target' => 'all', 'event_id' => intval($b['event_id'] ?? 0),
+                    'recipients' => null, 'created' => intval($b['created'] ?? 0), 'sender_id' => 0, 'sender' => '', 'organizer_id' => 0];
+            }
+        }
+        if ($multi && !current_user_can('manage_options')) $log = array_values(array_filter($log, function ($l) use ($oid) { return $oid && intval($l['organizer_id'] ?? 0) === $oid; }));
+        usort($log, function ($a, $b) { return intval($b['created']) <=> intval($a['created']); });
+        $total = count($log);
+        $rows = array_map(function ($l) {
+            $eid = intval($l['event_id'] ?? 0);
+            return ['id' => (string) $l['id'], 'title' => (string) $l['title'], 'body' => (string) $l['body'], 'target' => (string) $l['target'],
+                'event' => $eid ? ['id' => $eid, 'title' => html_entity_decode(get_the_title($eid), ENT_QUOTES, 'UTF-8')] : null,
+                'recipients' => $l['recipients'] === null ? null : intval($l['recipients']), 'created' => wp_date('c', intval($l['created'])),
+                'sender' => intval($l['sender_id'] ?? 0) || (string) ($l['sender'] ?? '') !== '' ? ['id' => intval($l['sender_id'] ?? 0), 'name' => (string) $l['sender']] : null];
+        }, array_slice($log, ($page - 1) * $per, $per));
+        return rest_ensure_response(['ok' => true, 'total' => $total, 'page' => $page, 'per_page' => $per, 'broadcasts' => $rows]);
+    }
+
     public static function rest_broadcast(WP_REST_Request $req) {
         $title = self::clean($req->get_param('title'));
         $body  = self::clean($req->get_param('body'));
@@ -213,6 +270,7 @@ class TIX_Notifications {
                     'action'   => $action,
                 ]);
             }
+            self::log_broadcast($title, $body, 'event', $event_id, count($uids));
             return new WP_REST_Response([
                 'ok'         => true,
                 'pushed'     => self::apns_configured(),
@@ -227,6 +285,7 @@ class TIX_Notifications {
             'event_id' => $event_id,
             'action'   => $action,
         ]);
+        self::log_broadcast($title, $body, 'all', $event_id, count(self::tokens()));
         return new WP_REST_Response([
             'ok'         => true,
             'item'       => $item,
@@ -290,6 +349,7 @@ class TIX_Notifications {
         }
         // Weitere Kanäle (z. B. Folgen per E-Mail, TIX_Mail_Follow) – liefert die Zahl zusätzlicher Empfänger
         $extra = intval(apply_filters('tix_organizer_broadcast', 0, $oid, $title, $body, $event_id, $target));
+        self::log_broadcast($title, $body, $target, $event_id, count($uids) + $extra, $oid);
         return new WP_REST_Response([
             'ok'         => true,
             'pushed'     => self::apns_configured(),

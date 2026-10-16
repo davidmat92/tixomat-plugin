@@ -2,7 +2,7 @@
 if (!defined('ABSPATH')) exit;
 
 /**
- * TIX_Event_Facts – Barrierefreiheit und Erstattungsregel am Event (evendis.de, nur Mehr-Veranstalter-Modus).
+ * TIX_Event_Facts – Barrierefreiheit (alle Seiten seit 1.38.455) und Erstattungsregel (nur evendis, Mehr-Veranstalter-Modus) am Event.
  *
  * Barrierefreiheit: Schlüssel (KEYS) + Hinweis. Am Ort (`tix_location`, Meta `_tix_accessibility`) pflegbar,
  * je Event überschreibbar (`_tix_accessibility_mode` inherit|custom|off, `_tix_accessibility`).
@@ -13,7 +13,7 @@ if (!defined('ABSPATH')) exit;
  * legal_review_pending}` | null. Texte: Rechtsprüfung offen (`legal_review_pending: true`).
  *
  * Pflege: Metaboxen am Ort und am Event (WP-Admin), App-Editor (`accessibility_mode`, `accessibility`,
- * `refund_policy`). KitchenKlub/Mallorca (Ein-Veranstalter): keine Felder, keine Metaboxen.
+ * `refund_policy`). KitchenKlub/Mallorca (Ein-Veranstalter): nur Barrierefreiheit (Felder, Metaboxen, Event-Detail), keine Erstattungsregel.
  */
 class TIX_Event_Facts {
 
@@ -119,14 +119,14 @@ class TIX_Event_Facts {
     // ── Pflege (App-Editor) ──
 
     public static function editor_payload($event_id) {
-        return [
+        $out = [
             'accessibility_mode' => self::acc_mode($event_id),
             'accessibility'      => self::sanitize_acc(get_post_meta($event_id, self::META_ACC, true)),
             'accessibility_effective' => self::accessibility($event_id),
-            'refund_policy'      => self::sanitize_refund(get_post_meta($event_id, self::META_REFUND, true)),
             'accessibility_keys' => self::KEYS,
-            'refund_types'       => self::REFUND_TYPES,
         ];
+        if (self::multi()) $out += ['refund_policy' => self::sanitize_refund(get_post_meta($event_id, self::META_REFUND, true)), 'refund_types' => self::REFUND_TYPES];
+        return $out;
     }
 
     /** @return true|WP_Error */
@@ -139,7 +139,7 @@ class TIX_Event_Facts {
         if (isset($body['accessibility']) && is_array($body['accessibility'])) {
             update_post_meta($event_id, self::META_ACC, self::sanitize_acc(array_merge(self::sanitize_acc(get_post_meta($event_id, self::META_ACC, true)), $body['accessibility'])));
         }
-        if (array_key_exists('refund_policy', $body)) {
+        if (array_key_exists('refund_policy', $body) && self::multi()) {
             if ($body['refund_policy'] === null || $body['refund_policy'] === '') {
                 delete_post_meta($event_id, self::META_REFUND);
             } else {
@@ -155,9 +155,8 @@ class TIX_Event_Facts {
     // ── Metaboxen ──
 
     public static function boxes() {
-        if (!self::multi()) return;
         add_meta_box('tix_acc_loc', 'Barrierefreiheit', [__CLASS__, 'render_location'], 'tix_location', 'normal', 'default');
-        add_meta_box('tix_facts_event', 'Barrierefreiheit & Erstattung', [__CLASS__, 'render_event'], 'event', 'normal', 'default');
+        add_meta_box('tix_facts_event', self::multi() ? 'Barrierefreiheit & Erstattung' : 'Barrierefreiheit', [__CLASS__, 'render_event'], 'event', 'normal', 'default');
     }
 
     private static function acc_fields($name, array $a) {
@@ -194,6 +193,7 @@ class TIX_Event_Facts {
             <label style="margin-left:12px;"><input type="radio" name="tix_accessibility_mode" value="off" <?php checked($mode, 'off'); ?>> keine Angaben</label>
         </p>
         <?php echo self::acc_fields('tix_accessibility', self::sanitize_acc(get_post_meta($post->ID, self::META_ACC, true))); ?>
+        <?php if (!self::multi()) { echo '<p class="description">Erscheint als eigener Info-Abschnitt „Barrierefreiheit“ (Reihenfolge rechts unter „Info-Abschnitte“).</p>'; return; } ?>
         <h4 style="margin:12px 0 6px;">Erstattungsregel</h4>
         <p><select name="tix_refund_policy[type]">
             <option value="">– keine Angabe –</option>
@@ -211,8 +211,10 @@ class TIX_Event_Facts {
         $mode = sanitize_key($_POST['tix_accessibility_mode'] ?? 'inherit');
         if ($mode === 'inherit') delete_post_meta($post_id, self::META_ACC_MODE); else update_post_meta($post_id, self::META_ACC_MODE, $mode === 'off' ? 'off' : 'custom');
         update_post_meta($post_id, self::META_ACC, self::sanitize_acc(wp_unslash((array) ($_POST['tix_accessibility'] ?? []))));
-        $r = self::sanitize_refund(wp_unslash((array) ($_POST['tix_refund_policy'] ?? [])));
-        if ($r) update_post_meta($post_id, self::META_REFUND, $r); else delete_post_meta($post_id, self::META_REFUND);
+        if (self::multi()) {
+            $r = self::sanitize_refund(wp_unslash((array) ($_POST['tix_refund_policy'] ?? [])));
+            if ($r) update_post_meta($post_id, self::META_REFUND, $r); else delete_post_meta($post_id, self::META_REFUND);
+        }
         if (class_exists('TIX_Public_Events')) TIX_Public_Events::flush();
     }
 }

@@ -253,10 +253,19 @@ class TIX_Public_Events {
                 $out['ticket_transfer'] = TIX_Event_Extras::ticket_transfer($id);
             }
             $out['raffle'] = class_exists('TIX_Raffle') ? TIX_Raffle::public_info($id) : null;
-            // Barrierefreiheit + Erstattungsregel (1.38.410, nur Mehr-Veranstalter-Modus)
-            if (class_exists('TIX_Event_Facts') && TIX_Event_Facts::multi()) {
+            // Barrierefreiheit (alle Seiten seit 1.38.455) + Erstattungsregel (1.38.410, nur Mehr-Veranstalter-Modus)
+            if (class_exists('TIX_Event_Facts')) {
                 $out['accessibility'] = TIX_Event_Facts::accessibility($id);
-                $out['refund_policy'] = TIX_Event_Facts::refund_policy($id);
+                if (TIX_Event_Facts::multi()) $out['refund_policy'] = TIX_Event_Facts::refund_policy($id);
+            }
+            // Info-Abschnitte (1.38.455): Künstler-Info + alle sichtbaren Abschnitte in Reihenfolge (Reihenfolge/Sichtbarkeit `_tix_info_sections`)
+            if (class_exists('TIX_Event_Texts')) {
+                $out['artist'] = TIX_Event_Texts::is_visible($id, 'artist') ? self::html($id, '_tix_info_artist') : '';
+                $out['info'] = [
+                    'sections' => TIX_Event_Texts::sections($id),
+                    'custom_order' => TIX_Event_Texts::stored_order($id) !== null,
+                    'accessibility' => TIX_Event_Texts::is_visible($id, 'accessibility') && class_exists('TIX_Event_Facts') ? TIX_Event_Facts::accessibility($id) : null,
+                ];
             }
             // Awareness (1.38.405): {team, sign, point, codeword, areas[], drink_tests, taxi, rules, alarm_enabled} | null
             $out['awareness'] = class_exists('TIX_Awareness') ? TIX_Awareness::public_info($id) : null;

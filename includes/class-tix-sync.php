@@ -464,6 +464,8 @@ class TIX_Sync {
                     continue;
                 }
 
+                // Ausgeblendeter Abschnitt (1.38.455, `_tix_info_sections`): Breakdance-Feld leer
+                if (class_exists('TIX_Event_Texts') && in_array($key, TIX_Event_Texts::ORDERABLE, true) && !TIX_Event_Texts::is_visible($post_id, $key)) $content = '';
                 // Flache Felder für Breakdance (wpautop nur auf alte Daten ohne <p>)
                 if ($def['type'] === 'textarea' && $content && strpos($content, '<p>') === false) {
                     update_post_meta($post_id, "_tix_{$key}", wpautop($content));
@@ -471,6 +473,13 @@ class TIX_Sync {
                     update_post_meta($post_id, "_tix_{$key}", $content);
                 }
                 update_post_meta($post_id, "_tix_{$key}_label", $label);
+            }
+
+            // Alle sichtbaren Abschnitte in Reihenfolge + Barrierefreiheit als eigene Felder (1.38.455)
+            if (class_exists('TIX_Event_Texts')) {
+                update_post_meta($post_id, '_tix_info_html', TIX_Event_Texts::render_html($post_id));
+                update_post_meta($post_id, '_tix_accessibility_html', TIX_Event_Texts::is_visible($post_id, 'accessibility') ? TIX_Event_Texts::html($post_id, 'accessibility') : '');
+                update_post_meta($post_id, '_tix_accessibility_label', TIX_Event_Texts::label($post_id, 'accessibility'));
             }
 
             // Altersbegrenzung speziell — 0 (oder leer) heißt explizit "keine Begrenzung"

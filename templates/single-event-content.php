@@ -56,21 +56,10 @@ wp_localize_script('tix-single-event', 'tixSingle', [
             TIX_Single_Event::render_tickets($id);
         endif; ?>
 
-        <?php if (TIX_Single_Event::should_show('description', $id)):
-            TIX_Single_Event::render_section($id, 'description', 'info');
-        endif; ?>
-
-        <?php if (TIX_Single_Event::should_show('lineup', $id)):
-            TIX_Single_Event::render_section($id, 'lineup', 'lineup');
-        endif; ?>
-
-        <?php if (TIX_Single_Event::should_show('specials', $id)):
-            TIX_Single_Event::render_section($id, 'specials');
-        endif; ?>
-
-        <?php if (TIX_Single_Event::should_show('extra_info', $id)):
-            TIX_Single_Event::render_section($id, 'extra_info');
-        endif; ?>
+        <?php // Info-Abschnitte in Reihenfolge und Sichtbarkeit des Events (1.38.455, TIX_Event_Texts)
+        foreach (TIX_Event_Texts::sections($id) as $sec):
+            TIX_Single_Event::render_block($sec, ['description' => 'info', 'lineup' => 'lineup'][$sec['key']] ?? '');
+        endforeach; ?>
 
         <?php if (TIX_Single_Event::should_show('timetable', $id)): ?>
             <div class="tse-sec m-timetable" id="timetable">
