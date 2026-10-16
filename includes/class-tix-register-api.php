@@ -352,6 +352,9 @@ class TIX_Register_API {
         $in['password_confirm'] = isset($p['password_confirm']) ? (string) $p['password_confirm'] : $in['password'];
         $master = self::check_master($p);
         if (is_wp_error($master)) return $master;
+        // Telefon für Rückfragen bei der Prüfung (privat, nicht im Profil; 1.38.457)
+        $phone = trim(sanitize_text_field((string) ($p['phone'] ?? '')));
+        if (mb_strlen($phone) > 40 || ($phone !== '' && !preg_match('/^[0-9 +()\/.\-]{4,40}$/', $phone))) return self::error('tix_invalid_field', 'Bitte eine gültige Telefonnummer angeben.', 400, ['field' => 'phone']);
         $bot = self::check_bot($req);
         if (is_wp_error($bot)) return $bot;
 
@@ -365,6 +368,7 @@ class TIX_Register_API {
             delete_post_meta($img, self::TMP_META);
             set_post_thumbnail($r['event_id'], $img);
         }
+        if ($r['org_id'] && $phone !== '') update_post_meta($r['org_id'], '_tix_org_review_phone', $phone);
         // Stammdaten (vorab geprüft); die neue IBAN bestätigt der Inhaber mit dem Code aus der Mail (POST /organizer/payout-details/confirm)
         $saved = ['profile' => false, 'payout' => null, 'logo' => null];
         $warnings = [];
@@ -394,7 +398,7 @@ class TIX_Register_API {
             'token'        => $token,
             'user'         => TIX_REST_API::guest_user_payload($user),
             'organizer_id' => $r['org_id'],
-            'event_id'     => $r['event_id'] ?: null,
+            'event_id'     => intval($r['event_id']),
             'without_event' => $without,
             'review'       => $r['review'],
             'saved'        => $saved,

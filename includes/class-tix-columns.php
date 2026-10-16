@@ -822,32 +822,9 @@ class TIX_Columns {
         ], true);
         if (is_wp_error($new_id)) return new WP_Error('duplicate_failed', 'Fehler beim Erstellen.', ['status' => 500]);
 
-        $meta = get_post_meta($post_id);
-        foreach ($meta as $key => $values) {
-            if (in_array($key, self::DUPLICATE_SKIP, true)) continue;
-            // Wiederholung (Serie/Termin-Verknüpfung) nicht übernehmen – die Kopie ist ein eigenes Event
-            if (strpos($key, '_tix_recurrence') === 0) continue;
-            // Ticket-Kategorien: product_id und tc_event_id zurücksetzen, Bestand wieder voll
-            if ($key === '_tix_ticket_categories') {
-                $cats = maybe_unserialize($values[0]);
-                if (is_array($cats)) {
-                    foreach ($cats as &$cat) {
-                        if (!is_array($cat)) continue;
-                        $cat['product_id']  = '';
-                        $cat['tc_event_id'] = '';
-                        $cat['sku']         = '';
-                        $qty = intval($cat['qty'] ?? ($cat['quantity'] ?? 0));
-                        if ($qty > 0) $cat['stock'] = $qty; else unset($cat['stock']);
-                    }
-                    unset($cat);
-                    add_post_meta($new_id, $key, $cats);
-                }
-                continue;
-            }
-            foreach ($values as $v) {
-                add_post_meta($new_id, $key, maybe_unserialize($v));
-            }
-        }
+        // Gemeinsame Ausnahmeliste aller Kopierwege (TIX_Event_Copy, 1.38.457): ohne Archiv, Benachrichtigungen, Kalender, Zähler …
+        TIX_Event_Copy::copy_meta($post_id, $new_id);
+        foreach (self::DUPLICATE_SKIP as $k) delete_post_meta($new_id, $k);
 
         // Neues Datum (Ende um denselben Abstand verschieben, wenn nur der Beginn kommt)
         $d = function ($v) { $v = trim((string) $v); return preg_match('/^\d{4}-\d{2}-\d{2}$/', $v) && strtotime($v) ? $v : ''; };
@@ -874,6 +851,7 @@ class TIX_Columns {
         // Beitragsbild kopieren
         $thumb = get_post_thumbnail_id($post_id);
         if ($thumb) set_post_thumbnail($new_id, $thumb);
+        TIX_Event_Copy::after_copy($new_id);
 
         return intval($new_id);
     }

@@ -252,7 +252,8 @@ class TIX_Org_Approval {
         $tax_ok = ($tax === 'small_business')
             || ($tax === 'vat_id' && (string) ($pd['vat_id'] ?? '') !== '')
             || ($tax === 'tax_number' && (string) ($pd['tax_number'] ?? '') !== '');
-        $phone = trim((string) get_post_meta($oid, '_tix_org_phone', true));
+        // Telefon im Profil oder das private Telefon aus der Registrierung (nur für Rückfragen, 1.38.457)
+        $phone = trim((string) get_post_meta($oid, '_tix_org_phone', true)) ?: trim((string) get_post_meta($oid, '_tix_org_review_phone', true));
         $items = [
             ['key' => 'name', 'label' => 'Firma bzw. Name', 'target' => 'payout', 'phase' => 'after',
              'done' => trim((string) ($b['company'] ?? '')) !== '' || trim((string) ($b['name'] ?? '')) !== '',
@@ -1044,7 +1045,7 @@ class TIX_Org_Approval {
             $all = count(self::org_events($oid, ['publish', 'future', 'pending', 'draft', 'private']));
             printf('<tr><td><strong><a href="%s">%s</a></strong></td><td>%s</td><td>%s</td><td>%d gesamt · %d online%s</td><td>%s</td><td>%s</td><td><a class="button" href="%s">Prüfen</a></td></tr>',
                 esc_url(self::admin_url_args(['id' => $oid])), esc_html(self::org_name($oid)),
-                $u ? esc_html(trim($u->first_name . ' ' . $u->last_name) ?: $u->display_name) . '<br><small>' . esc_html($u->user_email) . '</small>' : '—',
+                ($u ? esc_html(trim($u->first_name . ' ' . $u->last_name) ?: $u->display_name) . '<br><small>' . esc_html($u->user_email) . '</small>' : '—') . (($ph = (string) get_post_meta($oid, '_tix_org_review_phone', true)) !== '' ? '<br><small>' . esc_html($ph) . '</small>' : ''),
                 esc_html($sub), $all, $online, ($held ? ' · ' . $held . ' zurückgehalten' : '') . (!$all ? '<br><small style="color:#9ca3af;">noch kein Event</small>' : ''),
                 self::checks_html($oid), self::badge(self::status($oid)), esc_url(self::admin_url_args(['id' => $oid])));
         }
@@ -1081,6 +1082,7 @@ class TIX_Org_Approval {
                 <?php
                 echo $row('Inhaber', $u ? esc_html(trim($u->first_name . ' ' . $u->last_name) ?: $u->display_name) . ' &lt;' . esc_html($u->user_email) . '&gt;<br><small>Konto seit ' . esc_html(wp_date('d.m.Y', strtotime($u->user_registered . ' UTC'))) . '</small>' : '—');
                 echo $row('Kontakt', esc_html(trim($g('_tix_org_email') . ' · ' . $g('_tix_org_phone'), ' ·')) ?: '—');
+                echo $row('Telefon für Rückfragen', $g('_tix_org_review_phone') !== '' ? '<a href="tel:' . esc_attr(preg_replace('/[^0-9+]/', '', $g('_tix_org_review_phone'))) . '">' . esc_html($g('_tix_org_review_phone')) . '</a> <small style="color:#6b7280;">(aus der Registrierung, nicht öffentlich)</small>' : '—');
                 echo $row('Website', $g('_tix_org_website') ? '<a href="' . esc_url($g('_tix_org_website')) . '" target="_blank" rel="noopener">' . esc_html($g('_tix_org_website')) . '</a>' : '—');
                 echo $row('Ort (Profil)', esc_html(trim($g('_tix_org_address') . ' ' . $g('_tix_org_city'))) ?: '—');
                 $addr = array_filter([$b['company'] ?? '', $b['name'] ?? '', $b['street'] ?? '', trim(($b['zip'] ?? '') . ' ' . ($b['city'] ?? ''))]);

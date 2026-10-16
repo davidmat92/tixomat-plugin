@@ -371,9 +371,23 @@ class TIX_App_Events {
         }
         $body = $req->get_json_params();
         if (!is_array($body)) $body = [];
+        $before = $post->post_status;
         $err = self::apply($id, $body, false);
         if (is_wp_error($err)) return $err;
-        return self::respond($id, 'Gespeichert.');
+        $res = self::respond($id, 'Gespeichert.');
+        // Offline genommen trotz verkaufter Tickets: Hinweis (Tickets bleiben gültig, Einlass funktioniert, kein Verkauf mehr)
+        clean_post_cache($id);
+        $now = get_post_status($id);
+        if (in_array($before, ['publish', 'future', 'pending'], true) && $now === 'draft' && class_exists('TIX_REST_API')) {
+            $sold = intval(TIX_REST_API::ticket_counts($id)['total'] ?? 0);
+            if ($sold > 0) {
+                $d = $res->get_data();
+                $d['warning'] = ['code' => 'tix_draft_with_sales', 'sold' => $sold,
+                    'message' => sprintf('Das Event ist jetzt ein Entwurf: nicht mehr öffentlich und nicht mehr buchbar. Die %d verkauften Tickets bleiben gültig (Einlass funktioniert), Käufer werden nicht benachrichtigt.', $sold)];
+                $res->set_data($d);
+            }
+        }
+        return $res;
     }
 
     private static function respond($post_id, $message) {
@@ -434,6 +448,11 @@ class TIX_App_Events {
             $held = !$is_new && empty($body['published']) && get_post_status($post_id) === 'pending'
                 && get_post_meta($post_id, '_tix_publish_held', true) !== '';
             if (!$held) $post_args['post_status'] = !empty($body['published']) ? 'publish' : 'draft';
+        }
+        // Ausdrücklich auf Entwurf (1.38.457, Studio): auch ein zurückgehaltenes Event – der Veröffentlichungswunsch entfällt
+        if (!$is_new && !empty($body['draft']) && filter_var($body['draft'], FILTER_VALIDATE_BOOLEAN)) {
+            $post_args['post_status'] = 'draft';
+            delete_post_meta($post_id, '_tix_publish_held');
         }
 
         // ── Termin ──

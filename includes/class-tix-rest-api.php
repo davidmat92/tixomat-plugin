@@ -340,6 +340,13 @@ class TIX_REST_API {
             'permission_callback' => [__CLASS__, 'check_organizer'],
         ]);
 
+        // Archiv (1.38.457): {archived: true|false} wie die Zeilen-Aktion im Experten-Modus (TIX_Archive)
+        register_rest_route($ns, '/events/(?P<id>\d+)/archive', [
+            'methods'             => 'POST',
+            'callback'            => [__CLASS__, 'archive_event'],
+            'permission_callback' => [__CLASS__, 'check_organizer'],
+        ]);
+
         register_rest_route($ns, '/events/(?P<id>\d+)/statistics', [
             'methods'             => 'GET',
             'callback'            => [__CLASS__, 'event_statistics'],
@@ -844,6 +851,15 @@ class TIX_REST_API {
             }
         }
 
+        // Archiv (1.38.457): view=active (Vorgabe, wie die Admin-Liste) | archived | all; bei filter=past Vorgabe all (wie bisher)
+        $view = sanitize_key((string) ($req->get_param('view') ?: ($filter === 'past' ? 'all' : 'active')));
+        if (class_exists('TIX_Archive') && in_array($view, ['active', 'archived'], true)) {
+            $args['meta_query'] = $args['meta_query'] ?? [];
+            $args['meta_query'][] = $view === 'archived'
+                ? ['key' => TIX_Archive::META_FLAG, 'value' => '1']
+                : ['key' => TIX_Archive::META_FLAG, 'compare' => 'NOT EXISTS'];
+        }
+
         $posts  = get_posts($args);
         $events = [];
 
@@ -854,8 +870,23 @@ class TIX_REST_API {
         return rest_ensure_response([
             'ok'     => true,
             'count'  => count($events),
+            'view'   => $view,
             'events' => $events,
         ]);
+    }
+
+    /** POST /events/{id}/archive {archived: true|false} → {ok, event_id, archived, archived_at} */
+    public static function archive_event(WP_REST_Request $req) {
+        $id = absint($req['id']);
+        if (get_post_type($id) !== 'event') return new WP_Error('not_found', 'Event nicht gefunden.', ['status' => 404]);
+        if (!self::can_access_event($id)) return new WP_Error('forbidden', 'Kein Zugriff auf dieses Event.', ['status' => 403]);
+        if (!class_exists('TIX_Archive')) return new WP_Error('tix_unavailable', 'Das Archiv ist nicht verfügbar.', ['status' => 404]);
+        $a = $req->get_param('archived');
+        if ($a === null) return new WP_Error('tix_invalid_field', 'Bitte archived: true oder false angeben.', ['status' => 400, 'field' => 'archived']);
+        if (filter_var($a, FILTER_VALIDATE_BOOLEAN)) { if (!TIX_Archive::is_archived($id)) TIX_Archive::archive_event($id); }
+        elseif (TIX_Archive::is_archived($id)) TIX_Archive::unarchive_event($id);
+        if (class_exists('TIX_Public_Events') && method_exists('TIX_Public_Events', 'flush')) TIX_Public_Events::flush();
+        return rest_ensure_response(['ok' => true, 'event_id' => $id, 'archived' => TIX_Archive::is_archived($id), 'archived_at' => (string) get_post_meta($id, TIX_Archive::META_DATE, true) ?: null]);
     }
 
     public static function get_event(WP_REST_Request $req) {
@@ -2385,6 +2416,9 @@ class TIX_REST_API {
             'title'            => $post->post_title,
             'excerpt'          => wp_strip_all_tags($post->post_excerpt),
             'thumbnail'        => $thumbnail,
+            // 1.38.457: Archiv (TIX_Archive)
+            'archived'         => (bool) get_post_meta($id, '_tix_archived', true),
+            'archived_at'      => (string) get_post_meta($id, '_tix_archived_at', true) ?: null,
             // 1.38.456: Bild groß (large) und klein (medium) für Listen
             'image'            => $thumb_id ? (string) (wp_get_attachment_image_url($thumb_id, 'large') ?: '') : '',
             'image_small'      => $thumb_id ? (string) (wp_get_attachment_image_url($thumb_id, 'medium') ?: '') : '',

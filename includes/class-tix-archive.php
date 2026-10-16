@@ -25,6 +25,7 @@ class TIX_Archive {
         // Cron
         add_action(self::CRON_HOOK, [__CLASS__, 'run_archive_sweep']);
         add_action('init', [__CLASS__, 'schedule_cron']);
+        add_action('init', [__CLASS__, 'maybe_heal_once'], 30);
 
         // Admin: Ansichten + Filter + Row-Actions
         add_filter('views_edit-event',           [__CLASS__, 'event_views']);
@@ -56,7 +57,32 @@ class TIX_Archive {
     /**
      * Sweep: Alle Events prüfen und abgelaufene archivieren.
      */
+    /**
+     * Selbstheilung (1.38.457): Kopien trugen das Archiv-Flag des Originals – `_tix_archived_at` liegt dann vor dem
+     * Anlegen des Events (post_date). Solche Events zurückholen; absichtlich archivierte bleiben unangetastet.
+     */
+    public static function heal_copies() {
+        global $wpdb;
+        $ids = $wpdb->get_col("SELECT p.ID FROM {$wpdb->posts} p
+            INNER JOIN {$wpdb->postmeta} f ON f.post_id = p.ID AND f.meta_key = '" . self::META_FLAG . "'
+            INNER JOIN {$wpdb->postmeta} d ON d.post_id = p.ID AND d.meta_key = '" . self::META_DATE . "'
+            WHERE p.post_type = 'event' AND d.meta_value <> '' AND d.meta_value < p.post_date");
+        foreach ($ids as $id) {
+            self::unarchive_event(intval($id));
+            // weitere geerbte Laufzeit-Markierungen der Kopie
+            delete_post_meta(intval($id), '_tix_is_past');
+        }
+        return count($ids);
+    }
+
+    public static function maybe_heal_once() {
+        if (get_option('tix_archive_heal_v1')) return;
+        update_option('tix_archive_heal_v1', current_time('mysql'), false);
+        self::heal_copies();
+    }
+
     public static function run_archive_sweep() {
+        self::heal_copies();
         $s = function_exists('tix_get_settings') ? tix_get_settings() : [];
         if (empty($s['auto_archive_enabled'])) return 0;
 

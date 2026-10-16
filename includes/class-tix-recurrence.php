@@ -441,6 +441,8 @@ class TIX_Recurrence {
 
     public static function copyable($key) {
         if (strpos($key, '_tix_') !== 0) return false;
+        // gemeinsame Ausnahmeliste aller Kopierwege (1.38.457)
+        if (class_exists('TIX_Event_Copy') && !TIX_Event_Copy::copyable($key)) return false;
         if (in_array($key, self::SKIP_KEYS, true)) return false;
         foreach (self::SKIP_PREFIXES as $p) {
             if (strpos($key, $p) === 0) return false;

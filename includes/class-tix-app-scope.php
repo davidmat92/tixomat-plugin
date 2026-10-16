@@ -142,6 +142,8 @@ class TIX_App_Scope {
             'status'  => (string) $p->post_status,
             'owner'   => $owner,
             'manager' => self::is_org_manager($uid),
+            // Telefon aus der Registrierung (privat, nur für Rückfragen bei der Prüfung; 1.38.457) – nur für Inhaber/Team-Admin
+            'review_phone' => self::is_org_manager($uid) ? (string) get_post_meta($p->ID, '_tix_org_review_phone', true) : null,
             'logo'    => $logo,
             // Freigabe-Status + fehlende Pflichtangaben (TIX_Org_Approval)
             'approval' => class_exists('TIX_Org_Approval') ? TIX_Org_Approval::payload($p->ID, $uid) : null,

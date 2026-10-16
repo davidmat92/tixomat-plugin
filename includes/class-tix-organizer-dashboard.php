@@ -1272,39 +1272,17 @@ class TIX_Organizer_Dashboard {
             return;
         }
 
-        $new_id = wp_insert_post([
-            'post_type'   => 'event',
-            'post_title'  => $original->post_title . ' (Kopie)',
-            'post_status' => 'draft',
-            'post_author' => get_current_user_id(),
-        ]);
-
+        // Gleicher Kern wie wp-admin „Duplizieren“ und REST (1.38.457: vorher kopierte dieser Weg alle _tix_*, auch das Archiv)
+        if (!class_exists('TIX_Columns')) require_once TIXOMAT_PATH . 'includes/class-tix-columns.php';
+        $new_id = TIX_Columns::duplicate_event($event_id);
         if (is_wp_error($new_id)) {
             wp_send_json_error(['message' => 'Duplizierung fehlgeschlagen.']);
             return;
         }
 
-        // Alle _tix_ Meta-Felder kopieren
-        $meta = get_post_meta($event_id);
-        foreach ($meta as $key => $values) {
-            // Wiederholung (Serie/Termin-Verknüpfung) nicht übernehmen – die Kopie ist ein eigenes Event
-            if (strpos($key, '_tix_recurrence') === 0) continue;
-            if (strpos($key, '_tix_') === 0) {
-                foreach ($values as $val) {
-                    update_post_meta($new_id, $key, maybe_unserialize($val));
-                }
-            }
-        }
-
         // Organizer sicherstellen
         update_post_meta($new_id, '_tix_organizer_id', $org->ID);
         update_post_meta($new_id, '_tix_organizer', $org->post_title);
-
-        // Thumbnail kopieren
-        $thumb_id = get_post_thumbnail_id($event_id);
-        if ($thumb_id) {
-            set_post_thumbnail($new_id, $thumb_id);
-        }
 
         wp_send_json_success([
             'event_id' => $new_id,
