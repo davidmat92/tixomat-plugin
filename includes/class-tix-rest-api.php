@@ -390,6 +390,13 @@ class TIX_REST_API {
             'permission_callback' => [__CLASS__, 'check_entrance'],
         ]);
 
+        // Auschecken mit festem Ziel „nicht eingecheckt“ (1.38.465; Toggle würde zwei Geräte gegenseitig zurücksetzen)
+        register_rest_route($ns, '/checkin/uncheck', [
+            'methods'             => 'POST',
+            'callback'            => [__CLASS__, 'checkin_uncheck'],
+            'permission_callback' => [__CLASS__, 'check_entrance'],
+        ]);
+
         register_rest_route($ns, '/checkin/ticket/(?P<ticket_id>\d+)/toggle', [
             'methods'             => 'POST',
             'callback'            => [__CLASS__, 'checkin_toggle_ticket'],
@@ -1476,6 +1483,8 @@ class TIX_REST_API {
                     'category'        => $cat_name,
                     'seat'            => get_post_meta($t->ID, '_tix_ticket_seat_id', true),
                     'ticket_status'   => $status,
+                    // Studio verlinkt zur Bestellung (1.38.465; Einlass sieht es nicht)
+                    'order_id'        => intval(get_post_meta($t->ID, '_tix_ticket_order_id', true)) ?: null,
                 ];
 
                 $stats['total']++;
@@ -1488,7 +1497,7 @@ class TIX_REST_API {
         // Zusatzdaten (E-Mail, Notiz, Sitzplatz).
         if (self::is_entrance_only(wp_get_current_user())) {
             foreach ($combined as &$row) {
-                unset($row['email'], $row['note'], $row['seat']);
+                unset($row['email'], $row['note'], $row['seat'], $row['order_id']);
             }
             unset($row);
         }
@@ -1566,6 +1575,63 @@ class TIX_REST_API {
     // ═══════════════════════════════════════════
     //  CHECK-IN: TICKET TOGGLE
     // ═══════════════════════════════════════════
+
+    /**
+     * POST /checkin/uncheck {ticket_id | code} → Ticket bzw. Gast sicher auf „nicht eingecheckt“ (idempotent).
+     * code: Ticket-Code, Ticket-QR „GL-<Event>-<Code>“ oder Gästelisten-QR „GL-<Event>-<Gast-ID>“.
+     * Antwort {ok, type: ticket|guest, id, event_id, checked_in: false, changed, name, message}.
+     */
+    public static function checkin_uncheck(WP_REST_Request $req) {
+        $tid = absint($req->get_param('ticket_id'));
+        $code = strtoupper(trim((string) $req->get_param('code')));
+        if (!$tid && $code === '') return new WP_Error('tix_invalid_field', 'Bitte ticket_id oder code angeben.', ['status' => 400, 'field' => 'code']);
+        if (!class_exists('TIX_Tickets')) return new WP_Error('no_ticket_system', 'Ticketsystem nicht aktiv.', ['status' => 500]);
+        if (!$tid && $code !== '') {
+            $plain = $code;
+            $ev = 0;
+            if (preg_match('/^GL-(\d+)-(.+)$/', $code, $m)) { $ev = intval($m[1]); $plain = $m[2]; }
+            $t = TIX_Tickets::get_ticket_by_code($plain);
+            $tid = is_object($t) ? intval($t->ID ?? 0) : (is_array($t) ? intval($t['ID'] ?? ($t['id'] ?? 0)) : intval($t));
+            if (!$tid && $ev) {
+                // Gästeliste: gleicher Weg wie POST /checkin/{event}/guest/{id} mit count 0
+                $guests = get_post_meta($ev, '_tix_guest_list', true);
+                foreach ((array) $guests as $g) {
+                    if (is_array($g) && strtoupper((string) ($g['id'] ?? '')) === $plain) {
+                        $was = !empty($g['checked_in']) || intval($g['checked_in_count'] ?? 0) > 0;
+                        $sub = new WP_REST_Request('POST', '/tixomat/v1/checkin/' . $ev . '/guest/' . $g['id']);
+                        $sub->set_url_params(['event_id' => $ev, 'guest_id' => (string) $g['id']]);
+                        $sub->set_header('content-type', 'application/json');
+                        $sub->set_body(wp_json_encode(['count' => 0, 'checkin_password' => $req->get_param('checkin_password')]));
+                        foreach (['X-Checkin-Password'] as $hk) if ($req->get_header($hk)) $sub->set_header($hk, $req->get_header($hk));
+                        $r = self::checkin_update_guest($sub);
+                        if (is_wp_error($r)) return $r;
+                        return rest_ensure_response(['ok' => true, 'type' => 'guest', 'id' => (string) $g['id'], 'event_id' => $ev, 'checked_in' => false, 'changed' => $was,
+                            'name' => (string) ($g['name'] ?? ''), 'message' => $was ? 'Check-in zurückgesetzt.' : 'War nicht eingecheckt.']);
+                    }
+                }
+            }
+            if (!$tid) return new WP_Error('not_found', 'Ticket nicht gefunden.', ['status' => 404]);
+        }
+        $post = get_post($tid);
+        if (!$post || $post->post_type !== 'tix_ticket') return new WP_Error('not_found', 'Ticket nicht gefunden.', ['status' => 404]);
+        $event_id = intval(get_post_meta($tid, '_tix_ticket_event_id', true));
+        if (!self::can_access_event($event_id)) return new WP_Error('forbidden', 'Kein Zugriff.', ['status' => 403]);
+        $pw = self::verify_checkin_password($event_id, $req);
+        if (is_wp_error($pw)) return $pw;
+        if ($lock = TIX_Tickets::mirror_lock_message($tid)) return new WP_Error('tix_mirror_ticket', $lock, ['status' => 409]);
+        $was = TIX_Tickets::is_checked_in($tid);
+        if ($was) {
+            TIX_Tickets::reset_checkin($tid);
+            try {
+                $c = get_post_meta($tid, '_tix_ticket_code', true);
+                if ($c && class_exists('TIX_Ticket_DB') && class_exists('TIX_Settings') && TIX_Settings::get('ticket_db_enabled')) {
+                    TIX_Ticket_DB::update_ticket($c, ['checked_in' => 0, 'checkin_time' => null, 'ticket_status' => 'valid', 'synced_supabase' => 0, 'synced_airtable' => 0]);
+                }
+            } catch (\Throwable $e) {}
+        }
+        return rest_ensure_response(['ok' => true, 'type' => 'ticket', 'id' => $tid, 'event_id' => $event_id, 'checked_in' => false, 'changed' => $was,
+            'name' => (string) get_post_meta($tid, '_tix_ticket_owner_name', true), 'message' => $was ? 'Check-in zurückgesetzt.' : 'War nicht eingecheckt.']);
+    }
 
     public static function checkin_toggle_ticket(WP_REST_Request $req) {
         $ticket_id = absint($req['ticket_id']);

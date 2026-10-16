@@ -391,6 +391,47 @@ class TIX_Giftcards {
         }
     }
 
+    /**
+     * Reparatur für Bestellungen vor 1.38.463 (App-Gutschein mit Wunschbetrag ohne Code): Tickets eines Gutschein-Events ohne
+     * Kategorie bekommen die Wunschbetrag-Kategorie (bzw. die feste Kategorie mit gleichem Namen), danach create_for_order().
+     * $dry_run = nur anzeigen. → ['order_id', 'fixed_tickets' => [ids], 'codes' => [neu], 'dry_run']
+     */
+    public static function repair_order($order_id, $dry_run = true) {
+        $order_id = intval($order_id);
+        $fix = [];
+        $tickets = get_posts(['post_type' => 'tix_ticket', 'post_status' => 'publish', 'posts_per_page' => -1, 'fields' => 'ids',
+            'meta_query' => [['key' => '_tix_ticket_order_id', 'value' => (string) $order_id]], 'orderby' => 'ID', 'order' => 'ASC']);
+        foreach ($tickets as $tid) {
+            if (get_post_meta($tid, '_tix_ticket_gift_code', true)) continue;
+            $eid = intval(get_post_meta($tid, '_tix_ticket_event_id', true));
+            if (get_post_meta($eid, '_tix_system_giftcard_event', true) !== '1') continue;
+            $ci = get_post_meta($tid, '_tix_ticket_cat_index', true);
+            if ($ci !== '' && intval($ci) >= 0 && !empty(self::cat_flags($eid, intval($ci))['gift'])) continue;
+            $name = trim((string) get_post_meta($tid, '_tix_ticket_cat_name', true));
+            $target = -1;
+            foreach ((array) get_post_meta($eid, '_tix_ticket_categories', true) as $i => $c) {
+                if (!is_array($c) || empty($c['gift_card'])) continue;
+                if (trim((string) ($c['name'] ?? '')) === $name) { $target = intval($i); break; }
+                if ($target < 0 && !empty($c['gift_free_amount']) && preg_match('/^Gutschein [\d.,]+ €$/u', $name)) $target = intval($i);
+            }
+            if ($target < 0) continue;
+            $fix[] = $tid;
+            if (!$dry_run) update_post_meta($tid, '_tix_ticket_cat_index', $target);
+        }
+        $before = [];
+        wp_cache_delete('tix_coupons', 'options');
+        foreach ((array) get_option('tix_coupons', []) as $k => $c) if (($c['discount_type'] ?? '') === 'giftcard' && intval($c['order_id'] ?? 0) === $order_id) $before[] = $k;
+        $codes = [];
+        if (!$dry_run && $fix) {
+            self::$in_mail = true; // keine automatische Mail – die schickt die Zentrale nach Rückfrage (send_late_mail)
+            self::create_for_order($order_id);
+            self::$in_mail = false;
+            wp_cache_delete('tix_coupons', 'options');
+            foreach ((array) get_option('tix_coupons', []) as $k => $c) if (($c['discount_type'] ?? '') === 'giftcard' && intval($c['order_id'] ?? 0) === $order_id && !in_array($k, $before, true)) $codes[] = (string) $k;
+        }
+        return ['order_id' => $order_id, 'fixed_tickets' => $fix, 'codes' => $codes, 'dry_run' => (bool) $dry_run];
+    }
+
     /** Kauf-Storno: verknuepfte Gutscheine deaktivieren (balance auf 0, Vermerk). */
     public static function deactivate_for_order($order_id) {
         $order_id = intval($order_id);

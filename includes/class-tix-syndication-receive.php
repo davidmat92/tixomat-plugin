@@ -16,7 +16,7 @@ class TIX_Syndication_Receive {
     /** Meta, die nie vom Sender übernommen wird (Herkunft, Zuordnung, Quell-IDs) */
     const PROTECTED_META = [
         '_tix_syndicated', '_tix_source_url', '_tix_source_site', '_tix_source_id', '_tix_source_checkout',
-        '_tix_source_partner', '_tix_source_api', '_tix_partner_sales', '_tix_syndicated_image_url',
+        '_tix_source_partner', '_tix_source_api', '_tix_partner_sales', '_tix_syndicated_image_url', '_tix_source_placeholder_id',
         '_tix_organizer_id', '_tix_location_id',
     ];
 
@@ -153,6 +153,7 @@ class TIX_Syndication_Receive {
 
         // Beitragsbild importieren
         self::import_featured_image($event_id, $data['featured_image'] ?? '');
+        self::import_placeholder($event_id, $data);
 
         // Tages-Alarme: beim Veröffentlichen fehlten Datum und Ort noch
         if (class_exists('TIX_Day_Alerts') && get_post_status($event_id) === 'publish') TIX_Day_Alerts::notify_event($event_id);
@@ -328,6 +329,7 @@ class TIX_Syndication_Receive {
         if (!empty($data['featured_image'])) {
             self::import_featured_image($event_id, $data['featured_image']);
         }
+        if (empty($data['stock_only'])) self::import_placeholder($event_id, $data);
 
         // Tages-Alarme: erst jetzt veröffentlicht → mit den neuen Metas benachrichtigen
         if (!$was_published && class_exists('TIX_Day_Alerts') && get_post_status($event_id) === 'publish') {
@@ -466,6 +468,30 @@ class TIX_Syndication_Receive {
     /**
      * Beitragsbild von URL importieren
      */
+    /**
+     * Platzhalter der Ursprungsseite (1.38.465): einmal je Adresse in die Mediathek (Zuordnung in Option
+     * `tix_syndicated_placeholders`), am Event als `_tix_source_placeholder_id`; null/'' = keiner (Platzhalter der Plattform).
+     */
+    private static function import_placeholder($event_id, $data) {
+        if (!array_key_exists('placeholder', (array) $data)) return; // ältere Quellen senden nichts → unverändert
+        $url = esc_url_raw((string) ($data['placeholder'] ?? ''));
+        if ($url === '' || !preg_match('#^https?://#i', $url)) { delete_post_meta($event_id, '_tix_source_placeholder_id'); return; }
+        $map = get_option('tix_syndicated_placeholders', []);
+        $map = is_array($map) ? $map : [];
+        $k = md5($url);
+        $aid = intval($map[$k] ?? 0);
+        if (!$aid || get_post_type($aid) !== 'attachment') {
+            require_once ABSPATH . 'wp-admin/includes/media.php';
+            require_once ABSPATH . 'wp-admin/includes/file.php';
+            require_once ABSPATH . 'wp-admin/includes/image.php';
+            $aid = media_sideload_image($url, 0, 'Platzhalter ' . sanitize_text_field((string) ($data['source_site'] ?? '')), 'id');
+            if (is_wp_error($aid)) { error_log('[TIX Syndication] Platzhalter nicht geladen: ' . $aid->get_error_message()); return; }
+            $map[$k] = intval($aid);
+            update_option('tix_syndicated_placeholders', $map, false);
+        }
+        update_post_meta($event_id, '_tix_source_placeholder_id', intval($aid));
+    }
+
     private static function import_featured_image($event_id, $image_url) {
         if (empty($image_url)) return;
 

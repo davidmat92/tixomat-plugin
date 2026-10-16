@@ -65,6 +65,11 @@ class TIX_Event_Copy {
     /** Nach dem Kopieren: abgeleitete Felder neu erzeugen (Kalender-Links). */
     public static function after_copy($new_id) {
         if (class_exists('TIX_Calendar') && method_exists('TIX_Calendar', 'save_meta')) TIX_Calendar::save_meta($new_id);
+        // Vorgabe „alle Events auf evendis teilen“ (1.38.465): Duplikate vorbelegt, Verkaufsart wie im Original
+        if (class_exists('TIX_Syndication_Push') && TIX_Syndication_Push::default_on() && !TIX_Syndication_Push::is_system_event($new_id)) {
+            update_post_meta($new_id, '_tix_syndicate', '1');
+            if (!metadata_exists('post', $new_id, '_tix_partner_sales')) update_post_meta($new_id, '_tix_partner_sales', TIX_Syndication_Push::default_partner_sales() ? '1' : '0');
+        }
     }
 
     // ── Selbstheilung 1.38.462 (einmal je Seite) ──

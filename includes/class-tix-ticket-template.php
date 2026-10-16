@@ -588,23 +588,8 @@ class TIX_Ticket_Template {
 
         $qr_size = max($field_cfg['width'], $field_cfg['height']);
 
-        // QR-Code via API generieren (mit Transient-Cache)
-        $cache_key = 'tix_qr_' . md5($qr_data . $qr_size);
-        $qr_png = get_transient($cache_key);
-
-        if (!$qr_png) {
-            $url = 'https://api.qrserver.com/v1/create-qr-code/?size=' . $qr_size . 'x' . $qr_size . '&data=' . urlencode($qr_data) . '&format=png';
-            $response = wp_remote_get($url, ['timeout' => 10]);
-
-            if (!is_wp_error($response) && wp_remote_retrieve_response_code($response) === 200) {
-                $qr_png = wp_remote_retrieve_body($response);
-                set_transient($cache_key, $qr_png, HOUR_IN_SECONDS);
-            }
-        }
-
-        if (!$qr_png) return;
-
-        $qr_img = @imagecreatefromstring($qr_png);
+        // QR-Code lokal erzeugen (1.38.465; vorher api.qrserver.com – der Ticket-Code ging an einen Dritten)
+        $qr_img = class_exists('TIX_QR') ? TIX_QR::gd((string) $qr_data, max(120, intval($qr_size)), 2) : null;
         if (!$qr_img) return;
 
         $src_w    = imagesx($qr_img);

@@ -4003,7 +4003,7 @@ class TIX_Metabox {
             // Noch nie entschieden (neues Event) → standardmaessig an, da die Site zum Senden konfiguriert ist
             $syn_active  = metadata_exists('post', $post->ID, '_tix_syndicate')
                 ? get_post_meta($post->ID, '_tix_syndicate', true)
-                : '1';
+                : ((class_exists('TIX_Syndication_Push') && TIX_Syndication_Push::default_setting() === false) ? '0' : '1'); // Vorgabe „alle teilen“ (1.38.465)
             $syn_status  = get_post_meta($post->ID, '_tix_syndicate_status', true);
             $syn_last    = get_post_meta($post->ID, '_tix_syndicate_last', true);
             $syn_error   = get_post_meta($post->ID, '_tix_syndicate_error', true);

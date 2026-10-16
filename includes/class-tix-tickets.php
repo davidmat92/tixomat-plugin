@@ -2233,7 +2233,7 @@ body{margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',
         $qr_data = 'GL-' . $event_id . '-' . $code;
         // Lokale QR-Generierung via Canvas (wird clientseitig von tix-qr.js gerendert)
         // Fallback-URL falls JS nicht lädt
-        $qr_url  = 'https://api.qrserver.com/v1/create-qr-code/?size=400x400&margin=0&data=' . urlencode($qr_data);
+        $qr_url  = class_exists('TIX_QR') ? TIX_QR::url($qr_data, 400) : ''; // lokal (1.38.465)
 
         // Badge-State + Token für Live-Updates / Personen-Zuordnung
         $badge        = self::get_badge_state($ticket_id, $s);
@@ -6319,7 +6319,7 @@ body{margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',
 
             $token   = self::ensure_download_token($ticket_id);
             $qr_data = 'GL-' . $event_id . '-' . $code;
-            $qr_url  = 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=' . urlencode($qr_data);
+            $qr_url  = class_exists('TIX_QR') ? TIX_QR::url($qr_data, 200) : ''; // lokal (1.38.465)
             $badge   = self::get_badge_state($ticket_id, $s);
             $online_url = self::get_online_view_url($ticket_id);
 

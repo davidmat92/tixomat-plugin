@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.38.464
+ * Version: 1.38.465
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  * Update URI: https://veranstalter.evendis.de/tixomat
@@ -10,7 +10,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.38.464');
+define('TIXOMAT_VERSION', '1.38.465');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -507,6 +507,7 @@ require_once TIXOMAT_PATH . 'includes/class-tix-ip-block.php';
 // ── Geschenkgutscheine (Guthaben-Tickets, online + Scan einloesbar) ──
 require_once TIXOMAT_PATH . 'includes/class-tix-giftcards.php';
 require_once TIXOMAT_PATH . 'includes/class-tix-qr.php';            // QR lokal (1.38.463)
+TIX_QR::init();                                                     // signierte QR-Bilder ?tix_qr= (1.38.465)
 require_once TIXOMAT_PATH . 'includes/class-tix-giftcard-gift.php'; // Gutschein als Geschenk: Angaben, PDF, Mail, Studio-Einstellungen (1.38.463)
 
 // ── Promoted Events (bezahltes Placement auf der Homepage) ──

@@ -71,6 +71,9 @@ class TIX_Event_Report {
         if (is_wp_error($post)) return $post;
         $id = intval($post->ID);
         $data = self::get_event_data($id);
+        $extra = self::report_extras($id, (array) $data['tickets']);
+        $data['kpis']['orders'] = $extra['orders'];
+        $data['kpis']['discounts'] = $extra['discounts'];
         $loc_id = intval(get_post_meta($id, '_tix_location_id', true));
         $cats = (array) $data['categories'];
         $r = new WP_REST_Response([
@@ -97,10 +100,69 @@ class TIX_Event_Report {
                     'category' => (string) $t['category'], 'price' => round(floatval($t['price']), 2), 'order_id' => intval($t['order_id']), 'order_number' => (string) $t['order_number'],
                     'order_date' => (string) $t['order_date'], 'seat' => (string) $t['seat'], 'status' => (string) $t['status'], 'checked_in' => (bool) $t['checked_in'], 'checkin_time' => (string) $t['checkin_time']];
             }, (array) $data['tickets'])),
+            // 1.38.465: Zahlarten und Preisphasen (Phase aus dem gezahlten Preis abgeleitet – Bestellungen speichern keine Phase)
+            'by_payment'  => $extra['by_payment'],
+            'phases'      => $extra['phases'],
             'exports'     => ['csv', 'xlsx', 'pdf'],
         ]);
         $r->header('Cache-Control', 'no-store');
         return $r;
+    }
+
+    /**
+     * Zusätze fürs Studio: orders (bezahlte Bestellungen mit diesem Event), discounts (Rabatt anteilig auf dieses Event),
+     * by_payment [{method, label, orders, revenue}] (Event-Anteil nach Rabatt), phases [{category, name, sold, revenue}]
+     * – nur Kategorien mit Preisphasen; Phase = Phase mit dem gezahlten Preis, sonst „Normalpreis“ bzw. „Anderer Preis“.
+     */
+    public static function report_extras($event_id, array $tickets) {
+        global $wpdb;
+        $t = $wpdb->prefix . 'tix_orders';
+        $ti = $wpdb->prefix . 'tix_order_items';
+        $rows = $wpdb->get_results($wpdb->prepare("SELECT o.id, o.payment_method, o.payment_method_title, o.discount, o.subtotal,
+                SUM(CASE WHEN i.event_id = %d THEN i.total ELSE 0 END) AS ev_total, SUM(i.total) AS all_total
+            FROM $t o INNER JOIN $ti i ON i.order_id = o.id
+            WHERE o.status IN ('completed','processing') AND o.id IN (SELECT order_id FROM $ti WHERE event_id = %d)
+            GROUP BY o.id", $event_id, $event_id));
+        $orders = 0; $discounts = 0.0; $pay = [];
+        foreach ((array) $rows as $r) {
+            $orders++;
+            $base = floatval($r->all_total) > 0 ? floatval($r->all_total) : max(floatval($r->subtotal), floatval($r->ev_total));
+            $share = $base > 0 ? floatval($r->ev_total) / $base : 1.0;
+            $disc = round(floatval($r->discount) * $share, 2);
+            $discounts += $disc;
+            $m = (string) ($r->payment_method ?: 'unknown');
+            if (!isset($pay[$m])) $pay[$m] = ['method' => $m, 'label' => (string) ($r->payment_method_title ?: $m), 'orders' => 0, 'revenue' => 0.0];
+            $pay[$m]['orders']++;
+            $pay[$m]['revenue'] += max(0, floatval($r->ev_total) - $disc);
+        }
+        foreach ($pay as &$p) $p['revenue'] = round($p['revenue'], 2);
+        unset($p);
+        usort($pay, function ($a, $b) { return $b['revenue'] <=> $a['revenue']; });
+        // Phasen aus dem Preis
+        $phases_by_cat = [];
+        foreach ((array) get_post_meta($event_id, '_tix_ticket_categories', true) as $c) {
+            if (!is_array($c) || empty($c['phases']) || !is_array($c['phases'])) continue;
+            $phases_by_cat[trim((string) ($c['name'] ?? ''))] = ['phases' => $c['phases'], 'price' => floatval($c['price'] ?? 0), 'sale' => ($c['sale_price'] ?? '') !== '' ? floatval($c['sale_price']) : null];
+        }
+        $ph = [];
+        foreach ($tickets as $tk) {
+            if (($tk['status'] ?? '') === 'cancelled') continue;
+            $cat = trim((string) ($tk['category'] ?? ''));
+            if (!isset($phases_by_cat[$cat])) continue;
+            $price = round(floatval($tk['price'] ?? 0), 2);
+            $name = '';
+            foreach ($phases_by_cat[$cat]['phases'] as $phase) {
+                if (is_array($phase) && abs(round(floatval($phase['price'] ?? -1), 2) - $price) < 0.01) { $name = (string) ($phase['name'] ?? 'Phase'); break; }
+            }
+            if ($name === '') $name = (abs($phases_by_cat[$cat]['price'] - $price) < 0.01 || ($phases_by_cat[$cat]['sale'] !== null && abs($phases_by_cat[$cat]['sale'] - $price) < 0.01)) ? 'Normalpreis' : 'Anderer Preis';
+            $k = $cat . '|' . $name;
+            if (!isset($ph[$k])) $ph[$k] = ['category' => $cat, 'name' => $name, 'sold' => 0, 'revenue' => 0.0];
+            $ph[$k]['sold']++;
+            $ph[$k]['revenue'] += $price;
+        }
+        foreach ($ph as &$p) $p['revenue'] = round($p['revenue'], 2);
+        unset($p);
+        return ['orders' => $orders, 'discounts' => round($discounts, 2), 'by_payment' => array_values($pay), 'phases' => array_values($ph)];
     }
 
     /** Export als Bytes (derselbe wie im WP-Admin) → ['bytes', 'filename', 'mime'] */

@@ -198,6 +198,8 @@ class TIX_Public_Events {
             'image'           => get_the_post_thumbnail_url($id, 'large') ?: (get_the_post_thumbnail_url($id, 'full') ?: ''),
             'thumbnail'       => get_the_post_thumbnail_url($id, 'medium_large') ?: (get_the_post_thumbnail_url($id, 'medium') ?: ''),
             'image_small'     => get_the_post_thumbnail_url($id, 'medium') ?: (get_the_post_thumbnail_url($id, 'thumbnail') ?: ''),
+            // Platzhalter, wenn das Event kein Bild hat (1.38.465): Ursprungsseite (geteilt) bzw. Veranstalter, sonst Seite; `image` bleibt leer
+            'placeholder'     => (class_exists('TIX_Studio') && method_exists('TIX_Studio', 'event_placeholder') && ($ph = TIX_Studio::event_placeholder($id))) ? ['url' => $ph['url'], 'url_small' => $ph['url_small']] : null,
             'date_start'      => (string) get_post_meta($id, '_tix_date_start', true),
             'date_end'        => (string) get_post_meta($id, '_tix_date_end', true),
             'time_start'      => (string) get_post_meta($id, '_tix_time_start', true),

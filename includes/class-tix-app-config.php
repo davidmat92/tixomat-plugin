@@ -113,5 +113,34 @@ class TIX_App_Config {
             'methods' => 'GET', 'callback' => [__CLASS__, 'rest_admin_get'],
             'permission_callback' => $organizer,
         ]);
+        // Bild für App-Inhalte hochladen (1.38.465, z. B. Banner): multipart `file`, `kind` = banner | image → {ok, url, id, kind, width, height}
+        register_rest_route(self::NS, '/app/config/image', [
+            'methods' => 'POST', 'callback' => [__CLASS__, 'rest_image'],
+            'permission_callback' => $organizer,
+        ]);
+    }
+
+    public static function rest_image(WP_REST_Request $req) {
+        $kind = sanitize_key((string) ($req->get_param('kind') ?: 'image'));
+        if (!in_array($kind, ['banner', 'image'], true)) return new WP_Error('tix_invalid_field', 'kind: banner oder image.', ['status' => 400, 'field' => 'kind']);
+        $files = $req->get_file_params();
+        $f = $files['file'] ?? ($files['image'] ?? null);
+        if (intval($_SERVER['CONTENT_LENGTH'] ?? 0) > 0 && !$files && !$req->get_body_params()) return new WP_Error('tix_too_large', 'Das Bild ist zu groß (höchstens 5 MB).', ['status' => 413, 'field' => 'file']);
+        if (!empty($f['error']) && intval($f['error']) !== UPLOAD_ERR_NO_FILE) return new WP_Error('upload_failed', 'Upload fehlgeschlagen (höchstens 5 MB).', ['status' => in_array(intval($f['error']), [UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE], true) ? 413 : 400, 'field' => 'file']);
+        if (empty($f['tmp_name'])) return new WP_Error('no_file', 'Kein Bild übermittelt.', ['status' => 400, 'field' => 'file']);
+        if (intval($f['size'] ?? 0) > 5 * MB_IN_BYTES) return new WP_Error('tix_too_large', 'Das Bild ist zu groß (höchstens 5 MB).', ['status' => 413, 'field' => 'file']);
+        $info = @getimagesize($f['tmp_name']);
+        $mime = is_array($info) ? (string) $info['mime'] : '';
+        $ext = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp', 'image/gif' => 'gif'][$mime] ?? '';
+        if ($ext === '') return new WP_Error('bad_type', 'Bitte ein JPG-, PNG-, WebP- oder GIF-Bild wählen.', ['status' => 400, 'field' => 'file']);
+        if ($info[0] > 8000 || $info[1] > 8000) return new WP_Error('bad_size', 'Das Bild darf höchstens 8000 Pixel groß sein.', ['status' => 400, 'field' => 'file']);
+        require_once ABSPATH . 'wp-admin/includes/file.php';
+        require_once ABSPATH . 'wp-admin/includes/media.php';
+        require_once ABSPATH . 'wp-admin/includes/image.php';
+        $aid = media_handle_sideload(['name' => 'app-' . $kind . '-' . time() . '.' . $ext, 'tmp_name' => $f['tmp_name'], 'type' => $mime, 'size' => $f['size'] ?? 0], 0, 'App ' . ($kind === 'banner' ? 'Banner' : 'Bild'));
+        if (is_wp_error($aid)) return new WP_Error('upload_failed', $aid->get_error_message(), ['status' => 500]);
+        update_post_meta($aid, '_tix_app_image_kind', $kind);
+        $url = (string) (wp_get_attachment_image_url($aid, $kind === 'banner' ? 'large' : 'large') ?: wp_get_attachment_url($aid));
+        return rest_ensure_response(['ok' => true, 'url' => $url, 'id' => intval($aid), 'kind' => $kind, 'width' => intval($info[0]), 'height' => intval($info[1])]);
     }
 }

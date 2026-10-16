@@ -9,7 +9,18 @@ if (!defined('ABSPATH')) exit;
 
 class TIX_Syndication_Push {
 
+    /** Vorgabe „alle Events auf evendis teilen“ (1.38.465): '1' an, '0' aus, leer = wie bisher (Häkchen vorbelegt, App-Anlage aus) */
+    const DEFAULT_OPT = 'tix_syndicate_default';
+    /** Verkaufsart der Vorgabe: Tickets auch über die Plattform verkaufen ('1' Vorgabe, '0' nur anzeigen) */
+    const DEFAULT_SALES_OPT = 'tix_syndicate_default_sales';
+    const HEAL_OPT = 'tix_syndication_heal_465';
+
+    /** Events, die gerade erst angelegt und mit der Vorgabe belegt wurden: erster Push wartet auf die vollständigen Daten */
+    private static $fresh = [];
+
     public static function init() {
+        // Vorgabe vor allem anderen setzen (neue Events aus Studio, App, WP-Admin, Registrierung, Serien)
+        add_action('save_post_event', [__CLASS__, 'apply_default'], 1, 3);
         // Push bei Event-Speichern (nach Sync, Prio 35)
         add_action('save_post_event', [__CLASS__, 'on_save'], 35, 2);
         // Push bei Löschung
@@ -23,6 +34,62 @@ class TIX_Syndication_Push {
         add_action('tix_syndication_stock_push', [__CLASS__, 'push_stock']);
         // Nach der Kopplung mit einer Plattform: markierte, kommende Events verteilen
         add_action('tix_syndication_push_all', [__CLASS__, 'push_all']);
+        // Einmal nach dem Update: alle verteilten, kommenden Events neu senden (evendis_url für Freigaben vor 1.38.453, Platzhalter)
+        add_action('init', function () {
+            if (get_option(self::HEAL_OPT, '') !== '' || !self::is_configured()) return;
+            update_option(self::HEAL_OPT, gmdate('c'), false);
+            if (!wp_next_scheduled('tix_syndication_push_all')) wp_schedule_single_event(time() + 120, 'tix_syndication_push_all');
+        }, 30);
+    }
+
+    /** Ist die Vorgabe „alle teilen“ aktiv? null = nicht eingestellt (Verhalten wie bis 1.38.464). */
+    public static function default_setting() {
+        $v = (string) get_option(self::DEFAULT_OPT, '');
+        return $v === '' ? null : $v === '1';
+    }
+
+    public static function default_on() {
+        return self::is_configured() && !(class_exists('TIX_App_Scope') && TIX_App_Scope::multi()) && self::default_setting() === true;
+    }
+
+    public static function default_partner_sales() {
+        return get_option(self::DEFAULT_SALES_OPT, '1') !== '0';
+    }
+
+    /** Gutschein-, Guthaben- und Test-Events werden nie verteilt. */
+    public static function is_system_event($post_id) {
+        return get_post_meta($post_id, '_tix_system_giftcard_event', true) === '1' || get_post_meta($post_id, '_tix_system_wallet_event', true) === '1'
+            || get_post_meta($post_id, '_tix_awareness_test', true) !== '' || (string) get_post_meta($post_id, '_tix_giftcard_organizer', true) !== '';
+    }
+
+    /** save_post_event (Prio 1): neues Event ohne Entscheidung → „auf evendis teilen“ vorbelegen (je Event abwählbar). */
+    public static function apply_default($post_id, $post, $update) {
+        if ($update || !$post || $post->post_type !== 'event' || wp_is_post_revision($post_id)) return;
+        if (!self::default_on() || isset($_POST['tix_syndicate_to_platform']) || metadata_exists('post', $post_id, '_tix_syndicate')) return;
+        update_post_meta($post_id, '_tix_syndicate', '1');
+        if (!metadata_exists('post', $post_id, '_tix_partner_sales')) update_post_meta($post_id, '_tix_partner_sales', self::default_partner_sales() ? '1' : '0');
+        self::$fresh[$post_id] = true;
+    }
+
+    /**
+     * Bestehende kommende Events teilen (Studio, einmalige Aktion): veröffentlichte, kommende, nicht geteilte Events
+     * (ohne Systemevents). dry_run = nur auflisten. → ['count', 'events' => [{id, title, date_start}]]
+     */
+    public static function share_upcoming($dry_run = true) {
+        $ids = get_posts(['post_type' => 'event', 'post_status' => 'publish', 'posts_per_page' => 500, 'fields' => 'ids',
+            'meta_query' => [['key' => '_tix_date_start', 'value' => current_time('Y-m-d'), 'compare' => '>=', 'type' => 'DATE']], 'tix_include_system' => 1]);
+        $out = [];
+        foreach ($ids as $id) {
+            $id = intval($id);
+            if (get_post_meta($id, '_tix_syndicate', true) === '1' || self::is_system_event($id)) continue;
+            $out[] = ['id' => $id, 'title' => html_entity_decode(get_the_title($id), ENT_QUOTES, 'UTF-8'), 'date_start' => (string) get_post_meta($id, '_tix_date_start', true)];
+            if (!$dry_run) {
+                update_post_meta($id, '_tix_syndicate', '1');
+                if (!metadata_exists('post', $id, '_tix_partner_sales')) update_post_meta($id, '_tix_partner_sales', self::default_partner_sales() ? '1' : '0');
+            }
+        }
+        if (!$dry_run && $out && !wp_next_scheduled('tix_syndication_push_all')) wp_schedule_single_event(time(), 'tix_syndication_push_all');
+        return ['count' => count($out), 'events' => $out];
     }
 
     /** Alle veröffentlichten, kommenden Events mit Häkchen „Auf Plattform veröffentlichen“ senden. */
@@ -97,6 +164,9 @@ class TIX_Syndication_Push {
         if (wp_is_post_revision($post_id)) return;
         if ($post->post_type !== 'event') return;
         if (!self::is_configured()) return;
+        if (self::is_system_event($post_id)) return;
+        // Gerade erst angelegt und mit der Vorgabe belegt: Push folgt beim nächsten Speichern mit vollständigen Daten
+        if (!empty(self::$fresh[$post_id])) { unset(self::$fresh[$post_id]); return; }
 
         // Checkbox aus POST oder Meta
         $syndicate = isset($_POST['tix_syndicate_to_platform'])
@@ -182,7 +252,7 @@ class TIX_Syndication_Push {
      */
     public static function push_event($post_id) {
         $post = get_post($post_id);
-        if (!$post) return;
+        if (!$post || self::is_system_event($post_id)) return;
 
         // ALLE _tix_* Meta-Felder sammeln
         $all_meta = [];
@@ -211,6 +281,8 @@ class TIX_Syndication_Push {
             'excerpt'         => $post->post_excerpt,
             'status'          => $post->post_status,
             'featured_image'  => get_the_post_thumbnail_url($post_id, 'full') ?: '',
+            // Platzhalter dieser Seite für Events ohne Bild (1.38.465): URL bzw. null = keiner
+            'placeholder'     => (class_exists('TIX_Studio') && method_exists('TIX_Studio', 'event_placeholder') && ($ph = TIX_Studio::event_placeholder($post_id))) ? (string) (wp_get_attachment_url($ph['id']) ?: $ph['url']) : null,
             // Partner-Verkauf: REST-Basis dieser Seite + Freigabe je Event
             'source_api'      => rest_url('tixomat/v1'),
             'partner_sales'   => self::partner_sales_enabled($post_id),

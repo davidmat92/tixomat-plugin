@@ -135,6 +135,8 @@ class TIX_Studio_Editor {
     /** Verteilung an? Wie die Metabox: noch nie entschieden = an, wenn die Seite zum Verteilen eingerichtet ist. */
     private static function syndicate_effective($id) {
         if ($id && metadata_exists('post', $id, '_tix_syndicate')) return get_post_meta($id, '_tix_syndicate', true) === '1';
+        // Vorgabe „alle Events teilen“ (1.38.465); nicht eingestellt = wie bisher an
+        if (class_exists('TIX_Syndication_Push') && TIX_Syndication_Push::default_setting() === false) return false;
         return self::syndication_available();
     }
 

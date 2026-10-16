@@ -199,6 +199,10 @@ class TIX_Studio {
             ['methods' => 'GET',  'callback' => [__CLASS__, 'rest_config'],      'permission_callback' => '__return_true'],
             ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_save_config'], 'permission_callback' => [__CLASS__, 'perm_brand']],
         ]);
+        // Bestehende kommende Events auf evendis teilen (einmalige Aktion, 1.38.465): {dry_run: true} listet nur
+        register_rest_route(self::NS, '/studio/syndicate-upcoming', [
+            'methods' => 'POST', 'callback' => [__CLASS__, 'rest_syndicate_upcoming'], 'permission_callback' => [__CLASS__, 'perm_brand'],
+        ]);
         register_rest_route(self::NS, '/organizer/tasks', [
             'methods'             => 'GET',
             'callback'            => [__CLASS__, 'rest_tasks'],
@@ -270,19 +274,38 @@ class TIX_Studio {
     }
 
     /**
+     * Platzhalter eines Events (1.38.465): geteiltes Event → Platzhalter der Ursprungsseite (`_tix_source_placeholder_id`),
+     * Mehr-Veranstalter-Modus → Platzhalter des Veranstalters (`_tix_org_placeholder_id`), sonst der Seite. 0 = keiner.
+     */
+    public static function event_placeholder_id($event_id) {
+        $ok = function ($id) { $id = intval($id); return ($id && get_post_type($id) === 'attachment') ? $id : 0; };
+        if ($id = $ok(get_post_meta($event_id, '_tix_source_placeholder_id', true))) return $id;
+        if (self::multi() && ($oid = intval(get_post_meta($event_id, '_tix_organizer_id', true))) && ($id = $ok(get_post_meta($oid, '_tix_org_placeholder_id', true)))) return $id;
+        return $ok(self::brand()['placeholder_id'] ?? 0);
+    }
+
+    /** {id, url, url_small} des Event-Platzhalters oder null. */
+    public static function event_placeholder($event_id) {
+        $id = self::event_placeholder_id($event_id);
+        if (!$id) return null;
+        $url = (string) (wp_get_attachment_image_url($id, 'large') ?: wp_get_attachment_url($id));
+        return $url === '' ? null : ['id' => $id, 'url' => $url, 'url_small' => (string) (wp_get_attachment_image_url($id, 'medium') ?: $url)];
+    }
+
+    /**
      * Website: Event ohne Beitragsbild → Platzhalter als Beitragsbild (Theme, Breakdance, Plugin-Vorlagen).
      * Nicht in REST, Verwaltung, Cron und WP-CLI – die Apps erkennen „ohne Bild“ an einem leeren `image`.
+     * Seit 1.38.465 je Event (Ursprungsseite bzw. Veranstalter, sonst Seite).
      */
     public static function placeholder_thumbnail($value, $object_id, $meta_key, $single) {
         if ($meta_key !== '_thumbnail_id' || $value !== null) return $value;
-        static $pid = null;
-        if ($pid === null) $pid = intval(self::brand()['placeholder_id'] ?? 0);
-        if (!$pid || is_admin() || (defined('REST_REQUEST') && REST_REQUEST) || wp_doing_cron() || (defined('WP_CLI') && WP_CLI)) return $value;
+        if (is_admin() || (defined('REST_REQUEST') && REST_REQUEST) || wp_doing_cron() || (defined('WP_CLI') && WP_CLI)) return $value;
         if (get_post_type($object_id) !== 'event') return $value;
         remove_filter('get_post_metadata', [__CLASS__, 'placeholder_thumbnail'], 10);
         $own = get_post_meta($object_id, '_thumbnail_id', true);
+        $pid = intval($own) > 0 ? 0 : self::event_placeholder_id($object_id);
         add_filter('get_post_metadata', [__CLASS__, 'placeholder_thumbnail'], 10, 4);
-        if (intval($own) > 0) return $value;
+        if (!$pid) return $value;
         return $single ? (string) $pid : [(string) $pid];
     }
 
@@ -361,10 +384,33 @@ class TIX_Studio {
             ],
             // Eigene App der Seite (1.38.454): KitchenKlub/Mallorca ja, evendis nein (die evendis-App ist die Plattform-App)
             'app'        => self::app_info(),
+            // Verteilung auf evendis (1.38.465): Vorgabe „alle Events teilen“ (null = nicht eingestellt, wie bisher)
+            'syndication' => self::syndication_info(),
             'site_url'   => (class_exists('TIX_Customer_URL') ? TIX_Customer_URL::base() : '') ?: untrailingslashit(home_url()),
             'expert_url' => admin_url('admin.php?page=tixomat'),
             'studio_url' => self::active() ? self::url('/') : '',
         ];
+    }
+
+    /** {available, default (true|false|null), default_partner_sales, partner_sales_available} */
+    private static function syndication_info() {
+        $avail = class_exists('TIX_Syndication_Push') && TIX_Syndication_Push::is_configured() && !self::multi();
+        return [
+            'available' => $avail,
+            'default' => $avail ? TIX_Syndication_Push::default_setting() : null,
+            'default_partner_sales' => class_exists('TIX_Syndication_Push') ? TIX_Syndication_Push::default_partner_sales() : true,
+            'partner_sales_available' => class_exists('TIX_Partners') && method_exists('TIX_Partners', 'source_api_enabled') && TIX_Partners::source_api_enabled(),
+        ];
+    }
+
+    /** POST /studio/syndicate-upcoming {dry_run = true} → {ok, dry_run, count, events [{id, title, date_start}]} */
+    public static function rest_syndicate_upcoming(WP_REST_Request $req) {
+        if (!(class_exists('TIX_Syndication_Push') && TIX_Syndication_Push::is_configured()) || self::multi()) {
+            return new WP_Error('tix_syndication_unavailable', 'Die Verteilung auf evendis ist hier nicht eingerichtet.', ['status' => 409]);
+        }
+        $dry = $req->get_param('dry_run');
+        $dry = ($dry === null || $dry === '') ? true : filter_var($dry, FILTER_VALIDATE_BOOLEAN);
+        return rest_ensure_response(['ok' => true, 'dry_run' => $dry] + TIX_Syndication_Push::share_upcoming($dry));
     }
 
     const HAS_APP = 'tix_studio_has_app';
@@ -473,7 +519,15 @@ class TIX_Studio {
             elseif (get_post_type($pid) !== 'attachment' || !wp_attachment_is_image($pid)) return new WP_Error('tix_invalid_field', 'Bild nicht gefunden.', ['status' => 400, 'field' => 'placeholder_id']);
             else $b['placeholder_id'] = $pid;
         }
-        $unknown = array_diff(array_keys((array) $p), ['accent', 'logo_id', 'logo', 'has_app', 'app_layout', 'placeholder_id', 'placeholder']);
+        $unknown = array_diff(array_keys((array) $p), ['accent', 'logo_id', 'logo', 'has_app', 'app_layout', 'placeholder_id', 'placeholder', 'syndicate_default', 'syndicate_default_partner_sales']);
+        // Vorgabe „alle Events auf evendis teilen“ (1.38.465): true | false | null (nicht eingestellt)
+        if ($has('syndicate_default') || $has('syndicate_default_partner_sales')) {
+            $avail = class_exists('TIX_Syndication_Push') && TIX_Syndication_Push::is_configured() && !self::multi();
+            $sd = $req->get_param('syndicate_default');
+            if ($has('syndicate_default') && filter_var($sd, FILTER_VALIDATE_BOOLEAN) && !$avail) {
+                return new WP_Error('tix_syndication_unavailable', 'Die Verteilung auf evendis ist hier nicht eingerichtet.', ['status' => 409, 'field' => 'syndicate_default']);
+            }
+        }
         if ($has('app_layout')) {
             $lv = $req->get_param('app_layout');
             if (!current_user_can('manage_options')) return new WP_Error('rest_forbidden', 'Nur ein Admin legt das Profil der App fest.', ['status' => 403]);
@@ -490,6 +544,14 @@ class TIX_Studio {
         if ($has('app_layout')) {
             $lv = $req->get_param('app_layout');
             if ($lv === null || $lv === '') delete_option(self::APP_LAYOUT); else update_option(self::APP_LAYOUT, $lv, false);
+        }
+        if ($has('syndicate_default') && class_exists('TIX_Syndication_Push')) {
+            $sd = $req->get_param('syndicate_default');
+            if ($sd === null || $sd === '') delete_option(TIX_Syndication_Push::DEFAULT_OPT);
+            else update_option(TIX_Syndication_Push::DEFAULT_OPT, filter_var($sd, FILTER_VALIDATE_BOOLEAN) ? '1' : '0', false);
+        }
+        if ($has('syndicate_default_partner_sales') && class_exists('TIX_Syndication_Push')) {
+            update_option(TIX_Syndication_Push::DEFAULT_SALES_OPT, filter_var($req->get_param('syndicate_default_partner_sales'), FILTER_VALIDATE_BOOLEAN) ? '1' : '0', false);
         }
         update_option(self::BRAND, $b, false);
         return rest_ensure_response(self::config_payload());

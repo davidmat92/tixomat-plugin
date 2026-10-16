@@ -306,6 +306,8 @@ class TIX_App_Scope {
             'awareness'   => class_exists('TIX_Awareness') ? TIX_Awareness::organizer(intval($oid)) : null,
             'logo'        => $img('_tix_org_landing_logo_id', 'medium') ?: $img('_tix_org_image_id', 'medium'),
             'hero'        => $img('_tix_org_landing_hero_id', 'large'),
+            // Platzhalter für Events ohne Bild (1.38.465): {url, url_small} | null (dann der Platzhalter der Seite)
+            'placeholder' => ($pu = $img('_tix_org_placeholder_id', 'large')) ? ['url' => $pu, 'url_small' => $img('_tix_org_placeholder_id', 'medium') ?: $pu] : null,
         ] + ((class_exists('TIX_Organizer_Link') && TIX_Organizer_Link::multi()) ? TIX_Organizer_Link::profile_extra(intval($oid)) : [])
           + ((class_exists('TIX_Organizer_Page') && TIX_Organizer_Page::multi()) ? TIX_Organizer_Page::profile_extra(intval($oid)) : []);
     }
@@ -435,7 +437,13 @@ class TIX_App_Scope {
     public static function rest_profile_image(WP_REST_Request $req) {
         $oid  = self::organizer_id_for_user();
         $kind = sanitize_key((string) $req->get_param('kind'));
-        $meta = $kind === 'hero' ? '_tix_org_landing_hero_id' : '_tix_org_landing_logo_id';
+        $meta = $kind === 'hero' ? '_tix_org_landing_hero_id' : ($kind === 'placeholder' ? '_tix_org_placeholder_id' : '_tix_org_landing_logo_id');
+        // Platzhalter je Veranstalter (1.38.465) zurücksetzen: kind=placeholder&remove=1 → wieder der Platzhalter der Seite
+        if ($kind === 'placeholder' && filter_var($req->get_param('remove'), FILTER_VALIDATE_BOOLEAN)) {
+            delete_post_meta($oid, $meta);
+            self::flush_public_cache();
+            return self::rest_profile($req);
+        }
         $files = $req->get_file_params();
         if (empty($files['file'])) return new WP_Error('no_file', 'Kein Bild übermittelt.', ['status' => 400]);
         $type = wp_check_filetype((string) ($files['file']['name'] ?? ''));

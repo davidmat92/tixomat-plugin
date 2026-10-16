@@ -1673,7 +1673,7 @@ class TIX_Emails {
         // QR-Code
         $qr_code = 'GL-' . $event_id . '-' . $guest_id;
         $qr_url  = home_url('?tix_guest=' . urlencode($qr_code));
-        $qr_img  = 'https://quickchart.io/qr?text=' . urlencode($qr_code) . '&size=200&margin=2';
+        $qr_img  = class_exists('TIX_QR') ? TIX_QR::url($qr_code, 200) : ''; // lokal statt quickchart.io (1.38.465)
 
         // Plus-Info
         $plus_text = '';

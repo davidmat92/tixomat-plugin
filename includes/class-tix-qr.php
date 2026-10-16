@@ -7,8 +7,41 @@ if (!defined('ABSPATH')) exit;
  *
  *   TIX_QR::matrix($text)           → [[bool]] (true = dunkel) oder null (zu lang)
  *   TIX_QR::gd($text, $px, $quiet)  → GD-Bild (Kantenlänge $px, Ruhezone in Modulen) oder null
+ *   TIX_QR::url($text, $px)         → signierte PNG-Adresse auf der eigenen Seite (?tix_qr=…&s=…) für Mails und Ticket-Seiten
+ *                                      (1.38.465: Ticket- und Gästelisten-Codes gehen nicht mehr an api.qrserver.com/quickchart.io)
  */
 class TIX_QR {
+
+    public static function init() {
+        add_action('init', [__CLASS__, 'serve'], 1);
+    }
+
+    private static function sig($text, $px) {
+        return substr(hash_hmac('sha256', $px . '|' . $text, wp_salt('auth') . 'tix_qr'), 0, 20);
+    }
+
+    public static function url($text, $px = 300) {
+        $px = max(80, min(1000, intval($px)));
+        return add_query_arg(['tix_qr' => rawurlencode((string) $text), 'px' => $px, 's' => self::sig((string) $text, $px)], home_url('/'));
+    }
+
+    /** ?tix_qr=…&px=…&s=… → PNG (nur mit gültiger Signatur, sonst 404). */
+    public static function serve() {
+        if (!isset($_GET['tix_qr'], $_GET['s'])) return;
+        $text = wp_unslash((string) $_GET['tix_qr']);
+        $px = max(80, min(1000, intval($_GET['px'] ?? 300)));
+        if (!hash_equals(self::sig($text, $px), (string) $_GET['s'])) { status_header(404); exit; }
+        $im = self::gd($text, $px, 2);
+        if (!$im) { status_header(404); exit; }
+        if (!headers_sent()) {
+            header('Content-Type: image/png');
+            header('Cache-Control: public, max-age=31536000, immutable');
+            header('X-Robots-Tag: noindex');
+        }
+        imagepng($im);
+        imagedestroy($im);
+        exit;
+    }
 
     /** Version => [Fehlerkorrektur-Bytes je Block, [[Blöcke, Datenbytes je Block], …]] für Stufe M */
     const BLOCKS = [
