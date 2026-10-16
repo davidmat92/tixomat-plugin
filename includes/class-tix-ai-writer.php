@@ -493,6 +493,8 @@ PROMPT;
             return $r;
         }
         $st = TIX_Event_Import::structured($page['body'], $final);
+        // Ticketarten aus Shop-Quellen (Eventbrite-Widget, Pretix), wenn das JSON-LD keine einzelnen nennt (1.38.444)
+        $st = TIX_Event_Import::enrich_tickets($st, $final, $page['body']);
         $ex = self::extract_text_from_html($page['body'], $final);
         $image = $st['_image'] ?: ($ex['image_url'] ?? '');
         $text_len = mb_strlen(trim(preg_replace('/^.*?Seitentext:\s*/s', '', $ex['text'])));
@@ -502,10 +504,13 @@ PROMPT;
         $content = trim(TIX_Event_Import::summary($st) . "\n\n" . $ex['text']);
         // Vorschlag „Tickets bei einem anderen Shop“ (1.38.436)
         $shop = TIX_Event_Import::shop_suggestion($final, $st);
-        $shop_price = $st['tickets'] ? min(array_column($st['tickets'], 'price')) : null;
-        $with_shop = function (array $f) use ($shop, $shop_price) {
+        $shop_price = $st['tickets'] ? min(array_column($st['tickets'], 'price')) : (!empty($st['price_range']) ? $st['price_range']['min'] : null);
+        $with_shop = function (array $f) use ($shop, $shop_price, $st) {
             $f['external_shop_url'] = $shop;
             $f['external_shop_price'] = $shop !== '' && $shop_price !== null ? round(floatval($shop_price), 2) : null;
+            // Nur eine Preisspanne bekannt → Hinweis „Bitte Ticketarten prüfen“
+            $f['price_range'] = (empty($st['tickets']) && !empty($st['price_range']) && count($f['tickets']) < 2) ? $st['price_range'] : null;
+            $f['tickets_source'] = !empty($st['tickets']) ? (string) ($st['_tickets_source'] ?? 'jsonld') : ($f['price_range'] ? 'range' : (count($f['tickets']) ? 'ai' : 'none'));
             return $f;
         };
         $ai = self::run_extraction($content, null, null, $image, $st);
@@ -514,6 +519,7 @@ PROMPT;
             return $with_shop($ai);
         }
         if (TIX_Event_Import::usable($st)) {
+            if (!$st['tickets'] && !empty($st['price_range'])) $st['tickets'] = [TIX_Event_Import::range_ticket($st['price_range'])];
             $f = self::finalize_fields($st, $image);
             $f['_source'] = 'structured';
             return $with_shop($f);
@@ -619,7 +625,7 @@ Extrahiere folgende Felder und antworte AUSSCHLIESSLICH mit einem JSON-Objekt:
     "excerpt": "SEO-optimierte Zusammenfassung (140-160 Zeichen, kein HTML, mit Call-to-Action)",
     "event_type": "Art des Events: konzert, party, festival, workshop, messe, sport, theater, comedy, networking, sonstiges",
     "tickets": [
-        {"name": "Ticket-Name", "price": 0.00, "description": "Kurze Beschreibung"}
+        {"name": "Ticket-Name", "price": 0.00, "currency": "EUR", "description": "Kurze Beschreibung", "sale_end": "YYYY-MM-DD oder leer"}
     ],
     "faq": [
         {"question": "Häufige Frage", "answer": "Antwort"}
@@ -633,7 +639,7 @@ REGELN:
 - KEIN Markdown-Codeblock, NUR das JSON-Objekt
 - Beschreibungen einladend und professionell
 - Bei Bildern: lies ALLE sichtbaren Texte, Daten, Logos und Informationen
-- tickets: Wenn Preise erkennbar sind, als Array zurückgeben. Sonst leeres Array.
+- tickets: JEDE Ticketart einzeln mit ihrem genauen Namen (z. B. „Early Bird“, „Abendkasse“, „VIP“) und Preis. Keine Einträge wie „Ticket ab“/„Ticket bis“ – nennt die Quelle nur eine Preisspanne ohne Namen, gib genau EINE Ticketart „Ticket“ mit dem niedrigsten Preis zurück. Sonst leeres Array.
 - faq: Generiere 2-3 sinnvolle FAQ basierend auf dem Event-Typ (Anfahrt, Einlass, Dresscode etc.)
 PROMPT;
     }
@@ -662,14 +668,16 @@ PROMPT;
             'faq'              => [],
         ];
 
+        // Ticketarten in fester Form {name, price, currency[, qty, description, sale_start, sale_end, available]} (1.38.444)
         if (!empty($fields['tickets']) && is_array($fields['tickets'])) {
             foreach ($fields['tickets'] as $t) {
-                if (empty($t['name'])) continue;
-                $clean['tickets'][] = [
-                    'name'        => sanitize_text_field($t['name']),
-                    'price'       => floatval($t['price'] ?? 0),
-                    'description' => sanitize_text_field($t['description'] ?? ''),
-                ];
+                if (!is_array($t) || empty($t['name'])) continue;
+                $x = class_exists('TIX_Event_Import') ? TIX_Event_Import::clean_ticket($t) : ['name' => sanitize_text_field($t['name']), 'price' => floatval($t['price'] ?? 0), 'currency' => 'EUR'];
+                if ($x === null) continue;
+                $x['name'] = sanitize_text_field($x['name']);
+                if (isset($x['description'])) $x['description'] = sanitize_text_field($x['description']);
+                $clean['tickets'][] = $x;
+                if (count($clean['tickets']) >= 20) break;
             }
         }
 

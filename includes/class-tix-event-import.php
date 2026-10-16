@@ -145,20 +145,181 @@ class TIX_Event_Import {
         return '';
     }
 
-    private static function tickets($offers) {
+    /**
+     * Ticketart in fester Form (1.38.444): {name, price, currency[, qty, description, sale_start, sale_end, available]}.
+     * Für JSON-LD, Shop-Quellen und KI gleich.
+     */
+    public static function clean_ticket(array $t) {
+        $name = trim(preg_replace('/\s+/', ' ', wp_strip_all_tags(html_entity_decode((string) ($t['name'] ?? ''), ENT_QUOTES, 'UTF-8'))));
+        if ($name === '') return null;
+        $price = $t['price'] ?? 0;
+        $price = is_numeric(str_replace(',', '.', (string) $price)) ? round(floatval(str_replace(',', '.', (string) $price)), 2) : 0.0;
+        $out = ['name' => mb_substr($name, 0, 80), 'price' => max(0.0, $price), 'currency' => strtoupper(preg_replace('/[^A-Za-z]/', '', (string) ($t['currency'] ?? '')) ?: 'EUR')];
+        if (isset($t['qty']) && intval($t['qty']) > 0) $out['qty'] = intval($t['qty']);
+        $d = trim(wp_strip_all_tags((string) ($t['description'] ?? '')));
+        if ($d !== '') $out['description'] = mb_substr($d, 0, 300);
+        foreach (['sale_start', 'sale_end'] as $k) {
+            if (!empty($t[$k])) { list($dd, $tt) = self::split_datetime((string) $t[$k]); if ($dd !== '') $out[$k] = trim($dd . ' ' . $tt); }
+        }
+        if (isset($t['available'])) $out['available'] = (bool) $t['available'];
+        return $out;
+    }
+
+    /**
+     * Ticketarten aus JSON-LD `offers`. Ein `AggregateOffer` ohne einzelne Angebote ergibt KEINE Ticketarten,
+     * sondern $range {min, max, currency} (die Seite nennt nur die Spanne).
+     */
+    private static function tickets($offers, &$range = null) {
         $out = [];
         if (!is_array($offers)) return $out;
         $list = isset($offers['@type']) || isset($offers['price']) || isset($offers['lowPrice']) ? [$offers] : $offers;
         foreach ($list as $o) {
             if (!is_array($o)) continue;
-            if (($o['@type'] ?? '') === 'AggregateOffer' && !empty($o['offers']) && is_array($o['offers'])) { $out = array_merge($out, self::tickets($o['offers'])); continue; }
-            $price = $o['price'] ?? ($o['lowPrice'] ?? null);
+            $type = is_array($o['@type'] ?? null) ? (string) ($o['@type'][0] ?? '') : (string) ($o['@type'] ?? '');
+            if ($type === 'AggregateOffer' || (!isset($o['price']) && isset($o['lowPrice']))) {
+                if (!empty($o['offers']) && is_array($o['offers'])) { $out = array_merge($out, self::tickets($o['offers'], $range)); continue; }
+                $lo = $o['lowPrice'] ?? ($o['price'] ?? null);
+                $hi = $o['highPrice'] ?? $lo;
+                if ($lo !== null && $lo !== '') {
+                    $range = ['min' => round(floatval(str_replace(',', '.', (string) $lo)), 2), 'max' => round(floatval(str_replace(',', '.', (string) $hi)), 2), 'currency' => (string) ($o['priceCurrency'] ?? 'EUR') ?: 'EUR'];
+                }
+                continue;
+            }
+            $price = $o['price'] ?? null;
             if ($price === null || $price === '') continue;
-            $name = self::text($o['name'] ?? '') ?: (($o['@type'] ?? '') === 'AggregateOffer' ? 'Ticket ab' : 'Ticket');
-            $out[] = ['name' => mb_substr($name, 0, 80), 'price' => round(floatval(str_replace(',', '.', (string) $price)), 2), 'description' => ''];
-            if (count($out) >= 8) break;
+            $t = self::clean_ticket([
+                'name' => self::text($o['name'] ?? '') ?: 'Ticket', 'price' => $price, 'currency' => $o['priceCurrency'] ?? 'EUR',
+                'qty' => is_array($o['inventoryLevel'] ?? null) ? ($o['inventoryLevel']['value'] ?? 0) : 0,
+                'description' => self::text($o['description'] ?? ''), 'sale_start' => $o['availabilityStarts'] ?? ($o['validFrom'] ?? ''), 'sale_end' => $o['availabilityEnds'] ?? '',
+                'available' => isset($o['availability']) ? !preg_match('/SoldOut|OutOfStock|Discontinued/i', (string) $o['availability']) : null,
+            ]);
+            if ($t === null) continue;
+            if (!isset($o['availability'])) unset($t['available']);
+            $out[] = $t;
+            if (count($out) >= 20) break;
         }
         return $out;
+    }
+
+    // ── Shop-Quellen für Ticketarten (öffentlich, ohne Schlüssel) ──
+
+    /** JSON-Wert ab $pos (Objekt oder Liste) aus einem Text schneiden – Klammern zählen, Zeichenketten beachten. */
+    public static function json_at($s, $pos) {
+        $len = strlen($s); $depth = 0; $in = false; $esc = false; $start = -1;
+        for ($i = $pos; $i < $len; $i++) {
+            $c = $s[$i];
+            if ($start < 0) { if ($c === '{' || $c === '[') { $start = $i; $depth = 1; } continue; }
+            if ($in) { if ($esc) $esc = false; elseif ($c === '\\') $esc = true; elseif ($c === '"') $in = false; continue; }
+            if ($c === '"') $in = true;
+            elseif ($c === '{' || $c === '[') $depth++;
+            elseif ($c === '}' || $c === ']') { $depth--; if ($depth === 0) { $j = json_decode(substr($s, $start, $i - $start + 1), true); return is_array($j) ? $j : null; } }
+        }
+        return null;
+    }
+
+    private static function get_json_or_html($url) {
+        $r = wp_safe_remote_get($url, ['timeout' => 10, 'redirection' => 3, 'user-agent' => self::agents()[0], 'limit_response_size' => self::MAX_BYTES,
+            'headers' => ['Accept' => 'text/html,application/json;q=0.9,*/*;q=0.8', 'Accept-Language' => 'de-DE,de;q=0.9,en;q=0.7']]);
+        if (is_wp_error($r) || intval(wp_remote_retrieve_response_code($r)) !== 200) return '';
+        return (string) wp_remote_retrieve_body($r);
+    }
+
+    /** Eventbrite-ID aus der Event-Adresse (…-tickets-1999178899906, ?eid=). */
+    public static function eventbrite_id($url) {
+        $host = strtolower((string) wp_parse_url($url, PHP_URL_HOST));
+        if (!preg_match('/^(www\.)?eventbrite\.(com|de|at|ch|fr|es|it|nl|ie|be|pt|se|dk|fi|pl|ca|hk|sg|cl|co|co\.uk|co\.nz|com\.au|com\.br|com\.mx|com\.ar|com\.pe)$/', $host)) return '';
+        if (preg_match('/[?&]eid=(\d{6,})/', $url, $m)) return $m[1];
+        return preg_match('#/e/[^/?]*?-?(\d{9,})(?:[/?\#]|$)#', $url, $m) ? $m[1] : '';
+    }
+
+    /** Ticketarten aus dem Eventbrite-Widget (checkout-external, öffentlich): Netto-Preis ohne Eventbrite-Gebühr. */
+    public static function eventbrite_tickets_from($html) {
+        $p = strpos((string) $html, 'window.__SERVER_DATA__');
+        if ($p === false) return [];
+        $d = self::json_at($html, $p);
+        $out = [];
+        foreach ((array) ($d['tickets'] ?? []) as $t) {
+            if (!is_array($t)) continue;
+            $variants = !empty($t['variants']) && is_array($t['variants']) ? $t['variants'] : [$t];
+            foreach ($variants as $v) {
+                $cost = $v['cost'] ?? ($t['cost'] ?? null);
+                $name = (string) ($t['name'] ?? '');
+                $vn = (string) ($v['display_name'] ?? ($v['name'] ?? ''));
+                if ($vn !== '' && $vn !== $name && count($variants) > 1) $name = trim($name . ' – ' . $vn);
+                $status = (string) ($v['on_sale_status'] ?? ($t['on_sale_status'] ?? ''));
+                $x = self::clean_ticket([
+                    'name' => $name ?: $vn, 'price' => is_array($cost) ? ($cost['major_value'] ?? 0) : 0,
+                    'currency' => is_array($cost) ? ($cost['currency'] ?? '') : ($t['currency'] ?? ''),
+                    'description' => (string) ($t['description'] ?? ''), 'sale_start' => (string) ($v['start_sales_with_tz']['utc'] ?? ''),
+                    'available' => $status === '' ? null : in_array($status, ['AVAILABLE', 'LIMITED'], true),
+                ]);
+                if ($x === null) continue;
+                if ($status === '') unset($x['available']);
+                if (!empty($t['free'])) $x['price'] = 0.0;
+                $out[] = $x;
+                if (count($out) >= 20) break 2;
+            }
+        }
+        return $out;
+    }
+
+    /** Pretix: /<veranstalter>/<event>/widget/product_list (öffentliche JSON-Quelle des Widgets). */
+    public static function pretix_tickets_from(array $d) {
+        $out = [];
+        $cur = (string) ($d['currency'] ?? 'EUR');
+        foreach ((array) ($d['items_by_category'] ?? []) as $cat) {
+            if (preg_match('/merch|shirt|shop|fanartikel|getr(ä|ae)nk|essen|food|park/i', (string) ($cat['name'] ?? ''))) continue;
+            foreach ((array) ($cat['items'] ?? []) as $it) {
+                $vars = !empty($it['has_variations']) && !empty($it['variations']) ? $it['variations'] : [null];
+                foreach ($vars as $v) {
+                    $pr = $v ? ($v['price'] ?? null) : ($it['price'] ?? null);
+                    $x = self::clean_ticket([
+                        'name' => (string) ($it['name'] ?? '') . ($v ? ' – ' . (string) ($v['value'] ?? '') : ''),
+                        'price' => is_array($pr) ? ($pr['gross'] ?? 0) : $pr, 'currency' => $cur,
+                        'description' => (string) ($it['description'] ?? ''),
+                        'available' => isset($it['avail'][0]) ? intval($it['avail'][0]) >= 100 : null,
+                    ]);
+                    if ($x === null) continue;
+                    if (!isset($it['avail'][0])) unset($x['available']);
+                    $out[] = $x;
+                    if (count($out) >= 20) break 3;
+                }
+            }
+        }
+        return $out;
+    }
+
+    private static function pretix_base($url, $html) {
+        $host = strtolower((string) wp_parse_url($url, PHP_URL_HOST));
+        $is = preg_match('/(^|\.)pretix\.eu$/', $host) || stripos((string) $html, 'pretixpresale') !== false || stripos((string) $html, 'content="pretix"') !== false;
+        if (!$is || !preg_match('#^(https?://[^/]+/[^/?\#]+/[^/?\#]+)/?#i', $url, $m)) return '';
+        return $m[1];
+    }
+
+    /**
+     * Ticketarten ergänzen, wenn das JSON-LD keine einzelnen nennt: Eventbrite-Widget, Pretix-Widget.
+     * Setzt `tickets`, `_tickets_source` (jsonld|eventbrite|pretix|range|none) und `price_range`.
+     */
+    public static function enrich_tickets(array $st, $url, $html) {
+        if (!empty($st['tickets'])) { $st['_tickets_source'] = 'jsonld'; return $st; }
+        $found = [];
+        if (($eid = self::eventbrite_id($url)) !== '') {
+            $host = strtolower((string) wp_parse_url($url, PHP_URL_HOST));
+            $found = self::eventbrite_tickets_from(self::get_json_or_html('https://' . $host . '/checkout-external?eid=' . $eid));
+            if ($found) $st['_tickets_source'] = 'eventbrite';
+        } elseif (($base = self::pretix_base($url, $html)) !== '') {
+            $j = json_decode(self::get_json_or_html($base . '/widget/product_list'), true);
+            if (is_array($j)) $found = self::pretix_tickets_from($j);
+            if ($found) $st['_tickets_source'] = 'pretix';
+        }
+        if ($found) { $st['tickets'] = $found; return $st; }
+        $st['_tickets_source'] = !empty($st['price_range']) ? 'range' : 'none';
+        return $st;
+    }
+
+    /** Nur eine Preisspanne bekannt: eine Ticketart mit dem niedrigsten Preis (das Studio zeigt „Bitte Ticketarten prüfen“). */
+    public static function range_ticket(array $range) {
+        return ['name' => 'Ticket', 'price' => max(0.0, floatval($range['min'])), 'currency' => strtoupper((string) ($range['currency'] ?: 'EUR'))];
     }
 
     private static function guess_type($node, $title) {
@@ -187,7 +348,7 @@ class TIX_Event_Import {
      */
     public static function structured($html, $url = '') {
         $f = ['title' => '', 'description' => '', 'lineup' => '', 'date_start' => '', 'date_end' => '', 'time_start' => '', 'time_end' => '', 'time_doors' => '',
-            'location' => '', 'location_address' => '', 'tickets' => [], 'event_type' => '', 'age_limit' => '', 'excerpt' => '', '_found' => 'none', '_image' => '', '_ticket_url' => ''];
+            'location' => '', 'location_address' => '', 'tickets' => [], 'price_range' => null, 'event_type' => '', 'age_limit' => '', 'excerpt' => '', '_found' => 'none', '_image' => '', '_ticket_url' => ''];
         $ev = null;
         foreach (self::jsonld_nodes($html) as $n) { if (self::is_event($n)) { $ev = $n; break; } }
         if ($ev) {
@@ -206,7 +367,9 @@ class TIX_Event_Import {
             $names = [];
             foreach ((isset($perf['name']) || is_string($perf) ? [$perf] : (array) $perf) as $p) { $x = self::text($p); if ($x !== '') $names[] = esc_html($x); }
             $f['lineup'] = implode('<br>', array_slice(array_unique($names), 0, 20));
-            $f['tickets'] = self::tickets($ev['offers'] ?? []);
+            $range = null;
+            $f['tickets'] = self::tickets($ev['offers'] ?? [], $range);
+            if (!$f['tickets'] && $range) $f['price_range'] = $range;
             $f['_ticket_url'] = self::offer_url($ev['offers'] ?? []);
             $f['event_type'] = self::guess_type($ev, $f['title']);
             $age = self::text($ev['typicalAgeRange'] ?? '');
@@ -284,7 +447,8 @@ class TIX_Event_Import {
             if ($f[$k] !== '' && $f[$k] !== null) $rows[] = $l . ': ' . $f[$k];
         }
         if ($f['lineup'] !== '') $rows[] = 'Line-up: ' . wp_strip_all_tags(str_replace('<br>', ', ', $f['lineup']));
-        foreach ($f['tickets'] as $t) $rows[] = 'Ticket: ' . $t['name'] . ' – ' . number_format($t['price'], 2, ',', '.') . ' €';
+        foreach ($f['tickets'] as $t) $rows[] = 'Ticket: ' . $t['name'] . ' – ' . number_format($t['price'], 2, ',', '.') . ' ' . ($t['currency'] ?? 'EUR');
+        if (!$f['tickets'] && !empty($f['price_range'])) $rows[] = 'Preise von ' . number_format($f['price_range']['min'], 2, ',', '.') . ' bis ' . number_format($f['price_range']['max'], 2, ',', '.') . ' ' . $f['price_range']['currency'] . ' (Ticketarten bitte einzeln mit Namen aus dem Seitentext übernehmen, keine „ab/bis“-Einträge)';
         return $rows ? "Strukturierte Event-Daten der Seite (verlässlich, bitte übernehmen):\n" . implode("\n", $rows) : '';
     }
 
@@ -293,7 +457,13 @@ class TIX_Event_Import {
         foreach (['title', 'date_start', 'date_end', 'time_start', 'time_end', 'time_doors', 'location', 'location_address'] as $k) {
             if (($st[$k] ?? '') !== '') $ai[$k] = $st[$k];
         }
-        if (empty($ai['tickets']) && !empty($st['tickets'])) $ai['tickets'] = $st['tickets'];
+        // „Ticket ab“/„Ticket bis“ der KI sind keine Ticketarten
+        $ai['tickets'] = array_values(array_filter((array) ($ai['tickets'] ?? []), function ($t) {
+            return is_array($t) && !preg_match('/^\s*(ticket|tickets|eintritt)?\s*(ab|bis|von|from|to)\b/iu', (string) ($t['name'] ?? ''));
+        }));
+        // Ticketarten: Seite/Shop (einzeln benannt) vor KI; nur Spanne → KI-Liste, wenn sie mindestens zwei nennt
+        if (!empty($st['tickets'])) $ai['tickets'] = $st['tickets'];
+        elseif (!empty($st['price_range']) && count((array) ($ai['tickets'] ?? [])) < 2) $ai['tickets'] = [self::range_ticket($st['price_range'])];
         if (empty($ai['lineup']) && !empty($st['lineup'])) $ai['lineup'] = $st['lineup'];
         if (($ai['age_limit'] ?? '') === '' && ($st['age_limit'] ?? '') !== '') $ai['age_limit'] = $st['age_limit'];
         return $ai;
