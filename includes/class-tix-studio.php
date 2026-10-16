@@ -417,14 +417,16 @@ class TIX_Studio {
     const APP_LAYOUT = 'tix_app_layout';
 
     /**
-     * Profil der eigenen App (1.38.455): club | festival. Admin-Option tix_app_layout › `layout` bzw. `profile` in den App-Inhalten
+     * Profil der eigenen App (1.38.455): club | festival | festivalTour (1.38.467, Mallorca). Admin-Option tix_app_layout › `layout` bzw. `profile` in den App-Inhalten
      * (_tix_app_config) › „festival“ im Seitennamen bzw. in der Adresse (z. B. mallorca-festival-xxl.de) › club.
      */
+    const LAYOUTS = ['club', 'festival', 'festivalTour'];
+
     public static function app_layout() {
         $o = (string) get_option(self::APP_LAYOUT, '');
-        if (in_array($o, ['club', 'festival'], true)) return $o;
+        if (in_array($o, self::LAYOUTS, true)) return $o;
         $c = class_exists('TIX_App_Config') ? TIX_App_Config::stored() : [];
-        foreach (['layout', 'profile'] as $k) if (isset($c[$k]) && in_array($c[$k], ['club', 'festival'], true)) return $c[$k];
+        foreach (['layout', 'profile'] as $k) if (isset($c[$k]) && in_array($c[$k], self::LAYOUTS, true)) return $c[$k];
         $hay = strtolower(get_bloginfo('name') . ' ' . (string) wp_parse_url(home_url(), PHP_URL_HOST) . ' ' . (class_exists('TIX_Customer_URL') ? TIX_Customer_URL::host() : ''));
         return strpos($hay, 'festival') !== false ? 'festival' : 'club';
     }
@@ -448,7 +450,7 @@ class TIX_Studio {
             'has_app'     => (bool) $has,
             'override'    => $o === '' ? null : $o === '1',
             'layout'      => self::app_layout(),
-            'layout_override' => in_array((string) get_option(self::APP_LAYOUT, ''), ['club', 'festival'], true),
+            'layout_override' => in_array((string) get_option(self::APP_LAYOUT, ''), self::LAYOUTS, true),
             'name'        => class_exists('TIX_App_Coupons') ? TIX_App_Coupons::app_name() : html_entity_decode(get_bloginfo('name'), ENT_QUOTES, 'UTF-8'),
             'ios_url'     => class_exists('TIX_App_Coupons') ? TIX_App_Coupons::store_url() : null,
             'android_url' => class_exists('TIX_App_Coupons') ? TIX_App_Coupons::play_url() : null,
@@ -531,7 +533,7 @@ class TIX_Studio {
         if ($has('app_layout')) {
             $lv = $req->get_param('app_layout');
             if (!current_user_can('manage_options')) return new WP_Error('rest_forbidden', 'Nur ein Admin legt das Profil der App fest.', ['status' => 403]);
-            if ($lv !== null && $lv !== '' && !in_array($lv, ['club', 'festival'], true)) return new WP_Error('tix_invalid_field', 'Profil: club oder festival.', ['status' => 400, 'field' => 'app_layout']);
+            if ($lv !== null && $lv !== '' && !in_array($lv, self::LAYOUTS, true)) return new WP_Error('tix_invalid_field', 'Profil: club, festival oder festivalTour.', ['status' => 400, 'field' => 'app_layout']);
         }
         if ($unknown) return new WP_Error('tix_invalid_field', 'Nur Akzentfarbe, Logo und (Admin) has_app lassen sich hier ändern.', ['status' => 400, 'field' => (string) reset($unknown)]);
         // Eigene App übersteuern (nur Admin): true | false | null (automatisch)
