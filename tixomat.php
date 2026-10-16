@@ -436,7 +436,14 @@ TIX_Seatmap::init();
 
 // ── Custom Ticket-DB + Sync-Klassen ──
 require_once TIXOMAT_PATH . 'includes/class-tix-ticket-db.php';
-require_once TIXOMAT_PATH . 'includes/class-tix-sync-supabase.php';
+require_once TIXOMAT_PATH . 'includes/class-tix-sync-supabase.php'; // nur noch Weiche zum Datenspiegel
+require_once TIXOMAT_PATH . 'includes/class-tix-mirror.php';
+require_once TIXOMAT_PATH . 'includes/class-tix-mirror-client.php';
+require_once TIXOMAT_PATH . 'includes/class-tix-mirror-map.php';
+require_once TIXOMAT_PATH . 'includes/class-tix-mirror-hooks.php';
+require_once TIXOMAT_PATH . 'includes/class-tix-mirror-backfill.php';
+if (is_admin()) require_once TIXOMAT_PATH . 'includes/class-tix-mirror-admin.php';
+TIX_Mirror::init(); // Datenspiegel (Supabase): Postausgang, Erstbefüllung, Löschweg – Tixomat → Datenspiegel
 require_once TIXOMAT_PATH . 'includes/class-tix-sync-airtable.php';
 
 // ── Gewinnspiel-System ──
@@ -1499,7 +1506,6 @@ add_action('tix_ticket_checked_in', function($ticket_id) {
     $row = class_exists('TIX_Ticket_DB') ? TIX_Ticket_DB::get_by_code($code) : null;
     if (!$row) return;
     $data = (array) $row;
-    if (TIX_Sync_Supabase::is_enabled()) TIX_Sync_Supabase::sync_ticket($data);
     if (TIX_Sync_Airtable::is_enabled()) TIX_Sync_Airtable::sync_ticket($data);
 });
 
@@ -1611,6 +1617,7 @@ register_deactivation_hook(__FILE__, function() {
     if ($ts2) wp_unschedule_event($ts2, 'tix_raffle_auto_draw');
     $ts3 = wp_next_scheduled('tix_waitlist_check');
     if ($ts3) wp_unschedule_event($ts3, 'tix_waitlist_check');
+    wp_clear_scheduled_hook('tix_mirror_flush'); // Datenspiegel
 });
 
 // ── Zeilenumbrüche in Info-Sektionen: wpautop-Fallback beim Lesen ──

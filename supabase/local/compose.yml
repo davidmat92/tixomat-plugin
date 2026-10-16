@@ -1,0 +1,53 @@
+# Lokaler Teststand für den Datenspiegel: WordPress (wie kitchenklub.de mit open_basedir +
+# display_errors) + Postgres + PostgREST hinter /rest/v1/ wie bei Supabase.
+# Start (aus dem Plugin-Repo):
+#   export MIRROR_JWT_SECRET=$(openssl rand -hex 32)
+#   PLUGIN_DIR=$PWD docker compose -f supabase/local/compose.yml up -d
+# Danach siehe supabase/README.md (Migration einspielen, Test-Schlüssel erzeugen, Test laufen lassen).
+name: mirrortest
+services:
+  db:
+    image: mariadb:11
+    container_name: mirror-db
+    environment: {MARIADB_ROOT_PASSWORD: root, MARIADB_DATABASE: wp, MARIADB_USER: wp, MARIADB_PASSWORD: wp}
+  wp:
+    image: wordpress:php8.2-apache
+    container_name: mirror-wp
+    depends_on: [db]
+    ports: ["127.0.0.1:8097:80"]
+    environment: {WORDPRESS_DB_HOST: db, WORDPRESS_DB_USER: wp, WORDPRESS_DB_PASSWORD: wp, WORDPRESS_DB_NAME: wp}
+    volumes:
+      - wpcore:/var/www/html
+      - ${PLUGIN_DIR}:/var/www/html/wp-content/plugins/tixomat
+      - ./php-kitchenklub.ini:/usr/local/etc/php/conf.d/zz-kk.ini:ro
+  cli:
+    image: wordpress:cli-php8.2
+    container_name: mirror-cli
+    user: "33:33"
+    depends_on: [wp]
+    command: sleep infinity
+    environment: {WORDPRESS_DB_HOST: db, WORDPRESS_DB_USER: wp, WORDPRESS_DB_PASSWORD: wp, WORDPRESS_DB_NAME: wp}
+    volumes:
+      - wpcore:/var/www/html
+      - ${PLUGIN_DIR}:/var/www/html/wp-content/plugins/tixomat
+  pg:
+    image: postgres:17
+    container_name: mirror-pg
+    environment: {POSTGRES_PASSWORD: pg}
+    volumes: ["./pg-roles.sql:/docker-entrypoint-initdb.d/00-roles.sql:ro"]
+  rest:
+    image: postgrest/postgrest:v12.2.3
+    container_name: mirror-rest
+    depends_on: [pg]
+    environment:
+      PGRST_DB_URI: postgres://authenticator:authpw@pg:5432/postgres
+      PGRST_DB_SCHEMAS: public
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_JWT_SECRET: ${MIRROR_JWT_SECRET}
+  gw:
+    image: nginx:1.27-alpine
+    container_name: mirror-gw
+    depends_on: [rest]
+    ports: ["127.0.0.1:3098:80"]
+    volumes: ["./gw.conf:/etc/nginx/conf.d/default.conf:ro"]
+volumes: {wpcore: {}}

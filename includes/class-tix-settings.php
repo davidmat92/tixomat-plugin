@@ -1832,10 +1832,11 @@ class TIX_Settings {
 
         // Daten-Sync
         $clean['ticket_db_enabled']  = !empty($input['ticket_db_enabled']) ? 1 : 0;
-        $clean['supabase_enabled']   = !empty($input['supabase_enabled']) ? 1 : 0;
-        $clean['supabase_url']       = esc_url_raw($input['supabase_url'] ?? '');
-        $clean['supabase_api_key']   = sanitize_text_field($input['supabase_api_key'] ?? '');
-        $clean['supabase_table']     = sanitize_text_field($input['supabase_table'] ?? 'tickets');
+        // Alte Ticket-Anbindung abgelöst (Datenspiegel): Werte bleiben stehen, es gibt keine Felder mehr dafür.
+        $tix_old = get_option(self::OPTION_KEY, []);
+        foreach (['supabase_enabled', 'supabase_url', 'supabase_api_key', 'supabase_table'] as $tix_k) {
+            if (isset($tix_old[$tix_k])) $clean[$tix_k] = $tix_old[$tix_k];
+        }
         $clean['airtable_enabled']   = !empty($input['airtable_enabled']) ? 1 : 0;
         $clean['airtable_api_key']   = sanitize_text_field($input['airtable_api_key'] ?? '');
         $clean['airtable_base_id']   = sanitize_text_field($input['airtable_base_id'] ?? '');
@@ -4049,51 +4050,17 @@ class TIX_Settings {
                                     </div>
                                 </div>
 
-                                <?php // ── Card: Supabase ── ?>
+                                <?php // ── Card: Supabase → Datenspiegel (die alte Ticket-Anbindung ist abgelöst) ── ?>
                                 <div class="tix-card">
                                     <div class="tix-card-header">
                                         <span class="dashicons dashicons-cloud-upload"></span>
-                                        <h3>Supabase</h3>
+                                        <h3>Supabase (Datenspiegel)</h3>
                                     </div>
                                     <div class="tix-card-body">
-                                        <div class="tix-field-grid">
-                                            <div class="tix-field-row">
-                                                <label class="tix-field-label">Status</label>
-                                                <div class="tix-field-input">
-                                                    <label class="tix-toggle">
-                                                        <input type="checkbox" name="<?php echo $ok; ?>[supabase_enabled]" value="1" <?php checked($s['supabase_enabled']); ?>>
-                                                        <span>Supabase-Sync aktivieren</span>
-                                                    </label>
-                                                </div>
-                                            </div>
-                                            <div class="tix-field-row">
-                                                <label class="tix-field-label">Project URL</label>
-                                                <div class="tix-field-input">
-                                                    <input type="url" name="<?php echo $ok; ?>[supabase_url]" value="<?php echo esc_attr($s['supabase_url']); ?>" class="regular-text" placeholder="https://xxxxx.supabase.co">
-                                                </div>
-                                            </div>
-                                            <div class="tix-field-row">
-                                                <label class="tix-field-label">API Key</label>
-                                                <div class="tix-field-input">
-                                                    <input type="password" name="<?php echo $ok; ?>[supabase_api_key]" value="<?php echo esc_attr($s['supabase_api_key']); ?>" class="regular-text" autocomplete="off">
-                                                    <p class="tix-field-desc">Supabase <code>anon</code> oder <code>service_role</code> Key.</p>
-                                                </div>
-                                            </div>
-                                            <div class="tix-field-row">
-                                                <label class="tix-field-label">Tabelle</label>
-                                                <div class="tix-field-input">
-                                                    <input type="text" name="<?php echo $ok; ?>[supabase_table]" value="<?php echo esc_attr($s['supabase_table']); ?>" class="regular-text" placeholder="tickets">
-                                                </div>
-                                            </div>
-                                            <div class="tix-field-row">
-                                                <label class="tix-field-label">&nbsp;</label>
-                                                <div class="tix-field-input">
-                                                    <button type="button" class="button tix-sync-test" data-service="supabase">Verbindung testen</button>
-                                                    <button type="button" class="button tix-sync-all" data-service="supabase">Alle jetzt synchronisieren</button>
-                                                    <span class="tix-sync-status" data-service="supabase"></span>
-                                                </div>
-                                            </div>
-                                        </div>
+                                        <p class="tix-field-desc">Events, Kunden, Bestellungen, Tickets, Check-ins und Stornos werden als zweite Speicherung nach Supabase gespiegelt. Zugang, Status, Rückstand und Erstbefüllung stehen unter <a href="<?php echo esc_url(admin_url('admin.php?page=tix-mirror')); ?>">Tixomat → Datenspiegel</a>.</p>
+                                        <?php if (class_exists('TIX_Mirror')) : $tix_ms = TIX_Mirror::state(); ?>
+                                            <p class="tix-field-desc">Stand: <?php echo TIX_Mirror::active() ? 'an' : 'aus / nicht eingerichtet'; ?> · Rückstand <?php echo (int) TIX_Mirror::pending_count(); ?><?php echo $tix_ms['last_ok'] ? ' · zuletzt ' . esc_html(wp_date('d.m.Y H:i', (int) $tix_ms['last_ok'])) : ''; ?></p>
+                                        <?php endif; ?>
                                     </div>
                                 </div>
 

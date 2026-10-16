@@ -1,218 +1,47 @@
 <?php
 /**
- * Tixomat – Supabase Sync
+ * Tixomat – Supabase (abgelöst)
  *
- * Synchronisiert Ticketdaten aus der Custom-DB-Tabelle
- * per REST-API an eine Supabase-Tabelle (Upsert).
+ * Bis Datenspiegel Paket 1 schickte diese Klasse nur Tickets als flache Zeile in eine
+ * Tabelle des ALTEN Supabase-Projekts. Sie ist durch den Datenspiegel (TIX_Mirror,
+ * Tixomat → Datenspiegel) ersetzt und bleibt nur als Weiche für alte Aufrufer
+ * (Admin-Knöpfe „Verbindung testen“ / „Alle jetzt synchronisieren“).
+ * Das alte Projekt wird nicht mehr beschrieben.
  *
- * @since 1.27.0
+ * @since 1.27.0, abgelöst mit Datenspiegel Paket 1
  */
 
 if (!defined('ABSPATH')) exit;
 
 class TIX_Sync_Supabase {
 
-    // ──────────────────────────────────────────
-    // Init – Hook into native order completion
-    // ──────────────────────────────────────────
-    public static function init() {
-        add_action('tix_order_completed', [__CLASS__, 'sync_native_order']);
-    }
+    public static function init() {}
 
-    // ──────────────────────────────────────────
-    // Native Order → Supabase sync
-    // ──────────────────────────────────────────
-    public static function sync_native_order($order_id) {
-        if (!self::is_enabled()) return;
-        if (!class_exists('TIX_Order')) return;
-
-        $order = TIX_Order::get($order_id);
-        if (!$order) return;
-
-        // Sync each item/ticket from the native order
-        foreach ($order->get_items() as $item) {
-            $data = [
-                'ticket_code'   => method_exists($item, 'get_ticket_code') ? $item->get_ticket_code() : '',
-                'event_id'      => method_exists($item, 'get_event_id') ? $item->get_event_id() : 0,
-                'event_name'    => $item->get_name(),
-                'order_id'      => $order->get_id(),
-                'category_name' => $item->get_name(),
-                'buyer_name'    => trim($order->get_billing_first_name() . ' ' . $order->get_billing_last_name()),
-                'buyer_email'   => $order->get_billing_email(),
-                'buyer_phone'   => method_exists($order, 'get_billing_phone') ? $order->get_billing_phone() : '',
-                'ticket_status' => $order->get_status(),
-                'ticket_price'  => (float) $item->get_total() / max($item->get_quantity(), 1),
-                'created_at'    => method_exists($order, 'get_date_created') && $order->get_date_created()
-                    ? $order->get_date_created()->format('c') : current_time('c'),
-                'updated_at'    => current_time('c'),
-            ];
-
-            // Skip items without a ticket code
-            if (empty($data['ticket_code'])) continue;
-
-            self::sync_ticket($data);
-        }
-    }
-
-    // ──────────────────────────────────────────
-    // Aktiviert?
-    // ──────────────────────────────────────────
+    /** Die alte Einzel-Ticket-Anbindung ist immer aus. */
     public static function is_enabled() {
-        if (!class_exists('TIX_Settings')) return false;
-        return (bool) TIX_Settings::get('supabase_enabled')
-            && !empty(TIX_Settings::get('supabase_url'))
-            && !empty(TIX_Settings::get('supabase_api_key'));
-    }
-
-    // ──────────────────────────────────────────
-    // Einzelnes Ticket synchronisieren (Upsert)
-    // ──────────────────────────────────────────
-    public static function sync_ticket(array $data) {
-        if (!self::is_enabled()) return false;
-
-        $url   = rtrim(TIX_Settings::get('supabase_url'), '/');
-        $key   = TIX_Settings::get('supabase_api_key');
-        $table = TIX_Settings::get('supabase_table') ?: 'tickets';
-
-        $endpoint = $url . '/rest/v1/' . rawurlencode($table);
-
-        // Daten für Supabase aufbereiten
-        $payload = self::map_fields($data);
-
-        $response = wp_remote_post($endpoint, [
-            'timeout' => 15,
-            'headers' => [
-                'apikey'        => $key,
-                'Authorization' => 'Bearer ' . $key,
-                'Content-Type'  => 'application/json',
-                'Prefer'        => 'resolution=merge-duplicates',
-            ],
-            'body' => wp_json_encode($payload),
-        ]);
-
-        if (is_wp_error($response)) {
-            error_log('[Tixomat Supabase] Sync-Fehler: ' . $response->get_error_message());
-            return false;
-        }
-
-        $code = wp_remote_retrieve_response_code($response);
-        if ($code >= 200 && $code < 300) {
-            // Sync-Flag setzen
-            if (!empty($data['ticket_code']) && class_exists('TIX_Ticket_DB')) {
-                TIX_Ticket_DB::mark_synced($data['ticket_code'], 'supabase');
-            }
-            return true;
-        }
-
-        error_log('[Tixomat Supabase] HTTP ' . $code . ': ' . wp_remote_retrieve_body($response));
         return false;
     }
 
-    // ──────────────────────────────────────────
-    // Batch-Sync (alle unsynced Records)
-    // ──────────────────────────────────────────
+    /** Altes Ticket-Format → Ticket im Datenspiegel vormerken. */
+    public static function sync_ticket(array $data) {
+        if (!class_exists('TIX_Mirror') || empty($data['ticket_code'])) return false;
+        $id = (int) ($data['ticket_post_id'] ?? 0);
+        if (!$id && class_exists('TIX_Tickets') && method_exists('TIX_Tickets', 'get_ticket_by_code')) {
+            $p = TIX_Tickets::get_ticket_by_code($data['ticket_code']);
+            $id = $p ? (int) $p->ID : 0;
+        }
+        if ($id) TIX_Mirror::touch('ticket', $id);
+        return (bool) $id;
+    }
+
+    /** „Alle jetzt synchronisieren“ → eine Runde des Datenspiegels. */
     public static function sync_batch(int $limit = 50) {
-        if (!self::is_enabled() || !class_exists('TIX_Ticket_DB')) return ['synced' => 0, 'failed' => 0];
-
-        $rows   = TIX_Ticket_DB::get_unsynced('supabase', $limit);
-        $synced = 0;
-        $failed = 0;
-
-        foreach ($rows as $row) {
-            $data = (array) $row;
-            if (self::sync_ticket($data)) {
-                $synced++;
-            } else {
-                $failed++;
-            }
-            // Rate-Limit: max ~2 req/sec
-            usleep(500000);
-        }
-
-        return ['synced' => $synced, 'failed' => $failed, 'remaining' => max(0, TIX_Ticket_DB::count_unsynced('supabase'))];
+        if (!class_exists('TIX_Mirror') || !TIX_Mirror::active()) return ['synced' => 0, 'failed' => 0, 'remaining' => 0];
+        $r = TIX_Mirror::process_batch(max(1, $limit));
+        return ['synced' => $r['sent'], 'failed' => $r['failed'], 'remaining' => TIX_Mirror::pending_count()];
     }
 
-    // ──────────────────────────────────────────
-    // Verbindungstest
-    // ──────────────────────────────────────────
     public static function test_connection() {
-        $url = rtrim(TIX_Settings::get('supabase_url'), '/');
-        $key = TIX_Settings::get('supabase_api_key');
-
-        if (empty($url) || empty($key)) {
-            return ['success' => false, 'message' => 'URL und API-Key erforderlich.'];
-        }
-
-        $table    = TIX_Settings::get('supabase_table') ?: 'tickets';
-        $endpoint = $url . '/rest/v1/' . rawurlencode($table) . '?limit=1';
-
-        $response = wp_remote_get($endpoint, [
-            'timeout' => 10,
-            'headers' => [
-                'apikey'        => $key,
-                'Authorization' => 'Bearer ' . $key,
-            ],
-        ]);
-
-        if (is_wp_error($response)) {
-            return ['success' => false, 'message' => $response->get_error_message()];
-        }
-
-        $code = wp_remote_retrieve_response_code($response);
-        if ($code >= 200 && $code < 300) {
-            return ['success' => true, 'message' => 'Verbindung erfolgreich.'];
-        }
-
-        $body = wp_remote_retrieve_body($response);
-        $msg  = 'HTTP ' . $code;
-        $json = json_decode($body, true);
-        if (!empty($json['message'])) $msg .= ': ' . $json['message'];
-
-        return ['success' => false, 'message' => $msg];
-    }
-
-    // ──────────────────────────────────────────
-    // Feld-Mapping (DB → Supabase)
-    // ──────────────────────────────────────────
-    private static function map_fields(array $data) {
-        // 1:1 Mapping — Spalten-Namen bleiben gleich
-        $fields = [
-            'ticket_code',
-            'event_id',
-            'event_name',
-            'order_id',
-            'category_name',
-            'buyer_name',
-            'buyer_email',
-            'buyer_phone',
-            'buyer_company',
-            'buyer_city',
-            'buyer_zip',
-            'buyer_country',
-            'seat_id',
-            'ticket_status',
-            'ticket_price',
-            'checked_in',
-            'checkin_time',
-            'newsletter_optin',
-            'created_at',
-            'updated_at',
-        ];
-
-        $mapped = [];
-        foreach ($fields as $f) {
-            if (isset($data[$f])) {
-                $mapped[$f] = $data[$f];
-            }
-        }
-
-        // Numerische Werte casten
-        if (isset($mapped['event_id']))        $mapped['event_id']        = (int)   $mapped['event_id'];
-        if (isset($mapped['order_id']))        $mapped['order_id']        = (int)   $mapped['order_id'];
-        if (isset($mapped['ticket_price']))    $mapped['ticket_price']    = (float) $mapped['ticket_price'];
-        if (isset($mapped['checked_in']))      $mapped['checked_in']      = (bool)  $mapped['checked_in'];
-        if (isset($mapped['newsletter_optin']))$mapped['newsletter_optin']= (bool)  $mapped['newsletter_optin'];
-
-        return $mapped;
+        return class_exists('TIX_Mirror_Client') ? TIX_Mirror_Client::test() : ['success' => false, 'message' => 'Datenspiegel fehlt.'];
     }
 }

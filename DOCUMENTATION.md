@@ -2470,9 +2470,20 @@ Eigene Tabelle fuer Saalplan-Daten (Sektionen, Reihen, Plaetze).
 
 ## 56. Daten-Synchronisierung
 
-### Supabase (`TIX_Sync_Supabase`)
+### Datenspiegel Supabase (`TIX_Mirror`, Tixomat → Datenspiegel)
 
-Synchronisiert Ticket-Daten in eine Supabase-Datenbank (PostgreSQL).
+Zweite Speicherung aller Seiten in einem eigenen Supabase-Projekt (EU). **WordPress bleibt führend**; aus Supabase wird nie zurückgeschrieben. Schema und Anleitung: `supabase/migrations/`, `supabase/README.md`.
+
+- **Was:** Seite (`sites`), Events (`events`), Ticket-Kategorien (`ticket_categories`, id `<event>:<index>`), Kunden = WP-Konten (`customers`), Bestellungen (`orders`, `order_items`, `payments`), Tickets (`tickets`), Check-in-Verlauf (`checkins`, jeder Vorgang in/reset), Stornos/Erstattungen/Rückbuchungen (`refunds`, kind cancel/refund/chargeback). Schlüssel überall `(site, id)`, `site` = Domain (Einstellung „Kennung der Seite“). `change_log` hält per Trigger jede tatsächliche Änderung (gleicher Stand erneut gesendet → kein Eintrag).
+- **Nie gespiegelt:** Passwörter, Login-/Push-/Download-Tokens, `order_key`, Check-in-Passwort, Awareness, Ausweisfotos, IBAN, Gästelisten (Paket 2). Filter: `TIX_Mirror_Map::DENY` (Teilstrings der Meta-Schlüssel).
+- **Postausgang** `{prefix}tix_mirror_outbox` (entity, object_id, op, payload, rev, attempts, next_try, last_error): `TIX_Mirror::touch($entity, $id, $op, $payload)` merkt im Speicher vor; am Request-Ende ein einziges `INSERT … ON DUPLICATE KEY UPDATE` (rev+1). Kein Netzwerk im Request, jeder Fehler wird geschluckt → Bestellung/Check-in werden nie aufgehalten.
+- **Senden:** Cron `tix_mirror_flush` jede Minute (Sperre `tix_mirror_lock`): baut je Eintrag den **aktuellen** Stand (`TIX_Mirror_Map::plan`), bündelt Upserts je Tabelle (`on_conflict=site,id`, bei Datenfehler einzeln nachgeschickt), räumt entfernte Positionen/Kategorien per RPC `mirror_prune` auf, löscht fehlende Objekte. Eintrag wird nur entfernt, wenn `rev` unverändert ist. Fehler: Backoff 1, 2, 4 … 60 min; ab 8 Fehlversuchen Alarm-Mail (höchstens alle 6 h, Empfänger „Alarm an“ bzw. admin_email).
+- **Erfassen** (`TIX_Mirror_Hooks`), ohne Eingriff in die Schreibstellen: Post-Meta/save_post/Statuswechsel/Löschen von `event` und `tix_ticket`; Nutzer + relevante Nutzer-Meta (billing_*, Namen, `_tix_*`); Optionen `_tix_order_*_{id}`, `_tix_refund(_total)_{id}`, Zahlungsreferenzen; Post-Meta `_tix_payment_*` an der Bestell-ID; Aktionen `tix_native_order_created`, `tix_order_status_changed`, `tix_order_completed`, `tix_order_cancelled`, `tix_order_refund_recorded`, `tix_order_chargeback`, `tix_ticket_checked_in`, `tix_ticket_checkin_reset`. **Nachlauf:** jede Minute alle `tix_orders` mit neuem `date_modified` (fängt direkte `$wpdb->update` ohne Hook, z. B. E-Mail, Zahlart, Anonymisierung).
+- **Löschweg:** `delete_user` (Web „Konto löschen“, App `/auth/delete`, Admin) → Eintrag `forget` mit E-Mail → RPC `mirror_forget` löscht das Profil und tilgt jeden Verlaufseintrag mit dieser Kunden-ID bzw. E-Mail. Bestellungen/Tickets folgen WordPress (Web anonymisiert sie, App behält sie). Endgültig gelöschte Posts werden im Spiegel gelöscht.
+- **Erstbefüllung** (`TIX_Mirror_Backfill`, Option `tix_mirror_backfill`): Seite → Events → Kunden → Bestellungen → Tickets in Paketen à 500, nur solange der Postausgang < 3000 ist; anhalten/fortsetzen an derselben Stelle; startet von selbst beim ersten Einrichten.
+- **Zugang:** `TIX_MIRROR_URL` / `TIX_MIRROR_KEY` in wp-config (bevorzugt) oder Option `tix_mirror`; der Schlüssel wird nie angezeigt oder geloggt. `TIX_MIRROR_DISABLED` = Not-Aus. Schalter „Diese Seite spiegeln“ ist standardmäßig an (auch Lizenzkunden, nur mit AVV); ohne Zugang wird nichts erfasst.
+- **Abgelöst:** `TIX_Sync_Supabase` (nur Tickets, altes Projekt) ist nur noch Weiche (`is_enabled()` immer false). Alte Werte `supabase_*` bleiben in `tix_settings` stehen, werden aber nicht übernommen (Hinweis auf der Status-Seite, `legacy_url`).
+- **Test:** `tests/test-mirror-wp.php` gegen den lokalen Stand aus `supabase/local/`.
 
 ### Airtable (`TIX_Sync_Airtable`)
 
