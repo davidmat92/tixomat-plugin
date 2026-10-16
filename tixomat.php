@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.38.479
+ * Version: 1.38.480
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  * Update URI: https://veranstalter.evendis.de/tixomat
@@ -10,7 +10,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.38.479');
+define('TIXOMAT_VERSION', '1.38.480');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -577,6 +577,8 @@ require_once TIXOMAT_PATH . 'includes/class-tix-places.php';
 TIX_Places::init(); // Orts-/Adresssuche über Google Places (GET /places/autocomplete, /places/details), Schlüssel nur serverseitig (1.38.474)
 require_once TIXOMAT_PATH . 'includes/class-tix-locations.php';
 TIX_Locations::init(); // Orte je Veranstalter, kanonische Orte/Zusammenführen (1.38.475)
+require_once TIXOMAT_PATH . 'includes/class-tix-platform-admin.php';
+TIX_Platform_Admin::init(); // Plattform-Admin-Studio: /platform/organizers, /platform/settlements, /platform/support (1.38.480)
 require_once TIXOMAT_PATH . 'includes/class-tix-team.php';
 TIX_Team::init(); // App-Team-Verwaltung: App-Rollen (Admin/DJ/Eingang) vergeben (nur WP-Admins)
 require_once TIXOMAT_PATH . 'includes/class-tix-app-log.php';

@@ -149,6 +149,7 @@ class TIX_Support_Model {
             delete_post_meta($tid, '_tix_sp_responsible');
             $r = self::responsible($tid);
             if ((string) get_post_meta($tid, '_tix_sp_category', true) === 'awareness') continue; // eigener Ablauf (TIX_Awareness_Live)
+            if (get_post_meta($tid, '_tix_sp_help', true)) continue; // Betreiber-Anfrage (TIX_Platform_Admin)
             if ($r['partner'] !== '' && $r['type'] === 'organizer' && self::multi()) self::forward($tid);
             self::notify_team_new($tid, $r);
         }
@@ -435,7 +436,9 @@ class TIX_Support_Model {
         $page = max(1, intval($req->get_param('page') ?: 1));
         $st = sanitize_key((string) $req->get_param('status'));
         $args = ['post_type' => self::CPT, 'post_status' => isset(self::STATUS_MAP[$st]) ? [self::STATUS_MAP[$st]] : array_values(self::STATUS_MAP),
-            'posts_per_page' => 500, 'orderby' => 'modified', 'order' => 'DESC', 'fields' => 'ids', 'meta_query' => []];
+            'posts_per_page' => 500, 'orderby' => 'modified', 'order' => 'DESC', 'fields' => 'ids',
+            // Betreiber-Anfragen aus „Hilfe & Support“ (1.38.480) stehen im Plattform-Studio, nicht im Kunden-Postfach
+            'meta_query' => [['key' => '_tix_sp_help', 'compare' => 'NOT EXISTS']]];
         if (($c = sanitize_key((string) $req->get_param('category'))) !== '') $args['meta_query'][] = ['key' => '_tix_sp_category', 'value' => $c];
         if (($o = intval($req->get_param('order_id')))) $args['meta_query'][] = ['key' => '_tix_sp_order_id', 'value' => (string) $o];
         if (($a = $req->get_param('assignee')) !== null && $a !== '') $args['meta_query'][] = $a === 'me' ? ['key' => '_tix_sp_assignee', 'value' => (string) get_current_user_id()] : ($a === 'none' ? ['key' => '_tix_sp_assignee', 'compare' => 'NOT EXISTS'] : ['key' => '_tix_sp_assignee', 'value' => (string) intval($a)]);
@@ -621,7 +624,8 @@ class TIX_Support_Model {
             LEFT JOIN {$wpdb->postmeta} w ON w.post_id = p.ID AND w.meta_key = '_tix_sp_waiting'
             LEFT JOIN {$wpdb->postmeta} lc ON lc.post_id = p.ID AND lc.meta_key = '_tix_sp_customer_n'"
             . ($oid ? " INNER JOIN {$wpdb->postmeta} o ON o.post_id = p.ID AND o.meta_key = '_tix_sp_resp_org' AND o.meta_value = '" . $oid . "'" : '')
-            . " WHERE p.post_type = '" . self::CPT . "' AND p.post_status IN ($in) AND (c.meta_value IS NULL OR c.meta_value <> 'awareness')";
+            . " LEFT JOIN {$wpdb->postmeta} hp ON hp.post_id = p.ID AND hp.meta_key = '_tix_sp_help'"
+            . " WHERE p.post_type = '" . self::CPT . "' AND p.post_status IN ($in) AND (c.meta_value IS NULL OR c.meta_value <> 'awareness') AND hp.meta_id IS NULL";
         if (self::multi() && !$oid && !current_user_can('manage_options')) return ['open' => 0, 'progress' => 0, 'resolved' => 0, 'closed' => 0, 'mine' => 0, 'unassigned' => 0, 'waiting' => 0, 'unread' => 0];
         $out = ['open' => 0, 'progress' => 0, 'resolved' => 0, 'closed' => 0, 'mine' => 0, 'unassigned' => 0, 'waiting' => 0, 'unread' => 0];
         $active_ids = [];

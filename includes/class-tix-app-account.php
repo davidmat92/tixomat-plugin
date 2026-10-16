@@ -807,6 +807,8 @@ class TIX_App_Account {
             'source'      => 'app',
         ]);
         if (is_wp_error($ticket_id)) return $ticket_id;
+        // Studio „Hilfe & Support“ (Staff-Konto): Anfrage an den Plattform-Betreiber (1.38.480, TIX_Platform_Admin)
+        if ($user && class_exists('TIX_Platform_Admin')) TIX_Platform_Admin::mark_help($ticket_id, $user);
         // Event-Bezug (z. B. „Event melden“ nach DSA Art. 16: Grund, Bestätigung „nach bestem Wissen“)
         $rep_eid = absint($req->get_param('event_id'));
         if ($rep_eid && get_post_type($rep_eid) === 'event') update_post_meta($ticket_id, '_tix_sp_event_id', $rep_eid);
