@@ -799,7 +799,7 @@ class TIX_Columns {
         '_tix_guest_list', '_tix_awareness_feedback_sum', '_tix_feedback_avg', '_tix_feedback_count',
         '_tix_last_sync_log', '_tix_last_sync_time', '_tix_low_stock_notified', '_tix_notified', '_tix_offline_count',
         '_tix_raffle_drawn_at', '_tix_raffle_status', '_tix_settled_at', '_tix_sold_display', '_tix_sold_percent', '_tix_sold_total',
-        '_tix_syndicate_last', '_tix_syndicate_remote_id', '_tix_syndicate_status', '_tix_ticket_count', '_tix_publish_held',
+        '_tix_syndicate_last', '_tix_syndicate_remote_id', '_tix_syndicate_status', '_tix_syndicate_error', '_tix_syndicate_url', '_tix_ticket_count', '_tix_publish_held',
         '_tix_ai_checked_at', '_tix_awareness_test', '_tix_status', '_tix_status_label', '_edit_lock', '_edit_last'];
 
     /**

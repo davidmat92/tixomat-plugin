@@ -2415,7 +2415,18 @@ class TIX_REST_API {
             $event['presale_active']  = (bool) get_post_meta($id, '_tix_presale_active', true);
         }
         // Teilen aus dem Veranstalter-Bereich: Event-Link mit Herkunft „veranstalter-link“ (evendis)
-        if (class_exists('TIX_Organizer_Link') && TIX_Organizer_Link::multi()) $event['share_url'] = TIX_Organizer_Link::share_url($id);
+        if (class_exists('TIX_Organizer_Link') && TIX_Organizer_Link::multi()) {
+            $event['share_url'] = TIX_Organizer_Link::share_url($id);
+        } else {
+            // Einzel-Veranstalter-Seite (1.38.453): eigene Event-Seite mit Herkunft (zählt in /organizer/link-stats), nur veröffentlicht
+            $u = (string) get_permalink($id);
+            if (class_exists('TIX_Customer_URL')) $u = TIX_Customer_URL::to($u);
+            $event['share_url'] = $post->post_status === 'publish' && $u !== '' ? add_query_arg(['utm_source' => 'veranstalter-link'], $u) : '';
+            // Auf evendis.de geteilt: Adresse der Event-Seite dort (merkt sich der Push aus der Antwort der Plattform)
+            $syn_url = (string) get_post_meta($id, '_tix_syndicate_url', true);
+            $event['evendis_url'] = get_post_meta($id, '_tix_syndicate', true) === '1' && get_post_meta($id, '_tix_syndicate_status', true) === 'synced'
+                && get_post_meta($id, '_tix_syndicate_remote_id', true) && $syn_url !== '' ? $syn_url : null;
+        }
 
         return $event;
     }

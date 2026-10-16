@@ -110,12 +110,13 @@ class TIX_Syndication_Push {
         }
 
         if (!$syndicate) {
-            // War vorher synced? → DELETE senden
+            // War vorher synced? → DELETE senden (nur als Besitzer des Plattform-Events)
             $remote_id = get_post_meta($post_id, '_tix_syndicate_remote_id', true);
             if ($remote_id) {
-                self::api_call('DELETE', '/syndicate/' . intval($remote_id));
+                if (!self::other_owner($post_id, $remote_id)) self::api_call('DELETE', '/syndicate/' . intval($remote_id), ['source_id' => intval($post_id)]);
                 delete_post_meta($post_id, '_tix_syndicate_remote_id');
                 delete_post_meta($post_id, '_tix_syndicate_status');
+                delete_post_meta($post_id, '_tix_syndicate_url');
             }
             return;
         }
@@ -134,9 +135,21 @@ class TIX_Syndication_Push {
         if (!self::is_configured()) return;
 
         $remote_id = get_post_meta($post_id, '_tix_syndicate_remote_id', true);
-        if ($remote_id) {
-            self::api_call('DELETE', '/syndicate/' . intval($remote_id));
+        // Kopie bzw. Doppel mit derselben remote_id (z. B. aus einem Duplizier-Plugin): das verteilte Event bleibt
+        if ($remote_id && !self::other_owner($post_id, $remote_id)) {
+            self::api_call('DELETE', '/syndicate/' . intval($remote_id), ['source_id' => intval($post_id)]);
         }
+    }
+
+    /**
+     * Trägt ein anderes veröffentlichtes, verteiltes Event hier dieselbe remote_id? Dann gehört das Plattform-Event
+     * diesem – Löschen bzw. Entwurf der Kopie darf es nicht von der Plattform nehmen.
+     */
+    public static function other_owner($post_id, $remote_id) {
+        $ids = get_posts(['post_type' => 'event', 'post_status' => 'publish', 'posts_per_page' => 1, 'fields' => 'ids', 'post__not_in' => [intval($post_id)],
+            'meta_query' => [['key' => '_tix_syndicate_remote_id', 'value' => (string) intval($remote_id)], ['key' => '_tix_syndicate', 'value' => '1']]]);
+        if ($ids) error_log('[TIX Syndication] Event #' . intval($post_id) . ' trägt die remote_id ' . intval($remote_id) . ' von Event #' . intval($ids[0]) . ' – kein DELETE.');
+        return $ids ? intval($ids[0]) : 0;
     }
 
     /**
@@ -152,9 +165,11 @@ class TIX_Syndication_Push {
         if (!$remote_id) return;
 
         if ($new_status === 'trash' || $new_status === 'draft') {
-            // Deaktivieren auf der Plattform
+            // Deaktivieren auf der Plattform (nur als Besitzer; die Plattform prüft source_id zusätzlich)
+            if (self::other_owner($post->ID, $remote_id)) return;
             self::api_call('PATCH', '/syndicate/' . intval($remote_id), [
                 'status' => 'draft',
+                'source_id' => intval($post->ID),
             ]);
         } elseif ($new_status === 'publish' && $old_status !== 'publish') {
             // Erneut pushen
@@ -227,6 +242,11 @@ class TIX_Syndication_Push {
             update_post_meta($post_id, '_tix_syndicate_status', 'synced');
             update_post_meta($post_id, '_tix_syndicate_last', current_time('mysql'));
             delete_post_meta($post_id, '_tix_syndicate_error');
+            // Adresse auf der Plattform (ab 1.38.453 in der Antwort) für `evendis_url`
+            $url = esc_url_raw((string) ($result['url'] ?? ''));
+            if ($url !== '' && preg_match('#^https?://#', $url)) update_post_meta($post_id, '_tix_syndicate_url', $url);
+            // Plattform hat ein Event aus dem Papierkorb geholt (Push einer veröffentlichten Quelle)
+            if (!empty($result['restored'])) error_log('[TIX Syndication] Event #' . $post_id . ': Plattform-Event #' . intval($result['event_id']) . ' aus dem Papierkorb wiederhergestellt.');
         } else {
             $error = $result['message'] ?? 'Unbekannter Fehler';
             update_post_meta($post_id, '_tix_syndicate_status', 'error');

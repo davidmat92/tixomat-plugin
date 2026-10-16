@@ -85,6 +85,12 @@ class TIX_Syndication_Receive {
             return new WP_Error('not_syndicated', 'Dieses Event ist nicht syndiziert.', ['status' => 403]);
         }
         $owner = (string) get_post_meta($event_id, '_tix_source_partner', true);
+        // Löschen bzw. Entwurf nur vom Quell-Event selbst (Kopien mit derselben remote_id → 409); ältere Quellen schicken keine source_id
+        $sid = intval($data['source_id'] ?? 0);
+        $destructive = !empty($data['_destructive']) || (isset($data['status']) && $data['status'] !== 'publish');
+        if ($sid && $destructive && intval(get_post_meta($event_id, '_tix_source_id', true)) !== $sid) {
+            return new WP_Error('tix_source_mismatch', 'Dieses Plattform-Event gehört zu einem anderen Event der Quelle (#' . intval(get_post_meta($event_id, '_tix_source_id', true)) . ').', ['status' => 409]);
+        }
         if (self::$partner) {
             if ($owner === self::$partner['id']) return true;
             // Altes Event (vor dem Partner-Verzeichnis) übernehmen, wenn der Name passt
@@ -153,6 +159,7 @@ class TIX_Syndication_Receive {
 
         return rest_ensure_response([
             'event_id' => $event_id,
+            'url'      => self::public_url($event_id),
             'status'   => 'created',
             'partner'  => self::$partner ? self::$partner['id'] : null,
         ]);
@@ -187,8 +194,10 @@ class TIX_Syndication_Receive {
         }
 
         // Nur syndizierte Events der eigenen Quelle löschen
-        $owns = self::owns($event_id);
+        $data = $request->get_json_params();
+        $owns = self::owns($event_id, (is_array($data) ? $data : []) + ['_destructive' => 1]);
         if (is_wp_error($owns)) return $owns;
+        if ($post->post_status === 'trash') return rest_ensure_response(['status' => 'deleted']);
 
         wp_trash_post($event_id);
 
@@ -203,11 +212,17 @@ class TIX_Syndication_Receive {
      * Bestehendes syndiziertes Event finden: bei bekannter Quelle über Partner + Quell-ID,
      * sonst (und für alte Events ohne Partner) über Name + Quell-ID.
      */
+    /** Adresse der Event-Seite für Kunden (evendis.de), die Quelle zeigt sie im Studio als `evendis_url`. */
+    private static function public_url($event_id) {
+        $u = (string) get_permalink($event_id);
+        return class_exists('TIX_Customer_URL') ? TIX_Customer_URL::to($u) : $u;
+    }
+
     private static function find_by_source($source_id, $source_site) {
         if (self::$partner) {
             $events = get_posts([
                 'post_type'      => 'event',
-                'post_status'    => 'any',
+                'post_status'    => ['publish', 'future', 'draft', 'pending', 'private', 'trash'], // auch Papierkorb: wird beim Push einer veröffentlichten Quelle wiederhergestellt
                 'posts_per_page' => 1,
                 'fields'         => 'ids',
                 'meta_query'     => [
@@ -222,7 +237,7 @@ class TIX_Syndication_Receive {
         if ($source_site === '') return null;
         $events = get_posts([
             'post_type'      => 'event',
-            'post_status'    => 'any',
+            'post_status'    => ['publish', 'future', 'draft', 'pending', 'private', 'trash'], // auch Papierkorb: wird beim Push einer veröffentlichten Quelle wiederhergestellt
             'posts_per_page' => 1,
             'fields'         => 'ids',
             'meta_query'     => [
@@ -268,6 +283,19 @@ class TIX_Syndication_Receive {
      */
     private static function update_event($event_id, $data) {
         $was_published = get_post_status($event_id) === 'publish';
+        // Im Papierkorb, die Quelle ist aber veröffentlicht → wiederherstellen (nie still in den Papierkorb synchronisieren)
+        $restored = false;
+        if (get_post_status($event_id) === 'trash') {
+            if (($data['status'] ?? '') !== 'publish' || !empty($data['stock_only'])) {
+                return rest_ensure_response(['event_id' => $event_id, 'status' => 'trashed', 'partner' => self::$partner ? self::$partner['id'] : null]);
+            }
+            wp_untrash_post($event_id);
+            $restored = true;
+        }
+        // Veröffentlichte Quelle übernimmt das Event (z. B. nach Neuanlage auf der Quelle); Löschen prüft danach gegen diese ID
+        if (($data['status'] ?? '') === 'publish' && intval($data['source_id'] ?? 0) > 0 && empty($data['stock_only'])) {
+            update_post_meta($event_id, '_tix_source_id', intval($data['source_id']));
+        }
         $update = ['ID' => $event_id];
         if (isset($data['title']))   $update['post_title'] = sanitize_text_field($data['title']);
         if (isset($data['excerpt'])) $update['post_excerpt'] = sanitize_textarea_field($data['excerpt']);
@@ -308,7 +336,9 @@ class TIX_Syndication_Receive {
 
         return rest_ensure_response([
             'event_id' => $event_id,
+            'url'      => self::public_url($event_id),
             'status'   => 'updated',
+            'restored' => $restored,
             'partner'  => self::$partner ? self::$partner['id'] : null,
         ]);
     }
