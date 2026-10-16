@@ -28,6 +28,8 @@ class TIX_Studio {
         add_filter('allowed_redirect_hosts', [__CLASS__, 'allowed_hosts']);
         add_action('rest_api_init', [__CLASS__, 'register_routes']);
         add_action('admin_post_tix_studio_open', [__CLASS__, 'open']);
+        // Platzhalterbild für Events ohne Bild (1.38.458): nur auf der Website, nie in REST-Antworten
+        add_filter('get_post_metadata', [__CLASS__, 'placeholder_thumbnail'], 10, 4);
         // Experten-Modus: Rückweg-Leiste + evendis-Look
         add_filter('admin_body_class', [__CLASS__, 'body_class']);
         add_action('admin_head', [__CLASS__, 'bar_styles']);
@@ -189,6 +191,10 @@ class TIX_Studio {
             'callback'            => [__CLASS__, 'rest_handoff'],
             'permission_callback' => '__return_true',
         ]);
+        register_rest_route(self::NS, '/studio/placeholder', [
+            ['methods' => 'POST',   'callback' => [__CLASS__, 'rest_placeholder_upload'], 'permission_callback' => [__CLASS__, 'perm_brand']],
+            ['methods' => 'DELETE', 'callback' => [__CLASS__, 'rest_placeholder_delete'], 'permission_callback' => [__CLASS__, 'perm_brand']],
+        ]);
         register_rest_route(self::NS, '/studio/config', [
             ['methods' => 'GET',  'callback' => [__CLASS__, 'rest_config'],      'permission_callback' => '__return_true'],
             ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_save_config'], 'permission_callback' => [__CLASS__, 'perm_brand']],
@@ -251,7 +257,66 @@ class TIX_Studio {
         $id = intval($b['logo_id'] ?? 0);
         $logo = $id ? (wp_get_attachment_image_url($id, 'medium') ?: wp_get_attachment_url($id)) : '';
         $acc = self::hex($b['accent'] ?? '');
-        return ['accent' => $acc !== '' ? $acc : null, 'logo' => $logo ? (string) $logo : null];
+        return ['accent' => $acc !== '' ? $acc : null, 'logo' => $logo ? (string) $logo : null, 'placeholder' => self::placeholder() !== null];
+    }
+
+    /** Platzhalterbild der Seite für Events ohne Bild: {id, url (large), url_small (medium)} | null. */
+    public static function placeholder() {
+        $id = intval(self::brand()['placeholder_id'] ?? 0);
+        if (!$id || get_post_type($id) !== 'attachment') return null;
+        $url = (string) (wp_get_attachment_image_url($id, 'large') ?: wp_get_attachment_url($id));
+        if ($url === '') return null;
+        return ['id' => $id, 'url' => $url, 'url_small' => (string) (wp_get_attachment_image_url($id, 'medium') ?: $url)];
+    }
+
+    /**
+     * Website: Event ohne Beitragsbild → Platzhalter als Beitragsbild (Theme, Breakdance, Plugin-Vorlagen).
+     * Nicht in REST, Verwaltung, Cron und WP-CLI – die Apps erkennen „ohne Bild“ an einem leeren `image`.
+     */
+    public static function placeholder_thumbnail($value, $object_id, $meta_key, $single) {
+        if ($meta_key !== '_thumbnail_id' || $value !== null) return $value;
+        static $pid = null;
+        if ($pid === null) $pid = intval(self::brand()['placeholder_id'] ?? 0);
+        if (!$pid || is_admin() || (defined('REST_REQUEST') && REST_REQUEST) || wp_doing_cron() || (defined('WP_CLI') && WP_CLI)) return $value;
+        if (get_post_type($object_id) !== 'event') return $value;
+        remove_filter('get_post_metadata', [__CLASS__, 'placeholder_thumbnail'], 10);
+        $own = get_post_meta($object_id, '_thumbnail_id', true);
+        add_filter('get_post_metadata', [__CLASS__, 'placeholder_thumbnail'], 10, 4);
+        if (intval($own) > 0) return $value;
+        return $single ? (string) $pid : [(string) $pid];
+    }
+
+    /** POST /studio/placeholder (multipart `image` bzw. `file`, JPG/PNG/WebP ≤ 5 MB; empfohlen 16:9, 1920×1080) → config */
+    public static function rest_placeholder_upload(WP_REST_Request $req) {
+        $files = $req->get_file_params();
+        $file = $files['image'] ?? ($files['file'] ?? null);
+        if (intval($_SERVER['CONTENT_LENGTH'] ?? 0) > 0 && !$files && !$req->get_body_params()) return new WP_Error('tix_too_large', 'Das Bild ist zu groß (höchstens 5 MB).', ['status' => 413, 'field' => 'image']);
+        if (empty($file['tmp_name'])) return new WP_Error('no_file', 'Kein Bild hochgeladen.', ['status' => 400, 'field' => 'image']);
+        if (!empty($file['error'])) return new WP_Error('upload_failed', 'Upload fehlgeschlagen (höchstens 5 MB).', ['status' => in_array(intval($file['error']), [UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE], true) ? 413 : 400, 'field' => 'image']);
+        if (intval($file['size'] ?? 0) > 5 * MB_IN_BYTES) return new WP_Error('tix_too_large', 'Das Bild ist zu groß (höchstens 5 MB).', ['status' => 413, 'field' => 'image']);
+        $info = @getimagesize($file['tmp_name']);
+        $mime = is_array($info) ? (string) $info['mime'] : '';
+        if (!in_array($mime, ['image/jpeg', 'image/png', 'image/webp'], true)) return new WP_Error('bad_type', 'Bitte ein JPG-, PNG- oder WebP-Bild wählen.', ['status' => 400, 'field' => 'image']);
+        if ($info[0] < 200 || $info[1] < 100 || $info[0] > 8000 || $info[1] > 8000) return new WP_Error('bad_size', 'Das Bild muss mindestens 200×100 und höchstens 8000 Pixel groß sein (empfohlen 1920×1080).', ['status' => 400, 'field' => 'image']);
+        require_once ABSPATH . 'wp-admin/includes/file.php';
+        require_once ABSPATH . 'wp-admin/includes/media.php';
+        require_once ABSPATH . 'wp-admin/includes/image.php';
+        $ext = $mime === 'image/png' ? 'png' : ($mime === 'image/webp' ? 'webp' : 'jpg');
+        $aid = media_handle_sideload(['name' => 'event-platzhalter-' . time() . '.' . $ext, 'tmp_name' => $file['tmp_name'], 'type' => $mime, 'size' => $file['size'] ?? 0], 0, 'Event-Platzhalter');
+        if (is_wp_error($aid)) return new WP_Error('upload_failed', $aid->get_error_message(), ['status' => 500]);
+        $b = self::brand();
+        $b['placeholder_id'] = intval($aid);
+        update_option(self::BRAND, $b, false);
+        if (class_exists('TIX_Public_Events') && method_exists('TIX_Public_Events', 'flush')) TIX_Public_Events::flush();
+        return rest_ensure_response(self::config_payload());
+    }
+
+    /** DELETE /studio/placeholder → zurück auf den Standard (kein eigenes Bild). */
+    public static function rest_placeholder_delete(WP_REST_Request $req) {
+        $b = self::brand();
+        unset($b['placeholder_id']);
+        update_option(self::BRAND, $b, false);
+        return rest_ensure_response(self::config_payload());
     }
 
     /** Logo: gespeichert › Custom Logo des Themes › Logo der Verwaltung/Anmeldung › Website-Icon. */
@@ -274,6 +339,8 @@ class TIX_Studio {
             'logo'       => self::logo(),
             // Im Studio gesetzte Werte (null = nur Rückfall, z. B. Website-Icon) – 1.38.446
             'custom'     => self::custom_brand(),
+            // 1.38.458: Marke gesammelt, mit Platzhalterbild für Events ohne Bild ({url, url_small} | null)
+            'brand'      => ['accent' => self::accent(), 'logo' => self::logo(), 'placeholder' => (function () { $p = self::placeholder(); return $p ? ['url' => $p['url'], 'url_small' => $p['url_small']] : null; })()],
             'profile'    => $multi ? 'platform' : 'single',
             'features'   => [
                 'register'  => $multi && class_exists('TIX_Register_API'),
@@ -389,7 +456,13 @@ class TIX_Studio {
                 $b['logo_id'] = $id;
             }
         }
-        $unknown = array_diff(array_keys((array) $p), ['accent', 'logo_id', 'logo', 'has_app', 'app_layout']);
+        if ($has('placeholder_id')) {
+            $pid = intval($req->get_param('placeholder_id'));
+            if ($pid === 0) unset($b['placeholder_id']);
+            elseif (get_post_type($pid) !== 'attachment' || !wp_attachment_is_image($pid)) return new WP_Error('tix_invalid_field', 'Bild nicht gefunden.', ['status' => 400, 'field' => 'placeholder_id']);
+            else $b['placeholder_id'] = $pid;
+        }
+        $unknown = array_diff(array_keys((array) $p), ['accent', 'logo_id', 'logo', 'has_app', 'app_layout', 'placeholder_id']);
         if ($has('app_layout')) {
             $lv = $req->get_param('app_layout');
             if (!current_user_can('manage_options')) return new WP_Error('rest_forbidden', 'Nur ein Admin legt das Profil der App fest.', ['status' => 403]);

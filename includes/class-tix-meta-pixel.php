@@ -48,7 +48,8 @@ class TIX_Meta_Pixel {
             window.tixMetaPixelId = '<?php echo $pixel_id; ?>';
             window.tixMetaConsentCookie = '<?php echo $consent_cookie; ?>';
             (function(){
-                function hasCookie(name){return document.cookie.split(';').some(function(c){return c.trim().indexOf(name+'=')===0})}
+                // Eingestelltes Consent-Cookie: nur mit zustimmendem Wert (nicht „0/false/no“; JSON mit categories → muss marketing enthalten)
+                function hasCookie(name){var m=document.cookie.match(new RegExp('(?:^|;\\s*)'+name.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'=([^;]*)'));if(!m)return false;var v=m[1];try{v=decodeURIComponent(v)}catch(e){}if(v===''||/^(0|false|no|denied|reject(ed)?)$/i.test(v))return false;try{var j=JSON.parse(v);if(j&&typeof j==='object'){var c=j.categories||j.level;if(Array.isArray(c))return c.some(function(x){return /^(marketing|ads|advertising|werbung|targeting)$/i.test(String(x))});return j.marketing===true}}catch(e){}return true}
                 function loadPixel(){
                     if(window.tixMetaPixelLoaded)return;
                     window.tixMetaPixelLoaded=true;
@@ -329,6 +330,12 @@ class TIX_Meta_Pixel {
         $token = $s['meta_access_token'] ?? '';
         // Website-Bestellung über die Schnittstelle ohne Einwilligung (kein fbp/fbc) → nichts an Meta
         $no_consent = get_post_meta($order_id, '_tix_meta_no_consent', true) === '1';
+        // Modus „nur nach Einwilligung“ (1.38.458): nur mit nachgewiesener Einwilligung beim Kauf (Website-Kasse bzw. fbp/fbc).
+        // App-Bestellungen und Bestellungen ohne Nachweis gehen nicht an Meta.
+        if (($s['meta_consent_mode'] ?? 'always') === 'consent_required' && get_post_meta($order_id, '_tix_meta_consent', true) !== '1'
+            && (string) get_post_meta($order_id, '_tix_meta_fbp', true) === '' && (string) get_post_meta($order_id, '_tix_meta_fbc', true) === '') {
+            $no_consent = true;
+        }
         if (!$no_consent && !empty($s['meta_capi_enabled']) && !empty($pixel_id) && !empty($token)) {
             // Bei Website-Bestellungen kommen IP/Browser/fbp/fbc aus der Bestellung (der Kauf wird
             // meist im Zahlungs-Webhook abgeschlossen, der den Besucher nicht kennt)

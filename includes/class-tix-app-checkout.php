@@ -1582,6 +1582,7 @@ class TIX_App_Checkout {
         $fbp = $clip($attr['fbp'] ?? '', 200);
         $fbc = $clip($attr['fbc'] ?? '', 500);
         if ($fbp !== '' || $fbc !== '') {
+            update_post_meta($order_id, '_tix_meta_consent', '1');
             if ($fbp !== '') update_post_meta($order_id, '_tix_meta_fbp', $fbp);
             if ($fbc !== '') update_post_meta($order_id, '_tix_meta_fbc', $fbc);
             update_post_meta($order_id, '_tix_meta_client_ip', class_exists('TIX_Client_IP') ? TIX_Client_IP::get() : '');

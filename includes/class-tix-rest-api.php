@@ -690,6 +690,8 @@ class TIX_REST_API {
 
     public static function get_info(WP_REST_Request $req) {
         $features = [];
+        // Platzhalterbild für Events ohne Bild (1.38.458, Studio → Marke): {url, url_small} | null
+        $ph = class_exists('TIX_Studio') ? TIX_Studio::placeholder() : null;
 
         // Feature-Flags aus Settings
         if (function_exists('tix_get_settings')) {
@@ -718,6 +720,7 @@ class TIX_REST_API {
             'modules_source' => class_exists('TIX_Modules') ? TIX_Modules::source() : 'all',
             // Awareness (kostenlos, nie gesperrt): was die Seite freigeschaltet hat – maßgeblich für Melden/Feedback bzw. Hilfe vor Ort
             'awareness'      => class_exists('TIX_Awareness_Live') ? TIX_Awareness_Live::flags() : ['report_enabled' => false, 'alarm_live' => false],
+            'event_placeholder' => $ph ? ['url' => $ph['url'], 'url_small' => $ph['url_small']] : null,
         ] + ((class_exists('TIX_Weekly_Mail') && TIX_Weekly_Mail::multi()) ? [
             // Wochenmail (evendis): Karte „Was geht am Wochenende?“ nur bei enabled
             'newsletter'     => ['enabled' => TIX_Weekly_Mail::enabled()],

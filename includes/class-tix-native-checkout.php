@@ -1954,6 +1954,21 @@ class TIX_Native_Checkout {
     // ORDER ERSTELLEN (direkt in tix_orders)
     // ──────────────────────────────────────────
 
+    /** Einwilligung „Marketing“ des Besuchers an der Bestellung merken (Meta Conversions-API, 1.38.458). */
+    public static function record_meta_consent($order_id) {
+        if (class_exists('TIX_Consent') && TIX_Consent::has('marketing')) {
+            update_post_meta($order_id, '_tix_meta_consent', '1');
+            delete_post_meta($order_id, '_tix_meta_no_consent');
+            foreach (['_fbp' => '_tix_meta_fbp', '_fbc' => '_tix_meta_fbc'] as $c => $m) {
+                if (!empty($_COOKIE[$c])) update_post_meta($order_id, $m, mb_substr(sanitize_text_field(wp_unslash($_COOKIE[$c])), 0, 500));
+            }
+            update_post_meta($order_id, '_tix_meta_client_ip', class_exists('TIX_Client_IP') ? TIX_Client_IP::get() : '');
+            update_post_meta($order_id, '_tix_meta_client_ua', mb_substr(sanitize_text_field((string) ($_SERVER['HTTP_USER_AGENT'] ?? '')), 0, 400));
+        } else {
+            update_post_meta($order_id, '_tix_meta_no_consent', '1');
+        }
+    }
+
     public static function create_order($data) {
         global $wpdb;
         $t  = $wpdb->prefix . 'tix_orders';
@@ -2099,6 +2114,10 @@ class TIX_Native_Checkout {
                 }
             }
         }
+
+        // Meta Conversions-API (1.38.458): Einwilligung „Marketing“ beim Kauf merken – der Kauf wird oft erst im Zahlungs-
+        // Webhook abgeschlossen, der den Besucher nicht kennt. Nur im Browser (REST/App setzen das in TIX_App_Checkout).
+        if (!(defined('REST_REQUEST') && REST_REQUEST) && !wp_doing_cron() && !(defined('WP_CLI') && WP_CLI)) self::record_meta_consent($order_id);
 
         // Save group booking data if available
         $group_key = 'tix_group_order_data_' . md5(self::session_key()); // native Gruppenbuchung

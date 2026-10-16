@@ -17,7 +17,7 @@
  * Option `tix_consent_banner` (Vorgabe aus):
  *   enabled (bool), cookie_domain ('' = aktueller Host, z. B. '.evendis.de'),
  *   key_statistics ('analytics'), key_marketing ('marketing'), revision (int, erhöhen = neu fragen),
- *   footer_link (bool, Vorgabe an), title, text (optional eigene Texte)
+ *   footer_link (bool, Vorgabe an), title, text (optional eigene Texte), accent (#hex, optional; sonst Primärfarbe)
  * Setzen z. B.: wp option update tix_consent_banner '{"enabled":true,"cookie_domain":".evendis.de"}' --format=json
  *
  * Nach der Wahl feuert `tix:consentGranted` (detail.categories = ['statistics','marketing'] je nach
@@ -41,6 +41,7 @@ class TIX_Consent_Banner {
             'footer_link'    => true,
             'title'          => '',
             'text'           => '',
+            'accent'         => '',   // eigene Banner-Farbe (1.38.458), sonst Primärfarbe der Seite
         ]);
         $s['enabled']     = !empty($s['enabled']) && $s['enabled'] !== 'false';
         $s['footer_link'] = !empty($s['footer_link']) && $s['footer_link'] !== 'false';
@@ -115,6 +116,7 @@ class TIX_Consent_Banner {
         // Farbe der Seite (Einstellung „Primärfarbe“)
         $tix = function_exists('tix_get_settings') ? tix_get_settings() : [];
         $accent = preg_match('/^#[0-9a-f]{3,8}$/i', (string) ($tix['color_primary'] ?? '')) ? $tix['color_primary'] : '#111827';
+        if (preg_match('/^#[0-9a-f]{3,8}$/i', (string) $s['accent'])) $accent = $s['accent'];
         wp_add_inline_style('tix-consent-banner', '.tix-cc{--tix-cc-accent:' . $accent . '}');
     }
 
