@@ -9,22 +9,31 @@ if (!defined('ABSPATH')) exit;
  *   GET  /info → `mail_follow {enabled}`
  *   POST /public/organizers/{id}/follow {email, consent: true, share_email?: bool} → immer gleiche Antwort, Double-Opt-in-Mail
  *   GET  /public/organizers/{id}/follow/confirm?token= → Weiterleitung auf /veranstalter/<slug>/?follow=bestaetigt
- *   GET  /public/organizers/{id}/unfollow?token=       → löscht den Eintrag, Weiterleitung ?follow=abgemeldet
+ *   GET  /public/organizers/{id}/unfollow?token=       → Weiterleitung auf die Abmeldeseite <Kunden-Adresse>/veranstalter/<slug>/abmelden/?token=
+ *                                                        (löscht nicht – Mail-Scanner öffnen Links automatisch; 1.38.447)
+ *   POST /public/organizers/{id}/unfollow {token}      → löscht den Eintrag → {ok}; ungültig 404 tix_token_invalid.
+ *                                                        Auch RFC 8058 (List-Unsubscribe=One-Click, Token in der URL)
+ *   GET  /customer/following/mail                      → {enabled, consent_text, items: [{organizer_id, mail}]} (Konto)
+ *   POST /customer/following/{id}/mail {mail, consent} → {organizer_id, mail}; auch POST /customer/following/mail {organizer_id, …}
  *   GET  /organizer/mail-followers (Inhaber/Team-Admin) → {total, shared: [{email, since}]} – Adressen nur mit Häkchen
  * Mails: neues Event des Veranstalters (veröffentlicht, auch geteilte Partner-Events) → höchstens eine gebündelte Mail
  * am Tag; Nachrichten des Veranstalters an Follower (Filter `tix_organizer_broadcast`). Jede Mail: „Nicht mehr folgen“.
- * Konto mit gleicher Adresse (Registrierung/Anmeldung) → Folgen wird ins Konto übernommen, Mail-Eintrag gelöscht.
+ * Konto mit gleicher Adresse (Registrierung/Anmeldung) → Folgen wird ins Konto übernommen, der Mail-Eintrag bleibt und wird
+ * mit dem Konto verknüpft (`user_id`; Mails gehen an die aktuelle Konto-Adresse). Konto-Folgen ohne Eintrag = keine Mails.
+ * Folgen im Konto beendet bzw. Konto gelöscht → Mail-Eintrag gelöscht.
  * Einwilligung mit Text + Zeitpunkt (+ IP als HMAC); unbestätigte Einträge nach 7 Tagen gelöscht.
  */
 class TIX_Mail_Follow {
 
     const NS     = 'tixomat/v1';
     const OPTION = 'tix_mail_follow';
-    const DB_VER = '1';
+    const DB_VER = '2';
     const CRON   = 'tix_mail_follow_cron';
     const META_QUEUE = '_tix_mail_follow_queue';
     const CONSENT_TEXT = 'Ja, ich möchte per E-Mail erfahren, wenn %s neue Events veröffentlicht oder Neuigkeiten an Follower schickt. Abmeldung jederzeit über den Link in jeder Mail.';
     const SHARE_TEXT   = 'Meine E-Mail-Adresse darf %s für eigene Infos nutzen.';
+    // Einwilligung beim Schalter „Mails an“ im Konto (Text der Web-Seite)
+    const CONSENT_ACCOUNT_TEXT = 'Mit „Mails an“ bekommst du eine E-Mail, wenn der Veranstalter neue Events veröffentlicht oder Neuigkeiten an Follower schickt – höchstens eine am Tag. Ausschalten geht jederzeit hier oder über den Link in jeder Mail.';
 
     public static $sending = false;
 
@@ -49,6 +58,11 @@ class TIX_Mail_Follow {
         add_filter('tix_organizer_broadcast', [__CLASS__, 'on_broadcast'], 10, 6);
         add_action('user_register', [__CLASS__, 'adopt_for_user'], 20, 1);
         add_action('wp_login', function ($login, $user) { TIX_Mail_Follow::adopt_for_user($user->ID); }, 20, 2);
+        // Folgen im Konto beendet → Mail-Eintrag des Kontos für diesen Veranstalter löschen; Konto gelöscht → alle
+        add_action('updated_user_meta', function ($mid, $uid, $key, $value) {
+            if ($key === '_tix_app_following') TIX_Mail_Follow::sync_account($uid, $value);
+        }, 10, 4);
+        add_action('deleted_user', function ($uid) { TIX_Mail_Follow::delete_account_rows($uid); });
         add_filter('tix_email_tracking_enabled', function ($on) { return TIX_Mail_Follow::$sending ? false : $on; });
         add_action('admin_menu', [__CLASS__, 'menu'], 44);
         add_action('admin_post_tix_mail_follow', [__CLASS__, 'save_admin']);
@@ -70,6 +84,7 @@ class TIX_Mail_Follow {
             status varchar(16) NOT NULL DEFAULT 'pending',
             token varchar(64) NOT NULL,
             share_email tinyint(1) NOT NULL DEFAULT 0,
+            user_id bigint(20) unsigned NOT NULL DEFAULT 0,
             consent_text text NOT NULL,
             consent_at datetime NOT NULL,
             consent_ip varchar(64) NOT NULL DEFAULT '',
@@ -78,7 +93,8 @@ class TIX_Mail_Follow {
             created datetime NOT NULL,
             PRIMARY KEY  (id),
             UNIQUE KEY org_email (organizer_id, email),
-            KEY token (token)
+            KEY token (token),
+            KEY user_id (user_id)
         ) " . $wpdb->get_charset_collate() . ";");
         update_option('tix_mail_follow_db', self::DB_VER, false);
     }
@@ -102,9 +118,25 @@ class TIX_Mail_Follow {
         return ($base !== '' ? $base : untrailingslashit(home_url())) . '/veranstalter/' . $slug . '/';
     }
 
+    /** Bestätigen bzw. Abmelden (Schnittstelle; für List-Unsubscribe, nimmt auch POST nach RFC 8058). */
     private static function link($oid, $action, $token) {
         $path = $action === 'confirm' ? '/follow/confirm' : '/unfollow';
         return add_query_arg('token', rawurlencode($token), rest_url(self::NS . '/public/organizers/' . intval($oid) . $path));
+    }
+
+    /** Abmeldeseite der Website (meldet erst nach einem Klick ab). */
+    public static function unsubscribe_url($oid, $token) {
+        return add_query_arg('token', rawurlencode($token), self::page_url($oid) . 'abmelden/');
+    }
+
+    /** Empfänger: verknüpftes Konto → dessen aktuelle Adresse, sonst die eingetragene. */
+    private static function recipient($r) {
+        if (intval($r->user_id ?? 0) && ($u = get_userdata(intval($r->user_id))) && is_email($u->user_email)) return strtolower((string) $u->user_email);
+        return (string) $r->email;
+    }
+
+    private static function unsub_headers($oid, $token) {
+        return ['List-Unsubscribe: <' . self::link($oid, 'unfollow', $token) . '>', 'List-Unsubscribe-Post: List-Unsubscribe=One-Click'];
     }
 
     private static function mail($to, $subject, $body, $headers = []) {
@@ -121,7 +153,16 @@ class TIX_Mail_Follow {
         $pub = ['permission_callback' => '__return_true'];
         register_rest_route(self::NS, '/public/organizers/(?P<id>\d+)/follow', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_follow']] + $pub);
         register_rest_route(self::NS, '/public/organizers/(?P<id>\d+)/follow/confirm', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_confirm']] + $pub);
-        register_rest_route(self::NS, '/public/organizers/(?P<id>\d+)/unfollow', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_unfollow']] + $pub);
+        register_rest_route(self::NS, '/public/organizers/(?P<id>\d+)/unfollow', [
+            ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_unfollow']] + $pub,
+            ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_unfollow_post']] + $pub,
+        ]);
+        $customer = ['permission_callback' => ['TIX_App_Account', 'check_customer']];
+        register_rest_route(self::NS, '/customer/following/mail', [
+            ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_account_mail']] + $customer,
+            ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_account_mail_set']] + $customer,
+        ]);
+        register_rest_route(self::NS, '/customer/following/(?P<id>\d+)/mail', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_account_mail_set']] + $customer);
         register_rest_route(self::NS, '/organizer/mail-followers', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_list'], 'permission_callback' => ['TIX_App_Scope', 'check_manager']]);
     }
 
@@ -180,12 +221,97 @@ class TIX_Mail_Follow {
         return self::redirect($oid, 'bestaetigt');
     }
 
+    /** GET: nur zur Abmeldeseite weiterleiten (Mail-Scanner öffnen Links, ohne dass jemand abmelden will). */
     public static function rest_unfollow(WP_REST_Request $req) {
+        $oid = intval($req['id']);
+        $token = preg_replace('/[^A-Za-z0-9]/', '', (string) $req->get_param('token'));
+        wp_redirect(self::unsubscribe_url($oid, $token), 302, 'Tixomat');
+        exit;
+    }
+
+    /** POST {token} (JSON, Formular oder in der URL – RFC 8058 One-Click): Eintrag löschen. */
+    public static function rest_unfollow_post(WP_REST_Request $req) {
         global $wpdb;
         $oid = intval($req['id']);
+        if (class_exists('TIX_App_Account') && TIX_App_Account::rate_limited('mail_unfollow', 30, 600)) {
+            return new WP_Error('tix_rate_limit', 'Zu viele Anfragen. Bitte später erneut versuchen.', ['status' => 429]);
+        }
         $row = self::by_token($oid, $req->get_param('token'));
-        if ($row) $wpdb->delete(self::t(), ['id' => $row->id]); // Löschen beim Abmelden
-        return self::redirect($oid, 'abgemeldet');
+        if (!$row) return new WP_Error('tix_token_invalid', 'Der Abmelde-Link ist ungültig oder wurde schon benutzt.', ['status' => 404]);
+        $wpdb->delete(self::t(), ['id' => $row->id]); // Löschen beim Abmelden
+        $r = new WP_REST_Response(['ok' => true, 'organizer_id' => $oid]);
+        $r->header('Cache-Control', 'no-store');
+        return $r;
+    }
+
+    // ── Konto: Mails an/aus je Veranstalter ──
+
+    private static function account_rows($uid) {
+        global $wpdb;
+        $u = get_userdata($uid);
+        if (!$u || get_option('tix_mail_follow_db') !== self::DB_VER) return [];
+        return (array) $wpdb->get_results($wpdb->prepare("SELECT * FROM " . self::t() . " WHERE status = 'active' AND (user_id = %d OR email = %s)", $uid, strtolower((string) $u->user_email)));
+    }
+
+    private static function following($uid) {
+        $l = get_user_meta($uid, '_tix_app_following', true);
+        return is_array($l) ? array_values(array_unique(array_map('intval', $l))) : [];
+    }
+
+    /** GET /customer/following/mail */
+    public static function rest_account_mail(WP_REST_Request $req) {
+        $uid = get_current_user_id();
+        $on = [];
+        foreach (self::account_rows($uid) as $r) $on[intval($r->organizer_id)] = true;
+        $items = [];
+        foreach (self::following($uid) as $oid) $items[] = ['organizer_id' => $oid, 'mail' => isset($on[$oid])];
+        return rest_ensure_response(['ok' => true, 'enabled' => self::enabled(), 'consent_text' => self::CONSENT_ACCOUNT_TEXT, 'items' => $items]);
+    }
+
+    /** POST /customer/following/{id}/mail {mail, consent} bzw. /customer/following/mail {organizer_id, mail, consent} */
+    public static function rest_account_mail_set(WP_REST_Request $req) {
+        global $wpdb;
+        if (!self::enabled()) return new WP_Error('tix_follow_mail_off', 'Folgen per E-Mail ist noch nicht verfügbar.', ['status' => 404]);
+        $uid = get_current_user_id();
+        $u = get_userdata($uid);
+        $oid = intval($req['id'] ?? 0) ?: intval($req->get_param('organizer_id'));
+        if (!$oid || !in_array($oid, self::following($uid), true)) return new WP_Error('tix_not_following', 'Du folgst diesem Veranstalter nicht.', ['status' => 404]);
+        $on = filter_var($req->get_param('mail'), FILTER_VALIDATE_BOOLEAN);
+        self::maybe_install();
+        $email = strtolower((string) $u->user_email);
+        if (!$on) {
+            $wpdb->query($wpdb->prepare("DELETE FROM " . self::t() . " WHERE organizer_id = %d AND (user_id = %d OR email = %s)", $oid, $uid, $email));
+            return rest_ensure_response(['ok' => true, 'organizer_id' => $oid, 'mail' => false]);
+        }
+        if (!filter_var($req->get_param('consent'), FILTER_VALIDATE_BOOLEAN)) return new WP_Error('tix_consent_required', 'Bitte bestätige die Einwilligung.', ['status' => 400, 'field' => 'consent']);
+        if (!is_email($email)) return new WP_Error('invalid_email', 'Dein Konto hat keine gültige E-Mail-Adresse.', ['status' => 400]);
+        $ip = class_exists('TIX_Client_IP') ? TIX_Client_IP::get() : (string) ($_SERVER['REMOTE_ADDR'] ?? '');
+        $now = current_time('mysql');
+        $data = ['status' => 'active', 'user_id' => $uid, 'consent_text' => self::CONSENT_ACCOUNT_TEXT . ' (Konto, ' . self::name($oid) . ')', 'consent_at' => $now,
+                 'consent_ip' => $ip !== '' ? hash_hmac('sha256', $ip, wp_salt('auth')) : '', 'confirmed_at' => $now];
+        $row = $wpdb->get_row($wpdb->prepare("SELECT * FROM " . self::t() . " WHERE organizer_id = %d AND (user_id = %d OR email = %s) ORDER BY id ASC LIMIT 1", $oid, $uid, $email));
+        if ($row) {
+            if ($row->status !== 'active') $data['token'] = wp_generate_password(40, false, false);
+            $wpdb->update(self::t(), $data, ['id' => $row->id]);
+        } else {
+            $wpdb->insert(self::t(), $data + ['organizer_id' => $oid, 'email' => $email, 'token' => wp_generate_password(40, false, false), 'share_email' => 0, 'created' => $now]);
+        }
+        return rest_ensure_response(['ok' => true, 'organizer_id' => $oid, 'mail' => true]);
+    }
+
+    /** Folgen-Liste des Kontos geändert: Mail-Einträge für nicht mehr gefolgte Veranstalter löschen. */
+    public static function sync_account($uid, $list) {
+        global $wpdb;
+        if (get_option('tix_mail_follow_db') !== self::DB_VER) return;
+        $keep = is_array($list) ? array_map('intval', $list) : [];
+        foreach ((array) $wpdb->get_results($wpdb->prepare("SELECT id, organizer_id FROM " . self::t() . " WHERE user_id = %d", $uid)) as $r) {
+            if (!in_array(intval($r->organizer_id), $keep, true)) $wpdb->delete(self::t(), ['id' => $r->id]);
+        }
+    }
+
+    public static function delete_account_rows($uid) {
+        global $wpdb;
+        if (get_option('tix_mail_follow_db') === self::DB_VER) $wpdb->delete(self::t(), ['user_id' => intval($uid)]);
     }
 
     /** Bestätigtes Mail-Folgen ins Konto übernehmen (gleiche Adresse). */
@@ -199,9 +325,12 @@ class TIX_Mail_Follow {
         $list = is_array($list) ? array_map('intval', $list) : [];
         foreach ($rows as $r) {
             if (!in_array(intval($r->organizer_id), $list, true)) $list[] = intval($r->organizer_id);
-            $wpdb->delete(self::t(), ['id' => $r->id]);
         }
+        // Erst die Liste (sync_account räumt sonst die neuen Einträge weg), dann die Einträge mit dem Konto verknüpfen
         update_user_meta($user_id, '_tix_app_following', array_values($list));
+        foreach ($rows as $r) {
+            if (intval($r->user_id) !== intval($user_id)) $wpdb->update(self::t(), ['user_id' => intval($user_id)], ['id' => $r->id]);
+        }
     }
 
     // ── Benachrichtigung ──
@@ -267,13 +396,13 @@ class TIX_Mail_Follow {
         }
         $n = 0;
         foreach ((array) $rows as $r) {
-            $unsub = self::link($oid, 'unfollow', $r->token);
+            $unsub = self::unsubscribe_url($oid, $r->token);
             $html = '<!doctype html><html><body style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:16px;">'
                 . '<h1 style="font-size:19px;">' . esc_html(count($events) === 1 ? 'Neues Event von ' . $name : 'Neue Events von ' . $name) . '</h1><ul style="padding-left:18px;">' . $list . '</ul>'
                 . '<p><a href="' . esc_url(self::page_url($oid)) . '">Alle Events von ' . esc_html($name) . '</a></p>'
                 . '<p style="color:#888;font-size:12px;margin-top:24px;">Du folgst ' . esc_html($name) . ' per E-Mail. <a href="' . esc_url($unsub) . '" style="color:#888;">Nicht mehr folgen</a></p></body></html>';
-            if (self::mail($r->email, count($events) === 1 ? 'Neues Event von ' . $name : 'Neue Events von ' . $name, $html,
-                ['Content-Type: text/html; charset=UTF-8', 'List-Unsubscribe: <' . $unsub . '>', 'List-Unsubscribe-Post: List-Unsubscribe=One-Click'])) $n++;
+            if (self::mail(self::recipient($r), count($events) === 1 ? 'Neues Event von ' . $name : 'Neue Events von ' . $name, $html,
+                array_merge(['Content-Type: text/html; charset=UTF-8'], self::unsub_headers($oid, $r->token)))) $n++;
             $wpdb->update(self::t(), ['last_notified' => current_time('mysql')], ['id' => $r->id]);
         }
         return $n;
@@ -285,12 +414,12 @@ class TIX_Mail_Follow {
         if ($target !== 'followers' || !self::enabled() || get_option('tix_mail_follow_db') !== self::DB_VER) return $extra;
         $rows = $wpdb->get_results($wpdb->prepare("SELECT * FROM " . self::t() . " WHERE organizer_id = %d AND status = 'active'", $oid));
         foreach ((array) $rows as $r) {
-            $unsub = self::link($oid, 'unfollow', $r->token);
+            $unsub = self::unsubscribe_url($oid, $r->token);
             $html = '<!doctype html><html><body style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:16px;">'
                 . '<h1 style="font-size:19px;">' . esc_html($title) . '</h1><p>' . nl2br(esc_html($body)) . '</p>'
                 . '<p><a href="' . esc_url(self::page_url($oid)) . '">Zu ' . esc_html(self::name($oid)) . '</a></p>'
                 . '<p style="color:#888;font-size:12px;margin-top:24px;"><a href="' . esc_url($unsub) . '" style="color:#888;">Nicht mehr folgen</a></p></body></html>';
-            if (self::mail($r->email, $title, $html, ['Content-Type: text/html; charset=UTF-8', 'List-Unsubscribe: <' . $unsub . '>'])) $extra++;
+            if (self::mail(self::recipient($r), $title, $html, array_merge(['Content-Type: text/html; charset=UTF-8'], self::unsub_headers($oid, $r->token)))) $extra++;
         }
         return $extra;
     }
