@@ -141,6 +141,12 @@ if (class_exists('TIX_Wallet_Balance') && TIX_Wallet_Balance::ready()) {
     $txs = m2_rows('wallet_transactions', ['wallet_id' => 'eq.' . $wid]);
     t2_eq('Buchung gespiegelt', 1, count($txs));
     t2_eq('Buchungsart', 'topup', $txs[0]['type'] ?? null);
+    // Plattform-Cashless (1.38.466): Buchung trägt den Veranstalter
+    $tx2 = TIX_Wallet_Balance::post_tx($wid, ['type' => 'charge', 'amount' => -500, 'channel' => 'pos', 'organizer_id' => $org, 'idempotency_key' => "c$sfx"]);
+    m2_run();
+    if (!is_wp_error($tx2) && isset($tx2['id'])) t2_eq('Buchung mit Veranstalter', $org, (int) (m2_one('wallet_transactions', (int) $tx2['id'])['organizer_id'] ?? 0));
+    else t2_true('Cashless-Buchung möglich', false);
+    t2_eq('Geldbörse nach Abbuchung', 2000, (int) (m2_one('wallets', $wid)['balance_paid'] ?? -1));
 } else {
     echo "      (Guthaben-Tabellen fehlen – übersprungen)\n";
 }
@@ -208,7 +214,7 @@ if (isset($wid)) t2_eq('abweichende Geldbörse erkannt', 1, (int) ($rep['tables'
 m2_run(2);
 t2_true('Veranstalter nachgeschickt', m2_one('organizers', $org) !== null);
 t2_eq('Geist-Event gelöscht', null, m2_one('events', 987654321));
-if (isset($wid)) t2_eq('Geldbörse korrigiert', 2500, (int) (m2_one('wallets', $wid)['balance_paid'] ?? -1));
+if (isset($wid)) t2_eq('Geldbörse korrigiert', 2000, (int) (m2_one('wallets', $wid)['balance_paid'] ?? -1));
 $rep = m2_reconcile();
 t2_eq('danach wieder 0 Abweichungen', 0, (int) ($rep['differences'] ?? -1));
 // Verwaiste Gäste (Event fehlt im Spiegel) räumt der Abgleich weg
@@ -276,7 +282,14 @@ if (class_exists('TIX_Account_Delete')) {
     t2_eq('Bestellung behält Betrag', 10.0, (float) ($ko['total'] ?? 0));
     $hist = m2_rows('change_log', ['entity' => 'eq.orders', 'object_id' => 'eq.' . $koid]);
     t2_eq('Verlauf der Bestellung: nur der anonyme Stand', 1, count($hist));
-    t2_eq('kein Klarname im Bestell-Verlauf', false, strpos(wp_json_encode($hist), 'Kern') !== false || strpos(wp_json_encode($hist), $mail) !== false);
+    t2_eq('keine E-Mail im Bestell-Verlauf', false, strpos(wp_json_encode($hist), $mail) !== false);
+    if (class_exists('TIX_Account_Delete') && method_exists('TIX_Account_Delete', 'mode') && TIX_Account_Delete::mode() === 'retain') {
+        // 1.38.461: bezahlte Bestellung behält Rechnungsname/-anschrift bis 31.12.(Jahr+10)
+        t2_eq('Rechnungsname aufbewahrt (wie WordPress)', 'Klara', $ko['billing_first_name'] ?? null);
+        t2_true('retained_until gesetzt', !empty($ko['retained_until']));
+    } else {
+        t2_eq('kein Klarname im Bestell-Verlauf', false, strpos(wp_json_encode($hist), 'Kern') !== false);
+    }
     t2_true('Ticket anonymisiert, Code bleibt', TIX_Mirror_Map::is_anonymized(m2_one('tickets', $ktix[0])['owner_email'] ?? '') && (m2_one('tickets', $ktix[0])['code'] ?? '') !== '');
     t2_eq('kein Klarname im Ticket-Verlauf', false, strpos(wp_json_encode(m2_rows('change_log', ['entity' => 'eq.tickets', 'object_id' => 'eq.' . $ktix[0]])), 'Klara') !== false);
     t2_eq('Konto im Spiegel gelöscht', null, m2_one('customers', $kuid));

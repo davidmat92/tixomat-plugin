@@ -212,6 +212,7 @@ class TIX_Mirror_Extra {
             'staff_user_id'       => self::idn($x['staff_user_id']),
             'station'             => (string) $x['station'],
             'device_id'           => self::idn($x['device_id']),
+            'organizer_id'        => (int) ($x['organizer_id'] ?? 0), // Plattform-Cashless (1.38.466, Wallet-DB 3)
             'channel'             => (string) $x['channel'],
             'idempotency_key'     => (string) $x['idempotency_key'],
             'meta'                => (object) $meta,
