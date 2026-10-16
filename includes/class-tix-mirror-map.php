@@ -399,6 +399,7 @@ class TIX_Mirror_Map {
             'coupon'               => is_array($coupon) ? (string) ($coupon['code'] ?? '') : (string) $coupon,
             'created_at'           => self::local_to_iso($o['date_created']),
             'modified_at'          => $o['modified_ts'] ? gmdate('c', (int) $o['modified_ts']) : null,
+            'retained_until'       => self::retained_until($o),
             'data'                 => (object) $data,
         ];
 
@@ -434,6 +435,23 @@ class TIX_Mirror_Map {
         // Anonymisiert (Konto gelöscht bzw. Aufbewahrungsfrist vorbei): älteren Verlauf mit Personenbezug tilgen.
         if (self::is_anonymized($o['billing_email'])) $ops[] = ['purge', 'orders', $id];
         return $ops;
+    }
+
+    /**
+     * Aufbewahrte Rechnungsdaten (1.38.461): Konto gelöscht (E-Mail anonymisiert), Name bzw. Anschrift stehen noch
+     * → aufbewahrt bis 31.12.(Bestelljahr + Frist). Nach dem Ablauf-Cron (Name „[Gelöscht]“, Anschrift leer) → null.
+     */
+    public static function retained_until(array $o) {
+        if (!self::is_anonymized($o['billing_email'] ?? '')) return null;
+        $kept = (($o['billing_first_name'] ?? '') !== '' && $o['billing_first_name'] !== '[Gelöscht]')
+            || ($o['billing_last_name'] ?? '') !== '' || ($o['billing_company'] ?? '') !== ''
+            || ($o['billing_address_1'] ?? '') !== '' || ($o['billing_city'] ?? '') !== '';
+        if (!$kept) return null;
+        if (class_exists('TIX_Account_Delete') && method_exists('TIX_Account_Delete', 'retained_until')) {
+            return (string) TIX_Account_Delete::retained_until($o['date_created'] ?? '');
+        }
+        $y = (int) substr((string) ($o['date_created'] ?? ''), 0, 4) ?: (int) current_time('Y');
+        return ($y + 10) . '-12-31';
     }
 
     // ── Tickets ──

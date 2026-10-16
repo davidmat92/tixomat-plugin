@@ -101,6 +101,21 @@ wp_delete_post($ev2, true);
 m2_run();
 t2_eq('Event gelöscht → Gäste weg', 0, count(m2_rows('guests', ['event_id' => 'eq.' . $ev2])));
 
+// Papierkorb und Wiederherstellen (z. B. DELETE /events/{id}, 1.38.462): Status im Spiegel, nichts löschen
+$ev3 = wp_insert_post(['post_type' => 'event', 'post_status' => 'publish', 'post_title' => "Papierkorb $sfx"]);
+$posts[] = $ev3;
+update_post_meta($ev3, '_tix_ticket_categories', [['name' => 'N', 'price' => '10', 'qty' => 10, 'stock' => 10]]);
+update_post_meta($ev3, '_tix_guest_list', [['id' => 'pk1', 'name' => 'Paula', 'email' => '']]);
+m2_run();
+wp_trash_post($ev3);
+m2_run();
+t2_eq('Papierkorb: Status trash im Spiegel', 'trash', m2_one('events', $ev3)['status'] ?? null);
+t2_eq('Papierkorb: Kategorie bleibt', 1, count(m2_rows('ticket_categories', ['event_id' => 'eq.' . $ev3])));
+t2_eq('Papierkorb: Gast bleibt', 1, count(m2_rows('guests', ['event_id' => 'eq.' . $ev3])));
+wp_untrash_post($ev3);
+m2_run();
+t2_eq('Wiederhergestellt: Status wie WordPress', get_post_status($ev3), m2_one('events', $ev3)['status'] ?? null);
+
 // ── 3. Prämien (Stempelkarte) und Löschweg ──
 $uid = wp_create_user("praemie$sfx", wp_generate_password(), "praemie$sfx@example.test");
 $users[] = $uid;
@@ -270,11 +285,15 @@ if (class_exists('TIX_Account_Delete')) {
     $wpdb->update($wpdb->prefix . 'tix_orders', ['billing_first_name' => 'Klara', 'billing_last_name' => 'Kern', 'billing_city' => 'Bonn'], ['id' => $koid]);
     m2_run();
     t2_eq('aufbewahrte Rechnungsdaten folgen WordPress', 'Bonn', m2_one('orders', $koid)['billing_city'] ?? null);
+    $year = (int) substr((string) $wpdb->get_var($wpdb->prepare("SELECT date_created FROM {$wpdb->prefix}tix_orders WHERE id = %d", $koid)), 0, 4);
+    t2_eq('retained_until = 31.12.(Jahr+10)', ($year + 10) . '-12-31', m2_one('orders', $koid)['retained_until'] ?? null);
     sleep(1);
     $wpdb->update($wpdb->prefix . 'tix_orders', ['billing_first_name' => '[Gelöscht]', 'billing_last_name' => '', 'billing_city' => ''], ['id' => $koid]);
     m2_run();
     $hist = m2_rows('change_log', ['entity' => 'eq.orders', 'object_id' => 'eq.' . $koid]);
     t2_eq('nach Ablauf: Verlauf wieder nur anonym', false, strpos(wp_json_encode($hist), 'Bonn') !== false);
+    $kr = m2_one('orders', $koid);
+    t2_eq('nach Ablauf: retained_until leer', null, is_array($kr) && array_key_exists('retained_until', $kr) ? $kr['retained_until'] : 'fehlt');
     foreach ($ktix as $tid) wp_delete_post($tid, true);
     $wpdb->delete($wpdb->prefix . 'tix_order_items', ['order_id' => $koid]); $wpdb->delete($wpdb->prefix . 'tix_orders', ['id' => $koid]);
     TIX_Mirror::touch('order', $koid);
