@@ -235,6 +235,7 @@ class TIX_App_Events {
                     'desc'       => (string) ($c['desc'] ?? ($c['description'] ?? '')),
                     'hidden'     => !empty($c['hidden']),
                     'gift_card'  => !empty($c['gift_card']),
+                    'tax_rate'   => class_exists('TIX_Invoices') ? TIX_Invoices::clean_rate($c['tax_rate'] ?? null) : null,
                     'sold'       => $sold,
                     'stock'      => (isset($c['stock']) && $c['stock'] !== '') ? intval($c['stock']) : -1,
                     'phases'     => is_array($c['phases'] ?? null) ? count($c['phases']) : 0,
@@ -275,6 +276,8 @@ class TIX_App_Events {
             'box_office_price'   => $m('_tix_box_office_price') !== '' ? round(floatval($m('_tix_box_office_price')), 2) : null,
             'external_shop'      => ['url' => $m('_tix_extshop_url'), 'price_from' => $m('_tix_extshop_price') !== '' ? round(floatval($m('_tix_extshop_price')), 2) : null, 'text' => $m('_tix_extshop_text') ?: 'Tickets kaufen'],
             'presale_active'     => $m('_tix_presale_active', '0') === '1',
+            // Steuersatz des Events (1.38.485, Rechnungen; null = Vorgabe des Ausstellers), je Kategorie `tax_rate`
+            'tax_rate'           => class_exists('TIX_Invoices') ? TIX_Invoices::clean_rate($m('_tix_tax_rate')) : null,
             'presale_start'      => $m('_tix_presale_start'),
             'presale_end_mode'   => $m('_tix_presale_end_mode', 'manual'),
             'presale_end'        => $m('_tix_presale_end'),
@@ -419,6 +422,17 @@ class TIX_App_Events {
         if (is_wp_error($texts)) return $texts;
         if (is_wp_error($studio)) return $studio;
 
+        // Steuersatz (1.38.485): Event und Kategorien 0–30 oder leer/null = erben – vor allen Änderungen prüfen
+        $bad_rate = function ($v) { return $v !== null && $v !== '' && (!is_numeric($v) || floatval($v) < 0 || floatval($v) > 30); };
+        if (array_key_exists('tax_rate', $body) && $bad_rate($body['tax_rate'])) {
+            return new WP_Error('tix_invalid', 'Steuersatz: Zahl von 0 bis 30 oder leer.', ['status' => 400, 'field' => 'tax_rate']);
+        }
+        foreach ((is_array($body['categories'] ?? null) ? $body['categories'] : []) as $ci => $cin) {
+            if (is_array($cin) && array_key_exists('tax_rate', $cin) && $bad_rate($cin['tax_rate'])) {
+                return new WP_Error('tix_invalid', 'Steuersatz der Kategorie: Zahl von 0 bis 30 oder leer.', ['status' => 400, 'field' => 'categories.' . $ci . '.tax_rate']);
+            }
+        }
+
         // Fremden Ort nicht übernehmen (1.38.475): nur eigene Orte bzw. der schon gesetzte; neue Orte über POST /locations
         if (array_key_exists('location_id', $body) && class_exists('TIX_Locations')) {
             $lid_in = intval($body['location_id']);
@@ -528,6 +542,10 @@ class TIX_App_Events {
             $price = $mode === 'external' ? ($ext['price_from'] ?? '') : ($body['box_office_price'] ?? '');
             $r = TIX_Register_Event::apply_ticket_mode($post_id, $mode, $price === null ? '' : (string) $price, (string) ($ext['url'] ?? ''));
             if (is_wp_error($r)) return $r;
+        }
+        if (array_key_exists('tax_rate', $body) && class_exists('TIX_Invoices')) {
+            $tr = TIX_Invoices::clean_rate($body['tax_rate']);
+            if ($tr === null) delete_post_meta($post_id, '_tix_tax_rate'); else update_post_meta($post_id, '_tix_tax_rate', (string) $tr);
         }
         if (array_key_exists('presale_active', $body)) {
             update_post_meta($post_id, '_tix_presale_active', !empty($body['presale_active']) ? '1' : '0');
@@ -686,6 +704,11 @@ class TIX_App_Events {
             // Preisphasen nur, wenn die App sie mitschickt (ältere Apps lassen sie unverändert)
             if (array_key_exists('phase_list', $in) && is_array($in['phase_list'])) {
                 $cat['phases'] = self::clean_phases($in['phase_list']);
+            }
+            // Steuersatz nur, wenn mitgeschickt (null/'' = erben)
+            if (array_key_exists('tax_rate', $in) && class_exists('TIX_Invoices')) {
+                $tr = TIX_Invoices::clean_rate($in['tax_rate']);
+                if ($tr === null) unset($cat['tax_rate']); else $cat['tax_rate'] = $tr;
             }
             // Paket nur, wenn mitgeschickt (null = kein Paket; geprüft in check_pricing)
             if (array_key_exists('bundle', $in)) {

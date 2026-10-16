@@ -132,7 +132,7 @@ class TIX_Payout_Details {
     //  Daten lesen/schreiben
     // ──────────────────────────────────────────
 
-    private static function data($oid) {
+    public static function data($oid) {
         $d = get_post_meta(intval($oid), self::META_DATA, true);
         $d = is_array($d) ? $d : [];
         $b = is_array($d['billing'] ?? null) ? $d['billing'] : [];

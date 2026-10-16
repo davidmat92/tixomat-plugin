@@ -2101,6 +2101,7 @@ class TIX_Native_Checkout {
             update_option('_tix_order_coupon_' . $order_id, [
                 'code'     => $coupon_code,
                 'discount' => $coupon_discount,
+                'type'     => is_array($coupon_def ?? null) ? (string) ($coupon_def['discount_type'] ?? '') : '', // giftcard = Zahlung (Rechnung)
             ], false);
         }
 

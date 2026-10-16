@@ -2174,6 +2174,7 @@ class TIX_Metabox {
                 <input type="hidden" name="tix_tickets[<?php echo $i; ?>][seatmap_section]" value="<?php echo esc_attr($cat['seatmap_section'] ?? ''); ?>" class="tix-seatmap-section-input">
                 <?php // admin_only (Sponsor-Portal) durchreichen, damit es beim Editor-Save nicht verloren geht ?>
                 <input type="hidden" name="tix_tickets[<?php echo $i; ?>][admin_only]" value="<?php echo !empty($cat['admin_only']) ? '1' : ''; ?>">
+                <input type="hidden" name="tix_tickets[<?php echo $i; ?>][tax_rate]" value="<?php echo esc_attr(isset($cat['tax_rate']) ? (string) $cat['tax_rate'] : ''); ?>">
                 <button type="button" class="button tix-del" title="Entfernen">&times;</button>
             </td>
         </tr>
@@ -4501,6 +4502,9 @@ class TIX_Metabox {
                 'seatmap_id'       => intval($ticket['seatmap_id'] ?? 0),
                 'seatmap_section'  => sanitize_key($ticket['seatmap_section'] ?? ''),
             ];
+            // Steuersatz je Kategorie (1.38.485, gesetzt über Studio/App; hier nur durchgereicht, leer = erben)
+            $tr = class_exists('TIX_Invoices') ? TIX_Invoices::clean_rate($ticket['tax_rate'] ?? null) : null;
+            if ($tr !== null) $cat['tax_rate'] = $tr;
 
             // Low-Stock-Badge pro Kategorie (überschreibt Event-Setting)
             $ls_mode_raw = $ticket['low_stock_mode'] ?? 'inherit';

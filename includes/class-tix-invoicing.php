@@ -96,6 +96,8 @@ class TIX_Invoicing {
     public static function maybe_create_for_order(int $order_id) {
         // Master-Schalter: globaler Stopp
         if (!self::is_enabled()) return;
+        // Eigener Rechnungs-Kern aktiv (1.38.485): keine zweite Rechnung über den Anbieter (ein Nummernkreis)
+        if (class_exists('TIX_Invoices') && TIX_Invoices::enabled()) return;
 
         // Bereits Rechnung vorhanden? Dann skip (idempotent)
         if (self::get_invoice_meta($order_id)) return;
