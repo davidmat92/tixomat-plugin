@@ -6,7 +6,7 @@ if (!defined('ABSPATH')) exit;
  *
  * Bisher anonymisierte nur die Website (TIX_My_Account::ajax_delete_account) Bestellungen und Tickets; die App
  * (POST /auth/delete) löschte nur das Konto. Jetzt beide über delete():
- *   1. Bestellungen (tix_orders, WooCommerce HPOS): Name, E-Mail, Telefon, Anschrift, Firma → „[Gelöscht]“ bzw.
+ *   1. Bestellungen (tix_orders, WooCommerce HPOS; eigene über E-Mail oder Konto-ID; bezahlte siehe Aufbewahrung unten): Name, E-Mail, Telefon, Anschrift, Firma → „[Gelöscht]“ bzw.
  *      gelöscht-<hash>@removed.invalid, Konto-Verknüpfung (customer_id) → 0. Beträge, Datum, Status, Positionen
  *      (Event, Kategorie, Preis), Bestellnummer, Zahlart bleiben.
  *   2. Tickets (tix_ticket): Inhaber-Name/-E-Mail anonymisiert; Code, Status, Check-in bleiben → gültige Tickets
@@ -17,8 +17,49 @@ if (!defined('ABSPATH')) exit;
  *   7. Protokoll tix_deleted_accounts_log (ohne Personenbezug). Danach do_action('tix_account_deleted', $user_id, $email, $info).
  * Zuordnung per E-Mail nur mit bestätigter E-Mail (TIX_App_Account::match_email), sonst nur über die Konto-ID.
  * Rechte (wer löschen darf) prüft der Aufrufer.
+ *
+ * Aufbewahrung (1.38.461, User-Entscheid „B“, Option tix_delete_invoice_retention = 'retain' Vorgabe | 'anonymize'):
+ *   Bezahlte Bestellungen (completed, processing, refunded, partially-refunded oder mit ausgestellter Rechnung
+ *   _tix_invoice_<id>) behalten Rechnungsname, Firma und Anschrift bis zum Ende der Aufbewahrungsfrist
+ *   (§147 Abs. 4 AO / §14b UStG: 10 Jahre ab Ende des Kalenderjahres der Bestellung → bis 31.12.(Jahr+10)).
+ *   Sofort entfernt: E-Mail (steht nicht auf der Rechnung, §14 Abs. 4 UStG verlangt sie nicht; Lexoffice bekommt sie
+ *   nicht), Telefon, Konto-Verknüpfung, Marketing-Einwilligung/Tracking-IDs der Bestellung. Die anonymisierte E-Mail ist
+ *   zugleich die Markierung für den Cron tix_order_retention_expire (täglich), der nach Fristende Name/Anschrift leert.
+ *   Unbezahlte/stornierte Bestellungen ohne Rechnung: sofort vollständig anonymisiert.
  */
 class TIX_Account_Delete {
+
+    const OPTION = 'tix_delete_invoice_retention';
+    const CRON = 'tix_order_retention_expire';
+    const PAID = ['completed', 'processing', 'refunded', 'partially-refunded'];
+    const ANON_NAME = '[Gelöscht]';
+
+    public static function init() {
+        add_action(self::CRON, [__CLASS__, 'expire']);
+        add_action('init', function () {
+            if (!wp_next_scheduled(self::CRON)) wp_schedule_event(time() + HOUR_IN_SECONDS, 'daily', self::CRON);
+        });
+    }
+
+    /** 'retain' (Rechnungsdaten bis Fristende behalten, Vorgabe) oder 'anonymize' (alles sofort). */
+    public static function mode() {
+        return get_option(self::OPTION, 'retain') === 'anonymize' ? 'anonymize' : 'retain';
+    }
+
+    public static function years() {
+        return max(1, intval(apply_filters('tix_invoice_retention_years', 10)));
+    }
+
+    /** Aufbewahrt bis (Y-m-d) für ein Bestelldatum. */
+    public static function retained_until($date_created) {
+        $y = intval(substr((string) $date_created, 0, 4)) ?: intval(current_time('Y'));
+        return ($y + self::years()) . '-12-31';
+    }
+
+    private static function has_invoice($order_id) {
+        $m = get_option('_tix_invoice_' . intval($order_id), null);
+        return is_array($m) && (($m['invoice_number'] ?? '') !== '' || ($m['invoice_id'] ?? '') !== '') && ($m['status'] ?? '') !== 'error';
+    }
 
     /** @return array{anon_hash:string,orders:int,tickets:int,support:int}|WP_Error */
     public static function delete($user_id, $source = 'web') {
@@ -38,26 +79,42 @@ class TIX_Account_Delete {
         // Alle Status (auch eigene wie tix_open/tix_closed der Anfragen und Papierkorb) – 'any' lässt exclude_from_search-Status aus
         $all = array_values(get_post_stati());
 
-        // 1. Native Bestellungen
+        // 1. Native Bestellungen (eigene über E-Mail oder Konto-ID)
+        $retain = self::mode() === 'retain';
+        $retained = [];
+        $full = ['billing_email' => $anon_email, 'billing_first_name' => $anon_name, 'billing_last_name' => '', 'billing_phone' => '',
+            'billing_address_1' => '', 'billing_address_2' => '', 'billing_city' => '', 'billing_postcode' => '', 'billing_company' => '', 'customer_id' => 0];
         $t = $wpdb->prefix . 'tix_orders';
         if ($wpdb->get_var("SHOW TABLES LIKE '$t'") === $t) {
-            $orders += intval($wpdb->update($t, [
-                'billing_email' => $anon_email, 'billing_first_name' => $anon_name, 'billing_last_name' => '', 'billing_phone' => '',
-                'billing_address_1' => '', 'billing_address_2' => '', 'billing_city' => '', 'billing_postcode' => '', 'billing_company' => '', 'customer_id' => 0,
-            ], ['billing_email' => $email]));
-            $orders += intval($wpdb->update($t, ['customer_id' => 0], ['customer_id' => $uid]));
+            $rows = $wpdb->get_results($wpdb->prepare("SELECT id, order_number, status, date_created FROM $t WHERE billing_email = %s OR customer_id = %d", $email, $uid));
+            foreach ((array) $rows as $r) {
+                $oid = intval($r->id);
+                if ($retain && (in_array($r->status, self::PAID, true) || self::has_invoice($oid))) {
+                    $wpdb->update($t, ['billing_email' => $anon_email, 'billing_phone' => '', 'customer_id' => 0], ['id' => $oid]);
+                    $retained[] = ['order_id' => $oid, 'order_number' => (string) $r->order_number, 'retained_until' => self::retained_until($r->date_created)];
+                } else {
+                    $wpdb->update($t, $full, ['id' => $oid]);
+                }
+                // Marketing-Einwilligung und Tracking-IDs der Bestellung (Meta-Pixel) sofort weg
+                foreach (['_tix_meta_consent', '_tix_meta_fbp', '_tix_meta_fbc'] as $mk) delete_post_meta($oid, $mk);
+                $orders++;
+            }
         }
-        // WooCommerce (HPOS), falls noch vorhanden
+        // WooCommerce (HPOS), falls noch vorhanden – gleiche Regel
         $wc_t = $wpdb->prefix . 'wc_orders';
         $wc_a = $wpdb->prefix . 'wc_order_addresses';
         if ($wpdb->get_var("SHOW TABLES LIKE '$wc_t'") === $wc_t) {
-            $wc_ids = $wpdb->get_col($wpdb->prepare("SELECT id FROM $wc_t WHERE billing_email = %s OR customer_id = %d", $email, $uid));
-            if ($wc_ids) {
-                $wpdb->update($wc_t, ['billing_email' => $anon_email, 'customer_id' => 0], ['billing_email' => $email]);
-                $wpdb->update($wc_t, ['customer_id' => 0], ['customer_id' => $uid]);
-                $ph = implode(',', array_fill(0, count($wc_ids), '%d'));
-                $wpdb->query($wpdb->prepare("UPDATE $wc_a SET email=%s, first_name=%s, last_name=%s, phone=%s, address_1=%s, address_2=%s, city=%s, postcode=%s, state=%s WHERE address_type='billing' AND order_id IN ($ph)",
-                    ...array_merge([$anon_email, $anon_name, '', '', '', '', '', '', ''], array_map('intval', $wc_ids))));
+            $wc = $wpdb->get_results($wpdb->prepare("SELECT id, status, date_created_gmt FROM $wc_t WHERE billing_email = %s OR customer_id = %d", $email, $uid));
+            foreach ((array) $wc as $r) {
+                $oid = intval($r->id);
+                $keep = $retain && in_array(preg_replace('/^wc-/', '', (string) $r->status), self::PAID, true);
+                $wpdb->update($wc_t, ['billing_email' => $anon_email, 'customer_id' => 0], ['id' => $oid]);
+                if ($keep) {
+                    $wpdb->query($wpdb->prepare("UPDATE $wc_a SET email=%s, phone='' WHERE address_type='billing' AND order_id=%d", $anon_email, $oid));
+                    $retained[] = ['order_id' => $oid, 'order_number' => 'WC-' . $oid, 'retained_until' => self::retained_until($r->date_created_gmt)];
+                } else {
+                    $wpdb->query($wpdb->prepare("UPDATE $wc_a SET email=%s, first_name=%s, last_name='', company='', phone='', address_1='', address_2='', city='', postcode='', state='' WHERE address_type='billing' AND order_id=%d", $anon_email, $anon_name, $oid));
+                }
             }
         }
 
@@ -100,13 +157,34 @@ class TIX_Account_Delete {
         // 7. Protokoll ohne Personenbezug
         $log = get_option('tix_deleted_accounts_log', []);
         $log = is_array($log) ? $log : [];
-        $log[] = ['deleted_at' => gmdate('c'), 'anon_hash' => $anon_hash, 'source' => $source, 'orders' => $orders, 'tickets' => count($tickets), 'support' => count($sp)];
+        $log[] = ['deleted_at' => gmdate('c'), 'anon_hash' => $anon_hash, 'source' => $source, 'orders' => $orders, 'retained' => count($retained), 'tickets' => count($tickets), 'support' => count($sp)];
         if (count($log) > 500) $log = array_slice($log, -500);
         update_option('tix_deleted_accounts_log', $log, false);
 
-        $info = ['anon_hash' => $anon_hash, 'source' => $source, 'orders' => $orders, 'tickets' => count($tickets), 'support' => count($sp)];
+        $info = ['anon_hash' => $anon_hash, 'source' => $source, 'orders' => $orders, 'tickets' => count($tickets), 'support' => count($sp),
+            'retention' => $retain ? 'retain' : 'anonymize', 'retained' => $retained];
         /** Konto ist gelöscht und anonymisiert (z. B. Datenspiegel: Verlauf mit Personenbezug tilgen). */
         do_action('tix_account_deleted', $uid, $account_email, $info);
         return $info;
+    }
+
+    /** Cron: nach Fristende Rechnungsname/Anschrift aufbewahrter Bestellungen gelöschter Konten leeren. */
+    public static function expire() {
+        global $wpdb;
+        $cut = (intval(current_time('Y')) - self::years()) . '-01-01 00:00:00';   // Bestellung im Jahr Y: bis 31.12.(Y+10), ab 1.1.(Y+11) leeren
+        $n = 0;
+        $t = $wpdb->prefix . 'tix_orders';
+        if ($wpdb->get_var("SHOW TABLES LIKE '$t'") === $t) {
+            $n += intval($wpdb->query($wpdb->prepare("UPDATE $t SET billing_first_name=%s, billing_last_name='', billing_company='', billing_address_1='', billing_address_2='', billing_city='', billing_postcode='', billing_phone=''
+                WHERE billing_email LIKE %s AND billing_first_name <> %s AND date_created < %s", self::ANON_NAME, '%@removed.invalid', self::ANON_NAME, $cut)));
+        }
+        $wc_t = $wpdb->prefix . 'wc_orders';
+        $wc_a = $wpdb->prefix . 'wc_order_addresses';
+        if ($wpdb->get_var("SHOW TABLES LIKE '$wc_t'") === $wc_t) {
+            $n += intval($wpdb->query($wpdb->prepare("UPDATE $wc_a a JOIN $wc_t o ON o.id = a.order_id SET a.first_name=%s, a.last_name='', a.company='', a.address_1='', a.address_2='', a.city='', a.postcode='', a.state='', a.phone=''
+                WHERE a.address_type='billing' AND o.billing_email LIKE %s AND a.first_name <> %s AND o.date_created_gmt < %s", self::ANON_NAME, '%@removed.invalid', self::ANON_NAME, $cut)));
+        }
+        if ($n) do_action('tix_order_retention_expired', $n);
+        return $n;
     }
 }

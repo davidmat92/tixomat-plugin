@@ -13,6 +13,10 @@ if (!defined('ABSPATH')) exit;
  * Link auf die lokale Datei umschreiben. Ist eine Schrift noch nicht gespiegelt, bleibt der Original-Link und der
  * Download läuft im Hintergrund (Cron); schlägt er fehl, bleibt der Original-Link (Seite nie ohne Schrift) + Hinweis im Admin.
  * Schalter: Option tix_local_fonts ('1' an = Vorgabe, '0' aus) unter Tixomat → Schriften (mit „Neu aufbauen“).
+ * 1.38.461: gleiche woff2-Datei nur einmal laden (variable Schriften liefern sie für viele Gewichte), nur die
+ * Zeichensätze aus tix_font_subsets (Vorgabe latin,latin-ext; 'all' = alle) – andere @font-face-Blöcke fallen aus
+ * der lokalen CSS. Grenze 300 Dateien. Fehlversuche sperren nicht dauerhaft: neue Spiegel-Version (REV) startet
+ * alle fehlerhaften neu, sonst täglich ein neuer Anlauf nach 3 Fehlversuchen.
  */
 class TIX_Font_Mirror {
 
@@ -22,7 +26,10 @@ class TIX_Font_Mirror {
     const CRON = 'tix_font_mirror_fetch';
     const DIR = 'tix-fonts';
     const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36';
-    const MAX_FILES = 80;
+    const MAX_FILES = 300;
+    const SUBSETS = 'tix_font_subsets';
+    const REV = '2';
+    const REV_OPTION = 'tix_font_mirror_rev';
 
     public static function init() {
         add_action(self::CRON, [__CLASS__, 'fetch'], 10, 1);
@@ -30,6 +37,8 @@ class TIX_Font_Mirror {
         add_action('admin_post_tix_font_mirror', [__CLASS__, 'handle_admin']);
         add_action('admin_notices', [__CLASS__, 'notice']);
         if (!self::enabled()) return;
+        // Neue Spiegel-Version: frühere Fehlversuche (z. B. „zu viele Dateien“ bis 1.38.460) neu starten
+        if (get_option(self::REV_OPTION, '') !== self::REV) add_action('init', [__CLASS__, 'retry_failed'], 20);
         add_filter('style_loader_src', [__CLASS__, 'filter_src'], 99, 2);
         add_filter('wp_resource_hints', [__CLASS__, 'filter_hints'], 99, 2);
         add_action('template_redirect', [__CLASS__, 'start_buffer'], -1000);
@@ -75,7 +84,44 @@ class TIX_Font_Mirror {
             if (is_file($d['path'] . '/' . $m[$k]['css'])) return $d['url'] . '/' . $m[$k]['css'] . '?v=' . intval($m[$k]['at'] ?? 0);
         }
         if (empty($m[$k])) self::queue($google_url);
+        elseif (!empty($m[$k]['error']) && intval($m[$k]['tries'] ?? 0) >= 3 && intval($m[$k]['failed_at'] ?? 0) < time() - DAY_IN_SECONDS) self::retry($k);
         return null;
+    }
+
+    /** Fehlerhaften Eintrag neu anstoßen (Zähler zurück, Download gleich einplanen). */
+    private static function retry($k) {
+        $m = self::map();
+        if (empty($m[$k]['src'])) return;
+        $m[$k] = ['src' => $m[$k]['src'], 'queued' => time(), 'last_error' => (string) ($m[$k]['error'] ?? '')];
+        update_option(self::MAP, $m, false);
+        if (!wp_next_scheduled(self::CRON, [$k])) wp_schedule_single_event(time(), self::CRON, [$k]);
+    }
+
+    /** Alle fehlerhaften Einträge neu starten (einmal je Spiegel-Version). */
+    public static function retry_failed() {
+        update_option(self::REV_OPTION, self::REV, true);
+        foreach (self::map() as $k => $row) if (!empty($row['error'])) self::retry($k);
+    }
+
+    /** Gewünschte Zeichensätze ([] = alle). */
+    public static function subsets() {
+        $v = strtolower(trim((string) get_option(self::SUBSETS, 'latin,latin-ext')));
+        if ($v === '' || $v === 'all') return [];
+        return array_values(array_filter(array_map('trim', explode(',', $v))));
+    }
+
+    /** @font-face-Blöcke anderer Zeichensätze entfernen (Google kennzeichnet sie mit einem Kommentar wie „latin“). Blöcke ohne Kennzeichnung bleiben; bliebe nichts übrig, bleibt alles. */
+    public static function filter_subsets($css) {
+        $want = self::subsets();
+        if (!$want || !preg_match_all('#(?:/\*\s*([^*]*?)\s*\*/\s*)?(@font-face\s*\{[^}]*\})#i', $css, $m, PREG_SET_ORDER)) return $css;
+        $keep = [];
+        $hit = false;
+        foreach ($m as $b) {
+            $label = strtolower(trim((string) $b[1]));
+            if ($label === '') { $keep[] = $b[2]; continue; }
+            if (in_array($label, $want, true)) { $keep[] = '/* ' . $label . " */\n" . $b[2]; $hit = true; }
+        }
+        return $hit ? implode("\n", $keep) . "\n" : $css;
     }
 
     private static function queue($google_url) {
@@ -102,22 +148,26 @@ class TIX_Font_Mirror {
         $css = !is_wp_error($res) && intval(wp_remote_retrieve_response_code($res)) === 200 ? (string) wp_remote_retrieve_body($res) : '';
         if ($css === '' || stripos($css, '@font-face') === false) return self::fail($k, is_wp_error($res) ? $res->get_error_message() : 'HTTP ' . wp_remote_retrieve_response_code($res));
         if (!wp_mkdir_p($d['path'] . '/' . $k)) return self::fail($k, 'Ordner uploads/' . self::DIR . ' nicht beschreibbar');
-        $files = 0;
-        $err = '';
-        $css = preg_replace_callback('#url\(\s*[\'"]?(https://fonts\.gstatic\.com/[^)\'"]+)[\'"]?\s*\)#i', function ($mm) use ($k, $d, &$files, &$err) {
-            if ($err !== '' || $files >= self::MAX_FILES) { $err = $err ?: 'zu viele Dateien'; return $mm[0]; }
-            $name = sanitize_file_name(basename((string) wp_parse_url($mm[1], PHP_URL_PATH))) ?: ('f' . $files . '.woff2');
-            $name = substr(md5($mm[1]), 0, 8) . '-' . $name;
+        $css = self::filter_subsets($css);
+        $re = '#url\(\s*[\'"]?(https://fonts\.gstatic\.com/[^)\'"]+)[\'"]?\s*\)#i';
+        preg_match_all($re, $css, $mm);
+        $urls = array_values(array_unique($mm[1] ?? []));   // gleiche Datei nur einmal
+        if (!$urls) return self::fail($k, 'keine Schriftdateien');
+        if (count($urls) > self::MAX_FILES) return self::fail($k, 'zu viele Dateien (' . count($urls) . ')');
+        $local = [];
+        foreach ($urls as $u) {
+            $name = sanitize_file_name(basename((string) wp_parse_url($u, PHP_URL_PATH))) ?: 'f.woff2';
+            $name = substr(md5($u), 0, 8) . '-' . $name;
             $target = $d['path'] . '/' . $k . '/' . $name;
             if (!is_file($target)) {
-                $r = wp_remote_get($mm[1], ['timeout' => 20, 'user-agent' => self::UA]);
+                $r = wp_remote_get($u, ['timeout' => 20, 'user-agent' => self::UA]);
                 $body = !is_wp_error($r) && intval(wp_remote_retrieve_response_code($r)) === 200 ? (string) wp_remote_retrieve_body($r) : '';
-                if ($body === '' || @file_put_contents($target, $body) === false) { $err = 'Schriftdatei nicht geladen'; return $mm[0]; }
+                if ($body === '' || @file_put_contents($target, $body) === false) return self::fail($k, 'Schriftdatei nicht geladen');
             }
-            $files++;
-            return 'url(' . $d['url'] . '/' . $k . '/' . $name . ')';
-        }, $css);
-        if ($err !== '' || !$files) return self::fail($k, $err ?: 'keine Schriftdateien');
+            $local[$u] = $d['url'] . '/' . $k . '/' . $name;
+        }
+        $files = count($local);
+        $css = preg_replace_callback($re, function ($mm) use ($local) { return 'url(' . $local[$mm[1]] . ')'; }, $css);
         $file = self::slug($src) . '-' . $k . '.css';
         if (@file_put_contents($d['path'] . '/' . $file, "/* Lokal gespiegelt von " . esc_url_raw($src) . " (Tixomat) */\n" . $css) === false) return self::fail($k, 'CSS nicht gespeichert');
         $m = self::map();
@@ -247,6 +297,7 @@ class TIX_Font_Mirror {
         echo '<div class="wrap"><h1>Schriften lokal ausliefern</h1><p>Schriften von Google Fonts (Breakdance, Theme, Plugins) werden einmal auf diesen Server geladen und von hier ausgeliefert – Besucher-IPs gehen nicht an Google. Fehlt eine Datei, bleibt der Original-Link, damit die Seite nie ohne Schrift ist.</p>';
         echo '<form method="post" action="' . esc_url($url) . '">' . wp_nonce_field('tix_font_mirror', '_wpnonce', true, false) . '<input type="hidden" name="action" value="tix_font_mirror">';
         echo '<p><label><input type="checkbox" name="enabled" value="1"' . checked(self::enabled(), true, false) . '> Schriften lokal ausliefern</label></p>';
+        echo '<p><label>Zeichensätze <input type="text" name="subsets" value="' . esc_attr((string) get_option(self::SUBSETS, 'latin,latin-ext')) . '" class="regular-text"></label><br><span class="description">Kommagetrennt, z. B. latin,latin-ext (deutsche Seiten) oder all für alle. Andere Zeichensätze (kyrillisch, griechisch …) werden nicht geladen.</span></p>';
         echo '<p><button class="button button-primary" name="do" value="save">Speichern</button> <button class="button" name="do" value="rebuild">Neu aufbauen</button></p></form>';
         echo '<table class="widefat striped" style="max-width:900px;"><thead><tr><th>Google-Adresse</th><th>Status</th><th>Dateien</th></tr></thead><tbody>';
         if (!$m) echo '<tr><td colspan="3">Noch keine Schriften erkannt – sie erscheinen nach dem ersten Aufruf der Website.</td></tr>';
@@ -261,8 +312,15 @@ class TIX_Font_Mirror {
         if (!current_user_can('manage_options')) wp_die('Kein Zugriff.');
         check_admin_referer('tix_font_mirror');
         $do = sanitize_key((string) ($_POST['do'] ?? 'save'));
+        @set_time_limit(180);
         if ($do === 'rebuild') self::rebuild();
-        else update_option(self::OPTION, !empty($_POST['enabled']) ? '1' : '0', false);
+        else {
+            update_option(self::OPTION, !empty($_POST['enabled']) ? '1' : '0', false);
+            $sub = strtolower(preg_replace('/[^a-z0-9,\-\[\]]/i', '', (string) wp_unslash($_POST['subsets'] ?? 'latin,latin-ext')));
+            $old = (string) get_option(self::SUBSETS, 'latin,latin-ext');
+            update_option(self::SUBSETS, $sub === '' ? 'latin,latin-ext' : $sub, false);
+            if ($sub !== $old) self::rebuild();   // andere Zeichensätze → neu laden
+        }
         wp_safe_redirect(admin_url('admin.php?page=tix-fonts&done=' . $do));
         exit;
     }
