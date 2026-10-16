@@ -521,6 +521,19 @@ PROMPT;
         return new \WP_Error('ai_unavailable', 'Die automatische Analyse ist gerade nicht verfügbar – lade den Flyer hoch oder beschreibe dein Event.', ['status' => 503, 'reason' => $ai->get_error_message()]);
     }
 
+    /** Freitext („Beschreibe dein Event“) → Felder oder WP_Error ai_unavailable (REST /register/analyze). */
+    public static function extract_text($text) {
+        $text = trim((string) $text);
+        $r = self::run_extraction("Beschreibung des Veranstalters:\n" . mb_substr($text, 0, 4000), null, null, '');
+        return is_wp_error($r) ? new \WP_Error('ai_unavailable', 'Die automatische Analyse ist gerade nicht verfügbar – bitte trage die Angaben selbst ein.', ['status' => 503, 'reason' => $r->get_error_message()]) : $r;
+    }
+
+    /** Flyer (Base64 + MIME) → Felder oder WP_Error ai_unavailable (REST /register/analyze). */
+    public static function extract_image($base64, $mime) {
+        $r = self::run_extraction('', $base64, $mime, '');
+        return is_wp_error($r) ? new \WP_Error('ai_unavailable', 'Die automatische Analyse ist gerade nicht verfügbar – bitte trage die Angaben selbst ein.', ['status' => 503, 'reason' => $r->get_error_message()]) : $r;
+    }
+
     /**
      * Kern-Extraktion: Text/Bild → KI → sanitized fields
      */
@@ -915,8 +928,6 @@ REGELN:
             $messages[] = ['role' => $h['role'], 'content' => $h['content']];
         }
         $messages[] = ['role' => 'user', 'content' => $user_text];
-
-        $result = self::call_api($system, $messages, 2048);
 
         // call_api erwartet string, nicht array — wir müssen die Messages als einzelnen String formatieren
         // Stattdessen: baue den Konversationskontext als einen User-Prompt

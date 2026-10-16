@@ -264,39 +264,44 @@ class TIX_Register_Event {
     /**
      * AJAX: Registrieren + Event erstellen + Veröffentlichen (alles in einem)
      */
-    public static function ajax_register_and_publish() {
-        check_ajax_referer('tix_register_event', 'nonce');
+    /**
+     * Konto, Veranstalter und erstes Event anlegen (AJAX [tix_register_event] und REST POST /register/organizer).
+     * $in: first_name, last_name, email, password, password_confirm, organizer_name, accept_contract, ticket_mode,
+     * box_office_price, external_url, external_price, event_data (Array). Liefert
+     * ['user_id', 'org_id', 'event_id', 'event_title', 'review'] oder WP_Error (400 tix_invalid_field mit field, 409 tix_email_exists).
+     */
+    public static function register(array $in) {
 
         // ── Validierung ──
-        $first_name     = sanitize_text_field($_POST['first_name'] ?? '');
-        $last_name      = sanitize_text_field($_POST['last_name'] ?? '');
-        $email          = sanitize_email($_POST['email'] ?? '');
-        $password        = $_POST['password'] ?? '';
-        $password_confirm = $_POST['password_confirm'] ?? '';
-        $organizer_name = sanitize_text_field($_POST['organizer_name'] ?? '');
-        $event_data     = json_decode(stripslashes($_POST['event_data'] ?? '{}'), true);
+        $first_name     = sanitize_text_field($in['first_name'] ?? '');
+        $last_name      = sanitize_text_field($in['last_name'] ?? '');
+        $email          = sanitize_email($in['email'] ?? '');
+        $password        = $in['password'] ?? '';
+        $password_confirm = $in['password_confirm'] ?? '';
+        $organizer_name = sanitize_text_field($in['organizer_name'] ?? '');
+        $event_data     = (is_array($in['event_data'] ?? null) ? $in['event_data'] : []);
         // Tickets: online (Standard, wie bisher) | free | box_office | external (nur eintragen, 1.38.436: anderer Shop)
-        $ticket_mode    = sanitize_key($_POST['ticket_mode'] ?? 'online');
+        $ticket_mode    = sanitize_key($in['ticket_mode'] ?? 'online');
         if (!in_array($ticket_mode, ['online', 'free', 'box_office', 'external'], true)) $ticket_mode = 'online';
         $external_url   = '';
         if ($ticket_mode === 'external') {
-            $external_url = self::clean_shop_url(wp_unslash($_POST['external_url'] ?? ''));
-            if ($external_url === '') wp_send_json_error(['message' => 'Bitte die Adresse deines Ticketshops angeben (https://…).', 'field' => 'external_url']);
+            $external_url = self::clean_shop_url((string) ($in['external_url'] ?? ''));
+            if ($external_url === '') return new WP_Error('tix_invalid_field', 'Bitte die Adresse deines Ticketshops angeben (https://…).', ['status' => 400, 'field' => 'external_url']);
         }
 
-        if (!$first_name || !$last_name) wp_send_json_error(['message' => 'Bitte Vor- und Nachname angeben.']);
-        if (!$email || !is_email($email)) wp_send_json_error(['message' => 'Bitte eine gültige E-Mail-Adresse angeben.']);
-        if (strlen($password) < 8) wp_send_json_error(['message' => 'Passwort muss mindestens 8 Zeichen lang sein.']);
-        if ($password !== $password_confirm) wp_send_json_error(['message' => 'Passwörter stimmen nicht überein.']);
-        if (!$organizer_name) wp_send_json_error(['message' => 'Bitte einen Veranstalternamen angeben.']);
-        if (email_exists($email)) wp_send_json_error(['message' => 'Diese E-Mail-Adresse ist bereits registriert.']);
+        if (!$first_name || !$last_name) return new WP_Error('tix_invalid_field', 'Bitte Vor- und Nachname angeben.', ['status' => 400, 'field' => 'first_name']);
+        if (!$email || !is_email($email)) return new WP_Error('tix_invalid_field', 'Bitte eine gültige E-Mail-Adresse angeben.', ['status' => 400, 'field' => 'email']);
+        if (strlen($password) < 8) return new WP_Error('tix_invalid_field', 'Passwort muss mindestens 8 Zeichen lang sein.', ['status' => 400, 'field' => 'password']);
+        if ($password !== $password_confirm) return new WP_Error('tix_invalid_field', 'Passwörter stimmen nicht überein.', ['status' => 400, 'field' => 'password_confirm']);
+        if (!$organizer_name) return new WP_Error('tix_invalid_field', 'Bitte einen Veranstalternamen angeben.', ['status' => 400, 'field' => 'organizer_name']);
+        if (email_exists($email)) return new WP_Error('tix_email_exists', 'Diese E-Mail-Adresse ist bereits registriert.', ['status' => 409, 'field' => 'email']);
 
         // Mehr-Veranstalter-Modus: Zustimmung zum Vermittlungsvertrag (aktuelle Version) ist Pflicht
         $review = class_exists('TIX_Org_Approval') && TIX_Org_Approval::multi();
         $terms  = $review ? TIX_Org_Approval::terms() : ['version' => ''];
-        $contract = sanitize_text_field(wp_unslash($_POST['accept_contract'] ?? ''));
+        $contract = sanitize_text_field((string) ($in['accept_contract'] ?? ''));
         if ($terms['version'] !== '' && $contract !== $terms['version']) {
-            wp_send_json_error(['message' => 'Bitte stimme dem ' . $terms['title'] . ' zu (die Seite wurde ggf. aktualisiert – bitte neu laden).']);
+            return new WP_Error('tix_invalid_field', 'Bitte stimme dem ' . $terms['title'] . ' zu (die Seite wurde ggf. aktualisiert – bitte neu laden).', ['status' => 400, 'field' => 'accept_contract']);
         }
 
         // ── 1. User erstellen ──
@@ -309,7 +314,7 @@ class TIX_Register_Event {
         }
 
         $user_id = wp_create_user($username, $password, $email);
-        if (is_wp_error($user_id)) wp_send_json_error(['message' => $user_id->get_error_message()]);
+        if (is_wp_error($user_id)) return new WP_Error('tix_register_failed', $user_id->get_error_message(), ['status' => 400]);
 
         wp_update_user([
             'ID'         => $user_id,
@@ -346,7 +351,7 @@ class TIX_Register_Event {
             'post_author'  => $user_id,
         ]);
 
-        if (is_wp_error($event_id)) wp_send_json_error(['message' => 'Event konnte nicht erstellt werden.']);
+        if (is_wp_error($event_id)) return new WP_Error('tix_register_failed', 'Event konnte nicht erstellt werden.', ['status' => 500]);
 
         // Organizer zuweisen
         if ($org_id) update_post_meta($event_id, '_tix_organizer_id', $org_id);
@@ -444,12 +449,39 @@ class TIX_Register_Event {
             TIX_Day_Alerts::notify_event($event_id);
         }
 
-        // ── 4. Auto-Login ──
+        // ── 4. Erstes Event feiern ──
+        update_user_meta($user_id, '_tix_first_event_celebrated', '1');
+        if ($review && $org_id && !is_wp_error($org_id)) {
+            TIX_Org_Approval::notify_organizer($org_id, 'registered');
+            TIX_Org_Approval::notify_admin_new($org_id);
+        }
+        return ['user_id' => intval($user_id), 'org_id' => ($org_id && !is_wp_error($org_id)) ? intval($org_id) : 0, 'event_id' => intval($event_id), 'event_title' => $event_title, 'review' => (bool) $review];
+    }
+
+    /** AJAX tix_register_and_publish (Formular [tix_register_event]). */
+    public static function ajax_register_and_publish() {
+        check_ajax_referer('tix_register_event', 'nonce');
+        $in = [];
+        foreach (['first_name', 'last_name', 'email', 'organizer_name', 'accept_contract', 'ticket_mode', 'box_office_price', 'external_url', 'external_price'] as $f) {
+            $in[$f] = wp_unslash((string) ($_POST[$f] ?? ''));
+        }
+        // Passwort wie das WordPress-Login-Formular (ohne unslash)
+        $in['password'] = $_POST['password'] ?? '';
+        $in['password_confirm'] = $_POST['password_confirm'] ?? '';
+        $ed = json_decode(stripslashes($_POST['event_data'] ?? '{}'), true);
+        $in['event_data'] = is_array($ed) ? $ed : [];
+        $r = self::register($in);
+        if (is_wp_error($r)) {
+            $d = ['message' => $r->get_error_message()];
+            $ed = $r->get_error_data();
+            if (is_array($ed) && !empty($ed['field'])) $d['field'] = $ed['field'];
+            wp_send_json_error($d);
+        }
+        $user_id = $r['user_id']; $event_id = $r['event_id']; $event_title = $r['event_title'];
+
+        // Auto-Login
         wp_set_current_user($user_id);
         wp_set_auth_cookie($user_id, true, is_ssl());
-
-        // ── 5. Erstes Event feiern ──
-        update_user_meta($user_id, '_tix_first_event_celebrated', '1');
 
         // Dashboard-URL
         $slug = tix_get_settings('organizer_slug');
@@ -458,9 +490,7 @@ class TIX_Register_Event {
         $studio_url = class_exists('TIX_Studio') ? TIX_Studio::registration_target($user_id) : '';
         if ($studio_url !== '') $dash_url = $studio_url;
 
-        if ($review && $org_id && !is_wp_error($org_id)) {
-            TIX_Org_Approval::notify_organizer($org_id, 'registered');
-            TIX_Org_Approval::notify_admin_new($org_id);
+        if ($r['review'] && $r['org_id']) {
             wp_send_json_success([
                 'event_id'      => $event_id,
                 'event_url'     => '',

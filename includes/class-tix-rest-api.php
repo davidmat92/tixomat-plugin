@@ -443,13 +443,15 @@ class TIX_REST_API {
         register_rest_route($ns, '/pos/report', [
             'methods'             => 'GET',
             'callback'            => [__CLASS__, 'pos_report'],
-            'permission_callback' => [__CLASS__, 'check_pos'],
+            // Tagesbericht/Buchungen nur Veranstalter, Team-Admin, Mitarbeiter, Admin – nicht „Kasse & Bar“ (User-Entscheid 1.38.442)
+            'permission_callback' => [__CLASS__, 'check_organizer'],
         ]);
 
         register_rest_route($ns, '/pos/transactions', [
             'methods'             => 'GET',
             'callback'            => [__CLASS__, 'pos_transactions'],
-            'permission_callback' => [__CLASS__, 'check_pos'],
+            // Tagesbericht/Buchungen nur Veranstalter, Team-Admin, Mitarbeiter, Admin – nicht „Kasse & Bar“ (User-Entscheid 1.38.442)
+            'permission_callback' => [__CLASS__, 'check_organizer'],
         ]);
 
         // ── Guest / Customer Auth (unauthenticated) ──

@@ -979,7 +979,7 @@ class TIX_Wallet_Balance {
         $reg('/wallet/(?P<id>\d+)/tx', 'GET', 'rest_tx', $login);
         $reg('/wallet/admin/config', 'GET', 'rest_admin_config', [__CLASS__, 'check_staff']);
         $reg('/wallet/admin/config', 'POST', 'rest_admin_save', [__CLASS__, 'check_manager']);
-        $reg('/wallet/admin/report', 'GET', 'rest_report', [__CLASS__, 'check_staff']);
+        $reg('/wallet/admin/report', 'GET', 'rest_report', [__CLASS__, 'check_report']);
         $reg('/wallet/redeem-giftcard', 'POST', 'rest_redeem_giftcard', $login);
     }
 
@@ -1037,6 +1037,17 @@ class TIX_Wallet_Balance {
         $u = wp_get_current_user();
         if (!$u->has_cap('manage_options') && !$u->has_cap(self::CAP)) return new WP_Error('rest_forbidden', 'Keine Berechtigung für Guthaben.', ['status' => 403]);
         if (self::multi() && !$u->has_cap('manage_options') && !TIX_App_Scope::organizer_id_for_user()) return new WP_Error('rest_forbidden', 'Dieses Konto ist keinem Veranstalter zugeordnet.', ['status' => 403]);
+        return true;
+    }
+
+    /** Bericht: Personal ohne die Rolle „Kasse & Bar“ (die bucht nur, User-Entscheid 1.38.442). */
+    public static function check_report(WP_REST_Request $req) {
+        $r = self::check_staff($req);
+        if ($r !== true) return $r;
+        $u = wp_get_current_user();
+        if (!$u->has_cap('manage_options') && class_exists('TIX_REST_API') && TIX_REST_API::is_cashier_only($u)) {
+            return new WP_Error('rest_forbidden', 'Der Bericht ist dem Veranstalter vorbehalten.', ['status' => 403]);
+        }
         return true;
     }
 

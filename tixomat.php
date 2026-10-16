@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.38.441
+ * Version: 1.38.442
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  * Update URI: https://veranstalter.evendis.de/tixomat
@@ -10,7 +10,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.38.441');
+define('TIXOMAT_VERSION', '1.38.442');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -534,6 +534,8 @@ require_once TIXOMAT_PATH . 'includes/class-tix-app-scope.php';
 TIX_App_Scope::init(); // Mehr-Veranstalter-Modus (Option tix_multi_organizer): Abschottung je Veranstalter, Veranstalter-Seite pflegen
 require_once TIXOMAT_PATH . 'includes/class-tix-studio.php';
 TIX_Studio::init(); // evendis Studio (Option tix_studio_url): Einmal-Code nach Login/Registrierung, POST /auth/handoff, Experten-Modus-Leiste, GET /organizer/tasks
+require_once TIXOMAT_PATH . 'includes/class-tix-register-api.php';
+TIX_Register_API::init(); // „Veranstalter werden“ per REST (Studio): /register/config|challenge|analyze|organizer, Bot-Schutz, Schalter tix_studio_register
 require_once TIXOMAT_PATH . 'includes/class-tix-public-platform.php';
 TIX_Public_Platform::init(); // Plattform: Veranstalter, Sparten, Städte, Merkliste, Folgen (evendis)
 require_once TIXOMAT_PATH . 'includes/class-tix-seo-texts.php';
