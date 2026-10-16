@@ -851,53 +851,86 @@ class TIX_Support {
         $valid_files = self::accept_attachments($ticket_id, $attached_files);
 
         $user = wp_get_current_user();
+        $response = self::staff_reply($ticket_id, $content, ['author' => $user->display_name ?: 'Support-Team', 'user_id' => $user->ID, 'attach_order_id' => $attach_order_id, 'files' => $valid_files]);
+        wp_send_json_success($response);
+    }
+
+    /**
+     * Antwort des Teams (wp-admin, Studio-Postfach, Partner-Brücke): Nachricht speichern, Status offen → in Arbeit,
+     * Kunde per Mail + App-Push benachrichtigen (deliver = false: nur speichern, z. B. Partner-Kopie einer evendis-Anfrage).
+     * $opts: author, user_id, attach_order_id, files, deliver. Liefert ['message', 'attach_message'?, 'attach_note'?].
+     */
+    public static function staff_reply($ticket_id, $content, array $opts = []) {
+        $ticket_id = intval($ticket_id);
+        $post = get_post($ticket_id);
+        $author = (string) ($opts['author'] ?? 'Support-Team');
+        $uid = intval($opts['user_id'] ?? 0);
+        $attach_order_id = intval($opts['attach_order_id'] ?? 0);
+        $valid_files = (array) ($opts['files'] ?? []);
+        // Partner-Kopie einer evendis-Anfrage: die Antwort geht über die Brücke an evendis, nicht direkt an den Kunden
+        $deliver = array_key_exists('deliver', $opts) ? (bool) $opts['deliver'] : !(class_exists('TIX_Support_Model') && TIX_Support_Model::is_platform_copy($ticket_id));
         $msg = [
             'id'          => self::generate_message_id(),
             'type'        => 'admin',
-            'author'      => $user->display_name ?: 'Support-Team',
-            'user_id'     => $user->ID,
+            'author'      => $author,
+            'user_id'     => $uid,
             'content'     => $content,
             'date'        => current_time('c'),
             'attachments' => $valid_files,
         ];
-
         self::add_message($ticket_id, $msg);
-
-        // Status auf "In Bearbeitung" setzen, wenn noch "Offen"
-        if ($post->post_status === 'tix_open') {
-            wp_update_post(['ID' => $ticket_id, 'post_status' => 'tix_progress']);
-        }
-
-        // Letzte Antwort-Timestamp aktualisieren
+        if ($post && $post->post_status === 'tix_open') wp_update_post(['ID' => $ticket_id, 'post_status' => 'tix_progress']);
         update_post_meta($ticket_id, '_tix_sp_last_reply', current_time('c'));
-
-        // E-Mail an Kunden senden (mit optionalen Ticket-Anhängen + Datei-Anhängen)
         $attach_message = '';
-        $email = get_post_meta($ticket_id, '_tix_sp_email', true);
-        if ($email) {
-            $attach_message = self::send_email_reply_to_customer($ticket_id, $post->post_title, $email, $content, $attach_order_id, $valid_files);
+        $email = (string) get_post_meta($ticket_id, '_tix_sp_email', true);
+        if ($deliver) {
+            if ($email) $attach_message = self::send_email_reply_to_customer($ticket_id, $post ? $post->post_title : '', $email, $content, $attach_order_id, $valid_files);
+            self::notify_customer_app($ticket_id, $post ? $post->post_title : '', $email, $content);
         }
-
-        // Feed-Eintrag + Push in der App (nur mit Kundenkonto)
-        self::notify_customer_app($ticket_id, $post->post_title, $email, $content);
-
         $response = ['message' => self::present_message($ticket_id, $msg)];
         if ($attach_message) {
             $response['attach_message'] = $attach_message;
-            // Interne Notiz im Thread: was wurde angehängt
-            $note = [
-                'id'      => self::generate_message_id(),
-                'type'    => 'note',
-                'author'  => ($user->display_name ?: 'Support-Team') . ' (intern)',
-                'user_id' => $user->ID,
-                'content' => '🎫 ' . $attach_message,
-                'date'    => current_time('c'),
-            ];
+            $note = ['id' => self::generate_message_id(), 'type' => 'note', 'author' => $author . ' (intern)', 'user_id' => $uid, 'content' => '🎫 ' . $attach_message, 'date' => current_time('c')];
             self::add_message($ticket_id, $note);
             $response['attach_note'] = $note;
         }
+        return $response;
+    }
 
-        wp_send_json_success($response);
+    /** Interne Notiz (nie an den Kunden). */
+    public static function staff_note($ticket_id, $content, $author, $user_id = 0) {
+        $msg = ['id' => self::generate_message_id(), 'type' => 'note', 'author' => $author . ' (intern)', 'user_id' => intval($user_id), 'content' => $content, 'date' => current_time('c')];
+        self::add_message(intval($ticket_id), $msg);
+        return $msg;
+    }
+
+    /** Status setzen (tix_open|tix_progress|tix_resolved|tix_closed); → gelöst: Mail an den Kunden (außer $deliver = false). */
+    public static function set_status($ticket_id, $new_status, $deliver = true) {
+        $post = get_post(intval($ticket_id));
+        if (!$post || $post->post_type !== 'tix_support_ticket' || !isset(self::get_statuses()[$new_status])) return false;
+        $old = $post->post_status;
+        if ($old !== $new_status) wp_update_post(['ID' => $post->ID, 'post_status' => $new_status]);
+        if ($deliver && $new_status === 'tix_resolved' && $old !== 'tix_resolved') {
+            $email = (string) get_post_meta($post->ID, '_tix_sp_email', true);
+            if ($email) self::send_email_status_resolved($post->ID, $post->post_title, $email);
+        }
+        do_action('tix_support_status_changed', intval($post->ID), $new_status, $old);
+        return true;
+    }
+
+    /** Nachrichten für das Team (inkl. interner Notizen), Anhänge mit signierten Links. */
+    public static function staff_messages($ticket_id) {
+        return self::present_messages($ticket_id, self::get_messages($ticket_id));
+    }
+
+    /** Kunden-Nachricht hinzufügen (z. B. über die Partner-Brücke weitergereicht). */
+    public static function add_customer_message($ticket_id, $content, $author, $email = '') {
+        $msg = ['id' => self::generate_message_id(), 'type' => 'customer', 'author' => $author, 'email' => $email, 'content' => $content, 'date' => current_time('c')];
+        self::add_message(intval($ticket_id), $msg);
+        update_post_meta(intval($ticket_id), '_tix_sp_last_reply', current_time('c'));
+        $p = get_post(intval($ticket_id));
+        if ($p && in_array($p->post_status, ['tix_resolved', 'tix_closed'], true)) wp_update_post(['ID' => $p->ID, 'post_status' => 'tix_open']);
+        return $msg;
     }
 
     // ══════════════════════════════════════════════
@@ -956,16 +989,7 @@ class TIX_Support {
             wp_send_json_error('Anfrage nicht gefunden.');
         }
 
-        $old_status = $post->post_status;
-        wp_update_post(['ID' => $ticket_id, 'post_status' => $new_status]);
-
-        // Benachrichtigung an Kunden wenn → gelöst
-        if ($new_status === 'tix_resolved' && $old_status !== 'tix_resolved') {
-            $email = get_post_meta($ticket_id, '_tix_sp_email', true);
-            if ($email) {
-                self::send_email_status_resolved($ticket_id, $post->post_title, $email);
-            }
-        }
+        self::set_status($ticket_id, $new_status, !(class_exists('TIX_Support_Model') && TIX_Support_Model::is_platform_copy($ticket_id)));
 
         $statuses = self::get_statuses();
         wp_send_json_success([
@@ -2258,6 +2282,8 @@ class TIX_Support {
         // wp_unslash() auf, das die Backslashes entfernt. Resultat: kaputte
         // Escapes wie "ud83d" statt "👋". Mit Array → WP serialisiert sauber.
         update_post_meta($ticket_id, '_tix_sp_messages', $messages);
+        // Zentrale Stelle für neue Nachrichten (Weiterleitung über die Partner-Brücke, Team-Hinweise; TIX_Support_Model)
+        do_action('tix_support_message_added', intval($ticket_id), $msg);
 
         // KI-Summary asynchron triggern (best effort, fail-soft)
         if (function_exists('wp_schedule_single_event')) {

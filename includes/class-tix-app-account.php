@@ -12,7 +12,7 @@
  *   POST /auth/password                Passwort ändern (altes Passwort nötig, außer das
  *                                      Konto wurde per Code angelegt und hat noch keins)
  *   GET  /customer/tickets/{id}/pdf    Ticket als PDF (Template des Events, sonst generisch)
- *   GET  /support/config               Support aktiv? + Kategorien (öffentlich)
+ *   GET  /support/config               Support aktiv? + Kategorien + responsible (öffentlich, ?event_id)
  *   POST /customer/support             Support-Anfrage stellen (auch ohne Konto)
  *   GET  /customer/support             eigene Anfragen (Konto-E-Mail)
  *   GET  /customer/support/{id}        Verlauf einer Anfrage
@@ -729,14 +729,16 @@ class TIX_App_Account {
         return $out;
     }
 
-    /** GET /support/config */
+    /** GET /support/config[?event_id=] – responsible: wer antwortet (Support-Modell, bei geteilten Events je Event) */
     public static function support_config(WP_REST_Request $req) {
         $enabled = self::support_enabled();
-        return rest_ensure_response([
+        $out = [
             'ok'         => true,
             'enabled'    => $enabled,
             'categories' => $enabled ? self::support_categories() : [],
-        ]);
+        ];
+        if (class_exists('TIX_Support_Model')) $out['responsible'] = TIX_Support_Model::responsible_public(absint($req->get_param('event_id')));
+        return rest_ensure_response($out);
     }
 
     /** POST /customer/support – Anfrage (Konto oder Gast mit Name + E-Mail). */
