@@ -26,6 +26,8 @@ class TIX_Account_Activation {
         // bekommt er normalerweise eine WC-Mail (Login-Daten). Wir senden ZUSÄTZLICH
         // unsere gebrandete Aktivierungs-Mail mit Passwort-Setup-Link.
         add_action('woocommerce_created_customer', [__CLASS__, 'handle_wc_created_customer'], 20, 3);
+        // Keine Doppelmail (1.38.471): Die WooCommerce-Kontomail („Anmeldedaten“) entfällt, die Aktivierungs-Mail reicht.
+        add_filter('woocommerce_email_enabled_customer_new_account', '__return_false', 99);
     }
 
     /**

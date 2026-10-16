@@ -230,7 +230,8 @@ class TIX_Support_Model {
         $to = $r['org'] ? (string) get_post_meta($r['org'], '_tix_org_email', true) : '';
         update_post_meta($tid, '_tix_sp_forward_mail', current_time('mysql'));
         if (!is_email($to)) { TIX_Support::staff_note($tid, 'Weiterleitung an den Veranstalter nicht möglich (keine Partner-Verbindung, keine E-Mail) – bitte selbst klären.', 'System'); return; }
-        wp_mail($to, 'Support-Anfrage zu deinem Event: ' . get_the_title($tid), "Hallo,\n\nauf evendis.de ist eine Anfrage zu deinem geteilten Event eingegangen (Anfrage #{$tid}). Bitte antworte dem Kunden direkt:\n" . get_post_meta($tid, '_tix_sp_email', true) . "\n\nBetreff: " . get_the_title($tid) . "\n\nevendis");
+        $b = class_exists('TIX_Mail_Layout') ? TIX_Mail_Layout::brand() : ['name' => 'evendis', 'host' => 'evendis.de'];
+        wp_mail($to, 'Support-Anfrage zu deinem Event: ' . get_the_title($tid), "Hallo,\n\nauf " . ($b['host'] ?: $b['name']) . " ist eine Anfrage zu deinem geteilten Event eingegangen (Anfrage #{$tid}). Bitte antworte dem Kunden direkt:\n" . get_post_meta($tid, '_tix_sp_email', true) . "\n\nBetreff: " . get_the_title($tid) . "\n\n" . $b['name']);
         TIX_Support::staff_note($tid, 'Veranstalter per E-Mail informiert (' . $to . '), keine Partner-Verbindung.', 'System');
     }
 
@@ -781,8 +782,13 @@ class TIX_Support_Model {
         $list[] = $inq;
         update_post_meta($tid, '_tix_sp_inquiries', $list);
         TIX_Support::staff_note($tid, 'Rückfrage an den Veranstalter: ' . $q . ($kind === 'refund' ? ' (Erstattung ' . number_format($inq['amount'], 2, ',', '.') . ' € – braucht Freigabe)' : ''), wp_get_current_user()->display_name ?: 'evendis', get_current_user_id());
-        self::notify_org($inq['organizer_id'], 'Rückfrage von evendis', '#' . $tid . ' · ' . $q, $tid);
+        self::notify_org($inq['organizer_id'], 'Rückfrage von ' . self::brand_name(), '#' . $tid . ' · ' . $q, $tid);
         return rest_ensure_response(['ok' => true, 'inquiry' => $inq]);
+    }
+
+    /** Name der Plattform für Mails (Marke der Seite, auf evendis.de „evendis“). */
+    private static function brand_name() {
+        return class_exists('TIX_Mail_Layout') ? TIX_Mail_Layout::brand()['name'] : 'evendis';
     }
 
     private static function notify_org($oid, $title, $body, $tid) {
@@ -856,7 +862,7 @@ class TIX_Support_Model {
             $list = self::inquiries_of($tid); $ch = false;
             foreach ($list as $k => $inq) {
                 if ($inq['status'] !== 'open' || !empty($inq['reminded']) || strtotime($inq['due']) > current_time('timestamp')) continue;
-                self::notify_org(intval($inq['organizer_id']), 'Erinnerung: Rückfrage von evendis', '#' . $tid . ' · ' . $inq['question'], $tid);
+                self::notify_org(intval($inq['organizer_id']), 'Erinnerung: Rückfrage von ' . self::brand_name(), '#' . $tid . ' · ' . $inq['question'], $tid);
                 $list[$k]['reminded'] = true; $ch = true; $n++;
             }
             if ($ch) update_post_meta($tid, '_tix_sp_inquiries', $list);

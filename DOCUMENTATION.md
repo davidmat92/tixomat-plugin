@@ -1193,28 +1193,70 @@ Tixomat enthaelt ein einfaches Newsletter-System fuer event-bezogene Kommunikati
 
 ## 27. E-Mail-System
 
-`TIX_Emails` sendet White-Label-E-Mails mit dem Branding des Veranstalters.
+Seit 1.38.471 laufen **alle Mails** durch ein gemeinsames Layout `TIX_Mail_Layout` (Marke der Seite, responsiv, Dark Mode, Text-Fassung). `TIX_Emails` baut die Bestell-Mails aus Bausteinen, ältere HTML-Teile werden angeglichen.
 
-### E-Mail-Typen
+### Marke
+
+- Kommt aus der Seite, Lizenzseiten brauchen keine Anpassung:
+  - Name: `tix_mail_brand.name` › Seiten-Konfiguration › `email_brand_name` › Seitenname
+  - Akzentfarbe `TIX_Studio::accent()`, Logo `TIX_Studio::logo()`
+  - Logo für farbigen Kopf `tix_mail_brand.logo_on_accent_id`
+  - Fußzeile aus `/public/site-config`: Impressum, Datenschutz, Kontakt, Social; App-Links nur mit eigener App
+- Kopf `tix_mail_brand.header`:
+  - `light`: Logo auf Weiß, Linie in Markenfarbe
+  - `accent`: farbiger Kopf mit hellem Logo
+  - leer: automatisch (`accent`, sobald ein Logo für farbigen Kopf hinterlegt ist)
+- Einstellungen in WP-Admin **Tixomat → E-Mails**, dazu Galerie aller Mail-Arten mit Vorschau (Handy/Desktop, Text-Fassung) und „Test an mich senden“.
+
+### Versand (Filter in `TIX_Mail_Layout::init`)
+
+- **Absender:**
+  - `wordpress@<domain>` wird `noreply@<gleiche Domain>`, „WordPress“ wird der Markenname.
+  - Andere Absender bleiben, z. B. Rundmail-Absender oder SMTP-Plugins.
+  - Eigene Adresse bzw. eigener Name über `tix_mail_brand.from_email` bzw. `from_name`.
+- **Reply-To:** das Support-Postfach (`tix_mail_brand.support_email` › Kontakt-E-Mail › `support_email`), nur bei Mails, die nicht an die Admin-Adresse gehen.
+- **Ins Layout gesetzt (wp_mail-Filter, Prio 900):**
+  - Text-Mails und HTML-Fragmente, auch von WordPress und fremden Plugins
+  - Vollständige fremde HTML-Dokumente bleiben unverändert.
+  - Kopfzeile `X-Tix-Raw: 1` schaltet das Layout für eine Mail ab.
+- **List-Unsubscribe** nur in Werbe- und Follow-Mails (Wochenmail, gefolgte Veranstalter, Rundmails), dort RFC 8058 (HTTPS, One-Click per POST). Transaktions-, Konto- und Admin-Mails haben keinen.
+- **Text-Fassung (multipart):** aus den Bausteinen bzw. aus dem HTML, ohne CSS und Vorschauzeile.
+- **Mail-Protokoll:**
+  - Das Öffnungs-Pixel bleibt.
+  - „War diese E-Mail hilfreich?“ steht nur noch in der Karte von Kundenmails und nur mit `tix_mail_feedback = 1` (Vorgabe aus).
+  - Anhänge werden gesichert (geschützter Ordner `…/tix-private/mail-log/`, höchstens 10 MB je Mail, gelöscht mit dem Protokoll), damit „Erneut senden“ sie mitschickt.
+
+### Bausteine (`TIX_Mail_Layout::render`)
+
+- Felder: `title`, `subtitle`, `preheader`, `blocks`, `note`, `kind`
+- `kind`:
+  - `customer` (Standard)
+  - `account`
+  - `admin`: ohne Social/App-Links
+  - `promo`
+- Blöcke:
+  - `text`, `button` (VML für Outlook), `info` (Zeilen), `notice` (info/warn/success/error), `code`
+  - `event` (Bild bzw. Platzhalter, Datum, Ort), `ticket` (QR-Code lokal, Code, Link), `table` (Positionen + Gesamt)
+  - `divider`, `html` (wird angeglichen)
+- Bequeme Wege:
+  - `TIX_Mail_Layout::send($to, $subject, $m)`
+  - `legacy($heading, $html, $subtitle, $note, $kind)` (= `TIX_Emails::build_generic_email_html`)
+  - `from_plain($subject, $text)`
+
+### Mail-Arten
 
 | Typ | Trigger | Beschreibung |
 |---|---|---|
-| Bestellbestaetigung | Bestellung abgeschlossen | Enthaelt Ticket-Downloads und Event-Details |
-| Reminder | Cron (`tix_send_reminder_email`) | Erinnerung X Tage vor dem Event |
-| Followup | Cron (`tix_send_followup_email`) | Nachfass-E-Mail X Tage nach dem Event |
-| Abandoned Cart | Cron (`tix_send_abandoned_cart_email`) | Recovery-E-Mail fuer abgebrochene Warenkoerbe |
-| Ticket-Transfer | Transfer-Aktion | Benachrichtigung ueber Ticket-Umschreibung |
-| Newsletter | Manuell durch Admin | Newsletter an Abonnenten |
+| Bestellbestaetigung | Bestellung abgeschlossen | Event-Karte, Tickets mit QR-Code und PDF-Link (bis 10, Rest als Hinweis), Gutscheine, Bestellübersicht |
+| Status (Vorkasse, Storno, Erstattung, fehlgeschlagen) | Statuswechsel | Vorkasse mit Bankdaten |
+| Reminder | Cron (`tix_send_reminder_email`) | Erinnerung am Vortag mit Tickets |
+| Followup | Cron (`tix_send_followup_email`) | Nachfass-E-Mail nach dem Event |
+| Abandoned Cart | Cron | Recovery-E-Mail fuer abgebrochene Warenkoerbe |
+| Ticket-Transfer, Gästeliste, Warteliste, Tischreservierung | jeweilige Aktion | im Layout, mit QR-Code bzw. Event-Karte |
+| Newsletter, Folgen, Wochenmail | Werbung | `kind = promo`, Abmeldelink + List-Unsubscribe |
+| WordPress-Kernmails | WordPress | Konto, Passwort, E-Mail-Änderung im Layout |
 
-### White-Label
-
-- Absendername und -adresse konfigurierbar ueber `tix_email_from_name` und `tix_email_from_email`.
-- E-Mail-Template mit eigenem Logo (`tix_email_logo`) und Farben.
-- Fusszeile mit Branding (`tix_branding_footer()`).
-
-### Test-E-Mails
-
-Ueber den AJAX-Endpoint `tix_send_test_email` koennen Test-E-Mails versendet werden.
+Seit 1.38.471 ohne Doppelmails: Die Bestellmail an den Veranstalter entfällt in `TIX_Organizer_Admin::notify_new_order`, wenn dieselbe Adresse sie über die Benachrichtigungen bekommt bzw. diese pausiert sind; die WooCommerce-Kontomail entfällt neben der Aktivierungs-Mail.
 
 ---
 
@@ -2901,6 +2943,7 @@ Alles nur hinzufügend; ohne Nutzung bleibt jede Antwort gleich (Apps, KitchenKl
 | Plattform-Guthaben (evendis) | Seit 1.38.466 (`TIX_Wallet_Balance`, `TIX_Wallet_Pay`, `TIX_Settlement`; User-Entscheid 2026-10-16). **Schalter** Option `tix_wallet_platform` ('1' an, Vorgabe **aus**; nur Mehr-Veranstalter-Modus; einschalten erst nach Freigabe durch den User, Klärung E-Geld/ZAG mit dem Anwalt; z. B. `wp option update tix_wallet_platform 1`). Abgebildet in **`GET /wallet/config` ohne `organizer` → `enabled`**. Einzel-Seiten (KitchenKlub, Mallorca) unverändert: Guthaben bleibt beim Betreiber. **Eine Geldbörse je Kunde** (`organizer_id` 0, `scope_type` platform). `GET /wallet/config` (an) zusätzlich `scope: platform`, `platform: true`, `usable_for {tickets, cashless}`, `cashless_organizers [{id, name, slug}]` (Veranstalter mit Modul „wallet“, freigegeben); `GET /wallet/config?organizer=X` liefert dann dieselbe Plattform-Antwort mit `organizer_id: X` und `cashless_here`. `GET /wallet`: je Geldbörse `scope` platform \| organizer \| site, Plattform zuerst; Buchungen (`tx`) mit `organizer_id`/`organizer_name` (wo bezahlt). **Aufladen** über das versteckte Guthaben-Event der Seite (Einstellungen = Bereich 0, `POST /wallet/admin/config` als Admin ohne `organizer`), bezahlt über das evendis-Zahlungskonto; **vorerst kein Bonus** auf dem Plattform-Guthaben (`bonus_tiers: []`, `bonus: 0`; Filter `tix_wallet_platform_bonus`); `GET /wallet/admin/config` zusätzlich `platform`, `platform_on`, `bonus_allowed`. **Gutscheine**: Seiten-Gutscheine → Plattform-Geldbörse (auch wenn die App `organizer` mitschickt), Veranstalter-Gutscheine bleiben beim Veranstalter. **Tickets jedes Veranstalters** mit dem Plattform-Guthaben (`use_wallet` wie bisher; ist es leer, wird ein vorhandenes Veranstalter-Guthaben genutzt); die Bestellung zählt in der Event-Abrechnung voll wie eine Kartenzahlung. **Cashless** (`/wallet/scan`, `/wallet/charge`, Freigabe, Storno): Personal eines Veranstalters mit Modul „wallet“ bucht vom Plattform-Guthaben; Stationen und Freigabe-Schwelle dieses Veranstalters; Buchung trägt `organizer_id`; Vorschau zusätzlich `platform`; ohne Modul 403 `tix_wallet_scope`; Storno nur durch diesen Veranstalter. `POST /wallet/topup-pos` für das Plattform-Guthaben 409 `tix_wallet_platform_pos` (nur in der App aufladen). Tagesbericht des Veranstalters enthält diese Buchungen. **Abrechnung**: jede Cashless-Buchung wird offener Posten `cashless` beim Veranstalter (Storno negativ) und geht mit der **nächsten Event-Abrechnung** (bzw. Saldo-Abrechnung) als **ein Posten** „Cashless mit evendis-Guthaben (N Zahlungen)“ raus (`detail_payload.cashless`, `lines[type=cashless]`, PDF); nicht Teil der Ticket-Gutschrift (Mehrzweck-Gutschein). DB-Version Guthaben 3 (`organizer_id` an Buchung und Zahlungsvorgang). |
 | App-Profil festivalTour | Seit 1.38.467: `TIX_Studio::app_layout()` kennt `club`, `festival` und **`festivalTour`** (Mallorca). Quelle wie bisher: Option `tix_app_layout` › `layout` bzw. `profile` in den App-Inhalten (`_tix_app_config`) › automatisch („festival“ im Seitennamen bzw. in der Adresse → `festival`, sonst `club`). `/studio/config.app.layout`, `app.layout_override` und `GET /public/site-config` → `profile` liefern den Wert; `POST /studio/config {app_layout: club \| festival \| festivalTour \| null}` (nur Admin). Für Mallorca einmal setzen: `wp option update tix_app_layout festivalTour`. |
 | Awareness: Events mit Meldungen (letzte 30 Tage) | Seit 1.38.468: `GET /awareness/events?range=recent` (Rechte wie bisher: Awareness-Team bzw. Staff/Admin; Abschottung je Veranstalter wie die Event-Liste) → `{ok, range: "recent", events: [{id, title, date_start, starts_at, ends_at, alerts, alerts_open, feedback, feedback_notes, last_at}]}` – Events mit Datum in den letzten 30 Tagen bis heute, die mindestens eine Meldung (`alerts`, davon offen/übernommen `alerts_open`) oder Rückmeldung (`feedback`, davon mit Text `feedback_notes`) haben, neueste zuerst. Ohne `range` unverändert (laufende und kommende Events). |
+| Mail-Layout und Mail-Vorschau | Seit 1.38.471 (`TIX_Mail_Layout`, `TIX_Mail_Gallery`): `GET /studio/mails` (Rechte wie Studio-Marke: Admin, auf Ein-Veranstalter-Seiten auch der Inhaber) → `{ok, brand: {name, accent, logo, logo_on_accent, header, from, support_email, feedback}, mails: [{key, label, group, subject}]}`; `GET /studio/mails/preview/{key}` → `{ok, key, subject, html, text}` (`?format=html` liefert die Seite direkt; unbekannt = 404). Beispieldaten, es wird nichts gespeichert oder gesendet. Wochenmail-Abmeldung `/public/newsletter/unsubscribe` nimmt jetzt auch **POST** (RFC 8058 One-Click, Antwort `{ok: true}`); GET wie bisher. |
 | Bestellung: Event | Seit 1.38.394: `GET /customer/orders/{id}` (Konto oder `?key=`, auch vermittelte Bestellungen) enthält zusätzlich `order.event` = `{id, slug, title, date_start, url}` oder `null` – **auch bei unbezahlten Bestellungen** (Web-Kasse: Rücksprung zur Event-Seite ohne Slug im `return_url`). Beispiel: `"event":{"id":6,"slug":"sommerfest-2026","title":"Sommerfest","date_start":"2026-10-21","url":"https://evendis.de/events/sommerfest-2026/"}` | beide | 1.38.394 |
 | WooCommerce-Reste (nativ abgesichert) | Seit 1.38.393 ohne WooCommerce keine fatalen Fehler mehr: Warteliste „wieder verfügbar“ (siehe §50), `admin-ajax tix_meta_store_event_id` (nur noch für WooCommerce-Bestellungen, sonst `{"success":true}`), `tix_add_special` (Specials nur mit WooCommerce-Warenkorb, sonst Fehlermeldung), Web-Kasse `[tix_pos]` (ohne WooCommerce Hinweis „Bitte die Kasse in der App verwenden“, AJAX `tix_pos_*` → `{"success":false,"data":{"message":…}}`; PIN-Feld im Profil bleibt; die App-Kasse `POST /pos/orders` ist nativ), Gruppenbuchung (WooCommerce-Preis nur mit WooCommerce). | alle | 1.38.393 |
 | Sparten- und Städte-Texte | Seit 1.38.392 (`TIX_SEO_Texts`), nur hinzufügend: `GET /public/categories` je Sparte zusätzlich `intro` (HTML, `''` ohne Text) und `image` (`{url, thumb, alt}` oder `null`) – gepflegt unter Events → Kategorien (Term-Meta `_tix_intro`, `_tix_image_id`, Recht `manage_categories`). `GET /public/cities` je Stadt zusätzlich `slug` (Köln → `koeln`, Düsseldorf → `duesseldorf`: ä/ö/ü/ß → ae/oe/ue/ss, dann `sanitize_title`), `intro`, `image` – gepflegt unter Tixomat → Städte-Texte (Option `tix_city_texts` `{slug: {name, intro, image_id}}`, nur Admins; die Seite listet Städte kommender Events, weitere frei ergänzbar; in der API erscheinen weiterhin nur Städte mit kommenden Events). HTML per `wp_kses_post`. Beispiel: `{"id":12,"slug":"comedy","name":"Comedy","count":8,"upcoming":5,"intro":"<p>Die besten Comedy-Abende …</p>","image":{"url":"https://…/comedy-1024x683.jpg","thumb":"https://…/comedy-300x200.jpg","alt":"Bühne"}}` bzw. `{"name":"Köln","upcoming":14,"slug":"koeln","intro":"","image":null}` | beide | 1.38.392 |

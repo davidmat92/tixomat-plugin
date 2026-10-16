@@ -354,18 +354,14 @@ class TIX_App_Account {
                     : 'mit diesem Code siehst du deine Tickets in der App – ein Konto legen wir dabei automatisch für dich an:')
                 : 'mit diesem Code legst du in der App ein neues Passwort fest:';
         }
-        $body  = '<p>Hallo,</p>';
-        $body .= '<p>' . $intro . '</p>';
-        $body .= '<p style="text-align:center;margin:28px 0;">';
-        $body .= '<span style="display:inline-block;padding:16px 28px;background:#131020;color:#ffffff;border-radius:12px;'
-               . 'font-family:Menlo,Consolas,monospace;font-size:32px;font-weight:700;letter-spacing:10px;">'
-               . esc_html($code) . '</span></p>';
-        $body .= '<p style="color:#64748b;font-size:13px;line-height:1.6;">Der Code ist <strong>15 Minuten</strong> gültig. '
-               . 'Gib ihn in der App ein – du musst dafür keinen Link öffnen.</p>';
-        $body .= '<p style="color:#94a3b8;font-size:12px;margin-top:24px;">Falls du diesen Code nicht angefordert hast, kannst du diese E-Mail ignorieren.</p>';
-        $html = class_exists('TIX_Emails')
-            ? TIX_Emails::build_generic_email_html($verify ? 'Konto bestätigen' : ($login ? 'Dein Anmeldecode' : 'Passwort zurücksetzen'), $body, $site . ' App')
-            : '<html><body>' . $body . '</body></html>';
+        $m = ['title' => $verify ? 'Konto bestätigen' : ($login ? 'Dein Anmeldecode' : 'Passwort zurücksetzen'), 'subtitle' => $site . ' App', 'kind' => 'account',
+              'preheader' => 'Dein Code: ' . $code . ' – gültig für 15 Minuten.',
+              'blocks' => [
+                  ['type' => 'text', 'html' => 'Hallo,<br>' . $intro],
+                  ['type' => 'code', 'value' => (string) $code, 'hint' => 'Gültig für 15 Minuten – gib ihn in der App ein, du musst dafür keinen Link öffnen.'],
+                  ['type' => 'notice', 'tone' => 'info', 'html' => 'Falls du diesen Code nicht angefordert hast, kannst du diese E-Mail ignorieren.'],
+              ]];
+        $html = class_exists('TIX_Mail_Layout') ? TIX_Mail_Layout::render($m) : '<html><body><p>' . esc_html($code) . '</p></body></html>';
         return TIX_Customer_URL::mail($email, $subject, $html, ['Content-Type: text/html; charset=UTF-8']);
     }
 

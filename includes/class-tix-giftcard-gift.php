@@ -299,11 +299,17 @@ class TIX_Giftcard_Gift {
         if (!is_dir($dir) && wp_mkdir_p($dir)) @file_put_contents($dir . '/.htaccess', "deny from all\n");
         $html = '';
         $files = [];
+        $blocks = [];
         foreach ($codes as $code) {
             $card = TIX_Giftcards::get_card($code);
             if (!$card) continue;
             $g = self::fields($card);
             $exp = !empty($card['expires']) ? date_i18n('d.m.Y', strtotime($card['expires'])) : '';
+            // Layout-Bausteine (1.38.471): Gutschein-Karte mit QR, Wert, gültig bis
+            $sub = trim(($g['gift_message'] ? '„' . $g['gift_message'] . '“' : '') . ($g['gift_from'] ? ' – von ' . $g['gift_from'] : ''));
+            $blocks[] = ['type' => 'ticket', 'label' => 'Geschenkgutschein · ' . self::eur($card['value'] ?? 0), 'title' => $g['gift_recipient'] ? 'für ' . $g['gift_recipient'] : 'Gutschein',
+                'sub' => $sub, 'code' => $code, 'qr' => class_exists('TIX_QR') ? TIX_QR::url($code, 240) : ''];
+            $blocks[] = ['type' => 'info', 'rows' => array_values(array_filter([['Wert', esc_html(self::eur($card['value'] ?? 0))], $exp ? ['Gültig bis', esc_html($exp)] : null]))];
             $html .= '<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 14px;"><tr><td style="border:2px dashed #ca8a04;background:#fefce8;border-radius:12px;padding:18px 20px;text-align:center;">'
                 . '<div style="font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:#a16207;font-weight:700;">🎁 Dein Geschenkgutschein zum Verschenken</div>'
                 . ($g['gift_recipient'] ? '<div style="font-size:15px;color:#44403c;margin-top:8px;">für <strong>' . esc_html($g['gift_recipient']) . '</strong></div>' : '')
@@ -321,7 +327,8 @@ class TIX_Giftcard_Gift {
         }
         if ($html === '') return null;
         $html = '<div style="margin:0 0 20px;"><div style="font-size:15px;font-weight:700;margin:0 0 10px;">Gutschein verschenken</div>' . $html . '</div>';
-        return ['html' => $html, 'files' => $files, 'codes' => $codes];
+        array_unshift($blocks, ['type' => 'text', 'html' => '<strong>Gutschein verschenken</strong><br>' . ($files ? 'Das PDF zum Ausdrucken oder Weiterschicken hängt an dieser E-Mail.' : '')]);
+        return ['html' => $html, 'blocks' => $blocks, 'files' => $files, 'codes' => $codes];
     }
 
     public static function cleanup(array $files) {
@@ -337,8 +344,11 @@ class TIX_Giftcard_Gift {
         $parts = self::mail_parts($order_id);
         if (!$parts) return false;
         update_post_meta($order_id, '_tix_gift_mail_sent', current_time('mysql'));
-        $html = class_exists('TIX_Emails') ? TIX_Emails::build_generic_email_html('Dein Geschenkgutschein', $parts['html'], 'Bestellung #' . intval($order_id)) : $parts['html'];
-        $subject = html_entity_decode(get_bloginfo('name'), ENT_QUOTES, 'UTF-8') . ' – Dein Geschenkgutschein';
+        $html = class_exists('TIX_Mail_Layout')
+            ? TIX_Mail_Layout::render(['title' => 'Dein Geschenkgutschein', 'subtitle' => 'Bestellung #' . intval($order_id), 'kind' => 'customer',
+                'blocks' => array_merge([['type' => 'text', 'html' => 'Hallo' . ($o->get_billing_first_name() ? ' ' . esc_html($o->get_billing_first_name()) : '') . ',<br>dein Geschenkgutschein ist fertig.']], $parts['blocks'])])
+            : $parts['html'];
+        $subject = (class_exists('TIX_Mail_Layout') ? TIX_Mail_Layout::brand()['name'] : html_entity_decode(get_bloginfo('name'), ENT_QUOTES, 'UTF-8')) . ' – Dein Geschenkgutschein';
         if (class_exists('TIX_Customer_URL')) TIX_Customer_URL::mail($o->get_billing_email(), $subject, $html, ['Content-Type: text/html; charset=UTF-8'], $parts['files']);
         else wp_mail($o->get_billing_email(), $subject, $html, ['Content-Type: text/html; charset=UTF-8'], $parts['files']);
         self::cleanup($parts['files']);

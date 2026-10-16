@@ -1268,12 +1268,19 @@ class TIX_Organizer_Admin {
                     $email = $user ? (string) $user->user_email : '';
                 }
                 if (!$email) continue;
+                // Keine Doppelmail (1.38.471): Dieselbe Adresse bekommt die Bestellung schon über die Benachrichtigungen
+                // („💰 Neue Bestellung“), bzw. der Veranstalter hat Benachrichtigungen pausiert.
+                if (class_exists('TIX_Organizer_Notifications') && TIX_Organizer_Notifications::covers_order_mail($org_id, $email)) {
+                    $notified[$org_id . ':' . $event_id] = true;
+                    self::check_low_stock($event_id, $org_id, $email);
+                    continue;
+                }
                 $event_title = get_the_title($event_id);
                 $body = '<p style="margin:0 0 12px;font-size:14px;line-height:1.6;"><strong>' . esc_html($buyer ?: $order->get_billing_email()) . '</strong> hat <strong>' . intval($sum['qty']) . ' Ticket(s)</strong> f&uuml;r <strong>' . esc_html($event_title) . '</strong> gekauft.</p>'
                       . '<p style="margin:0 0 12px;font-size:18px;font-weight:700;">' . self::money($sum['total']) . '</p>'
                       . '<p style="margin:0;font-size:12px;color:#94a3b8;">Bestellung #' . esc_html($order->get_order_number()) . '</p>';
                 $html = (class_exists('TIX_Emails') && method_exists('TIX_Emails', 'build_generic_email_html'))
-                    ? TIX_Emails::build_generic_email_html('Neue Bestellung', $body, esc_html($event_title))
+                    ? TIX_Emails::build_generic_email_html('Neue Bestellung', $body, $event_title, '', 'admin')
                     : '<div style="font-family:Inter,system-ui,sans-serif;max-width:500px;margin:0 auto;padding:20px;"><h2 style="font-size:16px;">Neue Bestellung</h2>' . $body . '</div>';
                 wp_mail($email, 'Neue Bestellung: ' . $event_title, $html, ['Content-Type: text/html; charset=UTF-8']);
                 $notified[$org_id . ':' . $event_id] = true;
@@ -1297,15 +1304,15 @@ class TIX_Organizer_Admin {
         $event_title = get_the_title($event_id);
         $pct = round(($sold / $capacity) * 100);
 
-        $html = '<div style="font-family:Inter,system-ui,sans-serif;max-width:500px;margin:0 auto;padding:20px;">'
-              . '<h2 style="color:#f59e0b;font-size:16px;margin:0 0 12px;">&#9888; Low-Stock Warnung</h2>'
-              . '<p style="color:#475569;font-size:14px;line-height:1.6;">'
-              . '<strong>' . esc_html($event_title) . '</strong> ist zu <strong>' . $pct . '%</strong> ausverkauft.'
-              . '</p>'
-              . '<p style="color:#0D0B09;font-size:16px;font-weight:600;">Nur noch ' . $remaining . ' von ' . $capacity . ' Tickets verf&uuml;gbar.</p>'
-              . '</div>';
-
-        wp_mail($email, 'Low-Stock: ' . $event_title . ' (' . $remaining . ' Tickets)', $html, ['Content-Type: text/html; charset=UTF-8']);
+        // Seit 1.38.471 im Mail-Layout und auf Deutsch (vorher „Low-Stock“)
+        $t = html_entity_decode($event_title, ENT_QUOTES, 'UTF-8');
+        $m = ['title' => 'Fast ausverkauft', 'subtitle' => $t, 'kind' => 'admin', 'blocks' => [
+            ['type' => 'notice', 'tone' => 'warn', 'html' => '<strong>' . esc_html($t) . '</strong> ist zu <strong>' . $pct . ' %</strong> ausverkauft.'],
+            ['type' => 'info', 'rows' => [['Noch verfügbar', $remaining . ' von ' . $capacity . ' Tickets'], ['Verkauft', (string) $sold]]],
+        ], 'note' => 'Benachrichtigung für deinen Veranstalter-Bereich.'];
+        $subject = 'Fast ausverkauft: ' . $t . ' (noch ' . $remaining . ' Tickets)';
+        if (class_exists('TIX_Mail_Layout')) TIX_Mail_Layout::send($email, $subject, $m);
+        else wp_mail($email, $subject, '<p>' . esc_html($subject) . '</p>', ['Content-Type: text/html; charset=UTF-8']);
         update_post_meta($event_id, '_tix_low_stock_notified', 1);
     }
 

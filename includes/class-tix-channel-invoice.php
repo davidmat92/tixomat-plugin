@@ -179,7 +179,7 @@ class TIX_Channel_Invoice {
     private static function notify_admin(array $made) {
         $lines = [];
         foreach ($made as $inv) $lines[] = sprintf('%s · %s · %s · %s €', $inv->number, $inv->partner, $inv->period, number_format(floatval($inv->amount), 2, ',', '.'));
-        wp_mail(self::admin_email(), 'Neue Rechnungen Kanal-Gebühr', "Neue Rechnungen zur Gebühr im evendis-Kanal:\n\n" . implode("\n", $lines) . "\n\nPrüfen und senden: " . admin_url('admin.php?page=tix-channel-fees'));
+        wp_mail(self::admin_email(), 'Neue Rechnungen Kanal-Gebühr', "Neue Rechnungen zur Gebühr im " . (class_exists('TIX_Mail_Layout') ? TIX_Mail_Layout::brand()['name'] : 'evendis') . "-Kanal:\n\n" . implode("\n", $lines) . "\n\nPrüfen und senden: " . admin_url('admin.php?page=tix-channel-fees'));
     }
 
     public static function pdf_bytes($inv) {

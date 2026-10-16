@@ -217,35 +217,13 @@ class TIX_Broadcast {
     /* ─────────── HTML-Wrapper ─────────── */
 
     public static function wrap_html(string $subject, string $body_html, string $unsub_url = ''): string {
-        $s = get_option('tix_settings', array());
-        $brand = !empty($s['email_brand_name']) ? $s['email_brand_name'] : get_bloginfo('name');
-        $logo_url = !empty($s['email_logo_url']) ? $s['email_logo_url'] : '';
-        $logo_height = intval($s['email_logo_height'] ?? 40);
-        if ($logo_height < 20) $logo_height = 40;
-
-        // Header: Logo aus den E-Mail-Einstellungen (Fallback: Brand-Name als Text)
-        if ($logo_url !== '') {
-            $header_inner = '<img src="' . esc_url($logo_url) . '" alt="' . esc_attr($brand) . '" style="max-height:' . $logo_height . 'px;width:auto;display:inline-block;">';
-        } else {
-            $header_inner = '<span style="color:#fff;font-size:20px;font-weight:700;">' . esc_html($brand) . '</span>';
+        // Seit 1.38.471 im einheitlichen Mail-Layout (Marke, Dark Mode, mobil)
+        $note = esc_html(self::get_sender_name()) . ' &middot; Diese E-Mail wurde an Kunden von ' . esc_html(self::get_sender_name()) . ' gesendet.'
+            . ($unsub_url !== '' ? '<br><a href="' . esc_url($unsub_url) . '" style="text-decoration:underline;">Newsletter abmelden</a>' : '');
+        if (class_exists('TIX_Mail_Layout')) {
+            return TIX_Mail_Layout::render(['title' => '', 'preheader' => $subject, 'blocks' => [['type' => 'html', 'html' => $body_html]], 'note' => $note, 'kind' => 'promo']);
         }
-
-        return '<!DOCTYPE html><html lang="de"><head><meta charset="utf-8"></head>'
-            . '<body style="margin:0;padding:0;background:#f4f4f5;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;">'
-            . '<div style="max-width:600px;margin:0 auto;padding:24px 12px;">'
-            . '<div style="background:#000000;border-radius:12px 12px 0 0;padding:20px 28px;text-align:center;">'
-            . $header_inner
-            . '</div>'
-            . '<div style="background:#ffffff;border-radius:0 0 12px 12px;padding:28px;font-size:15px;line-height:1.6;color:#1f2937;">'
-            . $body_html
-            . '</div>'
-            . '<div style="text-align:center;padding:16px;font-size:12px;color:#9ca3af;">'
-            . esc_html(self::get_sender_name()) . ' &middot; Diese E-Mail wurde an Kunden von ' . esc_html(self::get_sender_name()) . ' gesendet.'
-            . ($unsub_url !== ''
-                ? '<br><a href="' . esc_url($unsub_url) . '" style="color:#9ca3af;text-decoration:underline;">Newsletter abmelden</a>'
-                : '')
-            . '</div>'
-            . '</div></body></html>';
+        return '<!DOCTYPE html><html lang="de"><head><meta charset="utf-8"></head><body>' . $body_html . '<p>' . $note . '</p></body></html>';
     }
 
     private static function prepare_body(string $raw_body): string {

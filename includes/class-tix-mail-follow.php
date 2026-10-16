@@ -188,9 +188,13 @@ class TIX_Mail_Follow {
             $data = ['status' => 'pending', 'token' => $token, 'share_email' => $share ? 1 : 0, 'consent_text' => $text, 'consent_at' => current_time('mysql'), 'consent_ip' => $ip !== '' ? hash_hmac('sha256', $ip, wp_salt('auth')) : ''];
             if ($row) $wpdb->update(self::t(), $data, ['id' => $row->id]);
             else $wpdb->insert(self::t(), $data + ['organizer_id' => $oid, 'email' => $email, 'created' => current_time('mysql')]);
-            self::mail($email, 'Bitte bestätige: ' . $name . ' folgen',
-                "Hallo,\n\nbitte bestätige, dass du {$name} per E-Mail folgen möchtest:\n" . self::link($oid, 'confirm', $token)
-                . "\n\nOhne Bestätigung schicken wir dir nichts.\n\n" . wp_specialchars_decode(get_bloginfo('name'), ENT_QUOTES));
+            $confirm = self::link($oid, 'confirm', $token);
+            self::mail($email, 'Bitte bestätige: ' . $name . ' folgen', class_exists('TIX_Mail_Layout') ? TIX_Mail_Layout::render(['title' => 'Bitte bestätige', 'kind' => 'account', 'blocks' => [
+                    ['type' => 'text', 'html' => 'Hallo,<br>bitte bestätige, dass du <strong>' . esc_html($name) . '</strong> per E-Mail folgen möchtest:'],
+                    ['type' => 'button', 'label' => 'Folgen bestätigen', 'url' => $confirm],
+                    ['type' => 'text', 'html' => 'Ohne Bestätigung schicken wir dir nichts.'],
+                ]]) : "Hallo,\n\nbitte bestätige, dass du {$name} per E-Mail folgen möchtest:\n" . $confirm . "\n\nOhne Bestätigung schicken wir dir nichts.",
+                class_exists('TIX_Mail_Layout') ? ['Content-Type: text/html; charset=UTF-8'] : []);
         }
         return rest_ensure_response(['ok' => true, 'message' => 'Fast geschafft: Bitte bestätige über den Link in der E-Mail.']);
     }
@@ -388,20 +392,20 @@ class TIX_Mail_Follow {
         delete_post_meta($oid, self::META_QUEUE);
         update_post_meta($oid, '_tix_mail_follow_last', $today);
         $name = self::name($oid);
-        $list = '';
+        $blocks = [];
         foreach ($events as $eid) {
-            $d = (string) get_post_meta($eid, '_tix_date_start', true);
             $url = class_exists('TIX_Customer_URL') ? TIX_Customer_URL::to((string) get_permalink($eid)) : (string) get_permalink($eid);
-            $list .= '<li style="margin:8px 0;"><a href="' . esc_url($url) . '" style="color:#111;font-weight:600;">' . esc_html(get_the_title($eid)) . '</a>' . ($d ? ' <span style="color:#666;">· ' . esc_html(date_i18n('D, d.m.Y', strtotime($d))) . '</span>' : '') . '</li>';
+            $ev = class_exists('TIX_Emails') ? TIX_Emails::event_block($eid) : null;
+            if ($ev) { $blocks[] = $ev; $blocks[] = ['type' => 'text', 'html' => '<a href="' . esc_url($url) . '" style="font-weight:700;text-decoration:none;">Zum Event →</a>']; }
         }
+        $blocks[] = ['type' => 'button', 'label' => 'Alle Events von ' . $name, 'url' => self::page_url($oid)];
+        $title = count($events) === 1 ? 'Neues Event von ' . $name : 'Neue Events von ' . $name;
         $n = 0;
         foreach ((array) $rows as $r) {
             $unsub = self::unsubscribe_url($oid, $r->token);
-            $html = '<!doctype html><html><body style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:16px;">'
-                . '<h1 style="font-size:19px;">' . esc_html(count($events) === 1 ? 'Neues Event von ' . $name : 'Neue Events von ' . $name) . '</h1><ul style="padding-left:18px;">' . $list . '</ul>'
-                . '<p><a href="' . esc_url(self::page_url($oid)) . '">Alle Events von ' . esc_html($name) . '</a></p>'
-                . '<p style="color:#888;font-size:12px;margin-top:24px;">Du folgst ' . esc_html($name) . ' per E-Mail. <a href="' . esc_url($unsub) . '" style="color:#888;">Nicht mehr folgen</a></p></body></html>';
-            if (self::mail(self::recipient($r), count($events) === 1 ? 'Neues Event von ' . $name : 'Neue Events von ' . $name, $html,
+            $html = TIX_Mail_Layout::render(['title' => $title, 'blocks' => $blocks, 'kind' => 'promo',
+                'note' => 'Du folgst ' . esc_html($name) . ' per E-Mail. <a href="' . esc_url($unsub) . '" style="text-decoration:underline;">Nicht mehr folgen</a>']);
+            if (self::mail(self::recipient($r), $title, $html,
                 array_merge(['Content-Type: text/html; charset=UTF-8'], self::unsub_headers($oid, $r->token)))) $n++;
             $wpdb->update(self::t(), ['last_notified' => current_time('mysql')], ['id' => $r->id]);
         }
@@ -415,10 +419,11 @@ class TIX_Mail_Follow {
         $rows = $wpdb->get_results($wpdb->prepare("SELECT * FROM " . self::t() . " WHERE organizer_id = %d AND status = 'active'", $oid));
         foreach ((array) $rows as $r) {
             $unsub = self::unsubscribe_url($oid, $r->token);
-            $html = '<!doctype html><html><body style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:16px;">'
-                . '<h1 style="font-size:19px;">' . esc_html($title) . '</h1><p>' . nl2br(esc_html($body)) . '</p>'
-                . '<p><a href="' . esc_url(self::page_url($oid)) . '">Zu ' . esc_html(self::name($oid)) . '</a></p>'
-                . '<p style="color:#888;font-size:12px;margin-top:24px;"><a href="' . esc_url($unsub) . '" style="color:#888;">Nicht mehr folgen</a></p></body></html>';
+            $blocks = [['type' => 'text', 'html' => nl2br(esc_html($body))]];
+            if ($event_id && class_exists('TIX_Emails') && ($ev = TIX_Emails::event_block($event_id))) $blocks[] = $ev;
+            $blocks[] = ['type' => 'button', 'label' => 'Zu ' . self::name($oid), 'url' => self::page_url($oid)];
+            $html = TIX_Mail_Layout::render(['title' => $title, 'subtitle' => 'Nachricht von ' . self::name($oid), 'blocks' => $blocks, 'kind' => 'promo',
+                'note' => 'Du folgst ' . esc_html(self::name($oid)) . ' per E-Mail. <a href="' . esc_url($unsub) . '" style="text-decoration:underline;">Nicht mehr folgen</a>']);
             if (self::mail(self::recipient($r), $title, $html, array_merge(['Content-Type: text/html; charset=UTF-8'], self::unsub_headers($oid, $r->token)))) $extra++;
         }
         return $extra;

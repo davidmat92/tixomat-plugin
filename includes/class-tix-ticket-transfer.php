@@ -526,53 +526,37 @@ class TIX_Ticket_Transfer {
      * Benachrichtigungs-E-Mail an den neuen Inhaber senden
      */
     private static function send_transfer_notification($user_id, $email, $first_name, $full_name, $ticket_ids, $user_created) {
-        $s = function_exists('tix_get_settings') ? tix_get_settings() : [];
-        $brand_name  = $s['email_brand_name'] ?? get_bloginfo('name');
-        $logo_url    = $s['email_logo_url'] ?? '';
-        $footer_text = $s['email_footer_text'] ?? '';
-        $accent      = $s['color_accent'] ?? '#c8ff00';
-        $accent_text = $s['color_accent_text'] ?? '#000000';
-        $border      = $s['color_border'] ?? '#333333';
-        $radius      = intval($s['radius_general'] ?? 8);
+        $brand_name = class_exists('TIX_Mail_Layout') ? TIX_Mail_Layout::brand()['name'] : get_bloginfo('name');
 
-        if (!$brand_name) $brand_name = get_bloginfo('name');
-
-        // Ticket-Infos sammeln
-        $ticket_rows = '';
+        // Tickets als Bausteine (seit 1.38.471 im einheitlichen Mail-Layout, mit QR-Code)
+        $blocks = [];
+        $count = count($ticket_ids);
+        $tickets = [];
         foreach ($ticket_ids as $tid) {
             $ticket_post = get_post($tid);
-            $code       = '';
-            $type_name  = 'Ticket';
-            $event_name = '';
-
+            $code = ''; $type_name = 'Ticket'; $event_name = ''; $tix_event_id = 0;
             if ($ticket_post && $ticket_post->post_type === 'tix_ticket') {
-                // TIX-Ticket
-                $code        = get_post_meta($tid, '_tix_ticket_code', true);
+                $code         = get_post_meta($tid, '_tix_ticket_code', true);
                 $tix_event_id = intval(get_post_meta($tid, '_tix_ticket_event_id', true));
-                $ci          = intval(get_post_meta($tid, '_tix_ticket_cat_index', true));
+                $ci           = intval(get_post_meta($tid, '_tix_ticket_cat_index', true));
                 if ($tix_event_id) {
                     $event_name = get_the_title($tix_event_id);
                     $cats = get_post_meta($tix_event_id, '_tix_ticket_categories', true);
-                    if (is_array($cats) && isset($cats[$ci])) {
-                        $type_name = $cats[$ci]['name'] ?? 'Ticket';
-                    }
+                    if (is_array($cats) && isset($cats[$ci])) $type_name = $cats[$ci]['name'] ?? 'Ticket';
                 }
             } else {
-                // TC-Ticket
-                $code     = get_post_meta($tid, 'ticket_code', true);
-                $type_id  = get_post_meta($tid, 'ticket_type_id', true);
+                $code      = get_post_meta($tid, 'ticket_code', true);
+                $type_id   = get_post_meta($tid, 'ticket_type_id', true);
                 $type_name = $type_id ? get_the_title($type_id) : 'Ticket';
                 $tc_event_id = get_post_meta($tid, 'event_id', true);
                 if ($tc_event_id) {
-                    $tix_event_id = get_post_meta(intval($tc_event_id), '_tix_parent_event_id', true);
+                    $tix_event_id = intval(get_post_meta(intval($tc_event_id), '_tix_parent_event_id', true));
                     if ($tix_event_id) $event_name = get_the_title($tix_event_id);
                 }
             }
-            $ticket_rows .= '<tr>'
-                . '<td style="padding:8px 12px;font-size:13px;color:#1a1a1a;border-bottom:1px solid #e5e7eb;">' . esc_html($type_name) . '</td>'
-                . '<td style="padding:8px 12px;font-size:13px;color:#1a1a1a;border-bottom:1px solid #e5e7eb;">' . esc_html($event_name) . '</td>'
-                . '<td style="padding:8px 12px;font-size:12px;color:#94a3b8;font-family:monospace;border-bottom:1px solid #e5e7eb;">' . esc_html($code) . '</td>'
-                . '</tr>';
+            $tickets[] = ['type' => 'ticket', 'label' => $count > 1 ? 'Ticket ' . (count($tickets) + 1) . ' von ' . $count : 'Ticket',
+                'title' => html_entity_decode((string) $type_name, ENT_QUOTES, 'UTF-8'), 'sub' => html_entity_decode((string) $event_name, ENT_QUOTES, 'UTF-8'),
+                'code' => (string) $code, 'qr' => ($code && $tix_event_id && class_exists('TIX_QR')) ? TIX_QR::url('GL-' . $tix_event_id . '-' . $code, 240) : ''];
         }
 
         // Meine-Tickets-Seite finden
@@ -580,71 +564,18 @@ class TIX_Ticket_Transfer {
         $page_id = $wpdb->get_var("SELECT ID FROM {$wpdb->posts} WHERE post_content LIKE '%[tix_my_tickets]%' AND post_status = 'publish' AND post_type = 'page' LIMIT 1");
         $my_tickets_url = $page_id ? get_permalink($page_id) : home_url();
 
-        // HTML E-Mail
-        $html = '<!DOCTYPE html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><link href="' . esc_url(TIXOMAT_URL . 'assets/css/fonts-local.css?ver=' . TIXOMAT_VERSION) . '" rel="stylesheet"></head>'
-              . '<body style="margin:0;padding:0;background:#f3f4f6;font-family:\'Inter\',-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,sans-serif;">';
-
-        // Container
-        $html .= '<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f3f4f6;"><tr><td align="center" style="padding:32px 16px;">';
-        $html .= '<table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:520px;background:#ffffff;border-radius:' . $radius . 'px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.08);">';
-
-        // Header
-        $html .= '<tr><td style="background:#1a1a1a;padding:24px 32px;text-align:center;">';
-        if ($logo_url) {
-            $html .= '<img src="' . esc_url($logo_url) . '" alt="' . esc_attr($brand_name) . '" style="max-width:180px;max-height:48px;margin-bottom:12px;display:block;margin-left:auto;margin-right:auto;">';
-        }
-        $html .= '<div style="color:#ffffff;font-size:20px;font-weight:700;margin-bottom:4px;">Tickets umgeschrieben</div>';
-        $html .= '<div style="color:#94a3b8;font-size:14px;">' . esc_html($brand_name) . '</div>';
-        $html .= '</td></tr>';
-
-        // Body
-        $html .= '<tr><td style="padding:32px;">';
-
-        // Begrüßung
-        $html .= '<div style="font-size:16px;font-weight:600;color:#1a1a1a;margin-bottom:4px;">Hallo ' . esc_html($first_name) . ',</div>';
-        $count = count($ticket_ids);
-        $html .= '<div style="font-size:14px;color:#6b7280;margin-bottom:24px;line-height:1.6;">'
-                . ($count === 1 ? 'Ein Ticket wurde' : $count . ' Tickets wurden')
-                . ' auf dich umgeschrieben. Hier sind die Details:</div>';
-
-        // Ticket-Tabelle
-        $html .= '<table width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid #e5e7eb;border-radius:' . $radius . 'px;overflow:hidden;margin-bottom:24px;">';
-        $html .= '<tr>'
-                . '<th style="padding:10px 12px;font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;text-align:left;background:#f8fafc;border-bottom:1px solid #e5e7eb;">Ticket</th>'
-                . '<th style="padding:10px 12px;font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;text-align:left;background:#f8fafc;border-bottom:1px solid #e5e7eb;">Event</th>'
-                . '<th style="padding:10px 12px;font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;text-align:left;background:#f8fafc;border-bottom:1px solid #e5e7eb;">Code</th>'
-                . '</tr>';
-        $html .= $ticket_rows;
-        $html .= '</table>';
-
-        // Hinweis für neue User
+        $blocks[] = ['type' => 'text', 'html' => 'Hallo ' . esc_html($first_name) . ',<br>' . ($count === 1 ? 'ein Ticket wurde' : $count . ' Tickets wurden') . ' auf dich umgeschrieben. Hier sind die Details:'];
+        $blocks = array_merge($blocks, $tickets);
         if ($user_created) {
-            $html .= '<div style="background:#f0fdf4;border:1px solid #86efac;border-radius:' . $radius . 'px;padding:14px 16px;font-size:13px;color:#15803d;margin-bottom:24px;line-height:1.5;">'
-                    . 'Es wurde ein Benutzerkonto f&uuml;r dich erstellt. Du erh&auml;ltst eine separate E-Mail mit einem Link, um dein Passwort festzulegen.'
-                    . '</div>';
+            $blocks[] = ['type' => 'notice', 'tone' => 'success', 'html' => 'Es wurde ein Benutzerkonto für dich erstellt. Du erhältst eine separate E-Mail mit einem Link, um dein Passwort festzulegen.'];
         }
-
-        // CTA
-        $html .= '<table width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td align="center">';
-        $html .= '<a href="' . esc_url($my_tickets_url) . '" style="display:inline-block;padding:12px 32px;background-color:' . esc_attr($accent) . ';color:' . esc_attr($accent_text) . ';text-decoration:none;font-weight:700;font-size:14px;border-radius:' . $radius . 'px;">Meine Tickets anzeigen</a>';
-        $html .= '</td></tr></table>';
-
-        $html .= '</td></tr>';
-
-        // Footer
-        $html .= '<tr><td style="background:#f9fafb;padding:20px 32px;text-align:center;border-top:1px solid #e5e7eb;">';
-        if ($footer_text) {
-            $html .= '<div style="font-size:12px;color:#9ca3af;">' . wp_kses_post($footer_text) . '</div>';
-        } else {
-            $html .= '<div style="font-size:12px;color:#9ca3af;">' . esc_html($brand_name) . '</div>';
-        }
-        $html .= '</td></tr>';
-
-        $html .= '</table></td></tr></table></body></html>';
+        $blocks[] = ['type' => 'button', 'label' => 'Meine Tickets anzeigen', 'url' => $my_tickets_url];
 
         $subject = ($count === 1 ? 'Ein Ticket wurde' : $count . ' Tickets wurden') . ' auf dich umgeschrieben - ' . $brand_name;
-        $headers = ['Content-Type: text/html; charset=UTF-8'];
-
-        TIX_Customer_URL::mail($email, $subject, $html, $headers);
+        $html = class_exists('TIX_Mail_Layout')
+            ? TIX_Mail_Layout::render(['title' => 'Tickets umgeschrieben', 'blocks' => $blocks, 'kind' => 'customer',
+                'note' => 'Du bekommst diese E-Mail, weil Tickets bei ' . $brand_name . ' auf dich umgeschrieben wurden.'])
+            : '<html><body><p>' . esc_html($subject) . '</p></body></html>';
+        TIX_Customer_URL::mail($email, $subject, $html, ['Content-Type: text/html; charset=UTF-8']);
     }
 }

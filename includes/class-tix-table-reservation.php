@@ -1556,12 +1556,6 @@ class TIX_Table_Reservation {
         $location   = $loc_id ? get_the_title($loc_id) : '';
         $loc_addr   = $loc_id ? get_post_meta($loc_id, '_tix_loc_address', true) : '';
 
-        $s = function_exists('tix_get_settings') ? tix_get_settings() : [];
-        $accent = $s['color_accent'] ?? '#c8ff00';
-        $logo   = $s['email_logo_url'] ?? '';
-        $brand  = $s['email_brand_name'] ?? get_bloginfo('name');
-        $footer = $s['email_footer_text'] ?? '';
-
         // Datum formatieren
         $date_formatted = '';
         if ($date) {
@@ -1580,64 +1574,40 @@ class TIX_Table_Reservation {
         } elseif ($res->payment_mode === 'full') {
             $payment_info = 'Vollständig bezahlt: ' . number_format($res->amount_total, 2, ',', '.') . ' €';
         }
+        $payment_labels = ['on_site' => 'Zahlung vor Ort', 'deposit' => 'Anzahlung', 'full' => 'Vollständig bezahlt'];
 
-        $subject = 'Reservierungsbestätigung – ' . $event->post_title;
+        $title = html_entity_decode($event->post_title, ENT_QUOTES, 'UTF-8');
+        $subject = 'Reservierungsbestätigung – ' . $title;
 
-        $body = '<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="margin:0;padding:0;background:#f4f4f5;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif">';
-        $body .= '<table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:40px 20px">';
-        $body .= '<table width="600" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08)">';
-
-        // Header
-        if ($logo) {
-            $body .= '<tr><td style="padding:32px 40px 16px;text-align:center"><img src="' . esc_url($logo) . '" alt="' . esc_attr($brand) . '" style="max-width:180px;height:auto"></td></tr>';
+        // Seit 1.38.471 im einheitlichen Mail-Layout (vorher eigenes, nicht responsives HTML)
+        $ev = class_exists('TIX_Emails') ? TIX_Emails::event_block($res->event_id) : null;
+        $rows = [];
+        if (!$ev) {
+            $rows = [['Event', esc_html($title)], ['Datum', esc_html($date_formatted)]];
+            if ($time_start) $rows[] = ['Uhrzeit', esc_html($time_start) . ' Uhr' . ($time_doors ? ' (Einlass: ' . esc_html($time_doors) . ' Uhr)' : '')];
         }
-        $body .= '<tr><td style="padding:16px 40px 8px;text-align:center;font-size:28px;font-weight:700;color:#111">✅ Reservierung bestätigt</td></tr>';
-        $body .= '<tr><td style="padding:8px 40px 24px;text-align:center;color:#666;font-size:15px">Deine Tischreservierung wurde erfolgreich bestätigt.</td></tr>';
-
-        // Details
-        $body .= '<tr><td style="padding:0 40px"><table width="100%" cellpadding="0" cellspacing="0" style="background:#f8f9fa;border-radius:12px;padding:24px">';
-        $body .= '<tr><td style="padding:12px 24px;border-bottom:1px solid #e5e7eb"><strong style="color:#374151">Event</strong><br><span style="color:#111;font-size:16px">' . esc_html($event->post_title) . '</span></td></tr>';
-        $body .= '<tr><td style="padding:12px 24px;border-bottom:1px solid #e5e7eb"><strong style="color:#374151">Datum</strong><br><span style="color:#111">' . esc_html($date_formatted) . '</span></td></tr>';
-        if ($time_start) {
-            $body .= '<tr><td style="padding:12px 24px;border-bottom:1px solid #e5e7eb"><strong style="color:#374151">Uhrzeit</strong><br><span style="color:#111">' . esc_html($time_start) . ' Uhr' . ($time_doors ? ' (Einlass: ' . esc_html($time_doors) . ' Uhr)' : '') . '</span></td></tr>';
-        }
-        if ($location) {
-            $body .= '<tr><td style="padding:12px 24px;border-bottom:1px solid #e5e7eb"><strong style="color:#374151">Location</strong><br><span style="color:#111">' . esc_html($location) . ($loc_addr ? '<br>' . esc_html($loc_addr) : '') . '</span></td></tr>';
-        }
-        $body .= '<tr><td style="padding:12px 24px;border-bottom:1px solid #e5e7eb"><strong style="color:#374151">Tisch</strong><br><span style="color:#111">' . esc_html($res->category_name) . '</span></td></tr>';
-        $body .= '<tr><td style="padding:12px 24px;border-bottom:1px solid #e5e7eb"><strong style="color:#374151">Gäste</strong><br><span style="color:#111">' . intval($res->guest_count) . ' Personen</span></td></tr>';
-        $body .= '<tr><td style="padding:12px 24px"><strong style="color:#374151">Zahlung</strong><br><span style="color:#111">' . esc_html($payment_info) . '</span></td></tr>';
-        $body .= '</table></td></tr>';
-
-        // Reservierungsnummer
-        $body .= '<tr><td style="padding:24px 40px;text-align:center;color:#6b7280;font-size:13px">Reservierungsnummer: <strong>#' . intval($res->id) . '</strong></td></tr>';
-
-        // Footer
-        if ($footer) {
-            $body .= '<tr><td style="padding:16px 40px 32px;text-align:center;color:#9ca3af;font-size:12px">' . wp_kses_post($footer) . '</td></tr>';
-        }
-
-        $body .= '</table></td></tr></table></body></html>';
-
-        $headers = ['Content-Type: text/html; charset=UTF-8'];
-        TIX_Customer_URL::mail($res->customer_email, $subject, $body, $headers);
+        if ($location) $rows[] = ['Location', esc_html($location) . ($loc_addr ? '<br>' . esc_html($loc_addr) : '')];
+        $rows[] = ['Tisch', esc_html($res->category_name)];
+        $rows[] = ['Gäste', intval($res->guest_count) . ' Personen'];
+        if ($payment_info !== '') $rows[] = ['Zahlung', esc_html($payment_info)];
+        $rows[] = ['Reservierungsnummer', '#' . intval($res->id)];
+        $blocks = [['type' => 'text', 'html' => 'Hallo' . ($res->customer_name ? ' ' . esc_html($res->customer_name) : '') . ',<br>deine Tischreservierung wurde erfolgreich bestätigt.']];
+        if ($ev) $blocks[] = $ev;
+        $blocks[] = ['type' => 'info', 'title' => 'Reservierung', 'rows' => $rows];
+        $s = function_exists('tix_get_settings') ? tix_get_settings() : [];
+        $m = ['title' => 'Reservierung bestätigt', 'blocks' => $blocks, 'kind' => 'customer', 'note' => (string) ($s['email_footer_text'] ?? '')];
+        if (class_exists('TIX_Mail_Layout')) TIX_Mail_Layout::send($res->customer_email, $subject, $m);
+        else TIX_Customer_URL::mail($res->customer_email, $subject, '<p>' . esc_html($subject) . '</p>', ['Content-Type: text/html; charset=UTF-8']);
 
         // Admin-Benachrichtigung
-        $admin_email = get_option('admin_email');
-        $admin_subject = 'Neue Tischreservierung: ' . $event->post_title . ' – ' . $res->category_name;
-        $admin_body = "Neue Tischreservierung eingegangen:\n\n";
-        $admin_body .= "Event: {$event->post_title}\n";
-        $admin_body .= "Datum: {$date_formatted}\n";
-        $admin_body .= "Tisch: {$res->category_name}\n";
-        $admin_body .= "Gäste: {$res->guest_count}\n";
-        $admin_body .= "Name: {$res->customer_name}\n";
-        $admin_body .= "E-Mail: {$res->customer_email}\n";
-        $admin_body .= "Telefon: {$res->customer_phone}\n";
-        if ($res->comments) $admin_body .= "Kommentar: {$res->comments}\n";
-        $admin_body .= "\nZahlungsmodus: {$res->payment_mode}\n";
-        $admin_body .= "Betrag: " . number_format($res->amount_total, 2, ',', '.') . " €\n";
-
-        wp_mail($admin_email, $admin_subject, $admin_body);
+        $admin_rows = [['Event', esc_html($title)], ['Datum', esc_html($date_formatted)], ['Tisch', esc_html($res->category_name)], ['Gäste', intval($res->guest_count)],
+            ['Name', esc_html($res->customer_name)], ['E-Mail', esc_html($res->customer_email)], ['Telefon', esc_html($res->customer_phone)]];
+        if ($res->comments) $admin_rows[] = ['Kommentar', esc_html($res->comments)];
+        $admin_rows[] = ['Zahlungsmodus', esc_html($payment_labels[$res->payment_mode] ?? $res->payment_mode)];
+        $admin_rows[] = ['Betrag', number_format($res->amount_total, 2, ',', '.') . ' €'];
+        $admin_subject = 'Neue Tischreservierung: ' . $title . ' – ' . $res->category_name;
+        $am = ['title' => 'Neue Tischreservierung', 'kind' => 'admin', 'blocks' => [['type' => 'text', 'html' => 'Neue Tischreservierung eingegangen:'], ['type' => 'info', 'rows' => $admin_rows]]];
+        if (class_exists('TIX_Mail_Layout')) TIX_Mail_Layout::send(get_option('admin_email'), $admin_subject, $am);
     }
 
     // ──────────────────────────────────────────

@@ -1565,7 +1565,8 @@ class TIX_CRM {
         $subject = strtr($subject, $replacements);
 
         // Body bauen: message ist (HTML-)Rich-Text, wir wrappen in generic template
-        $body = nl2br($message);
+        // Zeilenumbrüche nur bei reinem Text (Rich-Text hat schon Absätze – sonst doppelte Abstände, 1.38.471)
+        $body = preg_match('#<(p|br|div|ul|ol|h[1-6]|table)\b#i', $message) ? $message : nl2br($message);
 
         // Tickets generieren: PDFs als Attachments (falls Template) + Download-Links im Body
         $attachments     = [];

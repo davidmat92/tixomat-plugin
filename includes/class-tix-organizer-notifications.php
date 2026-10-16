@@ -405,6 +405,19 @@ class TIX_Organizer_Notifications {
         )));
     }
 
+    /**
+     * Bekommt $email die Bestell-Mail schon über diese Benachrichtigungen (Typ „orders“ an, Adresse aktiv)
+     * bzw. sind die Benachrichtigungen pausiert? Dann schickt TIX_Organizer_Admin::notify_new_order keine zweite Mail.
+     */
+    public static function covers_order_mail($org_id, $email) {
+        $org_id = intval($org_id);
+        if (self::is_paused($org_id)) return true;
+        if (empty(self::get_types($org_id)['orders'])) return false;
+        $email = strtolower(trim((string) $email));
+        foreach (self::active_emails($org_id) as $e) if (strtolower(trim((string) $e)) === $email) return true;
+        return false;
+    }
+
     /** Aktive Pushover-Configs */
     public static function active_pushovers($org_id) {
         return array_values(array_filter(self::get_pushovers($org_id), fn($r) => !empty($r['enabled'])));
@@ -487,10 +500,10 @@ class TIX_Organizer_Notifications {
         // E-Mails
         $emails = self::active_emails($org_id);
         if (!empty($emails)) {
-            $subject = $payload['email_subject'] ?? $payload['title'] ?? 'Tixomat-Benachrichtigung';
+            $subject = $payload['email_subject'] ?? $payload['title'] ?? 'Benachrichtigung';
             $body    = $payload['email_body']    ?? $payload['message'] ?? '';
             $html = class_exists('TIX_Emails')
-                ? TIX_Emails::build_generic_email_html($payload['title'] ?? $subject, $body, '', '')
+                ? TIX_Emails::build_generic_email_html($payload['title'] ?? $subject, $body, '', 'Benachrichtigung für deinen Veranstalter-Bereich.', 'admin')
                 : '<html><body>' . $body . '</body></html>';
 
             $headers = ['Content-Type: text/html; charset=UTF-8'];

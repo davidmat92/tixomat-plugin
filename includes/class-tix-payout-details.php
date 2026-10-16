@@ -395,7 +395,7 @@ class TIX_Payout_Details {
         if (!$to) return false;
         $site = wp_specialchars_decode(get_bloginfo('name'), ENT_QUOTES);
         $html = class_exists('TIX_Emails')
-            ? TIX_Emails::build_generic_email_html($heading, $body_html, $site)
+            ? TIX_Emails::build_generic_email_html($heading, $body_html, $site, '', 'account')
             : '<html><body>' . $body_html . '</body></html>';
         return wp_mail($to, $subject, $html, ['Content-Type: text/html; charset=UTF-8'], $attachments);
     }

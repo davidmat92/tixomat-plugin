@@ -101,6 +101,8 @@ class TIX_Weekly_Mail {
         register_rest_route(self::NS, '/public/newsletter', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_subscribe']] + $pub);
         register_rest_route(self::NS, '/public/newsletter/confirm', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_confirm']] + $pub);
         register_rest_route(self::NS, '/public/newsletter/unsubscribe', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_unsubscribe']] + $pub);
+        // RFC 8058 (List-Unsubscribe=One-Click): Mail-Programme melden per POST ab, Antwort ohne Weiterleitung
+        register_rest_route(self::NS, '/public/newsletter/unsubscribe', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_unsubscribe_post']] + $pub);
     }
 
     private static function customer_base() {
@@ -150,6 +152,14 @@ class TIX_Weekly_Mail {
 
     private static function send_confirm($email, $city, $token) {
         $where = $city !== '' ? ' in ' . $city : '';
+        if (class_exists('TIX_Mail_Layout')) {
+            self::mail($email, 'Bitte bestätige deine Anmeldung zur Wochenmail', TIX_Mail_Layout::render(['title' => 'Bitte bestätige deine Anmeldung', 'kind' => 'account', 'blocks' => [
+                ['type' => 'text', 'html' => 'Hallo,<br>bitte bestätige, dass du die Wochenmail' . esc_html($where) . ' bekommen möchtest:'],
+                ['type' => 'button', 'label' => 'Anmeldung bestätigen', 'url' => self::link('confirm', $token)],
+                ['type' => 'text', 'html' => 'Wenn du dich nicht angemeldet hast, ignoriere diese Mail einfach – ohne Bestätigung schicken wir nichts.'],
+            ]]), ['Content-Type: text/html; charset=UTF-8']);
+            return;
+        }
         $body = "Hallo,\n\nbitte bestätige, dass du die Wochenmail{$where} bekommen möchtest:\n" . self::link('confirm', $token)
             . "\n\nWenn du dich nicht angemeldet hast, ignoriere diese Mail einfach – ohne Bestätigung schicken wir nichts.\n\n" . self::brand();
         self::mail($email, 'Bitte bestätige deine Anmeldung zur Wochenmail', $body);
@@ -188,6 +198,15 @@ class TIX_Weekly_Mail {
         return self::redirect('abgemeldet');
     }
 
+    public static function rest_unsubscribe_post(WP_REST_Request $req) {
+        global $wpdb;
+        $row = self::by_token($req->get_param('token'));
+        if ($row && $row->status !== 'unsubscribed') {
+            $wpdb->update(self::t(), ['status' => 'unsubscribed', 'unsubscribed_at' => current_time('mysql')], ['id' => $row->id]);
+        }
+        return rest_ensure_response(['ok' => true]);
+    }
+
     // ── Versand ──
 
     /** Anfang der Versandwoche (Montag 00:00, lokale Zeit) als MySQL-Datum. */
@@ -213,19 +232,21 @@ class TIX_Weekly_Mail {
     }
 
     private static function mail_html($events, $city, $unsub) {
-        $esc = 'esc_html';
         $title = 'Was geht am Wochenende' . ($city !== '' ? ' in ' . $city : '') . '?';
         $rows = '';
         foreach ($events as $e) {
-            $when = trim(($e['date_start'] ? date_i18n('D, d.m.', strtotime($e['date_start'])) : '') . ($e['time_start'] ? ' · ' . $e['time_start'] . ' Uhr' : ''));
+            $when = trim((!empty($e['date_start']) ? date_i18n('D, d.m.', strtotime($e['date_start'])) : '') . (!empty($e['time_start']) ? ' · ' . $e['time_start'] . ' Uhr' : ''));
             $where = (string) ($e['venue']['name'] ?? $e['location'] ?? '');
-            $rows .= '<tr><td style="padding:10px 0;border-bottom:1px solid #eee;"><a href="' . esc_url((string) ($e['url'] ?? '')) . '" style="color:#111;font-weight:600;text-decoration:none;">' . $esc((string) $e['title']) . '</a><br><span style="color:#666;font-size:13px;">' . $esc($when . ($where !== '' ? ' · ' . $where : '')) . '</span></td></tr>';
+            $rows .= '<tr><td class="tm-line" style="padding:12px 0;border-bottom:1px solid #E5E7EB;"><a href="' . esc_url((string) ($e['url'] ?? '')) . '" style="font-size:16px;font-weight:700;text-decoration:none;">' . esc_html((string) ($e['title'] ?? '')) . '</a>'
+                . '<div class="tm-muted" style="margin-top:2px;color:#6B7280;font-size:14px;">' . esc_html($when . ($where !== '' ? ' · ' . $where : '')) . '</div></td></tr>';
         }
-        return '<!doctype html><html><body style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:16px;color:#111;">'
-            . '<h1 style="font-size:20px;">' . $esc($title) . '</h1><table width="100%" cellpadding="0" cellspacing="0">' . $rows . '</table>'
-            . '<p style="margin-top:20px;"><a href="' . esc_url(self::customer_base() . '/') . '">Alle Events ansehen</a></p>'
-            . '<p style="color:#888;font-size:12px;margin-top:28px;">Du bekommst diese Mail, weil du die Wochenmail bestellt hast. <a href="' . esc_url($unsub) . '" style="color:#888;">Abmelden</a></p>'
-            . '</body></html>';
+        if (class_exists('TIX_Mail_Layout')) {
+            return TIX_Mail_Layout::render(['title' => $title, 'kind' => 'promo', 'blocks' => [
+                ['type' => 'html', 'html' => '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 16px;">' . $rows . '</table>'],
+                ['type' => 'button', 'label' => 'Alle Events ansehen', 'url' => self::customer_base() . '/'],
+            ], 'note' => 'Du bekommst diese Mail, weil du die Wochenmail bestellt hast. <a href="' . esc_url($unsub) . '" style="text-decoration:underline;">Abmelden</a>']);
+        }
+        return '<!doctype html><html><body><h1>' . esc_html($title) . '</h1><table>' . $rows . '</table><p><a href="' . esc_url($unsub) . '">Abmelden</a></p></body></html>';
     }
 
     /** Ein Durchlauf: höchstens BATCH Empfänger, die diese Woche noch nichts bekommen haben. */

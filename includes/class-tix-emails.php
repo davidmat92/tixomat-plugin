@@ -34,6 +34,9 @@ class TIX_Emails {
     /** Optionaler Hinweis-Block direkt unter der Ueberschrift (einmalig pro Mail, wird nach build geleert) */
     public static $intro_notice_html = '';
 
+    /** Galerie-Vorschau (TIX_Mail_Gallery): Beispiel-Tickets statt Datenbank. */
+    public static $preview_tickets = null;
+
     /** Aktuelles WC_Email-Objekt (wird vor woocommerce_mail_content gesetzt) */
     private static $current_email = null;
 
@@ -62,7 +65,6 @@ class TIX_Emails {
         // WordPress Core-Mails im Tixomat Design
         add_filter('retrieve_password_message',            [__CLASS__, 'wrap_password_reset'], 99, 4);
         add_filter('wp_mail',                              [__CLASS__, 'ensure_html_content_type'], 1);
-        add_filter('wp_mail',                              [__CLASS__, 'enhance_email_headers'], 999);
         add_action('phpmailer_init',                       [__CLASS__, 'add_plaintext_alt'], 10);
         add_filter('wp_new_user_notification_email',       [__CLASS__, 'wrap_new_user_email'], 99, 3);
         add_filter('wp_new_user_notification_email_admin', [__CLASS__, 'wrap_new_user_admin_email'], 99, 3);
@@ -181,34 +183,14 @@ class TIX_Emails {
     // ══════════════════════════════════════
 
     /**
-     * Baut den kompletten HTML-Body einer E-Mail
+     * Baut den kompletten HTML-Body einer Bestell-Mail (seit 1.38.471 im einheitlichen TIX_Mail_Layout).
+     * $extra_content: HTML (wird angeglichen) oder Liste von Layout-Bausteinen (z. B. Gutscheine, Erinnerung).
      */
     public static function build_email_html($type, $order, $heading = '', $extra_content = '') {
-        $s = self::get_settings();
-
-        $accent      = ($s['color_accent'] ?? '')      ?: '#c8ff00';
-        $accent_text = ($s['color_accent_text'] ?? '') ?: '#000000';
-        $border      = ($s['color_border'] ?? '')       ?: '#333333';
-        $radius      = intval(($s['radius_general'] ?? '') ?: 8);
-        $brand_name  = ($s['email_brand_name'] ?? '')  ?: get_bloginfo('name');
-        $logo_url    = ($s['email_logo_url'] ?? '')    ?: '';
-        $logo_height = intval($s['email_logo_height'] ?? 40) ?: 40;
-        $footer_text = $s['email_footer_text'] ?: '';
-
-        // E-Mail-spezifische Farben (Fallback auf globale Werte)
-        $header_bg   = !empty($s['email_header_bg'])    ? $s['email_header_bg']    : $accent;
-        $header_text = !empty($s['email_header_text'])  ? $s['email_header_text']  : $accent_text;
-        $text_color  = !empty($s['email_text_color'])   ? $s['email_text_color']   : '#1a1a1a';
-        $muted       = !empty($s['email_muted_color'])  ? $s['email_muted_color']  : '#6b7280';
-        $bg          = !empty($s['email_outer_bg'])     ? $s['email_outer_bg']     : '#f3f4f6';
-        $card_bg     = !empty($s['email_body_bg'])      ? $s['email_body_bg']      : '#ffffff';
-        $divider     = !empty($s['email_border_color']) ? $s['email_border_color'] : '#e5e7eb';
-        $btn_bg      = !empty($s['email_btn_bg'])       ? $s['email_btn_bg']       : $accent;
-        $btn_text    = !empty($s['email_btn_text'])     ? $s['email_btn_text']     : $accent_text;
-
         $order_id = $order->get_id();
+        $brand = class_exists('TIX_Mail_Layout') ? TIX_Mail_Layout::brand()['name'] : get_bloginfo('name');
+        $admin = in_array($type, ['admin_new_order', 'admin_failed_order'], true);
 
-        // Heading-Defaults
         if (!$heading) {
             $headings = [
                 'order_confirmation' => 'Bestellbestätigung',
@@ -226,234 +208,176 @@ class TIX_Emails {
             $heading = $headings[$type] ?? 'Bestellbestätigung';
         }
 
-        // Subtitle
+        $created = $order->get_date_created();
+        $created_ts = $created instanceof DateTimeInterface ? $created->getTimestamp() : (is_object($created) && method_exists($created, 'getTimestamp') ? $created->getTimestamp() : strtotime((string) $created));
+        $number = method_exists($order, 'get_order_number') ? $order->get_order_number() : $order_id;
         $subtitle = '';
-        if (in_array($type, ['order_confirmation', 'order_complete', 'admin_new_order', 'admin_failed_order', 'on_hold', 'invoice', 'customer_note'])) {
-            $subtitle = 'Bestellung #' . $order_id . ' &middot; ' . date_i18n('d.m.Y, H:i', ($order->get_date_created() instanceof DateTime ? $order->get_date_created()->getTimestamp() : strtotime($order->get_date_created())));
+        if (in_array($type, ['order_confirmation', 'order_complete', 'admin_new_order', 'admin_failed_order', 'on_hold', 'invoice', 'customer_note'], true)) {
+            $subtitle = 'Bestellung #' . $number . ($created_ts ? ' · ' . date_i18n('d.m.Y, H:i', $created_ts) : '');
         } elseif ($type === 'cancelled') {
-            $subtitle = 'Bestellung #' . $order_id . ' wurde storniert.';
+            $subtitle = 'Bestellung #' . $number . ' wurde storniert.';
         } elseif ($type === 'refunded') {
-            $subtitle = 'Bestellung #' . $order_id . ' wurde erstattet.';
+            $subtitle = 'Bestellung #' . $number . ' wurde erstattet.';
         }
 
-        // Content Blocks
-        $items_html   = '';
-        $tickets_html = '';
-        $event_details_html = '';
-        $cta_html     = '';
-        $bundle_link_html = '';
+        $first = trim((string) $order->get_billing_first_name());
+        $blocks = [];
+        if (self::$intro_notice_html) { $blocks[] = ['type' => 'html', 'html' => self::$intro_notice_html]; self::$intro_notice_html = ''; }
 
-        // Order Items (alle order-basierten Mails)
-        if (in_array($type, ['order_confirmation', 'order_complete', 'admin_new_order', 'admin_failed_order', 'on_hold', 'cancelled', 'refunded', 'invoice', 'customer_note'])) {
-            $items_html = self::render_order_items_html($order, $accent, $text_color, $muted, $divider, $radius);
+        // Begrüßung
+        $intro = [
+            'order_confirmation' => 'danke für deine Bestellung! Wir haben sie erhalten.',
+            'order_complete'     => 'danke für deine Bestellung! Deine Tickets sind unten – zeig einfach den QR-Code am Einlass.',
+            'on_hold'            => 'danke für deine Bestellung! Sie wird geprüft bzw. wartet auf deine Zahlung. Sobald sie bestätigt ist, bekommst du deine Tickets per E-Mail.',
+            'cancelled'          => 'deine Bestellung wurde storniert. Bereits erstellte Tickets sind damit ungültig.',
+            'refunded'           => 'deine Erstattung ist bestätigt. Der Betrag geht über die ursprüngliche Zahlart an dich zurück.',
+            'invoice'            => 'hier ist die Rechnung zu deiner Bestellung.',
+        ];
+        if (!$admin && isset($intro[$type])) $blocks[] = ['type' => 'text', 'html' => 'Hallo' . ($first !== '' ? ' ' . esc_html($first) : '') . ',<br>' . $intro[$type]];
+
+        // Admin: Kunde
+        if ($admin) {
+            $blocks[] = ['type' => 'info', 'title' => 'Kunde', 'rows' => array_values(array_filter([
+                ['Name', esc_html(trim($order->get_billing_first_name() . ' ' . $order->get_billing_last_name()))],
+                ['E-Mail', esc_html($order->get_billing_email())],
+                $order->get_payment_method_title() ? ['Zahlart', esc_html($order->get_payment_method_title())] : null,
+            ]))];
+            if ($type === 'admin_failed_order') $blocks[] = ['type' => 'notice', 'tone' => 'error', 'html' => '<strong>Zahlung fehlgeschlagen.</strong> Die Bestellung wurde nicht abgeschlossen.'];
         }
 
-        // Tickets (nur bei completed + processing)
-        if (in_array($type, ['order_confirmation', 'order_complete'])) {
-            $tickets_html = self::render_tickets_html($order, $accent, $accent_text, $text_color, $muted, $radius, $btn_bg, $btn_text);
+        // Vorkasse: Bankdaten
+        if ($type === 'on_hold' && in_array($order->get_payment_method(), ['bacs', 'bank'], true)) {
+            $bs = function_exists('tix_get_settings') ? tix_get_settings() : [];
+            $total = wp_strip_all_tags($order->get_formatted_order_total());
+            $rows = [];
+            if (!empty($bs['bank_holder'])) $rows[] = ['Kontoinhaber', esc_html($bs['bank_holder'])];
+            if (!empty($bs['bank_iban']))   $rows[] = ['IBAN', '<span style="font-family:ui-monospace,Menlo,Consolas,monospace;">' . esc_html($bs['bank_iban']) . '</span>'];
+            if (!empty($bs['bank_bic']))    $rows[] = ['BIC', esc_html($bs['bank_bic'])];
+            if (!empty($bs['bank_name']))   $rows[] = ['Bank', esc_html($bs['bank_name'])];
+            $rows[] = ['Betrag', esc_html($total)];
+            if ($number) $rows[] = ['Verwendungszweck', esc_html($number)];
+            $blocks[] = ['type' => 'info', 'title' => 'Bitte überweise ' . $total, 'rows' => $rows];
+            $blocks[] = ['type' => 'notice', 'tone' => 'info', 'html' => (!empty($bs['bank_reference']) ? esc_html($bs['bank_reference']) . '<br>' : '') . 'Deine Tickets werden automatisch erstellt, sobald die Zahlung eingegangen ist.'];
+        }
 
-            // Bundle-Link OBEN: alle Tickets dieser Bestellung in einer Ansicht öffnen
-            if (class_exists('TIX_Tickets')) {
-                $bundle_url = TIX_Tickets::get_bundle_url($order_id);
-                if ($bundle_url) {
-                    $bundle_link_html = '
-                    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 18px;">
-                        <tr>
-                            <td style="background-color: #f5f3ff; border: 1px solid #ddd6fe; border-radius: ' . $radius . 'px; padding: 14px 16px;">
-                                <a href="' . esc_url($bundle_url) . '" style="color: #5b21b6; text-decoration: none; font-weight: 600; font-size: 14px; display: inline-flex; align-items: center; gap: 8px;">
-                                    📋 &nbsp;Alle Tickets dieser Bestellung in einer Ansicht öffnen →
-                                </a>
-                            </td>
-                        </tr>
-                    </table>';
-                }
+        // Event-Karte (eine Veranstaltung in der Bestellung)
+        $event_ids = [];
+        foreach ($order->get_items() as $item) {
+            $eid = method_exists($item, 'get_event_id') ? intval($item->get_event_id()) : 0;
+            if (!$eid) $eid = intval(get_post_meta($item->get_product_id(), '_tix_parent_event_id', true));
+            if ($eid && !in_array($eid, $event_ids, true)) $event_ids[] = $eid;
+        }
+        if (count($event_ids) === 1 && in_array($type, ['order_confirmation', 'order_complete', 'on_hold', 'reminder', 'followup', 'admin_new_order'], true)) {
+            $ev = self::event_block($event_ids[0]);
+            if ($ev) $blocks[] = $ev;
+        }
+
+        // Tickets
+        if (in_array($type, ['order_confirmation', 'order_complete'], true)) {
+            $blocks = array_merge($blocks, self::ticket_blocks($order, count($event_ids) > 1));
+            $url = class_exists('TIX_Tickets') ? (string) TIX_Tickets::get_bundle_url($order_id) : '';
+            if ($url === '') {
+                $s = tix_get_settings();
+                $url = home_url('/' . (($s['my_tickets_slug'] ?? '') ?: 'tickets') . '/');
             }
+            $blocks[] = ['type' => 'button', 'label' => 'Tickets öffnen', 'url' => $url];
         }
 
-        // Extra content (Erinnerung / Nachbefragung)
-        if ($extra_content) {
-            $event_details_html = $extra_content;
+        // Zusatzinhalt (Gutscheine, Erinnerung, Nachbefragung)
+        if (is_array($extra_content)) $blocks = array_merge($blocks, $extra_content);
+        elseif ($extra_content) $blocks[] = ['type' => 'html', 'html' => $extra_content];
+
+        // Bestellübersicht
+        if (in_array($type, ['order_confirmation', 'order_complete', 'admin_new_order', 'admin_failed_order', 'on_hold', 'cancelled', 'refunded', 'invoice', 'customer_note'], true)) {
+            $tb = self::order_table_block($order, count($event_ids) > 1);
+            if ($tb) $blocks[] = $tb;
+        }
+        if (class_exists('TIX_Group_Booking') && in_array($type, ['order_confirmation', 'order_complete', 'admin_new_order', 'on_hold', 'invoice'], true)) {
+            $split = TIX_Group_Booking::render_cost_split_html($order);
+            if ($split) $blocks[] = ['type' => 'html', 'html' => $split];
+        }
+        if (!$admin && in_array($type, ['order_confirmation', 'order_complete', 'on_hold'], true)) {
+            $blocks[] = ['type' => 'info', 'title' => 'Bestellung', 'rows' => array_values(array_filter([
+                ['Bestellnummer', '#' . esc_html($number)],
+                $created_ts ? ['Datum', date_i18n('d.m.Y, H:i', $created_ts)] : null,
+                $order->get_payment_method_title() ? ['Zahlart', esc_html($order->get_payment_method_title())] : null,
+            ]))];
         }
 
-        // CTA für Meine Tickets
-        if (in_array($type, ['order_confirmation', 'order_complete'])) {
-            $s = tix_get_settings();
-            $my_tickets_url = home_url('/' . (($s['my_tickets_slug'] ?? '') ?: 'tickets') . '/');
-            $cta_html = '
-            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 24px 0 0;">
-                <tr>
-                    <td align="center">
-                        <a href="' . esc_url($my_tickets_url) . '" style="display: inline-block; padding: 12px 32px; background-color: ' . esc_attr($btn_bg) . '; color: ' . esc_attr($btn_text) . '; text-decoration: none; font-weight: 700; font-size: 14px; border-radius: ' . $radius . 'px; mso-padding-alt: 0;">
-                            Meine Tickets ansehen
-                        </a>
-                    </td>
-                </tr>
-            </table>';
+        $note = $admin
+            ? 'Benachrichtigung für das Team von ' . $brand . '.'
+            : (in_array($type, ['reminder', 'followup'], true) ? 'Du bekommst diese E-Mail, weil du Tickets bei ' . $brand . ' gekauft hast.' : 'Du bekommst diese E-Mail, weil du bei ' . $brand . ' bestellt hast.');
+        $footer = (string) (self::get_settings()['email_footer_text'] ?? '');
+        if ($footer !== '' && !$admin) $note = $footer;
+
+        $m = ['title' => $heading, 'subtitle' => $subtitle, 'blocks' => $blocks, 'note' => $note, 'kind' => $admin ? 'admin' : 'customer',
+              'preheader' => $type === 'order_complete' ? 'Bestellung #' . $number . ' – deine Tickets sind da.' : ''];
+        if (class_exists('TIX_Mail_Layout')) return TIX_Mail_Layout::render($m);
+        return '<html><body><h1>' . esc_html($heading) . '</h1></body></html>';
+    }
+
+    /** Event-Karte: Titel, Datum/Uhrzeit, Ort, Bild (Beitragsbild bzw. Platzhalter). */
+    public static function event_block($event_id) {
+        $event = get_post($event_id);
+        if (!$event) return null;
+        $date = (string) get_post_meta($event_id, '_tix_date_start', true);
+        $time = (string) get_post_meta($event_id, '_tix_time_start', true);
+        $doors = (string) get_post_meta($event_id, '_tix_time_doors', true);
+        $img = (string) get_the_post_thumbnail_url($event_id, 'large');
+        if ($img === '' && class_exists('TIX_Studio') && method_exists('TIX_Studio', 'event_placeholder')) {
+            $ph = TIX_Studio::event_placeholder($event_id);
+            $img = $ph ? (string) $ph['url'] : '';
         }
+        $t = [];
+        if ($doors) $t[] = 'Einlass ' . date_i18n('H:i', strtotime($doors));
+        if ($time) $t[] = ($doors ? 'Beginn ' : '') . date_i18n('H:i', strtotime($time)) . ' Uhr';
+        return ['type' => 'event', 'title' => html_entity_decode(get_the_title($event_id), ENT_QUOTES, 'UTF-8'),
+                'date' => $date ? date_i18n('D, j. F Y', strtotime($date)) : '', 'time' => implode(' · ', $t),
+                'location' => (string) get_post_meta($event_id, '_tix_location', true), 'image' => $img];
+    }
 
-        // Admin-Info
-        $admin_info = '';
-        if ($type === 'admin_new_order' || $type === 'admin_failed_order') {
-            $admin_info = '
-            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 20px;">
-                <tr>
-                    <td style="background-color: #fef3c7; border-radius: ' . $radius . 'px; padding: 12px 16px; font-size: 13px; color: #92400e;">
-                        <strong>Kunde:</strong> ' . esc_html($order->get_billing_first_name() . ' ' . $order->get_billing_last_name()) . '<br>
-                        <strong>E-Mail:</strong> ' . esc_html($order->get_billing_email()) . '<br>
-                        <strong>Zahlungsart:</strong> ' . esc_html($order->get_payment_method_title()) . '
-                    </td>
-                </tr>
-            </table>';
+    /** Tickets als Bausteine (QR + Code + PDF-Link); ab 10 Tickets Rest als Hinweis. */
+    public static function ticket_blocks($order, $show_event = false) {
+        $tickets = self::get_ticket_data($order);
+        if (!$tickets) return [];
+        $out = [];
+        $n = count($tickets);
+        $max = 10;
+        foreach (array_slice($tickets, 0, $max) as $i => $t) {
+            $code = (string) $t['code'];
+            $eid = intval($t['event_id'] ?? 0);
+            $out[] = ['type' => 'ticket', 'label' => $n > 1 ? 'Ticket ' . ($i + 1) . ' von ' . $n : 'Ticket',
+                'title' => html_entity_decode((string) ($t['type_name'] ?: 'Ticket'), ENT_QUOTES, 'UTF-8'),
+                'sub' => $show_event ? html_entity_decode((string) $t['event_name'], ENT_QUOTES, 'UTF-8') : (string) ($t['owner_name'] ?? ''),
+                'code' => $code,
+                'qr' => ($code !== '' && $eid && class_exists('TIX_QR')) ? TIX_QR::url('GL-' . $eid . '-' . $code, 240) : '',
+                'link' => (string) $t['download_url'], 'link_label' => $t['download_url'] ? 'Ticket als PDF' : ''];
         }
+        if ($n > $max) $out[] = ['type' => 'notice', 'tone' => 'info', 'html' => '+ ' . ($n - $max) . ' weitere Tickets – alle findest du über „Tickets öffnen“.'];
+        return $out;
+    }
 
-        // On-hold Info (Banküberweisung) inkl. vollständiger Bankdaten + Verwendungszweck
-        $hold_info = '';
-        if ($type === 'on_hold') {
-            $method = $order->get_payment_method();
-            if ($method === 'bacs' || $method === 'bank') {
-                $bs = function_exists('tix_get_settings') ? tix_get_settings() : [];
-                $order_number = method_exists($order, 'get_order_number') ? $order->get_order_number() : '';
-                $mono_style = 'font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace; font-weight:600; color:#0f172a;';
-
-                $rows = '';
-                if (!empty($bs['bank_holder']))     $rows .= '<tr><td style="padding:6px 12px 6px 0;color:#64748b;font-size:13px;white-space:nowrap;">Kontoinhaber</td><td style="padding:6px 0;font-size:13px;' . $mono_style . '">' . esc_html($bs['bank_holder']) . '</td></tr>';
-                if (!empty($bs['bank_iban']))       $rows .= '<tr><td style="padding:6px 12px 6px 0;color:#64748b;font-size:13px;white-space:nowrap;">IBAN</td><td style="padding:6px 0;font-size:13px;' . $mono_style . 'word-break:break-all;">' . esc_html($bs['bank_iban']) . '</td></tr>';
-                if (!empty($bs['bank_bic']))        $rows .= '<tr><td style="padding:6px 12px 6px 0;color:#64748b;font-size:13px;white-space:nowrap;">BIC</td><td style="padding:6px 0;font-size:13px;' . $mono_style . '">' . esc_html($bs['bank_bic']) . '</td></tr>';
-                if (!empty($bs['bank_name']))       $rows .= '<tr><td style="padding:6px 12px 6px 0;color:#64748b;font-size:13px;white-space:nowrap;">Bank</td><td style="padding:6px 0;font-size:13px;' . $mono_style . '">' . esc_html($bs['bank_name']) . '</td></tr>';
-                $rows .= '<tr><td style="padding:6px 12px 6px 0;color:#64748b;font-size:13px;white-space:nowrap;">Betrag</td><td style="padding:6px 0;font-size:13px;' . $mono_style . '">' . wp_strip_all_tags($order->get_formatted_order_total()) . '</td></tr>';
-                if ($order_number) $rows .= '<tr><td style="padding:6px 12px 6px 0;color:#64748b;font-size:13px;white-space:nowrap;">Verwendungszweck</td><td style="padding:6px 0;font-size:13px;' . $mono_style . '">' . esc_html($order_number) . '</td></tr>';
-
-                $hint = !empty($bs['bank_reference']) ? '<p style="margin:12px 0 0;font-size:12px;color:#64748b;">' . esc_html($bs['bank_reference']) . '</p>' : '';
-
-                $hold_info = '
-                <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 20px;">
-                    <tr>
-                        <td style="background-color:#eff6ff; border:1px solid #bfdbfe; border-radius:' . $radius . 'px; padding:18px 20px; color:#1e40af;">
-                            <p style="margin:0 0 14px;font-size:15px;font-weight:700;color:#1e3a8a;">Bitte überweise den Betrag von ' . wp_strip_all_tags($order->get_formatted_order_total()) . '</p>
-                            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0;">' . $rows . '</table>
-                            ' . $hint . '
-                            <p style="margin:14px 0 0;font-size:12px;color:#475569;">Deine Tickets werden automatisch erstellt sobald die Zahlung eingegangen ist.</p>
-                        </td>
-                    </tr>
-                </table>';
+    /** Bestellübersicht als Tabelle (Positionen, Rabatt, Gebühren, MwSt., Gesamt). */
+    public static function order_table_block($order, $with_event = false) {
+        $items = $order->get_items();
+        if (empty($items)) return null;
+        $rows = [];
+        foreach ($items as $item) {
+            $name = html_entity_decode((string) $item->get_name(), ENT_QUOTES, 'UTF-8');
+            if ($with_event) {
+                $eid = method_exists($item, 'get_event_id') ? intval($item->get_event_id()) : intval(get_post_meta($item->get_product_id(), '_tix_parent_event_id', true));
+                if ($eid) $name = html_entity_decode(get_the_title($eid), ENT_QUOTES, 'UTF-8') . ' · ' . $name;
             }
+            $rows[] = [$name, (string) $item->get_quantity(), self::format_price_plain($item->get_total())];
         }
+        if ($order->get_total_discount() > 0) $rows[] = ['Rabatt', '', '−' . self::format_price_plain($order->get_total_discount())];
+        foreach ((method_exists($order, 'get_fees') ? $order->get_fees() : []) as $fee) $rows[] = [html_entity_decode((string) $fee->get_name(), ENT_QUOTES, 'UTF-8'), '', self::format_price_plain($fee->get_total())];
+        if ($order->get_total_tax() > 0) $rows[] = ['inkl. MwSt.', '', self::format_price_plain($order->get_total_tax())];
+        return ['type' => 'table', 'rows' => $rows, 'total' => html_entity_decode(wp_strip_all_tags($order->get_formatted_order_total()), ENT_QUOTES, 'UTF-8')];
+    }
 
-        // Zusammenbauen
-        ob_start();
-        ?>
-<!DOCTYPE html>
-<html lang="de" xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <title><?php echo esc_html($heading); ?></title>
-    <!--[if mso]>
-    <noscript><xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml></noscript>
-    <![endif]-->
-    <style type="text/css">
-        body, table, td, a { -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }
-        table, td { mso-table-lspace: 0pt; mso-table-rspace: 0pt; }
-        img { -ms-interpolation-mode: bicubic; border: 0; height: auto; line-height: 100%; outline: none; text-decoration: none; }
-        body { margin: 0; padding: 0; width: 100% !important; height: 100% !important; }
-        a[x-apple-data-detectors] { color: inherit !important; text-decoration: none !important; }
-        @media only screen and (max-width: 620px) {
-            .tix-email-container { width: 100% !important; padding: 12px !important; }
-            .tix-email-inner { padding: 20px 16px !important; }
-        }
-    </style>
-</head>
-<body style="margin: 0; padding: 0; background-color: <?php echo esc_attr($bg); ?>; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-size: 14px; line-height: 1.6; color: <?php echo esc_attr($text_color); ?>;">
-
-    <!-- Outer Container -->
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: <?php echo esc_attr($bg); ?>;">
-        <tr>
-            <td align="center" style="padding: 32px 16px;">
-
-                <!-- Email Container -->
-                <table role="presentation" class="tix-email-container" width="600" cellpadding="0" cellspacing="0" border="0" style="max-width: 600px; width: 100%;">
-
-                    <!-- HEADER -->
-                    <tr>
-                        <td style="background-color: <?php echo esc_attr($header_bg); ?>; padding: 20px 32px; border-radius: <?php echo $radius; ?>px <?php echo $radius; ?>px 0 0; text-align: center;">
-                            <?php if ($logo_url): ?>
-                                <img src="<?php echo esc_url($logo_url); ?>" alt="<?php echo esc_attr($brand_name); ?>" style="max-height: <?php echo $logo_height; ?>px; width: auto; display: inline-block;" />
-                            <?php else: ?>
-                                <span style="font-size: 18px; font-weight: 700; color: <?php echo esc_attr($header_text); ?>; letter-spacing: 0.02em;"><?php echo esc_html($brand_name); ?></span>
-                            <?php endif; ?>
-                        </td>
-                    </tr>
-
-                    <!-- BODY -->
-                    <tr>
-                        <td class="tix-email-inner" style="background-color: <?php echo esc_attr($card_bg); ?>; padding: 32px; border-left: 1px solid <?php echo esc_attr($divider); ?>; border-right: 1px solid <?php echo esc_attr($divider); ?>;">
-
-                            <!-- Heading -->
-                            <h1 style="margin: 0 0 4px; font-size: 22px; font-weight: 700; color: <?php echo esc_attr($text_color); ?>; line-height: 1.3;">
-                                <?php echo esc_html($heading); ?>
-                            </h1>
-                            <?php if ($subtitle): ?>
-                            <p style="margin: 0 0 24px; font-size: 13px; color: <?php echo esc_attr($muted); ?>;">
-                                <?php echo $subtitle; ?>
-                            </p>
-                            <?php else: ?>
-                            <div style="height: 20px;"></div>
-                            <?php endif; ?>
-
-                            <?php if (self::$intro_notice_html) { echo self::$intro_notice_html; self::$intro_notice_html = ''; } ?>
-                            <?php echo $admin_info; ?>
-                            <?php echo $hold_info; ?>
-
-                            <!-- Bundle-Link: Alle Tickets dieser Bestellung in einer Ansicht (oben prominent platziert) -->
-                            <?php echo $bundle_link_html; ?>
-
-                            <!-- Order Items -->
-                            <?php echo $items_html; ?>
-
-                            <!-- Kostensplit (Gruppenbestellung) -->
-                            <?php
-                            if (class_exists('TIX_Group_Booking') && in_array($type, ['order_confirmation', 'order_complete', 'admin_new_order', 'on_hold', 'invoice'])) {
-                                echo TIX_Group_Booking::render_cost_split_html($order);
-                            }
-                            ?>
-
-                            <!-- Tickets -->
-                            <?php echo $tickets_html; ?>
-
-                            <!-- Event Details (Erinnerung) -->
-                            <?php echo $event_details_html; ?>
-
-                            <!-- CTA -->
-                            <?php echo $cta_html; ?>
-
-                        </td>
-                    </tr>
-
-                    <!-- FOOTER -->
-                    <tr>
-                        <td style="background-color: <?php echo esc_attr($card_bg); ?>; padding: 20px 32px; border-top: 1px solid <?php echo esc_attr($divider); ?>; border-left: 1px solid <?php echo esc_attr($divider); ?>; border-right: 1px solid <?php echo esc_attr($divider); ?>; border-bottom: 1px solid <?php echo esc_attr($divider); ?>; border-radius: 0 0 <?php echo $radius; ?>px <?php echo $radius; ?>px; text-align: center;">
-                            <p style="margin: 0; font-size: 12px; color: <?php echo esc_attr($muted); ?>; line-height: 1.6;">
-                                <?php if ($footer_text): ?>
-                                    <?php echo wp_kses_post($footer_text); ?>
-                                <?php else: ?>
-                                    <?php echo esc_html($brand_name); ?><br>
-                                    Du erh&auml;ltst diese E-Mail, weil du eine Bestellung aufgegeben hast.
-                                <?php endif; ?>
-                            </p>
-                        </td>
-                    </tr>
-
-                </table>
-
-            </td>
-        </tr>
-    </table>
-
-</body>
-</html>
-        <?php
-        return ob_get_clean();
+    private static function format_price_plain($amount) {
+        return html_entity_decode(wp_strip_all_tags(self::format_price($amount)), ENT_QUOTES, 'UTF-8');
     }
 
     // ══════════════════════════════════════
@@ -461,117 +385,12 @@ class TIX_Emails {
     // ══════════════════════════════════════
 
     /**
-     * HTML-Template ohne Order-Bezug.
-     * Für WP Core-Mails, WC Account-Mails und sonstige Benachrichtigungen.
+     * HTML-Mail ohne Bestell-Bezug im einheitlichen Layout (TIX_Mail_Layout, seit 1.38.471).
+     * $body_html wird angeglichen (Knöpfe in Markenfarbe, Dark Mode). $kind: customer | account | admin.
      */
-    public static function build_generic_email_html($heading, $body_html, $subtitle = '', $footer_note = '') {
-        $s = self::get_settings();
-
-        $accent      = ($s['color_accent'] ?? '')      ?: '#c8ff00';
-        $accent_text = ($s['color_accent_text'] ?? '') ?: '#000000';
-        $radius      = intval(($s['radius_general'] ?? '') ?: 8);
-        $brand_name  = ($s['email_brand_name'] ?? '')  ?: get_bloginfo('name');
-        $logo_url    = ($s['email_logo_url'] ?? '')    ?: '';
-        $logo_height = intval($s['email_logo_height'] ?? 40) ?: 40;
-        $footer_text = $footer_note ?: ($s['email_footer_text'] ?: '');
-
-        // E-Mail-spezifische Farben (Fallback auf globale Werte)
-        $header_bg   = !empty($s['email_header_bg'])    ? $s['email_header_bg']    : $accent;
-        $header_text = !empty($s['email_header_text'])  ? $s['email_header_text']  : $accent_text;
-        $text_color  = !empty($s['email_text_color'])   ? $s['email_text_color']   : '#1a1a1a';
-        $muted       = !empty($s['email_muted_color'])  ? $s['email_muted_color']  : '#6b7280';
-        $bg          = !empty($s['email_outer_bg'])     ? $s['email_outer_bg']     : '#f3f4f6';
-        $card_bg     = !empty($s['email_body_bg'])      ? $s['email_body_bg']      : '#ffffff';
-        $divider     = !empty($s['email_border_color']) ? $s['email_border_color'] : '#e5e7eb';
-        $btn_bg      = !empty($s['email_btn_bg'])       ? $s['email_btn_bg']       : $accent;
-        $btn_text    = !empty($s['email_btn_text'])     ? $s['email_btn_text']     : $accent_text;
-
-        ob_start();
-        ?>
-<!DOCTYPE html>
-<html lang="de" xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <title><?php echo esc_html($heading); ?></title>
-    <!--[if mso]>
-    <noscript><xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml></noscript>
-    <![endif]-->
-    <style type="text/css">
-        body, table, td, a { -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }
-        table, td { mso-table-lspace: 0pt; mso-table-rspace: 0pt; }
-        img { -ms-interpolation-mode: bicubic; border: 0; height: auto; line-height: 100%; outline: none; text-decoration: none; }
-        body { margin: 0; padding: 0; width: 100% !important; height: 100% !important; }
-        a[x-apple-data-detectors] { color: inherit !important; text-decoration: none !important; }
-        @media only screen and (max-width: 620px) {
-            .tix-email-container { width: 100% !important; padding: 12px !important; }
-            .tix-email-inner { padding: 20px 16px !important; }
-        }
-    </style>
-</head>
-<body style="margin: 0; padding: 0; background-color: <?php echo esc_attr($bg); ?>; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-size: 14px; line-height: 1.6; color: <?php echo esc_attr($text_color); ?>;">
-
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: <?php echo esc_attr($bg); ?>;">
-        <tr>
-            <td align="center" style="padding: 32px 16px;">
-
-                <table role="presentation" class="tix-email-container" width="600" cellpadding="0" cellspacing="0" border="0" style="max-width: 600px; width: 100%;">
-
-                    <!-- HEADER -->
-                    <tr>
-                        <td style="background-color: <?php echo esc_attr($header_bg); ?>; padding: 20px 32px; border-radius: <?php echo $radius; ?>px <?php echo $radius; ?>px 0 0; text-align: center;">
-                            <?php if ($logo_url): ?>
-                                <img src="<?php echo esc_url($logo_url); ?>" alt="<?php echo esc_attr($brand_name); ?>" style="max-height: <?php echo $logo_height; ?>px; width: auto; display: inline-block;" />
-                            <?php else: ?>
-                                <span style="font-size: 18px; font-weight: 700; color: <?php echo esc_attr($header_text); ?>; letter-spacing: 0.02em;"><?php echo esc_html($brand_name); ?></span>
-                            <?php endif; ?>
-                        </td>
-                    </tr>
-
-                    <!-- BODY -->
-                    <tr>
-                        <td class="tix-email-inner" style="background-color: <?php echo esc_attr($card_bg); ?>; padding: 32px; border-left: 1px solid <?php echo esc_attr($divider); ?>; border-right: 1px solid <?php echo esc_attr($divider); ?>;">
-
-                            <h1 style="margin: 0 0 4px; font-size: 22px; font-weight: 700; color: <?php echo esc_attr($text_color); ?>; line-height: 1.3;">
-                                <?php echo esc_html($heading); ?>
-                            </h1>
-                            <?php if ($subtitle): ?>
-                            <p style="margin: 0 0 24px; font-size: 13px; color: <?php echo esc_attr($muted); ?>;">
-                                <?php echo esc_html($subtitle); ?>
-                            </p>
-                            <?php else: ?>
-                            <div style="height: 20px;"></div>
-                            <?php endif; ?>
-
-                            <?php echo $body_html; ?>
-
-                        </td>
-                    </tr>
-
-                    <!-- FOOTER -->
-                    <tr>
-                        <td style="background-color: <?php echo esc_attr($card_bg); ?>; padding: 20px 32px; border-top: 1px solid <?php echo esc_attr($divider); ?>; border-left: 1px solid <?php echo esc_attr($divider); ?>; border-right: 1px solid <?php echo esc_attr($divider); ?>; border-bottom: 1px solid <?php echo esc_attr($divider); ?>; border-radius: 0 0 <?php echo $radius; ?>px <?php echo $radius; ?>px; text-align: center;">
-                            <p style="margin: 0; font-size: 12px; color: <?php echo esc_attr($muted); ?>; line-height: 1.6;">
-                                <?php if ($footer_text): ?>
-                                    <?php echo wp_kses_post($footer_text); ?>
-                                <?php else: ?>
-                                    <?php echo esc_html($brand_name); ?>
-                                <?php endif; ?>
-                            </p>
-                        </td>
-                    </tr>
-
-                </table>
-
-            </td>
-        </tr>
-    </table>
-
-</body>
-</html>
-        <?php
-        return ob_get_clean();
+    public static function build_generic_email_html($heading, $body_html, $subtitle = '', $footer_note = '', $kind = 'customer') {
+        if (class_exists('TIX_Mail_Layout')) return TIX_Mail_Layout::legacy($heading, $body_html, $subtitle, $footer_note, $kind);
+        return '<html><body><h1>' . esc_html($heading) . '</h1>' . $body_html . '</body></html>';
     }
 
     /**
@@ -665,70 +484,43 @@ class TIX_Emails {
      */
     public static function wrap_password_reset($message, $key, $user_login, $user_data) {
         self::$next_mail_html = true;
-
         $reset_url = network_site_url("wp-login.php?action=rp&key=$key&login=" . rawurlencode($user_login), 'login');
+        return self::layout([
+            'title' => 'Passwort zurücksetzen',
+            'kind' => 'account',
+            'blocks' => [
+                ['type' => 'text', 'html' => 'Hallo,<br>für dein Konto <strong>' . esc_html($user_login) . '</strong> wurde ein neues Passwort angefordert. Klick auf den Knopf, um ein neues Passwort festzulegen:'],
+                ['type' => 'button', 'label' => 'Passwort zurücksetzen', 'url' => $reset_url],
+                ['type' => 'notice', 'tone' => 'info', 'html' => 'Du hast das nicht angefordert? Dann kannst du diese E-Mail ignorieren – dein Passwort bleibt unverändert.'],
+            ],
+            'note' => 'Du bekommst diese E-Mail, weil für dein Konto ein neues Passwort angefordert wurde.',
+        ]);
+    }
 
-        $s       = self::get_settings();
-        $accent  = ($s['color_accent'] ?? '')      ?: '#c8ff00';
-        $a_text  = ($s['color_accent_text'] ?? '') ?: '#000000';
-        $radius  = intval(($s['radius_general'] ?? '') ?: 8);
-
-        $body = '
-        <p style="margin: 0 0 14px; font-size: 14px;">Jemand hat f&uuml;r den folgenden Account ein neues Passwort angefordert:</p>
-        <p style="margin: 0 0 14px; font-size: 14px;">Benutzername: <strong>' . esc_html($user_login) . '</strong></p>
-        <p style="margin: 0 0 14px; font-size: 14px;">Falls du dies nicht angefordert hast, kannst du diese E-Mail ignorieren und dein Passwort bleibt unver&auml;ndert.</p>
-        <p style="margin: 0 0 20px; font-size: 14px;">Um dein Passwort zur&uuml;ckzusetzen, klicke auf den Button:</p>
-        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 0 0 8px;">
-            <tr><td align="center">
-                <a href="' . esc_url($reset_url) . '" style="display:inline-block;padding:14px 36px;background-color:' . esc_attr($accent) . ';color:' . esc_attr($a_text) . ';text-decoration:none;font-weight:700;font-size:14px;border-radius:' . $radius . 'px;">Passwort zur&uuml;cksetzen</a>
-            </td></tr>
-        </table>';
-
-        return self::build_generic_email_html(
-            'Passwort zur&uuml;cksetzen',
-            $body,
-            '',
-            'Du erh&auml;ltst diese E-Mail, weil eine Passwort-Zur&uuml;cksetzung f&uuml;r dein Konto angefordert wurde.'
-        );
+    /** Mail im Layout (Fallback ohne Layout-Klasse: schlichtes HTML). */
+    private static function layout(array $m) {
+        if (class_exists('TIX_Mail_Layout')) return TIX_Mail_Layout::render($m);
+        return '<html><body><h1>' . esc_html($m['title'] ?? '') . '</h1></body></html>';
     }
 
     /**
      * Neuer Benutzer – Mail an den Benutzer (WP Core)
      */
     public static function wrap_new_user_email($email, $user, $blogname) {
-        $s       = self::get_settings();
-        $accent  = ($s['color_accent'] ?? '')      ?: '#c8ff00';
-        $a_text  = ($s['color_accent_text'] ?? '') ?: '#000000';
-        $radius  = intval(($s['radius_general'] ?? '') ?: 8);
-
         // Set-Password URL aus der Original-Nachricht extrahieren
         $set_pw_url = '';
         if (preg_match('|(https?://\S+)|', $email['message'], $m)) {
-            $set_pw_url = $m[1];
+            $set_pw_url = rtrim($m[1], '>');
         }
-
-        $body = '
-        <p style="margin: 0 0 14px; font-size: 14px;">Willkommen bei <strong>' . esc_html($blogname) . '</strong>!</p>
-        <p style="margin: 0 0 14px; font-size: 14px;">Dein Benutzername: <strong>' . esc_html($user->user_login) . '</strong></p>';
-
+        $blocks = [['type' => 'text', 'html' => 'Hallo,<br>willkommen bei <strong>' . esc_html(class_exists('TIX_Mail_Layout') ? TIX_Mail_Layout::brand()['name'] : $blogname) . '</strong>! Dein Konto ist angelegt.'],
+                   ['type' => 'info', 'rows' => [['Benutzername', esc_html($user->user_login)]]]];
         if ($set_pw_url) {
-            $body .= '
-            <p style="margin: 0 0 20px; font-size: 14px;">Bitte klicke auf den Button, um dein Passwort festzulegen:</p>
-            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 0 0 8px;">
-                <tr><td align="center">
-                    <a href="' . esc_url($set_pw_url) . '" style="display:inline-block;padding:14px 36px;background-color:' . esc_attr($accent) . ';color:' . esc_attr($a_text) . ';text-decoration:none;font-weight:700;font-size:14px;border-radius:' . $radius . 'px;">Passwort festlegen</a>
-                </td></tr>
-            </table>';
+            $blocks[] = ['type' => 'text', 'html' => 'Leg jetzt dein Passwort fest:'];
+            $blocks[] = ['type' => 'button', 'label' => 'Passwort festlegen', 'url' => $set_pw_url];
         }
-
-        $email['message'] = self::build_generic_email_html(
-            'Willkommen!',
-            $body,
-            'Dein Konto wurde erstellt.',
-            'Du erh&auml;ltst diese E-Mail, weil ein Konto f&uuml;r dich erstellt wurde.'
-        );
+        $email['message'] = self::layout(['title' => 'Willkommen!', 'subtitle' => 'Dein Konto wurde erstellt.', 'blocks' => $blocks, 'kind' => 'account',
+            'note' => 'Du bekommst diese E-Mail, weil ein Konto für dich erstellt wurde.']);
         $email['headers'] = self::ensure_headers_html($email['headers'] ?? '');
-
         return $email;
     }
 
@@ -736,81 +528,45 @@ class TIX_Emails {
      * Neuer Benutzer – Admin-Benachrichtigung (WP Core)
      */
     public static function wrap_new_user_admin_email($email, $user, $blogname) {
-        $body = '
-        <p style="margin: 0 0 14px; font-size: 14px;">Ein neuer Benutzer hat sich auf <strong>' . esc_html($blogname) . '</strong> registriert:</p>
-        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 0 0 16px; border: 1px solid #e5e7eb; border-radius: 8px;">
-            <tr>
-                <td style="padding: 14px 16px; font-size: 14px;">
-                    <strong>Benutzername:</strong> ' . esc_html($user->user_login) . '<br>
-                    <strong>E-Mail:</strong> ' . esc_html($user->user_email) . '
-                </td>
-            </tr>
-        </table>';
-
-        $email['message'] = self::build_generic_email_html(
-            'Neuer Benutzer',
-            $body,
-            'Registrierung auf ' . esc_html($blogname),
-            'Admin-Benachrichtigung von ' . esc_html($blogname)
-        );
+        $email['message'] = self::layout(['title' => 'Neuer Benutzer', 'kind' => 'admin',
+            'blocks' => [
+                ['type' => 'text', 'html' => 'Ein neuer Benutzer hat sich registriert:'],
+                ['type' => 'info', 'rows' => [['Benutzername', esc_html($user->user_login)], ['E-Mail', esc_html($user->user_email)]]],
+            ],
+            'note' => 'Benachrichtigung für das Team.']);
         $email['headers'] = self::ensure_headers_html($email['headers'] ?? '');
-
         return $email;
     }
 
     /**
-     * Passwort ge&auml;ndert (WP Core)
+     * Passwort geändert (WP Core)
      */
     public static function wrap_password_change_email($email, $user, $userdata) {
-        $body = '
-        <p style="margin: 0 0 14px; font-size: 14px;">Diese Nachricht best&auml;tigt, dass dein Passwort auf <strong>' . esc_html(get_bloginfo('name')) . '</strong> ge&auml;ndert wurde.</p>
-        <p style="margin: 0 0 14px; font-size: 14px;">Benutzername: <strong>' . esc_html($user['user_login']) . '</strong></p>
-        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 0 0 8px;">
-            <tr><td style="background-color: #fef3c7; border-radius: 8px; padding: 12px 16px; font-size: 13px; color: #92400e;">
-                Falls du diese &Auml;nderung nicht vorgenommen hast, kontaktiere bitte umgehend den Support.
-            </td></tr>
-        </table>';
-
-        $email['message'] = self::build_generic_email_html(
-            'Passwort ge&auml;ndert',
-            $body,
-            '',
-            'Sicherheitsbenachrichtigung von ' . esc_html(get_bloginfo('name'))
-        );
+        $email['message'] = self::layout(['title' => 'Passwort geändert', 'kind' => 'account',
+            'blocks' => [
+                ['type' => 'text', 'html' => 'Hallo,<br>das Passwort deines Kontos <strong>' . esc_html($user['user_login']) . '</strong> wurde geändert.'],
+                ['type' => 'notice', 'tone' => 'warn', 'html' => 'Du hast das nicht selbst geändert? Dann melde dich bitte sofort beim Support.'],
+            ],
+            'note' => 'Sicherheitshinweis zu deinem Konto.']);
         $email['headers'] = self::ensure_headers_html($email['headers'] ?? '');
-
         return $email;
     }
 
     /**
-     * E-Mail-Adresse ge&auml;ndert (WP Core)
+     * E-Mail-Adresse geändert (WP Core)
      */
     public static function wrap_email_change_email($email, $user, $userdata) {
         $new_email = $userdata['user_email'] ?? '';
-
-        $body = '
-        <p style="margin: 0 0 14px; font-size: 14px;">Diese Nachricht best&auml;tigt, dass die E-Mail-Adresse deines Kontos auf <strong>' . esc_html(get_bloginfo('name')) . '</strong> ge&auml;ndert wurde.</p>
-        <p style="margin: 0 0 14px; font-size: 14px;">Benutzername: <strong>' . esc_html($user['user_login']) . '</strong></p>';
-
-        if ($new_email) {
-            $body .= '<p style="margin: 0 0 14px; font-size: 14px;">Neue E-Mail: <strong>' . esc_html($new_email) . '</strong></p>';
-        }
-
-        $body .= '
-        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 0 0 8px;">
-            <tr><td style="background-color: #fef3c7; border-radius: 8px; padding: 12px 16px; font-size: 13px; color: #92400e;">
-                Falls du diese &Auml;nderung nicht vorgenommen hast, kontaktiere bitte umgehend den Support.
-            </td></tr>
-        </table>';
-
-        $email['message'] = self::build_generic_email_html(
-            'E-Mail-Adresse ge&auml;ndert',
-            $body,
-            '',
-            'Sicherheitsbenachrichtigung von ' . esc_html(get_bloginfo('name'))
-        );
+        $rows = [['Benutzername', esc_html($user['user_login'])]];
+        if ($new_email) $rows[] = ['Neue E-Mail', esc_html($new_email)];
+        $email['message'] = self::layout(['title' => 'E-Mail-Adresse geändert', 'kind' => 'account',
+            'blocks' => [
+                ['type' => 'text', 'html' => 'Hallo,<br>die E-Mail-Adresse deines Kontos wurde geändert.'],
+                ['type' => 'info', 'rows' => $rows],
+                ['type' => 'notice', 'tone' => 'warn', 'html' => 'Du hast das nicht selbst geändert? Dann melde dich bitte sofort beim Support.'],
+            ],
+            'note' => 'Sicherheitshinweis zu deinem Konto.']);
         $email['headers'] = self::ensure_headers_html($email['headers'] ?? '');
-
         return $email;
     }
 
@@ -845,353 +601,24 @@ class TIX_Emails {
     // ══════════════════════════════════════
 
     /**
-     * Fügt Reply-To und List-Unsubscribe Header zu allen HTML-Mails hinzu.
-     * Läuft als wp_mail Filter mit hoher Priorität (999).
+     * Früher: Reply-To und List-Unsubscribe (mailto) an jede HTML-Mail.
+     * Seit 1.38.471: Reply-To setzt TIX_Mail_Layout (Support-Postfach, nicht bei Admin-Mails); List-Unsubscribe
+     * nur noch in Werbe- und Follow-Mails, dort RFC 8058 mit HTTPS-One-Click (setzen die Absender selbst).
      */
     public static function enhance_email_headers($atts) {
-        // Nur für HTML-Mails (prüfe Content-Type Header)
-        $headers = $atts['headers'] ?? [];
-        if (!is_array($headers)) $headers = !empty($headers) ? [$headers] : [];
-
-        $is_html = false;
-        foreach ($headers as $h) {
-            if (stripos($h, 'text/html') !== false) { $is_html = true; break; }
-        }
-        if (!$is_html) return $atts;
-
-        $s = self::get_settings();
-
-        // ── Reply-To ──
-        $has_reply_to = false;
-        foreach ($headers as $h) {
-            if (stripos($h, 'Reply-To:') !== false) { $has_reply_to = true; break; }
-        }
-        if (!$has_reply_to) {
-            $reply_to = $s['email_from_address'] ?? '';
-            if (empty($reply_to)) $reply_to = get_option('admin_email');
-            if (!empty($reply_to)) {
-                $brand = $s['email_brand_name'] ?: get_bloginfo('name');
-                $headers[] = 'Reply-To: ' . $brand . ' <' . $reply_to . '>';
-            }
-        }
-
-        // ── List-Unsubscribe (mailto-basiert, RFC 2369) ──
-        $has_unsub = false;
-        foreach ($headers as $h) {
-            if (stripos($h, 'List-Unsubscribe') !== false) { $has_unsub = true; break; }
-        }
-        if (!$has_unsub) {
-            $unsub_email = $s['email_from_address'] ?? '';
-            if (empty($unsub_email)) $unsub_email = get_option('admin_email');
-            if (!empty($unsub_email)) {
-                $headers[] = 'List-Unsubscribe: <mailto:' . $unsub_email . '?subject=unsubscribe>';
-                $headers[] = 'List-Unsubscribe-Post: List-Unsubscribe=One-Click';
-            }
-        }
-
-        $atts['headers'] = $headers;
         return $atts;
     }
 
     /**
-     * Erzeugt automatisch eine Plain-Text-Alternative (AltBody) für HTML-Mails.
-     * Verbessert die Spam-Bewertung erheblich, da Spam-Filter multipart/alternative bevorzugen.
+     * Text-Alternative (AltBody) für HTML-Mails, ohne CSS und Vorschauzeile (TIX_Mail_Layout::html_to_text).
+     * Eigene Layout-Mails bekommen ihre Text-Fassung schon in TIX_Mail_Layout::phpmailer (Prio 5).
      */
     public static function add_plaintext_alt($phpmailer) {
-        // Nur wenn HTML und kein AltBody vorhanden
         if ($phpmailer->ContentType !== 'text/html') return;
         if (!empty($phpmailer->AltBody)) return;
         if (empty($phpmailer->Body)) return;
-
-        $html = $phpmailer->Body;
-
-        // HTML → Plain-Text Konvertierung
-        // Links extrahieren: <a href="URL">Text</a> → Text (URL)
-        $text = preg_replace_callback(
-            '/<a\s[^>]*href=["\']([^"\']+)["\'][^>]*>(.*?)<\/a>/si',
-            function($m) {
-                $url  = html_entity_decode($m[1], ENT_QUOTES, 'UTF-8');
-                $link_text = strip_tags($m[2]);
-                $link_text = trim($link_text);
-                if (empty($link_text) || $link_text === $url) return $url;
-                return $link_text . ' (' . $url . ')';
-            },
-            $html
-        );
-
-        // Block-Elemente durch Zeilenumbrüche ersetzen
-        $text = preg_replace('/<br\s*\/?>/i', "\n", $text);
-        $text = preg_replace('/<\/(p|div|tr|h[1-6]|li|td)>/i', "\n", $text);
-        $text = preg_replace('/<(p|div|h[1-6]|li|table)[^>]*>/i', "\n", $text);
-        $text = preg_replace('/<hr[^>]*>/i', "\n---\n", $text);
-
-        // Verbleibende Tags entfernen
-        $text = strip_tags($text);
-
-        // HTML-Entities dekodieren
-        $text = html_entity_decode($text, ENT_QUOTES, 'UTF-8');
-
-        // Mehrfache Leerzeilen zusammenfassen
-        $text = preg_replace('/[ \t]+/', ' ', $text);
-        $text = preg_replace('/\n{3,}/', "\n\n", $text);
-        $text = trim($text);
-
-        if (!empty($text)) {
-            $phpmailer->AltBody = $text;
-        }
-    }
-
-    // ══════════════════════════════════════
-    // Content-Blöcke
-    // ══════════════════════════════════════
-
-    /**
-     * Bestellpositionen als HTML-Tabelle
-     */
-    private static function render_order_items_html($order, $accent, $text_color, $muted, $divider, $radius) {
-        $items = $order->get_items();
-        if (empty($items)) return '';
-
-        $html = '
-        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 20px;">
-            <tr>
-                <td style="padding-bottom: 10px;">
-                    <strong style="font-size: 15px; color: ' . esc_attr($text_color) . ';">Bestellübersicht</strong>
-                </td>
-            </tr>
-            <tr>
-                <td>
-                    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border: 1px solid ' . esc_attr($divider) . '; border-radius: ' . $radius . 'px; overflow: hidden;">';
-
-        foreach ($items as $item) {
-            $product_id = $item->get_product_id();
-            $event_id   = get_post_meta($product_id, '_tix_parent_event_id', true);
-
-            $event_name = '';
-            $event_date = '';
-            $event_location = '';
-            if ($event_id) {
-                $event_post = get_post($event_id);
-                if ($event_post) $event_name = $event_post->post_title;
-                $date_start = get_post_meta($event_id, '_tix_date_start', true);
-                if ($date_start) $event_date = date_i18n('D, d. M Y', strtotime($date_start));
-                $event_location = get_post_meta($event_id, '_tix_location', true);
-            }
-
-            $html .= '
-                        <tr>
-                            <td style="padding: 12px 16px; border-bottom: 1px solid ' . esc_attr($divider) . ';">
-                                <table width="100%" cellpadding="0" cellspacing="0" border="0">
-                                    <tr>
-                                        <td style="vertical-align: top;">';
-
-            if ($event_name) {
-                $html .= '          <span style="font-size: 11px; font-weight: 600; color: ' . esc_attr($muted) . '; text-transform: uppercase; letter-spacing: 0.04em;">' . esc_html($event_name) . '</span><br>';
-            }
-
-            $html .= '                 <strong style="font-size: 14px; color: ' . esc_attr($text_color) . ';">' . esc_html($item->get_name()) . '</strong>';
-
-            if ($event_date || $event_location) {
-                $meta_parts = [];
-                if ($event_date) $meta_parts[] = $event_date;
-                if ($event_location) $meta_parts[] = $event_location;
-                $html .= '<br><span style="font-size: 12px; color: ' . esc_attr($muted) . ';">' . esc_html(implode(' &middot; ', $meta_parts)) . '</span>';
-            }
-
-            $html .= '
-                                        </td>
-                                        <td style="vertical-align: top; text-align: right; white-space: nowrap; padding-left: 16px;">
-                                            <span style="font-size: 12px; color: ' . esc_attr($muted) . ';">&times; ' . $item->get_quantity() . '</span><br>
-                                            <strong style="font-size: 14px; color: ' . esc_attr($text_color) . ';">' . self::format_price($item->get_total()) . '</strong>
-                                        </td>
-                                    </tr>
-                                </table>
-                            </td>
-                        </tr>';
-        }
-
-        // Totals
-        $html .= '
-                        <tr>
-                            <td style="padding: 12px 16px; background-color: #f9fafb;">';
-
-        // Subtotal
-        $html .= '         <table width="100%" cellpadding="0" cellspacing="0" border="0">';
-
-        if ($order->get_total_discount() > 0) {
-            $html .= '
-                            <tr>
-                                <td style="font-size: 13px; color: ' . esc_attr($muted) . '; padding: 2px 0;">Zwischensumme</td>
-                                <td style="font-size: 13px; color: ' . esc_attr($text_color) . '; text-align: right; padding: 2px 0;">' . self::format_price($order->get_subtotal()) . '</td>
-                            </tr>
-                            <tr>
-                                <td style="font-size: 13px; color: #059669; padding: 2px 0;">Rabatt</td>
-                                <td style="font-size: 13px; color: #059669; text-align: right; padding: 2px 0;">-' . self::format_price($order->get_total_discount()) . '</td>
-                            </tr>';
-        }
-
-        // Fees (only available on WC_Order, not TIX_Order)
-        $fees = method_exists($order, 'get_fees') ? $order->get_fees() : [];
-        foreach ($fees as $fee) {
-            $fee_total = floatval($fee->get_total());
-            $fee_color = $fee_total < 0 ? '#059669' : $muted;
-            $html .= '
-                            <tr>
-                                <td style="font-size: 13px; color: ' . esc_attr($fee_color) . '; padding: 2px 0;">' . esc_html($fee->get_name()) . '</td>
-                                <td style="font-size: 13px; color: ' . esc_attr($fee_color) . '; text-align: right; padding: 2px 0;">' . self::format_price($fee_total) . '</td>
-                            </tr>';
-        }
-
-        // Tax
-        if ($order->get_total_tax() > 0) {
-            $html .= '
-                            <tr>
-                                <td style="font-size: 12px; color: ' . esc_attr($muted) . '; padding: 2px 0;">inkl. MwSt.</td>
-                                <td style="font-size: 12px; color: ' . esc_attr($muted) . '; text-align: right; padding: 2px 0;">' . self::format_price($order->get_total_tax()) . '</td>
-                            </tr>';
-        }
-
-        // Total
-        $html .= '
-                            <tr>
-                                <td style="font-size: 16px; font-weight: 700; color: ' . esc_attr($text_color) . '; padding: 8px 0 0; border-top: 1px solid ' . esc_attr($divider) . ';">Gesamt</td>
-                                <td style="font-size: 16px; font-weight: 700; color: ' . esc_attr($text_color) . '; text-align: right; padding: 8px 0 0; border-top: 1px solid ' . esc_attr($divider) . ';">' . wp_strip_all_tags($order->get_formatted_order_total()) . '</td>
-                            </tr>
-                        </table>
-                            </td>
-                        </tr>';
-
-        $html .= '
-                    </table>
-                </td>
-            </tr>
-        </table>';
-
-        return $html;
-    }
-
-    /**
-     * Tickets mit Download-Links
-     * $btn_bg/$btn_text optional — fallback auf $accent/$accent_text für Backward-Compat.
-     */
-    private static function render_tickets_html($order, $accent, $accent_text, $text_color, $muted, $radius, $btn_bg = null, $btn_text = null) {
-        if ($btn_bg === null)   $btn_bg   = $accent;
-        if ($btn_text === null) $btn_text = $accent_text;
-        $tickets = self::get_ticket_data($order);
-        if (empty($tickets)) return '';
-
-        $html = '
-        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 8px;">
-            <tr>
-                <td style="padding-bottom: 10px;">
-                    <strong style="font-size: 15px; color: ' . esc_attr($text_color) . ';">Deine Tickets</strong>
-                </td>
-            </tr>';
-
-        foreach ($tickets as $t) {
-            $html .= '
-            <tr>
-                <td style="padding-bottom: 8px;">
-                    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border: 1px solid #e5e7eb; border-radius: ' . $radius . 'px; overflow: hidden;">
-                        <tr>
-                            <td style="padding: 14px 16px;">
-                                <table width="100%" cellpadding="0" cellspacing="0" border="0">
-                                    <tr>
-                                        <td style="vertical-align: middle;">';
-
-            if ($t['event_name']) {
-                $html .= '                 <span style="font-size: 11px; font-weight: 600; color: ' . esc_attr($muted) . '; text-transform: uppercase; letter-spacing: 0.04em;">' . esc_html($t['event_name']) . '</span><br>';
-            }
-
-            $html .= '                     <strong style="font-size: 14px; color: ' . esc_attr($text_color) . ';">' . esc_html($t['type_name'] ?: 'Ticket') . '</strong>';
-
-            if ($t['code']) {
-                $html .= '<br><span style="font-size: 11px; font-family: monospace; color: ' . esc_attr($muted) . ';">' . esc_html($t['code']) . '</span>';
-            }
-
-            $html .= '
-                                        </td>
-                                        <td style="vertical-align: middle; text-align: right; padding-left: 12px; white-space: nowrap;">';
-
-            if ($t['download_url']) {
-                $html .= '                 <a href="' . esc_url($t['download_url']) . '" style="display: inline-block; padding: 8px 18px; background-color: ' . esc_attr($btn_bg) . '; color: ' . esc_attr($btn_text) . '; text-decoration: none; font-weight: 600; font-size: 12px; border-radius: ' . $radius . 'px;">&#8595; Download</a>';
-            } else {
-                $html .= '                 <span style="font-size: 12px; color: ' . esc_attr($muted) . '; font-style: italic;">Wird bereitgestellt&hellip;</span>';
-            }
-
-            $html .= '
-                                        </td>
-                                    </tr>
-                                </table>
-                            </td>
-                        </tr>
-                    </table>
-                </td>
-            </tr>';
-        }
-
-        $html .= '</table>';
-        return $html;
-    }
-
-    /**
-     * Event-Details HTML (für Erinnerungsmail)
-     */
-    private static function render_event_details_html($event_id, $accent, $text_color, $muted, $divider, $radius) {
-        $event = get_post($event_id);
-        if (!$event) return '';
-
-        $date_start = get_post_meta($event_id, '_tix_date_start', true);
-        $time_start = get_post_meta($event_id, '_tix_time_start', true);
-        $time_doors = get_post_meta($event_id, '_tix_time_doors', true);
-        $location   = get_post_meta($event_id, '_tix_location', true);
-        $address    = get_post_meta($event_id, '_tix_address', true);
-
-        $html = '
-        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 20px;">
-            <tr>
-                <td style="padding-bottom: 10px;">
-                    <strong style="font-size: 15px; color: ' . esc_attr($text_color) . ';">Event-Details</strong>
-                </td>
-            </tr>
-            <tr>
-                <td>
-                    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border: 1px solid ' . esc_attr($divider) . '; border-radius: ' . $radius . 'px; overflow: hidden;">
-                        <tr>
-                            <td style="padding: 16px 20px;">
-                                <h2 style="margin: 0 0 12px; font-size: 18px; font-weight: 700; color: ' . esc_attr($text_color) . ';">' . esc_html($event->post_title) . '</h2>';
-
-        $details = [];
-        if ($date_start) {
-            $details[] = '<tr><td style="padding: 4px 0; font-size: 13px; color: ' . esc_attr($muted) . '; width: 90px; vertical-align: top;">Datum</td><td style="padding: 4px 0; font-size: 13px; color: ' . esc_attr($text_color) . '; font-weight: 600;">' . date_i18n('l, d. F Y', strtotime($date_start)) . '</td></tr>';
-        }
-        if ($time_doors) {
-            $details[] = '<tr><td style="padding: 4px 0; font-size: 13px; color: ' . esc_attr($muted) . '; vertical-align: top;">Einlass</td><td style="padding: 4px 0; font-size: 13px; color: ' . esc_attr($text_color) . ';">' . date_i18n('H:i', strtotime($time_doors)) . ' Uhr</td></tr>';
-        }
-        if ($time_start) {
-            $details[] = '<tr><td style="padding: 4px 0; font-size: 13px; color: ' . esc_attr($muted) . '; vertical-align: top;">Beginn</td><td style="padding: 4px 0; font-size: 13px; color: ' . esc_attr($text_color) . '; font-weight: 600;">' . date_i18n('H:i', strtotime($time_start)) . ' Uhr</td></tr>';
-        }
-        if ($location) {
-            $details[] = '<tr><td style="padding: 4px 0; font-size: 13px; color: ' . esc_attr($muted) . '; vertical-align: top;">Ort</td><td style="padding: 4px 0; font-size: 13px; color: ' . esc_attr($text_color) . '; font-weight: 600;">' . esc_html($location) . '</td></tr>';
-        }
-        if ($address) {
-            $maps_url = 'https://www.google.com/maps/search/' . urlencode($address);
-            $details[] = '<tr><td style="padding: 4px 0; font-size: 13px; color: ' . esc_attr($muted) . '; vertical-align: top;">Adresse</td><td style="padding: 4px 0; font-size: 13px;"><a href="' . esc_url($maps_url) . '" style="color: ' . esc_attr($accent) . '; text-decoration: none;">' . esc_html($address) . '</a></td></tr>';
-        }
-
-        if ($details) {
-            $html .= '<table width="100%" cellpadding="0" cellspacing="0" border="0">' . implode('', $details) . '</table>';
-        }
-
-        $html .= '
-                            </td>
-                        </tr>
-                    </table>
-                </td>
-            </tr>
-        </table>';
-
-        return $html;
+        $text = class_exists('TIX_Mail_Layout') ? TIX_Mail_Layout::html_to_text($phpmailer->Body) : trim(wp_strip_all_tags($phpmailer->Body));
+        if ($text !== '') $phpmailer->AltBody = $text;
     }
 
     // ══════════════════════════════════════
@@ -1203,6 +630,7 @@ class TIX_Emails {
      * (Identische Logik wie class-tix-checkout.php render_thankyou)
      */
     private static function get_ticket_data($order) {
+        if (is_array(self::$preview_tickets)) return self::$preview_tickets;
         $tickets  = [];
         $order_id = $order->get_id();
 
@@ -1215,6 +643,8 @@ class TIX_Emails {
                     'code'         => $ut['code'],
                     'type_name'    => $ut['cat_name'],
                     'event_name'   => $ut['event_name'],
+                    'event_id'     => intval($ut['event_id'] ?? 0),
+                    'owner_name'   => (string) ($ut['owner_name'] ?? ''),
                     'download_url' => $ut['download_url'],
                 ];
             }
@@ -1311,36 +741,17 @@ class TIX_Emails {
         // Prüfen ob Order noch gültig
         if (!in_array($order->get_status(), ['completed', 'processing'])) return;
 
-        $s = self::get_settings();
-        $accent      = ($s['color_accent'] ?? '')      ?: '#c8ff00';
-        $accent_text = ($s['color_accent_text'] ?? '') ?: '#000000';
-        $text_color  = '#1a1a1a';
-        $muted       = '#6b7280';
-        $divider     = '#e5e7eb';
-        $radius      = intval(($s['radius_general'] ?? '') ?: 8);
-        // E-Mail-spezifische Button-Farben (mit Fallback auf Accent)
-        $btn_bg      = !empty($s['email_btn_bg'])   ? $s['email_btn_bg']   : $accent;
-        $btn_text    = !empty($s['email_btn_text']) ? $s['email_btn_text'] : $accent_text;
-
-        // Event-Details
-        $event_details = self::render_event_details_html($event_id, $accent, $text_color, $muted, $divider, $radius);
-
-        // Tickets für diesen Order
-        $tickets_html = self::render_tickets_html($order, $accent, $accent_text, $text_color, $muted, $radius, $btn_bg, $btn_text);
-
-        $extra = $event_details . $tickets_html;
+        $extra = [];
+        $address = (string) get_post_meta($event_id, '_tix_address', true);
+        if ($address) $extra[] = ['type' => 'info', 'rows' => [['Adresse', '<a href="' . esc_url('https://www.google.com/maps/search/' . urlencode($address)) . '">' . esc_html($address) . '</a>']]];
+        $extra = array_merge($extra, self::ticket_blocks($order));
+        $url = class_exists('TIX_Tickets') ? (string) TIX_Tickets::get_bundle_url($order_id) : '';
+        if ($url) $extra[] = ['type' => 'button', 'label' => 'Tickets öffnen', 'url' => $url];
+        array_unshift($extra, ['type' => 'text', 'html' => 'Hallo' . ($order->get_billing_first_name() ? ' ' . esc_html($order->get_billing_first_name()) : '') . ',<br>morgen ist es so weit: <strong>' . esc_html($event->post_title) . '</strong>. Hier sind alle Infos und deine Tickets.']);
 
         $html = self::build_email_html('reminder', $order, 'Morgen ist es soweit!', $extra);
-
-        $to      = $order->get_billing_email();
-        $subject = 'Erinnerung: ' . $event->post_title . ' ist morgen!';
-        $headers = ['Content-Type: text/html; charset=UTF-8'];
-
-        if (function_exists('WC') && WC()->mailer()) {
-            WC()->mailer()->send($to, $subject, $html, $headers);
-        } else {
-            TIX_Customer_URL::mail($to, $subject, $html, $headers);
-        }
+        $subject = 'Erinnerung: ' . html_entity_decode($event->post_title, ENT_QUOTES, 'UTF-8') . ' ist morgen!';
+        TIX_Customer_URL::mail($order->get_billing_email(), $subject, $html, ['Content-Type: text/html; charset=UTF-8']);
     }
 
     /**
@@ -1356,54 +767,18 @@ class TIX_Emails {
         if (!in_array($order->get_status(), ['completed', 'processing'])) return;
 
         $s = self::get_settings();
-        $accent      = ($s['color_accent'] ?? '')      ?: '#c8ff00';
-        $accent_text = ($s['color_accent_text'] ?? '') ?: '#000000';
-        $text_color  = '#1a1a1a';
-        $muted       = '#6b7280';
-        $radius      = intval(($s['radius_general'] ?? '') ?: 8);
-        $brand_name  = ($s['email_brand_name'] ?? '')  ?: get_bloginfo('name');
         $followup_url = $s['email_followup_url'] ?: '';
-
-        $extra = '
-        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 20px;">
-            <tr>
-                <td style="font-size: 14px; color: ' . esc_attr($text_color) . '; line-height: 1.6;">
-                    <p style="margin: 0 0 12px;">Wir hoffen, du hattest eine tolle Zeit bei <strong>' . esc_html($event->post_title) . '</strong>!</p>
-                    <p style="margin: 0 0 12px;">Vielen Dank f&uuml;r deinen Besuch. Wir freuen uns, dich beim n&auml;chsten Event wiederzusehen.</p>
-                </td>
-            </tr>
-        </table>';
-
-        if ($followup_url) {
-            $extra .= '
-            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 8px;">
-                <tr>
-                    <td align="center">
-                        <a href="' . esc_url($followup_url) . '" style="display: inline-block; padding: 12px 32px; background-color: ' . esc_attr($accent) . '; color: ' . esc_attr($accent_text) . '; text-decoration: none; font-weight: 700; font-size: 14px; border-radius: ' . $radius . 'px;">
-                            Feedback geben
-                        </a>
-                    </td>
-                </tr>
-            </table>';
-        }
+        $extra = [['type' => 'text', 'html' => 'Hallo' . ($order->get_billing_first_name() ? ' ' . esc_html($order->get_billing_first_name()) : '') . ',<br>wir hoffen, du hattest eine tolle Zeit bei <strong>' . esc_html($event->post_title) . '</strong>! Vielen Dank für deinen Besuch – wir freuen uns, dich beim nächsten Event wiederzusehen.']];
+        if ($followup_url) $extra[] = ['type' => 'button', 'label' => 'Feedback geben', 'url' => $followup_url];
 
         // ── Feedback-Sterne (wenn Feedback-System aktiviert) ──
         if (!empty($s['feedback_enabled']) && class_exists('TIX_Feedback')) {
-            $fb_email = $order->get_billing_email();
-            $extra .= TIX_Feedback::get_email_stars_html($order_id, $event_id, $fb_email);
+            $extra[] = ['type' => 'html', 'html' => TIX_Feedback::get_email_stars_html($order_id, $event_id, $order->get_billing_email())];
         }
 
         $html = self::build_email_html('followup', $order, 'Danke für deinen Besuch!', $extra);
-
-        $to      = $order->get_billing_email();
-        $subject = 'Danke für deinen Besuch bei ' . $event->post_title . '!';
-        $headers = ['Content-Type: text/html; charset=UTF-8'];
-
-        if (function_exists('WC') && WC()->mailer()) {
-            WC()->mailer()->send($to, $subject, $html, $headers);
-        } else {
-            TIX_Customer_URL::mail($to, $subject, $html, $headers);
-        }
+        $subject = 'Danke für deinen Besuch bei ' . html_entity_decode($event->post_title, ENT_QUOTES, 'UTF-8') . '!';
+        TIX_Customer_URL::mail($order->get_billing_email(), $subject, $html, ['Content-Type: text/html; charset=UTF-8']);
     }
 
     // ══════════════════════════════════════
@@ -1424,7 +799,7 @@ class TIX_Emails {
         $wc_id = method_exists($order, 'get_wc_order_id') ? $order->get_wc_order_id() : 0;
         if ($wc_id > 0 && function_exists('wc_get_order')) return;
 
-        $brand_name = self::get_settings()['email_brand_name'] ?: get_bloginfo('name');
+        $brand_name = class_exists('TIX_Mail_Layout') ? TIX_Mail_Layout::brand()['name'] : (self::get_settings()['email_brand_name'] ?: get_bloginfo('name'));
 
         // Gutschein als Geschenk (1.38.463): Codes jetzt erzeugen, Geschenk-Block + PDF-Anhang
         $gift = null;
@@ -1436,7 +811,7 @@ class TIX_Emails {
         }
 
         // Customer confirmation
-        $html = self::build_email_html('order_complete', $order, 'Deine Tickets sind bereit!', $gift ? $gift['html'] : '');
+        $html = self::build_email_html('order_complete', $order, 'Deine Tickets sind bereit!', $gift ? ($gift['blocks'] ?? $gift['html']) : '');
         self::send_html_mail(
             $order->get_billing_email(),
             $brand_name . ' – Deine Tickets sind bereit!',
@@ -1495,7 +870,7 @@ class TIX_Emails {
         $wc_id = method_exists($order, 'get_wc_order_id') ? $order->get_wc_order_id() : 0;
         if ($wc_id > 0 && function_exists('wc_get_order')) return;
 
-        $brand_name = self::get_settings()['email_brand_name'] ?: get_bloginfo('name');
+        $brand_name = class_exists('TIX_Mail_Layout') ? TIX_Mail_Layout::brand()['name'] : (self::get_settings()['email_brand_name'] ?: get_bloginfo('name'));
 
         // Map status to email type and heading
         $status_map = [
@@ -1654,107 +1029,21 @@ class TIX_Emails {
         }
         if (!$guest || empty($guest['email'])) return false;
 
-        $s = self::get_settings();
-        $accent      = ($s['color_accent'] ?? '')      ?: '#c8ff00';
-        $accent_text = ($s['color_accent_text'] ?? '') ?: '#000000';
-        $border      = ($s['color_border'] ?? '')       ?: '#333333';
-        $radius      = intval(($s['radius_general'] ?? '') ?: 8);
-        $brand_name  = ($s['email_brand_name'] ?? '')  ?: get_bloginfo('name');
-        $logo_url    = ($s['email_logo_url'] ?? '')    ?: '';
-        $footer_text = $s['email_footer_text'] ?: '';
-
-        // Event-Daten
-        $date_start = get_post_meta($event_id, '_tix_date_start', true);
-        $time_doors = get_post_meta($event_id, '_tix_time_doors', true);
-        $time_start = get_post_meta($event_id, '_tix_time_start', true);
-        $location   = get_post_meta($event_id, '_tix_location', true);
-        $date_fmt   = $date_start ? date_i18n('l, d. F Y', strtotime($date_start)) : '';
-
         // QR-Code
         $qr_code = 'GL-' . $event_id . '-' . $guest_id;
         $qr_url  = home_url('?tix_guest=' . urlencode($qr_code));
-        $qr_img  = class_exists('TIX_QR') ? TIX_QR::url($qr_code, 200) : ''; // lokal statt quickchart.io (1.38.465)
+        $qr_img  = class_exists('TIX_QR') ? TIX_QR::url($qr_code, 240) : ''; // lokal statt quickchart.io (1.38.465)
+        $plus = !empty($guest['plus']) && $guest['plus'] > 0 ? '+' . intval($guest['plus']) . ' Begleitung' : '';
 
-        // Plus-Info
-        $plus_text = '';
-        if (!empty($guest['plus']) && $guest['plus'] > 0) {
-            $plus_text = '+' . intval($guest['plus']) . ' Begleitung';
-        }
+        $blocks = [['type' => 'text', 'html' => 'Hallo ' . esc_html($guest['name']) . ',<br>du stehst auf der Gästeliste! Zeig diesen QR-Code am Einlass.']];
+        $ev = self::event_block($event_id);
+        if ($ev) $blocks[] = $ev;
+        $blocks[] = ['type' => 'ticket', 'label' => 'Gästeliste', 'title' => (string) $guest['name'], 'sub' => $plus, 'code' => $qr_code, 'qr' => $qr_img];
+        $blocks[] = ['type' => 'button', 'label' => 'QR-Code öffnen', 'url' => $qr_url];
+        $html = self::layout(['title' => 'Du bist auf der Gästeliste', 'subtitle' => html_entity_decode($event->post_title, ENT_QUOTES, 'UTF-8'), 'blocks' => $blocks, 'kind' => 'customer']);
 
-        // HTML
-        $html = '<!DOCTYPE html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><link href="' . esc_url(TIXOMAT_URL . 'assets/css/fonts-local.css?ver=' . TIXOMAT_VERSION) . '" rel="stylesheet"></head><body style="margin:0;padding:0;background:#f3f4f6;font-family:\'Inter\',-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,sans-serif;">';
-
-        // Container
-        $html .= '<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f3f4f6;"><tr><td align="center" style="padding:32px 16px;">';
-        $html .= '<table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:520px;background:#ffffff;border-radius:' . $radius . 'px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.08);">';
-
-        // Header
-        $html .= '<tr><td style="background:#1a1a1a;padding:24px 32px;text-align:center;">';
-        if ($logo_url) {
-            $html .= '<img src="' . esc_url($logo_url) . '" alt="' . esc_attr($brand_name) . '" style="max-width:180px;max-height:48px;margin-bottom:12px;display:block;margin-left:auto;margin-right:auto;">';
-        }
-        $html .= '<div style="color:#ffffff;font-size:20px;font-weight:700;margin-bottom:4px;">' . esc_html($event->post_title) . '</div>';
-        $html .= '<div style="color:#94a3b8;font-size:14px;">Gästeliste</div>';
-        $html .= '</td></tr>';
-
-        // Body
-        $html .= '<tr><td style="padding:32px;">';
-
-        // Begrüßung
-        $html .= '<div style="font-size:16px;font-weight:600;color:#1a1a1a;margin-bottom:4px;">Hallo ' . esc_html($guest['name']) . ',</div>';
-        $html .= '<div style="font-size:14px;color:#6b7280;margin-bottom:24px;">du stehst auf der Gästeliste! Zeige diesen QR-Code am Einlass vor.</div>';
-
-        // QR-Code
-        $html .= '<table width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td align="center" style="padding:16px 0;">';
-        $html .= '<div style="display:inline-block;background:#ffffff;border:2px solid ' . esc_attr($border) . ';border-radius:' . $radius . 'px;padding:16px;">';
-        $html .= '<img src="' . esc_url($qr_img) . '" width="200" height="200" alt="QR-Code" style="display:block;">';
-        $html .= '</div>';
-        $html .= '</td></tr></table>';
-
-        // Code
-        $html .= '<div style="text-align:center;font-family:monospace;font-size:13px;color:#94a3b8;letter-spacing:1px;margin:8px 0 24px;">' . esc_html($qr_code) . '</div>';
-
-        // Event-Details
-        $html .= '<table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-top:1px solid #e5e7eb;padding-top:16px;margin-top:0;">';
-        if ($date_fmt) {
-            $html .= '<tr><td style="padding:4px 0;font-size:13px;color:#6b7280;width:30px;">📅</td><td style="padding:4px 0;font-size:13px;color:#1a1a1a;">' . esc_html($date_fmt) . '</td></tr>';
-        }
-        if ($time_doors) {
-            $html .= '<tr><td style="padding:4px 0;font-size:13px;color:#6b7280;">🚪</td><td style="padding:4px 0;font-size:13px;color:#1a1a1a;">Einlass: ' . esc_html($time_doors) . ' Uhr</td></tr>';
-        }
-        if ($time_start) {
-            $html .= '<tr><td style="padding:4px 0;font-size:13px;color:#6b7280;">🎵</td><td style="padding:4px 0;font-size:13px;color:#1a1a1a;">Start: ' . esc_html($time_start) . ' Uhr</td></tr>';
-        }
-        if ($location) {
-            $html .= '<tr><td style="padding:4px 0;font-size:13px;color:#6b7280;">📍</td><td style="padding:4px 0;font-size:13px;color:#1a1a1a;">' . esc_html($location) . '</td></tr>';
-        }
-        if ($plus_text) {
-            $html .= '<tr><td style="padding:4px 0;font-size:13px;color:#6b7280;">👥</td><td style="padding:4px 0;font-size:13px;color:#1a1a1a;">' . esc_html($plus_text) . '</td></tr>';
-        }
-        $html .= '</table>';
-
-        // CTA
-        $html .= '<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:24px 0 0;"><tr><td align="center">';
-        $html .= '<a href="' . esc_url($qr_url) . '" style="display:inline-block;padding:12px 32px;background-color:' . esc_attr($accent) . ';color:' . esc_attr($accent_text) . ';text-decoration:none;font-weight:700;font-size:14px;border-radius:' . $radius . 'px;">QR-Code öffnen</a>';
-        $html .= '</td></tr></table>';
-
-        $html .= '</td></tr>';
-
-        // Footer
-        $html .= '<tr><td style="background:#f9fafb;padding:20px 32px;text-align:center;border-top:1px solid #e5e7eb;">';
-        if ($footer_text) {
-            $html .= '<div style="font-size:12px;color:#9ca3af;">' . wp_kses_post($footer_text) . '</div>';
-        } else {
-            $html .= '<div style="font-size:12px;color:#9ca3af;">' . esc_html($brand_name) . '</div>';
-        }
-        $html .= '</td></tr>';
-
-        $html .= '</table></td></tr></table></body></html>';
-
-        $subject = 'Gästeliste: ' . $event->post_title;
-        $headers = ['Content-Type: text/html; charset=UTF-8'];
-
-        return TIX_Customer_URL::mail($guest['email'], $subject, $html, $headers);
+        $subject = 'Gästeliste: ' . html_entity_decode($event->post_title, ENT_QUOTES, 'UTF-8');
+        return TIX_Customer_URL::mail($guest['email'], $subject, $html, ['Content-Type: text/html; charset=UTF-8']);
     }
 
     // ══════════════════════════════════════
@@ -1788,67 +1077,29 @@ class TIX_Emails {
 
         // Cart-Daten auslesen
         $cart_items = json_decode($cart_raw, true);
-        $items_html = '';
-        if (is_array($cart_items) && !empty($cart_items)) {
-            $items_html .= '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 16px 0;">';
-            foreach ($cart_items as $item) {
-                $name = esc_html($item['name'] ?? 'Ticket');
-                $qty  = intval($item['qty'] ?? 1);
-                $items_html .= '<tr><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">' . $name . '</td>';
-                $items_html .= '<td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb; text-align: right; white-space: nowrap;">' . $qty . '&times;</td></tr>';
-            }
-            $items_html .= '</table>';
-        }
+        $rows = [];
+        if (is_array($cart_items)) foreach ($cart_items as $item) $rows[] = [(string) ($item['name'] ?? 'Ticket'), (string) intval($item['qty'] ?? 1), ''];
 
-        // Recovery-URL — WC-Checkout bevorzugt, sonst Tixomat-Checkout-Page oder Event-URL
-        if (function_exists('wc_get_checkout_url')) {
-            $recovery_url = add_query_arg('tix_recover_cart', $token, wc_get_checkout_url());
-        } else {
-            // Native: zur Event-Seite zurück (mit recovery-Token in URL)
-            $base_url = $event_id ? get_permalink($event_id) : home_url('/');
-            $recovery_url = add_query_arg('tix_recover_cart', $token, $base_url);
-        }
+        // Recovery-URL: zur Event-Seite zurück (mit recovery-Token in URL)
+        $base_url = $event_id ? get_permalink($event_id) : home_url('/');
+        $recovery_url = add_query_arg('tix_recover_cart', $token, $base_url);
 
         $s = self::get_settings();
-        $accent      = ($s['color_accent'] ?? '')      ?: '#c8ff00';
-        $accent_text = ($s['color_accent_text'] ?? '') ?: '#000000';
-        $radius      = intval(($s['radius_general'] ?? '') ?: 8);
-
-        // CTA-Button
-        $cta_html = '<div style="text-align: center; margin: 24px 0;">
-            <a href="' . esc_url($recovery_url) . '" style="display: inline-block; padding: 14px 32px; background: ' . esc_attr($accent) . '; color: ' . esc_attr($accent_text) . '; text-decoration: none; font-weight: 600; border-radius: ' . $radius . 'px; font-size: 16px;">Warenkorb wiederherstellen</a>
-        </div>';
-
-        $body_html  = '<p>Du hast noch Tickets in deinem Warenkorb' . ($event_title ? ' für <strong>' . esc_html($event_title) . '</strong>' : '') . '.</p>';
-        $body_html .= $items_html;
-        $body_html .= $cta_html;
-        $body_html .= '<p style="font-size: 13px; color: #6b7280;">Dieser Link ist 48 Stunden gültig.</p>';
-
-        // Heading
-        $heading = 'Du hast noch Tickets im Warenkorb';
+        $blocks = [['type' => 'text', 'html' => 'Hallo,<br>du hast noch Tickets in deinem Warenkorb' . ($event_title ? ' für <strong>' . esc_html($event_title) . '</strong>' : '') . '.']];
+        if ($event_id && ($ev = self::event_block($event_id))) $blocks[] = $ev;
+        if ($rows) $blocks[] = ['type' => 'table', 'rows' => $rows];
+        $blocks[] = ['type' => 'button', 'label' => 'Warenkorb wiederherstellen', 'url' => $recovery_url];
+        $blocks[] = ['type' => 'text', 'html' => '<span class="tm-muted" style="font-size:13px;color:#6B7280;">Dieser Link ist 48 Stunden gültig.</span>'];
 
         // Betreff
         $subject = $s['abandoned_cart_subject'] ?? '';
         if (empty($subject)) {
             $subject = $event_title
-                ? 'Du hast noch Tickets für ' . $event_title . ' im Warenkorb'
+                ? 'Du hast noch Tickets für ' . html_entity_decode($event_title, ENT_QUOTES, 'UTF-8') . ' im Warenkorb'
                 : 'Du hast noch Tickets im Warenkorb';
         }
-
-        $html = self::build_generic_email_html(
-            $heading,
-            $body_html,
-            $event_title ? 'Für ' . $event_title : '',
-            'Automatisch generierte Erinnerung'
-        );
-
-        $headers = ['Content-Type: text/html; charset=UTF-8'];
-
-        if (function_exists('WC') && WC()->mailer()) {
-            WC()->mailer()->send($email, $subject, $html, $headers);
-        } else {
-            TIX_Customer_URL::mail($email, $subject, $html, $headers);
-        }
+        $html = self::layout(['title' => 'Du hast noch Tickets im Warenkorb', 'blocks' => $blocks, 'kind' => 'customer', 'note' => 'Automatisch erstellte Erinnerung an deinen Warenkorb.']);
+        TIX_Customer_URL::mail($email, $subject, $html, ['Content-Type: text/html; charset=UTF-8']);
 
         // Status aktualisieren
         update_post_meta($ac_post_id, '_tix_ac_status', 'sent');

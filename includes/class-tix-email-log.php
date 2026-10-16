@@ -136,6 +136,7 @@ class TIX_Email_Log {
             feedback_value VARCHAR(20) NOT NULL DEFAULT '',
             feedback_at DATETIME NULL DEFAULT NULL,
             feedback_text TEXT,
+            attachments TEXT,
             date_created DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (id),
             KEY to_email (to_email(191)),
@@ -174,6 +175,7 @@ class TIX_Email_Log {
             'feedback_value'  => "ALTER TABLE $t ADD COLUMN feedback_value VARCHAR(20) NOT NULL DEFAULT '' AFTER last_opened_at",
             'feedback_at'     => "ALTER TABLE $t ADD COLUMN feedback_at DATETIME NULL DEFAULT NULL AFTER feedback_value",
             'feedback_text'   => "ALTER TABLE $t ADD COLUMN feedback_text TEXT AFTER feedback_at",
+            'attachments'     => "ALTER TABLE $t ADD COLUMN attachments TEXT AFTER feedback_text",
         ];
         foreach ($needed as $col => $sql) {
             if (!in_array($col, $columns, true)) {
@@ -242,6 +244,9 @@ class TIX_Email_Log {
         ];
         if ($has_tracking_cols) {
             $insert_data['tracking_token'] = $token;
+            // Anhänge sichern, damit „Erneut senden“ sie mitschicken kann (vorher gingen sie verloren, 1.38.471)
+            $att = self::keep_attachments($args['attachments'] ?? []);
+            if ($att && self::has_attachments_column()) $insert_data['attachments'] = wp_json_encode($att);
         }
         $wpdb->insert($t, $insert_data);
 
@@ -251,6 +256,12 @@ class TIX_Email_Log {
         }
 
         return $args;
+    }
+
+    private static function has_attachments_column() {
+        static $c = null;
+        if ($c === null) { global $wpdb; $t = self::table_name(); $c = (bool) $wpdb->get_var("SHOW COLUMNS FROM $t LIKE 'attachments'"); }
+        return $c;
     }
 
     /**
@@ -300,65 +311,58 @@ class TIX_Email_Log {
         $pixel_url = self::get_pixel_url($token);
         $pixel = '<img src="' . esc_url($pixel_url) . '" alt="" width="1" height="1" style="display:block;width:1px;height:1px;border:0;outline:none;text-decoration:none;" />';
 
-        // Feedback-Buttons nur, wenn der Body unser Mail-Template ist (ODER per Filter erzwungen)
-        $show_feedback = apply_filters('tix_email_show_feedback', self::source_wants_feedback($source, $html), $source, $token);
-        $feedback_html = $show_feedback ? self::build_feedback_buttons($token) : '';
-
-        $injection = $feedback_html . $pixel;
+        // Feedback „War diese E-Mail hilfreich?“ seit 1.38.471 nur noch in der Karte des Mail-Layouts (Platzhalter),
+        // nur bei Kundenmails und nur mit Schalter tix_mail_feedback = 1; früher ungestylt unter jeder HTML-Mail.
+        if (class_exists('TIX_Mail_Layout') && strpos($html, TIX_Mail_Layout::FEEDBACK_SLOT) !== false) {
+            $show = TIX_Mail_Layout::feedback_on() && TIX_Mail_Layout::kind_of($html) === 'customer';
+            $show = (bool) apply_filters('tix_email_show_feedback', $show, $source, $token);
+            $base = self::get_feedback_base_url($token);
+            $html = str_replace(TIX_Mail_Layout::FEEDBACK_SLOT, $show ? TIX_Mail_Layout::feedback_row($base . '/helpful', $base . '/not_helpful') : '', $html);
+        }
 
         if (stripos($html, '</body>') !== false) {
-            return preg_replace('#</body>#i', $injection . '</body>', $html, 1);
+            return preg_replace('#</body>#i', $pixel . '</body>', $html, 1);
         }
-        return $html . $injection;
+        return $html . $pixel;
     }
 
-    /**
-     * Soll diese Mail Feedback-Buttons bekommen?
-     * Robuste Erkennung via HTML-Marker (statt Backtrace, der bei WP-Hooks
-     * unzuverlässig den Caller findet): jede Mail durch unser
-     * build_generic_email_html() trägt die CSS-Klasse "tix-email-container".
-     */
-    private static function source_wants_feedback($source, $body = '') {
-        // Filter-Override: Plugins können explizit Feedback aus/anschalten
-        $forced = apply_filters('tix_email_feedback_force', null, $source, $body);
-        if ($forced !== null) return (bool) $forced;
-
-        // Heuristik 1: Body trägt unseren Container-Marker → ist unsere Mail
-        if ($body && stripos($body, 'tix-email-container') !== false) return true;
-
-        // Heuristik 2: Source enthält tix-prefix
-        $list = ['tix_support', 'tix_crm', 'TIX_Support', 'TIX_CRM', 'TIX_Emails', 'TIX_My_Tickets'];
-        foreach ($list as $needle) {
-            if (stripos($source, $needle) !== false) return true;
+    /** Anhänge in den geschützten Ordner kopieren (höchstens 10 MB je Mail). [{name, file}] */
+    private static function keep_attachments($list) {
+        $list = is_array($list) ? $list : (trim((string) $list) === '' ? [] : explode("\n", str_replace("\r\n", "\n", (string) $list)));
+        $list = array_values(array_filter(array_map('strval', $list), 'strlen'));
+        if (!$list || !class_exists('TIX_Support') || !method_exists('TIX_Support', 'private_base')) return [];
+        $total = 0;
+        foreach ($list as $f) { if (!TIX_Support::path_allowed($f) || !@is_file($f)) return []; $total += (int) @filesize($f); }
+        if ($total > 10 * 1024 * 1024) return [];
+        TIX_Support::private_dir(); // Sperrdatei im Basisordner
+        $dir = TIX_Support::private_base() . '/mail-log/' . gmdate('Ym') . '/' . wp_generate_password(16, false, false);
+        if (!TIX_Support::path_allowed($dir) || !wp_mkdir_p($dir)) return [];
+        $out = [];
+        foreach ($list as $f) {
+            $name = sanitize_file_name(preg_replace('/^[A-Za-z0-9]{12}-/', '', basename($f))) ?: 'anhang';
+            if (@copy($f, $dir . '/' . $name)) $out[] = ['name' => $name, 'file' => $dir . '/' . $name];
         }
-        return false;
+        return $out;
     }
 
-    /**
-     * Baut den Feedback-Button-Block. Inline-Styles für maximale Mail-Client-Kompatibilität.
-     */
-    private static function build_feedback_buttons($token) {
-        $base = self::get_feedback_base_url($token);
-        $url_yes  = esc_url($base . '/helpful');
-        $url_no   = esc_url($base . '/not_helpful');
-        $url_more = esc_url($base . '/need_more');
+    /** Gesicherte Anhänge eines Eintrags (nur Dateien im geschützten Ordner). */
+    private static function stored_attachments($log) {
+        $att = json_decode((string) ($log->attachments ?? ''), true);
+        if (!is_array($att) || !class_exists('TIX_Support')) return [];
+        $base = wp_normalize_path(TIX_Support::private_base() . '/mail-log/');
+        $files = [];
+        foreach ($att as $a) {
+            $f = wp_normalize_path((string) ($a['file'] ?? ''));
+            if ($f !== '' && strpos($f, $base) === 0 && strpos($f, '..') === false && TIX_Support::path_allowed($f) && @is_file($f)) $files[] = $f;
+        }
+        return $files;
+    }
 
-        ob_start();
-        ?>
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:24px 0 8px;">
-    <tr><td align="center" style="padding:18px 16px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;">
-        <p style="margin:0 0 12px;font-size:13px;color:#475569;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">War diese E-Mail hilfreich?</p>
-        <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 auto;">
-            <tr>
-                <td style="padding:0 6px;"><a href="<?php echo $url_yes; ?>" target="_blank" style="display:inline-block;padding:8px 16px;background:#dcfce7;color:#15803d;border:1px solid #86efac;border-radius:8px;text-decoration:none;font-size:13px;font-weight:600;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">👍 Ja, hilfreich</a></td>
-                <td style="padding:0 6px;"><a href="<?php echo $url_no; ?>" target="_blank" style="display:inline-block;padding:8px 16px;background:#fee2e2;color:#b91c1c;border:1px solid #fca5a5;border-radius:8px;text-decoration:none;font-size:13px;font-weight:600;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">👎 Nein</a></td>
-                <td style="padding:0 6px;"><a href="<?php echo $url_more; ?>" target="_blank" style="display:inline-block;padding:8px 16px;background:#fef3c7;color:#92400e;border:1px solid #fde68a;border-radius:8px;text-decoration:none;font-size:13px;font-weight:600;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">💬 Brauche mehr Hilfe</a></td>
-            </tr>
-        </table>
-    </td></tr>
-</table>
-        <?php
-        return ob_get_clean();
+    private static function delete_attachments($log) {
+        foreach (self::stored_attachments($log) as $f) {
+            @unlink($f);
+            @rmdir(dirname($f));
+        }
     }
 
     public static function get_pixel_url($token) {
@@ -478,6 +482,10 @@ class TIX_Email_Log {
         $t = self::table_name();
         $s = function_exists('tix_get_settings') ? tix_get_settings() : [];
         $days = max(7, intval($s['email_log_days'] ?? 90));
+        if (self::table_has_tracking_columns() && $wpdb->get_var("SHOW COLUMNS FROM $t LIKE 'attachments'")) {
+            $old = $wpdb->get_results($wpdb->prepare("SELECT id, attachments FROM $t WHERE attachments IS NOT NULL AND attachments <> '' AND date_created < DATE_SUB(NOW(), INTERVAL %d DAY)", $days));
+            foreach ((array) $old as $row) self::delete_attachments($row);
+        }
         $wpdb->query($wpdb->prepare(
             "DELETE FROM $t WHERE date_created < DATE_SUB(NOW(), INTERVAL %d DAY)",
             $days
@@ -872,9 +880,12 @@ class TIX_Email_Log {
             $headers = ['Content-Type: text/html; charset=UTF-8'];
         }
 
-        $result = wp_mail($log->to_email, $log->subject, $log->body, $headers);
+        // Alten Zähl-Pixel entfernen (die neue Mail bekommt einen eigenen), Anhänge wieder mitschicken
+        $body = preg_replace('#<img[^>]+/mail-pixel/[^>]+>#i', '', (string) $log->body);
+        $files = self::stored_attachments($log);
+        $result = wp_mail($log->to_email, $log->subject, $body, $headers, $files);
 
-        wp_send_json_success(['sent' => $result]);
+        wp_send_json_success(['sent' => $result, 'attachments' => count($files)]);
     }
 
     public static function ajax_delete() {
@@ -887,6 +898,8 @@ class TIX_Email_Log {
         $t = self::table_name();
         $log_id = intval($_POST['log_id'] ?? 0);
 
+        $log = $wpdb->get_row($wpdb->prepare("SELECT * FROM $t WHERE id = %d", $log_id));
+        if ($log) self::delete_attachments($log);
         $wpdb->delete($t, ['id' => $log_id]);
         wp_send_json_success();
     }

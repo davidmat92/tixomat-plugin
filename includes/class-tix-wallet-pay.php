@@ -125,10 +125,12 @@ class TIX_Wallet_Pay {
         $u = get_userdata(intval($d['user_id']));
         if (!$u || !is_email($u->user_email)) return false;
         $site = html_entity_decode(get_bloginfo('name'), ENT_QUOTES, 'UTF-8');
-        $body = '<p>Hallo,</p><p>ein neues Gerät möchte mit deinem Guthaben bezahlen' . ($d['name'] !== '' ? ' („' . esc_html($d['name']) . '“)' : '') . '. Mit diesem Code bestätigst du es in der App:</p>'
-            . '<p style="text-align:center;margin:28px 0;"><span style="display:inline-block;padding:16px 28px;background:#131020;color:#ffffff;border-radius:12px;font-family:Menlo,Consolas,monospace;font-size:32px;font-weight:700;letter-spacing:10px;">' . esc_html($code) . '</span></p>'
-            . '<p style="color:#64748b;font-size:13px;">Der Code ist <strong>15 Minuten</strong> gültig. Warst du das nicht? Dann ignoriere diese E-Mail – ohne Code kann das Gerät nicht bezahlen.</p>';
-        $html = class_exists('TIX_Emails') ? TIX_Emails::build_generic_email_html('Neues Gerät bestätigen', $body, $site . ' App') : '<html><body>' . $body . '</body></html>';
+        $m = ['title' => 'Neues Gerät bestätigen', 'subtitle' => $site . ' App', 'kind' => 'account', 'blocks' => [
+            ['type' => 'text', 'html' => 'Hallo,<br>ein neues Gerät möchte mit deinem Guthaben bezahlen' . ($d['name'] !== '' ? ' („' . esc_html($d['name']) . '“)' : '') . '. Mit diesem Code bestätigst du es in der App:'],
+            ['type' => 'code', 'value' => (string) $code, 'hint' => 'Gültig für 15 Minuten'],
+            ['type' => 'notice', 'tone' => 'info', 'html' => 'Warst du das nicht? Dann ignoriere diese E-Mail – ohne Code kann das Gerät nicht bezahlen.'],
+        ]];
+        $html = class_exists('TIX_Mail_Layout') ? TIX_Mail_Layout::render($m) : '<html><body><p>' . esc_html($code) . '</p></body></html>';
         $subject = 'Neues Gerät für dein Guthaben – ' . $site;
         return class_exists('TIX_Customer_URL') ? TIX_Customer_URL::mail($u->user_email, $subject, $html, ['Content-Type: text/html; charset=UTF-8']) : wp_mail($u->user_email, $subject, $html, ['Content-Type: text/html; charset=UTF-8']);
     }

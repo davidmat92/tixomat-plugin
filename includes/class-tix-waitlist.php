@@ -140,7 +140,7 @@ class TIX_Waitlist {
             $url   = get_permalink($event_id);
 
             foreach ($entries as $entry) {
-                self::send_notification($entry->email, $title, $url, 'presale');
+                self::send_notification($entry->email, $title, $url, 'presale', $event_id);
             }
 
             // Mark all as notified
@@ -198,7 +198,7 @@ class TIX_Waitlist {
                     if ($already_bought) continue;
                 }
 
-                self::send_notification($entry->email, $title, $url, 'soldout');
+                self::send_notification($entry->email, $title, $url, 'soldout', $event_id);
             }
 
             // Mark as notified
@@ -244,34 +244,26 @@ class TIX_Waitlist {
     /**
      * Send notification email
      */
-    private static function send_notification($email, $event_title, $event_url, $type) {
-        $s = tix_get_settings();
-        $brand = !empty($s['email_brand_name']) ? $s['email_brand_name'] : get_bloginfo('name');
-
+    private static function send_notification($email, $event_title, $event_url, $type, $event_id = 0) {
+        // Seit 1.38.471 im Mail-Layout und mit dem Absender der Seite (vorher nacktes HTML-Fragment, Absender = Admin-Adresse)
+        $title = html_entity_decode((string) $event_title, ENT_QUOTES, 'UTF-8');
         if ($type === 'presale') {
-            $subject = 'Der Vorverkauf für ' . $event_title . ' hat begonnen!';
-            $body    = '<h2 style="margin:0 0 16px;">🎉 Der Vorverkauf ist gestartet!</h2>'
-                     . '<p>Der Ticketverkauf für <strong>' . esc_html($event_title) . '</strong> hat begonnen.</p>'
-                     . '<p style="margin:24px 0;"><a href="' . esc_url($event_url) . '" style="display:inline-block;padding:12px 28px;' . tix_btn_style() . 'text-decoration:none;font-weight:600;">Jetzt Tickets sichern</a></p>';
+            $subject = 'Der Vorverkauf für ' . $title . ' hat begonnen!';
+            $heading = 'Der Vorverkauf ist gestartet!';
+            $text    = 'Der Ticketverkauf für <strong>' . esc_html($title) . '</strong> hat begonnen.';
         } else {
-            $subject = 'Tickets für ' . $event_title . ' wieder verfügbar!';
-            $body    = '<h2 style="margin:0 0 16px;">🎫 Tickets wieder verfügbar!</h2>'
-                     . '<p>Gute Nachrichten! Für <strong>' . esc_html($event_title) . '</strong> sind wieder Tickets verfügbar.</p>'
-                     . '<p style="margin:24px 0;"><a href="' . esc_url($event_url) . '" style="display:inline-block;padding:12px 28px;' . tix_btn_style() . 'text-decoration:none;font-weight:600;">Jetzt Tickets sichern</a></p>';
+            $subject = 'Tickets für ' . $title . ' wieder verfügbar!';
+            $heading = 'Tickets wieder verfügbar!';
+            $text    = 'Gute Nachrichten! Für <strong>' . esc_html($title) . '</strong> sind wieder Tickets verfügbar.';
         }
-
-        // Use TIX_Emails template if available
-        if (class_exists('TIX_Emails') && method_exists('TIX_Emails', 'wrap_template')) {
-            $body = TIX_Emails::wrap_template($body, $s);
-        }
-
-        $headers = ['Content-Type: text/html; charset=UTF-8'];
-        if ($brand) {
-            $from = get_option('admin_email');
-            $headers[] = 'From: ' . $brand . ' <' . $from . '>';
-        }
-
-        TIX_Customer_URL::mail($email, $subject, $body, $headers);
+        $blocks = [['type' => 'text', 'html' => 'Hallo,<br>' . $text]];
+        if ($event_id && class_exists('TIX_Emails') && ($ev = TIX_Emails::event_block($event_id))) $blocks[] = $ev;
+        $blocks[] = ['type' => 'button', 'label' => 'Jetzt Tickets sichern', 'url' => $event_url];
+        $brand = class_exists('TIX_Mail_Layout') ? TIX_Mail_Layout::brand()['name'] : get_bloginfo('name');
+        $m = ['title' => $heading, 'blocks' => $blocks, 'kind' => 'customer',
+              'note' => 'Du bekommst diese E-Mail, weil du dich bei ' . $brand . ' für ' . $title . ' auf die Warteliste gesetzt hast.'];
+        if (class_exists('TIX_Mail_Layout')) return TIX_Mail_Layout::send($email, $subject, $m);
+        return TIX_Customer_URL::mail($email, $subject, '<p>' . $text . '</p>', ['Content-Type: text/html; charset=UTF-8']);
     }
 
     /* ════════════════════════════════════════

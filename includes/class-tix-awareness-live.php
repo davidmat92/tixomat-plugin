@@ -566,7 +566,16 @@ class TIX_Awareness_Live {
         $to = [function_exists('tix_get_settings') && is_email((string) tix_get_settings('support_email')) ? (string) tix_get_settings('support_email') : (string) get_option('admin_email')];
         $oid = intval($meta['_tix_sp_organizer_id']);
         if ($oid && is_email((string) get_post_meta($oid, '_tix_org_email', true))) $to[] = (string) get_post_meta($oid, '_tix_org_email', true);
-        wp_mail(array_unique($to), 'Neue Awareness-Meldung', "Es ist eine neue Awareness-Meldung eingegangen" . ($eid ? ' (Event: ' . html_entity_decode(get_the_title($eid), ENT_QUOTES, 'UTF-8') . ')' : '') . ".\nDen Inhalt siehst du angemeldet im Veranstalter-Bereich bzw. unter Tixomat → Support.");
+        // Je Empfänger eine eigene Mail (Adressen nicht gegenseitig sichtbar), im Mail-Layout, ohne festen Produktnamen (1.38.471)
+        $ev_t = $eid ? html_entity_decode(get_the_title($eid), ENT_QUOTES, 'UTF-8') : '';
+        foreach (array_unique($to) as $rcpt) {
+            $m = ['title' => 'Neue Awareness-Meldung', 'subtitle' => $ev_t, 'kind' => 'admin', 'blocks' => [
+                ['type' => 'notice', 'tone' => 'warn', 'html' => 'Es ist eine neue Awareness-Meldung eingegangen' . ($ev_t !== '' ? ' (Event: ' . esc_html($ev_t) . ')' : '') . '.'],
+                ['type' => 'text', 'html' => 'Den Inhalt siehst du angemeldet im Veranstalter-Bereich bzw. in der Verwaltung unter Support.'],
+            ]];
+            if (class_exists('TIX_Mail_Layout')) TIX_Mail_Layout::send($rcpt, 'Neue Awareness-Meldung', $m, ['customer' => false]);
+            else wp_mail($rcpt, 'Neue Awareness-Meldung', "Es ist eine neue Awareness-Meldung eingegangen.");
+        }
         return intval($post_id);
     }
 
