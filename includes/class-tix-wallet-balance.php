@@ -673,7 +673,7 @@ class TIX_Wallet_Balance {
             if ($bonus > 0) self::post_tx($w['id'], ['type' => 'bonus', 'amount_bonus' => $bonus, 'order_id' => $order_id, 'ref_tx_id' => intval($tx['id']), 'channel' => 'app', 'idempotency_key' => 'order:' . $order_id . ':bonus:' . $t['item_id'], 'allow_locked' => true]);
             self::note($order_id, '💳 Guthaben gutgeschrieben: ' . self::fmt($amount) . ($bonus ? ' + ' . self::fmt($bonus) . ' Bonus' : '') . ' (Geldbörse #' . $w['id'] . ').');
             if (class_exists('TIX_Notifications')) {
-                TIX_Notifications::add_user_item($uid, 'Guthaben aufgeladen', 'Guthaben aufgeladen: ' . self::fmt($amount) . ($bonus ? ' + ' . self::fmt($bonus) . ' Bonus' : ''), ['type' => 'wallet', 'action' => 'wallet']);
+                TIX_Notifications::add_user_item($uid, 'Guthaben aufgeladen', self::fmt($amount + $bonus) . ' sind jetzt auf deinem Konto' . ($bonus ? ' (inkl. ' . self::fmt($bonus) . ' Bonus)' : '') . '.', ['type' => 'wallet', 'action' => 'wallet']);
             }
         }
     }
@@ -989,9 +989,37 @@ class TIX_Wallet_Balance {
         return $map[$type] ?? $type;
     }
 
+    /** Bestellnummer und erstes Event einer Bestellung (ohne Guthaben-Event) für den Verlauf. */
+    private static function order_ref($order_id) {
+        static $cache = [];
+        $order_id = intval($order_id);
+        if (!$order_id) return ['number' => null, 'event_id' => null, 'event_title' => null];
+        if (isset($cache[$order_id])) return $cache[$order_id];
+        global $wpdb;
+        $num = (string) $wpdb->get_var($wpdb->prepare("SELECT order_number FROM {$wpdb->prefix}tix_orders WHERE id = %d", $order_id));
+        $eids = (array) $wpdb->get_col($wpdb->prepare("SELECT event_id FROM {$wpdb->prefix}tix_order_items WHERE order_id = %d ORDER BY id", $order_id));
+        $eid = 0;
+        foreach ($eids as $e) { if (intval($e) && !self::is_wallet_event(intval($e))) { $eid = intval($e); break; } }
+        return $cache[$order_id] = ['number' => $num !== '' ? $num : (string) $order_id, 'event_id' => $eid ?: null,
+            'event_title' => $eid ? html_entity_decode(get_the_title($eid), ENT_QUOTES, 'UTF-8') : null];
+    }
+
     public static function tx_payload(array $tx, $for_staff = false) {
         $a = intval($tx['amount_paid']) + intval($tx['amount_bonus']);
         $title = ($tx['channel'] ?? '') === 'giftcard' && $tx['type'] === 'topup' ? 'Gutschein eingelöst' : self::type_title($tx['type'], $a);
+        // Verlauf (1.38.476): Bezug (Bestellung/Event bzw. Station/Veranstalter) und klarere Titel
+        $ref = self::order_ref($tx['order_id'] ?? 0);
+        $ch_names = ['pos_cash' => 'Kasse', 'pos_card' => 'Kasse', 'sumup' => 'Kasse', 'app' => 'App', 'web' => 'Web', 'admin' => 'Verwaltung', 'system' => 'System', 'giftcard' => 'Gutschein'];
+        if ($tx['type'] === 'charge') $title = $ref['number'] ? 'Ticketkauf' : 'Bezahlt';
+        if ($tx['type'] === 'topup' && ($tx['channel'] ?? '') !== 'giftcard' && $ref['number']) $title = 'Aufgeladen';
+        $org_name = intval($tx['organizer_id'] ?? 0) ? html_entity_decode(get_the_title(intval($tx['organizer_id'])), ENT_QUOTES, 'UTF-8') : '';
+        if ($ref['number']) $sub = trim(($ref['event_title'] ? $ref['event_title'] . ' · ' : '') . 'Bestellung ' . $ref['number']);
+        else {
+            $m0 = !empty($tx['meta']) ? json_decode((string) $tx['meta'], true) : [];
+            $sub = trim(implode(' · ', array_filter([(string) ($tx['station'] ?? ''), $org_name])));
+            if ($sub === '' && !empty($m0['reason'])) $sub = (string) $m0['reason'];
+            if ($sub === '') $sub = $ch_names[$tx['channel'] ?? ''] ?? '';
+        }
         $out = [
             'id' => intval($tx['id']), 'type' => (string) $tx['type'], 'title' => $title,
             'amount' => self::euro($a), 'amount_paid' => self::euro($tx['amount_paid']), 'amount_bonus' => self::euro($tx['amount_bonus']),
@@ -1001,6 +1029,11 @@ class TIX_Wallet_Balance {
             'organizer_id' => intval($tx['organizer_id'] ?? 0) ?: null,
             'organizer_name' => intval($tx['organizer_id'] ?? 0) ? html_entity_decode(get_the_title(intval($tx['organizer_id'])), ENT_QUOTES, 'UTF-8') : null,
             'created_at' => mysql2date('c', get_date_from_gmt($tx['created']), false),
+            'subtitle' => $sub !== '' ? $sub : null,
+            'direction' => $a >= 0 ? 'in' : 'out',
+            'order_number' => $ref['number'],
+            'event_id' => $ref['event_id'],
+            'event_title' => $ref['event_title'],
         ];
         if ($for_staff) {
             $out['staff_user_id'] = intval($tx['staff_user_id']);
@@ -1060,6 +1093,7 @@ class TIX_Wallet_Balance {
         $reg('/wallet/config', 'GET', 'rest_config', '__return_true');
         $reg('/wallet', 'GET', 'rest_wallets', $login);
         $reg('/wallet/(?P<id>\d+)/tx', 'GET', 'rest_tx', $login);
+        $reg('/wallet/me/tx', 'GET', 'rest_my_tx', $login);
         $reg('/wallet/admin/config', 'GET', 'rest_admin_config', [__CLASS__, 'check_staff']);
         $reg('/wallet/admin/config', 'POST', 'rest_admin_save', [__CLASS__, 'check_manager']);
         $reg('/wallet/admin/report', 'GET', 'rest_report', [__CLASS__, 'check_report']);
@@ -1128,6 +1162,28 @@ class TIX_Wallet_Balance {
         $more = count($rows) > self::PER_PAGE;
         $tx = array_map(function ($r) { return self::tx_payload($r); }, array_slice((array) $rows, 0, self::PER_PAGE));
         return self::out(['ok' => true, 'wallet' => self::wallet_payload($w), 'page' => $page, 'per_page' => self::PER_PAGE, 'has_more' => $more, 'tx' => $tx]);
+    }
+
+    /**
+     * GET /wallet/me/tx?page=&organizer= (1.38.476) – Verlauf über alle eigenen Geldbörsen (bzw. einen Bereich),
+     * neueste zuerst, seitenweise: {ok, page, per_page, has_more, balance, tx: [...]}.
+     */
+    public static function rest_my_tx(WP_REST_Request $req) {
+        global $wpdb;
+        $uid = get_current_user_id();
+        $page = max(1, intval($req->get_param('page') ?: 1));
+        if (!self::ready()) return self::out(['ok' => true, 'page' => $page, 'per_page' => self::PER_PAGE, 'has_more' => false, 'balance' => 0.0, 'tx' => []]);
+        $filter = $req->get_param('organizer') !== null || $req->get_param('organizer_id') !== null;
+        $oid = self::org_param($req);
+        $ws = (array) $wpdb->get_results($wpdb->prepare("SELECT * FROM " . self::t('wallets') . " WHERE user_id = %d" . ($filter ? $wpdb->prepare(' AND organizer_id = %d', $oid) : ''), $uid), ARRAY_A);
+        $ids = array_map('intval', array_column($ws, 'id'));
+        $bal = 0; foreach ($ws as $w) $bal += intval($w['balance_paid']) + intval($w['balance_bonus']);
+        if (!$ids) return self::out(['ok' => true, 'page' => $page, 'per_page' => self::PER_PAGE, 'has_more' => false, 'balance' => 0.0, 'tx' => []]);
+        $in = implode(',', $ids);
+        $rows = $wpdb->get_results($wpdb->prepare("SELECT * FROM " . self::t('wallet_tx') . " WHERE wallet_id IN ($in) ORDER BY id DESC LIMIT %d OFFSET %d", self::PER_PAGE + 1, ($page - 1) * self::PER_PAGE), ARRAY_A);
+        $more = count((array) $rows) > self::PER_PAGE;
+        $tx = array_map(function ($r) { return self::tx_payload($r) + ['wallet_id' => intval($r['wallet_id'])]; }, array_slice((array) $rows, 0, self::PER_PAGE));
+        return self::out(['ok' => true, 'page' => $page, 'per_page' => self::PER_PAGE, 'has_more' => $more, 'balance' => self::euro($bal), 'tx' => $tx]);
     }
 
     /** Personal: Recht tix_app_wallet_charge (Admin, Personal, Veranstalter); Mehr-Veranstalter-Modus mit Veranstalter. */

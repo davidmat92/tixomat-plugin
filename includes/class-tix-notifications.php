@@ -455,6 +455,14 @@ class TIX_Notifications {
         if (get_user_meta($uid, $flag, true)) return;
         update_user_meta($uid, $flag, time());
 
+        // System-Events (1.38.476): Guthaben-Aufladung meldet TIX_Wallet_Balance selbst („Guthaben aufgeladen“),
+        // reine Gutschein-Käufe bekommen „Dein Gutschein ist da“ – nie „Deine Tickets liegen in der App“.
+        $kind = class_exists('TIX_Emails') && method_exists('TIX_Emails', 'order_kind') ? TIX_Emails::order_kind($order) : 'tickets';
+        if ($kind === 'topup') return;
+        if ($kind === 'giftcard') {
+            self::add_user_item($uid, 'Dein Gutschein ist da', 'Den Gutschein-Code findest du in der Bestätigung und unter Gutscheine in der App.', ['type' => 'giftcard', 'action' => 'giftcards']);
+            return;
+        }
         self::add_user_item(
             $uid,
             'Deine Tickets liegen in der App',

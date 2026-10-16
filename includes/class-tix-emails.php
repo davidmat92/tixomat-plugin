@@ -183,6 +183,25 @@ class TIX_Emails {
     // ══════════════════════════════════════
 
     /**
+     * Art einer Bestellung (1.38.476): 'topup' (nur Guthaben-Aufladung), 'giftcard' (nur Gutscheine) oder 'tickets'.
+     * Bestellungen auf System-Events bekommen keine Ticket-Texte („Deine Tickets …“).
+     */
+    public static function order_kind($order) {
+        if (!is_object($order) && class_exists('TIX_Order')) $order = TIX_Order::get(intval($order));
+        if (!is_object($order)) return 'tickets';
+        $kinds = [];
+        foreach ((array) $order->get_items() as $item) {
+            $eid = method_exists($item, 'get_event_id') ? intval($item->get_event_id()) : 0;
+            if (!$eid) $eid = intval(get_post_meta($item->get_product_id(), '_tix_parent_event_id', true));
+            if ($eid && class_exists('TIX_Wallet_Balance') && TIX_Wallet_Balance::is_wallet_event($eid)) $kinds['topup'] = true;
+            elseif ($eid && get_post_meta($eid, '_tix_system_giftcard_event', true) === '1') $kinds['giftcard'] = true;
+            else $kinds['tickets'] = true;
+        }
+        if (!$kinds || isset($kinds['tickets'])) return 'tickets';
+        return isset($kinds['topup']) && !isset($kinds['giftcard']) ? 'topup' : (isset($kinds['giftcard']) && !isset($kinds['topup']) ? 'giftcard' : 'tickets');
+    }
+
+    /**
      * Baut den kompletten HTML-Body einer Bestell-Mail (seit 1.38.471 im einheitlichen TIX_Mail_Layout).
      * $extra_content: HTML (wird angeglichen) oder Liste von Layout-Bausteinen (z. B. Gutscheine, Erinnerung).
      */
@@ -195,6 +214,8 @@ class TIX_Emails {
             $headings = [
                 'order_confirmation' => 'Bestellbestätigung',
                 'order_complete'     => 'Deine Tickets sind bereit!',
+                'topup_complete'     => 'Guthaben aufgeladen',
+                'giftcard_complete'  => 'Dein Gutschein ist da',
                 'admin_new_order'    => 'Neue Bestellung',
                 'admin_failed_order' => 'Bestellung fehlgeschlagen',
                 'cancelled'          => 'Bestellung storniert',
@@ -212,7 +233,7 @@ class TIX_Emails {
         $created_ts = $created instanceof DateTimeInterface ? $created->getTimestamp() : (is_object($created) && method_exists($created, 'getTimestamp') ? $created->getTimestamp() : strtotime((string) $created));
         $number = method_exists($order, 'get_order_number') ? $order->get_order_number() : $order_id;
         $subtitle = '';
-        if (in_array($type, ['order_confirmation', 'order_complete', 'admin_new_order', 'admin_failed_order', 'on_hold', 'invoice', 'customer_note'], true)) {
+        if (in_array($type, ['order_confirmation', 'order_complete', 'topup_complete', 'giftcard_complete', 'admin_new_order', 'admin_failed_order', 'on_hold', 'invoice', 'customer_note'], true)) {
             $subtitle = 'Bestellung #' . $number . ($created_ts ? ' · ' . date_i18n('d.m.Y, H:i', $created_ts) : '');
         } elseif ($type === 'cancelled') {
             $subtitle = 'Bestellung #' . $number . ' wurde storniert.';
@@ -232,6 +253,8 @@ class TIX_Emails {
             'cancelled'          => 'deine Bestellung wurde storniert. Bereits erstellte Tickets sind damit ungültig.',
             'refunded'           => 'deine Erstattung ist bestätigt. Der Betrag geht über die ursprüngliche Zahlart an dich zurück.',
             'invoice'            => 'hier ist die Rechnung zu deiner Bestellung.',
+            'topup_complete'     => 'danke! Dein Guthaben ist aufgeladen: <strong>' . esc_html(html_entity_decode(wp_strip_all_tags($order->get_formatted_order_total()), ENT_QUOTES, 'UTF-8')) . '</strong> sind jetzt auf deinem Konto. Du kannst damit in der App bezahlen.',
+            'giftcard_complete'  => 'danke für deine Bestellung! Dein Gutschein ist da – den Code findest du unten.',
         ];
         if (!$admin && isset($intro[$type])) $blocks[] = ['type' => 'text', 'html' => 'Hallo' . ($first !== '' ? ' ' . esc_html($first) : '') . ',<br>' . $intro[$type]];
 
@@ -288,7 +311,7 @@ class TIX_Emails {
         elseif ($extra_content) $blocks[] = ['type' => 'html', 'html' => $extra_content];
 
         // Bestellübersicht
-        if (in_array($type, ['order_confirmation', 'order_complete', 'admin_new_order', 'admin_failed_order', 'on_hold', 'cancelled', 'refunded', 'invoice', 'customer_note'], true)) {
+        if (in_array($type, ['order_confirmation', 'order_complete', 'topup_complete', 'giftcard_complete', 'admin_new_order', 'admin_failed_order', 'on_hold', 'cancelled', 'refunded', 'invoice', 'customer_note'], true)) {
             $tb = self::order_table_block($order, count($event_ids) > 1);
             if ($tb) $blocks[] = $tb;
         }
@@ -296,7 +319,7 @@ class TIX_Emails {
             $split = TIX_Group_Booking::render_cost_split_html($order);
             if ($split) $blocks[] = ['type' => 'html', 'html' => $split];
         }
-        if (!$admin && in_array($type, ['order_confirmation', 'order_complete', 'on_hold'], true)) {
+        if (!$admin && in_array($type, ['order_confirmation', 'order_complete', 'topup_complete', 'giftcard_complete', 'on_hold'], true)) {
             $blocks[] = ['type' => 'info', 'title' => 'Bestellung', 'rows' => array_values(array_filter([
                 ['Bestellnummer', '#' . esc_html($number)],
                 $created_ts ? ['Datum', date_i18n('d.m.Y, H:i', $created_ts)] : null,
@@ -810,11 +833,14 @@ class TIX_Emails {
             if ($gift) update_post_meta($order_id, '_tix_gift_mail_sent', current_time('mysql'));
         }
 
-        // Customer confirmation
-        $html = self::build_email_html('order_complete', $order, 'Deine Tickets sind bereit!', $gift ? ($gift['blocks'] ?? $gift['html']) : '');
+        // Customer confirmation – Guthaben-Aufladung bzw. reiner Gutschein-Kauf ohne Ticket-Texte (1.38.476)
+        $kind = self::order_kind($order);
+        $ctype = $kind === 'topup' ? 'topup_complete' : ($kind === 'giftcard' ? 'giftcard_complete' : 'order_complete');
+        $chead = $kind === 'topup' ? 'Guthaben aufgeladen' : ($kind === 'giftcard' ? 'Dein Gutschein ist da' : 'Deine Tickets sind bereit!');
+        $html = self::build_email_html($ctype, $order, $chead, $gift ? ($gift['blocks'] ?? $gift['html']) : '');
         self::send_html_mail(
             $order->get_billing_email(),
-            $brand_name . ' – Deine Tickets sind bereit!',
+            $brand_name . ' – ' . $chead,
             $html,
             true,
             $gift ? $gift['files'] : []

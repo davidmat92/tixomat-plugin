@@ -1255,12 +1255,21 @@ class TIX_App_Checkout {
             if ($topup) $resp['wallet_topup'] = TIX_Wallet_Balance::quote_info($cart);
             $resp['totals']          = $t;
             $resp['payment_methods'] = self::payment_methods($t['total'] <= 0);
-            // Mit Guthaben bezahlen (1.38.436): erst Gutschein (in totals), dann Guthaben; Rest normal
-            if (class_exists('TIX_Wallet_Balance') && filter_var($req->get_param('use_wallet'), FILTER_VALIDATE_BOOLEAN)) {
-                $resp['wallet'] = TIX_Wallet_Balance::checkout_info($user, $cart, $t['total']);
-                if ($resp['wallet']['applied'] > 0 && $resp['wallet']['rest'] <= 0) {
+            // Mit Guthaben bezahlen (1.38.436): erst Gutschein (in totals), dann Guthaben; Rest normal.
+            // Seit 1.38.476 kommt `wallet` bei angemeldeten Kunden immer mit (auch ohne use_wallet), damit die App
+            // „Guthaben nutzen (x €)“ anbieten kann: selected = use_wallet, can_apply = möglicher Anteil, applied/rest wirksam.
+            if (class_exists('TIX_Wallet_Balance') && $user && !$topup && !self::$partner) {
+                $use = filter_var($req->get_param('use_wallet'), FILTER_VALIDATE_BOOLEAN);
+                $w = TIX_Wallet_Balance::checkout_info($user, $cart, $t['total']);
+                $w['can_apply'] = $w['applied'];
+                $w['selected'] = $use && $w['applied'] > 0;
+                if (!$use) { $w['applied'] = 0.0; $w['rest'] = round(floatval($t['total']), 2); }
+                $resp['wallet'] = $w;
+                if ($w['selected'] && $w['rest'] <= 0) {
                     $resp['payment_methods'] = [['id' => 'wallet', 'title' => 'Guthaben', 'icon' => '']];
                 }
+            } elseif (class_exists('TIX_Wallet_Balance') && filter_var($req->get_param('use_wallet'), FILTER_VALIDATE_BOOLEAN)) {
+                $resp['wallet'] = TIX_Wallet_Balance::checkout_info($user, $cart, $t['total']) + ['can_apply' => 0.0, 'selected' => false];
             }
             $resp['coupon'] = [
                 'code'     => (string) ($cart['coupon']['code'] ?? $coupon),
