@@ -130,6 +130,7 @@ class TIX_App_Events {
                 'id'      => $p->ID,
                 'title'   => (string) $p->post_title,
                 'address' => (string) get_post_meta($p->ID, '_tix_loc_address', true),
+                'city'    => (string) get_post_meta($p->ID, '_tix_loc_city', true),
             ];
         }
         return $out;
@@ -292,7 +293,7 @@ class TIX_App_Events {
             'muttizettel_note'    => (string) get_post_meta($id, '_tix_muttizettel_note', true),
             // „Musik hören“: Künstler-Links wie im Event-Detail (source auto|manual|none) + auto = automatische Treffer
             'lineup_links'        => class_exists('TIX_Lineup_Links') ? TIX_Lineup_Links::for_event($id, true) : [],
-        ] + ((class_exists('TIX_Contract') && TIX_Contract::multi()) ? [
+        ] + (class_exists('TIX_Studio_Editor') ? TIX_Studio_Editor::payload($id) : []) + ((class_exists('TIX_Contract') && TIX_Contract::multi()) ? [
             // Hinweis beim ersten Online-Verkauf (evendis): {version, title, url, text} oder null – ohne Häkchen
             'contract_notice'     => TIX_Contract::first_sale_notice($id),
         ] : []) + ((class_exists('TIX_Event_Facts') && TIX_Event_Facts::multi()) ? TIX_Event_Facts::editor_payload($id) : []);
@@ -392,6 +393,9 @@ class TIX_App_Events {
         // Pakete und Mengenrabatt vorab prüfen (vor allen Änderungen)
         $pricing = self::check_pricing($body);
         if (is_wp_error($pricing)) return $pricing;
+        // Studio Stufe 3 (Programm, Restbestand, Übertragung, Sponsor …) vorab prüfen
+        $studio = class_exists('TIX_Studio_Editor') ? TIX_Studio_Editor::check($body, $is_new ? 0 : $post_id) : [];
+        if (is_wp_error($studio)) return $studio;
 
         // Sparte zuerst prüfen (Slug oder ID; '' entfernt sie; `category` als Alias) – vor allen Änderungen
         $cat_term = null;
@@ -540,6 +544,9 @@ class TIX_App_Events {
             }
             TIX_Awareness::flush();
         }
+        // ── Studio Stufe 3 (vorab geprüft) ──
+        if ($studio) TIX_Studio_Editor::apply($post_id, $studio);
+
         // ── Mengenrabatt (vorab geprüft; null = aus) ──
         if (array_key_exists('group_discount', $pricing)) {
             if ($pricing['group_discount'] === null) delete_post_meta($post_id, '_tix_group_discount');
