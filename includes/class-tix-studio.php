@@ -245,6 +245,15 @@ class TIX_Studio {
         return '#FC2F55';
     }
 
+    /** Selbst gesetzte Marke: {accent: Hex|null, logo: URL|null}. */
+    private static function custom_brand() {
+        $b = self::brand();
+        $id = intval($b['logo_id'] ?? 0);
+        $logo = $id ? (wp_get_attachment_image_url($id, 'medium') ?: wp_get_attachment_url($id)) : '';
+        $acc = self::hex($b['accent'] ?? '');
+        return ['accent' => $acc !== '' ? $acc : null, 'logo' => $logo ? (string) $logo : null];
+    }
+
     /** Logo: gespeichert › Custom Logo des Themes › Logo der Verwaltung/Anmeldung › Website-Icon. */
     public static function logo() {
         $id = intval(self::brand()['logo_id'] ?? 0);
@@ -263,6 +272,8 @@ class TIX_Studio {
             'name'       => html_entity_decode(get_bloginfo('name'), ENT_QUOTES, 'UTF-8') . ' Studio',
             'accent'     => self::accent(),
             'logo'       => self::logo(),
+            // Im Studio gesetzte Werte (null = nur Rückfall, z. B. Website-Icon) – 1.38.446
+            'custom'     => self::custom_brand(),
             'profile'    => $multi ? 'platform' : 'single',
             'features'   => [
                 'register'  => $multi && class_exists('TIX_Register_API'),
