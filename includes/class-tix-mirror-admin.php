@@ -195,8 +195,10 @@ class TIX_Mirror_Admin {
                             <?php if ($s['key'] !== '') : ?><label style="margin-left:8px"><input type="checkbox" name="key_clear" value="1"> entfernen</label><?php endif; ?>
                             <p class="description">Nur der Server kennt ihn. Besser in wp-config: <code>define('TIX_MIRROR_URL', …); define('TIX_MIRROR_KEY', …);</code></p>
                         <?php endif; ?></td></tr>
-                    <tr><th>Kennung der Seite</th><td><input type="text" name="site" value="<?php echo esc_attr($s['site']); ?>" class="regular-text" placeholder="<?php echo esc_attr(TIX_Mirror::site()); ?>">
-                        <p class="description">Leer = Domain. Nur ändern, wenn die Seite umzieht und ihre Daten unter der alten Kennung bleiben sollen.</p></td></tr>
+                    <tr><th>Kennung der Seite</th><td>
+                        <?php if (defined('TIX_MIRROR_SITE') && trim((string) TIX_MIRROR_SITE) !== '') : ?><code><?php echo esc_html(TIX_Mirror::site()); ?></code> <span class="description">(aus wp-config, TIX_MIRROR_SITE)</span><input type="hidden" name="site" value="<?php echo esc_attr($s['site']); ?>">
+                        <?php else : ?><input type="text" name="site" value="<?php echo esc_attr($s['site']); ?>" class="regular-text" placeholder="<?php echo esc_attr(TIX_Mirror::site()); ?>">
+                        <p class="description">Leer = Domain. Fest einstellen (oder TIX_MIRROR_SITE in wp-config), damit ein Domain-Wechsel keine zweite Seite im Spiegel anlegt. Umbenennen nur zusammen mit dem Spiegel (supabase/tools/kennung-*.sql).</p><?php endif; ?></td></tr>
                     <tr><th>Verlauf aufbewahren</th><td><input type="number" name="log_years" min="0.1" step="0.1" value="<?php echo esc_attr(round(TIX_Mirror::log_days() / 365.25, 1)); ?>" style="width:90px"> Jahre
                         <p class="description">Änderungsprotokoll im Spiegel; Älteres kürzt der tägliche Abgleich. Entscheidung: 10 Jahre (wie Buchhaltung).</p></td></tr>
                     <tr><th>Alarm an</th><td><input type="email" name="alert_email" value="<?php echo esc_attr($s['alert_email']); ?>" class="regular-text" placeholder="<?php echo esc_attr(get_option('admin_email')); ?>">

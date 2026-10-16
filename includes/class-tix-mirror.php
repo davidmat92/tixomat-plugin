@@ -95,6 +95,8 @@ class TIX_Mirror {
 
     /** Kennung der Seite im Spiegel, z. B. "kitchenklub.de". */
     public static function site() {
+        // Feste Kennung aus wp-config hat Vorrang (überlebt Domain-Wechsel und Datenbank-Umzüge)
+        if (defined('TIX_MIRROR_SITE') && trim((string) TIX_MIRROR_SITE) !== '') return strtolower(trim((string) TIX_MIRROR_SITE));
         $s = (string) (self::settings()['site'] ?? '');
         if ($s !== '') return $s;
         $host = (string) wp_parse_url(home_url(), PHP_URL_HOST);
