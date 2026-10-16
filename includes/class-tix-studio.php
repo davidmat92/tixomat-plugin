@@ -273,6 +273,59 @@ class TIX_Studio {
         return ['id' => $id, 'url' => $url, 'url_small' => (string) (wp_get_attachment_image_url($id, 'medium') ?: $url)];
     }
 
+    // ── Mail-Marke (1.38.473): Kopf, Logos, Absender – Felder der Studio-Marke ──
+    const MAIL_KEYS = ['mail_header', 'mail_logo_id', 'mail_logo_on_color_id', 'mail_from', 'mail_from_name', 'mail_reply_to'];
+
+    /** Gespeicherte Mail-Felder (nur gesetzte). */
+    public static function mail_settings() {
+        return array_intersect_key(self::brand(), array_flip(self::MAIL_KEYS));
+    }
+
+    /** Mail-Teil für /studio/config: wirksame Werte + was selbst gesetzt ist. */
+    private static function mail_payload() {
+        if (!class_exists('TIX_Mail_Layout')) return null;
+        $m = TIX_Mail_Layout::brand();
+        $o = self::mail_settings();
+        return [
+            'header' => $m['header'] === 'accent' ? 'brand' : 'light',
+            'header_set' => isset($o['mail_header']) ? (string) $o['mail_header'] : null,
+            'logo' => $m['logo'] !== '' ? $m['logo'] : null,
+            'logo_custom' => !empty($o['mail_logo_id']),
+            'logo_on_color' => $m['logo_on_accent'] !== '' ? $m['logo_on_accent'] : null,
+            'from' => $m['from_email'], 'from_name' => $m['from_name'], 'reply_to' => $m['support_email'] !== '' ? $m['support_email'] : null,
+            'custom' => ['from' => $o['mail_from'] ?? null, 'from_name' => $o['mail_from_name'] ?? null, 'reply_to' => $o['mail_reply_to'] ?? null],
+        ];
+    }
+
+    /** Mail-Felder prüfen und in $b übernehmen ($in: Feld → Wert, null/'' = zurück auf Vorgabe). WP_Error oder neues $b. */
+    public static function apply_mail_fields(array $b, array $in) {
+        foreach ($in as $k => $v) {
+            $empty = $v === null || $v === '' || $v === 0 || $v === '0';
+            switch ($k) {
+                case 'mail_header':
+                    if ($empty) { unset($b[$k]); break; }
+                    if (!in_array($v, ['light', 'brand'], true)) return new WP_Error('tix_invalid_field', 'Kopf: light oder brand.', ['status' => 400, 'field' => $k]);
+                    $b[$k] = $v; break;
+                case 'mail_logo_id': case 'mail_logo_on_color_id':
+                    if ($empty) { unset($b[$k]); break; }
+                    $ok = self::check_logo_attachment(intval($v));
+                    if (is_wp_error($ok)) return new WP_Error($ok->get_error_code(), $ok->get_error_message(), ['status' => 400, 'field' => $k]);
+                    $b[$k] = intval($v); break;
+                case 'mail_from': case 'mail_reply_to':
+                    if ($empty) { unset($b[$k]); break; }
+                    $e = sanitize_email((string) $v);
+                    if (!is_email($e)) return new WP_Error('tix_invalid_field', 'Bitte eine gültige E-Mail-Adresse angeben.', ['status' => 400, 'field' => $k]);
+                    $b[$k] = $e; break;
+                case 'mail_from_name':
+                    if ($empty) { unset($b[$k]); break; }
+                    $b[$k] = mb_substr(trim(str_replace(['"', '<', '>', "\r", "\n"], '', sanitize_text_field((string) $v))), 0, 80);
+                    if ($b[$k] === '') unset($b[$k]);
+                    break;
+            }
+        }
+        return $b;
+    }
+
     /**
      * Platzhalter eines Events (1.38.465): geteiltes Event → Platzhalter der Ursprungsseite (`_tix_source_placeholder_id`),
      * Mehr-Veranstalter-Modus → Platzhalter des Veranstalters (`_tix_org_placeholder_id`), sonst der Seite. 0 = keiner.
@@ -369,7 +422,9 @@ class TIX_Studio {
             // Im Studio gesetzte Werte (null = nur Rückfall, z. B. Website-Icon) – 1.38.446
             'custom'     => self::custom_brand(),
             // 1.38.458: Marke gesammelt, mit Platzhalterbild für Events ohne Bild ({url, url_small} | null)
-            'brand'      => ['accent' => self::accent(), 'logo' => self::logo(), 'placeholder' => (function () { $p = self::placeholder(); return $p ? ['url' => $p['url'], 'url_small' => $p['url_small']] : null; })()],
+            'brand'      => ['accent' => self::accent(), 'logo' => self::logo(), 'placeholder' => (function () { $p = self::placeholder(); return $p ? ['url' => $p['url'], 'url_small' => $p['url_small']] : null; })(),
+                // 1.38.473: Mail-Marke (Kopf light|brand, Logos, Absender, Antworten an)
+                'mail' => self::mail_payload()],
             'profile'    => $multi ? 'platform' : 'single',
             'features'   => [
                 'register'  => $multi && class_exists('TIX_Register_API'),
@@ -521,7 +576,25 @@ class TIX_Studio {
             elseif (get_post_type($pid) !== 'attachment' || !wp_attachment_is_image($pid)) return new WP_Error('tix_invalid_field', 'Bild nicht gefunden.', ['status' => 400, 'field' => 'placeholder_id']);
             else $b['placeholder_id'] = $pid;
         }
-        $unknown = array_diff(array_keys((array) $p), ['accent', 'logo_id', 'logo', 'has_app', 'app_layout', 'placeholder_id', 'placeholder', 'syndicate_default', 'syndicate_default_partner_sales']);
+        // Mail-Marke (1.38.473): Logos als Datei (mail_logo, mail_logo_on_color) oder *_id, übrige Felder als Wert
+        foreach (['mail_logo' => 'mail_logo_id', 'mail_logo_on_color' => 'mail_logo_on_color_id'] as $fk => $ik) {
+            if (!empty($files[$fk]['error']) && intval($files[$fk]['error']) !== UPLOAD_ERR_NO_FILE && intval($files[$fk]['error']) !== UPLOAD_ERR_OK) {
+                return new WP_Error('tix_too_large', 'Das Logo konnte nicht hochgeladen werden (höchstens 2 MB).', ['status' => 413, 'field' => $fk]);
+            }
+            if (!empty($files[$fk]['tmp_name'])) {
+                $mid = self::store_logo($files[$fk]);
+                if (is_wp_error($mid)) return new WP_Error($mid->get_error_code(), $mid->get_error_message(), ['status' => 400, 'field' => $fk]);
+                $b[$ik] = intval($mid);
+            }
+        }
+        $mail_in = [];
+        foreach (self::MAIL_KEYS as $mk) if ($has($mk)) $mail_in[$mk] = $req->get_param($mk);
+        if ($mail_in) {
+            $nb = self::apply_mail_fields($b, $mail_in);
+            if (is_wp_error($nb)) return $nb;
+            $b = $nb;
+        }
+        $unknown = array_diff(array_keys((array) $p), array_merge(['accent', 'logo_id', 'logo', 'has_app', 'app_layout', 'placeholder_id', 'placeholder', 'syndicate_default', 'syndicate_default_partner_sales', 'mail_logo', 'mail_logo_on_color'], self::MAIL_KEYS));
         // Vorgabe „alle Events auf evendis teilen“ (1.38.465): true | false | null (nicht eingestellt)
         if ($has('syndicate_default') || $has('syndicate_default_partner_sales')) {
             $avail = class_exists('TIX_Syndication_Push') && TIX_Syndication_Push::is_configured() && !self::multi();
@@ -535,7 +608,7 @@ class TIX_Studio {
             if (!current_user_can('manage_options')) return new WP_Error('rest_forbidden', 'Nur ein Admin legt das Profil der App fest.', ['status' => 403]);
             if ($lv !== null && $lv !== '' && !in_array($lv, self::LAYOUTS, true)) return new WP_Error('tix_invalid_field', 'Profil: club, festival oder festivalTour.', ['status' => 400, 'field' => 'app_layout']);
         }
-        if ($unknown) return new WP_Error('tix_invalid_field', 'Nur Akzentfarbe, Logo und (Admin) has_app lassen sich hier ändern.', ['status' => 400, 'field' => (string) reset($unknown)]);
+        if ($unknown) return new WP_Error('tix_invalid_field', 'Nur Akzentfarbe, Logo, Mail-Marke und (Admin) has_app lassen sich hier ändern.', ['status' => 400, 'field' => (string) reset($unknown)]);
         // Eigene App übersteuern (nur Admin): true | false | null (automatisch)
         if ($has('has_app')) {
             if (!current_user_can('manage_options')) return new WP_Error('rest_forbidden', 'Nur ein Admin legt fest, ob die Seite eine eigene App hat.', ['status' => 403]);
@@ -556,6 +629,7 @@ class TIX_Studio {
             update_option(TIX_Syndication_Push::DEFAULT_SALES_OPT, filter_var($req->get_param('syndicate_default_partner_sales'), FILTER_VALIDATE_BOOLEAN) ? '1' : '0', false);
         }
         update_option(self::BRAND, $b, false);
+        if (class_exists('TIX_Mail_Layout')) TIX_Mail_Layout::flush();
         return rest_ensure_response(self::config_payload());
     }
 

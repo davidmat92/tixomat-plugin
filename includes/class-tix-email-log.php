@@ -311,14 +311,7 @@ class TIX_Email_Log {
         $pixel_url = self::get_pixel_url($token);
         $pixel = '<img src="' . esc_url($pixel_url) . '" alt="" width="1" height="1" style="display:block;width:1px;height:1px;border:0;outline:none;text-decoration:none;" />';
 
-        // Feedback „War diese E-Mail hilfreich?“ seit 1.38.471 nur noch in der Karte des Mail-Layouts (Platzhalter),
-        // nur bei Kundenmails und nur mit Schalter tix_mail_feedback = 1; früher ungestylt unter jeder HTML-Mail.
-        if (class_exists('TIX_Mail_Layout') && strpos($html, TIX_Mail_Layout::FEEDBACK_SLOT) !== false) {
-            $show = TIX_Mail_Layout::feedback_on() && TIX_Mail_Layout::kind_of($html) === 'customer';
-            $show = (bool) apply_filters('tix_email_show_feedback', $show, $source, $token);
-            $base = self::get_feedback_base_url($token);
-            $html = str_replace(TIX_Mail_Layout::FEEDBACK_SLOT, $show ? TIX_Mail_Layout::feedback_row($base . '/helpful', $base . '/not_helpful') : '', $html);
-        }
+        // Feedback-Block „War diese E-Mail hilfreich?“ entfällt seit 1.38.473 (User-Entscheid); alte Links funktionieren weiter.
 
         if (stripos($html, '</body>') !== false) {
             return preg_replace('#</body>#i', $pixel . '</body>', $html, 1);

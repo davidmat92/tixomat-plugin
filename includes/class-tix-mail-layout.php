@@ -5,9 +5,11 @@ if (!defined('ABSPATH')) exit;
  * TIX_Mail_Layout – ein Mail-Layout für alle Seiten und alle Mails (1.38.471).
  *
  * Marke kommt aus der Seite (Studio-Marke, Seiten-Konfiguration), Lizenzseiten bekommen dasselbe ohne Anpassung:
- *   Name, Akzentfarbe (TIX_Studio::accent), Logo (TIX_Studio::logo), Logo für farbigen Kopf (tix_mail_brand.logo_on_accent_id),
- *   Kopf-Stil (tix_mail_brand.header = light | accent), Fußzeile mit Impressum/Datenschutz, Hilfe, Social, App-Links.
- * Option tix_mail_brand: name, header, logo_on_accent_id, support_email, from_email, from_name (alles optional).
+ *   Name, Akzentfarbe (TIX_Studio::accent), Fußzeile mit Impressum/Datenschutz, Hilfe, Social, App-Links.
+ * Mail-Felder der Studio-Marke (tix_studio_brand, 1.38.473, alle optional, im Studio unter „Marke“):
+ *   mail_header light | brand · mail_logo_id (Logo auf hellem Grund, sonst das normale Logo) · mail_logo_on_color_id
+ *   (Logo für farbigen Kopf; fehlt es, gilt light) · mail_from (Vorgabe noreply@<Domain der Seite>) · mail_from_name
+ *   (Vorgabe Marke) · mail_reply_to (Vorgabe Kontakt- bzw. Support-Adresse).
  *
  * Bausteine (render(['title', 'subtitle', 'preheader', 'blocks' => [...], 'note', 'kind']):
  *   text {html} · button {label, url} · info {title?, rows [[label, value]]} · event {title, date, time, location, image}
@@ -18,7 +20,7 @@ if (!defined('ABSPATH')) exit;
  * Alle Mails laufen hier durch (wp_mail-Filter, Prio 900):
  *   - Text-Mails und HTML-Fragmente (auch WordPress-Kern und fremde Plugins) werden ins Layout gesetzt,
  *     vollständige fremde HTML-Dokumente bleiben unverändert, Kopfzeile „X-Tix-Raw: 1“ schaltet ab.
- *   - Absender je Seite statt „WordPress <wordpress@…>“: Name der Marke, Adresse noreply@<gleiche Domain> (bzw. from_email).
+ *   - Absender je Seite statt „WordPress <wordpress@…>“: mail_from_name <mail_from> (FluentSMTP findet die Verbindung per Mapping).
  *   - Reply-To an das Support-Postfach bei Mails an Kunden (nicht an die Admin-Adresse).
  *   - Text-Fassung (multipart) aus den Bausteinen bzw. sauber aus dem HTML (ohne CSS und Vorschauzeile).
  * Technik: Tabellen, 600 px, mobil volle Breite, große Knöpfe (VML für Outlook), Systemschriften, Dark Mode
@@ -26,11 +28,7 @@ if (!defined('ABSPATH')) exit;
  */
 class TIX_Mail_Layout {
 
-    const OPT = 'tix_mail_brand';
-    /** Feedback „War diese E-Mail hilfreich?“ in Kundenmails: '1' = in der Karte, sonst aus (Vorgabe aus). */
-    const OPT_FEEDBACK = 'tix_mail_feedback';
     const MARK = 'x-tix-mail';
-    const FEEDBACK_SLOT = '<!--tix-feedback-->';
 
     /** Text-Fassungen der zuletzt gerenderten Mails (md5(HTML) → Text), für phpmailer_init. */
     private static $alt = [];
@@ -40,7 +38,7 @@ class TIX_Mail_Layout {
         add_filter('wp_mail_from_name', [__CLASS__, 'filter_from_name'], 20);
         add_filter('wp_mail', [__CLASS__, 'filter_mail'], 900);
         add_action('phpmailer_init', [__CLASS__, 'phpmailer'], 5);
-        add_action('update_option_' . self::OPT, [__CLASS__, 'flush']);
+        add_action('update_option_tix_studio_brand', [__CLASS__, 'flush']);
     }
 
     // ═══════════════ Marke ═══════════════
@@ -87,33 +85,35 @@ class TIX_Mail_Layout {
     /** Marke der Seite; $override nur für Vorschau/Tests (z. B. andere Seite simulieren). */
     public static function brand(array $override = []) {
         if (self::$brand === null) {
-            $o = get_option(self::OPT, []);
-            $o = is_array($o) ? $o : [];
+            $o = class_exists('TIX_Studio') && method_exists('TIX_Studio', 'mail_settings') ? (array) TIX_Studio::mail_settings() : [];
             $site = class_exists('TIX_Site_Config') && method_exists('TIX_Site_Config', 'payload') ? (array) TIX_Site_Config::payload() : [];
             $s = function_exists('tix_get_settings') ? (array) tix_get_settings() : [];
-            $name = trim((string) ($o['name'] ?? '')) ?: trim((string) ($site['name'] ?? '')) ?: trim((string) ($s['email_brand_name'] ?? ''))
+            $name = trim((string) ($site['name'] ?? '')) ?: trim((string) ($s['email_brand_name'] ?? ''))
                 ?: html_entity_decode((string) get_bloginfo('name'), ENT_QUOTES, 'UTF-8');
             $accent = self::hex(class_exists('TIX_Studio') ? TIX_Studio::accent() : '', '#FC2F55');
-            $logo = class_exists('TIX_Studio') ? (string) TIX_Studio::logo() : '';
+            $img = function ($id) { $id = intval($id); return $id ? (string) (wp_get_attachment_image_url($id, 'medium') ?: wp_get_attachment_url($id)) : ''; };
+            $logo = $img($o['mail_logo_id'] ?? 0) ?: (class_exists('TIX_Studio') ? (string) TIX_Studio::logo() : '');
             if ($logo === '') $logo = (string) ($s['email_logo_url'] ?? '');
-            $loa = intval($o['logo_on_accent_id'] ?? 0);
-            $logo_on_accent = $loa ? (string) (wp_get_attachment_image_url($loa, 'medium') ?: wp_get_attachment_url($loa)) : '';
+            $logo_on_accent = $img($o['mail_logo_on_color_id'] ?? 0);
             $legal = (array) ($site['legal'] ?? []);
             $contact = (array) ($site['contact'] ?? []);
             $social = array_filter((array) ($site['social'] ?? []), 'is_string');
             $app = class_exists('TIX_Studio') && method_exists('TIX_Studio', 'app_info') ? (array) TIX_Studio::app_info() : [];
             $has_app = !empty($app['has_app']);
             $url = class_exists('TIX_Customer_URL') ? (TIX_Customer_URL::base() ?: home_url('/')) : home_url('/');
-            $support = trim((string) ($o['support_email'] ?? '')) ?: trim((string) ($contact['email'] ?? '')) ?: trim((string) ($s['support_email'] ?? ''));
+            $host = preg_replace('/^www\./', '', strtolower((string) wp_parse_url($url, PHP_URL_HOST)));
+            $support = trim((string) ($o['mail_reply_to'] ?? '')) ?: trim((string) ($contact['email'] ?? '')) ?: trim((string) ($s['support_email'] ?? ''));
+            $hdr = (string) ($o['mail_header'] ?? '');
+            $header = $logo_on_accent === '' ? 'light' : ($hdr === 'light' ? 'light' : 'accent'); // „brand“ ohne Logo für farbigen Grund → hell
             self::$brand = [
                 'name' => $name,
                 'accent' => $accent,
                 'on_accent' => self::on_color($accent),
                 'logo' => $logo,
                 'logo_on_accent' => $logo_on_accent,
-                'header' => in_array($o['header'] ?? '', ['light', 'accent'], true) ? $o['header'] : ($logo_on_accent !== '' ? 'accent' : 'light'),
+                'header' => $header,
                 'site_url' => untrailingslashit($url),
-                'host' => preg_replace('/^www\./', '', (string) wp_parse_url($url, PHP_URL_HOST)),
+                'host' => $host,
                 'support_email' => is_email($support) ? $support : '',
                 'imprint' => self::abs_url($legal['imprint'] ?? '', $url),
                 'privacy' => self::abs_url($legal['privacy'] ?? '', $url),
@@ -122,8 +122,8 @@ class TIX_Mail_Layout {
                 'android' => $has_app ? (string) ($app['android_url'] ?? '') : '',
                 'company' => is_string($contact['company'] ?? null) ? $contact['company'] : '',
                 'address' => is_string($contact['address'] ?? null) ? $contact['address'] : '',
-                'from_email' => is_email(trim((string) ($o['from_email'] ?? ''))) ? trim((string) $o['from_email']) : '',
-                'from_name' => trim((string) ($o['from_name'] ?? '')),
+                'from_email' => is_email(trim((string) ($o['mail_from'] ?? ''))) ? trim((string) $o['mail_from']) : ($host !== '' && strpos($host, '.') !== false ? 'noreply@' . $host : ''),
+                'from_name' => trim((string) ($o['mail_from_name'] ?? '')) ?: $name,
             ];
         }
         return $override ? array_merge(self::$brand, $override) : self::$brand;
@@ -265,24 +265,7 @@ class TIX_Mail_Layout {
 
     // ═══════════════ Gerüst ═══════════════
 
-    /** Rückmeldung „War diese E-Mail hilfreich?“ unten in der Karte (Mail-Protokoll setzt sie in FEEDBACK_SLOT). */
-    public static function feedback_row($yes, $no) {
-        $c = self::$c ?: self::colors(self::brand());
-        $pill = function ($label, $url) use ($c) {
-            return '<a href="' . esc_url($url) . '" target="_blank" class="tm-soft" style="display:inline-block;padding:7px 16px;margin:0 4px;border:1px solid ' . $c['line'] . ';border-radius:999px;background:' . $c['soft'] . ';color:' . $c['text'] . ';font-size:13px;font-weight:600;text-decoration:none;">' . $label . '</a>';
-        };
-        return '<tr><td class="tm-pad" style="padding:4px 32px 24px;">'
-            . '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td class="tm-line" align="center" style="border-top:1px solid ' . $c['line'] . ';padding-top:18px;font-size:13px;line-height:20px;color:' . $c['muted'] . ';">'
-            . '<div class="tm-muted" style="margin-bottom:10px;">War diese E-Mail hilfreich?</div>'
-            . $pill('Ja', $yes) . $pill('Nein', $no)
-            . '</td></tr></table></td></tr>';
-    }
-
-    public static function feedback_on() {
-        return get_option(self::OPT_FEEDBACK, '0') === '1';
-    }
-
-    /** Komplette HTML-Mail. $m: title, subtitle, preheader, blocks, note, kind, feedback (yes/no für Vorschau), brand (Override). */
+    /** Komplette HTML-Mail. $m: title, subtitle, preheader, blocks, note, kind, brand (Override). */
     public static function render(array $m) {
         $b = self::brand((array) ($m['brand'] ?? []));
         $prev_c = self::$c;
@@ -330,9 +313,6 @@ class TIX_Mail_Layout {
             . (($b['company'] || $b['address']) ? '<div style="margin-top:6px;">' . self::e(trim($b['company'] . ($b['company'] && $b['address'] ? ', ' : '') . $b['address'])) . '</div>' : '')
             . '</td></tr>';
 
-        $fb = '';
-        if (!empty($m['feedback']['yes']) && !empty($m['feedback']['no'])) $fb = self::feedback_row($m['feedback']['yes'], $m['feedback']['no']);
-        elseif ($kind === 'customer') $fb = self::FEEDBACK_SLOT;
 
         $dark_soft = '#1F1F28';
         $font = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
@@ -368,7 +348,6 @@ class TIX_Mail_Layout {
             . ($sub !== '' ? '<div class="tm-muted" style="margin:0 0 20px;font-size:14px;line-height:20px;color:' . $c['muted'] . ';">' . self::e($sub) . '</div>' : '')
             . $body
             . '</td></tr>'
-            . $fb
             . '</table></td></tr>'
             . $foot
             . '</table>'
@@ -481,32 +460,25 @@ class TIX_Mail_Layout {
 
     // ═══════════════ Versand: Absender, Layout für alle Mails ═══════════════
 
-    /** Absender-Domain: dieselbe wie bisher bei WordPress (keine neue Domain → SPF/DKIM unverändert). */
+    /** Absender der Seite: mail_from aus der Studio-Marke, sonst noreply@<Domain der Seite>. */
     public static function default_from() {
-        $b = self::brand();
-        if ($b['from_email'] !== '') return $b['from_email'];
-        $host = strtolower((string) wp_parse_url(network_home_url(), PHP_URL_HOST));
-        if (substr($host, 0, 4) === 'www.') $host = substr($host, 4);
-        return 'noreply@' . $host;
+        return self::brand()['from_email'];
     }
 
-    /** „wordpress@<domain>“ → „noreply@<domain>“ (gleiche Domain wie bisher) bzw. eingestellte Absender-Adresse. */
+    /**
+     * „wordpress@…“ (WordPress-Standard) bzw. leer → Absender der Seite. Ausdrücklich gesetzte Absender (Kopfzeile From,
+     * Rundmail-Absender) bleiben. FluentSMTP wählt die Verbindung über das Mapping dieser Adresse.
+     */
     public static function filter_from($from) {
         $from = (string) $from;
-        if ($from === '') return self::default_from();
-        if (stripos($from, 'wordpress@') === 0) {
-            $b = self::brand();
-            return $b['from_email'] !== '' ? $b['from_email'] : 'noreply@' . substr($from, 10);
-        }
-        return $from;
+        if ($from !== '' && stripos($from, 'wordpress@') !== 0) return $from;
+        $own = self::default_from();
+        return $own !== '' ? $own : $from;
     }
 
     public static function filter_from_name($name) {
         $name = (string) $name;
-        if ($name === '' || $name === 'WordPress') {
-            $b = self::brand();
-            return $b['from_name'] !== '' ? $b['from_name'] : $b['name'];
-        }
+        if ($name === '' || $name === 'WordPress') return self::brand()['from_name'];
         return $name;
     }
 

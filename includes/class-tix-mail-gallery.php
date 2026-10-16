@@ -210,7 +210,7 @@ class TIX_Mail_Gallery {
         $cat = self::catalog();
         if (!isset($cat[$key])) return null;
         list($subject, $html) = call_user_func($cat[$key][2]);
-        $html = str_replace(TIX_Mail_Layout::FEEDBACK_SLOT, '', (string) $html);
+        $html = (string) $html;
         if (class_exists('TIX_Customer_URL')) $html = TIX_Customer_URL::in_text($html);
         return ['subject' => (string) $subject, 'html' => $html, 'text' => TIX_Mail_Layout::html_to_text($html)];
     }
@@ -225,7 +225,7 @@ class TIX_Mail_Gallery {
         }
         $br = self::brand();
         return rest_ensure_response(['ok' => true, 'brand' => ['name' => $br['name'], 'accent' => $br['accent'], 'logo' => $br['logo'], 'logo_on_accent' => $br['logo_on_accent'], 'header' => $br['header'],
-            'from' => self::from_line(), 'support_email' => $br['support_email'], 'feedback' => TIX_Mail_Layout::feedback_on()], 'mails' => $out]);
+            'from' => self::from_line(), 'reply_to' => $br['support_email']], 'mails' => $out]);
     }
 
     public static function rest_preview(WP_REST_Request $req) {
@@ -256,16 +256,15 @@ class TIX_Mail_Gallery {
         if (!current_user_can('manage_options')) wp_die('Keine Berechtigung.');
         check_admin_referer('tix_mail_brand');
         $p = wp_unslash($_POST);
-        $o = get_option(TIX_Mail_Layout::OPT, []);
-        $o = is_array($o) ? $o : [];
-        $o['header'] = in_array($p['header'] ?? '', ['light', 'accent'], true) ? $p['header'] : '';
-        $o['logo_on_accent_id'] = absint($p['logo_on_accent_id'] ?? 0);
-        $o['name'] = sanitize_text_field($p['name'] ?? '');
-        $o['support_email'] = sanitize_email($p['support_email'] ?? '');
-        $o['from_email'] = sanitize_email($p['from_email'] ?? '');
-        $o['from_name'] = sanitize_text_field($p['from_name'] ?? '');
-        update_option(TIX_Mail_Layout::OPT, array_filter($o, function ($v) { return $v !== '' && $v !== 0; }), false);
-        update_option(TIX_Mail_Layout::OPT_FEEDBACK, !empty($p['feedback']) ? '1' : '0', false);
+        $in = [];
+        foreach (TIX_Studio::MAIL_KEYS as $k) $in[$k] = isset($p[$k]) ? (string) $p[$k] : '';
+        $b = get_option(TIX_Studio::BRAND, []);
+        $nb = TIX_Studio::apply_mail_fields(is_array($b) ? $b : [], $in);
+        if (is_wp_error($nb)) {
+            wp_safe_redirect(add_query_arg(['page' => 'tix-mails', 'err' => rawurlencode($nb->get_error_message())], admin_url('admin.php')));
+            exit;
+        }
+        update_option(TIX_Studio::BRAND, $nb, false);
         TIX_Mail_Layout::flush();
         wp_safe_redirect(add_query_arg(['page' => 'tix-mails', 'saved' => 1], admin_url('admin.php')));
         exit;
@@ -287,8 +286,7 @@ class TIX_Mail_Gallery {
         $cat = self::catalog();
         $key = sanitize_key((string) ($_GET['key'] ?? ''));
         if (!isset($cat[$key])) $key = (string) array_key_first($cat);
-        $o = get_option(TIX_Mail_Layout::OPT, []);
-        $o = is_array($o) ? $o : [];
+        $o = TIX_Studio::mail_settings();
         $br = self::brand();
         $built = self::build($key);
         $groups = [];
@@ -299,6 +297,7 @@ class TIX_Mail_Gallery {
         <div class="wrap">
             <h1>E-Mails</h1>
             <p>Alle Mails dieser Seite nutzen ein gemeinsames Layout mit Logo, Markenfarbe und Fußzeile der Seite (Studio-Marke und Seiten-Konfiguration). Die Vorschau zeigt Beispieldaten.</p>
+            <?php if (!empty($_GET['err'])): ?><div class="notice notice-error is-dismissible"><p><?php echo esc_html(wp_unslash((string) $_GET['err'])); ?></p></div><?php endif; ?>
             <?php if (!empty($_GET['saved'])): ?><div class="notice notice-success is-dismissible"><p>Gespeichert.</p></div><?php endif; ?>
             <?php if (($_GET['test'] ?? '') === 'ok'): ?><div class="notice notice-success is-dismissible"><p>Test-Mail an <?php echo esc_html(wp_get_current_user()->user_email); ?> gesendet.</p></div><?php endif; ?>
             <?php if (($_GET['test'] ?? '') === 'fail'): ?><div class="notice notice-error is-dismissible"><p>Test-Mail konnte nicht gesendet werden.</p></div><?php endif; ?>
@@ -307,20 +306,21 @@ class TIX_Mail_Gallery {
                     <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="background:#fff;border:1px solid #dcdcde;border-radius:8px;padding:16px;margin-bottom:16px;">
                         <input type="hidden" name="action" value="tix_mail_brand"><?php wp_nonce_field('tix_mail_brand'); ?>
                         <h2 style="margin-top:0;">Marke in Mails</h2>
+                        <p class="description" style="margin-top:0;">Dieselben Felder wie im Studio unter „Marke“. Die Akzentfarbe kommt aus der Marke.</p>
                         <p><strong>Kopf</strong><br>
-                            <label><input type="radio" name="header" value="" <?php checked(empty($o['header'])); ?>> automatisch (<?php echo $br['logo_on_accent'] ? 'Markenfarbe' : 'hell'; ?>)</label><br>
-                            <label><input type="radio" name="header" value="light" <?php checked(($o['header'] ?? '') === 'light'); ?>> hell (Logo auf Weiß, Linie in Markenfarbe)</label><br>
-                            <label><input type="radio" name="header" value="accent" <?php checked(($o['header'] ?? '') === 'accent'); ?>> Markenfarbe (helles Logo)</label></p>
-                        <p><strong>Logo für farbigen Kopf</strong> (hell bzw. weiß)<br>
-                            <input type="hidden" name="logo_on_accent_id" id="tix-loa" value="<?php echo intval($o['logo_on_accent_id'] ?? 0); ?>">
-                            <span id="tix-loa-prev" style="display:inline-block;background:<?php echo esc_attr($br['accent']); ?>;padding:8px;border-radius:6px;margin:4px 0;"><?php if ($br['logo_on_accent']) echo '<img src="' . esc_url($br['logo_on_accent']) . '" style="height:32px;display:block;">'; else echo '<span style="color:#fff;">kein Logo</span>'; ?></span><br>
-                            <button type="button" class="button" id="tix-loa-pick">Auswählen</button> <button type="button" class="button-link" id="tix-loa-clear">entfernen</button></p>
-                        <p><label><strong>Name</strong><br><input type="text" name="name" value="<?php echo esc_attr($o['name'] ?? ''); ?>" placeholder="<?php echo esc_attr($br['name']); ?>" class="regular-text" style="width:100%;"></label></p>
-                        <p><label><strong>Support-Postfach</strong> (Antworten, „Hilfe“)<br><input type="email" name="support_email" value="<?php echo esc_attr($o['support_email'] ?? ''); ?>" placeholder="<?php echo esc_attr($br['support_email']); ?>" style="width:100%;"></label></p>
-                        <p><label><strong>Absender-Adresse</strong><br><input type="email" name="from_email" value="<?php echo esc_attr($o['from_email'] ?? ''); ?>" placeholder="<?php echo esc_attr(TIX_Mail_Layout::default_from()); ?>" style="width:100%;"></label>
-                            <span class="description">Nur ändern, wenn die Adresse über den Mailversand der Seite gesendet werden darf (SPF/DKIM).</span></p>
-                        <p><label><strong>Absender-Name</strong><br><input type="text" name="from_name" value="<?php echo esc_attr($o['from_name'] ?? ''); ?>" placeholder="<?php echo esc_attr($br['name']); ?>" style="width:100%;"></label></p>
-                        <p><label><input type="checkbox" name="feedback" value="1" <?php checked(TIX_Mail_Layout::feedback_on()); ?>> „War diese E-Mail hilfreich?“ in Kundenmails</label></p>
+                            <label><input type="radio" name="mail_header" value="" <?php checked(empty($o['mail_header'])); ?>> automatisch (<?php echo $br['logo_on_accent'] ? 'Markenfarbe' : 'hell'; ?>)</label><br>
+                            <label><input type="radio" name="mail_header" value="light" <?php checked(($o['mail_header'] ?? '') === 'light'); ?>> hell (Logo auf Weiß, Linie in Markenfarbe)</label><br>
+                            <label><input type="radio" name="mail_header" value="brand" <?php checked(($o['mail_header'] ?? '') === 'brand'); ?>> Markenfarbe (braucht ein Logo für farbigen Grund)</label></p>
+                        <?php foreach (['mail_logo_id' => ['Logo auf hellem Grund', '#ffffff', $br['logo'], 'leer = normales Logo'], 'mail_logo_on_color_id' => ['Logo für farbigen Kopf', $br['accent'], $br['logo_on_accent'], 'hell bzw. weiß']] as $fk => $f): ?>
+                        <p><strong><?php echo esc_html($f[0]); ?></strong> <span class="description">(<?php echo esc_html($f[3]); ?>)</span><br>
+                            <input type="hidden" name="<?php echo esc_attr($fk); ?>" class="tix-ml-id" value="<?php echo intval($o[$fk] ?? 0) ?: ''; ?>">
+                            <span class="tix-ml-prev" style="display:inline-block;background:<?php echo esc_attr($f[1]); ?>;border:1px solid #dcdcde;padding:8px;border-radius:6px;margin:4px 0;"><?php echo $f[2] ? '<img src="' . esc_url($f[2]) . '" style="height:32px;display:block;">' : '<span>kein Logo</span>'; ?></span><br>
+                            <button type="button" class="button tix-ml-pick">Auswählen</button> <button type="button" class="button-link tix-ml-clear">entfernen</button></p>
+                        <?php endforeach; ?>
+                        <p><label><strong>Absender-Adresse</strong><br><input type="email" name="mail_from" value="<?php echo esc_attr($o['mail_from'] ?? ''); ?>" placeholder="<?php echo esc_attr(TIX_Mail_Layout::default_from()); ?>" style="width:100%;"></label>
+                            <span class="description">Muss im Mailversand der Seite (FluentSMTP bzw. Brevo) freigegeben sein.</span></p>
+                        <p><label><strong>Absender-Name</strong><br><input type="text" name="mail_from_name" value="<?php echo esc_attr($o['mail_from_name'] ?? ''); ?>" placeholder="<?php echo esc_attr($br['name']); ?>" style="width:100%;"></label></p>
+                        <p><label><strong>Antworten an</strong> (Support-Postfach, „Hilfe“)<br><input type="email" name="mail_reply_to" value="<?php echo esc_attr($o['mail_reply_to'] ?? ''); ?>" placeholder="<?php echo esc_attr($br['support_email']); ?>" style="width:100%;"></label></p>
                         <p>Absender jetzt: <code><?php echo esc_html(self::from_line()); ?></code></p>
                         <?php submit_button('Speichern', 'primary', 'submit', false); ?>
                     </form>
@@ -354,13 +354,16 @@ class TIX_Mail_Gallery {
         <script>
         (function () {
             document.querySelectorAll('[data-w]').forEach(function (b) { b.addEventListener('click', function () { document.getElementById('tix-mail-frame').style.width = b.getAttribute('data-w') + 'px'; }); });
-            var pick = document.getElementById('tix-loa-pick'), clear = document.getElementById('tix-loa-clear'), inp = document.getElementById('tix-loa'), prev = document.getElementById('tix-loa-prev');
-            if (pick && window.wp && wp.media) pick.addEventListener('click', function () {
-                var f = wp.media({ title: 'Logo für farbigen Kopf', library: { type: 'image' }, multiple: false });
-                f.on('select', function () { var a = f.state().get('selection').first().toJSON(); inp.value = a.id; prev.innerHTML = '<img src="' + (a.sizes && a.sizes.medium ? a.sizes.medium.url : a.url) + '" style="height:32px;display:block;">'; });
-                f.open();
+            document.querySelectorAll('.tix-ml-pick').forEach(function (btn) {
+                var p = btn.parentNode, inp = p.querySelector('.tix-ml-id'), prev = p.querySelector('.tix-ml-prev');
+                btn.addEventListener('click', function () {
+                    if (!window.wp || !wp.media) return;
+                    var f = wp.media({ title: 'Logo wählen', library: { type: 'image' }, multiple: false });
+                    f.on('select', function () { var a = f.state().get('selection').first().toJSON(); inp.value = a.id; prev.innerHTML = '<img src="' + (a.sizes && a.sizes.medium ? a.sizes.medium.url : a.url) + '" style="height:32px;display:block;">'; });
+                    f.open();
+                });
+                p.querySelector('.tix-ml-clear').addEventListener('click', function () { inp.value = ''; prev.innerHTML = '<span>kein Logo</span>'; });
             });
-            if (clear) clear.addEventListener('click', function () { inp.value = ''; prev.innerHTML = '<span style="color:#fff;">kein Logo</span>'; });
         })();
         </script>
         <?php

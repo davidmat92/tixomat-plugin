@@ -1198,23 +1198,29 @@ Seit 1.38.471 laufen **alle Mails** durch ein gemeinsames Layout `TIX_Mail_Layou
 ### Marke
 
 - Kommt aus der Seite, Lizenzseiten brauchen keine Anpassung:
-  - Name: `tix_mail_brand.name` › Seiten-Konfiguration › `email_brand_name` › Seitenname
-  - Akzentfarbe `TIX_Studio::accent()`, Logo `TIX_Studio::logo()`
-  - Logo für farbigen Kopf `tix_mail_brand.logo_on_accent_id`
+  - Name: Seiten-Konfiguration › `email_brand_name` › Seitenname
+  - Akzentfarbe immer `TIX_Studio::accent()` (Studio-Marke)
   - Fußzeile aus `/public/site-config`: Impressum, Datenschutz, Kontakt, Social; App-Links nur mit eigener App
-- Kopf `tix_mail_brand.header`:
-  - `light`: Logo auf Weiß, Linie in Markenfarbe
-  - `accent`: farbiger Kopf mit hellem Logo
-  - leer: automatisch (`accent`, sobald ein Logo für farbigen Kopf hinterlegt ist)
-- Einstellungen in WP-Admin **Tixomat → E-Mails**, dazu Galerie aller Mail-Arten mit Vorschau (Handy/Desktop, Text-Fassung) und „Test an mich senden“.
+- **Mail-Felder der Studio-Marke** `tix_studio_brand` (seit 1.38.473, im Studio unter „Marke“ bzw. WP-Admin Tixomat → E-Mails):
+
+  | Feld | Werte | Vorgabe |
+  |---|---|---|
+  | `mail_header` | `light` \| `brand` | automatisch: `brand`, sobald ein Logo für farbigen Grund da ist |
+  | `mail_logo_id` | Logo auf hellem Grund | normales Logo |
+  | `mail_logo_on_color_id` | Logo für farbigen Kopf | keins; fehlt es, gilt immer `light` |
+  | `mail_from` | Absender-Adresse | `noreply@<Domain der Seite>` |
+  | `mail_from_name` | Absender-Name | Marke |
+  | `mail_reply_to` | Antworten an, Link „Hilfe“ | Kontakt-E-Mail › Einstellung `support_email` |
+
+- WP-Admin **Tixomat → E-Mails**: dieselben Felder, Galerie aller Mail-Arten mit Vorschau (Handy/Desktop, Text-Fassung) und „Test an mich senden“.
 
 ### Versand (Filter in `TIX_Mail_Layout::init`)
 
 - **Absender:**
-  - `wordpress@<domain>` wird `noreply@<gleiche Domain>`, „WordPress“ wird der Markenname.
-  - Andere Absender bleiben, z. B. Rundmail-Absender oder SMTP-Plugins.
-  - Eigene Adresse bzw. eigener Name über `tix_mail_brand.from_email` bzw. `from_name`.
-- **Reply-To:** das Support-Postfach (`tix_mail_brand.support_email` › Kontakt-E-Mail › `support_email`), nur bei Mails, die nicht an die Admin-Adresse gehen.
+  - `wordpress@…` bzw. leer wird `mail_from_name <mail_from>`.
+  - FluentSMTP findet die Verbindung über das Mapping dieser Adresse.
+  - Ausdrücklich gesetzte Absender bleiben (Kopfzeile From, Rundmail-Absender).
+- **Reply-To:** `mail_reply_to`, nur bei Mails, die nicht an die Admin-Adresse gehen.
 - **Ins Layout gesetzt (wp_mail-Filter, Prio 900):**
   - Text-Mails und HTML-Fragmente, auch von WordPress und fremden Plugins
   - Vollständige fremde HTML-Dokumente bleiben unverändert.
@@ -1223,7 +1229,7 @@ Seit 1.38.471 laufen **alle Mails** durch ein gemeinsames Layout `TIX_Mail_Layou
 - **Text-Fassung (multipart):** aus den Bausteinen bzw. aus dem HTML, ohne CSS und Vorschauzeile.
 - **Mail-Protokoll:**
   - Das Öffnungs-Pixel bleibt.
-  - „War diese E-Mail hilfreich?“ steht nur noch in der Karte von Kundenmails und nur mit `tix_mail_feedback = 1` (Vorgabe aus).
+  - Der Block „War diese E-Mail hilfreich?“ entfällt seit 1.38.473; alte Links funktionieren weiter.
   - Anhänge werden gesichert (geschützter Ordner `…/tix-private/mail-log/`, höchstens 10 MB je Mail, gelöscht mit dem Protokoll), damit „Erneut senden“ sie mitschickt.
 
 ### Bausteine (`TIX_Mail_Layout::render`)
@@ -2945,6 +2951,7 @@ Alles nur hinzufügend; ohne Nutzung bleibt jede Antwort gleich (Apps, KitchenKl
 | Awareness: Events mit Meldungen (letzte 30 Tage) | Seit 1.38.468: `GET /awareness/events?range=recent` (Rechte wie bisher: Awareness-Team bzw. Staff/Admin; Abschottung je Veranstalter wie die Event-Liste) → `{ok, range: "recent", events: [{id, title, date_start, starts_at, ends_at, alerts, alerts_open, feedback, feedback_notes, last_at}]}` – Events mit Datum in den letzten 30 Tagen bis heute, die mindestens eine Meldung (`alerts`, davon offen/übernommen `alerts_open`) oder Rückmeldung (`feedback`, davon mit Text `feedback_notes`) haben, neueste zuerst. Ohne `range` unverändert (laufende und kommende Events). |
 | Mail-Layout und Mail-Vorschau | Seit 1.38.471 (`TIX_Mail_Layout`, `TIX_Mail_Gallery`): `GET /studio/mails` (Rechte wie Studio-Marke: Admin, auf Ein-Veranstalter-Seiten auch der Inhaber) → `{ok, brand: {name, accent, logo, logo_on_accent, header, from, support_email, feedback}, mails: [{key, label, group, subject}]}`; `GET /studio/mails/preview/{key}` → `{ok, key, subject, html, text}` (`?format=html` liefert die Seite direkt; unbekannt = 404). Beispieldaten, es wird nichts gespeichert oder gesendet. Wochenmail-Abmeldung `/public/newsletter/unsubscribe` nimmt jetzt auch **POST** (RFC 8058 One-Click, Antwort `{ok: true}`); GET wie bisher. |
 | Veranstalterseite folgt der Freigabe | Seit 1.38.472 (Mehr-Veranstalter-Modus): kein Häkchen „Landingpage freischalten“ mehr. Mit der Freigabe (`approved`) ist die Veranstalterseite öffentlich, abgelehnt/gesperrt nicht (`TIX_Organizer_Landing::is_approved` = `TIX_Org_Approval::is_public`; Meta `_tix_org_landing_approved` folgt dem Status, einmalige Selbstheilung `tix_heal_org_landing_472` für freigegebene ohne Flag). Event-Karten verlinken ohne Veranstalter-Seite auf `<Kunden-Adresse>/v/<slug>/`. Ein-Veranstalter-Seiten unverändert. |
+| Mail-Marke in der Studio-Marke | Seit 1.38.473: `GET /studio/config` → `brand.mail = {header: light|brand (wirksam), header_set: light|brand|null, logo (URL, Logo auf hellem Grund), logo_custom (bool), logo_on_color (URL|null), from, from_name, reply_to, custom: {from, from_name, reply_to} (selbst gesetzt bzw. null)}`. `POST /studio/config` (Rechte wie Marke) nimmt `mail_header` (light|brand), `mail_logo_id`, `mail_logo_on_color_id` (Bild-ID, 0/null = zurück), Dateien `mail_logo` bzw. `mail_logo_on_color` (multipart, wie `logo`), `mail_from`, `mail_reply_to` (E-Mail), `mail_from_name`; null/"" = Vorgabe. Fehler 400 mit `field`. Akzent immer `brand.accent`; `brand` ohne Logo für farbigen Grund wirkt als `light`. Vorgaben: Absender `noreply@<Domain der Seite>`, Name = Marke, Antworten an = Kontakt-/Support-Adresse. `GET /studio/mails` liefert `brand.reply_to` statt `support_email`/`feedback`. |
 | Bestellung: Event | Seit 1.38.394: `GET /customer/orders/{id}` (Konto oder `?key=`, auch vermittelte Bestellungen) enthält zusätzlich `order.event` = `{id, slug, title, date_start, url}` oder `null` – **auch bei unbezahlten Bestellungen** (Web-Kasse: Rücksprung zur Event-Seite ohne Slug im `return_url`). Beispiel: `"event":{"id":6,"slug":"sommerfest-2026","title":"Sommerfest","date_start":"2026-10-21","url":"https://evendis.de/events/sommerfest-2026/"}` | beide | 1.38.394 |
 | WooCommerce-Reste (nativ abgesichert) | Seit 1.38.393 ohne WooCommerce keine fatalen Fehler mehr: Warteliste „wieder verfügbar“ (siehe §50), `admin-ajax tix_meta_store_event_id` (nur noch für WooCommerce-Bestellungen, sonst `{"success":true}`), `tix_add_special` (Specials nur mit WooCommerce-Warenkorb, sonst Fehlermeldung), Web-Kasse `[tix_pos]` (ohne WooCommerce Hinweis „Bitte die Kasse in der App verwenden“, AJAX `tix_pos_*` → `{"success":false,"data":{"message":…}}`; PIN-Feld im Profil bleibt; die App-Kasse `POST /pos/orders` ist nativ), Gruppenbuchung (WooCommerce-Preis nur mit WooCommerce). | alle | 1.38.393 |
 | Sparten- und Städte-Texte | Seit 1.38.392 (`TIX_SEO_Texts`), nur hinzufügend: `GET /public/categories` je Sparte zusätzlich `intro` (HTML, `''` ohne Text) und `image` (`{url, thumb, alt}` oder `null`) – gepflegt unter Events → Kategorien (Term-Meta `_tix_intro`, `_tix_image_id`, Recht `manage_categories`). `GET /public/cities` je Stadt zusätzlich `slug` (Köln → `koeln`, Düsseldorf → `duesseldorf`: ä/ö/ü/ß → ae/oe/ue/ss, dann `sanitize_title`), `intro`, `image` – gepflegt unter Tixomat → Städte-Texte (Option `tix_city_texts` `{slug: {name, intro, image_id}}`, nur Admins; die Seite listet Städte kommender Events, weitere frei ergänzbar; in der API erscheinen weiterhin nur Städte mit kommenden Events). HTML per `wp_kses_post`. Beispiel: `{"id":12,"slug":"comedy","name":"Comedy","count":8,"upcoming":5,"intro":"<p>Die besten Comedy-Abende …</p>","image":{"url":"https://…/comedy-1024x683.jpg","thumb":"https://…/comedy-300x200.jpg","alt":"Bühne"}}` bzw. `{"name":"Köln","upcoming":14,"slug":"koeln","intro":"","image":null}` | beide | 1.38.392 |
