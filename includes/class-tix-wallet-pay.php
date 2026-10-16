@@ -565,7 +565,14 @@ class TIX_Wallet_Pay {
             'kind' => (string) $r['kind'], 'amount' => TIX_Wallet_Balance::euro($r['amount']), 'station' => (string) $r['station'],
             'balance' => TIX_Wallet_Balance::euro(intval($w['balance_paid']) + intval($w['balance_bonus']))];
         if ($r['state'] === 'approval') $out['approval_expires_at'] = gmdate('c', intval($r['used_at']) + self::APPROVAL_TTL);
-        if (intval($r['tx_id'])) $out['tx_id'] = intval($r['tx_id']);
+        if (intval($r['tx_id'])) {
+            $out['tx_id'] = intval($r['tx_id']);
+            // Stand nach dieser Buchung (1.38.477, App-Vertrag: paid mit amount, station, balance_after)
+            global $wpdb;
+            $ba = $wpdb->get_row($wpdb->prepare("SELECT balance_after_paid, balance_after_bonus FROM " . TIX_Wallet_Balance::t('wallet_tx') . " WHERE id = %d", intval($r['tx_id'])), ARRAY_A);
+            if ($ba) $out['balance_after'] = TIX_Wallet_Balance::euro(intval($ba['balance_after_paid']) + intval($ba['balance_after_bonus']));
+        }
+        if (!isset($out['balance_after'])) $out['balance_after'] = $out['balance'];
         return $out;
     }
 

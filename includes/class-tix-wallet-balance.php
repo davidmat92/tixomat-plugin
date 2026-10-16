@@ -1094,6 +1094,8 @@ class TIX_Wallet_Balance {
         $reg('/wallet', 'GET', 'rest_wallets', $login);
         $reg('/wallet/(?P<id>\d+)/tx', 'GET', 'rest_tx', $login);
         $reg('/wallet/me/tx', 'GET', 'rest_my_tx', $login);
+        $reg('/wallet/admin/customers', 'GET', 'rest_admin_customers', [__CLASS__, 'check_manager']);
+        $reg('/wallet/admin/customers/(?P<id>\d+)', 'GET', 'rest_admin_customer', [__CLASS__, 'check_manager']);
         $reg('/wallet/admin/config', 'GET', 'rest_admin_config', [__CLASS__, 'check_staff']);
         $reg('/wallet/admin/config', 'POST', 'rest_admin_save', [__CLASS__, 'check_manager']);
         $reg('/wallet/admin/report', 'GET', 'rest_report', [__CLASS__, 'check_report']);
@@ -1161,7 +1163,7 @@ class TIX_Wallet_Balance {
         $rows = $wpdb->get_results($wpdb->prepare("SELECT * FROM " . self::t('wallet_tx') . " WHERE wallet_id = %d ORDER BY id DESC LIMIT %d OFFSET %d", intval($w['id']), self::PER_PAGE + 1, ($page - 1) * self::PER_PAGE), ARRAY_A);
         $more = count($rows) > self::PER_PAGE;
         $tx = array_map(function ($r) { return self::tx_payload($r); }, array_slice((array) $rows, 0, self::PER_PAGE));
-        return self::out(['ok' => true, 'wallet' => self::wallet_payload($w), 'page' => $page, 'per_page' => self::PER_PAGE, 'has_more' => $more, 'tx' => $tx]);
+        return self::out(['ok' => true, 'wallet' => self::wallet_payload($w), 'page' => $page, 'per_page' => self::PER_PAGE, 'has_more' => $more, 'tx' => $tx, 'transactions' => $tx]);
     }
 
     /**
@@ -1183,7 +1185,144 @@ class TIX_Wallet_Balance {
         $rows = $wpdb->get_results($wpdb->prepare("SELECT * FROM " . self::t('wallet_tx') . " WHERE wallet_id IN ($in) ORDER BY id DESC LIMIT %d OFFSET %d", self::PER_PAGE + 1, ($page - 1) * self::PER_PAGE), ARRAY_A);
         $more = count((array) $rows) > self::PER_PAGE;
         $tx = array_map(function ($r) { return self::tx_payload($r) + ['wallet_id' => intval($r['wallet_id'])]; }, array_slice((array) $rows, 0, self::PER_PAGE));
-        return self::out(['ok' => true, 'page' => $page, 'per_page' => self::PER_PAGE, 'has_more' => $more, 'balance' => self::euro($bal), 'tx' => $tx]);
+        return self::out(['ok' => true, 'page' => $page, 'per_page' => self::PER_PAGE, 'has_more' => $more, 'balance' => self::euro($bal), 'tx' => $tx, 'transactions' => $tx]);
+    }
+
+    // ═══════════════ Guthaben-Übersicht je Kunde (Studio/App-Veranstalterbereich, 1.38.477) ═══════════════
+
+    /**
+     * SQL-Bedingung für den Bereich: Einzel-Seite bzw. Plattform-Admin ohne ?organizer= → alles;
+     * Veranstalter (Mehr-Veranstalter-Modus) → eigene Geldbörsen + Buchungen mit dem Plattform-Guthaben bei ihm.
+     * $own_balance: Darf der aktuelle Nutzer den Stand der Geldbörse sehen (nur bei eigenen Geldbörsen bzw. Gesamtsicht)?
+     */
+    private static function admin_where(WP_REST_Request $req) {
+        global $wpdb;
+        if (!self::multi()) return ['sql' => '1=1', 'oid' => 0, 'all' => true];
+        if (current_user_can('manage_options') && $req->get_param('organizer') === null && $req->get_param('organizer_id') === null) return ['sql' => '1=1', 'oid' => 0, 'all' => true];
+        $oid = self::staff_scope($req);
+        if (!$oid) return ['sql' => 'w.organizer_id = 0', 'oid' => 0, 'all' => false];
+        return ['sql' => $wpdb->prepare('(w.organizer_id = %d OR (w.organizer_id = 0 AND t.organizer_id = %d))', $oid, $oid), 'oid' => $oid, 'all' => false];
+    }
+
+    /** Zeitraum aus ?from=&to= (JJJJ-MM-TT, Ortszeit) → UTC-Grenzen oder null. */
+    private static function admin_range(WP_REST_Request $req) {
+        $tz = wp_timezone();
+        $f = (string) $req->get_param('from'); $t = (string) $req->get_param('to');
+        $from = preg_match('/^\d{4}-\d{2}-\d{2}$/', $f) ? (new DateTime($f . ' 00:00:00', $tz))->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i:s') : null;
+        $to = preg_match('/^\d{4}-\d{2}-\d{2}$/', $t) ? (new DateTime($t . ' 00:00:00', $tz))->modify('+1 day')->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i:s') : null;
+        return [$from, $to, $f, $t];
+    }
+
+    /**
+     * GET /wallet/admin/customers?q=&sort=&page=&from=&to=&organizer=&format=csv
+     * → {ok, organizer_id, scope (all|organizer), range, totals {topped_up, topups, spent, spent_pos, spent_tickets, refunded,
+     *    open_balance, customers}, series [{period, topped_up, topups}], series_unit (day|week), page, per_page, total, has_more,
+     *    customers [{user_id, name, email, wallet_ids, topups, topped_up, spent, spent_pos, spent_tickets, balance, last_activity}]}
+     */
+    public static function rest_admin_customers(WP_REST_Request $req) {
+        global $wpdb;
+        $per = 50;
+        $page = max(1, intval($req->get_param('page') ?: 1));
+        $csv = $req->get_param('format') === 'csv';
+        $empty = ['ok' => true, 'organizer_id' => 0, 'scope' => 'all', 'range' => null, 'totals' => ['topped_up' => 0.0, 'topups' => 0, 'spent' => 0.0, 'spent_pos' => 0.0, 'spent_tickets' => 0.0, 'refunded' => 0.0, 'open_balance' => 0.0, 'customers' => 0],
+            'series' => [], 'series_unit' => 'day', 'page' => $page, 'per_page' => $per, 'total' => 0, 'has_more' => false, 'customers' => []];
+        if (!self::ready()) return self::out($empty);
+        $W = self::t('wallets'); $T = self::t('wallet_tx');
+        $sc = self::admin_where($req);
+        list($from, $to, $f, $t) = self::admin_range($req);
+        $time = ($from ? $wpdb->prepare(' AND t.created >= %s', $from) : '') . ($to ? $wpdb->prepare(' AND t.created < %s', $to) : '');
+        $base = "FROM $T t JOIN $W w ON w.id = t.wallet_id WHERE {$sc['sql']}";
+        $agg = "SUM(CASE WHEN t.type IN ('topup','bonus') THEN t.amount_paid + t.amount_bonus ELSE 0 END) AS topped_up,
+                SUM(CASE WHEN t.type = 'topup' THEN 1 ELSE 0 END) AS topups,
+                -SUM(CASE WHEN t.type IN ('charge','reversal') AND t.order_id = 0 THEN t.amount_paid + t.amount_bonus ELSE 0 END) AS spent_pos,
+                -SUM(CASE WHEN t.type IN ('charge','reversal') AND t.order_id > 0 THEN t.amount_paid + t.amount_bonus ELSE 0 END) AS spent_tickets,
+                -SUM(CASE WHEN t.type IN ('refund','payout') THEN t.amount_paid + t.amount_bonus ELSE 0 END) AS refunded,
+                MAX(t.created) AS last_tx";
+        // Suche über Name/E-Mail
+        $q = trim((string) $req->get_param('q'));
+        $user_filter = '';
+        if ($q !== '') {
+            $like = '%' . $wpdb->esc_like($q) . '%';
+            $user_filter = $wpdb->prepare(" AND w.user_id IN (SELECT ID FROM {$wpdb->users} WHERE user_email LIKE %s OR display_name LIKE %s)", $like, $like);
+        }
+        $rows = (array) $wpdb->get_results("SELECT w.user_id, GROUP_CONCAT(DISTINCT w.id) AS wids, $agg $base$time$user_filter GROUP BY w.user_id", ARRAY_A);
+        // Stand: nur Geldbörsen, die der Nutzer ganz sehen darf (Gesamtsicht bzw. eigene Veranstalter-Geldbörsen)
+        $bal_sql = $sc['all'] ? '1=1' : ($sc['oid'] ? $wpdb->prepare('organizer_id = %d', $sc['oid']) : 'organizer_id = 0');
+        $balances = [];
+        foreach ((array) $wpdb->get_results("SELECT user_id, SUM(balance_paid + balance_bonus) AS b FROM $W WHERE $bal_sql AND status <> 'closed' GROUP BY user_id", ARRAY_A) as $b) $balances[intval($b['user_id'])] = intval($b['b']);
+        $list = [];
+        foreach ($rows as $r) {
+            $uid = intval($r['user_id']);
+            $u = get_userdata($uid);
+            $spent = intval($r['spent_pos']) + intval($r['spent_tickets']);
+            $list[] = ['user_id' => $uid, 'name' => $u ? (string) $u->display_name : 'Konto #' . $uid, 'email' => $u ? (string) $u->user_email : '',
+                'wallet_ids' => array_map('intval', explode(',', (string) $r['wids'])),
+                'topups' => intval($r['topups']), 'topped_up' => self::euro($r['topped_up']), 'spent' => self::euro($spent),
+                'spent_pos' => self::euro($r['spent_pos']), 'spent_tickets' => self::euro($r['spent_tickets']), 'refunded' => self::euro($r['refunded']),
+                'balance' => array_key_exists($uid, $balances) ? self::euro($balances[$uid]) : null,
+                'last_activity' => $r['last_tx'] ? mysql2date('c', get_date_from_gmt($r['last_tx']), false) : null,
+                '_sort' => ['last' => (string) $r['last_tx'], 'balance' => $balances[$uid] ?? 0, 'topup' => intval($r['topped_up']), 'spent' => $spent, 'name' => mb_strtolower($u ? $u->display_name : '')]];
+        }
+        $sort = in_array($req->get_param('sort'), ['last', 'balance', 'topup', 'spent', 'name'], true) ? $req->get_param('sort') : 'last';
+        usort($list, function ($a, $b) use ($sort) { return $sort === 'name' ? strcmp($a['_sort']['name'], $b['_sort']['name']) : ($b['_sort'][$sort] <=> $a['_sort'][$sort]); });
+        foreach ($list as &$x) unset($x['_sort']);
+        unset($x);
+        // Kopf: Summen über den Bereich (Zeitraum), offenes Guthaben = Verbindlichkeit (Stand jetzt)
+        $tot = $wpdb->get_row("SELECT $agg $base$time", ARRAY_A) ?: [];
+        $open = intval($wpdb->get_var("SELECT SUM(balance_paid + balance_bonus) FROM $W WHERE $bal_sql AND status <> 'closed'"));
+        $totals = ['topped_up' => self::euro($tot['topped_up'] ?? 0), 'topups' => intval($tot['topups'] ?? 0),
+            'spent' => self::euro(intval($tot['spent_pos'] ?? 0) + intval($tot['spent_tickets'] ?? 0)), 'spent_pos' => self::euro($tot['spent_pos'] ?? 0),
+            'spent_tickets' => self::euro($tot['spent_tickets'] ?? 0), 'refunded' => self::euro($tot['refunded'] ?? 0), 'open_balance' => self::euro($open), 'customers' => count($list)];
+        // Grafik: Aufladungen je Tag (bis 62 Tage) bzw. je Woche (Ortszeit)
+        $offset = (int) round(wp_timezone()->getOffset(new DateTime('now', new DateTimeZone('UTC'))) / 60);
+        $sign = $offset < 0 ? '-' : '+';
+        $tzs = sprintf('%s%02d:%02d', $sign, intdiv(abs($offset), 60), abs($offset) % 60);
+        $days = ($from && $to) ? (strtotime($to) - strtotime($from)) / DAY_IN_SECONDS : 999;
+        $unit = $days <= 62 ? 'day' : 'week';
+        $grp = $unit === 'day' ? "DATE(CONVERT_TZ(t.created, '+00:00', '$tzs'))" : "DATE_FORMAT(CONVERT_TZ(t.created, '+00:00', '$tzs'), '%x-W%v')";
+        $series = [];
+        foreach ((array) $wpdb->get_results("SELECT $grp AS p, SUM(t.amount_paid + t.amount_bonus) AS s, COUNT(*) AS n $base$time AND t.type = 'topup' GROUP BY p ORDER BY p", ARRAY_A) as $r) {
+            if ($r['p'] === null) continue;
+            $series[] = ['period' => (string) $r['p'], 'topped_up' => self::euro($r['s']), 'topups' => intval($r['n'])];
+        }
+        if ($csv) {
+            $out = [];
+            foreach ($list as $c) $out[] = [$c['name'], $c['email'], $c['topups'], self::csv_num($c['topped_up']), self::csv_num($c['spent_pos']), self::csv_num($c['spent_tickets']), self::csv_num($c['refunded']), $c['balance'] === null ? '' : self::csv_num($c['balance']), $c['last_activity'] ? wp_date('d.m.Y H:i', strtotime($c['last_activity'])) : '', $c['user_id']];
+            $data = class_exists('TIX_Export') ? TIX_Export::csv(['Name', 'E-Mail', 'Aufladungen', 'Aufgeladen (€)', 'Ausgegeben Bar/Kasse (€)', 'Ausgegeben Tickets (€)', 'Erstattet (€)', 'Stand (€)', 'Letzte Bewegung', 'Konto-ID'], $out) : '';
+            return self::out(['ok' => true, 'filename' => 'guthaben-kunden-' . current_time('Y-m-d') . '.csv', 'mime' => 'text/csv', 'rows' => count($out), 'data' => base64_encode($data)]);
+        }
+        $total = count($list);
+        return self::out(['ok' => true, 'organizer_id' => $sc['oid'], 'scope' => $sc['all'] ? 'all' : 'organizer', 'range' => ($f || $t) ? ['from' => $f ?: null, 'to' => $t ?: null] : null,
+            'totals' => $totals, 'series' => $series, 'series_unit' => $unit, 'page' => $page, 'per_page' => $per, 'total' => $total,
+            'has_more' => $total > $page * $per, 'customers' => array_slice($list, ($page - 1) * $per, $per)]);
+    }
+
+    private static function csv_num($v) {
+        return number_format(floatval($v), 2, ',', '');
+    }
+
+    /**
+     * GET /wallet/admin/customers/{user_id}?page=&from=&to=&organizer= – Verlauf eines Kunden im eigenen Bereich
+     * → {ok, customer {user_id, name, email, balance}, page, per_page, has_more, tx: [... wie /wallet/me/tx + staff_user_id, reason]}
+     */
+    public static function rest_admin_customer(WP_REST_Request $req) {
+        global $wpdb;
+        $uid = absint($req['id']);
+        $u = get_userdata($uid);
+        if (!$u) return new WP_Error('tix_not_found', 'Kunde nicht gefunden.', ['status' => 404]);
+        $page = max(1, intval($req->get_param('page') ?: 1));
+        $W = self::t('wallets'); $T = self::t('wallet_tx');
+        $sc = self::admin_where($req);
+        list($from, $to) = self::admin_range($req);
+        $time = ($from ? $wpdb->prepare(' AND t.created >= %s', $from) : '') . ($to ? $wpdb->prepare(' AND t.created < %s', $to) : '');
+        $rows = self::ready() ? (array) $wpdb->get_results($wpdb->prepare("SELECT t.* FROM $T t JOIN $W w ON w.id = t.wallet_id WHERE {$sc['sql']} AND w.user_id = %d$time ORDER BY t.id DESC LIMIT %d OFFSET %d", $uid, self::PER_PAGE + 1, ($page - 1) * self::PER_PAGE), ARRAY_A) : [];
+        if (!$rows && $page === 1 && !$time) return new WP_Error('tix_not_found', 'Für diesen Kunden gibt es hier keine Guthaben-Buchungen.', ['status' => 404]);
+        $bal_sql = $sc['all'] ? '1=1' : ($sc['oid'] ? $wpdb->prepare('organizer_id = %d', $sc['oid']) : 'organizer_id = 0');
+        $bal = self::ready() ? $wpdb->get_var($wpdb->prepare("SELECT SUM(balance_paid + balance_bonus) FROM $W WHERE $bal_sql AND user_id = %d AND status <> 'closed'", $uid)) : null;
+        $more = count($rows) > self::PER_PAGE;
+        $tx = array_map(function ($r) { return self::tx_payload($r, true) + ['wallet_id' => intval($r['wallet_id'])]; }, array_slice($rows, 0, self::PER_PAGE));
+        return self::out(['ok' => true, 'customer' => ['user_id' => $uid, 'name' => (string) $u->display_name, 'email' => (string) $u->user_email, 'balance' => $bal === null ? null : self::euro($bal)],
+            'page' => $page, 'per_page' => self::PER_PAGE, 'has_more' => $more, 'tx' => $tx, 'transactions' => $tx]);
     }
 
     /** Personal: Recht tix_app_wallet_charge (Admin, Personal, Veranstalter); Mehr-Veranstalter-Modus mit Veranstalter. */
