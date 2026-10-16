@@ -68,6 +68,9 @@ class TIX_Mirror_Reconcile {
         $s = self::get();
         if ($s['state'] === 'running') return true;
         if (class_exists('TIX_Mirror_Backfill') && TIX_Mirror_Backfill::get()['state'] !== 'done') return false;
+        // Erst wenn alles gesendet ist: „fertig“ der Erstbefüllung heißt nur „alles im Postausgang“. Sonst meldet der
+        // erste Abgleich direkt nach dem Einschalten lauter „fehlt“ (Fund 2026-10-16 auf allen drei Seiten).
+        if (TIX_Mirror::pending_count() > 0) return false;
         $now = new DateTimeImmutable('now', wp_timezone());
         if ((int) $now->format('G') < self::HOUR) return false;
         $today = $now->setTime(self::HOUR, 0)->getTimestamp();

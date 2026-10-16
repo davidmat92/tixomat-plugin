@@ -280,6 +280,14 @@ $rep = m2_reconcile();
 t2_eq('verwaister Gast entfernt', null, m2_one('guests', '999999:waise'));
 t2_true('im Bericht gezählt', (int) ($rep['tables']['orphans']['guests'] ?? 0) >= 1);
 
+// Abgleich startet nicht, solange der Postausgang nicht leer ist (sonst Fehlalarm direkt nach der Erstbefüllung)
+update_option(TIX_Mirror_Reconcile::OPTION, ['state' => 'idle', 'finished_at' => 0, 'started_at' => 0], false);
+TIX_Mirror::touch('event', $ev); TIX_Mirror::flush_buffer();
+t2_eq('Abgleich wartet auf leeren Postausgang', false, TIX_Mirror_Reconcile::due());
+m2_run();
+t2_eq('nach dem Senden fällig', (int) wp_date('G') >= TIX_Mirror_Reconcile::HOUR, TIX_Mirror_Reconcile::due());
+update_option(TIX_Mirror_Reconcile::OPTION, ['state' => 'idle', 'finished_at' => time(), 'started_at' => time()], false);
+
 // ── 8. Aufbewahrung: Verlauf älter als die Einstellung wird gekürzt ──
 $old = TIX_Mirror_Client::request('POST', '/rest/v1/change_log', [
     ['site' => $site, 'entity' => 'test', 'object_id' => "alt$sfx", 'op' => 'insert', 'changed_at' => gmdate('c', strtotime('-11 years'))],
