@@ -312,10 +312,21 @@ class TIX_App_Scope {
         return rest_ensure_response(self::profile_payload(self::organizer_id_for_user()));
     }
 
+    /** Profil eines bestimmten Veranstalters (auch für die Partner-Brücke, TIX_Partner_Page). */
+    public static function profile_for($oid) {
+        return self::profile_payload(intval($oid));
+    }
+
     public static function rest_save_profile(WP_REST_Request $req) {
-        $oid = self::organizer_id_for_user();
         $b = $req->get_json_params();
-        if (!is_array($b)) $b = [];
+        $r = self::save_profile(self::organizer_id_for_user(), is_array($b) ? $b : []);
+        if (is_wp_error($r)) return $r;
+        return self::rest_profile($req);
+    }
+
+    /** Profil-Felder speichern (gleiche Regeln für /organizer/profile und die Partner-Brücke). true oder WP_Error. */
+    public static function save_profile($oid, array $b) {
+        $oid = intval($oid);
 
         if (array_key_exists('name', $b)) {
             $name = sanitize_text_field((string) $b['name']);
@@ -388,7 +399,34 @@ class TIX_App_Scope {
         // Gutschein-Event an Modul/Beträge angleichen (legt es beim ersten Einschalten an)
         if (class_exists('TIX_Giftcards') && (array_key_exists('giftcards', $b) || array_key_exists('modules', $b))) TIX_Giftcards::ensure_organizer_event(intval($oid));
         self::flush_public_cache();
-        return self::rest_profile($req);
+        return true;
+    }
+
+    /**
+     * Bild (logo|hero) aus Bytes speichern – geprüft wie das Logo im Studio: JPG/PNG/WebP, ≤ 5 MB, 16–6000 px.
+     * Liefert die Anhang-ID oder WP_Error (Partner-Brücke).
+     */
+    public static function store_profile_image($oid, $kind, $bytes, $filename = '') {
+        $bytes = (string) $bytes;
+        if ($bytes === '') return new WP_Error('no_file', 'Kein Bild übermittelt.', ['status' => 400, 'field' => 'file']);
+        if (strlen($bytes) > 5 * MB_IN_BYTES) return new WP_Error('tix_too_large', 'Das Bild ist zu groß (höchstens 5 MB).', ['status' => 413, 'field' => 'file']);
+        $info = @getimagesizefromstring($bytes);
+        $mime = is_array($info) ? (string) $info['mime'] : '';
+        if (!in_array($mime, ['image/jpeg', 'image/png', 'image/webp'], true)) return new WP_Error('bad_type', 'Bitte ein JPG-, PNG- oder WebP-Bild wählen.', ['status' => 400, 'field' => 'file']);
+        if ($info[0] < 16 || $info[1] < 16 || $info[0] > 6000 || $info[1] > 6000) return new WP_Error('bad_size', 'Das Bild muss zwischen 16 und 6000 Pixel groß sein.', ['status' => 400, 'field' => 'file']);
+        $kind = $kind === 'hero' ? 'hero' : 'logo';
+        require_once ABSPATH . 'wp-admin/includes/file.php';
+        require_once ABSPATH . 'wp-admin/includes/media.php';
+        require_once ABSPATH . 'wp-admin/includes/image.php';
+        $ext = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp'][$mime];
+        $up = wp_upload_bits('org-' . intval($oid) . '-' . $kind . '-' . wp_generate_password(6, false, false) . '.' . $ext, null, $bytes);
+        if (!empty($up['error'])) return new WP_Error('upload_failed', 'Das Bild konnte nicht gespeichert werden.', ['status' => 500]);
+        $aid = wp_insert_attachment(['post_mime_type' => $mime, 'post_title' => get_the_title($oid) . ' ' . $kind, 'post_status' => 'inherit', 'post_author' => 0], $up['file']);
+        if (!$aid || is_wp_error($aid)) return new WP_Error('upload_failed', 'Das Bild konnte nicht gespeichert werden.', ['status' => 500]);
+        wp_update_attachment_metadata($aid, wp_generate_attachment_metadata($aid, $up['file']));
+        update_post_meta(intval($oid), $kind === 'hero' ? '_tix_org_landing_hero_id' : '_tix_org_landing_logo_id', intval($aid));
+        self::flush_public_cache();
+        return intval($aid);
     }
 
     /** POST /organizer/profile/image (multipart `file`, Feld `kind` = logo|hero). */

@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.38.449
+ * Version: 1.38.450
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  * Update URI: https://veranstalter.evendis.de/tixomat
@@ -10,7 +10,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.38.449');
+define('TIXOMAT_VERSION', '1.38.450');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -616,6 +616,8 @@ TIX_Syndication_Receive::init();
 //    Vermittlung + Ticket-Spiegel (Plattform). Alles aus, bis konfiguriert. ──
 require_once TIXOMAT_PATH . 'includes/class-tix-partners.php';
 TIX_Partners::init();
+require_once TIXOMAT_PATH . 'includes/class-tix-partner-page.php';
+TIX_Partner_Page::init(); // „Deine Veranstalterseite“: Brücke Partner-Seite ↔ Partner-Eintrag auf evendis.de (/partner/evendis-page, /syndicate/organizer)
 
 // ── Sammelkonto mit Abrechnung (nur Mehr-Veranstalter-Modus, evendis.de): Auszahlungsdaten,
 //    Abrechnungen je Event (Cron), Admin „Auszahlungen“, Veranstalter-Seite + App-Routen ──
