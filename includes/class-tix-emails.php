@@ -837,15 +837,23 @@ class TIX_Emails {
         $kind = self::order_kind($order);
         $ctype = $kind === 'topup' ? 'topup_complete' : ($kind === 'giftcard' ? 'giftcard_complete' : 'order_complete');
         $chead = $kind === 'topup' ? 'Guthaben aufgeladen' : ($kind === 'giftcard' ? 'Dein Gutschein ist da' : 'Deine Tickets sind bereit!');
-        $html = self::build_email_html($ctype, $order, $chead, $gift ? ($gift['blocks'] ?? $gift['html']) : '');
+        // Rechnung/Beleg als PDF-Anhang (Rechnungs-Kern, nur mit Schalter tix_invoices_enabled, 1.38.487)
+        $inv_files = class_exists('TIX_Invoices') ? TIX_Invoices::completed_mail_files($order_id) : [];
+        $extra = $gift ? ($gift['blocks'] ?? $gift['html']) : '';
+        if ($inv_files) {
+            $note = ['type' => 'notice', 'tone' => 'info', 'html' => count($inv_files) > 1 ? 'Deine Rechnung und Belege findest du als PDF im Anhang.' : 'Deine Rechnung findest du als PDF im Anhang.'];
+            $extra = is_array($extra) ? array_merge($extra, [$note]) : ($extra !== '' ? [['type' => 'html', 'html' => $extra], $note] : [$note]);
+        }
+        $html = self::build_email_html($ctype, $order, $chead, $extra);
         self::send_html_mail(
             $order->get_billing_email(),
             $brand_name . ' – ' . $chead,
             $html,
             true,
-            $gift ? $gift['files'] : []
+            array_merge($gift ? $gift['files'] : [], $inv_files)
         );
         if ($gift) TIX_Giftcard_Gift::cleanup($gift['files']);
+        if ($inv_files) TIX_Invoices::cleanup($inv_files);
 
         // Marker setzen — verhindert Doppel-Versand durch Auto-Heal-Mechanismus
         update_post_meta($order_id, '_tix_completed_email_sent', current_time('mysql'));
@@ -916,8 +924,11 @@ class TIX_Emails {
             // Failed: admin only
             self::send_html_mail(get_option('admin_email'), $subject, $html);
         } else {
-            // on-hold, cancelled, refunded: send to customer
-            self::send_html_mail($order->get_billing_email(), $subject, $html, true);
+            // on-hold, cancelled, refunded: send to customer – Storno/Erstattung mit Rechnungskorrektur als PDF (1.38.487)
+            $inv_files = in_array($new_status, ['cancelled', 'refunded'], true) && class_exists('TIX_Invoices') ? TIX_Invoices::status_mail_files($order_id) : [];
+            if ($inv_files) $html = self::build_email_html($config['type'], $order, $config['heading'], [['type' => 'notice', 'tone' => 'info', 'html' => 'Die Rechnungskorrektur findest du als PDF im Anhang.']]);
+            self::send_html_mail($order->get_billing_email(), $subject, $html, true, $inv_files);
+            if ($inv_files) TIX_Invoices::cleanup($inv_files);
         }
     }
 

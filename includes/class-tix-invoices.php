@@ -44,11 +44,14 @@ class TIX_Invoices {
     const CRON        = 'tix_invoices_retry';
     const EPS         = 0.005;
 
+    /** In diesem Aufruf angelegte Belege je Bestellung (für Mail-Anhänge). */
+    private static $created = [];
+
     public static function init() {
         add_action('plugins_loaded', [__CLASS__, 'maybe_install'], 20);
-        add_action('tix_order_completed', [__CLASS__, 'on_completed'], 25, 1);
+        add_action('tix_order_completed', [__CLASS__, 'on_completed'], 5, 1); // vor der Bestellmail (Prio 10): PDF hängt an (1.38.487)
         add_action('tix_order_refund_recorded', [__CLASS__, 'on_refund'], 20, 3);
-        add_action('tix_order_status_changed', [__CLASS__, 'on_status'], 30, 3);
+        add_action('tix_order_status_changed', [__CLASS__, 'on_status'], 5, 3); // vor der Status-Mail: Korrektur hängt an (1.38.487)
         add_action('tix_order_chargeback', [__CLASS__, 'on_chargeback'], 20, 1);
         add_action(self::CRON, [__CLASS__, 'retry_pending']);
         add_action('init', [__CLASS__, 'schedule']);
@@ -545,6 +548,7 @@ class TIX_Invoices {
         $cfg = self::config($key);
         if (strtoupper((string) ($cfg['code'] ?? '')) !== $code) { $cfg['code'] = $code; self::save_config($key, $cfg); }
         self::store_pdf($id);
+        self::$created[intval($o->id)][] = $id;
         do_action('tix_invoice_created', $id, $doc['kind'], intval($o->id));
         return $id;
     }
@@ -799,6 +803,129 @@ class TIX_Invoices {
         return [$bytes, $name, false];
     }
 
+    // ═══════════════ Zustellung (Phase 3, 1.38.487) ═══════════════
+
+    /** Darf der Aufrufer (Inhaber/Team/Admin) diesen Beleg verwalten (senden)? */
+    private static function manages($inv) {
+        if (current_user_can('manage_options') || !self::multi()) return true;
+        $oid = TIX_App_Scope::organizer_id_for_user();
+        if ($oid && $inv->issuer_key === 'org:' . $oid) return true;
+        $o = class_exists('TIX_Order') ? TIX_Order::get(intval($inv->order_id)) : null;
+        return $o && TIX_App_Scope::order_allowed($o) && $inv->issuer_key !== 'platform';
+    }
+
+    /** Download-Link für Kunden (über den Bestell-Schlüssel, ohne Anmeldung). */
+    public static function download_url($inv, $order_key = '') {
+        if ($order_key === '') {
+            global $wpdb;
+            $order_key = (string) $wpdb->get_var($wpdb->prepare("SELECT order_key FROM {$wpdb->prefix}tix_orders WHERE id = %d", intval($inv->order_id)));
+        }
+        $url = add_query_arg(['action' => 'tix_invoice_download', 'order_id' => intval($inv->order_id), 'order_key' => $order_key, 'invoice_id' => intval($inv->id)], admin_url('admin-post.php'));
+        return class_exists('TIX_Customer_URL') ? TIX_Customer_URL::to($url) : $url;
+    }
+
+    /** Kurzliste für Konto/App/Studio: [{id, number, kind, series, gross, issued_at, ref, pdf, download_url}] */
+    public static function order_summary($order_id, $order_key = '') {
+        $out = [];
+        foreach (self::for_order($order_id) as $r) {
+            $d = json_decode((string) $r->data, true);
+            $out[] = ['id' => intval($r->id), 'number' => (string) $r->number, 'kind' => (string) $r->kind, 'series' => (string) $r->series,
+                'gross' => round(floatval($r->gross), 2), 'issued_at' => (string) $r->created, 'ref' => !empty($d['ref']['number']) ? (string) $d['ref']['number'] : null,
+                'pdf' => rest_url(self::NS . '/invoices/' . intval($r->id) . '/pdf'), 'download_url' => self::download_url($r, $order_key)];
+        }
+        return $out;
+    }
+
+    /** Erste Rechnung (R, sonst B) einer Bestellung oder null – für den bisherigen Feldnamen invoice_url. */
+    public static function primary($order_id) {
+        $b = null;
+        foreach (self::for_order($order_id) as $r) {
+            if ($r->series === 'R') return $r;
+            if ($r->series === 'B' && !$b) $b = $r;
+        }
+        return $b;
+    }
+
+    /** Belege als Dateien für einen Mail-Anhang (temporär, nach dem Versand cleanup()). */
+    public static function mail_files(array $invoices) {
+        $files = [];
+        if (!$invoices) return $files;
+        $base = class_exists('TIX_Support') ? TIX_Support::private_base() : (wp_upload_dir()['basedir'] . '/tix-private');
+        if (class_exists('TIX_Support')) TIX_Support::private_dir();
+        $dir = $base . '/invoices/mail-tmp-' . wp_generate_password(10, false, false);
+        if (!wp_mkdir_p($dir)) return $files;
+        @file_put_contents($dir . '/index.php', "<?php // Silence is golden.\n");
+        foreach ($invoices as $inv) {
+            list($bytes, $name) = self::pdf($inv);
+            if (!$bytes) continue;
+            $f = $dir . '/' . sanitize_file_name($name);
+            if (@file_put_contents($f, $bytes) !== false) $files[] = $f;
+        }
+        return $files;
+    }
+
+    public static function cleanup(array $files) {
+        $dirs = [];
+        foreach ($files as $f) { $dirs[dirname($f)] = true; @unlink($f); }
+        foreach (array_keys($dirs) as $d) { @unlink($d . '/index.php'); @rmdir($d); }
+    }
+
+    /** Anhänge zur Bestellmail: Rechnung(en) und Belege der Bestellung (nur mit Schalter). */
+    public static function completed_mail_files($order_id) {
+        if (!self::enabled()) return [];
+        return self::mail_files(array_values(array_filter(self::for_order($order_id), function ($r) { return in_array($r->series, ['R', 'B'], true); })));
+    }
+
+    /** Anhänge zur Storno-/Erstattungs-Mail: in diesem Aufruf angelegte Korrekturen. */
+    public static function status_mail_files($order_id) {
+        if (!self::enabled() || empty(self::$created[intval($order_id)])) return [];
+        $list = [];
+        foreach (self::$created[intval($order_id)] as $id) { $r = self::get($id); if ($r && in_array($r->series, ['RK', 'BK'], true)) $list[] = $r; }
+        return self::mail_files($list);
+    }
+
+    /** Beleg per Mail senden (Studio „Rechnung senden“). */
+    public static function send($inv, $email) {
+        $files = self::mail_files([$inv]);
+        if (!$files) return false;
+        $title = in_array($inv->series, ['B', 'BK'], true) ? ($inv->series === 'BK' ? 'Belegkorrektur' : 'Beleg') : ($inv->kind === 'correction' ? 'Rechnungskorrektur' : 'Rechnung');
+        $brand = class_exists('TIX_Mail_Layout') ? TIX_Mail_Layout::brand()['name'] : get_bloginfo('name');
+        $ok = class_exists('TIX_Mail_Layout')
+            ? TIX_Mail_Layout::send($email, $brand . ' – ' . $title . ' ' . $inv->number, ['title' => $title . ' ' . $inv->number, 'kind' => 'customer', 'blocks' => [
+                ['type' => 'text', 'html' => 'Hallo,<br>anbei ' . ($title === 'Rechnung' ? 'deine Rechnung' : 'dein Dokument') . ' <strong>' . esc_html($inv->number) . '</strong> zur Bestellung ' . esc_html($inv->order_number) . ' als PDF.'],
+                ['type' => 'info', 'rows' => [['Nummer', esc_html($inv->number)], ['Datum', esc_html(wp_date('d.m.Y', strtotime($inv->created)))], ['Betrag', esc_html(number_format(floatval($inv->gross), 2, ',', '.') . ' €')]]],
+            ]], ['attachments' => $files, 'customer' => true])
+            : wp_mail($email, $title . ' ' . $inv->number, 'Anbei ' . $title . ' ' . $inv->number, [], $files);
+        self::cleanup($files);
+        return (bool) $ok;
+    }
+
+    /** POST /invoices/{id}/send {email?} → {ok, email} (Inhaber/Team/Admin; Empfänger Vorgabe = Rechnungs-E-Mail) */
+    public static function rest_send(WP_REST_Request $req) {
+        $inv = self::get(intval($req['id']));
+        if (!$inv) return self::err('tix_invoice_missing', 'Beleg nicht gefunden.', 404);
+        if (!self::manages($inv)) return self::err('rest_forbidden', 'Keine Berechtigung für diesen Beleg.', 403);
+        $raw = trim((string) ($req->get_param('email') ?? ''));
+        $email = $raw === '' ? (string) $inv->recipient_email : sanitize_email($raw);
+        if (!is_email($email)) return self::err('tix_invalid', 'Bitte eine gültige E-Mail-Adresse angeben.', 400, 'email');
+        if (!self::send($inv, $email)) return self::err('tix_invoice_mail', 'Die Mail konnte nicht gesendet werden.', 500);
+        if (class_exists('TIX_Order_Admin') && method_exists('TIX_Order_Admin', 'add_note')) TIX_Order_Admin::add_note(intval($inv->order_id), '🧾 ' . $inv->number . ' gesendet an ' . $email, 'email');
+        return rest_ensure_response(['ok' => true, 'email' => $email]);
+    }
+
+    /** POST /orders/{id}/invoices/issue → {ok, created [number], pending [issuer], invoices} (bezahlte Bestellung, auch vor dem Einschalten) */
+    public static function rest_issue(WP_REST_Request $req) {
+        if (!self::enabled()) return self::err('tix_invoices_off', 'Rechnungen sind auf dieser Seite nicht eingeschaltet.', 409);
+        $o = class_exists('TIX_Order') ? TIX_Order::get(intval($req['id'])) : null;
+        if (!$o) return self::err('tix_order_missing', 'Bestellung nicht gefunden.', 404);
+        if (self::multi() && !current_user_can('manage_options') && !TIX_App_Scope::order_allowed($o)) return self::err('rest_forbidden', 'Kein Zugriff auf diese Bestellung.', 403);
+        if (!in_array($o->get_status(), ['completed', 'processing'], true)) return self::err('tix_order_unpaid', 'Rechnungen gibt es nur für bezahlte Bestellungen.', 409);
+        $r = self::issue_for_order($o->get_id());
+        $nums = [];
+        foreach ($r['created'] as $id) { $x = self::get($id); if ($x) $nums[] = $x->number; }
+        return rest_ensure_response(['ok' => true, 'created' => $nums, 'pending' => array_values(array_unique($r['pending'])), 'invoices' => self::order_summary($o->get_id())]);
+    }
+
     // ═══════════════ REST ═══════════════
 
     public static function routes() {
@@ -806,6 +933,8 @@ class TIX_Invoices {
         register_rest_route(self::NS, '/customer/orders/(?P<id>\d+)/invoices', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_order_invoices']] + $open);
         register_rest_route(self::NS, '/invoices/(?P<id>\d+)/pdf', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_pdf']] + $open);
         register_rest_route(self::NS, '/organizer/invoices', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_list'], 'permission_callback' => [__CLASS__, 'perm_manager']]);
+        register_rest_route(self::NS, '/invoices/(?P<id>\d+)/send', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_send'], 'permission_callback' => [__CLASS__, 'perm_manager']]);
+        register_rest_route(self::NS, '/orders/(?P<id>\d+)/invoices/issue', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_issue'], 'permission_callback' => [__CLASS__, 'perm_manager']]);
         register_rest_route(self::NS, '/studio/invoice-config', [
             ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_config'], 'permission_callback' => [__CLASS__, 'perm_manager']],
             ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_save_config'], 'permission_callback' => [__CLASS__, 'perm_manager']],
@@ -853,6 +982,8 @@ class TIX_Invoices {
             $trusted = class_exists('TIX_App_Account') ? (string) TIX_App_Account::trusted_email($user) : '';
             if ((intval($o->customer_id) > 0 && intval($o->customer_id) === intval($user->ID)) || ($trusted !== '' && strcasecmp((string) $o->billing_email, $trusted) === 0)) return true;
             if (self::multi() && strpos($inv->issuer_key, 'org:') === 0 && TIX_App_Scope::is_org_manager() && 'org:' . TIX_App_Scope::organizer_id_for_user() === $inv->issuer_key) return true;
+            // Studio: Inhaber/Team sieht die Belege von Bestellungen seiner Events (Liste je Bestellung)
+            if ($inv->issuer_key === '' && self::multi() && TIX_App_Scope::is_org_manager() && class_exists('TIX_Order') && ($ord = TIX_Order::get(intval($o->id))) && TIX_App_Scope::order_allowed($ord)) return true;
             if (!self::multi() && in_array('tix_organizer', (array) $user->roles, true)) return true;
         }
         $key = sanitize_text_field((string) ($req->get_param('key') ?? ''));

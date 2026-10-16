@@ -799,6 +799,29 @@ class TIX_Order_Admin {
                         <?php endif; ?>
 
                         <?php
+                        // ── Eigene Rechnungen (Rechnungs-Kern, 1.38.487): alle Belege, nie ersetzt ──
+                        $core_inv = class_exists('TIX_Invoices') ? TIX_Invoices::for_order($order_id) : [];
+                        if ($core_inv || (class_exists('TIX_Invoices') && TIX_Invoices::enabled() && floatval($order->total) > 0)):
+                            $core_pending = class_exists('TIX_Invoices') && in_array(intval($order_id), TIX_Invoices::pending_orders(), true);
+                        ?>
+                            <tr><td colspan="2" style="padding:10px 0 2px;"><hr style="border:none;border-top:1px solid #f3f4f6;margin:0;"></td></tr>
+                            <tr><td style="padding:4px 0;color:#6b7280;font-weight:600;" colspan="2">🧾 Rechnungen und Belege</td></tr>
+                            <?php foreach ($core_inv as $ci):
+                                $ci_send = wp_nonce_url(admin_url('admin-post.php?action=tix_invoice_send&invoice_id=' . intval($ci->id)), 'tix_invoice_send_' . intval($ci->id)); ?>
+                                <tr>
+                                    <td style="padding:4px 0;"><code style="font-size:12px;background:#f1f5f9;padding:2px 6px;border-radius:4px;"><?php echo esc_html($ci->number); ?></code><br><span style="font-size:11px;color:#94a3b8;"><?php echo esc_html(date_i18n('d.m.Y, H:i', strtotime($ci->created))); ?></span></td>
+                                    <td style="padding:4px 0;text-align:right;white-space:nowrap;"><?php echo esc_html(number_format(floatval($ci->gross), 2, ',', '.')); ?> €
+                                        <a href="<?php echo esc_url(TIX_Invoices::download_url($ci)); ?>" class="button button-small" style="margin-left:4px;">PDF ↓</a>
+                                        <a href="<?php echo esc_url($ci_send); ?>" class="button button-small" title="An <?php echo esc_attr($ci->recipient_email); ?> senden">✉︎</a></td>
+                                </tr>
+                            <?php endforeach; ?>
+                            <?php if (!$core_inv || $core_pending): ?>
+                                <tr><td colspan="2" style="padding:4px 0;font-size:12px;color:#64748b;"><?php echo $core_pending ? 'Wartet auf Pflichtangaben des Ausstellers (Name, Anschrift, Steuernummer).' : 'Noch keine Rechnung.'; ?></td></tr>
+                                <?php if (TIX_Invoices::enabled() && in_array($order->status, ['completed', 'processing'], true)): ?>
+                                    <tr><td colspan="2" style="padding:6px 0;"><a href="<?php echo esc_url(wp_nonce_url(admin_url('admin-post.php?action=tix_invoice_retry&order_id=' . $order_id), 'tix_invoice_retry')); ?>" class="button button-small">+ Jetzt erstellen</a></td></tr>
+                                <?php endif; ?>
+                            <?php endif; ?>
+                        <?php else:
                         // ── Rechnung (vom Invoice-Provider erzeugt) ──
                         $inv = class_exists('TIX_Invoicing') ? TIX_Invoicing::get_invoice_meta($order_id) : null;
                         if ($inv):
@@ -837,6 +860,7 @@ class TIX_Order_Admin {
                                 <a href="<?php echo esc_url($inv_create); ?>" class="button button-small">+ Jetzt erstellen</a>
                             </td></tr>
                         <?php endif; ?>
+                        <?php endif; // Rechnungs-Kern / Anbieter ?>
                     </table>
                 </div>
 

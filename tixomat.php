@@ -580,7 +580,9 @@ TIX_Weather::init(); // Wetter über den eigenen Server (GET /public/weather, Br
 require_once TIXOMAT_PATH . 'includes/class-tix-invoices.php';
 require_once TIXOMAT_PATH . 'includes/class-tix-invoice-pdf.php';
 require_once TIXOMAT_PATH . 'includes/class-tix-invoice-export.php';
+require_once TIXOMAT_PATH . 'includes/class-tix-invoice-admin.php';
 TIX_Invoices::init(); // Rechnungs-Kern: R/RK/B-Belege je Aussteller, lückenlose Kreise, PDF, CSV/DATEV (Schalter tix_invoices_enabled, Vorgabe aus) (1.38.485)
+TIX_Invoice_Admin::init(); // WP-Admin „Rechnungen“: Schalter, Liste, Export, Senden (1.38.487)
 require_once TIXOMAT_PATH . 'includes/class-tix-locations.php';
 TIX_Locations::init(); // Orte je Veranstalter, kanonische Orte/Zusammenführen (1.38.475)
 require_once TIXOMAT_PATH . 'includes/class-tix-order-number.php'; // kurze Bestellnummern mit Prüfzeichen (1.38.481)

@@ -1176,6 +1176,10 @@ class TIX_App_Events {
                 ]))),
                 'items'          => $items,
                 'tickets'        => $tickets,
+                // Rechnungen der Bestellung (1.38.487): Liste, senden über POST /invoices/{id}/send, nachholen über POST /orders/{id}/invoices/issue
+                'invoices'         => class_exists('TIX_Invoices') ? TIX_Invoices::order_summary($id) : [],
+                'invoices_enabled' => class_exists('TIX_Invoices') && TIX_Invoices::enabled(),
+                'invoice_pending'  => class_exists('TIX_Invoices') && in_array(intval($id), TIX_Invoices::pending_orders(), true),
             ],
         ]);
     }

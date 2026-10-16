@@ -1011,6 +1011,8 @@ class TIX_App_Checkout {
             'event'        => self::order_event_info($event_id),
             'ticket_count' => $tickets,
             'invoice_url'  => self::invoice_url(intval($o->id), (string) $o->order_key),
+            // alle Rechnungen/Belege/Korrekturen (Rechnungs-Kern, 1.38.487), [] ohne
+            'invoices'     => class_exists('TIX_Invoices') ? TIX_Invoices::order_summary(intval($o->id), (string) $o->order_key) : [],
             'seller'       => null,
         ];
     }
@@ -1189,6 +1191,7 @@ class TIX_App_Checkout {
                 'tickets'              => $paid ? self::order_tickets($order_id) : [],
                 // Rechnung (PDF), '' solange keine erstellt ist
                 'invoice_url'          => self::invoice_url(intval($o->id), (string) $o->order_key),
+                'invoices'             => class_exists('TIX_Invoices') ? TIX_Invoices::order_summary(intval($o->id), (string) $o->order_key) : [],
             ],
         ]);
     }

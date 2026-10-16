@@ -140,6 +140,11 @@ class TIX_Invoicing {
     /* ─────────────── ORDER-API (für My-Account/Checkout-Anzeige) ─────────────── */
 
     public static function get_invoice_meta(int $order_id): ?array {
+        // Eigener Rechnungs-Kern (1.38.487): Rechnung aus tix_invoices, sobald es eine gibt (Konto, App invoice_url, Admin)
+        if (class_exists('TIX_Invoices') && ($inv = TIX_Invoices::primary($order_id))) {
+            return ['provider' => 'tixomat', 'invoice_id' => (string) $inv->id, 'invoice_number' => (string) $inv->number, 'pdf_file_id' => '',
+                'status' => 'created', 'created_at' => (string) $inv->created, 'error' => ''];
+        }
         $m = get_option(self::ORDER_META_PREFIX . $order_id, null);
         return is_array($m) ? $m : null;
     }
@@ -182,6 +187,23 @@ class TIX_Invoicing {
             }
         }
 
+        // Eigener Rechnungs-Kern: bestimmter Beleg (?invoice_id=) oder die Rechnung der Bestellung
+        if (class_exists('TIX_Invoices')) {
+            $iid = intval($_GET['invoice_id'] ?? 0);
+            $core = $iid ? TIX_Invoices::get($iid) : TIX_Invoices::primary($order_id);
+            if ($core && intval($core->order_id) === $order_id) {
+                list($pdf, $filename) = TIX_Invoices::pdf($core);
+                if (!$pdf) wp_die('Rechnungs-PDF konnte nicht erzeugt werden.', 'Rechnung', ['response' => 500]);
+                nocache_headers();
+                header('Content-Type: application/pdf');
+                header('Content-Disposition: attachment; filename="' . sanitize_file_name($filename) . '"');
+                header('Content-Length: ' . strlen($pdf));
+                echo $pdf;
+                exit;
+            }
+            if ($iid) wp_die('Beleg nicht gefunden.', 'Rechnung', ['response' => 404]);
+        }
+
         $meta = self::get_invoice_meta($order_id);
         if (!$meta || ($meta['status'] ?? '') !== 'created') {
             wp_die('Für diese Bestellung gibt es noch keine Rechnung.', 'Rechnung', ['response' => 404]);
@@ -213,6 +235,12 @@ class TIX_Invoicing {
         check_admin_referer('tix_invoice_retry');
         $order_id = intval($_GET['order_id'] ?? 0);
         if (!$order_id) wp_die('Order-ID fehlt.');
+        // Eigener Rechnungs-Kern: fehlende Belege nachholen (nie ersetzen)
+        if (class_exists('TIX_Invoices') && TIX_Invoices::enabled()) {
+            TIX_Invoices::issue_for_order($order_id);
+            wp_safe_redirect(wp_get_referer() ?: admin_url('admin.php?page=tix-orders'));
+            exit;
+        }
         // Existierendes Meta löschen, damit maybe_create_for_order neu durchläuft
         delete_option(self::ORDER_META_PREFIX . $order_id);
         self::maybe_create_for_order($order_id);

@@ -435,6 +435,8 @@ class TIX_Studio {
                 'mail' => self::mail_payload()],
             // 1.38.481: Bestellnummern (legacy = bisheriges Format, short = KK-7HQ4M2)
             'order_number' => class_exists('TIX_Order_Number') ? ['mode' => TIX_Order_Number::mode(), 'code' => TIX_Order_Number::code(), 'example' => TIX_Order_Number::make()] : null,
+            // Rechnungen (1.38.487): Menüpunkt/Hinweis im Studio; Details unter GET /studio/invoice-config
+            'invoices' => class_exists('TIX_Invoices') ? ['enabled' => TIX_Invoices::enabled(), 'model' => TIX_Invoices::multi() ? TIX_Invoices::model() : null] : null,
             'profile'    => $multi ? 'platform' : 'single',
             'features'   => [
                 'register'  => $multi && class_exists('TIX_Register_API'),
