@@ -9,8 +9,8 @@
  *
  *   GET /public/tips[?placement=<slug>]   (öffentlich, 60 s im Transient)
  *
- * Verwaltung aus den Apps (Veranstalter-Bereich, X-Tix-Token) – nur für
- * WordPress-Admins (`manage_options`), sonst 403 `rest_forbidden`:
+ * Verwaltung aus den Apps (Veranstalter-Bereich, X-Tix-Token) – für WordPress-Admins (`manage_options`),
+ * auf Einzel-Seiten seit 1.38.475 auch für Inhaber (Rolle tix_organizer); sonst 403 `rest_forbidden`:
  *
  *   GET    /app/tips                 alle Tipps (inkl. Entwürfe/abgelaufene) + Plätze
  *   POST   /app/tips                 anlegen (JSON)
@@ -589,16 +589,18 @@ class TIX_App_Tips {
         ]);
     }
 
-    /** Nur WordPress-Admins – auch im Mehr-Veranstalter-Modus nie Veranstalter/Team. */
+    /** WordPress-Admins; auf Einzel-Seiten auch Inhaber (tix_organizer). Im Mehr-Veranstalter-Modus nie Veranstalter/Team. */
     public static function check_admin($req = null) {
         if (!is_user_logged_in()) {
             // Abgelaufenes Token: App führt zur Anmeldung (wie die übrigen Routen)
             return new WP_Error('rest_not_logged_in', 'Authentifizierung erforderlich.', ['status' => 401]);
         }
-        if (!current_user_can('manage_options')) {
-            return new WP_Error('rest_forbidden', 'App-Tipps pflegen nur Admins.', ['status' => 403]);
-        }
-        return true;
+        if (current_user_can('manage_options')) return true;
+        // Einzel-Seiten (KitchenKlub, Mallorca, Lizenzseiten): auch Inhaber bzw. Veranstalter mit Verwaltungsrecht
+        // (Rolle tix_organizer = App-Rolle admin), 1.38.475. evendis (Mehr-Veranstalter-Modus): nur Admins.
+        $multi = class_exists('TIX_App_Scope') && TIX_App_Scope::multi();
+        if (!$multi && in_array('tix_organizer', (array) wp_get_current_user()->roles, true)) return true;
+        return new WP_Error('rest_forbidden', 'App-Tipps pflegen nur Admins' . ($multi ? '' : ' und Inhaber') . '.', ['status' => 403]);
     }
 
     /** Tipp im App-Format. */

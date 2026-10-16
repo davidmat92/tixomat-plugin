@@ -609,6 +609,7 @@ class TIX_Studio_Editor {
 
     /** Eigener Ort? (Admin bzw. Ein-Veranstalter: alle; Mehr-Veranstalter: selbst angelegt oder dem eigenen Veranstalter zugeordnet) */
     private static function location_own($lid) {
+        if (class_exists('TIX_Locations')) return TIX_Locations::is_own($lid);
         if (current_user_can('manage_options') || !self::multi()) return true;
         if (intval(get_post_field('post_author', $lid)) === get_current_user_id()) return true;
         $oid = TIX_App_Scope::organizer_id_for_user();
@@ -645,15 +646,21 @@ class TIX_Studio_Editor {
             'accessibility' => class_exists('TIX_Event_Facts') ? TIX_Event_Facts::sanitize_acc(get_post_meta($lid, TIX_Event_Facts::META_ACC, true)) : null,
             'events'   => self::location_events($lid),
             'editable' => self::location_own($lid),
+            // 1.38.475: Google-Ort, zuletzt genutzt, Veranstalter, öffentlicher (kanonischer) Ort
+            'place_id' => $m('_tix_loc_place_id') ?: null,
+            'last_used' => class_exists('TIX_Locations') ? TIX_Locations::last_used($lid) : null,
+            'organizer_id' => intval($m('_tix_loc_organizer_id')) ?: null,
+            'canonical_id' => class_exists('TIX_Locations') ? TIX_Locations::canonical_id($lid) : intval($lid),
         ];
     }
 
     /** GET /locations */
     public static function rest_locations(WP_REST_Request $req) {
-        $ids = get_posts(['post_type' => 'tix_location', 'post_status' => 'publish', 'posts_per_page' => 300, 'orderby' => 'title', 'order' => 'ASC', 'fields' => 'ids']);
+        // Mehr-Veranstalter-Modus: nur eigene Orte (1.38.475; vorher auch fremde, in der App gelistete), Admins alle
+        $ids = class_exists('TIX_Locations') ? TIX_Locations::visible_ids(300) : get_posts(['post_type' => 'tix_location', 'post_status' => 'publish', 'posts_per_page' => 300, 'orderby' => 'title', 'order' => 'ASC', 'fields' => 'ids']);
         $out = [];
         foreach ($ids as $lid) {
-            if (self::multi() && !current_user_can('manage_options') && !self::location_own($lid) && get_post_meta($lid, '_tix_loc_listed', true) !== '1') continue;
+            if (self::multi() && !current_user_can('manage_options') && !self::location_own($lid)) continue;
             $out[] = self::location_payload($lid);
         }
         return rest_ensure_response(['ok' => true, 'locations' => $out]);
@@ -677,6 +684,12 @@ class TIX_Studio_Editor {
         $p = $req->get_json_params();
         $p = is_array($p) ? $p : $req->get_params();
         $f = ['address' => '_tix_loc_address', 'zip' => '_tix_loc_zip', 'city' => '_tix_loc_city', 'country' => '_tix_loc_country'];
+        // Google-Ort (1.38.475): gibt es ihn beim Veranstalter schon, den vorhandenen zurückgeben statt doppelt anlegen
+        $place_id = isset($p['place_id']) ? preg_replace('/[^A-Za-z0-9_-]/', '', (string) $p['place_id']) : null;
+        if (!$lid && $place_id && class_exists('TIX_Locations')) {
+            $own = TIX_Locations::find_own_by_place($place_id, self::multi() ? intval(TIX_App_Scope::organizer_id_for_user()) : 0);
+            if ($own) return rest_ensure_response(['ok' => true, 'existing' => true, 'location' => self::location_payload($own)]);
+        }
         if (!$lid || array_key_exists('title', $p)) {
             $title = mb_substr(sanitize_text_field((string) ($p['title'] ?? '')), 0, 120);
             if ($title === '') return self::bad('title', 'Bitte einen Namen für den Ort angeben.');
@@ -713,6 +726,11 @@ class TIX_Studio_Editor {
             // Adresse geändert → Koordinaten wie bisher (Nominatim, nur automatische überschreiben)
             TIX_Venues::maybe_geocode($lid);
         }
+        if ($place_id !== null) {
+            if ($place_id === '') delete_post_meta($lid, '_tix_loc_place_id'); else update_post_meta($lid, '_tix_loc_place_id', mb_substr($place_id, 0, 300));
+        }
+        // Öffentlich zusammenführen (gleiche place_id bzw. nah + ähnlicher Name) – nach dem Speichern aller Angaben
+        if (self::multi() && class_exists('TIX_Locations')) TIX_Locations::check($lid);
         if (class_exists('TIX_Public_Events')) TIX_Public_Events::flush();
         return new WP_REST_Response(['ok' => true, 'location' => self::location_payload($lid)], !empty($created) ? 201 : 200);
     }

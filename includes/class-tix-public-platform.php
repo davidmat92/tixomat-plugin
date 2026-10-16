@@ -137,6 +137,12 @@ class TIX_Public_Platform {
         $name   = (string) get_post_meta($event_id, '_tix_location', true);
         $addr   = (string) get_post_meta($event_id, '_tix_address', true);
         $city = ''; $zip = ''; $lat = null; $lng = null;
+        // Öffentlich zählt der kanonische Ort (1.38.475): gleicher Ort mehrerer Veranstalter = ein Ort mit allen Events
+        if ($loc_id && class_exists('TIX_Locations') && ($cid = TIX_Locations::canonical_id($loc_id)) !== $loc_id) {
+            $loc_id = $cid;
+            $name = '';
+            $addr = '';
+        }
         if ($loc_id && ($lp = get_post($loc_id)) && $lp->post_type === 'tix_location') {
             if ($name === '') $name = (string) $lp->post_title;
             $city = (string) get_post_meta($loc_id, '_tix_loc_city', true);
@@ -176,6 +182,10 @@ class TIX_Public_Platform {
             $o = $p['organizer_info'] ?? null;
             if (!$o) return false;
             if (!((string) $o['id'] === (string) $f['organizer'] || ($o['slug'] !== '' && strcasecmp((string) $o['slug'], $f['organizer']) === 0))) return false;
+        }
+        if (!empty($f['venue'])) {
+            $want = class_exists('TIX_Locations') ? TIX_Locations::canonical_id(intval($f['venue'])) : intval($f['venue']);
+            if (intval($p['venue']['id'] ?? 0) !== $want) return false;
         }
         if (!empty($f['city'])) {
             $city = (string) ($p['venue']['city'] ?? '');

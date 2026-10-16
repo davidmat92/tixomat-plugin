@@ -138,7 +138,11 @@ class TIX_Venues {
             'meta_value'     => '1',
         ]);
         $list = [];
+        $seen = [];
         foreach ($ids as $lid) {
+            // Zusammengeführte Orte (1.38.475): öffentlich nur einmal, unter der ID des kanonischen Orts
+            $cid = class_exists('TIX_Locations') ? TIX_Locations::canonical_id($lid) : intval($lid);
+            if (isset($seen[$cid])) continue;
             $slots = self::hours($lid)[$wd] ?? [];
             if (!$slots) continue;
             $vcity = self::city_of($lid);
@@ -153,9 +157,10 @@ class TIX_Venues {
             $tagline = trim((string) get_post_meta($lid, '_tix_loc_tagline', true));
             if ($tagline === '') $tagline = trim((string) get_post_meta($lid, '_tix_loc_short_desc', true));
             $oid = intval(get_post_meta($lid, '_tix_loc_organizer_id', true));
+            $seen[$cid] = true;
             $v = [
-                'id'             => intval($lid),
-                'name'           => (string) get_the_title($lid),
+                'id'             => $cid,
+                'name'           => (string) get_the_title($cid),
                 'city'           => $vcity,
                 'zip'            => (string) get_post_meta($lid, '_tix_loc_zip', true),
                 'address'        => (string) get_post_meta($lid, '_tix_loc_address', true),

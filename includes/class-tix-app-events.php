@@ -116,14 +116,15 @@ class TIX_App_Events {
         return $out;
     }
 
-    private static function locations() {
-        $posts = get_posts([
-            'post_type'      => 'tix_location',
-            'post_status'    => 'publish',
-            'posts_per_page' => 100,
-            'orderby'        => 'title',
-            'order'          => 'ASC',
-        ]);
+    private static function locations($current = 0) {
+        // Mehr-Veranstalter-Modus: nur eigene Orte (1.38.475), der am Event gesetzte Ort bleibt sichtbar
+        if (class_exists('TIX_Locations')) {
+            $ids = TIX_Locations::visible_ids(300);
+            if ($current && !in_array(intval($current), $ids, true) && get_post_type($current) === 'tix_location') $ids[] = intval($current);
+            $posts = array_filter(array_map('get_post', $ids));
+        } else {
+            $posts = get_posts(['post_type' => 'tix_location', 'post_status' => 'publish', 'posts_per_page' => 100, 'orderby' => 'title', 'order' => 'ASC']);
+        }
         $out = [];
         foreach ($posts as $p) {
             $out[] = [
@@ -194,7 +195,7 @@ class TIX_App_Events {
         }
         return rest_ensure_response([
             'ok'               => true,
-            'locations'        => self::locations(),
+            'locations'        => self::locations(intval(get_post_meta($id, '_tix_location_id', true))),
             'event_categories' => self::event_categories(),
             'info_sections'    => self::info_sections(),
             'event'            => self::edit_payload($id),
@@ -417,6 +418,15 @@ class TIX_App_Events {
         $texts = class_exists('TIX_Event_Texts') ? TIX_Event_Texts::check($body, $is_new ? 0 : $post_id) : [];
         if (is_wp_error($texts)) return $texts;
         if (is_wp_error($studio)) return $studio;
+
+        // Fremden Ort nicht übernehmen (1.38.475): nur eigene Orte bzw. der schon gesetzte; neue Orte über POST /locations
+        if (array_key_exists('location_id', $body) && class_exists('TIX_Locations')) {
+            $lid_in = intval($body['location_id']);
+            if ($lid_in && get_post_type($lid_in) === 'tix_location' && !TIX_Locations::is_own($lid_in)
+                && ($is_new || $lid_in !== intval(get_post_meta($post_id, '_tix_location_id', true)))) {
+                return new WP_Error('tix_location_foreign', 'Diesen Ort kannst du nicht verwenden. Lege ihn über die Ortssuche als eigenen Ort an.', ['status' => 403, 'field' => 'location_id']);
+            }
+        }
 
         // Sparte zuerst prüfen (Slug oder ID; '' entfernt sie; `category` als Alias) – vor allen Änderungen
         $cat_term = null;

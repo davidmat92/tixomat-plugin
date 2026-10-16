@@ -442,6 +442,8 @@ class TIX_Public_Events {
             'city'      => sanitize_text_field((string) $req->get_param('city')),
             'q'         => sanitize_text_field((string) $req->get_param('q')),
         ];
+        // Ort (1.38.475): ?venue=<Orts-ID> – alle Events des (kanonischen) Orts, auch anderer Veranstalter
+        if (absint($req->get_param('venue'))) $f['venue'] = absint($req->get_param('venue'));
         $geo = self::geo_date_params($req);
         if (is_wp_error($geo)) return $geo;
         // Themen-Sammlung (?collection=<slug>) und offene Gewinnspiele (?raffle=1), 1.38.395
@@ -542,6 +544,7 @@ class TIX_Public_Events {
             'organizer' => sanitize_text_field((string) $req->get_param('organizer')),
             'city'      => sanitize_text_field((string) $req->get_param('city')),
         ];
+        if (absint($req->get_param('venue'))) $f['venue'] = absint($req->get_param('venue'));
         $key = 'tix_pub_events_days_' . md5($from . '|' . $to . '|' . $today . '|' . wp_json_encode($f));
         $cached = get_transient($key);
         if (is_array($cached)) return rest_ensure_response(self::days_response($cached));
