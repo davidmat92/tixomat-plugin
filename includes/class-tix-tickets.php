@@ -4432,12 +4432,17 @@ body{margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',
         var TIX_AJAX_URL = window.TIX_AJAX_URL;
         var TIX_TOKEN    = <?php echo wp_json_encode($online_token); ?>;
         <?php
-        // Location-Koordinaten für Wetter (aus Location-CPT falls referenziert)
+        // Koordinaten für das Wetter (1.38.483): Ort (kanonisch) bzw. am Event gespeicherte; fehlen sie, ermittelt der
+        // Server sie im Hintergrund aus der Adresse (TIX_Venues). Kein Geocoding und kein Wetterdienst im Browser.
         $loc_lat = ''; $loc_lng = '';
-        $loc_ref = intval(get_post_meta($event_id, '_tix_location_id', true));
-        if ($loc_ref) {
-            $loc_lat = (string) get_post_meta($loc_ref, '_tix_loc_lat', true);
-            $loc_lng = (string) get_post_meta($loc_ref, '_tix_loc_lng', true);
+        if (!empty($s['ht_weather_enabled'])) {
+            $vp = class_exists('TIX_Public_Platform') ? TIX_Public_Platform::venue($event_id) : ['lat' => null, 'lng' => null];
+            if ($vp['lat'] !== null && $vp['lng'] !== null) {
+                $loc_lat = (string) $vp['lat'];
+                $loc_lng = (string) $vp['lng'];
+            } elseif (class_exists('TIX_Venues')) {
+                TIX_Venues::queue_event_geocode($event_id);
+            }
         }
         ?>
         var TIX_EVENT = {
@@ -4453,120 +4458,50 @@ body{margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',
             code:      <?php echo wp_json_encode($code); ?>,
             url:       <?php echo wp_json_encode(self::get_online_view_url($ticket_id)); ?>,
             checkinSound:   <?php echo !empty($s['ht_checkin_sound'])   ? 'true' : 'false'; ?>,
-            weatherOn:      <?php echo !empty($s['ht_weather_enabled']) ? 'true' : 'false'; ?>
+            weatherOn:      <?php echo !empty($s['ht_weather_enabled']) ? 'true' : 'false'; ?>,
+            weatherUrl:     <?php echo wp_json_encode(rest_url('tixomat/v1/public/weather')); ?>
         };
 
-        // ── Live-Wetter am Event-Tag (Open-Meteo, keine API-Key-Anforderung) ──
+        // ── Wetter zum Beginn (1.38.483): über den eigenen Server (GET /public/weather → Bright Sky, Daten des DWD).
+        //    Der Browser fragt keinen fremden Dienst; ohne Koordinaten gibt es kein Wetter (der Server ermittelt sie nach).
         (function(){
-            console.info('[Wetter] TIX_EVENT:', TIX_EVENT);
-            if (!TIX_EVENT.weatherOn) { console.info('[Wetter] Toggle ausgeschaltet'); return; }
-            if (!TIX_EVENT.startISO)  { console.info('[Wetter] Kein Event-Datum'); return; }
-
+            if (!TIX_EVENT.weatherOn || !TIX_EVENT.startISO || !TIX_EVENT.weatherUrl) return;
             var placeholder = document.querySelector('[data-tix-weather-placeholder]');
-            console.info('[Wetter] Placeholder-Element:', placeholder);
-            if (!placeholder) { console.warn('[Wetter] data-tix-weather-placeholder nicht im DOM'); return; }
-
-            var evDate = new Date(TIX_EVENT.startISO.replace(' ', 'T'));
-            if (isNaN(evDate.getTime())) { console.warn('[Wetter] Ungültiges Datum:', TIX_EVENT.startISO); return; }
-            var daysAhead = (evDate.getTime() - Date.now()) / (1000*60*60*24);
-            console.info('[Wetter] Tage bis Event:', daysAhead.toFixed(1));
-            // Nur anzeigen wenn Event in den nächsten 7 Tagen (Prognose davor ist zu ungenau)
-            // Vergangenes Event (daysAhead < 0) wird noch angezeigt — dann ist's die historische Temperatur
-            if (daysAhead > 7) {
-                console.info('[Wetter] Event > 7 Tage entfernt — Prognose ausgeblendet');
-                return;
-            }
-
-            function renderWeather(temp, code, lat, lng) {
-                var map = {
-                    0:'☀️', 1:'🌤️', 2:'⛅', 3:'☁️',
-                    45:'🌫️', 48:'🌫️',
-                    51:'🌦️', 53:'🌦️', 55:'🌧️',
-                    61:'🌧️', 63:'🌧️', 65:'🌧️',
-                    71:'🌨️', 73:'🌨️', 75:'❄️', 77:'❄️',
-                    80:'🌦️', 81:'🌧️', 82:'⛈️',
-                    85:'🌨️', 86:'❄️',
-                    95:'⛈️', 96:'⛈️', 99:'⛈️'
-                };
-                var icon = map[code] || '🌡️';
-                placeholder.innerHTML = '<span class="tix-weather-icon">' + icon + '</span><span>' + Math.round(temp) + '°C</span>';
+            if (!placeholder) return;
+            var lat = parseFloat(TIX_EVENT.lat), lng = parseFloat(TIX_EVENT.lng);
+            if (isNaN(lat) || isNaN(lng)) return;
+            var day = TIX_EVENT.startISO.split(' ')[0].split('T')[0];
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return;
+            var hour = parseInt(String(TIX_EVENT.timeStart || TIX_EVENT.timeDoors || '20').split(':')[0], 10);
+            if (isNaN(hour) || hour < 0 || hour > 23) hour = 20;
+            var evDate = new Date(day + 'T' + (hour < 10 ? '0' : '') + hour + ':00:00');
+            var daysAhead = (evDate.getTime() - Date.now()) / 86400000;
+            // Vorhersage bis 7 Tage voraus; vergangene Events bis 2 Tage danach
+            if (daysAhead > 7 || daysAhead < -2) return;
+            var p = new Date(day + 'T12:00:00'); p.setDate(p.getDate() + 1);
+            var pad = function(n){ return (n < 10 ? '0' : '') + n; };
+            var next = p.getFullYear() + '-' + pad(p.getMonth() + 1) + '-' + pad(p.getDate());
+            var url = TIX_EVENT.weatherUrl + (TIX_EVENT.weatherUrl.indexOf('?') >= 0 ? '&' : '?') +
+                'lat=' + lat.toFixed(3) + '&lon=' + lng.toFixed(3) + '&date=' + day + 'T00:00&last_date=' + next + 'T00:00&tz=Europe%2FBerlin';
+            var icons = {
+                'clear-day': '☀️', 'clear-night': '🌙', 'partly-cloudy-day': '⛅', 'partly-cloudy-night': '☁️',
+                'cloudy': '☁️', 'fog': '🌫️', 'wind': '💨', 'rain': '🌧️', 'sleet': '🌨️', 'snow': '❄️',
+                'hail': '⛈️', 'thunderstorm': '⛈️'
+            };
+            fetch(url, { credentials: 'omit' }).then(function(r){ return r.ok ? r.json() : null; }).then(function(data){
+                if (!data || !data.weather || !data.weather.length) return;
+                var want = day + 'T' + pad(hour), h = null;
+                for (var i = 0; i < data.weather.length; i++) {
+                    var w = data.weather[i];
+                    if (w && typeof w.timestamp === 'string' && w.timestamp.substring(0, 13) === want) { h = w; break; }
+                }
+                if (!h || typeof h.temperature !== 'number') return;
+                var icon = icons[h.condition === 'thunderstorm' || h.condition === 'hail' ? 'thunderstorm' : h.icon] || '🌡️';
+                placeholder.innerHTML = '<span class="tix-weather-icon">' + icon + '</span><span>' + Math.round(h.temperature) + '°C</span>' +
+                    '<span class="tix-weather-src" style="opacity:.6;font-size:.8em;">· Quelle: DWD</span>';
+                placeholder.setAttribute('title', 'Wetter zum Beginn – Quelle: Deutscher Wetterdienst (über Bright Sky)');
                 placeholder.style.display = 'inline-flex';
-                console.info('[Wetter] ✓ Gerendert:', temp + '°C', code, 'bei', lat + ',' + lng);
-            }
-
-            function fetchWeather(lat, lng) {
-                var dateStr = TIX_EVENT.startISO.split(' ')[0].split('T')[0];
-                var url = 'https://api.open-meteo.com/v1/forecast?latitude=' + lat + '&longitude=' + lng +
-                          '&daily=weathercode,temperature_2m_max&timezone=auto&start_date=' + dateStr + '&end_date=' + dateStr;
-                console.info('[Wetter] Fetch:', url);
-                fetch(url).then(function(r){
-                    console.info('[Wetter] Status:', r.status);
-                    return r.json();
-                }).then(function(data){
-                    console.info('[Wetter] Forecast-Response:', data);
-                    if (!data || !data.daily) { console.warn('[Wetter] Keine daily-Daten'); return; }
-                    var temp = (data.daily.temperature_2m_max && data.daily.temperature_2m_max[0]);
-                    var code = (data.daily.weathercode && data.daily.weathercode[0]);
-                    if (temp == null) { console.warn('[Wetter] temp null — evtl. Datum außerhalb verfügbarer Daten'); return; }
-                    renderWeather(temp, code, lat, lng);
-                }).catch(function(err){ console.error('[Wetter] Forecast-Fehler:', err); });
-            }
-
-            // 1) Koordinaten direkt
-            if (TIX_EVENT.lat && TIX_EVENT.lng && !isNaN(parseFloat(TIX_EVENT.lat))) {
-                console.info('[Wetter] Koordinaten aus Location-CPT:', TIX_EVENT.lat, TIX_EVENT.lng);
-                fetchWeather(parseFloat(TIX_EVENT.lat), parseFloat(TIX_EVENT.lng));
-                return;
-            }
-
-            // 2) Geocoding mit mehreren Fallbacks
-            var raw = (TIX_EVENT.address || TIX_EVENT.location || '').trim();
-            if (!raw) { console.warn('[Wetter] Weder Koordinaten noch Adresse vorhanden — abbruch'); return; }
-            console.info('[Wetter] Geocoding benötigt, Roh-Input:', raw);
-
-            // Queries in Prio-Reihenfolge (Open-Meteo Geocoding unterstützt KEINE PLZ → pure Stadtnamen zuerst)
-            var queries = [];
-            var plzMatch = raw.match(/(\d{4,5})\s+([A-Za-zÄÖÜäöüß\-\s\.]+)/);
-            // 1) Reiner Stadtname (z.B. "Wuppertal" aus "42103 Wuppertal")
-            if (plzMatch && plzMatch[2]) {
-                var cityClean = plzMatch[2].trim().split(',')[0].trim();
-                if (cityClean) queries.push(cityClean);
-            }
-            // 2) Letztes Komma-Segment, ggf. mit gestripperer PLZ
-            var lastPart = raw.split(',').pop().trim();
-            var cleanLast = lastPart.replace(/^\d{4,5}\s+/, '').trim();
-            if (cleanLast && queries.indexOf(cleanLast) === -1) queries.push(cleanLast);
-            // 3) PLZ + Stadt (falls die API das mal doch unterstützt)
-            if (plzMatch) {
-                var plzCity = plzMatch[1] + ' ' + plzMatch[2].trim().split(',')[0].trim();
-                if (queries.indexOf(plzCity) === -1) queries.push(plzCity);
-            }
-            // 4) cityOnly (letztes Segment wie es ist)
-            if (lastPart && queries.indexOf(lastPart) === -1) queries.push(lastPart);
-            // 5) Rohstring
-            if (queries.indexOf(raw) === -1) queries.push(raw);
-
-            console.info('[Wetter] Geocoding-Queries (in Reihenfolge):', queries);
-
-            function tryGeocode(i) {
-                if (i >= queries.length) { console.warn('[Wetter] Alle Geocoding-Versuche fehlgeschlagen'); return; }
-                var q = queries[i];
-                var gcUrl = 'https://geocoding-api.open-meteo.com/v1/search?name=' + encodeURIComponent(q) + '&count=1&language=de';
-                console.info('[Wetter] Geocoding-Versuch ' + (i+1) + ':', q);
-                fetch(gcUrl).then(function(r){ return r.json(); }).then(function(data){
-                    if (data && data.results && data.results[0]) {
-                        console.info('[Wetter] Geocoding-Treffer:', data.results[0]);
-                        fetchWeather(data.results[0].latitude, data.results[0].longitude);
-                    } else {
-                        console.info('[Wetter] Kein Treffer für "' + q + '", nächster Versuch…');
-                        tryGeocode(i + 1);
-                    }
-                }).catch(function(err){
-                    console.warn('[Wetter] Geocoding-Fehler:', err);
-                    tryGeocode(i + 1);
-                });
-            }
-            tryGeocode(0);
+            }).catch(function(){});
         })();
 
         // ── Kalender-Download (.ics generieren und downloaden) ──
