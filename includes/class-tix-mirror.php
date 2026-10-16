@@ -342,27 +342,28 @@ class TIX_Mirror {
         try {
             foreach ($list as $sw) {
                 [$entity, $table, $col, $mode] = $sw;
+                $mk = (string) ($sw[5] ?? $entity); // eigene Marke, wenn ein Typ mehrere Nachläufe hat (z. B. Beleg: neu + Übergabe)
                 // Paket-2-Tabellen ab Anfang lesen: Sie können nach der Erstbefüllung erst entstehen
                 // (z. B. Abrechnungen beim Einschalten des Mehr-Veranstalter-Modus).
                 $from_start = !empty($sw[4]);
                 if ($mode === 'id') {
                     $max = $wpdb->get_var("SELECT MAX(id) FROM {$table}");
                     if ($max === null && $wpdb->last_error !== '') continue; // Tabelle gibt es auf dieser Seite nicht
-                    if (!isset($marks[$entity])) { $marks[$entity] = $from_start ? 0 : (int) $max; if (!$from_start) continue; }
-                    $ids = $wpdb->get_col($wpdb->prepare("SELECT id FROM {$table} WHERE id > %d ORDER BY id LIMIT %d", (int) $marks[$entity], $limit));
+                    if (!isset($marks[$mk])) { $marks[$mk] = $from_start ? 0 : (int) $max; if (!$from_start) continue; }
+                    $ids = $wpdb->get_col($wpdb->prepare("SELECT id FROM {$table} WHERE id > %d ORDER BY id LIMIT %d", (int) $marks[$mk], $limit));
                     foreach ((array) $ids as $id) self::touch($entity, (int) $id);
-                    if ($ids) $marks[$entity] = (int) end($ids);
+                    if ($ids) $marks[$mk] = (int) end($ids);
                     continue;
                 }
                 $now = $mode === 'time_utc' ? gmdate('Y-m-d H:i:s') : ($mode === 'time_local' ? current_time('mysql') : $wpdb->get_var('SELECT NOW()'));
                 if (!$now) continue;
-                if (!isset($marks[$entity])) {
+                if (!isset($marks[$mk])) {
                     $wpdb->get_var("SELECT 1 FROM {$table} LIMIT 1");
                     if ($wpdb->last_error !== '') continue;
-                    $marks[$entity] = $from_start ? '1970-01-01 00:00:00' : $now;
+                    $marks[$mk] = $from_start ? '1970-01-01 00:00:00' : $now;
                     if (!$from_start) continue;
                 }
-                $since = (string) $marks[$entity];
+                $since = (string) $marks[$mk];
                 $rows = $wpdb->get_results($wpdb->prepare(
                     "SELECT id, {$col} AS t FROM {$table} WHERE {$col} >= %s - INTERVAL 5 SECOND ORDER BY {$col}, id LIMIT %d", $since, $limit
                 ), ARRAY_A);
@@ -371,7 +372,7 @@ class TIX_Mirror {
                 // Volles Paket: nur bis zur letzten gesehenen Zeit vorrücken, der Rest kommt im nächsten Lauf.
                 $mark = count($rows) >= $limit ? (string) end($rows)['t'] : $now;
                 if ($mark === $since && count($rows) >= $limit) $mark = $now; // > 5000 Änderungen in derselben Sekunde
-                $marks[$entity] = $mark;
+                $marks[$mk] = $mark;
             }
             self::flush_buffer();
         } finally {

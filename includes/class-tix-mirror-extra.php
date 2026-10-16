@@ -308,6 +308,21 @@ class TIX_Mirror_Extra {
         return $v;
     }
 
+    /**
+     * Freie Fehlertexte fremder Dienste (z. B. Lexoffice in export_error): IBAN, Bearer-/API-Schlüssel,
+     * key=…/token=…-Paare und lange Kennungen maskieren, bevor sie in den Spiegel gehen.
+     */
+    public static function mask_secret_text($v) {
+        $v = (string) self::mask_iban_text((string) $v);
+        $v = preg_replace('/\b(Bearer|Basic)\s+[A-Za-z0-9._~+\/=-]+/i', '$1 ***', $v);
+        $v = preg_replace('/\b(api[_-]?key|access[_-]?token|token|secret|password|passwort|key)\b(\s*[:=]\s*)("?)[^\s",;&]+/i', '$1$2$3***', $v);
+        // lange Schlüssel/Token maskieren; UUIDs (z. B. Lexoffice-Belegnummern) bleiben stehen
+        $v = preg_replace_callback('/\b[A-Za-z0-9_-]{32,}\b/', function ($m) {
+            return preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $m[0]) ? $m[0] : '***';
+        }, $v);
+        return $v;
+    }
+
     public static function invoice_row($site, array $r) {
         $data = json_decode((string) $r['data'], true);
         $data = is_array($data) ? self::mask_iban_text($data) : [];
@@ -337,6 +352,13 @@ class TIX_Mirror_Extra {
             'pdf_path'        => (string) $r['pdf_path'],     // nur Pfad + Prüfsumme, die PDF-Datei wird nicht gespiegelt
             'pdf_sha256'      => (string) $r['pdf_sha256'],
             'created_at'      => self::gmt_iso($r['created_gmt']),
+            // Übergabe an die Buchhaltung (1.38.490); vorher fehlen die Spalten → Leerwerte. Das E-Rechnungs-XML wird nicht gespiegelt.
+            'export_provider' => (string) ($r['export_provider'] ?? ''),
+            'export_status'   => (string) ($r['export_status'] ?? ''),
+            'export_ref'      => (string) ($r['export_ref'] ?? ''),
+            'export_error'    => self::mask_secret_text($r['export_error'] ?? ''),
+            'export_tries'    => (int) ($r['export_tries'] ?? 0),
+            'export_at'       => self::local_iso($r['export_at'] ?? ''),
         ]);
     }
 
@@ -382,6 +404,9 @@ class TIX_Mirror_Extra {
             ['settlement',      $wpdb->prefix . 'tix_settlements',      'updated', 'time_local', true],
             ['settlement_item', $wpdb->prefix . 'tix_settlement_items', 'id',      'id',         true],
             ['invoice',         $wpdb->prefix . 'tix_invoices',         'id',      'id',         true],  // Sicherheitsnetz zum Hook
+            // Übergabe an die Buchhaltung (1.38.490): export_* ändert sich per $wpdb ohne Hook, export_at in WP-Ortszeit.
+            // Vor 490 fehlt die Spalte → die Abfrage scheitert still und der Nachlauf überspringt sie.
+            ['invoice',         $wpdb->prefix . 'tix_invoices',         'export_at', 'time_local', false, 'invoice_export'],
         ];
     }
 }

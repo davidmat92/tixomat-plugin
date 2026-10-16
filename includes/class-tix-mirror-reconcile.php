@@ -261,9 +261,11 @@ class TIX_Mirror_Reconcile {
 
             case 'invoices':
                 $prev = $wpdb->suppress_errors(true);
-                $rows = $wpdb->get_results($wpdb->prepare("SELECT id, number, kind, gross, pdf_sha256 FROM {$wpdb->prefix}tix_invoices WHERE id > %d ORDER BY id LIMIT %d", $after, $limit), ARRAY_A);
+                // export_status gibt es ab 1.38.490 (Rechnungs-DB 2); vorher zählt er als ''
+                $has_export = (bool) $wpdb->get_var("SHOW COLUMNS FROM {$wpdb->prefix}tix_invoices LIKE 'export_status'");
+                $rows = $wpdb->get_results($wpdb->prepare("SELECT id, number, kind, gross, pdf_sha256" . ($has_export ? ', export_status' : '') . " FROM {$wpdb->prefix}tix_invoices WHERE id > %d ORDER BY id LIMIT %d", $after, $limit), ARRAY_A);
                 $wpdb->suppress_errors($prev);
-                foreach ((array) $rows as $r) $out[(int) $r['id']] = self::fp([$r['number'], $r['kind'], self::money($r['gross']), $r['pdf_sha256']]);
+                foreach ((array) $rows as $r) $out[(int) $r['id']] = self::fp([$r['number'], $r['kind'], self::money($r['gross']), $r['pdf_sha256'], (string) ($r['export_status'] ?? '')]);
                 return $out;
 
             case 'wallets':

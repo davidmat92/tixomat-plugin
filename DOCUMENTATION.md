@@ -2576,6 +2576,10 @@ Zweite Speicherung aller Seiten in einem eigenen Supabase-Projekt (EU). **WordPr
   - Erfasst über `tix_invoice_created` und den Nachlauf (neue IDs), Erstbefüllung und täglicher Abgleich (Nummer, Art, Brutto, PDF-Prüfsumme).
   - IBAN-artige Stellen im Schnappschuss-Text (z. B. Fußzeile) werden maskiert.
   - Der Löschweg fasst Belege nicht an (Aufbewahrung 10 Jahre). Migration `20261016240000_mirror_invoices.sql`.
+  - Übergabe an die Buchhaltung (1.38.490): `export_provider`, `export_status`, `export_ref`, `export_error`, `export_tries`, `export_at`.
+    · Erfasst per Nachlauf über `export_at` (WP-Ortszeit, eigene Marke `invoice_export`). Der Abgleich prüft `export_status` mit.
+    · In `export_error` werden IBAN, Bearer-/API-Schlüssel, `key=…`-Paare und lange Kennungen maskiert (`TIX_Mirror_Extra::mask_secret_text`); UUIDs bleiben stehen.
+    · Das E-Rechnungs-XML wird nicht gespiegelt. Migration `20261017090000_mirror_invoice_export.sql`.
 - **Werkzeuge:** `migrate.sh` spielt nur neue Migrationen ein (`--all` alle, `--verify` Rechte, `--sql` Datei). `datenschutz-scan.sql` ist die projektweite Suche (nur lesend).
 - **Kennung der Seite:** `TIX_MIRROR_SITE` in wp-config (Vorrang), sonst Option `tix_mirror['site']`, sonst Domain aus `home_url()`. Fest einstellen, damit ein Domain-Wechsel keine zweite Seite anlegt. Umbenennen im Spiegel: `supabase/tools/kennung-evendis.sql` als Vorlage (eine Transaktion, ohne neuen Verlauf). Kennungen: `kitchenklub.de`, `mallorca-festival-xxl.de`, `evendis.de`.
 - **Zugang:** `TIX_MIRROR_URL` / `TIX_MIRROR_KEY` in wp-config (bevorzugt) oder Option `tix_mirror`; der Schlüssel wird nie angezeigt oder geloggt. `TIX_MIRROR_DISABLED` = Not-Aus. Schalter „Diese Seite spiegeln“ ist standardmäßig an (auch Lizenzkunden, nur mit AVV); ohne Zugang wird nichts erfasst.

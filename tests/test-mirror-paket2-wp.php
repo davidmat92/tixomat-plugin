@@ -245,7 +245,41 @@ if (class_exists('TIX_Invoices')) {
         $cid = $inv->issuer_key . '|' . $inv->series . '|' . (int) $inv->year;
         t2_eq('Nummernkreis gespiegelt', (int) $inv->seq, (int) (m2_one('invoice_counters', $cid)['last'] ?? -1));
     }
+    // Übergabe an die Buchhaltung (1.38.490): export_* per $wpdb ohne Hook → Nachlauf über export_at; Fehlertext maskiert
+    if ($invs) {
+        $it = $wpdb->prefix . 'tix_invoices';
+        if (!$wpdb->get_var("SHOW COLUMNS FROM $it LIKE 'export_status'")) {
+            echo "      (Test baut die 490-Spalten lokal nach)\n";
+            $wpdb->query("ALTER TABLE $it ADD COLUMN export_provider VARCHAR(20) NOT NULL DEFAULT '', ADD COLUMN export_status VARCHAR(12) NOT NULL DEFAULT '',
+                ADD COLUMN export_ref VARCHAR(80) NOT NULL DEFAULT '', ADD COLUMN export_error VARCHAR(255) NOT NULL DEFAULT '',
+                ADD COLUMN export_tries TINYINT UNSIGNED NOT NULL DEFAULT 0, ADD COLUMN export_at DATETIME NULL");
+        }
+        m2_run(); // Marke des neuen Nachlaufs setzen
+        sleep(1);
+        $secret = str_repeat('Ab3', 12);
+        $wpdb->query($wpdb->prepare("UPDATE $it SET export_provider = 'lexoffice', export_status = 'error', export_tries = export_tries + 1, export_at = %s,
+            export_error = %s WHERE id = %d", current_time('mysql'),
+            "HTTP 400: Kontakt ungültig, IBAN DE89370400440532013000; Authorization: Bearer $secret; api_key=$secret", (int) $inv->id));
+        m2_run();
+        $me = m2_one('invoices', (int) $inv->id);
+        t2_eq('Übergabe-Status über den Nachlauf', 'error', $me['export_status'] ?? null);
+        t2_eq('Versuche', 1, (int) ($me['export_tries'] ?? 0));
+        t2_true('Fehlertext ohne IBAN', strpos((string) ($me['export_error'] ?? ''), 'DE89370400440532013000') === false);
+        t2_true('Fehlertext ohne Schlüssel', strpos((string) ($me['export_error'] ?? ''), $secret) === false && strpos((string) ($me['export_error'] ?? ''), 'Kontakt ungültig') !== false);
+        t2_true('kein Schlüssel im Verlauf', strpos(wp_json_encode(m2_rows('change_log', ['entity' => 'eq.invoices', 'object_id' => 'eq.' . (int) $inv->id])), $secret) === false);
+        sleep(1);
+        $wpdb->query($wpdb->prepare("UPDATE $it SET export_status = 'done', export_error = '', export_ref = 'v-123', export_at = %s WHERE id = %d", current_time('mysql'), (int) $inv->id));
+        m2_run();
+        t2_eq('Übergabe erledigt', 'done', m2_one('invoices', (int) $inv->id)['export_status'] ?? null);
+        // Abgleich erkennt eine Abweichung im Status
+        TIX_Mirror_Client::upsert('invoices', [array_merge(array_diff_key(m2_one('invoices', (int) $inv->id), ['synced_at' => 1]), ['export_status' => 'pending'])]);
+    }
+
     // Konto löschen lässt Belege stehen (10 Jahre)
+    $rep = m2_reconcile();
+    if ($invs) t2_eq('Abgleich erkennt abweichenden Übergabe-Status', 1, (int) ($rep['tables']['invoices']['differ'] ?? 0));
+    m2_run();
+    if ($invs) t2_eq('Status korrigiert', 'done', m2_one('invoices', (int) $inv->id)['export_status'] ?? null);
     $rep = m2_reconcile();
     t2_eq('Abgleich: Belege ohne Abweichung', 0, (int) ($rep['tables']['invoices']['missing'] ?? 0) + (int) ($rep['tables']['invoices']['differ'] ?? 0));
     if ($en_prev === null) delete_option('tix_invoices_enabled'); else update_option('tix_invoices_enabled', $en_prev);
