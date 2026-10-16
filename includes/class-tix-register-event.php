@@ -267,10 +267,12 @@ class TIX_Register_Event {
     /**
      * Konto, Veranstalter und erstes Event anlegen (AJAX [tix_register_event] und REST POST /register/organizer).
      * $in: first_name, last_name, email, password, password_confirm, organizer_name, accept_contract, ticket_mode,
-     * box_office_price, external_url, external_price, event_data (Array). Liefert
-     * ['user_id', 'org_id', 'event_id', 'event_title', 'review'] oder WP_Error (400 tix_invalid_field mit field, 409 tix_email_exists).
+     * box_office_price, external_url, external_price, event_data (Array), without_event (1.38.456: nur Konto + Veranstalter,
+     * Event später; event_id 0). Liefert ['user_id', 'org_id', 'event_id', 'event_title', 'review'] oder WP_Error
+     * (400 tix_invalid_field mit field, 409 tix_email_exists).
      */
     public static function register(array $in) {
+        $without_event = !empty($in['without_event']);
 
         // ── Validierung ──
         $first_name     = sanitize_text_field($in['first_name'] ?? '');
@@ -284,7 +286,7 @@ class TIX_Register_Event {
         $ticket_mode    = sanitize_key($in['ticket_mode'] ?? 'online');
         if (!in_array($ticket_mode, ['online', 'free', 'box_office', 'external'], true)) $ticket_mode = 'online';
         $external_url   = '';
-        if ($ticket_mode === 'external') {
+        if ($ticket_mode === 'external' && !$without_event) {
             $external_url = self::clean_shop_url((string) ($in['external_url'] ?? ''));
             if ($external_url === '') return new WP_Error('tix_invalid_field', 'Bitte die Adresse deines Ticketshops angeben (https://…).', ['status' => 400, 'field' => 'external_url']);
         }
@@ -338,6 +340,15 @@ class TIX_Register_Event {
                 TIX_Org_Approval::set_status($org_id, 'pending', ['by' => $user_id, 'note' => 'Registrierung', 'notify' => false]);
                 if ($terms['version'] !== '') TIX_Org_Approval::accept_terms($org_id, $user_id, $terms['version']);
             }
+        }
+
+        // Ohne Event (1.38.456): Konto + Veranstalter sind fertig, Freigabe läuft wie mit Event
+        if ($without_event) {
+            if ($review && $org_id && !is_wp_error($org_id)) {
+                TIX_Org_Approval::notify_organizer($org_id, 'registered');
+                TIX_Org_Approval::notify_admin_new($org_id);
+            }
+            return ['user_id' => intval($user_id), 'org_id' => ($org_id && !is_wp_error($org_id)) ? intval($org_id) : 0, 'event_id' => 0, 'event_title' => '', 'review' => (bool) $review];
         }
 
         // ── 3. Event erstellen ──

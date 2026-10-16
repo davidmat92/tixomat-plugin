@@ -8,6 +8,7 @@ if (!defined('ABSPATH')) exit;
  *   GET  /register/challenge   Rechenaufgabe für den Bot-Schutz {challenge, difficulty, expires_in}
  *   POST /register/analyze     {mode: describe|flyer|url, text|image|url, pow|turnstile, website} → {fields, missing, image}
  *   POST /register/organizer   Konto + Veranstalter + erstes Event wie [tix_register_event] → {token, user, …}
+ *                              (1.38.456: without_event = nur Konto + Veranstalter; optional profile, billing, tax_status, payout, logo)
  *
  * Bot-Schutz (jede POST-Anfrage): Honigtopf-Feld `website` muss leer sein; dann entweder Cloudflare Turnstile
  * (wenn Option `tix_turnstile` site_key + secret_key gesetzt) oder eine Rechenaufgabe: `challenge` aus
@@ -264,6 +265,71 @@ class TIX_Register_API {
         return self::nocache(['ok' => true, 'mode' => $mode, 'source' => $source, 'fields' => $f, 'missing' => $missing, 'image' => self::image_payload($image_id)]);
     }
 
+    /**
+     * Stammdaten bei der Registrierung (optional, 1.38.456) vorab prüfen – damit nach dem Anlegen nichts mehr scheitert.
+     * profile {phone, email, website, address, city, tagline, short_desc, description, social{…}}, billing {company, name, street, zip, city, country},
+     * tax_status, vat_id, tax_number, payout {holder, iban, bic}, logo (Base64 bzw. data-URL, JPG/PNG/WebP ≤ 5 MB).
+     * @return array|WP_Error bereinigte Teile
+     */
+    private static function check_master(array $p) {
+        $out = [];
+        if (isset($p['profile'])) {
+            if (!is_array($p['profile'])) return self::error('tix_invalid_field', 'Ungültige Profil-Angaben.', 400, ['field' => 'profile']);
+            $pr = array_intersect_key($p['profile'], array_flip(['phone', 'email', 'website', 'address', 'city', 'tagline', 'short_desc', 'description', 'social']));
+            if (isset($pr['email']) && (string) $pr['email'] !== '' && !is_email((string) $pr['email'])) return self::error('tix_invalid_field', 'Bitte eine gültige Kontakt-E-Mail angeben.', 400, ['field' => 'profile.email']);
+            if (isset($pr['phone']) && mb_strlen((string) $pr['phone']) > 40) return self::error('tix_invalid_field', 'Die Telefonnummer ist zu lang.', 400, ['field' => 'profile.phone']);
+            if (isset($pr['social']) && !is_array($pr['social'])) return self::error('tix_invalid_field', 'Ungültige Social-Links.', 400, ['field' => 'profile.social']);
+            if (isset($pr['website']) && (string) $pr['website'] !== '') { $pr['social'] = (array) ($pr['social'] ?? []) + ['website' => (string) $pr['website']]; }
+            unset($pr['website']);
+            $out['profile'] = $pr;
+        }
+        $pay = [];
+        if (isset($p['billing'])) {
+            if (!is_array($p['billing'])) return self::error('tix_invalid_field', 'Ungültige Rechnungsadresse.', 400, ['field' => 'billing']);
+            $pay['billing'] = array_intersect_key($p['billing'], array_flip(['company', 'name', 'street', 'zip', 'city', 'country']));
+            $cc = strtoupper(preg_replace('/[^A-Za-z]/', '', (string) ($pay['billing']['country'] ?? '')));
+            if ($cc !== '' && strlen($cc) !== 2) return self::error('tix_invalid_field', 'Bitte den Ländercode mit zwei Buchstaben angeben (z. B. DE).', 400, ['field' => 'billing.country']);
+        }
+        if (isset($p['tax_status']) && (string) $p['tax_status'] !== '') {
+            $ts = (string) $p['tax_status'];
+            if (!class_exists('TIX_Payout_Details') || !in_array($ts, TIX_Payout_Details::TAX_STATUS, true)) return self::error('tix_invalid_field', 'Steuer-Status: vat_id, tax_number oder small_business.', 400, ['field' => 'tax_status']);
+            $pay['tax_status'] = $ts;
+            $vat = strtoupper(preg_replace('/\s+/', '', (string) ($p['vat_id'] ?? '')));
+            if ($ts === 'vat_id' && !preg_match('/^[A-Z]{2}[A-Z0-9]{2,13}$/', $vat)) return self::error('tix_invalid_field', 'Bitte eine gültige USt-IdNr. angeben (z. B. DE123456789).', 400, ['field' => 'vat_id']);
+            if ($ts === 'tax_number' && trim((string) ($p['tax_number'] ?? '')) === '') return self::error('tix_invalid_field', 'Bitte die Steuernummer angeben.', 400, ['field' => 'tax_number']);
+            if ($vat !== '') $pay['vat_id'] = $vat;
+            if (isset($p['tax_number'])) $pay['tax_number'] = (string) $p['tax_number'];
+        }
+        if (isset($p['payout'])) {
+            if (!is_array($p['payout'])) return self::error('tix_invalid_field', 'Ungültige Auszahlungsdaten.', 400, ['field' => 'payout']);
+            if (isset($p['payout']['holder'])) $pay['holder'] = (string) $p['payout']['holder'];
+            if (isset($p['payout']['bic'])) {
+                $bic = strtoupper(preg_replace('/\s+/', '', (string) $p['payout']['bic']));
+                if ($bic !== '' && !preg_match('/^[A-Z]{6}[A-Z0-9]{2}([A-Z0-9]{3})?$/', $bic)) return self::error('tix_invalid_field', 'Bitte eine gültige BIC angeben oder das Feld leer lassen.', 400, ['field' => 'payout.bic']);
+                $pay['bic'] = $bic;
+            }
+            if (isset($p['payout']['iban']) && trim((string) $p['payout']['iban']) !== '') {
+                if (!class_exists('TIX_Payout_Details') || !TIX_Payout_Details::iban_valid(TIX_Payout_Details::normalize_iban($p['payout']['iban']))) return self::error('tix_invalid_iban', 'Die IBAN ist ungültig. Bitte prüfe sie noch einmal.', 400, ['field' => 'payout.iban']);
+                $pay['iban'] = (string) $p['payout']['iban'];
+            }
+        }
+        if ($pay) {
+            if (!class_exists('TIX_Payout_Details') || !TIX_Payout_Details::enabled()) return self::error('tix_invalid_field', 'Rechnungs- und Auszahlungsdaten gibt es nur auf der Plattform.', 400, ['field' => isset($pay['billing']) ? 'billing' : (isset($pay['tax_status']) ? 'tax_status' : 'payout')]);
+            $out['payout'] = $pay;
+        }
+        if (isset($p['logo']) && (string) $p['logo'] !== '') {
+            $raw = preg_replace('#^data:image/[a-z]+;base64,#i', '', (string) $p['logo']);
+            $bytes = base64_decode($raw, true);
+            if ($bytes === false || $bytes === '') return self::error('tix_invalid_field', 'Das Logo konnte nicht gelesen werden.', 400, ['field' => 'logo']);
+            if (strlen($bytes) > 5 * MB_IN_BYTES) return self::error('tix_too_large', 'Das Logo ist zu groß (höchstens 5 MB).', 413, ['field' => 'logo']);
+            $info = @getimagesizefromstring($bytes);
+            if (!is_array($info) || !in_array((string) $info['mime'], ['image/jpeg', 'image/png', 'image/webp'], true)) return self::error('tix_invalid_field', 'Bitte ein JPG-, PNG- oder WebP-Logo wählen.', 400, ['field' => 'logo']);
+            if ($info[0] < 16 || $info[1] < 16 || $info[0] > 6000 || $info[1] > 6000) return self::error('tix_invalid_field', 'Das Logo muss zwischen 16 und 6000 Pixel groß sein.', 400, ['field' => 'logo']);
+            $out['logo'] = $bytes;
+        }
+        return $out;
+    }
+
     /** POST /register/organizer */
     public static function rest_organizer(WP_REST_Request $req) {
         if (self::limited('organizer', 3, HOUR_IN_SECONDS) || self::limited('organizer_day', 10, DAY_IN_SECONDS)) {
@@ -271,15 +337,21 @@ class TIX_Register_API {
         }
         $p = $req->get_json_params();
         $p = is_array($p) ? $p : $req->get_params();
-        $event = $p['event'] ?? ($p['event_data'] ?? []);
-        if (!is_array($event)) return self::error('tix_invalid_field', 'Event-Angaben fehlen.', 400, ['field' => 'event']);
-        if (trim((string) ($event['title'] ?? '')) === '') return self::error('tix_invalid_field', 'Bitte gib deinem Event einen Titel.', 400, ['field' => 'event.title']);
-        $in = ['event_data' => $event];
+        // „Erst Konto anlegen, Event später“ (1.38.456)
+        $without = !empty($p['without_event']) && filter_var($p['without_event'], FILTER_VALIDATE_BOOLEAN);
+        $event = $without ? [] : ($p['event'] ?? ($p['event_data'] ?? []));
+        if (!$without) {
+            if (!is_array($event)) return self::error('tix_invalid_field', 'Event-Angaben fehlen.', 400, ['field' => 'event']);
+            if (trim((string) ($event['title'] ?? '')) === '') return self::error('tix_invalid_field', 'Bitte gib deinem Event einen Titel.', 400, ['field' => 'event.title']);
+        }
+        $in = ['event_data' => $event, 'without_event' => $without];
         foreach (['first_name', 'last_name', 'email', 'password', 'organizer_name', 'accept_contract', 'ticket_mode', 'box_office_price', 'external_url', 'external_price'] as $k) {
             $in[$k] = is_scalar($p[$k] ?? null) ? (string) $p[$k] : '';
         }
         // Studio fragt das Passwort nur einmal ab (Wiederholung optional)
         $in['password_confirm'] = isset($p['password_confirm']) ? (string) $p['password_confirm'] : $in['password'];
+        $master = self::check_master($p);
+        if (is_wp_error($master)) return $master;
         $bot = self::check_bot($req);
         if (is_wp_error($bot)) return $bot;
 
@@ -288,10 +360,31 @@ class TIX_Register_API {
 
         // Bild aus der Analyse (vorläufiger Anhang) wird Event-Bild
         $img = intval($p['image_id'] ?? 0);
-        if ($img && get_post_type($img) === 'attachment' && intval(get_post_meta($img, self::TMP_META, true)) > time() - DAY_IN_SECONDS && !get_post_field('post_parent', $img)) {
+        if ($r['event_id'] && $img && get_post_type($img) === 'attachment' && intval(get_post_meta($img, self::TMP_META, true)) > time() - DAY_IN_SECONDS && !get_post_field('post_parent', $img)) {
             wp_update_post(['ID' => $img, 'post_parent' => $r['event_id'], 'post_author' => $r['user_id']]);
             delete_post_meta($img, self::TMP_META);
             set_post_thumbnail($r['event_id'], $img);
+        }
+        // Stammdaten (vorab geprüft); die neue IBAN bestätigt der Inhaber mit dem Code aus der Mail (POST /organizer/payout-details/confirm)
+        $saved = ['profile' => false, 'payout' => null, 'logo' => null];
+        $warnings = [];
+        if ($r['org_id'] && $master) {
+            $prev = get_current_user_id();
+            wp_set_current_user($r['user_id']);
+            if (!empty($master['profile']) && class_exists('TIX_App_Scope')) {
+                $sp = TIX_App_Scope::save_profile($r['org_id'], $master['profile']);
+                if (is_wp_error($sp)) $warnings[] = ['field' => 'profile', 'message' => $sp->get_error_message()]; else $saved['profile'] = true;
+            }
+            if (!empty($master['payout'])) {
+                $pd = TIX_Payout_Details::save($r['org_id'], $master['payout']);
+                if (is_wp_error($pd)) $warnings[] = ['field' => (string) ($pd->get_error_data()['field'] ?? 'payout'), 'message' => $pd->get_error_message()];
+                else $saved['payout'] = ['complete' => (bool) $pd['complete'], 'verify_required' => !empty($pd['verify_required']), 'code_sent_to' => (string) ($pd['code_sent_to'] ?? '')];
+            }
+            if (!empty($master['logo']) && class_exists('TIX_App_Scope')) {
+                $lg = TIX_App_Scope::store_profile_image($r['org_id'], 'logo', $master['logo'], 'logo');
+                if (is_wp_error($lg)) $warnings[] = ['field' => 'logo', 'message' => $lg->get_error_message()]; else $saved['logo'] = (string) (wp_get_attachment_image_url(intval($lg), 'medium') ?: wp_get_attachment_url(intval($lg)));
+            }
+            wp_set_current_user($prev);
         }
         $user = get_user_by('id', $r['user_id']);
         $token = TIX_REST_API::issue_app_token($r['user_id'], (string) ($p['device'] ?? '') ?: 'evendis Studio');
@@ -301,14 +394,25 @@ class TIX_Register_API {
             'token'        => $token,
             'user'         => TIX_REST_API::guest_user_payload($user),
             'organizer_id' => $r['org_id'],
-            'event_id'     => $r['event_id'],
+            'event_id'     => $r['event_id'] ?: null,
+            'without_event' => $without,
             'review'       => $r['review'],
-            'heading'      => $r['review'] ? 'Geschafft! Wir prüfen dein Konto.' : 'Geschafft! Dein Event ist online.',
-            'message'      => $r['review']
-                ? 'Dein Event „' . $r['event_title'] . '“ ist angelegt und geht online, sobald wir dein Konto freigeschaltet haben. Ergänze bis dahin bitte deine Angaben (Rechnungsadresse, Steuer, Auszahlung, Telefon).'
-                : 'Dein Event „' . $r['event_title'] . '“ wurde veröffentlicht.',
-            'event_url'    => $r['review'] ? '' : (string) get_permalink($r['event_id']),
+            'saved'        => $saved,
+            'warnings'     => $warnings,
         ];
+        if ($without) {
+            $out['heading'] = $r['review'] ? 'Geschafft! Wir prüfen dein Konto.' : 'Geschafft! Dein Konto ist angelegt.';
+            $out['message'] = $r['review']
+                ? 'Dein Veranstalter-Konto ist angelegt. Dein erstes Event kannst du jederzeit im Studio anlegen – online geht es, sobald wir dein Konto freigeschaltet haben. Auszahlungsdaten kannst du auch danach ergänzen.'
+                : 'Dein Veranstalter-Konto ist angelegt. Lege jetzt im Studio dein erstes Event an.';
+            $out['event_url'] = '';
+        } else {
+            $out['heading'] = $r['review'] ? 'Geschafft! Wir prüfen dein Konto.' : 'Geschafft! Dein Event ist online.';
+            $out['message'] = $r['review']
+                ? 'Dein Event „' . $r['event_title'] . '“ ist angelegt und geht online, sobald wir dein Konto freigeschaltet haben. Rechnungsadresse, Steuer und Auszahlungsdaten kannst du auch nach der Freischaltung ergänzen.'
+                : 'Dein Event „' . $r['event_title'] . '“ wurde veröffentlicht.';
+            $out['event_url'] = $r['review'] ? '' : (string) get_permalink($r['event_id']);
+        }
         if (class_exists('TIX_Org_Approval') && $r['org_id'] && TIX_Org_Approval::multi()) $out['approval'] = TIX_Org_Approval::payload($r['org_id'], $r['user_id']);
         return self::nocache($out, 201);
     }

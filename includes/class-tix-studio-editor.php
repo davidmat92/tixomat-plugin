@@ -639,6 +639,8 @@ class TIX_Studio_Editor {
             'lat'      => $lat,
             'lng'      => $lng,
             'maps_url' => 'https://www.google.com/maps/search/?api=1&query=' . rawurlencode($q),
+            // Barrierefreiheit am Ort (1.38.456, Vorgabe für Events mit „vom Ort übernehmen“): {items, note}
+            'accessibility' => class_exists('TIX_Event_Facts') ? TIX_Event_Facts::sanitize_acc(get_post_meta($lid, TIX_Event_Facts::META_ACC, true)) : null,
             'events'   => self::location_events($lid),
             'editable' => self::location_own($lid),
         ];
@@ -663,7 +665,7 @@ class TIX_Studio_Editor {
         return new WP_Error('rest_forbidden', 'Nur Admins und Veranstalter können Orte ändern.', ['status' => 403]);
     }
 
-    /** POST /locations[/{id}] {title, address, zip, city, country, lat?, lng?} */
+    /** POST /locations[/{id}] {title, address, zip, city, country, lat?, lng?, accessibility? {items, note} | null} */
     public static function rest_location_save(WP_REST_Request $req) {
         $lid = absint($req['id'] ?? 0);
         if ($lid) {
@@ -676,6 +678,13 @@ class TIX_Studio_Editor {
         if (!$lid || array_key_exists('title', $p)) {
             $title = mb_substr(sanitize_text_field((string) ($p['title'] ?? '')), 0, 120);
             if ($title === '') return self::bad('title', 'Bitte einen Namen für den Ort angeben.');
+        }
+        if (array_key_exists('accessibility', $p) && class_exists('TIX_Event_Facts')) {
+            $acc = $p['accessibility'];
+            if ($acc !== null && !is_array($acc)) return self::bad('accessibility', 'Ungültige Angaben zur Barrierefreiheit.');
+            $unknown = is_array($acc) ? array_diff(array_map('strval', (array) ($acc['items'] ?? [])), array_keys(TIX_Event_Facts::KEYS)) : [];
+            if ($unknown) return self::bad('accessibility.items', 'Unbekannte Angabe: ' . reset($unknown) . '.');
+            if (is_array($acc) && mb_strlen((string) ($acc['note'] ?? '')) > 500) return self::bad('accessibility.note', 'Höchstens 500 Zeichen.');
         }
         foreach (['lat' => [-90, 90], 'lng' => [-180, 180]] as $k => $rng) {
             if (isset($p[$k]) && $p[$k] !== '' && $p[$k] !== null && (!is_numeric($p[$k]) || floatval($p[$k]) < $rng[0] || floatval($p[$k]) > $rng[1])) return self::bad($k, 'Ungültige Koordinate.');
@@ -690,6 +699,9 @@ class TIX_Studio_Editor {
         }
         foreach ($f as $k => $meta) {
             if (array_key_exists($k, $p)) update_post_meta($lid, $meta, mb_substr(sanitize_text_field((string) $p[$k]), 0, $k === 'address' ? 200 : 80));
+        }
+        if (array_key_exists('accessibility', $p) && class_exists('TIX_Event_Facts')) {
+            update_post_meta($lid, TIX_Event_Facts::META_ACC, TIX_Event_Facts::sanitize_acc(is_array($p['accessibility']) ? $p['accessibility'] : []));
         }
         if (isset($p['lat'], $p['lng']) && is_numeric($p['lat']) && is_numeric($p['lng'])) {
             update_post_meta($lid, '_tix_loc_lat', (string) floatval($p['lat']));

@@ -2385,6 +2385,9 @@ class TIX_REST_API {
             'title'            => $post->post_title,
             'excerpt'          => wp_strip_all_tags($post->post_excerpt),
             'thumbnail'        => $thumbnail,
+            // 1.38.456: Bild groß (large) und klein (medium) für Listen
+            'image'            => $thumb_id ? (string) (wp_get_attachment_image_url($thumb_id, 'large') ?: '') : '',
+            'image_small'      => $thumb_id ? (string) (wp_get_attachment_image_url($thumb_id, 'medium') ?: '') : '',
             'date_start'       => $date_start,
             'date_end'         => $date_end,
             'time_start'       => $time_start,

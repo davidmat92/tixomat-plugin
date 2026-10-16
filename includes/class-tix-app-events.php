@@ -254,6 +254,9 @@ class TIX_App_Events {
             // Veröffentlichen gewünscht, wartet auf die Freigabe des Veranstalters (TIX_Org_Approval)
             'publish_held'       => $post ? get_post_meta($post->ID, '_tix_publish_held', true) !== '' : false,
             'image'              => $thumb_id ? (wp_get_attachment_image_url($thumb_id, 'large') ?: '') : '',
+            // 1.38.456: Original und srcset (Retina auf breiten Bildschirmen)
+            'image_full'         => $thumb_id ? (string) (wp_get_attachment_image_url($thumb_id, 'full') ?: '') : '',
+            'srcset'             => $thumb_id ? (string) (wp_get_attachment_image_srcset($thumb_id, 'full') ?: '') : '',
             'image_id'           => $thumb_id,
             'date_start'         => $m('_tix_date_start'),
             'date_end'           => $m('_tix_date_end'),

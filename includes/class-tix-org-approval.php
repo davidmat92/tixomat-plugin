@@ -21,10 +21,12 @@ if (!defined('ABSPATH')) exit;
  *   - Kasse (Web, App, Kasse vor Ort) lehnt ab (`organizer_not_approved`).
  * Geteilte Events (`_tix_syndicated=1`) sind nicht betroffen.
  *
- * Pflichtangaben (Haken in der Prüfliste, Liste `missing` in der App): Firma/Name, Anschrift,
- * Kontakt (Telefon), Steuer-Status, Auszahlungsdaten (aus TIX_Payout_Details), Zustimmung zum
- * Vermittlungsvertrag (Version + Zeitpunkt in `_tix_org_terms`). Freigabe ohne vollständige
- * Angaben nur mit ausdrücklicher Bestätigung des Admins.
+ * Angaben in zwei Gruppen (1.38.456, `phase` je Eintrag):
+ *   review – erfasst die Registrierung, nötig zur Prüfung: Konto mit E-Mail, Name des Veranstalters, Zustimmung zum
+ *            Vermittlungsvertrag (Version + Zeitpunkt in `_tix_org_terms`). Freigabe ohne diese nur mit Bestätigung des Admins.
+ *   after  – ergänzt der Veranstalter nach der Freischaltung im Studio: Firma/Name und Anschrift (Rechnung), Telefon,
+ *            Steuer-Status, Auszahlungsdaten (TIX_Payout_Details). Hängt nicht an der Freigabe; ohne Auszahlungsdaten
+ *            wird wie bisher nicht ausgezahlt. Für den Veranstalter bleiben es Aufgaben (`requirements`, `missing`).
  *
  * Admin: Tixomat → Veranstalter-Prüfung (`tix-org-review`), Veranstalter: „Mein Konto“
  * (`tix-org-account`) + Hinweis auf allen Seiten. REST: `GET /organizer/approval`,
@@ -252,29 +254,59 @@ class TIX_Org_Approval {
             || ($tax === 'tax_number' && (string) ($pd['tax_number'] ?? '') !== '');
         $phone = trim((string) get_post_meta($oid, '_tix_org_phone', true));
         $items = [
-            ['key' => 'name', 'label' => 'Firma bzw. Name', 'target' => 'payout',
+            ['key' => 'name', 'label' => 'Firma bzw. Name', 'target' => 'payout', 'phase' => 'after',
              'done' => trim((string) ($b['company'] ?? '')) !== '' || trim((string) ($b['name'] ?? '')) !== '',
              'hint' => 'Rechnungsadresse: Firma oder Vor- und Nachname'],
-            ['key' => 'address', 'label' => 'Anschrift', 'target' => 'payout',
+            ['key' => 'address', 'label' => 'Anschrift', 'target' => 'payout', 'phase' => 'after',
              'done' => trim((string) ($b['street'] ?? '')) !== '' && trim((string) ($b['zip'] ?? '')) !== '' && trim((string) ($b['city'] ?? '')) !== '',
              'hint' => 'Straße, PLZ und Ort der Rechnungsadresse'],
-            ['key' => 'contact', 'label' => 'Kontakt (Telefon)', 'target' => 'profile',
+            ['key' => 'contact', 'label' => 'Kontakt (Telefon)', 'target' => 'profile', 'phase' => 'after',
              'done' => $phone !== '',
              'hint' => 'Telefonnummer für Rückfragen im Veranstalter-Profil'],
-            ['key' => 'tax', 'label' => 'Steuer-Status', 'target' => 'payout',
+            ['key' => 'tax', 'label' => 'Steuer-Status', 'target' => 'payout', 'phase' => 'after',
              'done' => $tax_ok,
              'hint' => 'USt-IdNr., Steuernummer oder Kleinunternehmer'],
-            ['key' => 'payout', 'label' => 'Auszahlungsdaten (IBAN)', 'target' => 'payout',
+            ['key' => 'payout', 'label' => 'Auszahlungsdaten (IBAN)', 'target' => 'payout', 'phase' => 'after',
              'done' => trim((string) ($pd['holder'] ?? '')) !== '' && !empty($pd['has_iban']),
              'hint' => 'Kontoinhaber und bestätigte IBAN'],
         ];
         $t = self::terms();
         if ($t['version'] !== '') {
-            $items[] = ['key' => 'terms', 'label' => $t['title'], 'target' => 'terms',
+            $items[] = ['key' => 'terms', 'label' => $t['title'], 'target' => 'terms', 'phase' => 'review',
                         'done' => self::terms_accepted($oid),
                         'hint' => 'Zustimmung zur aktuellen Version (' . $t['version'] . ')'];
         }
         return $items;
+    }
+
+    /**
+     * Zur Prüfung nötig (Gruppe review): Konto mit E-Mail, Name des Veranstalters, Vertrag (wenn verlangt).
+     * [{key, label, done, hint}] – Konto und Name sind keine Aufgaben des Veranstalters (stehen nicht in requirements).
+     */
+    public static function review_checks($oid) {
+        $oid = intval($oid);
+        $owner = intval(get_post_meta($oid, '_tix_org_user_id', true));
+        $u = $owner ? get_userdata($owner) : null;
+        $out = [
+            ['key' => 'account', 'label' => 'Konto mit E-Mail', 'done' => $u && is_email($u->user_email), 'hint' => 'Inhaber-Konto des Veranstalters'],
+            ['key' => 'org_name', 'label' => 'Name des Veranstalters', 'done' => trim(wp_strip_all_tags((string) get_the_title($oid))) !== '', 'hint' => 'Name im Veranstalter-Profil'],
+        ];
+        foreach (self::requirements($oid) as $r) {
+            if (($r['phase'] ?? '') === 'review') $out[] = ['key' => $r['key'], 'label' => $r['label'], 'done' => (bool) $r['done'], 'hint' => $r['hint']];
+        }
+        return $out;
+    }
+
+    /** Fehlende Angaben zur Prüfung (Gruppe review) – nur diese sind ein Hinderungsgrund bei der Freigabe. */
+    public static function review_missing($oid) {
+        $out = [];
+        foreach (self::review_checks($oid) as $r) if (!$r['done']) $out[] = $r['key'];
+        return $out;
+    }
+
+    /** Nach der Freischaltung zu ergänzen (Gruppe after): [{key, label, done, hint}] */
+    public static function after_items($oid) {
+        return array_values(array_filter(self::requirements($oid), function ($r) { return ($r['phase'] ?? '') === 'after'; }));
     }
 
     public static function missing($oid) {
@@ -320,7 +352,10 @@ class TIX_Org_Approval {
             'can_resubmit' => $st === 'rejected' && self::user_is_manager($oid, $uid),
             'complete'     => !$missing,
             'missing'      => $missing,
-            'requirements' => array_map(function ($r) { return ['key' => $r['key'], 'label' => $r['label'], 'done' => (bool) $r['done'], 'target' => $r['target'], 'hint' => $r['hint']]; }, $reqs),
+            // 1.38.456: zur Prüfung nötig vs. nach der Freischaltung zu ergänzen (Aufgaben, kein Hinderungsgrund)
+            'review_complete' => !self::review_missing($oid),
+            'review_missing'  => self::review_missing($oid),
+            'requirements' => array_map(function ($r) { return ['key' => $r['key'], 'label' => $r['label'], 'done' => (bool) $r['done'], 'target' => $r['target'], 'hint' => $r['hint'], 'phase' => $r['phase'] ?? 'after']; }, $reqs),
             'terms'        => [
                 'title'            => $t['title'],
                 'url'              => $t['url'],
@@ -625,8 +660,8 @@ class TIX_Org_Approval {
         $btn   = '<p><a href="' . esc_url($url) . '" style="display:inline-block;padding:10px 20px;background:#111827;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">Zum Veranstalter-Bereich</a></p>';
         $m = [
             'registered' => ['Wir prüfen dein Veranstalter-Konto', 'Danke für deine Registrierung',
-                '<p>Hallo,</p><p>danke, dass du <strong>' . esc_html($name) . '</strong> bei ' . esc_html($site) . ' angemeldet hast. Wir prüfen dein Konto und melden uns, sobald es freigegeben ist.</p><p>Du kannst dich schon anmelden, dein Profil und deine Events vorbereiten. Damit die Freigabe schnell geht, ergänze bitte Rechnungsadresse, Steuer-Status, Auszahlungsdaten, Telefonnummer und stimme dem Vermittlungsvertrag zu.</p>',
-                'Wir prüfen dein Konto', 'Bitte ergänze deine Angaben – wir melden uns nach der Prüfung.'],
+                '<p>Hallo,</p><p>danke, dass du <strong>' . esc_html($name) . '</strong> bei ' . esc_html($site) . ' angemeldet hast. Wir prüfen dein Konto und melden uns, sobald es freigegeben ist.</p><p>Du kannst dich schon anmelden, dein Profil und deine Events vorbereiten. Rechnungsadresse, Steuer-Status, Telefonnummer und Auszahlungsdaten ergänzt du im Veranstalter-Bereich, gern auch erst nach der Freischaltung; ausgezahlt wird, sobald die Auszahlungsdaten hinterlegt sind.</p>',
+                'Wir prüfen dein Konto', 'Wir melden uns nach der Prüfung. Auszahlungsdaten kannst du jederzeit ergänzen.'],
             'approved' => ['Dein Veranstalter-Konto ist freigegeben', 'Willkommen auf ' . $site,
                 '<p>Hallo,</p><p>gute Nachricht: <strong>' . esc_html($name) . '</strong> ist freigegeben. Deine Events, die du veröffentlichen wolltest, sind jetzt online und der Ticketverkauf ist aktiv.</p>',
                 'Dein Konto ist freigegeben', 'Deine Events sind online, der Ticketverkauf ist aktiv.'],
@@ -785,11 +820,12 @@ class TIX_Org_Approval {
         $colors = ['pending' => ['#fffbeb', '#f59e0b', '#92400e'], 'rejected' => ['#fef2f2', '#ef4444', '#991b1b'], 'blocked' => ['#fef2f2', '#ef4444', '#991b1b']];
         $c = $colors[$st];
         $missing = count($p['missing']);
+        // Offene Angaben sind Aufgaben (Auszahlung usw.), kein Hinderungsgrund für die Freigabe
         // Bewusst ohne „notice“ im Klassennamen: die Admin-Shell blendet solche Elemente aus.
         printf('<div class="tix-org-review-banner" style="margin:16px 20px 0 0;padding:14px 18px;border-radius:10px;background:%s;border-left:4px solid %s;color:%s;font-size:14px;line-height:1.5;">'
              . '<strong>%s.</strong> %s%s <a href="%s" style="font-weight:600;color:inherit;">%s →</a></div>',
             $c[0], $c[1], $c[2], esc_html($p['title']), esc_html($p['message']),
-            $missing ? ' ' . esc_html(sprintf('Es fehlen noch %d Angabe%s.', $missing, $missing === 1 ? '' : 'n')) : '',
+            $missing ? ' ' . esc_html(sprintf('Noch offen: %d Angabe%s für die Auszahlung bzw. dein Profil.', $missing, $missing === 1 ? '' : 'n')) : '',
             esc_url(admin_url('admin.php?page=' . self::ORG_SLUG)), esc_html($missing ? 'Angaben ergänzen' : 'Details'));
     }
 
@@ -836,12 +872,12 @@ class TIX_Org_Approval {
         <?php do_action('tix_org_account_top', $oid, $manager); // Hinweise: angekündigte Fassung, gesperrte Kasse, Zusatzvereinbarung, Konditionen ?>
 
         <div style="<?php echo $box; ?>">
-            <h2 style="margin-top:0;">Pflichtangaben</h2>
-            <p style="color:#6b7280;margin-top:0;">Diese Angaben brauchen wir vor dem ersten Verkauf und der ersten Auszahlung.</p>
+            <h2 style="margin-top:0;">Deine Angaben</h2>
+            <p style="color:#6b7280;margin-top:0;">Rechnungsadresse, Steuer, Telefon und Auszahlungsdaten kannst du auch nach der Freischaltung ergänzen. Ausgezahlt wird, sobald die Auszahlungsdaten hinterlegt sind.</p>
             <ul style="margin:0;padding:0;list-style:none;">
             <?php foreach ($p['requirements'] as $r) : ?>
                 <li style="display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-top:1px solid #f3f4f6;">
-                    <span style="font-size:16px;line-height:1.3;color:<?php echo $r['done'] ? '#16a34a' : '#ef4444'; ?>;"><?php echo $r['done'] ? '✓' : '✗'; ?></span>
+                    <span style="font-size:16px;line-height:1.3;color:<?php echo $r['done'] ? '#16a34a' : '#9ca3af'; ?>;"><?php echo $r['done'] ? '✓' : '○'; ?></span>
                     <span style="flex:1;"><strong><?php echo esc_html($r['label']); ?></strong><br><small style="color:#6b7280;"><?php echo esc_html($r['hint']); ?></small></span>
                     <?php if (!$r['done'] && $manager) : ?><a class="button" href="<?php echo esc_url(self::target_url($r['target'])); ?>">Ergänzen</a><?php endif; ?>
                 </li>
@@ -947,13 +983,16 @@ class TIX_Org_Approval {
         return '<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:12px;font-weight:600;color:#fff;background:' . $c . ';">' . esc_html(self::label($st)) . '</span>';
     }
 
+    /** Liste: Prüf-Angaben grün/rot, spätere Angaben neutral in Grau (1.38.456). */
     private static function checks_html($oid) {
-        $short = ['name' => 'Name', 'address' => 'Adresse', 'contact' => 'Telefon', 'tax' => 'Steuer', 'payout' => 'IBAN', 'terms' => 'Vertrag'];
+        $short = ['account' => 'Konto', 'org_name' => 'Name', 'name' => 'Firma', 'address' => 'Adresse', 'contact' => 'Telefon', 'tax' => 'Steuer', 'payout' => 'IBAN', 'terms' => 'Vertrag'];
         $out = '';
-        foreach (self::requirements($oid) as $r) {
+        foreach (self::review_checks($oid) as $r) {
             $out .= '<span title="' . esc_attr($r['label'] . ($r['done'] ? ' ✓' : ' fehlt')) . '" style="display:inline-block;margin:0 6px 2px 0;white-space:nowrap;font-weight:700;color:' . ($r['done'] ? '#16a34a' : '#dc2626') . ';">'
                   . ($r['done'] ? '✓' : '✗') . '<small style="font-weight:400;color:#6b7280;margin-left:2px;">' . esc_html($short[$r['key']] ?? $r['key']) . '</small></span>';
         }
+        $later = array_map(function ($r) use ($short) { return ($r['done'] ? '✓ ' : '') . ($short[$r['key']] ?? $r['key']); }, self::after_items($oid));
+        if ($later) $out .= '<br><small style="color:#9ca3af;" title="Ergänzt der Veranstalter nach der Freischaltung im Studio">Später im Studio: ' . esc_html(implode(' · ', $later)) . '</small>';
         return $out;
     }
 
@@ -993,7 +1032,7 @@ class TIX_Org_Approval {
             echo '<p style="margin-top:20px;">' . ($tab === 'pending' ? 'Keine Veranstalter warten auf Freigabe.' : 'Keine Einträge.') . '</p>';
             return;
         }
-        echo '<table class="widefat striped" style="margin-top:16px;"><thead><tr><th>Veranstalter</th><th>Inhaber</th><th>Eingereicht</th><th>Events</th><th>Pflichtangaben</th><th>Status</th><th></th></tr></thead><tbody>';
+        echo '<table class="widefat striped" style="margin-top:16px;"><thead><tr><th>Veranstalter</th><th>Inhaber</th><th>Eingereicht</th><th>Events</th><th>Zur Prüfung</th><th>Status</th><th></th></tr></thead><tbody>';
         foreach ($rows as $oid) {
             $owner = intval(get_post_meta($oid, '_tix_org_user_id', true));
             $u = $owner ? get_user_by('id', $owner) : null;
@@ -1006,7 +1045,7 @@ class TIX_Org_Approval {
             printf('<tr><td><strong><a href="%s">%s</a></strong></td><td>%s</td><td>%s</td><td>%d gesamt · %d online%s</td><td>%s</td><td>%s</td><td><a class="button" href="%s">Prüfen</a></td></tr>',
                 esc_url(self::admin_url_args(['id' => $oid])), esc_html(self::org_name($oid)),
                 $u ? esc_html(trim($u->first_name . ' ' . $u->last_name) ?: $u->display_name) . '<br><small>' . esc_html($u->user_email) . '</small>' : '—',
-                esc_html($sub), $all, $online, $held ? ' · ' . $held . ' zurückgehalten' : '',
+                esc_html($sub), $all, $online, ($held ? ' · ' . $held . ' zurückgehalten' : '') . (!$all ? '<br><small style="color:#9ca3af;">noch kein Event</small>' : ''),
                 self::checks_html($oid), self::badge(self::status($oid)), esc_url(self::admin_url_args(['id' => $oid])));
         }
         echo '</tbody></table>';
@@ -1052,9 +1091,16 @@ class TIX_Org_Approval {
                 ?>
             </table></div>
 
-            <div style="<?php echo $box; ?>"><h3 style="margin-top:0;">Pflichtangaben</h3>
-                <?php foreach ($pl['requirements'] as $r) : ?>
+            <div style="<?php echo $box; ?>"><h3 style="margin-top:0;">Zur Prüfung</h3>
+                <?php foreach (self::review_checks($oid) as $r) : ?>
                     <div style="padding:4px 0;"><span style="font-weight:700;color:<?php echo $r['done'] ? '#16a34a' : '#dc2626'; ?>;"><?php echo $r['done'] ? '✓' : '✗'; ?></span> <?php echo esc_html($r['label']); ?> <small style="color:#6b7280;">– <?php echo esc_html($r['hint']); ?></small></div>
+                <?php endforeach; ?>
+            </div>
+
+            <div style="<?php echo $box; ?>background:#f9fafb;"><h3 style="margin-top:0;color:#4b5563;">Ergänzt der Veranstalter nach der Freischaltung im Studio</h3>
+                <p style="margin:0 0 8px;color:#6b7280;font-size:13px;">Kein Hinderungsgrund für die Freigabe. Ausgezahlt wird erst, wenn die Auszahlungsdaten hinterlegt sind.</p>
+                <?php foreach (self::after_items($oid) as $r) : ?>
+                    <div style="padding:3px 0;color:#6b7280;"><span style="display:inline-block;width:16px;"><?php echo $r['done'] ? '✓' : '○'; ?></span> <?php echo esc_html($r['label']); ?> <small>– <?php echo esc_html($r['hint']); ?></small></div>
                 <?php endforeach; ?>
             </div>
 
@@ -1085,7 +1131,7 @@ class TIX_Org_Approval {
                     $what = ['terms' => 'Vertrag'] + self::labels();
                     printf('<div style="padding:4px 0;border-top:1px solid #f3f4f6;"><small style="color:#6b7280;">%s · %s</small><br><strong>%s</strong>%s%s</div>',
                         esc_html(wp_date('d.m.Y H:i', intval($l['at'] ?? 0))), esc_html($who), esc_html($what[$l['action'] ?? ''] ?? ($l['action'] ?? '')),
-                        !empty($l['forced']) ? ' <em>(trotz fehlender Angaben)</em>' : '', ($l['note'] ?? '') !== '' ? ' – ' . esc_html($l['note']) : '');
+                        !empty($l['forced']) ? ' <em>(trotz fehlender Prüf-Angaben)</em>' : '', ($l['note'] ?? '') !== '' ? ' – ' . esc_html($l['note']) : '');
                 } ?>
             </div>
         </div>
@@ -1094,9 +1140,9 @@ class TIX_Org_Approval {
             <h3 style="margin-top:0;">Entscheidung</h3>
             <?php if ($st !== 'approved') :
                 echo $form_head('approve'); ?>
-                <?php if (!$pl['complete']) : ?>
-                    <p style="color:#991b1b;margin-top:0;">Es fehlen Pflichtangaben: <?php echo esc_html(implode(', ', array_map(function ($r) { return $r['label']; }, array_filter($pl['requirements'], function ($r) { return !$r['done']; })))); ?>.</p>
-                    <p><label><input type="checkbox" name="force" value="1"> Ich gebe trotz fehlender Pflichtangaben frei.</label></p>
+                <?php if (!$pl['review_complete']) : ?>
+                    <p style="color:#991b1b;margin-top:0;">Zur Prüfung fehlt: <?php echo esc_html(implode(', ', array_map(function ($r) { return $r['label']; }, array_filter(self::review_checks($oid), function ($r) { return !$r['done']; })))); ?>.</p>
+                    <p><label><input type="checkbox" name="force" value="1"> Ich gebe trotzdem frei.</label></p>
                 <?php endif; ?>
                 <?php if (class_exists('TIX_Organizer_Landing') && TIX_Organizer_Landing::is_feature_enabled() && !get_post_meta($oid, '_tix_org_landing_approved', true)) : ?>
                     <p><label><input type="checkbox" name="landing" value="1" checked> Landingpage ebenfalls freischalten</label></p>
@@ -1130,8 +1176,9 @@ class TIX_Org_Approval {
         if (get_post_type($oid) !== 'tix_organizer') $back(['err' => 'Veranstalter nicht gefunden.']);
         $reason = sanitize_textarea_field(wp_unslash($_POST['reason'] ?? ''));
         if ($do === 'approve') {
-            $complete = !self::missing($oid);
-            if (!$complete && empty($_POST['force'])) $back(['err' => 'Es fehlen Pflichtangaben. Zum Freigeben bitte „trotz fehlender Pflichtangaben“ bestätigen.']);
+            // Nur Angaben zur Prüfung (Konto, Name, Vertrag) halten auf; Auszahlung usw. ergänzt der Veranstalter danach
+            $complete = !self::review_missing($oid);
+            if (!$complete && empty($_POST['force'])) $back(['err' => 'Zur Prüfung fehlen Angaben (Konto, Name bzw. Vertrag). Zum Freigeben bitte „trotzdem freigeben“ bestätigen.']);
             if (!empty($_POST['landing'])) update_post_meta($oid, '_tix_org_landing_approved', 1);
             self::set_status($oid, 'approved', ['forced' => !$complete]);
             $back(['msg' => 'Freigeschaltet – zurückgehaltene Events sind online, der Veranstalter wurde benachrichtigt.']);
