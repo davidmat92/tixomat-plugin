@@ -2475,7 +2475,8 @@ Eigene Tabelle fuer Saalplan-Daten (Sektionen, Reihen, Plaetze).
 Zweite Speicherung aller Seiten in einem eigenen Supabase-Projekt (EU). **WordPress bleibt führend**; aus Supabase wird nie zurückgeschrieben. Schema und Anleitung: `supabase/migrations/`, `supabase/README.md`.
 
 - **Was:** Seite (`sites`), Events (`events`), Ticket-Kategorien (`ticket_categories`, id `<event>:<index>`), Kunden = WP-Konten (`customers`), Bestellungen (`orders`, `order_items`, `payments`), Tickets (`tickets`), Check-in-Verlauf (`checkins`, jeder Vorgang in/reset), Stornos/Erstattungen/Rückbuchungen (`refunds`, kind cancel/refund/chargeback). Schlüssel überall `(site, id)`, `site` = Domain (Einstellung „Kennung der Seite“). `change_log` hält per Trigger jede tatsächliche Änderung (gleicher Stand erneut gesendet → kein Eintrag).
-- **Nie gespiegelt:** Passwörter, Login-/Push-/Download-Tokens, `order_key`, Check-in-Passwort, Awareness, Ausweisfotos, IBAN, Gästelisten (Paket 2). Filter: `TIX_Mirror_Map::DENY` (Teilstrings der Meta-Schlüssel).
+- **Nie gespiegelt:** Passwörter, Login-/Push-/Download-Tokens, `order_key`, Check-in-Passwort, Awareness, Ausweisfotos, IBAN im Klartext, Pushover-Zugang, Geräte-Schlüssel und Nonces des Guthabens. Filter: `TIX_Mirror_Map::DENY` (Teilstrings der Meta-Schlüssel).
+- **Laden:** `tixomat.php` lädt nur `class-tix-mirror.php`, das die übrigen `class-tix-mirror-*.php` nachlädt.
 - **Postausgang** `{prefix}tix_mirror_outbox` (entity, object_id, op, payload, rev, attempts, next_try, last_error): `TIX_Mirror::touch($entity, $id, $op, $payload)` merkt im Speicher vor; am Request-Ende ein einziges `INSERT … ON DUPLICATE KEY UPDATE` (rev+1). Kein Netzwerk im Request, jeder Fehler wird geschluckt → Bestellung/Check-in werden nie aufgehalten.
 - **Senden:** Cron `tix_mirror_flush` jede Minute (Sperre `tix_mirror_lock`): baut je Eintrag den **aktuellen** Stand (`TIX_Mirror_Map::plan`), bündelt Upserts je Tabelle (`on_conflict=site,id`, bei Datenfehler einzeln nachgeschickt), räumt entfernte Positionen/Kategorien per RPC `mirror_prune` auf, löscht fehlende Objekte. Eintrag wird nur entfernt, wenn `rev` unverändert ist. Fehler: Backoff 1, 2, 4 … 60 min; ab 8 Fehlversuchen Alarm-Mail (höchstens alle 6 h, Empfänger „Alarm an“ bzw. admin_email).
 - **Erfassen** (`TIX_Mirror_Hooks`), ohne Eingriff in die Schreibstellen: Post-Meta/save_post/Statuswechsel/Löschen von `event` und `tix_ticket`; Nutzer + relevante Nutzer-Meta (billing_*, Namen, `_tix_*`); Optionen `_tix_order_*_{id}`, `_tix_refund(_total)_{id}`, Zahlungsreferenzen; Post-Meta `_tix_payment_*` an der Bestell-ID; Aktionen `tix_native_order_created`, `tix_order_status_changed`, `tix_order_completed`, `tix_order_cancelled`, `tix_order_refund_recorded`, `tix_order_chargeback`, `tix_ticket_checked_in`, `tix_ticket_checkin_reset`. **Nachlauf:** jede Minute alle `tix_orders` mit neuem `date_modified` (fängt direkte `$wpdb->update` ohne Hook, z. B. E-Mail, Zahlart, Anonymisierung).
@@ -2483,7 +2484,24 @@ Zweite Speicherung aller Seiten in einem eigenen Supabase-Projekt (EU). **WordPr
 - **Erstbefüllung** (`TIX_Mirror_Backfill`, Option `tix_mirror_backfill`): Seite → Events → Kunden → Bestellungen → Tickets in Paketen à 500, nur solange der Postausgang < 3000 ist; anhalten/fortsetzen an derselben Stelle; startet von selbst beim ersten Einrichten.
 - **Zugang:** `TIX_MIRROR_URL` / `TIX_MIRROR_KEY` in wp-config (bevorzugt) oder Option `tix_mirror`; der Schlüssel wird nie angezeigt oder geloggt. `TIX_MIRROR_DISABLED` = Not-Aus. Schalter „Diese Seite spiegeln“ ist standardmäßig an (auch Lizenzkunden, nur mit AVV); ohne Zugang wird nichts erfasst.
 - **Abgelöst:** `TIX_Sync_Supabase` (nur Tickets, altes Projekt) ist nur noch Weiche (`is_enabled()` immer false). Alte Werte `supabase_*` bleiben in `tix_settings` stehen, werden aber nicht übernommen (Hinweis auf der Status-Seite, `legacy_url`).
-- **Test:** `tests/test-mirror-wp.php` gegen den lokalen Stand aus `supabase/local/`.
+- **Paket 2** (`TIX_Mirror_Extra`, Migration `20261016180000_mirror_paket2.sql`):
+  - **Veranstalter** (`organizers`, aus `tix_organizer`): Auszahlungsdaten in `payout` mit `iban_masked` und `iban_enc`. Nie gespiegelt: Pushover, ausstehende IBAN, Code-Hashes.
+  - **Gästelisten** (`guests`, id `<event>:<gast-id>` bzw. `<event>:d<index>` für `_tix_guestlist`): laufen mit dem Event.
+  - **Prämien/Stempelkarte** (`loyalty`, id `<user>:<veranstalter>`): laufen mit dem Kunden und sind nicht mehr in `customers.data`.
+  - **Gutscheine und Geschenkkarten** (`coupons`, id = Code, aus der Option `tix_coupons`): Gesendet werden nur geänderte Codes (Prüfsummen in `tix_mirror_coupon_fp`, gemerkt erst nach Erfolg über die Operation `remember`). Gelöschte Codes werden entfernt.
+  - **Guthaben** (`wallets`, `wallet_transactions`, Beträge in Cent) und **Abrechnungen** (`settlements`, `settlement_items`): Erfasst werden sie über den Nachlauf (`TIX_Mirror_Extra::sweeps()`: `updated` bzw. neue IDs; neue Tabellen werden ab Anfang gelesen). Geräte-Schlüssel und Nonces des Guthabens werden nie gespiegelt.
+- **IBAN** steht nie im Klartext im Spiegel:
+  - Mit `TIX_MIRROR_ENC_KEY` in wp-config wird sie für den Spiegel mit eigenem Schlüssel verschlüsselt (`m1:`, AES-256-GCM, Schlüssel `sha256('tix-mirror-iban|' . KEY)`). Damit lässt sie sich ohne die Seite wiederherstellen (`TIX_Mirror_Extra::iban_from_mirror`).
+  - Ohne den Schlüssel bleibt der verschlüsselte Wert der Seite (`v1:`), der nur mit deren Salts lesbar ist.
+  - Die Schuldner-IBAN aus `tix_settings` wird nicht gespiegelt.
+- **Täglicher Abgleich** (`TIX_Mirror_Reconcile`, ab 3 Uhr nach der Erstbefüllung, Knopf „Abgleich jetzt“):
+  - Vergleicht je Tabelle in Paketen à 1000 die IDs und eine md5-Prüfsumme über Kernfelder. WordPress rechnet in `wp_fingerprints()`, Supabase in `mirror_fingerprints()`; beide Formate müssen gleich bleiben.
+  - Fehlendes, Abweichendes und Überzähliges geht in den Postausgang. Gutscheine werden täglich komplett gesendet.
+  - Der Bericht steht in der Option `tix_mirror_report` (Status-Seite) und in der Tabelle `sync_reports`.
+  - Danach wird der Verlauf gekürzt: RPC `mirror_prune_log`, Einstellung „Verlauf aufbewahren“, Option `log_days`, Standard 10 Jahre (Entscheidung des Users).
+- **Erstbefüllung** hat die neuen Schritte hinten angehängt. Seiten mit fertiger Erstbefüllung holen beim Update nur die neuen Datenarten nach (`steps_total`).
+- **Notfall-Einlass** ohne WordPress: `supabase/tools/notfall-einlass.php --url=… --key-file=… --site=… [--event=ID | --date=…]` schreibt CSV + offline-HTML (Suche, „einlassen“ je Gerät, Rückfragen bei schon eingecheckt / Zurücknehmen). Nur lesend.
+- **Test:** `tests/test-mirror-wp.php` (Paket 1) und `tests/test-mirror-paket2-wp.php` gegen den lokalen Stand aus `supabase/local/`.
 
 ### Airtable (`TIX_Sync_Airtable`)
 

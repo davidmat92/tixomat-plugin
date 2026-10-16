@@ -19,7 +19,8 @@ class TIX_Mirror_Backfill {
     const OPTION   = 'tix_mirror_backfill';
     const CHUNK    = 500;   // IDs je Schritt
     const MAX_OUT  = 3000;  // höchstens so viele offene Einträge, sonst warten
-    const STEPS    = ['site', 'event', 'customer', 'order', 'ticket'];
+    // Neue Schritte nur hinten anhängen: Seiten mit fertiger Erstbefüllung holen dann nur die neuen nach.
+    const STEPS    = ['site', 'event', 'customer', 'order', 'ticket', 'organizer', 'coupons', 'wallet', 'wallet_tx', 'settlement', 'settlement_item'];
 
     public static function init() {
         // Nichts zu registrieren: step() läuft in TIX_Mirror::cron_run().
@@ -73,6 +74,10 @@ class TIX_Mirror_Backfill {
     public static function step($seconds = 10) {
         $s = self::get();
         if ($s['state'] === 'idle' && TIX_Mirror::active()) { self::start(); $s = self::get(); } // erstmals eingerichtet
+        if ($s['state'] === 'done' && (int) ($s['steps_total'] ?? 0) > 0 && (int) $s['steps_total'] < count(self::STEPS)) {
+            // Update mit neuen Datenarten: nur die neuen Schritte nachholen.
+            $s = array_merge($s, ['state' => 'running', 'step' => (int) $s['steps_total'], 'last_id' => 0]);
+        }
         if ($s['state'] !== 'running') return;
         $until = microtime(true) + $seconds;
         $muted = TIX_Mirror::unmuted_begin();
@@ -84,13 +89,16 @@ class TIX_Mirror_Backfill {
                 if ($entity === null) {
                     $s['state'] = 'done';
                     $s['finished_at'] = time();
+                    $s['steps_total'] = count(self::STEPS);
                     break;
                 }
                 $ids = self::next_ids($entity, (int) $s['last_id']);
                 if (!$ids) { $s['step']++; $s['last_id'] = 0; continue; }
-                foreach ($ids as $id) TIX_Mirror::touch($entity, $entity === 'site' ? 'site' : (int) $id);
+                $single = in_array($entity, ['site', 'coupons'], true);
+                foreach ($ids as $id) TIX_Mirror::touch($entity, $entity === 'site' ? 'site' : ($entity === 'coupons' ? 'all' : (int) $id));
+                if ($entity === 'coupons') delete_option(TIX_Mirror_Extra::COUPON_FP); // alles senden, Überzähliges löschen
                 TIX_Mirror::flush_buffer();
-                $s['last_id'] = $entity === 'site' ? PHP_INT_MAX : (int) end($ids);
+                $s['last_id'] = $single ? PHP_INT_MAX : (int) end($ids);
                 $s['queued'][$entity] = (int) ($s['queued'][$entity] ?? 0) + count($ids);
                 self::put($s); // nach jedem Paket sichern → unterbrechbar
             }
@@ -104,7 +112,24 @@ class TIX_Mirror_Backfill {
         global $wpdb;
         switch ($entity) {
             case 'site':
+            case 'coupons':
                 return $after > 0 ? [] : [1];
+            case 'organizer':
+                return array_map('intval', $wpdb->get_col($wpdb->prepare(
+                    "SELECT ID FROM {$wpdb->posts} WHERE post_type = 'tix_organizer' AND post_status <> 'auto-draft' AND ID > %d ORDER BY ID LIMIT %d",
+                    $after, self::CHUNK
+                )));
+            case 'wallet':
+            case 'wallet_tx':
+            case 'settlement':
+            case 'settlement_item':
+                $tables = ['wallet' => 'tix_wallets', 'wallet_tx' => 'tix_wallet_tx', 'settlement' => 'tix_settlements', 'settlement_item' => 'tix_settlement_items'];
+                $prev = $wpdb->suppress_errors(true);
+                $ids = $wpdb->get_col($wpdb->prepare(
+                    "SELECT id FROM {$wpdb->prefix}{$tables[$entity]} WHERE id > %d ORDER BY id LIMIT %d", $after, self::CHUNK
+                ));
+                $wpdb->suppress_errors($prev);
+                return array_map('intval', (array) $ids); // Tabelle fehlt (z. B. ohne Mehr-Veranstalter) → leer
             case 'event':
             case 'ticket':
                 $type = $entity === 'event' ? 'event' : 'tix_ticket';

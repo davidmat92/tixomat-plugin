@@ -9,6 +9,8 @@
  *  - Optionen _tix_*_{bestell-id} (Gutschein, Gebühren, Zahlungsreferenzen, Erstattung) → Bestellung
  *  - Post-Meta _tix_payment_* (an der Bestell-ID) → Bestellung
  *  - Tixomat-Aktionen (Bestellung angelegt, Status, Erstattung, Check-in) → Bestellung, Verlauf
+ *  - Paket 2: tix_organizer-Posts → Veranstalter, Option tix_coupons → Gutscheine; Gästelisten
+ *    (Event-Meta) und Prämien (Nutzer-Meta) laufen über Event bzw. Kunde mit
  *  - Direkte $wpdb-Schreibzugriffe auf tix_orders holt TIX_Mirror::sweep() über date_modified.
  * Jeder Callback ist billig (Eintrag im Speicher) und schluckt Fehler.
  *
@@ -62,6 +64,7 @@ class TIX_Mirror_Hooks {
     private static function type_entity($type) {
         if ($type === 'event') return 'event';
         if ($type === 'tix_ticket') return 'ticket';
+        if ($type === 'tix_organizer') return 'organizer';
         return '';
     }
 
@@ -110,6 +113,7 @@ class TIX_Mirror_Hooks {
     // ── Optionen ──
 
     public static function on_option($name) {
+        if ($name === 'tix_coupons') { TIX_Mirror::touch('coupons', 'all'); return; } // Gutscheine + Geschenkkarten
         if (strncmp((string) $name, '_tix_', 5) !== 0) return;
         if (preg_match(self::ORDER_OPTIONS, $name, $m)) TIX_Mirror::touch('order', (int) $m[2]);
     }

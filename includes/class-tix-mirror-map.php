@@ -20,7 +20,8 @@ class TIX_Mirror_Map {
 
     /** Meta-Schlüssel, die nie in den Spiegel gehen (Teilstrings, ohne Groß/klein). */
     const DENY = ['pass', 'token', 'secret', 'iban', 'session', 'nonce', 'otp', 'awareness', 'api_key', 'apikey',
-                  'private', 'id_photo', 'ausweis', '_tix_cart', 'guest_list', 'checkin_password', 'webhook'];
+                  'private', 'id_photo', 'ausweis', '_tix_cart', 'guest_list', 'guestlist', 'checkin_password', 'webhook',
+                  'pushover', 'payout_pending', 'code_hash', 'public_key'];
 
     public static function is_sensitive($key) {
         $k = strtolower((string) $key);
@@ -39,7 +40,8 @@ class TIX_Mirror_Map {
             case 'checkin':  return self::plan_event_row($site, 'checkins', $id, $payload);
             case 'refund':   return self::plan_event_row($site, 'refunds', $id, $payload);
         }
-        return new WP_Error('entity', 'Unbekannter Typ ' . $entity);
+        $plan = class_exists('TIX_Mirror_Extra') ? TIX_Mirror_Extra::plan($entity, $id, $op, $payload) : null;
+        return $plan !== null ? $plan : new WP_Error('entity', 'Unbekannter Typ ' . $entity);
     }
 
     private static function del($table, $site, $id) {
@@ -85,6 +87,9 @@ class TIX_Mirror_Map {
         ksort($out);
         return $out;
     }
+
+    /** Für Paket-2-Pläne: ungültiges UTF-8 entfernen. */
+    public static function clean($v) { return self::json_safe($v); }
 
     private static function json_safe($v) {
         // Ungültiges UTF-8 würde den ganzen Bündel-Upsert scheitern lassen.
@@ -170,9 +175,51 @@ class TIX_Mirror_Map {
         }
         $ops = [['upsert', 'events', [self::json_safe($row)]]];
         if ($cat_rows) $ops[] = ['upsert', 'ticket_categories', $cat_rows];
+        $guests = self::guest_rows($site, $id);
+        if ($guests) $ops[] = ['upsert', 'guests', $guests];
+        $ops[] = ['prune', 'guests', $id, array_column($guests, 'id')];
         // Entfernte Kategorien im Spiegel löschen (alles, was nicht mehr im Array steht).
         $ops[] = ['prune', 'ticket_categories', $id, array_column($cat_rows, 'idx')];
         return $ops;
+    }
+
+    /** Gästelisten eines Events: _tix_guest_list (mit id) und die Dashboard-Liste _tix_guestlist (ohne id). */
+    public static function guest_rows($site, $event_id) {
+        $rows = [];
+        $seen = [];
+        $list = get_post_meta($event_id, '_tix_guest_list', true);
+        foreach (is_array($list) ? $list : [] as $i => $g) {
+            if (!is_array($g)) continue;
+            $gid = (string) ($g['id'] ?? '') !== '' ? (string) $g['id'] : 'i' . $i;
+            $key = $event_id . ':' . $gid;
+            if (isset($seen[$key])) $key .= ':' . $i; // doppelte IDs nicht verlieren
+            $seen[$key] = true;
+            $rows[] = self::guest_row($site, $event_id, $key, 'guest_list', $g);
+        }
+        $dash = get_post_meta($event_id, '_tix_guestlist', true);
+        foreach (is_array($dash) ? $dash : [] as $i => $g) {
+            if (!is_array($g)) continue;
+            $rows[] = self::guest_row($site, $event_id, $event_id . ':d' . $i, 'dashboard', ['plus' => max(0, (int) ($g['tickets'] ?? 1) - 1)] + $g);
+        }
+        return $rows;
+    }
+
+    private static function guest_row($site, $event_id, $id, $source, array $g) {
+        $data = array_diff_key($g, array_flip(['name', 'email', 'plus', 'note', 'checked_in', 'checked_in_count', 'checkin_time', 'checkin_by']));
+        return self::json_safe([
+            'site' => $site, 'id' => $id,
+            'event_id'         => $event_id,
+            'source'           => $source,
+            'name'             => (string) ($g['name'] ?? ''),
+            'email'            => (string) ($g['email'] ?? ''),
+            'plus'             => (int) ($g['plus'] ?? 0),
+            'note'             => (string) ($g['note'] ?? ''),
+            'checked_in'       => self::flag($g['checked_in'] ?? ''),
+            'checked_in_count' => (int) ($g['checked_in_count'] ?? 0),
+            'checkin_time'     => (string) ($g['checkin_time'] ?? ''),
+            'checkin_by'       => (string) ($g['checkin_by'] ?? ''),
+            'data'             => (object) $data,
+        ]);
     }
 
     // ── Kunden (WP-Nutzer) ──
@@ -201,6 +248,7 @@ class TIX_Mirror_Map {
         foreach ((array) get_user_meta($id) as $k => $vals) {
             if (!self::user_meta_relevant($k) || substr($k, -12) === 'capabilities' || substr($k, -10) === 'user_level') continue;
             if (in_array($k, ['_tix_avatar_file', '_tix_app_created'], true)) continue;
+            if (strpos($k, '_tix_loyalty_') === 0) continue; // eigene Tabelle loyalty
             $meta[$k] = maybe_unserialize($vals[0] ?? null);
         }
         ksort($meta);
@@ -228,7 +276,32 @@ class TIX_Mirror_Map {
             'newsletter'        => $newsletter,
             'data'              => (object) $meta,
         ];
-        return [['upsert', 'customers', [self::json_safe($row)]]];
+        $ops = [['upsert', 'customers', [self::json_safe($row)]]];
+        $loyalty = self::loyalty_rows($site, $id);
+        if ($loyalty) $ops[] = ['upsert', 'loyalty', $loyalty];
+        $ops[] = ['prune', 'loyalty', $id, array_column($loyalty, 'id')];
+        return $ops;
+    }
+
+    /** Stempelkarte je Konto: _tix_loyalty_points[_o<veranstalter>] + _log + _stamped. */
+    public static function loyalty_rows($site, $user_id) {
+        $rows = [];
+        foreach ((array) get_user_meta($user_id) as $k => $vals) {
+            if (!preg_match('/^_tix_loyalty_points(?:_o(\d+))?$/', $k, $m)) continue;
+            $org = isset($m[1]) ? (int) $m[1] : 0;
+            $sfx = $org ? '_o' . $org : '';
+            $log = get_user_meta($user_id, '_tix_loyalty_log' . $sfx, true);
+            $stamped = get_user_meta($user_id, '_tix_loyalty_stamped' . $sfx, true);
+            $rows[] = self::json_safe([
+                'site' => $site, 'id' => $user_id . ':' . $org,
+                'user_id'      => $user_id,
+                'organizer_id' => $org,
+                'points'       => (int) maybe_unserialize($vals[0] ?? 0),
+                'log'          => array_values(is_array($log) ? $log : []),
+                'stamped'      => array_values(is_array($stamped) ? $stamped : []),
+            ]);
+        }
+        return $rows;
     }
 
     // ── Bestellungen + Positionen + Zahlung ──

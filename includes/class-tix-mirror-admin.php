@@ -36,6 +36,7 @@ class TIX_Mirror_Admin {
             'enabled'     => !empty($_POST['enabled']) ? 1 : 0,
             'alert_email' => sanitize_email(wp_unslash($_POST['alert_email'] ?? '')),
             'site'        => sanitize_text_field(wp_unslash($_POST['site'] ?? '')),
+            'log_days'    => max(30, (int) round((float) str_replace(',', '.', (string) wp_unslash($_POST['log_years'] ?? '10')) * 365.25)),
         ];
         if (!defined('TIX_MIRROR_URL')) {
             $url = esc_url_raw(trim(wp_unslash($_POST['url'] ?? '')), ['https', 'http']);
@@ -73,6 +74,9 @@ class TIX_Mirror_Admin {
             case 'backfill_resume':
                 TIX_Mirror_Backfill::resume();
                 self::back('Erstbefüllung läuft weiter.');
+            case 'reconcile':
+                TIX_Mirror_Reconcile::start();
+                self::back('Abgleich gestartet. Er läuft im Hintergrund; der Bericht erscheint hier.');
             case 'retry':
                 global $wpdb;
                 $wpdb->query($wpdb->prepare("UPDATE " . TIX_Mirror::table() . " SET next_try = %s", gmdate('Y-m-d H:i:s')));
@@ -123,6 +127,16 @@ class TIX_Mirror_Admin {
                     <tr><td>Gesendet seit Einrichtung</td><td><?php echo (int) $st['sent']; ?></td></tr>
                     <tr><td>Letzter Fehler</td><td><?php echo $st['last_error'] !== '' ? esc_html($st['last_error']) . ' <span style="color:#6b7280">(' . esc_html(self::ago($st['last_error_at'])) . ((int) $st['last_ok'] > (int) $st['last_error_at'] ? ', seitdem fehlerfrei' : '') . ')</span>' : '–'; ?></td></tr>
                     <tr><td>Erstbefüllung</td><td><?php echo esc_html($bf['label']); ?></td></tr>
+                    <tr><td>Täglicher Abgleich</td><td><?php
+                        $rc = TIX_Mirror_Reconcile::get(); $rep = TIX_Mirror_Reconcile::report();
+                        if ($rc['state'] === 'running') echo 'läuft gerade · ';
+                        if ($rep) {
+                            echo esc_html('zuletzt ' . wp_date('d.m.Y H:i', (int) $rep['at']) . ' · ' . (int) $rep['differences'] . ' Abweichungen');
+                            if (!empty($rep['differences'])) echo ' <span style="color:#6b7280">(nachgeschickt)</span>';
+                        } else {
+                            echo 'noch nicht gelaufen (täglich ab ' . (int) TIX_Mirror_Reconcile::HOUR . ' Uhr nach der Erstbefüllung)';
+                        }
+                    ?></td></tr>
                     <tr><td>Nächster Hintergrund-Lauf</td><td><?php $n = wp_next_scheduled(TIX_Mirror::CRON); echo $n ? esc_html(wp_date('H:i:s', $n)) : '–'; ?></td></tr>
                 </tbody>
             </table>
@@ -137,8 +151,22 @@ class TIX_Mirror_Admin {
                     <button class="button button-primary" name="do" value="backfill_resume" <?php disabled(!$on); ?>>Erstbefüllung fortsetzen</button>
                 <?php endif; ?>
                 <button class="button" name="do" value="backfill" <?php disabled(!$on); ?> onclick="return confirm('Kompletten Bestand dieser Seite neu in den Spiegel schicken?');"><?php echo $bf['state'] === 'done' ? 'Erstbefüllung erneut' : 'Erstbefüllung starten'; ?></button>
+                <button class="button" name="do" value="reconcile" <?php disabled(!$on); ?>>Abgleich jetzt</button>
                 <?php if ($stats['errors']) : ?><button class="button" name="do" value="retry">Fehlgeschlagene sofort wiederholen</button><?php endif; ?>
             </form>
+
+            <?php $rep = TIX_Mirror_Reconcile::report(); if (!empty($rep['tables'])) : ?>
+                <h2>Letzter Abgleich</h2>
+                <table class="widefat striped" style="max-width:780px">
+                    <thead><tr><th>Tabelle</th><th>WordPress</th><th>Spiegel</th><th>fehlten</th><th>zu viel</th><th>abweichend</th></tr></thead>
+                    <tbody><?php foreach ($rep['tables'] as $tb => $r) : ?>
+                        <tr><td><?php echo esc_html($tb); ?></td>
+                        <?php if (!empty($r['error'])) : ?><td colspan="5">Fehler: <?php echo esc_html($r['error']); ?></td>
+                        <?php else : foreach (['wp', 'mirror', 'missing', 'extra', 'differ'] as $k) : ?><td><?php echo (int) ($r[$k] ?? 0); ?></td><?php endforeach; endif; ?></tr>
+                    <?php endforeach; ?></tbody>
+                </table>
+                <p class="description">Verlauf im Spiegel: <?php echo esc_html(round((int) $rep['log_days'] / 365.25, 1)); ?> Jahre aufbewahrt<?php echo isset($rep['log_pruned']) && $rep['log_pruned'] !== null ? ', ' . (int) $rep['log_pruned'] . ' alte Einträge gekürzt' : ''; ?>.</p>
+            <?php endif; ?>
 
             <?php if ($stats['errors']) : ?>
                 <h2>Fehler im Postausgang</h2>
@@ -168,6 +196,8 @@ class TIX_Mirror_Admin {
                         <?php endif; ?></td></tr>
                     <tr><th>Kennung der Seite</th><td><input type="text" name="site" value="<?php echo esc_attr($s['site']); ?>" class="regular-text" placeholder="<?php echo esc_attr(TIX_Mirror::site()); ?>">
                         <p class="description">Leer = Domain. Nur ändern, wenn die Seite umzieht und ihre Daten unter der alten Kennung bleiben sollen.</p></td></tr>
+                    <tr><th>Verlauf aufbewahren</th><td><input type="number" name="log_years" min="0.1" step="0.1" value="<?php echo esc_attr(round(TIX_Mirror::log_days() / 365.25, 1)); ?>" style="width:90px"> Jahre
+                        <p class="description">Änderungsprotokoll im Spiegel; Älteres kürzt der tägliche Abgleich. Entscheidung: 10 Jahre (wie Buchhaltung).</p></td></tr>
                     <tr><th>Alarm an</th><td><input type="email" name="alert_email" value="<?php echo esc_attr($s['alert_email']); ?>" class="regular-text" placeholder="<?php echo esc_attr(get_option('admin_email')); ?>">
                         <p class="description">Mail, wenn Einträge <?php echo (int) TIX_Mirror::ALERT_TRIES; ?>-mal scheitern (höchstens alle 6 Stunden).</p></td></tr>
                 </table>

@@ -437,12 +437,7 @@ TIX_Seatmap::init();
 // ── Custom Ticket-DB + Sync-Klassen ──
 require_once TIXOMAT_PATH . 'includes/class-tix-ticket-db.php';
 require_once TIXOMAT_PATH . 'includes/class-tix-sync-supabase.php'; // nur noch Weiche zum Datenspiegel
-require_once TIXOMAT_PATH . 'includes/class-tix-mirror.php';
-require_once TIXOMAT_PATH . 'includes/class-tix-mirror-client.php';
-require_once TIXOMAT_PATH . 'includes/class-tix-mirror-map.php';
-require_once TIXOMAT_PATH . 'includes/class-tix-mirror-hooks.php';
-require_once TIXOMAT_PATH . 'includes/class-tix-mirror-backfill.php';
-if (is_admin()) require_once TIXOMAT_PATH . 'includes/class-tix-mirror-admin.php';
+require_once TIXOMAT_PATH . 'includes/class-tix-mirror.php'; // lädt class-tix-mirror-*.php
 TIX_Mirror::init(); // Datenspiegel (Supabase): Postausgang, Erstbefüllung, Löschweg – Tixomat → Datenspiegel
 require_once TIXOMAT_PATH . 'includes/class-tix-sync-airtable.php';
 

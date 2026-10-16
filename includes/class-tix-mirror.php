@@ -58,7 +58,13 @@ class TIX_Mirror {
 
     public static function defaults() {
         // Alle Seiten standardmäßig an (Entscheidung des Users 2026-10-16); aktiv erst mit URL + Schlüssel.
-        return ['enabled' => 1, 'url' => '', 'key' => '', 'site' => '', 'alert_email' => ''];
+        // log_days: Aufbewahrung des Änderungsprotokolls im Spiegel (Entscheidung des Users: 10 Jahre).
+        return ['enabled' => 1, 'url' => '', 'key' => '', 'site' => '', 'alert_email' => '', 'log_days' => 3653];
+    }
+
+    /** Aufbewahrung des Verlaufs in Tagen (mindestens 30). */
+    public static function log_days() {
+        return max(30, (int) self::settings()['log_days']);
     }
 
     public static function settings() {
@@ -110,7 +116,7 @@ class TIX_Mirror {
         return wp_parse_args(is_array($s) ? $s : [], [
             'last_run' => 0, 'last_ok' => 0, 'last_error' => '', 'last_error_at' => 0,
             'fail_runs' => 0, 'sent' => 0, 'alert_at' => 0,
-            'sweep_orders' => '', 'site_at' => 0,
+            'sweep_orders' => '', 'sweeps' => [], 'site_at' => 0,
         ]);
     }
 
@@ -255,6 +261,7 @@ class TIX_Mirror {
                 self::set_state(['site_at' => time()]);
             }
             if (class_exists('TIX_Mirror_Backfill')) TIX_Mirror_Backfill::step(max(5, self::RUN_SECONDS / 2));
+            if (class_exists('TIX_Mirror_Reconcile')) TIX_Mirror_Reconcile::step(10);
             do {
                 $r = self::process_batch();
             } while ($r['rows'] >= self::BATCH && $r['failed'] === 0 && (microtime(true) - $started) < self::RUN_SECONDS);
@@ -284,31 +291,62 @@ class TIX_Mirror {
     }
 
     /**
-     * Sicherheitsnetz für die eigenen Bestell-Tabellen: Viele Stellen schreiben per $wpdb direkt
-     * (Status, E-Mail, Zahlart, Anonymisierung). date_modified zieht MySQL selbst nach, also
-     * holt der Lauf alles nach, was seit dem letzten Blick geändert wurde.
+     * Sicherheitsnetz für Tabellen, die per $wpdb ohne Hook geschrieben werden:
+     *  - tix_orders (Status, E-Mail, Zahlart, Anonymisierung): date_modified zieht MySQL selbst nach
+     *  - Guthaben und Abrechnungen (Paket 2, TIX_Mirror_Extra::sweeps()): updated bzw. neue IDs
+     * Beim ersten Lauf wird nur die Marke gesetzt; den Bestand holt die Erstbefüllung.
      */
     public static function sweep() {
         global $wpdb;
-        $t = $wpdb->prefix . 'tix_orders';
-        $since = self::state()['sweep_orders'];
-        $now = $wpdb->get_var('SELECT NOW()');
-        if (!$now) return;
-        if ($since === '') { self::set_state(['sweep_orders' => $now]); return; } // Bestand übernimmt die Erstbefüllung
+        $list = [['order', $wpdb->prefix . 'tix_orders', 'date_modified', 'time_db']];
+        if (class_exists('TIX_Mirror_Extra')) $list = array_merge($list, TIX_Mirror_Extra::sweeps());
+        $marks = self::state()['sweeps'];
+        $marks = is_array($marks) ? $marks : [];
+        // Alte Marke aus Paket 1 übernehmen
+        if (!isset($marks['order']) && self::state()['sweep_orders'] !== '') $marks['order'] = self::state()['sweep_orders'];
         $limit = 5000;
+        $m = self::unmuted_begin(); // Treffer sollen in den Postausgang
         $prev = $wpdb->suppress_errors(true);
-        $rows = $wpdb->get_results($wpdb->prepare(
-            "SELECT id, date_modified FROM {$t} WHERE date_modified >= %s - INTERVAL 5 SECOND ORDER BY date_modified, id LIMIT %d", $since, $limit
-        ), ARRAY_A);
-        $wpdb->suppress_errors($prev);
-        $m = self::unmuted_begin(); // Sweep-Treffer sollen in den Postausgang
-        foreach ((array) $rows as $r) self::touch('order', (int) $r['id']);
-        self::flush_buffer();
-        self::unmuted_end($m);
-        // Volles Paket: nur bis zur letzten gesehenen Zeit vorrücken, der Rest kommt im nächsten Lauf.
-        $mark = count((array) $rows) >= $limit ? (string) end($rows)['date_modified'] : $now;
-        if ($mark === $since && count((array) $rows) >= $limit) $mark = $now; // > 5000 Änderungen in derselben Sekunde
-        self::set_state(['sweep_orders' => $mark]);
+        try {
+            foreach ($list as $sw) {
+                [$entity, $table, $col, $mode] = $sw;
+                // Paket-2-Tabellen ab Anfang lesen: Sie können nach der Erstbefüllung erst entstehen
+                // (z. B. Abrechnungen beim Einschalten des Mehr-Veranstalter-Modus).
+                $from_start = !empty($sw[4]);
+                if ($mode === 'id') {
+                    $max = $wpdb->get_var("SELECT MAX(id) FROM {$table}");
+                    if ($max === null && $wpdb->last_error !== '') continue; // Tabelle gibt es auf dieser Seite nicht
+                    if (!isset($marks[$entity])) { $marks[$entity] = $from_start ? 0 : (int) $max; if (!$from_start) continue; }
+                    $ids = $wpdb->get_col($wpdb->prepare("SELECT id FROM {$table} WHERE id > %d ORDER BY id LIMIT %d", (int) $marks[$entity], $limit));
+                    foreach ((array) $ids as $id) self::touch($entity, (int) $id);
+                    if ($ids) $marks[$entity] = (int) end($ids);
+                    continue;
+                }
+                $now = $mode === 'time_utc' ? gmdate('Y-m-d H:i:s') : ($mode === 'time_local' ? current_time('mysql') : $wpdb->get_var('SELECT NOW()'));
+                if (!$now) continue;
+                if (!isset($marks[$entity])) {
+                    $wpdb->get_var("SELECT 1 FROM {$table} LIMIT 1");
+                    if ($wpdb->last_error !== '') continue;
+                    $marks[$entity] = $from_start ? '1970-01-01 00:00:00' : $now;
+                    if (!$from_start) continue;
+                }
+                $since = (string) $marks[$entity];
+                $rows = $wpdb->get_results($wpdb->prepare(
+                    "SELECT id, {$col} AS t FROM {$table} WHERE {$col} >= %s - INTERVAL 5 SECOND ORDER BY {$col}, id LIMIT %d", $since, $limit
+                ), ARRAY_A);
+                if ($rows === null || $wpdb->last_error !== '') continue;
+                foreach ((array) $rows as $r) self::touch($entity, (int) $r['id']);
+                // Volles Paket: nur bis zur letzten gesehenen Zeit vorrücken, der Rest kommt im nächsten Lauf.
+                $mark = count($rows) >= $limit ? (string) end($rows)['t'] : $now;
+                if ($mark === $since && count($rows) >= $limit) $mark = $now; // > 5000 Änderungen in derselben Sekunde
+                $marks[$entity] = $mark;
+            }
+            self::flush_buffer();
+        } finally {
+            $wpdb->suppress_errors($prev);
+            self::unmuted_end($m);
+        }
+        self::set_state(['sweeps' => $marks]);
     }
 
     /**
@@ -353,6 +391,10 @@ class TIX_Mirror {
                 // Nur löschen, wenn seitdem keine neue Änderung kam (rev unverändert).
                 $wpdb->query($wpdb->prepare("DELETE FROM {$t} WHERE id = %d AND rev = %d", $id, (int) $row['rev']));
                 $sent++;
+                // Gesendeten Stand merken (z. B. Prüfsummen der Gutscheine).
+                if (is_array($plans[$id] ?? null)) {
+                    foreach ($plans[$id] as $op) if ($op[0] === 'remember') update_option($op[1], $op[2], false);
+                }
             }
         }
 
@@ -388,7 +430,9 @@ class TIX_Mirror {
                 if ($op[0] === 'upsert') {
                     foreach ($op[2] as $r) $upserts[$op[1]][] = [$rid, $r, $op[3] ?? 'site,id'];
                 } elseif ($op[0] === 'prune') {
-                    $prunes[$op[1]][] = [$rid, (int) $op[2], array_values(array_map('intval', $op[3]))];
+                    $prunes[$op[1]][] = [$rid, (int) $op[2], array_values($op[3])];
+                } elseif ($op[0] === 'remember') {
+                    continue; // erst nach Erfolg, siehe process_batch()
                 } else {
                     $others[] = [$rid, $op];
                 }
@@ -396,7 +440,8 @@ class TIX_Mirror {
         }
 
         // Feste Reihenfolge, damit Kinder nach ihren Eltern ankommen (es gibt keine Fremdschlüssel, nur Lesbarkeit).
-        $order = ['sites', 'events', 'ticket_categories', 'customers', 'orders', 'order_items', 'payments', 'tickets', 'checkins', 'refunds'];
+        $order = ['sites', 'organizers', 'events', 'ticket_categories', 'guests', 'customers', 'loyalty', 'orders', 'order_items', 'payments',
+                  'tickets', 'checkins', 'refunds', 'coupons', 'wallets', 'wallet_transactions', 'settlements', 'settlement_items'];
         uksort($upserts, function ($a, $b) use ($order) {
             $ia = array_search($a, $order, true); $ib = array_search($b, $order, true);
             return ($ia === false ? 99 : $ia) <=> ($ib === false ? 99 : $ib);
@@ -495,3 +540,9 @@ class TIX_Mirror {
         return ['by_entity' => (array) $by, 'errors' => (array) $errors];
     }
 }
+
+foreach (['client', 'map', 'hooks', 'backfill', 'reconcile', 'extra'] as $tix_mirror_part) {
+    require_once __DIR__ . '/class-tix-mirror-' . $tix_mirror_part . '.php';
+}
+if (is_admin()) require_once __DIR__ . '/class-tix-mirror-admin.php';
+unset($tix_mirror_part);
