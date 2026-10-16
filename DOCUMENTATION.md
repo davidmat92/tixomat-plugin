@@ -2503,6 +2503,11 @@ Zweite Speicherung aller Seiten in einem eigenen Supabase-Projekt (EU). **WordPr
   - Der Bericht steht in der Option `tix_mirror_report` (Status-Seite) und in der Tabelle `sync_reports`.
   - Danach wird der Verlauf gekürzt: RPC `mirror_prune_log`, Einstellung „Verlauf aufbewahren“, Option `log_days`, Standard 10 Jahre (Entscheidung des Users).
 - **Erstbefüllung** hat die neuen Schritte hinten angehängt. Seiten mit fertiger Erstbefüllung holen beim Update nur die neuen Datenarten nach (`steps_total`).
+- **Lesender Vergleich** `wp eval-file wp-content/plugins/tixomat/supabase/tools/vergleich-wp.php` schreibt nichts. Er zeigt:
+  - Anzahlen je Tabelle in WordPress und im Spiegel
+  - Stichproben (neueste Bestellungen, Tickets, Events, Geldbörsen)
+  - Datenschutz-Suche (Passwort-Hashes, Token-Felder, Klartext-IBAN)
+  Der tägliche Abgleich entfernt außerdem verwaiste Kinder (RPC `mirror_prune_orphans`).
 - **Notfall-Einlass** ohne WordPress: `supabase/tools/notfall-einlass.php --url=… --key-file=… --site=… [--event=ID | --date=…]` schreibt CSV + offline-HTML (Suche, „einlassen“ je Gerät, Rückfragen bei schon eingecheckt / Zurücknehmen). Nur lesend.
 - **Test:** `tests/test-mirror-wp.php` (Paket 1) und `tests/test-mirror-paket2-wp.php` gegen den lokalen Stand aus `supabase/local/`.
 

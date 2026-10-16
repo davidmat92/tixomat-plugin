@@ -92,6 +92,15 @@ m2_run();
 t2_eq('Gast eingecheckt', true, m2_one('guests', $ev . ':a1b2c3')['checked_in'] ?? null);
 t2_eq('entfernter Gast gelöscht', null, m2_one('guests', $ev . ':d4e5f6'));
 
+// Event mit Gästen endgültig löschen → Gäste im Spiegel weg
+$ev2 = wp_insert_post(['post_type' => 'event', 'post_status' => 'publish', 'post_title' => "Gäste-Löschen $sfx"]);
+update_post_meta($ev2, '_tix_guest_list', [['id' => 'zz1', 'name' => 'Weg', 'email' => '']]);
+m2_run();
+t2_eq('Gast des zweiten Events im Spiegel', 1, count(m2_rows('guests', ['event_id' => 'eq.' . $ev2])));
+wp_delete_post($ev2, true);
+m2_run();
+t2_eq('Event gelöscht → Gäste weg', 0, count(m2_rows('guests', ['event_id' => 'eq.' . $ev2])));
+
 // ── 3. Prämien (Stempelkarte) und Löschweg ──
 $uid = wp_create_user("praemie$sfx", wp_generate_password(), "praemie$sfx@example.test");
 $users[] = $uid;
@@ -187,6 +196,11 @@ t2_eq('Geist-Event gelöscht', null, m2_one('events', 987654321));
 if (isset($wid)) t2_eq('Geldbörse korrigiert', 2500, (int) (m2_one('wallets', $wid)['balance_paid'] ?? -1));
 $rep = m2_reconcile();
 t2_eq('danach wieder 0 Abweichungen', 0, (int) ($rep['differences'] ?? -1));
+// Verwaiste Gäste (Event fehlt im Spiegel) räumt der Abgleich weg
+TIX_Mirror_Client::upsert('guests', [['site' => $site, 'id' => '999999:waise', 'event_id' => 999999, 'name' => 'Waise']]);
+$rep = m2_reconcile();
+t2_eq('verwaister Gast entfernt', null, m2_one('guests', '999999:waise'));
+t2_true('im Bericht gezählt', (int) ($rep['tables']['orphans']['guests'] ?? 0) >= 1);
 
 // ── 8. Aufbewahrung: Verlauf älter als die Einstellung wird gekürzt ──
 $old = TIX_Mirror_Client::request('POST', '/rest/v1/change_log', [

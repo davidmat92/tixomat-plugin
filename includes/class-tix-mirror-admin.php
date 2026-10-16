@@ -159,12 +159,13 @@ class TIX_Mirror_Admin {
                 <h2>Letzter Abgleich</h2>
                 <table class="widefat striped" style="max-width:780px">
                     <thead><tr><th>Tabelle</th><th>WordPress</th><th>Spiegel</th><th>fehlten</th><th>zu viel</th><th>abweichend</th></tr></thead>
-                    <tbody><?php foreach ($rep['tables'] as $tb => $r) : ?>
+                    <tbody><?php foreach ($rep['tables'] as $tb => $r) : if ($tb === 'orphans') continue; ?>
                         <tr><td><?php echo esc_html($tb); ?></td>
                         <?php if (!empty($r['error'])) : ?><td colspan="5">Fehler: <?php echo esc_html($r['error']); ?></td>
                         <?php else : foreach (['wp', 'mirror', 'missing', 'extra', 'differ'] as $k) : ?><td><?php echo (int) ($r[$k] ?? 0); ?></td><?php endforeach; endif; ?></tr>
                     <?php endforeach; ?></tbody>
                 </table>
+                <?php if (!empty($rep['tables']['orphans']['removed'])) : ?><p class="description">Verwaiste Einträge entfernt: <?php echo (int) $rep['tables']['orphans']['removed']; ?></p><?php endif; ?>
                 <p class="description">Verlauf im Spiegel: <?php echo esc_html(round((int) $rep['log_days'] / 365.25, 1)); ?> Jahre aufbewahrt<?php echo isset($rep['log_pruned']) && $rep['log_pruned'] !== null ? ', ' . (int) $rep['log_pruned'] . ' alte Einträge gekürzt' : ''; ?>.</p>
             <?php endif; ?>
 

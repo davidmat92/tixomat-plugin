@@ -100,6 +100,21 @@ class TIX_Mirror_Client {
         return self::request('GET', '/rest/v1/' . rawurlencode($table) . '?' . $q);
     }
 
+    /** Anzahl Zeilen (nur lesend, Prefer: count=exact). null bei Fehler. */
+    public static function count($table, array $filters = []) {
+        if (!self::configured()) return null;
+        $q = self::query(array_merge(['select' => 'site', 'limit' => '1'], $filters));
+        $res = wp_remote_request(self::url() . '/rest/v1/' . rawurlencode($table) . '?' . $q, [
+            'method' => 'GET', 'timeout' => self::TIMEOUT, 'redirection' => 0,
+            'headers' => self::headers(['Prefer' => 'count=exact']),
+        ]);
+        if (is_wp_error($res)) return null;
+        $code = (int) wp_remote_retrieve_response_code($res);
+        $range = (string) wp_remote_retrieve_header($res, 'content-range');
+        if ($code < 200 || $code >= 300 || !preg_match('#/(\d+)$#', $range, $m)) return null;
+        return (int) $m[1];
+    }
+
     /** Verbindung und Schema prüfen (liest die Tabelle sites). */
     public static function test() {
         if (!self::configured()) return ['success' => false, 'message' => 'Projekt-URL und Service-Schlüssel fehlen.'];

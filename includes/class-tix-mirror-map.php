@@ -126,7 +126,9 @@ class TIX_Mirror_Map {
     private static function plan_event($site, $id) {
         $p = get_post($id);
         if (!$p || $p->post_type !== 'event' || $p->post_status === 'auto-draft') {
-            return [self::del('events', $site, $id), ['delete', 'ticket_categories', ['site' => 'eq.' . $site, 'event_id' => 'eq.' . $id]]];
+            return [self::del('events', $site, $id),
+                    ['delete', 'ticket_categories', ['site' => 'eq.' . $site, 'event_id' => 'eq.' . $id]],
+                    ['delete', 'guests', ['site' => 'eq.' . $site, 'event_id' => 'eq.' . $id]]];
         }
         $m = self::post_meta($id, ['_tix_ticket_categories', '_tix_guests']);
         $g = function ($k) use ($id) { return get_post_meta($id, $k, true); };

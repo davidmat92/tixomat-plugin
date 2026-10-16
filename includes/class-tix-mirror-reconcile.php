@@ -133,6 +133,14 @@ class TIX_Mirror_Reconcile {
         self::put($s);
         $diff = 0;
         foreach ($s['stats'] as $st) $diff += (int) ($st['missing'] ?? 0) + (int) ($st['extra'] ?? 0) + (int) ($st['differ'] ?? 0) + (empty($st['error']) ? 0 : 1);
+        // Verwaiste Kinder entfernen (Gäste/Kategorien ohne Event, Positionen/Zahlungen ohne Bestellung).
+        $or = TIX_Mirror_Client::rpc('mirror_prune_orphans', ['p_site' => TIX_Mirror::site()]);
+        if ($or['ok'] && is_array($or['body'])) {
+            $s['stats']['orphans'] = ['removed' => array_sum(array_map('intval', $or['body']))] + $or['body'];
+            $diff += (int) $s['stats']['orphans']['removed'];
+        } elseif (!$or['ok']) {
+            $s['stats']['orphans'] = ['error' => $or['error']];
+        }
         // Verlauf kürzen (Einstellung „Verlauf aufbewahren“, Standard 10 Jahre).
         $days = TIX_Mirror::log_days();
         $pr = TIX_Mirror_Client::rpc('mirror_prune_log', ['p_site' => TIX_Mirror::site(), 'p_days' => $days]);
