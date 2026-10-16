@@ -577,27 +577,9 @@ class TIX_App_Account {
         if (array_intersect($protected, (array) $user->roles)) {
             return self::error('tix_delete_forbidden', 'Dieses Konto kann nicht in der App gelöscht werden. Bitte wende dich an den Support.', 403);
         }
-        $uid = $user->ID;
-        // Offenes Guthaben: nur mit Richtlinie „block“ verweigern (Entscheidung offen, Apple 5.1.1(v)); sonst anonymisiert
-        if (class_exists('TIX_Wallet_Balance') && ($werr = TIX_Wallet_Balance::delete_block_error($uid))) return $werr;
-        // Profilbild-Datei entfernen (liegt außerhalb der Mediathek).
-        $file = basename((string) get_user_meta($uid, '_tix_avatar_file', true));
-        if ($file !== '' && $file !== '.' && $file !== '..') {
-            $up = wp_get_upload_dir();
-            $path = trailingslashit($up['basedir']) . 'tix-avatars/' . $file;
-            if (is_file($path)) @unlink($path);
-        }
-        // App-Tokens sofort entwerten.
-        delete_user_meta($uid, '_tix_app_tokens');
-        delete_user_meta($uid, '_tix_app_token');
-        // WordPress-Nutzer löschen (entfernt Konto + sämtliche User-Meta).
-        if (!function_exists('wp_delete_user')) {
-            require_once ABSPATH . 'wp-admin/includes/user.php';
-        }
-        $ok = wp_delete_user($uid);
-        if (!$ok) {
-            return self::error('tix_delete_failed', 'Konto konnte nicht gelöscht werden.', 500);
-        }
+        // Gemeinsamer Kern mit der Website (1.38.460): Bestellungen und Tickets anonymisieren (Codes bleiben gültig), Konto löschen
+        $res = TIX_Account_Delete::delete($user->ID, 'app');
+        if (is_wp_error($res)) return $res;
         return rest_ensure_response(['ok' => true, 'deleted' => true]);
     }
 

@@ -289,26 +289,32 @@ class TIX_Studio {
     /** POST /studio/placeholder (multipart `image` bzw. `file`, JPG/PNG/WebP ≤ 5 MB; empfohlen 16:9, 1920×1080) → config */
     public static function rest_placeholder_upload(WP_REST_Request $req) {
         $files = $req->get_file_params();
-        $file = $files['image'] ?? ($files['file'] ?? null);
         if (intval($_SERVER['CONTENT_LENGTH'] ?? 0) > 0 && !$files && !$req->get_body_params()) return new WP_Error('tix_too_large', 'Das Bild ist zu groß (höchstens 5 MB).', ['status' => 413, 'field' => 'image']);
-        if (empty($file['tmp_name'])) return new WP_Error('no_file', 'Kein Bild hochgeladen.', ['status' => 400, 'field' => 'image']);
-        if (!empty($file['error'])) return new WP_Error('upload_failed', 'Upload fehlgeschlagen (höchstens 5 MB).', ['status' => in_array(intval($file['error']), [UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE], true) ? 413 : 400, 'field' => 'image']);
-        if (intval($file['size'] ?? 0) > 5 * MB_IN_BYTES) return new WP_Error('tix_too_large', 'Das Bild ist zu groß (höchstens 5 MB).', ['status' => 413, 'field' => 'image']);
+        $aid = self::store_placeholder($files['image'] ?? ($files['file'] ?? ($files['placeholder'] ?? null)), 'image');
+        if (is_wp_error($aid)) return $aid;
+        $b = self::brand();
+        $b['placeholder_id'] = intval($aid);
+        update_option(self::BRAND, $b, false);
+        if (class_exists('TIX_Public_Events') && method_exists('TIX_Public_Events', 'flush')) TIX_Public_Events::flush();
+        return rest_ensure_response(self::config_payload());
+    }
+
+    /** Platzhalter-Datei prüfen und speichern → Anhang-ID oder WP_Error (Feld $field). */
+    private static function store_placeholder($file, $field) {
+        if (!empty($file['error']) && intval($file['error']) !== UPLOAD_ERR_NO_FILE) return new WP_Error('upload_failed', 'Upload fehlgeschlagen (höchstens 5 MB).', ['status' => in_array(intval($file['error']), [UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE], true) ? 413 : 400, 'field' => $field]);
+        if (empty($file['tmp_name'])) return new WP_Error('no_file', 'Kein Bild hochgeladen.', ['status' => 400, 'field' => $field]);
+        if (intval($file['size'] ?? 0) > 5 * MB_IN_BYTES) return new WP_Error('tix_too_large', 'Das Bild ist zu groß (höchstens 5 MB).', ['status' => 413, 'field' => $field]);
         $info = @getimagesize($file['tmp_name']);
         $mime = is_array($info) ? (string) $info['mime'] : '';
-        if (!in_array($mime, ['image/jpeg', 'image/png', 'image/webp'], true)) return new WP_Error('bad_type', 'Bitte ein JPG-, PNG- oder WebP-Bild wählen.', ['status' => 400, 'field' => 'image']);
-        if ($info[0] < 200 || $info[1] < 100 || $info[0] > 8000 || $info[1] > 8000) return new WP_Error('bad_size', 'Das Bild muss mindestens 200×100 und höchstens 8000 Pixel groß sein (empfohlen 1920×1080).', ['status' => 400, 'field' => 'image']);
+        if (!in_array($mime, ['image/jpeg', 'image/png', 'image/webp'], true)) return new WP_Error('bad_type', 'Bitte ein JPG-, PNG- oder WebP-Bild wählen.', ['status' => 400, 'field' => $field]);
+        if ($info[0] < 200 || $info[1] < 100 || $info[0] > 8000 || $info[1] > 8000) return new WP_Error('bad_size', 'Das Bild muss mindestens 200×100 und höchstens 8000 Pixel groß sein (empfohlen 1920×1080).', ['status' => 400, 'field' => $field]);
         require_once ABSPATH . 'wp-admin/includes/file.php';
         require_once ABSPATH . 'wp-admin/includes/media.php';
         require_once ABSPATH . 'wp-admin/includes/image.php';
         $ext = $mime === 'image/png' ? 'png' : ($mime === 'image/webp' ? 'webp' : 'jpg');
         $aid = media_handle_sideload(['name' => 'event-platzhalter-' . time() . '.' . $ext, 'tmp_name' => $file['tmp_name'], 'type' => $mime, 'size' => $file['size'] ?? 0], 0, 'Event-Platzhalter');
         if (is_wp_error($aid)) return new WP_Error('upload_failed', $aid->get_error_message(), ['status' => 500]);
-        $b = self::brand();
-        $b['placeholder_id'] = intval($aid);
-        update_option(self::BRAND, $b, false);
-        if (class_exists('TIX_Public_Events') && method_exists('TIX_Public_Events', 'flush')) TIX_Public_Events::flush();
-        return rest_ensure_response(self::config_payload());
+        return intval($aid);
     }
 
     /** DELETE /studio/placeholder → zurück auf den Standard (kein eigenes Bild). */
@@ -456,13 +462,18 @@ class TIX_Studio {
                 $b['logo_id'] = $id;
             }
         }
-        if ($has('placeholder_id')) {
+        // Platzhalter als Datei über die Marken-Route (Studio, 1.38.460): placeholder=<Datei>
+        if (!empty($files['placeholder']['tmp_name']) || (!empty($files['placeholder']['error']) && intval($files['placeholder']['error']) !== UPLOAD_ERR_NO_FILE)) {
+            $pa = self::store_placeholder($files['placeholder'], 'placeholder');
+            if (is_wp_error($pa)) return $pa;
+            $b['placeholder_id'] = intval($pa);
+        } elseif ($has('placeholder_id')) {
             $pid = intval($req->get_param('placeholder_id'));
             if ($pid === 0) unset($b['placeholder_id']);
             elseif (get_post_type($pid) !== 'attachment' || !wp_attachment_is_image($pid)) return new WP_Error('tix_invalid_field', 'Bild nicht gefunden.', ['status' => 400, 'field' => 'placeholder_id']);
             else $b['placeholder_id'] = $pid;
         }
-        $unknown = array_diff(array_keys((array) $p), ['accent', 'logo_id', 'logo', 'has_app', 'app_layout', 'placeholder_id']);
+        $unknown = array_diff(array_keys((array) $p), ['accent', 'logo_id', 'logo', 'has_app', 'app_layout', 'placeholder_id', 'placeholder']);
         if ($has('app_layout')) {
             $lv = $req->get_param('app_layout');
             if (!current_user_can('manage_options')) return new WP_Error('rest_forbidden', 'Nur ein Admin legt das Profil der App fest.', ['status' => 403]);
