@@ -286,9 +286,38 @@ class TIX_Studio {
                 'coupons'   => class_exists('TIX_Coupons'),
                 'tasks'     => $multi,
             ],
+            // Eigene App der Seite (1.38.454): KitchenKlub/Mallorca ja, evendis nein (die evendis-App ist die Plattform-App)
+            'app'        => self::app_info(),
             'site_url'   => (class_exists('TIX_Customer_URL') ? TIX_Customer_URL::base() : '') ?: untrailingslashit(home_url()),
             'expert_url' => admin_url('admin.php?page=tixomat'),
             'studio_url' => self::active() ? self::url('/') : '',
+        ];
+    }
+
+    const HAS_APP = 'tix_studio_has_app';
+
+    /**
+     * {has_app, name, ios_url, android_url, icon}. has_app: Admin-Schalter (Option tix_studio_has_app '1'|'0'), sonst automatisch:
+     * Einzel-Veranstalter-Seite mit App-IDs (Universal Links), Store-Link oder eingerichtetem Push.
+     */
+    public static function app_info() {
+        $o = (string) get_option(self::HAS_APP, '');
+        if ($o === '1' || $o === '0') {
+            $has = $o === '1';
+        } else {
+            $has = !self::multi() && (
+                (class_exists('TIX_App_Links') && TIX_App_Links::ids())
+                || (class_exists('TIX_App_Coupons') && (TIX_App_Coupons::store_url() || TIX_App_Coupons::play_url()))
+                || (class_exists('TIX_Notifications') && TIX_Notifications::apns_configured()));
+        }
+        $icon = (string) get_site_icon_url(512);
+        return [
+            'has_app'     => (bool) $has,
+            'override'    => $o === '' ? null : $o === '1',
+            'name'        => class_exists('TIX_App_Coupons') ? TIX_App_Coupons::app_name() : html_entity_decode(get_bloginfo('name'), ENT_QUOTES, 'UTF-8'),
+            'ios_url'     => class_exists('TIX_App_Coupons') ? TIX_App_Coupons::store_url() : null,
+            'android_url' => class_exists('TIX_App_Coupons') ? TIX_App_Coupons::play_url() : null,
+            'icon'        => $icon !== '' ? $icon : (self::logo() ?: null),
         ];
     }
 
@@ -344,8 +373,15 @@ class TIX_Studio {
                 $b['logo_id'] = $id;
             }
         }
-        $unknown = array_diff(array_keys((array) $p), ['accent', 'logo_id', 'logo']);
-        if ($unknown) return new WP_Error('tix_invalid_field', 'Nur Akzentfarbe und Logo lassen sich hier ändern.', ['status' => 400, 'field' => (string) reset($unknown)]);
+        $unknown = array_diff(array_keys((array) $p), ['accent', 'logo_id', 'logo', 'has_app']);
+        if ($unknown) return new WP_Error('tix_invalid_field', 'Nur Akzentfarbe, Logo und (Admin) has_app lassen sich hier ändern.', ['status' => 400, 'field' => (string) reset($unknown)]);
+        // Eigene App übersteuern (nur Admin): true | false | null (automatisch)
+        if ($has('has_app')) {
+            if (!current_user_can('manage_options')) return new WP_Error('rest_forbidden', 'Nur ein Admin legt fest, ob die Seite eine eigene App hat.', ['status' => 403]);
+            $v = $req->get_param('has_app');
+            if ($v === null || $v === '') delete_option(self::HAS_APP);
+            else update_option(self::HAS_APP, filter_var($v, FILTER_VALIDATE_BOOLEAN) ? '1' : '0', false);
+        }
         update_option(self::BRAND, $b, false);
         return rest_ensure_response(self::config_payload());
     }

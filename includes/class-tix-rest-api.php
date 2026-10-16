@@ -964,7 +964,8 @@ class TIX_REST_API {
                 'checkin_total'  => $checkin_total,
                 'checkin_done'   => $checkin_done,
                 'checkin_rate'   => $checkin_rate,
-            ],
+            // 1.38.454 (rein hinzufügend, nur Inhaber/Team-Admins): sales_by_day, by_channel, by_source, checkin_by_slot, views, conversion
+            ] + (class_exists('TIX_Studio_Stats') && TIX_Studio_Stats::is_manager() ? TIX_Studio_Stats::event_extra($id) : []),
         ]);
     }
 

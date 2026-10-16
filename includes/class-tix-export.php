@@ -25,7 +25,8 @@ class TIX_Export {
 
     public static function register_routes() {
         register_rest_route(self::NS, '/organizer/export', [
-            'methods' => 'GET', 'callback' => [__CLASS__, 'rest_export'], 'permission_callback' => ['TIX_REST_API', 'check_organizer'],
+            // Einlass (Eingang) darf seit 1.38.454 den Gästeliste-Export eines Events; alles andere nur Inhaber und Team-Admins
+            'methods' => 'GET', 'callback' => [__CLASS__, 'rest_export'], 'permission_callback' => ['TIX_REST_API', 'check_entrance'],
         ]);
     }
 
@@ -147,13 +148,26 @@ class TIX_Export {
         $from  = self::date_or_empty($req->get_param('from'));
         $to    = self::date_or_empty($req->get_param('to'));
         $status = (string) $req->get_param('status') === 'all' ? 'all' : 'paid';
-        $types = ['guests' => 'guestlist', 'tickets' => 'tickets', 'combined' => 'combined', 'orders' => null, 'customers' => null];
+        $types = ['guests' => 'guestlist', 'tickets' => 'tickets', 'combined' => 'combined', 'orders' => null, 'customers' => null, 'checkins' => null, 'coupons' => null];
         if (!array_key_exists($type, $types)) {
             return new WP_Error('tix_invalid_field', 'Bitte einen gültigen Export wählen.', ['status' => 400, 'field' => 'type']);
         }
+        $manager = !class_exists('TIX_Studio_Stats') || TIX_Studio_Stats::is_manager();
+        if (!$manager && $type !== 'guests') return new WP_Error('rest_forbidden', 'Dieser Export ist nur für Inhaber und Team-Admins. Der Einlass kann die Gästeliste eines Events exportieren.', ['status' => 403]);
         if ($event && !TIX_REST_API::can_access_event($event)) return new WP_Error('forbidden', 'Kein Zugriff auf dieses Event.', ['status' => 403]);
         $slug = $event ? sanitize_title(get_the_title($event)) : sanitize_title(get_bloginfo('name'));
-        if ($types[$type] !== null) {
+        if ($type === 'checkins') {
+            if (!$event) return new WP_Error('tix_invalid_field', 'Bitte ein Event wählen.', ['status' => 400, 'field' => 'event_id']);
+            $rows = TIX_Studio_Stats::checkin_rows($event);
+            $csv  = self::csv(TIX_Studio_Stats::CHECKIN_HEADER, $rows);
+            $name = 'einlass-' . $slug;
+        } elseif ($type === 'coupons') {
+            if (!self::team_can('view_orders')) return new WP_Error('forbidden', 'Keine Berechtigung für Bestellungen.', ['status' => 403]);
+            $ids = $event ? [$event] : self::accessible_event_ids();
+            $rows = TIX_Studio_Stats::coupon_rows($ids, $from, $to, $status);
+            $csv  = self::csv(TIX_Studio_Stats::COUPON_HEADER, $rows);
+            $name = 'gutscheine-' . $slug;
+        } elseif ($types[$type] !== null) {
             if (!$event) return new WP_Error('tix_invalid_field', 'Bitte ein Event wählen.', ['status' => 400, 'field' => 'event_id']);
             if (!self::team_can('view_guestlist')) return new WP_Error('forbidden', 'Keine Berechtigung für Gästelisten.', ['status' => 403]);
             $rows = TIX_Organizer_Admin::collect_export_rows($event, $types[$type]);

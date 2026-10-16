@@ -403,10 +403,17 @@ class TIX_Ticket_Transfer {
      * Tickets auf eine neue Person umschreiben (Web + App). Eigentum prüft der Aufrufer.
      * @return array|WP_Error {name, count}
      */
-    public static function transfer(array $ticket_ids, $first_name, $last_name, $new_email) {
+    /**
+     * $opts (1.38.454): create_account (Vorgabe true; Team-Route false → kein neues WordPress-Konto, keine Passwort-Mail),
+     * notify (Vorgabe true: Mail an den neuen Inhaber).
+     */
+    public static function transfer(array $ticket_ids, $first_name, $last_name, $new_email, $by_team = false, array $opts = []) {
+        $create_account = !array_key_exists('create_account', $opts) || !empty($opts['create_account']);
+        $notify = !array_key_exists('notify', $opts) || !empty($opts['notify']);
         $ticket_ids = array_values(array_filter(array_map('intval', $ticket_ids)));
+        // $by_team (Studio, POST /tickets/{id}/rename): Schalter „Umschreiben erlaubt“ gelten nicht, den Rest prüft der Aufrufer
         foreach ($ticket_ids as $tid) {
-            if (!self::can_transfer($tid)) return new WP_Error('tix_transfer', 'Dieses Ticket kann nicht umgeschrieben werden.', ['status' => 403]);
+            if (!$by_team && !self::can_transfer($tid)) return new WP_Error('tix_transfer', 'Dieses Ticket kann nicht umgeschrieben werden.', ['status' => 403]);
         }
         if (!$first_name || !$last_name) return new WP_Error('tix_transfer', 'Bitte Vor- und Nachname eingeben.', ['status' => 400]);
         if (!$new_email || !is_email($new_email)) return new WP_Error('tix_transfer', 'Bitte E-Mail-Adresse eingeben.', ['status' => 400]);
@@ -420,6 +427,8 @@ class TIX_Ticket_Transfer {
         $existing_user = get_user_by('email', $new_email);
         if ($existing_user) {
             $new_user_id = $existing_user->ID;
+        } elseif (!$create_account) {
+            $new_user_id = 0; // Ticket hängt nur an der E-Mail (Konto kann der neue Inhaber später selbst anlegen)
         } else {
             $username = self::generate_username($new_email, $first_name, $last_name);
             $new_user_id = wp_insert_user([
@@ -488,7 +497,7 @@ class TIX_Ticket_Transfer {
         }
 
         // ── Transfer-Benachrichtigung senden ──
-        self::send_transfer_notification($new_user_id, $new_email, $first_name, $full_name, $processed, $user_created);
+        if ($notify) self::send_transfer_notification($new_user_id, $new_email, $first_name, $full_name, $processed, $user_created);
 
         return ['name' => $full_name, 'count' => count($processed)];
     }

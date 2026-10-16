@@ -28,8 +28,9 @@ class TIX_Organizer_Link {
     }
 
     public static function init() {
-        if (!self::multi()) return;
+        // /organizer/link-stats gibt es seit 1.38.454 auch auf Einzel-Veranstalter-Seiten
         add_action('rest_api_init', [__CLASS__, 'register_routes']);
+        if (!self::multi()) return;
         add_action('add_user_meta', function ($uid, $key, $value) {
             if ($key === '_tix_app_following') TIX_Organizer_Link::record_since($uid, [], $value);
         }, 10, 3);
@@ -63,7 +64,8 @@ class TIX_Organizer_Link {
 
     public static function register_routes() {
         register_rest_route('tixomat/v1', '/organizer/link-stats', [
-            'methods' => 'GET', 'callback' => [__CLASS__, 'rest_stats'], 'permission_callback' => ['TIX_App_Scope', 'check_manager'],
+            'methods' => 'GET', 'callback' => [__CLASS__, 'rest_stats'],
+            'permission_callback' => self::multi() ? ['TIX_App_Scope', 'check_manager'] : ['TIX_Studio_Stats', 'perm_manager'],
         ]);
     }
 
@@ -133,37 +135,54 @@ class TIX_Organizer_Link {
         ];
     }
 
-    public static function stats($oid, $days = 30) {
+    /**
+     * $oid = 0: Einzel-Veranstalter-Seite – alle Events, Herkunft nur über utm_source (ohne utm_medium).
+     * $event_id: nur dieses Event; Besuche = Aufrufe der Event-Seite über den Link (Kampagnen-Zähler).
+     */
+    public static function stats($oid, $days = 30, $event_id = 0) {
         global $wpdb;
         $days = max(1, min(365, intval($days)));
         $since = gmdate('Y-m-d', current_time('timestamp') - ($days - 1) * DAY_IN_SECONDS);
-        $slug = self::slug($oid);
+        $slug = $oid ? self::slug($oid) : '';
         // Besuche: Sitzungen mit Herkunft „veranstalter-link“ und Kampagne = Slug (eigene Statistik)
         $visits = 0;
-        if (class_exists('TIX_Site_Analytics')) {
+        $vt = $wpdb->prefix . 'tixomat_campaign_views';
+        if ($event_id) {
+            if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $vt)) === $vt) {
+                $visits = intval($wpdb->get_var($wpdb->prepare(
+                    "SELECT COALESCE(SUM(views),0) FROM $vt WHERE event_id = %d AND source = %s AND view_date >= %s" . ($slug !== '' ? ' AND campaign = %s' : ''),
+                    ...array_merge([intval($event_id), sanitize_key(self::SOURCE), $since], $slug !== '' ? [$slug] : [])
+                )));
+            }
+        } elseif (class_exists('TIX_Site_Analytics')) {
             $t = TIX_Site_Analytics::table_name();
             if ($wpdb->get_var("SHOW TABLES LIKE '$t'") === $t) {
-                $visits = intval($wpdb->get_var($wpdb->prepare(
+                $visits = intval($wpdb->get_var($slug !== '' ? $wpdb->prepare(
                     "SELECT COUNT(DISTINCT session_id) FROM $t WHERE source = %s AND campaign = %s AND view_date >= %s",
                     sanitize_key(self::SOURCE), $slug, $since
-                )));
+                ) : $wpdb->prepare("SELECT COUNT(DISTINCT session_id) FROM $t WHERE source = %s AND view_date >= %s", sanitize_key(self::SOURCE), $since)));
             }
         }
         // Käufe: bezahlte Bestellungen mit dieser Herkunft; Umsatz = eigene Positionen
         $orders = 0; $tickets = 0; $revenue = 0.0;
         if (class_exists('TIX_Order')) {
             $o = TIX_Order::table_name(); $i = TIX_Order::items_table_name(); $pm = $wpdb->postmeta;
-            $rows = $wpdb->get_results($wpdb->prepare(
+            $rows = $wpdb->get_results($slug !== '' ? $wpdb->prepare(
                 "SELECT o.id FROM $o o
                  JOIN $pm s ON s.post_id = o.id AND s.meta_key = '_tix_campaign_source' AND s.meta_value = %s
                  JOIN $pm m ON m.post_id = o.id AND m.meta_key = '_tix_campaign_medium' AND m.meta_value = %s
                  WHERE o.status IN ('completed','processing') AND o.date_created >= %s",
                 sanitize_key(self::SOURCE), $slug, $since . ' 00:00:00'
+            ) : $wpdb->prepare(
+                "SELECT o.id FROM $o o
+                 JOIN $pm s ON s.post_id = o.id AND s.meta_key = '_tix_campaign_source' AND s.meta_value = %s
+                 WHERE o.status IN ('completed','processing') AND o.date_created >= %s",
+                sanitize_key(self::SOURCE), $since . ' 00:00:00'
             ));
             $ids = array_map('intval', wp_list_pluck((array) $rows, 'id'));
             if ($ids) {
-                $events = array_map('intval', get_posts(['post_type' => 'event', 'post_status' => 'any', 'posts_per_page' => -1, 'fields' => 'ids',
-                    'meta_query' => [['key' => '_tix_organizer_id', 'value' => (string) intval($oid)]]]));
+                $events = $event_id ? [intval($event_id)] : ($oid ? array_map('intval', get_posts(['post_type' => 'event', 'post_status' => 'any', 'posts_per_page' => -1, 'fields' => 'ids',
+                    'meta_query' => [['key' => '_tix_organizer_id', 'value' => (string) intval($oid)]]])) : array_map('intval', get_posts(['post_type' => 'event', 'post_status' => 'any', 'posts_per_page' => -1, 'fields' => 'ids'])));
                 if ($events) {
                     $r = $wpdb->get_row($wpdb->prepare(
                         "SELECT COUNT(DISTINCT order_id) AS n, COALESCE(SUM(quantity),0) AS q, COALESCE(SUM(total),0) AS t FROM $i
@@ -174,14 +193,18 @@ class TIX_Organizer_Link {
                 }
             }
         }
-        $followers = self::followers($oid);
-        return ['link' => self::link($oid), 'days' => $days, 'visits' => $visits, 'orders' => $orders, 'tickets' => $tickets, 'revenue' => $revenue,
-            'followers' => $followers, 'followers_total' => $followers['total'], 'followers_new' => self::followers_new($oid, strtotime($since . ' 00:00:00 ' . wp_timezone_string()) ?: 0)];
+        $followers = $oid ? self::followers($oid) : ['total' => 0, 'account' => 0, 'mail' => 0];
+        $link = $oid ? self::link($oid) : add_query_arg(['utm_source' => self::SOURCE], self::base() . '/');
+        if ($event_id) $link = $oid ? self::share_url($event_id, $oid) : add_query_arg(['utm_source' => self::SOURCE], class_exists('TIX_Customer_URL') ? TIX_Customer_URL::to((string) get_permalink($event_id)) : (string) get_permalink($event_id));
+        return ['link' => $link, 'event_id' => $event_id ? intval($event_id) : null, 'days' => $days, 'visits' => $visits, 'orders' => $orders, 'tickets' => $tickets, 'revenue' => $revenue,
+            'followers' => $followers, 'followers_total' => $followers['total'], 'followers_new' => $oid ? self::followers_new($oid, strtotime($since . ' 00:00:00 ' . wp_timezone_string()) ?: 0) : 0];
     }
 
     public static function rest_stats(WP_REST_Request $req) {
-        $oid = TIX_App_Scope::organizer_id_for_user();
-        if (!$oid) return new WP_Error('tix_no_organizer', 'Kein Veranstalter-Profil gefunden.', ['status' => 404]);
-        return rest_ensure_response(['ok' => true] + self::stats($oid, $req->get_param('days') ?: 30));
+        $oid = self::multi() ? TIX_App_Scope::organizer_id_for_user() : 0;
+        if (self::multi() && !$oid) return new WP_Error('tix_no_organizer', 'Kein Veranstalter-Profil gefunden.', ['status' => 404]);
+        $eid = absint($req->get_param('event_id'));
+        if ($eid && (get_post_type($eid) !== 'event' || !TIX_REST_API::can_access_event($eid))) return new WP_Error('not_found', 'Event nicht gefunden.', ['status' => 404]);
+        return rest_ensure_response(['ok' => true] + self::stats($oid, $req->get_param('days') ?: 30, $eid));
     }
 }
