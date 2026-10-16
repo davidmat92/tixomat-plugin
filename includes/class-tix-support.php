@@ -2433,6 +2433,7 @@ class TIX_Support {
             ];
         }
         update_post_meta($ticket_id, '_tix_sp_messages', $messages);
+        do_action('tix_support_message_added', $ticket_id, $msg); // z. B. Partner-Brücke (Kunden-Antwort per Mail)
         if (function_exists('wp_schedule_single_event')) {
             wp_schedule_single_event(time() + 5, 'tix_sp_summary_async', [$ticket_id]);
         }

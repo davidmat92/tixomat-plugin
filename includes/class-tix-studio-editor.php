@@ -12,7 +12,7 @@ if (!defined('ABSPATH')) exit;
  *   (1.38.449)
  *   specials        {in_selector, in_checkout, items[{special_id, enabled, price_override, qty_override}]} + specials_catalog (nur lesend)
  *   combo_deals     [{id, label, price, self_cat_index, partners[{event_id, cat_index}]}] + combo_partner_options (nur lesend)
- *   syndication     {available, active, partner_sales, partner_sales_available, status, last, error}; POST `syndicate`, `partner_sales`
+ *   syndication     {available, active, decided, partner_sales, partner_sales_available, status, last, error}; POST `syndicate`, `partner_sales` (nur Änderungen werden geschrieben)
  *   table_reservation {enabled, payment_mode, deposit_type, deposit_value, info_text, show_in_checkout,
  *                      categories[{index, name, desc, min_spend, min_guests, max_guests, quantity}], has_floor_plan}
  *   GET/POST /specials – Extras-Katalog (Mehr-Veranstalter: eigene + vom Admin freigegebene `_tix_special_shared`)
@@ -132,6 +132,12 @@ class TIX_Studio_Editor {
         return array_map('intval', get_posts($args));
     }
 
+    /** Verteilung an? Wie die Metabox: noch nie entschieden = an, wenn die Seite zum Verteilen eingerichtet ist. */
+    private static function syndicate_effective($id) {
+        if ($id && metadata_exists('post', $id, '_tix_syndicate')) return get_post_meta($id, '_tix_syndicate', true) === '1';
+        return self::syndication_available();
+    }
+
     private static function syndication_available() {
         return !self::multi() && class_exists('TIX_Syndication_Push') && TIX_Syndication_Push::is_configured();
     }
@@ -176,7 +182,8 @@ class TIX_Studio_Editor {
             'combo_partner_options' => $partner_opts,
             'syndication'      => [
                 'available' => $syn_avail,
-                'active' => $m('_tix_syndicate') === '1',
+                'active' => self::syndicate_effective($id),
+                'decided' => $id && metadata_exists('post', $id, '_tix_syndicate'),
                 'partner_sales' => $id && class_exists('TIX_Syndication_Push') ? TIX_Syndication_Push::partner_sales_enabled($id) : false,
                 'partner_sales_available' => class_exists('TIX_Partners') && TIX_Partners::source_api_enabled(),
                 'status' => $m('_tix_syndicate_status') ?: null, 'last' => $m('_tix_syndicate_last') ?: null, 'error' => $m('_tix_syndicate_error') ?: null,
@@ -264,13 +271,20 @@ class TIX_Studio_Editor {
         $syn = $body['syndication'] ?? null;
         $has_syn = array_key_exists('syndicate', $body) || array_key_exists('partner_sales', $body) || is_array($syn);
         if ($has_syn) {
-            if (!self::syndication_available()) return new WP_Error('tix_syndication_unavailable', 'Die Verteilung auf die Plattform ist hier nicht eingerichtet.', ['status' => 409, 'field' => 'syndicate']);
             $c = [];
             $a = array_key_exists('syndicate', $body) ? $body['syndicate'] : (is_array($syn) && array_key_exists('active', $syn) ? $syn['active'] : null);
-            if ($a !== null) $c['syndicate'] = !empty($a);
+            // Nur Änderungen schreiben (bzw. die erste Entscheidung, wie beim Speichern der Metabox): unverändert mitgeschickt passiert nichts
+            $decided = $post_id && metadata_exists('post', $post_id, '_tix_syndicate');
+            if ($a !== null && (!$decided || !empty($a) !== self::syndicate_effective($post_id))) $c['syndicate'] = !empty($a);
             $ps = array_key_exists('partner_sales', $body) ? $body['partner_sales'] : (is_array($syn) && array_key_exists('partner_sales', $syn) ? $syn['partner_sales'] : null);
-            if ($ps !== null) $c['partner_sales'] = !empty($ps);
-            $out['syndication'] = $c;
+            $ps_now = $post_id && class_exists('TIX_Syndication_Push') ? TIX_Syndication_Push::partner_sales_enabled($post_id) : false;
+            if ($ps !== null && (!($post_id && metadata_exists('post', $post_id, '_tix_partner_sales')) || !empty($ps) !== $ps_now)) $c['partner_sales'] = !empty($ps);
+            if (!self::syndication_available()) {
+                // Hier nicht eingerichtet: „aus“ ist nichts zu tun, nur Einschalten ist ein Fehler
+                if (!empty($c['syndicate']) || !empty($c['partner_sales'])) return new WP_Error('tix_syndication_unavailable', 'Die Verteilung auf die Plattform ist hier nicht eingerichtet.', ['status' => 409, 'field' => 'syndicate']);
+                $c = [];
+            }
+            if ($c) $out['syndication'] = $c;
         }
         // ── Tische ──
         if (array_key_exists('table_reservation', $body)) {

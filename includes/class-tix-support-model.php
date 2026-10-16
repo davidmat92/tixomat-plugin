@@ -16,6 +16,7 @@ if (!defined('ABSPATH')) exit;
  *     Partner → evendis: POST {syndication_api_url}/syndicate/support/{id}/reply bzw. /status            (X-Tix-Syndication-Key)
  * REST (Studio-Postfach): /support/inbox[/{id}[/reply|/status|/assign|/note|/inquiry]], /support/templates[/{id}],
  *   /support/inquiries[/{ticket}/{inquiry}/answer], /support/mode (Admin).  /support/config → responsible.
+ *   1.38.452: /support/inbox/counts, /support/inbox/{id}/read, /support/notify; Zeile event/order/waiting/unread, Detail customer; nur Inhaber + Team-Admins.
  */
 class TIX_Support_Model {
 
@@ -41,6 +42,8 @@ class TIX_Support_Model {
         add_action(self::CRON_FORWARD, [__CLASS__, 'forward'], 10, 1);
         add_action(self::CRON_REMIND, [__CLASS__, 'remind']);
         add_action(self::CRON_FLUSH, [__CLASS__, 'flush'], 10, 1);
+        add_action('added_post_meta', [__CLASS__, 'on_meta'], 10, 3);
+        add_action('updated_post_meta', [__CLASS__, 'on_meta'], 10, 3);
         add_action('init', function () {
             if (!wp_next_scheduled(TIX_Support_Model::CRON_REMIND)) wp_schedule_event(time() + 600, 'hourly', TIX_Support_Model::CRON_REMIND);
         }, 29);
@@ -151,21 +154,41 @@ class TIX_Support_Model {
         }
     }
 
-    /** Team der zuständigen Stelle per App-Mitteilung informieren (Inhalt nur Betreff). */
+    /** Team der zuständigen Stelle informieren: App-Feed + Push, Mail an die Ausgewählten (Inhalt nur Betreff). */
     private static function notify_team_new($tid, array $r) {
-        if (!class_exists('TIX_Notifications')) return;
-        $users = [];
         if (!self::multi()) {
             if (self::site_mode() !== 'self' && !self::is_platform_copy($tid)) return;
-            $users = get_users(['role__in' => ['administrator', 'tix_organizer', 'tix_staff'], 'fields' => 'ID', 'number' => 50]);
-        } else {
-            if ($r['type'] !== 'evendis') return; // Partner-Anfragen benachrichtigt die Partner-Seite selbst
-            $users = get_users(['role' => 'administrator', 'fields' => 'ID', 'number' => 20]);
+        } elseif ($r['type'] !== 'evendis') {
+            return; // Partner-Anfragen benachrichtigt die Partner-Seite selbst
         }
         $subject = (string) get_the_title($tid);
-        foreach (array_unique(array_map('intval', $users)) as $uid) {
-            try { TIX_Notifications::add_user_item($uid, 'Neue Support-Anfrage', '#' . $tid . ' · ' . $subject, ['type' => 'support_team', 'action' => 'support:inbox:' . $tid, 'no_push' => false]); } catch (\Throwable $e) {}
+        $admin_mail = strtolower((string) get_option('admin_email'));
+        foreach (self::notify_ids(0) as $uid) {
+            if (class_exists('TIX_Notifications')) {
+                try { TIX_Notifications::add_user_item($uid, 'Neue Support-Anfrage', '#' . $tid . ' · ' . $subject, ['type' => 'support_team', 'action' => 'support:inbox:' . $tid]); } catch (\Throwable $e) {}
+            }
+            $u = get_userdata($uid);
+            // admin_email bekommt die Hinweis-Mail schon von TIX_Support
+            if ($u && is_email($u->user_email) && strtolower($u->user_email) !== $admin_mail) {
+                wp_mail($u->user_email, 'Neue Support-Anfrage #' . $tid . ': ' . $subject, "Hallo,\n\nes gibt eine neue Support-Anfrage (#{$tid}): {$subject}\n\nDu findest sie im Support-Postfach.\n");
+            }
         }
+    }
+
+    // ── Wer wird benachrichtigt (/support/notify) ──
+
+    /** Mögliche Empfänger: Seite = Team (Admins + Inhaber/Team-Admins), Plattform-Veranstalter = seine Manager. */
+    private static function notify_candidates($oid) {
+        if ($oid) return class_exists('TIX_Org_Approval') ? array_map('intval', TIX_Org_Approval::manager_ids($oid)) : [];
+        return array_column(self::team(), 'id');
+    }
+
+    /** Empfänger neuer Anfragen ($oid = 0: Seite bzw. evendis-Team) bzw. von Rückfragen ($oid = Veranstalter). Vorgabe: alle Kandidaten. */
+    public static function notify_ids($oid) {
+        $cand = self::notify_candidates($oid);
+        $set = $oid ? get_post_meta($oid, '_tix_support_notify', true) : get_option('tix_support_notify', null);
+        if (!is_array($set)) return $cand;
+        return array_values(array_intersect(array_map('intval', $set), $cand));
     }
 
     // ═══════════════ Partner-Brücke ═══════════════
@@ -308,6 +331,10 @@ class TIX_Support_Model {
         $staff = [__CLASS__, 'perm_staff'];
         $r = function ($path, $method, $cb, $perm) { register_rest_route(self::NS, $path, ['methods' => $method, 'callback' => [__CLASS__, $cb], 'permission_callback' => $perm]); };
         $r('/support/inbox', 'GET', 'rest_list', $staff);
+        $r('/support/inbox/counts', 'GET', 'rest_counts', $staff);
+        $r('/support/inbox/(?P<id>\d+)/read', 'POST', 'rest_read', $staff);
+        $r('/support/notify', 'GET', 'rest_notify', $staff);
+        $r('/support/notify', 'POST', 'rest_notify_save', $staff);
         $r('/support/inbox/(?P<id>\d+)', 'GET', 'rest_detail', $staff);
         $r('/support/inbox/(?P<id>\d+)/reply', 'POST', 'rest_reply', $staff);
         $r('/support/inbox/(?P<id>\d+)/status', 'POST', 'rest_status', $staff);
@@ -328,9 +355,20 @@ class TIX_Support_Model {
         $r('/syndicate/support/(?P<id>\d+)/status', 'POST', 'rest_bridge_status', [__CLASS__, 'perm_from_partner']);
     }
 
+    /** Postfach: Admins sowie Inhaber und Team-Admins (Rolle Veranstalter); Einlass, DJ, Awareness, Kasse und App-Mitarbeiter 403. */
     public static function perm_staff(WP_REST_Request $req) {
         if (!class_exists('TIX_REST_API')) return false;
-        return TIX_REST_API::check_organizer($req);
+        $c = TIX_REST_API::check_organizer($req);
+        if ($c !== true) return $c;
+        return self::support_user() ? true : new WP_Error('rest_forbidden', 'Den Support bearbeiten nur Inhaber und Team-Admins.', ['status' => 403]);
+    }
+
+    private static function support_user($uid = 0) {
+        $u = $uid ? get_userdata(intval($uid)) : wp_get_current_user();
+        if (!$u || !$u->ID) return false;
+        if (user_can($u, 'manage_options')) return true;
+        if (self::multi()) return TIX_App_Scope::is_org_manager($u->ID);
+        return in_array('tix_organizer', (array) $u->roles, true);
     }
 
     /** Darf das Konto Anfragen bearbeiten (antworten, Status, Zuweisung)? Plattform: nur Admins (Veranstalter lesen). */
@@ -362,7 +400,22 @@ class TIX_Support_Model {
         $as = intval(get_post_meta($tid, '_tix_sp_assignee', true));
         $msgs = (array) TIX_Support::get_messages_public($tid);
         $last = $msgs ? end($msgs) : [];
+        $flags = self::flags_from($msgs);
+        $evs = self::ticket_events($tid);
+        $event = $evs ? ['id' => $evs[0], 'title' => html_entity_decode(get_the_title($evs[0]), ENT_QUOTES, 'UTF-8'), 'date' => (string) get_post_meta($evs[0], '_tix_date_start', true) ?: null] : null;
+        $oid = intval(get_post_meta($tid, '_tix_sp_order_id', true));
+        $order = null;
+        if ($oid && class_exists('TIX_Order') && ($o = TIX_Order::get($oid))) {
+            $oe = 0;
+            foreach ($o->get_items() as $it) { if ($it->get_event_id()) { $oe = intval($it->get_event_id()); break; } }
+            $order = ['id' => $oid, 'number' => (string) $o->get_order_number(), 'event_id' => $oe ?: null];
+        }
+        $active = in_array($p->post_status, ['tix_open', 'tix_progress'], true);
+        $read = get_post_meta($tid, '_tix_sp_read', true);
+        $read_at = is_array($read) ? intval($read[get_current_user_id()] ?? 0) : 0;
         return [
+            'event' => $event, 'order' => $order, 'waiting' => $flags['waiting'],
+            'unread' => $active && $flags['waiting'] === 'team' && $flags['customers'] > $read_at,
             'id' => $tid, 'subject' => (string) $p->post_title, 'status' => self::status_key($p->post_status),
             'category' => (string) get_post_meta($tid, '_tix_sp_category', true), 'name' => (string) get_post_meta($tid, '_tix_sp_name', true),
             'email' => (string) get_post_meta($tid, '_tix_sp_email', true), 'order_id' => intval(get_post_meta($tid, '_tix_sp_order_id', true)) ?: null,
@@ -397,13 +450,15 @@ class TIX_Support_Model {
             }));
         }
         $ev = intval($req->get_param('event_id'));
-        $ids = array_values(array_filter($ids, function ($tid) use ($ev) {
+        $wt = sanitize_key((string) $req->get_param('waiting'));
+        $ids = array_values(array_filter($ids, function ($tid) use ($ev, $wt) {
             if (!self::visible($tid) || (string) get_post_meta($tid, '_tix_sp_category', true) === 'awareness') return false;
+            if (in_array($wt, ['team', 'customer'], true) && self::waiting_of($tid) !== $wt) return false;
             return !$ev || in_array($ev, self::ticket_events($tid), true);
         }));
         $total = count($ids);
         $rows = array_map(function ($tid) { return self::list_row(get_post($tid)); }, array_slice($ids, ($page - 1) * $per, $per));
-        return rest_ensure_response(['ok' => true, 'mode' => self::multi() ? 'platform' : self::site_mode(), 'can_reply' => self::can_write(), 'total' => $total, 'page' => $page, 'per_page' => $per, 'has_more' => $page * $per < $total, 'tickets' => $rows]);
+        return rest_ensure_response(['ok' => true, 'mode' => self::multi() ? 'platform' : self::site_mode(), 'can_reply' => self::can_write(), 'total' => $total, 'page' => $page, 'per_page' => $per, 'has_more' => $page * $per < $total, 'counts' => self::counts(), 'tickets' => $rows]);
     }
 
     private static function load($req) {
@@ -422,6 +477,9 @@ class TIX_Support_Model {
         $row['ticket_code'] = (string) get_post_meta($tid, '_tix_sp_ticket_code', true);
         $row['inquiries'] = self::inquiries_of($tid);
         $row['team'] = self::can_write($tid) ? self::team() : [];
+        $row['customer'] = self::customer_info($tid);
+        self::mark_read($tid, true);
+        $row['unread'] = false;
         return rest_ensure_response(['ok' => true, 'ticket' => $row]);
     }
 
@@ -437,8 +495,15 @@ class TIX_Support_Model {
         $content = sanitize_textarea_field((string) $req->get_param('content'));
         if ($content === '' && ($tpl = (string) $req->get_param('template_id')) !== '') $content = (string) (self::render_tpl($tpl, $tid) ?? '');
         if (trim($content) === '') return self::bad('content', 'Bitte eine Antwort eingeben.');
+        $st = $req->get_param('status');
+        $st = $st === null || $st === '' ? '' : sanitize_key((string) $st);
+        if ($st !== '' && !isset(self::STATUS_MAP[$st])) return self::bad('status', 'Status: open, progress, resolved oder closed.');
         $u = wp_get_current_user();
-        $res = TIX_Support::staff_reply($tid, $content, ['author' => $u->display_name ?: 'Support-Team', 'user_id' => $u->ID, 'deliver' => !self::is_platform_copy($tid)]);
+        $copy = self::is_platform_copy($tid);
+        $res = TIX_Support::staff_reply($tid, $content, ['author' => $u->display_name ?: 'Support-Team', 'user_id' => $u->ID, 'deliver' => !$copy]);
+        // Antwort + Status in einem: die Antwort-Mail genügt, keine zweite „gelöst“-Mail (Kopie: Status geht über die Brücke)
+        if ($st !== '') TIX_Support::set_status($tid, self::STATUS_MAP[$st], false);
+        self::mark_read($tid, true);
         return rest_ensure_response(['ok' => true] + $res + ['ticket' => self::list_row(get_post($tid))]);
     }
 
@@ -452,9 +517,9 @@ class TIX_Support_Model {
         return rest_ensure_response(['ok' => true, 'ticket' => self::list_row(get_post($tid))]);
     }
 
-    /** Team für die Zuweisung: Admins + Veranstalter/Mitarbeiter (Ein-Veranstalter) bzw. Admins (Plattform). */
+    /** Team für Zuweisung und Benachrichtigung: Admins + Inhaber/Team-Admins (Ein-Veranstalter) bzw. Admins (Plattform). */
     private static function team() {
-        $roles = self::multi() ? ['administrator'] : ['administrator', 'tix_organizer', 'tix_staff'];
+        $roles = self::multi() ? ['administrator'] : ['administrator', 'tix_organizer'];
         return array_map(function ($u) { return ['id' => intval($u->ID), 'name' => (string) ($u->display_name ?: $u->user_login)]; }, get_users(['role__in' => $roles, 'number' => 100]));
     }
 
@@ -484,6 +549,152 @@ class TIX_Support_Model {
         if (trim($c) === '') return self::bad('content', 'Bitte eine Notiz eingeben.');
         $u = wp_get_current_user();
         return rest_ensure_response(['ok' => true, 'message' => TIX_Support::staff_note($tid, $c, $u->display_name ?: 'Team', $u->ID)]);
+    }
+
+    // ── Zähler, wartet auf, gelesen ──
+
+    /** waiting (team = letzte Nachricht vom Kunden bzw. keine, customer = vom Team) + Anzahl der Kunden-Nachrichten (für „ungelesen“). Notizen zählen nicht. */
+    private static function flags_from(array $msgs) {
+        $w = 'team'; $n = 0;
+        foreach ($msgs as $m) {
+            $t = (string) ($m['type'] ?? '');
+            if ($t === 'customer') { $w = 'team'; $n++; }
+            elseif ($t === 'admin') $w = 'customer';
+        }
+        return ['waiting' => $w, 'customers' => $n];
+    }
+
+    /** Jede Änderung am Verlauf (alle Wege: App, Portal, Mail-Eingang, Brücke) hält die Merker aktuell. */
+    public static function on_meta($meta_id, $post_id, $key) {
+        if ($key !== '_tix_sp_messages' || get_post_type($post_id) !== self::CPT) return;
+        self::refresh_flags($post_id);
+    }
+
+    private static function refresh_flags($tid) {
+        $f = self::flags_from((array) TIX_Support::get_messages_public($tid));
+        if (get_post_meta($tid, '_tix_sp_waiting', true) !== $f['waiting']) update_post_meta($tid, '_tix_sp_waiting', $f['waiting']);
+        if (get_post_meta($tid, '_tix_sp_customer_n', true) === '' || intval(get_post_meta($tid, '_tix_sp_customer_n', true)) !== $f['customers']) update_post_meta($tid, '_tix_sp_customer_n', $f['customers']);
+        return $f;
+    }
+
+    private static function waiting_of($tid) {
+        $w = (string) get_post_meta($tid, '_tix_sp_waiting', true);
+        return $w !== '' ? $w : self::refresh_flags($tid)['waiting'];
+    }
+
+    /** Gelesen je Mitarbeiter = Anzahl der Kunden-Nachrichten beim Lesen. */
+    private static function mark_read($tid, $read) {
+        $l = get_post_meta($tid, '_tix_sp_read', true);
+        $l = is_array($l) ? $l : [];
+        if ($read) $l[get_current_user_id()] = self::flags_from((array) TIX_Support::get_messages_public($tid))['customers']; else unset($l[get_current_user_id()]);
+        update_post_meta($tid, '_tix_sp_read', $l);
+    }
+
+    /** POST /support/inbox/{id}/read {unread?: true} */
+    public static function rest_read(WP_REST_Request $req) {
+        $tid = self::load($req);
+        if (is_wp_error($tid)) return $tid;
+        self::mark_read($tid, !filter_var($req->get_param('unread'), FILTER_VALIDATE_BOOLEAN));
+        return rest_ensure_response(['ok' => true, 'ticket' => self::list_row(get_post($tid))]);
+    }
+
+    /**
+     * Zähler für Menüpunkt und Reiter (sichtbare Anfragen ohne Awareness). mine/unassigned/waiting/unread nur offene + in Arbeit.
+     * Eine SQL-Abfrage; fehlende Merker älterer Anfragen werden einmalig nachgetragen.
+     */
+    public static function counts() {
+        global $wpdb;
+        $statuses = array_values(self::STATUS_MAP);
+        $in = "'" . implode("','", $statuses) . "'";
+        $oid = self::multi() && !current_user_can('manage_options') ? intval(TIX_App_Scope::organizer_id_for_user()) : 0;
+        // Nachtragen: Merker bzw. Zuständigkeit (Plattform) fehlen
+        $need = $wpdb->get_col("SELECT p.ID FROM {$wpdb->posts} p LEFT JOIN {$wpdb->postmeta} w ON w.post_id = p.ID AND w.meta_key = '_tix_sp_waiting'
+            LEFT JOIN {$wpdb->postmeta} r ON r.post_id = p.ID AND r.meta_key = '_tix_sp_responsible'
+            WHERE p.post_type = '" . self::CPT . "' AND p.post_status IN ($in) AND (w.meta_id IS NULL OR r.meta_id IS NULL) LIMIT 500");
+        foreach ($need as $tid) { self::refresh_flags(intval($tid)); self::responsible(intval($tid)); }
+        $uid = get_current_user_id();
+        $sql = "SELECT p.post_status st, a.meta_value asg, w.meta_value wt, p.ID id, lc.meta_value lc
+            FROM {$wpdb->posts} p
+            LEFT JOIN {$wpdb->postmeta} c ON c.post_id = p.ID AND c.meta_key = '_tix_sp_category'
+            LEFT JOIN {$wpdb->postmeta} a ON a.post_id = p.ID AND a.meta_key = '_tix_sp_assignee'
+            LEFT JOIN {$wpdb->postmeta} w ON w.post_id = p.ID AND w.meta_key = '_tix_sp_waiting'
+            LEFT JOIN {$wpdb->postmeta} lc ON lc.post_id = p.ID AND lc.meta_key = '_tix_sp_customer_n'"
+            . ($oid ? " INNER JOIN {$wpdb->postmeta} o ON o.post_id = p.ID AND o.meta_key = '_tix_sp_resp_org' AND o.meta_value = '" . $oid . "'" : '')
+            . " WHERE p.post_type = '" . self::CPT . "' AND p.post_status IN ($in) AND (c.meta_value IS NULL OR c.meta_value <> 'awareness')";
+        if (self::multi() && !$oid && !current_user_can('manage_options')) return ['open' => 0, 'progress' => 0, 'resolved' => 0, 'closed' => 0, 'mine' => 0, 'unassigned' => 0, 'waiting' => 0, 'unread' => 0];
+        $out = ['open' => 0, 'progress' => 0, 'resolved' => 0, 'closed' => 0, 'mine' => 0, 'unassigned' => 0, 'waiting' => 0, 'unread' => 0];
+        $active_ids = [];
+        foreach ((array) $wpdb->get_results($sql) as $row) {
+            $out[self::status_key($row->st)]++;
+            if (!in_array($row->st, ['tix_open', 'tix_progress'], true)) continue;
+            if (intval($row->asg) === $uid && $uid) $out['mine']++;
+            if (!intval($row->asg)) $out['unassigned']++;
+            if ($row->wt !== 'customer') { $out['waiting']++; $active_ids[intval($row->id)] = intval($row->lc); }
+        }
+        if ($active_ids) {
+            $reads = $wpdb->get_results("SELECT post_id, meta_value FROM {$wpdb->postmeta} WHERE meta_key = '_tix_sp_read' AND post_id IN (" . implode(',', array_keys($active_ids)) . ")");
+            $ra = [];
+            foreach ((array) $reads as $rr) { $v = maybe_unserialize($rr->meta_value); $ra[intval($rr->post_id)] = is_array($v) ? intval($v[$uid] ?? 0) : 0; }
+            foreach ($active_ids as $id => $lc) if ($lc > ($ra[$id] ?? 0)) $out['unread']++;
+        }
+        return $out;
+    }
+
+    /** GET /support/inbox/counts – günstig für den Menüpunkt. */
+    public static function rest_counts(WP_REST_Request $req) {
+        return rest_ensure_response(['ok' => true, 'counts' => self::counts()]);
+    }
+
+    /** Kunde: Konto vorhanden? + letzte 5 Bestellungen zur E-Mail (Plattform-Veranstalter: nur eigene Events). */
+    private static function customer_info($tid) {
+        $email = (string) get_post_meta($tid, '_tix_sp_email', true);
+        $out = ['has_account' => is_email($email) && (bool) get_user_by('email', $email), 'orders' => []];
+        if (!is_email($email) || !class_exists('TIX_Order')) return $out;
+        $scoped = self::multi() && !current_user_can('manage_options');
+        foreach (TIX_Order::get_by_customer($email, ['limit' => $scoped ? 50 : 5]) as $o) {
+            if ($scoped && !TIX_App_Scope::order_allowed($o)) continue;
+            $eid = 0;
+            foreach ($o->get_items() as $it) { if ($it->get_event_id()) { $eid = intval($it->get_event_id()); break; } }
+            $d = $o->get_date_created();
+            $out['orders'][] = ['id' => intval($o->get_id()), 'number' => (string) $o->get_order_number(), 'event_id' => $eid ?: null,
+                'event_title' => $eid ? html_entity_decode(get_the_title($eid), ENT_QUOTES, 'UTF-8') : null,
+                'date' => $d ? (is_object($d) && method_exists($d, 'format') ? $d->format('c') : (string) $d) : null,
+                'total' => round($o->get_total(), 2), 'status' => (string) $o->get_status()];
+            if (count($out['orders']) >= 5) break;
+        }
+        return $out;
+    }
+
+    // ── Benachrichtigung ──
+
+    private static function notify_scope() {
+        return self::multi() && !current_user_can('manage_options') ? intval(TIX_App_Scope::organizer_id_for_user()) : 0;
+    }
+
+    /** GET /support/notify → wer bei neuen Anfragen (Plattform-Veranstalter: bei Rückfragen) Push + Mail bekommt. */
+    public static function rest_notify(WP_REST_Request $req) {
+        $oid = self::notify_scope();
+        $cand = self::notify_candidates($oid);
+        $set = $oid ? get_post_meta($oid, '_tix_support_notify', true) : get_option('tix_support_notify', null);
+        $sel = self::notify_ids($oid);
+        return rest_ensure_response(['ok' => true, 'scope' => $oid ? 'organizer' : 'site', 'event' => $oid ? 'inquiry' : 'new_ticket', 'default' => !is_array($set), 'user_ids' => $sel,
+            'candidates' => array_map(function ($id) use ($sel) { $u = get_userdata($id); return ['id' => $id, 'name' => $u ? (string) ($u->display_name ?: $u->user_login) : '', 'selected' => in_array($id, $sel, true)]; }, $cand)]);
+    }
+
+    /** POST /support/notify {user_ids: [..]} – [] = niemand, {reset: true} = Vorgabe (alle Inhaber und Team-Admins). */
+    public static function rest_notify_save(WP_REST_Request $req) {
+        $oid = self::notify_scope();
+        if (filter_var($req->get_param('reset'), FILTER_VALIDATE_BOOLEAN)) {
+            if ($oid) delete_post_meta($oid, '_tix_support_notify'); else delete_option('tix_support_notify');
+            return self::rest_notify($req);
+        }
+        $ids = $req->get_param('user_ids');
+        if (!is_array($ids)) return self::bad('user_ids', 'Bitte eine Liste von Team-Mitgliedern angeben.');
+        $cand = self::notify_candidates($oid);
+        $ids = array_values(array_unique(array_map('intval', $ids)));
+        foreach ($ids as $k => $id) if (!in_array($id, $cand, true)) return self::bad('user_ids[' . $k . ']', 'Diese Person gehört nicht zum Team.');
+        if ($oid) update_post_meta($oid, '_tix_support_notify', $ids); else update_option('tix_support_notify', $ids, false);
+        return self::rest_notify($req);
     }
 
     // ── Textbausteine ──
@@ -575,8 +786,7 @@ class TIX_Support_Model {
     }
 
     private static function notify_org($oid, $title, $body, $tid) {
-        $ids = class_exists('TIX_Org_Approval') ? TIX_Org_Approval::manager_ids($oid) : [];
-        foreach ((array) $ids as $uid) {
+        foreach (self::notify_ids(intval($oid)) as $uid) {
             if (class_exists('TIX_Notifications')) { try { TIX_Notifications::add_user_item(intval($uid), $title, $body, ['type' => 'support_inquiry', 'action' => 'support:inquiry:' . $tid]); } catch (\Throwable $e) {} }
         }
         $to = (string) get_post_meta($oid, '_tix_org_email', true);
