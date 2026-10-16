@@ -5,9 +5,17 @@ Plugin über den Postausgang (`TIX_Mirror`). Doku: `DOCUMENTATION.md` §56.
 
 ## Migrationen
 
-`migrations/*.sql` der Reihe nach einspielen, z. B. im SQL-Editor des Projekts oder per
-`supabase db push` (Supabase CLI, Projekt verlinkt). Alle Dateien sind wiederholbar
-(`if not exists`, `create or replace`).
+`migrations/*.sql` der Reihe nach einspielen. Alle Dateien sind wiederholbar
+(`if not exists`, `create or replace`). Am einfachsten mit dem Skript (psql aus Docker, Connection-String
+aus einer Datei, wird nie ausgegeben; zeigt Host und Region):
+
+```bash
+bash supabase/tools/migrate.sh ~/.private_keys/supabase_datenspiegel_db.txt --check
+bash supabase/tools/migrate.sh ~/.private_keys/supabase_datenspiegel_db.txt
+```
+
+Den Session-Pooler (`aws-…-eu-central-1.pooler.supabase.com:5432`) verwenden; der direkte Host ist
+nur per IPv6 erreichbar. Eingespieltes steht in `public.mirror_migrations`.
 
 - RLS ist auf allen Tabellen an, ohne Policies: `anon` und `authenticated` sehen nichts.
 - Geschrieben wird nur mit dem Service-Schlüssel (umgeht RLS) vom Server der jeweiligen Seite.
@@ -61,6 +69,10 @@ docker kill -s SIGUSR1 mirror-rest   # Schema neu laden
 docker exec mirror-cli wp eval-file wp-content/plugins/tixomat/tests/test-mirror-wp.php
 docker exec mirror-cli wp eval-file wp-content/plugins/tixomat/tests/test-mirror-paket2-wp.php
 ```
+
+Gegen das echte Projekt nur mit eigener Test-Kennung (Einstellung „Kennung der Seite“, z. B.
+`datenspiegel-test.local`) und `MIRROR_TEST_REMOTE=1`; danach `tests/mirror-test-site-cleanup.php`
+(entfernt alle Zeilen dieser Kennung, verweigert alles andere).
 
 Hinweis: WP-CLI setzt bei jedem Aufruf die WP-Cron-Sperre (Loopback auf `localhost:8097`
 geht im Container ins Leere). Wer WP-Cron per HTTP testen will, löscht `_transient_doing_cron`

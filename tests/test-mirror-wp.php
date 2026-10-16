@@ -10,7 +10,10 @@
  */
 if (!defined('ABSPATH') || !class_exists('TIX_Mirror')) { echo "WordPress mit Tixomat nötig\n"; return; }
 if (stripos(home_url(), 'localhost') === false && stripos(home_url(), '.test') === false) { echo "Nur auf lokalen Test-Seiten!\n"; return; }
-if (stripos(TIX_Mirror_Client::url(), 'supabase.co') !== false) { echo "Nur gegen einen lokalen Spiegel!\n"; return; }
+// Gegen das echte Projekt nur mit ausdrücklicher Freigabe und eigener Test-Kennung (nie eine Live-Seite).
+if (stripos(TIX_Mirror_Client::url(), 'supabase.co') !== false && !(getenv('MIRROR_TEST_REMOTE') === '1' && preg_match('/\.local$/', TIX_Mirror::site()))) {
+    echo "Gegen Supabase nur mit MIRROR_TEST_REMOTE=1 und Kennung *.local!\n"; return;
+}
 
 $GLOBALS['t_fails'] = 0; $GLOBALS['t_count'] = 0;
 function t_eq($label, $exp, $act) {
