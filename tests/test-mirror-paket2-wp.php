@@ -220,6 +220,52 @@ t2_eq('Prämien im Spiegel gelöscht', 0, count(m2_rows('loyalty', ['user_id' =>
 t2_eq('Verlauf der Prämien getilgt', 0, count(m2_rows('change_log', ['entity' => 'eq.loyalty', 'customer_id' => 'eq.' . $uid])));
 if (isset($wid)) t2_eq('Geldbörse anonymisiert (wie WordPress)', -$wid, (int) (m2_one('wallets', $wid)['user_id'] ?? 0));
 
+// ── 10. Kontolöschung über den Kern (TIX_Account_Delete, 1.38.460): anonymisiert, Verlauf getilgt ──
+if (class_exists('TIX_Account_Delete')) {
+    $mail = "kern$sfx@example.test";
+    $kuid = wp_create_user("kern$sfx", wp_generate_password(), $mail);
+    wp_update_user(['ID' => $kuid, 'first_name' => 'Klara', 'last_name' => 'Kern']);
+    if (class_exists('TIX_App_Account')) TIX_App_Account::mark_confirmed(get_userdata($kuid), 'test');
+    wp_set_current_user($kuid);
+    $koid = TIX_Native_Checkout::create_order(['total' => 10.0, 'payment_method' => 'bank', 'billing_first_name' => 'Klara', 'billing_last_name' => 'Kern',
+        'billing_email' => $mail, 'billing_city' => 'Bonn', 'items' => [['event_id' => $ev, 'cat_index' => 0, 'qty' => 1, 'price' => 10.0, 'name' => 'N', 'event_title' => 'x']]]);
+    wp_set_current_user(0);
+    TIX_Native_Checkout::update_order_status($koid, 'completed', 'admin');
+    $ktix = get_posts(['post_type' => 'tix_ticket', 'numberposts' => 1, 'meta_key' => '_tix_ticket_order_id', 'meta_value' => $koid, 'fields' => 'ids']);
+    update_post_meta($ktix[0], '_tix_ticket_owner_email', $mail);
+    update_post_meta($ktix[0], '_tix_ticket_owner_name', 'Klara Kern');
+    m2_run();
+    sleep(1);
+    $wpdb->update($wpdb->prefix . 'tix_orders', ['billing_phone' => '0228 1'], ['id' => $koid]); // zweiter Verlaufseintrag
+    m2_run();
+    t2_true('vorher: Verlauf der Bestellung mit Klarnamen', count(m2_rows('change_log', ['entity' => 'eq.orders', 'object_id' => 'eq.' . $koid])) >= 2);
+    $res = TIX_Account_Delete::delete($kuid, 'app');
+    t2_true('Kern hat gelöscht', is_array($res));
+    m2_run(2);
+    $ko = m2_one('orders', $koid);
+    t2_true('Bestellung im Spiegel anonymisiert', TIX_Mirror_Map::is_anonymized($ko['billing_email'] ?? ''));
+    t2_eq('Bestellung behält Betrag', 10.0, (float) ($ko['total'] ?? 0));
+    $hist = m2_rows('change_log', ['entity' => 'eq.orders', 'object_id' => 'eq.' . $koid]);
+    t2_eq('Verlauf der Bestellung: nur der anonyme Stand', 1, count($hist));
+    t2_eq('kein Klarname im Bestell-Verlauf', false, strpos(wp_json_encode($hist), 'Kern') !== false || strpos(wp_json_encode($hist), $mail) !== false);
+    t2_true('Ticket anonymisiert, Code bleibt', TIX_Mirror_Map::is_anonymized(m2_one('tickets', $ktix[0])['owner_email'] ?? '') && (m2_one('tickets', $ktix[0])['code'] ?? '') !== '');
+    t2_eq('kein Klarname im Ticket-Verlauf', false, strpos(wp_json_encode(m2_rows('change_log', ['entity' => 'eq.tickets', 'object_id' => 'eq.' . $ktix[0]])), 'Klara') !== false);
+    t2_eq('Konto im Spiegel gelöscht', null, m2_one('customers', $kuid));
+    t2_eq('kein Verlaufseintrag mit der E-Mail', 0, count(m2_rows('change_log', ['email' => 'eq.' . $mail])));
+    // Aufbewahrung (1.38.461): WordPress behält Rechnungsdaten → der Spiegel zeigt den Stand von WordPress
+    $wpdb->update($wpdb->prefix . 'tix_orders', ['billing_first_name' => 'Klara', 'billing_last_name' => 'Kern', 'billing_city' => 'Bonn'], ['id' => $koid]);
+    m2_run();
+    t2_eq('aufbewahrte Rechnungsdaten folgen WordPress', 'Bonn', m2_one('orders', $koid)['billing_city'] ?? null);
+    sleep(1);
+    $wpdb->update($wpdb->prefix . 'tix_orders', ['billing_first_name' => '[Gelöscht]', 'billing_last_name' => '', 'billing_city' => ''], ['id' => $koid]);
+    m2_run();
+    $hist = m2_rows('change_log', ['entity' => 'eq.orders', 'object_id' => 'eq.' . $koid]);
+    t2_eq('nach Ablauf: Verlauf wieder nur anonym', false, strpos(wp_json_encode($hist), 'Bonn') !== false);
+    foreach ($ktix as $tid) wp_delete_post($tid, true);
+    $wpdb->delete($wpdb->prefix . 'tix_order_items', ['order_id' => $koid]); $wpdb->delete($wpdb->prefix . 'tix_orders', ['id' => $koid]);
+    TIX_Mirror::touch('order', $koid);
+}
+
 // ── Aufräumen ──
 if (isset($sid)) { $wpdb->delete(TIX_Settlement::items_table(), ['settlement_id' => $sid]); $wpdb->delete(TIX_Settlement::table(), ['id' => $sid]); }
 if (isset($wid)) { $wpdb->delete($wpdb->prefix . 'tix_wallet_tx', ['wallet_id' => $wid]); $wpdb->delete($wpdb->prefix . 'tix_wallets', ['id' => $wid]); }

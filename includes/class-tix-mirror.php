@@ -424,6 +424,7 @@ class TIX_Mirror {
         $upserts = []; // table => [ [row_id, row, conflict], … ]
         $others  = []; // [row_id, op]
         $prunes  = []; // table => [ [row_id, parent, keep], … ]
+        $purges  = []; // [ [row_id, {entity, id}], … ]
         foreach ($plans as $rid => $plan) {
             if (is_wp_error($plan)) { $failed[$rid] = $plan->get_error_message(); continue; }
             foreach ($plan as $op) {
@@ -431,6 +432,8 @@ class TIX_Mirror {
                     foreach ($op[2] as $r) $upserts[$op[1]][] = [$rid, $r, $op[3] ?? 'site,id'];
                 } elseif ($op[0] === 'prune') {
                     $prunes[$op[1]][] = [$rid, (int) $op[2], array_values($op[3])];
+                } elseif ($op[0] === 'purge') {
+                    $purges[] = [$rid, ['entity' => $op[1], 'id' => (string) $op[2]]];
                 } elseif ($op[0] === 'remember') {
                     continue; // erst nach Erfolg, siehe process_batch()
                 } else {
@@ -482,6 +485,13 @@ class TIX_Mirror {
             $sets = array_map(function ($e) { return ['parent' => $e[1], 'keep' => $e[2]]; }, $list);
             $res = TIX_Mirror_Client::rpc('mirror_prune', ['p_site' => self::site(), 'p_table' => $table, 'p_sets' => $sets]);
             if (!$res['ok']) foreach ($list as $e) $failed[$e[0]] = $table . ' (aufräumen): ' . $res['error'];
+        }
+
+        // Verlauf anonymisierter Datensätze tilgen (nach den Upserts: der neueste Eintrag ist dann der anonyme).
+        $purges = array_values(array_filter($purges, function ($e) use ($failed) { return !isset($failed[$e[0]]); }));
+        if ($purges) {
+            $res = TIX_Mirror_Client::rpc('mirror_purge_history', ['p_site' => self::site(), 'p_items' => array_column($purges, 1)]);
+            if (!$res['ok']) foreach ($purges as $e) $failed[$e[0]] = 'Verlauf tilgen: ' . $res['error'];
         }
 
         foreach ($others as [$rid, $op]) {

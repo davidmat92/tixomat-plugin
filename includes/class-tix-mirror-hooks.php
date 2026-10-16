@@ -44,6 +44,7 @@ class TIX_Mirror_Hooks {
         add_action('updated_user_meta', [__CLASS__, 'on_user_meta'], 99, 3);
         add_action('deleted_user_meta', [__CLASS__, 'on_user_meta'], 99, 3);
         add_action('delete_user', [__CLASS__, 'on_delete_user'], 1);
+        add_action('tix_account_deleted', [__CLASS__, 'on_account_deleted'], 10, 3); // Kern TIX_Account_Delete (1.38.460)
 
         // Optionen je Bestellung
         add_action('added_option', [__CLASS__, 'on_option'], 99, 1);
@@ -111,6 +112,20 @@ class TIX_Mirror_Hooks {
         if (!TIX_Mirror::capturing()) return;
         $u = get_userdata($user_id);
         TIX_Mirror::touch('customer', (int) $user_id, 'forget', ['email' => $u ? (string) $u->user_email : '']);
+    }
+
+    /**
+     * Kontolöschung über den gemeinsamen Kern (Web und App): Löschweg im Spiegel sicherstellen.
+     * delete_user hat den Eintrag meist schon angelegt; der Puffer behält „forget“. Bestellungen und
+     * Tickets kommen danach anonymisiert an (Nachlauf bzw. Meta-Hooks) und tilgen ihren älteren Verlauf.
+     * Rechnungsdaten, die WordPress aufbewahrt (ab 1.38.461), bleiben in der aktuellen Zeile, bis
+     * WordPress sie nach Ablauf anonymisiert.
+     */
+    public static function on_account_deleted($user_id, $email = '', $info = []) {
+        TIX_Mirror::touch('customer', (int) $user_id, 'forget', [
+            'email'  => (string) $email,
+            'source' => is_array($info) ? (string) ($info['source'] ?? '') : '',
+        ]);
     }
 
     // ── Optionen ──

@@ -5,6 +5,7 @@
  * plan() liefert für einen Postausgang-Eintrag die Operationen mit dem AKTUELLEN Stand:
  *   ['upsert', tabelle, [zeilen], on_conflict?] | ['delete', tabelle, filter] | ['rpc', funktion, args]
  *   | ['prune', tabelle, eltern_id, [behalten]] (Kinder, die es in WP nicht mehr gibt; je Runde gebündelt)
+ *   | ['purge', tabelle, id] (älteren Verlauf eines anonymisierten Datensatzes tilgen; je Runde gebündelt)
  * Gibt es das Objekt nicht mehr, wird gelöscht. Jede Tabelle bekommt immer dieselben
  * Spalten (PostgREST verlangt bei Bündeln gleiche Schlüssel).
  *
@@ -42,6 +43,13 @@ class TIX_Mirror_Map {
         }
         $plan = class_exists('TIX_Mirror_Extra') ? TIX_Mirror_Extra::plan($entity, $id, $op, $payload) : null;
         return $plan !== null ? $plan : new WP_Error('entity', 'Unbekannter Typ ' . $entity);
+    }
+
+    /** Markierung anonymisierter Datensätze (TIX_Account_Delete, 1.38.460). */
+    const ANON_MARK = '@removed.invalid';
+
+    public static function is_anonymized($email) {
+        return substr(strtolower((string) $email), -strlen(self::ANON_MARK)) === self::ANON_MARK;
     }
 
     private static function del($table, $site, $id) {
@@ -421,6 +429,8 @@ class TIX_Mirror_Map {
         if ($item_rows) $ops[] = ['upsert', 'order_items', $item_rows];
         $ops[] = ['prune', 'order_items', $id, array_column($item_rows, 'id')];
         $ops[] = ['upsert', 'payments', [self::json_safe($pay)]];
+        // Anonymisiert (Konto gelöscht bzw. Aufbewahrungsfrist vorbei): älteren Verlauf mit Personenbezug tilgen.
+        if (self::is_anonymized($o['billing_email'])) $ops[] = ['purge', 'orders', $id];
         return $ops;
     }
 
@@ -460,7 +470,9 @@ class TIX_Mirror_Map {
             'modified_at'      => self::local_to_iso($p->post_modified),
             'data'             => (object) self::post_meta($id),
         ];
-        return [['upsert', 'tickets', [self::json_safe($row)]]];
+        $ops = [['upsert', 'tickets', [self::json_safe($row)]]];
+        if (self::is_anonymized($row['owner_email'])) $ops[] = ['purge', 'tickets', $id];
+        return $ops;
     }
 
     // ── Ereignisse ohne eigene WP-Zeile (Check-in-Verlauf, Stornos/Erstattungen) ──
