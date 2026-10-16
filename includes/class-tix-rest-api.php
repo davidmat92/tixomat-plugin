@@ -476,8 +476,15 @@ class TIX_REST_API {
         register_rest_route($ns, '/pos/transactions', [
             'methods'             => 'GET',
             'callback'            => [__CLASS__, 'pos_transactions'],
-            // Tagesbericht/Buchungen nur Veranstalter, Team-Admin, Mitarbeiter, Admin – nicht „Kasse & Bar“ (User-Entscheid 1.38.442)
-            'permission_callback' => [__CLASS__, 'check_organizer'],
+            // „Kasse & Bar“ sieht nur eigene Verkäufe von heute (User-Entscheid 1.38.484); Tagesbericht bleibt Inhaber/Team
+            'permission_callback' => [__CLASS__, 'check_pos'],
+        ]);
+
+        // Vorschau mit Gutschein-Code (Betrag, Abzug, Restwert) vor dem Kassieren (1.38.484)
+        register_rest_route($ns, '/pos/quote', [
+            'methods'             => 'POST',
+            'callback'            => [__CLASS__, 'pos_quote'],
+            'permission_callback' => [__CLASS__, 'check_pos'],
         ]);
 
         // ── Guest / Customer Auth (unauthenticated) ──
@@ -1485,6 +1492,7 @@ class TIX_REST_API {
                     'ticket_status'   => $status,
                     // Studio verlinkt zur Bestellung (1.38.465; Einlass sieht es nicht)
                     'order_id'        => intval(get_post_meta($t->ID, '_tix_ticket_order_id', true)) ?: null,
+                    'order_number'    => class_exists('TIX_Order') ? TIX_Order::number_for(get_post_meta($t->ID, '_tix_ticket_order_id', true)) : null,
                 ];
 
                 $stats['total']++;
@@ -1912,6 +1920,7 @@ class TIX_REST_API {
                 'checked_in'    => (bool) get_post_meta($t->ID, '_tix_ticket_checked_in', true),
                 'checkin_time'  => get_post_meta($t->ID, '_tix_ticket_checkin_time', true),
                 'order_id'      => intval(get_post_meta($t->ID, '_tix_ticket_order_id', true) ?: get_post_meta($t->ID, '_tix_order_id', true)),
+                'order_number'  => class_exists('TIX_Order') ? TIX_Order::number_for(get_post_meta($t->ID, '_tix_ticket_order_id', true) ?: get_post_meta($t->ID, '_tix_order_id', true)) : null,
                 'seat'          => get_post_meta($t->ID, '_tix_ticket_seat_id', true),
                 'price'         => floatval(get_post_meta($t->ID, '_tix_ticket_price', true)),
             ];
@@ -2106,12 +2115,16 @@ class TIX_REST_API {
             ];
             $subtotal += $price * $qty;
         }
-        // Gutschein-Code (Rabatt/Guthaben) wie in der App-Kasse
+        // Gutschein-Code (Rabatt/Geschenkgutschein) wie in der App-Kasse; ungültig → 409 statt still ignorieren (1.38.484)
         if ($coupon_code !== '' && method_exists('TIX_Native_Checkout', 'app_prepare_cart')) {
             $cart = TIX_Native_Checkout::app_prepare_cart($cart, $coupon_code);
+            if (empty($cart['coupon']['code'])) {
+                return new WP_Error('tix_coupon', (string) (($cart['coupon_error'] ?? '') ?: 'Gutscheincode ungültig.'), ['status' => 409, 'field' => 'coupon_code']);
+            }
         }
         $discount = round(floatval($cart['coupon']['discount'] ?? 0), 2);
         $total    = max(0, round($subtotal - $discount, 2));
+        $coupon_info = self::pos_coupon_info($cart, $discount);
         if ($total <= 0) $payment = 'free';
 
         $name_parts = preg_split('/\s+/', trim($customer_name !== '' ? $customer_name : 'Kasse'), 2);
@@ -2140,13 +2153,14 @@ class TIX_REST_API {
             return new WP_Error('order_failed', 'Bestellung konnte nicht angelegt werden.', ['status' => 500]);
         }
         update_option('_tix_order_source_' . $order_id, 'pos', false);
-        self::pos_meta($order_id, [
+        self::pos_meta($order_id, array_filter([
             'payment'    => $payment,
             'staff_id'   => intval($staff->ID),
             'staff_name' => (string) $staff->display_name,
             'event_id'   => $event_id,
             'created'    => current_time('mysql'),
-        ]);
+            'coupon'     => $coupon_info ? ['code' => $coupon_info['code'], 'type' => $coupon_info['type'], 'amount' => $coupon_info['amount']] : null,
+        ], function ($v) { return $v !== null; }));
         if (class_exists('TIX_Order_Admin') && method_exists('TIX_Order_Admin', 'add_note')) {
             TIX_Order_Admin::add_note($order_id, '🧾 Kassenverkauf (App) – ' . self::pos_payment_label($payment) . ' durch ' . $staff->display_name, 'pos');
         }
@@ -2171,11 +2185,18 @@ class TIX_REST_API {
             }
         }
         $order = class_exists('TIX_Order') ? TIX_Order::get($order_id) : null;
+        if ($coupon_info && $coupon_info['type'] === 'giftcard' && class_exists('TIX_Giftcards')) {
+            $card = TIX_Giftcards::get_card($coupon_info['code']);
+            $coupon_info['remaining'] = $card ? round(floatval($card['balance'] ?? 0), 2) : null;
+        }
         return rest_ensure_response([
             'ok'           => true,
             'order_id'     => intval($order_id),
             'order_number' => $order ? $order->get_order_number() : (string) $order_id,
             'total'        => $order ? floatval($order->get_total()) : $total,
+            'subtotal'     => round($subtotal, 2),
+            'discount'     => $discount,
+            'coupon'       => $coupon_info,
             'payment'      => $payment,
             'checked_in'   => (bool) $checkin,
             'tickets'      => $tickets,
@@ -2254,12 +2275,18 @@ class TIX_REST_API {
         if (strpos((string) $order->get_payment_method(), 'pos_') !== 0) {
             return new WP_Error('not_pos', 'Keine Kassen-Bestellung.', ['status' => 400]);
         }
+        // „Kasse & Bar“: nur eigene Verkäufe von heute (1.38.484)
+        if (self::is_cashier_only(wp_get_current_user()) && !self::pos_own_today($order)) {
+            return new WP_Error('tix_cashier_scope', 'Du kannst nur deine eigenen Verkäufe von heute stornieren.', ['status' => 403]);
+        }
         if ($order->get_status() === 'cancelled') {
             return rest_ensure_response(['ok' => true, 'message' => 'Bestellung war bereits storniert.']);
         }
         if (class_exists('TIX_Native_Checkout')) {
             TIX_Native_Checkout::update_order_status($order_id, 'cancelled', 'admin');
         }
+        // Gutschein zurück: Geschenkgutschein bekommt den Betrag wieder gutgeschrieben, Rabatt-Code eine Nutzung (1.38.484)
+        $restored = class_exists('TIX_Giftcards') && method_exists('TIX_Giftcards', 'restore_for_order') ? TIX_Giftcards::restore_for_order($order_id, 'pos') : null;
         // Tickets stornieren + Bestand zurückgeben
         $restock = [];
         foreach (self::get_order_tickets($order_id) as $t) {
@@ -2285,7 +2312,67 @@ class TIX_REST_API {
         if (class_exists('TIX_Order_Admin') && method_exists('TIX_Order_Admin', 'add_note')) {
             TIX_Order_Admin::add_note($order_id, '↩️ Kassen-Storno (App) durch ' . wp_get_current_user()->display_name, 'pos');
         }
-        return rest_ensure_response(['ok' => true, 'message' => 'Bestellung storniert.']);
+        return rest_ensure_response(['ok' => true, 'message' => 'Bestellung storniert.', 'coupon_restored' => $restored]);
+    }
+
+    /** Kassen-Bestellung des aktuellen Nutzers von heute? */
+    private static function pos_own_today($order) {
+        $meta = self::pos_meta($order->get_id());
+        $created = $order->get_date_created();
+        return intval($meta['staff_id'] ?? 0) === get_current_user_id() && $created && $created->format('Y-m-d') === current_time('Y-m-d');
+    }
+
+    /** Gutschein im Kassen-Warenkorb → {code, type, amount} oder null. */
+    private static function pos_coupon_info(array $cart, $discount) {
+        if (empty($cart['coupon']['code']) || $discount <= 0) return null;
+        return ['code' => (string) $cart['coupon']['code'], 'type' => !empty($cart['coupon']['giftcard']) ? 'giftcard' : 'discount', 'amount' => round(floatval($discount), 2)];
+    }
+
+    /**
+     * POST /pos/quote {event_id, items[{index, qty}], coupon_code?} → {ok, subtotal, discount, total, coupon {code, type, amount, balance, remaining}|null}
+     * Vorschau vor dem Kassieren; Gutschein ungültig → 409 tix_coupon. Bucht nichts.
+     */
+    public static function pos_quote(WP_REST_Request $req) {
+        $body = $req->get_json_params();
+        if (!is_array($body)) $body = [];
+        $event_id = absint($body['event_id'] ?? 0);
+        $items    = is_array($body['items'] ?? null) ? $body['items'] : [];
+        $code     = sanitize_text_field((string) ($body['coupon_code'] ?? ''));
+        $free     = sanitize_key((string) ($body['payment'] ?? '')) === 'free';
+        if (!$event_id || !$items) return new WP_Error('missing_data', 'Event oder Artikel fehlen.', ['status' => 400]);
+        if (!self::can_access_event($event_id)) return new WP_Error('forbidden', 'Kein Zugriff.', ['status' => 403]);
+        $cats = get_post_meta($event_id, '_tix_ticket_categories', true);
+        if (!is_array($cats) || !$cats) return new WP_Error('no_categories', 'Keine Ticket-Kategorien.', ['status' => 404]);
+        $cart = ['items' => [], 'coupon' => null];
+        $subtotal = 0.0;
+        foreach ($items as $item) {
+            if (!is_array($item)) continue;
+            $idx = intval($item['index'] ?? $item['product_id'] ?? -1);
+            $qty = intval($item['qty'] ?? $item['quantity'] ?? 0);
+            if ($idx < 0 || $qty <= 0) continue;
+            if (!isset($cats[$idx]) || !is_array($cats[$idx]) || !empty($cats[$idx]['gift_card'])) {
+                return new WP_Error('category_not_found', 'Kategorie #' . $idx . ' nicht gefunden.', ['status' => 400]);
+            }
+            $price = $free ? 0.0 : floatval(self::current_price($cats[$idx]));
+            $cart['items'][] = ['event_id' => $event_id, 'cat_index' => $idx, 'name' => (string) ($cats[$idx]['name'] ?? 'Ticket'), 'price' => $price, 'qty' => $qty, 'meta' => ['pos' => 1]];
+            $subtotal += $price * $qty;
+        }
+        if (!$cart['items']) return new WP_Error('missing_data', 'Keine gültigen Artikel.', ['status' => 400]);
+        $coupon = null;
+        $discount = 0.0;
+        if ($code !== '' && method_exists('TIX_Native_Checkout', 'app_prepare_cart')) {
+            $cart = TIX_Native_Checkout::app_prepare_cart($cart, $code);
+            if (empty($cart['coupon']['code'])) return new WP_Error('tix_coupon', (string) (($cart['coupon_error'] ?? '') ?: 'Gutscheincode ungültig.'), ['status' => 409, 'field' => 'coupon_code']);
+            $discount = round(floatval($cart['coupon']['discount'] ?? 0), 2);
+            $coupon = self::pos_coupon_info($cart, $discount);
+            if ($coupon && $coupon['type'] === 'giftcard' && class_exists('TIX_Giftcards')) {
+                $card = TIX_Giftcards::get_card($coupon['code']);
+                $bal = $card ? round(floatval($card['balance'] ?? 0), 2) : 0.0;
+                $coupon['balance'] = $bal;
+                $coupon['remaining'] = round(max(0, $bal - $discount), 2);
+            }
+        }
+        return rest_ensure_response(['ok' => true, 'subtotal' => round($subtotal, 2), 'discount' => $discount, 'total' => max(0, round($subtotal - $discount, 2)), 'coupon' => $coupon]);
     }
 
     /** Kassen-Bestellungen eines Tages (nativ, payment_method pos_*). */
@@ -2332,6 +2419,9 @@ class TIX_REST_API {
             'by_category'   => [],
             'by_hour'       => [],
             'cancelled'     => 0,
+            // Gutscheine (1.38.484): giftcard = mit Geschenkgutschein bezahlt (zusätzlich zum Umsatz), discount = Rabatt-Codes
+            'vouchers'      => ['giftcard' => 0.0, 'discount' => 0.0, 'orders' => 0],
+            'gross_revenue' => 0.0,
         ];
         if (!class_exists('TIX_Order')) {
             foreach (['by_payment', 'by_category', 'by_hour'] as $k) $report[$k] = (object) $report[$k];
@@ -2344,6 +2434,12 @@ class TIX_REST_API {
             $hour    = $created ? $created->format('H') : '00';
             $report['total_revenue'] += $total;
             $report['total_orders']++;
+            $pc = self::pos_meta($order->get_id())['coupon'] ?? null;
+            if (is_array($pc) && floatval($pc['amount'] ?? 0) > 0) {
+                $k = ($pc['type'] ?? '') === 'giftcard' ? 'giftcard' : 'discount';
+                $report['vouchers'][$k] = round($report['vouchers'][$k] + floatval($pc['amount']), 2);
+                $report['vouchers']['orders']++;
+            }
             $report['by_payment'][$payment] = round(($report['by_payment'][$payment] ?? 0) + $total, 2);
             if (!isset($report['by_hour'][$hour])) $report['by_hour'][$hour] = ['revenue' => 0.0, 'tickets' => 0];
             foreach ($order->get_items() as $item) {
@@ -2360,6 +2456,7 @@ class TIX_REST_API {
         }
         $report['cancelled']     = count(self::pos_orders_for_day($date, ['cancelled', 'refunded'], $event_id));
         $report['total_revenue'] = round($report['total_revenue'], 2);
+        $report['gross_revenue'] = round($report['total_revenue'] + $report['vouchers']['giftcard'], 2);
         ksort($report['by_hour']);
         // Maps immer als JSON-Objekt (leer → {} statt [])
         foreach (['by_payment', 'by_category', 'by_hour'] as $k) $report[$k] = (object) $report[$k];
@@ -2372,9 +2469,19 @@ class TIX_REST_API {
 
     public static function pos_transactions(WP_REST_Request $req) {
         $date = sanitize_text_field($req->get_param('date') ?: current_time('Y-m-d'));
+        $event_id = absint($req->get_param('event_id'));
+        if ($event_id && class_exists('TIX_App_Scope') && TIX_App_Scope::multi() && !TIX_App_Scope::event_allowed($event_id)) {
+            return new WP_Error('forbidden', 'Kein Zugriff auf dieses Event.', ['status' => 403]);
+        }
+        // „Kasse & Bar“: nur eigene Verkäufe von heute (1.38.484)
+        $cashier = self::is_cashier_only(wp_get_current_user());
+        if ($cashier && $date !== current_time('Y-m-d')) {
+            return new WP_Error('tix_cashier_scope', 'Du siehst nur deine Verkäufe von heute.', ['status' => 403, 'field' => 'date']);
+        }
         $transactions = [];
         if (class_exists('TIX_Order')) {
-            foreach (self::pos_orders_for_day($date, ['completed', 'processing', 'cancelled', 'refunded']) as $order) {
+            foreach (self::pos_orders_for_day($date, ['completed', 'processing', 'cancelled', 'refunded'], $event_id) as $order) {
+                if ($cashier && !self::pos_own_today($order)) continue;
                 $items_list   = [];
                 $ticket_count = 0;
                 foreach ($order->get_items() as $item) {
@@ -2398,10 +2505,15 @@ class TIX_REST_API {
                     'email'         => (string) $order->get_billing_email(),
                     'status'        => (string) $order->get_status(),
                     'staff'         => (string) ($meta['staff_name'] ?? ''),
+                    'staff_id'      => intval($meta['staff_id'] ?? 0) ?: null,
+                    'event_id'      => intval($meta['event_id'] ?? 0) ?: null,
+                    'coupon'        => is_array($meta['coupon'] ?? null) ? $meta['coupon'] : null,
+                    // Darf der Aufrufer stornieren? (Kasse & Bar: eigene von heute, sonst alle offenen)
+                    'can_void'      => in_array($order->get_status(), ['completed', 'processing'], true) && (!$cashier || self::pos_own_today($order)),
                 ];
             }
         }
-        return rest_ensure_response(['ok' => true, 'date' => $date, 'transactions' => $transactions]);
+        return rest_ensure_response(['ok' => true, 'date' => $date, 'event_id' => $event_id ?: null, 'scope' => $cashier ? 'own' : 'all', 'transactions' => $transactions]);
     }
 
     // ═══════════════════════════════════════════
@@ -3001,6 +3113,7 @@ class TIX_REST_API {
                         'checked_in'  => !empty($row['checked_in']),
                         'checkin_time' => $row['checkin_time'] ?? '',
                         'order_id'    => intval($row['order_id'] ?? 0),
+                        'order_number' => class_exists('TIX_Order') ? TIX_Order::number_for($row['order_id'] ?? 0) : null,
                         'price'       => floatval($row['ticket_price'] ?? 0),
                         'purchased'   => $row['created_at'] ?? '',
                     ] + (class_exists('TIX_App_Checkout') ? TIX_App_Checkout::gift_fields(intval($row['ticket_post_id'] ?? 0)) : []);

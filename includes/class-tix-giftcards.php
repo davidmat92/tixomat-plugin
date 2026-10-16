@@ -498,6 +498,36 @@ class TIX_Giftcards {
         return ['ok' => true, 'message' => 'Eingeloest.', 'balance' => $new_balance, 'value' => $value];
     }
 
+    /**
+     * Storno einer Bestellung (1.38.484): eingelösten Gutschein zurückgeben – Geschenkgutschein bekommt den Betrag wieder
+     * gutgeschrieben (Eintrag in redemptions mit negativem Betrag), Rabatt-Code eine Nutzung zurück. Idempotent je Bestellung.
+     * → {code, type giftcard|discount, amount, balance} oder null
+     */
+    public static function restore_for_order($order_id, string $channel = 'pos') {
+        $order_id = intval($order_id);
+        $data = get_option('_tix_order_coupon_' . $order_id);
+        if (!is_array($data) || empty($data['code']) || !get_option('_tix_coupon_incremented_' . $order_id)) return null;
+        if (get_option('_tix_coupon_restored_' . $order_id)) return null;
+        wp_cache_delete('tix_coupons', 'options');
+        $coupons = get_option('tix_coupons', []);
+        $key = null;
+        foreach ((array) $coupons as $k => $c) if (strcasecmp((string) $k, (string) $data['code']) === 0) { $key = $k; break; }
+        if ($key === null) return null;
+        $amount = round(floatval($data['discount'] ?? 0), 2);
+        if (($coupons[$key]['discount_type'] ?? '') === 'giftcard') {
+            $bal = round(floatval($coupons[$key]['balance'] ?? 0) + $amount, 2);
+            $coupons[$key]['balance'] = $bal;
+            $coupons[$key]['redemptions'][] = ['ts' => current_time('mysql'), 'amount' => -$amount, 'channel' => $channel, 'ref' => 'storno order#' . $order_id, 'rest' => $bal];
+            $out = ['code' => (string) $key, 'type' => 'giftcard', 'amount' => $amount, 'balance' => $bal];
+        } else {
+            $coupons[$key]['used'] = max(0, intval($coupons[$key]['used'] ?? 0) - 1);
+            $out = ['code' => (string) $key, 'type' => 'discount', 'amount' => $amount, 'balance' => null];
+        }
+        update_option('tix_coupons', $coupons);
+        update_option('_tix_coupon_restored_' . $order_id, 1, false);
+        return $out;
+    }
+
     /* ─────────── AJAX: Scan-Teileinloesung ─────────── */
 
     public static function ajax_redeem() {

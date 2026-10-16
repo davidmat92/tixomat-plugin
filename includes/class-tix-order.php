@@ -414,6 +414,22 @@ class TIX_Order {
     }
 
     /**
+     * Bestellnummer zur internen ID (1.38.484, für App-Ausgaben neben order_id): Nummer aus der Mail, ohne Nummer die ID,
+     * null ohne Bestellung (z. B. vermittelte Bestellungen). Je Aufruf gecacht.
+     */
+    public static function number_for($order_id) {
+        static $cache = [];
+        $id = intval($order_id);
+        if ($id <= 0) return null;
+        if (!array_key_exists($id, $cache)) {
+            global $wpdb;
+            $n = $wpdb->get_var($wpdb->prepare("SELECT order_number FROM " . self::table_name() . " WHERE id = %d", $id));
+            $cache[$id] = $n === null ? null : ((string) $n !== '' ? (string) $n : (string) $id);
+        }
+        return $cache[$id];
+    }
+
+    /**
      * Bestellung zu einer eingegebenen Nummer (1.38.481): neues Kurzformat (KK-7HQ4M2) und altes Format,
      * tolerant ohne Bindestrich/Leerzeichen und Groß-/Kleinschreibung; „#123“ bzw. reine Zahl = interne ID. 0 = keine.
      */

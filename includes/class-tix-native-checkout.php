@@ -137,7 +137,8 @@ class TIX_Native_Checkout {
         // Geschenkgutschein: Guthaben um den Rabatt dieser Order reduzieren (statt used++)
         if (($coupons[$stored_key]['discount_type'] ?? '') === 'giftcard') {
             if (class_exists('TIX_Giftcards')) {
-                TIX_Giftcards::redeem($stored_key, floatval($data['discount'] ?? 0), 'online', 'order#' . $order_id);
+                $channel = get_option('_tix_order_source_' . $order_id) === 'pos' ? 'pos' : 'online'; // Kasse (1.38.484)
+                TIX_Giftcards::redeem($stored_key, floatval($data['discount'] ?? 0), $channel, 'order#' . $order_id);
             }
             update_option($flag_key, 1, false);
             return;
