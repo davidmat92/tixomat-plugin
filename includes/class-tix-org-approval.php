@@ -432,6 +432,8 @@ class TIX_Org_Approval {
         }
         update_post_meta($oid, self::META_INFO, $info);
         update_post_meta($oid, self::META_STATUS, $new);
+        // Veranstalterseite folgt der Freigabe (1.38.472; früher eigenes Häkchen „Landingpage freischalten“)
+        update_post_meta($oid, '_tix_org_landing_approved', $new === 'approved' ? 1 : 0);
         self::$pending_count = null;
         $note = trim((string) ($args['note'] ?? '') . ' ' . (string) ($args['reason'] ?? ''));
         self::log($oid, $new, ['by' => $by, 'note' => $note, 'forced' => !empty($args['forced'])]);
@@ -583,7 +585,18 @@ class TIX_Org_Approval {
     //  Einführung: Bestand freigeben, Vertrags-Platzhalter
     // ──────────────────────────────────────────
 
+    /** Einmalig (1.38.472): freigegebene Veranstalter ohne Landing-Flag bekommen es (Seite war sonst je nach Häkchen unsichtbar). */
+    public static function heal_landing_flag() {
+        if (!self::multi() || get_option('tix_heal_org_landing_472') === '1') return;
+        $ids = get_posts(['post_type' => 'tix_organizer', 'post_status' => 'any', 'posts_per_page' => -1, 'fields' => 'ids', 'suppress_filters' => true]);
+        foreach ($ids as $oid) {
+            if (self::status($oid) === 'approved' && !get_post_meta($oid, '_tix_org_landing_approved', true)) update_post_meta($oid, '_tix_org_landing_approved', 1);
+        }
+        update_option('tix_heal_org_landing_472', '1', false);
+    }
+
     public static function maybe_migrate() {
+        self::heal_landing_flag();
         if (!self::multi() || get_option(self::DB_OPTION) === self::DB_VERSION) return;
         $ids = get_posts([
             'post_type' => 'tix_organizer', 'post_status' => 'any', 'posts_per_page' => -1, 'fields' => 'ids', 'suppress_filters' => true,
@@ -1146,9 +1159,7 @@ class TIX_Org_Approval {
                     <p style="color:#991b1b;margin-top:0;">Zur Prüfung fehlt: <?php echo esc_html(implode(', ', array_map(function ($r) { return $r['label']; }, array_filter(self::review_checks($oid), function ($r) { return !$r['done']; })))); ?>.</p>
                     <p><label><input type="checkbox" name="force" value="1"> Ich gebe trotzdem frei.</label></p>
                 <?php endif; ?>
-                <?php if (class_exists('TIX_Organizer_Landing') && TIX_Organizer_Landing::is_feature_enabled() && !get_post_meta($oid, '_tix_org_landing_approved', true)) : ?>
-                    <p><label><input type="checkbox" name="landing" value="1" checked> Landingpage ebenfalls freischalten</label></p>
-                <?php endif; ?>
+                <p style="color:#6b7280;margin-top:0;">Mit der Freigabe ist die Veranstalterseite automatisch öffentlich.</p>
                 <button class="button button-primary"><?php echo $st === 'blocked' ? 'Entsperren &amp; freigeben' : 'Freischalten'; ?></button></form>
             <?php endif; ?>
             <?php if ($st === 'pending') :
@@ -1181,7 +1192,6 @@ class TIX_Org_Approval {
             // Nur Angaben zur Prüfung (Konto, Name, Vertrag) halten auf; Auszahlung usw. ergänzt der Veranstalter danach
             $complete = !self::review_missing($oid);
             if (!$complete && empty($_POST['force'])) $back(['err' => 'Zur Prüfung fehlen Angaben (Konto, Name bzw. Vertrag). Zum Freigeben bitte „trotzdem freigeben“ bestätigen.']);
-            if (!empty($_POST['landing'])) update_post_meta($oid, '_tix_org_landing_approved', 1);
             self::set_status($oid, 'approved', ['forced' => !$complete]);
             $back(['msg' => 'Freigeschaltet – zurückgehaltene Events sind online, der Veranstalter wurde benachrichtigt.']);
         }

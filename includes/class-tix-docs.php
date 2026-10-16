@@ -1283,7 +1283,7 @@ class TIX_Docs {
                         <tbody>
                             <?php
                             $metas = [
-                                '_tix_org_landing_approved'       => ['bool',     'Admin-Freischaltung. Nur mit 1 wird Landing öffentlich rendert.'],
+                                '_tix_org_landing_approved'       => ['bool',     'Mehr-Veranstalter-Modus: folgt der Veranstalter-Freigabe (approved = 1, sonst 0; seit 1.38.472). Sonst Admin-Freischaltung.'],
                                 '_tix_org_landing_slug'           => ['string',   'URL-Slug (z.B. <code>kitchen-klub</code>). Unique pro Site. Reservierte Slugs (www, admin etc.) geblockt.'],
                                 '_tix_org_landing_sections'       => ['array',    'Section-Builder: Reihenfolge + Enabled. Struktur: <code>[{id, enabled}, …]</code>. IDs: <code>events, about, partners</code>.'],
                                 '_tix_org_landing_color_mode'     => ['string',   '<code>light</code> oder <code>dark</code>. Default: light.'],

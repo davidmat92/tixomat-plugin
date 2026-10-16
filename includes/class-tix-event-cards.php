@@ -193,11 +193,12 @@ class TIX_Event_Cards {
         }
         if ($name === '') return '';
 
-        // Ziel: Veranstalter-Seite (Mehr-Veranstalter-Modus), sonst freigegebene Landingpage /v/<slug>/
+        // Ziel: Veranstalter-Seite (Mehr-Veranstalter-Modus), sonst öffentliche Seite /v/<slug>/ auf der Kunden-Adresse
         $url  = class_exists('TIX_Organizer_Pages') ? TIX_Organizer_Pages::url($oid) : '';
         $slug = $oid ? (string) get_post_meta($oid, '_tix_org_landing_slug', true) : '';
         if ($url === '' && $slug !== '' && class_exists('TIX_Organizer_Landing') && TIX_Organizer_Landing::is_approved($oid)) {
-            $url = home_url('/v/' . $slug . '/');
+            $base = class_exists('TIX_Customer_URL') ? (string) TIX_Customer_URL::base() : '';
+            $url = ($base !== '' ? untrailingslashit($base) : untrailingslashit(home_url())) . '/v/' . rawurlencode($slug) . '/';
         }
 
         $initial = function_exists('mb_substr') ? mb_strtoupper(mb_substr($name, 0, 1)) : strtoupper(substr($name, 0, 1));

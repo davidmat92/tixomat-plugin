@@ -303,7 +303,12 @@ class TIX_Organizer_Landing {
         return $org;
     }
 
+    /**
+     * Seite öffentlich? Mehr-Veranstalter-Modus: allein die Veranstalter-Freigabe zählt (seit 1.38.472, kein eigenes
+     * Häkchen mehr; abgelehnt/gesperrt = nicht öffentlich). Sonst die frühere Admin-Freischaltung (Meta).
+     */
     public static function is_approved($org_id) {
+        if (class_exists('TIX_Org_Approval') && TIX_Org_Approval::multi()) return TIX_Org_Approval::is_public(intval($org_id));
         return (bool) get_post_meta($org_id, '_tix_org_landing_approved', true);
     }
 
@@ -517,9 +522,10 @@ class TIX_Organizer_Landing {
         $rendered = true;
 
         wp_nonce_field('tix_org_landing_save', 'tix_org_landing_nonce');
-        $approved = (bool) get_post_meta($post->ID, '_tix_org_landing_approved', true);
+        $approved = self::is_approved($post->ID);
         $slug     = get_post_meta($post->ID, '_tix_org_landing_slug', true);
-        $is_admin = current_user_can('manage_options');
+        $by_approval = class_exists('TIX_Org_Approval') && TIX_Org_Approval::multi();
+        $is_admin = current_user_can('manage_options') && !$by_approval;
         $enabled  = self::is_feature_enabled();
         ?>
         <style>
@@ -565,7 +571,9 @@ class TIX_Organizer_Landing {
             <?php else: ?>
                 <div class="row full">
                     <div class="status-box <?php echo $approved ? 'status-on' : 'status-off'; ?>">
-                        <?php echo $approved ? '✓ Landingpage ist freigeschaltet' : 'Landingpage ist noch nicht freigeschaltet. Wende dich an den Support.'; ?>
+                        <?php echo $by_approval
+                            ? ($approved ? '✓ Öffentlich – der Veranstalter ist freigegeben' : 'Nicht öffentlich – wird mit der Freigabe des Veranstalters sichtbar (Status: ' . esc_html(TIX_Org_Approval::label(TIX_Org_Approval::status($post->ID))) . ')')
+                            : ($approved ? '✓ Landingpage ist freigeschaltet' : 'Landingpage ist noch nicht freigeschaltet. Wende dich an den Support.'); ?>
                     </div>
                 </div>
             <?php endif; ?>
@@ -664,7 +672,10 @@ class TIX_Organizer_Landing {
 
         // Nur Admin darf Approval + Slug setzen
         if (current_user_can('manage_options')) {
-            update_post_meta($post_id, '_tix_org_landing_approved', !empty($_POST['tix_org_landing_approved']) ? 1 : 0);
+            // Mehr-Veranstalter-Modus: öffentlich über die Veranstalter-Freigabe, kein eigenes Häkchen (1.38.472)
+            if (!(class_exists('TIX_Org_Approval') && TIX_Org_Approval::multi())) {
+                update_post_meta($post_id, '_tix_org_landing_approved', !empty($_POST['tix_org_landing_approved']) ? 1 : 0);
+            }
 
             $new_slug = sanitize_title($_POST['tix_org_landing_slug'] ?? '');
             if ($new_slug && !in_array($new_slug, self::RESERVED_SLUGS, true)) {
@@ -773,7 +784,7 @@ class TIX_Organizer_Landing {
             return;
         }
 
-        $approved = (bool) get_post_meta($org_id, '_tix_org_landing_approved', true);
+        $approved = self::is_approved($org_id);
         $slug     = get_post_meta($org_id, '_tix_org_landing_slug', true);
         $d        = self::get_landing_data($org_id);
 
@@ -785,11 +796,11 @@ class TIX_Organizer_Landing {
 
             <?php if (!$approved): ?>
                 <div class="notice notice-warning">
-                    <p><strong>Deine Landingpage ist noch nicht freigeschaltet.</strong> Sobald das Tixomat-Team sie aktiviert, kannst du sie hier live schalten. Die Einstellungen kannst du aber jetzt schon vorbereiten.</p>
+                    <p><strong>Deine Seite ist noch nicht öffentlich.</strong> <?php echo (class_exists('TIX_Org_Approval') && TIX_Org_Approval::multi()) ? 'Sie wird mit der Freigabe deines Veranstalter-Kontos sichtbar.' : 'Sobald der Support sie freischaltet, ist sie sichtbar.'; ?> Die Einstellungen kannst du aber jetzt schon vorbereiten.</p>
                 </div>
             <?php elseif (!$slug): ?>
                 <div class="notice notice-warning">
-                    <p>Freigeschaltet, aber kein URL-Slug gesetzt. Das Tixomat-Team wird sich darum kümmern.</p>
+                    <p>Freigeschaltet, aber kein URL-Slug gesetzt. Der Support kümmert sich darum.</p>
                 </div>
             <?php else: ?>
                 <?php $url = self::canonical_url($slug); ?>
