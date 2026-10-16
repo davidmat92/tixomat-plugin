@@ -1261,9 +1261,14 @@ class TIX_Wallet_Balance {
                 'spent_pos' => self::euro($r['spent_pos']), 'spent_tickets' => self::euro($r['spent_tickets']), 'refunded' => self::euro($r['refunded']),
                 'balance' => array_key_exists($uid, $balances) ? self::euro($balances[$uid]) : null,
                 'last_activity' => $r['last_tx'] ? mysql2date('c', get_date_from_gmt($r['last_tx']), false) : null,
+                // App-Vertrag (1.38.478): wallet_id (Geldbörse für das Detail) und last_at
+                'wallet_id' => intval(explode(',', (string) $r['wids'])[0]),
+                'last_at' => $r['last_tx'] ? mysql2date('c', get_date_from_gmt($r['last_tx']), false) : null,
                 '_sort' => ['last' => (string) $r['last_tx'], 'balance' => $balances[$uid] ?? 0, 'topup' => intval($r['topped_up']), 'spent' => $spent, 'name' => mb_strtolower($u ? $u->display_name : '')]];
         }
-        $sort = in_array($req->get_param('sort'), ['last', 'balance', 'topup', 'spent', 'name'], true) ? $req->get_param('sort') : 'last';
+        $sort = (string) $req->get_param('sort');
+        if ($sort === 'topped_up') $sort = 'topup'; // App-Vertrag (1.38.478)
+        if (!in_array($sort, ['last', 'balance', 'topup', 'spent', 'name'], true)) $sort = 'last';
         usort($list, function ($a, $b) use ($sort) { return $sort === 'name' ? strcmp($a['_sort']['name'], $b['_sort']['name']) : ($b['_sort'][$sort] <=> $a['_sort'][$sort]); });
         foreach ($list as &$x) unset($x['_sort']);
         unset($x);
@@ -1272,7 +1277,7 @@ class TIX_Wallet_Balance {
         $open = intval($wpdb->get_var("SELECT SUM(balance_paid + balance_bonus) FROM $W WHERE $bal_sql AND status <> 'closed'"));
         $totals = ['topped_up' => self::euro($tot['topped_up'] ?? 0), 'topups' => intval($tot['topups'] ?? 0),
             'spent' => self::euro(intval($tot['spent_pos'] ?? 0) + intval($tot['spent_tickets'] ?? 0)), 'spent_pos' => self::euro($tot['spent_pos'] ?? 0),
-            'spent_tickets' => self::euro($tot['spent_tickets'] ?? 0), 'refunded' => self::euro($tot['refunded'] ?? 0), 'open_balance' => self::euro($open), 'customers' => count($list)];
+            'spent_tickets' => self::euro($tot['spent_tickets'] ?? 0), 'refunded' => self::euro($tot['refunded'] ?? 0), 'open_balance' => self::euro($open), 'open' => self::euro($open), 'customers' => count($list)];
         // Grafik: Aufladungen je Tag (bis 62 Tage) bzw. je Woche (Ortszeit)
         $offset = (int) round(wp_timezone()->getOffset(new DateTime('now', new DateTimeZone('UTC'))) / 60);
         $sign = $offset < 0 ? '-' : '+';
@@ -1302,13 +1307,15 @@ class TIX_Wallet_Balance {
     }
 
     /**
-     * GET /wallet/admin/customers/{user_id}?page=&from=&to=&organizer= – Verlauf eines Kunden im eigenen Bereich
-     * → {ok, customer {user_id, name, email, balance}, page, per_page, has_more, tx: [... wie /wallet/me/tx + staff_user_id, reason]}
+     * GET /wallet/admin/customers/{wallet_id}?page=&from=&to=&organizer= – Verlauf eines Kunden im eigenen Bereich
+     * → {ok, customer {wallet_id, user_id, name, email, balance}, page, per_page, has_more, tx, transactions (wie /wallet/me/tx + staff_user_id, reason)}
      */
     public static function rest_admin_customer(WP_REST_Request $req) {
         global $wpdb;
-        $uid = absint($req['id']);
-        $u = get_userdata($uid);
+        // {id} = wallet_id (App-Vertrag, 1.38.478); der Verlauf umfasst alle Geldbörsen dieses Kunden im eigenen Bereich
+        $wl = self::get_wallet(absint($req['id']));
+        $uid = $wl ? intval($wl['user_id']) : 0;
+        $u = $uid ? get_userdata($uid) : null;
         if (!$u) return new WP_Error('tix_not_found', 'Kunde nicht gefunden.', ['status' => 404]);
         $page = max(1, intval($req->get_param('page') ?: 1));
         $W = self::t('wallets'); $T = self::t('wallet_tx');
@@ -1321,7 +1328,7 @@ class TIX_Wallet_Balance {
         $bal = self::ready() ? $wpdb->get_var($wpdb->prepare("SELECT SUM(balance_paid + balance_bonus) FROM $W WHERE $bal_sql AND user_id = %d AND status <> 'closed'", $uid)) : null;
         $more = count($rows) > self::PER_PAGE;
         $tx = array_map(function ($r) { return self::tx_payload($r, true) + ['wallet_id' => intval($r['wallet_id'])]; }, array_slice($rows, 0, self::PER_PAGE));
-        return self::out(['ok' => true, 'customer' => ['user_id' => $uid, 'name' => (string) $u->display_name, 'email' => (string) $u->user_email, 'balance' => $bal === null ? null : self::euro($bal)],
+        return self::out(['ok' => true, 'customer' => ['wallet_id' => intval($wl['id']), 'user_id' => $uid, 'name' => (string) $u->display_name, 'email' => (string) $u->user_email, 'balance' => $bal === null ? null : self::euro($bal)],
             'page' => $page, 'per_page' => self::PER_PAGE, 'has_more' => $more, 'tx' => $tx, 'transactions' => $tx]);
     }
 
