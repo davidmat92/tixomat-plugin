@@ -411,7 +411,8 @@ class TIX_Admin_Only {
         return $ids ? (string) wp_get_attachment_url($ids[0]) : '';
     }
 
-    private static function login_logo() {
+    /** Logo der Seite (Mediathek-Markierung, sonst admin_logo_url) – auch für /studio/config. */
+    public static function login_logo() {
         $logo = self::media_url('logo');
         if ($logo === '') {
             $s = function_exists('tix_get_settings') ? tix_get_settings() : [];

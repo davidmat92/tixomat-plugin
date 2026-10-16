@@ -11,6 +11,8 @@ if (!defined('ABSPATH')) exit;
  * - POST /auth/handoff {code, device} → {success, token, user} wie /auth/login
  * - Experten-Modus (klassische Veranstalter-Seite in wp-admin): feste Rückweg-Leiste „← Zurück zur einfachen Ansicht“
  * - GET /organizer/tasks: offene Aufgaben des Veranstalters für die Studio-Startseite
+ * - GET/POST /studio/config (1.38.445): Name, Akzentfarbe, Logo, Profil und Funktionen je Seite (Studio auf allen Seiten);
+ *   ändern lassen sich nur `accent` und `logo` (Option `tix_studio_brand`)
  */
 class TIX_Studio {
 
@@ -18,6 +20,8 @@ class TIX_Studio {
     const OPTION      = 'tix_studio_url';
     const CODE_PREFIX = 'tix_sho_';
     const CODE_TTL    = 60;
+    const BRAND       = 'tix_studio_brand';
+    const LOGO_MAX    = 2097152;
 
     public static function init() {
         add_filter('login_redirect', [__CLASS__, 'login_redirect'], 99, 3);
@@ -185,6 +189,10 @@ class TIX_Studio {
             'callback'            => [__CLASS__, 'rest_handoff'],
             'permission_callback' => '__return_true',
         ]);
+        register_rest_route(self::NS, '/studio/config', [
+            ['methods' => 'GET',  'callback' => [__CLASS__, 'rest_config'],      'permission_callback' => '__return_true'],
+            ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_save_config'], 'permission_callback' => [__CLASS__, 'perm_brand']],
+        ]);
         register_rest_route(self::NS, '/organizer/tasks', [
             'methods'             => 'GET',
             'callback'            => [__CLASS__, 'rest_tasks'],
@@ -210,6 +218,162 @@ class TIX_Studio {
         ];
         if ($hit['next'] !== '') $out['next'] = $hit['next'];
         return rest_ensure_response($out);
+    }
+
+    // ── Studio auf allen Seiten: Marke und Funktionen (1.38.445) ──
+
+    private static function multi() {
+        return class_exists('TIX_App_Scope') && TIX_App_Scope::multi();
+    }
+
+    private static function hex($v) {
+        $v = trim((string) $v);
+        if (preg_match('/^#?([0-9a-f]{3})$/i', $v, $m)) $v = '#' . $m[1][0] . $m[1][0] . $m[1][1] . $m[1][1] . $m[1][2] . $m[1][2];
+        return preg_match('/^#?([0-9a-f]{6})$/i', $v, $m) ? '#' . strtoupper($m[1]) : '';
+    }
+
+    private static function brand() {
+        $b = get_option(self::BRAND, []);
+        return is_array($b) ? $b : [];
+    }
+
+    /** Akzent: gespeichert › Plattform evendis-Rot › Primärfarbe der Seite › #FC2F55. */
+    public static function accent() {
+        $b = self::brand();
+        if (($h = self::hex($b['accent'] ?? '')) !== '') return $h;
+        if (!self::multi() && function_exists('tix_get_settings') && ($h = self::hex(tix_get_settings('color_primary'))) !== '') return $h;
+        return '#FC2F55';
+    }
+
+    /** Logo: gespeichert › Custom Logo des Themes › Logo der Verwaltung/Anmeldung › Website-Icon. */
+    public static function logo() {
+        $id = intval(self::brand()['logo_id'] ?? 0);
+        if ($id && ($u = wp_get_attachment_image_url($id, 'medium') ?: wp_get_attachment_url($id))) return (string) $u;
+        $cl = intval(get_theme_mod('custom_logo'));
+        if ($cl && ($u = wp_get_attachment_image_url($cl, 'medium'))) return (string) $u;
+        if (class_exists('TIX_Admin_Only') && method_exists('TIX_Admin_Only', 'login_logo') && ($u = TIX_Admin_Only::login_logo()) !== '') return $u;
+        return (string) get_site_icon_url(256);
+    }
+
+    private static function config_payload() {
+        $multi = self::multi();
+        $wallet = class_exists('TIX_Wallet_Balance') && method_exists('TIX_Wallet_Balance', 'settings') ? !empty(TIX_Wallet_Balance::settings()['enabled']) : false;
+        return [
+            'ok'         => true,
+            'name'       => html_entity_decode(get_bloginfo('name'), ENT_QUOTES, 'UTF-8') . ' Studio',
+            'accent'     => self::accent(),
+            'logo'       => self::logo(),
+            'profile'    => $multi ? 'platform' : 'single',
+            'features'   => [
+                'register'  => $multi && class_exists('TIX_Register_API'),
+                'money'     => $multi && class_exists('TIX_Payout_Details'),
+                'approval'  => class_exists('TIX_Org_Approval') && TIX_Org_Approval::multi(),
+                'wallet'    => $multi ? class_exists('TIX_Wallet_Balance') : $wallet,
+                'awareness' => class_exists('TIX_Awareness'),
+                'team'      => class_exists('TIX_Team'),
+                'pos'       => true,
+                'coupons'   => class_exists('TIX_Coupons'),
+                'tasks'     => $multi,
+            ],
+            'site_url'   => (class_exists('TIX_Customer_URL') ? TIX_Customer_URL::base() : '') ?: untrailingslashit(home_url()),
+            'expert_url' => admin_url('admin.php?page=tixomat'),
+            'studio_url' => self::active() ? self::url('/') : '',
+        ];
+    }
+
+    /** GET /studio/config – öffentlich, 60 s cachebar. */
+    public static function rest_config(WP_REST_Request $req) {
+        $r = new WP_REST_Response(self::config_payload());
+        $r->header('Cache-Control', 'public, max-age=60');
+        return $r;
+    }
+
+    /** Ändern: Admin; auf Ein-Veranstalter-Seiten auch der Inhaber (Rolle Veranstalter). */
+    public static function perm_brand(WP_REST_Request $req) {
+        if (!is_user_logged_in()) return new WP_Error('rest_not_logged_in', 'Authentifizierung erforderlich.', ['status' => 401]);
+        $u = wp_get_current_user();
+        if ($u->has_cap('manage_options')) return true;
+        if (!self::multi() && in_array('tix_organizer', (array) $u->roles, true)) return true;
+        return new WP_Error('rest_forbidden', 'Nur der Inhaber der Seite kann Farbe und Logo ändern.', ['status' => 403]);
+    }
+
+    /** POST /studio/config {accent?, logo (Datei) | logo_id?} – nur Akzentfarbe und Logo; null/"" setzt auf die Vorgabe zurück. */
+    public static function rest_save_config(WP_REST_Request $req) {
+        // Über post_max_size: PHP verwirft den ganzen Inhalt – klar melden statt still nichts zu ändern
+        if (intval($_SERVER['CONTENT_LENGTH'] ?? 0) > 0 && !$req->get_file_params() && !$req->get_body_params() && !$req->get_json_params()) {
+            return new WP_Error('tix_too_large', 'Die Datei ist zu groß (höchstens 2 MB).', ['status' => 413, 'field' => 'logo']);
+        }
+        $files = $req->get_file_params();
+        if (!empty($files['logo']['error']) && intval($files['logo']['error']) !== UPLOAD_ERR_OK) {
+            return new WP_Error('tix_too_large', 'Das Logo konnte nicht hochgeladen werden (höchstens 2 MB).', ['status' => in_array(intval($files['logo']['error']), [UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE], true) ? 413 : 400, 'field' => 'logo']);
+        }
+        $b = self::brand();
+        $p = $req->get_json_params();
+        $p = is_array($p) ? $p : $req->get_body_params();
+        $has = function ($k) use ($p, $req) { return is_array($p) && array_key_exists($k, $p) || $req->get_param($k) !== null; };
+        if ($has('accent')) {
+            $raw = $req->get_param('accent');
+            if ($raw === null || $raw === '') unset($b['accent']);
+            else {
+                $h = self::hex($raw);
+                if ($h === '') return new WP_Error('tix_invalid_field', 'Bitte eine Farbe als Hex-Wert angeben, z. B. #FC2F55.', ['status' => 400, 'field' => 'accent']);
+                $b['accent'] = $h;
+            }
+        }
+        if (!empty($files['logo']['tmp_name'])) {
+            $id = self::store_logo($files['logo']);
+            if (is_wp_error($id)) return $id;
+            $b['logo_id'] = $id;
+        } elseif ($has('logo_id')) {
+            $id = intval($req->get_param('logo_id'));
+            if ($id === 0) unset($b['logo_id']);
+            else {
+                $ok = self::check_logo_attachment($id);
+                if (is_wp_error($ok)) return $ok;
+                $b['logo_id'] = $id;
+            }
+        }
+        $unknown = array_diff(array_keys((array) $p), ['accent', 'logo_id', 'logo']);
+        if ($unknown) return new WP_Error('tix_invalid_field', 'Nur Akzentfarbe und Logo lassen sich hier ändern.', ['status' => 400, 'field' => (string) reset($unknown)]);
+        update_option(self::BRAND, $b, false);
+        return rest_ensure_response(self::config_payload());
+    }
+
+    /** Erlaubte Logos: PNG, JPEG, WebP, GIF bis 2 MB und 4000 px; SVG nicht (Skripte). */
+    private static function check_image_file($path, $size) {
+        if ($size > self::LOGO_MAX) return new WP_Error('tix_invalid_field', 'Das Logo ist zu groß (höchstens 2 MB).', ['status' => 400, 'field' => 'logo']);
+        $info = @getimagesize($path);
+        $mime = is_array($info) ? (string) ($info['mime'] ?? '') : '';
+        if (!in_array($mime, ['image/png', 'image/jpeg', 'image/webp', 'image/gif'], true)) {
+            return new WP_Error('tix_invalid_field', 'Bitte ein Logo als PNG, JPG, WebP oder GIF hochladen (SVG ist nicht erlaubt).', ['status' => 400, 'field' => 'logo']);
+        }
+        if ($info[0] > 4000 || $info[1] > 4000 || $info[0] < 16 || $info[1] < 16) return new WP_Error('tix_invalid_field', 'Das Logo muss zwischen 16 und 4000 Pixel groß sein.', ['status' => 400, 'field' => 'logo']);
+        return $mime;
+    }
+
+    private static function check_logo_attachment($id) {
+        if (get_post_type($id) !== 'attachment') return new WP_Error('tix_invalid_field', 'Bild nicht gefunden.', ['status' => 400, 'field' => 'logo_id']);
+        $file = get_attached_file($id);
+        if (!$file || !file_exists($file)) return new WP_Error('tix_invalid_field', 'Bild nicht gefunden.', ['status' => 400, 'field' => 'logo_id']);
+        $r = self::check_image_file($file, filesize($file));
+        if (is_wp_error($r)) return new WP_Error($r->get_error_code(), $r->get_error_message(), ['status' => 400, 'field' => 'logo_id']);
+        return true;
+    }
+
+    private static function store_logo(array $f) {
+        if (!is_uploaded_file($f['tmp_name'])) return new WP_Error('tix_invalid_field', 'Upload fehlgeschlagen.', ['status' => 400, 'field' => 'logo']);
+        $mime = self::check_image_file($f['tmp_name'], intval($f['size'] ?? filesize($f['tmp_name'])));
+        if (is_wp_error($mime)) return $mime;
+        require_once ABSPATH . 'wp-admin/includes/file.php';
+        require_once ABSPATH . 'wp-admin/includes/media.php';
+        require_once ABSPATH . 'wp-admin/includes/image.php';
+        $ext = ['image/png' => 'png', 'image/jpeg' => 'jpg', 'image/webp' => 'webp', 'image/gif' => 'gif'][$mime];
+        $up = wp_upload_bits('studio-logo-' . wp_generate_password(6, false, false) . '.' . $ext, null, (string) file_get_contents($f['tmp_name']));
+        if (!empty($up['error'])) return new WP_Error('tix_upload_failed', 'Das Logo konnte nicht gespeichert werden.', ['status' => 500]);
+        $id = wp_insert_attachment(['post_mime_type' => $mime, 'post_title' => 'Studio-Logo', 'post_status' => 'inherit', 'post_author' => get_current_user_id()], $up['file']);
+        if (!$id || is_wp_error($id)) return new WP_Error('tix_upload_failed', 'Das Logo konnte nicht gespeichert werden.', ['status' => 500]);
+        wp_update_attachment_metadata($id, wp_generate_attachment_metadata($id, $up['file']));
+        return intval($id);
     }
 
     /** Veranstalter des Aufrufs (Admins: ?organizer=<id>). */
@@ -345,10 +509,11 @@ body.tix-studio-bar #adminmenuback,body.tix-studio-bar #adminmenuwrap{top:56px}
 .tix-studio-topbar *{box-sizing:border-box}
 .tix-studio-logo{font-size:21px;font-weight:800;letter-spacing:-.02em;color:#fff;text-decoration:none;line-height:1}
 .tix-studio-logo:hover,.tix-studio-logo:focus{color:#fff}
-.tix-studio-logo span{color:#FC2F55}
+.tix-studio-logo span{color:<?php echo esc_attr(self::accent()); ?>}
+.tix-studio-logo img{display:block;max-height:30px;max-width:160px;width:auto;height:auto}
 .tix-studio-mode{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#A0A4B4;padding:5px 10px;border:1px solid rgba(255,255,255,.18);border-radius:999px;white-space:nowrap}
-.tix-studio-back{margin-left:auto;display:inline-flex;align-items:center;gap:8px;height:38px;padding:0 18px;border-radius:12px;background:#FC2F55;color:#fff!important;font-size:14px;font-weight:700;text-decoration:none;white-space:nowrap;transition:background .15s}
-.tix-studio-back:hover,.tix-studio-back:focus{background:#e0234a;color:#fff;box-shadow:none}
+.tix-studio-back{margin-left:auto;display:inline-flex;align-items:center;gap:8px;height:38px;padding:0 18px;border-radius:12px;background:<?php echo esc_attr(self::accent()); ?>;color:#fff!important;font-size:14px;font-weight:700;text-decoration:none;white-space:nowrap;transition:background .15s}
+.tix-studio-back:hover,.tix-studio-back:focus{filter:brightness(.92);color:#fff;box-shadow:none}
 @media (max-width:782px){body.tix-studio-bar.tix-fullscreen #wpbody{padding-top:0}}
 @media (max-width:600px){.tix-studio-mode{display:none}.tix-studio-topbar{padding:0 12px;gap:10px}.tix-studio-back{padding:0 12px;font-size:13px}}
 </style>
@@ -361,7 +526,13 @@ body.tix-studio-bar #adminmenuback,body.tix-studio-bar #adminmenuwrap{top:56px}
         $back = $eid ? self::url('/events/' . $eid . '/') : self::url('/');
         ?>
 <div class="tix-studio-topbar" role="banner">
-    <a class="tix-studio-logo" href="<?php echo esc_url(self::url('/')); ?>">evendis<span>.</span></a>
+    <a class="tix-studio-logo" href="<?php echo esc_url(self::url('/')); ?>"><?php
+        // Plattform: Wortmarke „evendis.“; sonst Logo bzw. Name der Seite (Studio auf allen Seiten, 1.38.445)
+        $logo = self::multi() ? '' : self::logo();
+        if ($logo !== '') echo '<img src="' . esc_url($logo) . '" alt="' . esc_attr(get_bloginfo('name')) . '">';
+        elseif (self::multi()) echo 'evendis<span>.</span>';
+        else echo esc_html(get_bloginfo('name')) . '<span>.</span>';
+    ?></a>
     <span class="tix-studio-mode">Experten-Modus</span>
     <a class="tix-studio-back" href="<?php echo esc_url($back); ?>">&larr; Zurück zur einfachen Ansicht</a>
 </div>
@@ -373,7 +544,7 @@ body.tix-studio-bar #adminmenuback,body.tix-studio-bar #adminmenuwrap{top:56px}
         if (!self::active() || !current_user_can('manage_options')) return;
         $bar->add_node([
             'id'    => 'tix-studio',
-            'title' => 'evendis Studio',
+            'title' => esc_html(html_entity_decode(get_bloginfo('name'), ENT_QUOTES, 'UTF-8') . ' Studio'),
             'href'  => admin_url('admin-post.php?action=tix_studio_open'),
             'meta'  => ['target' => '_blank'],
         ]);

@@ -41,7 +41,7 @@ class TIX_App_Scope {
     public static function no_cache_private($result, $server, $request) {
         $route = (string) $request->get_route();
         if (strpos($route, '/' . self::NS . '/') !== 0) return $result;
-        $public = (bool) preg_match('#^/tixomat/v1/(public/.*|info|music/(status|search)|giftcards|loyalty/config|support/config|app/config)$#', $route);
+        $public = (bool) preg_match('#^/tixomat/v1/(public/.*|info|music/(status|search)|giftcards|loyalty/config|support/config|app/config|studio/config)$#', $route);
         $token  = (string) $request->get_header('x-tix-token');
         if ($public && $token === '' && !is_user_logged_in()) return $result;
         do_action('litespeed_control_set_nocache', 'tixomat: persoenliche REST-Antwort');
