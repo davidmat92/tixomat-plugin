@@ -32,6 +32,8 @@ class TIX_Giftcards {
     public static $in_mail = false;
 
     public static function init() {
+        add_action('tix_order_cancelled', [__CLASS__, 'on_order_cancelled'], 20);
+        add_action('tix_order_status_changed', [__CLASS__, 'on_status_changed'], 20, 3);
         // Code-Erzeugung nach Ticket-Generierung (Tickets entstehen bei Prio 10 auf tix_order_completed)
         add_action('tix_order_completed', [__CLASS__, 'create_for_order'], 20);
         // Scan-Teileinloesung (Zugriff wie Scanner selbst: offen — Entscheidung Betreiber)
@@ -507,7 +509,8 @@ class TIX_Giftcards {
         $order_id = intval($order_id);
         $data = get_option('_tix_order_coupon_' . $order_id);
         if (!is_array($data) || empty($data['code']) || !get_option('_tix_coupon_incremented_' . $order_id)) return null;
-        if (get_option('_tix_coupon_restored_' . $order_id)) return null;
+        $done = get_option('_tix_coupon_restored_' . $order_id);
+        if ($done) return is_array($done) ? $done : null; // schon zurückgegeben → gleiche Angaben, kein zweites Gutschreiben
         wp_cache_delete('tix_coupons', 'options');
         $coupons = get_option('tix_coupons', []);
         $key = null;
@@ -524,8 +527,26 @@ class TIX_Giftcards {
             $out = ['code' => (string) $key, 'type' => 'discount', 'amount' => $amount, 'balance' => null];
         }
         update_option('tix_coupons', $coupons);
-        update_option('_tix_coupon_restored_' . $order_id, 1, false);
+        update_option('_tix_coupon_restored_' . $order_id, $out, false);
+        if (class_exists('TIX_Order_Admin') && method_exists('TIX_Order_Admin', 'add_note')) {
+            TIX_Order_Admin::add_note($order_id, $out['type'] === 'giftcard'
+                ? sprintf('🎁 Gutschein %s: %s € zurückgebucht (Rest %s €)', $out['code'], number_format($amount, 2, ',', '.'), number_format($out['balance'], 2, ',', '.'))
+                : sprintf('🎟️ Gutschein-Code %s: Nutzung zurückgegeben', $out['code']), 'coupon');
+        }
         return $out;
+    }
+
+    /**
+     * Storno bzw. volle Erstattung online (1.38.486): eingelösten Gutschein zurückgeben wie an der Kasse.
+     * tix_order_cancelled (Storno, volle Erstattung im Admin/Studio) und Status „refunded“ (z. B. Mollie-Erstattung).
+     * Teil-Erstattungen geben nichts zurück (das Geld geht über die Zahlart zurück).
+     */
+    public static function on_order_cancelled($order_id) {
+        self::restore_for_order(intval($order_id), get_option('_tix_order_source_' . intval($order_id)) === 'pos' ? 'pos' : 'online');
+    }
+
+    public static function on_status_changed($order_id, $status = '', $old = '') {
+        if ($status === 'refunded') self::on_order_cancelled($order_id);
     }
 
     /* ─────────── AJAX: Scan-Teileinloesung ─────────── */

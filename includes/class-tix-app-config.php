@@ -85,6 +85,16 @@ class TIX_App_Config {
             return new WP_Error('bad_data', 'Ungültige Daten.', ['status' => 400]);
         }
         unset($b['ok']);
+        // „Jetzt los“-Bereich der Startseite (1.38.486, Vertrag KK-App): home.now = {show, style section|badge, hours 1–12}
+        if (isset($b['home']['now'])) {
+            $now = $b['home']['now'];
+            if (!is_array($now)) return new WP_Error('bad_data', 'home.now: Objekt erwartet.', ['status' => 400, 'field' => 'home.now']);
+            $style = (string) ($now['style'] ?? 'section');
+            if (!in_array($style, ['section', 'badge'], true)) return new WP_Error('bad_data', 'home.now.style: section oder badge.', ['status' => 400, 'field' => 'home.now.style']);
+            $hours = $now['hours'] ?? 3;
+            if (!is_numeric($hours) || intval($hours) != $hours || intval($hours) < 1 || intval($hours) > 12) return new WP_Error('bad_data', 'home.now.hours: ganze Zahl von 1 bis 12.', ['status' => 400, 'field' => 'home.now.hours']);
+            $b['home']['now'] = ['show' => filter_var($now['show'] ?? false, FILTER_VALIDATE_BOOLEAN), 'style' => $style, 'hours' => intval($hours)];
+        }
         // SOS-Menüpunkt liegt in eigener Option (bleibt unverändert, wenn `nav.sos` fehlt)
         if (isset($b['nav']['sos']) && is_array($b['nav']['sos']) && class_exists('TIX_App_Sos')) {
             $sos = $b['nav']['sos'];
