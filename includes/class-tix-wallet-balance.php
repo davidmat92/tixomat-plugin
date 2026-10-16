@@ -763,7 +763,29 @@ class TIX_Wallet_Balance {
             $code = $id ? (string) get_post_meta($id, '_tix_ticket_gift_code', true) : '';
             return $code !== '' ? $code : '';
         }
+        // reiner Ticket-Code des Gutschein-Tickets (1.38.463)
+        if (!preg_match('/^GS-/', $raw) && preg_match('/^[A-Z0-9-]{4,20}$/', $raw) && class_exists('TIX_Tickets') && method_exists('TIX_Tickets', 'get_ticket_by_code')
+            && !(class_exists('TIX_Giftcards') && TIX_Giftcards::get_card($raw))) {
+            $t = TIX_Tickets::get_ticket_by_code($raw);
+            $id = is_object($t) ? intval($t->ID ?? 0) : (is_array($t) ? intval($t['ID'] ?? ($t['id'] ?? 0)) : intval($t));
+            $code = $id ? (string) get_post_meta($id, '_tix_ticket_gift_code', true) : '';
+            if ($code !== '') return $code;
+        }
         return $raw;
+    }
+
+    /** Zustand eines Gutscheins für Fehlerantworten: {code, value, balance, expires, redeemed_at, redeemed_via}. */
+    private static function giftcard_state(array $card) {
+        $last = null;
+        foreach ((array) ($card['redemptions'] ?? []) as $r) if (is_array($r)) $last = $r;
+        return [
+            'code'         => (string) $card['code'],
+            'value'        => round(floatval($card['value'] ?? 0), 2),
+            'balance'      => round(floatval($card['balance'] ?? 0), 2),
+            'expires'      => (string) ($card['expires'] ?? ''),
+            'redeemed_at'  => $last ? (string) ($last['ts'] ?? '') : null,
+            'redeemed_via' => $last ? (string) ($last['channel'] ?? '') : null,
+        ];
     }
 
     /** POST /wallet/redeem-giftcard {code[, organizer]} – Restwert ins Guthaben, Gutschein danach aufgebraucht. */
@@ -778,9 +800,17 @@ class TIX_Wallet_Balance {
         if (!$card) return new WP_Error('tix_giftcard_unknown', 'Diesen Gutschein kennen wir nicht. Bitte den Code prüfen.', ['status' => 404]);
         $code = (string) $card['code'];
         if (!empty($card['expires']) && strtotime($card['expires'] . ' 23:59:59') < current_time('timestamp')) {
-            return new WP_Error('tix_giftcard_expired', 'Dieser Gutschein ist abgelaufen (' . date_i18n('d.m.Y', strtotime($card['expires'])) . ').', ['status' => 410]);
+            return new WP_Error('tix_giftcard_expired', 'Dieser Gutschein ist abgelaufen (' . date_i18n('d.m.Y', strtotime($card['expires'])) . ').', ['status' => 410] + self::giftcard_state($card));
         }
-        if (round(floatval($card['balance'] ?? 0), 2) <= 0) return new WP_Error('tix_giftcard_used', 'Dieser Gutschein wurde schon eingelöst.', ['status' => 409]);
+        if (round(floatval($card['balance'] ?? 0), 2) <= 0) {
+            $st = self::giftcard_state($card);
+            $when = $st['redeemed_at'] ? ' am ' . date_i18n('d.m.Y', strtotime($st['redeemed_at'])) : '';
+            return new WP_Error('tix_giftcard_used', 'Dieser Gutschein wurde schon' . $when . ' eingelöst (Restwert 0 €).', ['status' => 409] + $st);
+        }
+        // Teilbetrag (1.38.463): amount ≤ Restwert, sonst der ganze Restwert
+        $want_amount = $req->get_param('amount');
+        $part = ($want_amount !== null && $want_amount !== '') ? self::cents(str_replace(',', '.', (string) $want_amount)) : 0;
+        if ($want_amount !== null && $want_amount !== '' && $part <= 0) return new WP_Error('tix_invalid_field', 'Bitte einen Betrag über 0 € angeben.', ['status' => 400, 'field' => 'amount']);
         $oid = intval($card['organizer_id'] ?? 0);
         $want = $req->get_param('organizer') ?? $req->get_param('organizer_id');
         if ($want !== null && $want !== '' && intval($want) !== $oid) return new WP_Error('tix_giftcard_scope', 'Dieser Gutschein gilt bei einem anderen Veranstalter.', ['status' => 409]);
@@ -798,7 +828,9 @@ class TIX_Wallet_Balance {
             wp_cache_delete('tix_coupons', 'options');
             $card = TIX_Giftcards::get_card($code);
             $bal = $card ? self::cents($card['balance'] ?? 0) : 0;
-            if ($bal <= 0) return new WP_Error('tix_giftcard_used', 'Dieser Gutschein wurde schon eingelöst.', ['status' => 409]);
+            if ($bal <= 0) return new WP_Error('tix_giftcard_used', 'Dieser Gutschein wurde schon eingelöst (Restwert 0 €).', ['status' => 409] + ($card ? self::giftcard_state($card) : ['code' => $code, 'balance' => 0]));
+            if ($part > $bal) return new WP_Error('tix_giftcard_amount', 'Auf dem Gutschein sind nur noch ' . self::fmt($bal) . '.', ['status' => 409, 'field' => 'amount'] + self::giftcard_state($card));
+            if ($part > 0) $bal = $part;
             $s = self::settings($oid);
             $w = self::get_wallet($w['id']);
             $cur = intval($w['balance_paid']) + intval($w['balance_bonus']);
@@ -819,7 +851,8 @@ class TIX_Wallet_Balance {
         }
         if (class_exists('TIX_Notifications')) TIX_Notifications::add_user_item($uid, 'Gutschein eingelöst', self::fmt($bal) . ' ins Guthaben übernommen', ['type' => 'wallet', 'action' => 'wallet']);
         $w = self::get_wallet($w['id']);
-        return self::out(['ok' => true, 'amount' => self::euro($bal), 'code' => $code, 'wallet' => self::wallet_payload($w), 'tx' => self::tx_payload($tx)]);
+        $after = TIX_Giftcards::get_card($code);
+        return self::out(['ok' => true, 'amount' => self::euro($bal), 'code' => $code, 'giftcard_rest' => $after ? round(floatval($after['balance'] ?? 0), 2) : 0.0, 'wallet' => self::wallet_payload($w), 'tx' => self::tx_payload($tx)]);
     }
 
     public static function on_chargeback($order_id, $amount = 0, $gateway = '') {
@@ -1081,6 +1114,14 @@ class TIX_Wallet_Balance {
         $oid = self::staff_scope($req);
         $in = $req->get_json_params();
         if (!is_array($in)) $in = $req->get_body_params();
+        // Ausgabe-Reihenfolge (seitenweit, 1.38.463 auch per REST): paid_first | bonus_first
+        $raw = is_array($in) ? $in : [];
+        if (array_key_exists('spend_order', $raw) || (isset($raw['settings']) && is_array($raw['settings']) && array_key_exists('spend_order', $raw['settings']))) {
+            $so = (string) ($raw['spend_order'] ?? $raw['settings']['spend_order']);
+            if (!in_array($so, ['paid_first', 'bonus_first'], true)) return new WP_Error('tix_invalid_field', 'spend_order: paid_first oder bonus_first.', ['status' => 400, 'field' => 'spend_order']);
+            if (self::multi() && !current_user_can('manage_options')) return new WP_Error('rest_forbidden', 'Die Ausgabe-Reihenfolge gilt für die ganze Plattform und ist dem Admin vorbehalten.', ['status' => 403, 'field' => 'spend_order']);
+            update_option(self::OPT_SPEND, $so, false);
+        }
         if (isset($in['settings']) && is_array($in['settings'])) $in = $in['settings'];
         $s = self::sanitize_settings($in, self::stored($oid));
         if ($oid) {

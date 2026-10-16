@@ -419,6 +419,37 @@ class TIX_Series {
     // ──────────────────────────────────────────
     // Master-Löschung: Kinder aufräumen
     // ──────────────────────────────────────────
+    /**
+     * Master in den Papierkorb (1.38.463): Termine ohne Verkäufe mit in den Papierkorb (wiederherstellbar, markiert),
+     * Termine mit Verkäufen bleiben. Endgültig gelöscht wird erst mit dem Master (before_delete_post → on_trash).
+     */
+    public static function on_trash_soft($post_id) {
+        if (get_post_type($post_id) !== 'event') return;
+        $children = get_post_meta($post_id, '_tix_series_children', true);
+        if (!is_array($children) || empty($children)) return;
+        foreach ($children as $child_id) {
+            $child_id = intval($child_id);
+            if (!$child_id || !in_array(get_post_status($child_id), ['publish', 'draft', 'future', 'pending', 'private'], true)) continue;
+            if (class_exists('TIX_Cleanup') && TIX_Cleanup::sales($child_id) > 0) continue;
+            update_post_meta($child_id, '_tix_trashed_with_master', intval($post_id));
+            wp_trash_post($child_id);
+        }
+    }
+
+    /** Master wiederhergestellt: mitgelöschte Termine zurückholen (Status wie vor dem Papierkorb). */
+    public static function on_untrash($post_id) {
+        if (get_post_type($post_id) !== 'event') return;
+        $kids = get_posts(['post_type' => 'event', 'post_status' => 'trash', 'posts_per_page' => -1, 'fields' => 'ids',
+            'meta_key' => '_tix_trashed_with_master', 'meta_value' => intval($post_id)]);
+        $prev = function ($status, $id, $previous) { return $previous ?: $status; };
+        add_filter('wp_untrash_post_status', $prev, 10, 3);
+        foreach ($kids as $k) {
+            wp_untrash_post($k);
+            delete_post_meta($k, '_tix_trashed_with_master');
+        }
+        remove_filter('wp_untrash_post_status', $prev, 10);
+    }
+
     public static function on_trash($post_id) {
         if (get_post_type($post_id) !== 'event') return;
         $children = get_post_meta($post_id, '_tix_series_children', true);
@@ -438,7 +469,7 @@ class TIX_Series {
         remove_action('save_post_event',     [__CLASS__, 'on_save'], 25);
 
         foreach ($children as $child_id) {
-            if (self::child_has_sales($child_id)) {
+            if (self::child_has_sales($child_id) || (class_exists('TIX_Cleanup') && TIX_Cleanup::sales(intval($child_id)) > 0)) {
                 // Verkäufe vorhanden → abtrennen (wird Einzelevent)
                 delete_post_meta($child_id, '_tix_series_parent');
                 delete_post_meta($child_id, '_tix_series_index');
@@ -460,8 +491,7 @@ class TIX_Series {
             wp_delete_post(intval($api_key_id), true);
         }
 
-        // Hooks wieder aktivieren
-        add_action('wp_trash_post',      ['TIX_Cleanup', 'delete_generated']);
+        // Hooks wieder aktivieren (1.38.463: delete_generated nur noch bei endgültigem Löschen)
         add_action('before_delete_post',  ['TIX_Cleanup', 'delete_generated']);
         add_action('wp_trash_post',      ['TIX_Cleanup', 'protect_product']);
         add_action('before_delete_post',  ['TIX_Cleanup', 'protect_product']);

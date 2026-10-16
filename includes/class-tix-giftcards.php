@@ -28,6 +28,9 @@ class TIX_Giftcards {
     const MIN_FREE = 10;
     const MAX_FREE = 500;
 
+    /** true, solange die Bestätigungs-Mail die Codes selbst erzeugt (keine zweite Mail) */
+    public static $in_mail = false;
+
     public static function init() {
         // Code-Erzeugung nach Ticket-Generierung (Tickets entstehen bei Prio 10 auf tix_order_completed)
         add_action('tix_order_completed', [__CLASS__, 'create_for_order'], 20);
@@ -280,20 +283,24 @@ class TIX_Giftcards {
         $tickets = get_posts([
             'post_type' => 'tix_ticket', 'post_status' => 'publish', 'posts_per_page' => -1,
             'meta_query' => [['key' => '_tix_ticket_order_id', 'value' => (string) $order_id]],
+            'orderby' => 'ID', 'order' => 'ASC', // Reihenfolge der Positionen (Betrag + Geschenk-Angaben je Stück)
         ]);
         if (empty($tickets)) return;
 
         // Betraege pro Kategorie aus den Order-Items (Wunschbetrag: eigene Rows dank No-Merge)
         // amounts[cat_name] = Liste von Einzelpreisen (expandiert nach qty)
         $amounts = [];
+        $gifts   = []; // Geschenk-Angaben je Einzelstück (1.38.463, meta.gift_info der Position)
         $items = $wpdb->get_results($wpdb->prepare(
-            "SELECT cat_name, name, quantity, total FROM {$wpdb->prefix}tix_order_items WHERE order_id = %d", $order_id
+            "SELECT cat_name, name, quantity, total, meta FROM {$wpdb->prefix}tix_order_items WHERE order_id = %d", $order_id
         ));
         foreach ($items as $it) {
             $key = (string) $it->cat_name;
             $qty = max(1, intval($it->quantity));
             $unit = round(floatval($it->total) / $qty, 2);
-            for ($i = 0; $i < $qty; $i++) $amounts[$key][] = $unit;
+            $meta = json_decode((string) $it->meta, true);
+            $gi = is_array($meta['gift_info'] ?? null) ? $meta['gift_info'] : null;
+            for ($i = 0; $i < $qty; $i++) { $amounts[$key][] = $unit; $gifts[$key][] = $gi; }
         }
 
         $coupons = null; // lazy laden
@@ -312,8 +319,10 @@ class TIX_Giftcards {
 
             // Betrag: naechster Einzelpreis dieser Kategorie aus den Order-Items
             $amount = 0;
+            $gift_info = null;
             if (!empty($amounts[$cat_name])) {
                 $amount = floatval(array_shift($amounts[$cat_name]));
+                $gift_info = array_shift($gifts[$cat_name]);
             }
             if ($amount <= 0) {
                 // Fallback: Kategoriepreis
@@ -342,7 +351,7 @@ class TIX_Giftcards {
                 'description'   => 'Geschenkgutschein (Order #' . $order_id . ')',
                 'max_uses'      => 0,
                 'used'          => 0,
-            ];
+            ] + ($gift_info ? ['gift' => $gift_info] : []);
             update_post_meta($t->ID, '_tix_ticket_gift_code', $code);
             $created++;
         }
@@ -352,6 +361,8 @@ class TIX_Giftcards {
             if (class_exists('TIX_Order_Admin') && method_exists('TIX_Order_Admin', 'add_note')) {
                 TIX_Order_Admin::add_note($order_id, '💳 ' . $created . ' Geschenkgutschein-Code(s) erzeugt.', 'system');
             }
+            // Codes kamen nach der Bestätigungs-Mail: eigene Mail mit PDF (1.38.463)
+            if (class_exists('TIX_Giftcard_Gift') && !self::$in_mail) TIX_Giftcard_Gift::send_late_mail($order_id);
         }
     }
 
@@ -645,13 +656,48 @@ class TIX_Giftcards {
         $expires = !empty($card['expires']) ? date_i18n('d.m.Y', strtotime($card['expires'])) : '';
         return '<div style="margin:18px 30px;padding:18px 22px;background:#fefce8;border:2px dashed #ca8a04;border-radius:12px;text-align:center;">'
             . '<div style="font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:#a16207;font-weight:700;margin-bottom:6px;">💳 Geschenkgutschein</div>'
-            // QR mit dem Gutschein-Code (1.38.436): in der App scannen → ins Guthaben übernehmen (POST /wallet/redeem-giftcard)
-            . '<img src="' . esc_url('https://api.qrserver.com/v1/create-qr-code/?size=160x160&margin=0&data=' . rawurlencode($code)) . '" width="120" height="120" alt="QR ' . esc_attr($code) . '" style="display:block;margin:6px auto 8px;">'
+            // QR mit dem Gutschein-Code (1.38.436): in der App scannen → ins Guthaben übernehmen (POST /wallet/redeem-giftcard);
+            // seit 1.38.463 lokal erzeugt (der Code ist Geld und geht nicht mehr an api.qrserver.com)
+            . (($qr = self::qr_data_uri($code)) !== '' ? '<img src="' . esc_attr($qr) . '" width="120" height="120" alt="QR ' . esc_attr($code) . '" style="display:block;margin:6px auto 8px;image-rendering:pixelated;">' : '')
+            . self::gift_lines($card)
             . '<div style="font-size:26px;font-weight:900;letter-spacing:0.04em;color:#1c1917;font-family:monospace;">' . esc_html($code) . '</div>'
             . '<div style="font-size:14px;color:#44403c;margin-top:8px;">Wert: <strong>' . esc_html($value) . ' €</strong> &middot; Restguthaben: <strong>' . esc_html($balance) . ' €</strong></div>'
             . '<div style="font-size:12px;color:#78716c;margin-top:6px;">Einlösbar online im Checkout (Code eingeben), vor Ort per Scan oder in der App ins Guthaben übernehmen.'
             . ($expires ? ' Gueltig bis ' . esc_html($expires) . '.' : '') . '</div>'
+            . (($pdf = self::pdf_link($card)) !== '' ? '<div style="margin-top:10px;"><a href="' . esc_url($pdf) . '" style="font-size:13px;font-weight:700;color:#a16207;">Gutschein als PDF zum Verschenken ↓</a></div>' : '')
             . '</div>';
+    }
+
+    /** QR als data:-URI (lokal, TIX_QR) oder ''. */
+    public static function qr_data_uri(string $code): string {
+        if (!class_exists('TIX_QR')) return '';
+        $im = TIX_QR::gd($code, 240, 2);
+        if (!$im) return '';
+        ob_start();
+        imagepng($im);
+        $png = ob_get_clean();
+        imagedestroy($im);
+        return 'data:image/png;base64,' . base64_encode($png);
+    }
+
+    private static function gift_lines(array $card): string {
+        if (!class_exists('TIX_Giftcard_Gift')) return '';
+        $g = TIX_Giftcard_Gift::fields($card);
+        $out = '';
+        if ($g['gift_recipient']) $out .= '<div style="font-size:14px;color:#44403c;margin:4px 0;">für <strong>' . esc_html($g['gift_recipient']) . '</strong>' . ($g['gift_from'] ? ' · von ' . esc_html($g['gift_from']) : '') . '</div>';
+        elseif ($g['gift_from']) $out .= '<div style="font-size:14px;color:#44403c;margin:4px 0;">von ' . esc_html($g['gift_from']) . '</div>';
+        if ($g['gift_message']) $out .= '<div style="font-size:13px;color:#57534e;font-style:italic;margin:4px 0 8px;">„' . nl2br(esc_html($g['gift_message'])) . '“</div>';
+        return $out;
+    }
+
+    /** Direkter PDF-Download mit Bestell-Key (für die Ticket-Ansicht im Web). */
+    private static function pdf_link(array $card): string {
+        global $wpdb;
+        $oid = intval($card['order_id'] ?? 0);
+        if (!$oid || !class_exists('TIX_Giftcard_Gift')) return '';
+        $key = (string) $wpdb->get_var($wpdb->prepare("SELECT order_key FROM {$wpdb->prefix}tix_orders WHERE id = %d", $oid));
+        if ($key === '') return '';
+        return add_query_arg(['key' => $key, 'download' => '1'], rest_url('tixomat/v1/customer/giftcards/' . rawurlencode((string) $card['code']) . '/pdf'));
     }
 }
 

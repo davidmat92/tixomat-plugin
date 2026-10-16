@@ -444,7 +444,7 @@ class TIX_App_Checkout {
         $specials = []; // Extras: special_id => Menge
         $seats    = []; // Saalplan: Sitz-IDs (Halter = hold_token)
         $combos   = []; // Kombi-Tickets: combo_id => Anzahl
-        foreach ($items as $it) {
+        foreach ($items as $item_no => $it) {
             if (!is_array($it)) continue;
             if (!empty($it['combo_id'])) {
                 $cq = intval($it['qty'] ?? ($it['quantity'] ?? 0));
@@ -472,7 +472,10 @@ class TIX_App_Checkout {
                 continue;
             }
             if ($cat && !empty($cat['gift_card'])) {
-                $gifts[] = ['index' => $idx, 'qty' => $qty, 'custom_amount' => round(floatval($it['custom_amount'] ?? 0), 2)];
+                // Geschenk-Angaben (1.38.463): gift {recipient_name, message ≤ 200, from_name}
+                $gift = class_exists('TIX_Giftcard_Gift') ? TIX_Giftcard_Gift::sanitize($it['gift'] ?? null, 'items[' . intval($item_no) . '].gift') : null;
+                if (is_wp_error($gift)) return $gift;
+                $gifts[] = ['index' => $idx, 'qty' => $qty, 'custom_amount' => round(floatval($it['custom_amount'] ?? 0), 2), 'gift' => $gift];
                 continue;
             }
             if (!empty($it['bundle'])) {
@@ -513,7 +516,7 @@ class TIX_App_Checkout {
                 'price'        => $price,
                 'qty'          => intval($g['qty']),
                 'locked_price' => $locked ?: null,
-                'meta'         => ['gift' => 1],
+                'meta'         => array_filter(['gift' => 1, 'cat_index' => intval($idx), 'gift_info' => $g['gift'] ?? null], function ($v) { return $v !== null; }),
             ], function ($v) { return $v !== null; });
         }
         foreach ($merged as $idx => $qty) {
@@ -662,6 +665,8 @@ class TIX_App_Checkout {
                 'special_id'     => !empty($meta['special_id']) ? intval($meta['special_id']) : null,
                 'seats'          => !empty($meta['seats']) ? array_values((array) $meta['seats']) : null,
                 'combo'          => is_array($meta['combo'] ?? null) ? ['combo_id' => (string) $meta['combo']['combo_id'], 'group_id' => (string) $meta['combo']['group_id'], 'name' => (string) $meta['combo']['label']] : null,
+                // Gutschein-Position: Geschenk-Angaben wie gesendet (null = keine bzw. kein Gutschein)
+                'gift'           => !empty($meta['gift']) ? (is_array($meta['gift_info'] ?? null) ? $meta['gift_info'] : null) : null,
             ];
             if (!empty($meta['bundle']) && class_exists('TIX_Cart_Pricing')
                 && ($b = TIX_Cart_Pricing::bundle(intval($it['event_id']), intval($it['cat_index'])))) {
@@ -833,7 +838,7 @@ class TIX_App_Checkout {
             'gift_value'   => $card ? round(floatval($card['value'] ?? 0), 2) : 0,
             'gift_balance' => $card ? round(floatval($card['balance'] ?? 0), 2) : 0,
             'gift_expires' => $card ? (string) ($card['expires'] ?? '') : '',
-        ];
+        ] + ($card && class_exists('TIX_Giftcard_Gift') ? TIX_Giftcard_Gift::fields($card) : ['gift_recipient' => null, 'gift_message' => null, 'gift_from' => null]);
     }
 
     /**

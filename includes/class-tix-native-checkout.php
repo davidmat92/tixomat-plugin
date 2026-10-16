@@ -1423,6 +1423,17 @@ class TIX_Native_Checkout {
                                     <div class="tix-co-item-price"><?php echo number_format($line_total, 2, ',', '.'); ?>&nbsp;&euro;</div>
                                     <button type="button" class="tix-co-item-remove tix-co-remove" data-index="<?php echo $i; ?>" title="Entfernen">&times;</button>
                                 </div>
+                                <?php if (!empty($item['meta']['gift']) && class_exists('TIX_Giftcard_Gift')):
+                                    $gv = is_array($item['meta']['gift_info'] ?? null) ? $item['meta']['gift_info'] : []; ?>
+                                <div class="tix-co-gift" style="margin:-4px 0 12px;padding:12px 14px;border:1px dashed #ca8a04;background:#fefce8;border-radius:10px;font-size:13px;">
+                                    <div style="font-weight:700;margin-bottom:8px;">🎁 Zum Verschenken (optional) – erscheint auf dem Gutschein-PDF</div>
+                                    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                                        <input type="text" class="tix-co-input" style="flex:1;min-width:140px;" name="tix_gift[<?php echo intval($i); ?>][recipient_name]" maxlength="<?php echo TIX_Giftcard_Gift::NAME_MAX; ?>" placeholder="Für (Name)" value="<?php echo esc_attr($gv['recipient_name'] ?? ''); ?>">
+                                        <input type="text" class="tix-co-input" style="flex:1;min-width:140px;" name="tix_gift[<?php echo intval($i); ?>][from_name]" maxlength="<?php echo TIX_Giftcard_Gift::NAME_MAX; ?>" placeholder="Von (Name)" value="<?php echo esc_attr($gv['from_name'] ?? ''); ?>">
+                                    </div>
+                                    <textarea class="tix-co-input" style="width:100%;margin-top:8px;min-height:64px;" name="tix_gift[<?php echo intval($i); ?>][message]" maxlength="<?php echo TIX_Giftcard_Gift::MSG_MAX; ?>" placeholder="Persönliche Nachricht (höchstens <?php echo TIX_Giftcard_Gift::MSG_MAX; ?> Zeichen)"><?php echo esc_textarea($gv['message'] ?? ''); ?></textarea>
+                                </div>
+                                <?php endif; ?>
                             <?php endforeach; ?>
                         </div>
                         <a href="<?php echo esc_url(get_post_type_archive_link('event') ?: home_url('/events/')); ?>" class="tix-co-btn-more">+ Weitere Tickets kaufen</a>
@@ -1881,6 +1892,18 @@ class TIX_Native_Checkout {
         // Sitzplätze für die Zahlung sichern (Haltezeit verlängern, sonst Fehler statt Doppelbuchung)
         if (class_exists('TIX_Seatmap') && ($serr = TIX_Seatmap::secure_cart($cart['items'], $seat_holder))) {
             wp_send_json_error(['message' => $serr]);
+        }
+
+        // Gutschein als Geschenk (1.38.463): Angaben je Gutschein-Position (tix_gift[<Position>][recipient_name|from_name|message])
+        if (class_exists('TIX_Giftcard_Gift')) {
+            $posted = isset($_POST['tix_gift']) && is_array($_POST['tix_gift']) ? wp_unslash($_POST['tix_gift']) : [];
+            foreach ($cart['items'] as $gi => $gitem) {
+                if (empty($gitem['meta']['gift'])) continue;
+                $g = TIX_Giftcard_Gift::sanitize($posted[$gi] ?? null, 'tix_gift');
+                if (is_wp_error($g)) wp_send_json_error(['message' => $g->get_error_message()]);
+                if ($g) $cart['items'][$gi]['meta']['gift_info'] = $g;
+                else unset($cart['items'][$gi]['meta']['gift_info']);
+            }
         }
 
         // Order erstellen

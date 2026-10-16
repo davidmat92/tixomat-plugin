@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.38.462
+ * Version: 1.38.463
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  * Update URI: https://veranstalter.evendis.de/tixomat
@@ -10,7 +10,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.38.462');
+define('TIXOMAT_VERSION', '1.38.463');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -506,6 +506,8 @@ require_once TIXOMAT_PATH . 'includes/class-tix-ip-block.php';
 
 // ── Geschenkgutscheine (Guthaben-Tickets, online + Scan einloesbar) ──
 require_once TIXOMAT_PATH . 'includes/class-tix-giftcards.php';
+require_once TIXOMAT_PATH . 'includes/class-tix-qr.php';            // QR lokal (1.38.463)
+require_once TIXOMAT_PATH . 'includes/class-tix-giftcard-gift.php'; // Gutschein als Geschenk: Angaben, PDF, Mail, Studio-Einstellungen (1.38.463)
 
 // ── Promoted Events (bezahltes Placement auf der Homepage) ──
 require_once TIXOMAT_PATH . 'includes/class-tix-promoted-events.php';
@@ -994,8 +996,9 @@ if (is_admin() && !wp_doing_ajax()) {
         }, 20, 2);
     }
     add_action('save_post_event', ['TIX_Series', 'on_save'], 25, 2);
-    add_action('wp_trash_post',      ['TIX_Series', 'on_trash']);
+    add_action('wp_trash_post',      ['TIX_Series', 'on_trash_soft']);  // 1.38.463: Papierkorb weich, endgültig erst beim Löschen
     add_action('before_delete_post', ['TIX_Series', 'on_trash']);
+    add_action('untrashed_post',     ['TIX_Series', 'on_untrash']);
     add_action('init', ['TIX_Cleanup', 'init']);
     add_action('init', ['TIX_Settings', 'init']);
 

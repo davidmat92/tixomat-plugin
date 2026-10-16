@@ -4,9 +4,12 @@ if (!defined('ABSPATH')) exit;
 class TIX_Cleanup {
 
     public static function init() {
-        // Event löschen → generierte Einträge mit löschen
-        add_action('wp_trash_post',      [__CLASS__, 'delete_generated']);
+        // Event ENDGÜLTIG löschen → generierte Einträge mit löschen. Der Papierkorb löscht nichts mehr (1.38.463: vorher
+        // waren nach „In den Papierkorb“ im WP-Admin Tickets, Ticket-Tabelle, Warteliste, Provisionen … weg, Wiederherstellen half nicht)
         add_action('before_delete_post', [__CLASS__, 'delete_generated']);
+        // Papierkorb im WP-Admin mit verkauften Tickets sperren (wie DELETE /events/{id} → 409 tix_has_sales)
+        add_filter('pre_trash_post', [__CLASS__, 'block_trash_with_sales'], 10, 2);
+        add_action('admin_notices', [__CLASS__, 'trash_blocked_notice']);
 
         // ── Löschschutz: WC-Produkte nicht direkt löschbar ──
         add_action('wp_trash_post',      [__CLASS__, 'protect_product']);
@@ -27,7 +30,6 @@ class TIX_Cleanup {
         if (get_post_type($post_id) !== 'event') return;
 
         // Temporär Schutz + eigene Hooks deaktivieren (wir löschen bewusst)
-        remove_action('wp_trash_post',     [__CLASS__, 'delete_generated']);
         remove_action('before_delete_post', [__CLASS__, 'delete_generated']);
         remove_action('wp_trash_post',     [__CLASS__, 'protect_product']);
         remove_action('before_delete_post', [__CLASS__, 'protect_product']);
@@ -55,14 +57,10 @@ class TIX_Cleanup {
         self::purge_event_data($post_id);
 
         // Hooks wieder aktivieren
-        add_action('wp_trash_post',     [__CLASS__, 'delete_generated']);
         add_action('before_delete_post', [__CLASS__, 'delete_generated']);
         add_action('wp_trash_post',     [__CLASS__, 'protect_product']);
         add_action('before_delete_post', [__CLASS__, 'protect_product']);
-        if (class_exists('TIX_Series')) {
-            add_action('wp_trash_post',      ['TIX_Series', 'on_trash']);
-            add_action('before_delete_post', ['TIX_Series', 'on_trash']);
-        }
+        if (class_exists('TIX_Series')) self::restore_series_hooks();
     }
 
     /**
@@ -93,6 +91,11 @@ class TIX_Cleanup {
         if (isset($purging[$event_id])) return $counts;
         $purging[$event_id] = true;
 
+        // Verkäufe (1.38.463): Bestellungen werden hier nie angefasst (Aufbewahrungspflicht). Mit verkauften Tickets bleiben
+        // Ticket-Posts, Ticket-Tabelle und Promoter-Provisionen erhalten und werden nur als „Event gelöscht“ markiert.
+        $has_sales = self::sales($event_id) > 0;
+        $counts['kept_for_sales'] = $has_sales;
+
         // ── 1. Custom Tables ──
 
         // Raffle-Einträge
@@ -115,8 +118,8 @@ class TIX_Cleanup {
             $wpdb->prepare("DELETE FROM {$wpdb->prefix}tix_seat_reservations WHERE event_id = %d", $event_id)
         );
 
-        // Ticket-Datenbank (denormalisierte Kopie)
-        $counts['ticket_db'] = (int) $wpdb->query(
+        // Ticket-Datenbank (denormalisierte Kopie) – mit Verkäufen behalten
+        $counts['ticket_db'] = $has_sales ? 0 : (int) $wpdb->query(
             $wpdb->prepare("DELETE FROM {$wpdb->prefix}tixomat_tickets WHERE event_id = %d", $event_id)
         );
 
@@ -125,8 +128,8 @@ class TIX_Cleanup {
             $wpdb->prepare("DELETE FROM {$wpdb->prefix}tixomat_promoter_events WHERE event_id = %d", $event_id)
         );
 
-        // Promoter-Provisionen (Buchhaltung → löschen, da Event weg)
-        $counts['promoter_commissions'] = (int) $wpdb->query(
+        // Promoter-Provisionen: Buchhaltung – mit Verkäufen behalten
+        $counts['promoter_commissions'] = $has_sales ? 0 : (int) $wpdb->query(
             $wpdb->prepare("DELETE FROM {$wpdb->prefix}tixomat_promoter_commissions WHERE event_id = %d", $event_id)
         );
 
@@ -152,10 +155,18 @@ class TIX_Cleanup {
                 'meta_value'     => $event_id,
                 'fields'         => 'ids',
             ]);
+            $title = (string) get_the_title($event_id);
             foreach ($tix_ticket_ids as $tt_id) {
-                wp_delete_post($tt_id, true);
+                if ($has_sales) {
+                    // Beleg bleibt: Code, Status, Bestellung; nur markieren, dass das Event gelöscht wurde
+                    update_post_meta($tt_id, '_tix_ticket_event_deleted', gmdate('c'));
+                    if ($title !== '' && !get_post_meta($tt_id, '_tix_ticket_event_title', true)) update_post_meta($tt_id, '_tix_ticket_event_title', $title);
+                } else {
+                    wp_delete_post($tt_id, true);
+                }
             }
-            $counts['tix_tickets'] = count($tix_ticket_ids);
+            $counts['tix_tickets'] = $has_sales ? 0 : count($tix_ticket_ids);
+            $counts['tix_tickets_marked'] = $has_sales ? count($tix_ticket_ids) : 0;
         }
 
         // Abandoned Carts
@@ -310,6 +321,42 @@ class TIX_Cleanup {
     /**
      * Verhindere das Löschen/Trashen von WC-Produkten die zu Tixomat gehören
      */
+    /** Verkaufte Tickets/Plätze eines Events (wie DELETE /events/{id}). */
+    public static function sales($event_id) {
+        if (class_exists('TIX_REST_API') && method_exists('TIX_REST_API', 'sales_count')) return TIX_REST_API::sales_count(intval($event_id));
+        return (class_exists('TIX_Recurrence') && TIX_Recurrence::has_sales(intval($event_id))) ? 1 : 0;
+    }
+
+    /** Serien-Hooks in der Zuordnung ab 1.38.463 (Papierkorb weich, endgültig hart). */
+    public static function restore_series_hooks() {
+        if (!class_exists('TIX_Series')) return;
+        if (!has_action('wp_trash_post', ['TIX_Series', 'on_trash_soft'])) add_action('wp_trash_post', ['TIX_Series', 'on_trash_soft']);
+        if (!has_action('before_delete_post', ['TIX_Series', 'on_trash'])) add_action('before_delete_post', ['TIX_Series', 'on_trash']);
+    }
+
+    /** WP-Admin: Papierkorb für Events mit verkauften Tickets sperren (Hinweis statt Löschen). */
+    public static function block_trash_with_sales($check, $post) {
+        if ($check !== null || !$post || $post->post_type !== 'event') return $check;
+        if (!is_admin() || wp_doing_cron() || (defined('REST_REQUEST') && REST_REQUEST)) return $check;
+        $sold = self::sales($post->ID);
+        if ($sold <= 0) return $check;
+        $list = get_transient('tix_trash_blocked_' . get_current_user_id());
+        $list = is_array($list) ? $list : [];
+        $list[] = ['id' => intval($post->ID), 'title' => (string) $post->post_title, 'sold' => $sold];
+        set_transient('tix_trash_blocked_' . get_current_user_id(), $list, 120);
+        return false;
+    }
+
+    public static function trash_blocked_notice() {
+        $list = get_transient('tix_trash_blocked_' . get_current_user_id());
+        if (!is_array($list) || !$list) return;
+        delete_transient('tix_trash_blocked_' . get_current_user_id());
+        foreach ($list as $e) {
+            printf('<div class="notice notice-error is-dismissible"><p><strong>Tixomat:</strong> „%s“ hat %d verkaufte Tickets und wurde nicht in den Papierkorb gelegt. Tickets und Bestellungen müssen erhalten bleiben – nimm das Event stattdessen offline (Entwurf) oder archiviere es.</p></div>',
+                esc_html($e['title']), intval($e['sold']));
+        }
+    }
+
     public static function protect_product($post_id) {
         // Nur WC-Produkte schützen
         if (get_post_type($post_id) !== 'product') return;
@@ -389,11 +436,10 @@ class TIX_Cleanup {
         $deleted_products = 0;
 
         // ALLE Hooks deaktivieren
-        remove_action('wp_trash_post',      [__CLASS__, 'delete_generated']);
         remove_action('before_delete_post',  [__CLASS__, 'delete_generated']);
         remove_action('wp_trash_post',      [__CLASS__, 'protect_product']);
         remove_action('before_delete_post',  [__CLASS__, 'protect_product']);
-        remove_action('wp_trash_post',      ['TIX_Series', 'on_trash']);
+        remove_action('wp_trash_post',      ['TIX_Series', 'on_trash_soft']);
         remove_action('before_delete_post', ['TIX_Series', 'on_trash']);
         remove_action('save_post_event',    ['TIX_Metabox', 'save'], 10);
         remove_action('save_post_event',    ['TIX_Sync', 'sync'], 20);
@@ -412,7 +458,14 @@ class TIX_Cleanup {
             $parent_id = get_post_meta($event_id, '_tix_series_parent', true);
             if (!$parent_id) continue;
             $parent_status = get_post_status(intval($parent_id));
-            if ($parent_status === false || $parent_status === 'trash') {
+            // Nur wenn der Master wirklich weg ist (Papierkorb ist wiederherstellbar, 1.38.463)
+            if ($parent_status === false) {
+                // Termin mit Verkäufen: nur abtrennen (wird Einzelevent), nie löschen
+                if (self::sales($event_id) > 0) {
+                    delete_post_meta($event_id, '_tix_series_parent');
+                    delete_post_meta($event_id, '_tix_series_index');
+                    continue;
+                }
                 // Erst Produkte/TC-Events dieses Events löschen
                 $cats = get_post_meta($event_id, '_tix_ticket_categories', true);
                 if (is_array($cats)) {
@@ -469,24 +522,21 @@ class TIX_Cleanup {
                 'fields'         => 'ids',
             ]);
 
+            // Tickets sind Belege: nie löschen (auch nicht bei Papierkorb-Events), nur fehlendes Event markieren (1.38.463)
             foreach ($tix_tickets as $et_id) {
                 $event_id = get_post_meta($et_id, '_tix_ticket_event_id', true);
                 if (!$event_id) continue;
-                $event_status = get_post_status(intval($event_id));
-                if ($event_status === false || $event_status === 'trash') {
-                    wp_delete_post($et_id, true);
-                    $deleted_tix_tickets++;
+                if (get_post_status(intval($event_id)) === false && !get_post_meta($et_id, '_tix_ticket_event_deleted', true)) {
+                    update_post_meta($et_id, '_tix_ticket_event_deleted', gmdate('c'));
                 }
             }
         }
 
         // Hooks wieder aktivieren
-        add_action('wp_trash_post',      [__CLASS__, 'delete_generated']);
         add_action('before_delete_post',  [__CLASS__, 'delete_generated']);
         add_action('wp_trash_post',      [__CLASS__, 'protect_product']);
         add_action('before_delete_post',  [__CLASS__, 'protect_product']);
-        add_action('wp_trash_post',      ['TIX_Series', 'on_trash']);
-        add_action('before_delete_post', ['TIX_Series', 'on_trash']);
+        self::restore_series_hooks();
         add_action('save_post_event',    ['TIX_Metabox', 'save'], 10, 2);
         add_action('save_post_event',    ['TIX_Sync', 'sync'], 20, 2);
         add_action('save_post_event',    ['TIX_Series', 'on_save'], 25, 2);

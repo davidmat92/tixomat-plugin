@@ -6936,6 +6936,9 @@ body{margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',
                 ? intval($item->cat_index)
                 : -1;
 
+            // Kategorie aus der Positions-Meta (z. B. App-Gutschein mit Wunschbetrag „Gutschein 40 €“, 1.38.463:
+            // vorher fand der Namensabgleich keine Kategorie → Ticket ohne Kategorie → kein Gutschein-Code)
+            if ($cat_index < 0 && isset($meta['cat_index']) && is_numeric($meta['cat_index'])) $cat_index = intval($meta['cat_index']);
             // Fallback: wenn cat_index nicht in DB-Spalte, via cat_name in Event-Categories suchen
             if ($cat_index < 0 && !empty($item->cat_name)) {
                 $event_cats = get_post_meta($event_id, '_tix_ticket_categories', true);

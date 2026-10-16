@@ -1426,14 +1426,25 @@ class TIX_Emails {
 
         $brand_name = self::get_settings()['email_brand_name'] ?: get_bloginfo('name');
 
+        // Gutschein als Geschenk (1.38.463): Codes jetzt erzeugen, Geschenk-Block + PDF-Anhang
+        $gift = null;
+        if (class_exists('TIX_Giftcard_Gift')) {
+            TIX_Giftcards::$in_mail = true;
+            $gift = TIX_Giftcard_Gift::mail_parts($order_id);
+            TIX_Giftcards::$in_mail = false;
+            if ($gift) update_post_meta($order_id, '_tix_gift_mail_sent', current_time('mysql'));
+        }
+
         // Customer confirmation
-        $html = self::build_email_html('order_complete', $order, 'Deine Tickets sind bereit!');
+        $html = self::build_email_html('order_complete', $order, 'Deine Tickets sind bereit!', $gift ? $gift['html'] : '');
         self::send_html_mail(
             $order->get_billing_email(),
             $brand_name . ' – Deine Tickets sind bereit!',
             $html,
-            true
+            true,
+            $gift ? $gift['files'] : []
         );
+        if ($gift) TIX_Giftcard_Gift::cleanup($gift['files']);
 
         // Marker setzen — verhindert Doppel-Versand durch Auto-Heal-Mechanismus
         update_post_meta($order_id, '_tix_completed_email_sent', current_time('mysql'));
@@ -1512,11 +1523,11 @@ class TIX_Emails {
     /**
      * HTML-Mail versenden via wp_mail mit korrektem Content-Type Header.
      */
-    public static function send_html_mail($to, $subject, $html, $for_customer = false) {
+    public static function send_html_mail($to, $subject, $html, $for_customer = false, $attachments = []) {
         $headers = ['Content-Type: text/html; charset=UTF-8'];
         // Mails an Kunden: Links auf die Kunden-Adresse (TIX_Customer_URL); Admin-Mails unverändert
         if ($for_customer && class_exists('TIX_Customer_URL')) $html = TIX_Customer_URL::in_text($html);
-        wp_mail($to, $subject, $html, $headers);
+        wp_mail($to, $subject, $html, $headers, (array) $attachments);
     }
 
     /**

@@ -674,12 +674,20 @@ class TIX_Columns {
         $post = get_post($post_id);
         if (!$post || $post->post_type !== 'event') wp_die('Event nicht gefunden.');
 
+        // Mit verkauften Tickets (auch in Serienterminen) nie endgültig löschen (1.38.463, Aufbewahrungspflicht)
+        if (class_exists('TIX_Cleanup')) {
+            $ids = array_merge([$post_id], array_map('intval', (array) (get_post_meta($post_id, '_tix_series_children', true) ?: [])));
+            $sold = 0;
+            foreach ($ids as $i) if ($i) $sold += TIX_Cleanup::sales($i);
+            if ($sold > 0) wp_die(sprintf('„%s“ hat %d verkaufte Tickets und kann nicht endgültig gelöscht werden. Tickets und Bestellungen müssen erhalten bleiben – nimm das Event offline (Entwurf) oder archiviere es.', esc_html($post->post_title), $sold), 'Nicht löschbar', ['response' => 409, 'back_link' => true]);
+        }
+
         // ALLE Hooks deaktivieren — komplette Kontrolle über die Löschung
         remove_action('wp_trash_post',      ['TIX_Cleanup', 'delete_generated']);
         remove_action('before_delete_post',  ['TIX_Cleanup', 'delete_generated']);
         remove_action('wp_trash_post',      ['TIX_Cleanup', 'protect_product']);
         remove_action('before_delete_post',  ['TIX_Cleanup', 'protect_product']);
-        remove_action('wp_trash_post',      ['TIX_Series', 'on_trash']);
+        remove_action('wp_trash_post',      ['TIX_Series', 'on_trash_soft']);
         remove_action('before_delete_post', ['TIX_Series', 'on_trash']);
         remove_action('save_post_event',    ['TIX_Metabox', 'save'], 10);
         remove_action('save_post_event',    ['TIX_Sync', 'sync'], 20);
