@@ -246,9 +246,10 @@ class TIX_Awareness_Live {
     }
 
     /**
-     * Events der letzten 30 Tage (bis heute) mit mindestens einer Meldung (Alarm) oder Rückmeldung, neueste zuerst.
+     * Events der letzten 30 Tage (bis heute) mit mindestens einem Hilferuf (Alarm), einer Rückmeldung oder einer Meldung nach dem
+     * Event (Support-Anfrage Kategorie awareness, seit 1.38.482), neueste zuerst.
      * Abschottung wie die Event-Liste (eigener Veranstalter). → {ok, range: recent, events: [{id, title, date_start, starts_at, ends_at,
-     * alerts, alerts_open, feedback, feedback_notes, last_at}]}
+     * alerts, alerts_open, feedback, feedback_notes, reports, reports_open, last_at}]}  (reports_open = offen bzw. in Bearbeitung)
      */
     private static function recent_events() {
         global $wpdb;
@@ -269,11 +270,23 @@ class TIX_Awareness_Live {
             $al = []; $fb = [];
             foreach ((array) $wpdb->get_results("SELECT event_id, COUNT(*) n, SUM(status IN ('open','taken')) o, MAX(created) l FROM " . self::t('tix_awareness_alerts') . " WHERE event_id IN ($in) GROUP BY event_id", ARRAY_A) as $r) $al[intval($r['event_id'])] = $r;
             foreach ((array) $wpdb->get_results("SELECT event_id, COUNT(*) n, SUM(note <> '') m, MAX(created) l FROM " . self::t('tix_awareness_feedback') . " WHERE event_id IN ($in) GROUP BY event_id", ARRAY_A) as $r) $fb[intval($r['event_id'])] = $r;
+            // Meldungen nach dem Event (/awareness/reports, Support-Anfragen der Kategorie awareness) zählen mit (1.38.482)
+            $rp = [];
+            $st = self::support_statuses();
+            $open = array_values(array_intersect($st, ['tix_open', 'tix_progress']));
+            $st_in = implode(',', array_map(function ($s) use ($wpdb) { return $wpdb->prepare('%s', $s); }, $st));
+            $open_in = $open ? implode(',', array_map(function ($s) use ($wpdb) { return $wpdb->prepare('%s', $s); }, $open)) : "''";
+            foreach ((array) $wpdb->get_results("SELECT CAST(ev.meta_value AS UNSIGNED) event_id, COUNT(*) n, SUM(p.post_status IN ($open_in)) o, MAX(p.post_date) l
+                FROM {$wpdb->posts} p
+                JOIN {$wpdb->postmeta} ca ON ca.post_id = p.ID AND ca.meta_key = '_tix_sp_category' AND ca.meta_value = 'awareness'
+                JOIN {$wpdb->postmeta} ev ON ev.post_id = p.ID AND ev.meta_key = '_tix_sp_event_id' AND ev.meta_value IN ('" . implode("','", $ids) . "')
+                WHERE p.post_type = 'tix_support_ticket' AND p.post_status IN ($st_in)
+                GROUP BY ev.meta_value", ARRAY_A) as $r) $rp[intval($r['event_id'])] = $r;
             $plain = function ($ts) { return $ts ? gmdate('Y-m-d H:i', $ts) : null; };
             foreach ($ids as $eid) {
-                if (empty($al[$eid]) && empty($fb[$eid])) continue;
+                if (empty($al[$eid]) && empty($fb[$eid]) && empty($rp[$eid])) continue;
                 $w = self::window($eid);
-                $last = max((string) ($al[$eid]['l'] ?? ''), (string) ($fb[$eid]['l'] ?? ''));
+                $last = max((string) ($al[$eid]['l'] ?? ''), (string) ($fb[$eid]['l'] ?? ''), (string) ($rp[$eid]['l'] ?? ''));
                 $out[] = [
                     'id'             => $eid,
                     'title'          => html_entity_decode(get_the_title($eid), ENT_QUOTES, 'UTF-8'),
@@ -284,6 +297,8 @@ class TIX_Awareness_Live {
                     'alerts_open'    => intval($al[$eid]['o'] ?? 0),
                     'feedback'       => intval($fb[$eid]['n'] ?? 0),
                     'feedback_notes' => intval($fb[$eid]['m'] ?? 0),
+                    'reports'        => intval($rp[$eid]['n'] ?? 0),
+                    'reports_open'   => intval($rp[$eid]['o'] ?? 0),
                     'last_at'        => $last !== '' ? substr($last, 0, 16) : null,
                 ];
             }
