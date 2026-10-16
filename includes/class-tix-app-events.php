@@ -944,6 +944,8 @@ class TIX_App_Events {
             $status = $manual;
         } elseif ($is_past) {
             $status = 'past';
+        } elseif (class_exists('TIX_Sync') && !TIX_Sync::online_sale($post_id)) {
+            $status = 'available';   // ohne Online-Verkauf nie „ausverkauft“ aus Beständen (1.38.462)
         } else {
             $cats = get_post_meta($post_id, '_tix_ticket_categories', true);
             $public = [];

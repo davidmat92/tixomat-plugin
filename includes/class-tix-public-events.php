@@ -162,13 +162,25 @@ class TIX_Public_Events {
         if (class_exists('TIX_Org_Approval') && !TIX_Org_Approval::event_allowed($id)) return null;
         list($start, $end) = self::times($id);
         $cats  = self::categories($id);
+        // Freier Eintritt (ohne Online-Verkauf): kein Preis, keine Ticket-Kategorien (1.38.462; Kopien trugen noch „Vorverkauf 5 €“)
+        $free  = class_exists('TIX_Event_Extras') ? TIX_Event_Extras::free_entry($id) : null;
+        if ($free !== null) $cats = [];
         $prices = array_map(function ($c) { return floatval($c['price'] ?? 0); }, $cats);
+        // Ohne Online-Verkauf keine kaufbaren Kategorien ausgeben (Website listete sie sonst als „Eintritt“); price_from bleibt
+        // (z. B. „Nur Abendkasse“ wie bisher)
+        if (get_post_meta($id, '_tix_tickets_enabled', true) !== '1') $cats = [];
         $enabled = get_post_meta($id, '_tix_tickets_enabled', true) === '1' && !empty($cats);
         // Geteiltes Event: Tickets gibt es bei der Quelle (App zeigt „Zur Veranstaltung“)
         $syndicated = class_exists('TIX_App_Checkout') ? TIX_App_Checkout::syndicated_info($id) : null;
         // (außer die Plattform verkauft über die Vermittlung: sale_via_app)
         if ($syndicated && empty($syndicated['sale_via_app'])) $enabled = false;
         $status  = (string) (get_post_meta($id, '_tix_status', true) ?: 'available');
+        $status_label = (string) get_post_meta($id, '_tix_status_label', true);
+        // ohne Online-Verkauf nie „ausverkauft“ (außer ausdrücklich gesetzt)
+        if ($status === 'sold_out' && get_post_meta($id, '_tix_tickets_enabled', true) !== '1' && (string) get_post_meta($id, '_tix_event_status', true) === '') {
+            $status = 'available';
+            $status_label = 'Verfügbar';
+        }
         $organizer = (string) (get_post_meta($id, '_tix_organizer_display', true) ?: get_post_meta($id, '_tix_organizer', true));
         if ($organizer === '' && ($oid = intval(get_post_meta($id, '_tix_organizer_id', true)))) $organizer = (string) get_the_title($oid);
         // Plattform-Felder (evendis): Veranstalter-Referenz, Sparte, Ort mit Stadt/Koordinaten, Module
@@ -206,7 +218,7 @@ class TIX_Public_Events {
             'modules'         => ($platform && !empty($org_info['id'])) ? TIX_Public_Platform::modules($org_info['id']) : null,
             'age_label'       => self::age_label($id),
             'status'          => $status,
-            'status_label'    => (string) get_post_meta($id, '_tix_status_label', true),
+            'status_label'    => $status_label,
             'tickets_enabled' => $enabled,
             'syndicated'      => $syndicated,
             'price_from'      => $prices ? round(min($prices), 2) : null,
@@ -215,8 +227,8 @@ class TIX_Public_Events {
             'is_past'         => $end > 0 && $end < self::now(),
             'excerpt'         => (string) $post->post_excerpt,
             // Freier Eintritt ohne Tickets (1.38.363): Apps zeigen „Eintritt frei“ statt Preis/Kasse
-            'free_entry'      => class_exists('TIX_Event_Extras') && TIX_Event_Extras::free_entry($id) !== null,
-            'free_entry_note' => class_exists('TIX_Event_Extras') ? (string) (TIX_Event_Extras::free_entry($id)['note'] ?? '') : '',
+            'free_entry'      => $free !== null,
+            'free_entry_note' => (string) ($free['note'] ?? ''),
         ];
         // Suchmaschinen/Vorschau (Website): Titel, Kurzbeschreibung ≤ 160 Zeichen, großes Bild
         $out['seo'] = self::seo($post, $out['image']);

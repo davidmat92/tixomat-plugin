@@ -47,6 +47,7 @@ class TIX_Event_Copy {
                         $cat['product_id'] = '';
                         $cat['tc_event_id'] = '';
                         $cat['sku'] = '';
+                        unset($cat['sold'], $cat['sold_count']);
                         $qty = intval($cat['qty'] ?? ($cat['quantity'] ?? 0));
                         if ($qty > 0) $cat['stock'] = $qty; else unset($cat['stock']);
                     }
@@ -55,13 +56,54 @@ class TIX_Event_Copy {
                 }
                 continue;
             }
+            // eine Zeile je Feld (doppelte Zeilen im Original, z. B. _tix_tickets_enabled aus alten Kopien, nicht weitergeben)
             delete_post_meta($to, $key);
-            foreach ($values as $v) add_post_meta($to, $key, maybe_unserialize($v));
+            add_post_meta($to, $key, maybe_unserialize($values[0]), true);
         }
     }
 
     /** Nach dem Kopieren: abgeleitete Felder neu erzeugen (Kalender-Links). */
     public static function after_copy($new_id) {
         if (class_exists('TIX_Calendar') && method_exists('TIX_Calendar', 'save_meta')) TIX_Calendar::save_meta($new_id);
+    }
+
+    // ── Selbstheilung 1.38.462 (einmal je Seite) ──
+
+    const HEAL_OPTION = 'tix_heal_status_462';
+
+    public static function init_heal() {
+        if (get_option(self::HEAL_OPTION, '') !== '') return;
+        add_action('init', [__CLASS__, 'heal_status'], 99);
+    }
+
+    /**
+     * Events ohne Online-Verkauf (Tickets aus bzw. freier Eintritt) mit automatisch berechnetem „Ausverkauft“ neu berechnen
+     * und doppelte _tix_*-Zeilen an Events auf die erste (gültige) Zeile zurückführen. → ['status' => n, 'duplicates' => n]
+     */
+    public static function heal_status() {
+        global $wpdb;
+        update_option(self::HEAL_OPTION, gmdate('c'), false);
+        $out = ['status' => 0, 'duplicates' => 0];
+        // doppelte Zeilen (z. B. _tix_tickets_enabled aus alten Kopien): erste Zeile = Wert, den get_post_meta liefert
+        $dups = $wpdb->get_results("SELECT m.post_id, m.meta_key, MIN(m.meta_id) AS keep_id FROM {$wpdb->postmeta} m
+            INNER JOIN {$wpdb->posts} p ON p.ID = m.post_id AND p.post_type = 'event'
+            WHERE m.meta_key LIKE '\\_tix\\_%' GROUP BY m.post_id, m.meta_key HAVING COUNT(*) > 1 LIMIT 5000");
+        foreach ((array) $dups as $d) {
+            $out['duplicates'] += intval($wpdb->query($wpdb->prepare("DELETE FROM {$wpdb->postmeta} WHERE post_id = %d AND meta_key = %s AND meta_id <> %d", $d->post_id, $d->meta_key, $d->keep_id)));
+            wp_cache_delete(intval($d->post_id), 'post_meta');
+        }
+        $ids = $wpdb->get_col("SELECT p.ID FROM {$wpdb->posts} p
+            INNER JOIN {$wpdb->postmeta} s ON s.post_id = p.ID AND s.meta_key = '_tix_status' AND s.meta_value = 'sold_out'
+            LEFT JOIN {$wpdb->postmeta} o ON o.post_id = p.ID AND o.meta_key = '_tix_event_status'
+            LEFT JOIN {$wpdb->postmeta} t ON t.post_id = p.ID AND t.meta_key = '_tix_tickets_enabled'
+            WHERE p.post_type = 'event' AND (o.meta_value IS NULL OR o.meta_value = '') AND (t.meta_value IS NULL OR t.meta_value <> '1')");
+        foreach ((array) $ids as $id) {
+            if (class_exists('TIX_App_Events') && method_exists('TIX_App_Events', 'resolve_status')) TIX_App_Events::resolve_status(intval($id));
+            else { update_post_meta($id, '_tix_status', 'available'); update_post_meta($id, '_tix_status_label', 'Verfügbar'); }
+            $out['status']++;
+        }
+        if ($out['status'] && class_exists('TIX_Public_Events') && method_exists('TIX_Public_Events', 'flush')) TIX_Public_Events::flush();
+        update_option(self::HEAL_OPTION, wp_json_encode(['at' => gmdate('c')] + $out), false);
+        return $out;
     }
 }

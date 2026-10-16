@@ -347,6 +347,18 @@ class TIX_REST_API {
             'permission_callback' => [__CLASS__, 'check_organizer'],
         ]);
 
+        // Papierkorb (1.38.462): DELETE /events/{id} (nur ohne Verkäufe), POST /events/{id}/restore
+        register_rest_route($ns, '/events/(?P<id>\d+)', [
+            'methods'             => 'DELETE',
+            'callback'            => [__CLASS__, 'trash_event'],
+            'permission_callback' => [__CLASS__, 'check_organizer'],
+        ]);
+        register_rest_route($ns, '/events/(?P<id>\d+)/restore', [
+            'methods'             => 'POST',
+            'callback'            => [__CLASS__, 'restore_event'],
+            'permission_callback' => [__CLASS__, 'check_organizer'],
+        ]);
+
         register_rest_route($ns, '/events/(?P<id>\d+)/statistics', [
             'methods'             => 'GET',
             'callback'            => [__CLASS__, 'event_statistics'],
@@ -890,6 +902,55 @@ class TIX_REST_API {
         elseif (TIX_Archive::is_archived($id)) TIX_Archive::unarchive_event($id);
         if (class_exists('TIX_Public_Events') && method_exists('TIX_Public_Events', 'flush')) TIX_Public_Events::flush();
         return rest_ensure_response(['ok' => true, 'event_id' => $id, 'archived' => TIX_Archive::is_archived($id), 'archived_at' => (string) get_post_meta($id, TIX_Archive::META_DATE, true) ?: null]);
+    }
+
+    /** Verkaufte (nicht stornierte) Tickets bzw. Plätze in offenen/bezahlten Bestellungen – Gästeliste zählt nicht. */
+    public static function sales_count($event_id) {
+        global $wpdb;
+        $n = intval(self::ticket_counts($event_id)['total'] ?? 0);
+        $t = $wpdb->prefix . 'tix_orders';
+        $ti = $wpdb->prefix . 'tix_order_items';
+        if ($wpdb->get_var("SHOW TABLES LIKE '$t'") === $t) {
+            $q = intval($wpdb->get_var($wpdb->prepare("SELECT COALESCE(SUM(i.quantity), 0) FROM $ti i INNER JOIN $t o ON o.id = i.order_id
+                WHERE i.event_id = %d AND o.status NOT IN ('cancelled', 'failed', 'refunded', 'trash')", intval($event_id))));
+            $n = max($n, $q);
+        }
+        return $n;
+    }
+
+    /**
+     * DELETE /events/{id} → in den Papierkorb (nicht endgültig). Mit Verkäufen 409 tix_has_sales {sold}.
+     * Geteilte Events: wie der Papierkorb im WP-Admin – die Verteilung nimmt das Plattform-Event auf Entwurf zurück
+     * (TIX_Syndication_Push::on_status_change; nicht bei einer Kopie mit derselben remote_id).
+     */
+    public static function trash_event(WP_REST_Request $req) {
+        $id = absint($req['id']);
+        $post = get_post($id);
+        if (!$post || $post->post_type !== 'event') return new WP_Error('not_found', 'Event nicht gefunden.', ['status' => 404]);
+        if (!self::can_access_event($id)) return new WP_Error('forbidden', 'Kein Zugriff auf dieses Event.', ['status' => 403]);
+        if ($post->post_status === 'trash') return rest_ensure_response(['ok' => true, 'event_id' => $id, 'trashed' => true]);
+        $sold = self::sales_count($id);
+        if ($sold > 0) {
+            return new WP_Error('tix_has_sales', sprintf('Das Event hat %d verkaufte Tickets und kann nicht gelöscht werden. Archivieren oder als Entwurf offline nehmen geht.', $sold), ['status' => 409, 'sold' => $sold]);
+        }
+        if (!wp_trash_post($id)) return new WP_Error('tix_trash_failed', 'Das Event konnte nicht gelöscht werden.', ['status' => 500]);
+        if (class_exists('TIX_Public_Events') && method_exists('TIX_Public_Events', 'flush')) TIX_Public_Events::flush();
+        return rest_ensure_response(['ok' => true, 'event_id' => $id, 'trashed' => true]);
+    }
+
+    /** POST /events/{id}/restore → aus dem Papierkorb, immer als Entwurf (Veröffentlichen danach wie gewohnt). */
+    public static function restore_event(WP_REST_Request $req) {
+        $id = absint($req['id']);
+        $post = get_post($id);
+        if (!$post || $post->post_type !== 'event') return new WP_Error('not_found', 'Event nicht gefunden.', ['status' => 404]);
+        if (!self::can_access_event($id)) return new WP_Error('forbidden', 'Kein Zugriff auf dieses Event.', ['status' => 403]);
+        if ($post->post_status !== 'trash') return new WP_Error('tix_not_trashed', 'Das Event liegt nicht im Papierkorb.', ['status' => 409, 'post_status' => $post->post_status]);
+        $draft = function () { return 'draft'; };
+        add_filter('wp_untrash_post_status', $draft, 99);
+        $ok = wp_untrash_post($id);
+        remove_filter('wp_untrash_post_status', $draft, 99);
+        if (!$ok) return new WP_Error('tix_restore_failed', 'Das Event konnte nicht wiederhergestellt werden.', ['status' => 500]);
+        return rest_ensure_response(['ok' => true, 'event_id' => $id, 'restored' => true, 'status' => get_post_status($id)]);
     }
 
     public static function get_event(WP_REST_Request $req) {

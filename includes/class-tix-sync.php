@@ -763,6 +763,10 @@ class TIX_Sync {
         if ($manual_status !== '') {
             // Manueller Override
             $resolved_status = $manual_status;
+        } elseif (!self::online_sale($post_id)) {
+            // Ohne Online-Verkauf (Tickets aus, freier Eintritt, nur Abendkasse): nie „ausverkauft“ aus Kategorie-Beständen
+            // bzw. Vorverkaufs-Schalter ableiten (1.38.462, Fund kitchenklub.de: Kopien mit freiem Eintritt zeigten „Ausverkauft“)
+            $resolved_status = 'available';
         } else {
             // Auto-Detect
             $presale_active = get_post_meta($post_id, '_tix_presale_active', true);
@@ -833,6 +837,12 @@ class TIX_Sync {
      * Leichtgewichtiges Preis-Meta-Update (für Cron-Phase-Check)
      * Aktualisiert nur die Preis-Breakdance-Meta ohne vollen Sync
      */
+    /** Online-Verkauf aktiv? Nur dann darf der Status automatisch „ausverkauft“ werden (sonst nur per Override). */
+    public static function online_sale($post_id) {
+        if (get_post_meta($post_id, '_tix_tickets_enabled', true) !== '1') return false;
+        return true;
+    }
+
     public static function update_price_meta($post_id, $categories) {
         $online_cats  = array_filter($categories, fn($c) => ($c['online'] ?? '1') === '1' && empty($c['offline_ticket']));
         $prices = [];
