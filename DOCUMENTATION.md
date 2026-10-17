@@ -2590,6 +2590,11 @@ Zweite Speicherung aller Seiten in einem eigenen Supabase-Projekt (EU). **WordPr
   - Kommt ein Gutschein anonymisiert an (`…@removed.invalid`), wird sein älterer Verlauf getilgt.
   - Das Anonymisieren in WordPress selbst (Vorschlag an den Plugin-Chat) gehört in `TIX_Account_Delete`.
   - `vergleich-wp.php` und `datenschutz-scan.sql` melden „Gutscheine mit Empfänger-Adresse trotz gelöschtem Käufer“. Migration `20261017150000_mirror_coupon_privacy.sql`.
+- **Nicht gespiegelt: Support-Anfragen** (`tix_support_ticket`, Nachrichten, `_tix_sp_*`). Sie können Freitext mit IBAN, Gesundheits- oder Zahlungsdaten enthalten. Die Auszahlungs-Anfrage beim Konto-Löschen (1.38.499, `_tix_sp_retain_until`, `_tix_sp_wallet_payout`) behält ihre Frist nur in WordPress; `mirror_forget` kollidiert damit nicht.
+- **Guthaben beim Konto-Löschen (1.38.499):**
+  - Der Bonus verfällt als Buchung `type = expire`.
+  - Das bezahlte Restguthaben bleibt an der geschlossenen Geldbörse (`wallets.status = closed`, `user_id` negativ, `balance_paid` > 0).
+  - Der Bonus-Verfall im täglichen Lauf ist ebenfalls `expire`.
 - **Guthaben-Korrektur durch das Team:** `type = adjust`, `channel = admin`; Grund und Mitarbeiter stehen in `wallet_transactions.meta` (`reason`, `by`).
 - **Werkzeuge:** `migrate.sh` spielt nur neue Migrationen ein (`--all` alle, `--verify` Rechte, `--sql` Datei). `datenschutz-scan.sql` ist die projektweite Suche (nur lesend).
 - **Kennung der Seite:** `TIX_MIRROR_SITE` in wp-config (Vorrang), sonst Option `tix_mirror['site']`, sonst Domain aus `home_url()`. Fest einstellen, damit ein Domain-Wechsel keine zweite Seite anlegt. Umbenennen im Spiegel: `supabase/tools/kennung-evendis.sql` als Vorlage (eine Transaktion, ohne neuen Verlauf). Kennungen: `kitchenklub.de`, `mallorca-festival-xxl.de`, `evendis.de`.
