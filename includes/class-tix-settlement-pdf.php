@@ -60,7 +60,84 @@ class TIX_Settlement_PDF {
     }
 
     private static function rtext($pdf, $x_right, $y, $str, $size) {
-        $pdf->text(intval(round($x_right - self::text_width($str, $size))), $y, $str);
+        $w = method_exists($pdf, 'width') ? $pdf->width($str, $size) : self::text_width($str, $size);
+        $pdf->text(round($x_right - $w, 2), $y, $str);
+    }
+
+    /** PDF/A-3-Schreiber mit eingebetteter E-Rechnung (1.38.501), sonst wie bisher TIX_Simple_PDF. */
+    private static function writer($title, $author, $doc = null) {
+        if (class_exists('TIX_PDFA') && TIX_PDFA::available()) {
+            $pdf = new TIX_PDFA(self::W, self::H, self::M, 40);
+            $meta = ['title' => $title, 'author' => $author];
+            if ($doc && class_exists('TIX_EInvoice')) {
+                $pdf->attach('factur-x.xml', TIX_EInvoice::render($doc), 'text/xml', 'E-Rechnung nach EN 16931 (ZUGFeRD/Factur-X)', 'Alternative');
+                $meta = array_merge($meta, TIX_EInvoice::xmp_parts());
+            }
+            $pdf->set_meta($meta);
+            return $pdf;
+        }
+        return new TIX_Simple_PDF(self::W, self::H, self::M, 40);
+    }
+
+    /** Gebührenrechnung (EVR) als E-Rechnungs-Dokument (TIX_EInvoice::render) oder null. */
+    public static function invoice_doc($s) {
+        global $wpdb;
+        if (!$s || $s->invoice_number === '' || floatval($s->invoice_total) <= 0 || $s->tax_mode !== 'agency' || in_array($s->status, ['draft', 'void'], true)) return null;
+        if (!class_exists('TIX_EInvoice')) return null;
+        $sum = $wpdb->get_row($wpdb->prepare("SELECT SUM(platform_fee) AS pf, SUM(gateway_fee) AS gw FROM " . TIX_Settlement::items_table() . " WHERE settlement_id = %d AND type IN ('order','late')", intval($s->id)));
+        $pf = round(floatval($sum->pf ?? 0), 2); $gw = round(floatval($sum->gw ?? 0), 2);
+        $total = round($pf + $gw, 2);
+        $rate = floatval(TIX_Settlement::opt('settlement_fee_vat_rate'));
+        list($net, $vat) = TIX_EInvoice::split_gross($total, $rate);
+        $what = $s->type === 'balance' ? 'Nachverkäufe/Korrekturen' : (string) $s->event_title;
+        $lines = [];
+        $pf_net = $total > 0 ? round($net * $pf / $total, 2) : 0.0;
+        if ($pf > 0) $lines[] = ['name' => 'Plattformgebühr Ticketverkauf: ' . $what, 'desc' => '', 'qty' => 1, 'net' => $gw > 0 ? $pf_net : $net, 'rate' => $rate];
+        if ($gw > 0) $lines[] = ['name' => 'Zahlungsabwicklung (weiterberechnete Zahlungsgebühren)', 'desc' => '', 'qty' => 1, 'net' => $pf > 0 ? round($net - $pf_net, 2) : $net, 'rate' => $rate];
+        $snap = TIX_Settlement::snap($s);
+        return [
+            'number' => (string) $s->invoice_number, 'type' => '380', 'issue_date' => substr((string) $s->created, 0, 10),
+            'service_date' => substr((string) ($s->event_date ?: ($s->period_to ?: $s->created)), 0, 10),
+            'notes' => ['Zu Abrechnung ' . $s->number], 'small_business' => false,
+            'seller' => TIX_EInvoice::platform_seller(), 'buyer' => TIX_EInvoice::snapshot_buyer($snap),
+            'lines' => $lines, 'taxes' => [['rate' => $rate, 'net' => $net, 'tax' => $vat]],
+            'prepaid' => true, 'terms' => 'Mit dem Auszahlungsbetrag der Abrechnung ' . $s->number . ' verrechnet.', 'ref' => null, 'due_date' => null,
+        ];
+    }
+
+    /** Kanal-Rechnung (KG) als E-Rechnungs-Dokument; Gutschrift (Betrag < 0) als 381 mit positiven Beträgen. */
+    public static function channel_doc($inv) {
+        if (!$inv || !class_exists('TIX_EInvoice')) return null;
+        $items = json_decode((string) $inv->items, true);
+        $items = is_array($items) ? $items : [];
+        $total = round(floatval($inv->amount), 2);
+        if (abs($total) < 0.005) return null;
+        $credit = $total < 0;
+        $sign = $credit ? -1 : 1;
+        $rate = floatval(TIX_Settlement::opt('settlement_fee_vat_rate'));
+        list($net, $vat) = TIX_EInvoice::split_gross(abs($total), $rate);
+        $lines = []; $left = $net; $gross_abs = abs($total);
+        $n = count($items);
+        foreach (array_values($items) as $i => $ln) {
+            $g = $sign * floatval($ln['fee'] ?? 0) * (($ln['type'] ?? '') === 'credit' ? -1 : 1);
+            $part = $i === $n - 1 ? round($left, 2) : round($net * $g / $gross_abs, 2);
+            $left = round($left - $part, 2);
+            $lines[] = ['name' => (($ln['type'] ?? '') === 'credit' ? 'Gutschrift (Storno/Erstattung): ' : 'Kanal-Gebühr: ') . (string) ($ln['event'] ?? ''), 'desc' => trim((string) ($ln['date'] ?? '') . ' · ' . (string) ($ln['order'] ?? ''), ' ·'), 'qty' => 1, 'net' => $part, 'rate' => $rate];
+        }
+        if (!$lines) $lines[] = ['name' => 'Kanal-Gebühr ' . $inv->period, 'desc' => '', 'qty' => 1, 'net' => $net, 'rate' => $rate];
+        $snap = json_decode((string) $inv->snapshot, true);
+        $snap = is_array($snap) ? $snap : [];
+        $sepa = ($inv->payment ?? 'sepa') === 'sepa';
+        return [
+            'number' => (string) $inv->number, 'type' => $credit ? '381' : '380', 'issue_date' => substr((string) $inv->created, 0, 10),
+            'service_date' => gmdate('Y-m-t', strtotime($inv->period . '-01 12:00:00')),
+            'notes' => ['Gebühr für Ticketverkäufe geteilter Events im Plattform-Kanal, Zeitraum ' . $inv->period . '.'], 'small_business' => false,
+            'seller' => TIX_EInvoice::platform_seller(), 'buyer' => TIX_EInvoice::snapshot_buyer($snap),
+            'lines' => $lines, 'taxes' => [['rate' => $rate, 'net' => $net, 'tax' => $vat]],
+            'prepaid' => false,
+            'terms' => $credit ? 'Wird mit der nächsten Rechnung verrechnet bzw. auf Wunsch überwiesen.' : ($sepa ? 'Einzug per SEPA-Lastschrift zum Fälligkeitsdatum.' : 'Zahlbar per Überweisung bis zum Fälligkeitsdatum, Verwendungszweck ' . $inv->number . '.'),
+            'ref' => null, 'due_date' => (!$credit && !empty($inv->due_date)) ? (string) $inv->due_date : null,
+        ];
     }
 
     private static function wrap($text, $max) {
@@ -316,7 +393,7 @@ class TIX_Settlement_PDF {
         $net = round($total / (1 + $rate / 100), 2);
         $vat = round($total - $net, 2);
 
-        $pdf = new TIX_Simple_PDF(self::W, self::H, self::M, 40);
+        $pdf = self::writer('Rechnung ' . $s->invoice_number, (string) (TIX_EInvoice::platform_seller()['name'] ?? ''), self::invoice_doc($s));
         $pdf->add_page();
         $leistung = $s->event_date ? mysql2date('d.m.Y', $s->event_date)
             : (($s->period_from && $s->period_to) ? mysql2date('d.m.Y', $s->period_from) . ' – ' . mysql2date('d.m.Y', $s->period_to) : '');
@@ -355,7 +432,7 @@ class TIX_Settlement_PDF {
         $ym = (string) $inv->period;
         $month = date_i18n('F Y', strtotime($ym . '-01'));
 
-        $pdf = new TIX_Simple_PDF(self::W, self::H, self::M, 40);
+        $pdf = self::writer(($credit ? 'Gutschrift ' : 'Rechnung ') . $inv->number, (string) (TIX_EInvoice::platform_seller()['name'] ?? ''), self::channel_doc($inv));
         $pdf->add_page();
         $y = self::head($pdf, $inv, ($credit ? 'Gutschrift ' : 'Rechnung ') . $inv->number, [
             ($credit ? 'Gutschriftnr.' : 'Rechnungsnr.') => $inv->number,

@@ -178,6 +178,12 @@ class TIX_Settlement_REST {
         $s = self::own($req['id']);
         if (!$s) return new WP_Error('tix_not_found', 'Abrechnung nicht gefunden.', ['status' => 404]);
         $doc = $req->get_param('doc') === 'invoice' ? 'invoice' : 'settlement';
+        // E-Rechnung zur Gebührenrechnung (1.38.501): ?doc=invoice&format=xml
+        if ($doc === 'invoice' && $req->get_param('format') === 'xml') {
+            $d = class_exists('TIX_Settlement_PDF') ? TIX_Settlement_PDF::invoice_doc($s) : null;
+            if (!$d) return new WP_Error('tix_no_pdf', 'Zu dieser Abrechnung gibt es keine Gebührenrechnung.', ['status' => 404]);
+            return rest_ensure_response(['filename' => 'E-Rechnung-' . $s->invoice_number . '.xml', 'mime' => 'application/xml', 'data' => base64_encode(TIX_EInvoice::render($d))]);
+        }
         $pdf = class_exists('TIX_Settlement_PDF') ? TIX_Settlement_PDF::render($s, $doc) : null;
         if (!$pdf) return new WP_Error('tix_no_pdf', 'Für diese Abrechnung gibt es (noch) kein PDF.', ['status' => 404]);
         return rest_ensure_response([
