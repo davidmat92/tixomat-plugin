@@ -74,6 +74,9 @@ class TIX_Account_Delete {
 
         $account_email = (string) $user->user_email;
         $email = class_exists('TIX_App_Account') ? TIX_App_Account::match_email($user) : $account_email;
+        // Restguthaben vor der Löschung festhalten (danach Auszahlungs-Anfrage, 1.38.499)
+        $open_wallets = class_exists('TIX_Wallet_Balance') && method_exists('TIX_Wallet_Balance', 'open_wallets') ? TIX_Wallet_Balance::open_wallets($uid) : [];
+        $display_name = trim((string) $user->display_name);
         $anon_hash = substr(hash('sha256', $email . wp_generate_password(32, true)), 0, 12);
         $anon_email = 'gelöscht-' . $anon_hash . '@removed.invalid';
         $anon_name = '[Gelöscht]';
@@ -99,8 +102,10 @@ class TIX_Account_Delete {
         if (count($log) > 500) $log = array_slice($log, -500);
         update_option('tix_deleted_accounts_log', $log, false);
 
+        // 8. Bezahltes Restguthaben: Support-Anfrage „Auszahlung Restguthaben“ (bleibt bis zum Ende der Verjährung, dann anonymisiert)
+        $payout = ($open_wallets && class_exists('TIX_Wallet_Balance')) ? TIX_Wallet_Balance::payout_request($account_email, $display_name, $open_wallets, $uid) : null;
         $info = ['anon_hash' => $anon_hash, 'source' => $source, 'orders' => $orders, 'tickets' => count($tickets), 'support' => count($sp), 'giftcards' => $gifts,
-            'retention' => $retain ? 'retain' : 'anonymize', 'retained' => $retained];
+            'retention' => $retain ? 'retain' : 'anonymize', 'retained' => $retained, 'wallet_payout_request' => $payout];
         /** Konto ist gelöscht und anonymisiert (z. B. Datenspiegel: Verlauf mit Personenbezug tilgen). */
         do_action('tix_account_deleted', $uid, $account_email, $info);
         return $info;
@@ -272,6 +277,39 @@ class TIX_Account_Delete {
                 WHERE a.address_type='billing' AND o.billing_email LIKE %s AND a.first_name <> %s AND o.date_created_gmt < %s", self::ANON_NAME, '%@removed.invalid', self::ANON_NAME, $cut)));
         }
         if ($n) do_action('tix_order_retention_expired', $n);
+        self::expire_payout_requests();
+        return $n;
+    }
+
+    /**
+     * Auszahlungs-Anfragen gelöschter Konten (1.38.499): Nach Ablauf von _tix_sp_retain_until bzw. 90 Tage nach dem Abschluss
+     * E-Mail, Name und die Nachrichten des Kunden (enthalten ggf. die IBAN) anonymisieren; Betrag und Geldbörsen-Bezug bleiben.
+     */
+    public static function expire_payout_requests() {
+        $today = current_time('Y-m-d');
+        $closed_cut = gmdate('Y-m-d H:i:s', time() - 90 * DAY_IN_SECONDS);
+        $n = 0;
+        $ids = get_posts(['post_type' => 'tix_support_ticket', 'post_status' => array_values(get_post_stati()), 'posts_per_page' => 200, 'fields' => 'ids',
+            'meta_query' => [['key' => '_tix_sp_retain_until', 'compare' => 'EXISTS'], ['key' => '_tix_sp_email', 'value' => '@removed.invalid', 'compare' => 'NOT LIKE']]]);
+        foreach ($ids as $id) {
+            $until = (string) get_post_meta($id, '_tix_sp_retain_until', true);
+            $done = in_array(get_post_status($id), ['tix_closed', 'tix_resolved'], true) && get_post_field('post_modified_gmt', $id) < $closed_cut;
+            if (!($until !== '' && $until < $today) && !$done) continue;
+            $anon = 'gelöscht-' . substr(hash('sha256', $id . wp_generate_password(32, true)), 0, 12) . '@removed.invalid';
+            update_post_meta($id, '_tix_sp_email', $anon);
+            update_post_meta($id, '_tix_sp_name', self::ANON_NAME);
+            $msgs = get_post_meta($id, '_tix_sp_messages', true);
+            if (is_array($msgs)) {
+                foreach ($msgs as $i => $m) {
+                    if (!is_array($m) || ($m['type'] ?? '') !== 'customer') continue;
+                    $msgs[$i]['email'] = $anon;
+                    $msgs[$i]['author'] = self::ANON_NAME;
+                    $msgs[$i]['content'] = '[Inhalt nach Fristende gelöscht]';
+                }
+                update_post_meta($id, '_tix_sp_messages', $msgs);
+            }
+            $n++;
+        }
         return $n;
     }
 }

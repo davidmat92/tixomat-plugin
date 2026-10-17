@@ -1068,9 +1068,11 @@ class TIX_My_Account {
         // Session zerstören
         wp_clear_auth_cookie();
 
+        $payout = $res['wallet_payout_request'] ?? null;
         wp_send_json_success([
-            'message'  => 'Dein Konto wurde gelöscht. Du wirst gleich abgemeldet.',
+            'message'  => 'Dein Konto wurde gelöscht.' . ($payout ? ' Für dein Restguthaben (' . number_format(floatval($payout['amount']), 2, ',', '.') . ' €) haben wir eine Auszahlung angefragt – du bekommst eine E-Mail.' : '') . ' Du wirst gleich abgemeldet.',
             'redirect' => home_url('/'),
+            'wallet_payout_request' => $payout,
         ]);
     }
 }

@@ -501,7 +501,7 @@ class TIX_Customers {
         $deleted = ['orders_anonymized' => intval($res['orders'] ?? 0), 'tickets' => intval($res['tickets'] ?? 0), 'support' => intval($res['support'] ?? 0), 'account' => (bool) $c['user_id']];
         self::audit('customer_delete', $c['id'], $sc, ['account' => (bool) $c['user_id'], 'orders' => $deleted['orders_anonymized'], 'retained' => count((array) ($res['retained'] ?? [])), 'tickets' => $deleted['tickets'], 'support' => $deleted['support'], 'wallet_confirmed' => $sum['wallet_balance'] !== null && $sum['wallet_balance'] > 0]);
         return rest_ensure_response(['ok' => true, 'customer_id' => $c['id'], 'deleted' => $deleted, 'retained' => array_values((array) ($res['retained'] ?? [])),
-            'retention' => (string) ($res['retention'] ?? '')]);
+            'retention' => (string) ($res['retention'] ?? ''), 'wallet_payout_request' => $res['wallet_payout_request'] ?? null]);
     }
 
     // ═══════════════ Guthaben manuell ═══════════════

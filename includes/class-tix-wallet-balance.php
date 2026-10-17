@@ -50,6 +50,8 @@ class TIX_Wallet_Balance {
     const CHANNELS  = ['app', 'web', 'pos_cash', 'pos_card', 'sumup', 'admin', 'system', 'giftcard'];
     const PAY_CRON  = 'tix_wallet_pay_timeout';   // offene Bestellungen mit Guthaben-Anteil nach 3 h stornieren
     const PER_PAGE  = 30;
+    const EXPIRE_CRON = 'tix_wallet_bonus_expire'; // täglich: Bonus-Guthaben nach bonus_days verfallen lassen (nur mit bonus_expires)
+    const PAID_YEARS = 3;                           // bezahltes Guthaben: gesetzliche Frist, Ende des dritten Jahres (nur Anzeige)
 
     public static function init() {
         add_action('init', [__CLASS__, 'maybe_install'], 9);
@@ -60,9 +62,11 @@ class TIX_Wallet_Balance {
         add_action('tix_order_chargeback', [__CLASS__, 'on_chargeback'], 10, 3);
         add_action('pre_get_posts', [__CLASS__, 'hide_system_event']);
         add_action('delete_user', [__CLASS__, 'on_delete_user']);
+        add_action(self::EXPIRE_CRON, [__CLASS__, 'cron_bonus_expire']);
         add_action(self::PAY_CRON, [__CLASS__, 'cron_pay_timeout']);
         add_action('init', function () {
             if (!wp_next_scheduled(TIX_Wallet_Balance::PAY_CRON)) wp_schedule_event(time() + 1200, 'hourly', TIX_Wallet_Balance::PAY_CRON);
+            if (!wp_next_scheduled(TIX_Wallet_Balance::EXPIRE_CRON)) wp_schedule_event(time() + 3600, 'daily', TIX_Wallet_Balance::EXPIRE_CRON);
         }, 27);
         add_action('admin_menu', [__CLASS__, 'menu'], 48);
         add_action('admin_post_tix_wallet_settings', [__CLASS__, 'admin_save_settings']);
@@ -209,6 +213,9 @@ class TIX_Wallet_Balance {
             'approval_threshold' => 50,          // Face-ID-Freigabe, erst ab Phase 2 aktiv
             'stations'           => ['Bar 1'],
             'refund_policy'      => 'Bezahltes Restguthaben erstatten wir auf Wunsch, Bonus nicht.',
+            // Gültigkeit (1.38.499): Bonus-Guthaben gilt bonus_days Tage ab Gutschrift (0 = unbegrenzt); verfällt nur mit bonus_expires
+            'bonus_days'         => 365,
+            'bonus_expires'      => false,
         ];
     }
 
@@ -228,6 +235,8 @@ class TIX_Wallet_Balance {
             if (array_key_exists($k, $in)) $s[$k] = max($r[0], min($r[1], round(floatval(str_replace(',', '.', (string) $in[$k])), 2)));
         }
         if (array_key_exists('new_account_days', $in)) $s['new_account_days'] = max(0, min(365, intval($in['new_account_days'])));
+        if (array_key_exists('bonus_days', $in)) $s['bonus_days'] = max(0, min(3650, intval($in['bonus_days'])));
+        if (array_key_exists('bonus_expires', $in)) $s['bonus_expires'] = filter_var($in['bonus_expires'], FILTER_VALIDATE_BOOLEAN);
         if ($s['free_max'] < $s['free_min']) $s['free_max'] = $s['free_min'];
         if (array_key_exists('bonus_tiers', $in)) {
             $tiers = [];
@@ -947,6 +956,141 @@ class TIX_Wallet_Balance {
         return intval($wpdb->get_var($wpdb->prepare("SELECT COALESCE(SUM(balance_paid),0) FROM " . self::t('wallets') . " WHERE user_id = %d", intval($user_id))));
     }
 
+    // ═══════════════ Gültigkeit, Verfall, Auszahlung bei Kontolöschung (1.38.499) ═══════════════
+
+    /**
+     * Offene Posten einer Geldbörse nach FIFO (ältester Betrag wird zuerst verbraucht): Gutschriften mit Datum, davon
+     * abgezogen alle Abgänge der Spalte. $col paid|bonus → [[created (GMT), cents], …] (nur mit Rest > 0, älteste zuerst)
+     */
+    public static function lots($wallet_id, $col) {
+        global $wpdb;
+        if (!self::ready()) return [];
+        $c = $col === 'bonus' ? 'amount_bonus' : 'amount_paid';
+        $T = self::t('wallet_tx');
+        $used = -intval($wpdb->get_var($wpdb->prepare("SELECT COALESCE(SUM($c),0) FROM $T WHERE wallet_id = %d AND $c < 0", intval($wallet_id))));
+        $out = [];
+        foreach ((array) $wpdb->get_results($wpdb->prepare("SELECT created, $c AS a FROM $T WHERE wallet_id = %d AND $c > 0 ORDER BY created ASC, id ASC", intval($wallet_id)), ARRAY_A) as $r) {
+            $a = intval($r['a']);
+            $take = min($a, $used);
+            $used -= $take;
+            if ($a - $take > 0) $out[] = [(string) $r['created'], $a - $take];
+        }
+        return $out;
+    }
+
+    /** Bezahltes Guthaben: gültig bis 31.12. des dritten Jahres nach der Aufladung (Y-m-d). */
+    public static function paid_valid_until($created_gmt) {
+        return (intval(get_date_from_gmt((string) $created_gmt, 'Y')) + self::PAID_YEARS) . '-12-31';
+    }
+
+    /** {paid_valid_until, bonus_expiring {amount, on}|null} einer Geldbörse. */
+    public static function validity_for_wallet(array $w) {
+        $paid = self::lots(intval($w['id']), 'paid');
+        $s = self::settings(intval($w['organizer_id'] ?? 0));
+        $exp = null;
+        if (!empty($s['bonus_expires']) && intval($s['bonus_days']) > 0 && intval($w['balance_bonus']) > 0) {
+            $b = self::lots(intval($w['id']), 'bonus');
+            if ($b) {
+                $on = gmdate('Y-m-d H:i:s', strtotime($b[0][0] . ' UTC') + intval($s['bonus_days']) * DAY_IN_SECONDS);
+                $sum = 0;
+                foreach ($b as $l) if (substr(gmdate('Y-m-d H:i:s', strtotime($l[0] . ' UTC') + intval($s['bonus_days']) * DAY_IN_SECONDS), 0, 10) === substr($on, 0, 10)) $sum += $l[1];
+                $exp = ['amount' => self::euro(min($sum, intval($w['balance_bonus']))), 'on' => get_date_from_gmt($on, 'Y-m-d')];
+            }
+        }
+        return ['paid_valid_until' => $paid ? self::paid_valid_until($paid[0][0]) : null, 'bonus_expiring' => $exp];
+    }
+
+    /** Gültigkeit für /wallet/config. */
+    public static function validity_payload($oid = 0) {
+        $s = self::settings($oid);
+        $days = intval($s['bonus_days']);
+        $bonus_on = !empty($s['bonus_expires']) && $days > 0;
+        $y = intval(current_time('Y'));
+        $paid_text = 'Bezahltes Guthaben gilt ' . self::PAID_YEARS . ' Jahre, gerechnet zum Jahresende: Aufladungen aus ' . $y . ' gelten bis 31.12.' . ($y + self::PAID_YEARS) . '.';
+        $bonus_text = $bonus_on ? 'Bonus-Guthaben gilt ' . ($days % 365 === 0 ? ($days / 365 === 1 ? '1 Jahr' : ($days / 365) . ' Jahre') : $days . ' Tage') . ' ab der Gutschrift; wir verbrauchen den ältesten Bonus zuerst.'
+            : 'Bonus-Guthaben verfällt derzeit nicht.';
+        // bonus_days nur, wenn Bonus wirklich verfällt (sonst 0 = verfällt nicht); die Einstellung selbst steht in /wallet/admin/config settings.bonus_days
+        return ['paid_years' => self::PAID_YEARS, 'paid_rule' => 'end_of_year', 'bonus_days' => $bonus_on ? $days : 0, 'bonus_expires' => $bonus_on,
+            'paid_text' => $paid_text, 'bonus_text' => $bonus_text, 'text' => $paid_text . ' ' . $bonus_text];
+    }
+
+    /** „Wo gilt es?“ */
+    public static function scope_text($oid = 0) {
+        $site = html_entity_decode((string) get_bloginfo('name'), ENT_QUOTES, 'UTF-8');
+        if ($oid) return 'Gilt nur bei ' . html_entity_decode((string) get_the_title($oid), ENT_QUOTES, 'UTF-8') . ' – für Tickets und vor Ort.';
+        if (self::multi()) return 'Gilt bei allen Veranstaltern auf ' . $site . ' für Tickets' . (self::cashless_organizers() ? ', vor Ort bei Veranstaltern mit Bezahlen per App.' : '.');
+        return 'Gilt bei ' . $site . ' – für Tickets in der App und vor Ort an Kasse und Bar.';
+    }
+
+    /** Täglich: abgelaufenes Bonus-Guthaben verbuchen (Typ expire, FIFO), nur Bereiche mit bonus_expires. → Anzahl Buchungen */
+    public static function cron_bonus_expire() {
+        global $wpdb;
+        if (!self::ready()) return 0;
+        $n = 0;
+        $rows = (array) $wpdb->get_results("SELECT * FROM " . self::t('wallets') . " WHERE balance_bonus > 0 AND status <> 'closed' ORDER BY id LIMIT 2000", ARRAY_A);
+        foreach ($rows as $w) {
+            $s = self::settings(intval($w['organizer_id']));
+            $days = intval($s['bonus_days']);
+            if (empty($s['bonus_expires']) || $days <= 0) continue;
+            $cut = gmdate('Y-m-d H:i:s', time() - $days * DAY_IN_SECONDS);
+            $due = 0;
+            foreach (self::lots(intval($w['id']), 'bonus') as $l) if ($l[0] < $cut) $due += $l[1];
+            $due = min($due, intval($w['balance_bonus']));
+            if ($due <= 0) continue;
+            $tx = self::post_tx(intval($w['id']), ['type' => 'expire', 'amount_bonus' => -$due, 'channel' => 'system', 'allow_locked' => true,
+                'idempotency_key' => 'bonus_expire:' . gmdate('Ymd') . ':' . $due, 'meta' => ['reason' => 'Bonus-Guthaben nach ' . $days . ' Tagen verfallen']]);
+            if (is_wp_error($tx) || !empty($tx['replay'])) continue;
+            $n++;
+            if (intval($w['user_id']) > 0 && class_exists('TIX_Notifications')) {
+                TIX_Notifications::add_user_item(intval($w['user_id']), 'Bonus-Guthaben verfallen', self::fmt($due) . ' Bonus-Guthaben ist abgelaufen.', ['type' => 'wallet', 'action' => 'wallet']);
+            }
+        }
+        return $n;
+    }
+
+    /** Geldbörsen eines Kontos mit Restguthaben: [{id, organizer_id, paid, bonus}] (Cent). */
+    public static function open_wallets($user_id) {
+        global $wpdb;
+        if (!self::ready()) return [];
+        $out = [];
+        foreach ((array) $wpdb->get_results($wpdb->prepare("SELECT id, organizer_id, balance_paid, balance_bonus FROM " . self::t('wallets') . " WHERE user_id = %d AND (balance_paid > 0 OR balance_bonus > 0)", intval($user_id)), ARRAY_A) as $w) {
+            $out[] = ['id' => intval($w['id']), 'organizer_id' => intval($w['organizer_id']), 'paid' => intval($w['balance_paid']), 'bonus' => intval($w['balance_bonus'])];
+        }
+        return $out;
+    }
+
+    /**
+     * Konto mit bezahltem Restguthaben gelöscht: Support-Anfrage „Auszahlung Restguthaben X €“ (Kategorie Erstattung).
+     * Datenschutz: Die Anfrage behält E-Mail und Name nur für die Auszahlung (Art. 17 Abs. 3 lit. b/e DSGVO) bis zum Ende der
+     * Verjährung des Anspruchs (31.12. des dritten Jahres, Meta _tix_sp_retain_until); danach anonymisiert sie
+     * TIX_Account_Delete::expire(). Keine Bankdaten im Formular – die erfragt das Team in der Antwort.
+     * → {id, amount} | null
+     */
+    public static function payout_request($email, $name, array $wallets, $user_id = 0) {
+        $paid = 0;
+        foreach ($wallets as $w) $paid += intval($w['paid']);
+        if ($paid <= 0 || !is_email($email) || !class_exists('TIX_Support') || !method_exists('TIX_Support', 'app_create')) return null;
+        $lines = [];
+        foreach ($wallets as $w) {
+            if (intval($w['paid']) <= 0) continue;
+            $lines[] = '– Geldbörse #' . $w['id'] . ($w['organizer_id'] ? ' (' . html_entity_decode((string) get_the_title($w['organizer_id']), ENT_QUOTES, 'UTF-8') . ')' : '') . ': ' . self::fmt($w['paid']) . ' bezahlt' . (intval($w['bonus']) > 0 ? ', ' . self::fmt($w['bonus']) . ' Bonus (verfällt)' : '');
+        }
+        $content = "Das Konto wurde gelöscht. Es war noch bezahltes Guthaben übrig, das wir auszahlen:
+" . implode("
+", $lines)
+            . "
+
+Bitte antworte auf diese Nachricht mit Kontoinhaber und IBAN, dann überweisen wir den Betrag. Bonus-Guthaben verfällt mit der Löschung.";
+        $id = TIX_Support::app_create(['email' => $email, 'name' => $name, 'subject' => 'Auszahlung Restguthaben ' . self::fmt($paid), 'category' => 'cancellation',
+            'content' => $content, 'user_id' => 0, 'source' => 'wallet_payout']);
+        if (is_wp_error($id) || !$id) return null;
+        $until = (intval(current_time('Y')) + self::PAID_YEARS) . '-12-31';
+        update_post_meta($id, '_tix_sp_retain_until', $until);
+        update_post_meta($id, '_tix_sp_wallet_payout', ['wallets' => array_map(function ($w) { return ['id' => $w['id'], 'organizer_id' => $w['organizer_id'], 'paid' => $w['paid']]; }, $wallets), 'amount' => $paid]);
+        self::alert('Auszahlung Restguthaben angefragt: ' . self::fmt($paid) . ' (Support #' . intval($id) . ').', ['support_id' => intval($id)]);
+        return ['id' => intval($id), 'amount' => self::euro($paid), 'retain_until' => $until];
+    }
+
     /** Für /auth/delete: nur mit Richtlinie „block“ (Entscheidung offen) Fehler bei offenem bezahltem Guthaben. */
     public static function delete_block_error($user_id) {
         if (get_option(self::OPT_DELETE, 'anonymize') !== 'block') return null;
@@ -963,6 +1107,12 @@ class TIX_Wallet_Balance {
         // Geräte-Schlüssel (Phase 2) entfernen – ohne Konto kein Bezahlen mehr
         $wpdb->delete(self::t('wallet_devices'), ['user_id' => intval($user_id)]);
         foreach ((array) $wpdb->get_results($wpdb->prepare("SELECT id, balance_paid, balance_bonus FROM $W WHERE user_id = %d", intval($user_id)), ARRAY_A) as $w) {
+            // Bonus verfällt mit der Löschung (1.38.499), bezahltes Guthaben bleibt als offener Posten bis zur Auszahlung
+            if (intval($w['balance_bonus']) > 0) {
+                self::post_tx(intval($w['id']), ['type' => 'expire', 'amount_bonus' => -intval($w['balance_bonus']), 'channel' => 'system', 'allow_locked' => true,
+                    'idempotency_key' => 'delete_bonus', 'meta' => ['reason' => 'Konto gelöscht – Bonus verfallen']]);
+                $w['balance_bonus'] = 0;
+            }
             $wpdb->update($W, ['user_id' => -intval($w['id']), 'status' => 'closed', 'updated' => current_time('mysql', true)], ['id' => intval($w['id'])]);
             if (intval($w['balance_paid']) + intval($w['balance_bonus']) > 0) {
                 self::alert('Konto gelöscht mit Restguthaben: Geldbörse #' . $w['id'] . ' (' . self::fmt($w['balance_paid']) . ' bezahlt, ' . self::fmt($w['balance_bonus']) . ' Bonus) – geschlossen und anonymisiert.', ['wallet_id' => intval($w['id'])]);
@@ -980,7 +1130,7 @@ class TIX_Wallet_Balance {
             'organizer_name' => $oid ? html_entity_decode(get_the_title($oid), ENT_QUOTES, 'UTF-8') : html_entity_decode(get_bloginfo('name'), ENT_QUOTES, 'UTF-8'),
             'status' => (string) $w['status'], 'balance' => self::euro($p + $b), 'balance_paid' => self::euro($p), 'balance_bonus' => self::euro($b),
             'currency' => 'EUR', 'updated_at' => mysql2date('c', get_date_from_gmt($w['updated']), false),
-        ];
+        ] + self::validity_for_wallet($w); // 1.38.499: paid_valid_until, bonus_expiring {amount, on}
     }
 
     public static function type_title($type, $amount) {
@@ -1068,7 +1218,7 @@ class TIX_Wallet_Balance {
         $tiers = [];
         if (self::bonus_allowed($oid)) foreach ($s['bonus_tiers'] as $t) $tiers[] = $t + ['text' => self::tier_text($t)];
         $platform = self::multi() && !$oid;
-        return [
+        $out = [
             'enabled' => true, 'organizer_id' => $oid, 'topup_enabled' => $topup && $event_id > 0,
             // 1.38.466: Bereich + Plattform-Guthaben (evendis): wofür es gilt, wo Cashless geht
             'scope' => $oid ? 'organizer' : ($platform ? 'platform' : 'site'), 'platform' => $platform,
@@ -1079,7 +1229,18 @@ class TIX_Wallet_Balance {
             'free_amount' => !empty($s['free_amount']) && $free_index >= 0, 'free_index' => $free_index, 'min' => $s['free_min'], 'max' => $s['free_max'],
             'bonus_tiers' => $tiers, 'limits' => ['max_balance' => $s['max_balance'], 'max_topup' => $s['max_topup'], 'new_account_days' => $s['new_account_days'], 'new_account_max' => $s['new_account_max']],
             'approval_threshold' => $s['approval_threshold'], 'refund_policy' => $s['refund_policy'], 'login_required' => true, 'currency' => 'EUR',
+            // 1.38.499: Gültigkeit, Konto löschen mit Restguthaben, „Wo gilt es?“
+            'validity' => self::validity_payload($oid),
+            'on_account_delete' => get_option(self::OPT_DELETE, 'anonymize') === 'block' ? 'block' : 'support',
+            'on_account_delete_text' => get_option(self::OPT_DELETE, 'anonymize') === 'block'
+                ? 'Mit bezahltem Restguthaben kannst du dein Konto erst löschen, wenn wir es dir ausgezahlt haben.'
+                : 'Löschst du dein Konto, zahlen wir dir dein bezahltes Restguthaben auf Anfrage aus – dafür legen wir automatisch eine Support-Anfrage an. Bonus-Guthaben verfällt.',
+            'scope_text' => self::scope_text($oid),
         ];
+        // Klartext für Website/App (evendis.de liest diese Namen)
+        $out['validity_text'] = $out['validity']['text'];
+        $out['delete_text'] = $out['on_account_delete_text'];
+        return $out;
     }
 
     // ═══════════════ REST ═══════════════

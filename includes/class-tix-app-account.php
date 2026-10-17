@@ -576,7 +576,8 @@ class TIX_App_Account {
         // Gemeinsamer Kern mit der Website (1.38.460): Bestellungen und Tickets anonymisieren (Codes bleiben gültig), Konto löschen
         $res = TIX_Account_Delete::delete($user->ID, 'app');
         if (is_wp_error($res)) return $res;
-        return rest_ensure_response(['ok' => true, 'deleted' => true]);
+        // Bezahltes Restguthaben: Support-Anfrage zur Auszahlung (1.38.499) → {id, amount, retain_until} | null
+        return rest_ensure_response(['ok' => true, 'deleted' => true, 'wallet_payout_request' => $res['wallet_payout_request'] ?? null]);
     }
 
     // ──────────────────────────────────────────
