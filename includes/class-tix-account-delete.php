@@ -13,6 +13,8 @@ if (!defined('ABSPATH')) exit;
  *      funktionieren am Einlass weiter (auch kommende; keine Sonderregel).
  *   3. Ticket-Spiegel-Tabelle {prefix}tixomat_tickets: Käuferdaten anonymisiert (neu; Code/Status/Check-in bleiben).
  *   4. Support-Anfragen (alle Status, bisher fielen offene/geschlossene durch): E-Mail, Name anonymisiert.  5. Newsletter-Abos gelöscht.
+ *   5b. Geschenkgutscheine (1.38.497): Käufer → Empfänger-Adresse/sent_to/sends[].to anonym, Namen [Gelöscht], Nachricht leer;
+ *       beschenkte Person → nur Empfänger-Felder; geplanter Versand abgesagt. Code, Wert, Rest, Einlösungen bleiben.
  *   6. Profilbild-Datei, App-Tokens, Konto + Nutzer-Meta (wp_delete_user; Folgen per Mail, Guthaben usw. hängen an deleted_user).
  *   7. Protokoll tix_deleted_accounts_log (ohne Personenbezug). Danach do_action('tix_account_deleted', $user_id, $email, $info).
  * Zuordnung per E-Mail nur mit bestätigter E-Mail (TIX_App_Account::match_email), sonst nur über die Konto-ID.
@@ -76,7 +78,7 @@ class TIX_Account_Delete {
         $anon_email = 'gelöscht-' . $anon_hash . '@removed.invalid';
         $anon_name = '[Gelöscht]';
         // Alle Status (auch eigene wie tix_open/tix_closed der Anfragen und Papierkorb) werden in anonymize_email() erfasst
-        list($orders, $retained, $tickets, $sp) = self::anonymize_email($email, $uid, $anon_email, $anon_name);
+        list($orders, $retained, $tickets, $sp, $gifts) = self::anonymize_email($email, $uid, $anon_email, $anon_name);
         $retain = self::mode() === 'retain';
 
         // 6. Profilbild-Datei (außerhalb der Mediathek), Tokens, Konto
@@ -97,7 +99,7 @@ class TIX_Account_Delete {
         if (count($log) > 500) $log = array_slice($log, -500);
         update_option('tix_deleted_accounts_log', $log, false);
 
-        $info = ['anon_hash' => $anon_hash, 'source' => $source, 'orders' => $orders, 'tickets' => count($tickets), 'support' => count($sp),
+        $info = ['anon_hash' => $anon_hash, 'source' => $source, 'orders' => $orders, 'tickets' => count($tickets), 'support' => count($sp), 'giftcards' => $gifts,
             'retention' => $retain ? 'retain' : 'anonymize', 'retained' => $retained];
         /** Konto ist gelöscht und anonymisiert (z. B. Datenspiegel: Verlauf mit Personenbezug tilgen). */
         do_action('tix_account_deleted', $uid, $account_email, $info);
@@ -118,6 +120,7 @@ class TIX_Account_Delete {
         $full = ['billing_email' => $anon_email, 'billing_first_name' => $anon_name, 'billing_last_name' => '', 'billing_phone' => '',
             'billing_address_1' => '', 'billing_address_2' => '', 'billing_city' => '', 'billing_postcode' => '', 'billing_company' => '', 'customer_id' => 0];
         $t = $wpdb->prefix . 'tix_orders';
+        $order_ids = [];
         if ($wpdb->get_var("SHOW TABLES LIKE '$t'") === $t) {
             // Gastkunde (uid 0): nur über die E-Mail – „customer_id = 0“ träfe sonst alle Gastbestellungen
             $rows = $uid > 0
@@ -125,6 +128,7 @@ class TIX_Account_Delete {
                 : $wpdb->get_results($wpdb->prepare("SELECT id, order_number, status, date_created FROM $t WHERE billing_email = %s", $email));
             foreach ((array) $rows as $r) {
                 $oid = intval($r->id);
+                $order_ids[] = $oid;
                 if ($retain && (in_array($r->status, self::PAID, true) || self::has_invoice($oid))) {
                     $wpdb->update($t, ['billing_email' => $anon_email, 'billing_phone' => '', 'customer_id' => 0], ['id' => $oid]);
                     $retained[] = ['order_id' => $oid, 'order_number' => (string) $r->order_number, 'retained_until' => self::retained_until($r->date_created)];
@@ -181,7 +185,51 @@ class TIX_Account_Delete {
         $subs = get_posts(['post_type' => 'tix_subscriber', 'posts_per_page' => -1, 'post_status' => $all, 'fields' => 'ids', 'meta_key' => '_tix_sub_email', 'meta_value' => $email]);
         foreach ($subs as $s) wp_delete_post($s, true);
 
-        return [$orders, $retained, $tickets, $sp];
+        // 6. Geschenkgutscheine (1.38.497): Angaben zur beschenkten Person bzw. zum Käufer; Code, Wert, Rest und Einlösungen bleiben
+        $gifts = self::anonymize_giftcards($email, $order_ids, $anon_email, $anon_name);
+
+        return [$orders, $retained, $tickets, $sp, $gifts];
+    }
+
+    /**
+     * Gutscheine (tix_coupons) anonymisieren. Käufer gelöscht (order_id gehört zu seinen Bestellungen): Empfänger-Adresse, sent_to,
+     * sends[].to → anonyme Adresse, recipient_name/from_name → [Gelöscht], message leer. Beschenkte Person gelöscht (ihre E-Mail
+     * als recipient_email/sent_to/sends[].to): nur die Empfänger-Felder. Geplanter Versand wird abgesagt. Marke …@removed.invalid
+     * wie bei Bestellungen (Datenspiegel erkennt daran anonymisierte Gutscheine). → Anzahl geänderter Gutscheine
+     */
+    private static function anonymize_giftcards($email, array $order_ids, $anon_email, $anon_name) {
+        wp_cache_delete('alloptions', 'options');
+        wp_cache_delete('tix_coupons', 'options');
+        $coupons = get_option('tix_coupons', []);
+        if (!is_array($coupons) || !$coupons) return 0;
+        $is = function ($v) use ($email) { return is_string($v) && $v !== '' && strcasecmp(trim($v), (string) $email) === 0; };
+        $n = 0;
+        foreach ($coupons as $code => $c) {
+            if (!is_array($c) || ($c['discount_type'] ?? '') !== 'giftcard') continue;
+            $buyer = $order_ids && in_array(intval($c['order_id'] ?? 0), $order_ids, true);
+            $g = is_array($c['gift'] ?? null) ? $c['gift'] : [];
+            $recipient = $is($g['recipient_email'] ?? '') || $is($c['sent_to'] ?? '');
+            foreach ((array) ($c['sends'] ?? []) as $sd) if (is_array($sd) && $is($sd['to'] ?? '')) $recipient = true;
+            if (!$buyer && !$recipient) continue;
+            if (!empty($g['recipient_email'])) $g['recipient_email'] = $anon_email;
+            if (($g['recipient_name'] ?? '') !== '') $g['recipient_name'] = $anon_name;
+            unset($g['send_at']);
+            if ($buyer) {
+                if (($g['from_name'] ?? '') !== '') $g['from_name'] = $anon_name;
+                if (array_key_exists('message', $g)) $g['message'] = '';
+            }
+            if ($g) $c['gift'] = $g;
+            if (!empty($c['sent_to'])) $c['sent_to'] = $anon_email;
+            if (!empty($c['sends']) && is_array($c['sends'])) {
+                foreach ($c['sends'] as $i => $sd) if (is_array($sd) && !empty($sd['to'])) $c['sends'][$i]['to'] = $anon_email;
+            }
+            if (!empty($c['send_at']) && class_exists('TIX_Giftcard_Send')) wp_clear_scheduled_hook(TIX_Giftcard_Send::HOOK, [(string) $code]);
+            unset($c['send_at'], $c['send_by']);
+            $coupons[$code] = $c;
+            $n++;
+        }
+        if ($n) update_option('tix_coupons', $coupons);
+        return $n;
     }
 
     /**
@@ -193,13 +241,13 @@ class TIX_Account_Delete {
         if (!is_email($email)) return new WP_Error('tix_delete_failed', 'Ungültige E-Mail.', ['status' => 400]);
         if (get_user_by('email', $email)) return new WP_Error('tix_delete_failed', 'Zu dieser E-Mail gibt es ein Konto.', ['status' => 409]);
         $anon_hash = substr(hash('sha256', $email . wp_generate_password(32, true)), 0, 12);
-        list($orders, $retained, $tickets, $sp) = self::anonymize_email($email, 0, 'gelöscht-' . $anon_hash . '@removed.invalid', '[Gelöscht]');
+        list($orders, $retained, $tickets, $sp, $gifts) = self::anonymize_email($email, 0, 'gelöscht-' . $anon_hash . '@removed.invalid', '[Gelöscht]');
         $log = get_option('tix_deleted_accounts_log', []);
         $log = is_array($log) ? $log : [];
         $log[] = ['deleted_at' => gmdate('c'), 'anon_hash' => $anon_hash, 'source' => $source . ':guest', 'orders' => $orders, 'retained' => count($retained), 'tickets' => count($tickets), 'support' => count($sp)];
         if (count($log) > 500) $log = array_slice($log, -500);
         update_option('tix_deleted_accounts_log', $log, false);
-        $info = ['anon_hash' => $anon_hash, 'source' => $source, 'orders' => $orders, 'tickets' => count($tickets), 'support' => count($sp),
+        $info = ['anon_hash' => $anon_hash, 'source' => $source, 'orders' => $orders, 'tickets' => count($tickets), 'support' => count($sp), 'giftcards' => $gifts,
             'retention' => self::mode() === 'retain' ? 'retain' : 'anonymize', 'retained' => $retained, 'guest' => true];
         /** Gastkunde gelöscht (Datenspiegel: Verlauf mit Personenbezug tilgen, wie tix_account_deleted ohne Konto). */
         do_action('tix_guest_deleted', $email, $info);
@@ -212,6 +260,7 @@ class TIX_Account_Delete {
         $cut = (intval(current_time('Y')) - self::years()) . '-01-01 00:00:00';   // Bestellung im Jahr Y: bis 31.12.(Y+10), ab 1.1.(Y+11) leeren
         $n = 0;
         $t = $wpdb->prefix . 'tix_orders';
+        $order_ids = [];
         if ($wpdb->get_var("SHOW TABLES LIKE '$t'") === $t) {
             $n += intval($wpdb->query($wpdb->prepare("UPDATE $t SET billing_first_name=%s, billing_last_name='', billing_company='', billing_address_1='', billing_address_2='', billing_city='', billing_postcode='', billing_phone=''
                 WHERE billing_email LIKE %s AND billing_first_name <> %s AND date_created < %s", self::ANON_NAME, '%@removed.invalid', self::ANON_NAME, $cut)));
