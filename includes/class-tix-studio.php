@@ -437,6 +437,8 @@ class TIX_Studio {
             'order_number' => class_exists('TIX_Order_Number') ? ['mode' => TIX_Order_Number::mode(), 'code' => TIX_Order_Number::code(), 'example' => TIX_Order_Number::make()] : null,
             // Rechnungen (1.38.487): Menüpunkt/Hinweis im Studio; Details unter GET /studio/invoice-config
             'invoices' => class_exists('TIX_Invoices') ? ['enabled' => TIX_Invoices::enabled(), 'model' => TIX_Invoices::multi() ? TIX_Invoices::model() : null] : null,
+            // Auto-Archiv (1.38.492): {enabled, grace_hours, skip_drafts, interval, next_run} – ändern nur Inhaber/Admin (auf evendis Admin)
+            'archive' => class_exists('TIX_Archive') && method_exists('TIX_Archive', 'payload') ? TIX_Archive::payload() : null,
             'profile'    => $multi ? 'platform' : 'single',
             'features'   => [
                 'register'  => $multi && class_exists('TIX_Register_API'),
@@ -609,6 +611,10 @@ class TIX_Studio {
             if ($oc !== '' && !preg_match('/^[A-Z0-9]{2,5}$/', $oc)) return new WP_Error('tix_invalid_field', 'Kürzel: 2 bis 5 Zeichen (A–Z, 0–9).', ['status' => 400, 'field' => 'order_number_code']);
             if (self::multi() && $oc !== '' && $oc !== 'EV') return new WP_Error('tix_invalid_field', 'Auf evendis ist das Kürzel immer EV.', ['status' => 400, 'field' => 'order_number_code']);
         }
+        if ($has('archive') && class_exists('TIX_Archive') && method_exists('TIX_Archive', 'save')) {
+            $ar = TIX_Archive::save($req->get_param('archive'));
+            if (is_wp_error($ar)) return $ar;
+        }
         if ($has('order_number_mode')) update_option('tix_order_number_mode', (string) $req->get_param('order_number_mode'), false);
         if ($has('order_number_code')) { if ($oc === '') delete_option('tix_order_number_code'); else update_option('tix_order_number_code', $oc, false); }
         $mail_in = [];
@@ -618,7 +624,7 @@ class TIX_Studio {
             if (is_wp_error($nb)) return $nb;
             $b = $nb;
         }
-        $unknown = array_diff(array_keys((array) $p), array_merge(['accent', 'logo_id', 'logo', 'has_app', 'app_layout', 'placeholder_id', 'placeholder', 'syndicate_default', 'syndicate_default_partner_sales', 'mail_logo', 'mail_logo_on_color', 'order_number_mode', 'order_number_code'], self::MAIL_KEYS));
+        $unknown = array_diff(array_keys((array) $p), array_merge(['accent', 'logo_id', 'logo', 'has_app', 'app_layout', 'placeholder_id', 'placeholder', 'syndicate_default', 'syndicate_default_partner_sales', 'mail_logo', 'mail_logo_on_color', 'order_number_mode', 'order_number_code', 'archive'], self::MAIL_KEYS));
         // Vorgabe „alle Events auf evendis teilen“ (1.38.465): true | false | null (nicht eingestellt)
         if ($has('syndicate_default') || $has('syndicate_default_partner_sales')) {
             $avail = class_exists('TIX_Syndication_Push') && TIX_Syndication_Push::is_configured() && !self::multi();

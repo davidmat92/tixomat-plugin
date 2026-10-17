@@ -20,10 +20,14 @@ class TIX_Archive {
     const META_FLAG    = '_tix_archived';
     const META_DATE    = '_tix_archived_at';
     const CRON_HOOK    = 'tix_archive_expired_events';
+    // 1.38.492: Archiv kurz nach dem echten Ende (stündlich), Gnadenfrist in Stunden, Entwürfe optional ausnehmen
+    const OPT_GRACE    = 'tix_archive_grace_hours';
+    const OPT_SKIP     = 'tix_archive_skip_drafts';
 
     public static function init() {
         // Cron
         add_action(self::CRON_HOOK, [__CLASS__, 'run_archive_sweep']);
+        add_action('tix_archive_run_soon', [__CLASS__, 'run_archive_sweep']);
         add_action('init', [__CLASS__, 'schedule_cron']);
         add_action('init', [__CLASS__, 'maybe_heal_once'], 30);
 
@@ -44,9 +48,73 @@ class TIX_Archive {
      * ══════════════════════════════════════════ */
 
     public static function schedule_cron() {
+        // stündlich (bis 1.38.491 täglich – alten Tageslauf umstellen)
+        if (wp_next_scheduled(self::CRON_HOOK) && wp_get_schedule(self::CRON_HOOK) !== 'hourly') self::unschedule_cron();
         if (!wp_next_scheduled(self::CRON_HOOK)) {
-            wp_schedule_event(time() + 60, 'daily', self::CRON_HOOK);
+            wp_schedule_event(time() + 60, 'hourly', self::CRON_HOOK);
         }
+    }
+
+    /** Einstellungen: {enabled, grace_hours, skip_drafts}. Gnadenfrist Vorgabe 1 h; alte Tage-Einstellung (> 0) gilt, bis Stunden gesetzt sind. */
+    public static function settings() {
+        // Vorgaben aus tix_get_settings() (auto_archive_enabled = 1), frisch gespeicherte Werte darüber (statischer Zwischenspeicher)
+        $opt = get_option('tix_settings', []);
+        $s = array_merge(function_exists('tix_get_settings') ? (array) tix_get_settings() : [], is_array($opt) ? $opt : []);
+        $g = get_option(self::OPT_GRACE, null);
+        if ($g === null || $g === false || $g === '') {
+            $days = intval($s['auto_archive_days'] ?? 0);
+            $g = $days > 0 ? $days * 24 : 1;
+        }
+        return ['enabled' => !empty($s['auto_archive_enabled']), 'grace_hours' => max(0, min(720, intval($g))), 'skip_drafts' => get_option(self::OPT_SKIP, '0') === '1'];
+    }
+
+    /** Für Studio/App (GET /studio/config → archive). */
+    public static function payload() {
+        $c = self::settings();
+        $next = wp_next_scheduled(self::CRON_HOOK);
+        return $c + ['interval' => 'hourly', 'next_run' => $next ? wp_date('Y-m-d H:i', $next) : null];
+    }
+
+    /** POST /studio/config {archive: {enabled?, grace_hours?, skip_drafts?}} → true | WP_Error */
+    public static function save($in) {
+        if (!is_array($in)) return new WP_Error('tix_invalid_field', 'archive: Objekt erwartet.', ['status' => 400, 'field' => 'archive']);
+        if (array_key_exists('grace_hours', $in)) {
+            $g = $in['grace_hours'];
+            if (!is_numeric($g) || intval($g) != $g || intval($g) < 0 || intval($g) > 720) return new WP_Error('tix_invalid_field', 'Gnadenfrist: ganze Stunden von 0 bis 720.', ['status' => 400, 'field' => 'archive.grace_hours']);
+        }
+        if (array_key_exists('enabled', $in)) {
+            $s = get_option('tix_settings', []);
+            $s = is_array($s) ? $s : [];
+            $s['auto_archive_enabled'] = filter_var($in['enabled'], FILTER_VALIDATE_BOOLEAN) ? 1 : 0;
+            update_option('tix_settings', $s);
+        }
+        if (array_key_exists('grace_hours', $in)) update_option(self::OPT_GRACE, (string) intval($in['grace_hours']), false);
+        if (array_key_exists('skip_drafts', $in)) update_option(self::OPT_SKIP, filter_var($in['skip_drafts'], FILTER_VALIDATE_BOOLEAN) ? '1' : '0', false);
+        // nach dem Einschalten bald prüfen (nicht im Request)
+        if (self::settings()['enabled'] && !wp_next_scheduled('tix_archive_run_soon')) wp_schedule_single_event(time() + 60, 'tix_archive_run_soon');
+        return true;
+    }
+
+    /**
+     * Echtes Event-Ende als Unix-Zeit: Enddatum + Endzeit (Endzeit vor Beginn ohne eigenes Enddatum = nächster Tag);
+     * ohne Endzeit Beginn (des letzten Tags) + 7 h; ohne Uhrzeit Ende des (letzten) Tages. 0 = kein Datum.
+     */
+    public static function end_ts($event_id) {
+        $m = function ($k) use ($event_id) { return trim((string) get_post_meta(intval($event_id), $k, true)); };
+        $ds = $m('_tix_date_start'); $de = $m('_tix_date_end');
+        $ts = $m('_tix_time_start') ?: $m('_tix_time_doors'); $te = $m('_tix_time_end');
+        if ($ds === '' && $de === '') return 0;
+        $tz = wp_timezone();
+        $at = function ($d, $t) use ($tz) { try { return (new DateTimeImmutable($d . ' ' . ($t !== '' ? $t : '00:00'), $tz))->getTimestamp(); } catch (\Exception $e) { return 0; } };
+        $day = $de !== '' ? $de : $ds;
+        if ($te !== '') {
+            $end = $at($day, $te);
+            $start_same_day = $ts !== '' ? $at($day, $ts) : 0;
+            if ($end && $start_same_day && $end <= $start_same_day && ($de === '' || $de === $ds)) $end += DAY_IN_SECONDS;
+            return $end;
+        }
+        if ($ts !== '') return $at($day, $ts) + 7 * HOUR_IN_SECONDS;
+        return $at($day, '23:59:59');
     }
 
     public static function unschedule_cron() {
@@ -83,16 +151,15 @@ class TIX_Archive {
 
     public static function run_archive_sweep() {
         self::heal_copies();
-        $s = function_exists('tix_get_settings') ? tix_get_settings() : [];
-        if (empty($s['auto_archive_enabled'])) return 0;
+        $c = self::settings();
+        if (!$c['enabled']) return 0;
 
-        $grace_days = max(0, intval($s['auto_archive_days'] ?? 0));
-        $cutoff_ts  = current_time('timestamp') - ($grace_days * DAY_IN_SECONDS);
-        $cutoff_date = date('Y-m-d', $cutoff_ts);
+        // Ende + Gnadenfrist (Stunden) muss vorbei sein; Entwürfe auf Wunsch ausnehmen (1.38.492)
+        $cutoff = time() - $c['grace_hours'] * HOUR_IN_SECONDS;
 
         $events = get_posts([
             'post_type'      => 'event',
-            'post_status'    => ['publish', 'draft', 'private'],
+            'post_status'    => $c['skip_drafts'] ? ['publish', 'private'] : ['publish', 'draft', 'private'],
             'posts_per_page' => -1,
             'fields'         => 'ids',
             'meta_query'     => [
@@ -107,11 +174,9 @@ class TIX_Archive {
 
         $archived = 0;
         foreach ($events as $event_id) {
-            $end = get_post_meta($event_id, '_tix_date_end', true);
-            if (!$end) $end = get_post_meta($event_id, '_tix_date_start', true);
+            $end = self::end_ts($event_id);
             if (!$end) continue;
-
-            if ($end < $cutoff_date) {
+            if ($end <= $cutoff) {
                 self::archive_event($event_id);
                 $archived++;
             }
