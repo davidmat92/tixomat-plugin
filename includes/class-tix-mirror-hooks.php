@@ -61,6 +61,8 @@ class TIX_Mirror_Hooks {
         add_action('tix_ticket_checked_in', [__CLASS__, 'on_checkin'], 99, 1);
         add_action('tix_ticket_checkin_reset', [__CLASS__, 'on_checkin_reset'], 99, 1);
         add_action('tix_invoice_created', [__CLASS__, 'on_invoice'], 99, 1); // Rechnungs-Kern (1.38.485)
+        add_action('tix_audit_logged', [__CLASS__, 'on_audit'], 99, 1);      // Team-Protokoll (1.38.494)
+        add_action('tix_guest_deleted', [__CLASS__, 'on_guest_deleted'], 10, 2); // Gast ohne Konto gelöscht (1.38.494)
     }
 
     private static function type_entity($type) {
@@ -184,6 +186,18 @@ class TIX_Mirror_Hooks {
     }
 
     public static function on_invoice($invoice_id) { TIX_Mirror::touch('invoice', (int) $invoice_id); }
+
+    public static function on_audit($row) { if (is_array($row) && !empty($row['id'])) TIX_Mirror::touch('audit', (int) $row['id']); }
+
+    /**
+     * Gast ohne Konto gelöscht: Verlauf mit dieser E-Mail im Spiegel tilgen (wie beim Konto). Bestellungen und Tickets
+     * kommen anonymisiert über Nachlauf bzw. Meta-Hooks und tilgen ihren älteren Verlauf; Rechnungsdaten bleiben (1.38.461).
+     */
+    public static function on_guest_deleted($email, $info = []) {
+        $email = strtolower(trim((string) $email));
+        if ($email === '') return;
+        TIX_Mirror::touch('forget_email', 'g' . substr(md5($email), 0, 20), 'forget', ['email' => $email]);
+    }
 
     public static function on_checkin($ticket_id) { self::checkin_event($ticket_id, 'in'); }
     public static function on_checkin_reset($ticket_id) { self::checkin_event($ticket_id, 'reset'); }

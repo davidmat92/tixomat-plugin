@@ -2580,6 +2580,12 @@ Zweite Speicherung aller Seiten in einem eigenen Supabase-Projekt (EU). **WordPr
     · Erfasst per Nachlauf über `export_at` (WP-Ortszeit, eigene Marke `invoice_export`). Der Abgleich prüft `export_status` mit.
     · In `export_error` werden IBAN, Bearer-/API-Schlüssel, `key=…`-Paare und lange Kennungen maskiert (`TIX_Mirror_Extra::mask_secret_text`); UUIDs bleiben stehen.
     · Das E-Rechnungs-XML wird nicht gespiegelt. Migration `20261017090000_mirror_invoice_export.sql`.
+- **Team-Protokoll (1.38.494):** `audit_log` aus `tix_audit_log` (Löschungen, Exporte, Gutschriften durch das Team).
+  - Betroffene nur als Konto-ID bzw. Gast-HMAC; Freitext in `summary` wird wie Fehlertexte maskiert.
+  - Erfasst über `tix_audit_logged` und den Nachlauf (neue IDs), mit Erstbefüllung und Abgleich.
+  - Der Löschweg fasst das Protokoll nicht an. Migration `20261017120000_mirror_audit_log.sql`.
+- **Gast ohne Konto gelöscht (1.38.494):** `tix_guest_deleted` → `mirror_forget` mit Kunden-ID 0 (Verlauf mit dieser E-Mail tilgen). Bestellungen und Tickets kommen anonymisiert über Nachlauf bzw. Meta-Hooks und tilgen ihren älteren Verlauf; aufbewahrte Rechnungsdaten bleiben.
+- **Guthaben-Korrektur durch das Team:** `type = adjust`, `channel = admin`; Grund und Mitarbeiter stehen in `wallet_transactions.meta` (`reason`, `by`).
 - **Werkzeuge:** `migrate.sh` spielt nur neue Migrationen ein (`--all` alle, `--verify` Rechte, `--sql` Datei). `datenschutz-scan.sql` ist die projektweite Suche (nur lesend).
 - **Kennung der Seite:** `TIX_MIRROR_SITE` in wp-config (Vorrang), sonst Option `tix_mirror['site']`, sonst Domain aus `home_url()`. Fest einstellen, damit ein Domain-Wechsel keine zweite Seite anlegt. Umbenennen im Spiegel: `supabase/tools/kennung-evendis.sql` als Vorlage (eine Transaktion, ohne neuen Verlauf). Kennungen: `kitchenklub.de`, `mallorca-festival-xxl.de`, `evendis.de`.
 - **Zugang:** `TIX_MIRROR_URL` / `TIX_MIRROR_KEY` in wp-config (bevorzugt) oder Option `tix_mirror`; der Schlüssel wird nie angezeigt oder geloggt. `TIX_MIRROR_DISABLED` = Not-Aus. Schalter „Diese Seite spiegeln“ ist standardmäßig an (auch Lizenzkunden, nur mit AVV); ohne Zugang wird nichts erfasst.

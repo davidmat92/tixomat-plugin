@@ -20,7 +20,7 @@ class TIX_Mirror_Backfill {
     const CHUNK    = 500;   // IDs je Schritt
     const MAX_OUT  = 3000;  // höchstens so viele offene Einträge, sonst warten
     // Neue Schritte nur hinten anhängen: Seiten mit fertiger Erstbefüllung holen dann nur die neuen nach.
-    const STEPS    = ['site', 'event', 'customer', 'order', 'ticket', 'organizer', 'coupons', 'wallet', 'wallet_tx', 'settlement', 'settlement_item', 'invoice', 'invoice_counters'];
+    const STEPS    = ['site', 'event', 'customer', 'order', 'ticket', 'organizer', 'coupons', 'wallet', 'wallet_tx', 'settlement', 'settlement_item', 'invoice', 'invoice_counters', 'audit'];
 
     public static function init() {
         // Nichts zu registrieren: step() läuft in TIX_Mirror::cron_run().
@@ -125,7 +125,8 @@ class TIX_Mirror_Backfill {
             case 'settlement':
             case 'settlement_item':
             case 'invoice':
-                $tables = ['wallet' => 'tix_wallets', 'wallet_tx' => 'tix_wallet_tx', 'settlement' => 'tix_settlements', 'settlement_item' => 'tix_settlement_items', 'invoice' => 'tix_invoices'];
+            case 'audit':
+                $tables = ['wallet' => 'tix_wallets', 'wallet_tx' => 'tix_wallet_tx', 'settlement' => 'tix_settlements', 'settlement_item' => 'tix_settlement_items', 'invoice' => 'tix_invoices', 'audit' => 'tix_audit_log'];
                 $prev = $wpdb->suppress_errors(true);
                 $ids = $wpdb->get_col($wpdb->prepare(
                     "SELECT id FROM {$wpdb->prefix}{$tables[$entity]} WHERE id > %d ORDER BY id LIMIT %d", $after, self::CHUNK

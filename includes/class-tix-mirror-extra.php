@@ -33,6 +33,9 @@ class TIX_Mirror_Extra {
             case 'settlement_item': return self::plan_settlement_item($site, (int) $id);
             case 'invoice':         return self::plan_invoice($site, (int) $id);
             case 'invoice_counters':return self::plan_invoice_counters($site);
+            case 'audit':           return self::plan_audit($site, (int) $id);
+            case 'forget_email':    // Gast ohne Konto gelöscht (1.38.494): Verlauf mit dieser E-Mail tilgen, wie beim Konto
+                return [['rpc', 'mirror_forget', ['p_site' => $site, 'p_customer_id' => 0, 'p_email' => (string) ($payload['email'] ?? '')]]];
         }
         return null;
     }
@@ -391,6 +394,29 @@ class TIX_Mirror_Extra {
         return [['upsert', 'invoice_counters', array_map(function ($c) use ($site) { return self::counter_row($site, $c); }, $rows)]];
     }
 
+    // ═══════════════ Team-Protokoll (1.38.494) ═══════════════
+
+    private static function plan_audit($site, $id) {
+        global $wpdb;
+        $prev = $wpdb->suppress_errors(true);
+        $r = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}tix_audit_log WHERE id = %d", $id), ARRAY_A);
+        $wpdb->suppress_errors($prev);
+        if (!$r) return [self::del('audit_log', $site, $id)];
+        $summary = json_decode((string) $r['summary'], true);
+        // Freitext (z. B. Grund einer Gutschrift) vorsichtshalber wie Fehlertexte behandeln
+        $summary = is_array($summary) ? array_map(function ($v) { return is_string($v) ? self::mask_secret_text($v) : $v; }, $summary) : [];
+        return [['upsert', 'audit_log', [TIX_Mirror_Map::clean([
+            'site' => $site, 'id' => (int) $r['id'],
+            'created_at' => self::gmt_iso($r['created']),          // created ist GMT (current_time('mysql', true))
+            'actor_id'   => self::idn($r['actor_id']),
+            'actor_name' => (string) $r['actor_name'],
+            'action'     => (string) $r['action'],
+            'subject_id' => (string) $r['subject_id'],             // Konto-ID bzw. Gast-HMAC, kein Klartext
+            'scope'      => (string) $r['scope'],
+            'summary'    => (object) $summary,
+        ])]]];
+    }
+
     // ═══════════════ Nachlauf (Tabellen ohne Hooks) ═══════════════
 
     /**
@@ -407,6 +433,7 @@ class TIX_Mirror_Extra {
             // Übergabe an die Buchhaltung (1.38.490): export_* ändert sich per $wpdb ohne Hook, export_at in WP-Ortszeit.
             // Vor 490 fehlt die Spalte → die Abfrage scheitert still und der Nachlauf überspringt sie.
             ['invoice',         $wpdb->prefix . 'tix_invoices',         'export_at', 'time_local', false, 'invoice_export'],
+            ['audit',           $wpdb->prefix . 'tix_audit_log',        'id',      'id',         true],  // Sicherheitsnetz zu tix_audit_logged
         ];
     }
 }

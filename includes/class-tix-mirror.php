@@ -478,7 +478,7 @@ class TIX_Mirror {
         // Feste Reihenfolge, damit Kinder nach ihren Eltern ankommen (es gibt keine Fremdschlüssel, nur Lesbarkeit).
         $order = ['sites', 'organizers', 'events', 'ticket_categories', 'guests', 'customers', 'loyalty', 'orders', 'order_items', 'payments',
                   'tickets', 'checkins', 'refunds', 'coupons', 'wallets', 'wallet_transactions', 'settlements', 'settlement_items',
-                  'invoices', 'invoice_counters'];
+                  'invoices', 'invoice_counters', 'audit_log'];
         uksort($upserts, function ($a, $b) use ($order) {
             $ia = array_search($a, $order, true); $ib = array_search($b, $order, true);
             return ($ia === false ? 99 : $ia) <=> ($ib === false ? 99 : $ib);

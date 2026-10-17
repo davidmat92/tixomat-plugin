@@ -34,6 +34,7 @@ class TIX_Mirror_Reconcile {
             'settlements'         => 'settlement',
             'settlement_items'    => 'settlement_item',
             'invoices'            => 'invoice',
+            'audit_log'           => 'audit',
         ];
     }
 
@@ -257,6 +258,13 @@ class TIX_Mirror_Reconcile {
                     $out[(int) $p->ID] = self::fp([$p->post_status, html_entity_decode($p->post_title, ENT_QUOTES, 'UTF-8'),
                         (string) (get_post_meta($p->ID, '_tix_org_approval', true) ?: 'approved'), $masked]);
                 }
+                return $out;
+
+            case 'audit_log':
+                $prev = $wpdb->suppress_errors(true);
+                $rows = $wpdb->get_results($wpdb->prepare("SELECT id, action, subject_id FROM {$wpdb->prefix}tix_audit_log WHERE id > %d ORDER BY id LIMIT %d", $after, $limit), ARRAY_A);
+                $wpdb->suppress_errors($prev);
+                foreach ((array) $rows as $r) $out[(int) $r['id']] = self::fp([$r['action'], $r['subject_id']]);
                 return $out;
 
             case 'invoices':

@@ -411,6 +411,49 @@ if (class_exists('TIX_Account_Delete')) {
     TIX_Mirror::touch('order', $koid);
 }
 
+// ── 11. Gast ohne Konto löschen (1.38.494, tix_guest_deleted) + Team-Protokoll (tix_audit_logged) ──
+if (method_exists('TIX_Account_Delete', 'delete_guest')) {
+    $gmail = "gast$sfx@example.test";
+    $goid = TIX_Native_Checkout::create_order(['total' => 10.0, 'payment_method' => 'bank', 'billing_first_name' => 'Gerda', 'billing_last_name' => 'Gast',
+        'billing_email' => $gmail, 'items' => [['event_id' => $ev, 'cat_index' => 0, 'qty' => 1, 'price' => 10.0, 'name' => 'N', 'event_title' => 'x']]]);
+    TIX_Native_Checkout::update_order_status($goid, 'completed', 'admin');
+    m2_run();
+    t2_true('Gast-Bestellung im Spiegel mit E-Mail', (m2_one('orders', $goid)['billing_email'] ?? '') === $gmail);
+    t2_true('Verlauf enthält die Gast-E-Mail', count(m2_rows('change_log', ['email' => 'eq.' . $gmail])) > 0);
+    sleep(1);
+    $gr = TIX_Account_Delete::delete_guest($gmail, 'studio');
+    t2_true('Gast gelöscht', is_array($gr));
+    m2_run(2);
+    t2_true('Gast-Bestellung anonymisiert', TIX_Mirror_Map::is_anonymized(m2_one('orders', $goid)['billing_email'] ?? ''));
+    t2_eq('kein Verlauf mehr mit der Gast-E-Mail', 0, count(m2_rows('change_log', ['email' => 'eq.' . $gmail])));
+    t2_eq('Gast-E-Mail nirgends im Bestell-Verlauf', false, strpos(wp_json_encode(m2_rows('change_log', ['entity' => 'eq.orders', 'object_id' => 'eq.' . $goid])), $gmail) !== false);
+    foreach (get_posts(['post_type' => 'tix_ticket', 'post_status' => 'any', 'numberposts' => -1, 'meta_key' => '_tix_ticket_order_id', 'meta_value' => $goid, 'fields' => 'ids']) as $tid) wp_delete_post($tid, true);
+    $wpdb->delete($wpdb->prefix . 'tix_order_items', ['order_id' => $goid]); $wpdb->delete($wpdb->prefix . 'tix_orders', ['id' => $goid]);
+    TIX_Mirror::touch('order', $goid);
+}
+if (class_exists('TIX_Customers') && method_exists('TIX_Customers', 'audit')) {
+    $aid = TIX_Customers::audit('customer_wallet', 'u123', ['scope' => 'site', 'oid' => 0], ['amount' => 5.0, 'reason' => 'Kulanz, Konto DE89370400440532013000', 'as' => 'bonus']);
+    m2_run();
+    $a = m2_one('audit_log', $aid);
+    t2_eq('Team-Protokoll gespiegelt', 'customer_wallet', $a['action'] ?? null);
+    t2_eq('Betroffener nur als ID', 'u123', $a['subject_id'] ?? null);
+    t2_true('Freitext im Protokoll maskiert', strpos(wp_json_encode($a), 'DE89370400440532013000') === false && strpos(wp_json_encode($a), 'Kulanz') !== false);
+    $wpdb->delete($wpdb->prefix . 'tix_audit_log', ['id' => $aid]);
+    TIX_Mirror::touch('audit', $aid);
+}
+if (isset($wid) || (class_exists('TIX_Wallet_Balance') && TIX_Wallet_Balance::ready())) {
+    $wu = wp_create_user("wadj$sfx", wp_generate_password(), "wadj$sfx@example.test");
+    $ww = TIX_Wallet_Balance::get_or_create($wu, 0);
+    $adj = TIX_Wallet_Balance::post_tx((int) $ww['id'], ['type' => 'adjust', 'channel' => 'admin', 'amount_bonus' => 300, 'staff_user_id' => 1, 'allow_locked' => true,
+        'idempotency_key' => "team:adj$sfx", 'meta' => ['reason' => 'Kulanz', 'by' => 'Team Test', 'manual' => 'credit']]);
+    m2_run();
+    $mt = !is_wp_error($adj) ? m2_one('wallet_transactions', (int) $adj['id']) : null;
+    t2_eq('Gutschrift adjust/admin', 'adjust/admin', ($mt['type'] ?? '') . '/' . ($mt['channel'] ?? ''));
+    t2_eq('Grund und Mitarbeiter in meta', 'Kulanz|Team Test', ($mt['meta']['reason'] ?? '') . '|' . ($mt['meta']['by'] ?? ''));
+    $wpdb->delete($wpdb->prefix . 'tix_wallet_tx', ['wallet_id' => (int) $ww['id']]); $wpdb->delete($wpdb->prefix . 'tix_wallets', ['id' => (int) $ww['id']]);
+    wp_delete_user($wu);
+}
+
 // ── Aufräumen ──
 if (isset($sid)) { $wpdb->delete(TIX_Settlement::items_table(), ['settlement_id' => $sid]); $wpdb->delete(TIX_Settlement::table(), ['id' => $sid]); }
 if (isset($wid)) { $wpdb->delete($wpdb->prefix . 'tix_wallet_tx', ['wallet_id' => $wid]); $wpdb->delete($wpdb->prefix . 'tix_wallets', ['id' => $wid]); }

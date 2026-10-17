@@ -65,6 +65,7 @@ $wp = [
     'settlement_items'    => $q("SELECT COUNT(*) FROM {$wpdb->prefix}tix_settlement_items"),
     'invoices'            => $q("SELECT COUNT(*) FROM {$wpdb->prefix}tix_invoices"),
     'invoice_counters'    => $q("SELECT COUNT(*) FROM {$wpdb->prefix}tix_invoice_counters"),
+    'audit_log'           => $q("SELECT COUNT(*) FROM {$wpdb->prefix}tix_audit_log"),
     'checkins'            => null, // nur im Spiegel (Verlauf ab Einrichtung)
     'refunds'             => null, // nur im Spiegel (Verlauf ab Einrichtung)
 ];
@@ -137,7 +138,7 @@ $key_ok  = ['idempotency_key', 'issuer_key']; // Spalten, keine Geheimnisse
 $hash_re = '/"\$(P|H|wp|2y|2a|2b|argon2id?|scrypt|[156])\$/';
 $iban_re = '/\b[A-Z]{2}\d{2}(?:\s?[A-Z0-9]){11,30}\b/';
 foreach (['customers', 'organizers', 'orders', 'order_items', 'payments', 'tickets', 'events', 'guests', 'loyalty', 'coupons',
-          'wallets', 'wallet_transactions', 'settlements', 'settlement_items', 'invoices', 'checkins', 'refunds', 'change_log'] as $table) {
+          'wallets', 'wallet_transactions', 'settlements', 'settlement_items', 'invoices', 'audit_log', 'checkins', 'refunds', 'change_log'] as $table) {
     $hits = []; $rows = 0; $err = '';
     for ($offset = 0; ; $offset += 1000) {
         $r = TIX_Mirror_Client::select($table, ['site' => 'eq.' . $site, 'order' => $table === 'change_log' ? 'id.asc' : 'id.asc', 'limit' => '1000', 'offset' => (string) $offset]);
