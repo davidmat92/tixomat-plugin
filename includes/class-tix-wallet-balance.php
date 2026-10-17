@@ -1012,6 +1012,8 @@ class TIX_Wallet_Balance {
         $ch_names = ['pos_cash' => 'Kasse', 'pos_card' => 'Kasse', 'sumup' => 'Kasse', 'app' => 'App', 'web' => 'Web', 'admin' => 'Verwaltung', 'system' => 'System', 'giftcard' => 'Gutschein'];
         if ($tx['type'] === 'charge') $title = $ref['number'] ? 'Ticketkauf' : 'Bezahlt';
         if ($tx['type'] === 'topup' && ($tx['channel'] ?? '') !== 'giftcard' && $ref['number']) $title = 'Aufgeladen';
+        // Gutschrift bzw. Korrektur vom Team (Kunden-Bereich im Studio, 1.38.494)
+        if ($tx['type'] === 'adjust' && ($tx['channel'] ?? '') === 'admin') $title = $a >= 0 ? 'Gutschrift vom Team' : 'Korrektur vom Team';
         $org_name = intval($tx['organizer_id'] ?? 0) ? html_entity_decode(get_the_title(intval($tx['organizer_id'])), ENT_QUOTES, 'UTF-8') : '';
         if ($ref['number']) $sub = trim(($ref['event_title'] ? $ref['event_title'] . ' · ' : '') . 'Bestellung ' . $ref['number']);
         else {
@@ -1039,6 +1041,10 @@ class TIX_Wallet_Balance {
             $out['staff_user_id'] = intval($tx['staff_user_id']);
             $m = $tx['meta'] ? json_decode($tx['meta'], true) : [];
             $out['reason'] = (string) ($m['reason'] ?? '');
+            // Bearbeiter (Gutschrift/Korrektur vom Team, 1.38.494)
+            $su = intval($tx['staff_user_id']) ? get_userdata(intval($tx['staff_user_id'])) : null;
+            $out['staff_name'] = (string) ($m['by'] ?? ($su ? $su->display_name : ''));
+            $out['manual'] = $tx['type'] === 'adjust' && ($tx['channel'] ?? '') === 'admin';
         }
         return $out;
     }

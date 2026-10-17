@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.38.493
+ * Version: 1.38.494
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  * Update URI: https://veranstalter.evendis.de/tixomat
@@ -10,7 +10,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.38.493');
+define('TIXOMAT_VERSION', '1.38.494');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -445,6 +445,8 @@ require_once TIXOMAT_PATH . 'includes/class-tix-sync-airtable.php';
 require_once TIXOMAT_PATH . 'includes/class-tix-raffle.php';
 TIX_Raffle::init();
 require_once TIXOMAT_PATH . 'includes/class-tix-raffle-api.php';
+require_once TIXOMAT_PATH . 'includes/class-tix-customers.php';
+TIX_Customers::init(); // Kunden im Studio/App: Liste, Detail, Guthaben, Löschen, Änderungsprotokoll (1.38.494)
 TIX_Raffle_API::init(); // Gewinnspiel-Routen fürs Studio (/raffles, /events/{id}/raffle…) (1.38.489)
 
 // ── Warteliste / Presale-Benachrichtigungen ──

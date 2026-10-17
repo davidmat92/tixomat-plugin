@@ -75,10 +75,43 @@ class TIX_Account_Delete {
         $anon_hash = substr(hash('sha256', $email . wp_generate_password(32, true)), 0, 12);
         $anon_email = 'gelöscht-' . $anon_hash . '@removed.invalid';
         $anon_name = '[Gelöscht]';
-        $orders = 0;
-        // Alle Status (auch eigene wie tix_open/tix_closed der Anfragen und Papierkorb) – 'any' lässt exclude_from_search-Status aus
-        $all = array_values(get_post_stati());
+        // Alle Status (auch eigene wie tix_open/tix_closed der Anfragen und Papierkorb) werden in anonymize_email() erfasst
+        list($orders, $retained, $tickets, $sp) = self::anonymize_email($email, $uid, $anon_email, $anon_name);
+        $retain = self::mode() === 'retain';
 
+        // 6. Profilbild-Datei (außerhalb der Mediathek), Tokens, Konto
+        $file = basename((string) get_user_meta($uid, '_tix_avatar_file', true));
+        if ($file !== '' && $file !== '.' && $file !== '..') {
+            $path = trailingslashit(wp_get_upload_dir()['basedir']) . 'tix-avatars/' . $file;
+            if (is_file($path)) @unlink($path);
+        }
+        delete_user_meta($uid, '_tix_app_tokens');
+        delete_user_meta($uid, '_tix_app_token');
+        if (!function_exists('wp_delete_user')) require_once ABSPATH . 'wp-admin/includes/user.php';
+        if (!wp_delete_user($uid)) return new WP_Error('tix_delete_failed', 'Konto konnte nicht gelöscht werden.', ['status' => 500]);
+
+        // 7. Protokoll ohne Personenbezug
+        $log = get_option('tix_deleted_accounts_log', []);
+        $log = is_array($log) ? $log : [];
+        $log[] = ['deleted_at' => gmdate('c'), 'anon_hash' => $anon_hash, 'source' => $source, 'orders' => $orders, 'retained' => count($retained), 'tickets' => count($tickets), 'support' => count($sp)];
+        if (count($log) > 500) $log = array_slice($log, -500);
+        update_option('tix_deleted_accounts_log', $log, false);
+
+        $info = ['anon_hash' => $anon_hash, 'source' => $source, 'orders' => $orders, 'tickets' => count($tickets), 'support' => count($sp),
+            'retention' => $retain ? 'retain' : 'anonymize', 'retained' => $retained];
+        /** Konto ist gelöscht und anonymisiert (z. B. Datenspiegel: Verlauf mit Personenbezug tilgen). */
+        do_action('tix_account_deleted', $uid, $account_email, $info);
+        return $info;
+    }
+
+    /**
+     * Schritte 1–5 der Löschung (Bestellungen, Tickets, Ticket-Spiegel, Support, Newsletter) für eine E-Mail bzw. ein Konto.
+     * Auch für Gastkunden ohne Konto (Studio „Kunden“, 1.38.494). → [orders, retained[], ticket_ids[], support_ids[]]
+     */
+    private static function anonymize_email($email, $uid, $anon_email, $anon_name) {
+        global $wpdb;
+        $orders = 0;
+        $all = array_values(get_post_stati());
         // 1. Native Bestellungen (eigene über E-Mail oder Konto-ID)
         $retain = self::mode() === 'retain';
         $retained = [];
@@ -86,7 +119,10 @@ class TIX_Account_Delete {
             'billing_address_1' => '', 'billing_address_2' => '', 'billing_city' => '', 'billing_postcode' => '', 'billing_company' => '', 'customer_id' => 0];
         $t = $wpdb->prefix . 'tix_orders';
         if ($wpdb->get_var("SHOW TABLES LIKE '$t'") === $t) {
-            $rows = $wpdb->get_results($wpdb->prepare("SELECT id, order_number, status, date_created FROM $t WHERE billing_email = %s OR customer_id = %d", $email, $uid));
+            // Gastkunde (uid 0): nur über die E-Mail – „customer_id = 0“ träfe sonst alle Gastbestellungen
+            $rows = $uid > 0
+                ? $wpdb->get_results($wpdb->prepare("SELECT id, order_number, status, date_created FROM $t WHERE billing_email = %s OR customer_id = %d", $email, $uid))
+                : $wpdb->get_results($wpdb->prepare("SELECT id, order_number, status, date_created FROM $t WHERE billing_email = %s", $email));
             foreach ((array) $rows as $r) {
                 $oid = intval($r->id);
                 if ($retain && (in_array($r->status, self::PAID, true) || self::has_invoice($oid))) {
@@ -104,7 +140,9 @@ class TIX_Account_Delete {
         $wc_t = $wpdb->prefix . 'wc_orders';
         $wc_a = $wpdb->prefix . 'wc_order_addresses';
         if ($wpdb->get_var("SHOW TABLES LIKE '$wc_t'") === $wc_t) {
-            $wc = $wpdb->get_results($wpdb->prepare("SELECT id, status, date_created_gmt FROM $wc_t WHERE billing_email = %s OR customer_id = %d", $email, $uid));
+            $wc = $uid > 0
+                ? $wpdb->get_results($wpdb->prepare("SELECT id, status, date_created_gmt FROM $wc_t WHERE billing_email = %s OR customer_id = %d", $email, $uid))
+                : $wpdb->get_results($wpdb->prepare("SELECT id, status, date_created_gmt FROM $wc_t WHERE billing_email = %s", $email));
             foreach ((array) $wc as $r) {
                 $oid = intval($r->id);
                 $keep = $retain && in_array(preg_replace('/^wc-/', '', (string) $r->status), self::PAID, true);
@@ -143,28 +181,28 @@ class TIX_Account_Delete {
         $subs = get_posts(['post_type' => 'tix_subscriber', 'posts_per_page' => -1, 'post_status' => $all, 'fields' => 'ids', 'meta_key' => '_tix_sub_email', 'meta_value' => $email]);
         foreach ($subs as $s) wp_delete_post($s, true);
 
-        // 6. Profilbild-Datei (außerhalb der Mediathek), Tokens, Konto
-        $file = basename((string) get_user_meta($uid, '_tix_avatar_file', true));
-        if ($file !== '' && $file !== '.' && $file !== '..') {
-            $path = trailingslashit(wp_get_upload_dir()['basedir']) . 'tix-avatars/' . $file;
-            if (is_file($path)) @unlink($path);
-        }
-        delete_user_meta($uid, '_tix_app_tokens');
-        delete_user_meta($uid, '_tix_app_token');
-        if (!function_exists('wp_delete_user')) require_once ABSPATH . 'wp-admin/includes/user.php';
-        if (!wp_delete_user($uid)) return new WP_Error('tix_delete_failed', 'Konto konnte nicht gelöscht werden.', ['status' => 500]);
+        return [$orders, $retained, $tickets, $sp];
+    }
 
-        // 7. Protokoll ohne Personenbezug
+    /**
+     * Gastkunden (ohne Konto) über die E-Mail löschen bzw. anonymisieren – wie delete() ohne Kontoschritte (1.38.494).
+     * @return array|WP_Error wie delete()
+     */
+    public static function delete_guest($email, $source = 'studio') {
+        $email = sanitize_email((string) $email);
+        if (!is_email($email)) return new WP_Error('tix_delete_failed', 'Ungültige E-Mail.', ['status' => 400]);
+        if (get_user_by('email', $email)) return new WP_Error('tix_delete_failed', 'Zu dieser E-Mail gibt es ein Konto.', ['status' => 409]);
+        $anon_hash = substr(hash('sha256', $email . wp_generate_password(32, true)), 0, 12);
+        list($orders, $retained, $tickets, $sp) = self::anonymize_email($email, 0, 'gelöscht-' . $anon_hash . '@removed.invalid', '[Gelöscht]');
         $log = get_option('tix_deleted_accounts_log', []);
         $log = is_array($log) ? $log : [];
-        $log[] = ['deleted_at' => gmdate('c'), 'anon_hash' => $anon_hash, 'source' => $source, 'orders' => $orders, 'retained' => count($retained), 'tickets' => count($tickets), 'support' => count($sp)];
+        $log[] = ['deleted_at' => gmdate('c'), 'anon_hash' => $anon_hash, 'source' => $source . ':guest', 'orders' => $orders, 'retained' => count($retained), 'tickets' => count($tickets), 'support' => count($sp)];
         if (count($log) > 500) $log = array_slice($log, -500);
         update_option('tix_deleted_accounts_log', $log, false);
-
         $info = ['anon_hash' => $anon_hash, 'source' => $source, 'orders' => $orders, 'tickets' => count($tickets), 'support' => count($sp),
-            'retention' => $retain ? 'retain' : 'anonymize', 'retained' => $retained];
-        /** Konto ist gelöscht und anonymisiert (z. B. Datenspiegel: Verlauf mit Personenbezug tilgen). */
-        do_action('tix_account_deleted', $uid, $account_email, $info);
+            'retention' => self::mode() === 'retain' ? 'retain' : 'anonymize', 'retained' => $retained, 'guest' => true];
+        /** Gastkunde gelöscht (Datenspiegel: Verlauf mit Personenbezug tilgen, wie tix_account_deleted ohne Konto). */
+        do_action('tix_guest_deleted', $email, $info);
         return $info;
     }
 
