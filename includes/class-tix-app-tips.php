@@ -640,6 +640,8 @@ class TIX_App_Tips {
 
     /** GET /public/tips[?placement=] */
     public static function rest_list(WP_REST_Request $req) {
+        // Schalter „Tipps des Tages“ (TIX_Features, 1.38.498): aus → leer mit enabled false, Inhalte bleiben
+        if (class_exists('TIX_Features') && !TIX_Features::on('tips')) return rest_ensure_response(['tips' => [], 'enabled' => false]);
         $placement = sanitize_key((string) $req->get_param('placement'));
         // Unbekannter Platz: sofort leer, ohne Cache-Eintrag (sonst legt jeder Zufallswert einen Transient an)
         if ($placement !== '' && !isset(self::PLACEMENTS[$placement])) {

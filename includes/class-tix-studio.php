@@ -439,6 +439,8 @@ class TIX_Studio {
             'invoices' => class_exists('TIX_Invoices') ? ['enabled' => TIX_Invoices::enabled(), 'model' => TIX_Invoices::multi() ? TIX_Invoices::model() : null] : null,
             // Auto-Archiv (1.38.492): {enabled, grace_hours, skip_drafts, interval, next_run} – ändern nur Inhaber/Admin (auf evendis Admin)
             'archive' => class_exists('TIX_Archive') && method_exists('TIX_Archive', 'payload') ? TIX_Archive::payload(self::archive_scope_org()) : null,
+            // App-Funktionen an/aus (1.38.498): {scope, organizer_id, features {<key>: {key, label, enabled, status, can_edit, scope, available, hint}}, order[]} (awareness zusätzlich report/alarm)
+            'app_features' => class_exists('TIX_Features') ? TIX_Features::payload() : null,
             'profile'    => $multi ? 'platform' : 'single',
             'features'   => [
                 'register'  => $multi && class_exists('TIX_Register_API'),
@@ -577,13 +579,26 @@ class TIX_Studio {
         // Auto-Archiv (1.38.492/493): {archive: {…}} oder flach (Multipart) archive_enabled / archive_grace_hours / archive_skip_drafts
         $archive_in = $has('archive') ? $req->get_param('archive') : (class_exists('TIX_Archive') && method_exists('TIX_Archive', 'from_flat') ? TIX_Archive::from_flat(function ($k) use ($req) { return $req->get_param($k); }) : null);
         $archive_org = self::archive_scope_org();
+        // App-Funktionen an/aus (1.38.498): {app_features: {<key>: bool}} (Multipart: JSON-Text)
+        $features_in = $has('app_features') ? $req->get_param('app_features') : null;
+        if (is_string($features_in)) { $dec = json_decode($features_in, true); $features_in = is_array($dec) ? $dec : $features_in; }
+        // Multipart feature_<key>=1|0
+        $flat_features = class_exists('TIX_Features') ? TIX_Features::from_flat((array) $p) : [];
+        if ($flat_features) $features_in = array_merge(is_array($features_in) ? $features_in : [], $flat_features);
+        $feature_params = array_map(function ($k) { return 'feature_' . $k; }, array_keys($flat_features));
         if (self::multi() && !current_user_can('manage_options')) {
-            // Veranstalter auf evendis: nur das Auto-Archiv der eigenen Events
-            $other = array_diff(array_keys((array) $p), ['archive', 'archive_enabled', 'archive_grace_hours', 'archive_skip_drafts']);
-            if ($other || $req->get_file_params()) return new WP_Error('rest_forbidden', 'Hier kannst du nur das Auto-Archiv deiner Events einstellen.', ['status' => 403]);
-            if ($archive_in === null) return new WP_Error('tix_invalid_field', 'Keine Archiv-Einstellung übergeben.', ['status' => 400, 'field' => 'archive']);
-            $ar = TIX_Archive::save($archive_in, $archive_org);
-            if (is_wp_error($ar)) return $ar;
+            // Veranstalter auf evendis: Auto-Archiv der eigenen Events und die eigenen Module
+            $other = array_diff(array_keys((array) $p), array_merge(['archive', 'archive_enabled', 'archive_grace_hours', 'archive_skip_drafts', 'app_features'], $feature_params));
+            if ($other || $req->get_file_params()) return new WP_Error('rest_forbidden', 'Hier kannst du nur das Auto-Archiv und die Funktionen deines Veranstalters einstellen.', ['status' => 403]);
+            if ($archive_in === null && $features_in === null) return new WP_Error('tix_invalid_field', 'Keine Archiv-Einstellung übergeben.', ['status' => 400, 'field' => 'archive']);
+            if ($features_in !== null && class_exists('TIX_Features')) {
+                $fr = TIX_Features::apply($features_in, $req);
+                if (is_wp_error($fr)) return $fr;
+            }
+            if ($archive_in !== null) {
+                $ar = TIX_Archive::save($archive_in, $archive_org);
+                if (is_wp_error($ar)) return $ar;
+            }
             return rest_ensure_response(self::config_payload());
         }
         if ($has('accent')) {
@@ -644,6 +659,10 @@ class TIX_Studio {
             $ar = TIX_Archive::save($archive_in);
             if (is_wp_error($ar)) return $ar;
         }
+        if ($features_in !== null && class_exists('TIX_Features')) {
+            $fr = TIX_Features::apply($features_in, $req);
+            if (is_wp_error($fr)) return $fr;
+        }
         if ($has('order_number_mode')) update_option('tix_order_number_mode', (string) $req->get_param('order_number_mode'), false);
         if ($has('order_number_code')) { if ($oc === '') delete_option('tix_order_number_code'); else update_option('tix_order_number_code', $oc, false); }
         $mail_in = [];
@@ -653,7 +672,7 @@ class TIX_Studio {
             if (is_wp_error($nb)) return $nb;
             $b = $nb;
         }
-        $unknown = array_diff(array_keys((array) $p), array_merge(['accent', 'logo_id', 'logo', 'has_app', 'app_layout', 'placeholder_id', 'placeholder', 'syndicate_default', 'syndicate_default_partner_sales', 'mail_logo', 'mail_logo_on_color', 'order_number_mode', 'order_number_code', 'archive', 'archive_enabled', 'archive_grace_hours', 'archive_skip_drafts'], self::MAIL_KEYS));
+        $unknown = array_diff(array_keys((array) $p), array_merge(['accent', 'logo_id', 'logo', 'has_app', 'app_layout', 'placeholder_id', 'placeholder', 'syndicate_default', 'syndicate_default_partner_sales', 'mail_logo', 'mail_logo_on_color', 'order_number_mode', 'order_number_code', 'archive', 'archive_enabled', 'archive_grace_hours', 'archive_skip_drafts', 'app_features', 'organizer_id'], self::MAIL_KEYS, $feature_params));
         // Vorgabe „alle Events auf evendis teilen“ (1.38.465): true | false | null (nicht eingestellt)
         if ($has('syndicate_default') || $has('syndicate_default_partner_sales')) {
             $avail = class_exists('TIX_Syndication_Push') && TIX_Syndication_Push::is_configured() && !self::multi();

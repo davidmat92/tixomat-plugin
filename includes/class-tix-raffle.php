@@ -99,7 +99,7 @@ class TIX_Raffle {
         $post_id = $atts['id'] ? intval($atts['id']) : get_the_ID();
 
         if (!$post_id || get_post_type($post_id) !== 'event') return '';
-        if (get_post_meta($post_id, '_tix_raffle_enabled', true) !== '1') return '';
+        if (get_post_meta($post_id, '_tix_raffle_enabled', true) !== '1' || !self::globally_on()) return '';
 
         self::ensure_table();
         self::enqueue();
@@ -310,7 +310,7 @@ class TIX_Raffle {
         if (!$event_id || !$name || !$email || !is_email($email)) return $fail('Bitte Name und gültige E-Mail angeben.');
         $consent_text = get_post_meta($event_id, '_tix_raffle_consent_text', true);
         if (!empty($consent_text) && !$consent) return $fail('Bitte stimme den Teilnahmebedingungen zu.');
-        if (get_post_meta($event_id, '_tix_raffle_enabled', true) !== '1') return $fail('Kein aktives Gewinnspiel.');
+        if (get_post_meta($event_id, '_tix_raffle_enabled', true) !== '1' || !self::globally_on()) return $fail('Kein aktives Gewinnspiel.');
 
         self::ensure_table();
         $status = self::status($event_id);
@@ -350,9 +350,14 @@ class TIX_Raffle {
     /**
      * Öffentliche Gewinnspiel-Daten für Apps/Vorlagen (ohne E-Mails); null, wenn kein Gewinnspiel.
      */
+    /** Schalter „Gewinnspiele“ für die ganze Seite (TIX_Features, 1.38.498); Event-Einstellungen bleiben erhalten. */
+    public static function globally_on() {
+        return !class_exists('TIX_Features') || TIX_Features::on('raffles');
+    }
+
     /** Kurzform für Event-Listen: {title, status open|closed|drawn, end_date} oder null (ohne Teilnehmerliste). */
     public static function list_info($event_id) {
-        if (get_post_meta($event_id, '_tix_raffle_enabled', true) !== '1') return null;
+        if (get_post_meta($event_id, '_tix_raffle_enabled', true) !== '1' || !self::globally_on()) return null;
         $prizes = get_post_meta($event_id, '_tix_raffle_prizes', true);
         if (!is_array($prizes) || empty($prizes)) return null;
         self::ensure_table();
@@ -365,7 +370,7 @@ class TIX_Raffle {
     }
 
     public static function public_info($event_id) {
-        if (get_post_meta($event_id, '_tix_raffle_enabled', true) !== '1') return null;
+        if (get_post_meta($event_id, '_tix_raffle_enabled', true) !== '1' || !self::globally_on()) return null;
         $prizes = get_post_meta($event_id, '_tix_raffle_prizes', true);
         if (!is_array($prizes) || empty($prizes)) return null;
         self::ensure_table();

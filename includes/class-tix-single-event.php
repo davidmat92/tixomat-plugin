@@ -144,7 +144,7 @@ class TIX_Single_Event {
             case 'video':       return !empty($s['ep_show_video']) && (bool) get_post_meta($post_id, '_tix_video_url', true);
             case 'location':    return !empty($s['ep_show_location']) && (bool) get_post_meta($post_id, '_tix_location_id', true);
             case 'organizer':   return !empty($s['ep_show_organizer']) && (bool) get_post_meta($post_id, '_tix_organizer_id', true);
-            case 'raffle':      return !empty($s['ep_show_raffle']) && get_post_meta($post_id, '_tix_raffle_enabled', true) === '1';
+            case 'raffle':      return !empty($s['ep_show_raffle']) && get_post_meta($post_id, '_tix_raffle_enabled', true) === '1' && (!class_exists('TIX_Raffle') || TIX_Raffle::globally_on());
             case 'calendar':    return !empty($s['ep_show_calendar']);
             case 'share':       return !empty($s['ep_show_share']);
             case 'countdown':   $ds = get_post_meta($post_id, '_tix_date_start', true); return $ds && strtotime($ds) > current_time('timestamp');

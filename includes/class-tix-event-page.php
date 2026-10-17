@@ -408,7 +408,7 @@ class TIX_Event_Page {
     /* ── Gewinnspiel ── */
     private static function render_raffle($id) {
         $s = tix_get_settings();
-        if (empty($s['ep_show_raffle'])) return;
+        if (empty($s['ep_show_raffle']) || (class_exists('TIX_Raffle') && !TIX_Raffle::globally_on())) return;
         if (get_post_meta($id, '_tix_raffle_enabled', true) !== '1') return;
 
         echo do_shortcode('[tix_raffle id="' . intval($id) . '"]');

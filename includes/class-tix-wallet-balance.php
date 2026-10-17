@@ -1413,6 +1413,22 @@ class TIX_Wallet_Balance {
         return self::rest_admin_config($req);
     }
 
+    /**
+     * Seiten-Schalter (Studio „Funktionen“, 1.38.498): Einzel-Seite `_tix_wallet.enabled`, evendis Plattform-Guthaben
+     * `tix_wallet_platform`. Aus = Aufladen stoppt, Guthaben bleibt erhalten.
+     */
+    public static function set_site_enabled($on) {
+        if (self::multi()) {
+            update_option(self::OPT_PLATFORM, $on ? '1' : '0', false);
+            if ($on) self::ensure_event(0); else self::sync_event_off(0);
+            return;
+        }
+        $s = self::stored(0);
+        $s['enabled'] = (bool) $on;
+        update_option(self::OPT, $s, false);
+        if ($on) self::ensure_event(0); else self::sync_event_off(0);
+    }
+
     /** Bereich ausgeschaltet: Aufladen stoppen (Event auf Entwurf), Guthaben bleibt einlösbar. */
     private static function sync_event_off($oid) {
         $id = self::system_event_id($oid);

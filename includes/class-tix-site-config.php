@@ -113,7 +113,7 @@ class TIX_Site_Config {
                 'awareness' => class_exists('TIX_Awareness_Live') ? (bool) (TIX_Awareness_Live::flags()['report_enabled'] ?? false) : false,
                 'wallet' => $wallet,
                 'coupons' => class_exists('TIX_Coupons'),
-                'muttizettel' => class_exists('TIX_Muttizettel'),
+                'muttizettel' => class_exists('TIX_Features') ? TIX_Features::on('muttizettel') : class_exists('TIX_Muttizettel'),
                 'app_banner' => (bool) $app['has_app'],
             ],
             'tracking' => [

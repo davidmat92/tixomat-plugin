@@ -747,6 +747,8 @@ class TIX_REST_API {
             // Awareness (kostenlos, nie gesperrt): was die Seite freigeschaltet hat – maßgeblich für Melden/Feedback bzw. Hilfe vor Ort
             'awareness'      => class_exists('TIX_Awareness_Live') ? TIX_Awareness_Live::flags() : ['report_enabled' => false, 'alarm_live' => false],
             'event_placeholder' => $ph ? ['url' => $ph['url'], 'url_small' => $ph['url_small']] : null,
+            // App-Funktionen an/aus (TIX_Features, 1.38.498): {<key>: bool} wie GET /app/config `features`
+            'app_features'   => class_exists('TIX_Features') ? TIX_Features::map(TIX_Features::org_from_param($req->get_param('organizer'))) : null,
         ] + ((class_exists('TIX_Weekly_Mail') && TIX_Weekly_Mail::multi()) ? [
             // Wochenmail (evendis): Karte „Was geht am Wochenende?“ nur bei enabled
             'newsletter'     => ['enabled' => TIX_Weekly_Mail::enabled()],

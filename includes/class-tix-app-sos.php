@@ -91,7 +91,8 @@ class TIX_App_Sos {
     public static function rest_live(WP_REST_Request $req) {
         $s = self::settings();
         $r = function ($d) { $x = new WP_REST_Response($d); $x->header('Cache-Control', 'no-store'); $x->header('X-LiteSpeed-Cache-Control', 'no-cache'); return $x; };
-        if (!$s['enabled']) return $r(['ok' => true, 'enabled' => false]);
+        // Aus (auch über Studio „Funktionen“): Notrufnummern bleiben immer erreichbar (1.38.498, Sicherheit)
+        if (!$s['enabled']) return $r(['ok' => true, 'enabled' => false, 'numbers' => $s['numbers']]);
         $eid = absint($req->get_param('event_id'));
         $test = class_exists('TIX_Awareness_Test');
         if ($eid && (get_post_type($eid) !== 'event' || get_post_status($eid) !== 'publish') && !($test && TIX_Awareness_Test::visible($eid))) $eid = 0;

@@ -30,10 +30,15 @@ class TIX_App_Config {
         if (isset($c['nav']) && is_array($c['nav'])) unset($c['nav']['sos']);
         // SOS-Menüpunkt (TIX_App_Sos, 1.38.434): nur wenn eingeschaltet, sonst Antwort unverändert
         $sos = class_exists('TIX_App_Sos') ? TIX_App_Sos::nav_block() : null;
+        // App-Funktionen an/aus (1.38.498): {<key>: bool}; evendis mit ?organizer=<id|slug> für die Module des Veranstalters
+        $features = class_exists('TIX_Features') ? TIX_Features::map(TIX_Features::org_from_param($req->get_param('organizer') ?? $req->get_param('organizer_id'))) : null;
         if (empty($c)) {
-            // Leer → App fällt auf die WordPress-Seite / Defaults zurück (mit SOS: nur `nav`, ohne `ok`)
-            return rest_ensure_response($sos ? ['nav' => ['sos' => $sos]] : new stdClass());
+            // Leer → App fällt auf die WordPress-Seite / Defaults zurück (mit SOS: nur `nav`, ohne `ok`; `features` immer)
+            $out = $sos ? ['nav' => ['sos' => $sos]] : [];
+            if ($features !== null) $out['features'] = $features;
+            return rest_ensure_response($out ?: new stdClass());
         }
+        if ($features !== null) $c['features'] = $features;
         if ($sos) {
             $c['nav'] = (isset($c['nav']) && is_array($c['nav']) ? $c['nav'] : []);
             $c['nav']['sos'] = $sos;

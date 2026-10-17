@@ -293,7 +293,9 @@ class TIX_App_Coupons {
         $ev  = absint($req->get_param('event') ?? $req->get_param('event_id'));
         $oid = self::resolve_organizer($org);
         $out = [];
-        if ($oid >= 0 && (!$ev || (get_post_type($ev) === 'event' && get_post_status($ev) === 'publish'))) {
+        // Schalter „Gutscheine in der App“ (TIX_Features, 1.38.498): aus → keine beworbenen Codes, enabled false
+        $on = !class_exists('TIX_Features') || TIX_Features::on('app_coupons');
+        if ($on && $oid >= 0 && (!$ev || (get_post_type($ev) === 'event' && get_post_status($ev) === 'publish'))) {
             foreach ((array) get_option('tix_coupons', []) as $k => $c) {
                 if (!is_array($c)) continue;
                 $c['code'] = (string) $k;
@@ -303,7 +305,7 @@ class TIX_App_Coupons {
                 $out[] = self::feed_item($c);
             }
         }
-        $r = new WP_REST_Response(['ok' => true, 'coupons' => $out]);
+        $r = new WP_REST_Response(['ok' => true, 'enabled' => $on, 'coupons' => $out]);
         $r->header('Cache-Control', 'public, max-age=60');
         return $r;
     }

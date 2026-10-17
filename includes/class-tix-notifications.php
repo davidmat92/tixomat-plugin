@@ -66,8 +66,11 @@ class TIX_Notifications {
      * konfiguriert – die Push-Zustellung an alle Geräte an.
      */
     public static function add_broadcast($title, $body, $args = []) {
+        // Schalter „Mitteilungen“ aus (TIX_Features, 1.38.498): Info-Nachrichten an alle fallen weg
+        if (!self::info_on()) return null;
         $item = [
             'id'       => 'b_' . wp_generate_uuid4(),
+            'kind'     => 'info',
             'type'     => sanitize_key($args['type'] ?? 'message'),
             'title'    => self::clean($title),
             'body'     => self::clean($body),
@@ -98,8 +101,11 @@ class TIX_Notifications {
     public static function add_user_item($user_id, $title, $body, $args = []) {
         $user_id = intval($user_id);
         if ($user_id <= 0) return null;
+        $kind = self::kind_of(['type' => sanitize_key($args['type'] ?? 'message'), 'kind' => $args['kind'] ?? null]);
+        if ($kind === 'info' && !self::info_on()) return null; // Mitteilungen aus: nur Transaktionales
         $item = [
             'id'       => 'u_' . wp_generate_uuid4(),
+            'kind'     => $kind,
             'type'     => sanitize_key($args['type'] ?? 'message'),
             'title'    => self::clean($title),
             'body'     => self::clean($body),
@@ -121,6 +127,22 @@ class TIX_Notifications {
             ]);
         }
         return $item;
+    }
+
+    /** Werbe-/Info-Nachrichten (Broadcast, Nachrichten an Käufer eines Events): fallen bei „Mitteilungen aus“ weg. */
+    const INFO_TYPES = ['message', 'promo', 'news', 'tip'];
+
+    /** Schalter „Mitteilungen (Broadcast)“ (TIX_Features, 1.38.498) */
+    public static function info_on() {
+        return !class_exists('TIX_Features') || TIX_Features::on('notifications');
+    }
+
+    /** kind eines Feed-Eintrags: info (Broadcast, Typen INFO_TYPES) | transactional (Tickets, Guthaben, Gutschein, Support, Awareness …). */
+    public static function kind_of($it) {
+        $k = (string) ($it['kind'] ?? '');
+        if ($k === 'info' || $k === 'transactional') return $k;
+        if (strpos((string) ($it['id'] ?? ''), 'b_') === 0) return 'info';
+        return in_array((string) ($it['type'] ?? 'message'), self::INFO_TYPES, true) ? 'info' : 'transactional';
     }
 
     private static function clean($s) {
@@ -164,12 +186,15 @@ class TIX_Notifications {
         if ($uid) {
             $items = array_merge($items, self::user_items($uid));
         }
+        // Mitteilungen aus: Info-Einträge ausblenden (bleiben gespeichert)
+        if (!self::info_on()) $items = array_values(array_filter($items, function ($it) { return self::kind_of($it) !== 'info'; }));
         usort($items, fn($a, $b) => intval($b['created'] ?? 0) - intval($a['created'] ?? 0));
         if (count($items) > self::MAX_FEED) $items = array_slice($items, 0, self::MAX_FEED);
 
         $out = array_map(function ($it) {
             return [
                 'id'       => (string) ($it['id'] ?? ''),
+                'kind'     => self::kind_of($it),
                 'type'     => (string) ($it['type'] ?? 'message'),
                 'title'    => (string) ($it['title'] ?? ''),
                 'body'     => (string) ($it['body'] ?? ''),
@@ -183,6 +208,8 @@ class TIX_Notifications {
             'ok'            => true,
             'notifications' => array_values($out),
             'push_ready'    => self::apns_configured(),
+            // Schalter „Mitteilungen (Broadcast)“ (TIX_Features, 1.38.498)
+            'broadcast_enabled' => !class_exists('TIX_Features') || TIX_Features::on('notifications'),
         ], 200);
     }
 
@@ -243,6 +270,9 @@ class TIX_Notifications {
     }
 
     public static function rest_broadcast(WP_REST_Request $req) {
+        if (class_exists('TIX_Features') && !TIX_Features::on('notifications')) {
+            return new WP_Error('tix_feature_off', 'Mitteilungen sind ausgeschaltet (Studio → Funktionen).', ['status' => 409, 'feature' => 'notifications']);
+        }
         $title = self::clean($req->get_param('title'));
         $body  = self::clean($req->get_param('body'));
         if ($title === '' && $body === '') {
