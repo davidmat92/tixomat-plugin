@@ -197,7 +197,7 @@ class TIX_Studio {
         ]);
         register_rest_route(self::NS, '/studio/config', [
             ['methods' => 'GET',  'callback' => [__CLASS__, 'rest_config'],      'permission_callback' => '__return_true'],
-            ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_save_config'], 'permission_callback' => [__CLASS__, 'perm_brand']],
+            ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_save_config'], 'permission_callback' => [__CLASS__, 'perm_config']],
         ]);
         // Bestehende kommende Events auf evendis teilen (einmalige Aktion, 1.38.465): {dry_run: true} listet nur
         register_rest_route(self::NS, '/studio/syndicate-upcoming', [
@@ -438,7 +438,7 @@ class TIX_Studio {
             // Rechnungen (1.38.487): Menüpunkt/Hinweis im Studio; Details unter GET /studio/invoice-config
             'invoices' => class_exists('TIX_Invoices') ? ['enabled' => TIX_Invoices::enabled(), 'model' => TIX_Invoices::multi() ? TIX_Invoices::model() : null] : null,
             // Auto-Archiv (1.38.492): {enabled, grace_hours, skip_drafts, interval, next_run} – ändern nur Inhaber/Admin (auf evendis Admin)
-            'archive' => class_exists('TIX_Archive') && method_exists('TIX_Archive', 'payload') ? TIX_Archive::payload() : null,
+            'archive' => class_exists('TIX_Archive') && method_exists('TIX_Archive', 'payload') ? TIX_Archive::payload(self::archive_scope_org()) : null,
             'profile'    => $multi ? 'platform' : 'single',
             'features'   => [
                 'register'  => $multi && class_exists('TIX_Register_API'),
@@ -543,6 +543,23 @@ class TIX_Studio {
         return new WP_Error('rest_forbidden', 'Nur der Inhaber der Seite kann Farbe und Logo ändern.', ['status' => 403]);
     }
 
+    /**
+     * POST /studio/config: wie perm_brand; auf evendis zusätzlich Inhaber/Team-Admin eines Veranstalters – die dürfen dort nur
+     * das Auto-Archiv ihrer eigenen Events setzen (1.38.493, User-Entscheid „Jeder Veranstalter für seine Events“).
+     */
+    public static function perm_config(WP_REST_Request $req) {
+        $r = self::perm_brand($req);
+        if ($r === true) return true;
+        if (self::multi() && is_user_logged_in() && class_exists('TIX_App_Scope') && TIX_App_Scope::is_org_manager() && TIX_App_Scope::organizer_id_for_user()) return true;
+        return $r;
+    }
+
+    /** Veranstalter, dessen Archiv-Einstellung der Aufrufer sieht bzw. setzt (evendis, kein Admin), sonst 0 = Seite/Plattform. */
+    private static function archive_scope_org() {
+        if (!self::multi() || !is_user_logged_in() || current_user_can('manage_options') || !class_exists('TIX_App_Scope')) return 0;
+        return TIX_App_Scope::is_org_manager() ? intval(TIX_App_Scope::organizer_id_for_user()) : 0;
+    }
+
     /** POST /studio/config {accent?, logo (Datei) | logo_id?} – nur Akzentfarbe und Logo; null/"" setzt auf die Vorgabe zurück. */
     public static function rest_save_config(WP_REST_Request $req) {
         // Über post_max_size: PHP verwirft den ganzen Inhalt – klar melden statt still nichts zu ändern
@@ -557,6 +574,18 @@ class TIX_Studio {
         $p = $req->get_json_params();
         $p = is_array($p) ? $p : $req->get_body_params();
         $has = function ($k) use ($p, $req) { return is_array($p) && array_key_exists($k, $p) || $req->get_param($k) !== null; };
+        // Auto-Archiv (1.38.492/493): {archive: {…}} oder flach (Multipart) archive_enabled / archive_grace_hours / archive_skip_drafts
+        $archive_in = $has('archive') ? $req->get_param('archive') : (class_exists('TIX_Archive') && method_exists('TIX_Archive', 'from_flat') ? TIX_Archive::from_flat(function ($k) use ($req) { return $req->get_param($k); }) : null);
+        $archive_org = self::archive_scope_org();
+        if (self::multi() && !current_user_can('manage_options')) {
+            // Veranstalter auf evendis: nur das Auto-Archiv der eigenen Events
+            $other = array_diff(array_keys((array) $p), ['archive', 'archive_enabled', 'archive_grace_hours', 'archive_skip_drafts']);
+            if ($other || $req->get_file_params()) return new WP_Error('rest_forbidden', 'Hier kannst du nur das Auto-Archiv deiner Events einstellen.', ['status' => 403]);
+            if ($archive_in === null) return new WP_Error('tix_invalid_field', 'Keine Archiv-Einstellung übergeben.', ['status' => 400, 'field' => 'archive']);
+            $ar = TIX_Archive::save($archive_in, $archive_org);
+            if (is_wp_error($ar)) return $ar;
+            return rest_ensure_response(self::config_payload());
+        }
         if ($has('accent')) {
             $raw = $req->get_param('accent');
             if ($raw === null || $raw === '') unset($b['accent']);
@@ -611,8 +640,8 @@ class TIX_Studio {
             if ($oc !== '' && !preg_match('/^[A-Z0-9]{2,5}$/', $oc)) return new WP_Error('tix_invalid_field', 'Kürzel: 2 bis 5 Zeichen (A–Z, 0–9).', ['status' => 400, 'field' => 'order_number_code']);
             if (self::multi() && $oc !== '' && $oc !== 'EV') return new WP_Error('tix_invalid_field', 'Auf evendis ist das Kürzel immer EV.', ['status' => 400, 'field' => 'order_number_code']);
         }
-        if ($has('archive') && class_exists('TIX_Archive') && method_exists('TIX_Archive', 'save')) {
-            $ar = TIX_Archive::save($req->get_param('archive'));
+        if ($archive_in !== null && class_exists('TIX_Archive') && method_exists('TIX_Archive', 'save')) {
+            $ar = TIX_Archive::save($archive_in);
             if (is_wp_error($ar)) return $ar;
         }
         if ($has('order_number_mode')) update_option('tix_order_number_mode', (string) $req->get_param('order_number_mode'), false);
@@ -624,7 +653,7 @@ class TIX_Studio {
             if (is_wp_error($nb)) return $nb;
             $b = $nb;
         }
-        $unknown = array_diff(array_keys((array) $p), array_merge(['accent', 'logo_id', 'logo', 'has_app', 'app_layout', 'placeholder_id', 'placeholder', 'syndicate_default', 'syndicate_default_partner_sales', 'mail_logo', 'mail_logo_on_color', 'order_number_mode', 'order_number_code', 'archive'], self::MAIL_KEYS));
+        $unknown = array_diff(array_keys((array) $p), array_merge(['accent', 'logo_id', 'logo', 'has_app', 'app_layout', 'placeholder_id', 'placeholder', 'syndicate_default', 'syndicate_default_partner_sales', 'mail_logo', 'mail_logo_on_color', 'order_number_mode', 'order_number_code', 'archive', 'archive_enabled', 'archive_grace_hours', 'archive_skip_drafts'], self::MAIL_KEYS));
         // Vorgabe „alle Events auf evendis teilen“ (1.38.465): true | false | null (nicht eingestellt)
         if ($has('syndicate_default') || $has('syndicate_default_partner_sales')) {
             $avail = class_exists('TIX_Syndication_Push') && TIX_Syndication_Push::is_configured() && !self::multi();

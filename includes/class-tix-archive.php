@@ -23,11 +23,15 @@ class TIX_Archive {
     // 1.38.492: Archiv kurz nach dem echten Ende (stündlich), Gnadenfrist in Stunden, Entwürfe optional ausnehmen
     const OPT_GRACE    = 'tix_archive_grace_hours';
     const OPT_SKIP     = 'tix_archive_skip_drafts';
+    // 1.38.493: evendis – je Veranstalter eigene Einstellung (Organizer-Meta), sonst Vorgabe der Plattform
+    const META_ORG     = '_tix_archive_config';
 
     public static function init() {
         // Cron
         add_action(self::CRON_HOOK, [__CLASS__, 'run_archive_sweep']);
         add_action('tix_archive_run_soon', [__CLASS__, 'run_archive_sweep']);
+        // WP-Admin-Karte „Auto-Archiv“ (Einstellungen): Gnadenfrist in Stunden + Entwürfe ausnehmen mitspeichern (1.38.493)
+        add_filter('pre_update_option_tix_settings', [__CLASS__, 'save_from_settings_form'], 10, 1);
         add_action('init', [__CLASS__, 'schedule_cron']);
         add_action('init', [__CLASS__, 'maybe_heal_once'], 30);
 
@@ -56,7 +60,24 @@ class TIX_Archive {
     }
 
     /** Einstellungen: {enabled, grace_hours, skip_drafts}. Gnadenfrist Vorgabe 1 h; alte Tage-Einstellung (> 0) gilt, bis Stunden gesetzt sind. */
-    public static function settings() {
+    /** Eigene Werte eines Veranstalters (nur gesetzte Schlüssel). */
+    public static function org_overrides($oid) {
+        $c = $oid ? get_post_meta(intval($oid), self::META_ORG, true) : [];
+        return is_array($c) ? array_intersect_key($c, array_flip(['enabled', 'grace_hours', 'skip_drafts'])) : [];
+    }
+
+    /** Einstellungen; mit $oid (evendis) die des Veranstalters, Lücken aus der Vorgabe der Plattform. */
+    public static function settings($oid = 0) {
+        $base = self::platform_settings();
+        if (!$oid) return $base;
+        $o = self::org_overrides($oid);
+        if (array_key_exists('enabled', $o)) $base['enabled'] = (bool) $o['enabled'];
+        if (array_key_exists('grace_hours', $o)) $base['grace_hours'] = max(0, min(720, intval($o['grace_hours'])));
+        if (array_key_exists('skip_drafts', $o)) $base['skip_drafts'] = (bool) $o['skip_drafts'];
+        return $base;
+    }
+
+    private static function platform_settings() {
         // Vorgaben aus tix_get_settings() (auto_archive_enabled = 1), frisch gespeicherte Werte darüber (statischer Zwischenspeicher)
         $opt = get_option('tix_settings', []);
         $s = array_merge(function_exists('tix_get_settings') ? (array) tix_get_settings() : [], is_array($opt) ? $opt : []);
@@ -69,19 +90,46 @@ class TIX_Archive {
     }
 
     /** Für Studio/App (GET /studio/config → archive). */
-    public static function payload() {
-        $c = self::settings();
+    public static function payload($oid = 0) {
+        $c = self::settings($oid);
         $next = wp_next_scheduled(self::CRON_HOOK);
-        return $c + ['interval' => 'hourly', 'next_run' => $next ? wp_date('Y-m-d H:i', $next) : null];
+        $out = $c + ['interval' => 'hourly', 'next_run' => $next ? wp_date('Y-m-d H:i', $next) : null, 'scope' => $oid ? 'organizer' : 'platform'];
+        // evendis: welche Werte der Veranstalter selbst gesetzt hat (sonst Vorgabe der Plattform) und die Vorgabe selbst
+        if ($oid) { $out['own'] = array_keys(self::org_overrides($oid)); $out['platform_default'] = self::platform_settings(); }
+        return $out;
+    }
+
+    /** Flache Felder (Multipart: archive_enabled, archive_grace_hours, archive_skip_drafts) → archive-Objekt oder null. */
+    public static function from_flat($get) {
+        $in = [];
+        foreach (['enabled', 'grace_hours', 'skip_drafts'] as $k) {
+            $v = $get('archive_' . $k);
+            if ($v !== null) $in[$k] = $v;
+        }
+        return $in ?: null;
     }
 
     /** POST /studio/config {archive: {enabled?, grace_hours?, skip_drafts?}} → true | WP_Error */
-    public static function save($in) {
+    public static function save($in, $oid = 0) {
         if (!is_array($in)) return new WP_Error('tix_invalid_field', 'archive: Objekt erwartet.', ['status' => 400, 'field' => 'archive']);
-        if (array_key_exists('grace_hours', $in)) {
+        if (array_key_exists('grace_hours', $in) && $in['grace_hours'] !== null && $in['grace_hours'] !== '') {
             $g = $in['grace_hours'];
             if (!is_numeric($g) || intval($g) != $g || intval($g) < 0 || intval($g) > 720) return new WP_Error('tix_invalid_field', 'Gnadenfrist: ganze Stunden von 0 bis 720.', ['status' => 400, 'field' => 'archive.grace_hours']);
         }
+        if ($oid) {
+            // Veranstalter (evendis): eigene Werte; null/"" = wieder Vorgabe der Plattform
+            $c = self::org_overrides($oid);
+            foreach (['enabled', 'grace_hours', 'skip_drafts'] as $k) {
+                if (!array_key_exists($k, $in)) continue;
+                $v = $in[$k];
+                if ($v === null || $v === '') { unset($c[$k]); continue; }
+                $c[$k] = $k === 'grace_hours' ? intval($v) : (filter_var($v, FILTER_VALIDATE_BOOLEAN) ? 1 : 0);
+            }
+            if ($c) update_post_meta(intval($oid), self::META_ORG, $c); else delete_post_meta(intval($oid), self::META_ORG);
+            if (self::settings($oid)['enabled'] && !wp_next_scheduled('tix_archive_run_soon')) wp_schedule_single_event(time() + 60, 'tix_archive_run_soon');
+            return true;
+        }
+        if (array_key_exists('grace_hours', $in) && ($in['grace_hours'] === null || $in['grace_hours'] === '')) unset($in['grace_hours']);
         if (array_key_exists('enabled', $in)) {
             $s = get_option('tix_settings', []);
             $s = is_array($s) ? $s : [];
@@ -93,6 +141,13 @@ class TIX_Archive {
         // nach dem Einschalten bald prüfen (nicht im Request)
         if (self::settings()['enabled'] && !wp_next_scheduled('tix_archive_run_soon')) wp_schedule_single_event(time() + 60, 'tix_archive_run_soon');
         return true;
+    }
+
+    public static function save_from_settings_form($value) {
+        if (!is_admin() || !current_user_can('manage_options') || !isset($_POST['tix_archive_form'])) return $value;
+        if (isset($_POST['tix_archive_grace_hours']) && is_numeric($_POST['tix_archive_grace_hours'])) update_option(self::OPT_GRACE, (string) max(0, min(720, intval($_POST['tix_archive_grace_hours']))), false);
+        update_option(self::OPT_SKIP, !empty($_POST['tix_archive_skip_drafts']) ? '1' : '0', false);
+        return $value;
     }
 
     /**
@@ -152,14 +207,13 @@ class TIX_Archive {
     public static function run_archive_sweep() {
         self::heal_copies();
         $c = self::settings();
-        if (!$c['enabled']) return 0;
-
-        // Ende + Gnadenfrist (Stunden) muss vorbei sein; Entwürfe auf Wunsch ausnehmen (1.38.492)
-        $cutoff = time() - $c['grace_hours'] * HOUR_IN_SECONDS;
+        $multi = class_exists('TIX_App_Scope') && TIX_App_Scope::multi();
+        // evendis: Veranstalter können es für ihre Events einschalten, auch wenn die Vorgabe der Plattform aus ist
+        if (!$c['enabled'] && !$multi) return 0;
 
         $events = get_posts([
             'post_type'      => 'event',
-            'post_status'    => $c['skip_drafts'] ? ['publish', 'private'] : ['publish', 'draft', 'private'],
+            'post_status'    => ['publish', 'draft', 'private'],
             'posts_per_page' => -1,
             'fields'         => 'ids',
             'meta_query'     => [
@@ -173,10 +227,17 @@ class TIX_Archive {
         ]);
 
         $archived = 0;
+        $per_org = [];
         foreach ($events as $event_id) {
+            $oid = $multi ? intval(get_post_meta($event_id, '_tix_organizer_id', true)) : 0;
+            if (!isset($per_org[$oid])) $per_org[$oid] = self::settings($oid);
+            $cfg = $per_org[$oid];
+            // Ende + Gnadenfrist (Stunden) muss vorbei sein; Entwürfe auf Wunsch ausnehmen (1.38.492, je Veranstalter 1.38.493)
+            if (!$cfg['enabled']) continue;
+            if ($cfg['skip_drafts'] && get_post_status($event_id) === 'draft') continue;
             $end = self::end_ts($event_id);
             if (!$end) continue;
-            if ($end <= $cutoff) {
+            if ($end <= time() - $cfg['grace_hours'] * HOUR_IN_SECONDS) {
                 self::archive_event($event_id);
                 $archived++;
             }

@@ -8266,17 +8266,22 @@ class TIX_Settings {
                                     <div class="tix-card-body">
                                         <div class="tix-field-grid">
                                             <div class="tix-field tix-field-full">
-                                                <?php self::checkbox_row('auto_archive_enabled', 'Abgelaufene Events automatisch archivieren', $s, 'L&auml;uft t&auml;glich und verschiebt Events, deren Enddatum vorbei ist, ins Archiv. Archivierte Events werden im Frontend nicht mehr angezeigt.'); ?>
+                                                <?php self::checkbox_row('auto_archive_enabled', 'Abgelaufene Events automatisch archivieren', $s, 'Pr&uuml;ft st&uuml;ndlich und verschiebt Events kurz nach ihrem Ende ins Archiv (Ende = Enddatum + Endzeit, ohne Endzeit Beginn + 7 Std.). Archivierte Events fehlen in den Event-Listen der Website; die Event-Seite bleibt per Link erreichbar.'); ?>
                                             </div>
+                                            <?php $tix_ar = class_exists('TIX_Archive') && method_exists('TIX_Archive', 'settings') ? TIX_Archive::settings() : ['grace_hours' => 1, 'skip_drafts' => false]; ?>
+                                            <input type="hidden" name="tix_archive_form" value="1">
                                             <div class="tix-field">
-                                                <label class="tix-field-label" for="tix-auto-archive-days">Gnadenfrist (Tage)</label>
-                                                <input type="number" min="0" max="365" step="1" id="tix-auto-archive-days"
-                                                    name="tix_settings[auto_archive_days]"
-                                                    value="<?php echo esc_attr(intval($s['auto_archive_days'] ?? 0)); ?>"
+                                                <label class="tix-field-label" for="tix-auto-archive-hours">Gnadenfrist (Stunden)</label>
+                                                <input type="number" min="0" max="720" step="1" id="tix-auto-archive-hours"
+                                                    name="tix_archive_grace_hours"
+                                                    value="<?php echo esc_attr(intval($tix_ar['grace_hours'])); ?>"
                                                     class="small-text">
                                             </div>
                                             <div class="tix-field tix-field-full">
-                                                <p class="tix-settings-hint">Anzahl Tage nach dem Enddatum, bevor archiviert wird. <code>0</code> = sofort am Tag nach dem Event.</p>
+                                                <label><input type="checkbox" name="tix_archive_skip_drafts" value="1" <?php checked(!empty($tix_ar['skip_drafts'])); ?>> Entw&uuml;rfe nicht archivieren</label>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <p class="tix-settings-hint">Stunden nach dem Ende, bevor archiviert wird (<code>0</code> = sofort). Auf evendis ist das die Vorgabe; Veranstalter k&ouml;nnen im Studio eigene Werte f&uuml;r ihre Events setzen.</p>
                                             </div>
                                         </div>
                                     </div>
