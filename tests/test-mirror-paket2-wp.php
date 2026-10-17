@@ -454,6 +454,50 @@ if (isset($wid) || (class_exists('TIX_Wallet_Balance') && TIX_Wallet_Balance::re
     wp_delete_user($wu);
 }
 
+// ── 12. Geschenkgutschein mit Empfänger-Adresse (1.38.496): Spiegel, Löschweg, Anonymisierung ──
+$rmail = "beschenkt$sfx@example.test";
+$bmail = "kaeufer$sfx@example.test";
+$boid = TIX_Native_Checkout::create_order(['total' => 25.0, 'payment_method' => 'bank', 'billing_first_name' => 'Kai', 'billing_last_name' => 'Kauf',
+    'billing_email' => $bmail, 'items' => [['event_id' => $ev, 'cat_index' => 0, 'qty' => 1, 'price' => 25.0, 'name' => 'N', 'event_title' => 'x']]]);
+$gcode = "GS-$sfx-GIFT";
+$cp = get_option('tix_coupons', []); $cp = is_array($cp) ? $cp : [];
+$cp[$gcode] = ['code' => $gcode, 'discount_type' => 'giftcard', 'value' => 25, 'balance' => 15, 'order_id' => $boid,
+    'gift' => ['recipient_name' => 'Bea Schenk', 'recipient_email' => $rmail, 'from_name' => 'Kai', 'message' => 'Alles Gute'],
+    'sent_to' => $rmail, 'sent_at' => gmdate('c'), 'sends' => [['ts' => gmdate('c'), 'to' => $rmail, 'by' => 'buyer', 'mode' => 'manual', 'ok' => true]],
+    'redemptions' => [['id' => 'r1', 'ts' => time(), 'amount' => 10, 'channel' => 'pos', 'by' => 'Kasse 1', 'event_id' => $ev],
+                      ['id' => 'r2', 'ts' => time(), 'amount' => -10, 'channel' => 'pos', 'by' => 'Kasse 1', 'event_id' => $ev, 'void_of' => 'r1']]];
+update_option('tix_coupons', $cp);
+m2_run();
+$mc = m2_one('coupons', $gcode);
+t2_eq('Gutschein mit Empfänger gespiegelt', $rmail, $mc['data']['gift']['recipient_email'] ?? null);
+t2_eq('Bar-Abbuchung mit Storno (void_of)', 'r1', $mc['data']['redemptions'][1]['void_of'] ?? null);
+t2_true('Verlauf enthält die Empfänger-Adresse', strpos(wp_json_encode(m2_rows('change_log', ['entity' => 'eq.coupons', 'object_id' => 'eq.' . $gcode])), $rmail) !== false);
+// Beschenkte Person wird als Gast gelöscht → Gutschein-Verlauf mit ihrer Adresse getilgt (WordPress lässt den Gutschein heute stehen)
+do_action('tix_guest_deleted', $rmail, ['source' => 'test']);
+m2_run();
+t2_eq('Gutschein-Verlauf mit Empfänger-Adresse getilgt', false, strpos(wp_json_encode(m2_rows('change_log', ['entity' => 'eq.coupons', 'object_id' => 'eq.' . $gcode])), $rmail) !== false);
+// Käufer gelöscht → Bestellung anonymisiert; Gutschein noch mit Adresse → Vergleich meldet es
+$wpdb->update($wpdb->prefix . 'tix_orders', ['billing_email' => "gelöscht-x$sfx@removed.invalid", 'billing_first_name' => '[Gelöscht]'], ['id' => $boid]);
+$vout = (function () { ob_start(); include WP_PLUGIN_DIR . '/tixomat/supabase/tools/vergleich-wp.php'; return ob_get_clean(); })(); // eigener Gültigkeitsbereich
+t2_true('Vergleich meldet Empfänger-Adresse trotz gelöschtem Käufer', strpos($vout, 'Gutscheine mit Empfänger-Adresse trotz gelöschtem Käufer: 1') !== false);
+// Plugin anonymisiert (Vorschlag an den Plugin-Chat) → Spiegel behält nur den anonymen Stand
+$cp = get_option('tix_coupons', []);
+$anon = "gelöscht-x$sfx@removed.invalid";
+$cp[$gcode]['gift'] = ['recipient_name' => '[Gelöscht]', 'recipient_email' => $anon, 'from_name' => '[Gelöscht]', 'message' => ''];
+$cp[$gcode]['sent_to'] = $anon; $cp[$gcode]['sends'][0]['to'] = $anon;
+update_option('tix_coupons', $cp);
+m2_run();
+$hist = m2_rows('change_log', ['entity' => 'eq.coupons', 'object_id' => 'eq.' . $gcode]);
+t2_eq('nach Anonymisierung: nur der anonyme Verlaufseintrag', 1, count($hist));
+t2_eq('keine Empfänger-Adresse mehr im Spiegel', false, strpos(wp_json_encode(m2_one('coupons', $gcode)), $rmail) !== false || strpos(wp_json_encode($hist), 'Bea Schenk') !== false);
+t2_eq('Code und Restwert bleiben', 15.0, (float) (m2_one('coupons', $gcode)['balance'] ?? 0));
+$vout = (function () { ob_start(); include WP_PLUGIN_DIR . '/tixomat/supabase/tools/vergleich-wp.php'; return ob_get_clean(); })(); // eigener Gültigkeitsbereich
+t2_true('Vergleich danach ohne Treffer', strpos($vout, 'Gutscheine mit Empfänger-Adresse trotz gelöschtem Käufer: keine') !== false);
+$cp = get_option('tix_coupons', []); unset($cp[$gcode]); update_option('tix_coupons', $cp);
+foreach (get_posts(['post_type' => 'tix_ticket', 'post_status' => 'any', 'numberposts' => -1, 'meta_key' => '_tix_ticket_order_id', 'meta_value' => $boid, 'fields' => 'ids']) as $tid) wp_delete_post($tid, true);
+$wpdb->delete($wpdb->prefix . 'tix_order_items', ['order_id' => $boid]); $wpdb->delete($wpdb->prefix . 'tix_orders', ['id' => $boid]);
+TIX_Mirror::touch('order', $boid);
+
 // ── Aufräumen ──
 if (isset($sid)) { $wpdb->delete(TIX_Settlement::items_table(), ['settlement_id' => $sid]); $wpdb->delete(TIX_Settlement::table(), ['id' => $sid]); }
 if (isset($wid)) { $wpdb->delete($wpdb->prefix . 'tix_wallet_tx', ['wallet_id' => $wid]); $wpdb->delete($wpdb->prefix . 'tix_wallets', ['id' => $wid]); }

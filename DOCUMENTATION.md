@@ -2585,6 +2585,11 @@ Zweite Speicherung aller Seiten in einem eigenen Supabase-Projekt (EU). **WordPr
   - Erfasst über `tix_audit_logged` und den Nachlauf (neue IDs), mit Erstbefüllung und Abgleich.
   - Der Löschweg fasst das Protokoll nicht an. Migration `20261017120000_mirror_audit_log.sql`.
 - **Gast ohne Konto gelöscht (1.38.494):** `tix_guest_deleted` → `mirror_forget` mit Kunden-ID 0 (Verlauf mit dieser E-Mail tilgen). Bestellungen und Tickets kommen anonymisiert über Nachlauf bzw. Meta-Hooks und tilgen ihren älteren Verlauf; aufbewahrte Rechnungsdaten bleiben.
+- **Geschenkgutscheine mit Versand (1.38.496):** `gift.recipient_email`, `sent_to`, `sent_at`, `send_at`, `sends[]` und Bar-Abbuchungen in `redemptions` (`id`, `by`, `event_id`, `void_of`) stehen im Gutschein-Inhalt (`coupons.data`).
+  - Löschweg: `mirror_forget` tilgt zusätzlich jeden Gutschein-Verlaufseintrag, der die gelöschte E-Mail enthält (Käufer oder Beschenkte*r).
+  - Kommt ein Gutschein anonymisiert an (`…@removed.invalid`), wird sein älterer Verlauf getilgt.
+  - Das Anonymisieren in WordPress selbst (Vorschlag an den Plugin-Chat) gehört in `TIX_Account_Delete`.
+  - `vergleich-wp.php` und `datenschutz-scan.sql` melden „Gutscheine mit Empfänger-Adresse trotz gelöschtem Käufer“. Migration `20261017150000_mirror_coupon_privacy.sql`.
 - **Guthaben-Korrektur durch das Team:** `type = adjust`, `channel = admin`; Grund und Mitarbeiter stehen in `wallet_transactions.meta` (`reason`, `by`).
 - **Werkzeuge:** `migrate.sh` spielt nur neue Migrationen ein (`--all` alle, `--verify` Rechte, `--sql` Datei). `datenschutz-scan.sql` ist die projektweite Suche (nur lesend).
 - **Kennung der Seite:** `TIX_MIRROR_SITE` in wp-config (Vorrang), sonst Option `tix_mirror['site']`, sonst Domain aus `home_url()`. Fest einstellen, damit ein Domain-Wechsel keine zweite Seite anlegt. Umbenennen im Spiegel: `supabase/tools/kennung-evendis.sql` als Vorlage (eine Transaktion, ohne neuen Verlauf). Kennungen: `kitchenklub.de`, `mallorca-festival-xxl.de`, `evendis.de`.

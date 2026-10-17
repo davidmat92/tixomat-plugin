@@ -173,6 +173,10 @@ class TIX_Mirror_Extra {
         }
         $ops = [];
         if ($rows) $ops[] = ['upsert', 'coupons', $rows];
+        // Anonymisierte Geschenk-Angaben (Käufer bzw. Beschenkte*r gelöscht): älteren Verlauf mit Adressen tilgen
+        foreach ($rows as $r) {
+            if (strpos(strtolower(wp_json_encode($r)), TIX_Mirror_Map::ANON_MARK) !== false) $ops[] = ['purge', 'coupons', $r['id']];
+        }
         $removed = $full ? null : array_diff(array_keys($prev), array_keys($fp));
         if ($full || $removed) $ops[] = ['prune', 'coupons', 0, array_map('strval', array_keys($fp))];
         $ops[] = ['remember', self::COUPON_FP, $fp];

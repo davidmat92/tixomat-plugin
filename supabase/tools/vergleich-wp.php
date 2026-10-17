@@ -161,4 +161,17 @@ foreach (['customers', 'organizers', 'orders', 'order_items', 'payments', 'ticke
     foreach ($hits as $k => $v) $problems[] = "{$table}: {$k}";
 }
 
+// Geschenkgutscheine (1.38.496): Käufer gelöscht, Gutschein trägt aber noch eine echte E-Mail (Stand WordPress = Spiegel)
+$gc = get_option('tix_coupons', []);
+$left = 0;
+foreach (is_array($gc) ? $gc : [] as $c) {
+    if (!is_array($c) || empty($c['order_id'])) continue;
+    $be = (string) $wpdb->get_var($wpdb->prepare("SELECT billing_email FROM {$wpdb->prefix}tix_orders WHERE id = %d", (int) $c['order_id']));
+    if (!TIX_Mirror_Map::is_anonymized($be)) continue;
+    $j = preg_replace('/[^" ]*@removed\.invalid/i', '', wp_json_encode($c));
+    if (preg_match('/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/', $j)) $left++;
+}
+echo "   Gutscheine mit Empfänger-Adresse trotz gelöschtem Käufer: " . ($left ? "{$left} – TREFFER" : 'keine') . "\n";
+if ($left) $problems[] = "Gutscheine: {$left} mit Empfänger-Adresse trotz gelöschtem Käufer";
+
 echo "\nErgebnis: " . ($problems ? count($problems) . " Auffälligkeit(en)\n - " . implode("\n - ", $problems) . "\n" : "alles gleich und sauber\n");

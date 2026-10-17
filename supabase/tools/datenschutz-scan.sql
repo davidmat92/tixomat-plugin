@@ -18,3 +18,8 @@ select 'Zeilen gesamt: ' || (select count(*) from t);
 select 'Hash-Werte: ' || count(*) from t where j ~ '"\$(P|H|wp|2y|2a|2b|argon2id?)\$';
 select 'Klartext-IBAN: ' || count(*) from t where regexp_replace(j, '"(iban_enc|iban_masked)": "[^"]*"', '', 'g') ~ '\m[A-Z]{2}[0-9]{2}( ?[A-Z0-9]){11,30}\M';
 select 'Verdächtige Feldnamen: ' || coalesce(string_agg(tb || '.' || key || ' ' || n, ', '), 'keine') from (select tb, key, count(*) n from k where key not in ('idempotency_key', 'issuer_key') group by 1, 2 order by 1, 2) s;
+-- Geschenkgutscheine (1.38.496): Käufer gelöscht (Bestellung anonymisiert), Gutschein trägt aber noch eine echte E-Mail
+select 'Gutscheine mit Empfänger-Adresse trotz gelöschtem Käufer: ' || count(*) from coupons c
+  join orders o on o.site = c.site and o.id = c.order_id
+ where o.billing_email like '%@removed.invalid'
+   and regexp_replace(c.data::text, '[^" ]*@removed\.invalid', '', 'g') ~* '[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}';
