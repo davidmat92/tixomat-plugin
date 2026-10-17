@@ -440,7 +440,8 @@ class TIX_Customers {
         foreach ((array) get_option('tix_coupons', []) as $code => $cp) {
             if (!is_array($cp) || ($cp['discount_type'] ?? '') !== 'giftcard' || !in_array(intval($cp['order_id'] ?? 0), $ids, true)) continue;
             if ($sc['oid'] && intval($cp['organizer_id'] ?? 0) !== $sc['oid']) continue;
-            $gift[] = ['code' => (string) $code, 'value' => round(floatval($cp['value'] ?? 0), 2), 'balance' => round(floatval($cp['balance'] ?? 0), 2), 'expires' => (string) ($cp['expires'] ?? '')];
+            $gift[] = ['code' => (string) $code, 'value' => round(floatval($cp['value'] ?? 0), 2), 'balance' => round(floatval($cp['balance'] ?? 0), 2), 'expires' => (string) ($cp['expires'] ?? '')]
+                + (class_exists('TIX_Giftcard_Send') ? TIX_Giftcard_Send::list_fields($cp + ['code' => (string) $code]) : []); // Versand an die beschenkte Person (1.38.496)
         }
         $out['giftcards'] = $gift;
         $out['guestlists'] = array_map(function ($g) { return ['event_id' => $g['event_id'], 'event_title' => html_entity_decode(get_the_title($g['event_id']), ENT_QUOTES, 'UTF-8'), 'plus' => $g['plus'], 'checked_in' => $g['checked_in']]; }, $c['guests'] ?? []);

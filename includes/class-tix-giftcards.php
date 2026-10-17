@@ -31,6 +31,9 @@ class TIX_Giftcards {
     /** true, solange die Bestätigungs-Mail die Codes selbst erzeugt (keine zweite Mail) */
     public static $in_mail = false;
 
+    /** true = keine Mail an die beschenkte Person (Reparatur, 1.38.496) */
+    public static $quiet = false;
+
     public static function init() {
         add_action('tix_order_cancelled', [__CLASS__, 'on_order_cancelled'], 20);
         add_action('tix_order_status_changed', [__CLASS__, 'on_status_changed'], 20, 3);
@@ -332,6 +335,7 @@ class TIX_Giftcards {
 
         $coupons = null; // lazy laden
         $created = 0;
+        $new_codes = [];
 
         foreach ($tickets as $t) {
             if (get_post_meta($t->ID, '_tix_ticket_gift_code', true)) continue; // idempotent
@@ -381,6 +385,7 @@ class TIX_Giftcards {
             ] + ($gift_info ? ['gift' => $gift_info] : []);
             update_post_meta($t->ID, '_tix_ticket_gift_code', $code);
             $created++;
+            $new_codes[] = $code;
         }
 
         if ($coupons !== null && $created > 0) {
@@ -388,6 +393,8 @@ class TIX_Giftcards {
             if (class_exists('TIX_Order_Admin') && method_exists('TIX_Order_Admin', 'add_note')) {
                 TIX_Order_Admin::add_note($order_id, '💳 ' . $created . ' Geschenkgutschein-Code(s) erzeugt.', 'system');
             }
+            // Direkt an die beschenkte Person (gift.recipient_email, 1.38.496) – vor der Käufer-Mail, damit die den Versand nennt
+            if (class_exists('TIX_Giftcard_Send') && !self::$quiet) TIX_Giftcard_Send::auto_for_order($order_id, $new_codes);
             // Codes kamen nach der Bestätigungs-Mail: eigene Mail mit PDF (1.38.463)
             if (class_exists('TIX_Giftcard_Gift') && !self::$in_mail) TIX_Giftcard_Gift::send_late_mail($order_id);
         }
@@ -426,8 +433,10 @@ class TIX_Giftcards {
         $codes = [];
         if (!$dry_run && $fix) {
             self::$in_mail = true; // keine automatische Mail – die schickt die Zentrale nach Rückfrage (send_late_mail)
+            self::$quiet = true;
             self::create_for_order($order_id);
             self::$in_mail = false;
+            self::$quiet = false;
             wp_cache_delete('tix_coupons', 'options');
             foreach ((array) get_option('tix_coupons', []) as $k => $c) if (($c['discount_type'] ?? '') === 'giftcard' && intval($c['order_id'] ?? 0) === $order_id && !in_array($k, $before, true)) $codes[] = (string) $k;
         }
@@ -456,7 +465,7 @@ class TIX_Giftcards {
     /**
      * @return array{ok:bool, message:string, balance:float, value:float}
      */
-    public static function redeem(string $code, float $amount, string $channel, string $ref = ''): array {
+    public static function redeem(string $code, float $amount, string $channel, string $ref = '', array $extra = []): array {
         $amount = round(floatval($amount), 2);
         if ($amount <= 0) return ['ok' => false, 'message' => 'Ungueltiger Betrag.', 'balance' => 0, 'value' => 0];
 
@@ -484,9 +493,11 @@ class TIX_Giftcards {
 
         $new_balance = round($balance - $amount, 2);
         $coupons[$key]['balance'] = $new_balance;
-        $coupons[$key]['redemptions'][] = [
-            'ts' => current_time('mysql'), 'amount' => $amount, 'channel' => $channel, 'ref' => $ref, 'rest' => $new_balance,
-        ];
+        // id je Buchung (1.38.496, Storno an der Bar), $extra: by, event_id, idem …
+        $rid = (string) ($extra['id'] ?? '') !== '' ? (string) $extra['id'] : strtolower(wp_generate_password(12, false));
+        $coupons[$key]['redemptions'][] = array_merge($extra, [
+            'id' => $rid, 'ts' => current_time('mysql'), 'amount' => $amount, 'channel' => $channel, 'ref' => $ref, 'rest' => $new_balance,
+        ]);
         update_option('tix_coupons', $coupons);
 
         // Bei 0 → verknuepftes Ticket entwerten (Scan zeigt kuenftig "aufgebraucht")
@@ -497,7 +508,7 @@ class TIX_Giftcards {
             }
         }
 
-        return ['ok' => true, 'message' => 'Eingeloest.', 'balance' => $new_balance, 'value' => $value];
+        return ['ok' => true, 'message' => 'Eingeloest.', 'balance' => $new_balance, 'value' => $value, 'before' => $balance, 'id' => $rid];
     }
 
     /**

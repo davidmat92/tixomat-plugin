@@ -14,7 +14,7 @@ if (!defined('ABSPATH')) exit;
  * Bausteine (render(['title', 'subtitle', 'preheader', 'blocks' => [...], 'note', 'kind']):
  *   text {html} · button {label, url} · info {title?, rows [[label, value]]} · event {title, date, time, location, image}
  *   ticket {label, code, qr, sub} · table {rows [[name, qty, amount]], total, total_label} · notice {tone info|warn|success|error, html}
- *   code {value, hint} · divider · html {html} (fremdes HTML, wird an das Layout angeglichen, siehe normalize())
+ *   code {value, hint} · qr {src, value, caption, size} (1.38.496) · divider · html {html} (fremdes HTML, wird an das Layout angeglichen, siehe normalize())
  * kind: customer (Standard) | account | admin | promo – steuert Feedback-Platz und Reply-To.
  *
  * Alle Mails laufen hier durch (wp_mail-Filter, Prio 900):
@@ -212,6 +212,14 @@ class TIX_Mail_Layout {
                     . (!empty($b['code']) ? '<div style="margin-top:6px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:15px;letter-spacing:2px;color:' . $c['text'] . ';">' . self::e($b['code']) . '</div>' : '')
                     . (!empty($b['link']) && !empty($b['link_label']) ? '<div style="margin-top:8px;font-size:14px;"><a href="' . esc_url($b['link']) . '" class="tm-accent-text" style="color:' . $c['accent'] . ';font-weight:700;text-decoration:none;">' . self::e($b['link_label']) . ' →</a></div>' : '')
                     . '</td></tr></table>';
+            case 'qr':
+                // Großer QR-Code (1.38.496, Geschenkgutschein): {src, value, caption, size}
+                $px = max(120, min(320, intval($b['size'] ?? 240)));
+                return '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:4px 0 16px;"><tr><td align="center" class="tm-soft" style="background:' . $c['soft'] . ';border:1px solid ' . $c['line'] . ';border-radius:12px;padding:20px 12px;">'
+                    . (!empty($b['src']) ? '<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center"><tr><td style="background:#FFFFFF;border-radius:10px;padding:10px;"><img src="' . esc_url($b['src']) . '" width="' . $px . '" height="' . $px . '" alt="QR-Code" style="display:block;border:0;width:' . $px . 'px;height:' . $px . 'px;max-width:100%;"></td></tr></table>' : '')
+                    . (!empty($b['value']) ? '<div class="tm-code" style="margin-top:12px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:24px;line-height:30px;letter-spacing:3px;font-weight:700;color:' . $c['text'] . ';">' . self::e($b['value']) . '</div>' : '')
+                    . (!empty($b['caption']) ? '<div class="tm-muted" style="margin-top:6px;font-size:13px;color:' . $c['muted'] . ';">' . self::e($b['caption']) . '</div>' : '')
+                    . '</td></tr></table>';
             case 'table':
                 $rows = '';
                 foreach ((array) ($b['rows'] ?? []) as $r) {
@@ -377,6 +385,7 @@ class TIX_Mail_Layout {
             $t = (string) ($blk['type'] ?? 'text');
             if ($t === 'text' || $t === 'notice' || $t === 'html') $out[] = self::html_to_text((string) ($blk['html'] ?? ''));
             elseif ($t === 'button') $out[] = $d($blk['label'] ?? '') . ': ' . (string) ($blk['url'] ?? '');
+            elseif ($t === 'qr') $out[] = (string) ($blk['value'] ?? '') . (!empty($blk['caption']) ? ' (' . $blk['caption'] . ')' : '');
             elseif ($t === 'code') $out[] = (string) ($blk['value'] ?? '') . (!empty($blk['hint']) ? ' (' . $blk['hint'] . ')' : '');
             elseif ($t === 'info') { $l = !empty($blk['title']) ? [$d($blk['title'])] : []; foreach ((array) ($blk['rows'] ?? []) as $r) $l[] = $d($r[0] ?? '') . ': ' . self::html_to_text((string) ($r[1] ?? '')); $out[] = implode("\n", $l); }
             elseif ($t === 'event') $out[] = trim($d($blk['title'] ?? '') . "\n" . trim((string) ($blk['date'] ?? '') . ' ' . (string) ($blk['time'] ?? '')) . "\n" . (string) ($blk['location'] ?? ''));

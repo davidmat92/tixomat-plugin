@@ -1434,6 +1434,11 @@ class TIX_Native_Checkout {
                                         <input type="text" class="tix-co-input" style="flex:1;min-width:140px;" name="tix_gift[<?php echo intval($i); ?>][from_name]" maxlength="<?php echo TIX_Giftcard_Gift::NAME_MAX; ?>" placeholder="Von (Name)" value="<?php echo esc_attr($gv['from_name'] ?? ''); ?>">
                                     </div>
                                     <textarea class="tix-co-input" style="width:100%;margin-top:8px;min-height:64px;" name="tix_gift[<?php echo intval($i); ?>][message]" maxlength="<?php echo TIX_Giftcard_Gift::MSG_MAX; ?>" placeholder="Persönliche Nachricht (höchstens <?php echo TIX_Giftcard_Gift::MSG_MAX; ?> Zeichen)"><?php echo esc_textarea($gv['message'] ?? ''); ?></textarea>
+                                    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+                                        <input type="email" class="tix-co-input" style="flex:2;min-width:180px;" name="tix_gift[<?php echo intval($i); ?>][recipient_email]" placeholder="E-Mail der beschenkten Person (optional)" value="<?php echo esc_attr($gv['recipient_email'] ?? ''); ?>">
+                                        <input type="date" class="tix-co-input" style="flex:1;min-width:140px;" name="tix_gift[<?php echo intval($i); ?>][send_at]" min="<?php echo esc_attr(wp_date('Y-m-d', time() + DAY_IN_SECONDS)); ?>" title="Später verschicken (9 Uhr), leer = gleich nach dem Kauf" value="<?php echo esc_attr(!empty($gv['send_at']) ? wp_date('Y-m-d', strtotime($gv['send_at'])) : ''); ?>">
+                                    </div>
+                                    <div style="margin-top:6px;color:#78716c;">Mit E-Mail schicken wir den Gutschein nach dem Kauf direkt dorthin – oder am gewählten Tag um 9 Uhr.</div>
                                 </div>
                                 <?php endif; ?>
                             <?php endforeach; ?>

@@ -46,7 +46,7 @@ class TIX_Giftcard_Gift {
     /** gift-Rohwert prüfen → null (keine Angaben) | array | WP_Error (field gift.*). */
     public static function sanitize($raw, $field = 'gift') {
         if ($raw === null || $raw === '' || $raw === false) return null;
-        if (!is_array($raw)) return new WP_Error('tix_invalid_field', 'Geschenk-Angaben bitte als Objekt {recipient_name, message, from_name}.', ['status' => 400, 'field' => $field]);
+        if (!is_array($raw)) return new WP_Error('tix_invalid_field', 'Geschenk-Angaben bitte als Objekt {recipient_name, message, from_name, recipient_email, send_at}.', ['status' => 400, 'field' => $field]);
         $clean = function ($v) { return trim(preg_replace('/\s+/u', ' ', wp_strip_all_tags((string) $v))); };
         $out = [
             'recipient_name' => $clean($raw['recipient_name'] ?? ''),
@@ -58,7 +58,21 @@ class TIX_Giftcard_Gift {
         }
         if (mb_strlen($out['message']) > self::MSG_MAX) return new WP_Error('tix_invalid_field', sprintf('Die Nachricht darf höchstens %d Zeichen haben.', self::MSG_MAX), ['status' => 400, 'field' => $field . '.message']);
         $out['message'] = preg_replace("/\n{3,}/", "\n\n", str_replace("\r", '', $out['message']));
-        return ($out['recipient_name'] === '' && $out['from_name'] === '' && $out['message'] === '') ? null : $out;
+        // Direkt verschicken (1.38.496): recipient_email, optional send_at (später, ISO 8601 bzw. YYYY-MM-DD = 9 Uhr)
+        $mail = trim((string) ($raw['recipient_email'] ?? ''));
+        if ($mail !== '') {
+            $mail = sanitize_email($mail);
+            if (!is_email($mail)) return new WP_Error('tix_invalid_field', 'Bitte eine gültige E-Mail-Adresse der beschenkten Person angeben.', ['status' => 400, 'field' => $field . '.recipient_email']);
+            $out['recipient_email'] = strtolower($mail);
+        }
+        $at = trim((string) ($raw['send_at'] ?? ''));
+        if ($at !== '') {
+            if ($mail === '') return new WP_Error('tix_invalid_field', 'Für einen späteren Versand bitte die E-Mail der beschenkten Person angeben.', ['status' => 400, 'field' => $field . '.send_at']);
+            $ts = class_exists('TIX_Giftcard_Send') ? TIX_Giftcard_Send::parse_send_at($at, $field . '.send_at') : 0;
+            if (is_wp_error($ts)) return $ts;
+            if ($ts) $out['send_at'] = wp_date('c', $ts);
+        }
+        return ($out['recipient_name'] === '' && $out['from_name'] === '' && $out['message'] === '' && empty($out['recipient_email'])) ? null : $out;
     }
 
     /**
@@ -81,6 +95,11 @@ class TIX_Giftcard_Gift {
             'gift_pdf'            => $pdf_ok ? rest_url(self::NS . '/customer/giftcards/' . rawurlencode((string) $card['code']) . '/pdf') : '',
             'gift_recipient'      => $rec,
             'gift_from'           => $from,
+            // Direkt verschickt (1.38.496): Adresse, geplanter bzw. letzter Versand (ISO 8601), null = nie
+            'gift_recipient_email' => ($g['recipient_email'] ?? '') !== '' ? (string) $g['recipient_email'] : null,
+            'gift_send_at'        => !empty($card['send_at']) ? (string) $card['send_at'] : null,
+            'gift_sent_to'        => !empty($card['sent_to']) ? (string) $card['sent_to'] : null,
+            'gift_sent_at'        => !empty($card['sent_at']) ? (string) $card['sent_at'] : null,
         ];
     }
 
@@ -222,8 +241,7 @@ class TIX_Giftcard_Gift {
         $text($code, $m, $qy + $qs + 20, $cw, 32, true, '2C2F3F', 'center');
         $exp = !empty($card['expires']) ? date_i18n('d.m.Y', strtotime($card['expires'])) : '';
         $text($exp !== '' ? 'Gültig bis ' . $exp : '', $m, $qy + $qs + 90, $cw, 15, false, '6B6F82', 'center');
-        $hint = 'Einlösen: Code im Online-Shop bzw. in der App an der Kasse eingeben, vor Ort den QR-Code scannen lassen oder in der App ins Guthaben übernehmen. Restwert bleibt erhalten.';
-        if (!empty($card['organizer_id'])) $hint = 'Gilt bei ' . html_entity_decode(get_the_title(intval($card['organizer_id'])), ENT_QUOTES, 'UTF-8') . '. ' . $hint;
+        $hint = self::short_hint($card);
         imageline($img, $m, $hint_y - 30, $w - $m, $hint_y - 30, $rgb('E3E5EC'));
         $text($hint, $m, $hint_y, $cw, 13, false, '6B6F82', 'center', 1.6);
         $host = (string) wp_parse_url(class_exists('TIX_Customer_URL') ? TIX_Customer_URL::to(home_url('/')) : home_url('/'), PHP_URL_HOST);
@@ -234,6 +252,39 @@ class TIX_Giftcard_Gift {
         imagedestroy($img);
         $pdf = TIX_Ticket_Template::create_minimal_pdf($jpeg, $w, $h);
         return $pdf ?: null;
+    }
+
+    /** App-Name ohne angehängtes „App“ (für „die <Name>-App“). */
+    public static function app_name() {
+        $app = class_exists('TIX_Studio') && method_exists('TIX_Studio', 'app_info') ? (array) TIX_Studio::app_info() : [];
+        $n = trim((string) ($app['name'] ?? '')) ?: html_entity_decode((string) get_bloginfo('name'), ENT_QUOTES, 'UTF-8');
+        return trim(preg_replace('/[\s-]*app$/iu', '', $n)) ?: $n;
+    }
+
+    /** Einlösen in der App möglich? Seite hat eine App und das Guthaben ist für den Bereich des Gutscheins an. */
+    public static function app_redeem($card) {
+        if (!class_exists('TIX_Studio') || !method_exists('TIX_Studio', 'app_info') || empty(TIX_Studio::app_info()['has_app'])) return false;
+        return class_exists('TIX_Wallet_Balance') && TIX_Wallet_Balance::scope_enabled(intval($card['organizer_id'] ?? 0));
+    }
+
+    /**
+     * Einlöse-Hinweis (verbindlicher Text 1.38.496, User): Punkt 1 vor Ort, Punkt 2 in der App – entfällt ohne App bzw. Guthaben.
+     * → Liste der Absätze (ohne Überschrift, ohne Nummer)
+     */
+    public static function redeem_steps($card) {
+        $steps = ['Ausgedruckt oder auf dem Handy: Zeig den QR-Code an der Kasse oder Bar vor. Es wird immer nur der Betrag abgebucht, den du gerade verbrauchst – der Rest bleibt auf dem Gutschein.'];
+        if (self::app_redeem($card)) {
+            $steps[] = 'In der App: Lade den Gutschein in die ' . self::app_name() . '-App – unter Guthaben → ‚Gutschein einlösen‘ den QR-Code scannen oder ein Foto bzw. einen Screenshot des Gutscheins wählen. Dann bezahlst du direkt mit dem Handy.';
+        }
+        return $steps;
+    }
+
+    /** Kurzfassung für das PDF. */
+    private static function short_hint($card) {
+        $h = 'So löst du ihn ein: QR-Code an der Kasse oder Bar vorzeigen – abgebucht wird nur, was du gerade verbrauchst, der Rest bleibt auf dem Gutschein.';
+        if (self::app_redeem($card)) $h .= ' Oder in der ' . self::app_name() . '-App unter Guthaben → „Gutschein einlösen“ scannen und mit dem Handy bezahlen.';
+        if (!empty($card['organizer_id'])) $h = 'Gilt bei ' . html_entity_decode(get_the_title(intval($card['organizer_id'])), ENT_QUOTES, 'UTF-8') . '. ' . $h;
+        return $h;
     }
 
     public static function filename($code) {
@@ -309,7 +360,8 @@ class TIX_Giftcard_Gift {
             $sub = trim(($g['gift_message'] ? '„' . $g['gift_message'] . '“' : '') . ($g['gift_from'] ? ' – von ' . $g['gift_from'] : ''));
             $blocks[] = ['type' => 'ticket', 'label' => 'Geschenkgutschein · ' . self::eur($card['value'] ?? 0), 'title' => $g['gift_recipient'] ? 'für ' . $g['gift_recipient'] : 'Gutschein',
                 'sub' => $sub, 'code' => $code, 'qr' => class_exists('TIX_QR') ? TIX_QR::url($code, 240) : ''];
-            $blocks[] = ['type' => 'info', 'rows' => array_values(array_filter([['Wert', esc_html(self::eur($card['value'] ?? 0))], $exp ? ['Gültig bis', esc_html($exp)] : null]))];
+            $sent = self::sent_line($card);
+            $blocks[] = ['type' => 'info', 'rows' => array_values(array_filter([['Wert', esc_html(self::eur($card['value'] ?? 0))], $exp ? ['Gültig bis', esc_html($exp)] : null, $sent ? [$sent[0], esc_html($sent[1])] : null]))];
             $html .= '<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 14px;"><tr><td style="border:2px dashed #ca8a04;background:#fefce8;border-radius:12px;padding:18px 20px;text-align:center;">'
                 . '<div style="font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:#a16207;font-weight:700;">🎁 Dein Geschenkgutschein zum Verschenken</div>'
                 . ($g['gift_recipient'] ? '<div style="font-size:15px;color:#44403c;margin-top:8px;">für <strong>' . esc_html($g['gift_recipient']) . '</strong></div>' : '')
@@ -317,6 +369,7 @@ class TIX_Giftcard_Gift {
                 . '<div style="font-size:24px;font-weight:800;letter-spacing:0.04em;font-family:monospace;color:#1c1917;margin-top:8px;">' . esc_html($code) . '</div>'
                 . ($g['gift_message'] ? '<div style="font-size:14px;color:#44403c;margin-top:10px;font-style:italic;">„' . nl2br(esc_html($g['gift_message'])) . '“</div>' : '')
                 . ($g['gift_from'] ? '<div style="font-size:13px;color:#78716c;margin-top:6px;">von ' . esc_html($g['gift_from']) . '</div>' : '')
+                . ($sent ? '<div style="font-size:13px;color:#166534;margin-top:10px;font-weight:700;">📨 ' . esc_html($sent[0] . ': ' . $sent[1]) . '</div>' : '')
                 . '<div style="font-size:12px;color:#78716c;margin-top:10px;">Das PDF zum Ausdrucken oder Weiterschicken hängt an dieser E-Mail.' . ($exp ? ' Gültig bis ' . esc_html($exp) . '.' : '') . '</div>'
                 . '</td></tr></table>';
             $pdf = self::pdf($code);
@@ -329,6 +382,17 @@ class TIX_Giftcard_Gift {
         $html = '<div style="margin:0 0 20px;"><div style="font-size:15px;font-weight:700;margin:0 0 10px;">Gutschein verschenken</div>' . $html . '</div>';
         array_unshift($blocks, ['type' => 'text', 'html' => '<strong>Gutschein verschenken</strong><br>' . ($files ? 'Das PDF zum Ausdrucken oder Weiterschicken hängt an dieser E-Mail.' : '')]);
         return ['html' => $html, 'blocks' => $blocks, 'files' => $files, 'codes' => $codes];
+    }
+
+    /** Versand an die beschenkte Person für die Käufer-Mail: [Label, Text] oder null. */
+    private static function sent_line($card) {
+        if (!empty($card['sent_to']) && !empty($card['sent_at'])) {
+            return ['Verschickt an', $card['sent_to'] . ' (' . wp_date('d.m.Y, H:i', strtotime($card['sent_at'])) . ' Uhr)'];
+        }
+        if (!empty($card['send_at']) && !empty($card['gift']['recipient_email'])) {
+            return ['Wird verschickt', 'am ' . wp_date('d.m.Y \u\m H:i', strtotime($card['send_at'])) . ' Uhr an ' . $card['gift']['recipient_email']];
+        }
+        return null;
     }
 
     public static function cleanup(array $files) {
@@ -379,7 +443,7 @@ class TIX_Giftcard_Gift {
 
     /**
      * Kennzahlen + letzte Gutscheine des Bereichs (Seite bzw. Veranstalter). Stornierte Käufe zählen nicht.
-     * stats {sold_count, sold_value, redeemed_value, open_value (nicht abgelaufen)}; recent (20) {code, value, balance, expires, created, buyer}
+     * stats {sold_count, sold_value, redeemed_value, open_value (nicht abgelaufen)}; recent (20) {code, value, balance, expires, created, buyer, sent {email, at}|null, sent_to, sent_at, send_at (1.38.496)}
      * – den vollen Code sehen nur, die ändern dürfen (sonst GS-XXXX-••••).
      */
     private static function stats($oid, $full_codes) {
@@ -400,7 +464,8 @@ class TIX_Giftcard_Gift {
             $s['sold_value'] += $value;
             $s['redeemed_value'] += max(0, $value - $bal - $storno);
             if ($bal > 0 && (empty($c['expires']) || $c['expires'] >= $today)) $s['open_value'] += $bal;
-            $rows[] = ['code' => (string) $code, 'value' => $value, 'balance' => $bal, 'expires' => (string) ($c['expires'] ?? ''), 'created' => (string) ($c['created'] ?? ''), 'order_id' => intval($c['order_id'] ?? 0)];
+            $rows[] = ['code' => (string) $code, 'value' => $value, 'balance' => $bal, 'expires' => (string) ($c['expires'] ?? ''), 'created' => (string) ($c['created'] ?? ''), 'order_id' => intval($c['order_id'] ?? 0),
+                'send' => class_exists('TIX_Giftcard_Send') ? TIX_Giftcard_Send::list_fields($c + ['code' => (string) $code]) : []];
         }
         foreach (['sold_value', 'redeemed_value', 'open_value'] as $k) $s[$k] = round($s[$k], 2);
         usort($rows, function ($a, $b) { return strcmp($b['created'], $a['created']); });
@@ -413,9 +478,19 @@ class TIX_Giftcard_Gift {
                 if ($o) $buyer = trim($o->billing_first_name . ' ' . $o->billing_last_name);
             }
             $recent[] = ['code' => $full_codes ? $r['code'] : preg_replace('/[A-Z0-9]{4}$/', '••••', $r['code']), 'value' => $r['value'], 'balance' => $r['balance'],
-                'expires' => $r['expires'], 'created' => $r['created'], 'buyer' => $buyer];
+                'expires' => $r['expires'], 'created' => $r['created'], 'buyer' => $buyer] + self::mask_send($r['send'], $full_codes);
         }
         return [$s, $recent];
+    }
+
+    /** Versand-Felder für die Liste; die E-Mail sehen nur, die ändern dürfen (wie den vollen Code). */
+    private static function mask_send(array $f, $full) {
+        if (!$f) return [];
+        if (!$full) {
+            if ($f['sent']) $f['sent']['email'] = null;
+            $f['sent_to'] = null;
+        }
+        return $f;
     }
 
     /** POST /giftcards/admin[/config] {settings: {enabled?, amounts?, free_amount?, free_min?, free_max?, validity_years?}} – Teil-Update. */
