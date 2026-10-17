@@ -770,7 +770,9 @@ class TIX_App_Account {
         if (!self::support_enabled() || !method_exists('TIX_Support', 'app_create')) {
             return self::error('tix_support_disabled', 'Der Support in der App ist aktuell nicht aktiv.', 404);
         }
-        if (self::rate_limited('support', 5, 600)) {
+        // Personal (Studio „Hilfe & Support“): je Konto 30 in 10 min statt 5 je IP – mehrere Leute im selben Büro (1.38.491)
+        $limited = self::is_help_user() ? self::rate_limited('support_staff', 30, 600, 'u' . get_current_user_id()) : self::rate_limited('support', 5, 600);
+        if ($limited) {
             return self::error('tix_rate_limit', 'Zu viele Anfragen. Bitte in ein paar Minuten erneut versuchen.', 429);
         }
         $user = is_user_logged_in() ? wp_get_current_user() : null;
@@ -936,7 +938,7 @@ class TIX_App_Account {
         if (!self::support_enabled() || !method_exists('TIX_Support', 'app_reply')) {
             return self::error('tix_support_disabled', 'Der Support in der App ist aktuell nicht aktiv.', 404);
         }
-        if (self::rate_limited('support_reply', 20, 600)) {
+        if (self::is_help_user() ? self::rate_limited('support_reply_staff', 60, 600, 'u' . get_current_user_id()) : self::rate_limited('support_reply', 20, 600)) {
             return self::error('tix_rate_limit', 'Zu viele Nachrichten. Bitte kurz warten.', 429);
         }
         $user    = wp_get_current_user();
