@@ -482,7 +482,14 @@ PROMPT;
      */
     public static function import_url($url) {
         $page = TIX_Event_Import::fetch($url);
-        if (is_wp_error($page)) return $page;
+        $rendered = null;
+        if (is_wp_error($page)) {
+            // Bot-Sperre bzw. kein Abruf möglich: Render-Dienst versuchen (1.38.502)
+            if ($page->get_error_code() !== 'url_unreadable' || !TIX_Event_Import::render_config()) return $page;
+            $rendered = TIX_Event_Import::render(TIX_Event_Import::clean_url($url));
+            if (is_wp_error($rendered) || trim((string) ($rendered['text'] ?? '')) === '') return $page;
+            $page = ['body' => '', 'content_type' => 'text/html', 'code' => 200, 'final_url' => (string) ($rendered['final_url'] ?? '') ?: TIX_Event_Import::clean_url($url)];
+        }
         $final = $page['final_url'];
         if (strpos($page['content_type'], 'image/') === 0) {
             $mime = trim(explode(';', $page['content_type'])[0]);
@@ -496,16 +503,41 @@ PROMPT;
         // Ticketarten aus Shop-Quellen (Eventbrite-Widget, Pretix), wenn das JSON-LD keine einzelnen nennt (1.38.444)
         $st = TIX_Event_Import::enrich_tickets($st, $final, $page['body']);
         $ex = self::extract_text_from_html($page['body'], $final);
+        $read = ['mode' => 'direct', 'notice' => null, 'pages' => 1];
+        $limit = 4000;
+        // Reine JavaScript-Seite: gerendert lesen (1.38.502)
+        if ($rendered === null && TIX_Event_Import::needs_render($page['body'], $st)) {
+            $rendered = TIX_Event_Import::render($final);
+            if (is_wp_error($rendered) || trim((string) ($rendered['text'] ?? '')) === '') {
+                $rendered = null;
+                $read = ['mode' => 'partial', 'notice' => TIX_Event_Import::PARTIAL_NOTICE, 'pages' => 1];
+            }
+        }
+        if ($rendered) {
+            $final = (string) ($rendered['final_url'] ?? '') ?: $final;
+            $rhtml = TIX_Event_Import::rendered_html($rendered);
+            $st = TIX_Event_Import::structured($rhtml, $final);
+            $st = TIX_Event_Import::enrich_tickets($st, $final, $rhtml);
+            $ex = ['text' => TIX_Event_Import::rendered_text($rendered, 12000), 'image_url' => TIX_Event_Import::rendered_image($rendered)];
+            $limit = 12000;
+            $partial = !empty($rendered['partial']);
+            $read = ['mode' => $partial ? 'partial' : 'rendered', 'notice' => $partial ? TIX_Event_Import::PARTIAL_NOTICE : null,
+                'pages' => 1 + count(array_filter((array) ($rendered['pages'] ?? []), function ($p) { return is_array($p) && trim((string) ($p['text'] ?? '')) !== ''; }))];
+        }
         $image = $st['_image'] ?: ($ex['image_url'] ?? '');
         $text_len = mb_strlen(trim(preg_replace('/^.*?Seitentext:\s*/s', '', $ex['text'])));
         if (!TIX_Event_Import::usable($st) && $st['title'] === '' && $text_len < 200) {
-            return new \WP_Error('url_unreadable', TIX_Event_Import::unreadable_message(), ['status' => 422, 'reason' => 'zu wenig Inhalt (' . $text_len . ' Zeichen)']);
+            return new \WP_Error('url_unreadable', TIX_Event_Import::unreadable_message(), ['status' => 422, 'reason' => 'zu wenig Inhalt (' . $text_len . ' Zeichen)', 'read_mode' => $read['mode']]);
         }
         $content = trim(TIX_Event_Import::summary($st) . "\n\n" . $ex['text']);
         // Vorschlag „Tickets bei einem anderen Shop“ (1.38.436)
         $shop = TIX_Event_Import::shop_suggestion($final, $st);
         $shop_price = $st['tickets'] ? min(array_column($st['tickets'], 'price')) : (!empty($st['price_range']) ? $st['price_range']['min'] : null);
-        $with_shop = function (array $f) use ($shop, $shop_price, $st) {
+        $with_shop = function (array $f) use ($shop, $shop_price, $st, $read) {
+            // Wie gelesen (1.38.502): direct | rendered | partial, Hinweis bei Teil-Lesung, Zahl der gelesenen Seiten
+            $f['_read_mode'] = $read['mode'];
+            $f['_notice'] = $read['notice'];
+            $f['_pages_read'] = $read['pages'];
             $f['external_shop_url'] = $shop;
             $f['external_shop_price'] = $shop !== '' && $shop_price !== null ? round(floatval($shop_price), 2) : null;
             // Nur eine Preisspanne bekannt → Hinweis „Bitte Ticketarten prüfen“
@@ -513,7 +545,7 @@ PROMPT;
             $f['tickets_source'] = !empty($st['tickets']) ? (string) ($st['_tickets_source'] ?? 'jsonld') : ($f['price_range'] ? 'range' : (count($f['tickets']) ? 'ai' : 'none'));
             return $f;
         };
-        $ai = self::run_extraction($content, null, null, $image, $st);
+        $ai = self::run_extraction($content, null, null, $image, $st, $limit);
         if (!is_wp_error($ai)) {
             $ai['_source'] = $st['_found'] === 'jsonld' ? 'structured+ai' : 'ai';
             return $with_shop($ai);
@@ -543,12 +575,14 @@ PROMPT;
     /**
      * Kern-Extraktion: Text/Bild → KI → sanitized fields
      */
-    private static function run_extraction($source_content, $image_data, $media_type, $og_image_url, array $structured = []) {
+    private static function run_extraction($source_content, $image_data, $media_type, $og_image_url, array $structured = [], $limit = 4000) {
         $system = self::get_extraction_system_prompt();
 
         $text_prompt = 'Extrahiere die Event-Informationen aus dieser Quelle.';
         if ($source_content) {
-            $text_prompt .= "\n\nWebseiten-Inhalt:\n" . mb_substr($source_content, 0, 4000);
+            // gerenderte Seiten (1.38.502): bis 12.000 Zeichen inkl. Unterseiten; [Bild: …] = Alt-Text einer Bildkarte (z. B. Line-up)
+            $text_prompt .= "\n\nWebseiten-Inhalt:\n" . mb_substr($source_content, 0, max(1000, intval($limit)));
+            if ($limit > 4000) $text_prompt .= "\n\nHinweis: Zeilen wie „[Bild: …]“ sind Bildbeschreibungen der Seite, z. B. Künstler im Line-up.";
         }
 
         if ($image_data) {

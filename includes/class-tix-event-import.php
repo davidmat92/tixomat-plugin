@@ -12,6 +12,8 @@ if (!defined('ABSPATH')) exit;
  *   3. Die KI ergänzt (Beschreibung, Line-up, Tickets …); Datum, Zeit, Ort und Titel aus den strukturierten Daten
  *      haben Vorrang. Ist die KI nicht verfügbar, reichen die strukturierten Daten allein.
  * Geht nichts: Fehler `url_unreadable` mit Ausweg „Flyer hochladen oder Event beschreiben“.
+ * 1.38.502: Reine JavaScript-Seiten (wenig Text ohne JSON-LD bzw. SPA-Hülle) und Bot-Sperren (403/429/503) gehen an den
+ * Render-Dienst (Headless Chromium, POST TIX_RENDER_URL mit X-Render-Key, bis zu 3 Unterseiten); Rückfall wie bisher mit Hinweis.
  */
 class TIX_Event_Import {
 
@@ -19,6 +21,119 @@ class TIX_Event_Import {
     const EVENT_TYPES = ['Event', 'MusicEvent', 'Festival', 'DanceEvent', 'TheaterEvent', 'ComedyEvent', 'SocialEvent', 'ExhibitionEvent',
         'BusinessEvent', 'SportsEvent', 'EducationEvent', 'ScreeningEvent', 'LiteraryEvent', 'ChildrensEvent', 'FoodEvent', 'SaleEvent',
         'VisualArtsEvent', 'Hackathon', 'CourseInstance', 'EventSeries'];
+
+    // ── Render-Dienst (1.38.502): reine JavaScript-Seiten (Base44, Vite, React …) mit Headless Chromium lesen ──
+    // Konfiguration nur per wp-config (TIX_RENDER_URL, TIX_RENDER_SECRET) bzw. Optionen tix_render_url / tix_render_secret.
+    const RENDER_TIMEOUT = 30;
+    const RENDER_SUBPAGES = 3;
+    const PARTIAL_NOTICE = 'Die Seite konnte nur teilweise gelesen werden – bitte prüfe die Angaben.';
+
+    /** ['url', 'secret'] oder null (nicht eingerichtet). Der Schlüssel wird nie ausgegeben oder geloggt. */
+    public static function render_config() {
+        $url = defined('TIX_RENDER_URL') ? (string) TIX_RENDER_URL : (string) get_option('tix_render_url', '');
+        $secret = defined('TIX_RENDER_SECRET') ? (string) TIX_RENDER_SECRET : (string) get_option('tix_render_secret', '');
+        if ($url === '' || $secret === '' || !preg_match('#^https://#i', $url)) return null;
+        return ['url' => $url, 'secret' => $secret];
+    }
+
+    /** Länge des sichtbaren Texts (ohne script/style/noscript/template). */
+    public static function visible_text_len($html) {
+        $b = preg_replace('#<(script|style|noscript|template)\b[^>]*>.*?</\1>#si', ' ', (string) $html);
+        return mb_strlen(trim(preg_replace('/\s+/u', ' ', html_entity_decode(wp_strip_all_tags((string) $b), ENT_QUOTES, 'UTF-8'))));
+    }
+
+    /** Typische SPA-Hülle (leeres Wurzel-Element, Vite-/Base44-/Next-Client-Bundle)? */
+    public static function spa_shell($html) {
+        $h = (string) $html;
+        return (bool) (preg_match('#<div[^>]+id=["\'](root|app|__next|__nuxt|svelte)["\'][^>]*>\s*</div>#i', $h)
+            || preg_match('#<script[^>]+type=["\']module["\'][^>]*src=["\'][^"\']*/assets/index-[A-Za-z0-9_-]+\.js#i', $h)
+            || stripos($h, 'base44') !== false);
+    }
+
+    /** Rendern nötig? Nur ohne brauchbares JSON-LD und bei wenig Text (< 300 Zeichen) bzw. SPA-Hülle mit wenig Text (< 1500). */
+    public static function needs_render($html, array $st) {
+        if (!self::render_config()) return false;
+        if (($st['_found'] ?? '') === 'jsonld' && self::usable($st)) return false;
+        $len = self::visible_text_len($html);
+        return $len < 300 || ($len < 1500 && self::spa_shell($html));
+    }
+
+    /**
+     * Seite beim Render-Dienst rendern lassen (POST {url, subpages: 3, max_text}).
+     * @return array Antwort {final_url, title, text, meta {description, og, jsonld[]}, links[], embeds[], images[], pages[], partial} | WP_Error render_failed
+     */
+    public static function render($url) {
+        $cfg = self::render_config();
+        if (!$cfg) return new WP_Error('render_off', 'Render-Dienst nicht eingerichtet.');
+        $r = wp_safe_remote_post($cfg['url'], [
+            'timeout' => self::RENDER_TIMEOUT, 'redirection' => 0,
+            'headers' => ['X-Render-Key' => $cfg['secret'], 'Content-Type' => 'application/json', 'Accept' => 'application/json'],
+            'body' => wp_json_encode(['url' => (string) $url, 'subpages' => self::RENDER_SUBPAGES, 'max_text' => 60000]),
+        ]);
+        if (is_wp_error($r)) return new WP_Error('render_failed', 'Render-Dienst nicht erreichbar.', ['reason' => $r->get_error_message()]);
+        $code = intval(wp_remote_retrieve_response_code($r));
+        $d = json_decode((string) wp_remote_retrieve_body($r), true);
+        if ($code !== 200 || !is_array($d) || empty($d['ok'])) {
+            return new WP_Error('render_failed', 'Render-Dienst: ' . (is_array($d) ? (string) ($d['code'] ?? 'Fehler') : 'keine Antwort'), ['status' => $code, 'service_code' => is_array($d) ? (string) ($d['code'] ?? '') : '']);
+        }
+        return $d;
+    }
+
+    /** Gerenderte Antwort als schlankes HTML für structured()/enrich_tickets(): Titel, Meta/OG, JSON-LD, Links, Einbettungen, Bilder. */
+    public static function rendered_html(array $r) {
+        $e = function ($v) { return esc_attr((string) $v); };
+        $h = '<html><head><title>' . esc_html((string) ($r['title'] ?? '')) . '</title>';
+        $meta = is_array($r['meta'] ?? null) ? $r['meta'] : [];
+        if (!empty($meta['description'])) $h .= '<meta name="description" content="' . $e($meta['description']) . '">';
+        foreach ((array) ($meta['og'] ?? []) as $k => $v) {
+            if (!is_scalar($v)) continue;
+            $k = strpos((string) $k, 'og:') === 0 ? (string) $k : 'og:' . $k;
+            $h .= '<meta property="' . $e($k) . '" content="' . $e($v) . '">';
+        }
+        foreach ((array) ($meta['jsonld'] ?? []) as $j) {
+            if (is_array($j)) $h .= '<script type="application/ld+json">' . str_replace('</', '<\/', (string) wp_json_encode($j, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)) . '</script>';
+        }
+        $h .= '</head><body>';
+        foreach ((array) ($r['embeds'] ?? []) as $em) {
+            if (!is_array($em) || empty($em['src'])) continue;
+            $h .= ($em['type'] ?? '') === 'script' ? '<script src="' . $e($em['src']) . '"></script>' : '<iframe src="' . $e($em['src']) . '"></iframe>';
+        }
+        foreach (array_slice((array) ($r['links'] ?? []), 0, 200) as $l) {
+            if (is_array($l) && !empty($l['href'])) $h .= '<a href="' . $e($l['href']) . '">' . esc_html((string) ($l['text'] ?? '')) . '</a>';
+        }
+        foreach (array_slice((array) ($r['images'] ?? []), 0, 30) as $im) {
+            if (is_array($im) && !empty($im['src'])) $h .= '<img src="' . $e($im['src']) . '" alt="' . $e($im['alt'] ?? '') . '">';
+        }
+        return $h . '</body></html>';
+    }
+
+    /** Text für die KI: Hauptseite und Unterseiten mit Überschrift, höchstens $limit Zeichen. */
+    public static function rendered_text(array $r, $limit = 12000) {
+        $parts = [];
+        $meta = is_array($r['meta'] ?? null) ? $r['meta'] : [];
+        $parts[] = 'URL: ' . (string) ($r['final_url'] ?? '');
+        if (!empty($r['title'])) $parts[] = 'Seitentitel: ' . $r['title'];
+        if (!empty($meta['description'])) $parts[] = 'Meta-Description: ' . $meta['description'];
+        $parts[] = "Seitentext:\n" . trim((string) ($r['text'] ?? ''));
+        foreach ((array) ($r['pages'] ?? []) as $pg) {
+            if (!is_array($pg) || trim((string) ($pg['text'] ?? '')) === '') continue;
+            $parts[] = 'Seite: ' . trim((string) ($pg['title'] ?? '')) . ' (' . (string) ($pg['url'] ?? '') . ")\n" . trim((string) $pg['text']);
+        }
+        return mb_substr(implode("\n\n", $parts), 0, $limit);
+    }
+
+    /** Hauptbild der gerenderten Seite: og:image, sonst das größte Bild ohne Logo/Icon. */
+    public static function rendered_image(array $r) {
+        $og = (array) ($r['meta']['og'] ?? []);
+        $img = (string) ($og['og:image'] ?? ($og['image'] ?? ''));
+        if ($img !== '') return $img;
+        foreach ((array) ($r['images'] ?? []) as $im) {
+            $src = is_array($im) ? (string) ($im['src'] ?? '') : '';
+            if ($src === '' || preg_match('#logo|icon|avatar|\.svg#i', $src)) continue;
+            return $src;
+        }
+        return '';
+    }
 
     public static function unreadable_message() {
         return 'Wir konnten die Seite nicht lesen – lade den Flyer hoch oder beschreibe dein Event.';

@@ -256,13 +256,16 @@ class TIX_Register_API {
             if (!isset($map[$code])) $code = 'ai_unavailable';
             return self::error($code, $f->get_error_message(), $map[$code], ['alternatives' => array_values(array_diff(['describe', 'flyer', 'url'], [$mode])), 'image' => self::image_payload($image_id)]);
         }
-        unset($f['_source'], $f['suggested_image_id'], $f['suggested_image_url']);
+        // Wie die Seite gelesen wurde (1.38.502, nur mode=url): direct | rendered | partial, Hinweis, gelesene Seiten
+        $read = ['read_mode' => $mode === 'url' ? (string) ($f['_read_mode'] ?? 'direct') : null, 'notice' => $mode === 'url' ? ($f['_notice'] ?? null) : null,
+            'pages_read' => $mode === 'url' ? intval($f['_pages_read'] ?? 1) : null];
+        unset($f['_source'], $f['suggested_image_id'], $f['suggested_image_url'], $f['_read_mode'], $f['_notice'], $f['_pages_read']);
         $ids = array_map('intval', (array) ($f['category_ids'] ?? []));
         $term = $ids ? get_term($ids[0], 'event_category') : null;
         $f['event_category'] = ($term && !is_wp_error($term)) ? (string) $term->slug : '';
         $missing = [];
         foreach (['title', 'date_start', 'time_start', 'location'] as $k) if (trim((string) ($f[$k] ?? '')) === '') $missing[] = $k;
-        return self::nocache(['ok' => true, 'mode' => $mode, 'source' => $source, 'fields' => $f, 'missing' => $missing, 'image' => self::image_payload($image_id)]);
+        return self::nocache(['ok' => true, 'mode' => $mode, 'source' => $source, 'fields' => $f, 'missing' => $missing, 'image' => self::image_payload($image_id)] + $read);
     }
 
     /**
