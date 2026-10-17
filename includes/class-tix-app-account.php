@@ -719,8 +719,19 @@ class TIX_App_Account {
     //  Support
     // ──────────────────────────────────────────
 
-    private static function support_enabled() {
-        return class_exists('TIX_Support') && function_exists('tix_get_settings') && !empty(tix_get_settings('support_enabled'));
+    /**
+     * Support aktiv? Konten des Personals (Studio „Hilfe & Support“) blockt der Schalter nicht (1.38.490):
+     * Anfragen an den Plattform-Betreiber gehen auch, wenn der Kunden-Support der Seite aus ist.
+     */
+    private static function support_enabled($staff_ok = true) {
+        if (!class_exists('TIX_Support')) return false;
+        if (function_exists('tix_get_settings') && !empty(tix_get_settings('support_enabled'))) return true;
+        return $staff_ok && self::is_help_user();
+    }
+
+    private static function is_help_user() {
+        if (!is_user_logged_in() || !class_exists('TIX_REST_API') || !method_exists('TIX_REST_API', 'is_staff_user')) return false;
+        return TIX_REST_API::is_staff_user(wp_get_current_user());
     }
 
     private static function support_categories() {
@@ -745,6 +756,11 @@ class TIX_App_Account {
             'enabled'    => $enabled,
             'categories' => $enabled ? self::support_categories() : [],
         ];
+        // Studio „Hilfe & Support“: Themen für Anfragen an den Plattform-Betreiber (nur Personal)
+        $out['customer_enabled'] = self::support_enabled(false); // Kunden-Support der Seite (enabled = für diesen Aufrufer nutzbar)
+        if (self::is_help_user() && class_exists('TIX_Support') && method_exists('TIX_Support', 'studio_topics')) {
+            $out['help_topics'] = array_map(function ($c) { return ['slug' => $c['slug'], 'label' => $c['label']]; }, TIX_Support::studio_topics());
+        }
         if (class_exists('TIX_Support_Model')) $out['responsible'] = TIX_Support_Model::responsible_public(absint($req->get_param('event_id')));
         return rest_ensure_response($out);
     }
@@ -792,7 +808,10 @@ class TIX_App_Account {
         $content  = mb_substr(sanitize_textarea_field((string) $req->get_param('message')), 0, 5000);
         $category = sanitize_text_field((string) ($req->get_param('category') ?? 'other'));
         $slugs    = array_column(self::support_categories(), 'slug');
-        if (!in_array($category, $slugs, true)) $category = $slugs ? (in_array('other', $slugs, true) ? 'other' : $slugs[0]) : 'other';
+        // Studio-Themen (studio_*) vom Personal bleiben erhalten (1.38.490), sonst Rückfall wie bisher
+        $studio_topic = self::is_help_user() && method_exists('TIX_Support', 'is_studio_topic') && TIX_Support::is_studio_topic($category);
+        if ((string) $req->get_param('scope') === 'help' && self::is_help_user() && !$studio_topic && !in_array($category, $slugs, true)) { $category = 'studio_other'; $studio_topic = true; }
+        if (!$studio_topic && !in_array($category, $slugs, true)) $category = $slugs ? (in_array('other', $slugs, true) ? 'other' : $slugs[0]) : 'other';
         if ($subject === '') return self::error('missing_subject', 'Bitte einen Betreff angeben.', 400, ['field' => 'subject']);
         if ($content === '') return self::error('missing_message', 'Bitte deine Nachricht eingeben.', 400, ['field' => 'message']);
         $ticket_id = TIX_Support::app_create([
@@ -877,10 +896,22 @@ class TIX_App_Account {
             return rest_ensure_response(['ok' => true, 'enabled' => false, 'requests' => []]);
         }
         $user = wp_get_current_user();
+        $list = TIX_Support::app_list((string) $user->user_email, self::support_author($user));
+        // ?scope=help: nur Anfragen an den Plattform-Betreiber (Studio „Hilfe & Support“), je mit help: true (1.38.490)
+        if ((string) $req->get_param('scope') === 'help') {
+            $list = array_values(array_filter($list, function ($r) { return !empty($r['id']) && get_post_meta(intval($r['id']), '_tix_sp_help', true); }));
+            foreach ($list as $i => $r) {
+                $list[$i]['help'] = true;
+                $cat = (string) get_post_meta(intval($r['id']), '_tix_sp_category', true);
+                $list[$i]['category'] = $cat;
+                $list[$i]['category_label'] = method_exists('TIX_Support', 'label_of') ? TIX_Support::label_of($cat) : $cat;
+            }
+        }
         $out = [
             'ok'       => true,
             'enabled'  => true,
-            'requests' => TIX_Support::app_list((string) $user->user_email, self::support_author($user)),
+            'scope'    => (string) $req->get_param('scope') === 'help' ? 'help' : 'all',
+            'requests' => $list,
         ];
         if (self::support_author($user)) {
             $out['email_confirmed'] = false;

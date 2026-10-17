@@ -470,6 +470,7 @@ class TIX_Platform_Admin {
             'last_from' => ($last['type'] ?? '') === 'admin' ? 'team' : 'organizer',
             'updated' => self::dt($p->post_modified), 'unread' => (bool) get_post_meta($tid, '_tix_sp_help_unread', true),
             'category' => (string) get_post_meta($tid, '_tix_sp_category', true),
+            'category_label' => class_exists('TIX_Support') && method_exists('TIX_Support', 'label_of') ? TIX_Support::label_of((string) get_post_meta($tid, '_tix_sp_category', true)) : '',
         ];
     }
 

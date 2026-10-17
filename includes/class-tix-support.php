@@ -185,6 +185,35 @@ class TIX_Support {
         return apply_filters('tix_support_categories', $cats);
     }
 
+    /**
+     * Themen von „Hilfe & Support“ im Studio (Anfragen von Veranstalter-Konten an den Plattform-Betreiber, 1.38.490).
+     * Nicht in Kunden-Formularen; Bezeichnungen für WP-Admin und Admin-Studio über label_of().
+     */
+    public static function studio_topics() {
+        return [
+            ['slug' => 'studio_setup',    'label' => 'Einrichtung & Events',     'audience' => 'studio'],
+            ['slug' => 'studio_tickets',  'label' => 'Tickets & Kasse',          'audience' => 'studio'],
+            ['slug' => 'studio_app',      'label' => 'App & Mitteilungen',       'audience' => 'studio'],
+            ['slug' => 'studio_payout',   'label' => 'Abrechnung & Auszahlung',  'audience' => 'studio'],
+            ['slug' => 'studio_invoices', 'label' => 'Rechnungen',               'audience' => 'studio'],
+            ['slug' => 'studio_bug',      'label' => 'Fehler melden',            'audience' => 'studio'],
+            ['slug' => 'studio_contract', 'label' => 'Vertrag & Paket',          'audience' => 'studio'],
+            ['slug' => 'studio_other',    'label' => 'Sonstiges',                'audience' => 'studio'],
+        ];
+    }
+
+    public static function is_studio_topic($slug) {
+        return in_array((string) $slug, array_column(self::studio_topics(), 'slug'), true);
+    }
+
+    /** Bezeichnung eines Themas (Kunden-Themen, Studio-Themen, E-Mail-Eingang); unbekannt = Slug. */
+    public static function label_of($slug) {
+        foreach (array_merge(self::get_categories(), self::studio_topics()) as $c) {
+            if (is_array($c) && ($c['slug'] ?? '') === $slug) return (string) ($c['label'] ?? $slug);
+        }
+        return $slug === self::EMAIL_CATEGORY ? 'Allgemein' : (string) $slug;
+    }
+
     /** Kategorien an Veranstalter (ohne Plattform-Themen wie „Beratung“) – Kontaktformular der Landingpage. */
     public static function get_organizer_contact_categories() {
         return array_values(array_filter(self::get_categories(), function ($c) {
@@ -265,7 +294,7 @@ class TIX_Support {
             'ajax'       => admin_url('admin-ajax.php'),
             'nonce'      => wp_create_nonce('tix_support_action'),
             'statuses'   => self::get_statuses(),
-            'categories' => self::get_categories(),
+            'categories' => array_merge(self::get_categories(), self::studio_topics()), // Studio-Themen nur im Admin (1.38.490)
             'isAdmin'    => true,
             'crmUrl'     => admin_url('admin.php?page=tix-customers&email='),
             'adminUrl'   => admin_url(),
@@ -278,7 +307,7 @@ class TIX_Support {
 
     public static function render_admin_page() {
         $statuses   = self::get_statuses();
-        $categories = self::get_categories();
+        $categories = array_merge(self::get_categories(), self::studio_topics());
         if (!in_array(self::EMAIL_CATEGORY, array_column($categories, 'slug'), true)) {
             $categories[] = ['slug' => self::EMAIL_CATEGORY, 'label' => 'Allgemein'];
         }
@@ -2471,7 +2500,7 @@ class TIX_Support {
         $categories = self::get_categories();
         $status = $post->post_status;
         $cat_slug = get_post_meta($post->ID, '_tix_sp_category', true);
-        $cat_label = $cat_slug;
+        $cat_label = self::label_of($cat_slug);
         foreach ($categories as $c) {
             if ($c['slug'] === $cat_slug) { $cat_label = $c['label']; break; }
         }
