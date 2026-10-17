@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.38.499
+ * Version: 1.38.500
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  * Update URI: https://veranstalter.evendis.de/tixomat
@@ -10,7 +10,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.38.499');
+define('TIXOMAT_VERSION', '1.38.500');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -586,10 +586,14 @@ require_once TIXOMAT_PATH . 'includes/class-tix-weather.php';
 TIX_Weather::init(); // Wetter über den eigenen Server (GET /public/weather, Bright Sky/DWD, keine Geräte-IP an Dritte) (1.38.482)
 require_once TIXOMAT_PATH . 'includes/class-tix-invoices.php';
 require_once TIXOMAT_PATH . 'includes/class-tix-invoice-pdf.php';
+require_once TIXOMAT_PATH . 'includes/class-tix-pdfa.php';
+require_once TIXOMAT_PATH . 'includes/class-tix-einvoice.php';
+require_once TIXOMAT_PATH . 'includes/class-tix-invoice-accounting.php';
 require_once TIXOMAT_PATH . 'includes/class-tix-invoice-export.php';
 require_once TIXOMAT_PATH . 'includes/class-tix-invoice-admin.php';
 TIX_Invoices::init(); // Rechnungs-Kern: R/RK/B-Belege je Aussteller, lückenlose Kreise, PDF, CSV/DATEV (Schalter tix_invoices_enabled, Vorgabe aus) (1.38.485)
 TIX_Invoice_Admin::init(); // WP-Admin „Rechnungen“: Schalter, Liste, Export, Senden (1.38.487)
+TIX_Invoice_Accounting::init(); // Übergabe der Belege an Lexoffice (Buchungsbeleg + PDF) (1.38.500)
 require_once TIXOMAT_PATH . 'includes/class-tix-locations.php';
 TIX_Locations::init(); // Orte je Veranstalter, kanonische Orte/Zusammenführen (1.38.475)
 require_once TIXOMAT_PATH . 'includes/class-tix-order-number.php'; // kurze Bestellnummern mit Prüfzeichen (1.38.481)

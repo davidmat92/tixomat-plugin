@@ -34,7 +34,7 @@ if (!defined('ABSPATH')) exit;
 class TIX_Invoices {
 
     const NS          = 'tixomat/v1';
-    const DB_VERSION  = '1';
+    const DB_VERSION  = '2'; // 2 = Übergabe an die Buchhaltung (export_*), 1.38.500
     const OPT_DB      = 'tix_invoices_db';
     const OPT_ENABLED = 'tix_invoices_enabled';
     const OPT_MODEL   = 'tix_invoice_issuer_model';
@@ -99,6 +99,12 @@ class TIX_Invoices {
             data LONGTEXT NOT NULL,
             pdf_path VARCHAR(255) NOT NULL DEFAULT '',
             pdf_sha256 CHAR(64) NOT NULL DEFAULT '',
+            export_provider VARCHAR(20) NOT NULL DEFAULT '',
+            export_status VARCHAR(12) NOT NULL DEFAULT '',
+            export_ref VARCHAR(80) NOT NULL DEFAULT '',
+            export_error VARCHAR(255) NOT NULL DEFAULT '',
+            export_tries TINYINT UNSIGNED NOT NULL DEFAULT 0,
+            export_at DATETIME NULL,
             created DATETIME NOT NULL,
             created_gmt DATETIME NOT NULL,
             PRIMARY KEY  (id),
@@ -106,7 +112,8 @@ class TIX_Invoices {
             UNIQUE KEY issuer_seq (issuer_key,series,year,seq),
             KEY order_id (order_id),
             KEY issuer_created (issuer_key,created),
-            KEY ref_invoice_id (ref_invoice_id)
+            KEY ref_invoice_id (ref_invoice_id),
+            KEY export_status (export_status)
         ) $c;");
         dbDelta("CREATE TABLE $k (
             issuer_key VARCHAR(40) NOT NULL,
@@ -831,7 +838,8 @@ class TIX_Invoices {
             $d = json_decode((string) $r->data, true);
             $out[] = ['id' => intval($r->id), 'number' => (string) $r->number, 'kind' => (string) $r->kind, 'series' => (string) $r->series,
                 'gross' => round(floatval($r->gross), 2), 'issued_at' => (string) $r->created, 'ref' => !empty($d['ref']['number']) ? (string) $d['ref']['number'] : null,
-                'pdf' => rest_url(self::NS . '/invoices/' . intval($r->id) . '/pdf'), 'download_url' => self::download_url($r, $order_key)];
+                'pdf' => rest_url(self::NS . '/invoices/' . intval($r->id) . '/pdf'), 'download_url' => self::download_url($r, $order_key),
+                'xml' => in_array($r->series, ['R', 'RK'], true) ? rest_url(self::NS . '/invoices/' . intval($r->id) . '/xml') : null];
         }
         return $out;
     }
@@ -913,6 +921,22 @@ class TIX_Invoices {
         return rest_ensure_response(['ok' => true, 'email' => $email]);
     }
 
+    /** POST /invoices/{id}/export → {ok, export} – Übergabe an die Buchhaltung jetzt (erneut) ausführen (1.38.500) */
+    public static function rest_export(WP_REST_Request $req) {
+        global $wpdb;
+        $inv = self::get(intval($req['id']));
+        if (!$inv) return self::err('tix_invoice_missing', 'Beleg nicht gefunden.', 404);
+        if (!self::manages($inv)) return self::err('rest_forbidden', 'Keine Berechtigung für diesen Beleg.', 403);
+        if (!class_exists('TIX_Invoice_Accounting') || TIX_Invoice_Accounting::settings($inv->issuer_key)['provider'] === 'none') return self::err('tix_accounting_off', 'Keine Buchhaltung angebunden.', 409);
+        if (!in_array($inv->series, ['R', 'RK'], true)) return self::err('tix_accounting_skip', 'Belege ohne Umsatzsteuer werden nicht übergeben.', 409);
+        if (empty($inv->export_provider)) $wpdb->update(self::table(), ['export_provider' => TIX_Invoice_Accounting::settings($inv->issuer_key)['provider'], 'export_status' => 'pending'], ['id' => intval($inv->id)]);
+        $wpdb->update(self::table(), ['export_tries' => 0], ['id' => intval($inv->id)]);
+        $r = TIX_Invoice_Accounting::export(intval($inv->id));
+        $row = self::row(self::get(intval($inv->id)), false);
+        if (is_wp_error($r)) return new WP_Error('tix_export_failed', $r->get_error_message(), ['status' => 502, 'export' => $row['export']]);
+        return rest_ensure_response(['ok' => true, 'export' => $row['export']]);
+    }
+
     /** POST /orders/{id}/invoices/issue → {ok, created [number], pending [issuer], invoices} (bezahlte Bestellung, auch vor dem Einschalten) */
     public static function rest_issue(WP_REST_Request $req) {
         if (!self::enabled()) return self::err('tix_invoices_off', 'Rechnungen sind auf dieser Seite nicht eingeschaltet.', 409);
@@ -932,8 +956,10 @@ class TIX_Invoices {
         $open = ['permission_callback' => '__return_true'];
         register_rest_route(self::NS, '/customer/orders/(?P<id>\d+)/invoices', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_order_invoices']] + $open);
         register_rest_route(self::NS, '/invoices/(?P<id>\d+)/pdf', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_pdf']] + $open);
+        register_rest_route(self::NS, '/invoices/(?P<id>\d+)/xml', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_xml']] + $open);
         register_rest_route(self::NS, '/organizer/invoices', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_list'], 'permission_callback' => [__CLASS__, 'perm_manager']]);
         register_rest_route(self::NS, '/invoices/(?P<id>\d+)/send', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_send'], 'permission_callback' => [__CLASS__, 'perm_manager']]);
+        register_rest_route(self::NS, '/invoices/(?P<id>\d+)/export', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_export'], 'permission_callback' => [__CLASS__, 'perm_manager']]);
         register_rest_route(self::NS, '/orders/(?P<id>\d+)/invoices/issue', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_issue'], 'permission_callback' => [__CLASS__, 'perm_manager']]);
         register_rest_route(self::NS, '/studio/invoice-config', [
             ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_config'], 'permission_callback' => [__CLASS__, 'perm_manager']],
@@ -1005,6 +1031,10 @@ class TIX_Invoices {
             'taxes' => (array) ($d['taxes'] ?? []),
             'payments' => (array) ($d['payments'] ?? []),
             'pdf' => rest_url(self::NS . '/invoices/' . intval($inv->id) . '/pdf'),
+            'xml' => in_array($inv->series, ['R', 'RK'], true) ? rest_url(self::NS . '/invoices/' . intval($inv->id) . '/xml') : null,
+            // Übergabe an die Buchhaltung (1.38.500): pending | done | error | skipped
+            'export' => !empty($inv->export_provider) ? ['provider' => (string) $inv->export_provider, 'status' => (string) $inv->export_status, 'ref' => (string) $inv->export_ref ?: null,
+                'error' => (string) $inv->export_error ?: null, 'at' => !empty($inv->export_at) ? (string) $inv->export_at : null] : null,
         ];
         if ($with_lines) $out['lines'] = array_map(function ($l) { return ['type' => $l['type'], 'text' => $l['text'], 'detail' => $l['detail'], 'qty' => intval($l['qty']), 'unit' => round(floatval($l['unit']), 2), 'gross' => round(floatval($l['gross']), 2), 'rate' => $l['rate'] === null ? null : floatval($l['rate'])]; }, (array) ($d['lines'] ?? []));
         return $out;
@@ -1029,6 +1059,16 @@ class TIX_Invoices {
         list($bytes, $name, $stored) = self::pdf($inv);
         if (!$bytes) return self::err('tix_invoice_pdf', 'Das PDF ist gerade nicht verfügbar.', 500);
         return rest_ensure_response(['ok' => true, 'filename' => $name, 'mime' => 'application/pdf', 'stored' => $stored, 'data' => base64_encode($bytes)]);
+    }
+
+    /** GET /invoices/{id}/xml → {ok, filename, mime, profile, data} – E-Rechnung (EN 16931, CII); Belege ohne USt: 404 tix_invoice_no_xml */
+    public static function rest_xml(WP_REST_Request $req) {
+        $inv = self::get(intval($req['id']));
+        if (!$inv) return self::err('tix_invoice_missing', 'Beleg nicht gefunden.', 404);
+        if (!self::can_view($inv, $req)) return self::err(is_user_logged_in() ? 'rest_forbidden' : 'rest_not_logged_in', is_user_logged_in() ? 'Keine Berechtigung.' : 'Authentifizierung erforderlich.', is_user_logged_in() ? 403 : 401);
+        if (!class_exists('TIX_EInvoice') || !TIX_EInvoice::supported($inv)) return self::err('tix_invoice_no_xml', 'Für diesen Beleg gibt es keine E-Rechnung (Beleg ohne Umsatzsteuer).', 404);
+        $xml = TIX_EInvoice::xml($inv);
+        return rest_ensure_response(['ok' => true, 'filename' => TIX_EInvoice::filename($inv), 'mime' => 'application/xml', 'profile' => 'EN 16931 (ZUGFeRD/Factur-X, CII)', 'data' => base64_encode($xml)]);
     }
 
     /** GET /organizer/invoices?from&to&q&kind&page&per_page&format=csv|datev */
@@ -1115,6 +1155,8 @@ class TIX_Invoices {
             'tax_rate' => floatval($i['tax_rate']), 'tax_rate_set' => self::clean_rate($cfg['tax_rate'] ?? null) !== null,
             'company' => $company ?: null,
             'datev' => self::datev_config($issuer_key),
+            // Übergabe an die Buchhaltung (1.38.500): {provider none|lexoffice, key_set, key_last4, use_site_key, site_key_available, category_id, since}
+            'accounting' => class_exists('TIX_Invoice_Accounting') ? TIX_Invoice_Accounting::payload($issuer_key) : null,
             'next' => ['R' => sprintf('R-%s-%d-%05d', $i['code'], $year, ($counters['R'] ?? 0) + 1), 'RK' => sprintf('RK-%s-%d-%05d', $i['code'], $year, ($counters['RK'] ?? 0) + 1), 'B' => sprintf('B-%s-%d-%05d', $i['code'], $year, ($counters['B'] ?? 0) + 1)],
             'counters' => (object) $counters,
             'pending' => count(self::pending_orders($issuer_key)),
@@ -1169,6 +1211,10 @@ class TIX_Invoices {
                 $d[$k] = $v;
             }
             $cfg['datev'] = $d;
+        }
+        if (array_key_exists('accounting', $p) && class_exists('TIX_Invoice_Accounting')) {
+            $cfg = TIX_Invoice_Accounting::apply($issuer, $cfg, $p['accounting']);
+            if (is_wp_error($cfg)) return $cfg;
         }
         $company = null;
         if (array_key_exists('company', $p)) {

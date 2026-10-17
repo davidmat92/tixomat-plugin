@@ -19,8 +19,11 @@ class TIX_Invoice_PDF {
         'E' => 667, 'U' => 722, 'R' => 722, 'K' => 667, 'B' => 667, 'S' => 667, 'T' => 611,
     ];
 
+    /** true, solange mit TIX_PDFA (eingebettete Schrift) gezeichnet wird: dann echtes €-Zeichen und echte Breiten. */
+    private static $pdfa = null;
+
     private static function eur($v) {
-        return number_format(round(floatval($v), 2), 2, ',', '.') . ' EUR';
+        return number_format(round(floatval($v), 2), 2, ',', '.') . (self::$pdfa ? ' €' : ' EUR');
     }
 
     private static function num($v) {
@@ -36,7 +39,8 @@ class TIX_Invoice_PDF {
     }
 
     private static function rtext($pdf, $x_right, $y, $str, $size, $bold = false) {
-        $pdf->text(intval(round($x_right - self::text_width($str, $size, $bold))), $y, $str);
+        $w = method_exists($pdf, 'width') ? $pdf->width($str, $size, $bold ? 'Helvetica-Bold' : 'Helvetica') : self::text_width($str, $size, $bold);
+        $pdf->text(round($x_right - $w, 2), $y, $str);
     }
 
     private static function wrap($text, $max) {
@@ -118,7 +122,17 @@ class TIX_Invoice_PDF {
         // zu helle Akzentfarbe → dunkles Grau für Tabellenkopf (weiße Schrift)
         if (0.299 * $rgb[0] + 0.587 * $rgb[1] + 0.114 * $rgb[2] > 0.7) $rgb = [0.2, 0.2, 0.2];
 
-        $pdf = new TIX_Simple_PDF(self::W, self::H, self::M, self::M);
+        // PDF/A-3 mit eingebetteter Schrift (1.38.500); Rechnung/Korrektur als ZUGFeRD-Hybrid mit factur-x.xml
+        self::$pdfa = class_exists('TIX_PDFA') && TIX_PDFA::available();
+        $pdf = self::$pdfa ? new TIX_PDFA(self::W, self::H, self::M, self::M) : new TIX_Simple_PDF(self::W, self::H, self::M, self::M);
+        if (self::$pdfa) {
+            $meta = ['title' => self::title($inv) . ' ' . $inv->number, 'author' => (string) ($iss['name'] ?? '')];
+            if (class_exists('TIX_EInvoice') && TIX_EInvoice::supported($inv) && ($xml = TIX_EInvoice::xml($inv)) !== '') {
+                $pdf->attach('factur-x.xml', $xml, 'text/xml', 'E-Rechnung nach EN 16931 (ZUGFeRD/Factur-X)', 'Alternative');
+                $meta = array_merge($meta, TIX_EInvoice::xmp_parts());
+            }
+            $pdf->set_meta($meta);
+        }
         $pdf->add_page();
         $pdf->set_footer('Seite {p}/{n}');
         $m = self::M;

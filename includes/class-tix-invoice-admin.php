@@ -159,7 +159,7 @@ class TIX_Invoice_Admin {
                 <?php if ($ls === 200): ?><span style="margin-left:12px;color:#475569;"><?php echo intval($list['totals']['count']); ?> Belege · netto <?php echo esc_html(number_format($list['totals']['net'], 2, ',', '.')); ?> € · USt <?php echo esc_html(number_format($list['totals']['tax'], 2, ',', '.')); ?> € · brutto <?php echo esc_html(number_format($list['totals']['gross'], 2, ',', '.')); ?> €</span><?php endif; ?>
             </form>
             <table class="widefat striped">
-                <thead><tr><th>Nummer</th><th>Art</th><th>Datum</th><th>Bestellung</th><th>Empfänger</th><?php if ($multi): ?><th>Aussteller</th><?php endif; ?><th style="text-align:right;">Brutto</th><th></th></tr></thead>
+                <thead><tr><th>Nummer</th><th>Art</th><th>Datum</th><th>Bestellung</th><th>Empfänger</th><?php if ($multi): ?><th>Aussteller</th><?php endif; ?><th style="text-align:right;">Brutto</th><th>Buchhaltung</th><th></th></tr></thead>
                 <tbody>
                 <?php foreach ((array) ($list['invoices'] ?? []) as $inv):
                     $row = TIX_Invoices::get($inv['id']);
@@ -172,11 +172,12 @@ class TIX_Invoice_Admin {
                         <td><?php echo esc_html($inv['recipient']['company'] ?: $inv['recipient']['name']); ?><br><span style="font-size:11px;color:#94a3b8;"><?php echo esc_html($inv['recipient']['email']); ?></span></td>
                         <?php if ($multi): ?><td><?php echo esc_html($inv['issuer']['name']); ?></td><?php endif; ?>
                         <td style="text-align:right;"><?php echo esc_html(number_format($inv['gross'], 2, ',', '.')); ?> €</td>
+                        <td style="font-size:11px;"><?php if (!empty($inv['export'])): $ex = $inv['export']; echo esc_html(['done' => '✓ übergeben', 'pending' => '… wartet', 'error' => '✗ Fehler', 'skipped' => '– nicht übergeben'][$ex['status']] ?? $ex['status']); if ($ex['error']): ?><br><span style="color:#b91c1c;"><?php echo esc_html($ex['error']); ?></span><?php endif; endif; ?></td>
                         <td style="white-space:nowrap;"><a class="button button-small" href="<?php echo esc_url(TIX_Invoices::download_url($row)); ?>">PDF</a>
                             <a class="button button-small" href="<?php echo esc_url(wp_nonce_url(admin_url('admin-post.php?action=tix_invoice_send&invoice_id=' . intval($inv['id'])), 'tix_invoice_send_' . intval($inv['id']))); ?>" title="An <?php echo esc_attr($inv['recipient']['email']); ?> senden">✉︎</a></td>
                     </tr>
                 <?php endforeach; ?>
-                <?php if (empty($list['invoices'])): ?><tr><td colspan="<?php echo $multi ? 8 : 7; ?>">Keine Belege.</td></tr><?php endif; ?>
+                <?php if (empty($list['invoices'])): ?><tr><td colspan="<?php echo $multi ? 9 : 8; ?>">Keine Belege.</td></tr><?php endif; ?>
                 </tbody>
             </table>
             <?php if (!empty($list['has_more']) || $page > 1): ?>
