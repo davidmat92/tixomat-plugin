@@ -429,7 +429,8 @@ class TIX_Support_Model {
             'created' => (string) $p->post_date, 'updated' => (string) get_post_meta($tid, '_tix_sp_last_reply', true),
             'can_reply' => self::can_write($tid),
             // KI-Zusammenfassung in einem Satz (1.38.505, aus dem Cache der Support-KI; null = noch keine)
-            'ai_summary' => (function () use ($tid) { $c = get_post_meta($tid, '_tix_sp_ai_summary', true); return is_array($c) && trim((string) ($c['text'] ?? '')) !== '' ? (string) $c['text'] : null; })(),
+            // Awareness-Anfragen nie (1.38.506)
+            'ai_summary' => (function () use ($tid) { if (class_exists('TIX_Support_AI') && TIX_Support_AI::excluded($tid)) return null; $c = get_post_meta($tid, '_tix_sp_ai_summary', true); return is_array($c) && trim((string) ($c['text'] ?? '')) !== '' ? (string) $c['text'] : null; })(),
         ];
     }
 
@@ -504,6 +505,7 @@ class TIX_Support_Model {
         if ($e = self::deny_write($tid)) return $e;
         if (class_exists('TIX_App_Account') && TIX_App_Account::rate_limited('ai_rest', 20, 60, 'u' . get_current_user_id())) return new WP_Error('tix_rate_limit', 'Zu viele KI-Anfragen – bitte kurz warten.', ['status' => 429]);
         if (!class_exists('TIX_Support_AI') || !method_exists('TIX_Support', 'ai_reply_context')) return new WP_Error('ai_unavailable', 'Die KI ist hier nicht verfügbar.', ['status' => 503]);
+        if (TIX_Support_AI::excluded($tid)) return TIX_Support_AI::excluded_error();
         $draft = TIX_Support_AI::suggest_reply(TIX_Support::ai_reply_context($tid));
         if (is_wp_error($draft)) return new WP_Error('ai_unavailable', $draft->get_error_message(), ['status' => 503]);
         return rest_ensure_response(['ok' => true, 'draft' => (string) $draft, 'model' => TIX_Support_AI::model()]);

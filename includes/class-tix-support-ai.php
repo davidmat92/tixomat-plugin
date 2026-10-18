@@ -17,6 +17,54 @@ class TIX_Support_AI {
     public static function init() {
         // Auto-Summary bei neuer Nachricht (asynchron via wp-cron)
         add_action('tix_sp_summary_async', [__CLASS__, 'cron_summarize'], 10, 1);
+        // 1.38.506: einmalig vorhandene KI-Zusammenfassungen von Awareness-Anfragen löschen
+        add_action('init', [__CLASS__, 'purge_excluded_once'], 40);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // DATENSCHUTZ (1.38.506): Awareness nie an die KI, sonst nur das Nötige
+    // ══════════════════════════════════════════════════════════════════════
+
+    const EXCLUDED_META = '_tix_sp_ai_excluded';
+
+    /**
+     * Anfrage von der KI ausgenommen? Awareness-Meldungen (Kategorie „awareness“, Melden/Hilfe vor Ort) können Daten nach
+     * Art. 9 DSGVO enthalten. Einmal erkannt, bleibt die Anfrage dauerhaft ausgenommen (auch nach Kategorie-Wechsel).
+     */
+    public static function excluded($ticket_id) {
+        $ticket_id = intval($ticket_id);
+        if (!$ticket_id) return false;
+        if (get_post_meta($ticket_id, self::EXCLUDED_META, true)) return true;
+        $ex = (string) get_post_meta($ticket_id, '_tix_sp_category', true) === 'awareness';
+        $ex = (bool) apply_filters('tix_ai_excluded', $ex, $ticket_id);
+        if ($ex) {
+            update_post_meta($ticket_id, self::EXCLUDED_META, 1);
+            delete_post_meta($ticket_id, '_tix_sp_ai_summary');
+        }
+        return $ex;
+    }
+
+    public static function excluded_error() {
+        return new WP_Error('tix_ai_excluded', 'Diese Anfrage ist aus Datenschutzgründen von der KI ausgenommen (Awareness).', ['status' => 403]);
+    }
+
+    /** Einmalig: gespeicherte Zusammenfassungen bei Awareness-Anfragen löschen. */
+    public static function purge_excluded_once() {
+        if (get_option('tix_ai_awareness_purged_506')) return;
+        update_option('tix_ai_awareness_purged_506', current_time('mysql'), false);
+        $ids = get_posts(['post_type' => 'tix_support_ticket', 'post_status' => array_values(get_post_stati()), 'posts_per_page' => -1, 'fields' => 'ids',
+            'meta_query' => [['key' => '_tix_sp_category', 'value' => 'awareness']]]);
+        foreach ($ids as $id) { delete_post_meta($id, '_tix_sp_ai_summary'); update_post_meta($id, self::EXCLUDED_META, 1); }
+    }
+
+    /** Datenminimierung: E-Mail-Adressen, Telefonnummern und IBAN im Text schwärzen. */
+    public static function redact($text) {
+        $t = (string) $text;
+        $t = preg_replace('/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i', '[E-Mail]', $t);
+        $t = preg_replace('/\b[A-Z]{2}\d{2}(?:[ ]?[A-Z0-9]{4}){3,7}(?:[ ]?[A-Z0-9]{1,4})?\b/', '[IBAN]', $t);
+        // Telefon: + bzw. Ziffern mit Leerzeichen, /, -, Klammern, mindestens 8 Zeichen (keine Punkte → Datumsangaben bleiben)
+        $t = preg_replace('/(?<![\w.,])(?:\+|00)?\d[\d \/()-]{6,}\d(?!\w)(?![.,]\d)/', '[Telefon]', $t);
+        return $t;
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -24,6 +72,7 @@ class TIX_Support_AI {
     // ══════════════════════════════════════════════════════════════════════
 
     public static function summarize_thread($post, $messages) {
+        if ($post && self::excluded($post->ID)) return self::excluded_error();
         $api_key = self::get_api_key();
         if (empty($api_key)) {
             return new WP_Error('no_key', 'Kein KI-API-Key hinterlegt (Einstellungen → Erweitert → KI).');
@@ -36,7 +85,7 @@ class TIX_Support_AI {
             if (($m['type'] ?? '') === 'note') continue;
             $who = ($m['type'] === 'admin') ? 'Support' : 'Kunde';
             $date = $m['date'] ?? '';
-            $thread .= "[$who – $date]\n" . trim($m['content'] ?? '') . "\n\n";
+            $thread .= "[$who – $date]\n" . self::redact(trim($m['content'] ?? '')) . "\n\n";
             $count++;
             if (strlen($thread) > 6000) break;
         }
@@ -48,7 +97,7 @@ class TIX_Support_AI {
                   'Wenn der Kunde wartet/Folge-Anfragen hat, erwähne das. ' .
                   'Beispiel: "Kunde hat Tickets nicht erhalten, hat 2× nachgefasst, wartet seit 12h auf Bestätigung."';
 
-        $user = "BETREFF: " . $post->post_title . "\n\nVERLAUF:\n" . $thread;
+        $user = "BETREFF: " . self::redact($post->post_title) . "\n\nVERLAUF:\n" . $thread;
 
         $result = self::call_api($system, $user, 120);
         if (isset($result['error'])) return new WP_Error('api', $result['error']);
@@ -65,6 +114,7 @@ class TIX_Support_AI {
     // ══════════════════════════════════════════════════════════════════════
 
     public static function suggest_reply($ctx) {
+        if (!empty($ctx['ticket_id']) && self::excluded($ctx['ticket_id'])) return self::excluded_error();
         $api_key = self::get_api_key();
         if (empty($api_key)) {
             return new WP_Error('no_key', 'Kein KI-API-Key hinterlegt (Einstellungen → Erweitert → KI).');
@@ -75,7 +125,7 @@ class TIX_Support_AI {
         foreach (($ctx['messages'] ?? []) as $m) {
             if (($m['type'] ?? '') === 'note') continue;
             $who = ($m['type'] === 'admin') ? 'Support' : 'Kunde';
-            $thread .= "[$who]\n" . trim($m['content'] ?? '') . "\n\n";
+            $thread .= "[$who]\n" . self::redact(trim($m['content'] ?? '')) . "\n\n";
             if (strlen($thread) > 8000) break;
         }
 
@@ -108,13 +158,14 @@ class TIX_Support_AI {
                   "schreibe stattdessen [PRÜFEN: …] in eckigen Klammern, damit der Admin nachprüft. " .
                   "Erfinde keine Bestelldaten oder Tickets, die nicht im Kontext stehen.";
 
+        // Datenminimierung (1.38.506): nur der Vorname für die Anrede, keine E-Mail; Texte geschwärzt
         $context = "## ANFRAGE\n";
-        $context .= "Betreff: $subject\n";
+        $context .= "Betreff: " . self::redact($subject) . "\n";
         $context .= "Kategorie: $category\n";
-        $context .= "Kunde: $name <$email>\n";
+        $context .= "Kunde (Vorname): $first_name\n";
         if ($ticket_code) $context .= "Ticket-Code: $ticket_code\n";
-        if ($order_info) $context .= "\n## BESTELLUNG\n$order_info\n";
-        if ($tickets_info) $context .= "\n$tickets_info\n";
+        if ($order_info) $context .= "\n## BESTELLUNG\n" . self::redact($order_info) . "\n";
+        if ($tickets_info) $context .= "\n" . self::redact($tickets_info) . "\n";
         $context .= "\n## VERLAUF\n$thread";
         $context .= $tpl_block;
         $context .= "\n\nAUFGABE: Schreibe nur die Antwort-Mail (Plain Text). Keine Meta-Kommentare.";
@@ -132,6 +183,7 @@ class TIX_Support_AI {
     public static function cron_summarize($ticket_id) {
         $post = get_post($ticket_id);
         if (!$post || $post->post_type !== 'tix_support_ticket') return;
+        if (self::excluded($ticket_id)) return; // Awareness nie an die KI
         if (!class_exists('TIX_Support')) return;
 
         $messages = TIX_Support::get_messages_public($ticket_id);

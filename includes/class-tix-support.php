@@ -1757,6 +1757,7 @@ class TIX_Support {
 
         // Cache-Schlüssel aus Hash der Nachrichten — automatische Invalidierung
         $messages = self::get_messages($ticket_id);
+        if (class_exists('TIX_Support_AI') && TIX_Support_AI::excluded($ticket_id)) wp_send_json_error('Diese Anfrage ist aus Datenschutzgründen von der KI ausgenommen (Awareness).');
         $hash = md5(wp_json_encode($messages) . $post->post_title);
         $cached = get_post_meta($ticket_id, '_tix_sp_ai_summary', true);
         if (!$force && is_array($cached) && ($cached['hash'] ?? '') === $hash && !empty($cached['text'])) {
@@ -1807,7 +1808,8 @@ class TIX_Support {
                 if (!empty($tix)) {
                     $tickets_info = "Tickets der Bestellung:\n";
                     foreach ($tix as $t) {
-                        $tickets_info .= "- " . ($t['code'] ?? '?') . " · " . ($t['event_name'] ?? '') . " · " . ($t['cat_name'] ?? '') . " · Inhaber: " . ($t['owner_name'] ?? '–') . "\n";
+                        // ohne Namen der Ticket-Inhaber (Datenminimierung, 1.38.506)
+                        $tickets_info .= "- " . ($t['code'] ?? '?') . " · " . ($t['event_name'] ?? '') . " · " . ($t['cat_name'] ?? '') . "\n";
                     }
                 }
             }
@@ -1817,6 +1819,7 @@ class TIX_Support {
         $templates = class_exists('TIX_Support_Templates') ? TIX_Support_Templates::get_for_category($category) : [];
 
         return [
+            'ticket_id'    => intval($ticket_id),
             'subject'      => $post ? $post->post_title : '',
             'category'     => $category,
             'customer'     => ['name' => $name, 'email' => $email],
@@ -1842,6 +1845,7 @@ class TIX_Support {
             wp_send_json_error('Anfrage nicht gefunden.');
         }
         if (!class_exists('TIX_Support_AI')) wp_send_json_error('KI-Modul nicht geladen.');
+        if (TIX_Support_AI::excluded($ticket_id)) wp_send_json_error('Diese Anfrage ist aus Datenschutzgründen von der KI ausgenommen (Awareness).');
 
         $reply = TIX_Support_AI::suggest_reply(self::ai_reply_context($ticket_id));
 
@@ -2320,8 +2324,8 @@ class TIX_Support {
         // Zentrale Stelle für neue Nachrichten (Weiterleitung über die Partner-Brücke, Team-Hinweise; TIX_Support_Model)
         do_action('tix_support_message_added', intval($ticket_id), $msg);
 
-        // KI-Summary asynchron triggern (best effort, fail-soft)
-        if (function_exists('wp_schedule_single_event')) {
+        // KI-Summary asynchron triggern (best effort, fail-soft) – nie bei Awareness-Anfragen (1.38.506)
+        if (function_exists('wp_schedule_single_event') && !(class_exists('TIX_Support_AI') && TIX_Support_AI::excluded($ticket_id))) {
             wp_schedule_single_event(time() + 5, 'tix_sp_summary_async', [intval($ticket_id)]);
         }
     }
@@ -2469,7 +2473,7 @@ class TIX_Support {
         }
         update_post_meta($ticket_id, '_tix_sp_messages', $messages);
         do_action('tix_support_message_added', $ticket_id, $msg); // z. B. Partner-Brücke (Kunden-Antwort per Mail)
-        if (function_exists('wp_schedule_single_event')) {
+        if (function_exists('wp_schedule_single_event') && !(class_exists('TIX_Support_AI') && TIX_Support_AI::excluded($ticket_id))) {
             wp_schedule_single_event(time() + 5, 'tix_sp_summary_async', [$ticket_id]);
         }
 
