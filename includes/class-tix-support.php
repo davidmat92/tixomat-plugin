@@ -1778,21 +1778,9 @@ class TIX_Support {
         wp_send_json_success(['summary' => $summary, 'cached' => false]);
     }
 
-    /**
-     * KI-Antwortvorschlag — analysiert Anfrage + Kontext (Bestellung, Tickets,
-     * Kunden-Historie, Templates) und gibt einen Antwort-Entwurf zurück.
-     */
-    public static function ajax_ai_reply() {
-        check_ajax_referer('tix_support_action', 'nonce');
-        if (!current_user_can('manage_options')) wp_send_json_error('Keine Berechtigung.');
-
-        $ticket_id = intval($_POST['ticket_id'] ?? 0);
+    /** Kontext für den KI-Antwortvorschlag (Bestellung, Tickets, Vorlagen) – für WP-Admin und POST /support/inbox/{id}/suggest (1.38.505). */
+    public static function ai_reply_context($ticket_id) {
         $post = get_post($ticket_id);
-        if (!$post || $post->post_type !== 'tix_support_ticket') {
-            wp_send_json_error('Anfrage nicht gefunden.');
-        }
-        if (!class_exists('TIX_Support_AI')) wp_send_json_error('KI-Modul nicht geladen.');
-
         // Kontext sammeln
         $messages    = self::get_messages($ticket_id);
         $email       = get_post_meta($ticket_id, '_tix_sp_email', true);
@@ -1828,8 +1816,8 @@ class TIX_Support {
         // Kanned-Templates
         $templates = class_exists('TIX_Support_Templates') ? TIX_Support_Templates::get_for_category($category) : [];
 
-        $reply = TIX_Support_AI::suggest_reply([
-            'subject'      => $post->post_title,
+        return [
+            'subject'      => $post ? $post->post_title : '',
             'category'     => $category,
             'customer'     => ['name' => $name, 'email' => $email],
             'messages'     => $messages,
@@ -1837,7 +1825,25 @@ class TIX_Support {
             'tickets_info' => $tickets_info,
             'ticket_code'  => $ticket_code,
             'templates'    => $templates,
-        ]);
+        ];
+    }
+
+    /**
+     * KI-Antwortvorschlag — analysiert Anfrage + Kontext (Bestellung, Tickets,
+     * Kunden-Historie, Templates) und gibt einen Antwort-Entwurf zurück.
+     */
+    public static function ajax_ai_reply() {
+        check_ajax_referer('tix_support_action', 'nonce');
+        if (!current_user_can('manage_options')) wp_send_json_error('Keine Berechtigung.');
+
+        $ticket_id = intval($_POST['ticket_id'] ?? 0);
+        $post = get_post($ticket_id);
+        if (!$post || $post->post_type !== 'tix_support_ticket') {
+            wp_send_json_error('Anfrage nicht gefunden.');
+        }
+        if (!class_exists('TIX_Support_AI')) wp_send_json_error('KI-Modul nicht geladen.');
+
+        $reply = TIX_Support_AI::suggest_reply(self::ai_reply_context($ticket_id));
 
         if (is_wp_error($reply)) wp_send_json_error($reply->get_error_message());
 

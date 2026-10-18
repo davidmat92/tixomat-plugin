@@ -339,6 +339,7 @@ class TIX_Support_Model {
         $r('/support/notify', 'POST', 'rest_notify_save', $staff);
         $r('/support/inbox/(?P<id>\d+)', 'GET', 'rest_detail', $staff);
         $r('/support/inbox/(?P<id>\d+)/reply', 'POST', 'rest_reply', $staff);
+        $r('/support/inbox/(?P<id>\d+)/suggest', 'POST', 'rest_suggest', $staff);
         $r('/support/inbox/(?P<id>\d+)/status', 'POST', 'rest_status', $staff);
         $r('/support/inbox/(?P<id>\d+)/assign', 'POST', 'rest_assign', $staff);
         $r('/support/inbox/(?P<id>\d+)/note', 'POST', 'rest_note', $staff);
@@ -427,6 +428,8 @@ class TIX_Support_Model {
             'last_message' => $last ? ['type' => (string) ($last['type'] ?? ''), 'date' => (string) ($last['date'] ?? ''), 'preview' => mb_substr(wp_strip_all_tags((string) ($last['content'] ?? '')), 0, 120)] : null,
             'created' => (string) $p->post_date, 'updated' => (string) get_post_meta($tid, '_tix_sp_last_reply', true),
             'can_reply' => self::can_write($tid),
+            // KI-Zusammenfassung in einem Satz (1.38.505, aus dem Cache der Support-KI; null = noch keine)
+            'ai_summary' => (function () use ($tid) { $c = get_post_meta($tid, '_tix_sp_ai_summary', true); return is_array($c) && trim((string) ($c['text'] ?? '')) !== '' ? (string) $c['text'] : null; })(),
         ];
     }
 
@@ -492,6 +495,18 @@ class TIX_Support_Model {
 
     private static function deny_write($tid) {
         return self::can_write($tid) ? null : new WP_Error('rest_forbidden', 'Diese Anfrage beantwortet evendis – du kannst sie nur lesen.', ['status' => 403]);
+    }
+
+    /** POST /support/inbox/{id}/suggest → {draft, model} – KI-Antwortentwurf (1.38.505); speichert nichts, Rechte wie /reply. */
+    public static function rest_suggest(WP_REST_Request $req) {
+        $tid = self::load($req);
+        if (is_wp_error($tid)) return $tid;
+        if ($e = self::deny_write($tid)) return $e;
+        if (class_exists('TIX_App_Account') && TIX_App_Account::rate_limited('ai_rest', 20, 60, 'u' . get_current_user_id())) return new WP_Error('tix_rate_limit', 'Zu viele KI-Anfragen – bitte kurz warten.', ['status' => 429]);
+        if (!class_exists('TIX_Support_AI') || !method_exists('TIX_Support', 'ai_reply_context')) return new WP_Error('ai_unavailable', 'Die KI ist hier nicht verfügbar.', ['status' => 503]);
+        $draft = TIX_Support_AI::suggest_reply(TIX_Support::ai_reply_context($tid));
+        if (is_wp_error($draft)) return new WP_Error('ai_unavailable', $draft->get_error_message(), ['status' => 503]);
+        return rest_ensure_response(['ok' => true, 'draft' => (string) $draft, 'model' => TIX_Support_AI::model()]);
     }
 
     /** POST /support/inbox/{id}/reply {content | template_id} */

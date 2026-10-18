@@ -168,6 +168,11 @@ class TIX_Support_AI {
         return trim($s['anthropic_api_key'] ?? '');
     }
 
+    /** Modell der Support-KI (für Antworten mit `model`). */
+    public static function model() {
+        return self::get_model();
+    }
+
     private static function get_model() {
         $s = self::get_settings();
         if (!empty($s['ai_provider']) && $s['ai_provider'] === 'openai') {

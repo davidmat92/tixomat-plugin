@@ -151,6 +151,37 @@ PROMPT;
         }
     }
 
+    /** Status für REST (1.38.505): {flagged, reason, checked_at (ISO|null), approved}. */
+    public static function guard_info($post_id) {
+        $post_id = intval($post_id);
+        $at = intval(get_post_meta($post_id, '_tix_ai_checked_at', true));
+        $flagged = (bool) get_post_meta($post_id, '_tix_ai_flagged', true);
+        return [
+            'flagged'    => $flagged,
+            'reason'     => $flagged ? ((string) get_post_meta($post_id, '_tix_ai_flag_reason', true) ?: null) : null,
+            'checked_at' => $at ? wp_date('c', $at) : null,
+            'approved'   => (bool) get_post_meta($post_id, '_tix_ai_approved', true),
+        ];
+    }
+
+    /**
+     * „Trotzdem freigeben“ durch einen Admin (POST /events/{id}/guard {approve: true}, 1.38.505): Markierung entfernen und den
+     * aktuellen Inhalt als geprüft übernehmen – beim nächsten Veröffentlichen ohne erneute KI-Prüfung (Änderungen werden neu geprüft).
+     */
+    public static function approve($post_id) {
+        $post_id = intval($post_id);
+        $post = get_post($post_id);
+        if (!$post) return false;
+        update_post_meta($post_id, '_tix_ai_content_hash', md5(self::collect_content($post_id, $post)));
+        update_post_meta($post_id, '_tix_ai_checked_at', time());
+        update_post_meta($post_id, '_tix_ai_approved', 1);
+        update_post_meta($post_id, '_tix_ai_approved_by', get_current_user_id());
+        delete_post_meta($post_id, '_tix_ai_flagged');
+        delete_post_meta($post_id, '_tix_ai_flag_reason');
+        delete_transient('tix_ai_flag_' . $post_id);
+        return true;
+    }
+
     /**
      * Admin-Notice anzeigen wenn KI ein Event blockiert hat
      */

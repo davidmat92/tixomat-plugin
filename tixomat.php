@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.38.504
+ * Version: 1.38.505
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  * Update URI: https://veranstalter.evendis.de/tixomat
@@ -10,7 +10,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.38.504');
+define('TIXOMAT_VERSION', '1.38.505');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -518,6 +518,7 @@ require_once TIXOMAT_PATH . 'includes/class-tix-giftcard-gift.php'; // Gutschein
 require_once TIXOMAT_PATH . 'includes/class-tix-giftcard-send.php'; // Gutschein direkt an die beschenkte Person schicken, auch geplant (1.38.496)
 require_once TIXOMAT_PATH . 'includes/class-tix-giftcard-pos.php'; // Gutschein an Bar/Kasse abbuchen ohne Ticketkauf: /pos/giftcard (1.38.496)
 require_once TIXOMAT_PATH . 'includes/class-tix-features.php'; // App-Funktionen an/aus: /studio/features, app_features in /studio/config, features in /app/config (1.38.498)
+require_once TIXOMAT_PATH . 'includes/class-tix-ai-rest.php'; // KI-Funktionen fürs Studio: /ai/text, /ai/extract, /ai/duplicates, /ai/social, /events/{id}/guard, /studio/ai (1.38.505)
 
 // ── Promoted Events (bezahltes Placement auf der Homepage) ──
 require_once TIXOMAT_PATH . 'includes/class-tix-promoted-events.php';

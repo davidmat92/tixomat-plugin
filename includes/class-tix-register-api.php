@@ -193,7 +193,7 @@ class TIX_Register_API {
     }
 
     /** Bild als vorläufigen Anhang speichern (wird bei der Registrierung zum Event-Bild, sonst nach 24 h gelöscht). */
-    private static function store_tmp_image($bytes, $mime) {
+    public static function store_tmp_image($bytes, $mime) { // öffentlich seit 1.38.505 (POST /ai/extract)
         require_once ABSPATH . 'wp-admin/includes/file.php';
         require_once ABSPATH . 'wp-admin/includes/media.php';
         require_once ABSPATH . 'wp-admin/includes/image.php';

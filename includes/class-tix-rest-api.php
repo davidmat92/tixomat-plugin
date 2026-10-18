@@ -2713,6 +2713,8 @@ class TIX_REST_API {
             $event['evendis_url'] = get_post_meta($id, '_tix_syndicate', true) === '1' && get_post_meta($id, '_tix_syndicate_status', true) === 'synced'
                 && get_post_meta($id, '_tix_syndicate_remote_id', true) && $syn_url !== '' ? $syn_url : null;
         }
+        // KI-Schutz (1.38.505): {flagged, reason, checked_at, approved}
+        $event['guard'] = class_exists('TIX_Content_Guard') && method_exists('TIX_Content_Guard', 'guard_info') ? TIX_Content_Guard::guard_info($id) : null;
 
         return $event;
     }

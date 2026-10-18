@@ -992,6 +992,21 @@ class TIX_Meta_Ads {
         $platform = sanitize_text_field($_POST['platform'] ?? '');
 
         if (!$event_id || !$platform) wp_send_json_error(['message' => 'Event und Plattform erforderlich.']);
+        $r = self::social_for($event_id, $platform);
+        if (is_wp_error($r)) wp_send_json_error(['message' => $r->get_error_message()]);
+        wp_send_json_success(['variants' => $r['variants']] + array_diff_key($r, ['variants' => 1, 'model' => 1]));
+    }
+
+    /** Plattform-Schlüssel (auch Kurzformen story, x). */
+    const SOCIAL_ALIASES = ['story' => 'instagram_story', 'x' => 'twitter'];
+
+    /**
+     * Social-Texte (3 Varianten) – Kern für AJAX und POST /ai/social (1.38.505).
+     * → ['variants' => [{name, text, hashtags, subject, cta}], 'model'] | WP_Error tix_invalid_field | ai_unavailable
+     */
+    public static function social_for($event_id, $platform) {
+        $event_id = intval($event_id);
+        $platform = self::SOCIAL_ALIASES[$platform] ?? $platform;
 
         // Event-Daten sammeln
         $title    = get_the_title($event_id);
@@ -1012,17 +1027,15 @@ class TIX_Meta_Ads {
         $context .= "Link: {$url}\n";
 
         $prompts = self::get_social_prompts();
-        if (!isset($prompts[$platform])) wp_send_json_error(['message' => 'Unbekannte Plattform.']);
+        if (!isset($prompts[$platform])) return new WP_Error('tix_invalid_field', 'Unbekannte Plattform.', ['status' => 400, 'field' => 'platform']);
 
         $system = $prompts[$platform];
 
         // KI aufrufen
-        if (!class_exists('TIX_AI_Writer')) {
-            wp_send_json_error(['message' => 'KI-System nicht verfügbar.']);
-        }
+        if (!class_exists('TIX_AI_Writer')) return new WP_Error('ai_unavailable', 'KI-System nicht verfügbar.', ['status' => 503]);
 
         $api_key = trim(tix_get_settings('anthropic_api_key') ?: tix_get_settings('openai_api_key'));
-        if (!$api_key) wp_send_json_error(['message' => 'Kein API-Key konfiguriert.']);
+        if (!$api_key) return new WP_Error('ai_unavailable', 'Kein API-Key konfiguriert.', ['status' => 503]);
 
         // AI Writer call_api nutzen (ist private, daher direkter API-Call)
         $model = class_exists('TIX_AI_Writer') ? TIX_AI_Writer::model() : 'claude-sonnet-5-5';
@@ -1050,7 +1063,7 @@ class TIX_Meta_Ads {
             }
         }
 
-        if (empty($text)) wp_send_json_error(['message' => 'KI-Antwort leer.']);
+        if (empty($text)) return new WP_Error('ai_unavailable', 'KI-Antwort leer.', ['status' => 503]);
 
         // JSON extrahieren
         if (preg_match('/```(?:json)?\s*(\{.*?\})\s*```/s', $text, $m)) $text = $m[1];
@@ -1058,11 +1071,14 @@ class TIX_Meta_Ads {
 
         if (!$data || empty($data['variants'])) {
             // Fallback: Rohtext als eine Variante
-            wp_send_json_success(['variants' => [['name' => 'Variante', 'text' => $text, 'hashtags' => '', 'subject' => '', 'cta' => '']]]);
-            return;
+            return ['variants' => [['name' => 'Variante', 'text' => $text, 'hashtags' => '', 'subject' => '', 'cta' => '']], 'model' => $model];
         }
-
-        wp_send_json_success($data);
+        $data['variants'] = array_values(array_map(function ($v) {
+            $v = is_array($v) ? $v : ['text' => (string) $v];
+            return ['name' => (string) ($v['name'] ?? 'Variante'), 'text' => (string) ($v['text'] ?? ''), 'hashtags' => is_array($v['hashtags'] ?? null) ? implode(' ', $v['hashtags']) : (string) ($v['hashtags'] ?? ''),
+                'subject' => (string) ($v['subject'] ?? ''), 'cta' => (string) ($v['cta'] ?? '')] + $v;
+        }, (array) $data['variants']));
+        return $data + ['model' => $model];
     }
 
     /**

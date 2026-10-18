@@ -95,6 +95,11 @@ class TIX_AI_Writer {
         return $h;
     }
 
+    /** Ist ein Schlüssel für den Anbieter des eingestellten Modells hinterlegt? (Schlüssel selbst nie ausgeben) */
+    public static function provider_ready() {
+        return self::get_api_key() !== '';
+    }
+
     private static function get_api_key() {
         if (self::is_openai()) {
             $key = trim(tix_get_settings('openai_api_key') ?? '');
@@ -265,22 +270,34 @@ class TIX_AI_Writer {
 
         $post_id = intval($_POST['post_id'] ?? 0);
         if (!$post_id) wp_send_json_error(['message' => 'Keine Post-ID.']);
+        $r = self::excerpt_for(array_merge(wp_unslash($_POST), ['post_id' => $post_id]));
+        if (is_wp_error($r)) wp_send_json_error(['message' => $r->get_error_message()]);
+        wp_send_json_success(['excerpt' => $r['content']]);
+    }
+
+    /**
+     * Kurztext (Meta-Description) für ein Event – Kern für AJAX und POST /ai/text (1.38.505).
+     * $in: post_id (optional), title, description, lineup, specials, extra_info, date_start, time_start, location_id, context.
+     * → ['content'] | WP_Error tix_invalid_field (zu wenig Angaben) | ai_unavailable
+     */
+    public static function excerpt_for(array $in) {
+        $post_id = intval($in['post_id'] ?? 0);
 
         // Daten sammeln
         $post = get_post($post_id);
-        $title = sanitize_text_field($_POST['title'] ?? ($post->post_title ?? ''));
+        $title = sanitize_text_field($in['title'] ?? ($post->post_title ?? ''));
 
         // Info-Sections aus POST oder DB
-        $description = $_POST['description'] ?? get_post_meta($post_id, '_tix_info_description', true);
-        $lineup      = $_POST['lineup'] ?? get_post_meta($post_id, '_tix_info_lineup', true);
-        $specials    = $_POST['specials'] ?? get_post_meta($post_id, '_tix_info_specials', true);
-        $extra_info  = $_POST['extra_info'] ?? get_post_meta($post_id, '_tix_info_extra_info', true);
+        $description = $in['description'] ?? get_post_meta($post_id, '_tix_info_description', true);
+        $lineup      = $in['lineup'] ?? get_post_meta($post_id, '_tix_info_lineup', true);
+        $specials    = $in['specials'] ?? get_post_meta($post_id, '_tix_info_specials', true);
+        $extra_info  = $in['extra_info'] ?? get_post_meta($post_id, '_tix_info_extra_info', true);
 
         // Event-Details
-        $date_start = $_POST['date_start'] ?? get_post_meta($post_id, '_tix_date_start', true);
-        $time_start = $_POST['time_start'] ?? get_post_meta($post_id, '_tix_time_start', true);
+        $date_start = $in['date_start'] ?? get_post_meta($post_id, '_tix_date_start', true);
+        $time_start = $in['time_start'] ?? get_post_meta($post_id, '_tix_time_start', true);
         $location   = '';
-        $loc_id = intval($_POST['location_id'] ?? get_post_meta($post_id, '_tix_location_id', true));
+        $loc_id = intval($in['location_id'] ?? get_post_meta($post_id, '_tix_location_id', true));
         if ($loc_id) {
             $location = get_the_title($loc_id);
             $loc_addr = get_post_meta($loc_id, '_tix_loc_address', true);
@@ -318,8 +335,9 @@ class TIX_AI_Writer {
 
         $event_context = implode("\n", $parts);
 
+        if (!empty($in['context'])) $event_context .= ($event_context !== '' ? "\n" : '') . 'Weitere Angaben: ' . wp_strip_all_tags((string) $in['context']);
         if (empty(trim($event_context)) || $title === 'Automatischer Entwurf') {
-            wp_send_json_error(['message' => 'Zu wenig Informationen. Bitte fülle zuerst den Titel und ggf. die Beschreibung aus.']);
+            return new WP_Error('tix_invalid_field', 'Zu wenig Informationen. Bitte fülle zuerst den Titel und ggf. die Beschreibung aus.', ['status' => 400, 'field' => 'title']);
         }
 
         $system = <<<'PROMPT'
@@ -339,11 +357,8 @@ PROMPT;
 
         $result = self::call_api($system, "Schreibe einen Textauszug für folgendes Event:\n\n" . $event_context, 256);
 
-        if (isset($result['error'])) {
-            wp_send_json_error(['message' => $result['error']]);
-        }
-
-        wp_send_json_success(['excerpt' => $result['text']]);
+        if (isset($result['error'])) return new WP_Error('ai_unavailable', $result['error'], ['status' => 503]);
+        return ['content' => (string) $result['text']];
     }
 
     // ──────────────────────────────────────────
@@ -878,10 +893,13 @@ PROMPT;
     public static function ajax_generate_field() {
         check_ajax_referer('tix_admin_action', 'nonce');
         if (!current_user_can('edit_posts')) wp_send_json_error(['message' => 'Keine Berechtigung.']);
+        $r = self::field_for(sanitize_text_field($_POST['field'] ?? ''), sanitize_text_field($_POST['title'] ?? ''), sanitize_textarea_field($_POST['context'] ?? ''));
+        if (is_wp_error($r)) wp_send_json_error(['message' => $r->get_error_message()]);
+        wp_send_json_success(['content' => $r['content']]);
+    }
 
-        $field   = sanitize_text_field($_POST['field'] ?? '');
-        $title   = sanitize_text_field($_POST['title'] ?? '');
-        $context = sanitize_textarea_field($_POST['context'] ?? '');
+    /** Info-Feld schreiben (description|lineup|specials|extra_info) – Kern für AJAX und POST /ai/text (1.38.505). → ['content'] | WP_Error */
+    public static function field_for($field, $title, $context) {
 
         $field_labels = [
             'description' => 'Beschreibung',
@@ -891,11 +909,11 @@ PROMPT;
         ];
 
         if (!isset($field_labels[$field])) {
-            wp_send_json_error(['message' => 'Unbekanntes Feld.']);
+            return new WP_Error('tix_invalid_field', 'Unbekanntes Feld.', ['status' => 400, 'field' => 'field']);
         }
 
         if (empty($title) && empty($context)) {
-            wp_send_json_error(['message' => 'Bitte fülle zuerst den Titel oder andere Felder aus.']);
+            return new WP_Error('tix_invalid_field', 'Bitte fülle zuerst den Titel oder andere Felder aus.', ['status' => 400, 'field' => 'title']);
         }
 
         $prompts = [
@@ -919,11 +937,8 @@ REGELN:
 
         $result = self::call_api($system, $user_prompt, 512);
 
-        if (isset($result['error'])) {
-            wp_send_json_error(['message' => $result['error']]);
-        }
-
-        wp_send_json_success(['content' => wp_kses_post($result['text'])]);
+        if (isset($result['error'])) return new WP_Error('ai_unavailable', $result['error'], ['status' => 503]);
+        return ['content' => wp_kses_post($result['text'])];
     }
 
     // ──────────────────────────────────────────
@@ -1216,54 +1231,47 @@ REGELN:
 
         if (!$title) wp_send_json_success(['duplicates' => []]);
 
-        // Nur eigene Events prüfen
-        $args = [
-            'post_type'      => 'event',
-            'post_status'    => ['publish', 'draft', 'pending'],
-            'posts_per_page' => 5,
-            'author'         => get_current_user_id(),
-            'post__not_in'   => $post_id ? [$post_id] : [],
-        ];
-
-        $events = get_posts($args);
-        $duplicates = [];
-
-        $title_lower = mb_strtolower($title);
-
-        foreach ($events as $ev) {
-            $ev_title = mb_strtolower($ev->post_title);
-            $ev_date  = get_post_meta($ev->ID, '_tix_date_start', true);
-            $ev_loc   = get_post_meta($ev->ID, '_tix_location', true);
-
-            $match = false;
-            $reason = '';
-
-            // Starke Übereinstimmung: fast identischer Titel
-            similar_text($title_lower, $ev_title, $pct);
-            if ($pct > 85) {
-                $match = true;
-                $reason = 'Ähnlicher Titel';
-            }
-
-            // Gleiche Location + gleiches Datum
-            if (!$match && $date_start && $ev_date === $date_start && $location && $ev_loc) {
-                if (mb_strtolower($location) === mb_strtolower($ev_loc)) {
-                    $match = true;
-                    $reason = 'Gleiche Location & Datum';
-                }
-            }
-
-            if ($match) {
-                $duplicates[] = [
-                    'id'     => $ev->ID,
-                    'title'  => $ev->post_title,
-                    'date'   => $ev_date ? date_i18n('d.m.Y', strtotime($ev_date)) : '',
-                    'reason' => $reason,
-                    'url'    => get_edit_post_link($ev->ID, 'raw'),
-                ];
-            }
+        // Nur eigene Events prüfen (wie bisher: zuletzt angelegte 5 des Autors)
+        $rows = self::find_duplicates($title, $date_start, $location, $post_id, ['author' => get_current_user_id(), 'posts_per_page' => 5]);
+        $out = [];
+        foreach ($rows as $r) {
+            $out[] = ['id' => $r['id'], 'title' => $r['title'], 'date' => $r['date'] ? date_i18n('d.m.Y', strtotime($r['date'])) : '', 'reason' => $r['reason'], 'url' => get_edit_post_link($r['id'], 'raw')];
         }
+        wp_send_json_success(['duplicates' => $out]);
+    }
 
-        wp_send_json_success(['duplicates' => $duplicates]);
+    /**
+     * Dubletten-Kern (AJAX und GET /ai/duplicates, 1.38.505): ähnlicher Titel (> 85 %) oder gleicher Ort am gleichen Tag.
+     * $query: zusätzliche get_posts-Argumente (author, meta_query, posts_per_page). → [{id, title, date (Y-m-d), status, reason}]
+     */
+    public static function find_duplicates($title, $date_start, $location, $exclude = 0, array $query = []) {
+        $title = trim((string) $title);
+        if ($title === '') return [];
+        $args = array_merge([
+            'post_type'      => 'event',
+            'post_status'    => ['publish', 'draft', 'pending', 'future'],
+            'posts_per_page' => 300,
+            'orderby'        => 'date', 'order' => 'DESC',
+            'post__not_in'   => $exclude ? [intval($exclude)] : [],
+        ], $query);
+        $title_lower = mb_strtolower($title);
+        $out = [];
+        foreach (get_posts($args) as $ev) {
+            $ev_title = mb_strtolower($ev->post_title);
+            $ev_date  = (string) get_post_meta($ev->ID, '_tix_date_start', true);
+            $ev_loc   = (string) get_post_meta($ev->ID, '_tix_location', true);
+            $reason = '';
+            similar_text($title_lower, $ev_title, $pct);
+            if ($pct > 85) $reason = 'Ähnlicher Titel';
+            if ($reason === '' && $date_start && $ev_date === $date_start && $location !== '' && $ev_loc !== '' && mb_strtolower($location) === mb_strtolower($ev_loc)) $reason = 'Gleiche Location & Datum';
+            if ($reason === '') continue;
+            $loc_name = $ev_loc;
+            $lid = intval(get_post_meta($ev->ID, '_tix_location_id', true));
+            if ($loc_name === '' && $lid) $loc_name = html_entity_decode((string) get_the_title($lid), ENT_QUOTES, 'UTF-8');
+            $out[] = ['id' => intval($ev->ID), 'title' => html_entity_decode($ev->post_title, ENT_QUOTES, 'UTF-8'), 'date_start' => $ev_date, 'date' => $ev_date,
+                'location' => $loc_name, 'status' => (string) $ev->post_status, 'reason' => $reason];
+            if (count($out) >= 10) break;
+        }
+        return $out;
     }
 }

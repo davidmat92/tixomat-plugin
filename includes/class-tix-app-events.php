@@ -247,7 +247,9 @@ class TIX_App_Events {
         }
 
         $thumb_id = $id ? (int) get_post_thumbnail_id($id) : 0;
+        $guard = ($id && class_exists('TIX_Content_Guard') && method_exists('TIX_Content_Guard', 'guard_info')) ? TIX_Content_Guard::guard_info($id) : null;
         return [
+            'guard'              => $guard, // KI-Schutz (1.38.505)
             'id'                 => intval($id),
             'title'              => $post ? (string) $post->post_title : '',
             'excerpt'            => $post ? (string) $post->post_excerpt : '',
@@ -421,6 +423,9 @@ class TIX_App_Events {
         $texts = class_exists('TIX_Event_Texts') ? TIX_Event_Texts::check($body, $is_new ? 0 : $post_id) : [];
         if (is_wp_error($texts)) return $texts;
         if (is_wp_error($studio)) return $studio;
+        // Eventbild per image_id (1.38.505, z. B. Flyer aus POST /ai/extract): eigenes Bild bzw. vorläufiger Flyer, null/0 entfernt
+        $thumb = self::check_image_id($body);
+        if (is_wp_error($thumb)) return $thumb;
 
         // Steuersatz (1.38.485): Event und Kategorien 0–30 oder leer/null = erben – vor allen Änderungen prüfen
         $bad_rate = function ($v) { return $v !== null && $v !== '' && (!is_numeric($v) || floatval($v) < 0 || floatval($v) > 30); };
@@ -626,8 +631,32 @@ class TIX_App_Events {
         // Verteilung anstoßen, falls kein save_post lief (Studio Stufe 3)
         if ($studio) TIX_Studio_Editor::after_save($post_id, $studio, $post_updated);
 
+        if ($thumb !== null) {
+            if ($thumb === 0) delete_post_thumbnail($post_id);
+            else {
+                set_post_thumbnail($post_id, $thumb);
+                // vorläufiger Flyer wird fester Teil des Events (kein Aufräumen mehr)
+                delete_post_meta($thumb, '_tix_register_tmp');
+                if (!get_post_field('post_parent', $thumb)) wp_update_post(['ID' => $thumb, 'post_parent' => $post_id]);
+            }
+        }
+
         self::resolve_status($post_id);
         return true;
+    }
+
+    /** image_id prüfen: null = nicht gesendet, 0 = entfernen, sonst Bild-Anhang des Aufrufers (Admin: jedes Bild). → int|null|WP_Error */
+    private static function check_image_id(array $body) {
+        if (!array_key_exists('image_id', $body)) return null;
+        $id = intval($body['image_id']);
+        if ($id <= 0) return 0;
+        if (get_post_type($id) !== 'attachment' || strpos((string) get_post_mime_type($id), 'image/') !== 0) {
+            return new WP_Error('tix_invalid_field', 'Bild nicht gefunden.', ['status' => 400, 'field' => 'image_id']);
+        }
+        if (!current_user_can('manage_options') && intval(get_post_field('post_author', $id)) !== get_current_user_id()) {
+            return new WP_Error('tix_invalid_field', 'Dieses Bild gehört nicht zu deinem Konto.', ['status' => 403, 'field' => 'image_id']);
+        }
+        return $id;
     }
 
     /**
@@ -853,12 +882,14 @@ class TIX_App_Events {
             return new WP_Error($code, $f->get_error_message(), ['status' => $map[$code], 'field' => 'url']);
         }
         $source = (string) ($f['_source'] ?? 'ai');
-        unset($f['_source']);
+        // Wie gelesen (1.38.502) als eigene Felder statt in fields (1.38.505)
+        $read = ['read_mode' => (string) ($f['_read_mode'] ?? 'direct'), 'notice' => $f['_notice'] ?? null, 'pages_read' => intval($f['_pages_read'] ?? 1)];
+        unset($f['_source'], $f['_read_mode'], $f['_notice'], $f['_pages_read']);
         // Sparte als Slug (wie im Event-Editor)
         $ids = array_map('intval', (array) ($f['category_ids'] ?? []));
         $t = $ids ? get_term($ids[0], 'event_category') : null;
         $f['event_category'] = ($t && !is_wp_error($t)) ? (string) $t->slug : '';
-        return rest_ensure_response(['ok' => true, 'source' => $source, 'fields' => $f]);
+        return rest_ensure_response(['ok' => true, 'source' => $source, 'fields' => $f] + $read);
     }
 
     // ── Erstatten, Stornieren (1.38.441) ──
