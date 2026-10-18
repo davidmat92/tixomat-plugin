@@ -135,6 +135,73 @@ class TIX_Event_Import {
         return '';
     }
 
+    // ── Original statt Zuschnitt (1.38.504): Bilddienste liefern in og:image oft einen Zuschnitt (Querformat aus Hochformat-Flyer) ──
+
+    /**
+     * Zuschnitt-URL eines Bilddienstes → mutmaßliche Original-URL (ohne Prüfung; gleiche URL, wenn kein Muster passt).
+     *  - Base44/Wix: ab /v1/fill|crop|fit/… abschneiden (…/bild.jpg/v1/fill/w_1366,h_900,…/bild.jpg → …/bild.jpg)
+     *  - Cloudinary: Transformationen hinter /upload/ entfernen (c_fill,w_…,h_… usw.)
+     *  - imgix: Zuschnitt-/Größen-Parameter weglassen (fit, crop, rect, ar, w, h)
+     *  - Next.js: /_next/image?url=… → url-Parameter (dekodiert, ggf. absolut gemacht)
+     */
+    public static function uncrop_url($url) {
+        $u = trim((string) $url);
+        for ($i = 0; $i < 3 && $u !== ''; $i++) {
+            $before = $u;
+            $p = wp_parse_url($u);
+            if (!$p || empty($p['host'])) break;
+            $path = (string) ($p['path'] ?? '');
+            // Next.js-Bildoptimierer
+            if (preg_match('#/_next/image/?$#', $path) && !empty($p['query'])) {
+                parse_str($p['query'], $q);
+                if (!empty($q['url'])) { $u = self::absolute((string) $q['url'], $u); continue; }
+            }
+            // Base44 / Wix: …/<datei.ext>/v1/fill|crop|fit/…
+            if (preg_match('#^(.*?\.(?:jpe?g|png|webp|gif|avif))/v1/(?:fill|crop|fit)/.*$#i', $path, $m)) {
+                $u = $p['scheme'] . '://' . $p['host'] . (isset($p['port']) ? ':' . $p['port'] : '') . $m[1];
+                continue;
+            }
+            // Cloudinary: /<cloud>/image/upload/<transformationen>/[v123/]<public_id>
+            if (stripos($p['host'], 'cloudinary.com') !== false && preg_match('#^(.*?/(?:image|video)/upload/)(.*)$#', $path, $m)) {
+                $segs = explode('/', $m[2]);
+                // nur Transformationen (k_wert[,k_wert…]), nie den letzten Teil (Datei) oder etwas mit Dateiendung
+                while (count($segs) > 1 && preg_match('#^[a-z]{1,4}_[^/]*$#', $segs[0]) && !preg_match('#\.[a-z0-9]{2,5}$#i', $segs[0])) array_shift($segs);
+                $np = $m[1] . implode('/', $segs);
+                if ($np !== $path) { $u = $p['scheme'] . '://' . $p['host'] . $np; continue; }
+            }
+            // imgix
+            if (stripos($p['host'], 'imgix.net') !== false && !empty($p['query'])) {
+                parse_str($p['query'], $q);
+                $keep = array_diff_key($q, array_flip(['fit', 'crop', 'rect', 'ar', 'w', 'h']));
+                if (count($keep) !== count($q)) { $u = $p['scheme'] . '://' . $p['host'] . $path . ($keep ? '?' . http_build_query($keep) : ''); continue; }
+            }
+            if ($u === $before) break;
+        }
+        return $u;
+    }
+
+    /** Ist unter der URL ein Bild erreichbar? (HEAD, sonst GET mit kleiner Grenze; nur öffentliche Adressen) */
+    public static function image_reachable($url) {
+        $args = ['timeout' => 8, 'redirection' => 3, 'user-agent' => self::agents()[0]];
+        $r = wp_safe_remote_head($url, $args);
+        $ok = function ($r) {
+            if (is_wp_error($r)) return false;
+            $code = intval(wp_remote_retrieve_response_code($r));
+            return $code >= 200 && $code < 300 && stripos((string) wp_remote_retrieve_header($r, 'content-type'), 'image/') === 0;
+        };
+        if ($ok($r)) return true;
+        return $ok(wp_safe_remote_get($url, $args + ['limit_response_size' => 65536]));
+    }
+
+    /** Bild-URL für den Import: Original statt Zuschnitt, wenn erreichbar; sonst die ursprüngliche URL. */
+    public static function original_image($url) {
+        $url = (string) $url;
+        if ($url === '') return '';
+        $orig = self::uncrop_url($url);
+        if ($orig === $url) return $url;
+        return self::image_reachable($orig) ? $orig : $url;
+    }
+
     public static function unreadable_message() {
         return 'Wir konnten die Seite nicht lesen – lade den Flyer hoch oder beschreibe dein Event.';
     }

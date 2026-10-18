@@ -568,7 +568,8 @@ PROMPT;
             $read = ['mode' => $partial ? 'partial' : 'rendered', 'notice' => $partial ? TIX_Event_Import::PARTIAL_NOTICE : null,
                 'pages' => 1 + count(array_filter((array) ($rendered['pages'] ?? []), function ($p) { return is_array($p) && trim((string) ($p['text'] ?? '')) !== ''; }))];
         }
-        $image = $st['_image'] ?: ($ex['image_url'] ?? '');
+        // Original statt Zuschnitt (Base44/Wix, Cloudinary, imgix, Next.js; 1.38.504)
+        $image = TIX_Event_Import::original_image($st['_image'] ?: ($ex['image_url'] ?? ''));
         $text_len = mb_strlen(trim(preg_replace('/^.*?Seitentext:\s*/s', '', $ex['text'])));
         if (!TIX_Event_Import::usable($st) && $st['title'] === '' && $text_len < 200) {
             return new \WP_Error('url_unreadable', TIX_Event_Import::unreadable_message(), ['status' => 422, 'reason' => 'zu wenig Inhalt (' . $text_len . ' Zeichen)', 'read_mode' => $read['mode']]);
