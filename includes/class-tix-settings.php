@@ -374,7 +374,7 @@ class TIX_Settings {
             'anthropic_api_key' => '',
             'anthropic_workspace_id' => '', // nur für Schlüssel ohne Workspace (Header anthropic-workspace-id), 1.38.435
             'openai_api_key'    => '',
-            'ai_model'          => 'claude-sonnet-4-20250514',
+            'ai_model'          => 'claude-sonnet-5-5',
             'ai_assistant_name' => 'Evendis-Assistent',
             'ai_guard_enabled'  => 0,
             'ai_guard_api_key'  => '', // Legacy – wird migriert zu anthropic_api_key
@@ -1642,7 +1642,9 @@ class TIX_Settings {
         $clean['anthropic_api_key'] = sanitize_text_field($input['anthropic_api_key'] ?? '');
         $clean['anthropic_workspace_id'] = preg_replace('/[^A-Za-z0-9_-]/', '', (string) ($input['anthropic_workspace_id'] ?? ''));
         $clean['openai_api_key'] = sanitize_text_field($input['openai_api_key'] ?? '');
-        $clean['ai_model'] = sanitize_text_field($input['ai_model'] ?? 'claude-sonnet-4-20250514');
+        // 1.38.503: nur aktuelle Modelle (sonst Vorgabe); Speichern quittiert einen Rückfall-Hinweis
+        $clean['ai_model'] = class_exists('TIX_AI_Writer') ? TIX_AI_Writer::model_for(sanitize_text_field($input['ai_model'] ?? '')) : 'claude-sonnet-5-5';
+        delete_option('tix_ai_model_notice');
         $clean['ai_guard_enabled'] = !empty($input['ai_guard_enabled']) ? 1 : 0;
         // Legacy-Migration: alten Key übernehmen falls neuer leer
         if (empty($clean['anthropic_api_key']) && !empty($input['ai_guard_api_key'])) {
@@ -7459,17 +7461,9 @@ class TIX_Settings {
                                                 </p>
                                             </div>
                                             <?php
-                                            $models = [
-                                                // Anthropic
-                                                'claude-sonnet-4-20250514'    => 'Claude Sonnet 4 (Standard)',
-                                                'claude-opus-4-20250514'      => 'Claude Opus 4 (Premium)',
-                                                'claude-3-5-haiku-20241022'   => 'Claude 3.5 Haiku (Budget)',
-                                                // OpenAI
-                                                'gpt-4o'                      => 'GPT-4o (Standard)',
-                                                'gpt-4o-mini'                 => 'GPT-4o Mini (Budget)',
-                                                'o3-mini'                     => 'o3-mini (Reasoning)',
-                                            ];
-                                            $current_model = $s['ai_model'] ?? 'claude-sonnet-4-20250514';
+                                            // Liste aus TIX_AI_Writer::MODELS (1.38.503): erst 3 Claude-Modelle, dann OpenAI
+                                            $models = TIX_AI_Writer::MODELS;
+                                            $current_model = TIX_AI_Writer::model_for($s['ai_model'] ?? '');
                                             ?>
                                             <div class="tix-field tix-field-full">
                                                 <label class="tix-label">KI-Modell</label>
@@ -7485,7 +7479,7 @@ class TIX_Settings {
                                                     <?php endforeach; ?>
                                                     </optgroup>
                                                 </select>
-                                                <p class="tix-settings-hint">Wird für Evendis-Assistent und Textgenerierung verwendet. KI-Schutz nutzt immer Claude Haiku (kostensparend).</p>
+                                                <p class="tix-settings-hint">Wird für Evendis-Assistent und Textgenerierung verwendet. KI-Schutz nutzt immer Claude Haiku 5.5 (kostensparend).</p>
                                             </div>
                                         </div>
                                     </div>

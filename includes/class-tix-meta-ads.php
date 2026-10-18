@@ -1025,7 +1025,7 @@ class TIX_Meta_Ads {
         if (!$api_key) wp_send_json_error(['message' => 'Kein API-Key konfiguriert.']);
 
         // AI Writer call_api nutzen (ist private, daher direkter API-Call)
-        $model = tix_get_settings('ai_model') ?: 'claude-sonnet-4-20250514';
+        $model = class_exists('TIX_AI_Writer') ? TIX_AI_Writer::model() : 'claude-sonnet-5-5';
         $is_openai = strpos($model, 'gpt') === 0 || strpos($model, 'o3') === 0;
 
         if ($is_openai) {
@@ -1040,13 +1040,9 @@ class TIX_Meta_Ads {
             $body = json_decode(wp_remote_retrieve_body($response), true);
             $text = $body['choices'][0]['message']['content'] ?? '';
         } else {
-            $response = wp_remote_post('https://api.anthropic.com/v1/messages', [
-                'timeout' => 30,
-                'headers' => class_exists('TIX_AI_Writer') ? TIX_AI_Writer::anthropic_headers($api_key) : ['x-api-key' => $api_key, 'content-type' => 'application/json', 'anthropic-version' => '2023-06-01'],
-                'body'    => wp_json_encode(['model' => $model, 'max_tokens' => 1500, 'system' => $system, 'messages' => [
-                    ['role' => 'user', 'content' => $context],
-                ]]),
-            ]);
+            $response = TIX_AI_Writer::anthropic_post(['model' => $model, 'max_tokens' => 1500, 'system' => $system, 'messages' => [
+                ['role' => 'user', 'content' => $context],
+            ]], $api_key, 30);
             $body = json_decode(wp_remote_retrieve_body($response), true);
             $text = '';
             foreach (($body['content'] ?? []) as $block) {

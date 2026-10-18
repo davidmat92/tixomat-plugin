@@ -11,7 +11,58 @@ if (!defined('ABSPATH')) exit;
 
 class TIX_AI_Writer {
 
-    const DEFAULT_MODEL = 'claude-sonnet-4-20250514';
+    /** Aktuelle Modelle (1.38.503): Vorgabe Sonnet 5.5; gespeicherte Werte außerhalb der Liste fallen auf die Vorgabe zurück. */
+    const DEFAULT_MODEL = 'claude-sonnet-5-5';
+    const FAST_MODEL = 'claude-haiku-5-5';
+    const MODELS = [
+        'claude-sonnet-5-5' => 'Claude Sonnet 5.5 (Standard)',
+        'claude-opus-5-5'   => 'Claude Opus 5.5 (Premium)',
+        'claude-haiku-5-5'  => 'Claude Haiku 5.5 (Budget)',
+        'gpt-4o'            => 'GPT-4o (Standard)',
+        'gpt-4o-mini'       => 'GPT-4o Mini (Budget)',
+        'o3-mini'           => 'o3-mini (Reasoning)',
+    ];
+    const NOTICE_OPT = 'tix_ai_model_notice';
+
+    /** Gespeichertes Modell → gültiges Modell (unbekannt bzw. veraltet = Vorgabe). */
+    public static function model_for($stored) {
+        $m = trim((string) $stored);
+        return isset(self::MODELS[$m]) ? $m : self::DEFAULT_MODEL;
+    }
+
+    /** Wirksames Modell der Seite (Einstellung ai_model). */
+    public static function model() {
+        return self::model_for(tix_get_settings('ai_model'));
+    }
+
+    /**
+     * POST an die Anthropic-API mit Rückfall: Lehnt die API das Modell ab (400/404 „model …“), einmal mit der Vorgabe
+     * wiederholen und einen Hinweis für den Admin speichern (Option tix_ai_model_notice). → Antwort von wp_remote_post
+     */
+    public static function anthropic_post(array $payload, $api_key, $timeout = 30) {
+        $send = function ($p) use ($api_key, $timeout) {
+            return wp_remote_post('https://api.anthropic.com/v1/messages', ['timeout' => $timeout, 'headers' => self::anthropic_headers($api_key), 'body' => wp_json_encode($p)]);
+        };
+        $r = $send($payload);
+        if (is_wp_error($r)) return $r;
+        $code = intval(wp_remote_retrieve_response_code($r));
+        $msg = (string) (json_decode((string) wp_remote_retrieve_body($r), true)['error']['message'] ?? '');
+        $model = (string) ($payload['model'] ?? '');
+        if (in_array($code, [400, 404], true) && stripos($msg, 'model') !== false && $model !== self::DEFAULT_MODEL) {
+            update_option(self::NOTICE_OPT, ['model' => $model, 'fallback' => self::DEFAULT_MODEL, 'at' => current_time('mysql')], false);
+            $payload['model'] = self::DEFAULT_MODEL;
+            $r = $send($payload);
+        }
+        return $r;
+    }
+
+    /** Admin-Hinweis nach einem Modell-Rückfall (bis die KI-Einstellungen gespeichert werden). */
+    public static function admin_notice() {
+        if (!current_user_can('manage_options')) return;
+        $n = get_option(self::NOTICE_OPT);
+        if (!is_array($n) || empty($n['model'])) return;
+        echo '<div class="notice notice-warning"><p><strong>Tixomat KI:</strong> Das Modell <code>' . esc_html($n['model']) . '</code> ist nicht mehr verfügbar. Es wird <code>' . esc_html($n['fallback']) . '</code> verwendet. Bitte unter Einstellungen → KI ein aktuelles Modell wählen.</p></div>';
+    }
 
     /** OpenAI-Modelle erkennen */
     private static function is_openai() {
@@ -20,10 +71,11 @@ class TIX_AI_Writer {
     }
 
     private static function get_model() {
-        return tix_get_settings('ai_model') ?: self::DEFAULT_MODEL;
+        return self::model();
     }
 
     public static function init() {
+        add_action('admin_notices', [__CLASS__, 'admin_notice']);
         add_action('wp_ajax_tix_ai_generate_excerpt', [__CLASS__, 'ajax_generate_excerpt']);
         add_action('wp_ajax_tix_ai_fill_fields',      [__CLASS__, 'ajax_fill_fields']);
         add_action('wp_ajax_tix_ai_upload_image',     [__CLASS__, 'ajax_upload_image']);
@@ -66,16 +118,12 @@ class TIX_AI_Writer {
             return self::call_openai($system, [['role' => 'user', 'content' => $user_content]], $max_tokens);
         }
 
-        $response = wp_remote_post('https://api.anthropic.com/v1/messages', [
-            'timeout' => 30,
-            'headers' => self::anthropic_headers($api_key),
-            'body' => wp_json_encode([
-                'model'      => self::get_model(),
-                'max_tokens' => $max_tokens,
-                'system'     => $system,
-                'messages'   => [['role' => 'user', 'content' => $user_content]],
-            ]),
-        ]);
+        $response = self::anthropic_post([
+            'model'      => self::get_model(),
+            'max_tokens' => $max_tokens,
+            'system'     => $system,
+            'messages'   => [['role' => 'user', 'content' => $user_content]],
+        ], $api_key, 30);
 
         return self::parse_anthropic_response($response);
     }
@@ -107,16 +155,12 @@ class TIX_AI_Writer {
             ['type' => 'text', 'text' => $text_prompt],
         ];
 
-        $response = wp_remote_post('https://api.anthropic.com/v1/messages', [
-            'timeout' => 45,
-            'headers' => self::anthropic_headers($api_key),
-            'body' => wp_json_encode([
-                'model'      => self::get_model(),
-                'max_tokens' => $max_tokens,
-                'system'     => $system,
-                'messages'   => [['role' => 'user', 'content' => $content]],
-            ]),
-        ]);
+        $response = self::anthropic_post([
+            'model'      => self::get_model(),
+            'max_tokens' => $max_tokens,
+            'system'     => $system,
+            'messages'   => [['role' => 'user', 'content' => $content]],
+        ], $api_key, 45);
 
         return self::parse_anthropic_response($response);
     }

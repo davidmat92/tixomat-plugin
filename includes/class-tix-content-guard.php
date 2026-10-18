@@ -15,7 +15,7 @@ class TIX_Content_Guard {
     const API_URL = 'https://api.anthropic.com/v1/messages';
 
     /** Modell (schnell + günstig für Moderation) */
-    const MODEL = 'claude-3-5-haiku-20241022';
+    const MODEL = 'claude-haiku-5-5'; // 1.38.503 (3.5 Haiku wird abgelehnt); bei Ablehnung Rückfall auf die Vorgabe
 
     /** System-Prompt für die Inhaltsprüfung */
     const SYSTEM_PROMPT = <<<'PROMPT'
@@ -246,17 +246,16 @@ PROMPT;
             $text = mb_substr($text, 0, 3000) . "\n[…gekürzt]";
         }
 
-        $response = wp_remote_post(self::API_URL, [
-            'timeout' => 20,
-            'headers' => class_exists('TIX_AI_Writer') ? TIX_AI_Writer::anthropic_headers($api_key) : ['x-api-key' => $api_key, 'content-type' => 'application/json', 'anthropic-version' => '2023-06-01'],
-            'body' => wp_json_encode([
-                'model'      => self::MODEL,
-                'max_tokens' => 256,
-                'system'     => self::SYSTEM_PROMPT,
-                'messages'   => [
-                    ['role' => 'user', 'content' => $text],
-                ],
-            ]),
+        $payload = [
+            'model'      => self::MODEL,
+            'max_tokens' => 256,
+            'system'     => self::SYSTEM_PROMPT,
+            'messages'   => [
+                ['role' => 'user', 'content' => $text],
+            ],
+        ];
+        $response = class_exists('TIX_AI_Writer') ? TIX_AI_Writer::anthropic_post($payload, $api_key, 20) : wp_remote_post(self::API_URL, [
+            'timeout' => 20, 'headers' => ['x-api-key' => $api_key, 'content-type' => 'application/json', 'anthropic-version' => '2023-06-01'], 'body' => wp_json_encode($payload),
         ]);
 
         // HTTP-Fehler (Netzwerk, Timeout, DNS)

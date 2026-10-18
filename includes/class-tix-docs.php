@@ -935,7 +935,7 @@ class TIX_Docs {
                 'Bei Ablehnung: Event wird auf Entwurf zur&uuml;ckgesetzt. <strong>Slug wird sanitized</strong> (event-entwurf-{id}).',
                 '<strong>Content-Hash-Cache:</strong> MD5-Hash verhindert doppelte API-Calls bei unver&auml;ndertem Content.',
                 'Aktivierbar unter <strong>Einstellungen &rarr; Erweitert &rarr; KI-Schutz</strong>. Ben&ouml;tigt Anthropic API Key.',
-                'Modell: <code>claude-3-5-haiku-20241022</code> &ndash; ca. 0,001 &euro; pro Pr&uuml;fung.',
+                'Modell: <code>claude-haiku-5-5</code> (Claude Haiku 5.5) &ndash; wenige Zehntel Cent pro Pr&uuml;fung.',
                 'Admin-Spalte zeigt Status: &#x2713; (genehmigt), &#x26A0;&#xFE0F; (abgelehnt, mit Tooltip), &mdash; (nicht gepr&uuml;ft).',
             ]);
 

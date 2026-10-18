@@ -173,8 +173,9 @@ class TIX_Support_AI {
         if (!empty($s['ai_provider']) && $s['ai_provider'] === 'openai') {
             return $s['openai_model'] ?? 'gpt-4o-mini';
         }
-        // Schnelles + günstiges Modell für Support — Haiku reicht völlig
-        return $s['ai_support_model'] ?? 'claude-haiku-4-5';
+        // Schnelles + günstiges Modell für Support — Haiku reicht völlig (1.38.503: nur aktuelle Modelle, sonst Haiku 5.5)
+        $m = (string) ($s['ai_support_model'] ?? '');
+        return (class_exists('TIX_AI_Writer') && isset(TIX_AI_Writer::MODELS[$m])) ? $m : 'claude-haiku-5-5';
     }
 
     private static function is_openai() {
@@ -193,15 +194,14 @@ class TIX_Support_AI {
     }
 
     private static function call_anthropic($system, $user, $max_tokens) {
-        $response = wp_remote_post('https://api.anthropic.com/v1/messages', [
-            'timeout' => 30,
-            'headers' => class_exists('TIX_AI_Writer') ? TIX_AI_Writer::anthropic_headers(self::get_api_key()) : ['x-api-key' => self::get_api_key(), 'content-type' => 'application/json', 'anthropic-version' => '2023-06-01'],
-            'body' => wp_json_encode([
-                'model'      => self::get_model(),
-                'max_tokens' => $max_tokens,
-                'system'     => $system,
-                'messages'   => [['role' => 'user', 'content' => $user]],
-            ]),
+        $payload = [
+            'model'      => self::get_model(),
+            'max_tokens' => $max_tokens,
+            'system'     => $system,
+            'messages'   => [['role' => 'user', 'content' => $user]],
+        ];
+        $response = class_exists('TIX_AI_Writer') ? TIX_AI_Writer::anthropic_post($payload, self::get_api_key(), 30) : wp_remote_post('https://api.anthropic.com/v1/messages', [
+            'timeout' => 30, 'headers' => ['x-api-key' => self::get_api_key(), 'content-type' => 'application/json', 'anthropic-version' => '2023-06-01'], 'body' => wp_json_encode($payload),
         ]);
 
         if (is_wp_error($response)) return ['error' => $response->get_error_message()];
