@@ -252,9 +252,12 @@ class TIX_Register_API {
         }
         if (is_wp_error($f)) {
             $code = $f->get_error_code();
-            $map = ['url_invalid' => 400, 'url_unreadable' => 422, 'ai_unavailable' => 503];
+            $map = ['url_invalid' => 400, 'url_unreadable' => 422, 'url_blocked' => 422, 'ai_unavailable' => 503];
             if (!isset($map[$code])) $code = 'ai_unavailable';
-            return self::error($code, $f->get_error_message(), $map[$code], ['alternatives' => array_values(array_diff(['describe', 'flyer', 'url'], [$mode])), 'image' => self::image_payload($image_id)]);
+            $d = (array) $f->get_error_data();
+            // Gesperrte Seite (1.38.507): read_mode blocked + notice
+            $extra = $code === 'url_blocked' ? ['read_mode' => 'blocked', 'notice' => (string) ($d['notice'] ?? TIX_Event_Import::BLOCKED_NOTICE), 'reason' => (string) ($d['reason'] ?? '')] : [];
+            return self::error($code, $f->get_error_message(), $map[$code], ['alternatives' => array_values(array_diff(['describe', 'flyer', 'url'], [$mode])), 'image' => self::image_payload($image_id)] + $extra);
         }
         // Wie die Seite gelesen wurde (1.38.502, nur mode=url): direct | rendered | partial, Hinweis, gelesene Seiten
         $read = ['read_mode' => $mode === 'url' ? (string) ($f['_read_mode'] ?? 'direct') : null, 'notice' => $mode === 'url' ? ($f['_notice'] ?? null) : null,

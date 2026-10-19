@@ -877,9 +877,12 @@ class TIX_App_Events {
         $f = TIX_AI_Writer::import_url($url);
         if (is_wp_error($f)) {
             $code = $f->get_error_code();
-            $map = ['url_invalid' => 400, 'url_unreadable' => 422, 'ai_unavailable' => 503];
+            $map = ['url_invalid' => 400, 'url_unreadable' => 422, 'url_blocked' => 422, 'ai_unavailable' => 503];
             $code = isset($map[$code]) ? $code : 'url_unreadable';
-            return new WP_Error($code, $f->get_error_message(), ['status' => $map[$code], 'field' => 'url']);
+            $d = (array) $f->get_error_data();
+            // Gesperrte Seite (1.38.507): read_mode blocked + notice (Studio fällt auf Screenshot/Text zurück)
+            $extra = $code === 'url_blocked' ? ['read_mode' => 'blocked', 'notice' => (string) ($d['notice'] ?? TIX_Event_Import::BLOCKED_NOTICE), 'reason' => (string) ($d['reason'] ?? '')] : [];
+            return new WP_Error($code, $f->get_error_message(), ['status' => $map[$code], 'field' => 'url'] + $extra);
         }
         $source = (string) ($f['_source'] ?? 'ai');
         // Wie gelesen (1.38.502) als eigene Felder statt in fields (1.38.505)

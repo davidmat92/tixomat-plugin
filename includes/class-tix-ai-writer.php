@@ -540,15 +540,10 @@ PROMPT;
      * `_source` structured|structured+ai|ai) oder WP_Error (url_invalid, url_unreadable, ai_unavailable).
      */
     public static function import_url($url) {
+        // Sperren werden respektiert (1.38.507): url_blocked bzw. url_unreadable gehen unverändert zurück, kein Render-Rückfall
         $page = TIX_Event_Import::fetch($url);
         $rendered = null;
-        if (is_wp_error($page)) {
-            // Bot-Sperre bzw. kein Abruf möglich: Render-Dienst versuchen (1.38.502)
-            if ($page->get_error_code() !== 'url_unreadable' || !TIX_Event_Import::render_config()) return $page;
-            $rendered = TIX_Event_Import::render(TIX_Event_Import::clean_url($url));
-            if (is_wp_error($rendered) || trim((string) ($rendered['text'] ?? '')) === '') return $page;
-            $page = ['body' => '', 'content_type' => 'text/html', 'code' => 200, 'final_url' => (string) ($rendered['final_url'] ?? '') ?: TIX_Event_Import::clean_url($url)];
-        }
+        if (is_wp_error($page)) return $page;
         $final = $page['final_url'];
         if (strpos($page['content_type'], 'image/') === 0) {
             $mime = trim(explode(';', $page['content_type'])[0]);

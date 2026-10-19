@@ -6,13 +6,14 @@ if (!defined('ABSPATH')) exit;
  *
  * Genutzt von „Veranstalter werden“ ([tix_register_event], Weg „Eventseite analysieren“) und dem Bulk-Editor
  * über TIX_AI_Writer. Reihenfolge:
- *   1. Abruf mit wp_safe_remote_get (keine internen Adressen), Browser-Kennung, Weiterleitungen, max. 3 MB;
- *      bei 403/429/Zeitüberschreitung ein zweiter Versuch mit anderer Kennung.
+ *   1. Abruf mit wp_safe_remote_get (keine internen Adressen), ehrliche Kennung (user_agent()), Weiterleitungen, max. 3 MB;
+ *      robots.txt wird beachtet; 401/403/429, Bot-Sperren (Cloudflare, Captcha, „Access denied“) und Login-Wände werden
+ *      respektiert: kein zweiter Versuch, kein Render-Dienst, Fehler url_blocked (read_mode blocked, 1.38.507).
  *   2. Strukturierte Daten: JSON-LD schema.org/*Event (auch @graph, Listen), danach OpenGraph/Microdata.
  *   3. Die KI ergänzt (Beschreibung, Line-up, Tickets …); Datum, Zeit, Ort und Titel aus den strukturierten Daten
  *      haben Vorrang. Ist die KI nicht verfügbar, reichen die strukturierten Daten allein.
  * Geht nichts: Fehler `url_unreadable` mit Ausweg „Flyer hochladen oder Event beschreiben“.
- * 1.38.502: Reine JavaScript-Seiten (wenig Text ohne JSON-LD bzw. SPA-Hülle) und Bot-Sperren (403/429/503) gehen an den
+ * 1.38.502: Reine JavaScript-Seiten (wenig Text ohne JSON-LD bzw. SPA-Hülle, HTTP 200, ohne Sperre) gehen an den
  * Render-Dienst (Headless Chromium, POST TIX_RENDER_URL mit X-Render-Key, bis zu 3 Unterseiten); Rückfall wie bisher mit Hinweis.
  */
 class TIX_Event_Import {
@@ -206,11 +207,94 @@ class TIX_Event_Import {
         return 'Wir konnten die Seite nicht lesen – lade den Flyer hoch oder beschreibe dein Event.';
     }
 
+    /**
+     * Ehrliche Kennung des Imports (1.38.507, keine Tarnung als Browser): „<marke>-import/1.0 (+https://<seite>/)“.
+     * Nur der Render-Dienst rendert reine JavaScript-Seiten ohne Sperre mit einem echten Browser.
+     */
+    public static function user_agent() {
+        $host = preg_replace('/^www\./', '', strtolower((string) wp_parse_url(class_exists('TIX_Customer_URL') ? (TIX_Customer_URL::base() ?: home_url('/')) : home_url('/'), PHP_URL_HOST)));
+        $brand = $host !== '' ? strtok($host, '.') : 'tixomat';
+        return $brand . '-import/1.0 (+https://' . ($host ?: 'tixomat.de') . '/)';
+    }
+
+    /** Für ältere Aufrufer: eine einzige, ehrliche Kennung. */
     private static function agents() {
-        return [
-            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
-            'Mozilla/5.0 (iPhone; CPU iPhone OS 17_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Mobile/15E148 Safari/604.1',
-        ];
+        return [self::user_agent()];
+    }
+
+    const BLOCKED_NOTICE = 'Diese Seite erlaubt das Auslesen nicht – nimm einen Screenshot oder kopiere den Text.';
+
+    /** Sperre als Fehler: url_blocked (422) mit read_mode blocked, notice und Grund (http_401|http_403|http_429|bot_check|login|robots). */
+    public static function blocked_error($reason) {
+        return new WP_Error('url_blocked', self::BLOCKED_NOTICE, ['status' => 422, 'read_mode' => 'blocked', 'notice' => self::BLOCKED_NOTICE, 'reason' => (string) $reason]);
+    }
+
+    /** Bot-Sperre bzw. Login-Wand in einer Antwort erkennen → Grund oder ''. */
+    public static function block_reason($code, $body, $headers = []) {
+        $code = intval($code);
+        if (in_array($code, [401, 403, 429], true)) return 'http_' . $code;
+        $h = is_array($headers) || $headers instanceof ArrayAccess ? $headers : [];
+        $mit = strtolower((string) ($h['cf-mitigated'] ?? ''));
+        if ($mit === 'challenge') return 'bot_check';
+        $b = (string) $body;
+        $head = mb_substr($b, 0, 200000);
+        $markers = ['/<title>\s*Just a moment\.\.\./i', '/cf-browser-verification|challenge-platform|cf_chl_opt|__cf_chl_/i', '/<title>[^<]*Attention Required[^<]*Cloudflare/i',
+            '/<title>[^<]*(Access denied|Zugriff verweigert|Forbidden|Request blocked)[^<]*</i', '/(g-recaptcha|h-captcha|cf-turnstile)[^>]*data-sitekey/i',
+            '/<title>[^<]*(captcha|Bot[- ]Check|Are you a robot|DDoS-Guard|Checking your browser)[^<]*</i', '/(Please enable (JavaScript and )?cookies to continue|verify you are (a )?human)/i'];
+        foreach ($markers as $re) {
+            if (preg_match($re, $head)) return self::visible_text_len($head) < 3000 ? 'bot_check' : '';
+        }
+        // Login-Wand: Passwortfeld auf einer Seite mit wenig Inhalt
+        if (preg_match('/<input[^>]+type=["\']password["\']/i', $head) && self::visible_text_len($head) < 1500) return 'login';
+        if ($code === 503 && preg_match('/cloudflare|ddos|captcha/i', $head)) return 'bot_check';
+        return '';
+    }
+
+    /**
+     * robots.txt beachten: Ist der Pfad für allgemeine Bots (User-agent: *) bzw. unsere Kennung gesperrt? (Ergebnis 6 h je Host
+     * zwischengespeichert; nicht erreichbar = erlaubt.)
+     */
+    public static function robots_allows($url) {
+        $p = wp_parse_url((string) $url);
+        if (empty($p['host'])) return true;
+        $origin = ($p['scheme'] ?? 'https') . '://' . $p['host'] . (isset($p['port']) ? ':' . $p['port'] : '');
+        $key = 'tix_robots_' . md5($origin);
+        $txt = get_transient($key);
+        if ($txt === false) {
+            $r = wp_safe_remote_get($origin . '/robots.txt', ['timeout' => 6, 'redirection' => 2, 'user-agent' => self::user_agent(), 'limit_response_size' => 262144]);
+            $txt = (!is_wp_error($r) && intval(wp_remote_retrieve_response_code($r)) === 200) ? (string) wp_remote_retrieve_body($r) : '';
+            set_transient($key, $txt, 6 * HOUR_IN_SECONDS);
+        }
+        if ($txt === '') return true;
+        $path = ($p['path'] ?? '/') . (isset($p['query']) ? '?' . $p['query'] : '');
+        $ua = strtolower(strtok(self::user_agent(), '/'));
+        // Gruppen lesen: unsere Kennung hat Vorrang vor *
+        $groups = []; $cur = []; $agents = []; $in_rules = false;
+        foreach (preg_split('/\r\n|\r|\n/', $txt) as $line) {
+            $line = trim(preg_replace('/#.*$/', '', $line));
+            if ($line === '' || strpos($line, ':') === false) continue;
+            list($k, $v) = array_map('trim', explode(':', $line, 2));
+            $k = strtolower($k);
+            if ($k === 'user-agent') {
+                if ($in_rules) { foreach ($agents as $a) $groups[$a] = array_merge($groups[$a] ?? [], $cur); $agents = []; $cur = []; $in_rules = false; }
+                $agents[] = strtolower($v);
+            } elseif ($k === 'allow' || $k === 'disallow') {
+                $in_rules = true;
+                $cur[] = [$k, $v];
+            }
+        }
+        foreach ($agents as $a) $groups[$a] = array_merge($groups[$a] ?? [], $cur);
+        $rules = $groups[$ua] ?? ($groups['*'] ?? []);
+        $best = ['allow', ''];
+        foreach ($rules as $rl) {
+            list($kind, $pat) = $rl;
+            if ($pat === '') continue; // „Disallow:“ leer = alles erlaubt
+            $re = '#^' . str_replace(['\*', '\$'], ['.*', '$'], preg_quote($pat, '#')) . '#';
+            if (preg_match($re, $path) && strlen($pat) >= strlen($best[1])) {
+                if (strlen($pat) > strlen($best[1]) || $kind === 'allow') $best = [$kind, $pat];
+            }
+        }
+        return $best[0] === 'allow';
     }
 
     /** Nur http(s) und öffentliche Hosts. */
@@ -230,23 +314,19 @@ class TIX_Event_Import {
     public static function fetch($url) {
         $url = self::clean_url($url);
         if ($url === '') return new WP_Error('url_invalid', 'Bitte eine vollständige Adresse eingeben, z. B. https://deine-seite.de/event.');
-        $last = null;
-        foreach (self::agents() as $i => $ua) {
-            $r = wp_safe_remote_get($url, [
-                'timeout' => $i === 0 ? 12 : 8, 'redirection' => 5, 'user-agent' => $ua, 'limit_response_size' => self::MAX_BYTES,
-                'headers' => ['Accept' => 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8', 'Accept-Language' => 'de-DE,de;q=0.9,en;q=0.7'],
-            ]);
-            $last = $r;
-            if (is_wp_error($r)) continue;
-            $code = intval(wp_remote_retrieve_response_code($r));
-            if (in_array($code, [403, 429, 503], true)) continue;
-            if ($code >= 400) break;
-            $body = (string) wp_remote_retrieve_body($r);
-            if ($body === '') continue;
-            return ['body' => $body, 'content_type' => (string) wp_remote_retrieve_header($r, 'content-type'), 'code' => $code, 'final_url' => $url];
-        }
-        $why = is_wp_error($last) ? $last->get_error_message() : ('HTTP ' . intval(wp_remote_retrieve_response_code($last)));
-        return new WP_Error('url_unreadable', self::unreadable_message(), ['status' => 422, 'reason' => $why]);
+        // robots.txt und technische Sperren respektieren (1.38.507): kein Umgehen, kein zweiter Versuch mit anderer Kennung
+        if (!self::robots_allows($url)) return self::blocked_error('robots');
+        $r = wp_safe_remote_get($url, [
+            'timeout' => 12, 'redirection' => 5, 'user-agent' => self::user_agent(), 'limit_response_size' => self::MAX_BYTES,
+            'headers' => ['Accept' => 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8', 'Accept-Language' => 'de-DE,de;q=0.9,en;q=0.7'],
+        ]);
+        if (is_wp_error($r)) return new WP_Error('url_unreadable', self::unreadable_message(), ['status' => 422, 'reason' => $r->get_error_message()]);
+        $code = intval(wp_remote_retrieve_response_code($r));
+        $body = (string) wp_remote_retrieve_body($r);
+        $why = self::block_reason($code, $body, wp_remote_retrieve_headers($r));
+        if ($why !== '') return self::blocked_error($why);
+        if ($code >= 400 || $body === '') return new WP_Error('url_unreadable', self::unreadable_message(), ['status' => 422, 'reason' => 'HTTP ' . $code]);
+        return ['body' => $body, 'content_type' => (string) wp_remote_retrieve_header($r, 'content-type'), 'code' => $code, 'final_url' => $url];
     }
 
     // ── Strukturierte Daten ──
@@ -400,6 +480,7 @@ class TIX_Event_Import {
     }
 
     private static function get_json_or_html($url) {
+        if (!self::robots_allows($url)) return ''; // auch Folgeabrufe (Ticket-Widgets) respektieren robots.txt (1.38.507)
         $r = wp_safe_remote_get($url, ['timeout' => 10, 'redirection' => 3, 'user-agent' => self::agents()[0], 'limit_response_size' => self::MAX_BYTES,
             'headers' => ['Accept' => 'text/html,application/json;q=0.9,*/*;q=0.8', 'Accept-Language' => 'de-DE,de;q=0.9,en;q=0.7']]);
         if (is_wp_error($r) || intval(wp_remote_retrieve_response_code($r)) !== 200) return '';
