@@ -52,11 +52,11 @@ class TIX_Website {
     ];
 
     /** Vorgaben je Vorlage: diese Abschnitte sind an (Reihenfolge = Startseite), alle übrigen aus. */
-    // Abstimmung mit dem Homepages-Chat (1.38.516)
+    // Abstimmung mit dem Homepages-Chat (1.38.516, erweitert 1.38.523 – Schritt 6); available folgt weiter den App-Schaltern
     const DEFAULTS = [
-        'club'     => ['stage', 'highlights', 'next', 'presale', 'service', 'about', 'gallery', 'u16', 'faq', 'newsletter', 'app_banner'],
-        'festival' => ['stage', 'ticker', 'lineup', 'tickets', 'about', 'arrival', 'more_dates', 'gallery', 'faq', 'newsletter', 'app_banner'],
-        'klar'     => ['stage', 'next', 'about', 'arrival', 'service', 'faq', 'contact', 'newsletter', 'app_banner'],
+        'club'     => ['stage', 'live_now', 'highlights', 'next', 'presale', 'service', 'tips', 'raffles', 'about', 'gallery', 'music', 'loyalty', 'giftcards', 'wallet', 'u16', 'awareness', 'faq', 'newsletter', 'app_banner'],
+        'festival' => ['stage', 'ticker', 'lineup', 'tickets', 'raffles', 'about', 'arrival', 'more_dates', 'tips', 'gallery', 'wallet', 'awareness', 'faq', 'newsletter', 'app_banner'],
+        'klar'     => ['stage', 'next', 'tips', 'raffles', 'about', 'arrival', 'service', 'faq', 'contact', 'newsletter', 'app_banner'],
     ];
 
     const MAX = ['highlights' => 24, 'next' => 12, 'lineup' => 48, 'faq' => 20, 'raffles' => 12, 'tips' => 12, 'more_dates' => 12];
