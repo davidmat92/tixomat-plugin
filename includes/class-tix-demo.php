@@ -23,21 +23,42 @@ class TIX_Demo {
         add_action(self::CRON, [__CLASS__, 'cron']);
         add_action('init', function () {
             if (!TIX_Sales::multi()) return;
-            if (!wp_next_scheduled(TIX_Demo::CRON)) wp_schedule_event(TIX_Demo::next_reset_ts(), 'daily', TIX_Demo::CRON);
+            $next = wp_next_scheduled(TIX_Demo::CRON);
+            if (!$next) wp_schedule_event(TIX_Demo::next_reset_ts(), 'daily', TIX_Demo::CRON);
+            // geplanter Termin (noch in der Zukunft) weicht von 04:00 Ortszeit ab, z. B. nach der Zeitumstellung → neu legen
+            elseif ($next > time() && abs($next - TIX_Demo::next_reset_ts()) >= 60) TIX_Demo::reschedule();
         }, 30);
         if (defined('WP_CLI') && WP_CLI && class_exists('WP_CLI')) WP_CLI::add_command('tixomat demo', [__CLASS__, 'cli']);
     }
 
     /** Nächster Reset (04:00 Ortszeit) als Unix-Zeit. */
-    public static function next_reset_ts() {
-        $tz = wp_timezone();
-        $d = new DateTime('today 04:00', $tz);
-        if ($d->getTimestamp() <= time()) $d->modify('+1 day');
+    public static function next_reset_ts($now = null) {
+        $now = $now === null ? time() : intval($now);
+        // Ortszeit des Zeitpunkts $now, 04:00 desselben Tages; vorbei → nächster Tag (auch über die Zeitumstellung)
+        $d = (new DateTime('@' . $now))->setTimezone(wp_timezone());
+        $d->setTime(4, 0, 0);
+        if ($d->getTimestamp() <= $now) {
+            $d->modify('+1 day');
+            $d->setTime(4, 0, 0);
+        }
         return $d->getTimestamp();
     }
 
     public static function cron() {
-        if (TIX_Sales::multi()) self::reset();
+        if (!TIX_Sales::multi()) return;
+        self::reset();
+        // „daily“ läuft alle 24 h und verschiebt sich bei der Zeitumstellung um eine Stunde → neu auf 04:00 Ortszeit legen (1.38.511)
+        self::reschedule();
+    }
+
+    /** Täglichen Reset auf den nächsten 04:00-Termin (Ortszeit) legen, wenn er davon abweicht. */
+    public static function reschedule() {
+        $next = wp_next_scheduled(self::CRON);
+        $want = self::next_reset_ts();
+        if ($next && abs($next - $want) < 60) return false;
+        wp_clear_scheduled_hook(self::CRON);
+        wp_schedule_event($want, 'daily', self::CRON);
+        return true;
     }
 
     /**
@@ -305,8 +326,19 @@ class TIX_Demo {
             'demo_ticket_event_id' => intval(get_option(self::OPT_TICKET_EVENT, 0)) ?: null, 'reset_at' => wp_date('c', self::next_reset_ts())]);
     }
 
+    /** Limit je IP (leerer Schlüssel = Client-IP; bis 1.38.510 stand hier fest 'ip' – ein gemeinsamer Zähler für alle). */
     private static function limited($bucket, $max, $window) {
-        return class_exists('TIX_App_Account') && TIX_App_Account::rate_limited($bucket, $max, $window, 'ip');
+        return class_exists('TIX_App_Account') && TIX_App_Account::rate_limited($bucket, $max, $window, '');
+    }
+
+    /** Limit je Nutzer (angemeldete Vertriebler/Admins, z. B. Studio serverseitig über eine IP). */
+    private static function limited_user($bucket, $max, $window) {
+        return class_exists('TIX_App_Account') && TIX_App_Account::rate_limited($bucket, $max, $window, 'u' . get_current_user_id());
+    }
+
+    /** Angemeldet als Vertrieb oder Admin? */
+    private static function staff_caller() {
+        return is_user_logged_in() && (current_user_can('manage_options') || (class_exists('TIX_Sales') && TIX_Sales::is_sales_user()));
     }
 
     /** Ticket-Antwort (Vertrag C). */
@@ -341,7 +373,9 @@ class TIX_Demo {
         $email = sanitize_email((string) $req->get_param('email'));
         if ($email !== '' && !is_email($email)) return new WP_Error('tix_invalid_field', 'Bitte eine gültige E-Mail angeben.', ['status' => 400, 'field' => 'email']);
         $name = mb_substr(trim(sanitize_text_field((string) $req->get_param('name'))), 0, 60) ?: 'Demo-Gast';
-        if (self::limited('demo_ticket', 5, 600) || self::limited('demo_ticket_day', 300, DAY_IN_SECONDS)) return new WP_Error('tix_rate_limit', 'Zu viele Demo-Tickets – bitte kurz warten.', ['status' => 429]);
+        // Vertriebler/Admin (Token): 30 je Nutzer/10 min statt 5 je IP; Tageslimit 300 je IP bleibt (1.38.511)
+        $short = self::staff_caller() ? self::limited_user('demo_ticket_u', 30, 600) : self::limited('demo_ticket', 5, 600);
+        if ($short || self::limited('demo_ticket_day', 300, DAY_IN_SECONDS)) return new WP_Error('tix_rate_limit', 'Zu viele Demo-Tickets – bitte kurz warten.', ['status' => 429]);
         $parts = preg_split('/\s+/', $name, 2);
         $order_id = TIX_Native_Checkout::create_order(['billing_first_name' => $parts[0], 'billing_last_name' => $parts[1] ?? '', 'billing_email' => $email !== '' ? $email : 'gast-' . strtolower(wp_generate_password(8, false, false)) . '@demo.invalid',
             'payment_method' => 'demo', 'total' => 0, 'items' => [['event_id' => $eid, 'cat_index' => $ci, 'name' => (string) ($cats[$ci]['name'] ?? self::DEMO_CAT), 'event_title' => get_the_title($eid), 'price' => 0, 'qty' => 1, 'meta' => []]]]);

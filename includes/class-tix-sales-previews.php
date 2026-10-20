@@ -145,6 +145,11 @@ class TIX_Sales_Previews {
         return trailingslashit(esc_url_raw($base)) . rawurlencode((string) $token) . '/';
     }
 
+    /** Link für den Vertriebler selbst (Mails/Glocke): ?intern=1, damit die Frontends den Aufruf nicht als „angesehen“ zählen (1.38.511). */
+    public static function internal_link($kind, $token) {
+        return add_query_arg('intern', '1', self::link($kind, $token));
+    }
+
     public static function claim_link($claim) {
         return self::studio_base() . '/registrieren/?claim=' . rawurlencode((string) $claim);
     }
@@ -905,7 +910,8 @@ class TIX_Sales_Previews {
                 'title' => $title,
                 'blocks' => [
                     ['type' => 'text', 'html' => 'Hallo ' . esc_html($owner->display_name) . ',<br>' . esc_html($body)],
-                    ['type' => 'button', 'label' => 'Vorschau ansehen', 'url' => self::link('public', $d['token'])],
+                    ['type' => 'button', 'label' => 'Vorschau ansehen', 'url' => self::internal_link('public', $d['token'])],
+                    ['type' => 'text', 'html' => 'Homepage-Vorschau: <a href="' . esc_url(self::internal_link('homepage', $d['token'])) . '">ansehen</a> · App-Vorschau: <a href="' . esc_url(self::internal_link('app', $d['token'])) . '">ansehen</a>'],
                 ],
                 'kind' => 'admin',
             ], ['customer' => false]);
