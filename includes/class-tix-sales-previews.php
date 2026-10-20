@@ -137,12 +137,15 @@ class TIX_Sales_Previews {
         return $b !== '' ? $b : 'https://studio.evendis.de';
     }
 
-    /** public (Web), homepage (Homepage-Vorschau), app (App-Vorschau im Studio) – Token im Pfad. */
+    /**
+     * hub (Übersichtsseite für den Kunden, 1.38.512), homepage (Homepage-Vorschau = hub + homepage/), public (Web), app
+     * (App-Vorschau im Studio) – Token im Pfad.
+     */
     public static function link($kind, $token) {
-        if ($kind === 'homepage') $base = (string) get_option('tix_preview_home_base', '') ?: 'https://vorschau.evendis.de/';
+        if ($kind === 'hub' || $kind === 'homepage') $base = (string) get_option('tix_preview_home_base', '') ?: 'https://vorschau.evendis.de/';
         elseif ($kind === 'app') $base = (string) get_option('tix_preview_app_base', '') ?: self::studio_base() . '/app-vorschau/';
         else $base = (string) get_option('tix_preview_base', '') ?: 'https://evendis.de/vorschau/';
-        return trailingslashit(esc_url_raw($base)) . rawurlencode((string) $token) . '/';
+        return trailingslashit(esc_url_raw($base)) . rawurlencode((string) $token) . '/' . ($kind === 'homepage' ? 'homepage/' : '');
     }
 
     /** Link für den Vertriebler selbst (Mails/Glocke): ?intern=1, damit die Frontends den Aufruf nicht als „angesehen“ zählen (1.38.511). */
@@ -535,6 +538,7 @@ class TIX_Sales_Previews {
             'events_count'   => count($events),
             'events'         => $events,
             'links'          => [
+                'hub'      => self::link('hub', $d['token']),
                 'public'   => $public,
                 'homepage' => self::link('homepage', $d['token']),
                 'app'      => self::link('app', $d['token']),
@@ -581,6 +585,7 @@ class TIX_Sales_Previews {
         register_rest_route(self::NS, '/public/previews/(?P<token>p_[A-Za-z0-9]+)', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_public']] + $pub);
         register_rest_route(self::NS, '/public/previews/(?P<token>p_[A-Za-z0-9]+)/events/(?P<key>[A-Za-z0-9_-]+)', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_public_event']] + $pub);
         register_rest_route(self::NS, '/public/previews/(?P<token>p_[A-Za-z0-9]+)/seen', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_seen']] + $pub);
+        register_rest_route(self::NS, '/public/previews/(?P<token>p_[A-Za-z0-9]+)/test-ticket', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_test_ticket']] + $pub);
     }
 
     private static function err_unknown() {
@@ -813,8 +818,9 @@ class TIX_Sales_Previews {
             'title' => 'Deine Events bei ' . $brand,
             'blocks' => [
                 ['type' => 'text', 'html' => 'Hallo,<br>' . ($owner ? esc_html($owner->display_name) . ' hat' : 'wir haben') . ' für <strong>' . esc_html($name) . '</strong> eine Vorschau mit ' . count(self::event_ids($oid)) . ' Events vorbereitet. Schau sie dir an und übernimm sie mit einem Klick in dein eigenes Konto.'],
-                ['type' => 'button', 'label' => 'Jetzt übernehmen', 'url' => $url],
-                ['type' => 'text', 'html' => 'Vorschau ansehen: <a href="' . esc_url(self::link('public', $d['token'])) . '">' . esc_html(self::link('public', $d['token'])) . '</a><br>Die Vorschau ist bis ' . esc_html(wp_date('d.m.Y', intval($d['expires_at']))) . ' verfügbar. Nach der Übernahme liegen die Events als Entwürfe in deinem Studio.'],
+                // Ein Link für den Kunden: die Übersichtsseite (hub) mit Website, Homepage, App, Test-Ticket und Übernehmen (1.38.512)
+                ['type' => 'button', 'label' => 'Vorschau ansehen', 'url' => self::link('hub', $d['token'])],
+                ['type' => 'text', 'html' => 'Die Vorschau ist bis ' . esc_html(wp_date('d.m.Y', intval($d['expires_at']))) . ' verfügbar. Nach der Übernahme liegen die Events als Entwürfe in deinem Studio.'],
             ],
             'kind' => 'account',
         ]);
@@ -910,8 +916,7 @@ class TIX_Sales_Previews {
                 'title' => $title,
                 'blocks' => [
                     ['type' => 'text', 'html' => 'Hallo ' . esc_html($owner->display_name) . ',<br>' . esc_html($body)],
-                    ['type' => 'button', 'label' => 'Vorschau ansehen', 'url' => self::internal_link('public', $d['token'])],
-                    ['type' => 'text', 'html' => 'Homepage-Vorschau: <a href="' . esc_url(self::internal_link('homepage', $d['token'])) . '">ansehen</a> · App-Vorschau: <a href="' . esc_url(self::internal_link('app', $d['token'])) . '">ansehen</a>'],
+                    ['type' => 'button', 'label' => 'Vorschau ansehen', 'url' => self::internal_link('hub', $d['token'])],
                 ],
                 'kind' => 'admin',
             ], ['customer' => false]);
@@ -1036,6 +1041,77 @@ class TIX_Sales_Previews {
             'events_count' => count(self::event_ids($oid)), 'customer_email' => (string) ($d['customer_email'] ?? '') ?: null, 'expires_at' => self::iso($d['expires_at'])]);
     }
 
+    // ═══════════════ Test-Ticket (1.38.512) ═══════════════
+
+    /** POST /public/previews/{token}/test-ticket {name?, event_id?} → 201 wie /public/demo-ticket, für das nächste Event der Vorschau */
+    public static function rest_test_ticket(WP_REST_Request $req) {
+        $l = self::public_load((string) $req['token']);
+        if (is_wp_error($l)) return $l;
+        list($oid, $d) = $l;
+        $events = self::event_ids($oid);
+        $eid = absint($req->get_param('event_id'));
+        if ($eid && !in_array($eid, $events, true)) return new WP_Error('tix_preview_event', 'Dieses Event gehört nicht zur Vorschau.', ['status' => 404]);
+        if (!$eid) {
+            // nächstes Event (läuft noch bzw. kommt noch), sonst das erste
+            $today = current_time('Y-m-d');
+            foreach ($events as $e) {
+                $end = (string) (get_post_meta($e, '_tix_date_end', true) ?: get_post_meta($e, '_tix_date_start', true));
+                if ($end === '' || $end >= $today) { $eid = $e; break; }
+            }
+            if (!$eid && $events) $eid = $events[0];
+        }
+        if (!$eid) return new WP_Error('tix_preview_event', 'Die Vorschau hat noch kein Event.', ['status' => 404]);
+        $name = mb_substr(trim(sanitize_text_field((string) $req->get_param('name'))), 0, 60) ?: 'Test-Gast';
+        if ($e = TIX_Demo::ticket_limit_error('preview_ticket')) return $e;
+        $parts = preg_split('/\s+/', $name, 2);
+        // Zahlart demo, Adresse *.invalid (keine Mail), kostenlos, ohne Kategorie (Bestand des Events bleibt unberührt)
+        $order_id = TIX_Native_Checkout::create_order(['billing_first_name' => $parts[0], 'billing_last_name' => $parts[1] ?? '',
+            'billing_email' => 'test-' . strtolower(wp_generate_password(8, false, false)) . '@demo.invalid', 'payment_method' => 'demo', 'total' => 0,
+            'items' => [['event_id' => $eid, 'cat_index' => -1, 'name' => 'Test-Ticket', 'event_title' => get_the_title($eid), 'price' => 0, 'qty' => 1, 'meta' => ['preview_test' => 1]]]]);
+        if (!$order_id || is_wp_error($order_id)) return new WP_Error('tix_demo_failed', 'Das Test-Ticket konnte nicht erstellt werden.', ['status' => 500]);
+        TIX_Native_Checkout::update_order_status($order_id, 'completed', 'demo');
+        global $wpdb;
+        $key = (string) $wpdb->get_var($wpdb->prepare("SELECT order_key FROM {$wpdb->prefix}tix_orders WHERE id = %d", $order_id));
+        $t = class_exists('TIX_Tickets') ? TIX_Tickets::get_all_tickets_for_order($order_id) : [];
+        if (!$t) return new WP_Error('tix_demo_failed', 'Das Test-Ticket konnte nicht erstellt werden.', ['status' => 500]);
+        update_post_meta($t[0]['id'], '_tix_ticket_owner_name', $name);
+        update_post_meta($t[0]['id'], '_tix_ticket_cat_name', 'Test-Ticket');
+        update_post_meta($t[0]['id'], '_tix_ticket_cat_index', -1); // keine Kategorie des Events (Einlass zeigt sonst die erste)
+        $p = TIX_Demo::ticket_payload(intval($t[0]['id']), $key);
+        $view = $p['_view_url']; unset($p['_view_url']);
+        return self::nostore(['ok' => true, 'demo' => true, 'preview' => true, 'ticket' => $p, 'view_url' => $view, 'expires_at' => self::iso($d['expires_at'])], 201);
+    }
+
+    /** Vorschau-Event (noch nicht übernommen) → Ablauf der Vorschau (ISO) | null; für GET /public/demo-ticket/{code}. */
+    public static function test_ticket_expiry($event_id) {
+        $event_id = intval($event_id);
+        if (!$event_id || !get_post_meta($event_id, self::META_ITEM, true)) return null;
+        $d = self::data(intval(get_post_meta($event_id, '_tix_organizer_id', true)));
+        return $d && empty($d['claimed_at']) ? self::iso($d['expires_at']) : null;
+    }
+
+    /** Einlass: Inhaber der Vorschau (Vertriebler) bzw. Admin darf Test-Tickets ihrer Events scannen. */
+    public static function can_checkin($event_id) {
+        $event_id = intval($event_id);
+        if (!$event_id || !is_user_logged_in() || !get_post_meta($event_id, self::META_ITEM, true)) return false;
+        $d = self::data(intval(get_post_meta($event_id, '_tix_organizer_id', true)));
+        if (!$d || self::status($d) !== 'active') return false;
+        return current_user_can('manage_options') || intval($d['owner']) === get_current_user_id();
+    }
+
+    /** Test-Tickets und ihre Bestellungen (Zahlart demo) an diesen Events endgültig löschen → Anzahl Tickets */
+    private static function delete_test_tickets(array $events) {
+        global $wpdb;
+        $events = array_filter(array_map('intval', $events));
+        if (!$events || !class_exists('TIX_Demo')) return 0;
+        $orders = array_filter(TIX_Demo::event_order_ids($events), function ($o) use ($wpdb) {
+            return (string) $wpdb->get_var($wpdb->prepare("SELECT payment_method FROM {$wpdb->prefix}tix_orders WHERE id = %d", $o)) === 'demo';
+        });
+        $n = TIX_Demo::delete_event_tickets($events);
+        TIX_Demo::delete_orders($orders);
+        return $n;
+    }
+
     // ═══════════════ Übernehmen ═══════════════
 
     /** Übernahme-Code → Veranstalter-ID | WP_Error (404 unbekannt, 410 abgelaufen, 409 übernommen) */
@@ -1059,6 +1135,8 @@ class TIX_Sales_Previews {
         $oid = intval($oid); $uid = intval($uid);
         $d = self::data($oid);
         if (!$d) return 0;
+        // Test-Tickets zuerst löschen (solange noch Sandbox – nichts davon zählt je in Statistik, Abrechnung oder Spiegel)
+        self::delete_test_tickets(self::event_ids($oid));
         $d['claimed_at'] = time();
         $d['claimed_by'] = $uid;
         self::save($oid, $d);
@@ -1091,6 +1169,7 @@ class TIX_Sales_Previews {
 
     private static function delete_event($eid) {
         if (!get_post_meta($eid, self::META_ITEM, true)) return; // nie echte Events
+        self::delete_test_tickets([$eid]);
         foreach (self::attachments(0, [$eid]) as $aid) wp_delete_attachment($aid, true);
         wp_delete_post($eid, true);
     }

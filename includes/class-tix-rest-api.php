@@ -1216,7 +1216,8 @@ class TIX_REST_API {
         if (!$ticket_event_id && class_exists('TIX_App_Scope') && TIX_App_Scope::multi() && TIX_App_Scope::scoped()) {
             return new WP_Error('forbidden', 'Kein Zugriff auf dieses Ticket.', ['status' => 403]);
         }
-        if ($ticket_event_id && !self::can_access_event($ticket_event_id)) {
+        // Test-Tickets einer Vorschau (1.38.512): auch der Vertriebler, dem die Vorschau gehört
+        if ($ticket_event_id && !self::can_access_event($ticket_event_id) && !(class_exists('TIX_Sales_Previews') && TIX_Sales_Previews::can_checkin($ticket_event_id))) {
             return new WP_Error('forbidden', 'Kein Zugriff auf dieses Event.', ['status' => 403]);
         }
 

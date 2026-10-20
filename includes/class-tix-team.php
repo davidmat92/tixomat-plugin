@@ -88,7 +88,7 @@ class TIX_Team {
     /** Nur echte WordPress-Admins duerfen das Team verwalten (Mehr-Veranstalter-Modus: auch der Veranstalter fuer sein Team). */
     public static function check_admin(WP_REST_Request $req) {
         // Vertrieb (1.38.508): keine Team-Verwaltung im Demo Club
-        if (class_exists('TIX_Sales') && TIX_Sales::is_sales_user()) return new WP_Error('rest_forbidden', 'Das Team des Demo Club verwaltet die Plattform.', ['status' => 403]);
+        if (class_exists('TIX_Sales') && TIX_Sales::is_sales_user()) return new WP_Error('rest_forbidden', 'Das Team des Beispiel-Clubs verwaltet die Plattform.', ['status' => 403]);
         if (is_user_logged_in() && !current_user_can('manage_options') && class_exists('TIX_App_Scope') && TIX_App_Scope::multi()) {
             if (TIX_App_Scope::is_org_manager()) return true;
             $r = TIX_App_Scope::require_organizer();

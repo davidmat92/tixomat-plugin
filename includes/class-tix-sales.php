@@ -234,7 +234,7 @@ class TIX_Sales {
         return (bool) TIX_Mail_Layout::send($u->user_email, TIX_Mail_Layout::brand()['name'] . ' – Dein Vertriebs-Zugang', [
             'title' => 'Dein Vertriebs-Zugang',
             'blocks' => [
-                ['type' => 'text', 'html' => 'Hallo ' . esc_html($u->display_name) . ',<br>du hast jetzt einen Vertriebs-Zugang. Damit zeigst du Kunden live den Demo Club und erstellst Vorschauen mit ihren eigenen Events.'],
+                ['type' => 'text', 'html' => 'Hallo ' . esc_html($u->display_name) . ',<br>du hast jetzt einen Vertriebs-Zugang. Damit zeigst du Kunden live den Beispiel-Club und erstellst Vorschauen mit ihren eigenen Events.'],
                 ['type' => 'button', 'label' => $created ? 'Passwort festlegen' : 'Passwort neu setzen', 'url' => $url],
             ] + ($studio !== '' ? [2 => ['type' => 'text', 'html' => 'Danach meldest du dich im Studio an: <a href="' . esc_url($studio) . '">' . esc_html($studio) . '</a>']] : []),
             'kind' => 'account',
@@ -263,9 +263,18 @@ class TIX_Sales {
         $data = $result->get_data();
         if (!is_array($data)) return $result;
         $eid = intval($request->get_param('event_id') ?: ($request['event_id'] ?? 0));
+        // Scan ohne event_id (1.38.512): Event aus dem Code (GL-<event>-…) bzw. dem Ticket
+        $code = strtoupper((string) $request->get_param('code'));
+        if (!$eid && preg_match('/^GL-(\d+)-/', $code, $m)) $eid = intval($m[1]);
+        if (!$eid && $code !== '' && class_exists('TIX_Tickets') && ($t = TIX_Tickets::get_ticket_by_code($code))) $eid = intval(get_post_meta($t->ID, '_tix_ticket_event_id', true));
         $oid = $eid ? intval(get_post_meta($eid, '_tix_organizer_id', true)) : (class_exists('TIX_App_Scope') ? intval(TIX_App_Scope::organizer_id_for_user()) : 0);
         if ($oid && self::is_demo_organizer($oid)) {
             $data['demo'] = true;
+            $result->set_data($data);
+        } elseif ($oid && $eid && self::sandbox($oid) && get_post_meta($eid, '_tix_preview', true)) {
+            // Test-Ticket einer Vorschau
+            $data['demo'] = true;
+            $data['preview'] = true;
             $result->set_data($data);
         }
         return $result;

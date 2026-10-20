@@ -16,7 +16,10 @@ class TIX_Demo {
     const NS = 'tixomat/v1';
     const CRON = 'tix_demo_reset';
     const OPT_TICKET_EVENT = 'tix_demo_ticket_event';
-    const DEMO_CAT = 'Demo-Ticket';
+    const DEMO_CAT = 'Beispiel-Ticket';
+    // Sichtbare Namen „Beispiel“ (1.38.512); Schlüssel/Kennzeichen (demo, _tix_org_demo, /public/demo…, Slug demo-club) bleiben
+    const ORG_NAME = 'Beispiel-Club';
+    const ORG_TEXT = 'Der Beispiel-Club zeigt, wie Veranstalter mit evendis arbeiten: Tickets, Einlass, Gästeliste, Statistik und Abrechnung.';
 
     public static function init() {
         add_action('rest_api_init', [__CLASS__, 'routes']);
@@ -67,7 +70,7 @@ class TIX_Demo {
     public static function cli($args, $assoc) {
         if (($args[0] ?? '') !== 'reset') { WP_CLI::error('Aufruf: wp tixomat demo reset [--orders=<n>]'); return; }
         $r = self::reset(['orders' => intval($assoc['orders'] ?? 120)]);
-        WP_CLI::success('Demo Club zurückgesetzt: ' . wp_json_encode($r));
+        WP_CLI::success('Beispiel-Club zurückgesetzt: ' . wp_json_encode($r));
     }
 
     // ═══════════════ Veranstalter ═══════════════
@@ -75,11 +78,15 @@ class TIX_Demo {
     public static function ensure_organizer() {
         $oid = TIX_Sales::demo_id();
         if ($oid && get_post_type($oid) === 'tix_organizer') {
-            if (get_post_status($oid) !== 'publish') wp_update_post(['ID' => $oid, 'post_status' => 'publish']);
+            $upd = [];
+            if (get_post_status($oid) !== 'publish') $upd['post_status'] = 'publish';
+            // alter Name aus 1.38.508–511 → beim nächsten Reset umbenennen
+            if (get_post_field('post_title', $oid) === 'Demo Club') { $upd['post_title'] = self::ORG_NAME; $upd['post_content'] = self::ORG_TEXT; }
+            if ($upd) wp_update_post(['ID' => $oid] + $upd);
             return $oid;
         }
-        $oid = wp_insert_post(['post_type' => 'tix_organizer', 'post_status' => 'publish', 'post_title' => 'Demo Club', 'post_name' => 'demo-club',
-            'post_content' => 'Der Demo Club zeigt, wie Veranstalter mit evendis arbeiten: Tickets, Einlass, Gästeliste, Statistik und Abrechnung.']);
+        $oid = wp_insert_post(['post_type' => 'tix_organizer', 'post_status' => 'publish', 'post_title' => self::ORG_NAME, 'post_name' => 'demo-club',
+            'post_content' => self::ORG_TEXT]);
         if (!$oid || is_wp_error($oid)) return 0;
         update_option(TIX_Sales::OPT_DEMO, intval($oid), false);
         foreach ([TIX_Sales::META_DEMO => 1, '_tix_org_approval' => 'approved', '_tix_org_landing_slug' => 'demo-club', '_tix_org_city' => 'Köln',
@@ -100,26 +107,13 @@ class TIX_Demo {
         $n = ['events' => 0, 'orders' => 0, 'tickets' => 0, 'support' => 0, 'giftcards' => 0, 'settlements' => 0];
         $events = get_posts(['post_type' => 'event', 'post_status' => array_values(get_post_stati()), 'posts_per_page' => -1, 'fields' => 'ids', 'tix_include_system' => 1, 'tix_include_sandbox' => 1,
             'meta_query' => [['key' => '_tix_organizer_id', 'value' => (string) $oid]]]);
-        $order_ids = [];
-        if ($events) {
-            $in = implode(',', array_map('intval', $events));
-            $order_ids = array_map('intval', (array) $wpdb->get_col("SELECT DISTINCT order_id FROM {$wpdb->prefix}tix_order_items WHERE event_id IN ($in)"));
-            foreach (get_posts(['post_type' => 'tix_ticket', 'post_status' => array_values(get_post_stati()), 'posts_per_page' => -1, 'fields' => 'ids', 'meta_query' => [['key' => '_tix_ticket_event_id', 'value' => array_map('strval', $events), 'compare' => 'IN']]]) as $tid) {
-                wp_delete_post($tid, true);
-                $n['tickets']++;
-            }
-            if (class_exists('TIX_Ticket_DB') && TIX_Ticket_DB::table_exists()) $wpdb->query("DELETE FROM {$wpdb->prefix}" . TIX_Ticket_DB::TABLE_SUFFIX . " WHERE event_id IN ($in)");
-        }
-        $order_ids = array_values(array_unique(array_merge($order_ids, array_map('intval', (array) $wpdb->get_col("SELECT id FROM {$wpdb->prefix}tix_orders WHERE payment_method = 'demo'")))));
-        if ($order_ids) {
-            $oin = implode(',', $order_ids);
-            $wpdb->query("DELETE FROM {$wpdb->prefix}tix_order_items WHERE order_id IN ($oin)");
-            $wpdb->query("DELETE FROM {$wpdb->prefix}tix_orders WHERE id IN ($oin)");
-            // Bestell-Metadaten (liegen in postmeta unter der Bestell-ID) nur löschen, wo es keinen Beitrag mit dieser ID gibt
-            $wpdb->query("DELETE pm FROM {$wpdb->postmeta} pm LEFT JOIN {$wpdb->posts} p ON p.ID = pm.post_id WHERE pm.post_id IN ($oin) AND p.ID IS NULL");
-            foreach ($order_ids as $o) { delete_option('_tix_order_coupon_' . $o); delete_option('_tix_coupon_incremented_' . $o); delete_option('_tix_order_source_' . $o); }
-            $n['orders'] = count($order_ids);
-        }
+        $order_ids = $events ? self::event_order_ids($events) : [];
+        $n['tickets'] = $events ? self::delete_event_tickets($events) : 0;
+        // Zahlart demo ohne Event (z. B. abgebrochen) – aber nie Test-Tickets der Vorschauen (Events außerhalb des Demo Clubs, 1.38.512)
+        $foreign = $events ? ' AND NOT EXISTS (SELECT 1 FROM ' . $wpdb->prefix . 'tix_order_items i JOIN ' . $wpdb->posts . ' p ON p.ID = i.event_id WHERE i.order_id = o.id AND i.event_id NOT IN (' . implode(',', array_map('intval', $events)) . '))'
+            : ' AND NOT EXISTS (SELECT 1 FROM ' . $wpdb->prefix . 'tix_order_items i JOIN ' . $wpdb->posts . ' p ON p.ID = i.event_id WHERE i.order_id = o.id)';
+        $order_ids = array_values(array_unique(array_merge($order_ids, array_map('intval', (array) $wpdb->get_col("SELECT o.id FROM {$wpdb->prefix}tix_orders o WHERE o.payment_method = 'demo'" . $foreign)))));
+        $n['orders'] = self::delete_orders($order_ids);
         foreach ($events as $eid) { wp_delete_post($eid, true); $n['events']++; }
         foreach (get_posts(['post_type' => 'tix_support_ticket', 'post_status' => array_values(get_post_stati()), 'posts_per_page' => -1, 'fields' => 'ids',
             'meta_query' => ['relation' => 'OR', ['key' => '_tix_sp_organizer_id', 'value' => (string) $oid], ['key' => '_tix_demo', 'compare' => 'EXISTS']]]) as $sid) {
@@ -144,11 +138,47 @@ class TIX_Demo {
         return $n;
     }
 
+    /** Bestellungen mit Positionen an diesen Events. */
+    public static function event_order_ids(array $events) {
+        global $wpdb;
+        $events = array_filter(array_map('intval', $events));
+        if (!$events) return [];
+        return array_map('intval', (array) $wpdb->get_col("SELECT DISTINCT order_id FROM {$wpdb->prefix}tix_order_items WHERE event_id IN (" . implode(',', $events) . ")"));
+    }
+
+    /** Tickets (Beiträge + Ticket-Tabelle) dieser Events endgültig löschen → Anzahl */
+    public static function delete_event_tickets(array $events) {
+        global $wpdb;
+        $events = array_filter(array_map('intval', $events));
+        if (!$events) return 0;
+        $n = 0;
+        foreach (get_posts(['post_type' => 'tix_ticket', 'post_status' => array_values(get_post_stati()), 'posts_per_page' => -1, 'fields' => 'ids', 'meta_query' => [['key' => '_tix_ticket_event_id', 'value' => array_map('strval', $events), 'compare' => 'IN']]]) as $tid) {
+            wp_delete_post($tid, true);
+            $n++;
+        }
+        if (class_exists('TIX_Ticket_DB') && TIX_Ticket_DB::table_exists()) $wpdb->query("DELETE FROM {$wpdb->prefix}" . TIX_Ticket_DB::TABLE_SUFFIX . " WHERE event_id IN (" . implode(',', $events) . ")");
+        return $n;
+    }
+
+    /** Bestellungen samt Positionen und Bestell-Metadaten endgültig löschen → Anzahl */
+    public static function delete_orders(array $order_ids) {
+        global $wpdb;
+        $order_ids = array_values(array_unique(array_filter(array_map('intval', $order_ids))));
+        if (!$order_ids) return 0;
+        $oin = implode(',', $order_ids);
+        $wpdb->query("DELETE FROM {$wpdb->prefix}tix_order_items WHERE order_id IN ($oin)");
+        $wpdb->query("DELETE FROM {$wpdb->prefix}tix_orders WHERE id IN ($oin)");
+        // Bestell-Metadaten (liegen in postmeta unter der Bestell-ID) nur löschen, wo es keinen Beitrag mit dieser ID gibt
+        $wpdb->query("DELETE pm FROM {$wpdb->postmeta} pm LEFT JOIN {$wpdb->posts} p ON p.ID = pm.post_id WHERE pm.post_id IN ($oin) AND p.ID IS NULL");
+        foreach ($order_ids as $o) { delete_option('_tix_order_coupon_' . $o); delete_option('_tix_coupon_incremented_' . $o); delete_option('_tix_order_source_' . $o); delete_option('_tix_order_fees_' . $o); }
+        return count($order_ids);
+    }
+
     /** Demo Club zurücksetzen. $opt: orders (Anzahl Beispiel-Bestellungen, Vorgabe 120). → {organizer_id, wiped, seeded} */
     public static function reset(array $opt = []) {
         if (!TIX_Sales::multi()) return ['error' => 'Nur im Mehr-Veranstalter-Modus.'];
         $oid = self::ensure_organizer();
-        if (!$oid) return ['error' => 'Demo Club konnte nicht angelegt werden.'];
+        if (!$oid) return ['error' => 'Beispiel-Club konnte nicht angelegt werden.'];
         // Während des Resets keine Mails (auch nicht an das Team), keine Verteilung
         add_filter('pre_wp_mail', '__return_true', 1);
         $wiped = self::wipe($oid);
@@ -173,8 +203,8 @@ class TIX_Demo {
         if (is_wp_error($eid) || !$eid) return 0;
         $meta = array_merge([
             '_tix_organizer_id' => $oid, '_tix_date_start' => self::day($offset), '_tix_time_start' => $time, '_tix_time_doors' => sprintf('%02d:00', max(0, intval($time) - 1)),
-            '_tix_location' => 'Demo Club, Musterstraße 1, 50667 Köln', '_tix_tickets_enabled' => '1', '_tix_ticket_categories' => $cats,
-            '_tix_info_description' => '<p>Beispiel-Event im Demo Club. Alle Daten sind erfunden und werden jede Nacht zurückgesetzt.</p>',
+            '_tix_location' => 'Beispiel-Club, Musterstraße 1, 50667 Köln', '_tix_tickets_enabled' => '1', '_tix_ticket_categories' => $cats,
+            '_tix_info_description' => '<p>Beispiel-Event im Beispiel-Club. Alle Daten sind erfunden und werden jede Nacht zurückgesetzt.</p>',
             '_tix_demo' => 1, '_tix_guest_list_enabled' => '1',
         ], $extra);
         foreach ($meta as $k => $v) update_post_meta($eid, $k, $v);
@@ -186,9 +216,9 @@ class TIX_Demo {
         mt_srand(intval(wp_date('Ymd')));
         $cat = function ($name, $price, $qty, $extra = []) { return array_merge(['name' => $name, 'price' => $price, 'qty' => $qty, 'online' => '1', 'desc' => ''], $extra); };
         $ev = [];
-        $ev['live'] = self::make_event($oid, 'Live-Demo-Abend', 0, '19:00', [$cat(self::DEMO_CAT, 0, 10000, ['desc' => 'Kostenlos – zum Ausprobieren des Einlasses']), $cat('Normal', 12, 300)], ['_tix_info_lineup' => 'DJ Demo<br>Live-Band „Die Beispiele“']);
+        $ev['live'] = self::make_event($oid, 'Live-Abend (Beispiel)', 0, '19:00', [$cat(self::DEMO_CAT, 0, 10000, ['desc' => 'Kostenlos – zum Ausprobieren des Einlasses']), $cat('Normal', 12, 300)], ['_tix_info_lineup' => 'DJ Beispiel<br>Live-Band „Die Beispiele“']);
         $ev['w1'] = self::make_event($oid, 'Neon Night', 7, '22:00', [$cat('Early Bird', 9, 100), $cat('Normal', 14, 400), $cat('VIP', 39, 40)], ['_tix_info_lineup' => 'DJ Lumen<br>Night Shift Crew']);
-        $ev['w2'] = self::make_event($oid, 'Schlager Sause', 14, '20:00', [$cat('Vorverkauf', 13.5, 500), $cat('Abendkasse', 18.5, 200)], ['_tix_info_lineup' => 'Die Demo-Stimmungsband']);
+        $ev['w2'] = self::make_event($oid, 'Schlager Sause', 14, '20:00', [$cat('Vorverkauf', 13.5, 500), $cat('Abendkasse', 18.5, 200)], ['_tix_info_lineup' => 'Die Beispiel-Stimmungsband']);
         $ev['m1'] = self::make_event($oid, 'Open Air Sommerfest', 30, '15:00', [$cat('Tagesticket', 29, 1500), $cat('Familie (2+2)', 69, 200), $cat('Kinder', 9, 300)], ['_tix_info_lineup' => 'Headliner: The Examples<br>Support: Placeholder']);
         $ev['past'] = self::make_event($oid, 'Herbst-Opening', -10, '21:00', [$cat('Normal', 12, 300), $cat('VIP', 30, 30)]);
         update_option(self::OPT_TICKET_EVENT, $ev['live'], false);
@@ -236,8 +266,8 @@ class TIX_Demo {
             $code = 'GS-DEMO-' . strtoupper(wp_generate_password(4, false, false));
             $cp[$code] = ['discount_type' => 'giftcard', 'value' => $gv[0], 'balance' => $gv[1], 'expires' => self::day(3 * 365), 'organizer_id' => $oid, 'ticket_id' => 0, 'order_id' => 0,
                 'redemptions' => $gv[1] < $gv[0] ? [['ts' => current_time('mysql'), 'amount' => $gv[0] - $gv[1], 'channel' => 'bar', 'ref' => 'demo', 'rest' => $gv[1]]] : [],
-                'created' => current_time('mysql'), 'description' => 'Demo-Gutschein', 'max_uses' => 0, 'used' => 0, 'demo' => 1,
-                'gift' => ['recipient_name' => self::FIRST[$j + 5], 'from_name' => self::FIRST[$j + 9], 'message' => 'Viel Spaß im Demo Club!']];
+                'created' => current_time('mysql'), 'description' => 'Beispiel-Gutschein', 'max_uses' => 0, 'used' => 0, 'demo' => 1,
+                'gift' => ['recipient_name' => self::FIRST[$j + 5], 'from_name' => self::FIRST[$j + 9], 'message' => 'Viel Spaß im Beispiel-Club!']];
         }
         update_option('tix_coupons', $cp);
         // Kundenanfragen mit fertiger Zusammenfassung (keine KI beim Seed)
@@ -247,7 +277,7 @@ class TIX_Demo {
             ['Rollstuhlplatz', 'other', 'Gibt es beim Sommerfest Plätze für Rollstuhlfahrer?', 'Frage nach Rollstuhlplätzen beim Open Air Sommerfest.'],
             ['Rechnung benötigt', 'payment', 'Ich brauche eine Rechnung mit Firmenadresse für meine Bestellung.', 'Kunde benötigt Rechnung mit Firmenadresse.'],
             ['Name auf Ticket ändern', 'tickets', 'Mein Freund kommt statt mir, kann der Name geändert werden?', 'Kunde möchte Ticket auf anderen Namen umschreiben.'],
-            ['Einlass ab wann?', 'other', 'Ab wann ist Einlass beim Live-Demo-Abend?', 'Frage nach Einlasszeit beim Live-Demo-Abend.'],
+            ['Einlass ab wann?', 'other', 'Ab wann ist Einlass beim Live-Abend?', 'Frage nach Einlasszeit beim Live-Abend (Beispiel).'],
         ];
         $n_sp = 0;
         if (class_exists('TIX_Support') && method_exists('TIX_Support', 'app_create')) {
@@ -314,7 +344,7 @@ class TIX_Demo {
     /** GET /public/demo */
     public static function rest_public(WP_REST_Request $req) {
         $oid = TIX_Sales::demo_id();
-        if (!$oid) return new WP_Error('tix_demo_missing', 'Der Demo Club ist noch nicht eingerichtet.', ['status' => 404]);
+        if (!$oid) return new WP_Error('tix_demo_missing', 'Der Beispiel-Club ist noch nicht eingerichtet.', ['status' => 404]);
         $events = [];
         foreach (self::demo_events() as $eid) {
             $p = class_exists('TIX_Public_Events') ? TIX_Public_Events::payload($eid) : null;
@@ -336,13 +366,24 @@ class TIX_Demo {
         return class_exists('TIX_App_Account') && TIX_App_Account::rate_limited($bucket, $max, $window, 'u' . get_current_user_id());
     }
 
+    /**
+     * Limit für kostenlose Test-Tickets (Demo-Ticket, Vorschau-Testticket 1.38.512): 5 je IP/10 min, angemeldete Vertriebler/Admins
+     * 30 je Nutzer/10 min (1.38.511), dazu 300/Tag je IP. → WP_Error 429 | null
+     */
+    public static function ticket_limit_error($bucket) {
+        // Vertriebler/Admin (Token): je Nutzer statt je IP (Studio ruft serverseitig über eine IP auf)
+        $short = self::staff_caller() ? self::limited_user($bucket . '_u', 30, 600) : self::limited($bucket, 5, 600);
+        if ($short || self::limited($bucket . '_day', 300, DAY_IN_SECONDS)) return new WP_Error('tix_rate_limit', 'Zu viele Test-Tickets – bitte kurz warten.', ['status' => 429]);
+        return null;
+    }
+
     /** Angemeldet als Vertrieb oder Admin? */
     private static function staff_caller() {
         return is_user_logged_in() && (current_user_can('manage_options') || (class_exists('TIX_Sales') && TIX_Sales::is_sales_user()));
     }
 
     /** Ticket-Antwort (Vertrag C). */
-    private static function ticket_payload($tid, $order_key) {
+    public static function ticket_payload($tid, $order_key) { // öffentlich seit 1.38.512 (Vorschau-Testticket)
         $code = (string) get_post_meta($tid, '_tix_ticket_code', true);
         $eid = intval(get_post_meta($tid, '_tix_ticket_event_id', true));
         $qr = 'GL-' . $eid . '-' . $code;
@@ -364,27 +405,25 @@ class TIX_Demo {
         $oid = TIX_Sales::demo_id();
         $eid = absint($req->get_param('event_id')) ?: intval(get_option(self::OPT_TICKET_EVENT, 0));
         if (!$oid || !$eid || get_post_type($eid) !== 'event' || intval(get_post_meta($eid, '_tix_organizer_id', true)) !== $oid || get_post_status($eid) !== 'publish') {
-            return new WP_Error('tix_demo_event', 'Dieses Event gibt es im Demo Club nicht.', ['status' => 404]);
+            return new WP_Error('tix_demo_event', 'Dieses Event gibt es im Beispiel-Club nicht.', ['status' => 404]);
         }
         $cats = (array) get_post_meta($eid, '_tix_ticket_categories', true);
         $ci = null;
         foreach ($cats as $i => $c) if (is_array($c) && floatval($c['price'] ?? 1) <= 0) { $ci = intval($i); break; }
-        if ($ci === null) return new WP_Error('tix_demo_event', 'Für dieses Demo-Event gibt es kein kostenloses Demo-Ticket.', ['status' => 404]);
+        if ($ci === null) return new WP_Error('tix_demo_event', 'Für dieses Beispiel-Event gibt es kein kostenloses Beispiel-Ticket.', ['status' => 404]);
         $email = sanitize_email((string) $req->get_param('email'));
         if ($email !== '' && !is_email($email)) return new WP_Error('tix_invalid_field', 'Bitte eine gültige E-Mail angeben.', ['status' => 400, 'field' => 'email']);
-        $name = mb_substr(trim(sanitize_text_field((string) $req->get_param('name'))), 0, 60) ?: 'Demo-Gast';
-        // Vertriebler/Admin (Token): 30 je Nutzer/10 min statt 5 je IP; Tageslimit 300 je IP bleibt (1.38.511)
-        $short = self::staff_caller() ? self::limited_user('demo_ticket_u', 30, 600) : self::limited('demo_ticket', 5, 600);
-        if ($short || self::limited('demo_ticket_day', 300, DAY_IN_SECONDS)) return new WP_Error('tix_rate_limit', 'Zu viele Demo-Tickets – bitte kurz warten.', ['status' => 429]);
+        $name = mb_substr(trim(sanitize_text_field((string) $req->get_param('name'))), 0, 60) ?: 'Beispiel-Gast';
+        if ($e = self::ticket_limit_error('demo_ticket')) return $e;
         $parts = preg_split('/\s+/', $name, 2);
         $order_id = TIX_Native_Checkout::create_order(['billing_first_name' => $parts[0], 'billing_last_name' => $parts[1] ?? '', 'billing_email' => $email !== '' ? $email : 'gast-' . strtolower(wp_generate_password(8, false, false)) . '@demo.invalid',
             'payment_method' => 'demo', 'total' => 0, 'items' => [['event_id' => $eid, 'cat_index' => $ci, 'name' => (string) ($cats[$ci]['name'] ?? self::DEMO_CAT), 'event_title' => get_the_title($eid), 'price' => 0, 'qty' => 1, 'meta' => []]]]);
-        if (!$order_id || is_wp_error($order_id)) return new WP_Error('tix_demo_failed', 'Das Demo-Ticket konnte nicht erstellt werden.', ['status' => 500]);
+        if (!$order_id || is_wp_error($order_id)) return new WP_Error('tix_demo_failed', 'Das Beispiel-Ticket konnte nicht erstellt werden.', ['status' => 500]);
         TIX_Native_Checkout::update_order_status($order_id, 'completed', 'demo');
         global $wpdb;
         $key = (string) $wpdb->get_var($wpdb->prepare("SELECT order_key FROM {$wpdb->prefix}tix_orders WHERE id = %d", $order_id));
         $t = class_exists('TIX_Tickets') ? TIX_Tickets::get_all_tickets_for_order($order_id) : [];
-        if (!$t) return new WP_Error('tix_demo_failed', 'Das Demo-Ticket konnte nicht erstellt werden.', ['status' => 500]);
+        if (!$t) return new WP_Error('tix_demo_failed', 'Das Beispiel-Ticket konnte nicht erstellt werden.', ['status' => 500]);
         if (!get_post_meta($t[0]['id'], '_tix_ticket_owner_name', true)) update_post_meta($t[0]['id'], '_tix_ticket_owner_name', $name);
         $p = self::ticket_payload(intval($t[0]['id']), $key);
         $view = $p['_view_url']; unset($p['_view_url']);
@@ -401,10 +440,12 @@ class TIX_Demo {
         $order_id = $tid ? intval(get_post_meta($tid, '_tix_ticket_order_id', true)) : 0;
         $row = $order_id ? $wpdb->get_row($wpdb->prepare("SELECT order_key, payment_method FROM {$wpdb->prefix}tix_orders WHERE id = %d", $order_id)) : null;
         $key = (string) $req->get_param('key');
-        if (!$row || $row->payment_method !== 'demo' || $key === '' || !hash_equals((string) $row->order_key, $key)) return new WP_Error('tix_demo_ticket', 'Demo-Ticket nicht gefunden.', ['status' => 404]);
+        if (!$row || $row->payment_method !== 'demo' || $key === '' || !hash_equals((string) $row->order_key, $key)) return new WP_Error('tix_demo_ticket', 'Beispiel-Ticket nicht gefunden.', ['status' => 404]);
         $p = self::ticket_payload($tid, $key);
         $view = $p['_view_url']; unset($p['_view_url']);
-        return self::out(['ok' => true, 'demo' => true, 'ticket' => $p, 'view_url' => $view, 'expires_at' => wp_date('c', self::next_reset_ts())]);
+        // Test-Ticket einer Vorschau (1.38.512): gilt bis zum Ende der Vorschau statt bis zum nächsten Reset
+        $pv = class_exists('TIX_Sales_Previews') ? TIX_Sales_Previews::test_ticket_expiry(intval($p['event']['id'])) : null;
+        return self::out(['ok' => true, 'demo' => true, 'ticket' => $p, 'view_url' => $view, 'expires_at' => $pv ?: wp_date('c', self::next_reset_ts())] + ($pv ? ['preview' => true] : []));
     }
 }
 
