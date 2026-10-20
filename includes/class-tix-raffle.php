@@ -6,10 +6,18 @@ if (!defined('ABSPATH')) exit;
  *
  * Separate Teilnahme (Name + E-Mail), Freitext-Preise oder Freikarten,
  * manuelle oder automatische Auslosung.
+ *
+ * Datenschutz (1.38.519): Spalte `ip` enthält nur eine Prüfsumme (SHA-256 mit Salt, 40 Zeichen), nie die IP.
+ * Löschfrist (Option `tix_raffle_retention_days`, Vorgabe 90): Teilnahmen ohne Gewinn N Tage nach der Auslosung
+ * (sonst nach Teilnahmeschluss bzw. Event-Ende); Gewinner N Tage nach dem späteren von Auslosung und Event-Ende,
+ * dann auch ihre Namen/E-Mails in `_tix_raffle_winners` (es bleiben Vorname und Preis). Täglicher Cron `tix_raffle_cleanup`.
  */
 class TIX_Raffle {
 
     const TABLE = 'tix_raffle_entries';
+    const OPT_RETENTION = 'tix_raffle_retention_days';
+    const OPT_IP_MIGRATED = 'tix_raffle_ip_hashed';
+    const CRON = 'tix_raffle_cleanup';
 
     /* ════════════════════════════════════
        INIT
@@ -17,6 +25,93 @@ class TIX_Raffle {
 
     public static function init() {
         add_shortcode('tix_raffle', [__CLASS__, 'render']);
+        add_action(self::CRON, [__CLASS__, 'cleanup']);
+        add_action('init', function () {
+            if (!wp_next_scheduled(TIX_Raffle::CRON)) wp_schedule_event(time() + 1800, 'daily', TIX_Raffle::CRON);
+            // einmalig: vorhandene IPs in Prüfsummen umwandeln (1.38.519)
+            if (!get_option(TIX_Raffle::OPT_IP_MIGRATED)) TIX_Raffle::hash_existing_ips();
+        }, 30);
+    }
+
+    /* ════════════════════════════════════
+       DATENSCHUTZ (1.38.519)
+       ════════════════════════════════════ */
+
+    /** Prüfsumme der IP (SHA-256 mit Salt, 40 Zeichen) – reicht für Dubletten/Missbrauch, die IP selbst wird nie gespeichert. */
+    public static function ip_hash($ip) {
+        $ip = trim((string) $ip);
+        return $ip === '' ? '' : substr(hash('sha256', $ip . '|' . wp_salt('auth')), 0, 40);
+    }
+
+    /** Vorhandene Einträge mit Klartext-IP einmalig umwandeln (gleiche Formel wie ip_hash). → Anzahl */
+    public static function hash_existing_ips() {
+        global $wpdb;
+        if (!self::table_exists()) { update_option(self::OPT_IP_MIGRATED, current_time('mysql'), false); return 0; }
+        $t = $wpdb->prefix . self::TABLE;
+        $n = $wpdb->query($wpdb->prepare("UPDATE $t SET ip = LEFT(SHA2(CONCAT(ip, '|', %s), 256), 40) WHERE ip <> '' AND ip NOT REGEXP '^[0-9a-f]{40}$'", wp_salt('auth')));
+        update_option(self::OPT_IP_MIGRATED, current_time('mysql'), false);
+        return intval($n);
+    }
+
+    /** Löschfrist in Tagen (Option, Vorgabe 90, mindestens 1) */
+    public static function retention_days() {
+        $d = intval(get_option(self::OPT_RETENTION, 90));
+        return $d > 0 ? $d : 90;
+    }
+
+    private static function ts($v) {
+        $v = trim(str_replace('T', ' ', (string) $v));
+        return $v !== '' ? intval(strtotime($v)) : 0;
+    }
+
+    /** Ende des Events (Ortszeit-Zeitstempel) bzw. 0 */
+    private static function event_end_ts($event_id) {
+        $d = (string) (get_post_meta($event_id, '_tix_date_end', true) ?: get_post_meta($event_id, '_tix_date_start', true));
+        if ($d === '') return 0;
+        $t = (string) (get_post_meta($event_id, '_tix_time_end', true) ?: '23:59');
+        return self::ts($d . ' ' . $t);
+    }
+
+    /**
+     * Täglich: Teilnahmen nach der Frist löschen. Ohne Gewinn: Frist ab Auslosung (sonst Teilnahmeschluss, sonst Event-Ende).
+     * Gewinner: Frist ab dem späteren von Auslosung und Event-Ende (Freikarte bzw. Versand erledigt), dann auch die
+     * Namen/E-Mails in `_tix_raffle_winners` (Vorname und Preis bleiben für die Anzeige). → {entries, winners, events}
+     */
+    public static function cleanup($now = null) {
+        global $wpdb;
+        $out = ['entries' => 0, 'winners' => 0, 'events' => 0];
+        if (!self::table_exists()) return $out;
+        $t = $wpdb->prefix . self::TABLE;
+        $now = $now === null ? current_time('timestamp') : intval($now);
+        $keep = self::retention_days() * DAY_IN_SECONDS;
+        foreach (array_map('intval', (array) $wpdb->get_col("SELECT DISTINCT event_id FROM $t")) as $eid) {
+            $drawn = self::ts(get_post_meta($eid, '_tix_raffle_drawn_at', true));
+            $end = self::ts(get_post_meta($eid, '_tix_raffle_end_date', true));
+            $ev_end = self::event_end_ts($eid);
+            $ref = $drawn ?: ($end && $end <= $now ? $end : $ev_end);
+            if (!get_post($eid)) $ref = 1; // Event gelöscht → sofort
+            if (!$ref || $ref + $keep > $now) continue;
+            $n = intval($wpdb->query($wpdb->prepare("DELETE FROM $t WHERE event_id = %d AND is_winner = 0", $eid)));
+            $out['entries'] += $n;
+            $wref = max($ref, $ev_end);
+            if ($wref + $keep <= $now) {
+                $w = intval($wpdb->query($wpdb->prepare("DELETE FROM $t WHERE event_id = %d", $eid)));
+                $out['winners'] += $w;
+                $list = get_post_meta($eid, '_tix_raffle_winners', true);
+                if (is_array($list) && $list) {
+                    foreach ($list as &$x) {
+                        if (!is_array($x)) continue;
+                        $x['name'] = explode(' ', trim((string) ($x['name'] ?? '')))[0];
+                        unset($x['email']);
+                        $x['anonymized'] = true;
+                    }
+                    unset($x);
+                    update_post_meta($eid, '_tix_raffle_winners', $list);
+                }
+            }
+            if ($n) $out['events']++;
+        }
+        return $out;
     }
 
     /* ════════════════════════════════════
@@ -335,7 +430,7 @@ class TIX_Raffle {
             'event_id'   => $event_id,
             'name'       => $name,
             'email'      => $email,
-            'ip'         => $ip,
+            'ip'         => self::ip_hash($ip), // nur Prüfsumme (1.38.519)
             'created_at' => current_time('mysql'),
         ], ['%d', '%s', '%s', '%s', '%s']);
 
