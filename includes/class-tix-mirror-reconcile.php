@@ -36,6 +36,7 @@ class TIX_Mirror_Reconcile {
             'invoices'            => 'invoice',
             'audit_log'           => 'audit',
             'artists'             => 'artist',
+            'artist_followers'    => 'artist_follower',
         ];
     }
 
@@ -203,6 +204,13 @@ class TIX_Mirror_Reconcile {
             case 'events':     foreach ($ids as $id) if (TIX_Mirror_Map::is_sandbox_event($id)) $drop[] = $id; break;
             case 'tickets':    foreach ($ids as $id) if (TIX_Mirror_Map::is_sandbox_event((int) get_post_meta($id, '_tix_ticket_event_id', true))) $drop[] = $id; break;
             case 'organizers': foreach ($ids as $id) if (TIX_Mirror_Map::is_sandbox_org($id)) $drop[] = $id; break;
+            case 'artist_followers':
+                foreach ((array) $wpdb->get_results("SELECT id, artist_id FROM {$wpdb->prefix}tix_artist_mail_followers WHERE id IN ($in)", ARRAY_A) as $r) {
+                    $a = get_post_meta((int) $r['artist_id'], '_tix_artist', true);
+                    $mb = is_array($a) && is_array($a['managed_by'] ?? null) ? $a['managed_by'] : [];
+                    if (($mb['type'] ?? '') === 'organizer' && TIX_Mirror_Map::is_sandbox_org($mb['id'] ?? 0)) $drop[] = (int) $r['id'];
+                }
+                break;
             case 'artists':
                 foreach ($ids as $id) {
                     $a = get_post_meta($id, '_tix_artist', true);
@@ -344,6 +352,22 @@ class TIX_Mirror_Reconcile {
                 foreach ($posts as $p) {
                     $a = get_post_meta($p->ID, '_tix_artist', true);
                     $out[(int) $p->ID] = self::fp([$p->post_status, html_entity_decode($p->post_title, ENT_QUOTES, 'UTF-8'), (string) (is_array($a) ? ($a['status'] ?? '') : '')]);
+                }
+                return $out;
+
+            case 'artist_followers':
+                $prev = $wpdb->suppress_errors(true);
+                $rows = $wpdb->get_results($wpdb->prepare("SELECT id, artist_id, status, cities, confirmed_at FROM {$wpdb->prefix}tix_artist_mail_followers WHERE id > %d ORDER BY id LIMIT %d", $after, $limit), ARRAY_A);
+                $wpdb->suppress_errors($prev);
+                foreach ((array) $rows as $r) {
+                    $c = $r['cities'] !== null && $r['cities'] !== '' ? json_decode((string) $r['cities'], true) : null;
+                    $conf = '';
+                    if (!empty($r['confirmed_at']) && strpos((string) $r['confirmed_at'], '0000') !== 0) {
+                        try { $conf = (new DateTimeImmutable((string) $r['confirmed_at'], wp_timezone()))->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d\TH:i:s'); } catch (\Throwable $e) {}
+                    }
+                    // Format wie jsonb::text in Postgres: ["Köln", "Bonn"]
+                    $ctext = is_array($c) ? '[' . implode(', ', array_map(function ($x) { return wp_json_encode((string) $x, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); }, array_values($c))) . ']' : '';
+                    $out[(int) $r['id']] = self::fp([(int) $r['artist_id'], $r['status'], $ctext, $conf]);
                 }
                 return $out;
 

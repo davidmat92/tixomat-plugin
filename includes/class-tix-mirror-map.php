@@ -33,7 +33,8 @@ class TIX_Mirror_Map {
     const CUSTOMER_META_ALLOW = ['_tix_phone', '_tix_email_confirmed', '_tix_email_confirmed_by', '_tix_team_organizer_id',
                   '_tix_organizer_name', '_tix_saved_events', '_tix_app_following', '_tix_app_verified',
                   '_tix_app_created', '_tix_first_event_celebrated', '_tix_legacy_source', '_tix_legacy_user_id',
-                  '_tix_avatar_url', '_tix_avatar_id'];
+                  '_tix_avatar_url', '_tix_avatar_id',
+                  '_tix_app_following_artists'];   // Künstlern folgen (1.38.518): {artist_id: {cities, since}}
 
     /** Werte, die wie Passwort-/PIN-Hashes aussehen, gehen nie in den Spiegel (egal unter welchem Feldnamen). */
     public static function looks_like_hash($v) {

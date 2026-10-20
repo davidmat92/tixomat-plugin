@@ -35,6 +35,7 @@ class TIX_Mirror_Extra {
             case 'invoice_counters':return self::plan_invoice_counters($site);
             case 'audit':           return self::plan_audit($site, (int) $id);
             case 'artist':          return self::plan_artist($site, (int) $id);
+            case 'artist_follower': return self::plan_artist_follower($site, (int) $id);
             case 'forget_email':    // Gast ohne Konto gelöscht (1.38.494): Verlauf mit dieser E-Mail tilgen, wie beim Konto
                 return [['rpc', 'mirror_forget', ['p_site' => $site, 'p_customer_id' => 0, 'p_email' => (string) ($payload['email'] ?? '')]]];
         }
@@ -441,6 +442,46 @@ class TIX_Mirror_Extra {
         ])]]];
     }
 
+    /** Pseudonym einer E-Mail: HMAC-SHA256 mit dem Spiegel-Schlüssel (auf allen Seiten gleich), sonst mit den Salts der Seite. */
+    public static function email_hash($email) {
+        $email = strtolower(trim((string) $email));
+        if ($email === '') return '';
+        $key = defined('TIX_MIRROR_ENC_KEY') && TIX_MIRROR_ENC_KEY !== '' ? 'm|' . TIX_MIRROR_ENC_KEY : 's|' . wp_salt('auth');
+        return hash_hmac('sha256', $email, 'tix-mirror-email|' . $key);
+    }
+
+    /** E-Mail-Folgen eines Künstlers (1.38.518) – pseudonymisiert: keine Adresse, kein Token, kein IP-Hash. */
+    public static function follower_row($site, array $f) {
+        $cities = $f['cities'] !== null && $f['cities'] !== '' ? json_decode((string) $f['cities'], true) : null;
+        return TIX_Mirror_Map::clean([
+            'site' => $site, 'id' => (int) $f['id'],
+            'artist_id'     => (int) $f['artist_id'],
+            'email_hash'    => self::email_hash($f['email']),
+            'status'        => (string) $f['status'],
+            'cities'        => is_array($cities) ? array_values($cities) : null,
+            'user_id'       => self::idn($f['user_id']),
+            'consent_text'  => (string) $f['consent_text'],
+            'consent_at'    => self::local_iso($f['consent_at']),
+            'confirmed_at'  => self::local_iso($f['confirmed_at']),
+            'last_notified' => self::local_iso($f['last_notified']),
+            'created_at'    => self::local_iso($f['created']),
+        ]);
+    }
+
+    private static function plan_artist_follower($site, $id) {
+        global $wpdb;
+        $prev = $wpdb->suppress_errors(true);
+        $f = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}tix_artist_mail_followers WHERE id = %d", $id), ARRAY_A);
+        $wpdb->suppress_errors($prev);
+        if ($f) {
+            $a = get_post_meta((int) $f['artist_id'], '_tix_artist', true);
+            $mb = is_array($a) && is_array($a['managed_by'] ?? null) ? $a['managed_by'] : [];
+            if (($mb['type'] ?? '') === 'organizer' && TIX_Mirror_Map::is_sandbox_org($mb['id'] ?? 0)) $f = null; // Demo/Vorschau
+        }
+        if (!$f) return [self::del('artist_followers', $site, $id)];
+        return [['upsert', 'artist_followers', [self::follower_row($site, $f)]]];
+    }
+
     // ═══════════════ Team-Protokoll (1.38.494) ═══════════════
 
     private static function plan_audit($site, $id) {
@@ -482,6 +523,8 @@ class TIX_Mirror_Extra {
             // Vor 490 fehlt die Spalte → die Abfrage scheitert still und der Nachlauf überspringt sie.
             ['invoice',         $wpdb->prefix . 'tix_invoices',         'export_at', 'time_local', false, 'invoice_export'],
             ['audit',           $wpdb->prefix . 'tix_audit_log',        'id',      'id',         true],  // Sicherheitsnetz zu tix_audit_logged
+            // E-Mail-Folgen von Künstlern (1.38.518): neue Zeilen; Bestätigen/Ändern/Löschen holt der tägliche Abgleich
+            ['artist_follower', $wpdb->prefix . 'tix_artist_mail_followers', 'id', 'id',         true],
         ];
     }
 }

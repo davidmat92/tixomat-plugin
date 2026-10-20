@@ -11,13 +11,13 @@ create temporary view t as
   union all select 'wallet_transactions', to_jsonb(x)::text from wallet_transactions x union all select 'settlements', to_jsonb(x)::text from settlements x
   union all select 'settlement_items', to_jsonb(x)::text from settlement_items x union all select 'checkins', to_jsonb(x)::text from checkins x
   union all select 'refunds', to_jsonb(x)::text from refunds x union all select 'invoices', to_jsonb(x)::text from invoices x
-  union all select 'invoice_counters', to_jsonb(x)::text from invoice_counters x union all select 'audit_log', to_jsonb(x)::text from audit_log x union all select 'artists', to_jsonb(x)::text from artists x union all select 'change_log', to_jsonb(x)::text from change_log x
+  union all select 'invoice_counters', to_jsonb(x)::text from invoice_counters x union all select 'audit_log', to_jsonb(x)::text from audit_log x union all select 'artists', to_jsonb(x)::text from artists x union all select 'artist_followers', to_jsonb(x)::text from artist_followers x union all select 'change_log', to_jsonb(x)::text from change_log x
 ; create temporary view k as
   select tb, (regexp_matches(j, '"([^"]*(pass|token|secret|nonce|_pin|pin_|hash|_key|wfls_|2fa|totp|recovery|application_password|credential|session)[^"]*)"\s*:', 'gi'))[1] as key from t;
 select 'Zeilen gesamt: ' || (select count(*) from t);
 select 'Hash-Werte: ' || count(*) from t where j ~ '"\$(P|H|wp|2y|2a|2b|argon2id?)\$';
 select 'Klartext-IBAN: ' || count(*) from t where regexp_replace(j, '"(iban_enc|iban_masked)": "[^"]*"', '', 'g') ~ '\m[A-Z]{2}[0-9]{2}( ?[A-Z0-9]){11,30}\M';
-select 'Verdächtige Feldnamen: ' || coalesce(string_agg(tb || '.' || key || ' ' || n, ', '), 'keine') from (select tb, key, count(*) n from k where key not in ('idempotency_key', 'issuer_key') group by 1, 2 order by 1, 2) s;
+select 'Verdächtige Feldnamen: ' || coalesce(string_agg(tb || '.' || key || ' ' || n, ', '), 'keine') from (select tb, key, count(*) n from k where key not in ('idempotency_key', 'issuer_key', 'email_hash') group by 1, 2 order by 1, 2) s;
 -- Geschenkgutscheine (1.38.496): Käufer gelöscht (Bestellung anonymisiert), Gutschein trägt aber noch eine echte E-Mail
 select 'Gutscheine mit Empfänger-Adresse trotz gelöschtem Käufer: ' || count(*) from coupons c
   join orders o on o.site = c.site and o.id = c.order_id

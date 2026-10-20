@@ -608,6 +608,45 @@ if (post_type_exists('tix_artist')) {
     $vout = (function () { ob_start(); include WP_PLUGIN_DIR . '/tixomat/supabase/tools/vergleich-wp.php'; return ob_get_clean(); })();
     t2_true('Vergleich: Künstler gleich', (bool) preg_match('/artists\s+(\d+)\s+\1\s+gleich/', $vout));
     remove_filter('tix_sandbox_organizer', $sb_filter, 10); $sb_on = []; TIX_Mirror_Map::sandbox_reset(); TIX_Mirror_Reconcile::sandbox_reset();
+
+    // ── 15. Künstlern folgen (1.38.518): Konto-Meta + E-Mail-Folgen pseudonymisiert ──
+    if (class_exists('TIX_Artist_Follow')) {
+        TIX_Artist_Follow::maybe_install();
+        $ft = $wpdb->prefix . 'tix_artist_mail_followers';
+        $fmail = "Fan$sfx@Example.test";
+        $wpdb->insert($ft, ['artist_id' => $art, 'email' => strtolower($fmail), 'status' => 'pending', 'token' => str_repeat('T', 40), 'cities' => wp_json_encode(['Köln', 'Düsseldorf']),
+            'user_id' => 0, 'consent_text' => 'Ich möchte Mails zu Spiegel-Band', 'consent_at' => current_time('mysql'), 'consent_ip' => hash('sha256', '1.2.3.4'), 'created' => current_time('mysql')]);
+        $fid = (int) $wpdb->insert_id;
+        $wpdb->insert($ft, ['artist_id' => $art, 'email' => "zwei$sfx@example.test", 'status' => 'active', 'token' => str_repeat('U', 40), 'cities' => null,
+            'user_id' => 0, 'consent_text' => 'x', 'consent_at' => current_time('mysql'), 'consent_ip' => '', 'confirmed_at' => current_time('mysql'), 'created' => current_time('mysql')]);
+        $fid2 = (int) $wpdb->insert_id;
+        m2_run();
+        $mf = m2_one('artist_followers', $fid);
+        t2_eq('Mail-Folge gespiegelt (Status, Städte)', 'pending|Köln,Düsseldorf', ($mf['status'] ?? '') . '|' . implode(',', (array) ($mf['cities'] ?? [])));
+        t2_eq('nur Pseudonym statt Adresse', TIX_Mirror_Extra::email_hash($fmail), $mf['email_hash'] ?? null);
+        $fj = wp_json_encode(m2_rows('artist_followers')) . wp_json_encode(m2_rows('change_log', ['entity' => 'eq.artist_followers']));
+        t2_true('keine Adresse, kein Token, kein IP-Hash im Spiegel (auch Verlauf)', stripos($fj, "fan$sfx@example.test") === false && strpos($fj, str_repeat('T', 40)) === false && strpos($fj, hash('sha256', '1.2.3.4')) === false);
+        $rep = m2_reconcile();
+        t2_eq('Abgleich: Prüfsummen passen (auch Umlaute, null)', 0, (int) ($rep['tables']['artist_followers']['differ'] ?? -1) + (int) ($rep['tables']['artist_followers']['missing'] ?? -1));
+        // Bestätigen (per $wpdb, ohne Hook) und Abmelden (echtes DELETE) → über den Abgleich
+        sleep(1);
+        $wpdb->update($ft, ['status' => 'active', 'confirmed_at' => current_time('mysql')], ['id' => $fid]);
+        $wpdb->delete($ft, ['id' => $fid2]);
+        $rep = m2_reconcile(); m2_run(2);
+        t2_eq('Bestätigung über den Abgleich', 'active', m2_one('artist_followers', $fid)['status'] ?? null);
+        t2_eq('Abmelden über den Abgleich gelöscht', null, m2_one('artist_followers', $fid2));
+        $rep = m2_reconcile();
+        t2_eq('danach Folgen ohne Abweichung', 0, (int) ($rep['tables']['artist_followers']['differ'] ?? -1) + (int) ($rep['tables']['artist_followers']['extra'] ?? -1));
+        // Konto folgt (User-Meta, Erlaubnisliste)
+        $fu = wp_create_user("folger$sfx", wp_generate_password(), "folger$sfx@example.test");
+        update_user_meta($fu, '_tix_app_following_artists', [(string) $art => ['cities' => ['Köln'], 'since' => gmdate('c')]]);
+        m2_run();
+        t2_eq('Konto-Folgen in customers.data', ['Köln'], m2_one('customers', $fu)['data']['_tix_app_following_artists'][(string) $art]['cities'] ?? null);
+        require_once ABSPATH . 'wp-admin/includes/user.php'; wp_delete_user($fu); m2_run();
+        $vout = (function () { ob_start(); include WP_PLUGIN_DIR . '/tixomat/supabase/tools/vergleich-wp.php'; return ob_get_clean(); })();
+        t2_true('Vergleich: Folgen gleich', (bool) preg_match('/artist_followers\s+(\d+)\s+\1\s+gleich/', $vout));
+        $wpdb->delete($ft, ['artist_id' => $art]); TIX_Mirror::touch('artist_follower', $fid);
+    }
     wp_delete_post($art, true); $posts = array_diff($posts, [$art]);
     m2_run();
     t2_eq('gelöschter Künstler entfernt', null, m2_one('artists', $art));

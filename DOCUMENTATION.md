@@ -2594,6 +2594,10 @@ Zweite Speicherung aller Seiten in einem eigenen Supabase-Projekt (EU). **WordPr
   - Nicht gespiegelt: `_tix_artist_log` (Nutzer-IDs, Gründe), die abgeleiteten Suchschlüssel (`_norm`, `_spotify`, `_apple`) und `_tix_artist_ref`. Die Event-Zuordnung steht vollständig in `events.data._tix_artists`.
   - Künstler eines Sandbox-Veranstalters (`managed_by`) bleiben draußen.
   - Erstbefüllung, Abgleich (Post-Status, Name, Status) und Vergleich sind enthalten. Migration `20261020090000_mirror_artists.sql`.
+- **Künstlern folgen (1.38.518):** Konto-Meta `_tix_app_following_artists` steht in der Erlaubnisliste und damit in `customers.data`.
+  - E-Mail-Folgen (`tix_artist_mail_followers`) gehen **pseudonymisiert** in die Tabelle `artist_followers`. Statt der Adresse steht dort `email_hash` (HMAC-SHA256 mit `TIX_MIRROR_ENC_KEY`, auf allen Seiten gleich, nicht umkehrbar). Abmelde-Token und IP-Hash werden nie gespiegelt.
+  - Neue Zeilen kommen über den Nachlauf (ID). Bestätigen, Ändern, Abmelden und Löschen (in WordPress immer echtes DELETE) holt der tägliche Abgleich (Künstler, Status, Städte, Bestätigung).
+  - Folge: Die Adressen lassen sich nicht aus dem Spiegel wiederherstellen. Migration `20261020120000_mirror_artist_followers.sql`.
 - **Nicht gespiegelt: Sandbox (Live-Demo Vertrieb).** Demo Club und Vorschau-Veranstalter (`TIX_Sales::is_sandbox_organizer($oid)`, Filter `tix_sandbox_organizer`).
   - Ausgeschlossen werden Veranstalter, Events (Haupt-Veranstalter), Kategorien, Gäste, Bestellungen mit einer Position an einem Sandbox-Event (inkl. Positionen, Zahlung, Check-ins, Stornos), Tickets, Gutscheine (`organizer_id`/`order_id`), Geldbörsen, Buchungen, Abrechnungen, Belege, Protokoll (`scope …:<id>`) und Stempelkarten.
   - Schon Gespiegeltes löscht der Plan bzw. der tägliche Abgleich: Er zählt Sandbox auf der WP-Seite nicht mit, nimmt sie aber erst nach der Paketgrenze heraus.

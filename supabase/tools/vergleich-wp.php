@@ -87,6 +87,7 @@ $wp = [
         $a = get_post_meta($id, '_tix_artist', true); $mb = is_array($a) && is_array($a['managed_by'] ?? null) ? $a['managed_by'] : [];
         return !(($mb['type'] ?? '') === 'organizer' && TIX_Mirror_Map::is_sandbox_org($mb['id'] ?? 0));
     })),
+    'artist_followers'    => $q("SELECT COUNT(*) FROM {$wpdb->prefix}tix_artist_mail_followers"),
     'audit_log'           => $q("SELECT COUNT(*) FROM {$wpdb->prefix}tix_audit_log" . ($sbo ? " WHERE scope NOT REGEXP ':(" . implode('|', array_map('intval', $sbo)) . ")$'" : '')),
     'checkins'            => null, // nur im Spiegel (Verlauf ab Einrichtung)
     'refunds'             => null, // nur im Spiegel (Verlauf ab Einrichtung)
@@ -159,11 +160,11 @@ if ($wp['wallets']) {
 echo "\n3. Datenschutz (alle Zeilen, inkl. Verlauf)\n";
 // Feldnamen wie in TIX_Mirror_Map::DENY; Spalten, die bewusst so heißen, sind ausgenommen.
 $key_re  = '/"([^"]*(pass|token|secret|nonce|code_hash|public_key|pushover|_pin|pin_|hash|_key|wfls_|2fa|totp|recovery|application_password|credential|session)[^"]*)"\s*:/i';
-$key_ok  = ['idempotency_key', 'issuer_key']; // Spalten, keine Geheimnisse
+$key_ok  = ['idempotency_key', 'issuer_key', 'email_hash']; // Spalten, keine Geheimnisse
 $hash_re = '/"\$(P|H|wp|2y|2a|2b|argon2id?|scrypt|[156])\$/';
 $iban_re = '/\b[A-Z]{2}\d{2}(?:\s?[A-Z0-9]){11,30}\b/';
 foreach (['customers', 'organizers', 'orders', 'order_items', 'payments', 'tickets', 'events', 'guests', 'loyalty', 'coupons',
-          'wallets', 'wallet_transactions', 'settlements', 'settlement_items', 'invoices', 'audit_log', 'artists', 'checkins', 'refunds', 'change_log'] as $table) {
+          'wallets', 'wallet_transactions', 'settlements', 'settlement_items', 'invoices', 'audit_log', 'artists', 'artist_followers', 'checkins', 'refunds', 'change_log'] as $table) {
     $hits = []; $rows = 0; $err = '';
     for ($offset = 0; ; $offset += 1000) {
         $r = TIX_Mirror_Client::select($table, ['site' => 'eq.' . $site, 'order' => $table === 'change_log' ? 'id.asc' : 'id.asc', 'limit' => '1000', 'offset' => (string) $offset]);
