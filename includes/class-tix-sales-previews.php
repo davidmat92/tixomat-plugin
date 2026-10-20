@@ -1493,7 +1493,7 @@ class TIX_Sales_Previews {
     private static function tech_events($pkg, $key = '') {
         $mq = [['key' => self::META_PKG, 'value' => (string) intval($pkg)]];
         if ($key !== '') $mq[] = ['key' => self::META_KEY, 'value' => (string) $key];
-        return array_map('intval', get_posts(['post_type' => 'event', 'post_status' => 'any', 'posts_per_page' => -1, 'fields' => 'ids', 'suppress_filters' => true, 'tix_include_sandbox' => 1, 'meta_query' => $mq]));
+        return array_map('intval', get_posts(['post_type' => 'event', 'post_status' => self::all_stati(), 'posts_per_page' => -1, 'fields' => 'ids', 'suppress_filters' => true, 'tix_include_sandbox' => 1, 'meta_query' => $mq]));
     }
 
     /** Technische Events samt Test-Tickets und Bestellungen endgültig löschen → Anzahl Tickets */
@@ -1687,10 +1687,77 @@ class TIX_Sales_Previews {
         foreach ((array) $wpdb->get_results($wpdb->prepare('SELECT * FROM ' . self::table() . ' WHERE claimed_at = 0 AND expires_at <= %d LIMIT 200', time())) as $row) {
             if (self::destroy(self::hydrate($row), true)) $n++;
         }
-        foreach (get_posts(['post_type' => 'event', 'post_status' => 'any', 'posts_per_page' => 50, 'fields' => 'ids', 'suppress_filters' => true, 'tix_include_sandbox' => 1,
+        foreach (get_posts(['post_type' => 'event', 'post_status' => self::all_stati(), 'posts_per_page' => 50, 'fields' => 'ids', 'suppress_filters' => true, 'tix_include_sandbox' => 1,
             'meta_query' => [['key' => self::META_SCRATCH, 'value' => time() - HOUR_IN_SECONDS, 'compare' => '<', 'type' => 'NUMERIC']]]) as $sid) wp_delete_post($sid, true);
         update_option(self::OPT_GONE, self::gone_list(), false);
+        self::cleanup_orphans();
         return $n;
+    }
+
+    /** Alle Post-Status einschließlich Papierkorb (`any` lässt ihn aus). */
+    private static function all_stati() {
+        return array_values(get_post_stati());
+    }
+
+    /**
+     * Reste der Vorschau-Posts (1.38.510–513) entfernen, auch im Papierkorb (Fund evendis #1406, 1.38.522):
+     *  - Vorschau-Veranstalter (`_tix_preview_data` + `_tix_org_preview`, nicht übernommen, nicht „Vorschau (technisch)“) im Papierkorb
+     *  - Events mit `_tix_preview`, aber ohne Paket (`_tix_preview_pkg`) und ohne Arbeits-Entwurf, deren Veranstalter fehlt bzw.
+     *    ein solcher Vorschau-Veranstalter ist – samt Test-Tickets und Bildern
+     *  - alte Vorschau-Bilder (`_tix_preview` = 1) ohne vorhandenen Eltern-Post
+     * Echte, technische und übernommene Posts bleiben unberührt. → {organizers, events, attachments, tickets}
+     */
+    public static function cleanup_orphans($dry = false) {
+        global $wpdb;
+        $out = ['organizers' => 0, 'events' => 0, 'attachments' => 0, 'tickets' => 0, 'ids' => []];
+        if (!class_exists('TIX_Sales')) return $out;
+        $tech = intval(get_option(self::OPT_TECH, 0));
+        $legacy_org = function ($oid) use ($tech) {
+            $oid = intval($oid);
+            if (!$oid || $oid === $tech || get_post_type($oid) !== 'tix_organizer') return false;
+            if (!get_post_meta($oid, TIX_Sales::META_PREVIEW, true) || !get_post_meta($oid, '_tix_preview_data', true)) return false;
+            $d = get_post_meta($oid, '_tix_preview_data', true);
+            return empty($d['claimed_at']);
+        };
+        $events = array_map('intval', get_posts(['post_type' => 'event', 'post_status' => self::all_stati(), 'posts_per_page' => 500, 'fields' => 'ids', 'suppress_filters' => true,
+            'tix_include_sandbox' => 1, 'meta_query' => ['relation' => 'AND', ['key' => self::META_ITEM, 'compare' => 'EXISTS'],
+                ['key' => self::META_PKG, 'compare' => 'NOT EXISTS'], ['key' => self::META_SCRATCH, 'compare' => 'NOT EXISTS']]]));
+        $orphans = [];
+        foreach ($events as $eid) {
+            $oid = intval(get_post_meta($eid, '_tix_organizer_id', true));
+            if ($oid && get_post_type($oid) === 'tix_organizer' && !$legacy_org($oid)) continue; // gehört zu einem echten/technischen Veranstalter
+            $orphans[] = $eid;
+        }
+        $orgs = array_values(array_filter(array_map('intval', get_posts(['post_type' => 'tix_organizer', 'post_status' => ['trash'], 'posts_per_page' => 200, 'fields' => 'ids',
+            'suppress_filters' => true, 'meta_query' => [['key' => '_tix_preview_data', 'compare' => 'EXISTS']]])), $legacy_org));
+        foreach ($orgs as $oid) foreach (array_map('intval', get_posts(['post_type' => 'event', 'post_status' => self::all_stati(), 'posts_per_page' => -1, 'fields' => 'ids',
+            'suppress_filters' => true, 'tix_include_sandbox' => 1, 'meta_query' => [['key' => '_tix_organizer_id', 'value' => (string) $oid], ['key' => self::META_ITEM, 'compare' => 'EXISTS']]])) as $eid) $orphans[] = $eid;
+        $orphans = array_values(array_unique($orphans));
+        $out['ids'] = ['events' => $orphans, 'organizers' => $orgs];
+        if ($dry) { $out['events'] = count($orphans); $out['organizers'] = count($orgs); return $out; }
+        if ($orphans) $out['tickets'] = self::delete_test_tickets($orphans);
+        foreach ($orphans as $eid) {
+            $thumb = intval(get_post_thumbnail_id($eid));
+            foreach (array_map('intval', get_posts(['post_type' => 'attachment', 'post_status' => 'inherit', 'posts_per_page' => -1, 'fields' => 'ids', 'suppress_filters' => true,
+                'post_parent' => $eid, 'meta_query' => [['key' => self::META_ITEM, 'compare' => 'EXISTS']]])) as $aid) { wp_delete_attachment($aid, true); $out['attachments']++; }
+            if ($thumb && (string) get_post_meta($thumb, self::META_ITEM, true) === '1' && get_post($thumb)) { wp_delete_attachment($thumb, true); $out['attachments']++; }
+            wp_delete_post($eid, true);
+            $out['events']++;
+        }
+        foreach ($orgs as $oid) {
+            foreach (array_map('intval', get_posts(['post_type' => 'attachment', 'post_status' => 'inherit', 'posts_per_page' => -1, 'fields' => 'ids', 'suppress_filters' => true,
+                'post_parent' => $oid, 'meta_query' => [['key' => self::META_ITEM, 'compare' => 'EXISTS']]])) as $aid) { wp_delete_attachment($aid, true); $out['attachments']++; }
+            wp_delete_post($oid, true);
+            $out['organizers']++;
+        }
+        // alte Vorschau-Bilder (Wert „1“) ohne Eltern-Post
+        foreach ((array) $wpdb->get_col("SELECT p.ID FROM {$wpdb->posts} p JOIN {$wpdb->postmeta} m ON m.post_id = p.ID AND m.meta_key = '" . self::META_ITEM . "' AND m.meta_value = '1'
+            LEFT JOIN {$wpdb->posts} par ON par.ID = p.post_parent WHERE p.post_type = 'attachment' AND (p.post_parent = 0 OR par.ID IS NULL) LIMIT 200") as $aid) {
+            wp_delete_attachment(intval($aid), true);
+            $out['attachments']++;
+        }
+        if ($out['events'] || $out['organizers']) { TIX_Sales::flush(); if (class_exists('TIX_Public_Events')) TIX_Public_Events::flush(); }
+        return $out;
     }
 
     // ═══════════════ Migration der Vorschau-Posts (1.38.510–513) in Pakete ═══════════════
@@ -1700,20 +1767,23 @@ class TIX_Sales_Previews {
         global $wpdb;
         if (!self::table_ready()) self::install();
         $rep = ['at' => current_time('mysql'), 'dry_run' => (bool) $dry, 'converted' => [], 'claimed' => [], 'skipped' => [], 'deleted_posts' => 0, 'deleted_tickets' => 0];
-        $orgs = get_posts(['post_type' => 'tix_organizer', 'post_status' => 'any', 'posts_per_page' => -1, 'fields' => 'ids', 'suppress_filters' => true,
+        $orgs = get_posts(['post_type' => 'tix_organizer', 'post_status' => self::all_stati(), 'posts_per_page' => -1, 'fields' => 'ids', 'suppress_filters' => true,
             'meta_query' => [['key' => '_tix_preview_data', 'compare' => 'EXISTS']]]);
         foreach (array_map('intval', $orgs) as $oid) {
             $old = get_post_meta($oid, '_tix_preview_data', true);
             if (!is_array($old) || empty($old['token']) || self::by_token($old['token'], 'token')) { $rep['skipped'][] = $oid; continue; }
-            $base = ['token' => (string) $old['token'], 'claim' => (string) $old['claim'], 'owner' => intval($old['owner']), 'name' => (string) get_the_title($oid),
-                'created_at' => intval($old['created_at']), 'expires_at' => intval($old['expires_at']), 'opened_at' => intval($old['opened_at'] ?? 0),
+            // unvollständige Altdaten abfangen (fehlender Übernahme-Code → neu, sonst Konflikt am eindeutigen Index)
+            $base = ['token' => (string) $old['token'], 'claim' => (string) ($old['claim'] ?? '') ?: self::new_token('c'), 'owner' => intval($old['owner'] ?? 0), 'name' => (string) get_the_title($oid),
+                'created_at' => intval($old['created_at'] ?? 0) ?: time(), 'expires_at' => intval($old['expires_at'] ?? 0), 'opened_at' => intval($old['opened_at'] ?? 0),
                 'claimed_at' => intval($old['claimed_at'] ?? 0), 'claimed_org' => 0, 'extended' => !empty($old['extended']), 'views' => intval($old['views'] ?? 0),
                 'last_view_at' => intval($old['last_view_at'] ?? 0), 'claimed_by' => intval($old['claimed_by'] ?? 0), 'template' => 'club',
                 'source_url' => (string) ($old['source_url'] ?? ''), 'read_mode' => (string) ($old['read_mode'] ?? 'direct'), 'notice' => $old['notice'] ?? null,
                 'customer_email' => (string) ($old['customer_email'] ?? ''), 'note' => (string) ($old['note'] ?? ''), 'migrated_from' => $oid];
-            $events = array_map('intval', get_posts(['post_type' => 'event', 'post_status' => array_values(get_post_stati()), 'posts_per_page' => -1, 'fields' => 'ids', 'suppress_filters' => true,
+            $events = array_map('intval', get_posts(['post_type' => 'event', 'post_status' => self::all_stati(), 'posts_per_page' => -1, 'fields' => 'ids', 'suppress_filters' => true,
                 'tix_include_sandbox' => 1, 'meta_query' => [['key' => '_tix_organizer_id', 'value' => (string) $oid]]]));
             $claimed = !empty($old['claimed_at']) || !get_post_meta($oid, TIX_Sales::META_PREVIEW, true);
+            // im Papierkorb: wollte jemand löschen → nicht umwandeln, Waisen-Bereinigung räumt ab (1.38.522)
+            if (!$claimed && get_post_status($oid) === 'trash') { $rep['skipped'][] = $oid; continue; }
             if ($claimed) {
                 // übernommen: Veranstalter bleibt, nur der Auswertungs-Datensatz zieht um
                 $rep['claimed'][] = ['org' => $oid, 'token' => substr($base['token'], 0, 8) . '…'];
@@ -1759,10 +1829,14 @@ class TIX_Sales_Previews {
     }
 
     /**
-     * WP-CLI: wp tixomat previews migrate [--dry-run] | report
+     * WP-CLI: wp tixomat previews migrate [--dry-run] | cleanup [--dry-run] | report
      */
     public static function cli($args, $assoc) {
         $cmd = $args[0] ?? 'report';
+        if ($cmd === 'cleanup') {
+            WP_CLI::log(wp_json_encode(self::cleanup_orphans(!empty($assoc['dry-run'])), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+            return;
+        }
         if ($cmd === 'migrate') {
             $dry = !empty($assoc['dry-run']);
             if (!$dry && get_option(self::OPT_MIG)) { WP_CLI::log('Schon migriert: ' . get_option(self::OPT_MIG)); WP_CLI::log(wp_json_encode(get_option(self::OPT_MIG_REPORT), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE)); return; }
@@ -1773,7 +1847,7 @@ class TIX_Sales_Previews {
         $n = self::table_ready() ? intval($wpdb->get_var('SELECT COUNT(*) FROM ' . self::table())) : 0;
         WP_CLI::log(wp_json_encode(['migrated_at' => get_option(self::OPT_MIG) ?: null, 'report' => get_option(self::OPT_MIG_REPORT) ?: null, 'packages' => $n,
             'old_preview_posts' => count(get_posts(['post_type' => 'tix_organizer', 'post_status' => 'any', 'posts_per_page' => -1, 'fields' => 'ids', 'suppress_filters' => true,
-                'meta_query' => [['key' => '_tix_preview_data', 'compare' => 'EXISTS']]]))], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+                'meta_query' => [['key' => '_tix_preview_data', 'compare' => 'EXISTS']]])), 'orphans' => self::cleanup_orphans(true)['ids']], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
     }
 }
 
