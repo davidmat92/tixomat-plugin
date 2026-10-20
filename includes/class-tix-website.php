@@ -23,12 +23,17 @@ class TIX_Website {
     /** key => [Bezeichnung, Optionen, App-Schalter (TIX_Features::map bzw. app) | null] */
     const SECTIONS = [
         'stage'      => ['Bühne (nächstes Event)', [], null],
+        'ticker'     => ['Laufband', ['title', 'eyebrow'], null],
+        'tickets'    => ['Tickets (Kategorien)', ['title', 'eyebrow'], 'checkout'],
+        'arrival'    => ['Anreise & vor Ort', ['title', 'eyebrow'], null],
+        'more_dates' => ['Weitere Termine', ['max', 'title', 'eyebrow'], null],
         'highlights' => ['Highlights', ['max'], null],
         'next'       => ['Nächste Events', ['max', 'title'], null],
         'presale'    => ['Vorverkauf', [], null],
         'service'    => ['Service-Kacheln', [], null],
         'lineup'     => ['Line-up', ['max', 'title'], null],
         'about'      => ['Über uns', ['eyebrow', 'title', 'html', 'facts'], null],
+        // ohne gepflegte Bilder: leer – die Website zeigt dann die Flyer der kommenden Events
         'gallery'    => ['Galerie', ['images', 'video'], null],
         'faq'        => ['FAQ', ['max'], null],
         'giftcards'  => ['Gutscheine', [], 'giftcards'],
@@ -47,13 +52,14 @@ class TIX_Website {
     ];
 
     /** Vorgaben je Vorlage: diese Abschnitte sind an (Reihenfolge = Startseite), alle übrigen aus. */
+    // Abstimmung mit dem Homepages-Chat (1.38.516)
     const DEFAULTS = [
-        'club'     => ['stage', 'highlights', 'next', 'presale', 'service', 'about', 'gallery', 'faq', 'giftcards', 'wallet', 'loyalty', 'music', 'u16', 'awareness', 'app_banner', 'newsletter', 'contact'],
-        'festival' => ['stage', 'lineup', 'presale', 'about', 'gallery', 'faq', 'wallet', 'awareness', 'app_banner', 'newsletter', 'partners', 'contact'],
-        'klar'     => ['stage', 'next', 'presale', 'about', 'faq', 'giftcards', 'newsletter', 'contact'],
+        'club'     => ['stage', 'highlights', 'next', 'presale', 'service', 'about', 'gallery', 'u16', 'faq', 'newsletter', 'app_banner'],
+        'festival' => ['stage', 'ticker', 'lineup', 'tickets', 'about', 'arrival', 'more_dates', 'gallery', 'faq', 'newsletter', 'app_banner'],
+        'klar'     => ['stage', 'next', 'about', 'arrival', 'service', 'faq', 'contact', 'newsletter', 'app_banner'],
     ];
 
-    const MAX = ['highlights' => 24, 'next' => 12, 'lineup' => 48, 'faq' => 20, 'raffles' => 12, 'tips' => 12];
+    const MAX = ['highlights' => 24, 'next' => 12, 'lineup' => 48, 'faq' => 20, 'raffles' => 12, 'tips' => 12, 'more_dates' => 12];
     const TEXTS = ['claim', 'seo_title', 'seo_description', 'newsletter_title', 'newsletter_text'];
 
     public static function init() {
@@ -112,6 +118,7 @@ class TIX_Website {
             foreach ($m as $k => $v) self::$avail[$k] = is_array($v) ? !empty($v['enabled']) : (bool) $v;
             $app = class_exists('TIX_Studio') && method_exists('TIX_Studio', 'app_info') ? (array) TIX_Studio::app_info() : [];
             self::$avail['app'] = !empty($app['has_app']);
+            self::$avail['checkout'] = true; // Kasse gibt es auf jeder Einzel-Seite (wie site-config.features.checkout)
         }
         return !empty(self::$avail[$switch]);
     }
@@ -325,8 +332,11 @@ class TIX_Website {
         $d = get_option(self::OPT_DOMAIN, []);
         $d = is_array($d) ? $d : [];
         $live = class_exists('TIX_Customer_URL') && TIX_Customer_URL::host() ? (string) TIX_Customer_URL::host() : (string) wp_parse_url(home_url(), PHP_URL_HOST);
-        return ['status' => in_array($d['status'] ?? '', ['preview', 'live'], true) ? $d['status'] : 'preview', 'preview_host' => (string) ($d['preview_host'] ?? ''),
-            'live_host' => (string) ($d['live_host'] ?? '') ?: $live, 'switched_at' => $d['switched_at'] ?? null];
+        $live = (string) ($d['live_host'] ?? '') ?: $live;
+        // Vorgabe der Vorschau-Adresse: neu.<live_host> (1.38.516), ohne „www.“
+        $preview = (string) ($d['preview_host'] ?? '') ?: ($live !== '' ? 'neu.' . preg_replace('/^www\./', '', $live) : '');
+        return ['status' => in_array($d['status'] ?? '', ['preview', 'live'], true) ? $d['status'] : 'preview', 'preview_host' => $preview,
+            'live_host' => $live, 'switched_at' => $d['switched_at'] ?? null];
     }
 
     public static function domain_public() {
