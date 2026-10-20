@@ -498,6 +498,7 @@ class TIX_Dashboard {
             $st = $p->post_status;
             $name  = get_post_meta($p->ID, '_tix_sp_name',  true) ?: '–';
             $email = get_post_meta($p->ID, '_tix_sp_email', true) ?: '';
+            if (class_exists('TIX_Awareness_Live') && TIX_Awareness_Live::hide_email($p->ID)) $email = ''; // Awareness: nur Vorname (1.38.524)
             $last  = get_post_meta($p->ID, '_tix_sp_last_reply', true);
             $date  = $last ?: $p->post_date;
 

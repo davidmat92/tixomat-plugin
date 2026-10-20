@@ -90,6 +90,21 @@ class TIX_App_Config {
             return new WP_Error('bad_data', 'Ungültige Daten.', ['status' => 400]);
         }
         unset($b['ok']);
+        // App-Funktionen an/aus mitgeschickt (1.38.524, „Einstellungen App = Studio“): wie POST /studio/features, nie in die App-Inhalte
+        $sent_features = false;
+        foreach (['app_features', 'features'] as $fk) {
+            if (!array_key_exists($fk, $b)) continue;
+            $fin = $b[$fk];
+            unset($b[$fk]);
+            if (!class_exists('TIX_Features') || !is_array($fin) || !$fin) continue;
+            $perm = TIX_Features::perm();
+            if (is_wp_error($perm)) return $perm;
+            $res = TIX_Features::apply($fin, $req);
+            if (is_wp_error($res)) return $res;
+            $sent_features = true;
+        }
+        // nur Schalter geschickt → App-Inhalte unverändert lassen
+        if ($sent_features && !$b) return rest_ensure_response(['ok' => true, 'features' => TIX_Features::map()]);
         // „Jetzt los“-Bereich der Startseite (1.38.486, Vertrag KK-App): home.now = {show, style section|badge, hours 1–12}
         if (isset($b['home']['now'])) {
             $now = $b['home']['now'];

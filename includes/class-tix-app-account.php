@@ -785,7 +785,8 @@ class TIX_App_Account {
                 'subject'  => (string) $req->get_param('subject'),
                 'content'  => (string) $req->get_param('message'),
                 'email'    => $anon ? (string) ($req->get_param('email') ?? '') : ($user ? (string) $user->user_email : (string) $req->get_param('email')),
-                'name'     => $anon ? '' : ($user ? (string) $user->display_name : (string) $req->get_param('name')),
+                // nur der Vorname (wie /awareness/alerts), 1.38.524
+                'name'     => $anon ? '' : ($user ? TIX_Awareness_Live::first_name_of($user) : TIX_Awareness_Live::first_word($req->get_param('name'))),
                 'user_id'  => (!$anon && $user) ? intval($user->ID) : 0,
                 'source'   => 'app',
             ]);

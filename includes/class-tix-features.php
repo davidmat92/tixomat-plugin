@@ -35,6 +35,8 @@ class TIX_Features {
         'muttizettel'      => ['Muttizettel', 'muttizettel'],
         'raffles'          => ['Gewinnspiele', null],
         'live_now'         => ['Jetzt & gleich (Startseite)', null],
+        // Hörproben der Künstler (1.38.524, User-Entscheid): Vorgabe aus; Apps und Marken-Websites lesen features.artist_previews
+        'artist_previews'  => ['Hörproben (Künstler)', null],
     ];
 
     /** Neue Schalter (Option, Vorgabe an). */
@@ -43,6 +45,8 @@ class TIX_Features {
     const OPT_BROADCAST = 'tix_broadcast_enabled';
     const OPT_RAFFLES = 'tix_raffles_enabled';
     const OPT_MUTTIZETTEL = 'tix_muttizettel_enabled';
+    /** Hörproben: Vorgabe AUS (anders als die übrigen neuen Schalter) */
+    const OPT_ARTIST_PREVIEWS = 'tix_artist_previews_enabled';
 
     public static function init() {
         add_action('rest_api_init', [__CLASS__, 'routes']);
@@ -104,6 +108,7 @@ class TIX_Features {
             case 'muttizettel':
                 if (class_exists('TIX_Modules') && !TIX_Modules::allowed('muttizettel')) return false;
                 return self::multi() ? true : self::opt_on(self::OPT_MUTTIZETTEL);
+            case 'artist_previews': return get_option(self::OPT_ARTIST_PREVIEWS, '0') === '1';
             case 'live_now':
                 $c = class_exists('TIX_App_Config') ? (array) TIX_App_Config::stored() : [];
                 return !isset($c['home']['now']['show']) || !empty($c['home']['now']['show']);
@@ -148,7 +153,7 @@ class TIX_Features {
     }
 
     /** Schlüssel für Apps/Studio (Reihenfolge); `awareness` fasst Stufe 2/3 zusammen. */
-    const ORDER = ['awareness', 'app_coupons', 'music', 'tips', 'notifications', 'loyalty', 'wallet', 'giftcards', 'party_game', 'sos', 'muttizettel', 'raffles', 'live_now'];
+    const ORDER = ['awareness', 'app_coupons', 'music', 'tips', 'notifications', 'loyalty', 'wallet', 'giftcards', 'party_game', 'sos', 'muttizettel', 'raffles', 'live_now', 'artist_previews'];
 
     /**
      * Öffentlich für /app/config und /info: {<key>: {enabled, can_edit}}, `awareness` {enabled, report, alarm, can_edit}
@@ -205,6 +210,7 @@ class TIX_Features {
                 update_option('tix_party', array_merge(is_array($o) ? $o : [], ['enabled' => $on ? 1 : 0]), false);
                 return;
             case 'sos': TIX_App_Sos::save(array_merge(TIX_App_Sos::settings(), ['enabled' => $on])); return;
+            case 'artist_previews': update_option(self::OPT_ARTIST_PREVIEWS, $on ? '1' : '0', false); return;
             case 'live_now':
                 $c = (array) TIX_App_Config::stored();
                 $now = isset($c['home']['now']) && is_array($c['home']['now']) ? $c['home']['now'] : [];

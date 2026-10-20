@@ -1552,7 +1552,9 @@ class TIX_Support {
     }
 
     public static function present_messages($ticket_id, $messages) {
-        return array_map(function ($m) use ($ticket_id) { return self::present_message($ticket_id, $m); }, (array) $messages);
+        // Awareness: keine E-Mail in den Nachrichten (1.38.524)
+        $hide = class_exists('TIX_Awareness_Live') && TIX_Awareness_Live::hide_email($ticket_id);
+        return array_map(function ($m) use ($ticket_id, $hide) { $m = self::present_message($ticket_id, $m); if ($hide && is_array($m) && isset($m['email'])) $m['email'] = ''; return $m; }, (array) $messages);
     }
 
     /** Absoluter Pfad einer Datei des Tickets (oder ''). */
@@ -2525,7 +2527,9 @@ class TIX_Support {
             'status'       => $status,
             'status_label' => $statuses[$status]['label'] ?? $status,
             'status_color' => $statuses[$status]['color'] ?? '#6b7280',
-            'email'        => get_post_meta($post->ID, '_tix_sp_email', true),
+            // Awareness: E-Mail nur intern (Antworten), nie anzeigen (1.38.524)
+            'email'        => ($cat_slug === 'awareness') ? '' : get_post_meta($post->ID, '_tix_sp_email', true),
+            'has_contact'  => (string) get_post_meta($post->ID, '_tix_sp_email', true) !== '',
             'name'         => get_post_meta($post->ID, '_tix_sp_name', true),
             'category'     => $cat_slug,
             'category_label' => $cat_label,

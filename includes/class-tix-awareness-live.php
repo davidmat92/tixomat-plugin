@@ -387,6 +387,18 @@ class TIX_Awareness_Live {
         return rest_ensure_response(['ok' => true, 'id' => $g['id'], 'key' => $g['key'], 'status' => $g['status'], 'alert' => $g, 'point' => self::point($eid)]);
     }
 
+    /** Vorname aus einem frei eingegebenen Namen (erstes Wort, nie eine E-Mail). */
+    public static function first_word($name) {
+        $n = trim(sanitize_text_field((string) $name));
+        if ($n === '' || strpos($n, '@') !== false) return '';
+        return mb_substr((string) preg_split('/\s+/', $n)[0], 0, 60);
+    }
+
+    /** Awareness-Meldung? Dann sieht das Team nur den Vornamen, die E-Mail bleibt intern für Antworten (1.38.524). */
+    public static function hide_email($ticket_id) {
+        return (string) get_post_meta(intval($ticket_id), '_tix_sp_category', true) === 'awareness';
+    }
+
     /** Nur der Vorname: Profil-Vorname, sonst das erste Wort des Anzeigenamens (nicht Login, nicht E-Mail). */
     public static function first_name_of($user) {
         $f = trim((string) $user->first_name);
@@ -563,7 +575,8 @@ class TIX_Awareness_Live {
         $eid = absint($a['event_id'] ?? 0);
         if ($eid && !self::event_ok($eid)) $eid = 0;
         $subject = mb_substr(sanitize_text_field((string) ($a['subject'] ?? '')), 0, 120) ?: ('Awareness-Meldung' . ($eid ? ': ' . html_entity_decode(get_the_title($eid), ENT_QUOTES, 'UTF-8') : ''));
-        $name = mb_substr(sanitize_text_field((string) ($a['name'] ?? '')), 0, 80);
+        // Team sieht nur den Vornamen (User-Regel, 1.38.524); die E-Mail bleibt intern für Antworten
+        $name = self::first_word($a['name'] ?? '');
         $post_id = wp_insert_post(['post_type' => 'tix_support_ticket', 'post_title' => $subject, 'post_status' => 'tix_open', 'post_author' => intval($a['user_id'] ?? 0)]);
         if (!$post_id || is_wp_error($post_id)) return self::error('tix_support_failed', 'Meldung konnte nicht gespeichert werden.', 500);
         $meta = [
@@ -575,7 +588,7 @@ class TIX_Awareness_Live {
         foreach ($meta as $k => $v) update_post_meta($post_id, $k, $v);
         update_post_meta($post_id, '_tix_sp_messages', [[
             'id' => 'msg_' . bin2hex(random_bytes(8)), 'type' => 'customer', 'author' => $name ?: 'Anonym',
-            'email' => $email, 'content' => $content, 'date' => current_time('c'),
+            'email' => '', 'content' => $content, 'date' => current_time('c'),
         ]]);
         // Hinweis ohne Inhalt an Admin und Veranstalter (Art. 9 DSGVO: Inhalt nur im geschützten Bereich)
         $to = [function_exists('tix_get_settings') && is_email((string) tix_get_settings('support_email')) ? (string) tix_get_settings('support_email') : (string) get_option('admin_email')];
@@ -606,6 +619,9 @@ class TIX_Awareness_Live {
             $out[] = [
                 'id' => intval($p->ID), 'subject' => (string) $p->post_title, 'message' => (string) ($first['content'] ?? ''),
                 'anonymous' => (bool) get_post_meta($p->ID, '_tix_sp_anonymous', true), 'created' => (string) $p->post_date,
+                // nur der Vorname, nie die E-Mail (User-Regel, 1.38.524); has_contact = Antwort möglich
+                'first_name' => (($n = (string) get_post_meta($p->ID, '_tix_sp_name', true)) !== 'Anonym') ? self::first_word($n) : '',
+                'has_contact' => (string) get_post_meta($p->ID, '_tix_sp_email', true) !== '',
             ];
         }
         return rest_ensure_response(['ok' => true, 'reports' => $out]);

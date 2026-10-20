@@ -210,7 +210,7 @@ class TIX_Support_Model {
         $order_id = intval(get_post_meta($tid, '_tix_sp_order_id', true));
         $res = self::call_partner($p, 'POST', '/partner/support/inbound', [
             'remote_id' => $tid, 'subject' => (string) get_the_title($tid), 'category' => (string) get_post_meta($tid, '_tix_sp_category', true),
-            'name' => (string) get_post_meta($tid, '_tix_sp_name', true), 'email' => (string) get_post_meta($tid, '_tix_sp_email', true),
+            'name' => (string) get_post_meta($tid, '_tix_sp_name', true), 'email' => (class_exists('TIX_Awareness_Live') && TIX_Awareness_Live::hide_email($tid)) ? '' : (string) get_post_meta($tid, '_tix_sp_email', true),
             'event_id' => $source_event, 'platform_order' => $order_id ? ('#' . $order_id) : '', 'ticket_code' => (string) get_post_meta($tid, '_tix_sp_ticket_code', true),
             'messages' => $msgs,
         ]);
@@ -421,7 +421,10 @@ class TIX_Support_Model {
             'unread' => $active && $flags['waiting'] === 'team' && $flags['customers'] > $read_at,
             'id' => $tid, 'subject' => (string) $p->post_title, 'status' => self::status_key($p->post_status),
             'category' => (string) get_post_meta($tid, '_tix_sp_category', true), 'name' => (string) get_post_meta($tid, '_tix_sp_name', true),
-            'email' => (string) get_post_meta($tid, '_tix_sp_email', true), 'order_id' => intval(get_post_meta($tid, '_tix_sp_order_id', true)) ?: null,
+            // Awareness: E-Mail nur intern (Antworten), nie anzeigen (1.38.524)
+            'email' => (class_exists('TIX_Awareness_Live') && TIX_Awareness_Live::hide_email($tid)) ? '' : (string) get_post_meta($tid, '_tix_sp_email', true),
+            'has_contact' => (string) get_post_meta($tid, '_tix_sp_email', true) !== '',
+            'order_id' => intval(get_post_meta($tid, '_tix_sp_order_id', true)) ?: null,
             'event_id' => (self::ticket_events($tid)[0] ?? null), 'source' => (string) get_post_meta($tid, '_tix_sp_source', true),
             'responsible' => $r['type'], 'origin' => self::is_platform_copy($tid) ? 'platform' : 'local',
             'assignee' => $as ? ['id' => $as, 'name' => (string) get_the_author_meta('display_name', $as)] : null,
