@@ -156,6 +156,14 @@ class TIX_Site_Config {
             if (!array_key_exists($k, $o) || $o[$k] === null) continue;
             $c[$k] = is_array($c[$k] ?? null) && is_array($o[$k]) ? array_replace($c[$k], $o[$k]) : $o[$k];
         }
+        // Marken-Website (1.38.515, TIX_Website): veröffentlichter Aufbau + Domain-Status; Menü der Website ersetzt das berechnete
+        if (class_exists('TIX_Website') && !TIX_Website::multi()) {
+            $c['website'] = TIX_Website::public_website();
+            $c['domain'] = TIX_Website::domain_public();
+            $wn = $c['website']['nav'] ?? [];
+            if (!empty($wn['header'])) $c['nav']['header'] = $wn['header'];
+            if (!empty($wn['footer'])) $c['nav']['footer'] = $wn['footer'];
+        }
         $c['overrides'] = array_values(array_intersect(self::SECTIONS, array_keys($o)));
         $c['plugin_version'] = defined('TIXOMAT_VERSION') ? TIXOMAT_VERSION : '';
         return ['ok' => true] + $c;

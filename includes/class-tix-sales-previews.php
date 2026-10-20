@@ -1625,6 +1625,11 @@ class TIX_Sales_Previews {
         if (!empty($o['social']) && is_array($o['social'])) update_post_meta($org_id, '_tix_org_landing_social', $o['social']);
         // Website-Vorlage für die spätere Website-Einstellung (Phase 3 des Website-Plans)
         update_post_meta($org_id, self::META_TEMPLATE, self::template_of($d));
+        // Veranstalterseite auf evendis.de passend zur Vorlage (User-Entscheid A, 1.38.515) – nur ohne eigenes Design
+        $design = ['club' => 'clubnacht', 'festival' => 'ticketschalter', 'klar' => 'galerie'][self::template_of($d)] ?? '';
+        if ($design !== '' && (string) get_post_meta($org_id, '_tix_org_page_design', true) === '' && class_exists('TIX_Organizer_Page') && method_exists('TIX_Organizer_Page', 'set_design')) {
+            TIX_Organizer_Page::set_design($org_id, $design);
+        }
         $made = 0;
         foreach (self::sorted_events($d) as $ev) {
             $eid = wp_insert_post(['post_type' => 'event', 'post_status' => 'draft', 'post_title' => (string) $ev['title'], 'post_excerpt' => (string) ($ev['excerpt'] ?? ''),
