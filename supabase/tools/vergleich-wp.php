@@ -126,7 +126,10 @@ foreach ((array) $wpdb->get_results("SELECT id, status, total, billing_email FRO
     if ($row) { $row['_items'] = $cnt('order_items', 'order_id', $oid); $row['_tickets'] = $cnt('tickets', 'order_id', $oid); }
     $cmp("Bestellung #{$oid}", ['status' => $o['status'], 'total' => (float) $o['total'], 'billing_email' => $o['billing_email'], '_items' => $items, '_tickets' => $tix], $row);
 }
-foreach (array_slice(array_values(array_filter((array) $wpdb->get_col("SELECT ID FROM {$wpdb->posts} WHERE post_type = 'tix_ticket' AND post_status <> 'auto-draft' ORDER BY ID DESC LIMIT 40"), function ($t) use ($sbe) { return !$sbe || !in_array((int) get_post_meta($t, '_tix_ticket_event_id', true), $sbe, true); })), 0, 5) as $tid) {
+// neueste Tickets ohne Sandbox (direkt in SQL, damit viele Demo-Tickets die Stichprobe nicht leeren)
+foreach ((array) $wpdb->get_col("SELECT p.ID FROM {$wpdb->posts} p WHERE p.post_type = 'tix_ticket' AND p.post_status <> 'auto-draft'"
+    . ($sbe ? " AND NOT EXISTS (SELECT 1 FROM {$wpdb->postmeta} m WHERE m.post_id = p.ID AND m.meta_key = '_tix_ticket_event_id' AND m.meta_value IN ($in_e))" : '')
+    . " ORDER BY p.ID DESC LIMIT 5") as $tid) {
     $ci = get_post_meta($tid, '_tix_ticket_checked_in', true);
     $cmp("Ticket #{$tid}", [
         'code'        => (string) get_post_meta($tid, '_tix_ticket_code', true),
