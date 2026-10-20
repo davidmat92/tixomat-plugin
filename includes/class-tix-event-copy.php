@@ -64,6 +64,8 @@ class TIX_Event_Copy {
 
     /** Nach dem Kopieren: abgeleitete Felder neu erzeugen (Kalender-Links). */
     public static function after_copy($new_id) {
+        // Künstler (1.38.517): Index neu, Mitteilungen für den neuen Termin
+        if (class_exists('TIX_Artists')) TIX_Artists::after_copy($new_id);
         if (class_exists('TIX_Calendar') && method_exists('TIX_Calendar', 'save_meta')) TIX_Calendar::save_meta($new_id);
         // Vorgabe „alle Events auf evendis teilen“ (1.38.465): Duplikate vorbelegt, Verkaufsart wie im Original
         if (class_exists('TIX_Syndication_Push') && TIX_Syndication_Push::default_on() && !TIX_Syndication_Push::is_system_event($new_id)) {

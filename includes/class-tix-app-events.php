@@ -334,7 +334,9 @@ class TIX_App_Events {
             'contract_notice'     => TIX_Contract::first_sale_notice($id),
         ] : []) + (class_exists('TIX_Event_Facts') ? TIX_Event_Facts::editor_payload($id) : [])
           // 1.38.455: info_labels, faq, video, charity, box_office_desc, info_order
-          + (class_exists('TIX_Event_Texts') ? TIX_Event_Texts::editor_payload($id) : []);
+          + (class_exists('TIX_Event_Texts') ? TIX_Event_Texts::editor_payload($id) : [])
+          // Künstler (1.38.517, nur evendis): artists + artist_suggestions
+          + (class_exists('TIX_Artists') ? TIX_Artists::editor_payload($id) : []);
     }
 
     // ──────────────────────────────────────────
@@ -448,6 +450,9 @@ class TIX_App_Events {
         // Studio Stufe 3 (Programm, Restbestand, Übertragung, Sponsor …) vorab prüfen
         $studio = class_exists('TIX_Studio_Editor') ? TIX_Studio_Editor::check($body, $is_new ? 0 : $post_id) : [];
         $texts = class_exists('TIX_Event_Texts') ? TIX_Event_Texts::check($body, $is_new ? 0 : $post_id) : [];
+        // Künstler (1.38.517, nur evendis): Feld `artists` [{artist_id, role, tour}]
+        $artists = class_exists('TIX_Artists') ? TIX_Artists::check($body, $is_new ? 0 : $post_id) : null;
+        if (is_wp_error($artists)) return $artists;
         if (is_wp_error($texts)) return $texts;
         if (is_wp_error($studio)) return $studio;
         // Eventbild per image_id (1.38.505, z. B. Flyer aus POST /ai/extract): eigenes Bild bzw. vorläufiger Flyer, null/0 entfernt
@@ -633,6 +638,7 @@ class TIX_App_Events {
         // ── Studio Stufe 3 (vorab geprüft) ──
         if ($studio) TIX_Studio_Editor::apply($post_id, $studio);
         if ($texts) TIX_Event_Texts::apply($post_id, $texts);
+        if ($artists !== null) TIX_Artists::apply($post_id, $artists);
 
         // ── Mengenrabatt (vorab geprüft; null = aus) ──
         if (array_key_exists('group_discount', $pricing)) {

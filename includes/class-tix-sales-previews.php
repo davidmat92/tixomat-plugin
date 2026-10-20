@@ -707,7 +707,7 @@ class TIX_Sales_Previews {
         $key = (string) $key;
         if (strpos($key, '_tix_') !== 0) return false;
         foreach (['_tix_preview', '_tix_organizer', '_tix_org_', '_tix_co_organizer', '_tix_publish_held', '_tix_syndicat', '_tix_guard', '_tix_ai_', '_tix_status',
-            '_tix_archived', '_tix_held', '_tix_source_', '_tix_web_', '_tix_mirror'] as $p) {
+            '_tix_archived', '_tix_held', '_tix_source_', '_tix_web_', '_tix_mirror', '_tix_artist_ref'] as $p) {
             if (strpos($key, $p) === 0) return false;
         }
         return true;
@@ -1641,6 +1641,7 @@ class TIX_Sales_Previews {
             if ($img && get_post_type($img) === 'attachment') { self::hand_over_attachment($img, $uid, $eid); set_post_thumbnail($eid, $img); }
             if (!empty($ev['term_id'])) wp_set_object_terms($eid, [intval($ev['term_id'])], 'event_category');
             if (class_exists('TIX_App_Events')) TIX_App_Events::resolve_status($eid);
+            if (class_exists('TIX_Artists')) TIX_Artists::reindex($eid);
             if (class_exists('TIX_Sync')) { $c = get_post_meta($eid, '_tix_ticket_categories', true); TIX_Sync::save_breakdance_meta($eid, is_array($c) ? $c : []); }
             $made++;
         }
