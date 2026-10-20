@@ -268,7 +268,7 @@ class TIX_Register_Event {
      * Konto, Veranstalter und erstes Event anlegen (AJAX [tix_register_event] und REST POST /register/organizer).
      * $in: first_name, last_name, email, password, password_confirm, organizer_name, accept_contract, ticket_mode,
      * box_office_price, external_url, external_price, event_data (Array), without_event (1.38.456: nur Konto + Veranstalter,
-     * Event später; event_id 0). Liefert ['user_id', 'org_id', 'event_id', 'event_title', 'review'] oder WP_Error
+     * Event später; event_id 0), claim_org_id (1.38.510: Vorschau-Veranstalter übernehmen statt neu anlegen). Liefert ['user_id', 'org_id', 'event_id', 'event_title', 'review'] oder WP_Error
      * (400 tix_invalid_field mit field, 409 tix_email_exists).
      */
     public static function register(array $in) {
@@ -326,12 +326,18 @@ class TIX_Register_Event {
         ]);
 
         // ── 2. Organizer CPT erstellen ──
-        $org_id = wp_insert_post([
-            'post_type'   => 'tix_organizer',
-            'post_title'  => $organizer_name,
-            'post_status' => 'publish',
-            'post_author' => $user_id,
-        ]);
+        // Vorschau des Vertriebs übernehmen (1.38.510, claim_org_id): vorhandener Veranstalter bekommt den neuen Inhaber
+        $claim_org = intval($in['claim_org_id'] ?? 0);
+        if ($claim_org && get_post_type($claim_org) === 'tix_organizer') {
+            $org_id = wp_update_post(['ID' => $claim_org, 'post_title' => $organizer_name, 'post_status' => 'publish', 'post_author' => $user_id], true);
+        } else {
+            $org_id = wp_insert_post([
+                'post_type'   => 'tix_organizer',
+                'post_title'  => $organizer_name,
+                'post_status' => 'publish',
+                'post_author' => $user_id,
+            ]);
+        }
 
         if ($org_id && !is_wp_error($org_id)) {
             update_post_meta($org_id, '_tix_org_user_id', $user_id);

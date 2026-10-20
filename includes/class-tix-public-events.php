@@ -158,8 +158,10 @@ class TIX_Public_Events {
     /** Event im App-Format; $detailed = inkl. Info-Texte + Galerie. */
     public static function payload($id, $detailed = false) {
         $post = get_post($id);
-        if (!$post || $post->post_type !== 'event' || $post->post_status !== 'publish') return null;
-        if (class_exists('TIX_Org_Approval') && !TIX_Org_Approval::event_allowed($id)) return null;
+        // Vorschau des Vertriebs (1.38.510): Entwürfe nur, während /public/previews/{token} sie ausliefert
+        $preview = class_exists('TIX_Sales_Previews') && TIX_Sales_Previews::rendering_event($id);
+        if (!$post || $post->post_type !== 'event' || ($post->post_status !== 'publish' && !$preview)) return null;
+        if (!$preview && class_exists('TIX_Org_Approval') && !TIX_Org_Approval::event_allowed($id)) return null;
         list($start, $end) = self::times($id);
         $cats  = self::categories($id);
         // Freier Eintritt (ohne Online-Verkauf): kein Preis, keine Ticket-Kategorien (1.38.462; Kopien trugen noch „Vorverkauf 5 €“)

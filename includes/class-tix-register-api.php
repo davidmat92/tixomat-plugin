@@ -344,8 +344,16 @@ class TIX_Register_API {
         }
         $p = $req->get_json_params();
         $p = is_array($p) ? $p : $req->get_params();
+        // Vorschau des Vertriebs übernehmen (1.38.510): claim_token → vorhandener Vorschau-Veranstalter, Events bleiben Entwürfe
+        $claim_oid = 0;
+        $claim = is_scalar($p['claim_token'] ?? null) ? trim((string) $p['claim_token']) : '';
+        if ($claim !== '') {
+            if (!class_exists('TIX_Sales_Previews')) return self::error('tix_preview_unknown', 'Diese Vorschau gibt es nicht (mehr).', 404);
+            $claim_oid = TIX_Sales_Previews::claim_target($claim);
+            if (is_wp_error($claim_oid)) return $claim_oid;
+        }
         // „Erst Konto anlegen, Event später“ (1.38.456)
-        $without = !empty($p['without_event']) && filter_var($p['without_event'], FILTER_VALIDATE_BOOLEAN);
+        $without = $claim_oid || (!empty($p['without_event']) && filter_var($p['without_event'], FILTER_VALIDATE_BOOLEAN));
         $event = $without ? [] : ($p['event'] ?? ($p['event_data'] ?? []));
         if (!$without) {
             if (!is_array($event)) return self::error('tix_invalid_field', 'Event-Angaben fehlen.', 400, ['field' => 'event']);
@@ -357,6 +365,10 @@ class TIX_Register_API {
         }
         // Studio fragt das Passwort nur einmal ab (Wiederholung optional)
         $in['password_confirm'] = isset($p['password_confirm']) ? (string) $p['password_confirm'] : $in['password'];
+        if ($claim_oid) {
+            $in['claim_org_id'] = $claim_oid;
+            if (trim($in['organizer_name']) === '') $in['organizer_name'] = (string) get_the_title($claim_oid);
+        }
         $master = self::check_master($p);
         if (is_wp_error($master)) return $master;
         // Telefon für Rückfragen bei der Prüfung (privat, nicht im Profil; 1.38.457)
@@ -365,8 +377,14 @@ class TIX_Register_API {
         $bot = self::check_bot($req);
         if (is_wp_error($bot)) return $bot;
 
+        if ($claim_oid) {
+            // erneut prüfen (zwischen Prüfung und Anlegen könnte jemand anders übernommen haben)
+            $again = TIX_Sales_Previews::claim_target($claim);
+            if (is_wp_error($again)) return $again;
+        }
         $r = TIX_Register_Event::register($in);
         if (is_wp_error($r)) return $r;
+        $claimed_events = ($claim_oid && intval($r['org_id']) === $claim_oid) ? TIX_Sales_Previews::complete_claim($claim_oid, $r['user_id']) : null;
 
         // Bild aus der Analyse (vorläufiger Anhang) wird Event-Bild
         $img = intval($p['image_id'] ?? 0);
@@ -411,7 +429,15 @@ class TIX_Register_API {
             'saved'        => $saved,
             'warnings'     => $warnings,
         ];
-        if ($without) {
+        if ($claimed_events !== null) {
+            // Übernommene Vorschau: Events liegen als Entwürfe im Studio
+            $out['claimed'] = true;
+            $out['claimed_events'] = intval($claimed_events);
+            $out['heading'] = $r['review'] ? 'Geschafft! Wir prüfen dein Konto.' : 'Geschafft! Dein Konto ist angelegt.';
+            $out['message'] = 'Dein Veranstalter-Konto ist angelegt. ' . ($claimed_events ? sprintf(_n('Dein Event aus der Vorschau liegt als Entwurf im Studio.', 'Deine %d Events aus der Vorschau liegen als Entwürfe im Studio.', $claimed_events), $claimed_events) . ' ' : '')
+                . ($r['review'] ? 'Online gehen sie, sobald wir dein Konto freigeschaltet haben.' : 'Prüfe sie und veröffentliche sie, wenn alles passt.');
+            $out['event_url'] = '';
+        } elseif ($without) {
             $out['heading'] = $r['review'] ? 'Geschafft! Wir prüfen dein Konto.' : 'Geschafft! Dein Konto ist angelegt.';
             $out['message'] = $r['review']
                 ? 'Dein Veranstalter-Konto ist angelegt. Dein erstes Event kannst du jederzeit im Studio anlegen – online geht es, sobald wir dein Konto freigeschaltet haben. Auszahlungsdaten kannst du auch danach ergänzen.'

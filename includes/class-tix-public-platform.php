@@ -67,9 +67,11 @@ class TIX_Public_Platform {
         $oid = intval($oid);
         if (!$oid) return null;
         $p = get_post($oid);
-        if (!$p || $p->post_type !== 'tix_organizer' || $p->post_status !== 'publish') return null;
+        // Vorschau des Vertriebs (1.38.510): Entwurf nur, während /public/previews/{token} ihn ausliefert
+        $preview = class_exists('TIX_Sales_Previews') && TIX_Sales_Previews::rendering_org($oid);
+        if (!$p || $p->post_type !== 'tix_organizer' || ($p->post_status !== 'publish' && !$preview)) return null;
         // Noch nicht freigegebene/gesperrte Veranstalter sind nicht öffentlich
-        if (class_exists('TIX_Org_Approval') && !TIX_Org_Approval::is_public($oid)) return null;
+        if (!$preview && class_exists('TIX_Org_Approval') && !TIX_Org_Approval::is_public($oid)) return null;
         return $p;
     }
 

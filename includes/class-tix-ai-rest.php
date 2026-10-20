@@ -131,7 +131,7 @@ class TIX_AI_REST {
     // ── B: Ausfüllen aus Flyer oder Text ──
 
     /** Bild aus Multipart (`image`) oder Base64/Data-URL lesen, ≤ 15 MB, JPG/PNG/WebP/GIF. → [bytes, mime] | WP_Error */
-    private static function read_image(WP_REST_Request $req) {
+    public static function read_image(WP_REST_Request $req) { // öffentlich seit 1.38.510 (Vorschauen)
         $files = $req->get_file_params();
         $bytes = '';
         if (!empty($files['image']['tmp_name']) && is_uploaded_file($files['image']['tmp_name'])) {
@@ -151,7 +151,7 @@ class TIX_AI_REST {
     }
 
     /** Für die KI verkleinern (längste Seite 2400 px, JPEG), wenn das Bild zu groß ist. → [bytes, mime] */
-    private static function shrink_for_api($bytes, $mime) {
+    public static function shrink_for_api($bytes, $mime) {
         if (strlen($bytes) <= self::API_IMAGE) return [$bytes, $mime];
         // Endung passend zum Format, sonst erkennt Imagick das Bild nicht
         $ext = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp', 'image/gif' => 'gif'][$mime] ?? 'jpg';

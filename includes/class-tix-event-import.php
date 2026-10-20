@@ -351,6 +351,30 @@ class TIX_Event_Import {
         return $nodes;
     }
 
+    /**
+     * Alle Event-Knoten der Seite (1.38.510), auch verschachtelt (ItemList/itemListElement, Organization.event, subEvent),
+     * ohne Doppelte (Name + Beginn).
+     */
+    public static function event_nodes($html) {
+        $out = [];
+        $seen = [];
+        $walk = function ($n, $depth) use (&$walk, &$out, &$seen) {
+            if (!is_array($n) || $depth > 6 || count($out) >= 60) return;
+            if (isset($n['@type']) && self::is_event($n)) {
+                $k = mb_strtolower(self::text($n['name'] ?? '')) . '|' . (string) (is_string($n['startDate'] ?? null) ? $n['startDate'] : '');
+                if (!isset($seen[$k])) { $seen[$k] = true; $out[] = $n; }
+            }
+            foreach (['itemListElement', 'item', 'event', 'events', 'subEvent', 'subEvents', '@graph'] as $key) {
+                if (!isset($n[$key]) || !is_array($n[$key])) continue;
+                $v = $n[$key];
+                if (isset($v['@type']) || isset($v['item'])) $walk($v, $depth + 1);
+                else foreach ($v as $c) $walk($c, $depth + 1);
+            }
+        };
+        foreach (self::jsonld_nodes($html) as $n) $walk($n, 0);
+        return $out;
+    }
+
     private static function is_event($node) {
         $t = (array) ($node['@type'] ?? []);
         foreach ($t as $x) if (in_array(preg_replace('#^.*/#', '', (string) $x), self::EVENT_TYPES, true)) return true;
@@ -598,7 +622,7 @@ class TIX_Event_Import {
     }
 
     /** Meta-Tag (property oder name) lesen. */
-    private static function meta($html, $key) {
+    public static function meta($html, $key) { // öffentlich seit 1.38.510 (Vorschauen: Marke der Quellseite)
         $k = preg_quote($key, '#');
         if (preg_match('#<meta[^>]+(?:property|name|itemprop)=["\']' . $k . '["\'][^>]*content=["\']([^"\']*)["\']#si', $html, $m)) return html_entity_decode(trim($m[1]), ENT_QUOTES, 'UTF-8');
         if (preg_match('#<meta[^>]+content=["\']([^"\']*)["\'][^>]*(?:property|name|itemprop)=["\']' . $k . '["\']#si', $html, $m)) return html_entity_decode(trim($m[1]), ENT_QUOTES, 'UTF-8');
@@ -609,11 +633,12 @@ class TIX_Event_Import {
      * Felder aus strukturierten Daten (Format wie TIX_AI_Writer::sanitize_extracted_fields), dazu `_found`
      * (jsonld|og|none) und `_image`.
      */
-    public static function structured($html, $url = '') {
+    public static function structured($html, $url = '', $node = null) {
         $f = ['title' => '', 'description' => '', 'lineup' => '', 'date_start' => '', 'date_end' => '', 'time_start' => '', 'time_end' => '', 'time_doors' => '',
             'location' => '', 'location_address' => '', 'tickets' => [], 'price_range' => null, 'event_type' => '', 'age_limit' => '', 'excerpt' => '', '_found' => 'none', '_image' => '', '_ticket_url' => ''];
-        $ev = null;
-        foreach (self::jsonld_nodes($html) as $n) { if (self::is_event($n)) { $ev = $n; break; } }
+        // Ein bestimmter Event-Knoten (1.38.510, Seiten mit mehreren Events): ohne OpenGraph-Rückfall der Seite
+        $ev = is_array($node) ? $node : null;
+        if ($ev === null) foreach (self::jsonld_nodes($html) as $n) { if (self::is_event($n)) { $ev = $n; break; } }
         if ($ev) {
             $f['_found'] = 'jsonld';
             $f['title'] = mb_substr(self::text($ev['name'] ?? ''), 0, 200);
@@ -640,15 +665,17 @@ class TIX_Event_Import {
             $f['_image'] = self::image($ev['image'] ?? '');
         }
         // OpenGraph / Microdata als Ergänzung bzw. Rückfall
-        $og_title = self::meta($html, 'og:title');
-        $og_desc = self::meta($html, 'og:description') ?: self::meta($html, 'description');
-        if ($f['title'] === '' && $og_title !== '') { $f['title'] = mb_substr($og_title, 0, 200); if ($f['_found'] === 'none') $f['_found'] = 'og'; }
-        if ($f['description'] === '' && $og_desc !== '') $f['description'] = wpautop(esc_html(mb_substr($og_desc, 0, 1500)));
-        if ($f['date_start'] === '') {
-            $sd = self::meta($html, 'startDate') ?: self::meta($html, 'event:start_time');
-            if ($sd !== '') list($f['date_start'], $f['time_start']) = self::split_datetime($sd);
+        if ($node === null) {
+            $og_title = self::meta($html, 'og:title');
+            $og_desc = self::meta($html, 'og:description') ?: self::meta($html, 'description');
+            if ($f['title'] === '' && $og_title !== '') { $f['title'] = mb_substr($og_title, 0, 200); if ($f['_found'] === 'none') $f['_found'] = 'og'; }
+            if ($f['description'] === '' && $og_desc !== '') $f['description'] = wpautop(esc_html(mb_substr($og_desc, 0, 1500)));
+            if ($f['date_start'] === '') {
+                $sd = self::meta($html, 'startDate') ?: self::meta($html, 'event:start_time');
+                if ($sd !== '') list($f['date_start'], $f['time_start']) = self::split_datetime($sd);
+            }
+            if ($f['_image'] === '') $f['_image'] = self::meta($html, 'og:image');
         }
-        if ($f['_image'] === '') $f['_image'] = self::meta($html, 'og:image');
         if ($f['_image'] !== '' && $url) $f['_image'] = self::absolute($f['_image'], $url);
         $plain = wp_strip_all_tags($f['description']);
         $f['excerpt'] = $plain !== '' ? mb_substr(preg_replace('/\s+/', ' ', $plain), 0, 158) : '';

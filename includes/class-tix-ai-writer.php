@@ -539,9 +539,10 @@ PROMPT;
      * Eventseite einlesen (TIX_Event_Import): Abruf, JSON-LD/OpenGraph, dann KI. Felder (sanitized, mit
      * `_source` structured|structured+ai|ai) oder WP_Error (url_invalid, url_unreadable, ai_unavailable).
      */
-    public static function import_url($url) {
+    public static function import_url($url, $page = null) {
         // Sperren werden respektiert (1.38.507): url_blocked bzw. url_unreadable gehen unverändert zurück, kein Render-Rückfall
-        $page = TIX_Event_Import::fetch($url);
+        // $page: schon abgerufene Seite (TIX_Event_Import::fetch, 1.38.510 Vorschauen) – kein zweiter Abruf
+        $page = is_array($page) && isset($page['body'], $page['final_url']) ? $page : TIX_Event_Import::fetch($url);
         $rendered = null;
         if (is_wp_error($page)) return $page;
         $final = $page['final_url'];
