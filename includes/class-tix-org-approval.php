@@ -118,6 +118,8 @@ class TIX_Org_Approval {
 
     /** Darf der Veranstalter öffentlich erscheinen und verkaufen? */
     public static function is_public($oid) {
+        // Vorschau des Vertriebs (1.38.513): nie öffentlich, egal welcher Status gespeichert ist
+        if (class_exists('TIX_Sales_Previews') && TIX_Sales_Previews::locked_org($oid)) return false;
         return self::status($oid) === 'approved';
     }
 
@@ -144,6 +146,8 @@ class TIX_Org_Approval {
 
     /** null = Verkauf erlaubt, sonst WP_Error für Kasse/App/Kasse vor Ort. */
     public static function sale_error($event_id) {
+        // Vorschau des Vertriebs (1.38.513): nie Verkauf
+        if (class_exists('TIX_Sales_Previews') && ($e = TIX_Sales_Previews::sale_error($event_id))) return $e;
         // Vorlagen-Modus: nach Inkrafttreten einer zustimmungspflichtigen Version erst nach Zustimmung verkaufen (§ 11 Abs. 3)
         if (self::multi() && self::tpl() && !self::is_syndicated(intval($event_id))) {
             $oid = intval(get_post_meta(intval($event_id), '_tix_organizer_id', true));
@@ -429,6 +433,8 @@ class TIX_Org_Approval {
     public static function set_status($oid, $new, array $args = []) {
         $oid = intval($oid);
         if (!in_array($new, self::STATUSES, true) || get_post_type($oid) !== 'tix_organizer') return false;
+        // Vorschau (1.38.513): keine Freigabe – erst die Übernahme macht daraus einen Veranstalter
+        if (class_exists('TIX_Sales_Previews') && TIX_Sales_Previews::locked_org($oid)) return false;
         $old = self::status($oid);
         $by  = intval($args['by'] ?? get_current_user_id());
         $info = get_post_meta($oid, self::META_INFO, true);

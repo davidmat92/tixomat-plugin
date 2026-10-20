@@ -35,9 +35,20 @@ class TIX_Sales_Previews {
 
     /** Veranstalter, dessen Vorschau gerade öffentlich ausgeliefert wird (Entwürfe nur dann in den Payloads). */
     private static $render = 0;
+    /** Vorschau, die gerade übernommen wird (einziger Weg, der die Sperre aufhebt). */
+    private static $claiming = 0;
+
+    const PUBLIC_STATI = ['publish', 'future', 'pending', 'private'];
 
     public static function init() {
         add_action('rest_api_init', [__CLASS__, 'routes']);
+        // Harte Sperre (1.38.513): Vorschau-Veranstalter und ihre Events kommen auf keinem Weg in einen öffentlichen Status
+        add_filter('wp_insert_post_data', [__CLASS__, 'guard_insert'], 999, 2);
+        add_action('transition_post_status', [__CLASS__, 'guard_transition'], 1, 3);
+        add_action('added_post_meta', [__CLASS__, 'guard_meta'], 999, 4);
+        add_action('updated_post_meta', [__CLASS__, 'guard_meta'], 999, 4);
+        // Studio-Event-Routen (/events/{id}…) auch für Admins gesperrt (1.38.513)
+        add_filter('rest_pre_dispatch', [__CLASS__, 'guard_rest'], 5, 3);
         add_action(self::CRON, [__CLASS__, 'expire']);
         add_action('init', [__CLASS__, 'schedule'], 30);
     }
@@ -48,6 +59,96 @@ class TIX_Sales_Previews {
             return;
         }
         if (!wp_next_scheduled(self::CRON)) wp_schedule_event(time() + 600, 'hourly', self::CRON);
+    }
+
+    // ═══════════════ Harte Sperre (1.38.513) ═══════════════
+
+    /** Übernahme beginnt/endet (nur POST /register/organizer mit claim_token). */
+    public static function begin_claim($oid) {
+        self::$claiming = intval($oid);
+    }
+
+    public static function end_claim() {
+        self::$claiming = 0;
+    }
+
+    /** Vorschau-Veranstalter (noch nicht übernommen)? */
+    public static function locked_org($oid) {
+        $oid = intval($oid);
+        if (!$oid || $oid === self::$claiming) return false;
+        return get_post_type($oid) === 'tix_organizer' && (bool) get_post_meta($oid, TIX_Sales::META_PREVIEW, true);
+    }
+
+    /** Event einer Vorschau (Meta _tix_preview oder Veranstalter ist eine Vorschau)? */
+    public static function locked_event($event_id) {
+        $event_id = intval($event_id);
+        if (!$event_id) return false;
+        $oid = intval(get_post_meta($event_id, '_tix_organizer_id', true));
+        if ($oid && $oid === self::$claiming) return false;
+        return (bool) get_post_meta($event_id, self::META_ITEM, true) || ($oid && self::locked_org($oid));
+    }
+
+    private static function locked_post($post_id) {
+        $t = get_post_type($post_id);
+        return $t === 'event' ? self::locked_event($post_id) : ($t === 'tix_organizer' ? self::locked_org($post_id) : false);
+    }
+
+    /** wp_insert_post_data: jeder Speicherweg (REST, Editor, Schnellbearbeiten, Bulk, Import, Kopie) → Entwurf. */
+    public static function guard_insert($data, $postarr) {
+        $type = (string) ($data['post_type'] ?? '');
+        if (($type !== 'event' && $type !== 'tix_organizer') || !in_array((string) ($data['post_status'] ?? ''), self::PUBLIC_STATI, true)) return $data;
+        $id = intval($postarr['ID'] ?? 0);
+        $mi = is_array($postarr['meta_input'] ?? null) ? $postarr['meta_input'] : [];
+        if ($type === 'tix_organizer') {
+            $locked = ($id && self::locked_org($id)) || (!empty($mi[TIX_Sales::META_PREVIEW]) && $id !== self::$claiming);
+        } else {
+            $locked = ($id && self::locked_event($id)) || !empty($mi[self::META_ITEM]) || (!empty($mi['_tix_organizer_id']) && self::locked_org(intval($mi['_tix_organizer_id'])));
+        }
+        if ($locked) $data['post_status'] = 'draft';
+        return $data;
+    }
+
+    /** Netz für Wege ohne wp_insert_post_data (wp_publish_post bei geplanten Beiträgen, direkte Status-Updates). */
+    public static function guard_transition($new, $old, $post) {
+        if (!$post || !in_array($new, self::PUBLIC_STATI, true) || !in_array($post->post_type, ['event', 'tix_organizer'], true)) return;
+        if (self::locked_post($post->ID)) self::force_draft($post->ID);
+    }
+
+    /** Veranstalter-Zuordnung bzw. Vorschau-Merkmal an einem schon öffentlichen Beitrag → Entwurf. */
+    public static function guard_meta($meta_id, $object_id, $meta_key, $value) {
+        if (!in_array($meta_key, ['_tix_organizer_id', self::META_ITEM, TIX_Sales::META_PREVIEW], true)) return;
+        if (!in_array((string) get_post_status($object_id), self::PUBLIC_STATI, true)) return;
+        if (self::locked_post($object_id)) self::force_draft($object_id);
+    }
+
+    private static function force_draft($post_id) {
+        global $wpdb;
+        $wpdb->update($wpdb->posts, ['post_status' => 'draft'], ['ID' => intval($post_id)]);
+        clean_post_cache($post_id);
+        if (class_exists('TIX_Public_Events')) TIX_Public_Events::flush();
+    }
+
+    /** /tixomat/v1/events/{id}… (lesen, bearbeiten, Status, Kopie, Bilder, Berichte …) für Vorschau-Events → 403 tix_preview_locked. */
+    public static function guard_rest($result, $server, $request) {
+        if ($result !== null || !($request instanceof WP_REST_Request)) return $result;
+        if (!preg_match('#^/' . preg_quote(self::NS, '#') . '/events/(\d+)(/|$)#', (string) $request->get_route(), $m)) return $result;
+        if (!self::locked_event(intval($m[1]))) return $result;
+        return new WP_Error('tix_preview_locked', 'Das ist eine Vorschau des Vertriebs. Bearbeiten geht nur über die Vorschau.', ['status' => 403]);
+    }
+
+    /** meta_query-Klausel für /events: keine Vorschau-Events (Merkmal bzw. Vorschau-Veranstalter); null ohne Vorschauen. */
+    public static function event_list_clause() {
+        $ids = array_map('intval', get_posts(['post_type' => 'tix_organizer', 'post_status' => 'any', 'posts_per_page' => -1, 'fields' => 'ids', 'suppress_filters' => true,
+            'meta_query' => [['key' => TIX_Sales::META_PREVIEW, 'compare' => 'EXISTS']]]));
+        $c = ['relation' => 'AND', ['key' => self::META_ITEM, 'compare' => 'NOT EXISTS']];
+        if ($ids) $c[] = ['relation' => 'OR', ['key' => '_tix_organizer_id', 'compare' => 'NOT EXISTS'], ['key' => '_tix_organizer_id', 'value' => array_map('strval', $ids), 'compare' => 'NOT IN']];
+        return $c;
+    }
+
+    /** Verkauf (Web-Kasse, App-Kasse, POS über TIX_Org_Approval::sale_error) → WP_Error 403 | null */
+    public static function sale_error($event_id) {
+        if (!self::locked_event($event_id)) return null;
+        return new WP_Error('tix_preview_locked', 'Das ist eine Vorschau – hier können keine Tickets verkauft werden.', ['status' => 403]);
     }
 
     // ═══════════════ Vorschau-Modus der öffentlichen Payloads ═══════════════

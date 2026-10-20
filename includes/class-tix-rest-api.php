@@ -883,6 +883,12 @@ class TIX_REST_API {
             }
         }
 
+        // Vorschauen des Vertriebs (1.38.513): auch für Admins nie in /events – bearbeitet wird nur über /sales/previews*
+        if (class_exists('TIX_Sales_Previews') && ($pc = TIX_Sales_Previews::event_list_clause())) {
+            $args['meta_query'] = $args['meta_query'] ?? [];
+            $args['meta_query'][] = $pc;
+        }
+
         // Archiv (1.38.457): view=active (Vorgabe, wie die Admin-Liste) | archived | all; bei filter=past Vorgabe all (wie bisher)
         $view = sanitize_key((string) ($req->get_param('view') ?: ($filter === 'past' ? 'all' : 'active')));
         if (class_exists('TIX_Archive') && in_array($view, ['active', 'archived'], true)) {
@@ -2715,6 +2721,8 @@ class TIX_REST_API {
             $event['evendis_url'] = get_post_meta($id, '_tix_syndicate', true) === '1' && get_post_meta($id, '_tix_syndicate_status', true) === 'synced'
                 && get_post_meta($id, '_tix_syndicate_remote_id', true) && $syn_url !== '' ? $syn_url : null;
         }
+        // Platzhalter wie /public/events (1.38.513): Ursprungsseite (geteilt) bzw. Veranstalter, sonst Seite; auch für Entwürfe
+        $event['placeholder'] = (class_exists('TIX_Studio') && method_exists('TIX_Studio', 'event_placeholder') && ($ph = TIX_Studio::event_placeholder($id))) ? ['url' => $ph['url'], 'url_small' => $ph['url_small']] : null;
         // Demo Club (1.38.508)
         $event['demo'] = class_exists('TIX_Sales') && TIX_Sales::is_demo_organizer(intval(get_post_meta($id, '_tix_organizer_id', true)));
         // KI-Schutz (1.38.505): {flagged, reason, checked_at, approved}

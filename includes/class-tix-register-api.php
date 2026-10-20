@@ -382,9 +382,15 @@ class TIX_Register_API {
             $again = TIX_Sales_Previews::claim_target($claim);
             if (is_wp_error($again)) return $again;
         }
-        $r = TIX_Register_Event::register($in);
+        // Nur hier wird die Sperre der Vorschau aufgehoben (1.38.513)
+        if ($claim_oid) TIX_Sales_Previews::begin_claim($claim_oid);
+        try {
+            $r = TIX_Register_Event::register($in);
+            $claimed_events = (!is_wp_error($r) && $claim_oid && intval($r['org_id']) === $claim_oid) ? TIX_Sales_Previews::complete_claim($claim_oid, $r['user_id']) : null;
+        } finally {
+            if ($claim_oid) TIX_Sales_Previews::end_claim();
+        }
         if (is_wp_error($r)) return $r;
-        $claimed_events = ($claim_oid && intval($r['org_id']) === $claim_oid) ? TIX_Sales_Previews::complete_claim($claim_oid, $r['user_id']) : null;
 
         // Bild aus der Analyse (vorläufiger Anhang) wird Event-Bild
         $img = intval($p['image_id'] ?? 0);

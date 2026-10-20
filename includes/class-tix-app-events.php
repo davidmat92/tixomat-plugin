@@ -250,6 +250,8 @@ class TIX_App_Events {
         $guard = ($id && class_exists('TIX_Content_Guard') && method_exists('TIX_Content_Guard', 'guard_info')) ? TIX_Content_Guard::guard_info($id) : null;
         return [
             'guard'              => $guard, // KI-Schutz (1.38.505)
+            // Platzhalter wie /public/events (1.38.513)
+            'placeholder'        => ($id && class_exists('TIX_Studio') && method_exists('TIX_Studio', 'event_placeholder') && ($ph = TIX_Studio::event_placeholder($id))) ? ['url' => $ph['url'], 'url_small' => $ph['url_small']] : null,
             'demo'               => $id && class_exists('TIX_Sales') && TIX_Sales::is_demo_organizer(intval(get_post_meta($id, '_tix_organizer_id', true))), // 1.38.508
             'id'                 => intval($id),
             'title'              => $post ? (string) $post->post_title : '',
